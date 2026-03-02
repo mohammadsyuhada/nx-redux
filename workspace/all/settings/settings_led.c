@@ -385,7 +385,9 @@ SettingsPage* led_page_create(void) {
 			eff_count = STANDARD_EFFECT_COUNT;
 		}
 
-		led_build_zone_page(z, zone_titles[z], eff_names, eff_values, eff_count);
+		char title[128];
+		snprintf(title, sizeof(title), "Settings | LED Control | %s", zone_titles[z]);
+		led_build_zone_page(z, title, eff_names, eff_values, eff_count);
 	}
 
 	/* Sync all zone items */

@@ -19,17 +19,12 @@ ifeq ($(PLATFORM), desktop)
 	cd ./$(PLATFORM) && make early # eg. other libs
 	cd ./all/nextui/ && make
 	cd ./all/minarch/ && make
-	#cd ./all/libbatmondb/ && make
-	#cd ./all/battery/ && make
-	cd ./all/clock/ && make
-	#cd ./all/batmon/ && make
 	#cd ./all/libgametimedb/ && make
 	#cd ./all/gametimectl/ && make
 	#cd ./all/gametime/ && make
-	cd ./all/input/ && make
 	cd ./all/nextval/ && make
 	cd ./all/settings/ && make
-else 
+else
 ifeq ($(PLATFORM), tg5040)
 	cd ./$(PLATFORM)/rfkill && make all
 	cd ./$(PLATFORM)/btmanager && make all
@@ -40,18 +35,12 @@ endif
 	cd ./$(PLATFORM)/keymon && make
 	cd ./all/nextui/ && make
 	cd ./all/minarch/ && make
-	cd ./all/battery/ && make
-	cd ./all/clock/ && make
-	cd ./all/libbatmondb/ && make
-	cd ./all/batmon/ && make
 	cd ./all/libgametimedb/ && make
 	cd ./all/gametimectl/ && make
 	cd ./all/gametime/ && make
-	cd ./all/input/ && make
 	cd ./all/syncsettings/ && make
 	cd ./all/nextval/ && make
 	cd ./all/settings/ && make
-	cd ./all/bootlogo/ && make
 	cd ./all/audiomon && make all
 	cd ./all/show2/ && make
 	cd ./all/screenshot/ && make
@@ -59,6 +48,7 @@ endif
 	cd ./all/mediaplayer/ && make
 	cd ./all/portmaster/ && make
 	cd ./all/sync/ && make
+	cd ./all/scraper/ && make
 endif
 ifdef COMPILE_CORES
 	make cores
@@ -80,9 +70,7 @@ clean:
 ifneq ($(PLATFORM), desktop)
 	cd ./$(PLATFORM)/keymon && make clean
 	cd ./all/syncsettings/ && make cleans
-	cd ./all/bootlogo/ && make clean
 	cd ./all/show2/ && make clean
-	cd ./all/batmon/ && make clean
 ifeq ($(PLATFORM), tg5040)
 	cd ./$(PLATFORM)/rfkill && make clean
 	cd ./$(PLATFORM)/btmanager && make clean
@@ -92,13 +80,9 @@ endif
 	cd ./$(PLATFORM)/libmsettings && make clean
 	cd ./all/nextui/ && make clean
 	cd ./all/minarch/ && make clean
-	cd ./all/battery/ && make clean
-	cd ./all/clock/ && make clean
-	cd ./all/libbatmondb/ && make clean
 	cd ./all/libgametimedb/ && make clean
 	cd ./all/gametimectl/ && make clean
 	cd ./all/gametime/ && make clean
-	cd ./all/input/ && make clean
 	cd ./all/nextval/ && make clean
 	cd ./all/settings/ && make clean
 	cd ./all/screenshot/ && make clean
@@ -107,4 +91,5 @@ endif
 	cd ./all/mediaplayer/ && make clean
 	cd ./all/portmaster/ && make clean
 	cd ./all/sync/ && make clean
+	cd ./all/scraper/ && make clean
 	cd ./$(PLATFORM) && make clean

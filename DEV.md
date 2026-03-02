@@ -89,15 +89,6 @@ docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-too
 # bootlogo
 docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/bootlogo && make PLATFORM=tg5040' && adb push workspace/all/bootlogo/build/tg5040/bootlogo.elf /mnt/SDCARD/Tools/tg5040/Bootlogo.pak/
 
-# battery
-docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/battery && make PLATFORM=tg5040' && adb push workspace/all/battery/build/tg5040/battery.elf /mnt/SDCARD/Tools/tg5040/Battery.pak/
-
-# clock
-docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/clock && make PLATFORM=tg5040' && adb push workspace/all/clock/build/tg5040/clock.elf /mnt/SDCARD/Tools/tg5040/Clock.pak/
-
-# input
-docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/input && make PLATFORM=tg5040' && adb push workspace/all/input/build/tg5040/input.elf /mnt/SDCARD/Tools/tg5040/Input.pak/
-
 # music player
 docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/musicplayer && make PLATFORM=tg5040' && adb push workspace/all/musicplayer/build/tg5040/musicplayer.elf "/mnt/SDCARD/Tools/tg5040/Music Player.pak/"
 
@@ -106,6 +97,9 @@ docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-too
 
 # portmaster
 docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/portmaster && make PLATFORM=tg5040' && adb push workspace/all/portmaster/build/tg5040/portmaster.elf "/mnt/SDCARD/Tools/tg5040/PortMaster.pak/"
+
+# artwork manager (scraper)
+docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/scraper && make PLATFORM=tg5040' && adb push workspace/all/scraper/build/tg5040/scraper.elf "/mnt/SDCARD/Tools/tg5040/Artwork Manager.pak/"
 ```
 
 ## Component Locations
@@ -115,8 +109,6 @@ docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-too
 | nextui | workspace/all/nextui | build/tg5040/nextui.elf |
 | minarch | workspace/all/minarch | build/tg5040/minarch.elf |
 | settings | workspace/all/settings | build/tg5040/settings.elf |
-| clock | workspace/all/clock | build/tg5040/clock.elf |
-| battery | workspace/all/battery | build/tg5040/battery.elf |
 | keymon | workspace/tg5040/keymon | keymon.elf |
 
 ## IDE Setup (VS Code)

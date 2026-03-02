@@ -16,6 +16,9 @@
 #include "settings_led.h"
 #include "settings_developer.h"
 #include "settings_updater.h"
+#include "settings_input.h"
+#include "settings_clock.h"
+#include "settings_bootlogo.h"
 #include "ui_components.h"
 
 #include <stdio.h>
@@ -1313,15 +1316,15 @@ static void init_about_info(void) {
 // Menu item arrays (static allocation)
 // ============================================
 
-#define MAX_APPEARANCE_ITEMS 20
+#define MAX_APPEARANCE_ITEMS 21
 #define MAX_DISPLAY_ITEMS 8
-#define MAX_SYSTEM_ITEMS 19
+#define MAX_SYSTEM_ITEMS 20
 #define MAX_MUTE_ITEMS 20
 #define MAX_NOTIFY_ITEMS 8
 #define MAX_RA_ITEMS 15
 #define MAX_ABOUT_ITEMS 8
 #define MAX_SIMPLE_MODE_ITEMS 4
-#define MAX_MAIN_ITEMS 14
+#define MAX_MAIN_ITEMS 15
 
 static SettingItem appearance_items[MAX_APPEARANCE_ITEMS];
 static SettingItem display_items[MAX_DISPLAY_ITEMS];
@@ -1396,6 +1399,27 @@ static void refresh_emulist(void) {
 	unlink(ROMINDEX_CACHE_PATH);
 	if (refresh_emulist_item)
 		refresh_emulist_item->desc = "Done! Emulator list will refresh on next launch.";
+}
+
+// ============================================
+// Input Tester
+// ============================================
+
+static SDL_Surface* g_screen = NULL;
+
+static void launch_input_tester(void) {
+	if (g_screen)
+		input_tester_run(g_screen);
+}
+
+static void launch_clock_adjustment(void) {
+	if (g_screen)
+		clock_adjustment_run(g_screen);
+}
+
+static void launch_bootlogo(void) {
+	if (g_screen)
+		bootlogo_run(g_screen);
 }
 
 // ITEM_*_INIT macros are defined in settings_menu.h
@@ -1488,6 +1512,9 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		"Show Quickswitcher UI", "Show/hide Quickswitcher UI elements.",
 		on_off_labels, 2, on_off_values, get_show_quickswitcher, set_show_quickswitcher, reset_show_quickswitcher);
 	appearance_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
+		"Bootlogo", "Change the device boot logo.",
+		launch_bootlogo);
+	appearance_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
 		"Reset to defaults", "Resets all options in this menu to their default values.",
 		reset_appearance_page);
 	init_page(&appearance_page, "Settings | Appearance", appearance_items, idx, 0);
@@ -1554,6 +1581,9 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Set time and date automatically", "Sync time via NTP (requires internet)",
 		on_off_labels, 2, on_off_values, get_ntp, set_ntp, reset_ntp);
+	system_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
+		"Set time and date manually", "Adjust date and time using the clock editor",
+		launch_clock_adjustment);
 
 	if (tz_count > 0) {
 		system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
@@ -1813,6 +1843,10 @@ static void build_menu_tree(const DeviceInfo* dev) {
 			"Developer", "Developer & debugging tools", dev_page_ptr);
 	}
 
+	main_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
+		"Input Tester", "Test buttons, D-pad, and joystick inputs",
+		launch_input_tester);
+
 	main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
 		"About", "", &about_page);
 
@@ -1842,6 +1876,7 @@ int main(int argc, char* argv[]) {
 	(void)argv;
 
 	SDL_Surface* screen = GFX_init(MODE_MAIN);
+	g_screen = screen;
 	UI_showSplashScreen(screen, "Settings");
 
 	DeviceInfo dev = device_detect();

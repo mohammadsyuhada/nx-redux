@@ -19,14 +19,25 @@ SDL?=SDL
 
 ###########################################################
 
-TARGET = clock
+TARGET = scraper
 INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
-SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/config.c ../common/scaler.c ../common/ui_components.c ../../$(PLATFORM)/platform/platform.c
+
+COMMON_PATH = ../common
+PLATFORM_PATH = ../../$(PLATFORM)
+
+SOURCE = scraper.c scraper_api.c scraper_compositor.c scraper_systems.c \
+         $(COMMON_PATH)/utils.c $(COMMON_PATH)/api.c \
+         $(COMMON_PATH)/config.c $(COMMON_PATH)/scaler.c \
+         $(COMMON_PATH)/http.c \
+         $(COMMON_PATH)/ui_components.c $(COMMON_PATH)/ui_list.c \
+         $(COMMON_PATH)/ui_keyboard.c \
+         $(COMMON_PATH)/cjson/cJSON.c \
+         $(PLATFORM_PATH)/platform/platform.c
 
 CC = $(CROSS_COMPILE)gcc
-CFLAGS  += $(OPT)
-CFLAGS  += $(INCDIR) -I../../$(PLATFORM)/libmsettings -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
-LDFLAGS	 += -L../../$(PLATFORM)/libmsettings -lmsettings
+CFLAGS += $(OPT)
+CFLAGS += $(INCDIR) -I../../$(PLATFORM)/libmsettings -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
+LDFLAGS += -L../../$(PLATFORM)/libmsettings -lmsettings -lpthread
 
 PRODUCT= build/$(PLATFORM)/$(TARGET).elf
 

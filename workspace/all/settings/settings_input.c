@@ -1,14 +1,16 @@
-#include <stdio.h>
-#include <math.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <termios.h>
-#include <msettings.h>
-
+#include "settings_input.h"
 #include "defines.h"
 #include "api.h"
-#include "ui_components.h"
 #include "utils.h"
+#include "ui_components.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <math.h>
+#include <fcntl.h>
+#include <termios.h>
 
 // ============================================
 // Rendering helpers
@@ -197,7 +199,6 @@ static void cal_render_msg(SDL_Surface* screen, const char* title, const char* s
 	GFX_flip(screen);
 }
 
-// Read serial data for duration_ms, tracking min/max range
 static void cal_track_range(int fd, int x_off, int y_off, JoypadCal* cal,
 							SDL_Surface* screen, const char* title, int secs) {
 	cal->x_min = cal->y_min = 65535;
@@ -222,7 +223,6 @@ static void cal_track_range(int fd, int x_off, int y_off, JoypadCal* cal,
 	}
 }
 
-// Read serial data for duration, averaging for center position
 static void cal_read_center(int fd, int x_off, int y_off, JoypadCal* cal,
 							SDL_Surface* screen, const char* title, int secs) {
 	long x_sum = 0, y_sum = 0;
@@ -247,22 +247,18 @@ static void cal_read_center(int fd, int x_off, int y_off, JoypadCal* cal,
 	}
 }
 
-// Blocking calibration routine: rotate stick → stop at center, left then right
 static void cal_run(SDL_Surface* screen) {
 	JoypadCal left = {0}, right = {0};
 
-	// Preserve existing deadzone values
 	JoypadCal existing;
 	left.deadzone = (cal_read_config(JOYPAD_LEFT_CONFIG, &existing) == 0) ? existing.deadzone : 0.10f;
 	right.deadzone = (cal_read_config(JOYPAD_RIGHT_CONFIG, &existing) == 0) ? existing.deadzone : 0.10f;
 
-	// Brief countdown before stopping inputd
 	for (int i = 2; i > 0; i--) {
 		cal_render_msg(screen, "Starting Calibration", "Get ready...", i);
 		SDL_Delay(1000);
 	}
 
-	// Stop inputd and open serial ports
 	cal_render_msg(screen, "Starting Calibration", "Opening joystick ports...", 0);
 	system("killall trimui_inputd");
 	usleep(200000);
@@ -282,31 +278,22 @@ static void cal_run(SDL_Surface* screen) {
 		return;
 	}
 
-	// Left stick: rotate for range
 	cal_track_range(fd_left, CAL_LEFT_X_OFF, CAL_LEFT_Y_OFF, &left,
 					screen, "Left Stick - Rotate", CAL_RANGE_SECS);
-
-	// Left stick: stop for center
 	cal_read_center(fd_left, CAL_LEFT_X_OFF, CAL_LEFT_Y_OFF, &left,
 					screen, "Left Stick - Stop", CAL_CENTER_SECS);
-
-	// Right stick: rotate for range
 	cal_track_range(fd_right, CAL_RIGHT_X_OFF, CAL_RIGHT_Y_OFF, &right,
 					screen, "Right Stick - Rotate", CAL_RANGE_SECS);
-
-	// Right stick: stop for center
 	cal_read_center(fd_right, CAL_RIGHT_X_OFF, CAL_RIGHT_Y_OFF, &right,
 					screen, "Right Stick - Stop", CAL_CENTER_SECS);
 
 	close(fd_left);
 	close(fd_right);
 
-	// Save configs
 	cal_render_msg(screen, "Saving...", "", 0);
 	cal_write_config(JOYPAD_LEFT_CONFIG, &left);
 	cal_write_config(JOYPAD_RIGHT_CONFIG, &right);
 
-	// Restart inputd
 	system("/usr/trimui/bin/trimui_inputd &");
 	usleep(500000);
 
@@ -315,25 +302,10 @@ static void cal_run(SDL_Surface* screen) {
 }
 
 // ============================================
-// Main
+// Input Tester main loop
 // ============================================
 
-int main(int argc, char* argv[]) {
-	(void)argc;
-	(void)argv;
-
-	SDL_Surface* screen = GFX_init(MODE_MAIN);
-	UI_showSplashScreen(screen, "Input");
-
-	InitSettings();
-	PAD_init();
-	PWR_init();
-
-	setup_signal_handlers();
-	PWR_disableSleep();
-	PWR_disablePowerOff();
-
-	// one-time capability detection
+void input_tester_run(SDL_Surface* screen) {
 	int has_L2 = (BUTTON_L2 != BUTTON_NA || CODE_L2 != CODE_NA || JOY_L2 != JOY_NA || AXIS_L2 != AXIS_NA);
 	int has_R2 = (BUTTON_R2 != BUTTON_NA || CODE_R2 != CODE_NA || JOY_R2 != JOY_NA || AXIS_R2 != AXIS_NA);
 	int has_L3 = (BUTTON_L3 != BUTTON_NA || CODE_L3 != CODE_NA || JOY_L3 != JOY_NA);
@@ -350,7 +322,6 @@ int main(int argc, char* argv[]) {
 	if (!has_L3 && !has_R3)
 		oy += SCALE1(PILL_SIZE);
 
-	// load joystick position dot sprite
 	SDL_Surface* joy_dot = IMG_Load(RES_PATH "/joystick-dot.png");
 
 	PAD_Axis prev_laxis = {0, 0};
@@ -375,7 +346,6 @@ int main(int argc, char* argv[]) {
 		if (PAD_isPressed(BTN_SELECT) && PAD_isPressed(BTN_START))
 			quit = true;
 
-		// L3+R3 triggers joystick calibration
 		if (has_joystick &&
 			((PAD_justPressed(BTN_L3) && PAD_isPressed(BTN_R3)) ||
 			 (PAD_justPressed(BTN_R3) && PAD_isPressed(BTN_L3)))) {
@@ -392,7 +362,7 @@ int main(int argc, char* argv[]) {
 		if (dirty) {
 			GFX_clear(screen);
 
-			UI_renderMenuBar(screen, "Input");
+			UI_renderMenuBar(screen, "Settings | Input Tester");
 
 			// L group (centered over DPAD)
 			{
@@ -559,13 +529,12 @@ int main(int argc, char* argv[]) {
 				blitButton("R3", screen, PAD_isPressed(BTN_R3), x + o, y + o, 0);
 			}
 
-			// JOYSTICK indicators (below L3/R3, centered between side and middle)
+			// JOYSTICK indicators
 			if (has_joystick) {
 				int jside = PILL_SIZE * 3;
 				int jsz = SCALE1(jside);
 				int jy = oy + SCALE1(PILL_SIZE * 6);
 
-				// center each joystick between its side group and screen center
 				int left_cx = SCALE1(PADDING) + SCALE1(PILL_SIZE * 3) / 2;
 				int right_cx = FIXED_WIDTH - SCALE1(PADDING) - SCALE1(PILL_SIZE * 3) / 2;
 				int mid_cx = FIXED_WIDTH / 2;
@@ -577,15 +546,12 @@ int main(int argc, char* argv[]) {
 					int ax = ji == 0 ? pad.laxis.x : pad.raxis.x;
 					int ay = ji == 0 ? pad.laxis.y : pad.raxis.y;
 
-					// Circle background
 					int radius = jsz / 2;
 					fillCircle(screen, x + radius, jy + radius, radius, THEME_COLOR3);
 
-					// Crosshair lines
 					SDL_FillRect(screen, &(SDL_Rect){x + radius, jy + SCALE1(BUTTON_INSET), SCALE1(1), jsz - SCALE1(BUTTON_INSET) * 2}, RGB_DARK_GRAY);
 					SDL_FillRect(screen, &(SDL_Rect){x + SCALE1(BUTTON_INSET), jy + radius, jsz - SCALE1(BUTTON_INSET) * 2, SCALE1(1)}, RGB_DARK_GRAY);
 
-					// Position dot
 					int dot_w = joy_dot ? joy_dot->w : SCALE1(BUTTON_SPRITE_SIZE);
 					int dot_h = joy_dot ? joy_dot->h : SCALE1(BUTTON_SPRITE_SIZE);
 					int margin = SCALE1(BUTTON_INSET + 2);
@@ -616,12 +582,4 @@ int main(int argc, char* argv[]) {
 
 	if (joy_dot)
 		SDL_FreeSurface(joy_dot);
-
-	PWR_enableSleep();
-	QuitSettings();
-	PWR_quit();
-	PAD_quit();
-	GFX_quit();
-
-	return EXIT_SUCCESS;
 }

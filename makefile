@@ -89,11 +89,6 @@ ifneq ($(PLATFORM), desktop)
 	cp ./workspace/all/show2/build/$(PLATFORM)/show2.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/screenshot/build/$(PLATFORM)/screenshot.elf ./build/SYSTEM/$(PLATFORM)/bin/
 
-	# battery tracking
-	cp ./workspace/all/libbatmondb/build/$(PLATFORM)/libbatmondb.so ./build/SYSTEM/$(PLATFORM)/lib
-	cp ./workspace/all/batmon/build/$(PLATFORM)/batmon.elf ./build/SYSTEM/$(PLATFORM)/bin/
-	cp ./workspace/all/battery/build/$(PLATFORM)/battery.elf ./build/EXTRAS/Tools/$(PLATFORM)/Battery.pak/
-
 	# game time tracking
 	cp ./workspace/all/libgametimedb/build/$(PLATFORM)/libgametimedb.so ./build/SYSTEM/$(PLATFORM)/lib
 	cp ./workspace/all/gametimectl/build/$(PLATFORM)/gametimectl.elf ./build/SYSTEM/$(PLATFORM)/bin/
@@ -103,15 +98,13 @@ endif
 	cp ./workspace/all/nextui/build/$(PLATFORM)/nextui.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/minarch/build/$(PLATFORM)/minarch.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/nextval/build/$(PLATFORM)/nextval.elf ./build/SYSTEM/$(PLATFORM)/bin/
-	cp ./workspace/all/clock/build/$(PLATFORM)/clock.elf ./build/EXTRAS/Tools/$(PLATFORM)/Clock.pak/
-	cp ./workspace/all/input/build/$(PLATFORM)/input.elf ./build/EXTRAS/Tools/$(PLATFORM)/Input.pak/
 	cp ./workspace/all/settings/build/$(PLATFORM)/settings.elf ./build/EXTRAS/Tools/$(PLATFORM)/Settings.pak/
 	cp ./workspace/all/musicplayer/build/$(PLATFORM)/musicplayer.elf ./build/EXTRAS/Tools/$(PLATFORM)/Music\ Player.pak/
 	cp ./workspace/all/mediaplayer/build/$(PLATFORM)/mediaplayer.elf ./build/EXTRAS/Tools/$(PLATFORM)/Media\ Player.pak/
 	cp ./workspace/all/portmaster/build/$(PLATFORM)/portmaster.elf ./build/EXTRAS/Tools/$(PLATFORM)/PortMaster.pak/
 	cp ./workspace/all/sync/build/$(PLATFORM)/sync.elf ./build/EXTRAS/Tools/$(PLATFORM)/Device\ Sync.pak/
+	cp ./workspace/all/scraper/build/$(PLATFORM)/scraper.elf ./build/EXTRAS/Tools/$(PLATFORM)/Artwork\ Manager.pak/
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
-	cp ./workspace/all/bootlogo/build/$(PLATFORM)/bootlogo.elf ./build/EXTRAS/Tools/$(PLATFORM)/Bootlogo.pak/
 ifeq ($(PLATFORM), tg5040)
 	# Limbo fix
 	cp ./workspace/$(PLATFORM)/poweroff_next/build/$(PLATFORM)/poweroff_next.elf ./build/SYSTEM/$(PLATFORM)/bin/poweroff_next

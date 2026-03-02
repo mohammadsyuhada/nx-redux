@@ -1,14 +1,14 @@
 // loosely based on https://github.com/gameblabla/clock_sdl_app
 
-#include <stdio.h>
-#include <time.h>
-#include <unistd.h>
-#include <msettings.h>
-
+#include "settings_clock.h"
 #include "defines.h"
 #include "api.h"
 #include "ui_components.h"
 #include "utils.h"
+
+#include <stdio.h>
+#include <time.h>
+#include <unistd.h>
 
 // ============================================
 // Constants
@@ -34,8 +34,7 @@ enum {
 // Globals
 // ============================================
 
-static SDL_Surface* screen;
-static SDL_Surface* digits;
+static SDL_Surface* clock_digits;
 
 static int32_t day_selected;
 static int32_t month_selected;
@@ -49,33 +48,32 @@ static int32_t am_selected;
 // Rendering helpers
 // ============================================
 
-// x,y,w are pre-scaled
-static int blit(int i, int x, int y) {
-	SDL_BlitSurface(digits, &(SDL_Rect){i * SCALE1(10), 0, SCALE2(10, 16)}, screen, &(SDL_Rect){x, y});
+static int clock_blit(SDL_Surface* screen, int i, int x, int y) {
+	SDL_BlitSurface(clock_digits, &(SDL_Rect){i * SCALE1(10), 0, SCALE2(10, 16)}, screen, &(SDL_Rect){x, y});
 	return x + SCALE1(10);
 }
 
-static void blitBar(int x, int y, int w) {
+static void clock_blitBar(SDL_Surface* screen, int x, int y, int w) {
 	GFX_blitPill(ASSET_UNDERLINE, screen, &(SDL_Rect){x, y, w});
 }
 
-static int blitNumber(int num, int x, int y) {
+static int clock_blitNumber(SDL_Surface* screen, int num, int x, int y) {
 	int n;
 	if (num > 999) {
 		n = num / 1000;
 		num -= n * 1000;
-		x = blit(n, x, y);
+		x = clock_blit(screen, n, x, y);
 
 		n = num / 100;
 		num -= n * 100;
-		x = blit(n, x, y);
+		x = clock_blit(screen, n, x, y);
 	}
 	n = num / 10;
 	num -= n * 10;
-	x = blit(n, x, y);
+	x = clock_blit(screen, n, x, y);
 
 	n = num;
-	x = blit(n, x, y);
+	x = clock_blit(screen, n, x, y);
 
 	return x;
 }
@@ -84,7 +82,7 @@ static int blitNumber(int num, int x, int y) {
 // Validation
 // ============================================
 
-static void validate(void) {
+static void clock_validate(void) {
 	// leap year
 	uint32_t february_days = 28;
 	if (((year_selected % 4 == 0) && (year_selected % 100 != 0)) || (year_selected % 400 == 0))
@@ -140,25 +138,13 @@ static void validate(void) {
 }
 
 // ============================================
-// Main
+// Clock adjustment main loop
 // ============================================
 
-int main(int argc, char* argv[]) {
-	(void)argc;
-	(void)argv;
-
-	screen = GFX_init(MODE_MAIN);
-	UI_showSplashScreen(screen, "Clock");
-
-	InitSettings();
-	PAD_init();
-	PWR_init();
-
-	setup_signal_handlers();
-
+void clock_adjustment_run(SDL_Surface* screen) {
 	// Build digit sprite sheet
-	digits = SDL_CreateRGBSurfaceWithFormat(SDL_SWSURFACE, SCALE1(120), SCALE1(16), 32, screen->format->format);
-	SDL_FillRect(digits, NULL, RGB_BLACK);
+	clock_digits = SDL_CreateRGBSurfaceWithFormat(SDL_SWSURFACE, SCALE1(120), SCALE1(16), 32, screen->format->format);
+	SDL_FillRect(clock_digits, NULL, RGB_BLACK);
 
 	SDL_Surface* digit;
 	char* chars[] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "/", ":", NULL};
@@ -166,8 +152,8 @@ int main(int argc, char* argv[]) {
 	int i = 0;
 	while ((c = chars[i])) {
 		digit = TTF_RenderUTF8_Blended(font.large, c, COLOR_WHITE);
-		int y = i == CHAR_COLON ? SCALE1(-1.5) : 0; // : sits too low naturally
-		SDL_BlitSurface(digit, NULL, digits, &(SDL_Rect){(i * SCALE1(DIGIT_WIDTH)) + (SCALE1(DIGIT_WIDTH) - digit->w) / 2, y + (SCALE1(DIGIT_HEIGHT) - digit->h) / 2});
+		int y = i == CHAR_COLON ? SCALE1(-1.5) : 0;
+		SDL_BlitSurface(digit, NULL, clock_digits, &(SDL_Rect){(i * SCALE1(DIGIT_WIDTH)) + (SCALE1(DIGIT_WIDTH) - digit->w) / 2, y + (SCALE1(DIGIT_HEIGHT) - digit->h) / 2});
 		SDL_FreeSurface(digit);
 		i += 1;
 	}
@@ -286,7 +272,7 @@ int main(int argc, char* argv[]) {
 			dirty = true;
 
 		if (dirty) {
-			validate();
+			clock_validate();
 
 			GFX_clear(screen);
 
@@ -294,37 +280,34 @@ int main(int argc, char* argv[]) {
 
 			UI_renderButtonHintBar(screen, (char*[]){"B", "CANCEL", "A", "SET", "SELECT", show_24hour ? "12 HOUR" : "24 HOUR", NULL});
 
-			// 376 or 446 (@2x)
-			// 188 or 223 (@1x)
 			int ox = (screen->w - (show_24hour ? SCALE1(188) : SCALE1(223))) / 2;
 
 			// datetime
 			int x = ox;
 			int y = SCALE1((((FIXED_HEIGHT / FIXED_SCALE) - PILL_SIZE - DIGIT_HEIGHT) / 2));
 
-			x = blitNumber(year_selected, x, y);
-			x = blit(CHAR_SLASH, x, y);
-			x = blitNumber(month_selected, x, y);
-			x = blit(CHAR_SLASH, x, y);
-			x = blitNumber(day_selected, x, y);
+			x = clock_blitNumber(screen, year_selected, x, y);
+			x = clock_blit(screen, CHAR_SLASH, x, y);
+			x = clock_blitNumber(screen, month_selected, x, y);
+			x = clock_blit(screen, CHAR_SLASH, x, y);
+			x = clock_blitNumber(screen, day_selected, x, y);
 			x += SCALE1(10); // space
 
 			am_selected = hour_selected < 12;
 			if (show_24hour) {
-				x = blitNumber(hour_selected, x, y);
+				x = clock_blitNumber(screen, hour_selected, x, y);
 			} else {
-				// 12 hour
 				int hour = hour_selected;
 				if (hour == 0)
 					hour = 12;
 				else if (hour > 12)
 					hour -= 12;
-				x = blitNumber(hour, x, y);
+				x = clock_blitNumber(screen, hour, x, y);
 			}
-			x = blit(CHAR_COLON, x, y);
-			x = blitNumber(minute_selected, x, y);
-			x = blit(CHAR_COLON, x, y);
-			x = blitNumber(seconds_selected, x, y);
+			x = clock_blit(screen, CHAR_COLON, x, y);
+			x = clock_blitNumber(screen, minute_selected, x, y);
+			x = clock_blit(screen, CHAR_COLON, x, y);
+			x = clock_blitNumber(screen, seconds_selected, x, y);
 
 			int ampm_w = 0;
 			if (!show_24hour) {
@@ -342,7 +325,7 @@ int main(int argc, char* argv[]) {
 				x += SCALE1(50); // YYYY/
 				x += (select_cursor - 1) * SCALE1(30);
 			}
-			blitBar(x, y, (select_cursor == CURSOR_YEAR ? SCALE1(40) : (select_cursor == CURSOR_AMPM ? ampm_w : SCALE1(20))));
+			clock_blitBar(screen, x, y, (select_cursor == CURSOR_YEAR ? SCALE1(40) : (select_cursor == CURSOR_AMPM ? ampm_w : SCALE1(20))));
 
 			GFX_flip(screen);
 			dirty = false;
@@ -351,15 +334,8 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	SDL_FreeSurface(digits);
-
-	QuitSettings();
-	PWR_quit();
-	PAD_quit();
-	GFX_quit();
+	SDL_FreeSurface(clock_digits);
 
 	if (save_changes)
 		PLAT_setDateTime(year_selected, month_selected, day_selected, hour_selected, minute_selected, seconds_selected);
-
-	return EXIT_SUCCESS;
 }

@@ -6,6 +6,7 @@
 !skeleton/EXTRAS/Emus/**/libs/*.so
 !skeleton/EXTRAS/Emus/shared/mupen64plus/*.so
 !skeleton/EXTRAS/Emus/**/N64.pak/*.so
+!skeleton/SYSTEM/shared/lib/*.so
 *.elf
 *.dtb
 *.zip

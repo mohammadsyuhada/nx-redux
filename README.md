@@ -41,9 +41,9 @@ Improvements:
 - Added a semi-transparent progress overlay for all blocking actions
 - Added confirmation dialogs for actions that require them
 - Rewrote the `Settings` app in C with a redesigned UI
-- Updated the `Battery`, `Clock`, and `Input` app with the redesigned UI 
+- Removed `Battery` monitoring feature. 
+- Merged the `LED Control` configurations, `Input`, `Clock` and `Updater` into `Settings` app (no separate app required)
 - Integrated the `Remove Loading` feature directly into the install script (no separate app required) 
-- Moved the `LED Control` configurations and `Updater` into `Settings` app (no separate app required)
 - Split release builds into per-platform zips (tg5040/tg5050) 
 
 New Features:
@@ -66,6 +66,7 @@ New Features:
 - Added `Search` function in main menu (Press `Y` to activate)
 - Added jostick and calibration feature in `Input` app
 - Added `Device Sync` to sync game saves, states, and user settings across devices. 
+- Added `Artwork Scraper` to fetch custom mix box art for roms. 
 - Built-in `Screenshot` and `Screen Recorder` option in quick menu
     - When Screenshot is enabled, press `L2` + `R2` + `X` to capture the screen
     - When Screen Recorder is enabled, recording runs in the background automatically
@@ -88,11 +89,11 @@ New Features:
     - Optimized configurations for both platform.
 
 Upcoming Features:
-- Overlay for TG5050
+- Custom in-game menu overlay `Drastic Nintendo DS` emulator
 - Built-in ROMs collection management
 - Integration with [Netplay](https://github.com/mohammadsyuhada/nextui-netplay)
 - Netplay for `Mupen64Plus Nintendo 64` emulator
-- Netplay for 'PPS
+- Netplay for `PPSSPP Playstation Portable` emulator 
 - Minarch refactor
 
 Ongoing focus areas:

@@ -1,4 +1,3 @@
-// heavily modified from the Onion original: https://github.com/OnionUI/Onion/tree/main/src/batmon
 #ifndef __gametime_db_h__
 #define __gametime_db_h__
 

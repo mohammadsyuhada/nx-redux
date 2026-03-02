@@ -546,7 +546,7 @@ SettingsPage* bt_page_create(void) {
 	SettingsPage* page = calloc(1, sizeof(SettingsPage));
 	if (!page)
 		return NULL;
-	page->title = "Bluetooth";
+	page->title = "Settings | Bluetooth";
 	page->is_list = 0;
 	page->dynamic_start = BT_STATIC_COUNT;
 	page->max_items = BT_MAX_ITEMS;

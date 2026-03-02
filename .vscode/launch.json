@@ -22,30 +22,6 @@
             "envFile": "${workspaceFolder}/.env_desktop",
         },
         {
-            "name": "App: Battery",
-            "request": "launch",
-            "type": "cppdbg",
-            "osx": {
-              "MIMode": "lldb"
-            },
-            "cwd": "${workspaceFolder}/workspace/all/battery/build/desktop",
-            "program": "${workspaceFolder}/workspace/all/battery/build/desktop/battery.elf",
-            "preLaunchTask": "make desktop",
-            "envFile": "${workspaceFolder}/.env_desktop",
-        },
-        {
-            "name": "App: Input",
-            "request": "launch",
-            "type": "cppdbg",
-            "osx": {
-              "MIMode": "lldb"
-            },
-            "cwd": "${workspaceFolder}/workspace/all/input/build/desktop",
-            "program": "${workspaceFolder}/workspace/all/input/build/desktop/input.elf",
-            "preLaunchTask": "make desktop",
-            "envFile": "${workspaceFolder}/.env_desktop",
-        },
-        {
             "name": "App: Gametime",
             "request": "launch",
             "type": "cppdbg",
@@ -54,18 +30,6 @@
             },
             "cwd": "${workspaceFolder}/workspace/all/gametime/build/desktop",
             "program": "${workspaceFolder}/workspace/all/gametime/build/desktop/gametime.elf",
-            "preLaunchTask": "make desktop",
-            "envFile": "${workspaceFolder}/.env_desktop",
-        },
-        {
-            "name": "App: Clock",
-            "request": "launch",
-            "type": "cppdbg",
-            "osx": {
-              "MIMode": "lldb"
-            },
-            "cwd": "${workspaceFolder}/workspace/all/clock/build/desktop",
-            "program": "${workspaceFolder}/workspace/all/clock/build/desktop/clock.elf",
             "preLaunchTask": "make desktop",
             "envFile": "${workspaceFolder}/.env_desktop",
         },

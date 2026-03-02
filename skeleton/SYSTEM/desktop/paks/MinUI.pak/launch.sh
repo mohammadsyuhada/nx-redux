@@ -37,8 +37,6 @@ export LD_LIBRARY_PATH=$SYSTEM_PATH/lib:$LD_LIBRARY_PATH
 export DYLD_LIBRARY_PATH=$LD_LIBRARY_PATH:$DYLD_LIBRARY_PATH
 export PATH=$SYSTEM_PATH/bin:$SHARED_SYSTEM_PATH/bin:$PATH
 
-#batmon.elf & # &> $SDCARD_PATH/batmon.txt &
-
 #######################################
 
 AUTO_PATH=$USERDATA_PATH/auto.sh

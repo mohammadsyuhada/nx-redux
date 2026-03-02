@@ -133,7 +133,6 @@ echo 0 > /sys/devices/system/cpu/cpu6/online
 echo 0 > /sys/devices/system/cpu/cpu5/online
 
 keymon.elf & # &> $SDCARD_PATH/keymon.txt &
-batmon.elf & # &> $SDCARD_PATH/batmon.txt &
 
 # start fresh, will be populated on the next connect
 rm -f $USERDATA_PATH/.asoundrc

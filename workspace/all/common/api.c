@@ -3345,7 +3345,6 @@ void PWR_powerOff(int reboot) {
 		GFX_flip(gfx.screen);
 
 		system("killall -TERM keymon.elf");
-		system("killall -TERM batmon.elf");
 		system("killall -TERM audiomon.elf");
 
 		PWR_updateFrequency(-1, false);
@@ -3368,7 +3367,6 @@ static void PWR_enterSleep(void) {
 		PLAT_enableBacklight(0);
 	}
 	system("killall -STOP keymon.elf");
-	system("killall -STOP batmon.elf");
 	system("killall -STOP audiomon.elf");
 
 	PWR_updateFrequency(-1, false);
@@ -3381,7 +3379,6 @@ static void PWR_exitSleep(void) {
 	PWR_updateFrequency(-1, true);
 
 	system("killall -CONT keymon.elf");
-	system("killall -CONT batmon.elf");
 	system("killall -CONT audiomon.elf");
 
 	if (GetHDMI()) {
