@@ -32,6 +32,7 @@ typedef struct {
 
 typedef struct {
 	char name[EMU_OVL_MAX_STR];
+	char ini_section[EMU_OVL_MAX_STR]; // INI section for this group (optional, falls back to global config_section)
 	EmuOvlItem items[EMU_OVL_MAX_ITEMS];
 	int item_count;
 } EmuOvlSection;

@@ -31,6 +31,7 @@ SOURCE = scraper.c scraper_api.c scraper_compositor.c scraper_systems.c \
          $(COMMON_PATH)/http.c \
          $(COMMON_PATH)/ui_components.c $(COMMON_PATH)/ui_list.c \
          $(COMMON_PATH)/ui_keyboard.c \
+         $(COMMON_PATH)/display_helper.c \
          $(COMMON_PATH)/cjson/cJSON.c \
          $(PLATFORM_PATH)/platform/platform.c
 

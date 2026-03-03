@@ -26,13 +26,9 @@ But over time I found myself wanting two things the upstream project couldn't gi
 
 NX Redux is where those two goals meet.
 
-This is not a cosmetic fork.
-It is a deliberate divergence — feature-driven and structure-focused.
-
 ## What's Different
 
 Improvements:
-
 - Refactored `nextui.c` from monolithic code to a smaller, focused components
 - Various bug fixes and code optimizations across the refactored components
 - Added clang-format tooling and code style enforcement, with VSCode support
@@ -66,7 +62,7 @@ New Features:
 - Added `Search` function in main menu (Press `Y` to activate)
 - Added jostick and calibration feature in `Input` app
 - Added `Device Sync` to sync game saves, states, and user settings across devices. 
-- Added `Artwork Scraper` to fetch custom mix box art for roms. 
+- Added `Artwork Manager` to fetch custom mix box art for roms. 
 - Built-in `Screenshot` and `Screen Recorder` option in quick menu
     - When Screenshot is enabled, press `L2` + `R2` + `X` to capture the screen
     - When Screen Recorder is enabled, recording runs in the background automatically
@@ -97,7 +93,6 @@ Upcoming Features:
 - Minarch refactor
 
 Ongoing focus areas:
-
 - Cleaner, more maintainable core code
 - Improved file and module structure
 - Refactoring for readability

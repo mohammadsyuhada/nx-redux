@@ -26,25 +26,35 @@ echo 200 >/proc/sys/vm/vfs_cache_pressure 2>/dev/null
 sync
 echo 3 >/proc/sys/vm/drop_caches 2>/dev/null
 
-# User data directory (config, saves, cache)
-USERDATA_DIR="$SHARED_USERDATA_PATH/PSP-ppsspp"
-mkdir -p "$USERDATA_DIR/PSP/SYSTEM"
-mkdir -p "$USERDATA_DIR/PSP/SAVEDATA"
-mkdir -p "$USERDATA_DIR/PSP/PPSSPP_STATE"
+# Shared save directories (across all devices)
+SHARED_DIR="$SHARED_USERDATA_PATH/PSP-ppsspp/shared"
+mkdir -p "$SHARED_DIR/SAVEDATA"
+mkdir -p "$SHARED_DIR/PPSSPP_STATE"
+
+# Device-specific HOME
+DEVICE_HOME="$SHARED_USERDATA_PATH/PSP-ppsspp/tg5050"
+mkdir -p "$DEVICE_HOME/PSP/SYSTEM"
+
+# Symlink shared saves into device HOME
+ln -sfn "$SHARED_DIR/SAVEDATA" "$DEVICE_HOME/PSP/SAVEDATA"
+ln -sfn "$SHARED_DIR/PPSSPP_STATE" "$DEVICE_HOME/PSP/PPSSPP_STATE"
 
 # First run: copy device-specific defaults
-if [ ! -f "$USERDATA_DIR/.tg5050_initialized" ]; then
-    cp "$PAK_DIR/default.ini" "$USERDATA_DIR/PSP/SYSTEM/ppsspp.ini"
-    touch "$USERDATA_DIR/.tg5050_initialized"
+if [ ! -f "$DEVICE_HOME/.initialized" ]; then
+    cp "$PAK_DIR/default.ini" "$DEVICE_HOME/PSP/SYSTEM/ppsspp.ini"
+    touch "$DEVICE_HOME/.initialized"
 fi
 
-export HOME="$USERDATA_DIR"
+export HOME="$DEVICE_HOME"
 export LD_LIBRARY_PATH="$PAK_DIR:$EMU_DIR:$SDCARD_PATH/.system/tg5050/lib:/usr/trimui/lib:$LD_LIBRARY_PATH"
 export LD_PRELOAD="libEGL.so"
 
+# Clear stale graphics backend failure markers (PPSSPP persists these across runs)
+rm -f "$DEVICE_HOME/.config/ppsspp/PSP/SYSTEM/FailedGraphicsBackends.txt" 2>/dev/null
+
 # Overlay menu config
 export EMU_OVERLAY_JSON="$EMU_DIR/overlay_settings.json"
-export EMU_OVERLAY_INI="$USERDATA_DIR/PSP/SYSTEM/ppsspp.ini"
+export EMU_OVERLAY_INI="$DEVICE_HOME/PSP/SYSTEM/ppsspp.ini"
 export EMU_OVERLAY_GAME="$(basename "$ROM" | sed 's/\.[^.]*$//')"
 # Font and icon resources for overlay menu (from NextUI system resources)
 FONT_FILE=$(ls "$SDCARD_PATH/.system/res/"*.ttf 2>/dev/null | head -1)
@@ -56,9 +66,9 @@ mkdir -p "$MINUI_DIR"
 export EMU_OVERLAY_SCREENSHOT_DIR="$MINUI_DIR"
 export EMU_OVERLAY_ROMFILE="$(basename "$ROM")"
 
-# Launch PPSSPP
+# Launch PPSSPP (binary in PAK_DIR, assets in EMU_DIR)
 cd "$EMU_DIR"
-./PPSSPPSDL --fullscreen --xres 1280 --yres 720 "$ROM" &> "$LOGS_PATH/$EMU_TAG.txt" &
+"$PAK_DIR/PPSSPPSDL" --fullscreen --xres 1280 --yres 720 "$ROM" &> "$LOGS_PATH/$EMU_TAG.txt" &
 EMU_PID=$!
 sleep 3
 

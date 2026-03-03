@@ -37,27 +37,31 @@ main() {
     echo performance >/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
     echo 1608000 >/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
 
+    # Determine device-specific config directory
+    if [ "$DEVICE" = "brick" ]; then
+        DEVICE_CONFIG_PATH="$SHARED_USERDATA_PATH/NDS-advanced-drastic/config/tg5040-brick"
+        DEVICE_PAK_CONFIG="$PAK_DIR/devices/trimui-brick/config"
+    else
+        DEVICE_CONFIG_PATH="$SHARED_USERDATA_PATH/NDS-advanced-drastic/config/tg5040-smart-pro"
+        DEVICE_PAK_CONFIG="$PAK_DIR/devices/trimui-smart-pro/config"
+    fi
+
     # Setup external directories
     mkdir -p "$SDCARD_PATH/Saves/NDS"
     mkdir -p "$SDCARD_PATH/Cheats/NDS"
-    mkdir -p "$SHARED_USERDATA_PATH/NDS-advanced-drastic/config"
+    mkdir -p "$DEVICE_CONFIG_PATH"
     mkdir -p "$EMU_DIR/backup"
     mkdir -p "$EMU_DIR/cheats"
     mkdir -p "$EMU_DIR/config"
     mkdir -p "$EMU_DIR/savestates"
 
     # Apply device-specific config on first run only (don't overwrite user changes)
-    if [ ! -f "$SHARED_USERDATA_PATH/NDS-advanced-drastic/config/.tg5040_initialized" ]; then
-        if [ "$DEVICE" = "brick" ]; then
-            DEVICE_CONFIG="$PAK_DIR/devices/trimui-brick/config"
-        else
-            DEVICE_CONFIG="$PAK_DIR/devices/trimui-smart-pro/config"
+    if [ ! -f "$DEVICE_CONFIG_PATH/.initialized" ]; then
+        if [ -d "$DEVICE_PAK_CONFIG" ]; then
+            cp "$DEVICE_PAK_CONFIG/drastic.cfg" "$DEVICE_CONFIG_PATH/" 2>/dev/null || true
+            cp "$DEVICE_PAK_CONFIG/drastic.cf2" "$DEVICE_CONFIG_PATH/" 2>/dev/null || true
         fi
-        if [ -d "$DEVICE_CONFIG" ]; then
-            cp "$DEVICE_CONFIG/drastic.cfg" "$SHARED_USERDATA_PATH/NDS-advanced-drastic/config/" 2>/dev/null || true
-            cp "$DEVICE_CONFIG/drastic.cf2" "$SHARED_USERDATA_PATH/NDS-advanced-drastic/config/" 2>/dev/null || true
-        fi
-        touch "$SHARED_USERDATA_PATH/NDS-advanced-drastic/config/.tg5040_initialized"
+        touch "$DEVICE_CONFIG_PATH/.initialized"
     fi
 
     # Move any leftover cheats to centralized location
@@ -67,7 +71,7 @@ main() {
     fi
 
     # Bind-mount external locations into drastic directory
-    mount -o bind "$SHARED_USERDATA_PATH/NDS-advanced-drastic/config" "$EMU_DIR/config"
+    mount -o bind "$DEVICE_CONFIG_PATH" "$EMU_DIR/config"
     mount -o bind "$SDCARD_PATH/Saves/NDS" "$EMU_DIR/backup"
     mount -o bind "$SDCARD_PATH/Cheats/NDS" "$EMU_DIR/cheats"
     mount -o bind "$SHARED_USERDATA_PATH/NDS-advanced-drastic" "$EMU_DIR/savestates"

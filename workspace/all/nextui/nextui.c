@@ -344,7 +344,6 @@ static int GameList_handleInput(unsigned long now, int currentScreen,
 		if (Search_open()) {
 			currentScreen = SCREEN_SEARCH;
 			animationdirection = SLIDE_LEFT;
-			dirty = true;
 			GFX_clearLayers(LAYER_SCROLLTEXT);
 			if (list_scroll.cached_scroll_surface) {
 				SDL_FreeSurface(list_scroll.cached_scroll_surface);
@@ -354,6 +353,7 @@ static int GameList_handleInput(unsigned long now, int currentScreen,
 			list_scroll.needs_scroll = false;
 			list_scroll.scroll_active = false;
 		}
+		dirty = true;
 		return currentScreen;
 	}
 	// Y to add/remove shortcut (only in Tools folder or console directory)
@@ -517,8 +517,10 @@ int main(int argc, char* argv[]) {
 		// TG5050: search keyboard may have triggered display recovery (new screen surface)
 		{
 			SDL_Surface* ns = DisplayHelper_getReinitScreen();
-			if (ns)
+			if (ns) {
 				screen = ns;
+				dirty = true;
+			}
 		}
 
 		if (dirty) {

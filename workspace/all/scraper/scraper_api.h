@@ -31,8 +31,10 @@ void ScraperAPI_setUserCredentials(const char* username, const char* password);
 bool ScraperAPI_hasUserCredentials(void);
 
 // Search for a game by filename and system ID
+// rom_path: full path to ROM file (used to compute CRC32 + file size for better matching)
 // Returns true if game was found, fills info struct
-bool ScraperAPI_search(const char* rom_filename, int system_id, ScraperGameInfo* info);
+bool ScraperAPI_search(const char* rom_filename, const char* rom_path,
+					   int system_id, ScraperGameInfo* info);
 
 // Download a file from URL to a local path
 // Returns true on success

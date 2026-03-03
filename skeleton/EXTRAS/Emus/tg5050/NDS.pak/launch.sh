@@ -47,23 +47,26 @@ main() {
     # GPU: lock to performance for DRM rendering
     echo performance >/sys/devices/platform/soc@3000000/1800000.gpu/devfreq/1800000.gpu/governor 2>/dev/null
 
+    # Device-specific config directory
+    DEVICE_CONFIG_PATH="$SHARED_USERDATA_PATH/NDS-advanced-drastic/config/tg5050"
+
     # Setup external directories
     mkdir -p "$SDCARD_PATH/Saves/NDS"
     mkdir -p "$SDCARD_PATH/Cheats/NDS"
-    mkdir -p "$SHARED_USERDATA_PATH/NDS-advanced-drastic/config"
+    mkdir -p "$DEVICE_CONFIG_PATH"
     mkdir -p "$EMU_DIR/backup"
     mkdir -p "$EMU_DIR/cheats"
     mkdir -p "$EMU_DIR/config"
     mkdir -p "$EMU_DIR/savestates"
 
     # Apply device-specific config (only on first run, don't overwrite user changes)
-    if [ ! -f "$SHARED_USERDATA_PATH/NDS-advanced-drastic/config/.tg5050_initialized" ]; then
-        cp "$PAK_DIR/config/drastic.cfg" "$SHARED_USERDATA_PATH/NDS-advanced-drastic/config/" 2>/dev/null || true
-        cp "$PAK_DIR/config/drastic.cf2" "$SHARED_USERDATA_PATH/NDS-advanced-drastic/config/" 2>/dev/null || true
+    if [ ! -f "$DEVICE_CONFIG_PATH/.initialized" ]; then
+        cp "$PAK_DIR/config/drastic.cfg" "$DEVICE_CONFIG_PATH/" 2>/dev/null || true
+        cp "$PAK_DIR/config/drastic.cf2" "$DEVICE_CONFIG_PATH/" 2>/dev/null || true
         if [ -f "$PAK_DIR/settings.json" ]; then
             cp "$PAK_DIR/settings.json" "$EMU_DIR/resources/" 2>/dev/null || true
         fi
-        touch "$SHARED_USERDATA_PATH/NDS-advanced-drastic/config/.tg5050_initialized"
+        touch "$DEVICE_CONFIG_PATH/.initialized"
     fi
 
     # Move any leftover cheats to centralized location
@@ -73,7 +76,7 @@ main() {
     fi
 
     # Bind-mount external locations into drastic directory
-    mount -o bind "$SHARED_USERDATA_PATH/NDS-advanced-drastic/config" "$EMU_DIR/config"
+    mount -o bind "$DEVICE_CONFIG_PATH" "$EMU_DIR/config"
     mount -o bind "$SDCARD_PATH/Saves/NDS" "$EMU_DIR/backup"
     mount -o bind "$SDCARD_PATH/Cheats/NDS" "$EMU_DIR/cheats"
     mount -o bind "$SHARED_USERDATA_PATH/NDS-advanced-drastic" "$EMU_DIR/savestates"

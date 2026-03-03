@@ -17,7 +17,7 @@ echo 1608000 >/sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq
 # Memory management: swap for large PSP games
 SWAPFILE="/mnt/UDISK/psp_swap"
 if [ ! -f "$SWAPFILE" ]; then
-    dd if=/dev/zero of="$SWAPFILE" bs=1M count=256 2>/dev/null
+    dd if=/dev/zero of="$SWAPFILE" bs=1M count=512 2>/dev/null
     mkswap "$SWAPFILE" 2>/dev/null
 fi
 swapon "$SWAPFILE" 2>/dev/null
@@ -25,25 +25,49 @@ echo 200 >/proc/sys/vm/vfs_cache_pressure 2>/dev/null
 sync
 echo 3 >/proc/sys/vm/drop_caches 2>/dev/null
 
-# User data directory (config, saves, cache)
-USERDATA_DIR="$SHARED_USERDATA_PATH/PSP-ppsspp"
-mkdir -p "$USERDATA_DIR/PSP/SYSTEM"
-mkdir -p "$USERDATA_DIR/PSP/SAVEDATA"
-mkdir -p "$USERDATA_DIR/PSP/PPSSPP_STATE"
+# Shared save directories (across all devices)
+SHARED_DIR="$SHARED_USERDATA_PATH/PSP-ppsspp/shared"
+mkdir -p "$SHARED_DIR/SAVEDATA"
+mkdir -p "$SHARED_DIR/PPSSPP_STATE"
 
-# First run: copy device-specific defaults
-if [ ! -f "$USERDATA_DIR/.tg5040_initialized" ]; then
-    cp "$PAK_DIR/default.ini" "$USERDATA_DIR/PSP/SYSTEM/ppsspp.ini"
-    touch "$USERDATA_DIR/.tg5040_initialized"
+# Device-specific HOME and resolution
+if [ "$DEVICE" = "brick" ]; then
+    DEVICE_HOME="$SHARED_USERDATA_PATH/PSP-ppsspp/tg5040-brick"
+    DEVICE_DEFAULT_INI="$PAK_DIR/default-brick.ini"
+    DEVICE_XRES=1024
+    DEVICE_YRES=768
+else
+    DEVICE_HOME="$SHARED_USERDATA_PATH/PSP-ppsspp/tg5040-smart-pro"
+    DEVICE_DEFAULT_INI="$PAK_DIR/default-smartpro.ini"
+    DEVICE_XRES=1280
+    DEVICE_YRES=720
+fi
+mkdir -p "$DEVICE_HOME/PSP/SYSTEM"
+
+# PPSSPP v1.20.1 on Linux reads config from XDG path ($HOME/.config/ppsspp/)
+PPSSPP_CONFIG="$DEVICE_HOME/.config/ppsspp/PSP/SYSTEM"
+mkdir -p "$PPSSPP_CONFIG"
+
+# Symlink shared saves into device HOME
+ln -sfn "$SHARED_DIR/SAVEDATA" "$DEVICE_HOME/PSP/SAVEDATA"
+ln -sfn "$SHARED_DIR/PPSSPP_STATE" "$DEVICE_HOME/PSP/PPSSPP_STATE"
+
+# First run: copy device-specific defaults to XDG config path
+if [ ! -f "$DEVICE_HOME/.initialized" ]; then
+    cp "$DEVICE_DEFAULT_INI" "$PPSSPP_CONFIG/ppsspp.ini"
+    touch "$DEVICE_HOME/.initialized"
 fi
 
-export HOME="$USERDATA_DIR"
+export HOME="$DEVICE_HOME"
 export LD_LIBRARY_PATH="$PAK_DIR:$EMU_DIR:$SDCARD_PATH/.system/tg5040/lib:/usr/trimui/lib:$LD_LIBRARY_PATH"
 export LD_PRELOAD="libEGL.so"
 
+# Clear stale graphics backend failure markers (PPSSPP persists these across runs)
+rm -f "$DEVICE_HOME/.config/ppsspp/PSP/SYSTEM/FailedGraphicsBackends.txt" 2>/dev/null
+
 # Overlay menu config
 export EMU_OVERLAY_JSON="$EMU_DIR/overlay_settings.json"
-export EMU_OVERLAY_INI="$USERDATA_DIR/PSP/SYSTEM/ppsspp.ini"
+export EMU_OVERLAY_INI="$PPSSPP_CONFIG/ppsspp.ini"
 export EMU_OVERLAY_GAME="$(basename "$ROM" | sed 's/\.[^.]*$//')"
 # Font and icon resources for overlay menu (from NextUI system resources)
 FONT_FILE=$(ls "$SDCARD_PATH/.system/res/"*.ttf 2>/dev/null | head -1)
@@ -55,49 +79,9 @@ mkdir -p "$MINUI_DIR"
 export EMU_OVERLAY_SCREENSHOT_DIR="$MINUI_DIR"
 export EMU_OVERLAY_ROMFILE="$(basename "$ROM")"
 
-# Launch PPSSPP
+# Launch PPSSPP (binary in PAK_DIR, assets in EMU_DIR)
 cd "$EMU_DIR"
-./PPSSPPSDL --fullscreen --xres 1024 --yres 768 "$ROM" &> "$LOGS_PATH/$EMU_TAG.txt" &
-EMU_PID=$!
-sleep 3
-
-# Thread pinning (cpu0-3 are all Cortex-A53 @ 2000 MHz):
-#   main thread (SDL + emu)    → cpu0
-#   render thread (GL)         → cpu1
-#   audio + helpers            → cpu2-3
-taskset -p 1 "$EMU_PID" 2>/dev/null   # mask 0x1 = cpu0
-
-# Pin known helper threads to cpu2-3
-for TID in $(ls /proc/$EMU_PID/task/ 2>/dev/null); do
-    [ "$TID" = "$EMU_PID" ] && continue
-    TNAME=$(cat /proc/$EMU_PID/task/$TID/comm 2>/dev/null)
-    case "$TNAME" in
-        SDLAudioP2|SDLHotplug*|SDLTimer|mali-*)
-            taskset -p 0xc "$TID" 2>/dev/null ;;  # mask 0xc = cpu2-3
-    esac
-done
-
-# Find the busiest non-main thread (render/emu thread) and pin to cpu1
-sleep 2
-BEST_TID=""
-BEST_UTIME=0
-for TID in $(ls /proc/$EMU_PID/task/ 2>/dev/null); do
-    [ "$TID" = "$EMU_PID" ] && continue
-    TNAME=$(cat /proc/$EMU_PID/task/$TID/comm 2>/dev/null)
-    case "$TNAME" in
-        EmuThread|PPSSPPSDL)
-            UTIME=$(awk '{print $14}' /proc/$EMU_PID/task/$TID/stat 2>/dev/null)
-            UTIME=${UTIME:-0}
-            if [ "$UTIME" -gt "$BEST_UTIME" ]; then
-                BEST_UTIME=$UTIME
-                BEST_TID=$TID
-            fi
-            ;;
-    esac
-done
-[ -n "$BEST_TID" ] && taskset -p 2 "$BEST_TID" 2>/dev/null  # mask 0x2 = cpu1
-
-wait $EMU_PID
+"$PAK_DIR/PPSSPPSDL" --fullscreen --xres "$DEVICE_XRES" --yres "$DEVICE_YRES" "$ROM" &> "$LOGS_PATH/$EMU_TAG.txt"
 
 # Cleanup: disable swap, restore VM defaults
 swapoff "$SWAPFILE" 2>/dev/null

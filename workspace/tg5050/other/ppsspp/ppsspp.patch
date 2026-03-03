@@ -1,0 +1,656 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 32149723a5..91cc1003dc 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -209,6 +209,8 @@ option(USE_SYSTEM_ZSTD "Dynamically link against system zstd" ${USE_SYSTEM_ZSTD}
+ option(USE_SYSTEM_MINIUPNPC "Dynamically link against system miniUPnPc" ${USE_SYSTEM_MINIUPNPC})
+ option(USE_ASAN "Use address sanitizer" OFF)
+ option(USE_UBSAN "Use undefined behaviour sanitizer" OFF)
++option(EMU_OVERLAY "Build with NextUI emulator overlay menu" OFF)
++set(EMU_OVERLAY_DIR "" CACHE PATH "Path to shared emu_overlay library sources")
+ option(USE_CCACHE "Use ccache if detected" ON)
+ option(USE_NO_MMAP "Disable mmap usage" OFF)
+ option(USE_IAP "IAP enabled" OFF)
+@@ -1476,7 +1478,33 @@ else()
+ 		SDL/SDLJoystick.cpp
+ 		SDL/SDLMain.cpp
+ 		SDL/SDLGLGraphicsContext.cpp
++		SDL/SDLOverlay.h
++		SDL/SDLOverlay.cpp
+ 	)
++	if(EMU_OVERLAY AND EMU_OVERLAY_DIR)
++		add_compile_definitions(HAS_EMU_OVERLAY)
++		list(APPEND nativeExtra
++			${EMU_OVERLAY_DIR}/emu_overlay.c
++			${EMU_OVERLAY_DIR}/emu_overlay_cfg.c
++			${EMU_OVERLAY_DIR}/emu_overlay_sdl.c
++			${EMU_OVERLAY_DIR}/cjson/cJSON.c
++		)
++		# Scope the overlay include dir to overlay sources only — the common dir
++		# contains sdl.h which conflicts with SDL2/SDL.h on case-insensitive FS.
++		set_source_files_properties(
++			${EMU_OVERLAY_DIR}/emu_overlay.c
++			${EMU_OVERLAY_DIR}/emu_overlay_cfg.c
++			${EMU_OVERLAY_DIR}/emu_overlay_sdl.c
++			${EMU_OVERLAY_DIR}/cjson/cJSON.c
++			PROPERTIES COMPILE_FLAGS "-std=gnu99 -I${EMU_OVERLAY_DIR}"
++		)
++		set_source_files_properties(SDL/SDLOverlay.cpp
++			PROPERTIES COMPILE_FLAGS "-I${EMU_OVERLAY_DIR}"
++		)
++		set(nativeExtraLibs ${nativeExtraLibs}
++			${SDL_TTF_LIBRARIES} ${SDL_IMAGE_LIBRARIES}
++			${FREETYPE_LIBRARIES})
++	endif()
+ 	if(NOT USE_LIBNX)
+ 		list(APPEND nativeExtra
+ 			SDL/SDLVulkanGraphicsContext.cpp
+diff --git a/Common/ExceptionHandlerSetup.cpp b/Common/ExceptionHandlerSetup.cpp
+index f1b9778885..a3b538fee6 100644
+--- a/Common/ExceptionHandlerSetup.cpp
++++ b/Common/ExceptionHandlerSetup.cpp
+@@ -225,24 +225,20 @@ static struct sigaction old_sa_bus;
+ 
+ static void sigsegv_handler(int sig, siginfo_t* info, void* raw_context) {
+ 	if (sig != SIGSEGV && sig != SIGBUS) {
+-		// We are not interested in other signals - handle it as usual.
+ 		return;
+ 	}
+ 	ucontext_t* context = (ucontext_t*)raw_context;
+ 	int sicode = info->si_code;
+ 	if (sicode != SEGV_MAPERR && sicode != SEGV_ACCERR) {
+-		// Huh? Return.
+ 		return;
+ 	}
+ 	uintptr_t bad_address = (uintptr_t)info->si_addr;
+ 
+-	// Get all the information we can out of the context.
+ #ifdef __OpenBSD__
+ 	ucontext_t* ctx = context;
+ #else
+ 	mcontext_t* ctx = &context->uc_mcontext;
+ #endif
+-	// assume it's not a write
+ 	if (!g_badAccessHandler(bad_address,
+ #ifdef __APPLE__
+ 		*ctx
+@@ -250,33 +246,33 @@ static void sigsegv_handler(int sig, siginfo_t* info, void* raw_context) {
+ 		ctx
+ #endif
+ 	)) {
+-		// retry and crash
+-		// According to the sigaction man page, if sa_flags "SA_SIGINFO" is set to the sigaction
+-		// function pointer, otherwise sa_handler contains one of:
+-		// SIG_DEF: The 'default' action is performed
+-		// SIG_IGN: The signal is ignored
+-		// Any other value is a function pointer to a signal handler
+-
+-		struct sigaction* old_sa;
+-		if (sig == SIGSEGV) {
+-			old_sa = &old_sa_segv;
+-		} else {
+-			old_sa = &old_sa_bus;
++		// Dump crash diagnostics before dying
++		fprintf(stderr, "\n=== PPSSPP CRASH ===\n");
++		fprintf(stderr, "Signal: %d (%s), code: %d\n", sig,
++			sig == SIGSEGV ? "SIGSEGV" : "SIGBUS", sicode);
++		fprintf(stderr, "Fault address: %p\n", (void*)bad_address);
++#if defined(__aarch64__)
++		fprintf(stderr, "PC: 0x%llx\n", (unsigned long long)ctx->pc);
++		for (int i = 0; i < 31; i++) {
++			fprintf(stderr, "  x%-2d = 0x%016llx", i, (unsigned long long)ctx->regs[i]);
++			if ((i & 1) == 1) fprintf(stderr, "\n");
+ 		}
+-
+-		if (old_sa->sa_flags & SA_SIGINFO) {
+-			old_sa->sa_sigaction(sig, info, raw_context);
+-			return;
+-		}
+-		if (old_sa->sa_handler == SIG_DFL) {
+-			signal(sig, SIG_DFL);
+-			return;
+-		}
+-		if (old_sa->sa_handler == SIG_IGN) {
+-			// Ignore signal
+-			return;
++		fprintf(stderr, "\n");
++#endif
++		// Dump memory maps for crash diagnosis
++		FILE* maps = fopen("/proc/self/maps", "r");
++		if (maps) {
++			char line[256];
++			fprintf(stderr, "--- Memory maps ---\n");
++			while (fgets(line, sizeof(line), maps)) {
++				fprintf(stderr, "%s", line);
++			}
++			fclose(maps);
+ 		}
+-		old_sa->sa_handler(sig);
++		fprintf(stderr, "=== END CRASH ===\n");
++		fflush(stderr);
++
++		signal(sig, SIG_DFL);
+ 	}
+ }
+ 
+diff --git a/Common/GPU/OpenGL/GLQueueRunner.cpp b/Common/GPU/OpenGL/GLQueueRunner.cpp
+index c5e2cb4d5e..f3b2e71b9c 100644
+--- a/Common/GPU/OpenGL/GLQueueRunner.cpp
++++ b/Common/GPU/OpenGL/GLQueueRunner.cpp
+@@ -1459,10 +1459,12 @@ void GLQueueRunner::PerformCopy(const GLRStep &step) {
+ 
+ #if defined(USING_GLES2)
+ #if !PPSSPP_PLATFORM(IOS)
+-	glCopyImageSubDataOES(
+-		srcTex, target, srcLevel, srcRect.x, srcRect.y, srcZ,
+-		dstTex, target, dstLevel, dstPos.x, dstPos.y, dstZ,
+-		srcRect.w, srcRect.h, depth);
++	if (glCopyImageSubDataOES) {
++		glCopyImageSubDataOES(
++			srcTex, target, srcLevel, srcRect.x, srcRect.y, srcZ,
++			dstTex, target, dstLevel, dstPos.x, dstPos.y, dstZ,
++			srcRect.w, srcRect.h, depth);
++	}
+ #endif
+ #else
+ 	if (gl_extensions.ARB_copy_image) {
+diff --git a/Common/GPU/OpenGL/thin3d_gl.cpp b/Common/GPU/OpenGL/thin3d_gl.cpp
+index 57279e0c3e..01ffeb0669 100644
+--- a/Common/GPU/OpenGL/thin3d_gl.cpp
++++ b/Common/GPU/OpenGL/thin3d_gl.cpp
+@@ -585,6 +585,11 @@ OpenGLContext::OpenGLContext(bool canChangeSwapInterval) : renderManager_(frameT
+ 	caps_.dualSourceBlend = gl_extensions.ARB_blend_func_extended || gl_extensions.EXT_blend_func_extended;
+ 	caps_.anisoSupported = gl_extensions.EXT_texture_filter_anisotropic;
+ 	caps_.framebufferCopySupported = gl_extensions.OES_copy_image || gl_extensions.NV_copy_image || gl_extensions.EXT_copy_image || gl_extensions.ARB_copy_image;
++#if defined(USING_GLES2) && !PPSSPP_PLATFORM(IOS)
++	if (caps_.framebufferCopySupported && !glCopyImageSubDataOES) {
++		caps_.framebufferCopySupported = false;
++	}
++#endif
+ 	caps_.framebufferBlitSupported = gl_extensions.NV_framebuffer_blit || gl_extensions.ARB_framebuffer_object || gl_extensions.GLES3;
+ 	caps_.framebufferDepthBlitSupported = caps_.framebufferBlitSupported;
+ 	caps_.framebufferStencilBlitSupported = caps_.framebufferBlitSupported;
+diff --git a/SDL/SDLGLGraphicsContext.cpp b/SDL/SDLGLGraphicsContext.cpp
+index bfa33bd929..b0e6714555 100644
+--- a/SDL/SDLGLGraphicsContext.cpp
++++ b/SDL/SDLGLGraphicsContext.cpp
+@@ -21,13 +21,14 @@ class GLRenderManager;
+ #if defined(USING_EGL)
+ 
+ // TODO: Move these into the class.
+-static EGLDisplay               g_eglDisplay    = EGL_NO_DISPLAY;
++// Non-static so overlay can access g_eglDisplay/g_eglSurface/useEGLSwap for buffer swap.
++EGLDisplay               g_eglDisplay    = EGL_NO_DISPLAY;
+ static EGLContext               g_eglContext    = nullptr;
+-static EGLSurface               g_eglSurface    = nullptr;
++EGLSurface               g_eglSurface    = nullptr;
+ static EGLNativeDisplayType     g_Display       = nullptr;
+ static bool                     g_XDisplayOpen  = false;
+ static EGLNativeWindowType      g_Window        = (EGLNativeWindowType)nullptr;
+-static bool useEGLSwap = false;
++bool useEGLSwap = false;
+ 
+ int CheckEGLErrors(const char *file, int line) {
+ 	EGLenum error;
+@@ -428,6 +429,10 @@ int SDLGLGraphicsContext::Init(SDL_Window *&window, int x, int y, int w, int h,
+ 
+ 	// Finally we can do the regular initialization.
+ 	CheckGLExtensions();
++	fprintf(stderr, "GL_VENDOR: %s\n", (const char *)glGetString(0x1F00));
++	fprintf(stderr, "GL_RENDERER: %s\n", (const char *)glGetString(0x1F01));
++	fprintf(stderr, "GL_VERSION: %s\n", (const char *)glGetString(0x1F02));
++	fflush(stderr);
+ 	draw_ = Draw::T3DCreateGLContext(true);
+ 	renderManager_ = (GLRenderManager *)draw_->GetNativeObject(Draw::NativeObject::RENDER_MANAGER);
+ 	renderManager_->SetInflightFrames(g_Config.iInflightFrames);
+diff --git a/SDL/SDLJoystick.cpp b/SDL/SDLJoystick.cpp
+index 290cf57ce1..4d3f6c0e21 100644
+--- a/SDL/SDLJoystick.cpp
++++ b/SDL/SDLJoystick.cpp
+@@ -172,9 +172,26 @@ InputKeyCode SDLJoystick::getKeycodeForButton(SDL_GameControllerButton button) {
+ 	}
+ }
+ 
++// Check if a game controller button event corresponds to raw joystick button 8
++// (the overlay menu button). Button 8 is handled exclusively by our overlay and
++// must not reach PPSSPP's input system. We check via SDL_GameControllerGetBindForButton
++// since the mapping between raw buttons and game controller buttons varies by device.
++static bool isOverlayMenuButton(const SDL_ControllerButtonEvent &cbutton) {
++	SDL_GameController *gc = SDL_GameControllerFromInstanceID(cbutton.which);
++	if (gc) {
++		SDL_GameControllerButtonBind bind = SDL_GameControllerGetBindForButton(
++			gc, (SDL_GameControllerButton)cbutton.button);
++		if (bind.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON && bind.value.button == 8)
++			return true;
++	}
++	return false;
++}
++
+ void SDLJoystick::ProcessInput(const SDL_Event &event){
+ 	switch (event.type) {
+ 	case SDL_CONTROLLERBUTTONDOWN:
++		if (isOverlayMenuButton(event.cbutton))
++			break;
+ 		if (event.cbutton.state == SDL_PRESSED) {
+ 			auto code = getKeycodeForButton((SDL_GameControllerButton)event.cbutton.button);
+ 			if (code != NKCODE_UNKNOWN) {
+@@ -187,6 +204,8 @@ void SDLJoystick::ProcessInput(const SDL_Event &event){
+ 		}
+ 		break;
+ 	case SDL_CONTROLLERBUTTONUP:
++		if (isOverlayMenuButton(event.cbutton))
++			break;
+ 		if (event.cbutton.state == SDL_RELEASED) {
+ 			auto code = getKeycodeForButton((SDL_GameControllerButton)event.cbutton.button);
+ 			if (code != NKCODE_UNKNOWN) {
+diff --git a/SDL/SDLMain.cpp b/SDL/SDLMain.cpp
+index 04c16ca7a0..9901c7425c 100644
+--- a/SDL/SDLMain.cpp
++++ b/SDL/SDLMain.cpp
+@@ -13,6 +13,7 @@
+ #include "SDL_mouse.h"
+ #endif
+ #include "SDL/SDLJoystick.h"
++#include "SDL/SDLOverlay.h"
+ SDLJoystick *joystick = NULL;
+ 
+ #if PPSSPP_PLATFORM(RPI)
+@@ -1765,6 +1766,8 @@ int main(int argc, char *argv[]) {
+ 	}
+ 	EnableFZ();
+ 
++	Overlay_Init(window, w, h);
++
+ 	EmuThreadStart(graphicsContext);
+ 
+ 	graphicsContext->ThreadStart();
+@@ -1795,6 +1798,9 @@ int main(int argc, char *argv[]) {
+ 			SDL_Event event;
+ 			if (SDL_WaitEventTimeout(&event, 100)) {
+ 				do {
++					// Skip menu button events — overlay handles button 8 exclusively
++					if ((event.type == SDL_JOYBUTTONDOWN || event.type == SDL_JOYBUTTONUP) && event.jbutton.button == 8)
++						continue;
+ 					ProcessSDLEvent(window, event, &inputTracker);
+ 
+ 					if (g_QuitRequested || g_RestartRequested)
+@@ -1805,6 +1811,14 @@ int main(int argc, char *argv[]) {
+ 			if (g_QuitRequested || g_RestartRequested)
+ 				break;
+ 
++			// Overlay: check menu button and open overlay if pressed
++			if (Overlay_CheckMenuButton()) {
++				if (Overlay_RunMenu(window)) {
++					g_QuitRequested = true;
++					break;
++				}
++			}
++
+ 			UpdateTextFocus();
+ 			UpdateSDLCursor();
+ 
+@@ -1821,11 +1835,25 @@ int main(int argc, char *argv[]) {
+ 		{
+ 			SDL_Event event;
+ 			while (SDL_PollEvent(&event)) {
++				// Skip menu button events — overlay handles button 8 exclusively
++				if ((event.type == SDL_JOYBUTTONDOWN || event.type == SDL_JOYBUTTONUP) && event.jbutton.button == 8)
++					continue;
+ 				ProcessSDLEvent(window, event, &inputTracker);
+ 			}
+ 		}
+ 		if (g_QuitRequested || g_RestartRequested)
+ 			break;
++
++		// Overlay: check menu button and open overlay if pressed
++		if (Overlay_CheckMenuButton()) {
++			if (Overlay_RunMenu(window)) {
++				g_QuitRequested = true;
++				break;
++			}
++		}
++		if (g_QuitRequested || g_RestartRequested)
++			break;
++
+ 		if (emuThreadState == (int)EmuThreadState::DISABLED) {
+ 			NativeFrame(graphicsContext);
+ 		}
+@@ -1890,6 +1918,8 @@ int main(int argc, char *argv[]) {
+ 
+ 	EmuThreadJoin();
+ 
++	Overlay_Shutdown();
++
+ 	delete joystick;
+ 
+ 	graphicsContext->ThreadEnd();
+diff --git a/SDL/SDLOverlay.cpp b/SDL/SDLOverlay.cpp
+new file mode 100644
+index 0000000000..a6ddb8be97
+--- /dev/null
++++ b/SDL/SDLOverlay.cpp
+@@ -0,0 +1,299 @@
++#include "SDLOverlay.h"
++
++#ifdef HAS_EMU_OVERLAY
++
++#include <cstdio>
++#include <cstring>
++#include <cstdlib>
++#include <string>
++
++#include "Core/Core.h"
++#include "Core/Config.h"
++#include "Core/SaveState.h"
++#include "Core/System.h"
++
++#ifdef USING_EGL
++#include <EGL/egl.h>
++extern EGLDisplay g_eglDisplay;
++extern EGLSurface g_eglSurface;
++extern bool useEGLSwap;
++#endif
++
++extern "C" {
++#include "emu_overlay.h"
++#include "emu_overlay_cfg.h"
++#include "emu_overlay_sdl.h"
++}
++
++// ---------------------------------------------------------------------------
++// Overlay state
++// ---------------------------------------------------------------------------
++
++static EmuOvl s_overlay;
++static EmuOvlConfig s_overlayConfig;
++static bool s_overlayInitialized = false;
++static bool s_overlayConfigLoaded = false;
++static bool s_overlayConfigFailed = false;
++static char s_overlayJsonPath[512] = "";
++static char s_overlayIniPath[512] = "";
++static bool s_menuBtnPrev = false;
++static SDL_Joystick *s_joy = nullptr;
++static Uint8 s_prevHat = 0;
++static Uint32 s_prevButtons = 0;
++static SDL_Window *s_window = nullptr;
++static SDL_GLContext s_glContext = nullptr;
++static int s_screenW = 0;
++static int s_screenH = 0;
++
++// ---------------------------------------------------------------------------
++// Helpers
++// ---------------------------------------------------------------------------
++
++static void overlay_init_paths()
++{
++	const char *json = getenv("EMU_OVERLAY_JSON");
++	const char *ini  = getenv("EMU_OVERLAY_INI");
++	if (json) strncpy(s_overlayJsonPath, json, sizeof(s_overlayJsonPath) - 1);
++	if (ini)  strncpy(s_overlayIniPath,  ini,  sizeof(s_overlayIniPath) - 1);
++}
++
++static void overlay_swap_buffers()
++{
++#ifdef USING_EGL
++	if (useEGLSwap) {
++		eglSwapBuffers(g_eglDisplay, g_eglSurface);
++		return;
++	}
++#endif
++	SDL_GL_SwapWindow(s_window);
++}
++
++static void overlay_ensure_init()
++{
++	if (s_overlayInitialized || s_overlayConfigFailed)
++		return;
++
++	if (!s_overlayConfigLoaded) {
++		overlay_init_paths();
++
++		if (s_overlayJsonPath[0] == '\0')
++			return;
++
++		memset(&s_overlayConfig, 0, sizeof(s_overlayConfig));
++		if (emu_ovl_cfg_load(&s_overlayConfig, s_overlayJsonPath) != 0) {
++			fprintf(stderr, "[Overlay] Failed to load config: %s\n", s_overlayJsonPath);
++			s_overlayConfigFailed = true;
++			return;
++		}
++
++		if (s_overlayIniPath[0] != '\0') {
++			emu_ovl_cfg_read_ini(&s_overlayConfig, s_overlayIniPath);
++		}
++
++		s_overlayConfigLoaded = true;
++	}
++
++	EmuOvlRenderBackend *render = overlay_sdl_get_backend();
++	const char *gameName = getenv("EMU_OVERLAY_GAME");
++
++	if (render->init(s_screenW, s_screenH) != 0) {
++		fprintf(stderr, "[Overlay] Failed to init render backend\n");
++		return;
++	}
++
++	emu_ovl_init(&s_overlay, &s_overlayConfig, render,
++	             gameName ? gameName : "PSP", s_screenW, s_screenH);
++
++	s_overlayInitialized = true;
++}
++
++static EmuOvlInput poll_overlay_input()
++{
++	EmuOvlInput input;
++	memset(&input, 0, sizeof(input));
++
++	SDL_JoystickUpdate();
++	if (!s_joy) return input;
++
++	// D-pad (hat) — edge detect: only trigger on newly-pressed directions
++	Uint8 hat = SDL_JoystickGetHat(s_joy, 0);
++	Uint8 hatPressed = hat & ~s_prevHat;
++	s_prevHat = hat;
++
++	if (hatPressed & SDL_HAT_UP)    input.up    = true;
++	if (hatPressed & SDL_HAT_DOWN)  input.down  = true;
++	if (hatPressed & SDL_HAT_LEFT)  input.left  = true;
++	if (hatPressed & SDL_HAT_RIGHT) input.right = true;
++
++	// Buttons — edge detect: only trigger on newly-pressed buttons
++	// SDL button indices: 0=A(hw), 1=B(hw), 2=X(hw), 3=Y(hw), 4=L1, 5=R1, 8=Menu
++	static const int btnMap[] = {0, 1, 4, 5, 8};
++	Uint32 curButtons = 0;
++	for (int i = 0; i < 5; i++) {
++		if (SDL_JoystickGetButton(s_joy, btnMap[i]))
++			curButtons |= (1u << btnMap[i]);
++	}
++	Uint32 btnPressed = curButtons & ~s_prevButtons;
++	s_prevButtons = curButtons;
++
++	if (btnPressed & (1u << 0)) input.b    = true;
++	if (btnPressed & (1u << 1)) input.a    = true;
++	if (btnPressed & (1u << 4)) input.l1   = true;
++	if (btnPressed & (1u << 5)) input.r1   = true;
++	if (btnPressed & (1u << 8)) input.menu = true;
++
++	return input;
++}
++
++// ---------------------------------------------------------------------------
++// Public API
++// ---------------------------------------------------------------------------
++
++void Overlay_Init(SDL_Window *window, int screen_w, int screen_h)
++{
++	s_window = window;
++	s_glContext = SDL_GL_GetCurrentContext();
++	s_screenW = screen_w;
++	s_screenH = screen_h;
++}
++
++bool Overlay_CheckMenuButton()
++{
++	SDL_JoystickUpdate();
++
++	if (!s_joy) {
++		if (SDL_NumJoysticks() > 0)
++			s_joy = SDL_JoystickOpen(0);
++		if (!s_joy)
++			return false;
++	}
++
++	bool pressed = SDL_JoystickGetButton(s_joy, 8) != 0;
++	bool justPressed = pressed && !s_menuBtnPrev;
++	s_menuBtnPrev = pressed;
++	return justPressed;
++}
++
++bool Overlay_RunMenu(SDL_Window *window)
++{
++	// Only open overlay when in-game
++	if (GetUIState() != UISTATE_INGAME)
++		return false;
++
++	// Ensure GL context is current on this thread before any GL calls
++	if (s_glContext)
++		SDL_GL_MakeCurrent(s_window, s_glContext);
++
++	overlay_ensure_init();
++	if (!s_overlayInitialized)
++		return false;
++
++	// Pause emulation
++	Core_Break(BreakReason::UIPause);
++
++	// Wait for emu thread to actually pause (up to 500ms)
++	for (int i = 0; i < 50 && !Core_IsStepping(); i++) {
++		SDL_Delay(10);
++	}
++
++	// Pause audio
++	SDL_PauseAudio(1);
++
++	// Open overlay (captures current frame)
++	emu_ovl_open(&s_overlay);
++
++	// Reset input edge detection state
++	s_prevHat = s_joy ? SDL_JoystickGetHat(s_joy, 0) : 0;
++	s_prevButtons = 0;
++	if (s_joy) {
++		static const int btnMap[] = {0, 1, 4, 5, 8};
++		for (int i = 0; i < 5; i++) {
++			if (SDL_JoystickGetButton(s_joy, btnMap[i]))
++				s_prevButtons |= (1u << btnMap[i]);
++		}
++	}
++	// Drain pending SDL events
++	SDL_Event ev;
++	while (SDL_PollEvent(&ev)) {}
++	s_menuBtnPrev = true; // prevent re-trigger
++
++	// Overlay menu loop
++	while (emu_ovl_is_active(&s_overlay)) {
++		EmuOvlInput input = poll_overlay_input();
++		emu_ovl_update(&s_overlay, &input);
++		emu_ovl_render(&s_overlay);
++		overlay_swap_buffers();
++		SDL_Delay(16);
++	}
++
++	// Drain any SDL events generated during the overlay loop
++	{
++		SDL_Event ev;
++		while (SDL_PollEvent(&ev)) {}
++	}
++
++	// Resume audio
++	SDL_PauseAudio(0);
++
++	EmuOvlAction action = emu_ovl_get_action(&s_overlay);
++
++	// Handle config changes
++	if (emu_ovl_cfg_has_changes(&s_overlayConfig)) {
++		if (s_overlayIniPath[0] != '\0') {
++			emu_ovl_cfg_write_ini(&s_overlayConfig, s_overlayIniPath);
++		}
++		emu_ovl_cfg_apply_staged(&s_overlayConfig);
++		// Reload PPSSPP config to pick up changes
++		g_Config.Reload();
++	}
++
++	if (action == EMU_OVL_ACTION_QUIT) {
++		Core_Stop();
++		return true;
++	}
++
++	if (action == EMU_OVL_ACTION_SAVE_STATE) {
++		int slot = emu_ovl_get_action_param(&s_overlay);
++		std::string gamePrefix = SaveState::GetGamePrefix(g_paramSFO);
++		SaveState::SaveSlot(gamePrefix, slot, nullptr);
++		emu_ovl_save_slot_screenshot(&s_overlay, slot);
++	}
++
++	if (action == EMU_OVL_ACTION_LOAD_STATE) {
++		int slot = emu_ovl_get_action_param(&s_overlay);
++		std::string gamePrefix = SaveState::GetGamePrefix(g_paramSFO);
++		SaveState::LoadSlot(gamePrefix, slot, nullptr);
++	}
++
++	// Render the captured game frame to cover any transition flash
++	EmuOvlRenderBackend *render = overlay_sdl_get_backend();
++	if (render && render->begin_frame && render->draw_captured_frame && render->end_frame) {
++		render->begin_frame();
++		render->draw_captured_frame(0.0f);
++		render->end_frame();
++		overlay_swap_buffers();
++	}
++
++	// Resume emulation
++	Core_Resume();
++
++	return false;
++}
++
++void Overlay_Shutdown()
++{
++	if (s_joy) {
++		SDL_JoystickClose(s_joy);
++		s_joy = nullptr;
++	}
++	s_overlayInitialized = false;
++}
++
++#else // !HAS_EMU_OVERLAY — stub implementations
++
++void Overlay_Init(SDL_Window *, int, int) {}
++bool Overlay_CheckMenuButton() { return false; }
++bool Overlay_RunMenu(SDL_Window *) { return false; }
++void Overlay_Shutdown() {}
++
++#endif // HAS_EMU_OVERLAY
+diff --git a/SDL/SDLOverlay.h b/SDL/SDLOverlay.h
+new file mode 100644
+index 0000000000..cf051a72ad
+--- /dev/null
++++ b/SDL/SDLOverlay.h
+@@ -0,0 +1,19 @@
++#pragma once
++
++#include <SDL2/SDL.h>
++
++// Initialize overlay paths from environment variables.
++// Must be called after SDL and PPSSPP initialization.
++void Overlay_Init(SDL_Window *window, int screen_w, int screen_h);
++
++// Check if menu button was just pressed (edge detect).
++// Call once per frame from the main thread.
++bool Overlay_CheckMenuButton();
++
++// Run the blocking overlay menu loop.
++// Pauses emulation, runs overlay, resumes on exit.
++// Returns true if the user chose to quit the emulator.
++bool Overlay_RunMenu(SDL_Window *window);
++
++// Cleanup overlay resources.
++void Overlay_Shutdown();

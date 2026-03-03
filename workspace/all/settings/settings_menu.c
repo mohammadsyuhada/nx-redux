@@ -7,6 +7,7 @@
 #include "api.h"
 #include "ui_components.h"
 #include "ui_list.h"
+#include "display_helper.h"
 
 // ============================================
 // Page Stack
@@ -272,7 +273,11 @@ void settings_menu_handle_input(bool* quit, bool* dirty) {
 		case ITEM_TEXT_INPUT: {
 			// Use external keyboard binary
 			extern char* UIKeyboard_open(const char* prompt);
+			DisplayHelper_prepareForExternal();
 			char* result = UIKeyboard_open(sel->name);
+			PAD_poll();
+			PAD_reset();
+			DisplayHelper_recoverDisplay();
 			if (result) {
 				strncpy(sel->text_value, result, sizeof(sel->text_value) - 1);
 				sel->text_value[sizeof(sel->text_value) - 1] = '\0';
@@ -280,8 +285,6 @@ void settings_menu_handle_input(bool* quit, bool* dirty) {
 					sel->on_text_set(result);
 				free(result);
 			}
-			// Clear input state so the B press from keyboard doesn't propagate
-			PAD_reset();
 			changed = 1;
 			break;
 		}

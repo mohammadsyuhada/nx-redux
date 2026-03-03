@@ -32,7 +32,7 @@ enum DeviceType {
 };
 
 bool use_syslog = false;
-bool running = true;
+volatile sig_atomic_t running = 1;
 
 void log(const std::string& msg) {
     if (use_syslog) syslog(LOG_INFO, "%s", msg.c_str());
@@ -80,7 +80,7 @@ void writeAudioFile(const std::string& device_identifier, DeviceType type) {
         log("Updated .asoundrc with USB audio device: " + device_identifier);
     }
 
-    f.flush(); // flush C++ stream buffer
+    f.close();
 
     // Ensure it's flushed to disk
     int fd = ::open(AUDIO_FILE, O_WRONLY);
@@ -95,8 +95,10 @@ void clearAudioFile() {
         log("Removed audio config");
         // Ensure it's flushed to disk
         int dfd = open(USERDATA_PATH, O_DIRECTORY);
-        fsync(dfd); // sync the directory entry removal
-        close(dfd);
+        if (dfd >= 0) {
+            fsync(dfd);
+            close(dfd);
+        }
     } else {
         log("Audio config file not present or failed to remove");
     }
@@ -106,6 +108,8 @@ std::string pathToMac(const std::string& path) {
     auto pos = path.find("dev_");
     if (pos == std::string::npos) return "";
     std::string mac = path.substr(pos + 4);
+    auto slash = mac.find('/');
+    if (slash != std::string::npos) mac = mac.substr(0, slash);
     for (auto& c : mac) if (c == '_') c = ':';
     return mac;
 }
@@ -129,30 +133,31 @@ std::string getUsbAudioCardNumber(struct udev_device* dev) {
     return "";
 }
 
-bool isUsbAudioDevice(struct udev_device* dev) {
+bool isUsbAudioDevice(struct udev_device* dev, bool check_devnode = true) {
     const char* subsystem = udev_device_get_subsystem(dev);
-    const char* devnode = udev_device_get_devnode(dev);
     const char* devpath = udev_device_get_devpath(dev);
-    
+
     if (!subsystem || strcmp(subsystem, "sound") != 0) {
         return false;
     }
-    
-    if (!devnode) {
-        return false;
+
+    if (check_devnode) {
+        const char* devnode = udev_device_get_devnode(dev);
+        if (!devnode) {
+            return false;
+        }
+        // Check if it's a control device (indicates audio capability)
+        std::string devnode_str(devnode);
+        if (devnode_str.find("controlC") == std::string::npos) {
+            return false;
+        }
     }
-    
-    // Check if it's a control device (indicates audio capability)
-    std::string devnode_str(devnode);
-    if (devnode_str.find("controlC") == std::string::npos) {
-        return false;
-    }
-    
+
     // Check if it's USB-connected by looking at the device path
     if (devpath && strstr(devpath, "usb")) {
         return true;
     }
-    
+
     return false;
 }
 
@@ -229,18 +234,15 @@ void handleUsbAudioConnected(struct udev_device* dev) {
     }
 }
 
-void handleUsbAudioDisconnected(struct udev_device* dev) {
-    std::string card = getUsbAudioCardNumber(dev);
-    if (!card.empty()) {
-        log("USB audio device disconnected: card " + card);
-        clearAudioFile();
-        // TODO: we could maintain a stack here, if BT was connected before and restore that instead
-        SetAudioSink(AUDIO_SINK_DEFAULT);
-    }
+void handleUsbAudioDisconnected() {
+    log("USB audio device disconnected");
+    clearAudioFile();
+    // TODO: we could maintain a stack here, if BT was connected before and restore that instead
+    SetAudioSink(AUDIO_SINK_DEFAULT);
 }
 
 void signalHandler(int sig) {
-    running = false;
+    running = 0;
 }
 
 void scanExistingUsbAudioDevices(struct udev* udev) {
@@ -324,8 +326,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Don't filter initially - let's see all events
-    // udev_monitor_filter_add_match_subsystem_devtype(mon, "sound", NULL);
+    udev_monitor_filter_add_match_subsystem_devtype(mon, "sound", NULL);
     udev_monitor_enable_receiving(mon);
     
     // Scan for existing USB audio devices before starting event monitoring
@@ -427,15 +428,11 @@ int main(int argc, char* argv[]) {
                 const char* subsystem = udev_device_get_subsystem(dev);
                 
                 // Only process sound events
-                if (subsystem && strcmp(subsystem, "sound") == 0) {
-                    if (isUsbAudioDevice(dev)) {
-                        if (action) {
-                            if (strcmp(action, "add") == 0) {
-                                handleUsbAudioConnected(dev);
-                            } else if (strcmp(action, "remove") == 0) {
-                                handleUsbAudioDisconnected(dev);
-                            }
-                        }
+                if (subsystem && strcmp(subsystem, "sound") == 0 && action) {
+                    if (strcmp(action, "add") == 0 && isUsbAudioDevice(dev)) {
+                        handleUsbAudioConnected(dev);
+                    } else if (strcmp(action, "remove") == 0 && isUsbAudioDevice(dev, false)) {
+                        handleUsbAudioDisconnected();
                     }
                 }
                 udev_device_unref(dev);
@@ -444,8 +441,10 @@ int main(int argc, char* argv[]) {
     }
 
     // Cleanup
+    dbus_connection_unref(conn);
     udev_monitor_unref(mon);
     udev_unref(udev);
+    QuitSettings();
 
     if (use_syslog) closelog();
     return 0;

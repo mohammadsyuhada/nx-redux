@@ -19,6 +19,7 @@
 #include "scraper_compositor.h"
 #include "scraper_systems.h"
 #include "ui_keyboard.h"
+#include "display_helper.h"
 
 // ============================================
 // Constants
@@ -381,8 +382,8 @@ static void ensureThreadStarted(void) {
 	}
 }
 
-static bool queueAddROM(ROMEntry* rom, SystemEntry* sys) {
-	if (rom->has_artwork)
+static bool queueAddROM(ROMEntry* rom, SystemEntry* sys, bool force) {
+	if (!force && rom->has_artwork)
 		return false;
 	if (isROMQueued(rom->path))
 		return false;
@@ -410,7 +411,7 @@ static bool queueAddROM(ROMEntry* rom, SystemEntry* sys) {
 static int queueAddAllROMs(SystemEntry* sys) {
 	int added = 0;
 	for (int i = 0; i < rom_count; i++) {
-		if (queueAddROM(&roms[i], sys))
+		if (queueAddROM(&roms[i], sys, false))
 			added++;
 	}
 	return added;
@@ -426,7 +427,7 @@ static int queueAddAllSystems(void) {
 	for (int s = 0; s < system_count; s++) {
 		scanROMs(&systems[s]);
 		for (int r = 0; r < rom_count; r++) {
-			if (queueAddROM(&roms[r], &systems[s]))
+			if (queueAddROM(&roms[r], &systems[s], false))
 				added++;
 		}
 	}
@@ -513,7 +514,7 @@ static void scrapeOneQueueItem(ScrapeQueueItem* item) {
 	pthread_mutex_unlock(&queue_mutex);
 
 	ScraperGameInfo info;
-	bool found = ScraperAPI_search(item->filename, item->system_id, &info);
+	bool found = ScraperAPI_search(item->filename, item->rom_path, item->system_id, &info);
 
 	if (!found) {
 		pthread_mutex_lock(&queue_mutex);
@@ -535,15 +536,26 @@ static void scrapeOneQueueItem(ScrapeQueueItem* item) {
 	if (info.screenshot_url[0] != '\0') {
 		snprintf(ss_path, sizeof(ss_path), "%s/screenshot.png", TMP_DIR);
 		has_ss = ScraperAPI_downloadFile(info.screenshot_url, ss_path);
+		LOG_info("Scraper: screenshot download %s\n", has_ss ? "OK" : "FAILED");
+	} else {
+		LOG_info("Scraper: no screenshot URL returned\n");
 	}
 	if (info.boxart_url[0] != '\0') {
 		snprintf(box_path, sizeof(box_path), "%s/boxart.png", TMP_DIR);
 		has_box = ScraperAPI_downloadFile(info.boxart_url, box_path);
+		LOG_info("Scraper: boxart download %s\n", has_box ? "OK" : "FAILED");
+	} else {
+		LOG_info("Scraper: no boxart URL returned\n");
 	}
 	if (info.wheel_url[0] != '\0') {
 		snprintf(wheel_path_tmp, sizeof(wheel_path_tmp), "%s/wheel.png", TMP_DIR);
 		has_wheel = ScraperAPI_downloadFile(info.wheel_url, wheel_path_tmp);
+		LOG_info("Scraper: wheel download %s\n", has_wheel ? "OK" : "FAILED");
+	} else {
+		LOG_info("Scraper: no wheel URL returned\n");
 	}
+
+	LOG_info("Scraper: has_ss=%d has_box=%d has_wheel=%d\n", has_ss, has_box, has_wheel);
 
 	if (!has_ss && !has_box && !has_wheel) {
 		pthread_mutex_lock(&queue_mutex);
@@ -660,6 +672,8 @@ static const char* scrapeStatusText(ScrapeStatus status) {
 static const char* romStatusLabel(ROMEntry* rom) {
 	if (rom->has_artwork)
 		return "Done";
+	if (!isROMQueued(rom->path))
+		return NULL;
 	ScrapeStatus qs = getROMQueueStatus(rom->path);
 	switch (qs) {
 	case SCRAPE_STATUS_IDLE:
@@ -733,7 +747,7 @@ static void renderMainMenu(void) {
 static void renderSystemList(void) {
 	GFX_clear(screen);
 
-	UI_renderMenuBar(screen, "Library");
+	UI_renderMenuBar(screen, "Artwork Manager | Library");
 
 	if (system_count == 0) {
 		UI_renderEmptyState(screen, "No supported systems found",
@@ -773,7 +787,7 @@ static void renderSystemList(void) {
 			SDL_FreeSurface(text_surf);
 		}
 
-		SDL_Color badge_color = selected ? COLOR_WHITE : COLOR_GRAY;
+		SDL_Color badge_color = selected ? COLOR_BLACK : COLOR_GRAY;
 		int badge_x = pos.pill_width - SCALE1(PADDING) - badge_tw;
 		GFX_blitText(font.tiny, badge, 0, badge_color, screen,
 					 &(SDL_Rect){badge_x, pos.text_y + SCALE1(2), badge_tw, badge_th});
@@ -836,7 +850,7 @@ static void renderROMList(void) {
 static void renderProgress(void) {
 	GFX_clear(screen);
 
-	UI_renderMenuBar(screen, "Progress");
+	UI_renderMenuBar(screen, "Artwork Manager | Progress");
 
 	pthread_mutex_lock(&queue_mutex);
 	int count = queue_count;
@@ -906,11 +920,14 @@ static void renderProgress(void) {
 static void renderSettings(void) {
 	GFX_clear(screen);
 
-	UI_renderMenuBar(screen, "Settings");
+	UI_renderMenuBar(screen, "Artwork Manager | Settings");
 
 	ListLayout layout = UI_calcListLayout(screen);
 
 	bool logged_in = cred_username[0] && cred_password[0];
+
+	const char* user_display = cred_username[0] ? cred_username : "Not set";
+	const char* pass_display = cred_password[0] ? "********" : "Not set";
 
 	if (logged_in) {
 		char quota_str[32] = "—";
@@ -921,8 +938,8 @@ static void renderSettings(void) {
 		}
 
 		UISettingsItem items[] = {
-			{.label = "Username", .value = cred_username, .swatch = -1, .cycleable = 0, .desc = "ScreenScraper username"},
-			{.label = "Password", .value = "********", .swatch = -1, .cycleable = 0, .desc = "ScreenScraper password"},
+			{.label = "Username", .value = user_display, .swatch = -1, .cycleable = 0, .desc = "ScreenScraper username"},
+			{.label = "Password", .value = pass_display, .swatch = -1, .cycleable = 0, .desc = "ScreenScraper password"},
 			{.label = "Requests Today", .value = quota_str, .swatch = -1, .cycleable = 0, .desc = "API requests used today"},
 			{.label = "Max Requests", .value = max_str, .swatch = -1, .cycleable = 0, .desc = "Daily request limit"},
 			{.label = "Logout", .value = NULL, .swatch = -1, .cycleable = 0, .desc = "Clear saved credentials"},
@@ -933,8 +950,8 @@ static void renderSettings(void) {
 							  settings_selected, &settings_scroll, NULL);
 	} else {
 		UISettingsItem items[] = {
-			{.label = "Username", .value = "Not set", .swatch = -1, .cycleable = 0, .desc = "ScreenScraper username"},
-			{.label = "Password", .value = "Not set", .swatch = -1, .cycleable = 0, .desc = "ScreenScraper password"},
+			{.label = "Username", .value = user_display, .swatch = -1, .cycleable = 0, .desc = "ScreenScraper username"},
+			{.label = "Password", .value = pass_display, .swatch = -1, .cycleable = 0, .desc = "ScreenScraper password"},
 		};
 
 		int count = sizeof(items) / sizeof(items[0]);
@@ -1092,14 +1109,13 @@ int main(int argc, char* argv[]) {
 					break;
 				}
 				ROMEntry* rom = &roms[rom_selected];
-				if (rom->has_artwork || isROMQueued(rom->path)) {
-					// Already scraped or queued
+				if (isROMQueued(rom->path)) {
 					UI_renderLoadingOverlay(screen, "Already queued",
-											"ROM is already queued or scraped");
+											"ROM is already in the queue");
 					GFX_flip(screen);
 					SDL_Delay(800);
 				} else {
-					queueAddROM(rom, &systems[system_selected]);
+					queueAddROM(rom, &systems[system_selected], true);
 					UI_renderLoadingOverlay(screen, "Queued",
 											rom->filename);
 					GFX_flip(screen);
@@ -1171,29 +1187,56 @@ int main(int argc, char* argv[]) {
 				switch (settings_selected) {
 				case 0: { // Username
 					UIKeyboard_init();
+					DisplayHelper_prepareForExternal();
 					char* user = UIKeyboard_open("ScreenScraper Username");
+					PAD_poll();
+					PAD_reset();
+					DisplayHelper_recoverDisplay();
+					SDL_Surface* ns = DisplayHelper_getReinitScreen();
+					if (ns)
+						screen = ns;
 					if (user) {
 						snprintf(cred_username, sizeof(cred_username), "%s", user);
 						free(user);
 						saveCredentials();
 						user_info_fetched = false;
-						// Clamp selection if item count changed
-						if (settings_selected >= (cred_username[0] && cred_password[0] ? 5 : 2))
-							settings_selected = 0;
+					}
+					// Auto-fetch user info if both credentials are now set
+					if (cred_username[0] && cred_password[0] && !user_info_fetched) {
+						if (ScraperAPI_isOnline()) {
+							UI_renderLoadingOverlay(screen, "Loading", "Fetching account info...");
+							GFX_flip(screen);
+							cached_user_info = ScraperAPI_fetchUserInfo();
+							user_info_fetched = true;
+						}
 					}
 					dirty = true;
 					break;
 				}
 				case 1: { // Password
 					UIKeyboard_init();
+					DisplayHelper_prepareForExternal();
 					char* pass = UIKeyboard_open("ScreenScraper Password");
+					PAD_poll();
+					PAD_reset();
+					DisplayHelper_recoverDisplay();
+					SDL_Surface* ns2 = DisplayHelper_getReinitScreen();
+					if (ns2)
+						screen = ns2;
 					if (pass) {
 						snprintf(cred_password, sizeof(cred_password), "%s", pass);
 						free(pass);
 						saveCredentials();
 						user_info_fetched = false;
-						if (settings_selected >= (cred_username[0] && cred_password[0] ? 5 : 2))
-							settings_selected = 0;
+					}
+					// Auto-fetch user info if both credentials are now set
+					if (cred_username[0] && cred_password[0] && !user_info_fetched) {
+						if (ScraperAPI_isOnline()) {
+							UI_renderLoadingOverlay(screen, "Loading", "Fetching account info...");
+							GFX_flip(screen);
+							cached_user_info = ScraperAPI_fetchUserInfo();
+							user_info_fetched = true;
+						}
 					}
 					dirty = true;
 					break;

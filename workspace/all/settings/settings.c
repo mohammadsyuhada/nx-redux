@@ -20,6 +20,7 @@
 #include "settings_clock.h"
 #include "settings_bootlogo.h"
 #include "ui_components.h"
+#include "display_helper.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1924,6 +1925,15 @@ int main(int argc, char* argv[]) {
 		UI_handleQuitRequest(screen, &quit, &dirty, "Exit Settings?",
 							 "Your settings are automatically saved");
 		settings_menu_handle_input(&quit, &dirty);
+
+		// TG5050: keyboard may have triggered display recovery
+		{
+			SDL_Surface* ns = DisplayHelper_getReinitScreen();
+			if (ns) {
+				screen = ns;
+				dirty = true;
+			}
+		}
 
 		PWR_update(&dirty, &show_setting, NULL, NULL);
 

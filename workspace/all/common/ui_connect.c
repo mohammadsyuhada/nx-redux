@@ -1,6 +1,7 @@
 #include "ui_connect.h"
 #include "ui_listdialog.h"
 #include "ui_keyboard.h"
+#include "display_helper.h"
 #include "api.h"
 
 #include <string.h>
@@ -342,8 +343,11 @@ ConnectResult ConnectDialog_handleInput(void) {
 					connect_start_time = now;
 				} else if (net->security != SECURITY_NONE) {
 					// Need password
+					DisplayHelper_prepareForExternal();
 					char* password = UIKeyboard_open("Password");
-					PAD_reset(); // clear input state after keyboard binary exits
+					PAD_poll();
+					PAD_reset();
+					DisplayHelper_recoverDisplay();
 					if (password) {
 						WIFI_connectPass(net->ssid, net->security, password);
 						free(password);

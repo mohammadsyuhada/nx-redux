@@ -1,5 +1,6 @@
 #include "scraper_compositor.h"
 #include "utils.h"
+#include "api.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -82,19 +83,25 @@ static SDL_Surface* scaleSurfaceToFill(SDL_Surface* src, int target_w, int targe
 	return dst;
 }
 
-// Draw a semi-transparent shadow behind a region
-static void drawShadow(SDL_Surface* canvas, SDL_Rect* rect, int offset, int alpha) {
-	SDL_Surface* shadow = SDL_CreateRGBSurface(0, rect->w + offset * 2,
-											   rect->h + offset * 2, 32,
+// Draw a shape-following drop shadow using the image's alpha channel
+static void drawShapeShadow(SDL_Surface* canvas, SDL_Surface* shape,
+							SDL_Rect* rect, int offset, int alpha) {
+	SDL_Surface* shadow = SDL_CreateRGBSurface(0, shape->w, shape->h, 32,
 											   0x00FF0000, 0x0000FF00,
 											   0x000000FF, 0xFF000000);
 	if (!shadow)
 		return;
-	SDL_FillRect(shadow, NULL, SDL_MapRGBA(shadow->format, 0, 0, 0, alpha));
 
-	SDL_Rect dst_rect = {
-		rect->x - offset + 2, rect->y - offset + 2,
-		shadow->w, shadow->h};
+	// Copy shape to get its alpha channel
+	SDL_SetSurfaceBlendMode(shape, SDL_BLENDMODE_NONE);
+	SDL_BlitSurface(shape, NULL, shadow, NULL);
+	SDL_SetSurfaceBlendMode(shape, SDL_BLENDMODE_BLEND);
+
+	// Modulate to black with reduced alpha — only the alpha channel matters
+	SDL_SetSurfaceColorMod(shadow, 0, 0, 0);
+	SDL_SetSurfaceAlphaMod(shadow, alpha);
+
+	SDL_Rect dst_rect = {rect->x + offset, rect->y + offset, shape->w, shape->h};
 	SDL_SetSurfaceBlendMode(shadow, SDL_BLENDMODE_BLEND);
 	SDL_BlitSurface(shadow, NULL, canvas, &dst_rect);
 	SDL_FreeSurface(shadow);
@@ -114,68 +121,83 @@ SDL_Surface* Compositor_create(const char* screenshot_path,
 	if (!canvas)
 		return NULL;
 
-	// Fill with dark background as fallback
-	SDL_FillRect(canvas, NULL, SDL_MapRGBA(canvas->format, 20, 20, 20, 255));
+	// Transparent background
+	SDL_FillRect(canvas, NULL, SDL_MapRGBA(canvas->format, 0, 0, 0, 0));
 
 	int padding = 12;
+	// Screenshot inset so box art and wheel float outside its edges
+	int ss_pad_x = (int)(CANVAS_W * 0.06);		// left/right padding
+	int ss_pad_bottom = (int)(CANVAS_H * 0.12); // bottom padding
+	int ss_area_w = CANVAS_W - ss_pad_x * 2;
+	int ss_area_h = CANVAS_H - ss_pad_bottom;
 
-	// Layer 1: Screenshot as background (fill)
+	// Layer 1: Screenshot (inset with padding, top-aligned)
 	if (screenshot_path) {
-		SDL_Surface* ss = IMG_Load(screenshot_path);
-		if (ss) {
-			SDL_Surface* bg = scaleSurfaceToFill(ss, CANVAS_W, CANVAS_H);
-			if (bg) {
-				SDL_SetSurfaceBlendMode(bg, SDL_BLENDMODE_NONE);
-				SDL_BlitSurface(bg, NULL, canvas, NULL);
-				SDL_FreeSurface(bg);
+		SDL_Surface* ss_raw = IMG_Load(screenshot_path);
+		if (ss_raw) {
+			// Convert to 32-bit ARGB (paletted/8-bit PNGs lose alpha during scaling)
+			SDL_Surface* ss = SDL_ConvertSurface(ss_raw, canvas->format, 0);
+			SDL_FreeSurface(ss_raw);
+			if (ss) {
+				SDL_Surface* bg = scaleSurfaceToFill(ss, ss_area_w, ss_area_h);
+				if (bg) {
+					SDL_Rect dst_rect = {ss_pad_x, 0, bg->w, bg->h};
+					SDL_SetSurfaceBlendMode(bg, SDL_BLENDMODE_NONE);
+					SDL_BlitSurface(bg, NULL, canvas, &dst_rect);
+					SDL_FreeSurface(bg);
+				}
+				SDL_FreeSurface(ss);
 			}
-			SDL_FreeSurface(ss);
 		}
 	}
 
-	// Layer 2: Box art (bottom-left, ~35% canvas height)
+	// Layer 2: Box art (bottom-left, half canvas size)
 	if (boxart_path) {
-		SDL_Surface* box = IMG_Load(boxart_path);
-		if (box) {
-			int max_h = (int)(CANVAS_H * 0.45);
-			int max_w = (int)(CANVAS_W * 0.35);
-			SDL_Surface* scaled = scaleSurface(box, max_w, max_h);
-			if (scaled) {
-				SDL_Rect box_rect = {
-					padding,
-					CANVAS_H - scaled->h - padding,
-					scaled->w, scaled->h};
-				// Draw shadow
-				drawShadow(canvas, &box_rect, 3, 100);
-				// Blit box art
-				SDL_SetSurfaceBlendMode(scaled, SDL_BLENDMODE_BLEND);
-				SDL_BlitSurface(scaled, NULL, canvas, &box_rect);
-				SDL_FreeSurface(scaled);
+		SDL_Surface* box_raw = IMG_Load(boxart_path);
+		if (box_raw) {
+			SDL_Surface* box = SDL_ConvertSurface(box_raw, canvas->format, 0);
+			SDL_FreeSurface(box_raw);
+			if (box) {
+				int max_w = (int)(CANVAS_W * 0.50);
+				int max_h = (int)(CANVAS_H * 0.50);
+				SDL_Surface* scaled = scaleSurface(box, max_w, max_h);
+				if (scaled) {
+					SDL_Rect box_rect = {
+						padding,
+						CANVAS_H - scaled->h - padding,
+						scaled->w, scaled->h};
+					drawShapeShadow(canvas, scaled, &box_rect, 3, 100);
+					SDL_SetSurfaceBlendMode(scaled, SDL_BLENDMODE_BLEND);
+					SDL_BlitSurface(scaled, NULL, canvas, &box_rect);
+					SDL_FreeSurface(scaled);
+				}
+				SDL_FreeSurface(box);
 			}
-			SDL_FreeSurface(box);
 		}
 	}
 
-	// Layer 3: Wheel/logo (bottom-right, ~30% canvas width)
+	// Layer 3: Wheel/logo (bottom-right, half canvas width)
 	if (wheel_path) {
-		SDL_Surface* wheel = IMG_Load(wheel_path);
-		if (wheel) {
-			int max_w = (int)(CANVAS_W * 0.45);
-			int max_h = (int)(CANVAS_H * 0.25);
-			SDL_Surface* scaled = scaleSurface(wheel, max_w, max_h);
-			if (scaled) {
-				SDL_Rect wheel_rect = {
-					CANVAS_W - scaled->w - padding,
-					CANVAS_H - scaled->h - padding,
-					scaled->w, scaled->h};
-				// Draw shadow
-				drawShadow(canvas, &wheel_rect, 2, 80);
-				// Blit wheel
-				SDL_SetSurfaceBlendMode(scaled, SDL_BLENDMODE_BLEND);
-				SDL_BlitSurface(scaled, NULL, canvas, &wheel_rect);
-				SDL_FreeSurface(scaled);
+		SDL_Surface* wheel_raw = IMG_Load(wheel_path);
+		if (wheel_raw) {
+			SDL_Surface* wheel = SDL_ConvertSurface(wheel_raw, canvas->format, 0);
+			SDL_FreeSurface(wheel_raw);
+			if (wheel) {
+				int max_w = (int)(CANVAS_W * 0.50);
+				int max_h = (int)(CANVAS_H * 0.30);
+				SDL_Surface* scaled = scaleSurface(wheel, max_w, max_h);
+				if (scaled) {
+					SDL_Rect wheel_rect = {
+						CANVAS_W - scaled->w - padding,
+						CANVAS_H - scaled->h - padding,
+						scaled->w, scaled->h};
+					drawShapeShadow(canvas, scaled, &wheel_rect, 2, 80);
+					SDL_SetSurfaceBlendMode(scaled, SDL_BLENDMODE_BLEND);
+					SDL_BlitSurface(scaled, NULL, canvas, &wheel_rect);
+					SDL_FreeSurface(scaled);
+				}
+				SDL_FreeSurface(wheel);
 			}
-			SDL_FreeSurface(wheel);
 		}
 	}
 

@@ -3,9 +3,7 @@
 *.o
 *.so
 !workspace/all/musicplayer/include/fdk_aac/lib/*.so*
-!skeleton/EXTRAS/Emus/**/libs/*.so
-!skeleton/EXTRAS/Emus/shared/mupen64plus/*.so
-!skeleton/EXTRAS/Emus/**/N64.pak/*.so
+!skeleton/EXTRAS/Emus/**/*.so
 !skeleton/SYSTEM/shared/lib/*.so
 *.elf
 *.dtb
@@ -40,6 +38,7 @@ libchdr
 !**/other/mupen64plus/*.patch
 **/other/ppsspp/ppsspp
 !**/other/ppsspp/
+!**/other/ppsspp/pvr_libs/*.so
 **/other/351files
 **/other/fbset
 **/other/mkbootimg

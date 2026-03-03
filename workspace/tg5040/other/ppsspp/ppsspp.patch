@@ -1,46 +1,353 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 32149723a5..d85b6ea536 100644
+index 32149723a5..196d9b51b1 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -1476,7 +1476,38 @@ else()
+@@ -209,6 +209,8 @@ option(USE_SYSTEM_ZSTD "Dynamically link against system zstd" ${USE_SYSTEM_ZSTD}
+ option(USE_SYSTEM_MINIUPNPC "Dynamically link against system miniUPnPc" ${USE_SYSTEM_MINIUPNPC})
+ option(USE_ASAN "Use address sanitizer" OFF)
+ option(USE_UBSAN "Use undefined behaviour sanitizer" OFF)
++option(EMU_OVERLAY "Build with NextUI emulator overlay menu" OFF)
++set(EMU_OVERLAY_DIR "" CACHE PATH "Path to shared emu_overlay library sources")
+ option(USE_CCACHE "Use ccache if detected" ON)
+ option(USE_NO_MMAP "Disable mmap usage" OFF)
+ option(USE_IAP "IAP enabled" OFF)
+@@ -361,6 +363,17 @@ if(USING_FBDEV)
+ endif()
+ if(USING_GLES2)
+ 	add_compile_definitions(USING_GLES2)
++	if(NATIVE_GLES3)
++		# Use real GLES3 headers + library functions instead of gl3stub
++		# function-pointer shims. Avoids symbol interposition on PowerVR
++		# where gl3stub globals shadow the driver's libGLESv2 symbols.
++		add_compile_definitions(NATIVE_GLES3)
++		set_source_files_properties(
++			Common/GPU/OpenGL/gl3stub.c
++			Common/GPU/OpenGL/gl3stub.h
++			PROPERTIES COMPILE_FLAGS "-DNATIVE_GLES3"
++		)
++	endif()
+ endif()
+ if(MOBILE_DEVICE)
+ 	add_compile_definitions(MOBILE_DEVICE)
+@@ -1476,7 +1489,33 @@ else()
  		SDL/SDLJoystick.cpp
  		SDL/SDLMain.cpp
  		SDL/SDLGLGraphicsContext.cpp
 +		SDL/SDLOverlay.h
 +		SDL/SDLOverlay.cpp
  	)
-+	# Overlay menu integration (shared emu_overlay library)
-+	set(OVERLAY_COMMON_DIR "${CMAKE_SOURCE_DIR}/../../../../all/common")
-+	if(EXISTS "${OVERLAY_COMMON_DIR}/emu_overlay.c")
-+		list(APPEND nativeExtra
-+			${OVERLAY_COMMON_DIR}/emu_overlay.c
-+			${OVERLAY_COMMON_DIR}/emu_overlay_cfg.c
-+			${OVERLAY_COMMON_DIR}/emu_overlay_sdl.c
-+			${OVERLAY_COMMON_DIR}/cjson/cJSON.c
-+		)
-+		# NOTE: Do NOT use include_directories() here - the overlay common dir
-+		# contains sdl.h which conflicts with SDL.h on case-insensitive filesystems
-+		# (macOS Docker volume mounts). Scope the include to overlay files only.
-+		set_source_files_properties(
-+			${OVERLAY_COMMON_DIR}/emu_overlay.c
-+			${OVERLAY_COMMON_DIR}/emu_overlay_cfg.c
-+			${OVERLAY_COMMON_DIR}/emu_overlay_sdl.c
-+			${OVERLAY_COMMON_DIR}/cjson/cJSON.c
-+			SDL/SDLOverlay.cpp
-+			PROPERTIES COMPILE_FLAGS "-I${OVERLAY_COMMON_DIR}"
-+		)
++	if(EMU_OVERLAY AND EMU_OVERLAY_DIR)
 +		add_compile_definitions(HAS_EMU_OVERLAY)
-+		# Overlay needs SDL_ttf and SDL_image for font rendering and icons
-+		if(SDL_TTF_LIBRARIES)
-+			list(APPEND nativeExtraLibs ${SDL_TTF_LIBRARIES})
-+		endif()
-+		if(SDL_IMAGE_LIBRARIES)
-+			list(APPEND nativeExtraLibs ${SDL_IMAGE_LIBRARIES})
-+		endif()
++		list(APPEND nativeExtra
++			${EMU_OVERLAY_DIR}/emu_overlay.c
++			${EMU_OVERLAY_DIR}/emu_overlay_cfg.c
++			${EMU_OVERLAY_DIR}/emu_overlay_sdl.c
++			${EMU_OVERLAY_DIR}/cjson/cJSON.c
++		)
++		# Scope the overlay include dir to overlay sources only — the common dir
++		# contains sdl.h which conflicts with SDL2/SDL.h on case-insensitive FS.
++		set_source_files_properties(
++			${EMU_OVERLAY_DIR}/emu_overlay.c
++			${EMU_OVERLAY_DIR}/emu_overlay_cfg.c
++			${EMU_OVERLAY_DIR}/emu_overlay_sdl.c
++			${EMU_OVERLAY_DIR}/cjson/cJSON.c
++			PROPERTIES COMPILE_FLAGS "-std=gnu99 -I${EMU_OVERLAY_DIR}"
++		)
++		set_source_files_properties(SDL/SDLOverlay.cpp
++			PROPERTIES COMPILE_FLAGS "-I${EMU_OVERLAY_DIR}"
++		)
++		set(nativeExtraLibs ${nativeExtraLibs}
++			${SDL_TTF_LIBRARIES} ${SDL_IMAGE_LIBRARIES}
++			${FREETYPE_LIBRARIES})
 +	endif()
  	if(NOT USE_LIBNX)
  		list(APPEND nativeExtra
  			SDL/SDLVulkanGraphicsContext.cpp
+@@ -1539,6 +1578,12 @@ else()
+ 	else()
+ 		list(APPEND nativeExtraLibs SDL2::SDL2)
+ 	endif()
++
++	# PowerVR GE8300 GPU support (TG5040)
++	if(PVR_LIBS_DIR)
++		link_directories(${PVR_LIBS_DIR})
++		list(APPEND nativeExtraLibs IMGegl glslcompiler srv_um usc)
++	endif()
+ endif()
+ 
+ if(WIN32)
+diff --git a/Common/ExceptionHandlerSetup.cpp b/Common/ExceptionHandlerSetup.cpp
+index f1b9778885..a3b538fee6 100644
+--- a/Common/ExceptionHandlerSetup.cpp
++++ b/Common/ExceptionHandlerSetup.cpp
+@@ -225,24 +225,20 @@ static struct sigaction old_sa_bus;
+ 
+ static void sigsegv_handler(int sig, siginfo_t* info, void* raw_context) {
+ 	if (sig != SIGSEGV && sig != SIGBUS) {
+-		// We are not interested in other signals - handle it as usual.
+ 		return;
+ 	}
+ 	ucontext_t* context = (ucontext_t*)raw_context;
+ 	int sicode = info->si_code;
+ 	if (sicode != SEGV_MAPERR && sicode != SEGV_ACCERR) {
+-		// Huh? Return.
+ 		return;
+ 	}
+ 	uintptr_t bad_address = (uintptr_t)info->si_addr;
+ 
+-	// Get all the information we can out of the context.
+ #ifdef __OpenBSD__
+ 	ucontext_t* ctx = context;
+ #else
+ 	mcontext_t* ctx = &context->uc_mcontext;
+ #endif
+-	// assume it's not a write
+ 	if (!g_badAccessHandler(bad_address,
+ #ifdef __APPLE__
+ 		*ctx
+@@ -250,33 +246,33 @@ static void sigsegv_handler(int sig, siginfo_t* info, void* raw_context) {
+ 		ctx
+ #endif
+ 	)) {
+-		// retry and crash
+-		// According to the sigaction man page, if sa_flags "SA_SIGINFO" is set to the sigaction
+-		// function pointer, otherwise sa_handler contains one of:
+-		// SIG_DEF: The 'default' action is performed
+-		// SIG_IGN: The signal is ignored
+-		// Any other value is a function pointer to a signal handler
+-
+-		struct sigaction* old_sa;
+-		if (sig == SIGSEGV) {
+-			old_sa = &old_sa_segv;
+-		} else {
+-			old_sa = &old_sa_bus;
++		// Dump crash diagnostics before dying
++		fprintf(stderr, "\n=== PPSSPP CRASH ===\n");
++		fprintf(stderr, "Signal: %d (%s), code: %d\n", sig,
++			sig == SIGSEGV ? "SIGSEGV" : "SIGBUS", sicode);
++		fprintf(stderr, "Fault address: %p\n", (void*)bad_address);
++#if defined(__aarch64__)
++		fprintf(stderr, "PC: 0x%llx\n", (unsigned long long)ctx->pc);
++		for (int i = 0; i < 31; i++) {
++			fprintf(stderr, "  x%-2d = 0x%016llx", i, (unsigned long long)ctx->regs[i]);
++			if ((i & 1) == 1) fprintf(stderr, "\n");
+ 		}
+-
+-		if (old_sa->sa_flags & SA_SIGINFO) {
+-			old_sa->sa_sigaction(sig, info, raw_context);
+-			return;
+-		}
+-		if (old_sa->sa_handler == SIG_DFL) {
+-			signal(sig, SIG_DFL);
+-			return;
+-		}
+-		if (old_sa->sa_handler == SIG_IGN) {
+-			// Ignore signal
+-			return;
++		fprintf(stderr, "\n");
++#endif
++		// Dump memory maps for crash diagnosis
++		FILE* maps = fopen("/proc/self/maps", "r");
++		if (maps) {
++			char line[256];
++			fprintf(stderr, "--- Memory maps ---\n");
++			while (fgets(line, sizeof(line), maps)) {
++				fprintf(stderr, "%s", line);
++			}
++			fclose(maps);
+ 		}
+-		old_sa->sa_handler(sig);
++		fprintf(stderr, "=== END CRASH ===\n");
++		fflush(stderr);
++
++		signal(sig, SIG_DFL);
+ 	}
+ }
+ 
+diff --git a/Common/GPU/OpenGL/GLCommon.h b/Common/GPU/OpenGL/GLCommon.h
+index 26f9220d7f..8ac2171d20 100644
+--- a/Common/GPU/OpenGL/GLCommon.h
++++ b/Common/GPU/OpenGL/GLCommon.h
+@@ -6,8 +6,13 @@
+ #include <OpenGLES/ES3/gl.h>
+ #include <OpenGLES/ES3/glext.h>
+ #elif defined(USING_GLES2)
++#ifdef NATIVE_GLES3
++#include <GLES3/gl3.h>
++#include <GLES2/gl2ext.h>
++#else
+ #include <GLES2/gl2.h>
+ #include <GLES2/gl2ext.h>
++#endif
+ #define GL_BGRA_EXT 0x80E1
+ #else // OpenGL
+ #include "GL/glew.h"
+diff --git a/Common/GPU/OpenGL/GLFeatures.cpp b/Common/GPU/OpenGL/GLFeatures.cpp
+index c28807ad4b..085e117f31 100644
+--- a/Common/GPU/OpenGL/GLFeatures.cpp
++++ b/Common/GPU/OpenGL/GLFeatures.cpp
+@@ -321,7 +321,11 @@ bool CheckGLExtensions() {
+ 	}
+ 
+ 	const char *extString = nullptr;
++#ifdef USING_GLES2
++	if (gl_extensions.ver[0] >= 3 && gl_extensions.GLES3) {
++#else
+ 	if (gl_extensions.ver[0] >= 3) {
++#endif
+ 		// Let's use the new way for OpenGL 3.x+, required in the core profile.
+ 		GLint numExtensions = 0;
+ 		glGetIntegerv(GL_NUM_EXTENSIONS, &numExtensions);
+diff --git a/Common/GPU/OpenGL/GLQueueRunner.cpp b/Common/GPU/OpenGL/GLQueueRunner.cpp
+index c5e2cb4d5e..f3b2e71b9c 100644
+--- a/Common/GPU/OpenGL/GLQueueRunner.cpp
++++ b/Common/GPU/OpenGL/GLQueueRunner.cpp
+@@ -1459,10 +1459,12 @@ void GLQueueRunner::PerformCopy(const GLRStep &step) {
+ 
+ #if defined(USING_GLES2)
+ #if !PPSSPP_PLATFORM(IOS)
+-	glCopyImageSubDataOES(
+-		srcTex, target, srcLevel, srcRect.x, srcRect.y, srcZ,
+-		dstTex, target, dstLevel, dstPos.x, dstPos.y, dstZ,
+-		srcRect.w, srcRect.h, depth);
++	if (glCopyImageSubDataOES) {
++		glCopyImageSubDataOES(
++			srcTex, target, srcLevel, srcRect.x, srcRect.y, srcZ,
++			dstTex, target, dstLevel, dstPos.x, dstPos.y, dstZ,
++			srcRect.w, srcRect.h, depth);
++	}
+ #endif
+ #else
+ 	if (gl_extensions.ARB_copy_image) {
+diff --git a/Common/GPU/OpenGL/gl3stub.c b/Common/GPU/OpenGL/gl3stub.c
+index 1caf54b685..bf0a2d743b 100644
+--- a/Common/GPU/OpenGL/gl3stub.c
++++ b/Common/GPU/OpenGL/gl3stub.c
+@@ -24,6 +24,7 @@
+ 
+ GLboolean gl3stubInit() {
+     #define FIND_PROC(s) s = (void*)eglGetProcAddress(#s)
++#ifndef NATIVE_GLES3
+     FIND_PROC(glReadBuffer);
+     FIND_PROC(glDrawRangeElements);
+     FIND_PROC(glTexImage3D);
+@@ -128,6 +129,7 @@ GLboolean gl3stubInit() {
+     FIND_PROC(glTexStorage2D);
+     FIND_PROC(glTexStorage3D);
+     FIND_PROC(glGetInternalformativ);
++#endif /* !NATIVE_GLES3 */
+ 
+     /* EXT_blend_func_extended */
+     FIND_PROC(glBindFragDataLocationIndexedEXT);
+@@ -142,9 +144,17 @@ GLboolean gl3stubInit() {
+ 
+     /* OES_copy_image, etc. */
+     FIND_PROC(glCopyImageSubDataOES);
++#ifdef NATIVE_GLES3
++    /* Fallback: on GLES 3.2 drivers, glCopyImageSubData is core but the OES
++       extension entry point may not be advertised. Map it. */
++    if (!glCopyImageSubDataOES) {
++        glCopyImageSubDataOES = (void*)eglGetProcAddress("glCopyImageSubData");
++    }
++#endif
+ 
+     #undef FIND_PROC
+ 
++#ifndef NATIVE_GLES3
+     if (!glReadBuffer ||
+         !glDrawRangeElements ||
+         !glTexImage3D ||
+@@ -252,10 +262,12 @@ GLboolean gl3stubInit() {
+     {
+         return GL_FALSE;
+     }
++#endif /* !NATIVE_GLES3 */
+ 
+     return GL_TRUE;
+ }
+ 
++#ifndef NATIVE_GLES3
+ /* Function pointer definitions */
+ GL_APICALL void           (* GL_APIENTRY glReadBuffer) (GLenum mode);
+ GL_APICALL void           (* GL_APIENTRY glDrawRangeElements) (GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const GLvoid* indices);
+@@ -361,6 +373,7 @@ GL_APICALL void           (* GL_APIENTRY glInvalidateSubFramebuffer) (GLenum tar
+ GL_APICALL void           (* GL_APIENTRY glTexStorage2D) (GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height);
+ GL_APICALL void           (* GL_APIENTRY glTexStorage3D) (GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height, GLsizei depth);
+ GL_APICALL void           (* GL_APIENTRY glGetInternalformativ) (GLenum target, GLenum internalformat, GLenum pname, GLsizei bufSize, GLint* params);
++#endif /* !NATIVE_GLES3 */
+ 
+ /* EXT_blend_func_extended */
+ GL_APICALL void           (* GL_APIENTRY glBindFragDataLocationIndexedEXT) (GLuint program, GLuint colorNumber, GLuint index, const GLchar *name);
+diff --git a/Common/GPU/OpenGL/gl3stub.h b/Common/GPU/OpenGL/gl3stub.h
+index ba99aec6b2..e47f90957e 100644
+--- a/Common/GPU/OpenGL/gl3stub.h
++++ b/Common/GPU/OpenGL/gl3stub.h
+@@ -48,7 +48,8 @@ extern "C" {
+ GLboolean gl3stubInit();
+ 
+ #if !PPSSPP_PLATFORM(IOS)
+-    
++
++#ifndef NATIVE_GLES3
+ /*-------------------------------------------------------------------------
+  * Data type definitions
+  *-----------------------------------------------------------------------*/
+@@ -395,6 +396,9 @@ typedef struct __GLsync *GLsync;
+ 
+ /* OpenGL ES 3.0 */
+ 
++#endif /* !NATIVE_GLES3 - types, constants, entrypoints above are provided by <GLES3/gl3.h> */
++
++#ifndef NATIVE_GLES3
+ extern GL_APICALL void           (* GL_APIENTRY glReadBuffer) (GLenum mode);
+ extern GL_APICALL void           (* GL_APIENTRY glDrawRangeElements) (GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const GLvoid* indices);
+ extern GL_APICALL void           (* GL_APIENTRY glTexImage3D) (GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLsizei depth, GLint border, GLenum format, GLenum type, const GLvoid* pixels);
+@@ -499,6 +503,7 @@ extern GL_APICALL void           (* GL_APIENTRY glInvalidateSubFramebuffer) (GLe
+ extern GL_APICALL void           (* GL_APIENTRY glTexStorage2D) (GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height);
+ extern GL_APICALL void           (* GL_APIENTRY glTexStorage3D) (GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height, GLsizei depth);
+ extern GL_APICALL void           (* GL_APIENTRY glGetInternalformativ) (GLenum target, GLenum internalformat, GLenum pname, GLsizei bufSize, GLint* params);
++#endif /* !NATIVE_GLES3 - core GLES3 function pointer externs */
+ 
+ /* EXT_blend_func_extended */
+ extern GL_APICALL void           (* GL_APIENTRY glBindFragDataLocationIndexedEXT) (GLuint program, GLuint colorNumber, GLuint index, const GLchar *name);
+diff --git a/Common/GPU/OpenGL/thin3d_gl.cpp b/Common/GPU/OpenGL/thin3d_gl.cpp
+index 57279e0c3e..01ffeb0669 100644
+--- a/Common/GPU/OpenGL/thin3d_gl.cpp
++++ b/Common/GPU/OpenGL/thin3d_gl.cpp
+@@ -585,6 +585,11 @@ OpenGLContext::OpenGLContext(bool canChangeSwapInterval) : renderManager_(frameT
+ 	caps_.dualSourceBlend = gl_extensions.ARB_blend_func_extended || gl_extensions.EXT_blend_func_extended;
+ 	caps_.anisoSupported = gl_extensions.EXT_texture_filter_anisotropic;
+ 	caps_.framebufferCopySupported = gl_extensions.OES_copy_image || gl_extensions.NV_copy_image || gl_extensions.EXT_copy_image || gl_extensions.ARB_copy_image;
++#if defined(USING_GLES2) && !PPSSPP_PLATFORM(IOS)
++	if (caps_.framebufferCopySupported && !glCopyImageSubDataOES) {
++		caps_.framebufferCopySupported = false;
++	}
++#endif
+ 	caps_.framebufferBlitSupported = gl_extensions.NV_framebuffer_blit || gl_extensions.ARB_framebuffer_object || gl_extensions.GLES3;
+ 	caps_.framebufferDepthBlitSupported = caps_.framebufferBlitSupported;
+ 	caps_.framebufferStencilBlitSupported = caps_.framebufferBlitSupported;
+diff --git a/Common/GPU/thin3d.cpp b/Common/GPU/thin3d.cpp
+index 4e479e384f..005d361d38 100644
+--- a/Common/GPU/thin3d.cpp
++++ b/Common/GPU/thin3d.cpp
+@@ -181,7 +181,7 @@ static const std::vector<ShaderSource> fsTexCol = {
+ 	"varying vec4 oColor0;\n"
+ 	"varying vec2 oTexCoord0;\n"
+ 	"uniform sampler2D Sampler0;\n"
+-	"void main() { vec4 col = texture2D(Sampler0, oTexCoord0) * oColor0; col.rgb *= oColor0.a; gl_FragColor = col; }\n"
++	"void main() { vec4 col = texture2D(Sampler0, oTexCoord0) * oColor0; col.rgb *= oColor0.a; col.a = 1.0; gl_FragColor = col; }\n"
+ 	},
+ 	{ShaderLanguage::HLSL_D3D11,
+ 	"struct PS_INPUT { float4 color : COLOR0; float2 uv : TEXCOORD0; };\n"
+@@ -219,7 +219,7 @@ static const std::vector<ShaderSource> fsTexColRBSwizzle = {
+ 	"varying vec4 oColor0;\n"
+ 	"varying vec2 oTexCoord0;\n"
+ 	"uniform sampler2D Sampler0;\n"
+-	"void main() { vec4 col = texture2D(Sampler0, oTexCoord0).zyxw * oColor0; col.rgb *= oColor0.a; gl_FragColor = col; }\n"
++	"void main() { vec4 col = texture2D(Sampler0, oTexCoord0).zyxw * oColor0; col.rgb *= oColor0.a; col.a = 1.0; gl_FragColor = col; }\n"
+ 	},
+ 	{ShaderLanguage::HLSL_D3D11,
+ 	"struct PS_INPUT { float4 color : COLOR0; float2 uv : TEXCOORD0; };\n"
 diff --git a/Core/Screenshot.cpp b/Core/Screenshot.cpp
 index 82949421cf..3a06407358 100644
 --- a/Core/Screenshot.cpp
@@ -66,27 +373,32 @@ index 82949421cf..3a06407358 100644
  
  bool Save888RGBScreenshot(const Path &filename, ScreenshotFormat fmt, const u8 *bufferRGB888, int w, int h) {
 diff --git a/SDL/SDLGLGraphicsContext.cpp b/SDL/SDLGLGraphicsContext.cpp
-index bfa33bd929..37a73aae6c 100644
+index bfa33bd929..6e554c0b78 100644
 --- a/SDL/SDLGLGraphicsContext.cpp
 +++ b/SDL/SDLGLGraphicsContext.cpp
-@@ -21,13 +21,14 @@ class GLRenderManager;
- #if defined(USING_EGL)
+@@ -325,6 +325,11 @@ int SDLGLGraphicsContext::Init(SDL_Window *&window, int x, int y, int w, int h,
+ 	// On Mac, full screen animates so each attempt is slow.
+ 	mode |= SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN;
  
- // TODO: Move these into the class.
--static EGLDisplay               g_eglDisplay    = EGL_NO_DISPLAY;
-+// Non-static so overlay can access g_eglDisplay/g_eglSurface/useEGLSwap for buffer swap.
-+EGLDisplay               g_eglDisplay    = EGL_NO_DISPLAY;
- static EGLContext               g_eglContext    = nullptr;
--static EGLSurface               g_eglSurface    = nullptr;
-+EGLSurface               g_eglSurface    = nullptr;
- static EGLNativeDisplayType     g_Display       = nullptr;
- static bool                     g_XDisplayOpen  = false;
- static EGLNativeWindowType      g_Window        = (EGLNativeWindowType)nullptr;
--static bool useEGLSwap = false;
-+bool useEGLSwap = false;
++	// Request a backbuffer with no alpha channel. On PowerVR fbdev compositors,
++	// the display compositor uses the backbuffer's alpha for transparency —
++	// alpha=0 makes the output invisible/black.
++	SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 0);
++
+ 	SDL_GLContext glContext = nullptr;
+ 	for (size_t i = 0; i < ARRAY_SIZE(attemptVersions); ++i) {
+ 		const auto &ver = attemptVersions[i];
+@@ -428,6 +433,10 @@ int SDLGLGraphicsContext::Init(SDL_Window *&window, int x, int y, int w, int h,
  
- int CheckEGLErrors(const char *file, int line) {
- 	EGLenum error;
+ 	// Finally we can do the regular initialization.
+ 	CheckGLExtensions();
++	fprintf(stderr, "GL_VENDOR: %s\n", (const char *)glGetString(0x1F00));
++	fprintf(stderr, "GL_RENDERER: %s\n", (const char *)glGetString(0x1F01));
++	fprintf(stderr, "GL_VERSION: %s\n", (const char *)glGetString(0x1F02));
++	fflush(stderr);
+ 	draw_ = Draw::T3DCreateGLContext(true);
+ 	renderManager_ = (GLRenderManager *)draw_->GetNativeObject(Draw::NativeObject::RENDER_MANAGER);
+ 	renderManager_->SetInflightFrames(g_Config.iInflightFrames);
 diff --git a/SDL/SDLJoystick.cpp b/SDL/SDLJoystick.cpp
 index 290cf57ce1..4d3f6c0e21 100644
 --- a/SDL/SDLJoystick.cpp
@@ -128,7 +440,7 @@ index 290cf57ce1..4d3f6c0e21 100644
  			auto code = getKeycodeForButton((SDL_GameControllerButton)event.cbutton.button);
  			if (code != NKCODE_UNKNOWN) {
 diff --git a/SDL/SDLMain.cpp b/SDL/SDLMain.cpp
-index 04c16ca7a0..cd34c3e723 100644
+index 04c16ca7a0..9901c7425c 100644
 --- a/SDL/SDLMain.cpp
 +++ b/SDL/SDLMain.cpp
 @@ -13,6 +13,7 @@
@@ -173,7 +485,7 @@ index 04c16ca7a0..cd34c3e723 100644
  			UpdateTextFocus();
  			UpdateSDLCursor();
  
-@@ -1821,6 +1835,9 @@ int main(int argc, char *argv[]) {
+@@ -1821,11 +1835,25 @@ int main(int argc, char *argv[]) {
  		{
  			SDL_Event event;
  			while (SDL_PollEvent(&event)) {
@@ -183,10 +495,9 @@ index 04c16ca7a0..cd34c3e723 100644
  				ProcessSDLEvent(window, event, &inputTracker);
  			}
  		}
-@@ -1832,6 +1849,14 @@ int main(int argc, char *argv[]) {
  		if (g_QuitRequested || g_RestartRequested)
  			break;
- 
++
 +		// Overlay: check menu button and open overlay if pressed
 +		if (Overlay_CheckMenuButton()) {
 +			if (Overlay_RunMenu(window)) {
@@ -194,11 +505,13 @@ index 04c16ca7a0..cd34c3e723 100644
 +				break;
 +			}
 +		}
++		if (g_QuitRequested || g_RestartRequested)
++			break;
 +
- 		UpdateTextFocus();
- 		UpdateSDLCursor();
- 
-@@ -1890,6 +1915,8 @@ int main(int argc, char *argv[]) {
+ 		if (emuThreadState == (int)EmuThreadState::DISABLED) {
+ 			NativeFrame(graphicsContext);
+ 		}
+@@ -1890,6 +1918,8 @@ int main(int argc, char *argv[]) {
  
  	EmuThreadJoin();
  
@@ -209,10 +522,10 @@ index 04c16ca7a0..cd34c3e723 100644
  	graphicsContext->ThreadEnd();
 diff --git a/SDL/SDLOverlay.cpp b/SDL/SDLOverlay.cpp
 new file mode 100644
-index 0000000000..7af3d0b081
+index 0000000000..8594178727
 --- /dev/null
 +++ b/SDL/SDLOverlay.cpp
-@@ -0,0 +1,302 @@
+@@ -0,0 +1,305 @@
 +#include "SDLOverlay.h"
 +
 +#ifdef HAS_EMU_OVERLAY
@@ -222,17 +535,12 @@ index 0000000000..7af3d0b081
 +#include <cstdlib>
 +#include <string>
 +
++#include <GLES3/gl3.h>
++
 +#include "Core/Core.h"
 +#include "Core/Config.h"
 +#include "Core/SaveState.h"
 +#include "Core/System.h"
-+
-+#ifdef USING_EGL
-+#include <EGL/egl.h>
-+extern EGLDisplay g_eglDisplay;
-+extern EGLSurface g_eglSurface;
-+extern bool useEGLSwap;
-+#endif
 +
 +extern "C" {
 +#include "emu_overlay.h"
@@ -274,12 +582,13 @@ index 0000000000..7af3d0b081
 +
 +static void overlay_swap_buffers()
 +{
-+#ifdef USING_EGL
-+	if (useEGLSwap) {
-+		eglSwapBuffers(g_eglDisplay, g_eglSurface);
-+		return;
-+	}
-+#endif
++	// PowerVR FBDEV compositor uses backbuffer alpha for transparency.
++	// Force alpha channel to 1.0 (preserve RGB) so overlay is visible.
++	glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
++	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
++	glClear(GL_COLOR_BUFFER_BIT);
++	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
++
 +	SDL_GL_SwapWindow(s_window);
 +}
 +
@@ -370,6 +679,7 @@ index 0000000000..7af3d0b081
 +	s_glContext = SDL_GL_GetCurrentContext();
 +	s_screenW = screen_w;
 +	s_screenH = screen_h;
++	fprintf(stderr, "[Overlay] Init: %dx%d, glCtx=%p\n", screen_w, screen_h, (void*)s_glContext);
 +}
 +
 +bool Overlay_CheckMenuButton()
@@ -400,9 +710,12 @@ index 0000000000..7af3d0b081
 +		SDL_GL_MakeCurrent(s_window, s_glContext);
 +
 +	overlay_ensure_init();
-+	if (!s_overlayInitialized)
++	if (!s_overlayInitialized) {
++		fprintf(stderr, "[Overlay] RunMenu: init failed, returning\n");
 +		return false;
++	}
 +
++	fprintf(stderr, "[Overlay] RunMenu: pausing emulation\n");
 +	// Pause emulation
 +	Core_Break(BreakReason::UIPause);
 +
@@ -414,6 +727,7 @@ index 0000000000..7af3d0b081
 +	// Pause audio
 +	SDL_PauseAudio(1);
 +
++	fprintf(stderr, "[Overlay] RunMenu: stepping=%d, opening overlay\n", Core_IsStepping());
 +	// Open overlay (captures current frame)
 +	emu_ovl_open(&s_overlay);
 +
@@ -432,6 +746,7 @@ index 0000000000..7af3d0b081
 +	while (SDL_PollEvent(&ev)) {}
 +	s_menuBtnPrev = true; // prevent re-trigger
 +
++	fprintf(stderr, "[Overlay] RunMenu: entering menu loop\n");
 +	// Overlay menu loop
 +	while (emu_ovl_is_active(&s_overlay)) {
 +		EmuOvlInput input = poll_overlay_input();
@@ -493,6 +808,7 @@ index 0000000000..7af3d0b081
 +	}
 +
 +	// Resume emulation
++	fprintf(stderr, "[Overlay] RunMenu: resuming emulation\n");
 +	Core_Resume();
 +
 +	return false;

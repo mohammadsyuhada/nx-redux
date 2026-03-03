@@ -181,6 +181,9 @@ static void parse_section(const cJSON* json_sec, EmuOvlSection* sec) {
 	const char* name = json_get_string(json_sec, "name");
 	safe_strcpy(sec->name, sizeof(sec->name), name);
 
+	const char* ini_sec = json_get_string(json_sec, "ini_section");
+	safe_strcpy(sec->ini_section, sizeof(sec->ini_section), ini_sec);
+
 	sec->item_count = 0;
 	const cJSON* items_arr = cJSON_GetObjectItemCaseSensitive(json_sec, "items");
 	if (!cJSON_IsArray(items_arr))
@@ -279,6 +282,14 @@ static int parse_ini_int(const char* val) {
 	return atoi(val);
 }
 
+// Get the effective INI section name for a config section.
+// Uses per-section ini_section if set, otherwise falls back to global config_section.
+static const char* get_ini_section(const EmuOvlConfig* cfg, const EmuOvlSection* sec) {
+	if (sec->ini_section[0] != '\0')
+		return sec->ini_section;
+	return cfg->config_section;
+}
+
 int emu_ovl_cfg_read_ini(EmuOvlConfig* cfg, const char* ini_path) {
 	if (!cfg || !ini_path)
 		return -1;
@@ -289,7 +300,7 @@ int emu_ovl_cfg_read_ini(EmuOvlConfig* cfg, const char* ini_path) {
 		return -1;
 	}
 
-	bool in_target_section = false;
+	char current_ini_section[EMU_OVL_MAX_STR] = "";
 	char line[1024];
 
 	while (fgets(line, sizeof(line), f)) {
@@ -301,15 +312,14 @@ int emu_ovl_cfg_read_ini(EmuOvlConfig* cfg, const char* ini_path) {
 			char* end = strchr(trimmed, ']');
 			if (end) {
 				*end = '\0';
-				const char* section_name = trimmed + 1;
-				in_target_section = (strcmp(section_name, cfg->config_section) == 0);
+				safe_strcpy(current_ini_section, sizeof(current_ini_section), trimmed + 1);
 			} else {
-				in_target_section = false;
+				current_ini_section[0] = '\0';
 			}
 			continue;
 		}
 
-		if (!in_target_section)
+		if (current_ini_section[0] == '\0')
 			continue;
 
 		// Skip comments and blank lines
@@ -325,9 +335,13 @@ int emu_ovl_cfg_read_ini(EmuOvlConfig* cfg, const char* ini_path) {
 		char* ini_key = strip(trimmed);
 		char* ini_val = strip(eq + 1);
 
-		// Match against all items in all sections
+		// Match against items whose INI section matches the current section
 		for (int s = 0; s < cfg->section_count; s++) {
 			EmuOvlSection* sec = &cfg->sections[s];
+			const char* target_sec = get_ini_section(cfg, sec);
+			if (strcmp(target_sec, current_ini_section) != 0)
+				continue;
+
 			for (int i = 0; i < sec->item_count; i++) {
 				EmuOvlItem* item = &sec->items[i];
 				if (strcmp(item->key, ini_key) != 0)
@@ -383,6 +397,13 @@ static void write_item_value(FILE* out, const EmuOvlItem* item) {
 	}
 }
 
+// Dirty item tracking with its target INI section name
+typedef struct {
+	EmuOvlItem* item;
+	const char* ini_section;
+	bool written;
+} DirtyEntry;
+
 int emu_ovl_cfg_write_ini(EmuOvlConfig* cfg, const char* ini_path) {
 	if (!cfg || !ini_path)
 		return -1;
@@ -394,16 +415,17 @@ int emu_ovl_cfg_write_ini(EmuOvlConfig* cfg, const char* ini_path) {
 		return -1;
 	}
 
-	// Build a flat list of dirty items for tracking
-	EmuOvlItem* dirty_items[EMU_OVL_MAX_SECTIONS * EMU_OVL_MAX_ITEMS];
-	bool dirty_written[EMU_OVL_MAX_SECTIONS * EMU_OVL_MAX_ITEMS];
+	// Build a flat list of dirty items with their target INI sections
+	DirtyEntry dirty[EMU_OVL_MAX_SECTIONS * EMU_OVL_MAX_ITEMS];
 	int dirty_count = 0;
 	for (int s = 0; s < cfg->section_count; s++) {
 		EmuOvlSection* sec = &cfg->sections[s];
+		const char* target = get_ini_section(cfg, sec);
 		for (int i = 0; i < sec->item_count; i++) {
 			if (sec->items[i].dirty) {
-				dirty_items[dirty_count] = &sec->items[i];
-				dirty_written[dirty_count] = false;
+				dirty[dirty_count].item = &sec->items[i];
+				dirty[dirty_count].ini_section = target;
+				dirty[dirty_count].written = false;
 				dirty_count++;
 			}
 		}
@@ -422,7 +444,7 @@ int emu_ovl_cfg_write_ini(EmuOvlConfig* cfg, const char* ini_path) {
 		return -1;
 	}
 
-	bool in_target_section = false;
+	char current_ini_section[EMU_OVL_MAX_STR] = "";
 	char* cursor = original;
 
 	while (cursor && *cursor) {
@@ -447,21 +469,20 @@ int emu_ovl_cfg_write_ini(EmuOvlConfig* cfg, const char* ini_path) {
 
 		// Check for section header
 		if (trimmed[0] == '[') {
-			// If leaving target section, append any unwritten dirty items
-			if (in_target_section) {
+			// Leaving current section — append any unwritten dirty items for it
+			if (current_ini_section[0] != '\0') {
 				for (int d = 0; d < dirty_count; d++) {
-					if (!dirty_written[d])
-						write_item_value(out, dirty_items[d]);
+					if (!dirty[d].written && strcmp(dirty[d].ini_section, current_ini_section) == 0)
+						write_item_value(out, dirty[d].item);
 				}
 			}
 
 			char* end = strchr(trimmed, ']');
 			if (end) {
 				*end = '\0';
-				const char* section_name = trimmed + 1;
-				in_target_section = (strcmp(section_name, cfg->config_section) == 0);
+				safe_strcpy(current_ini_section, sizeof(current_ini_section), trimmed + 1);
 			} else {
-				in_target_section = false;
+				current_ini_section[0] = '\0';
 			}
 			// Write the original line unchanged
 			fwrite(cursor, 1, line_len, out);
@@ -469,14 +490,23 @@ int emu_ovl_cfg_write_ini(EmuOvlConfig* cfg, const char* ini_path) {
 			continue;
 		}
 
-		// If not in the target section, write unchanged
-		if (!in_target_section) {
+		// Check if any dirty items target the current INI section
+		bool section_has_dirty = false;
+		for (int d = 0; d < dirty_count; d++) {
+			if (!dirty[d].written && strcmp(dirty[d].ini_section, current_ini_section) == 0) {
+				section_has_dirty = true;
+				break;
+			}
+		}
+
+		// If no dirty items target this section, write unchanged
+		if (!section_has_dirty) {
 			fwrite(cursor, 1, line_len, out);
 			cursor += line_len;
 			continue;
 		}
 
-		// In target section: check if this line matches a dirty key
+		// In a section with dirty items: check if this line matches a dirty key
 		char parse_buf[1024];
 		memcpy(parse_buf, cursor, copy_len);
 		parse_buf[copy_len] = '\0';
@@ -500,10 +530,12 @@ int emu_ovl_cfg_write_ini(EmuOvlConfig* cfg, const char* ini_path) {
 		*eq = '\0';
 		char* ini_key = strip(parse_trimmed);
 
-		// Search for a dirty item with this key
+		// Search for a dirty item with this key in the current INI section
 		int matched_idx = -1;
 		for (int d = 0; d < dirty_count; d++) {
-			if (!dirty_written[d] && strcmp(dirty_items[d]->key, ini_key) == 0) {
+			if (!dirty[d].written &&
+				strcmp(dirty[d].ini_section, current_ini_section) == 0 &&
+				strcmp(dirty[d].item->key, ini_key) == 0) {
 				matched_idx = d;
 				break;
 			}
@@ -511,8 +543,8 @@ int emu_ovl_cfg_write_ini(EmuOvlConfig* cfg, const char* ini_path) {
 
 		if (matched_idx >= 0) {
 			// Write replacement line and mark as written
-			write_item_value(out, dirty_items[matched_idx]);
-			dirty_written[matched_idx] = true;
+			write_item_value(out, dirty[matched_idx].item);
+			dirty[matched_idx].written = true;
 		} else {
 			// Not a dirty key, write unchanged
 			fwrite(cursor, 1, line_len, out);
@@ -521,11 +553,11 @@ int emu_ovl_cfg_write_ini(EmuOvlConfig* cfg, const char* ini_path) {
 		cursor += line_len;
 	}
 
-	// If we ended while still in target section, append unwritten items
-	if (in_target_section) {
+	// If we ended while still in a section, append unwritten items for it
+	if (current_ini_section[0] != '\0') {
 		for (int d = 0; d < dirty_count; d++) {
-			if (!dirty_written[d])
-				write_item_value(out, dirty_items[d]);
+			if (!dirty[d].written && strcmp(dirty[d].ini_section, current_ini_section) == 0)
+				write_item_value(out, dirty[d].item);
 		}
 	}
 

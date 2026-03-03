@@ -15,6 +15,10 @@ ifeq (,$(PLATFORMS))
 PLATFORMS = tg5040 tg5050
 endif
 
+# Pinned upstream commits — update these when upgrading to a new version
+DRASTIC_REPO=https://github.com/trngaje/advanced_drastic
+DRASTIC_COMMIT=2b87c96a805758a249127ac979e0b33a64dd7199# 2026-01-21
+
 ###########################################################
 
 BUILD_HASH:=$(shell git rev-parse --short HEAD)
@@ -224,12 +228,12 @@ setup: name
 	mkdir -p ./releases
 	cp -R ./skeleton ./build
 
-	# Fetch advanced drastic emulator
+	# Fetch advanced drastic emulator (pinned to $(DRASTIC_COMMIT))
 	@echo "Fetching advanced drastic..."
-	curl -sL https://github.com/trngaje/advanced_drastic/archive/refs/heads/master.tar.gz | tar xz -C /tmp
+	curl -sL $(DRASTIC_REPO)/archive/$(DRASTIC_COMMIT).tar.gz | tar xz -C /tmp
 	mkdir -p ./build/EXTRAS/Emus/shared/drastic
-	cp -Rf /tmp/advanced_drastic-master/* ./build/EXTRAS/Emus/shared/drastic/
-	rm -rf /tmp/advanced_drastic-master
+	cp -Rf /tmp/advanced_drastic-$(DRASTIC_COMMIT)/* ./build/EXTRAS/Emus/shared/drastic/
+	rm -rf /tmp/advanced_drastic-$(DRASTIC_COMMIT)
 	rm -f ./build/EXTRAS/Emus/shared/drastic/history.md ./build/EXTRAS/Emus/shared/drastic/launch.sh
 	rm -rf ./build/EXTRAS/Emus/shared/drastic/images
 	# Overlay custom drastic resources (bg, fonts) on top of upstream
@@ -242,7 +246,7 @@ setup: name
 
 	# remove authoring detritus
 	cd ./build && find . -type f -name '.keep' -delete
-	cd ./build && find . -type f -name '*.meta' -delete
+	cd ./build && find . -type f -name '*.meta' -not -path '*/ppsspp/*' -delete
 	echo $(BUILD_HASH) > ./workspace/hash.txt
 	
 	# copy readmes to workspace so we can use Linux fmt instead of host's

@@ -11,6 +11,7 @@
 #include "ui_list.h"
 #include "ui_keyboard.h"
 #include "ui_components.h"
+#include "display_helper.h"
 
 // ============================================
 // WiFi Network Info (attached to user_data)
@@ -137,8 +138,11 @@ static void wifi_action_connect(void) {
 		WIFI_connect(info->ssid, info->security);
 	} else {
 		// Need password
+		DisplayHelper_prepareForExternal();
 		char* password = UIKeyboard_open("Enter WiFi Password");
-		PAD_reset(); // clear input state so A press doesn't propagate
+		PAD_poll();
+		PAD_reset();
+		DisplayHelper_recoverDisplay();
 		if (password) {
 			WIFI_connectPass(info->ssid, info->security, password);
 			free(password);

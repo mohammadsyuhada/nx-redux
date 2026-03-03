@@ -2,7 +2,7 @@
   "emulator": "ppsspp",
   "config_file": "ppsspp.ini",
   "config_section": "Graphics",
-  "options_hint": "Restart game to apply changes",
+  "options_hint": "Some changes need game restart",
   "save_state": true,
   "load_state": true,
   "sections": [
@@ -12,25 +12,14 @@
         {
           "key": "InternalResolution",
           "label": "Resolution",
-          "description": "Internal rendering resolution multiplier",
           "type": "cycle",
           "values": [0, 1, 2, 3, 4],
           "labels": ["Auto", "1x", "2x", "3x", "4x"],
           "default": 2
         },
         {
-          "key": "DisplayAspectRatio",
-          "label": "Aspect Ratio",
-          "description": "Display aspect ratio mode",
-          "type": "cycle",
-          "values": [0, 1, 2],
-          "labels": ["Auto", "Stretch", "16:9"],
-          "default": 0
-        },
-        {
           "key": "TextureFiltering",
           "label": "Texture Filter",
-          "description": "Texture filtering mode",
           "type": "cycle",
           "values": [1, 2, 3, 4],
           "labels": ["Auto", "Nearest", "Linear", "Auto Max Quality"],
@@ -39,55 +28,14 @@
         {
           "key": "AnisotropyLevel",
           "label": "Anisotropic",
-          "description": "Anisotropic texture filtering level",
           "type": "cycle",
           "values": [0, 1, 2, 3, 4],
           "labels": ["Off", "2x", "4x", "8x", "16x"],
           "default": 0
         },
         {
-          "key": "FrameSkip",
-          "label": "Frame Skip",
-          "description": "Number of frames to skip",
-          "type": "cycle",
-          "values": [0, 1, 2, 3],
-          "labels": ["Off", "1", "2", "3"],
-          "default": 0
-        },
-        {
-          "key": "FrameSkipType",
-          "label": "Frame Skip Type",
-          "description": "Frame skip method",
-          "type": "cycle",
-          "values": [0, 1],
-          "labels": ["Skip", "Duplicate"],
-          "default": 0
-        },
-        {
-          "key": "VSync",
-          "label": "VSync",
-          "description": "Vertical sync",
-          "type": "bool",
-          "default": false
-        },
-        {
-          "key": "HardwareTransform",
-          "label": "HW Transform",
-          "description": "Hardware vertex transform",
-          "type": "bool",
-          "default": true
-        },
-        {
-          "key": "SoftwareSkinning",
-          "label": "SW Skinning",
-          "description": "Software vertex skinning",
-          "type": "bool",
-          "default": true
-        },
-        {
           "key": "TexScalingLevel",
-          "label": "Texture Scaling",
-          "description": "Texture upscale level",
+          "label": "Tex Scaling",
           "type": "cycle",
           "values": [1, 2, 3, 4, 5],
           "labels": ["Off", "2x", "3x", "4x", "5x"],
@@ -96,11 +44,193 @@
         {
           "key": "TexScalingType",
           "label": "Scaling Type",
-          "description": "Texture upscale algorithm",
           "type": "cycle",
           "values": [0, 1, 2, 3, 4],
           "labels": ["xBRZ", "Hybrid", "Bicubic", "Hybrid+Bicubic", "JINC2"],
           "default": 0
+        },
+        {
+          "key": "HardwareTransform",
+          "label": "HW Transform",
+          "type": "bool",
+          "default": true
+        },
+        {
+          "key": "SoftwareSkinning",
+          "label": "SW Skinning",
+          "type": "bool",
+          "default": true
+        },
+        {
+          "key": "VerticalSync",
+          "label": "VSync",
+          "type": "bool",
+          "default": false
+        }
+      ]
+    },
+    {
+      "name": "Performance",
+      "items": [
+        {
+          "key": "FrameSkip",
+          "label": "Frame Skip",
+          "type": "cycle",
+          "values": [0, 1, 2, 3],
+          "labels": ["Off", "1", "2", "3"],
+          "default": 0
+        },
+        {
+          "key": "AutoFrameSkip",
+          "label": "Auto Frame Skip",
+          "type": "bool",
+          "default": false
+        },
+        {
+          "key": "SkipBufferEffects",
+          "label": "Skip Buffer FX",
+          "type": "bool",
+          "default": false
+        },
+        {
+          "key": "MultiThreading",
+          "label": "Multi-Thread",
+          "type": "bool",
+          "default": true
+        }
+      ]
+    },
+    {
+      "name": "CPU",
+      "ini_section": "CPU",
+      "items": [
+        {
+          "key": "CPUSpeed",
+          "label": "PSP Clock",
+          "type": "cycle",
+          "values": [0, 222, 266, 333],
+          "labels": ["Default", "222 MHz", "266 MHz", "333 MHz"],
+          "default": 0
+        },
+        {
+          "key": "FastMemoryAccess",
+          "label": "Fast Memory",
+          "type": "bool",
+          "default": true
+        }
+      ]
+    },
+    {
+      "name": "Audio",
+      "ini_section": "Sound",
+      "items": [
+        {
+          "key": "Enable",
+          "label": "Sound",
+          "type": "bool",
+          "default": true
+        },
+        {
+          "key": "GlobalVolume",
+          "label": "Volume",
+          "type": "int",
+          "min": 0,
+          "max": 10,
+          "step": 1,
+          "default": 10
+        }
+      ]
+    },
+    {
+      "name": "Display",
+      "ini_section": "DisplayLayout.Landscape",
+      "items": [
+        {
+          "key": "BufferFiltering",
+          "label": "Display Filter",
+          "type": "cycle",
+          "values": [1, 2],
+          "labels": ["Nearest", "Linear"],
+          "default": 2
+        }
+      ]
+    },
+    {
+      "name": "Compat",
+      "items": [
+        {
+          "key": "DisplayCropTo16x9",
+          "label": "Crop 16:9",
+          "type": "bool",
+          "default": true
+        }
+      ]
+    },
+    {
+      "name": "System",
+      "ini_section": "SystemParam",
+      "items": [
+        {
+          "key": "PSPModel",
+          "label": "PSP Model",
+          "type": "cycle",
+          "values": [0, 1],
+          "labels": ["PSP-1000 (Fat)", "PSP-2000+ (Slim)"],
+          "default": 1
+        },
+        {
+          "key": "ButtonPreference",
+          "label": "Confirm Button",
+          "type": "cycle",
+          "values": [0, 1],
+          "labels": ["Cross", "Circle"],
+          "default": 1
+        },
+        {
+          "key": "GameLanguage",
+          "label": "Language",
+          "type": "cycle",
+          "values": [-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+          "labels": ["Auto", "Japanese", "English", "French", "Spanish", "German", "Italian", "Dutch", "Portuguese", "Russian", "Korean", "Chinese T", "Chinese S", "Finnish", "Swedish", "Danish"],
+          "default": -1
+        }
+      ]
+    },
+    {
+      "name": "Controls",
+      "ini_section": "Control",
+      "items": [
+        {
+          "key": "AnalogDeadzone",
+          "label": "Deadzone",
+          "type": "int",
+          "min": 5,
+          "max": 50,
+          "step": 5,
+          "float_scale": 100,
+          "default": 15
+        },
+        {
+          "key": "AnalogSensitivity",
+          "label": "Sensitivity",
+          "type": "int",
+          "min": 50,
+          "max": 200,
+          "step": 10,
+          "float_scale": 100,
+          "default": 110
+        }
+      ]
+    },
+    {
+      "name": "Cheats",
+      "ini_section": "General",
+      "items": [
+        {
+          "key": "EnableCheats",
+          "label": "Cheats",
+          "type": "bool",
+          "default": false
         }
       ]
     }

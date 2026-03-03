@@ -15,6 +15,19 @@ REQUIRES_JSTEST=other/jstest
 REQUIRES_UNZIP60=other/unzip60
 REQUIRES_FILEMGR=other/NextCommander
 REQUIRES_MUPEN64PLUS=other/mupen64plus
+REQUIRES_PPSSPP=other/ppsspp
+
+# Pinned upstream commits — update these when upgrading to a new version
+PPSSPP_REPO=https://github.com/hrydgard/ppsspp.git
+PPSSPP_COMMIT=eb859735feddf88dbe651763f366a7705612113a  # v1.20.1
+MUPEN64PLUS_CORE_REPO=https://github.com/mupen64plus/mupen64plus-core.git
+MUPEN64PLUS_CORE_COMMIT=d747ccee850799a8f30152cbbaa200639813a0de  # 2026-02-24
+MUPEN64PLUS_UI_REPO=https://github.com/mupen64plus/mupen64plus-ui-console.git
+MUPEN64PLUS_UI_COMMIT=927abd08a390325ee3712a99a5e11d94855ddaee  # 2026-02-19
+MUPEN64PLUS_AUDIO_REPO=https://github.com/mupen64plus/mupen64plus-audio-sdl.git
+MUPEN64PLUS_AUDIO_COMMIT=2ed23eda04f10f1285fdc1d26807b5c34f9f3faa  # 2026-02-19
+GLIDEN64_REPO=https://github.com/gonetz/GLideN64.git
+GLIDEN64_COMMIT=c8ef81c7d9aede9f67f6ed3d3426c90541f9f13e  # 2026-01-25
 
 all: readmes
 
@@ -45,9 +58,19 @@ $(REQUIRES_UNZIP60):
 
 $(REQUIRES_MUPEN64PLUS)/mupen64plus-core:
 	mkdir -p $(REQUIRES_MUPEN64PLUS)
-	git clone --depth 1 https://github.com/mupen64plus/mupen64plus-core.git $(REQUIRES_MUPEN64PLUS)/mupen64plus-core
-	git clone --depth 1 https://github.com/mupen64plus/mupen64plus-ui-console.git $(REQUIRES_MUPEN64PLUS)/mupen64plus-ui-console
+	git clone $(MUPEN64PLUS_CORE_REPO) $(REQUIRES_MUPEN64PLUS)/mupen64plus-core
+	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-core && git checkout $(MUPEN64PLUS_CORE_COMMIT)
+	git clone $(MUPEN64PLUS_UI_REPO) $(REQUIRES_MUPEN64PLUS)/mupen64plus-ui-console
+	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-ui-console && git checkout $(MUPEN64PLUS_UI_COMMIT)
 	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-ui-console && git apply ../mupen64plus-ui-console.patch
-	git clone --depth 1 --recurse-submodules https://github.com/gonetz/GLideN64.git $(REQUIRES_MUPEN64PLUS)/GLideN64-standalone
+	git clone $(GLIDEN64_REPO) $(REQUIRES_MUPEN64PLUS)/GLideN64-standalone
+	cd $(REQUIRES_MUPEN64PLUS)/GLideN64-standalone && git checkout $(GLIDEN64_COMMIT) && git submodule update --init --recursive
+
+$(REQUIRES_PPSSPP)/ppsspp:
+	git clone $(PPSSPP_REPO) $(REQUIRES_PPSSPP)/ppsspp
+	cd $(REQUIRES_PPSSPP)/ppsspp && git checkout $(PPSSPP_COMMIT)
+	cd $(REQUIRES_PPSSPP)/ppsspp && git submodule update --init --recursive
+	cd $(REQUIRES_PPSSPP)/ppsspp && git apply ../ppsspp.patch
+	cd $(REQUIRES_PPSSPP)/ppsspp/ffmpeg && git apply ../../ppsspp-ffmpeg.patch
 
 include ../all/readmes/makefile

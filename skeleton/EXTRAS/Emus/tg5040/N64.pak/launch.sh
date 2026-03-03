@@ -25,14 +25,26 @@ echo 200 >/proc/sys/vm/vfs_cache_pressure 2>/dev/null
 sync
 echo 3 >/proc/sys/vm/drop_caches 2>/dev/null
 
-# User data directory (config, saves, cache)
+# User data directory (saves, cache — shared across devices)
 USERDATA_DIR="$SHARED_USERDATA_PATH/N64-mupen64plus"
 mkdir -p "$USERDATA_DIR/save"
 
+# Device-specific config directory and resolution
+if [ "$DEVICE" = "brick" ]; then
+    DEVICE_CONFIG_DIR="$USERDATA_DIR/config/tg5040-brick"
+    DEVICE_DEFAULT_CFG="$PAK_DIR/default-brick.cfg"
+    DEVICE_RESOLUTION="1024x768"
+else
+    DEVICE_CONFIG_DIR="$USERDATA_DIR/config/tg5040-smart-pro"
+    DEVICE_DEFAULT_CFG="$PAK_DIR/default-smartpro.cfg"
+    DEVICE_RESOLUTION="1280x720"
+fi
+mkdir -p "$DEVICE_CONFIG_DIR"
+
 # First run: copy device-specific defaults
-if [ ! -f "$USERDATA_DIR/.tg5040_initialized" ]; then
-    cp "$PAK_DIR/default.cfg" "$USERDATA_DIR/mupen64plus.cfg"
-    touch "$USERDATA_DIR/.tg5040_initialized"
+if [ ! -f "$DEVICE_CONFIG_DIR/.initialized" ]; then
+    cp "$DEVICE_DEFAULT_CFG" "$DEVICE_CONFIG_DIR/mupen64plus.cfg"
+    touch "$DEVICE_CONFIG_DIR/.initialized"
 fi
 
 export HOME="$USERDATA_DIR"
@@ -41,7 +53,7 @@ export LD_PRELOAD="libEGL.so"
 
 # Overlay menu config
 export EMU_OVERLAY_JSON="$EMU_DIR/overlay_settings.json"
-export EMU_OVERLAY_INI="$USERDATA_DIR/mupen64plus.cfg"
+export EMU_OVERLAY_INI="$DEVICE_CONFIG_DIR/mupen64plus.cfg"
 export EMU_OVERLAY_GAME="$(basename "$ROM" | sed 's/\.[^.]*$//')"
 # Font and icon resources for overlay menu (from NextUI system resources)
 FONT_FILE=$(ls "$SDCARD_PATH/.system/res/"*.ttf 2>/dev/null | head -1)
@@ -55,8 +67,8 @@ export EMU_OVERLAY_ROMFILE="$(basename "$ROM")"
 
 # Launch from PAK_DIR so core library resolves via ./
 cd "$PAK_DIR"
-./mupen64plus --fullscreen --resolution 1024x768 \
-    --configdir "$USERDATA_DIR" \
+./mupen64plus --fullscreen --resolution "$DEVICE_RESOLUTION" \
+    --configdir "$DEVICE_CONFIG_DIR" \
     --datadir "$EMU_DIR" \
     --plugindir "$PAK_DIR" \
     --gfx "$EMU_DIR/mupen64plus-video-GLideN64.so" \
