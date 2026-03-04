@@ -14,6 +14,7 @@ static const SystemMapping systems[] = {
 	{"FC", 3, "Famicom"},
 	{"FDS", 106, "Famicom Disk System"},
 	{"SNES", 4, "Super Nintendo"},
+	{"SFC", 4, "Super Famicom"},
 	{"SUPA", 4, "Super Famicom"},
 	{"N64", 14, "Nintendo 64"},
 	{"GB", 9, "Game Boy"},
@@ -23,7 +24,8 @@ static const SystemMapping systems[] = {
 	{"MGBA", 12, "Game Boy Advance"},
 	{"NDS", 15, "Nintendo DS"},
 	{"VB", 11, "Virtual Boy"},
-	{"POKE", 4, "Pokemon Mini"},
+	{"PKM", 211, "Pokemon Mini"},
+	{"POKE", 211, "Pokemon Mini"},
 	{"POKEMINI", 211, "Pokemon Mini"},
 
 	// Sega
@@ -35,6 +37,7 @@ static const SystemMapping systems[] = {
 	{"SEGACD", 20, "Sega CD"},
 	{"SCD", 20, "Sega CD"},
 	{"SATURN", 22, "Sega Saturn"},
+	{"DC", 23, "Dreamcast"},
 	{"SG1000", 109, "Sega SG-1000"},
 
 	// Sony
@@ -81,6 +84,7 @@ static const SystemMapping systems[] = {
 	{"PET", 80, "Commodore PET"},
 	{"PLUS4", 99, "Commodore Plus/4"},
 	{"AMIGA", 64, "Amiga"},
+	{"PUAE", 64, "Amiga"},
 	{"ZX", 76, "ZX Spectrum"},
 	{"ZXSPECTRUM", 76, "ZX Spectrum"},
 
@@ -101,9 +105,11 @@ static const SystemMapping systems[] = {
 	{"CHANNELF", 80, "Fairchild Channel F"},
 	{"ARDUBOY", 263, "Arduboy"},
 	{"PICO8", 234, "PICO-8"},
+	{"P8", 234, "PICO-8"},
 	{"TIC80", 222, "TIC-80"},
 	{"SCUMMVM", 123, "ScummVM"},
 	{"DOS", 135, "MS-DOS"},
+	{"PRBOOM", 135, "Doom"},
 
 	{NULL, -1, NULL}};
 
