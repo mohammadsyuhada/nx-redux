@@ -40,10 +40,10 @@ main() {
     # Determine device-specific config directory
     if [ "$DEVICE" = "brick" ]; then
         DEVICE_CONFIG_PATH="$SHARED_USERDATA_PATH/NDS-advanced-drastic/config/tg5040-brick"
-        DEVICE_PAK_CONFIG="$PAK_DIR/devices/trimui-brick/config"
+        DEVICE_PAK_DIR="$PAK_DIR/devices/trimui-brick"
     else
         DEVICE_CONFIG_PATH="$SHARED_USERDATA_PATH/NDS-advanced-drastic/config/tg5040-smart-pro"
-        DEVICE_PAK_CONFIG="$PAK_DIR/devices/trimui-smart-pro/config"
+        DEVICE_PAK_DIR="$PAK_DIR/devices/trimui-smart-pro"
     fi
 
     # Setup external directories
@@ -57,9 +57,9 @@ main() {
 
     # Apply device-specific config on first run only (don't overwrite user changes)
     if [ ! -f "$DEVICE_CONFIG_PATH/.initialized" ]; then
-        if [ -d "$DEVICE_PAK_CONFIG" ]; then
-            cp "$DEVICE_PAK_CONFIG/drastic.cfg" "$DEVICE_CONFIG_PATH/" 2>/dev/null || true
-            cp "$DEVICE_PAK_CONFIG/drastic.cf2" "$DEVICE_CONFIG_PATH/" 2>/dev/null || true
+        if [ -d "$DEVICE_PAK_DIR/config" ]; then
+            cp "$DEVICE_PAK_DIR/config/drastic.cfg" "$DEVICE_CONFIG_PATH/" 2>/dev/null || true
+            cp "$DEVICE_PAK_DIR/config/drastic.cf2" "$DEVICE_CONFIG_PATH/" 2>/dev/null || true
         fi
         touch "$DEVICE_CONFIG_PATH/.initialized"
     fi
@@ -81,9 +81,27 @@ main() {
     cd "$EMU_DIR"
     export HOME="$EMU_DIR"
     export SDL_VIDEODRIVER=dummy
+    export SDL_AUDIODRIVER=alsa
+    export SDL_AUDIO_BUFFER_SIZE=2048
     export SDL_JOYSTICK_DEVICE=/dev/input/event3
     export SDL_JOYSTICK_DISABLE_UDEV=1
+
+    # Set initial AUDIODEV based on current audio sink (SDL2 handles mid-game switching)
+    if grep -q "bluealsa" "$USERDATA_PATH/.asoundrc" 2>/dev/null; then
+        export AUDIODEV=bluealsa
+    else
+        export AUDIODEV=default
+    fi
+
+    # Mute speaker before launch to prevent audio pop, then unmute after init
+    echo 1 > /sys/class/speaker/mute 2>/dev/null || true
+    (sleep 2; echo 0 > /sys/class/speaker/mute 2>/dev/null; syncsettings.elf) &
+    SYNC_PID=$!
+
     "$EMU_DIR/drastic" "$*"
+
+    kill $SYNC_PID 2>/dev/null || true
+    echo 0 > /sys/class/speaker/mute 2>/dev/null || true
 }
 
 main "$@"

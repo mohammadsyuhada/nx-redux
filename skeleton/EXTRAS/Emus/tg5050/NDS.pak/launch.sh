@@ -88,6 +88,13 @@ main() {
     export SDL_AUDIODRIVER=alsa
     export SDL_AUDIO_BUFFER_SIZE=2048
 
+    # Set initial AUDIODEV based on current audio sink (SDL2 handles mid-game switching)
+    if grep -q "bluealsa" "$USERDATA_PATH/.asoundrc" 2>/dev/null; then
+        export AUDIODEV=bluealsa
+    else
+        export AUDIODEV=default
+    fi
+
     # Mute speaker before launch to prevent audio pop, then unmute after init
     amixer cset numid=27 0 >/dev/null 2>&1 || true
     amixer cset numid=28 0 >/dev/null 2>&1 || true

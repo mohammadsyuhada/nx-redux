@@ -16,10 +16,13 @@ REQUIRES_UNZIP60=other/unzip60
 REQUIRES_FILEMGR=other/NextCommander
 REQUIRES_MUPEN64PLUS=other/mupen64plus
 REQUIRES_PPSSPP=other/ppsspp
+REQUIRES_SDL2_DRASTIC=other/sdl2-drastic
 
 # Pinned upstream commits — update these when upgrading to a new version
 PPSSPP_REPO=https://github.com/hrydgard/ppsspp.git
 PPSSPP_COMMIT=eb859735feddf88dbe651763f366a7705612113a  # v1.20.1
+SDL_DRASTIC_REPO=https://github.com/trngaje/SDL_drastic.git
+SDL_DRASTIC_COMMIT=eb2e00f  # knulli2.30.8
 MUPEN64PLUS_CORE_REPO=https://github.com/mupen64plus/mupen64plus-core.git
 MUPEN64PLUS_CORE_COMMIT=d747ccee850799a8f30152cbbaa200639813a0de  # 2026-02-24
 MUPEN64PLUS_UI_REPO=https://github.com/mupen64plus/mupen64plus-ui-console.git
@@ -72,5 +75,11 @@ $(REQUIRES_PPSSPP)/ppsspp:
 	cd $(REQUIRES_PPSSPP)/ppsspp && git checkout $(PPSSPP_COMMIT)
 	cd $(REQUIRES_PPSSPP)/ppsspp && git submodule update --init --recursive
 	cd $(REQUIRES_PPSSPP)/ppsspp && git apply ../ppsspp.patch
+
+$(REQUIRES_SDL2_DRASTIC)/SDL_drastic:
+	git clone $(SDL_DRASTIC_REPO) $(REQUIRES_SDL2_DRASTIC)/SDL_drastic
+	cd $(REQUIRES_SDL2_DRASTIC)/SDL_drastic && git checkout $(SDL_DRASTIC_COMMIT)
+	cd $(REQUIRES_SDL2_DRASTIC)/SDL_drastic && patch -p1 < ../0006-add-hook-for-drastic.patch
+	cd $(REQUIRES_SDL2_DRASTIC)/SDL_drastic && patch -p1 < ../fix-tg5040.patch
 
 include ../all/readmes/makefile

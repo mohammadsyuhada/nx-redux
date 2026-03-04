@@ -1,7 +1,8 @@
 #!/bin/bash
 set -ex
 
-EXTRA_PREFIX=/root/workspace/extra-deps
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+EXTRA_PREFIX="$(pwd)/extra-deps"
 
 # ============================================================
 # Step 1: Install missing headers and create pkg-config files
@@ -95,71 +96,19 @@ EOF
 fi
 
 # ============================================================
-# Step 2: Clone SDL_drastic source
+# Step 2: SDL_drastic source must be pre-cloned and patched
+# Run 'make other/sdl2-drastic/SDL_drastic' from workspace/tg5050
 # ============================================================
 if [ ! -d SDL_drastic ]; then
-    git clone --branch knulli2.30.8 --depth 1 \
-        https://github.com/trngaje/SDL_drastic.git
+    echo "ERROR: SDL_drastic source not found. Run from workspace/tg5050:"
+    echo "  make other/sdl2-drastic/SDL_drastic"
+    exit 1
 fi
 
 cd SDL_drastic
 
 # ============================================================
-# Step 3: Apply hook patch
-# ============================================================
-if [ ! -f .patched ]; then
-    wget -O 0006-add-hook-for-drastic.patch \
-        "https://raw.githubusercontent.com/trngaje/knulli_distribution/knulli-main/package/batocera/emulators/advanced_drastic/sdl2_drastic/0006-add-hook-for-drastic.patch"
-    patch -p1 < 0006-add-hook-for-drastic.patch
-    touch .patched
-fi
-
-# ============================================================
-# Step 3b: Fix drm_init() for tg5050 — auto-detect connector
-# and use actual display resolution for GBM surface
-# ============================================================
-if [ ! -f .drm_fixed ]; then
-    python3 /root/workspace/fix-drm-init.py src/video/drastic_video.c
-    touch .drm_fixed
-fi
-
-# ============================================================
-# Step 3c: Fix dummy video driver — read resolution from DRM
-# instead of hardcoded 1024x768
-# ============================================================
-if [ ! -f .dummy_fixed ]; then
-    python3 /root/workspace/fix-dummy-resolution.py src/video/dummy/SDL_nullvideo.c
-    touch .dummy_fixed
-fi
-
-# ============================================================
-# Step 3d: Customize menu — version display and labels
-# ============================================================
-if [ ! -f .menu_fixed ]; then
-    python3 /root/workspace/fix-menu.py src/video/drastic_video.c
-    touch .menu_fixed
-fi
-
-# ============================================================
-# Step 3e: Fix DRM rendering performance — remove double vsync
-# and double gbm_surface_lock_front_buffer bug
-# ============================================================
-if [ ! -f .perf_fixed ]; then
-    python3 /root/workspace/fix-perf.py src/video/drastic_video.c
-    touch .perf_fixed
-fi
-
-# ============================================================
-# Step 3f: NextUI customizations — menu, hotkeys, rendering,
-# async page flip, GUI input hook
-# ============================================================
-if [ ! -f .nextui_fixed ]; then
-    python3 /root/workspace/fix-nextui.py src/video/drastic_video.c
-    touch .nextui_fixed
-fi
-
-# ============================================================
-# Step 4: Generate configure
+# Step 3: Generate configure
 # ============================================================
 if [ ! -f configure ]; then
     ./autogen.sh
@@ -243,10 +192,9 @@ make -j$(nproc) \
 # ============================================================
 # Step 7: Output
 # ============================================================
-mkdir -p /root/workspace/output
-cp build/.libs/libSDL2-2.0.so.0 /root/workspace/output/
-cp build/.libs/libSDL2-2.0.so.0 /root/workspace/output/libSDL2-2.0.so.0.drm
+mkdir -p "$SCRIPT_DIR/output"
+cp build/.libs/libSDL2-2.0.so.0 "$SCRIPT_DIR/output/"
 echo "=== Build complete (ADVDRASTIC_DRM enabled) ==="
-ls -la /root/workspace/output/libSDL2-2.0.so.0
-file /root/workspace/output/libSDL2-2.0.so.0
-strings /root/workspace/output/libSDL2-2.0.so.0 | grep -i "drm_init\|gbm_create\|Cannot create gbm"
+ls -la "$SCRIPT_DIR/output/libSDL2-2.0.so.0"
+file "$SCRIPT_DIR/output/libSDL2-2.0.so.0"
+strings "$SCRIPT_DIR/output/libSDL2-2.0.so.0" | grep -i "drm_init\|gbm_create\|Cannot create gbm"

@@ -70,9 +70,10 @@ New Features:
 - Built-in [Media Player](https://github.com/mohammadsyuhada/nextui-video-player)
 - Bundled `Drastic Nintendo DS` emulator
     - Optimized configurations for both platform.
-    - Simplified in-game menu for TG5050 (Update to TG5040 coming soon)
+    - Bluetooth audio support.
+    - Custom in-game menu with consistent UI styling with system.
 - Bundled `Mupen64Plus Nintendo 64` emulator 
-    - Support for high resolution textures (With limitation due to 1GB RAM)
+    - Support for high resolution textures (With some limitation due to 1GB RAM)
     - Optimized configurations for both platform.
     - Custom in-game menu with consistent UI styling with system.
     - Save state with screenshot.
@@ -85,7 +86,6 @@ New Features:
     - Optimized configurations for both platform.
 
 Upcoming Features:
-- Custom in-game menu overlay `Drastic Nintendo DS` emulator
 - Built-in ROMs collection management
 - Integration with [Netplay](https://github.com/mohammadsyuhada/nextui-netplay)
 - Netplay for `Mupen64Plus Nintendo 64` emulator
