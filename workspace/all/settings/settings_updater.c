@@ -35,6 +35,19 @@
 #define EXTRACT_DEST "/mnt/SDCARD/"
 
 // ============================================
+// Device name mapping
+// ============================================
+
+static const char* get_device_name(void) {
+	if (strcmp(PLATFORM, "tg5050") == 0)
+		return "smartpros";
+	char* device = getenv("DEVICE");
+	if (device && strcmp(device, "brick") == 0)
+		return "brick";
+	return "smartpro";
+}
+
+// ============================================
 // Release info
 // ============================================
 
@@ -308,7 +321,7 @@ static void process_auto_check_result(void) {
 						  sizeof(release.tag_name)) ||
 		!find_json_string(response->data, "target_commitish", release.commit_sha,
 						  sizeof(release.commit_sha)) ||
-		!find_zip_asset_url(response->data, PLATFORM, release.download_url,
+		!find_zip_asset_url(response->data, get_device_name(), release.download_url,
 							sizeof(release.download_url))) {
 		HTTP_freeResponse(response);
 		auto_state = UPDATE_ERROR;
@@ -396,7 +409,7 @@ static void* extract_thread(void* arg) {
 		strncpy(release_name, slash, sizeof(release_name) - 1);
 		release_name[sizeof(release_name) - 1] = '\0';
 		char suffix[64];
-		snprintf(suffix, sizeof(suffix), "-%s.zip", PLATFORM);
+		snprintf(suffix, sizeof(suffix), "-%s.zip", get_device_name());
 		size_t name_len = strlen(release_name);
 		size_t suf_len = strlen(suffix);
 		if (name_len > suf_len && strcmp(release_name + name_len - suf_len, suffix) == 0)

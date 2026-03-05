@@ -107,9 +107,9 @@ install_update_with_progress() {
         cd $(dirname "$0")/$PLATFORM
         
         # Determine message
-        local message="Installing NextUI..."
+        local message="Installing NX Redux..."
         if [ -d "$SYSTEM_PATH" ]; then
-            message="Updating NextUI..."
+            message="Updating NX Redux..."
         fi
         
         # Start daemon
