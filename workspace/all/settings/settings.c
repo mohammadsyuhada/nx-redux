@@ -244,12 +244,12 @@ static const char* default_view_labels[] = {"Content List", "Game Switcher", "Qu
 
 /* Save format */
 static int save_format_values[] = {SAVE_FORMAT_SAV, SAVE_FORMAT_SRM, SAVE_FORMAT_SRM_UNCOMPRESSED, SAVE_FORMAT_GEN};
-static const char* save_format_labels[] = {"MinUI (default)", "Retroarch (compressed)", "Retroarch (uncompressed)", "Generic"};
+static const char* save_format_labels[] = {"MinUI", "Retroarch (compressed)", "Retroarch (uncompressed)", "Generic"};
 #define SAVE_FORMAT_COUNT 4
 
 /* State format */
 static int state_format_values[] = {STATE_FORMAT_SAV, STATE_FORMAT_SRM_EXTRADOT, STATE_FORMAT_SRM_UNCOMPRESSED_EXTRADOT, STATE_FORMAT_SRM, STATE_FORMAT_SRM_UNCOMPRESSED};
-static const char* state_format_labels[] = {"MinUI (default)", "Retroarch-ish (compressed)", "Retroarch-ish (uncompressed)", "Retroarch (compressed)", "Retroarch (uncompressed)"};
+static const char* state_format_labels[] = {"MinUI", "Retroarch-ish (compressed)", "Retroarch-ish (uncompressed)", "Retroarch (compressed)", "Retroarch (uncompressed)"};
 #define STATE_FORMAT_COUNT 5
 
 /* Fan speed */
