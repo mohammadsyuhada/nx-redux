@@ -15,6 +15,10 @@ ifeq (,$(PLATFORMS))
 PLATFORMS = tg5040 tg5050
 endif
 
+# Device variants: device=platform,overlay_res,bg_res
+# Each device produces a separate release zip
+DEVICES = brick=tg5040,768p,1024 smartpro=tg5040,720p,1280 smartpros=tg5050,720p,1280
+
 # Pinned upstream commits — update these when upgrading to a new version
 DRASTIC_REPO=https://github.com/trngaje/advanced_drastic
 DRASTIC_COMMIT=2b87c96a805758a249127ac979e0b33a64dd7199# 2026-01-21
@@ -274,8 +278,9 @@ special:
 #endif
 
 tidy:
-	@for plat in $(PLATFORMS); do \
-		rm -f releases/$(RELEASE_NAME)-$$plat.zip; \
+	@for dev_entry in $(DEVICES); do \
+		dev=$$(echo $$dev_entry | cut -d= -f1); \
+		rm -f releases/$(RELEASE_NAME)-$$dev.zip; \
 	done
 	# ----------------------------------------------------
 	# copy update from merged platform to old pre-merge platform bin so old cards update properly
@@ -306,34 +311,49 @@ package: tidy
 	mkdir -p ./build/BASE
 	-mv $(VENDOR_DEST)/* ./build/BASE/ 2>/dev/null; true
 
-	# --- Per-platform packaging ---
-	@for plat in $(PLATFORMS); do \
-		echo "# ===== Packaging $$plat ====="; \
-		rm -rf ./build/PAYLOAD-$$plat; \
-		mkdir -p ./build/PAYLOAD-$$plat/.system; \
+	# --- Per-device packaging ---
+	# DEVICES format: device=platform,overlay_res,bg_res
+	@for dev_entry in $(DEVICES); do \
+		dev=$$(echo $$dev_entry | cut -d= -f1); \
+		dev_config=$$(echo $$dev_entry | cut -d= -f2); \
+		plat=$$(echo $$dev_config | cut -d, -f1); \
+		overlay_res=$$(echo $$dev_config | cut -d, -f2); \
+		bg_res=$$(echo $$dev_config | cut -d, -f3); \
+		\
+		echo "# ===== Packaging $$dev (platform=$$plat, overlays=$$overlay_res, bg=$$bg_res) ====="; \
+		rm -rf ./build/PAYLOAD-$$dev; \
+		mkdir -p ./build/PAYLOAD-$$dev/.system; \
 		\
 		echo "  assembling .system/$$plat"; \
-		cp -R ./build/SYSTEM/$$plat   ./build/PAYLOAD-$$plat/.system/$$plat; \
-		cp -R ./build/SYSTEM/res      ./build/PAYLOAD-$$plat/.system/res; \
-		cp -R ./build/SYSTEM/shared   ./build/PAYLOAD-$$plat/.system/shared; \
-		cp ./build/SYSTEM/version.txt ./build/PAYLOAD-$$plat/.system/version.txt; \
-		cp ./build/SYSTEM/commits.txt ./build/PAYLOAD-$$plat/.system/commits.txt; \
+		cp -R ./build/SYSTEM/$$plat   ./build/PAYLOAD-$$dev/.system/$$plat; \
+		cp -R ./build/SYSTEM/res      ./build/PAYLOAD-$$dev/.system/res; \
+		cp -R ./build/SYSTEM/shared   ./build/PAYLOAD-$$dev/.system/shared; \
+		cp ./build/SYSTEM/version.txt ./build/PAYLOAD-$$dev/.system/version.txt; \
+		cp ./build/SYSTEM/commits.txt ./build/PAYLOAD-$$dev/.system/commits.txt; \
 		\
 		echo "  assembling .tmp_update"; \
-		cp -R ./build/BOOT/.tmp_update ./build/PAYLOAD-$$plat/.tmp_update; \
+		cp -R ./build/BOOT/.tmp_update ./build/PAYLOAD-$$dev/.tmp_update; \
 		\
 		echo "  assembling Tools/$$plat"; \
-		mkdir -p ./build/PAYLOAD-$$plat/Tools; \
-		cp -R ./build/EXTRAS/Tools/$$plat ./build/PAYLOAD-$$plat/Tools/$$plat; \
+		mkdir -p ./build/PAYLOAD-$$dev/Tools; \
+		cp -R ./build/EXTRAS/Tools/$$plat ./build/PAYLOAD-$$dev/Tools/$$plat; \
 		\
 		echo "  creating MinUI.zip"; \
-		cd ./build/PAYLOAD-$$plat && zip -r MinUI.zip .system .tmp_update Tools && cd ../..; \
-		cp ./build/PAYLOAD-$$plat/MinUI.zip ./build/BASE/MinUI-$$plat.zip; \
+		cd ./build/PAYLOAD-$$dev && zip -r MinUI.zip .system .tmp_update Tools && cd ../..; \
+		cp ./build/PAYLOAD-$$dev/MinUI.zip ./build/BASE/MinUI-$$plat.zip; \
 		\
-		echo "  resolving bg images for $$plat"; \
-		if [ "$$plat" = "tg5040" ]; then bg_res="1024"; \
-		elif [ "$$plat" = "tg5050" ]; then bg_res="1280"; \
-		fi; \
+		echo "  resolving overlays for $$dev ($$overlay_res)"; \
+		for overlay_root in ./build/BASE/Overlays ./build/EXTRAS/Overlays; do \
+			if [ -d "$$overlay_root" ]; then \
+				find "$$overlay_root" -mindepth 1 -maxdepth 1 -type d | while read emu_dir; do \
+					if [ -d "$$emu_dir/$$overlay_res" ]; then \
+						cp -f "$$emu_dir/$$overlay_res"/* "$$emu_dir/"; \
+					fi; \
+				done; \
+			fi; \
+		done; \
+		\
+		echo "  resolving bg images for $$dev ($$bg_res)"; \
 		find ./build/BASE/Collections ./build/BASE/Favorites \
 			"./build/BASE/Recently Played" ./build/BASE/Roms \
 			./build/EXTRAS/Roms \
@@ -343,31 +363,45 @@ package: tidy
 		done; \
 		\
 		echo "  creating release zip"; \
-		cd ./build/BASE && zip -r ../../releases/$(RELEASE_NAME)-$$plat.zip \
+		cd ./build/BASE && zip -r ../../releases/$(RELEASE_NAME)-$$dev.zip \
 			Bios Cheats Collections Favorites Music Overlays \
 			"Recently Played" Roms Saves Shaders trimui *.pakz README.txt \
-			-x '*/bg-*.png' \
+			-x '*/bg-*.png' -x '*/720p/*' -x '*/768p/*' \
 			&& cd ../..; \
-		cd ./build/PAYLOAD-$$plat && zip -r ../../releases/$(RELEASE_NAME)-$$plat.zip MinUI.zip && cd ../..; \
-		cd ./build/EXTRAS && zip -r ../../releases/$(RELEASE_NAME)-$$plat.zip \
+		cd ./build/PAYLOAD-$$dev && zip -r ../../releases/$(RELEASE_NAME)-$$dev.zip MinUI.zip && cd ../..; \
+		cd ./build/EXTRAS && zip -r ../../releases/$(RELEASE_NAME)-$$dev.zip \
 			Bios Cheats Roms Saves Overlays README.txt \
-			-x '*/bg-*.png' \
+			-x '*/bg-*.png' -x '*/720p/*' -x '*/768p/*' \
 			&& cd ../..; \
-		cd ./build/EXTRAS && zip -r ../../releases/$(RELEASE_NAME)-$$plat.zip \
+		cd ./build/EXTRAS && zip -r ../../releases/$(RELEASE_NAME)-$$dev.zip \
 			Emus/$$plat Emus/shared Tools/$$plat \
 			&& cd ../..; \
 		if [ -d ./build/PAKZ/$$plat ]; then \
-			cd ./build/PAKZ/$$plat && zip -r ../../../releases/$(RELEASE_NAME)-$$plat.zip *.pakz && cd ../../..; \
+			cd ./build/PAKZ/$$plat && zip -r ../../../releases/$(RELEASE_NAME)-$$dev.zip *.pakz && cd ../../..; \
 		fi; \
 		\
-		echo "  cleaning up generated bg.png"; \
+		echo "  cleaning up generated files"; \
 		find ./build/BASE/Collections ./build/BASE/Favorites \
 			"./build/BASE/Recently Played" ./build/BASE/Roms \
 			./build/EXTRAS/Roms \
 			-name "bg.png" -path '*/.media/*' -delete 2>/dev/null; \
+		for overlay_root in ./build/BASE/Overlays ./build/EXTRAS/Overlays; do \
+			if [ -d "$$overlay_root" ]; then \
+				find "$$overlay_root" -mindepth 1 -maxdepth 1 -type d | while read emu_dir; do \
+					if [ -d "$$emu_dir/720p" ] || [ -d "$$emu_dir/768p" ]; then \
+						for res_file in "$$emu_dir"/*.png; do \
+							[ -f "$$res_file" ] && base=$$(basename "$$res_file") && \
+							if [ -f "$$emu_dir/720p/$$base" ] || [ -f "$$emu_dir/768p/$$base" ]; then \
+								rm -f "$$res_file"; \
+							fi; \
+						done; \
+					fi; \
+				done; \
+			fi; \
+		done; \
 		\
-		rm -rf ./build/PAYLOAD-$$plat; \
-		echo "# ===== Done: $$plat ====="; \
+		rm -rf ./build/PAYLOAD-$$dev; \
+		echo "# ===== Done: $$dev ====="; \
 	done
 	
 ###########################################################
