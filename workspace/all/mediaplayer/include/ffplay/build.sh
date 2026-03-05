@@ -118,10 +118,10 @@ if [ ! -f "$INSTALL/lib/libass.a" ]; then
     # Download freetype and fontconfig headers
     if [ ! -d "$INSTALL/include/freetype2" ]; then
         echo "=== Downloading freetype headers ==="
-        wget -q "https://download.savannah.gnu.org/releases/freetype/freetype-2.10.4.tar.xz" -O freetype.tar.xz
+        wget -q "https://download.savannah.gnu.org/releases/freetype/freetype-2.11.0.tar.xz" -O freetype.tar.xz
         tar xf freetype.tar.xz
         rm freetype.tar.xz
-        cp -r freetype-2.10.4/include/* $INSTALL/include/
+        cp -r freetype-2.11.0/include/* $INSTALL/include/
         # Create freetype2.pc
         cat > $INSTALL/lib/pkgconfig/freetype2.pc << EOF
 prefix=$INSTALL

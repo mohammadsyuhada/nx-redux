@@ -1109,14 +1109,19 @@ static size_t resample_chunk(int16_t* input, size_t input_frames,
 							 int src_rate, int dst_rate,
 							 int16_t* output, size_t max_output_frames,
 							 SRC_STATE* src_state, bool is_last) {
-	if (src_rate == dst_rate) {
-		// No resampling needed, just copy
-		size_t to_copy = (input_frames < max_output_frames) ? input_frames : max_output_frames;
-		memcpy(output, input, to_copy * sizeof(int16_t) * AUDIO_CHANNELS);
-		return to_copy;
-	}
+	    // Apply playback speed to the ratio
+    float speed = player.playback_speed;
+    if (speed < 0.5f) speed = 1.0f;  // Safety fallback
 
-	double ratio = (double)dst_rate / (double)src_rate;
+    if (src_rate == dst_rate && speed == 1.0f) {
+        // No resampling needed, just copy
+        size_t to_copy = (input_frames < max_output_frames) ? input_frames : max_output_frames;
+        memcpy(output, input, to_copy * sizeof(int16_t) * AUDIO_CHANNELS);
+        return to_copy;
+    }
+
+    // Dividing by speed: >1.0 speed means lower ratio = fewer output samples = faster playback
+    double ratio = ((double)dst_rate / (double)src_rate) / (double)speed;
 
 	// Calculate total input frames (leftover from previous call + new input)
 	size_t leftover_count = player.resample_leftover_count;
@@ -1259,7 +1264,7 @@ static void* stream_thread_func(void* arg) {
 				bool is_last = (player.stream_decoder.current_frame >= player.stream_decoder.total_frames);
 
 				size_t output_frames;
-				if (src_rate == dst_rate) {
+				if (src_rate == dst_rate && player.playback_speed == 1.0f) {
 					// No resampling needed
 					output_frames = decoded;
 					circular_buffer_write(&player.stream_buffer, decode_buffer, output_frames);
@@ -1395,9 +1400,10 @@ static void audio_callback(void* userdata, Uint8* stream, int len) {
 			pthread_mutex_unlock(&ctx->vis_mutex);
 		}
 
-		// Update position
-		audio_position_samples += samples_read;
-		ctx->position_ms = (audio_position_samples * 1000) / current_sample_rate;
+		// Update position (account for playback speed)
+        audio_position_samples += samples_read;
+        float spd = ctx->playback_speed > 0.0f ? ctx->playback_speed : 1.0f;
+        ctx->position_ms = (int64_t)((audio_position_samples * 1000.0 * spd) / current_sample_rate);
 
 		// Check if track ended (decoder reached EOF or frame count)
 		if ((ctx->stream_decoder.current_frame >= ctx->stream_decoder.total_frames || ctx->stream_eof) &&
@@ -1431,6 +1437,7 @@ int Player_init(void) {
 	pthread_mutex_init(&player.vis_mutex, NULL);
 
 	player.volume = 1.0f;
+	 player.playback_speed = 1.0f;
 	player.state = PLAYER_STATE_STOPPED;
 
 	// Initialize SDL audio
@@ -2334,6 +2341,7 @@ void Player_stop(void) {
 
 	player.state = PLAYER_STATE_STOPPED;
 	player.position_ms = 0;
+    player.playback_speed = 1.0f;
 	audio_position_samples = 0;
 
 	// Clean up streaming resources
@@ -2421,6 +2429,16 @@ void Player_setVolume(float volume) {
 
 float Player_getVolume(void) {
 	return player.volume;
+}
+
+void Player_setPlaybackSpeed(float speed) {
+    if (speed < 0.5f) speed = 0.5f;
+    if (speed > 2.0f) speed = 2.0f;
+    player.playback_speed = speed;
+}
+
+float Player_getPlaybackSpeed(void) {
+    return player.playback_speed;
 }
 
 PlayerState Player_getState(void) {

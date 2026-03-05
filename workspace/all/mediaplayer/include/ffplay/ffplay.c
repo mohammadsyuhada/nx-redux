@@ -33,7 +33,6 @@
 
 #include "libavutil/avstring.h"
 #include "libavutil/channel_layout.h"
-#include "libavutil/eval.h"
 #include "libavutil/mathematics.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/imgutils.h"
@@ -373,7 +372,12 @@ static double get_master_clock(VideoState* is);
 /* OSD (on-screen display) state */
 static int osd_visible = 0;
 static int64_t osd_last_activity = 0;
-#define OSD_TIMEOUT_US 4000000 /* auto-hide after 4 seconds */
+
+/* Aspect ratio toggle: 0=original, 1=16:9, 2=4:3 */
+static int aspect_mode = 0;
+static int64_t aspect_osd_until = 0;   /* show aspect label until this time */
+#define ASPECT_OSD_DURATION_US 2000000 /* 2 seconds */
+#define OSD_TIMEOUT_US 4000000		   /* auto-hide after 4 seconds */
 #define OSD_BAR_HEIGHT 8
 #define OSD_MARGIN 24
 #define OSD_BG_HEIGHT 96
@@ -415,6 +419,8 @@ static const unsigned char font_5x7[][7] = {
 	/* S (17) */ {0x0E, 0x11, 0x10, 0x0E, 0x01, 0x11, 0x0E},
 	/* E (18) */ {0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F},
 	/* D (19) */ {0x1C, 0x12, 0x11, 0x11, 0x11, 0x12, 0x1C},
+	/* T (20) */ {0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04},
+	/* O (21) */ {0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E},
 };
 
 static int font_char_index(char c) {
@@ -440,6 +446,10 @@ static int font_char_index(char c) {
 		return 18;
 	if (c == 'D')
 		return 19;
+	if (c == 'T')
+		return 20;
+	if (c == 'O')
+		return 21;
 	return 12; /* space for unknown */
 }
 
@@ -689,7 +699,6 @@ static int packet_queue_put_private(PacketQueue* q, AVPacket* pkt) {
 
 	if (q->abort_request)
 		return -1;
-
 
 	pkt1.pkt = pkt;
 	pkt1.serial = q->serial;
@@ -1111,6 +1120,12 @@ static void calculate_display_rect(SDL_Rect* rect,
 		aspect_ratio = av_make_q(1, 1);
 
 	aspect_ratio = av_mul_q(aspect_ratio, av_make_q(pic_width, pic_height));
+
+	/* Override aspect ratio if forced mode is active */
+	if (aspect_mode == 1)
+		aspect_ratio = av_make_q(16, 9);
+	else if (aspect_mode == 2)
+		aspect_ratio = av_make_q(4, 3);
 
 	/* XXX: we suppose the screen has a 1.0 pixel ratio */
 	height = scr_height;
@@ -1589,6 +1604,33 @@ static void video_display(VideoState* is) {
 	else if (is->video_st)
 		video_image_display(is);
 	osd_draw(is);
+
+	/* Aspect ratio label (shown briefly after toggle, independent of OSD) */
+	if (aspect_osd_until > 0) {
+		if (av_gettime_relative() < aspect_osd_until) {
+			int aw = 0, ah = 0;
+			SDL_GetRendererOutputSize(renderer, &aw, &ah);
+			if (aw > 0 && ah > 0) {
+				const char* label = aspect_mode == 1 ? "16:9" : aspect_mode == 2 ? "4:3"
+																				 : "AUTO";
+				int label_len = (int)strlen(label);
+				int scale = 4;
+				int label_w = label_len * 6 * scale;
+				int label_h = 7 * scale;
+				int lx = (aw - label_w) / 2;
+				int ly = (ah - label_h) / 2;
+				/* Background box */
+				SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+				SDL_Rect bg = {lx - 12, ly - 8, label_w + 24, label_h + 16};
+				SDL_SetRenderDrawColor(renderer, 0, 0, 0, 180);
+				SDL_RenderFillRect(renderer, &bg);
+				osd_draw_text(lx, ly, label, scale, 255, 255, 255, 230);
+			}
+		} else {
+			aspect_osd_until = 0;
+		}
+	}
+
 	SDL_RenderPresent(renderer);
 }
 
@@ -1669,8 +1711,8 @@ static double get_master_clock(VideoState* is) {
 }
 
 static void check_external_clock_speed(VideoState* is) {
-	if (is->video_stream >= 0 && is->videoq.nb_packets <= EXTERNAL_CLOCK_MIN_FRAMES ||
-		is->audio_stream >= 0 && is->audioq.nb_packets <= EXTERNAL_CLOCK_MIN_FRAMES) {
+	if ((is->video_stream >= 0 && is->videoq.nb_packets <= EXTERNAL_CLOCK_MIN_FRAMES) ||
+		(is->audio_stream >= 0 && is->audioq.nb_packets <= EXTERNAL_CLOCK_MIN_FRAMES)) {
 		set_clock_speed(&is->extclk, FFMAX(EXTERNAL_CLOCK_SPEED_MIN, is->extclk.speed - EXTERNAL_CLOCK_SPEED_STEP));
 	} else if ((is->video_stream < 0 || is->videoq.nb_packets > EXTERNAL_CLOCK_MAX_FRAMES) &&
 			   (is->audio_stream < 0 || is->audioq.nb_packets > EXTERNAL_CLOCK_MAX_FRAMES)) {
@@ -2199,7 +2241,6 @@ static int configure_audio_filters(VideoState* is, const char* afilters, int for
 	if (ret < 0)
 		goto end;
 
-
 	ret = avfilter_graph_create_filter(&filt_asink,
 									   avfilter_get_by_name("abuffersink"), "ffplay_abuffersink",
 									   NULL, NULL, is->agraph);
@@ -2220,7 +2261,6 @@ static int configure_audio_filters(VideoState* is, const char* afilters, int for
 		if ((ret = av_opt_set_int_list(filt_asink, "sample_rates", sample_rates, -1, AV_OPT_SEARCH_CHILDREN)) < 0)
 			goto end;
 	}
-
 
 	if ((ret = configure_filtergraph(is->agraph, afilters, filt_asrc, filt_asink)) < 0)
 		goto end;
@@ -2940,7 +2980,7 @@ static int stream_has_enough_packets(AVStream* st, int stream_id, PacketQueue* q
 	return stream_id < 0 ||
 		   queue->abort_request ||
 		   (st->disposition & AV_DISPOSITION_ATTACHED_PIC) ||
-		   queue->nb_packets > MIN_FRAMES && (!queue->duration || av_q2d(st->time_base) * queue->duration > 1.0);
+		   (queue->nb_packets > MIN_FRAMES && (!queue->duration || av_q2d(st->time_base) * queue->duration > 1.0));
 }
 
 static int is_realtime(AVFormatContext* s) {
@@ -3412,7 +3452,6 @@ the_end:
 	stream_component_open(is, stream_index);
 }
 
-
 static void toggle_full_screen(VideoState* is) {
 	is_full_screen = !is_full_screen;
 	SDL_SetWindowFullscreen(window, is_full_screen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
@@ -3422,7 +3461,7 @@ static void toggle_audio_display(VideoState* is) {
 	int next = is->show_mode;
 	do {
 		next = (next + 1) % SHOW_MODE_NB;
-	} while (next != is->show_mode && (next == SHOW_MODE_VIDEO && !is->video_st || next != SHOW_MODE_VIDEO && !is->audio_st));
+	} while (next != is->show_mode && ((next == SHOW_MODE_VIDEO && !is->video_st) || (next != SHOW_MODE_VIDEO && !is->audio_st)));
 	if (is->show_mode != next) {
 		is->force_refresh = 1;
 		is->show_mode = next;
@@ -3695,8 +3734,8 @@ static void event_loop(VideoState* cur_stream) {
 			do_exit(cur_stream);
 			break;
 		/* Gamepad button mapping for TrimUI handheld:
-         * B (btn 0) = quit, A (btn 1) = pause,
-         * L1 (btn 4) = seek -60s, R1 (btn 5) = seek +60s */
+         * B (btn 0) = quit, A (btn 1) = pause, Y (btn 2) = cycle aspect ratio,
+         * X (btn 3) = toggle OSD, L1 (btn 4) = seek -60s, R1 (btn 5) = seek +60s */
 		case SDL_JOYBUTTONDOWN:
 			switch (event.jbutton.button) {
 			case 0: /* B = quit */
@@ -3714,6 +3753,11 @@ static void event_loop(VideoState* cur_stream) {
 				osd_show();
 				incr = 60.0;
 				goto do_seek;
+			case 2: /* Y = cycle aspect ratio */
+				aspect_mode = (aspect_mode + 1) % 3;
+				aspect_osd_until = av_gettime_relative() + ASPECT_OSD_DURATION_US;
+				cur_stream->force_refresh = 1;
+				break;
 			case 3: /* X = toggle OSD */
 				if (osd_visible)
 					osd_visible = 0;

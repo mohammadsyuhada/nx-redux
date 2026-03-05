@@ -83,6 +83,7 @@ typedef struct {
 	int position_ms; // Current position in milliseconds
 	float volume;	 // 0.0 to 1.0
 	bool repeat;	 // Loop current track
+    float playback_speed;   // Playback speed multiplier (0.5 - 2.0)
 
 	// Audio buffer for visualization
 	int16_t vis_buffer[2048]; // Stereo samples for FFT
@@ -170,6 +171,12 @@ const WaveformData* Player_getWaveform(void);
 
 // Get album art surface (NULL if no album art available)
 SDL_Surface* Player_getAlbumArt(void);
+
+// Set playback speed (0.5 to 2.0, default 1.0)
+void Player_setPlaybackSpeed(float speed);
+
+// Get current playback speed
+float Player_getPlaybackSpeed(void);
 
 // Check if a file format is supported
 AudioFormat Player_detectFormat(const char* filepath);

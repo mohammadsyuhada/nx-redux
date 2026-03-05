@@ -909,7 +909,26 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 					Player_seek(pos_ms + 30000 > dur_ms ? dur_ms : pos_ms + 30000);
 					ModuleCommon_recordInputTime();
 					dirty = 1;
-				}
+				}               else if (PAD_justPressed(BTN_UP)) {
+                    float speed = Player_getPlaybackSpeed();
+                    speed += 0.25f;
+                    if (speed > 2.0f) speed = 2.0f;
+                    Player_setPlaybackSpeed(speed);
+                    snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Speed: %.2gx", speed);
+                    podcast_toast_time = SDL_GetTicks();
+                    ModuleCommon_recordInputTime();
+                    dirty = 1;
+                }
+                else if (PAD_justPressed(BTN_DOWN)) {
+                    float speed = Player_getPlaybackSpeed();
+                    speed -= 0.25f;
+                    if (speed < 0.5f) speed = 0.5f;
+                    Player_setPlaybackSpeed(speed);
+                    snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Speed: %.2gx", speed);
+                    podcast_toast_time = SDL_GetTicks();
+                    ModuleCommon_recordInputTime();
+                    dirty = 1;
+                }
 
 				Podcast_update();
 				if (Podcast_isTitleScrolling())
