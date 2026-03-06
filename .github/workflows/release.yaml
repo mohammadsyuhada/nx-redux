@@ -21,39 +21,8 @@ permissions:
   id-token: write
 
 jobs:
-  prepare:
-    runs-on: ubuntu-24.04
-    outputs:
-      next-tag: ${{ steps.next-tag.outputs.version }}
-      release-name: ${{ steps.release-name.outputs.RELEASE_NAME }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4.2.2
-        with:
-          fetch-depth: 0
-
-      - name: Generate Release Name
-        id: release-name
-        run: |
-          echo "RELEASE_NAME=$(make name)" >> "$GITHUB_OUTPUT"
-
-      - name: Get Latest Tag
-        id: latest-tag
-        run: |
-          echo GIT_LATEST_TAG="$(git describe --tags "$(git rev-list --tags --max-count=1)")" >>"$GITHUB_OUTPUT"
-
-      - name: Compute Next Tag
-        id: next-tag
-        uses: docker://ghcr.io/dokku/semver-generator:latest
-        with:
-          bump: ${{ github.event.inputs.release_type }}
-          input: ${{ steps.latest-tag.outputs.GIT_LATEST_TAG }}
-
   build:
-    needs: prepare
     runs-on: ubuntu-24.04-arm
-    env:
-      RELEASE_NAME: ${{ needs.prepare.outputs.release-name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4.2.2
@@ -70,23 +39,37 @@ jobs:
         uses: actions/upload-artifact@v4.6.2
         with:
           name: release-artifacts
-          path: releases/${{ env.RELEASE_NAME }}-*.zip
+          path: releases/*.zip
 
       - name: Attest Build Provenance
         uses: actions/attest-build-provenance@v2.3.0
         with:
-          subject-path: releases/${{ env.RELEASE_NAME }}-*.zip
+          subject-path: releases/*.zip
 
   release:
-    needs:
-      - build
-      - prepare
+    needs: build
     runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 0
+
+      - name: Compute Next Tag
+        id: next-tag
+        run: |
+          LATEST_TAG="$(git describe --tags "$(git rev-list --tags --max-count=1)" 2>/dev/null || echo "v0.0.0")"
+          echo "LATEST_TAG=$LATEST_TAG"
+          # Bump version using semver logic
+          IFS='.' read -r major minor patch <<< "${LATEST_TAG#v}"
+          case "${{ github.event.inputs.release_type }}" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+          esac
+          NEXT_TAG="v${major}.${minor}.${patch}"
+          echo "NEXT_TAG=$NEXT_TAG" >> "$GITHUB_OUTPUT"
+          echo "Next tag: $NEXT_TAG"
 
       - name: Download Release Artifacts
         uses: actions/download-artifact@v4.3.0
@@ -99,10 +82,8 @@ jobs:
         run: |
           git config --global user.email "action@github.com"
           git config --global user.name "GitHub Action"
-          git tag "$GIT_NEXT_TAG"
-          git push origin "$GIT_NEXT_TAG"
-        env:
-          GIT_NEXT_TAG: ${{ needs.prepare.outputs.next-tag }}
+          git tag "${{ steps.next-tag.outputs.NEXT_TAG }}"
+          git push origin "${{ steps.next-tag.outputs.NEXT_TAG }}"
 
       - name: Release
         uses: softprops/action-gh-release@v2
@@ -110,7 +91,7 @@ jobs:
           files: releases/*
           generate_release_notes: true
           append_body: true
-          tag_name: ${{ needs.prepare.outputs.next-tag }}
+          tag_name: ${{ steps.next-tag.outputs.NEXT_TAG }}
           make_latest: "true"
           body: |
 
