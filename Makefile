@@ -60,6 +60,7 @@ deploy: setup $(PLATFORMS) special package
 	adb push ./build/BASE/MinUI-$(PLATFORM).zip /mnt/SDCARD/MinUI.zip && adb shell reboot
 endif
 
+all: COMPILE_CORES=true
 all: setup $(PLATFORMS) special package done
 	
 shell:
