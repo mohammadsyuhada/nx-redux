@@ -29,61 +29,54 @@ NX Redux is where those two goals meet.
 ## What's Different
 
 Improvements:
-- Refactored `nextui.c` from monolithic code to a smaller, focused components
-- Various bug fixes and code optimizations across the refactored components
-- Added clang-format tooling and code style enforcement, with VSCode support
-- Introduced reusable UI components for consistent design across tools
-- Fixed incorrect Wi-Fi/Bluetooth state icons in the quick menu
-- Added a semi-transparent progress overlay for all blocking actions
-- Added confirmation dialogs for actions that require them
+- Refactored `nextui.c`, splitting the monolithic code into smaller, focused components.
+- Applied various bug fixes and optimizations across the refactored components.
+- Added clang-format tooling with enforced code style and VSCode support.
+- Introduced reusable UI components for consistent design across tools.
+- Fixed incorrect Wi-Fi/Bluetooth state icons in the quick menu.
+- Added a semi-transparent progress overlay for blocking actions.
+- Added confirmation dialogs for actions that require them.
 - Rewrote the `Settings` app in C with a redesigned UI
-- Removed `Battery` monitoring feature. 
-- Merged the `LED Control` configurations, `Input`, `Clock` and `Updater` into `Settings` app (no separate app required)
+- Removed the `Battery` monitoring feature. 
+- Merged the `LED Control`, `Input`, `Clock` and `Updater` into the `Settings` app (no separate app required)
 - Integrated the `Remove Loading` feature directly into the install script (no separate app required) 
-- Split release builds into per-platform zips (tg5040/tg5050) 
+- Split release builds into per-platform zips packages (brick/smartpro/smartpros).
+- All standalone emulators now support USB-C and Bluetooth audio. 
+- All standalone emulators now include a custom in-game menu with UI styling consistent with the system.
+- All standalone emulators now support save states with screenshots.
 
 New Features:
 - Redesigned UI with consistent styling across the system.
 - Game art fallback for titles without save states in the game switcher
-- Main menu shortcut for quick access to frequently used Tools and Games
-- Option to disable the Emulator folders (ideal for users who prefer listing only selected games (via shortcut) on the main menu)
-- Direct selection of Wi-Fi networks and Bluetooth devices from the quick menu
-    - IP address is displayed in the bottom button hint bar when connected
-- Added developer options in `Settings`
+- Main menu shortcut for quick access to frequently used `Tools` and `Games`
+- Option to disable the emulator folders (ideal for users who prefer listing only selected games via shortcuts in the main menu)
+- Direct selection of Wi-Fi networks and Bluetooth devices from the quick menu.
+    - IP address is displayed in the bottom button hint bar when connected.
+- Added `Developer options` in `Settings`:
     - Toggle SSH service and autostart
     - Disable system sleep (useful for ADB)
     - Clean up macOS-specific dotfiles (if any were copied)
     - Quickly turn off Developer Mode from the quick menu
-- Added smoother slide transition animations (can be disabled in Settings)
-    - `Quick Menu` slides down on enter and slides up on exit
-    - `Game Switcher` slides up on enter and slides down on exit
-    - `Page Navigation` slides in from the right on enter and slides out to the left on exit
-- Added `Simple Mode` option in `Settings`
+- Added slide transition animations (can be disabled in Settings)
+    - `Quick Menu` slides down on enter and up on exit
+    - `Game Switcher` slides up on enter and down on exit
+    - `Page Navigation` slides in from the right on enter and out to the left on exit
+- Added `Simple Mode` in `Settings`
 - Added `Search` function in main menu (Press `Y` to activate)
 - Added jostick and calibration feature in `Input` app
-- Added `Device Sync` to sync game saves, states, and user settings across devices. 
-- Added `Artwork Manager` to fetch custom mix box art for roms. 
+- Added `Device Sync` to sync game saves, states, user settings, and ROMs (optional) across devices. 
+- Added `Artwork Manager` to fetch custom mix box art for ROMs. 
 - Built-in `Screenshot` and `Screen Recorder` option in quick menu
     - When Screenshot is enabled, press `L2` + `R2` + `X` to capture the screen
-    - When Screen Recorder is enabled, recording runs in the background automatically
+    - When Screen Recorder is enabled, recording runs automatically in the background.
 - Built-in [Music Player](https://github.com/mohammadsyuhada/nextui-music-player)
 - Built-in [Media Player](https://github.com/mohammadsyuhada/nextui-video-player)
-- Bundled `Drastic Nintendo DS` emulator
-    - Optimized configurations for both platform.
-    - Bluetooth audio support.
-    - Custom in-game menu with consistent UI styling with system.
-- Bundled `Mupen64Plus Nintendo 64` emulator 
-    - Support for high resolution textures (With some limitation due to 1GB RAM)
-    - Optimized configurations for both platform.
-    - Custom in-game menu with consistent UI styling with system.
-    - Save state with screenshot.
-- Bundled `PPSSPP Playstation Portable` emulator 
-    - Optimized configurations for both platform.
-    - Custom in-game menu with consistent UI styling with system.
-    - Save state with screenshot.
+- Bundled `Drastic Nintendo DS` emulator.
+- Bundled `Mupen64Plus Nintendo 64` emulator.
+    - Support for high resolution textures (with limitations due to 1GB RAM)
+- Bundled `PPSSPP Playstation Portable` emulator.
 - Bundled `Portmaster` in the Tools.
-    - Configured by default with Nintendo input layout
-    - Optimized configurations for both platform.
+    - Configured by default with Nintendo input layout (configurable)
 
 Upcoming Features:
 - Built-in ROMs collection management
