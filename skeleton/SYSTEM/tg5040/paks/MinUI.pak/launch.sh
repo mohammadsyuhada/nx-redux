@@ -119,7 +119,8 @@ echo 1008000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
 
 keymon.elf & # &> $SDCARD_PATH/keymon.txt &
 
-# start fresh, will be populated on the next connect
+# Ensure .asoundrc is clean at boot — /etc/asound.conf handles speaker routing.
+# audiomon will write .asoundrc when USB/BT devices connect.
 rm -f $USERDATA_PATH/.asoundrc
 audiomon.elf & # &> $SDCARD_PATH/audiomon.txt &
 

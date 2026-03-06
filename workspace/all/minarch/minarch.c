@@ -24,6 +24,7 @@
 
 #include "defines.h"
 #include "api.h"
+#include "audio_manager.h"
 #include "ui_components.h"
 #include "ui_list.h"
 #include "utils.h"
@@ -8593,32 +8594,9 @@ static void Rewind_run_frame(void) {
 // We need to do this on the audio thread (aka main thread currently)
 static bool resetAudio = false;
 
-void onAudioSinkChanged(int device, int watch_event) {
-	switch (watch_event) {
-	case DIRWATCH_CREATE:
-		LOG_info("callback reason: DIRWATCH_CREATE\n");
-		break;
-	case DIRWATCH_DELETE:
-		LOG_info("callback reason: DIRWATCH_DELETE\n");
-		break;
-	case FILEWATCH_MODIFY:
-		LOG_info("callback reason: FILEWATCH_MODIFY\n");
-		break;
-	case FILEWATCH_DELETE:
-		LOG_info("callback reason: FILEWATCH_DELETE\n");
-		break;
-	case FILEWATCH_CLOSE_WRITE:
-		LOG_info("callback reason: FILEWATCH_CLOSE_WRITE\n");
-		break;
-	}
-
+static void onAudioSinkChanged(int sink_type) {
+	(void)sink_type;
 	resetAudio = true;
-
-	// FIXME: This shouldnt be necessary, alsa should just read .asoundrc for the changed defult device.
-	if (device == AUDIO_SINK_BLUETOOTH)
-		SDL_setenv("AUDIODEV", "bluealsa", 1);
-	else
-		SDL_setenv("AUDIODEV", "default", 1);
 }
 
 int main(int argc, char* argv[]) {
@@ -8696,8 +8674,9 @@ int main(int argc, char* argv[]) {
 	// Mute audio during startup to avoid pops (InitSettings would be logical, but too late)
 	SND_overrideMute(1);
 	SND_init(core.sample_rate, core.fps);
-	SND_registerDeviceWatcher(onAudioSinkChanged);
 	InitSettings(); // after we initialize audio
+	AudioMgr_init();
+	AudioMgr_setCallback(onAudioSinkChanged);
 	Menu_init();
 	Notification_init();
 
@@ -8807,6 +8786,7 @@ int main(int argc, char* argv[]) {
 			chooseSyncRef();
 		}
 
+		AudioMgr_pollEvents(); // re-detects sink, sets AUDIODEV, invokes callback
 		if (resetAudio) {
 			resetAudio = false;
 			SND_resetAudio(core.sample_rate, core.fps);
@@ -8852,7 +8832,7 @@ finish:
 	MSG_quit();
 	PWR_quit();
 	VIB_quit();
-	SND_removeDeviceWatcher();
+	AudioMgr_quit();
 	// Disabling this is a dumb hack for bluetooth, we should really be using
 	// bluealsa with --keep-alive=-1 - but SDL wont reconnect the stream on next start.
 	// Reenable as soon as we have a more recent SDL available, if ever.

@@ -4,7 +4,6 @@
 #include <SDL2/SDL.h>
 #include <stdbool.h>
 #include "api.h"
-#include "player.h"
 
 // Screen off hint duration (time hint is shown before screen turns off)
 #define SCREEN_OFF_HINT_DURATION_MS 4000
@@ -67,11 +66,5 @@ void ModuleCommon_quit(void);
 // PWR_update wrapper with overlay auto-hide on button release
 // Call this instead of PWR_update directly in modules
 void ModuleCommon_PWR_update(bool* dirty, IndicatorType* show_setting);
-
-// Handle a single HID volume event. Returns true if the event was a volume event.
-bool ModuleCommon_handleHIDVolume(USBHIDEvent hid_event);
-
-// Handle hardware volume buttons (BTN_PLUS/BTN_MINUS).
-void ModuleCommon_handleHardwareVolume(void);
 
 #endif

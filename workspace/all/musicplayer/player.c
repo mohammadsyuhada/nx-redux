@@ -13,6 +13,7 @@
 #include <samplerate.h>
 #include <SDL2/SDL_image.h>
 #include "api.h"
+#include "audio_manager.h"
 #include "msettings.h"
 
 // Include dr_libs for audio decoding (header-only libraries)
@@ -33,25 +34,6 @@
 #include "audio/minimp4.h"
 #include <src/aacdecoder_lib.h>
 #include <opusfile.h>
-
-// Linux input event definitions (avoid including linux/input.h due to conflicts)
-#define EV_KEY 0x01
-#define KEY_VOLUMEDOWN 114
-#define KEY_VOLUMEUP 115
-#define KEY_NEXTSONG 163
-#define KEY_PLAYPAUSE 164
-#define KEY_PREVIOUSSONG 165
-#define KEY_PLAYCD 200
-#define KEY_PAUSECD 201
-
-// Input event struct for 64-bit systems (24 bytes)
-struct input_event_raw {
-	uint64_t tv_sec;
-	uint64_t tv_usec;
-	uint16_t type;
-	uint16_t code;
-	int32_t value;
-};
 
 // M4A decoder state (uses minimp4 + FDK-AAC)
 typedef struct {
@@ -112,17 +94,6 @@ static int m4a_read_callback(int64_t offset, void* buffer, size_t size, void* to
 #define AUDIO_CHANNELS 2
 #define AUDIO_SAMPLES 2048 // Smaller buffer for lower latency
 
-// Convert linear volume (0-1) to perceived volume using logarithmic curve
-// This makes volume steps feel more natural to human hearing
-static inline float apply_volume_curve(float linear_vol) {
-	if (linear_vol <= 0.0f)
-		return 0.0f;
-	if (linear_vol >= 1.0f)
-		return 1.0f;
-	// Use power curve with exponent 0.4 for natural perceived loudness
-	// At 50% input -> ~76% output, at 25% input -> ~57% output
-	return powf(linear_vol, 0.4f);
-}
 
 // Soft limiter for built-in speaker to prevent amplifier clipping
 // Linear below threshold, asymptotically compressed above
@@ -198,28 +169,26 @@ static PlayerContext player = {0};
 static int64_t audio_position_samples = 0;			  // Track position in samples for precision
 static WaveformData waveform = {0};					  // Waveform overview for progress display
 static int current_sample_rate = SAMPLE_RATE_DEFAULT; // Track current SDL audio device rate
-static bool bluetooth_audio_active = false;			  // Track if Bluetooth audio is active
-static bool usbdac_audio_active = false;			  // Track if USB DAC is active
+// Audio sink state is now managed by AudioMgr (audio_manager.c)
 
 // Get target sample rate based on current audio sink
 static int get_target_sample_rate(void) {
-	if (bluetooth_audio_active) {
+	if (AudioMgr_isBluetoothActive()) {
 		return SAMPLE_RATE_BLUETOOTH; // 44100 Hz for Bluetooth
 	}
-	// Check audio sink from msettings
-	int sink = GetAudioSink();
+	int sink = AudioMgr_getSinkType();
 	switch (sink) {
-	case AUDIO_SINK_BLUETOOTH:
+	case AUDIOMGR_SINK_BLUETOOTH:
 		return SAMPLE_RATE_BLUETOOTH; // 44100 Hz
-	case AUDIO_SINK_USBDAC:
+	case AUDIOMGR_SINK_USBDAC:
 		return SAMPLE_RATE_USB_DAC; // 48000 Hz
 	default:
 		return SAMPLE_RATE_SPEAKER; // 48000 Hz for speaker
 	}
 }
 
-// Forward declaration for audio device change callback
-static void audio_device_change_callback(int device_type, int event);
+// Forward declaration for audio device change callback (from AudioMgr)
+static void on_audio_device_changed(int sink_type);
 
 // Forward declaration for FLAC metadata callback
 static void flac_metadata_callback(void* pUserData, drflac_metadata* pMetadata);
@@ -1109,19 +1078,20 @@ static size_t resample_chunk(int16_t* input, size_t input_frames,
 							 int src_rate, int dst_rate,
 							 int16_t* output, size_t max_output_frames,
 							 SRC_STATE* src_state, bool is_last) {
-	    // Apply playback speed to the ratio
-    float speed = player.playback_speed;
-    if (speed < 0.5f) speed = 1.0f;  // Safety fallback
+	// Apply playback speed to the ratio
+	float speed = player.playback_speed;
+	if (speed < 0.5f)
+		speed = 1.0f; // Safety fallback
 
-    if (src_rate == dst_rate && speed == 1.0f) {
-        // No resampling needed, just copy
-        size_t to_copy = (input_frames < max_output_frames) ? input_frames : max_output_frames;
-        memcpy(output, input, to_copy * sizeof(int16_t) * AUDIO_CHANNELS);
-        return to_copy;
-    }
+	if (src_rate == dst_rate && speed == 1.0f) {
+		// No resampling needed, just copy
+		size_t to_copy = (input_frames < max_output_frames) ? input_frames : max_output_frames;
+		memcpy(output, input, to_copy * sizeof(int16_t) * AUDIO_CHANNELS);
+		return to_copy;
+	}
 
-    // Dividing by speed: >1.0 speed means lower ratio = fewer output samples = faster playback
-    double ratio = ((double)dst_rate / (double)src_rate) / (double)speed;
+	// Dividing by speed: >1.0 speed means lower ratio = fewer output samples = faster playback
+	double ratio = ((double)dst_rate / (double)src_rate) / (double)speed;
 
 	// Calculate total input frames (leftover from previous call + new input)
 	size_t leftover_count = player.resample_leftover_count;
@@ -1310,16 +1280,15 @@ static void audio_callback(void* userdata, Uint8* stream, int len) {
 				memset(&out[samples_got], 0, (samples_needed * AUDIO_CHANNELS - samples_got) * sizeof(int16_t));
 			}
 
-			// Apply volume with logarithmic curve for natural perceived loudness
+			// Apply software volume
 			if (ctx->volume < 0.99f || ctx->volume > 1.01f) {
-				float curved_vol = apply_volume_curve(ctx->volume);
 				for (int i = 0; i < samples_needed * AUDIO_CHANNELS; i++) {
-					out[i] = (int16_t)(out[i] * curved_vol);
+					out[i] = (int16_t)(out[i] * ctx->volume);
 				}
 			}
 
 			// Speaker processing: high-pass filter + soft limiter
-			if (!bluetooth_audio_active && !usbdac_audio_active) {
+			if (!AudioMgr_isBluetoothActive() && !AudioMgr_isUSBDACActive()) {
 				int bass_hz = Settings_getBassFilterHz();
 				float limiter_thresh = Settings_getSoftLimiterThreshold();
 				if (bass_hz != speaker_hpf_last_hz) {
@@ -1365,16 +1334,15 @@ static void audio_callback(void* userdata, Uint8* stream, int len) {
 				   (samples_needed - samples_read) * sizeof(int16_t) * AUDIO_CHANNELS);
 		}
 
-		// Apply volume with logarithmic curve for natural perceived loudness
+		// Apply software volume
 		if (ctx->volume < 0.99f || ctx->volume > 1.01f) {
-			float curved_vol = apply_volume_curve(ctx->volume);
 			for (size_t i = 0; i < samples_read * AUDIO_CHANNELS; i++) {
-				out[i] = (int16_t)(out[i] * curved_vol);
+				out[i] = (int16_t)(out[i] * ctx->volume);
 			}
 		}
 
 		// Speaker processing: high-pass filter + soft limiter
-		if (!bluetooth_audio_active && !usbdac_audio_active) {
+		if (!AudioMgr_isBluetoothActive() && !AudioMgr_isUSBDACActive()) {
 			int bass_hz = Settings_getBassFilterHz();
 			float limiter_thresh = Settings_getSoftLimiterThreshold();
 			if (bass_hz != speaker_hpf_last_hz) {
@@ -1401,9 +1369,9 @@ static void audio_callback(void* userdata, Uint8* stream, int len) {
 		}
 
 		// Update position (account for playback speed)
-        audio_position_samples += samples_read;
-        float spd = ctx->playback_speed > 0.0f ? ctx->playback_speed : 1.0f;
-        ctx->position_ms = (int64_t)((audio_position_samples * 1000.0 * spd) / current_sample_rate);
+		audio_position_samples += samples_read;
+		float spd = ctx->playback_speed > 0.0f ? ctx->playback_speed : 1.0f;
+		ctx->position_ms = (int64_t)((audio_position_samples * 1000.0 * spd) / current_sample_rate);
 
 		// Check if track ended (decoder reached EOF or frame count)
 		if ((ctx->stream_decoder.current_frame >= ctx->stream_decoder.total_frames || ctx->stream_eof) &&
@@ -1437,7 +1405,7 @@ int Player_init(void) {
 	pthread_mutex_init(&player.vis_mutex, NULL);
 
 	player.volume = 1.0f;
-	 player.playback_speed = 1.0f;
+	player.playback_speed = 1.0f;
 	player.state = PLAYER_STATE_STOPPED;
 
 	// Initialize SDL audio
@@ -1446,57 +1414,8 @@ int Player_init(void) {
 		return -1;
 	}
 
-	// Check current audio sink setting
-	int audio_sink = GetAudioSink();
-
-	// Set USB DAC flag if that's the current sink
-	if (audio_sink == AUDIO_SINK_USBDAC) {
-		usbdac_audio_active = true;
-	}
-
-	// Also check if .asoundrc exists with bluealsa config (more reliable than msettings)
-	const char* home = getenv("HOME");
-
-	if (home) {
-		char asoundrc_path[512];
-		snprintf(asoundrc_path, sizeof(asoundrc_path), "%s/.asoundrc", home);
-		FILE* f = fopen(asoundrc_path, "r");
-		if (f) {
-			char buf[256];
-			while (fgets(buf, sizeof(buf), f)) {
-				if (strstr(buf, "bluealsa")) {
-					audio_sink = AUDIO_SINK_BLUETOOTH;
-					bluetooth_audio_active = true;
-					break;
-				}
-			}
-			fclose(f);
-		}
-	}
-
-	// If Bluetooth audio is detected, set BlueALSA mixer to 100% for software volume control
-	if (audio_sink == AUDIO_SINK_BLUETOOTH) {
-		// Set all mixer controls that contain "A2DP" in their name to 100%
-		// This handles devices like "Galaxy Buds Live (4B23 A2DP" etc.
-		system("amixer scontrols 2>/dev/null | grep -i 'A2DP' | "
-			   "sed \"s/.*'\\([^']*\\)'.*/\\1/\" | "
-			   "while read ctrl; do amixer sset \"$ctrl\" 127 2>/dev/null; done");
-		// Initialize HID input monitoring for Bluetooth AVRCP buttons
-		Player_initUSBHID();
-	}
-
-	// If USB DAC is detected, set its mixer to 100% for software volume control
-	if (audio_sink == AUDIO_SINK_USBDAC) {
-		// USB DACs typically appear as card 1, set common mixer controls to 100%
-		// Different USB DACs use different control names (PCM, Master, Headset, etc.)
-		system("amixer -c 1 sset PCM 100% 2>/dev/null; "
-			   "amixer -c 1 sset Master 100% 2>/dev/null; "
-			   "amixer -c 1 sset Speaker 100% 2>/dev/null; "
-			   "amixer -c 1 sset Headphone 100% 2>/dev/null; "
-			   "amixer -c 1 sset Headset 100% 2>/dev/null");
-		// Initialize USB HID input monitoring for earphone buttons
-		Player_initUSBHID();
-	}
+	// Initialize audio manager (detects sink, configures mixer, starts watcher, inits HID)
+	AudioMgr_init();
 
 	// Determine target sample rate based on audio output
 	int target_rate = get_target_sample_rate();
@@ -1510,35 +1429,27 @@ int Player_init(void) {
 	want.callback = audio_callback;
 	want.userdata = &player;
 
-	// Open default audio device - respects .asoundrc for Bluetooth/USB DAC routing
-	player.audio_device = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
+	// Always use explicit device name to bypass stale ALSA config cache
+	{
+		const char* device_name = AudioMgr_getPreferredDevice();
 
-	if (player.audio_device == 0) {
-		LOG_error("Failed to open audio device: %s\n", SDL_GetError());
+		player.audio_device = SDL_OpenAudioDevice(device_name, 0, &want, &have, 0);
+		if (player.audio_device == 0) {
+			LOG_error("Failed to open audio device (%s): %s\n",
+					  device_name ? device_name : "default", SDL_GetError());
 
-		// If Bluetooth was detected but device isn't available, fall back to speaker
-		if (bluetooth_audio_active) {
-			bluetooth_audio_active = false;
-
-			// Retry with speaker sample rate and explicit device name to bypass .asoundrc
+			// Fall back: try speaker device explicitly, then NULL
+			const char* fallback = SND_findSpeakerDevice();
 			want.freq = SAMPLE_RATE_SPEAKER;
-
-			// Try to open the first available audio device explicitly
-			int num_devices = SDL_GetNumAudioDevices(0);
-			for (int i = 0; i < num_devices; i++) {
-				const char* device_name = SDL_GetAudioDeviceName(i, 0);
-				player.audio_device = SDL_OpenAudioDevice(device_name, 0, &want, &have, 0);
-				if (player.audio_device != 0) {
-					break;
-				}
+			player.audio_device = SDL_OpenAudioDevice(fallback, 0, &want, &have, 0);
+			if (player.audio_device == 0 && fallback) {
+				player.audio_device = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
 			}
 
 			if (player.audio_device == 0) {
 				LOG_error("All fallback audio devices failed\n");
 				return -1;
 			}
-		} else {
-			return -1;
 		}
 	}
 
@@ -1550,8 +1461,8 @@ int Player_init(void) {
 			speaker_hpf_init(current_sample_rate, (float)bass_hz);
 	}
 
-	// Register for audio device changes (Bluetooth, USB DAC, etc.)
-	PLAT_audioDeviceWatchRegister(audio_device_change_callback);
+	// Set callback for audio device changes
+	AudioMgr_setCallback(on_audio_device_changed);
 
 	return 0;
 }
@@ -1605,12 +1516,14 @@ static void reopen_audio_device(void) {
 	// Remember current playback state
 	PlayerState prev_state = player.state;
 
-	// Pause and close existing device
+	// Full SDL audio subsystem restart to clear stale ALSA state after device removal
 	if (player.audio_device > 0) {
 		SDL_PauseAudioDevice(player.audio_device, 1);
 		SDL_CloseAudioDevice(player.audio_device);
 		player.audio_device = 0;
 	}
+	SDL_QuitSubSystem(SDL_INIT_AUDIO);
+	SDL_InitSubSystem(SDL_INIT_AUDIO);
 
 	// Get target sample rate for the new audio sink
 	int target_rate = get_target_sample_rate();
@@ -1625,10 +1538,19 @@ static void reopen_audio_device(void) {
 	want.callback = audio_callback;
 	want.userdata = &player;
 
-	player.audio_device = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
+	// Always use explicit device name to bypass stale ALSA config cache
+	const char* device_name = AudioMgr_getPreferredDevice();
+
+	player.audio_device = SDL_OpenAudioDevice(device_name, 0, &want, &have, 0);
 	if (player.audio_device == 0) {
-		LOG_error("Failed to reopen audio device: %s\n", SDL_GetError());
-		return;
+		LOG_error("Failed to reopen audio device (%s): %s\n",
+				  device_name ? device_name : "default", SDL_GetError());
+		// Retry with NULL as last resort
+		player.audio_device = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
+		if (player.audio_device == 0) {
+			LOG_error("Fallback audio device also failed: %s\n", SDL_GetError());
+			return;
+		}
 	}
 
 	current_sample_rate = have.freq;
@@ -1644,73 +1566,15 @@ static void reopen_audio_device(void) {
 	}
 }
 
-// Callback for audio device changes (Bluetooth connect/disconnect, USB DAC, etc.)
-static void audio_device_change_callback(int device_type, int event) {
-	(void)device_type;
-	(void)event;
-
-	// Re-check if Bluetooth is now active/inactive
-	bool was_bluetooth = bluetooth_audio_active;
-	bool was_usbdac = usbdac_audio_active;
-	bluetooth_audio_active = false;
-
-	// Update USB DAC status
-	usbdac_audio_active = (GetAudioSink() == AUDIO_SINK_USBDAC);
-
-	const char* home = getenv("HOME");
-	if (home) {
-		char asoundrc_path[512];
-		snprintf(asoundrc_path, sizeof(asoundrc_path), "%s/.asoundrc", home);
-		FILE* f = fopen(asoundrc_path, "r");
-		if (f) {
-			char buf[256];
-			while (fgets(buf, sizeof(buf), f)) {
-				if (strstr(buf, "bluealsa")) {
-					bluetooth_audio_active = true;
-					break;
-				}
-			}
-			fclose(f);
-		}
-	}
-
-	if (was_bluetooth != bluetooth_audio_active) {
-		// If Bluetooth just activated, set mixer to 100% and init HID
-		if (bluetooth_audio_active) {
-			system("amixer scontrols 2>/dev/null | grep -i 'A2DP' | "
-				   "sed \"s/.*'\\([^']*\\)'.*/\\1/\" | "
-				   "while read ctrl; do amixer sset \"$ctrl\" 127 2>/dev/null; done");
-			// Initialize HID input monitoring for Bluetooth AVRCP buttons
-			Player_initUSBHID();
-		} else if (!usbdac_audio_active) {
-			// Bluetooth disconnected and no USB DAC, close HID
-			Player_quitUSBHID();
-		}
-	}
-
-	// If USB DAC just activated, set its mixer to 100%
-	if (!was_usbdac && usbdac_audio_active) {
-		system("amixer -c 1 sset PCM 100% 2>/dev/null; "
-			   "amixer -c 1 sset Master 100% 2>/dev/null; "
-			   "amixer -c 1 sset Speaker 100% 2>/dev/null; "
-			   "amixer -c 1 sset Headphone 100% 2>/dev/null; "
-			   "amixer -c 1 sset Headset 100% 2>/dev/null");
-		// Initialize USB HID input monitoring for earphone buttons
-		Player_initUSBHID();
-	} else if (was_usbdac && !usbdac_audio_active && !bluetooth_audio_active) {
-		// USB DAC disconnected and no Bluetooth, close HID
-		Player_quitUSBHID();
-	}
-
+// Callback from AudioMgr when audio sink changes — reopen SDL audio device
+static void on_audio_device_changed(int sink_type) {
+	(void)sink_type;
 	reopen_audio_device();
 }
 
 void Player_quit(void) {
-	// Unregister audio device watcher
-	PLAT_audioDeviceWatchUnregister();
-
-	// Close USB HID input
-	Player_quitUSBHID();
+	// Shutdown audio manager (stops watcher, closes HID)
+	AudioMgr_quit();
 
 	Player_stop();
 
@@ -2341,7 +2205,7 @@ void Player_stop(void) {
 
 	player.state = PLAYER_STATE_STOPPED;
 	player.position_ms = 0;
-    player.playback_speed = 1.0f;
+	player.playback_speed = 1.0f;
 	audio_position_samples = 0;
 
 	// Clean up streaming resources
@@ -2432,13 +2296,15 @@ float Player_getVolume(void) {
 }
 
 void Player_setPlaybackSpeed(float speed) {
-    if (speed < 0.5f) speed = 0.5f;
-    if (speed > 2.0f) speed = 2.0f;
-    player.playback_speed = speed;
+	if (speed < 0.5f)
+		speed = 0.5f;
+	if (speed > 2.0f)
+		speed = 2.0f;
+	player.playback_speed = speed;
 }
 
 float Player_getPlaybackSpeed(void) {
-    return player.playback_speed;
+	return player.playback_speed;
 }
 
 PlayerState Player_getState(void) {
@@ -2491,8 +2357,7 @@ SDL_Surface* Player_getAlbumArt(void) {
 }
 
 void Player_update(void) {
-	// End-of-track detection is handled in the audio callback for streaming mode
-	// This function is kept for any future polling needs
+	AudioMgr_pollEvents(); // callback triggers reopen_audio_device() if needed
 }
 
 void Player_resumeAudio(void) {
@@ -2508,142 +2373,24 @@ void Player_pauseAudio(void) {
 }
 
 bool Player_isBluetoothActive(void) {
-	return bluetooth_audio_active;
+	return AudioMgr_isBluetoothActive();
 }
 
 bool Player_isUSBDACActive(void) {
-	return usbdac_audio_active;
+	return AudioMgr_isUSBDACActive();
 }
 
-// USB HID input monitoring
-static int usb_hid_fd = -1;
-
-// Find USB audio HID device by scanning /proc/bus/input/devices
-static int find_audio_hid_device(char* event_path, size_t path_size, bool find_bluetooth) {
-	FILE* f = fopen("/proc/bus/input/devices", "r");
-	if (!f)
-		return -1;
-
-	char line[512];
-	char name[256] = {0};
-	char handlers[256] = {0};
-	bool is_usb = false;
-	bool is_bluetooth_avrcp = false;
-	bool has_kbd = false;
-
-	while (fgets(line, sizeof(line), f)) {
-		if (strncmp(line, "N: Name=", 8) == 0) {
-			// New device, reset state
-			strncpy(name, line + 8, sizeof(name) - 1);
-			handlers[0] = 0;
-			is_usb = false;
-			is_bluetooth_avrcp = false;
-			has_kbd = false;
-			// Check if Bluetooth AVRCP device
-			if (strstr(name, "AVRCP")) {
-				is_bluetooth_avrcp = true;
-			}
-		} else if (strncmp(line, "P: Phys=", 8) == 0) {
-			// Check if USB device
-			if (strstr(line, "usb-")) {
-				is_usb = true;
-			}
-		} else if (strncmp(line, "H: Handlers=", 12) == 0) {
-			strncpy(handlers, line + 12, sizeof(handlers) - 1);
-			// Check if it has kbd handler (keyboard/keypad events)
-			if (strstr(handlers, "kbd")) {
-				has_kbd = true;
-			}
-		} else if (line[0] == '\n') {
-			// End of device entry
-			bool match = false;
-			if (find_bluetooth && is_bluetooth_avrcp && has_kbd) {
-				match = true;
-			} else if (!find_bluetooth && is_usb && has_kbd) {
-				match = true;
-			}
-
-			if (match && handlers[0]) {
-				// Find event device number
-				char* event_ptr = strstr(handlers, "event");
-				if (event_ptr) {
-					int event_num = -1;
-					sscanf(event_ptr, "event%d", &event_num);
-					if (event_num >= 0) {
-						snprintf(event_path, path_size, "/dev/input/event%d", event_num);
-						fclose(f);
-						return 0;
-					}
-				}
-			}
-		}
-	}
-
-	fclose(f);
-	return -1;
-}
-
+// USB HID wrappers — AudioMgr now owns the HID fd
 void Player_initUSBHID(void) {
-	if (usb_hid_fd >= 0) {
-		close(usb_hid_fd);
-		usb_hid_fd = -1;
-	}
-
-	char event_path[64];
-
-	// Try USB DAC HID first
-	if (usbdac_audio_active) {
-		if (find_audio_hid_device(event_path, sizeof(event_path), false) == 0) {
-			usb_hid_fd = open(event_path, O_RDONLY | O_NONBLOCK);
-			if (usb_hid_fd >= 0) {
-				return;
-			}
-		}
-	}
-
-	// Try Bluetooth AVRCP
-	if (bluetooth_audio_active) {
-		if (find_audio_hid_device(event_path, sizeof(event_path), true) == 0) {
-			usb_hid_fd = open(event_path, O_RDONLY | O_NONBLOCK);
-			if (usb_hid_fd >= 0) {
-				return;
-			}
-		}
-	}
+	// No-op: AudioMgr manages HID lifecycle
 }
 
 USBHIDEvent Player_pollUSBHID(void) {
-	if (usb_hid_fd < 0) {
-		return USB_HID_EVENT_NONE;
-	}
-
-	struct input_event_raw ev;
-	while (read(usb_hid_fd, &ev, sizeof(ev)) == sizeof(ev)) {
-		// Only handle key press events (value=1), ignore release (0) and repeat (2)
-		if (ev.type == EV_KEY && ev.value == 1) {
-			switch (ev.code) {
-			case KEY_VOLUMEUP:
-				return USB_HID_EVENT_VOLUME_UP;
-			case KEY_VOLUMEDOWN:
-				return USB_HID_EVENT_VOLUME_DOWN;
-			case KEY_NEXTSONG:
-				return USB_HID_EVENT_NEXT_TRACK;
-			case KEY_PLAYPAUSE:
-			case KEY_PLAYCD:
-			case KEY_PAUSECD:
-				return USB_HID_EVENT_PLAY_PAUSE;
-			case KEY_PREVIOUSSONG:
-				return USB_HID_EVENT_PREV_TRACK;
-			}
-		}
-	}
-
-	return USB_HID_EVENT_NONE;
+	AudioMgrHIDEvent e = AudioMgr_pollHID();
+	// Enum values are identical by design, just different type names
+	return (USBHIDEvent)e;
 }
 
 void Player_quitUSBHID(void) {
-	if (usb_hid_fd >= 0) {
-		close(usb_hid_fd);
-		usb_hid_fd = -1;
-	}
+	// No-op: AudioMgr manages HID lifecycle
 }

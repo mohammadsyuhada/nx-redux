@@ -2409,6 +2409,34 @@ size_t SND_batchSamples_fixed_rate(const SND_Frame* frames, size_t frame_count) 
 	return total_consumed_frames;
 }
 
+const char* SND_findExternalAudioDevice(void) {
+#if defined(USE_SDL2)
+	int num_devices = SDL_GetNumAudioDevices(0);
+	for (int i = 0; i < num_devices; i++) {
+		const char* name = SDL_GetAudioDeviceName(i, 0);
+		if (name && strstr(name, "audiocodec") == NULL) {
+			LOG_info("External audio device found: %s\n", name);
+			return name;
+		}
+	}
+#endif
+	return NULL;
+}
+
+const char* SND_findSpeakerDevice(void) {
+#if defined(USE_SDL2)
+	int num_devices = SDL_GetNumAudioDevices(0);
+	for (int i = 0; i < num_devices; i++) {
+		const char* name = SDL_GetAudioDeviceName(i, 0);
+		if (name && strstr(name, "audiocodec") != NULL) {
+			LOG_info("Speaker audio device found: %s\n", name);
+			return name;
+		}
+	}
+#endif
+	return NULL;
+}
+
 void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 	LOG_info("SND_init\n");
 	if (SDL_WasInit(SDL_INIT_AUDIO))
@@ -2445,7 +2473,7 @@ void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 	spec_in.callback = SND_audioCallback;
 
 #if defined(USE_SDL2)
-	snd.device_id = SDL_OpenAudioDevice(NULL, 0, &spec_in, &spec_out, SDL_AUDIO_ALLOW_ANY_CHANGE);
+	snd.device_id = SDL_OpenAudioDevice(SND_findExternalAudioDevice(), 0, &spec_in, &spec_out, SDL_AUDIO_ALLOW_ANY_CHANGE);
 	if (snd.device_id <= 0) {
 		LOG_info("SDL_OpenAudioDevice error: %s\n", SDL_GetError());
 		if (SDL_OpenAudio(&spec_in, &spec_out) < 0) {

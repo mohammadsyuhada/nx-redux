@@ -74,14 +74,7 @@ int main(int argc, char* argv[]) {
 		goto cleanup;
 	}
 
-	// At startup, set software volume based on output device
-	if (Player_isBluetoothActive() || Player_isUSBDACActive()) {
-		// Use cubic curve for perceptual volume (human hearing is logarithmic)
-		float v = GetVolume() / 20.0f;
-		Player_setVolume(v * v * v);
-	} else {
-		Player_setVolume(1.0f);
-	}
+	Player_setVolume(1.0f);
 
 	// Restore hardware volume after audio device is open and stable
 	SetVolume(GetVolume());

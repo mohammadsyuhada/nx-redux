@@ -249,8 +249,6 @@ static void handle_hid_events(void) {
 			PlayerModule_nextTrack();
 		} else if (hid_event == USB_HID_EVENT_PREV_TRACK) {
 			PlayerModule_prevTrack();
-		} else {
-			ModuleCommon_handleHIDVolume(hid_event);
 		}
 	}
 }
@@ -350,7 +348,7 @@ static bool handle_playing_input(SDL_Surface* screen, PlayerInternalState* state
 		}
 		// Handle USB/Bluetooth media and volume buttons even with screen off
 		handle_hid_events();
-		ModuleCommon_handleHardwareVolume();
+
 		Player_update();
 
 		if (Player_getState() == PLAYER_STATE_STOPPED) {
@@ -757,7 +755,7 @@ ModuleExitReason PlayerModule_runWithPlaylist(SDL_Surface* screen,
 				dirty = 1;
 			}
 			handle_hid_events();
-			ModuleCommon_handleHardwareVolume();
+
 			Player_update();
 
 			if (Player_getState() == PLAYER_STATE_STOPPED) {

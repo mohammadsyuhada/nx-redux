@@ -66,6 +66,9 @@ $(REQUIRES_MUPEN64PLUS)/mupen64plus-core:
 	git clone $(MUPEN64PLUS_UI_REPO) $(REQUIRES_MUPEN64PLUS)/mupen64plus-ui-console
 	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-ui-console && git checkout $(MUPEN64PLUS_UI_COMMIT)
 	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-ui-console && git apply ../mupen64plus-ui-console.patch
+	git clone $(MUPEN64PLUS_AUDIO_REPO) $(REQUIRES_MUPEN64PLUS)/mupen64plus-audio-sdl
+	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-audio-sdl && git checkout $(MUPEN64PLUS_AUDIO_COMMIT)
+	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-audio-sdl && git apply ../mupen64plus-audio-sdl.patch
 	git clone $(GLIDEN64_REPO) $(REQUIRES_MUPEN64PLUS)/GLideN64-standalone
 	cd $(REQUIRES_MUPEN64PLUS)/GLideN64-standalone && git checkout $(GLIDEN64_COMMIT) && git submodule update --init --recursive
 	cd $(REQUIRES_MUPEN64PLUS)/GLideN64-standalone && git apply ../GLideN64-standalone.patch

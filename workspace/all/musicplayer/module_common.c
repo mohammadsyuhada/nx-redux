@@ -67,10 +67,7 @@ GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorT
 	// Poll USB HID events (earphone buttons)
 	USBHIDEvent hid_event;
 	while ((hid_event = Player_pollUSBHID()) != USB_HID_EVENT_NONE) {
-		if (ModuleCommon_handleHIDVolume(hid_event)) {
-			result.dirty = true;
-			result.input_consumed = true;
-		} else if (hid_event == USB_HID_EVENT_PLAY_PAUSE) {
+		if (hid_event == USB_HID_EVENT_PLAY_PAUSE) {
 			// Check what's currently playing and handle accordingly
 			// Check radio first (takes priority when streaming)
 			RadioState radio_state = Radio_getState();
@@ -139,7 +136,7 @@ GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorT
 	// (Menu + Vol = brightness, Select + Vol = color temp - handled by platform)
 	// Note: We don't consume input or return early here - let PWR_update detect
 	// the volume button press and set show_setting to display the volume UI
-	ModuleCommon_handleHardwareVolume();
+
 
 	// Handle quit confirmation dialog
 	if (show_quit_confirm) {
@@ -306,6 +303,7 @@ void ModuleCommon_quit(void) {
 	PLAT_clearLayers(LAYER_BUFFER);
 }
 
+
 void ModuleCommon_PWR_update(bool* dirty, IndicatorType* show_setting) {
 	// Track overlay-triggering buttons for auto-hide (check BEFORE PWR_update)
 	// MENU = brightness, SELECT = color temp, PLUS/MINUS = volume
@@ -338,47 +336,7 @@ void ModuleCommon_PWR_update(bool* dirty, IndicatorType* show_setting) {
 	}
 
 	overlay_buttons_were_active = overlay_buttons_active;
-}
 
-bool ModuleCommon_handleHIDVolume(USBHIDEvent hid_event) {
-	if (hid_event != USB_HID_EVENT_VOLUME_UP && hid_event != USB_HID_EVENT_VOLUME_DOWN) {
-		return false;
-	}
-	int vol = GetVolume();
-	if (hid_event == USB_HID_EVENT_VOLUME_UP) {
-		vol = (vol < 20) ? vol + 1 : 20;
-	} else {
-		vol = (vol > 0) ? vol - 1 : 0;
-	}
-	// USB HID events only come from USB DAC, so always use software volume
-	SetVolume(vol);
-	float v = vol / 20.0f;
-	Player_setVolume(v * v * v);
-	return true;
-}
-
-void ModuleCommon_handleHardwareVolume(void) {
-	if (PAD_isPressed(BTN_MENU) || PAD_isPressed(BTN_SELECT))
-		return;
-	int vol_delta = 0;
-	if (PAD_justRepeated(BTN_PLUS))
-		vol_delta = 1;
-	else if (PAD_justRepeated(BTN_MINUS))
-		vol_delta = -1;
-	if (!vol_delta)
-		return;
-
-	int vol = GetVolume() + vol_delta;
-	if (vol > 20)
-		vol = 20;
-	else if (vol < 0)
-		vol = 0;
-
-	if (Player_isBluetoothActive() || Player_isUSBDACActive()) {
-		float v = vol / 20.0f;
-		Player_setVolume(v * v * v);
-	} else {
-		SetVolume(vol);
-		Player_setVolume(1.0f);
-	}
+	// Check for pending audio device changes (set from inotify thread)
+	Player_update();
 }

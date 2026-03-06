@@ -8,6 +8,7 @@
 #include <msettings.h>
 
 #include "api.h"
+#include "audio_manager.h"
 
 #include "ui_icons.h"
 
@@ -83,6 +84,9 @@ int main(int argc, char* argv[]) {
 		SDL_QuitSubSystem(SDL_INIT_AUDIO);
 		SetVolume(GetVolume());
 	}
+
+	// Initialize audio manager (detect sink, configure mixer, start watcher)
+	AudioMgr_init();
 
 	PAD_init();
 	PWR_init();
@@ -164,6 +168,7 @@ int main(int argc, char* argv[]) {
 	ModuleCommon_quit();
 	Icons_quit();
 
+	AudioMgr_quit();
 	QuitSettings();
 	PWR_quit();
 	PAD_quit();

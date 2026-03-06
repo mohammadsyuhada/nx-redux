@@ -65,6 +65,27 @@ mkdir -p "$MINUI_DIR"
 export EMU_OVERLAY_SCREENSHOT_DIR="$MINUI_DIR"
 export EMU_OVERLAY_ROMFILE="$(basename "$ROM")"
 
+# Audio device detection: BT via .asoundrc, USB DAC via /proc/asound/cards
+AUDIODEV="default"
+if grep -q "bluealsa" "$HOME/.asoundrc" 2>/dev/null; then
+    AUDIODEV="bluealsa"
+    # Set BT A2DP mixer to max for software volume control
+    amixer scontrols 2>/dev/null | grep -i 'A2DP' | \
+        sed "s/.*'\([^']*\)'.*/\1/" | \
+        while read ctrl; do amixer sset "$ctrl" 127 2>/dev/null; done
+elif grep -q "USB-Audio\|USB Audio" /proc/asound/cards 2>/dev/null; then
+    # USB DAC: set card 1 mixer controls to 100%
+    amixer -c 1 sset PCM 100% 2>/dev/null
+    amixer -c 1 sset Master 100% 2>/dev/null
+    amixer -c 1 sset Speaker 100% 2>/dev/null
+    amixer -c 1 sset Headphone 100% 2>/dev/null
+    amixer -c 1 sset Headset 100% 2>/dev/null
+fi
+export AUDIODEV
+
+# Sync audio sink in msettings (so keymon volume buttons use correct mixer path)
+syncsettings.elf &
+
 # Launch from PAK_DIR so core library resolves via ./
 cd "$PAK_DIR"
 ./mupen64plus --fullscreen --resolution "$DEVICE_RESOLUTION" \

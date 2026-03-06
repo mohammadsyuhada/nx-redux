@@ -154,7 +154,7 @@ void Podcast_clearArtwork(void) {
 }
 
 // Thumbnail cache for subscription artwork on main page
-#define THUMBNAIL_CACHE_SIZE 8
+#define THUMBNAIL_CACHE_SIZE 64
 typedef struct {
 	char feed_id[17];
 	SDL_Surface* thumbnail;
@@ -1714,27 +1714,27 @@ void render_podcast_playing(SDL_Surface* screen, IndicatorType show_setting,
 		SDL_FreeSurface(badge_surf);
 	}
 
-	    int next_badge_x = badge_x + badge_w;
+	int next_badge_x = badge_x + badge_w;
 
-    // Playback speed badge (show when not 1x, right after PODCAST badge)
-    float pspeed = Player_getPlaybackSpeed();
-    if (pspeed != 1.0f) {
-        char speed_label[16];
-        snprintf(speed_label, sizeof(speed_label), "%.2gx", pspeed);
-        SDL_Surface* speed_surf = TTF_RenderUTF8_Blended(font.tiny, speed_label, COLOR_GRAY);
-        if (speed_surf) {
-            int sx = next_badge_x + SCALE1(4);
-            int speed_badge_w = speed_surf->w + SCALE1(10);
-            int speed_badge_h = speed_surf->h + SCALE1(4);
-            SDL_Rect sborder = {sx, top_y, speed_badge_w, speed_badge_h};
-            SDL_FillRect(screen, &sborder, RGB_GRAY);
-            SDL_Rect sinner = {sx + 1, top_y + 1, speed_badge_w - 2, speed_badge_h - 2};
-            SDL_FillRect(screen, &sinner, RGB_BLACK);
-            SDL_BlitSurface(speed_surf, NULL, screen, &(SDL_Rect){sx + SCALE1(5), top_y + SCALE1(2)});
-            next_badge_x = sx + speed_badge_w;
-            SDL_FreeSurface(speed_surf);
-        }
-    }
+	// Playback speed badge (show when not 1x, right after PODCAST badge)
+	float pspeed = Player_getPlaybackSpeed();
+	if (pspeed != 1.0f) {
+		char speed_label[16];
+		snprintf(speed_label, sizeof(speed_label), "%.2gx", pspeed);
+		SDL_Surface* speed_surf = TTF_RenderUTF8_Blended(font.tiny, speed_label, COLOR_GRAY);
+		if (speed_surf) {
+			int sx = next_badge_x + SCALE1(4);
+			int speed_badge_w = speed_surf->w + SCALE1(10);
+			int speed_badge_h = speed_surf->h + SCALE1(4);
+			SDL_Rect sborder = {sx, top_y, speed_badge_w, speed_badge_h};
+			SDL_FillRect(screen, &sborder, RGB_GRAY);
+			SDL_Rect sinner = {sx + 1, top_y + 1, speed_badge_w - 2, speed_badge_h - 2};
+			SDL_FillRect(screen, &sinner, RGB_BLACK);
+			SDL_BlitSurface(speed_surf, NULL, screen, &(SDL_Rect){sx + SCALE1(5), top_y + SCALE1(2)});
+			next_badge_x = sx + speed_badge_w;
+			SDL_FreeSurface(speed_surf);
+		}
+	}
 
 	// Episode counter "01 / 67" (like track counter in music player)
 	// Show position among downloaded episodes, not total episodes
@@ -1749,7 +1749,7 @@ void render_podcast_playing(SDL_Surface* screen, IndicatorType show_setting,
 	}
 	SDL_Surface* counter_surf = TTF_RenderUTF8_Blended(font.tiny, ep_counter, COLOR_GRAY);
 	if (counter_surf) {
-        int counter_x = next_badge_x + SCALE1(8);
+		int counter_x = next_badge_x + SCALE1(8);
 		int counter_y = top_y + (badge_h - counter_surf->h) / 2;
 		SDL_BlitSurface(counter_surf, NULL, screen, &(SDL_Rect){counter_x, counter_y});
 		SDL_FreeSurface(counter_surf);

@@ -41,7 +41,7 @@ SOURCE = $(TARGET).c ffplay_engine.c video_browser.c settings.c wifi.c \
          ../include/parson/parson.c \
          ../include/mbedtls_entropy_alt.c \
          $(MBEDTLS_SRC) \
-         ../common/utils.c ../common/api.c ../common/config.c ../common/scaler.c ../common/display_helper.c ../common/ui_components.c ../common/ui_toast.c ../common/ui_list.c ../common/ui_keyboard.c ../common/ytdlp_updater.c ../common/wget_fetch.c \
+         ../common/utils.c ../common/api.c ../common/audio_manager.c ../common/config.c ../common/scaler.c ../common/display_helper.c ../common/ui_components.c ../common/ui_toast.c ../common/ui_list.c ../common/ui_keyboard.c ../common/ytdlp_updater.c ../common/wget_fetch.c \
          ../../$(PLATFORM)/platform/platform.c
 
 CC = $(CROSS_COMPILE)gcc

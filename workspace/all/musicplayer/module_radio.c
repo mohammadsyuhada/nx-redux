@@ -89,8 +89,6 @@ static void handle_hid_events(void) {
 				Radio_stop();
 				Radio_play(stations[new_idx].url);
 			}
-		} else {
-			ModuleCommon_handleHIDVolume(hid_event);
 		}
 	}
 }
@@ -287,7 +285,7 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 				}
 				// Handle USB/Bluetooth media and volume buttons even with screen off
 				handle_hid_events();
-				ModuleCommon_handleHardwareVolume();
+
 				Radio_update();
 				GFX_sync();
 				continue;

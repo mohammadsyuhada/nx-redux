@@ -80,10 +80,10 @@ typedef struct {
 	SDL_Surface* album_art; // Cached album art surface (NULL if none)
 
 	// Playback
-	int position_ms; // Current position in milliseconds
-	float volume;	 // 0.0 to 1.0
-	bool repeat;	 // Loop current track
-    float playback_speed;   // Playback speed multiplier (0.5 - 2.0)
+	int position_ms;	  // Current position in milliseconds
+	float volume;		  // 0.0 to 1.0
+	bool repeat;		  // Loop current track
+	float playback_speed; // Playback speed multiplier (0.5 - 2.0)
 
 	// Audio buffer for visualization
 	int16_t vis_buffer[2048]; // Stereo samples for FFT

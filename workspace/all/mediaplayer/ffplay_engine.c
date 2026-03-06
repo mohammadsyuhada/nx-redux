@@ -10,32 +10,10 @@
 #include "msettings.h"
 #include "display_helper.h"
 #include "ffplay_engine.h"
+#include "audio_manager.h"
 
 // PID of the currently running ffplay child process (0 = none)
 static pid_t ffplay_pid = 0;
-
-// Check if Bluetooth audio is active (via msettings or .asoundrc)
-static int is_bluetooth_audio(void) {
-	if (GetAudioSink() == AUDIO_SINK_BLUETOOTH)
-		return 1;
-	const char* home = getenv("HOME");
-	if (home) {
-		char path[512];
-		snprintf(path, sizeof(path), "%s/.asoundrc", home);
-		FILE* f = fopen(path, "r");
-		if (f) {
-			char buf[256];
-			while (fgets(buf, sizeof(buf), f)) {
-				if (strstr(buf, "bluealsa")) {
-					fclose(f);
-					return 1;
-				}
-			}
-			fclose(f);
-		}
-	}
-	return 0;
-}
 
 // Build argv for ffplay and exec in a forked child. Returns exit status.
 static int ffplay_exec(FfplayConfig* config, int use_subs) {
@@ -176,14 +154,10 @@ static int ffplay_exec(FfplayConfig* config, int use_subs) {
 	argv[argc] = NULL;
 
 
-	// Set up Bluetooth audio routing before fork
-	int bt_audio = is_bluetooth_audio();
-	if (bt_audio) {
-		// Set BlueALSA mixer to 100% so audio is audible
-		system("amixer scontrols 2>/dev/null | grep -i 'A2DP' | "
-			   "sed \"s/.*'\\([^']*\\)'.*/\\1/\" | "
-			   "while read ctrl; do amixer sset \"$ctrl\" 127 2>/dev/null; done");
-	}
+	// Configure mixer for current audio sink (BT A2DP, USB DAC, or speaker)
+	AudioMgr_configureMixer();
+	int bt_audio = AudioMgr_isBluetoothActive();
+	int usb_audio = AudioMgr_isUSBDACActive();
 
 	// Mute hardware before ffplay opens audio device to prevent amplifier pop on TG5050
 	int is_tg5050 = (strcmp(PLATFORM, "tg5050") == 0);
@@ -200,9 +174,13 @@ static int ffplay_exec(FfplayConfig* config, int use_subs) {
 	}
 
 	if (ffplay_pid == 0) {
-		// Child process: configure environment before exec
-		if (bt_audio)
+		// Child process: configure audio environment before exec
+		if (bt_audio) {
 			setenv("AUDIODEV", "bluealsa", 1);
+		} else if (usb_audio) {
+			// USB DAC: let ffplay use the default ALSA device (card 1 via .asoundrc)
+			setenv("AUDIODEV", "default", 1);
+		}
 		// Generate a minimal fontconfig pointing to system fonts directory
 		// so fontconfig doesn't scan the entire filesystem (~13s startup delay)
 		if (use_subs) {

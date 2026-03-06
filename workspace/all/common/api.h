@@ -409,6 +409,14 @@ typedef struct {
 	int frame_count;
 } ResampledFrames;
 
+// Returns the name of a non-internal audio device (USB DAC) if one is present, or NULL for default.
+// The returned pointer is only valid until the next SDL audio call.
+const char* SND_findExternalAudioDevice(void);
+
+// Returns the name of the internal speaker audio device (audiocodec), or NULL if not found.
+// Use this instead of NULL when opening SDL audio to bypass stale ALSA config cache.
+const char* SND_findSpeakerDevice(void);
+
 void SND_init(double sample_rate, double frame_rate);
 size_t SND_batchSamples(const SND_Frame* frames, size_t frame_count);
 size_t SND_batchSamples_fixed_rate(const SND_Frame* frames, size_t frame_count);

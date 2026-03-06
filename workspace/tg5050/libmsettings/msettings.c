@@ -953,8 +953,23 @@ void SetRawVolume(int val) { // in: 0-100
 			//printf("Set '%s' to %d%%\n", ctl_name, val); fflush(stdout);
 		}
 	} else if (GetAudioSink() == AUDIO_SINK_USBDAC) {
-		// USB DAC path: use card 1
-		struct mixer* mixer = mixer_open(1);
+		// USB DAC path: find USB audio card dynamically (card number varies)
+		int usb_card = -1;
+		FILE* cards = fopen("/proc/asound/cards", "r");
+		if (cards) {
+			char line[128];
+			while (fgets(line, sizeof(line), cards)) {
+				int card_num;
+				if (sscanf(line, " %d ", &card_num) == 1 && strstr(line, "USB-Audio")) {
+					usb_card = card_num;
+					break;
+				}
+			}
+			fclose(cards);
+		}
+		if (usb_card < 0)
+			return;
+		struct mixer* mixer = mixer_open(usb_card);
 		if (!mixer) {
 			printf("Failed to open mixer\n");
 			fflush(stdout);
@@ -968,7 +983,7 @@ void SetRawVolume(int val) { // in: 0-100
 			if (!name)
 				continue;
 
-			if (strstr(name, "PCM") && (strstr(name, "Volume") || strstr(name, "volume"))) {
+			if ((strstr(name, "PCM") || strstr(name, "Playback")) && (strstr(name, "Volume") || strstr(name, "volume"))) {
 				if (mixer_ctl_get_type(ctl) == MIXER_CTL_TYPE_INT) {
 					int min = mixer_ctl_get_range_min(ctl);
 					int max = mixer_ctl_get_range_max(ctl);
@@ -982,8 +997,23 @@ void SetRawVolume(int val) { // in: 0-100
 		}
 		mixer_close(mixer);
 	} else {
-		// Speaker path: use direct lookup by name
-		struct mixer* mixer = mixer_open(0);
+		// Speaker path: find internal codec card dynamically (card number varies)
+		int codec_card = -1;
+		FILE* cards = fopen("/proc/asound/cards", "r");
+		if (cards) {
+			char line[128];
+			while (fgets(line, sizeof(line), cards)) {
+				int card_num;
+				if (sscanf(line, " %d ", &card_num) == 1 && strstr(line, "audiocodec")) {
+					codec_card = card_num;
+					break;
+				}
+			}
+			fclose(cards);
+		}
+		if (codec_card < 0)
+			codec_card = 0; // fallback
+		struct mixer* mixer = mixer_open(codec_card);
 		if (!mixer) {
 			printf("Failed to open mixer\n");
 			fflush(stdout);
