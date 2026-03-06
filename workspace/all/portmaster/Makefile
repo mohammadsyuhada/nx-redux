@@ -14,27 +14,26 @@ endif
 
 ###########################################################
 
-include ../../$(PLATFORM)/platform/makefile.env
+include ../../$(PLATFORM)/platform/Makefile.env
 SDL?=SDL
 
 ###########################################################
 
-TARGET = gametime
+TARGET = portmaster
 INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
-SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/config.c ../common/scaler.c ../common/ui_components.c ../../$(PLATFORM)/platform/platform.c
+SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/config.c ../common/scaler.c ../common/ui_components.c \
+         ../common/ui_list.c ../common/wget_fetch.c \
+         ../../$(PLATFORM)/platform/platform.c
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS  += $(OPT)
 CFLAGS  += $(INCDIR) -I../../$(PLATFORM)/libmsettings -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
-LDFLAGS	 += -L../../$(PLATFORM)/libmsettings -lmsettings -lgametimedb -lsqlite3
+LDFLAGS	 += -L../../$(PLATFORM)/libmsettings -lmsettings -lSDL2_image -lSDL2_ttf -lm -ldl -lz -lpthread
 
 PRODUCT= build/$(PLATFORM)/$(TARGET).elf
 
-all: $(PREFIX_LOCAL)/include/gametimedb.h
+all:
 	mkdir -p build/$(PLATFORM)
 	$(CC) $(SOURCE) -o $(PRODUCT) $(CFLAGS) $(LDFLAGS)
 clean:
-	rm -f $(PRODUCT)
-
-$(PREFIX_LOCAL)/include/gametimedb.h:
-	cd ../libgametimedb && make
+	rm -f build/tg5040/$(TARGET).elf build/tg5050/$(TARGET).elf

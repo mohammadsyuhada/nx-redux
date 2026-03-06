@@ -128,4 +128,4 @@ gearcoleco_BUILD_PATH = gearcoleco/platforms/libretro
 
 ###############################
 
-include ../../all/cores/makefile
+include ../../all/cores/Makefile

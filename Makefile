@@ -78,7 +78,7 @@ build-cores:
 	# ----------------------------------------------------
 
 cores-json:
-	@cat workspace/$(PLATFORM)/cores/makefile | grep ^CORES | cut -d' ' -f2 | jq  --raw-input .  | jq --slurp -cM .
+	@cat workspace/$(PLATFORM)/cores/Makefile | grep ^CORES | cut -d' ' -f2 | jq  --raw-input .  | jq --slurp -cM .
 
 build-core:
 ifndef CORE
@@ -87,7 +87,7 @@ endif
 	make build-core -f $(TOOLCHAIN_FILE) PLATFORM=$(PLATFORM) COMPILE_CORES=true CORE=$(CORE)
 
 system:
-	make -f ./workspace/$(PLATFORM)/platform/makefile.copy PLATFORM=$(PLATFORM)
+	make -f ./workspace/$(PLATFORM)/platform/Makefile.copy PLATFORM=$(PLATFORM)
 	
 	# populate system
 ifneq ($(PLATFORM), desktop)

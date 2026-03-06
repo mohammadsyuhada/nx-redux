@@ -12,7 +12,7 @@ Cross-compiled PPSSPP v1.20.1 for TG5050 (Mali-G57) with custom in-game overlay 
 
 ## Source Setup
 
-Handled by the platform makefile (`workspace/tg5050/makefile`):
+Handled by the platform makefile (`workspace/tg5050/Makefile`):
 
 ```bash
 cd workspace/tg5050

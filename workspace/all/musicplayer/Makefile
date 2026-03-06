@@ -24,7 +24,7 @@ endif
 
 ###########################################################
 
-include ../../$(PLATFORM)/platform/makefile.env
+include ../../$(PLATFORM)/platform/Makefile.env
 
 TARGET = musicplayer
 INCDIR = -I. -I./audio -I../common/ -I../../$(PLATFORM)/platform/ -I../minarch/libretro-common/include
@@ -66,7 +66,7 @@ SOURCE = $(TARGET).c player.c playlist.c playlist_m3u.c radio.c radio_net.c albu
 
 CC = $(CROSS_COMPILE)gcc
 
-# Reset CFLAGS to avoid issues with platform makefile.env
+# Reset CFLAGS to avoid issues with platform Makefile.env
 MY_CFLAGS = -O2 -fomit-frame-pointer
 # mbedTLS config
 MY_CFLAGS += -DMBEDTLS_CONFIG_FILE='<mbedtls_config.h>'

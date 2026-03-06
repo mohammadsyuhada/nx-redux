@@ -85,4 +85,4 @@ $(REQUIRES_SDL2_DRASTIC)/SDL_drastic:
 	cd $(REQUIRES_SDL2_DRASTIC)/SDL_drastic && patch -p1 < ../0006-add-hook-for-drastic.patch
 	cd $(REQUIRES_SDL2_DRASTIC)/SDL_drastic && patch -p1 < ../fix-tg5040.patch
 
-include ../all/readmes/makefile
+include ../all/readmes/Makefile

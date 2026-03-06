@@ -14,7 +14,7 @@ endif
 
 ###########################################################
 
-include ../../$(PLATFORM)/platform/makefile.env
+include ../../$(PLATFORM)/platform/Makefile.env
 
 ###########################################################
 

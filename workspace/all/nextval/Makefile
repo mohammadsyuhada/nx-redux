@@ -14,27 +14,22 @@ endif
 
 ###########################################################
 
-include ../../$(PLATFORM)/platform/makefile.env
-SDL?=SDL
+include ../../$(PLATFORM)/platform/Makefile.env
 
 ###########################################################
 
-TARGET = gametimectl
+TARGET = nextval
 INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
-SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/scaler.c ../common/config.c ../../$(PLATFORM)/platform/platform.c
+SOURCE = $(TARGET).c ../common/utils.c ../common/config.c
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS  += $(OPT)
-CFLAGS  += $(INCDIR) -I../../$(PLATFORM)/libmsettings -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
-LDFLAGS	 += -L../../$(PLATFORM)/libmsettings -lmsettings -lgametimedb -lsqlite3
+CFLAGS  += $(INCDIR) -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
 
 PRODUCT= build/$(PLATFORM)/$(TARGET).elf
 
-all: $(PREFIX_LOCAL)/include/gametimedb.h
+all: 
 	mkdir -p build/$(PLATFORM)
 	$(CC) $(SOURCE) -o $(PRODUCT) $(CFLAGS) $(LDFLAGS)
 clean:
 	rm -f $(PRODUCT)
-
-$(PREFIX_LOCAL)/include/gametimedb.h:
-	cd ../libgametimedb && make

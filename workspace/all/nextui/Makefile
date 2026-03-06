@@ -14,26 +14,27 @@ endif
 
 ###########################################################
 
-include ../../$(PLATFORM)/platform/makefile.env
+include ../../$(PLATFORM)/platform/Makefile.env
 SDL?=SDL
 
 ###########################################################
 
-TARGET = portmaster
+TARGET = nextui
 INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
-SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/config.c ../common/scaler.c ../common/ui_components.c \
-         ../common/ui_list.c ../common/wget_fetch.c \
-         ../../$(PLATFORM)/platform/platform.c
+SOURCE = $(TARGET).c types.c recents.c content.c launcher.c imgloader.c shortcuts.c gameswitcher.c quickmenu.c search.c ../common/display_helper.c ../common/scaler.c ../common/utils.c ../common/config.c ../common/api.c ../common/ui_components.c ../common/ui_list.c ../common/ui_listdialog.c ../common/ui_keyboard.c ../common/ui_connect.c ../../$(PLATFORM)/platform/platform.c
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS  += $(OPT)
 CFLAGS  += $(INCDIR) -I../../$(PLATFORM)/libmsettings -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
-LDFLAGS	 += -L../../$(PLATFORM)/libmsettings -lmsettings -lSDL2_image -lSDL2_ttf -lm -ldl -lz -lpthread
+LDFLAGS	 += -L../../$(PLATFORM)/libmsettings -lmsettings
 
 PRODUCT= build/$(PLATFORM)/$(TARGET).elf
 
-all:
+all: $(PREFIX_LOCAL)/include/msettings.h
 	mkdir -p build/$(PLATFORM)
 	$(CC) $(SOURCE) -o $(PRODUCT) $(CFLAGS) $(LDFLAGS)
 clean:
-	rm -f build/tg5040/$(TARGET).elf build/tg5050/$(TARGET).elf
+	rm -f $(PRODUCT)
+
+$(PREFIX_LOCAL)/include/msettings.h:
+	cd ../../$(PLATFORM)/libmsettings && make

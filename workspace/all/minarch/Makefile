@@ -14,7 +14,7 @@ endif
 
 ###########################################################
 
-include ../../$(PLATFORM)/platform/makefile.env
+include ../../$(PLATFORM)/platform/Makefile.env
 SDL?=SDL
 
 ###########################################################
@@ -120,14 +120,14 @@ endif
 libretro-common:
 	git clone https://github.com/libretro/libretro-common
 
-rcheevos: rcheevos/makefile $(PREFIX_LOCAL)/lib/librcheevos.a
+rcheevos: rcheevos/Makefile $(PREFIX_LOCAL)/lib/librcheevos.a
 
 libchdr: libchdr/CMakeLists.txt $(PREFIX_LOCAL)/lib/libchdr.so
 
-rcheevos/makefile:
+rcheevos/Makefile:
 	rm -rf rcheevos
 	mkdir -p rcheevos
-	cp rcheevos.makefile rcheevos/makefile
+	cp rcheevos.Makefile rcheevos/Makefile
 
 $(PREFIX_LOCAL)/lib/librcheevos.a:
 	cd rcheevos && make build install PLATFORM=$(PLATFORM)
@@ -135,7 +135,7 @@ $(PREFIX_LOCAL)/lib/librcheevos.a:
 libchdr/CMakeLists.txt:
 	rm -rf libchdr
 	git clone https://github.com/rtissera/libchdr
-	cp libchdr.makefile libchdr/makefile
+	cp libchdr.Makefile libchdr/Makefile
 
 $(PREFIX_LOCAL)/lib/libchdr.so:
 	cd libchdr && make build install PLATFORM=$(PLATFORM)

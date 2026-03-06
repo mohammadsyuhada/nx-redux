@@ -16,4 +16,4 @@ early:
 
 clean:
 
-include ../all/readmes/makefile
+include ../all/readmes/Makefile

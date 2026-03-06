@@ -14,31 +14,43 @@ endif
 
 ###########################################################
 
-include ../../$(PLATFORM)/platform/makefile.env
+include ../../$(PLATFORM)/platform/Makefile.env
 SDL?=SDL
 
 ###########################################################
 
-TARGET = scraper
+TARGET = settings
 INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
 
 COMMON_PATH = ../common
 PLATFORM_PATH = ../../$(PLATFORM)
 
-SOURCE = scraper.c scraper_api.c scraper_compositor.c scraper_systems.c \
+SOURCE = settings.c settings_menu.c settings_wifi.c settings_bt.c settings_led.c settings_developer.c settings_updater.c settings_input.c settings_clock.c settings_bootlogo.c \
          $(COMMON_PATH)/utils.c $(COMMON_PATH)/api.c \
          $(COMMON_PATH)/config.c $(COMMON_PATH)/scaler.c \
-         $(COMMON_PATH)/http.c \
+         $(COMMON_PATH)/http.c $(COMMON_PATH)/ra_auth.c \
          $(COMMON_PATH)/ui_components.c $(COMMON_PATH)/ui_list.c \
          $(COMMON_PATH)/ui_keyboard.c \
          $(COMMON_PATH)/display_helper.c \
-         $(COMMON_PATH)/cjson/cJSON.c \
          $(PLATFORM_PATH)/platform/platform.c
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS += $(OPT)
-CFLAGS += $(INCDIR) -I../../$(PLATFORM)/libmsettings -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
-LDFLAGS += -L../../$(PLATFORM)/libmsettings -lmsettings -lpthread
+CFLAGS += $(INCDIR) -I../../$(PLATFORM)/libmsettings -DPLATFORM=\"$(PLATFORM)\"
+LDFLAGS += -L../../$(PLATFORM)/libmsettings -lmsettings
+
+ifeq ($(PLATFORM), tg5040)
+CFLAGS += -DHAS_BTAGENT
+SOURCE += settings_btagent.c
+CFLAGS += $$(pkg-config --cflags gio-2.0 glib-2.0)
+LDFLAGS += $$(pkg-config --libs gio-2.0 glib-2.0)
+endif
+ifeq ($(PLATFORM), tg5050)
+CFLAGS += -DHAS_BTAGENT
+SOURCE += settings_btagent.c
+CFLAGS += $$(pkg-config --cflags gio-2.0 glib-2.0)
+LDFLAGS += $$(pkg-config --libs gio-2.0 glib-2.0)
+endif
 
 PRODUCT= build/$(PLATFORM)/$(TARGET).elf
 

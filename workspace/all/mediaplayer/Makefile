@@ -24,7 +24,7 @@ endif
 
 ###########################################################
 
-include ../../$(PLATFORM)/platform/makefile.env
+include ../../$(PLATFORM)/platform/Makefile.env
 
 TARGET = mediaplayer
 # Paths adjusted for location in workspace/all/mediaplayer/
@@ -46,7 +46,7 @@ SOURCE = $(TARGET).c ffplay_engine.c video_browser.c settings.c wifi.c \
 
 CC = $(CROSS_COMPILE)gcc
 
-# Reset CFLAGS to avoid issues with platform makefile.env
+# Reset CFLAGS to avoid issues with platform Makefile.env
 MY_CFLAGS = -O2 -fomit-frame-pointer
 # mbedTLS config
 MY_CFLAGS += -DMBEDTLS_CONFIG_FILE='<mbedtls_config.h>'
