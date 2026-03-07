@@ -26,6 +26,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Compute Next Tag
+        id: next-tag
+        run: |
+          LATEST_TAG="$(git describe --tags "$(git rev-list --tags --max-count=1)" 2>/dev/null || echo "v0.0.0")"
+          IFS='.' read -r major minor patch <<< "${LATEST_TAG#v}"
+          case "${{ github.event.inputs.release_type }}" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+          esac
+          NEXT_TAG="v${major}.${minor}.${patch}"
+          echo "NEXT_TAG=$NEXT_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
         run: |
@@ -33,7 +48,7 @@ jobs:
           sudo apt-get install -y zipmerge
 
       - name: Build
-        run: make all COMPILE_CORES=true
+        run: make all COMPILE_CORES=true BUILD_TAG=${{ steps.next-tag.outputs.NEXT_TAG }}
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4.6.2
@@ -95,9 +110,9 @@ jobs:
           make_latest: "true"
           body: |
 
-            For full features list and help on how to use etc of NextUI:
+            Some of the features is based on NextUI, please refer NextUI documentation:
             https://nextui.loveretro.games/docs/
 
-            ## How to install/update
-            For a fresh installation, follow the instructions here: https://nextui.loveretro.games/getting-started/installation/
-            When updating from a previous release: https://nextui.loveretro.games/getting-started/updating/
+            Fresh installation is recommended. Select zip files that is relevant to your platform and extract it to your exFAT formatted SDCARD.
+
+

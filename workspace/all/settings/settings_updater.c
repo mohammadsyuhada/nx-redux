@@ -31,7 +31,7 @@
 #define UPDATER_REPO_OWNER "mohammadsyuhada"
 #define UPDATER_REPO_NAME "nextui-redux"
 #define VERSION_FILE_PATH "/mnt/SDCARD/.system/version.txt"
-#define DOWNLOAD_PATH "/tmp/nextui-update.zip"
+#define DOWNLOAD_PATH "/mnt/SDCARD/.tmp_update.zip"
 #define EXTRACT_DEST "/mnt/SDCARD/"
 
 // ============================================
@@ -75,6 +75,7 @@ static ReleaseInfo cached_release = {0};
 static char item_label[160] = "Updater";
 static char item_desc[256] = "";
 static char current_sha_cache[64] = "";
+static char current_tag_cache[128] = "";
 
 // Background check thread
 static pthread_t auto_tid;
@@ -335,13 +336,10 @@ static void process_auto_check_result(void) {
 	extract_first_paragraph(body, release.release_notes, sizeof(release.release_notes));
 	HTTP_freeResponse(response);
 
-	// Compare SHAs
+	// Compare tag names
 	int is_same = 0;
-	if (current_sha_cache[0] && release.commit_sha[0]) {
-		size_t cur_len = strlen(current_sha_cache);
-		size_t rel_len = strlen(release.commit_sha);
-		size_t cmp_len = cur_len < rel_len ? cur_len : rel_len;
-		if (cmp_len > 0 && strncmp(current_sha_cache, release.commit_sha, cmp_len) == 0)
+	if (current_tag_cache[0] && release.tag_name[0]) {
+		if (strcmp(current_tag_cache, release.tag_name) == 0)
 			is_same = 1;
 	}
 
@@ -389,7 +387,10 @@ static void* download_thread(void* arg) {
 static void* extract_thread(void* arg) {
 	AsyncContext* ctx = (AsyncContext*)arg;
 
-	char* argv[] = {"unzip", "-o", DOWNLOAD_PATH, "-d", EXTRACT_DEST, NULL};
+	char out_arg[256];
+	snprintf(out_arg, sizeof(out_arg), "-o%s", EXTRACT_DEST);
+	char* argv[] = {"/mnt/SDCARD/.system/shared/bin/7zzs.aarch64",
+					"x", DOWNLOAD_PATH, out_arg, "-y", NULL};
 
 	int ret = run_command(argv);
 	if (ret != 0) {
@@ -401,27 +402,6 @@ static void* extract_thread(void* arg) {
 	}
 
 	unlink(DOWNLOAD_PATH);
-
-	char release_name[128] = "Unknown";
-	const char* slash = strrchr(ctx->release->download_url, '/');
-	if (slash) {
-		slash++;
-		strncpy(release_name, slash, sizeof(release_name) - 1);
-		release_name[sizeof(release_name) - 1] = '\0';
-		char suffix[64];
-		snprintf(suffix, sizeof(suffix), "-%s.zip", get_device_name());
-		size_t name_len = strlen(release_name);
-		size_t suf_len = strlen(suffix);
-		if (name_len > suf_len && strcmp(release_name + name_len - suf_len, suffix) == 0)
-			release_name[name_len - suf_len] = '\0';
-	}
-
-	FILE* vf = fopen(VERSION_FILE_PATH, "w");
-	if (vf) {
-		fprintf(vf, "%s\n%s\n%s\n", release_name,
-				ctx->release->commit_sha, ctx->release->tag_name);
-		fclose(vf);
-	}
 
 	ctx->success = 1;
 	__sync_synchronize();
@@ -559,10 +539,10 @@ static SettingItem* find_updater_item(SettingsPage* page) {
 void updater_about_on_show(SettingsPage* page) {
 	(void)page;
 
-	char version[128], tag[128];
+	char version[128];
 	read_current_version(version, sizeof(version),
 						 current_sha_cache, sizeof(current_sha_cache),
-						 tag, sizeof(tag));
+						 current_tag_cache, sizeof(current_tag_cache));
 
 	// Only auto-check once per session (retry allowed on error)
 	if (auto_state == UPDATE_CHECKING || auto_state == UPDATE_UP_TO_DATE ||
