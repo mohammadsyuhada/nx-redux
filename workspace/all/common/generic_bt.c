@@ -21,6 +21,7 @@
 
 #include <pthread.h>
 #include <unistd.h>
+#include <sys/select.h>
 
 bool PLAT_hasBluetooth() {
 	return true;
@@ -98,7 +99,9 @@ static pthread_mutex_t discovered_devices_mtx = PTHREAD_MUTEX_INITIALIZER;
 static volatile bool bt_discovering = false;
 static volatile bool bt_initialized = false;
 
-// Helper to run a command and capture output
+// Helper to run a command and capture output.
+// bluetoothctl commands get a 5s select() timeout as a safety net
+// (e.g. if bluetoothd is briefly unavailable during sleep/wake).
 static int bt_run_cmd(const char* cmd, char* output, size_t output_len) {
 	btlog("Running command: %s\n", cmd);
 	FILE* fp = popen(cmd, "r");
@@ -110,8 +113,23 @@ static int bt_run_cmd(const char* cmd, char* output, size_t output_len) {
 	if (output && output_len > 0) {
 		output[0] = '\0';
 		size_t total = 0;
+		int use_timeout = (strstr(cmd, "bluetoothctl") != NULL);
+		int fd = fileno(fp);
 		char buf[256];
-		while (fgets(buf, sizeof(buf), fp) && total < output_len - 1) {
+
+		while (total < output_len - 1) {
+			if (use_timeout) {
+				fd_set fds;
+				struct timeval tv;
+				FD_ZERO(&fds);
+				FD_SET(fd, &fds);
+				tv.tv_sec = 5;
+				tv.tv_usec = 0;
+				if (select(fd + 1, &fds, NULL, NULL, &tv) <= 0)
+					break; // timeout or error
+			}
+			if (!fgets(buf, sizeof(buf), fp))
+				break;
 			size_t len = strlen(buf);
 			if (total + len < output_len) {
 				strcpy(output + total, buf);
@@ -268,7 +286,11 @@ void PLAT_bluetoothInit() {
 	bt_detect_version();
 
 	bt_initialized = true;
-	PLAT_bluetoothEnable(CFG_getBluetooth());
+	// bluetoothd is always started at boot (launch.sh).
+	// If BT is on, power on the adapter. If off, it's already powered off.
+	if (CFG_getBluetooth()) {
+		system("bluetoothctl power on 2>/dev/null");
+	}
 }
 
 void PLAT_bluetoothDeinit() {
@@ -281,15 +303,19 @@ void PLAT_bluetoothDeinit() {
 void PLAT_bluetoothEnable(bool shouldBeOn) {
 	if (shouldBeOn) {
 		btlog("Turning BT on...\n");
+		// Start the BT stack if not already running, then power on
 		system(SYSTEM_PATH "/etc/bluetooth/bt_init.sh start");
 	} else {
 		btlog("Turning BT off...\n");
 		// Stop discovery if active
 		if (bt_discovering) {
-			//system("bluetoothctl scan off 2>/dev/null");
+			system("bluetoothctl scan off 2>/dev/null");
+			system("pkill -f 'bluetoothctl scan on' 2>/dev/null");
 			bt_discovering = false;
 		}
-		system(SYSTEM_PATH "/etc/bluetooth/bt_init.sh stop");
+		// Just power off the adapter — keep bluetoothd running so
+		// bluetoothctl commands don't hang
+		system("bluetoothctl power off 2>/dev/null");
 	}
 	CFG_setBluetooth(shouldBeOn);
 }
@@ -308,15 +334,41 @@ void PLAT_bluetoothDiscovery(int on) {
 		// Clear old discovered devices
 		bt_clear_discovered_devices();
 
-		// Start scanning - version-dependent command
-		if (bt_version_gte(5, 70)) {
-			// In 5.70+, timeout option works differently
-			// Start scan in background and schedule auto-stop
-			system("sh -c 'bluetoothctl scan on 2>/dev/null & BT_PID=$!; sleep 60; bluetoothctl scan off 2>/dev/null; kill $BT_PID 2>/dev/null' &");
-		} else {
-			// For 5.54 and similar versions
-			system("bluetoothctl --timeout 60 scan on 2>/dev/null &");
+		// Remove stale devices from BlueZ cache (devices that are neither
+		// paired nor connected). This prevents old cached entries from
+		// showing up as "Available" when they're no longer in range.
+		{
+			char rm_output[8192];
+			if (bt_run_cmd("bluetoothctl devices 2>/dev/null", rm_output, sizeof(rm_output)) == 0) {
+				// Get paired+connected addresses to preserve
+				struct BT_devicePaired keep_list[32];
+				int keep_count = PLAT_bluetoothPaired(keep_list, 32);
+
+				char* line = strtok(rm_output, "\n");
+				while (line) {
+					char addr[18] = {0};
+					if (strncmp(line, "Device ", 7) == 0 && sscanf(line, "Device %17s", addr) == 1) {
+						int keep = 0;
+						for (int i = 0; i < keep_count; i++) {
+							if (strcmp(keep_list[i].remote_addr, addr) == 0) {
+								keep = 1;
+								break;
+							}
+						}
+						if (!keep) {
+							char cmd[256];
+							snprintf(cmd, sizeof(cmd), "bluetoothctl remove %s 2>/dev/null", addr);
+							system(cmd);
+						}
+					}
+					line = strtok(NULL, "\n");
+				}
+			}
 		}
+
+		// Start scanning in background. bluetoothctl must stay in the
+		// foreground of its subshell to keep the D-Bus discovery session alive.
+		system("sh -c 'bluetoothctl --timeout 60 scan on >/dev/null 2>&1' &");
 		bt_discovering = true;
 	} else {
 		btlog("Stopping BT discovery.\n");
@@ -358,10 +410,8 @@ int PLAT_bluetoothScan(struct BT_device* devices, int max) {
 					strncpy(name, name_start, sizeof(name) - 1);
 				}
 
-				// Get device type
+				// Get device type — only show audio and controller devices
 				BluetoothDeviceType kind = bt_get_device_type(addr);
-
-				// Only add audio and controller devices, skip unknowns for scan results
 				if (kind == BLUETOOTH_AUDIO || kind == BLUETOOTH_CONTROLLER) {
 					bt_add_discovered_device(addr, name, kind);
 				}
@@ -370,16 +420,31 @@ int PLAT_bluetoothScan(struct BT_device* devices, int max) {
 		line = strtok(NULL, "\n");
 	}
 
+	// Build a set of paired addresses/names to skip (callers also deduplicate,
+	// but filtering here avoids returning paired devices as "available")
+	struct BT_devicePaired paired_list[32];
+	int paired_count = PLAT_bluetoothPaired(paired_list, 32);
+
 	// Copy discovered devices to output array
 	int count = 0;
 	pthread_mutex_lock(&discovered_devices_mtx);
 	bt_dev_node_t* node = discovered_devices;
 	while (node && count < max) {
-		// Skip devices that are already paired
-		char cmd[256];
-		char paired_output[256];
-		snprintf(cmd, sizeof(cmd), "bluetoothctl info %s 2>/dev/null | grep 'Paired: yes'", node->addr);
-		if (bt_run_cmd(cmd, paired_output, sizeof(paired_output)) == 0 && strstr(paired_output, "Paired: yes")) {
+		// Skip paired devices (by address or by name, since some devices
+		// like 8BitDo use different MACs for classic BT vs BLE)
+		int is_paired = 0;
+		for (int i = 0; i < paired_count; i++) {
+			if (strcmp(paired_list[i].remote_addr, node->addr) == 0) {
+				is_paired = 1;
+				break;
+			}
+			if (node->name[0] && paired_list[i].remote_name[0] &&
+				strcmp(paired_list[i].remote_name, node->name) == 0) {
+				is_paired = 1;
+				break;
+			}
+		}
+		if (is_paired) {
 			node = node->next;
 			continue;
 		}
@@ -405,18 +470,49 @@ int PLAT_bluetoothPaired(struct BT_devicePaired* paired, int max) {
 		return 0;
 	}
 
-	// Get list of paired devices - try both command formats
+	// Get list of paired and connected devices. Some controllers (e.g. 8BitDo)
+	// use different addresses for pairing vs connection, so a device can be
+	// connected without being in the "Paired" list. Include both.
 	char output[8192];
-	int ret = bt_run_cmd("bluetoothctl paired-devices 2>/dev/null", output, sizeof(output));
+	char connected_output[4096];
+	int ret;
 
-	// If paired-devices doesn't work (5.78+), try alternative command
-	if (ret != 0 || strlen(output) == 0) {
+	if (bt_version_gte(5, 70)) {
 		ret = bt_run_cmd("bluetoothctl devices Paired 2>/dev/null", output, sizeof(output));
+	} else {
+		ret = bt_run_cmd("bluetoothctl paired-devices 2>/dev/null", output, sizeof(output));
 	}
 
 	if (ret != 0) {
-		btlog("Failed to get paired device list\n");
-		return 0;
+		output[0] = '\0';
+	}
+
+	// Also include trusted devices. Our pair flow uses trust + pair, but some
+	// devices (e.g. Galaxy Buds, 8BitDo LE) don't complete bonding properly,
+	// so they show as Trusted but not Paired. From the user's perspective
+	// these are "paired" devices they explicitly added.
+	if (bt_version_gte(5, 70)) {
+		char trusted_output[4096];
+		if (bt_run_cmd("bluetoothctl devices Trusted 2>/dev/null", trusted_output, sizeof(trusted_output)) == 0 &&
+			trusted_output[0]) {
+			size_t len = strlen(output);
+			if (len > 0 && output[len - 1] != '\n') {
+				strncat(output, "\n", sizeof(output) - len - 1);
+				len++;
+			}
+			strncat(output, trusted_output, sizeof(output) - len - 1);
+		}
+	}
+
+	// Also get connected devices and append any that aren't already listed
+	if (bt_run_cmd("bluetoothctl devices Connected 2>/dev/null", connected_output, sizeof(connected_output)) == 0 &&
+		connected_output[0]) {
+		size_t len = strlen(output);
+		if (len > 0 && output[len - 1] != '\n') {
+			strncat(output, "\n", sizeof(output) - len - 1);
+			len++;
+		}
+		strncat(output, connected_output, sizeof(output) - len - 1);
 	}
 
 	int count = 0;
@@ -432,6 +528,19 @@ int PLAT_bluetoothPaired(struct BT_devicePaired* paired, int max) {
 				char* name_start = line + 7 + 18;
 				if (*name_start) {
 					strncpy(name, name_start, sizeof(name) - 1);
+				}
+
+				// Skip if already in the list (device may be both paired and connected)
+				int duplicate = 0;
+				for (int i = 0; i < count; i++) {
+					if (strcmp(paired[i].remote_addr, addr) == 0) {
+						duplicate = 1;
+						break;
+					}
+				}
+				if (duplicate) {
+					line = strtok(NULL, "\n");
+					continue;
 				}
 
 				struct BT_devicePaired* device = &paired[count];
@@ -464,27 +573,20 @@ void PLAT_bluetoothPair(char* addr) {
 
 	char cmd[256];
 
-	// Trust the device first (for automatic reconnection)
+	// Trust first for automatic reconnection
 	snprintf(cmd, sizeof(cmd), "bluetoothctl trust %s 2>/dev/null", addr);
 	system(cmd);
 
-	// Small delay to ensure trust command completes
-	usleep(100000);
-
-	// Pair with the device
-	snprintf(cmd, sizeof(cmd), "bluetoothctl pair %s 2>/dev/null", addr);
+	// Pair with built-in NoInputNoOutput agent (auto-accepts confirmation)
+	snprintf(cmd, sizeof(cmd), "bluetoothctl --agent NoInputNoOutput pair %s 2>/dev/null", addr);
 	int ret = system(cmd);
 	if (ret != 0) {
 		LOG_error("BT pair failed: %d\n", ret);
-		// In newer versions, try alternative pairing method
-		if (bt_version_gte(5, 70)) {
-			snprintf(cmd, sizeof(cmd), "echo 'pair %s' | bluetoothctl 2>/dev/null", addr);
-			ret = system(cmd);
-			if (ret != 0) {
-				LOG_error("BT pair (alternative method) failed: %d\n", ret);
-			}
-		}
 	}
+
+	// Connect after pairing
+	snprintf(cmd, sizeof(cmd), "bluetoothctl connect %s 2>/dev/null", addr);
+	system(cmd);
 
 	// Remove from discovered list since it's now paired
 	bt_remove_discovered_device(addr);
@@ -499,12 +601,15 @@ void PLAT_bluetoothUnpair(char* addr) {
 	snprintf(cmd, sizeof(cmd), "bluetoothctl disconnect %s 2>/dev/null", addr);
 	system(cmd);
 
-	// Remove the device (this unpairs it)
+	// Remove the device (this unpairs and removes from BlueZ cache)
 	snprintf(cmd, sizeof(cmd), "bluetoothctl remove %s 2>/dev/null", addr);
 	int ret = system(cmd);
 	if (ret != 0) {
 		LOG_error("BT unpair failed\n");
 	}
+
+	// Also remove from our internal discovered list
+	bt_remove_discovered_device(addr);
 }
 
 void PLAT_bluetoothConnect(char* addr) {
@@ -531,30 +636,13 @@ void PLAT_bluetoothDisconnect(char* addr) {
 }
 
 bool PLAT_bluetoothConnected() {
-	// Check for any active ACL connections using hcitool
-	FILE* fp;
-	char buffer[256];
-	bool connected = false;
-
-	fp = popen("hcitool con 2>/dev/null", "r");
-	if (fp == NULL) {
-		// Fallback: check bluetoothctl
-		char output[2048];
-		if (bt_run_cmd("bluetoothctl info 2>/dev/null | grep 'Connected: yes'", output, sizeof(output)) == 0) {
-			return strstr(output, "Connected: yes") != NULL;
-		}
-		return false;
+	// Use bluetoothctl to detect both classic BT and BLE connections
+	char output[2048];
+	if (bt_run_cmd("bluetoothctl devices Connected 2>/dev/null", output, sizeof(output)) == 0) {
+		// If output contains any "Device " line, something is connected
+		return strstr(output, "Device ") != NULL;
 	}
-
-	while (fgets(buffer, sizeof(buffer), fp) != NULL) {
-		if (strstr(buffer, "ACL")) {
-			connected = true;
-			break;
-		}
-	}
-
-	pclose(fp);
-	return connected;
+	return false;
 }
 
 int PLAT_bluetoothVolume() {

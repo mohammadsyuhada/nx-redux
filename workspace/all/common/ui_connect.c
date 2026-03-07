@@ -128,10 +128,15 @@ static void bt_populate_list(void) {
 	for (int i = 0; i < bt_available_count && count < SCAN_MAX_RESULTS; i++) {
 		struct BT_device* dev = &bt_available[i];
 
-		// Skip if already in paired list
+		// Skip if already in paired list (by address or name for dual-MAC devices)
 		bool already_listed = false;
 		for (int j = 0; j < bt_paired_count; j++) {
 			if (strcmp(bt_paired[j].remote_addr, dev->addr) == 0) {
+				already_listed = true;
+				break;
+			}
+			if (dev->name[0] && bt_paired[j].remote_name[0] &&
+				strcmp(bt_paired[j].remote_name, dev->name) == 0) {
 				already_listed = true;
 				break;
 			}

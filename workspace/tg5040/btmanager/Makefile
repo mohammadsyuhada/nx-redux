@@ -49,8 +49,7 @@ bluez:
 	cp $(PREFIX)/bin/sbcenc build/.update_bluez/usr/bin/
 	# script
 	cp support/upgrade_bluez.sh build/post_install.sh
-	# zip 
-	# zip -r nextui.upgrade_bluez.pakz build/
-	cd build && python3 -m zipfile -c nextui.upgrade_bluez.pakz .update_bluez/ post_install.sh
+	# zip
+	cd build && python3 -m zipfile -c ../nextui.upgrade_bluez.pakz .update_bluez/ post_install.sh
 
 all: bluez

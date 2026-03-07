@@ -39,18 +39,6 @@ CFLAGS += $(OPT)
 CFLAGS += $(INCDIR) -I../../$(PLATFORM)/libmsettings -DPLATFORM=\"$(PLATFORM)\"
 LDFLAGS += -L../../$(PLATFORM)/libmsettings -lmsettings
 
-ifeq ($(PLATFORM), tg5040)
-CFLAGS += -DHAS_BTAGENT
-SOURCE += settings_btagent.c
-CFLAGS += $$(pkg-config --cflags gio-2.0 glib-2.0)
-LDFLAGS += $$(pkg-config --libs gio-2.0 glib-2.0)
-endif
-ifeq ($(PLATFORM), tg5050)
-CFLAGS += -DHAS_BTAGENT
-SOURCE += settings_btagent.c
-CFLAGS += $$(pkg-config --cflags gio-2.0 glib-2.0)
-LDFLAGS += $$(pkg-config --libs gio-2.0 glib-2.0)
-endif
 
 PRODUCT= build/$(PLATFORM)/$(TARGET).elf
 
