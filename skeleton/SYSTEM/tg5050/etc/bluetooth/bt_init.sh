@@ -16,7 +16,12 @@ start_hci_attach() {
 		killall "$bt_hciattach"
 	}
 
-	echo 1 > /proc/bluetooth/sleep/btwrite
+	# Wait for btlpm proc entry to appear (created by aic8800_btlpm module)
+	for i in $(seq 1 20); do
+		[ -f /proc/bluetooth/sleep/btwrite ] && break
+		usleep 100000
+	done
+	echo 1 > /proc/bluetooth/sleep/btwrite 2>/dev/null
 	reset_bluetooth_power
 
 	"$bt_hciattach" -n ttyAS1 aic >/dev/null 2>&1 &
@@ -29,7 +34,7 @@ start_hci_attach() {
 		let wait_hci0_count++
 		[ $wait_hci0_count -eq 70 ] && {
 			echo "bring up hci0 failed"
-			exit 1
+			return 1
 		}
 	done
 }
@@ -38,12 +43,12 @@ start_bt() {
 	# Load BT driver module if not loaded
 	# Looks like this also needs the wifi driver module loaded for proper operation
 	if ! lsmod | grep -q aic8800_fdrv; then
-		modprobe aic8800_fdrv.ko 2>/dev/null
+		modprobe aic8800_fdrv 2>/dev/null
 		sleep 0.5
 	fi
 	if ! lsmod | grep -q aic8800_btlpm; then
-		modprobe aic8800_btlpm.ko 2>/dev/null
-		sleep 0.5
+		modprobe aic8800_btlpm 2>/dev/null
+		sleep 1
 	fi
 
 	if [ -d "/sys/class/bluetooth/hci0" ];then
@@ -109,7 +114,7 @@ stop_bt() {
 		killall "$bt_hciattach"
 		usleep 500000
 	}
-	echo 0 > /proc/bluetooth/sleep/btwrite
+	echo 0 > /proc/bluetooth/sleep/btwrite 2>/dev/null
 	echo 0 > /sys/class/rfkill/rfkill0/state;
 	echo "stop bluetoothd and hciattach"
 }

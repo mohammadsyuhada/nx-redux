@@ -1785,11 +1785,12 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, IndicatorType show_setting) {
 		int show_wifi = strength > SIGNAL_STRENGTH_OFF;
 		// no need to handle in PLAT_updateNetworkStatus,
 		// this one is async anyway
-		int show_bt = BT_isConnected();
+		int show_bt_audio = GetAudioSink() == AUDIO_SINK_BLUETOOTH;
+		int show_bt_controller = access("/dev/input/js1", F_OK) == 0;
 		bool show_clock = CFG_getShowClock();
 		SDL_Rect battery_rect = asset_rects[ASSET_BATTERY];
 
-		if (!show_bt && !show_wifi && !show_clock) {
+		if (!show_bt_audio && !show_bt_controller && !show_wifi && !show_clock) {
 			ow = battery_rect.w + SCALE1(BUTTON_MARGIN * 2);
 			ox = dst->w - SCALE1(PADDING) - ow;
 
@@ -1800,9 +1801,14 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, IndicatorType show_setting) {
 		} else {
 			ow = SCALE1(BUTTON_MARGIN);
 
-			if (show_bt) {
-				SDL_Rect bt_rect = asset_rects[ASSET_BLUETOOTH];
-				ow += bt_rect.w + SCALE1(BUTTON_MARGIN);
+			if (show_bt_audio) {
+				SDL_Rect audio_rect = asset_rects[ASSET_AUDIO];
+				ow += audio_rect.w + SCALE1(BUTTON_MARGIN);
+			}
+
+			if (show_bt_controller) {
+				SDL_Rect ctrl_rect = asset_rects[ASSET_CONTROLLER];
+				ow += ctrl_rect.w + SCALE1(BUTTON_MARGIN);
 			}
 
 			if (show_wifi) {
@@ -1832,14 +1838,22 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, IndicatorType show_setting) {
 
 			ox += SCALE1(BUTTON_MARGIN);
 
-			if (show_bt) {
-				int asset = ASSET_BLUETOOTH;
-				SDL_Rect bt_rect = asset_rects[asset];
+			if (show_bt_audio) {
+				SDL_Rect audio_rect = asset_rects[ASSET_AUDIO];
 				int x = ox;
-				int y = (bar_h - bt_rect.h) / 2;
+				int y = (bar_h - audio_rect.h) / 2;
 
-				GFX_blitAssetColor(asset, NULL, dst, &(SDL_Rect){x, y}, THEME_COLOR6);
-				ox += bt_rect.w + SCALE1(BUTTON_MARGIN);
+				GFX_blitAssetColor(ASSET_AUDIO, NULL, dst, &(SDL_Rect){x, y}, THEME_COLOR6);
+				ox += audio_rect.w + SCALE1(BUTTON_MARGIN);
+			}
+
+			if (show_bt_controller) {
+				SDL_Rect ctrl_rect = asset_rects[ASSET_CONTROLLER];
+				int x = ox;
+				int y = (bar_h - ctrl_rect.h) / 2;
+
+				GFX_blitAssetColor(ASSET_CONTROLLER, NULL, dst, &(SDL_Rect){x, y}, THEME_COLOR6);
+				ox += ctrl_rect.w + SCALE1(BUTTON_MARGIN);
 			}
 
 			if (show_wifi) {

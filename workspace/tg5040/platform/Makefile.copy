@@ -10,7 +10,7 @@ $(PLATFORM):
 	cp ./workspace/$@/rfkill/rfkill.elf ./build/SYSTEM/$@/bin/
 	# bluetooth (platform-specific pakz, only included in tg5040 release zip)
 	mkdir -p ./build/PAKZ/$@
-	cp ./workspace/$@/btmanager/build/nextui.upgrade_bluez.pakz ./build/PAKZ/$@/nextui.upgrade_bluez.tg5040.pakz
+	cp ./workspace/$@/btmanager/nextui.upgrade_bluez.pakz ./build/PAKZ/$@/nextui.upgrade_bluez.tg5040.pakz
 
 	# extras
 	cp ./workspace/$@/other/NextCommander/output/NextCommander ./build/EXTRAS/Tools/$@/Files.pak/

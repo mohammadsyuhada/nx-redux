@@ -146,10 +146,13 @@ if [ "$wifion" -eq 1 ]; then
 fi
 echo after wifi `cat /proc/uptime` >> /tmp/nextui_boottime
 
-# BT handling
+# BT handling — always start bluetoothd so bluetoothctl commands never hang.
+# If BT is off, the adapter gets powered off but the daemon stays alive.
 bluetoothon=$(nextval.elf bluetooth | sed -n 's/.*"bluetooth": \([0-9]*\).*/\1/p')
-if [ "$bluetoothon" -eq 1 ]; then
-	$SYSTEM_PATH/etc/bluetooth/bt_init.sh start > /dev/null 2>&1 &
+$SYSTEM_PATH/etc/bluetooth/bt_init.sh start > /dev/null 2>&1 &
+if [ "$bluetoothon" -ne 1 ]; then
+	# Wait briefly for bluetoothd to start, then power off adapter
+	(sleep 5; bluetoothctl power off 2>/dev/null) &
 fi
 echo after bluetooth `cat /proc/uptime` >> /tmp/nextui_boottime
 

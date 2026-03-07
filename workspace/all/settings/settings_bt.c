@@ -11,10 +11,6 @@
 #include "ui_list.h"
 #include "ui_components.h"
 
-#ifdef HAS_BTAGENT
-#include "settings_btagent.h"
-#endif
-
 // ============================================
 // BT Device Info (attached to user_data)
 // ============================================
@@ -48,6 +44,7 @@ static int bt_rate_values[] = {44100, 48000};
 
 static pthread_t bt_scanner_thread;
 static volatile int bt_scanner_running = 0;
+static volatile int bt_needs_refresh = 0;
 static int bt_scanner_started = 0;
 static SettingsPage* bt_page_ref = NULL;
 
@@ -141,37 +138,78 @@ static void bt_reset_rate(void) {
 }
 
 // ============================================
-// Device action callbacks
+// Device action callbacks (run blocking BT ops off UI thread)
 // ============================================
 
 static BtDeviceOptions* active_bt_options = NULL;
 
+typedef struct {
+	void (*action)(char* addr);
+	char addr[18];
+	const char* overlay_msg;
+	volatile int done;
+} BtActionCtx;
+
+static void* bt_action_thread(void* arg) {
+	BtActionCtx* ctx = (BtActionCtx*)arg;
+	ctx->action(ctx->addr);
+	ctx->done = 1;
+	return NULL;
+}
+
+static void bt_run_action(void (*action)(char*), const char* addr, const char* msg) {
+	if (!bt_page_ref || !bt_page_ref->screen)
+		return;
+	SDL_Surface* screen = bt_page_ref->screen;
+
+	BtActionCtx ctx = {0};
+	ctx.action = action;
+	strncpy(ctx.addr, addr, sizeof(ctx.addr) - 1);
+	ctx.overlay_msg = msg;
+	ctx.done = 0;
+
+	pthread_t t;
+	pthread_create(&t, NULL, bt_action_thread, &ctx);
+	pthread_detach(t);
+
+	while (!ctx.done) {
+		GFX_startFrame();
+		PAD_poll();
+		if (PAD_justPressed(BTN_B))
+			break;
+
+		GFX_clear(screen);
+		settings_menu_render(screen, 0);
+		UI_renderLoadingOverlay(screen, msg, "Press B to cancel");
+		GFX_flip(screen);
+	}
+
+	bt_needs_refresh = 1;
+	settings_menu_pop();
+}
+
 static void bt_action_connect(void) {
 	if (!active_bt_options)
 		return;
-	BT_connect(active_bt_options->dev_info.addr);
-	settings_menu_pop();
+	bt_run_action(BT_connect, active_bt_options->dev_info.addr, "Connecting...");
 }
 
 static void bt_action_disconnect(void) {
 	if (!active_bt_options)
 		return;
-	BT_disconnect(active_bt_options->dev_info.addr);
-	settings_menu_pop();
+	bt_run_action(BT_disconnect, active_bt_options->dev_info.addr, "Disconnecting...");
 }
 
 static void bt_action_pair(void) {
 	if (!active_bt_options)
 		return;
-	BT_pair(active_bt_options->dev_info.addr);
-	settings_menu_pop();
+	bt_run_action(BT_pair, active_bt_options->dev_info.addr, "Pairing...");
 }
 
 static void bt_action_unpair(void) {
 	if (!active_bt_options)
 		return;
-	BT_unpair(active_bt_options->dev_info.addr);
-	settings_menu_pop();
+	bt_run_action(BT_unpair, active_bt_options->dev_info.addr, "Unpairing...");
 }
 
 // ============================================
@@ -349,7 +387,7 @@ static void bt_device_draw(SDL_Surface* screen, SettingItem* item,
 
 // Interruptible sleep: returns early if bt_scanner_running becomes 0
 static void bt_sleep(int seconds) {
-	for (int i = 0; i < seconds * 10 && bt_scanner_running; i++)
+	for (int i = 0; i < seconds * 10 && bt_scanner_running && !bt_needs_refresh; i++)
 		usleep(100000); // 100ms intervals
 }
 
@@ -361,6 +399,7 @@ static void* bt_scanner(void* arg) {
 	int discovery_started = 0;
 
 	while (bt_scanner_running) {
+		bt_needs_refresh = 0;
 		if (!BT_enabled()) {
 			// BT disabled - clear dynamic items
 			pthread_rwlock_wrlock(&page->lock);
@@ -370,7 +409,7 @@ static void* bt_scanner(void* arg) {
 			page->needs_layout = 1;
 			pthread_rwlock_unlock(&page->lock);
 			discovery_started = 0;
-			bt_sleep(5);
+			bt_sleep(2);
 			continue;
 		}
 
@@ -480,7 +519,7 @@ static void* bt_scanner(void* arg) {
 		page->needs_layout = 1;
 		pthread_rwlock_unlock(&page->lock);
 
-		bt_sleep(5);
+		bt_sleep(2);
 	}
 
 	return NULL;
@@ -503,10 +542,6 @@ static void bt_on_show(SettingsPage* page) {
 	settings_item_sync(&page->items[BT_IDX_TOGGLE]);
 	settings_item_sync(&page->items[BT_IDX_DIAG]);
 	settings_item_sync(&page->items[BT_IDX_RATE]);
-
-#ifdef HAS_BTAGENT
-	btagent_start();
-#endif
 
 	// Start scanner thread
 	bt_page_ref = page;
@@ -560,7 +595,7 @@ SettingsPage* bt_page_create(void) {
 
 	// BT toggle
 	page->items[BT_IDX_TOGGLE] = (SettingItem){
-		.name = "Settings | Bluetooth",
+		.name = "Bluetooth",
 		.desc = "Enable or disable Bluetooth",
 		.type = ITEM_CYCLE,
 		.visible = 1,
