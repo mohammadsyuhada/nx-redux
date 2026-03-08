@@ -31,6 +31,7 @@ SOURCE = settings.c settings_menu.c settings_wifi.c settings_bt.c settings_led.c
          $(COMMON_PATH)/http.c $(COMMON_PATH)/ra_auth.c \
          $(COMMON_PATH)/ui_components.c $(COMMON_PATH)/ui_list.c \
          $(COMMON_PATH)/ui_keyboard.c \
+         $(COMMON_PATH)/wget_fetch.c \
          $(COMMON_PATH)/display_helper.c \
          $(PLATFORM_PATH)/platform/platform.c
 

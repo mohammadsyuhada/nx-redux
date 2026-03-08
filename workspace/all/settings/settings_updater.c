@@ -23,6 +23,7 @@
 #include "api.h"
 #include "http.h"
 #include "ui_components.h"
+#include "wget_fetch.h"
 
 // ============================================
 // Configuration
@@ -259,17 +260,6 @@ static int run_command(char* const argv[]) {
 }
 
 // ============================================
-// Async context (for download/extract)
-// ============================================
-
-typedef struct {
-	volatile int done;
-	volatile int success;
-	char error[256];
-	ReleaseInfo* release;
-} AsyncContext;
-
-// ============================================
 // Background auto-check thread
 // ============================================
 
@@ -356,36 +346,51 @@ static void process_auto_check_result(void) {
 }
 
 // ============================================
-// Download thread
+// Download context (for wget thread)
 // ============================================
 
+typedef struct {
+	volatile int done;
+	volatile int success;
+	volatile int progress_pct;
+	volatile int speed_bps;
+	volatile int eta_sec;
+	volatile bool should_stop;
+	char error[256];
+	char url[512];
+} DownloadContext;
+
 static void* download_thread(void* arg) {
-	AsyncContext* ctx = (AsyncContext*)arg;
+	DownloadContext* ctx = (DownloadContext*)arg;
 
-	char* argv[] = {"curl", "-L", "-o", DOWNLOAD_PATH,
-					ctx->release->download_url, NULL};
+	int ret = wget_download_file(ctx->url, DOWNLOAD_PATH,
+								 &ctx->progress_pct, &ctx->should_stop,
+								 &ctx->speed_bps, &ctx->eta_sec);
 
-	int ret = run_command(argv);
-	if (ret != 0) {
-		snprintf(ctx->error, sizeof(ctx->error), "Download failed");
+	if (ret < 0) {
+		if (!ctx->should_stop)
+			snprintf(ctx->error, sizeof(ctx->error), "Download failed");
 		ctx->success = 0;
-		__sync_synchronize();
-		ctx->done = 1;
-		return NULL;
+	} else {
+		ctx->success = 1;
 	}
-
-	ctx->success = 1;
 	__sync_synchronize();
 	ctx->done = 1;
 	return NULL;
 }
 
 // ============================================
-// Extract thread
+// Extract context (for 7z thread)
 // ============================================
 
+typedef struct {
+	volatile int done;
+	volatile int success;
+	char error[256];
+} ExtractContext;
+
 static void* extract_thread(void* arg) {
-	AsyncContext* ctx = (AsyncContext*)arg;
+	ExtractContext* ctx = (ExtractContext*)arg;
 
 	char out_arg[256];
 	snprintf(out_arg, sizeof(out_arg), "-o%s", EXTRACT_DEST);
@@ -410,35 +415,117 @@ static void* extract_thread(void* arg) {
 }
 
 // ============================================
-// Overlay helpers
+// Full-screen update page helpers
 // ============================================
 
-static void render_overlay(SDL_Surface* screen, const char* title, const char* subtitle) {
+static void format_speed(int speed_bps, char* out, size_t out_size) {
+	if (speed_bps >= 1024 * 1024)
+		snprintf(out, out_size, "%.1f MB/s", speed_bps / (1024.0 * 1024.0));
+	else if (speed_bps >= 1024)
+		snprintf(out, out_size, "%.0f KB/s", speed_bps / 1024.0);
+	else if (speed_bps > 0)
+		snprintf(out, out_size, "%d B/s", speed_bps);
+	else
+		out[0] = '\0';
+}
+
+static void format_eta(int eta_sec, char* out, size_t out_size) {
+	if (eta_sec <= 0) {
+		out[0] = '\0';
+		return;
+	}
+	if (eta_sec >= 3600)
+		snprintf(out, out_size, "%d:%02d:%02d", eta_sec / 3600, (eta_sec % 3600) / 60, eta_sec % 60);
+	else if (eta_sec >= 60)
+		snprintf(out, out_size, "%d:%02d", eta_sec / 60, eta_sec % 60);
+	else
+		snprintf(out, out_size, "%ds", eta_sec);
+}
+
+static void render_update_page(SDL_Surface* screen, const char* title,
+							   const char* status, int progress_pct,
+							   const char* speed_str, const char* eta_str,
+							   int show_cancel) {
 	GFX_clear(screen);
-	settings_menu_render(screen, 0);
-	UI_renderLoadingOverlay(screen, title, subtitle);
+	UI_renderMenuBar(screen, title);
+
+	if (show_cancel)
+		UI_renderButtonHintBar(screen, (char*[]){"B", "CANCEL", NULL});
+
+	int cy = screen->h / 2;
+
+	// Status text
+	if (status && status[0]) {
+		SDL_Surface* status_surf = TTF_RenderUTF8_Blended(font.large, status, COLOR_WHITE);
+		if (status_surf) {
+			SDL_BlitSurface(status_surf, NULL, screen,
+							&(SDL_Rect){(screen->w - status_surf->w) / 2, cy - status_surf->h - SCALE1(PADDING * 2)});
+			SDL_FreeSurface(status_surf);
+		}
+	}
+
+	// Progress bar (centered, wide)
+	if (progress_pct >= 0) {
+		int bar_w = screen->w - SCALE1(PADDING * 8);
+		int bar_height = SCALE1(SETTINGS_SIZE);
+		int bar_x = (screen->w - bar_w) / 2;
+		int bar_y = cy;
+
+		// Background bar
+		GFX_blitPillColor(ASSET_BAR_BG, screen,
+						  &(SDL_Rect){bar_x, bar_y, bar_w, bar_height},
+						  THEME_COLOR3, RGB_WHITE);
+
+		// Fill bar
+		if (progress_pct > 0) {
+			float pct = progress_pct / 100.0f;
+			GFX_blitPillDark(ASSET_BAR, screen,
+							 &(SDL_Rect){bar_x, bar_y, (int)(bar_w * pct), bar_height});
+		}
+
+		// Percentage text below bar
+		char pct_text[32];
+		snprintf(pct_text, sizeof(pct_text), "%d%%", progress_pct);
+		SDL_Surface* pct_surf = TTF_RenderUTF8_Blended(font.small, pct_text, COLOR_WHITE);
+		if (pct_surf) {
+			SDL_BlitSurface(pct_surf, NULL, screen,
+							&(SDL_Rect){(screen->w - pct_surf->w) / 2, bar_y + bar_height + SCALE1(PADDING)});
+			SDL_FreeSurface(pct_surf);
+		}
+
+		// Speed and ETA below percentage
+		if ((speed_str && speed_str[0]) || (eta_str && eta_str[0])) {
+			char info[128] = "";
+			if (speed_str && speed_str[0] && eta_str && eta_str[0])
+				snprintf(info, sizeof(info), "%s - %s remaining", speed_str, eta_str);
+			else if (speed_str && speed_str[0])
+				snprintf(info, sizeof(info), "%s", speed_str);
+			else if (eta_str && eta_str[0])
+				snprintf(info, sizeof(info), "%s remaining", eta_str);
+
+			if (info[0]) {
+				SDL_Surface* info_surf = TTF_RenderUTF8_Blended(font.small, info, COLOR_GRAY);
+				if (info_surf) {
+					SDL_BlitSurface(info_surf, NULL, screen,
+									&(SDL_Rect){(screen->w - info_surf->w) / 2,
+												bar_y + bar_height + SCALE1(PADDING * 3)});
+					SDL_FreeSurface(info_surf);
+				}
+			}
+		}
+	}
+
 	GFX_flip(screen);
 }
 
-static int wait_for_async(SDL_Surface* screen, AsyncContext* ctx,
-						  const char* title, const char* subtitle) {
-	while (!ctx->done) {
-		GFX_startFrame();
-		PAD_poll();
-		render_overlay(screen, title, subtitle);
-	}
-	__sync_synchronize();
-	return ctx->success;
-}
-
-static void show_message(SDL_Surface* screen, const char* title, const char* subtitle) {
+static void show_message_page(SDL_Surface* screen, const char* title, const char* message) {
 	unsigned long start = SDL_GetTicks();
 	while (SDL_GetTicks() - start < 2000) {
 		GFX_startFrame();
 		PAD_poll();
 		if (PAD_justPressed(BTN_A) || PAD_justPressed(BTN_B))
 			break;
-		render_overlay(screen, title, subtitle);
+		render_update_page(screen, title, message, -1, NULL, NULL, 0);
 	}
 }
 
@@ -484,38 +571,77 @@ static int show_update_info(SDL_Surface* screen, ReleaseInfo* release) {
 	}
 }
 
-// Run download + extract + reboot.
+// Run download + extract + reboot with full-screen progress pages.
 static void do_install(SDL_Surface* screen, ReleaseInfo* release) {
-	AsyncContext ctx = {0};
-	ctx.release = release;
 	pthread_t tid;
 
-	if (pthread_create(&tid, NULL, download_thread, &ctx) != 0) {
-		show_message(screen, "Update Error", "Failed to start download");
+	// --- Download phase ---
+	DownloadContext dl = {0};
+	strncpy(dl.url, release->download_url, sizeof(dl.url) - 1);
+
+	if (pthread_create(&tid, NULL, download_thread, &dl) != 0) {
+		show_message_page(screen, "Update Error", "Failed to start download");
 		return;
 	}
-	if (!wait_for_async(screen, &ctx, "Downloading update...", NULL)) {
-		pthread_join(tid, NULL);
-		show_message(screen, "Update Error", ctx.error);
-		return;
+
+	// Render download progress until done or cancelled
+	while (!dl.done) {
+		GFX_startFrame();
+		PAD_poll();
+
+		if (PAD_justPressed(BTN_B)) {
+			dl.should_stop = true;
+			// Wait for thread to finish
+			while (!dl.done)
+				usleep(50000);
+			break;
+		}
+
+		char speed_str[32] = "";
+		char eta_str[32] = "";
+		format_speed(dl.speed_bps, speed_str, sizeof(speed_str));
+		format_eta(dl.eta_sec, eta_str, sizeof(eta_str));
+
+		render_update_page(screen, "Downloading Update",
+						   release->tag_name, dl.progress_pct,
+						   speed_str, eta_str, 1);
 	}
+	__sync_synchronize();
 	pthread_join(tid, NULL);
 
-	memset(&ctx, 0, sizeof(ctx));
-	ctx.release = release;
+	if (!dl.success) {
+		if (dl.should_stop)
+			return; // User cancelled
+		show_message_page(screen, "Update Error", dl.error);
+		return;
+	}
 
-	if (pthread_create(&tid, NULL, extract_thread, &ctx) != 0) {
-		show_message(screen, "Update Error", "Failed to start installation");
+	// --- Extract phase ---
+	ExtractContext ex = {0};
+
+	if (pthread_create(&tid, NULL, extract_thread, &ex) != 0) {
+		show_message_page(screen, "Update Error", "Failed to start installation");
 		return;
 	}
-	if (!wait_for_async(screen, &ctx, "Installing update...", NULL)) {
-		pthread_join(tid, NULL);
-		show_message(screen, "Update Error", ctx.error);
-		return;
+
+	// Render installing page until done
+	while (!ex.done) {
+		GFX_startFrame();
+		PAD_poll();
+		render_update_page(screen, "Installing Update",
+						   "Please do not power off...", -1, NULL, NULL, 0);
 	}
+	__sync_synchronize();
 	pthread_join(tid, NULL);
 
-	render_overlay(screen, "Update complete!", "Rebooting...");
+	if (!ex.success) {
+		show_message_page(screen, "Update Error", ex.error);
+		return;
+	}
+
+	// --- Reboot ---
+	render_update_page(screen, "Update Complete",
+					   "Rebooting...", -1, NULL, NULL, 0);
 	sleep(2);
 	system("reboot");
 }
