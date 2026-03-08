@@ -36,6 +36,22 @@ bool PLAT_bluetoothEnabled() {
 // Forward declaration
 static int bt_run_cmd(const char* cmd, char* output, size_t output_len);
 
+// Check if bluetoothd is running — prevents bluetoothctl from hanging
+// when the daemon has crashed or wasn't restarted after sleep/wake.
+static bool bt_daemon_alive(void) {
+	return system("pgrep -x bluetoothd >/dev/null 2>&1") == 0;
+}
+
+// Run a system() call guarded by a bluetoothd liveness check.
+// Returns -1 without executing if bluetoothd is not running.
+static int bt_system(const char* cmd) {
+	if (!bt_daemon_alive()) {
+		LOG_warn("bluetoothd not running, skipping command: %s\n", cmd);
+		return -1;
+	}
+	return system(cmd);
+}
+
 // Bluetoothctl version detection
 static int bluetoothctl_major_version = 0;
 static int bluetoothctl_minor_version = 0;
@@ -103,6 +119,15 @@ static volatile bool bt_initialized = false;
 // bluetoothctl commands get a 5s select() timeout as a safety net
 // (e.g. if bluetoothd is briefly unavailable during sleep/wake).
 static int bt_run_cmd(const char* cmd, char* output, size_t output_len) {
+	// If command uses bluetoothctl, verify bluetoothd is running first
+	// to avoid hanging indefinitely on D-Bus connection attempts
+	if (strstr(cmd, "bluetoothctl") != NULL && !bt_daemon_alive()) {
+		LOG_warn("bluetoothd not running, skipping command: %s\n", cmd);
+		if (output && output_len > 0)
+			output[0] = '\0';
+		return -1;
+	}
+
 	btlog("Running command: %s\n", cmd);
 	FILE* fp = popen(cmd, "r");
 	if (!fp) {
@@ -289,7 +314,7 @@ void PLAT_bluetoothInit() {
 	// bluetoothd is always started at boot (launch.sh).
 	// If BT is on, power on the adapter. If off, it's already powered off.
 	if (CFG_getBluetooth()) {
-		system("bluetoothctl power on 2>/dev/null");
+		bt_system("bluetoothctl power on 2>/dev/null");
 	}
 }
 
@@ -309,13 +334,13 @@ void PLAT_bluetoothEnable(bool shouldBeOn) {
 		btlog("Turning BT off...\n");
 		// Stop discovery if active
 		if (bt_discovering) {
-			system("bluetoothctl scan off 2>/dev/null");
+			bt_system("bluetoothctl scan off 2>/dev/null");
 			system("pkill -f 'bluetoothctl scan on' 2>/dev/null");
 			bt_discovering = false;
 		}
 		// Just power off the adapter — keep bluetoothd running so
 		// bluetoothctl commands don't hang
-		system("bluetoothctl power off 2>/dev/null");
+		bt_system("bluetoothctl power off 2>/dev/null");
 	}
 	CFG_setBluetooth(shouldBeOn);
 }
@@ -358,7 +383,7 @@ void PLAT_bluetoothDiscovery(int on) {
 						if (!keep) {
 							char cmd[256];
 							snprintf(cmd, sizeof(cmd), "bluetoothctl remove %s 2>/dev/null", addr);
-							system(cmd);
+							bt_system(cmd);
 						}
 					}
 					line = strtok(NULL, "\n");
@@ -368,11 +393,11 @@ void PLAT_bluetoothDiscovery(int on) {
 
 		// Start scanning in background. bluetoothctl must stay in the
 		// foreground of its subshell to keep the D-Bus discovery session alive.
-		system("sh -c 'bluetoothctl --timeout 60 scan on >/dev/null 2>&1' &");
+		bt_system("sh -c 'bluetoothctl --timeout 60 scan on >/dev/null 2>&1' &");
 		bt_discovering = true;
 	} else {
 		btlog("Stopping BT discovery.\n");
-		system("bluetoothctl scan off 2>/dev/null");
+		bt_system("bluetoothctl scan off 2>/dev/null");
 		// Also try to kill any background scan processes
 		system("pkill -f 'bluetoothctl scan on' 2>/dev/null");
 		bt_discovering = false;
@@ -575,18 +600,18 @@ void PLAT_bluetoothPair(char* addr) {
 
 	// Trust first for automatic reconnection
 	snprintf(cmd, sizeof(cmd), "bluetoothctl trust %s 2>/dev/null", addr);
-	system(cmd);
+	bt_system(cmd);
 
 	// Pair with built-in NoInputNoOutput agent (auto-accepts confirmation)
 	snprintf(cmd, sizeof(cmd), "bluetoothctl --agent NoInputNoOutput pair %s 2>/dev/null", addr);
-	int ret = system(cmd);
+	int ret = bt_system(cmd);
 	if (ret != 0) {
 		LOG_error("BT pair failed: %d\n", ret);
 	}
 
 	// Connect after pairing
 	snprintf(cmd, sizeof(cmd), "bluetoothctl connect %s 2>/dev/null", addr);
-	system(cmd);
+	bt_system(cmd);
 
 	// Remove from discovered list since it's now paired
 	bt_remove_discovered_device(addr);
@@ -599,11 +624,11 @@ void PLAT_bluetoothUnpair(char* addr) {
 
 	// Disconnect first if connected
 	snprintf(cmd, sizeof(cmd), "bluetoothctl disconnect %s 2>/dev/null", addr);
-	system(cmd);
+	bt_system(cmd);
 
 	// Remove the device (this unpairs and removes from BlueZ cache)
 	snprintf(cmd, sizeof(cmd), "bluetoothctl remove %s 2>/dev/null", addr);
-	int ret = system(cmd);
+	int ret = bt_system(cmd);
 	if (ret != 0) {
 		LOG_error("BT unpair failed\n");
 	}
@@ -617,7 +642,7 @@ void PLAT_bluetoothConnect(char* addr) {
 
 	char cmd[256];
 	snprintf(cmd, sizeof(cmd), "bluetoothctl connect %s 2>/dev/null", addr);
-	int ret = system(cmd);
+	int ret = bt_system(cmd);
 	if (ret != 0) {
 		LOG_error("BT connect failed: %d\n", ret);
 	}
@@ -629,7 +654,7 @@ void PLAT_bluetoothDisconnect(char* addr) {
 
 	char cmd[256];
 	snprintf(cmd, sizeof(cmd), "bluetoothctl disconnect %s 2>/dev/null", addr);
-	int ret = system(cmd);
+	int ret = bt_system(cmd);
 	if (ret != 0) {
 		LOG_error("BT disconnect failed: %d\n", ret);
 	}

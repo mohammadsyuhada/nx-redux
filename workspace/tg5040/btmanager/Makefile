@@ -5,7 +5,7 @@ ifeq (,$(PREFIX))
 $(error missing PREFIX for this toolchain)
 endif
 
-bluez:
+nextui.upgrade_bluez.pakz:
 	rm -rf ./build
 	mkdir -p ./build/.update_bluez/usr/bin
 	mkdir -p ./build/.update_bluez/usr/lib
@@ -52,4 +52,4 @@ bluez:
 	# zip
 	cd build && python3 -m zipfile -c ../nextui.upgrade_bluez.pakz .update_bluez/ post_install.sh
 
-all: bluez
+all: nextui.upgrade_bluez.pakz

@@ -30,6 +30,9 @@ ifeq ($(PLATFORM), tg5040)
 	cd ./$(PLATFORM)/btmanager && make all
 	cd ./$(PLATFORM)/poweroff_next/ && make
 endif
+ifeq ($(PLATFORM), tg5050)
+	cd ./$(PLATFORM)/btmanager && make all
+endif
 	cd ./$(PLATFORM)/libmsettings && make
 	cd ./$(PLATFORM) && make early # eg. other libs
 	cd ./$(PLATFORM)/keymon && make
@@ -75,6 +78,9 @@ ifeq ($(PLATFORM), tg5040)
 	cd ./$(PLATFORM)/rfkill && make clean
 	cd ./$(PLATFORM)/btmanager && make clean
 	cd ./$(PLATFORM)/poweroff_next/ && make clean
+endif
+ifeq ($(PLATFORM), tg5050)
+	cd ./$(PLATFORM)/btmanager && make clean
 endif
 endif
 	cd ./$(PLATFORM)/libmsettings && make clean
