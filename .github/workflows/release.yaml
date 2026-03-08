@@ -110,9 +110,8 @@ jobs:
           make_latest: "true"
           body: |
 
-            Some of the features is based on NextUI, please refer NextUI documentation:
-            https://nextui.loveretro.games/docs/
-
+            Some of the features are based on NextUI, please refer NextUI documentation. Documentation for uncommon features will be added in the future.
             Fresh installation is recommended. Select zip files that is relevant to your platform and extract it to your exFAT formatted SDCARD.
+            If you have any questions, please open an issue in the repository.
 
 
