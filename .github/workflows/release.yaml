@@ -21,13 +21,21 @@ permissions:
   id-token: write
 
 jobs:
-  build:
-    runs-on: ubuntu-24.04-arm
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      next-tag: ${{ steps.next-tag.outputs.NEXT_TAG }}
+      release-name: ${{ steps.release-name.outputs.RELEASE_NAME }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 0
+
+      - name: Generate Release Name
+        id: release-name
+        run: |
+          echo "RELEASE_NAME=$(make name)" >> "$GITHUB_OUTPUT"
 
       - name: Compute Next Tag
         id: next-tag
@@ -42,13 +50,130 @@ jobs:
           NEXT_TAG="v${major}.${minor}.${patch}"
           echo "NEXT_TAG=$NEXT_TAG" >> "$GITHUB_OUTPUT"
 
+  core-matrix:
+    runs-on: ubuntu-24.04-arm
+    env:
+      PLATFORM: ${{ matrix.toolchain }}
+    outputs:
+      cores: ${{ steps.cores.outputs.cores }}
+    strategy:
+      fail-fast: true
+      matrix:
+        toolchain:
+          - tg5040
+          - tg5050
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Generate cores matrix
+        id: cores
+        run: |
+          CORES="$(make cores-json)"
+          echo "cores=$CORES" >> $GITHUB_OUTPUT
+
+  build-core:
+    needs: core-matrix
+    runs-on: ubuntu-24.04-arm
+    env:
+      PLATFORM: ${{ matrix.toolchain }}
+    strategy:
+      fail-fast: true
+      matrix:
+        toolchain:
+          - tg5040
+          - tg5050
+        core: ${{ fromJson(needs.core-matrix.outputs.cores) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Compute core cache key
+        id: cache-key
+        run: |
+          # Hash all files that affect this core's build:
+          # - platform Makefile (has _HASH, _REPO, _FLAGS, etc.)
+          # - shared Makefile (build logic)
+          # - platform-specific patch
+          # - shared patches
+          FILES="workspace/${{ matrix.toolchain }}/cores/Makefile"
+          FILES="$FILES workspace/all/cores/Makefile"
+          if [ -f "workspace/${{ matrix.toolchain }}/cores/patches/${{ matrix.core }}.patch" ]; then
+            FILES="$FILES workspace/${{ matrix.toolchain }}/cores/patches/${{ matrix.core }}.patch"
+          fi
+          for f in workspace/all/cores/patches/${{ matrix.core }}/*.patch; do
+            [ -f "$f" ] && FILES="$FILES $f"
+          done
+          HASH=$(cat $FILES | sha256sum | cut -d' ' -f1)
+          echo "hash=$HASH" >> $GITHUB_OUTPUT
+
+      - name: Restore cached core
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: workspace/${{ matrix.toolchain }}/cores/output/
+          key: core-${{ matrix.toolchain }}-${{ matrix.core }}-${{ steps.cache-key.outputs.hash }}
+
+      - name: Setup
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: make setup
+
+      - name: Build ${{ matrix.core }} core
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: make build-core CORE=${{ matrix.core }}
+
+      - name: Upload core
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: core-${{ matrix.toolchain }}-${{ matrix.core }}.zip
+          path: workspace/${{ env.PLATFORM }}/cores/output/
+
+  build:
+    needs:
+      - prepare
+      - build-core
+    runs-on: ubuntu-24.04-arm
+    env:
+      BUILD_TAG: ${{ needs.prepare.outputs.next-tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y zipmerge
 
-      - name: Build
-        run: make all COMPILE_CORES=true BUILD_TAG=${{ steps.next-tag.outputs.NEXT_TAG }}
+      - name: Setup
+        run: make setup
+
+      - name: Download Cores (tg5040)
+        uses: actions/download-artifact@v4.3.0
+        with:
+          path: workspace/tg5040/cores/output/
+          pattern: core-tg5040-*
+          merge-multiple: true
+
+      - name: Build (tg5040)
+        run: make common PLATFORM=tg5040
+
+      - name: Download Cores (tg5050)
+        uses: actions/download-artifact@v4.3.0
+        with:
+          path: workspace/tg5050/cores/output/
+          pattern: core-tg5050-*
+          merge-multiple: true
+
+      - name: Build (tg5050)
+        run: make common PLATFORM=tg5050
+
+      - name: Special
+        run: make special
+
+      - name: Package
+        run: make package BUILD_TAG=${{ needs.prepare.outputs.next-tag }}
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4.6.2
@@ -62,29 +187,15 @@ jobs:
           subject-path: releases/*.zip
 
   release:
-    needs: build
+    needs:
+      - build
+      - prepare
     runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 0
-
-      - name: Compute Next Tag
-        id: next-tag
-        run: |
-          LATEST_TAG="$(git describe --tags "$(git rev-list --tags --max-count=1)" 2>/dev/null || echo "v0.0.0")"
-          echo "LATEST_TAG=$LATEST_TAG"
-          # Bump version using semver logic
-          IFS='.' read -r major minor patch <<< "${LATEST_TAG#v}"
-          case "${{ github.event.inputs.release_type }}" in
-            major) major=$((major + 1)); minor=0; patch=0 ;;
-            minor) minor=$((minor + 1)); patch=0 ;;
-            patch) patch=$((patch + 1)) ;;
-          esac
-          NEXT_TAG="v${major}.${minor}.${patch}"
-          echo "NEXT_TAG=$NEXT_TAG" >> "$GITHUB_OUTPUT"
-          echo "Next tag: $NEXT_TAG"
 
       - name: Download Release Artifacts
         uses: actions/download-artifact@v4.3.0
@@ -97,8 +208,10 @@ jobs:
         run: |
           git config --global user.email "action@github.com"
           git config --global user.name "GitHub Action"
-          git tag "${{ steps.next-tag.outputs.NEXT_TAG }}"
-          git push origin "${{ steps.next-tag.outputs.NEXT_TAG }}"
+          git tag "$GIT_NEXT_TAG"
+          git push origin "$GIT_NEXT_TAG"
+        env:
+          GIT_NEXT_TAG: ${{ needs.prepare.outputs.next-tag }}
 
       - name: Release
         uses: softprops/action-gh-release@v2
@@ -106,12 +219,10 @@ jobs:
           files: releases/*
           generate_release_notes: true
           append_body: true
-          tag_name: ${{ steps.next-tag.outputs.NEXT_TAG }}
+          tag_name: ${{ needs.prepare.outputs.next-tag }}
           make_latest: "true"
           body: |
 
             Some of the features are based on NextUI, please refer NextUI documentation. Documentation for uncommon features will be added in the future.
             Fresh installation is recommended. Select zip files that is relevant to your platform and extract it to your exFAT formatted SDCARD.
             If you have any questions, please open an issue in the repository.
-
-
