@@ -104,6 +104,7 @@ Architectural decisions here prioritize clarity and maintainability over strict 
 - [KrutzOtrem](https://github.com/KrutzOtrem/Trimui-Brick-Overlays) for the overlays
 - [timbueno](https://github.com/timbueno/ArtBookNextUI.theme) for the Artbook theme
 - [anthonycaccese](https://github.com/anthonycaccese/art-book-next-es.git) for the Artbook artwork
+- [ben16w](https://github.com/ben16w/minui-portmaster) for the Minui-Portmaster
 
 ## License
 

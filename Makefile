@@ -244,11 +244,6 @@ setup: name
 	# Overlay custom drastic resources (bg, fonts) on top of upstream
 	cp -Rf ./skeleton/EXTRAS/Emus/shared/drastic/resources/ ./build/EXTRAS/Emus/shared/drastic/resources/
 
-	# Extract PortMaster Python 3.11 runtime into shared/lib
-	@echo "Extracting Python 3.11 runtime..."
-	tar xzf ./build/SYSTEM/shared/lib/python3.11-aarch64.tar.gz -C ./build/SYSTEM/shared/lib/
-	rm -f ./build/SYSTEM/shared/lib/python3.11-aarch64.tar.gz
-
 	# remove authoring detritus
 	cd ./build && find . -type f -name '.keep' -delete
 	cd ./build && find . -type f -name '*.meta' -not -path '*/ppsspp/*' -delete

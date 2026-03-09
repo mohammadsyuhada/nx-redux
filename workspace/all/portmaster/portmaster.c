@@ -20,23 +20,30 @@
 #define PORTS_PAK_DIR SDCARD_PATH "/Emus/" PLATFORM "/PORTS.pak"
 #define PORTMASTER_DIR SDCARD_PATH "/Emus/shared/PortMaster"
 #define PUGWASH_PATH PORTMASTER_DIR "/pugwash"
-#define BASH_PATH SHARED_BIN_PATH "/bash"
 #define PORTS_ROM_DIR ROMS_PATH "/Ports (PORTS)"
 
 // PortMaster release URL
 #define PM_RELEASE_URL "https://github.com/PortsMaster/PortMaster-GUI/releases/latest/download/PortMaster.zip"
 #define PM_ZIP_PATH "/tmp/PortMaster.zip"
 
+// PortMaster runtime dependencies — pinned to minui-portmaster v2.10.1 (de77fbb)
+#define PM_DEPS_BASE "https://github.com/ben16w/minui-portmaster/raw/de77fbb0f085c0f2cd07d3cc8d27c5376d9e6731/files"
+#define PM_BIN_URL PM_DEPS_BASE "/bin.tar.gz"
+#define PM_LIB_URL PM_DEPS_BASE "/lib.tar.gz"
+#define PM_CERT_URL PM_DEPS_BASE "/ca-certificates.crt"
+#define PM_BIN_TAR "/tmp/portmaster_bin.tar.gz"
+#define PM_LIB_TAR "/tmp/portmaster_lib.tar.gz"
+
 enum PMState {
 	PM_STATE_CHECK,
 	PM_STATE_NOT_INSTALLED,
 	PM_STATE_INSTALLED,
 	PM_STATE_DOWNLOADING,
+	PM_STATE_DOWNLOADING_DEPS,
 	PM_STATE_EXTRACTING,
 	PM_STATE_PATCHING,
 	PM_STATE_INSTALL_DONE,
 	PM_STATE_INSTALL_FAILED,
-	PM_STATE_NO_BASH,
 	PM_STATE_LAUNCHING,
 	PM_STATE_MENU,
 	PM_STATE_CONFIRM_UNINSTALL,
@@ -73,6 +80,10 @@ static void toggle_layout(void);
 #define MENU_LAYOUT 1
 #define MENU_UNINSTALL 2
 
+// Download label for UI display
+static volatile int download_file_index = 0; // 0=PortMaster.zip, 1=bin.tar.gz, 2=lib.tar.gz
+static const char* download_labels[] = {"PortMaster", "binaries", "libraries"};
+
 static void* download_thread_func(void* arg) {
 	(void)arg;
 	download_result = wget_download_file(
@@ -83,12 +94,38 @@ static void* download_thread_func(void* arg) {
 	return NULL;
 }
 
-static bool portmaster_installed(void) {
-	return access(PUGWASH_PATH, F_OK) == 0;
+static void* download_deps_thread_func(void* arg) {
+	(void)arg;
+
+	// Download bin.tar.gz
+	download_file_index = 1;
+	download_progress = 0;
+	download_speed = 0;
+	download_eta = 0;
+	download_result = wget_download_file(
+		PM_BIN_URL, PM_BIN_TAR,
+		&download_progress, &download_cancel,
+		&download_speed, &download_eta);
+	if (download_result <= 0 || download_cancel) {
+		download_done = true;
+		return NULL;
+	}
+
+	// Download lib.tar.gz
+	download_file_index = 2;
+	download_progress = 0;
+	download_speed = 0;
+	download_eta = 0;
+	download_result = wget_download_file(
+		PM_LIB_URL, PM_LIB_TAR,
+		&download_progress, &download_cancel,
+		&download_speed, &download_eta);
+	download_done = true;
+	return NULL;
 }
 
-static bool bash_available(void) {
-	return access(BASH_PATH, X_OK) == 0;
+static bool portmaster_installed(void) {
+	return access(PUGWASH_PATH, F_OK) == 0;
 }
 
 static void invalidate_emulist_cache(void) {
@@ -205,7 +242,7 @@ static void install_ports_pak(void) {
 static int extract_portmaster(void) {
 	char cmd[1024];
 	mkdir_p(PORTMASTER_DIR);
-	snprintf(cmd, sizeof(cmd), SHARED_BIN_PATH "/busybox unzip -o '%s' -d '%s' >/dev/null 2>&1", PM_ZIP_PATH, SDCARD_PATH "/Emus/shared/");
+	snprintf(cmd, sizeof(cmd), SHARED_BIN_PATH "/7zzs.aarch64 x '%s' -o'%s' -aoa >/dev/null 2>&1", PM_ZIP_PATH, SDCARD_PATH "/Emus/shared/");
 	int ret = system(cmd);
 	unlink(PM_ZIP_PATH);
 	if (ret != 0) {
@@ -214,14 +251,51 @@ static int extract_portmaster(void) {
 	return ret;
 }
 
+static int extract_deps(void) {
+	char cmd[1024];
+	int ret;
+
+	// Extract bin.tar.gz to PortMaster/bin/
+	mkdir_p(PORTMASTER_DIR "/bin");
+	snprintf(cmd, sizeof(cmd), "gunzip -c '%s' | tar xf - -C '%s/bin/'", PM_BIN_TAR, PORTMASTER_DIR);
+	ret = system(cmd);
+	unlink(PM_BIN_TAR);
+	if (ret != 0)
+		return ret;
+
+	// Extract lib.tar.gz to PortMaster/lib/
+	mkdir_p(PORTMASTER_DIR "/lib");
+	snprintf(cmd, sizeof(cmd), "gunzip -c '%s' | tar xf - -C '%s/lib/'", PM_LIB_TAR, PORTMASTER_DIR);
+	ret = system(cmd);
+	unlink(PM_LIB_TAR);
+	if (ret != 0)
+		return ret;
+
+	// Download SSL certificates
+	mkdir_p(PORTMASTER_DIR "/ssl/certs");
+	snprintf(cmd, sizeof(cmd),
+			 SHARED_BIN_PATH "/wget --no-check-certificate -q -T 15 -t 2 -O '%s/ssl/certs/ca-certificates.crt' "
+							 "'" PM_CERT_URL "'",
+			 PORTMASTER_DIR);
+	system(cmd); // non-fatal if this fails
+
+	// Make binaries executable
+	snprintf(cmd, sizeof(cmd), "chmod -R +x '%s/bin/' 2>/dev/null", PORTMASTER_DIR);
+	system(cmd);
+
+	return 0;
+}
+
 static void patch_platform_py(void) {
 	char cmd[1024];
 	char platform_py[512];
 	snprintf(platform_py, sizeof(platform_py), "%s/pylibs/harbourmaster/platform.py", PORTMASTER_DIR);
 
-	// Disable portmaster_install calls in first_run (causes crash on TrimUI)
+	// Disable portmaster_install in first_run (causes crash on TrimUI)
+	// Uses disable_python_function.py to inject 'return' at the start of the function
 	snprintf(cmd, sizeof(cmd),
-			 "sed -i 's/self\\.portmaster_install(\\[\\])/pass/g' '%s'", platform_py);
+			 PORTMASTER_DIR "/bin/python3 " TOOL_PAK_DIR "/files/disable_python_function.py '%s' portmaster_install",
+			 platform_py);
 	system(cmd);
 }
 
@@ -229,20 +303,62 @@ static void patch_device_info(void) {
 	char device_info[512];
 	snprintf(device_info, sizeof(device_info), "%s/device_info.txt", PORTMASTER_DIR);
 
-	// Add TrimUI Smart Pro S (tg5050) detection before the existing TrimUI Smart Pro case
-	// tg5050 uses Allwinner T527 (sun55iw3) vs tg5040's A133Plus (sun8iw20)
+	// Patch TrimUI detection to distinguish tg5050 (Smart Pro S) from tg5040 (Smart Pro / Brick)
+	// tg5050 uses Allwinner T527 (sun55iw3 in device tree) vs tg5040's A133Plus (sun8iw20)
+	//
+	// Two patches needed:
+	// 1. The CFW_NAME=="TrimUI" block (initial DEVICE_NAME assignment) — replace the hardcoded
+	//    DEVICE_NAME="TrimUI Smart Pro" with a runtime check for sun55iw3
+	// 2. The FIXES case statement — add a "trimui smart pro s" case before "trimui smart pro"
 	char cmd[2048];
 	snprintf(cmd, sizeof(cmd),
 			 "if ! grep -q 'Smart Pro S' '%s' 2>/dev/null; then "
+			 // Patch 1: Replace the hardcoded DEVICE_NAME in the CFW_NAME=="TrimUI" block
+			 // Original:  DEVICE_NAME="TrimUI Smart Pro"
+			 // Patched:   runtime check via /proc/device-tree/model
+			 "sed -i '/\\$CFW_NAME.*TrimUI/{n;"
+			 "s|DEVICE_NAME=\"TrimUI Smart Pro\"|"
+			 "if grep -q sun55iw3 /proc/device-tree/model 2>/dev/null; then "
+			 "DEVICE_NAME=\"TrimUI Smart Pro S\"; "
+			 "else DEVICE_NAME=\"TrimUI Smart Pro\"; fi|"
+			 ";}' '%s';"
+			 // Patch 2: Add tg5050 case in the FIXES section before the tg5040 case
 			 "sed -i '/\"trimui smart pro\"|\"trimui-smart-pro\")/i\\"
 			 "    \"trimui smart pro s\"|\"trimui-smart-pro-s\")\\n"
 			 "        DEVICE_CPU=\"t527\"\\n"
 			 "        DEVICE_NAME=\"TrimUI Smart Pro S\"\\n"
 			 "        ;;' '%s';"
-			 // Make TrimUI detection distinguish tg5050 vs tg5040 by checking /proc/device-tree/model
-			 "sed -i 's/DEVICE_NAME=\"TrimUI Smart Pro\"/if grep -q sun55iw3 \\/proc\\/device-tree\\/model 2>\\/dev\\/null; then DEVICE_NAME=\"TrimUI Smart Pro S\"; else DEVICE_NAME=\"TrimUI Smart Pro\"; fi/' '%s';"
 			 "fi",
 			 device_info, device_info, device_info);
+	system(cmd);
+
+	// Patch hardware.py — PortMaster's Python GUI uses its own device detection
+	// independent of device_info.txt. Need to add tg5050 support to:
+	// 1. nice_device_to_device(): map sun55iw3 → trimui-smart-pro-s
+	// 2. DEVICE_TO_NICE_DEVICE: map "TrimUI Smart Pro S" → device/manufacturer/cfw
+	// 3. DEVICES: map trimui-smart-pro-s → resolution/cpu/capabilities
+	// 4. GLIBC_DEVICE: map trimui-smart-pro-s* → glibc version
+	char hardware_py[512];
+	snprintf(hardware_py, sizeof(hardware_py), "%s/pylibs/harbourmaster/hardware.py", PORTMASTER_DIR);
+	snprintf(cmd, sizeof(cmd),
+			 "if ! grep -q 'smart-pro-s' '%s' 2>/dev/null; then "
+			 // Add sun55iw3 → trimui-smart-pro-s mapping (before sun50iw10 → trimui-smart-pro)
+			 "sed -i \"s|('sun50iw10', 'trimui-smart-pro'),|"
+			 "('sun55iw3',  'trimui-smart-pro-s'),\\n"
+			 "        ('sun50iw10', 'trimui-smart-pro'),|\" '%s';"
+			 // Add TrimUI Smart Pro S to DEVICE_TO_NICE_DEVICE (after TrimUI Smart Pro line)
+			 "sed -i '/\"TrimUI Smart Pro\":.*trimui-smart-pro/a\\"
+			 "    \"TrimUI Smart Pro S\": {\"device\": \"trimui-smart-pro-s\", \"manufacturer\": \"TrimUI\", \"cfw\": [\"TrimUI\"]},' '%s';"
+			 // Add trimui-smart-pro-s to DEVICES dict (after trimui-smart-pro line)
+			 "sed -i '/\"trimui-smart-pro\":.*a133plus/a\\"
+			 "    \"trimui-smart-pro-s\": {\"resolution\": (1280, 720), \"analogsticks\": 2, \"cpu\": \"t527\", \"capabilities\": [\"power\"], \"ram\": 1024},' '%s';"
+			 // Add trimui-smart-pro-s* glibc entry (after trimui-* line)
+			 "sed -i '/\"trimui-\\*\":/i\\"
+			 "    \"trimui-smart-pro-s*\": \"2.33\",' '%s';"
+			 // Clear Python cache so patched .py files take effect
+			 "rm -rf '%s/pylibs/harbourmaster/__pycache__';"
+			 "fi",
+			 hardware_py, hardware_py, hardware_py, hardware_py, hardware_py, PORTMASTER_DIR);
 	system(cmd);
 }
 
@@ -319,7 +435,7 @@ static void fix_port_scripts(void) {
 	// Fix hardcoded /roms/ports/PortMaster paths in port scripts after pugwash installs them
 	char cmd[2048];
 	snprintf(cmd, sizeof(cmd),
-			 "export PATH=" SHARED_BIN_PATH ":$PATH && "
+			 "export PATH=" PORTMASTER_DIR "/bin:" SHARED_BIN_PATH ":$PATH && "
 			 "ROM_DIR='" SDCARD_PATH "/Roms/Ports (PORTS)' && "
 			 "find \"$ROM_DIR\" -maxdepth 1 -type f -name '*.sh' | while IFS= read -r f; do "
 			 "if grep -q '/roms/ports/PortMaster' \"$f\" 2>/dev/null; then "
@@ -364,16 +480,16 @@ static void launch_pugwash(void) {
 
 	char cmd[2048];
 	// tg5050 ships newer lib versions than what some bundled binaries expect
-	system("[ ! -e " SHARED_SYSTEM_PATH "/lib/libffi.so.7 ] && [ -e /usr/lib/libffi.so.8 ] && "
-		   "cp /usr/lib/libffi.so.8 " SHARED_SYSTEM_PATH "/lib/libffi.so.7;"
-		   "[ ! -e " SHARED_SYSTEM_PATH "/lib/libncurses.so.5 ] && [ -e /usr/lib/libncurses.so.6 ] && "
-		   "cp /usr/lib/libncurses.so.6 " SHARED_SYSTEM_PATH "/lib/libncurses.so.5");
+	system("[ ! -e " PORTMASTER_DIR "/lib/libffi.so.7 ] && [ -e /usr/lib/libffi.so.8 ] && "
+		   "cp /usr/lib/libffi.so.8 " PORTMASTER_DIR "/lib/libffi.so.7;"
+		   "[ ! -e " PORTMASTER_DIR "/lib/libncurses.so.5 ] && [ -e /usr/lib/libncurses.so.6 ] && "
+		   "cp /usr/lib/libncurses.so.6 " PORTMASTER_DIR "/lib/libncurses.so.5");
 
 	snprintf(cmd, sizeof(cmd),
-			 "export LD_LIBRARY_PATH=" SYSTEM_PATH "/lib:" SHARED_SYSTEM_PATH "/lib:/usr/trimui/lib:/usr/lib:$LD_LIBRARY_PATH && "
-			 "export PATH=" SYSTEM_PATH "/bin:" SHARED_BIN_PATH ":/usr/trimui/bin:$PATH && "
+			 "export LD_LIBRARY_PATH=" SYSTEM_PATH "/lib:" PORTMASTER_DIR "/lib:/usr/trimui/lib:/usr/lib:$LD_LIBRARY_PATH && "
+			 "export PATH=" SYSTEM_PATH "/bin:" PORTMASTER_DIR "/bin:" SHARED_BIN_PATH ":/usr/trimui/bin:$PATH && "
 			 "export PYSDL2_DLL_PATH=/usr/trimui/lib:/usr/lib && "
-			 "export SSL_CERT_FILE=" SHARED_SYSTEM_PATH "/etc/ssl/certs/ca-certificates.crt && "
+			 "export SSL_CERT_FILE=" PORTMASTER_DIR "/ssl/certs/ca-certificates.crt && "
 			 "export HOME=" SHARED_USERDATA_PATH "/PORTS-portmaster && "
 			 "export XDG_DATA_HOME=$HOME/.local/share && "
 			 "mkdir -p $XDG_DATA_HOME && "
@@ -385,7 +501,7 @@ static void launch_pugwash(void) {
 			 "export SDL_GAMECONTROLLERCONFIG_FILE='%s/gamecontrollerdb.txt' && "
 			 "cd '%s' && "
 			 "rm -f .pugwash-reboot && "
-			 "while true; do " SHARED_BIN_PATH "/python3 pugwash --debug 2>&1 | tee " SDCARD_PATH "/.userdata/" PLATFORM "/logs/portmaster_pugwash.txt; "
+			 "while true; do " PORTMASTER_DIR "/bin/python3 pugwash --debug 2>&1 | tee " SDCARD_PATH "/.userdata/" PLATFORM "/logs/portmaster_pugwash.txt; "
 			 "[ ! -f .pugwash-reboot ] && break; "
 			 "rm -f .pugwash-reboot; "
 			 "done",
@@ -410,7 +526,9 @@ static void format_speed(int bps, char* buf, int buf_size) {
 }
 
 static void start_download(void) {
+	PWR_disableSleep();
 	state = PM_STATE_DOWNLOADING;
+	download_file_index = 0;
 	download_progress = 0;
 	download_cancel = false;
 	download_speed = 0;
@@ -443,33 +561,26 @@ static void render_screen(void) {
 		break;
 
 	case PM_STATE_DOWNLOADING:
+	case PM_STATE_DOWNLOADING_DEPS:
 		UI_renderMenuBar(screen, "PortMaster");
 		{
-			char status[256];
+			char status_msg[128];
+			snprintf(status_msg, sizeof(status_msg), "Downloading %s...", download_labels[download_file_index]);
+
+			char detail[128];
 			char speed_str[64];
 			format_speed(download_speed, speed_str, sizeof(speed_str));
-
 			if (download_eta > 0)
-				snprintf(status, sizeof(status), "Downloading... %d%%  (%s, %ds left)", download_progress, speed_str, download_eta);
+				snprintf(detail, sizeof(detail), "%s, %ds left", speed_str, download_eta);
 			else
-				snprintf(status, sizeof(status), "Downloading... %d%%  (%s)", download_progress, speed_str);
+				snprintf(detail, sizeof(detail), "%s", speed_str);
 
-			int bar_x = SCALE1(PADDING * 3);
-			int bar_w = screen->w - SCALE1(PADDING * 6);
-			int bar_h = SCALE1(12);
-			int bar_y = screen->h / 2;
-
-			GFX_blitText(font.medium, status, 0, COLOR_WHITE, screen,
-						 &(SDL_Rect){bar_x, bar_y - SCALE1(FONT_MEDIUM + 8), bar_w, SCALE1(FONT_MEDIUM)});
-
-			SDL_Rect bg_rect = {bar_x, bar_y, bar_w, bar_h};
-			SDL_FillRect(screen, &bg_rect, SDL_MapRGB(screen->format, 0x26, 0x26, 0x26));
-
-			int fill_w = (bar_w * download_progress) / 100;
-			if (fill_w > 0) {
-				SDL_Rect fill_rect = {bar_x, bar_y, fill_w, bar_h};
-				SDL_FillRect(screen, &fill_rect, SDL_MapRGB(screen->format, 0xff, 0xff, 0xff));
-			}
+			UI_renderDownloadProgress(screen, &(UIDownloadProgress){
+												  .status = status_msg,
+												  .detail = detail,
+												  .progress = download_progress,
+												  .show_bar = true,
+											  });
 		}
 		UI_renderButtonHintBar(screen, (char*[]){"B", "CANCEL", NULL});
 		break;
@@ -494,12 +605,6 @@ static void render_screen(void) {
 		UI_renderMenuBar(screen, "PortMaster");
 		UI_renderCenteredMessage(screen, "Installation failed. Check WiFi and try again.");
 		UI_renderButtonHintBar(screen, (char*[]){"A", "RETRY", "B", "BACK", NULL});
-		break;
-
-	case PM_STATE_NO_BASH:
-		UI_renderMenuBar(screen, "PortMaster");
-		UI_renderCenteredMessage(screen, "Error: bash not found. PortMaster requires bash.");
-		UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", NULL});
 		break;
 
 	case PM_STATE_INSTALLED:
@@ -549,31 +654,6 @@ int main(int argc, char* argv[]) {
 	PAD_init();
 	PWR_init();
 	setup_signal_handlers();
-
-	// Check bash availability
-	if (!bash_available()) {
-		state = PM_STATE_NO_BASH;
-		bool dirty = true;
-		IndicatorType show_setting = INDICATOR_NONE;
-		while (!app_quit) {
-			GFX_startFrame();
-			PAD_poll();
-			PWR_update(&dirty, &show_setting, NULL, NULL);
-			if (PAD_justPressed(BTN_B))
-				app_quit = true;
-			if (dirty) {
-				render_screen();
-				dirty = false;
-			} else {
-				GFX_sync();
-			}
-		}
-		QuitSettings();
-		PWR_quit();
-		PAD_quit();
-		GFX_quit();
-		return EXIT_FAILURE;
-	}
 
 	// Start in menu if installed, otherwise show install screen
 	if (portmaster_installed()) {
@@ -654,6 +734,7 @@ int main(int argc, char* argv[]) {
 				}
 				download_done = false;
 				unlink(PM_ZIP_PATH);
+				PWR_enableSleep();
 				state = PM_STATE_NOT_INSTALLED;
 			}
 			// Check if download thread finished (success or failure)
@@ -664,6 +745,7 @@ int main(int argc, char* argv[]) {
 				if (download_result > 0) {
 					state = PM_STATE_EXTRACTING;
 				} else {
+					PWR_enableSleep();
 					state = PM_STATE_INSTALL_FAILED;
 				}
 			}
@@ -674,13 +756,62 @@ int main(int argc, char* argv[]) {
 			{
 				int ret = extract_portmaster();
 				if (ret == 0 && portmaster_installed()) {
-					state = PM_STATE_PATCHING;
+					// Start downloading dependencies (bin.tar.gz + lib.tar.gz)
+					state = PM_STATE_DOWNLOADING_DEPS;
+					download_file_index = 1;
+					download_progress = 0;
+					download_cancel = false;
+					download_speed = 0;
+					download_eta = 0;
+					download_result = 0;
+					download_done = false;
+					pthread_create(&download_thread, NULL, download_deps_thread_func, NULL);
+					download_thread_active = true;
 				} else {
 					cleanup_portmaster();
+					PWR_enableSleep();
 					state = PM_STATE_INSTALL_FAILED;
 				}
 			}
 			dirty = true;
+			break;
+
+		case PM_STATE_DOWNLOADING_DEPS:
+			dirty = true; // always redraw for progress
+			if (PAD_justPressed(BTN_B)) {
+				download_cancel = true;
+				if (download_thread_active) {
+					pthread_join(download_thread, NULL);
+					download_thread_active = false;
+				}
+				download_done = false;
+				unlink(PM_BIN_TAR);
+				unlink(PM_LIB_TAR);
+				cleanup_portmaster();
+				PWR_enableSleep();
+				state = PM_STATE_NOT_INSTALLED;
+			}
+			if (download_thread_active && download_done) {
+				pthread_join(download_thread, NULL);
+				download_thread_active = false;
+				download_done = false;
+				if (download_result > 0) {
+					// Extract deps and move to patching
+					render_screen();
+					int ret = extract_deps();
+					if (ret == 0) {
+						state = PM_STATE_PATCHING;
+					} else {
+						cleanup_portmaster();
+						PWR_enableSleep();
+						state = PM_STATE_INSTALL_FAILED;
+					}
+				} else {
+					cleanup_portmaster();
+					PWR_enableSleep();
+					state = PM_STATE_INSTALL_FAILED;
+				}
+			}
 			break;
 
 		case PM_STATE_PATCHING:
@@ -696,6 +827,7 @@ int main(int argc, char* argv[]) {
 				snprintf(cmd, sizeof(cmd), "chmod -R +x '%s' 2>/dev/null", PORTMASTER_DIR);
 				system(cmd);
 			}
+			PWR_enableSleep();
 			state = PM_STATE_INSTALL_DONE;
 			dirty = true;
 			break;

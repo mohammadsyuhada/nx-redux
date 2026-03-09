@@ -18,20 +18,20 @@ mkdir -p "$USERDATA_PATH/PORTS-portmaster"
 mkdir -p "$SHARED_USERDATA_PATH/PORTS-portmaster"
 
 EMU_DIR="$SDCARD_PATH/Emus/shared/PortMaster"
-BB="$SHARED_SYSTEM_PATH/bin/busybox"
+BB="$EMU_DIR/bin/busybox"
 
-export PATH="$EMU_DIR:$SHARED_SYSTEM_PATH/bin:$PATH"
+export PATH="$EMU_DIR/bin:$EMU_DIR:$SHARED_SYSTEM_PATH/bin:$PATH"
 
 # tg5050 ships newer lib versions than what some bundled binaries expect
 # (can't symlink on exFAT, so copy the actual files)
 for lib_pair in "libffi.so.7 libffi.so.8" "libncurses.so.5 libncurses.so.6" "libncursesw.so.5 libncursesw.so.6"; do
     old="${lib_pair% *}" new="${lib_pair#* }"
-    [ ! -e "$SHARED_SYSTEM_PATH/lib/$old" ] && [ -e "/usr/lib/$new" ] && \
-        cp "/usr/lib/$new" "$SHARED_SYSTEM_PATH/lib/$old"
+    [ ! -e "$EMU_DIR/lib/$old" ] && [ -e "/usr/lib/$new" ] && \
+        cp "/usr/lib/$new" "$EMU_DIR/lib/$old"
 done
 
-export LD_LIBRARY_PATH="$SHARED_SYSTEM_PATH/lib:/usr/trimui/lib:$LD_LIBRARY_PATH"
-export SSL_CERT_FILE="$SHARED_SYSTEM_PATH/etc/ssl/certs/ca-certificates.crt"
+export LD_LIBRARY_PATH="$EMU_DIR/lib:/usr/trimui/lib:$LD_LIBRARY_PATH"
+export SSL_CERT_FILE="$EMU_DIR/ssl/certs/ca-certificates.crt"
 export SDL_GAMECONTROLLERCONFIG_FILE="$EMU_DIR/gamecontrollerdb.txt"
 export PYSDL2_DLL_PATH="/usr/trimui/lib"
 export HOME="$SHARED_USERDATA_PATH/PORTS-portmaster"
@@ -63,7 +63,7 @@ export HM_SCRIPTS_DIR="$TEMP_DATA_DIR/ports"
 # Create busybox wrapper scripts for commands that ports need
 # The system busybox (v1.27.2) is too old and missing many applets
 create_busybox_wrappers() {
-    bin_dir="$SHARED_SYSTEM_PATH/bin"
+    bin_dir="$EMU_DIR/bin"
     [ -f "$bin_dir/busybox_wrappers.done" ] && return 0
     echo "Creating busybox wrappers in $bin_dir"
 
