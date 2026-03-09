@@ -124,15 +124,17 @@ keymon.elf & # &> $SDCARD_PATH/keymon.txt &
 rm -f $USERDATA_PATH/.asoundrc
 audiomon.elf & # &> $SDCARD_PATH/audiomon.txt &
 
-# BT handling — always start bluetoothd so bluetoothctl commands never hang.
-# If BT is off, the adapter gets powered off but the daemon stays alive.
+# BT handling
+# NOTE: On tg5040 (xradio combo chip), running bluetoothd+hciattach degrades
+# WiFi throughput from ~330 KB/s to ~2 KB/s due to coexistence interference.
+# Only start BT when the user has it enabled.
 bluetoothon=$(nextval.elf bluetooth | sed -n 's/.*"bluetooth": \([0-9]*\).*/\1/p')
 # somehow trimui deploys aic?
 cp -f $SYSTEM_PATH/etc/bluetooth/bt_init.sh /etc/bluetooth/bt_init.sh
-/etc/bluetooth/bt_init.sh start > /dev/null 2>&1 &
-if [ "$bluetoothon" -ne 1 ]; then
-	# Wait briefly for bluetoothd to start, then power off adapter
-	(sleep 5; bluetoothctl power off 2>/dev/null) &
+if [ "$bluetoothon" -eq 1 ]; then
+	/etc/bluetooth/bt_init.sh start > /dev/null 2>&1 &
+else
+	/etc/bluetooth/bt_init.sh stop > /dev/null 2>&1 &
 fi
 
 # wifi handling

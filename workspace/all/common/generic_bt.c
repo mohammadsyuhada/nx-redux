@@ -311,10 +311,12 @@ void PLAT_bluetoothInit() {
 	bt_detect_version();
 
 	bt_initialized = true;
-	// bluetoothd is always started at boot (launch.sh).
-	// If BT is on, power on the adapter. If off, it's already powered off.
+	// If BT is on, ensure daemon is running and power on the adapter.
 	if (CFG_getBluetooth()) {
-		bt_system("bluetoothctl power on 2>/dev/null");
+		if (!bt_daemon_alive())
+			system(SYSTEM_PATH "/etc/bluetooth/bt_init.sh start");
+		else
+			bt_system("bluetoothctl power on 2>/dev/null");
 	}
 }
 
@@ -338,9 +340,16 @@ void PLAT_bluetoothEnable(bool shouldBeOn) {
 			system("kill $(pgrep -f 'bluetoothctl scan on') 2>/dev/null");
 			bt_discovering = false;
 		}
-		// Just power off the adapter — keep bluetoothd running so
-		// bluetoothctl commands don't hang
-		bt_system("bluetoothctl power off 2>/dev/null");
+		// On tg5040 (xradio combo chip), bluetoothd+hciattach must be fully
+		// stopped or WiFi throughput drops from ~330 KB/s to ~2 KB/s.
+		// On tg5050 (separate WiFi/BT chips), keep bluetoothd running and
+		// just power off the adapter so bluetoothctl commands don't hang.
+		if (strcmp(PLATFORM, "tg5040") == 0) {
+			bt_system("bluetoothctl power off 2>/dev/null");
+			system(SYSTEM_PATH "/etc/bluetooth/bt_init.sh stop");
+		} else {
+			bt_system("bluetoothctl power off 2>/dev/null");
+		}
 	}
 	CFG_setBluetooth(shouldBeOn);
 }

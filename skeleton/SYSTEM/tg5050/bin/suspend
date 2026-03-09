@@ -3,8 +3,8 @@ set -uo pipefail
 set +e
 exec 0<&-
 
-#logfile="/mnt/SDCARD/.userdata/tg5040/logs/suspend_$(date +%Y%m%d_%H%M%S).log"
-#exec >> "$logfile" 2>&1
+# logfile="/mnt/SDCARD/.userdata/tg5050/logs/suspend_$(date +%Y%m%d_%H%M%S).log"
+# exec >> "$logfile" 2>&1
 
 wifid_running=
 bluetoothd_running=
@@ -35,6 +35,9 @@ before() {
 
 after() {
 	>&2 echo "Resumed from suspend."
+
+	# Give the aic8800 driver time to reinitialize after deep sleep
+	sleep 1
 
 	if [ -n "$wifid_running" ]; then
 		>&2 echo "Starting wpa_supplicant..."

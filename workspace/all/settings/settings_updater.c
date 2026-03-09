@@ -13,12 +13,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <sys/wait.h>
-#include <sys/stat.h>
-#include <time.h>
 
 #include "settings_updater.h"
 #include "settings_menu.h"
@@ -177,14 +174,18 @@ static void extract_first_paragraph(const char* body, char* out, size_t out_size
 	size_t j = 0;
 
 	for (size_t i = 0; body[i] && j < out_size - 1; i++) {
-		if (body[i] == '\\' && body[i + 1] == 'n') {
-			if (body[i + 2] == '\\' && body[i + 3] == 'n')
-				break;
-			out[j++] = ' ';
+		if (body[i] == '\\' && body[i + 1] == 'r') {
 			i++;
 			continue;
 		}
-		if (body[i] == '\\' && body[i + 1] == 'r') {
+		if (body[i] == '\\' && body[i + 1] == 'n') {
+			// Check for paragraph break: \n followed by optional \r then \n
+			size_t k = i + 2;
+			if (body[k] == '\\' && body[k + 1] == 'r')
+				k += 2;
+			if (body[k] == '\\' && body[k + 1] == 'n')
+				break;
+			out[j++] = ' ';
 			i++;
 			continue;
 		}
@@ -393,6 +394,33 @@ static void* extract_thread(void* arg) {
 }
 
 // ============================================
+// Download state (shared with download thread)
+// ============================================
+
+typedef struct {
+	char url[512];
+	char filepath[256];
+	volatile int progress;
+	volatile bool cancel;
+	volatile int speed;
+	volatile int eta;
+	volatile bool done;
+	int result;
+} DownloadContext;
+
+static DownloadContext dl_ctx;
+
+static void* download_thread_func(void* arg) {
+	(void)arg;
+	dl_ctx.result = wget_download_file(
+		dl_ctx.url, dl_ctx.filepath,
+		&dl_ctx.progress, &dl_ctx.cancel,
+		&dl_ctx.speed, &dl_ctx.eta);
+	dl_ctx.done = true;
+	return NULL;
+}
+
+// ============================================
 // Full-screen update page helpers
 // ============================================
 
@@ -556,153 +584,53 @@ static int show_update_info(SDL_Surface* screen, ReleaseInfo* release) {
 static void do_install(SDL_Surface* screen, ReleaseInfo* release) {
 	pthread_t tid;
 
-	// Prevent screen off and disable WiFi power save during download
+	// Prevent screen off and disable WiFi power save during update
 	PWR_disableAutosleep();
+	PWR_disableSleep();
 	system("iw dev wlan0 set power_save off 2>/dev/null");
 
 	// --- Download phase ---
-	// Remove stale files
-	char done_marker[256], headers_file[256];
-	snprintf(done_marker, sizeof(done_marker), "%s.done", DOWNLOAD_PATH);
-	snprintf(headers_file, sizeof(headers_file), "%s.headers", DOWNLOAD_PATH);
 	unlink(DOWNLOAD_PATH);
-	unlink(done_marker);
-	unlink(headers_file);
 
-	// Start wget in background with -S to capture Content-Length via stderr
-	char cmd[4096];
-	snprintf(cmd, sizeof(cmd),
-			 "(" SHARED_BIN_PATH "/wget --no-check-certificate -S -T 30 -t 2"
-			 " -O '%s' '%s' 2>'%s'; echo $? > '%s') &",
-			 DOWNLOAD_PATH, release->download_url, headers_file, done_marker);
-	system(cmd);
+	// Start download in background thread via wget_download_file
+	memset(&dl_ctx, 0, sizeof(dl_ctx));
+	snprintf(dl_ctx.url, sizeof(dl_ctx.url), "%s", release->download_url);
+	snprintf(dl_ctx.filepath, sizeof(dl_ctx.filepath), "%s", DOWNLOAD_PATH);
 
-	// Poll download progress from main thread
-	long total_size = 0;
-	int headers_parsed = 0;
-	long prev_size = 0;
-	int speed_bps = 0;
-	int eta_sec = 0;
-	struct timespec prev_time;
-	clock_gettime(CLOCK_MONOTONIC, &prev_time);
-	struct timespec stall_start = prev_time;
-	long stall_size = 0;
+	if (pthread_create(&tid, NULL, download_thread_func, NULL) != 0) {
+		PWR_enableSleep();
+		PWR_enableAutosleep();
+		system("iw dev wlan0 set power_save on 2>/dev/null");
+		show_message_page(screen, "Update Error", "Failed to start download");
+		return;
+	}
+
 	int cancelled = 0;
 	int dl_success = 0;
-	char dl_error[256] = "";
 
-	while (1) {
+	while (!dl_ctx.done) {
 		GFX_startFrame();
 		PAD_poll();
 
 		// Cancel
 		if (PAD_justPressed(BTN_B)) {
-			system("kill $(pgrep -f 'wget.*tmp_update') 2>/dev/null");
+			dl_ctx.cancel = true;
+			pthread_join(tid, NULL);
 			unlink(DOWNLOAD_PATH);
-			unlink(done_marker);
-			unlink(headers_file);
 			cancelled = 1;
 			break;
 		}
 
-		// Check if wget finished
-		int wget_done = (access(done_marker, F_OK) == 0);
+		// Read progress from download thread
+		int progress_pct = dl_ctx.progress;
+		int speed_bps = dl_ctx.speed;
+		int eta_sec = dl_ctx.eta;
 
-		// Parse Content-Length from headers file (take last one after redirects)
-		if (!headers_parsed) {
-			FILE* hf = fopen(headers_file, "r");
-			if (hf) {
-				char line[256];
-				long last_cl = 0;
-				while (fgets(line, sizeof(line), hf)) {
-					const char* p = line;
-					while (*p == ' ' || *p == '\t')
-						p++;
-					if (strncasecmp(p, "Content-Length:", 15) == 0) {
-						long val = atol(p + 15);
-						if (val > 0)
-							last_cl = val;
-					}
-				}
-				fclose(hf);
-				if (last_cl > 1024) {
-					total_size = last_cl;
-					headers_parsed = 1;
-				}
-			}
-		}
-
-		// Poll file size
-		struct stat st;
-		long curr_size = 0;
-		if (stat(DOWNLOAD_PATH, &st) == 0)
-			curr_size = st.st_size;
-
-		// Progress percentage
-		int progress_pct = 0;
-		if (total_size > 0) {
-			progress_pct = (int)((curr_size * 100) / total_size);
-			if (progress_pct > 99 && !wget_done)
-				progress_pct = 99;
-		}
-
-		// Speed and ETA (every ~1 second)
-		struct timespec now;
-		clock_gettime(CLOCK_MONOTONIC, &now);
-		double elapsed = (now.tv_sec - prev_time.tv_sec) +
-						 (now.tv_nsec - prev_time.tv_nsec) / 1e9;
-		if (elapsed >= 1.0) {
-			long bytes_delta = curr_size - prev_size;
-			speed_bps = (int)(bytes_delta / elapsed);
-			if (speed_bps < 0)
-				speed_bps = 0;
-			if (speed_bps > 0 && total_size > 0)
-				eta_sec = (int)((total_size - curr_size) / speed_bps);
-			else
-				eta_sec = 0;
-			prev_size = curr_size;
-			prev_time = now;
-		}
-
-		// Stall detection (only after data started flowing)
-		if (curr_size != stall_size) {
-			stall_size = curr_size;
-			stall_start = now;
-		} else if (curr_size > 0) {
-			double stall_elapsed = (now.tv_sec - stall_start.tv_sec) +
-								   (now.tv_nsec - stall_start.tv_nsec) / 1e9;
-			if (stall_elapsed >= 60.0) {
-				system("kill $(pgrep -f 'wget.*tmp_update') 2>/dev/null");
-				snprintf(dl_error, sizeof(dl_error), "Download stalled");
-				unlink(done_marker);
-				unlink(headers_file);
-				break;
-			}
-		}
-
-		// Build status text: "v1.0.2 - 9.1 MB (3%)"
 		char dl_status[256];
-		if (curr_size > 0) {
-			char size_str[64];
-			if (curr_size >= 1024 * 1024 && total_size >= 1024 * 1024)
-				snprintf(size_str, sizeof(size_str), "%.1f / %.0f MB",
-						 curr_size / (1024.0 * 1024.0), total_size / (1024.0 * 1024.0));
-			else if (curr_size >= 1024 * 1024)
-				snprintf(size_str, sizeof(size_str), "%.1f MB",
-						 curr_size / (1024.0 * 1024.0));
-			else
-				snprintf(size_str, sizeof(size_str), "%.0f KB", curr_size / 1024.0);
-
-			if (progress_pct > 0)
-				snprintf(dl_status, sizeof(dl_status), "%s - %s (%d%%)",
-						 release->tag_name, size_str, progress_pct);
-			else
-				snprintf(dl_status, sizeof(dl_status), "%s - %s",
-						 release->tag_name, size_str);
-		} else {
-			snprintf(dl_status, sizeof(dl_status), "%s - Connecting...",
-					 release->tag_name);
-		}
+		if (progress_pct > 0)
+			snprintf(dl_status, sizeof(dl_status), "%s (%d%%)", release->tag_name, progress_pct);
+		else
+			snprintf(dl_status, sizeof(dl_status), "%s - Connecting...", release->tag_name);
 
 		char speed_str[32] = "";
 		char eta_str[32] = "";
@@ -711,37 +639,26 @@ static void do_install(SDL_Surface* screen, ReleaseInfo* release) {
 
 		render_update_page(screen, "Downloading Update",
 						   dl_status, progress_pct, speed_str, eta_str, 1);
-
-		// Check completion after render
-		if (wget_done) {
-			// Verify wget exit code
-			int wget_exit = -1;
-			FILE* mf = fopen(done_marker, "r");
-			if (mf) {
-				fscanf(mf, "%d", &wget_exit);
-				fclose(mf);
-			}
-			unlink(done_marker);
-			unlink(headers_file);
-
-			if (wget_exit == 0 && curr_size > 1024) {
-				dl_success = 1;
-			} else {
-				snprintf(dl_error, sizeof(dl_error), "Download failed (error %d)", wget_exit);
-			}
-			break;
-		}
 	}
 
-	// Re-enable autosleep and WiFi power save after download
-	PWR_enableAutosleep();
+	if (!cancelled) {
+		pthread_join(tid, NULL);
+		dl_success = (dl_ctx.result > 0);
+	}
+
+	// Re-enable WiFi power save after download (keep sleep disabled through extract)
 	system("iw dev wlan0 set power_save on 2>/dev/null");
 
-	if (cancelled)
+	if (cancelled) {
+		PWR_enableSleep();
+		PWR_enableAutosleep();
 		return;
+	}
 
 	if (!dl_success) {
-		show_message_page(screen, "Update Error", dl_error);
+		PWR_enableSleep();
+		PWR_enableAutosleep();
+		show_message_page(screen, "Update Error", "Download failed");
 		return;
 	}
 
@@ -749,6 +666,8 @@ static void do_install(SDL_Surface* screen, ReleaseInfo* release) {
 	ExtractContext ex = {0};
 
 	if (pthread_create(&tid, NULL, extract_thread, &ex) != 0) {
+		PWR_enableSleep();
+		PWR_enableAutosleep();
 		show_message_page(screen, "Update Error", "Failed to start installation");
 		return;
 	}
@@ -764,11 +683,15 @@ static void do_install(SDL_Surface* screen, ReleaseInfo* release) {
 	pthread_join(tid, NULL);
 
 	if (!ex.success) {
+		PWR_enableSleep();
+		PWR_enableAutosleep();
 		show_message_page(screen, "Update Error", ex.error);
 		return;
 	}
 
 	// --- Reboot ---
+	PWR_enableSleep();
+	PWR_enableAutosleep();
 	render_update_page(screen, "Update Complete",
 					   "Rebooting...", -1, NULL, NULL, 0);
 	sleep(2);
