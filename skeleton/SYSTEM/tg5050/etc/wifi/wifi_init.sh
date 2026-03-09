@@ -75,7 +75,7 @@ EOF
 
 	# Start DHCP client to obtain IP address
 	# udhcpc -b exits after obtaining a lease, so just run it once
-	if ! pidof udhcpc > /dev/null 2>&1; then
+	if ! pgrep -f udhcpc > /dev/null 2>&1; then
 		udhcpc -i $WIFI_INTERFACE -b 2>/dev/null
 	fi
 }
@@ -94,7 +94,7 @@ stop() {
 	killall wpa_supplicant 2>/dev/null
 
 	# Kill DHCP client
-	killall udhcpc 2>/dev/null
+	kill $(pgrep -f udhcpc) 2>/dev/null
 }
 
 case "$1" in

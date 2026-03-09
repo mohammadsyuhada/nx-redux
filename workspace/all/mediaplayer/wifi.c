@@ -66,7 +66,7 @@ bool Wifi_ensureConnected(SDL_Surface* scr, IndicatorType show_setting) {
 	for (int i = 0; i < WIFI_CONNECT_TIMEOUT_INTERVALS; i++) {
 		if (PLAT_wifiConnected()) {
 			// Request IP via DHCP
-			system("killall udhcpc 2>/dev/null; udhcpc -i wlan0 -b 2>/dev/null &");
+			system("pgrep -f udhcpc >/dev/null 2>&1 || udhcpc -i wlan0 -b 2>/dev/null &");
 			// Wait briefly for DHCP to complete
 			usleep(1500000); // 1.5 seconds
 			return true;
@@ -83,7 +83,7 @@ bool Wifi_ensureConnected(SDL_Surface* scr, IndicatorType show_setting) {
 	// Final check
 	if (PLAT_wifiConnected()) {
 		// Request IP via DHCP
-		system("killall udhcpc 2>/dev/null; udhcpc -i wlan0 -b 2>/dev/null &");
+		system("pgrep -f udhcpc >/dev/null 2>&1 || udhcpc -i wlan0 -b 2>/dev/null &");
 		usleep(1500000); // 1.5 seconds
 		return true;
 	}

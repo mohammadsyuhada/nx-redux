@@ -265,7 +265,7 @@ static void* update_thread_func(void* arg) {
 	while (timeout_seconds < max_timeout) {
 		// Check for cancellation
 		if (update_should_stop) {
-			system("pkill -f 'wget.*yt-dlp' 2>/dev/null");
+			system("kill $(pgrep -f 'wget.*yt-dlp') 2>/dev/null");
 			snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", temp_dir);
 			system(cmd);
 			update_status.updating = false;
@@ -316,7 +316,7 @@ static void* update_thread_func(void* arg) {
 	usleep(500000);
 
 	// Kill any remaining wget just in case
-	system("pkill -f 'wget.*yt-dlp' 2>/dev/null");
+	system("kill $(pgrep -f 'wget.*yt-dlp') 2>/dev/null");
 
 	// Check wget exit status from marker file
 	int wget_exit = -1;

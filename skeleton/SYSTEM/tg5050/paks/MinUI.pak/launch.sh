@@ -92,6 +92,7 @@ export LD_LIBRARY_PATH=$SYSTEM_PATH/lib:$SHARED_SYSTEM_PATH/lib:/usr/trimui/lib:
 export PATH=$SYSTEM_PATH/bin:$SHARED_SYSTEM_PATH/bin:/usr/trimui/bin:$PATH
 export SSL_CERT_FILE="$SHARED_SYSTEM_PATH/etc/ssl/certs/ca-certificates.crt"
 
+
 echo before leds `cat /proc/uptime` >> /tmp/nextui_boottime
 
 # leds_off
@@ -141,15 +142,17 @@ audiomon.elf & #&> $SDCARD_PATH/audiomon.txt &
 
 # wifi handling
 wifion=$(nextval.elf wifi | sed -n 's/.*"wifi": \([0-9]*\).*/\1/p')
+cp -f $SYSTEM_PATH/etc/wifi/wifi_init.sh /etc/wifi/wifi_init.sh
 if [ "$wifion" -eq 1 ]; then
-	$SYSTEM_PATH/etc/wifi/wifi_init.sh start > /dev/null 2>&1 &
+	/etc/wifi/wifi_init.sh start > /dev/null 2>&1 &
 fi
 echo after wifi `cat /proc/uptime` >> /tmp/nextui_boottime
 
 # BT handling — always start bluetoothd so bluetoothctl commands never hang.
 # If BT is off, the adapter gets powered off but the daemon stays alive.
 bluetoothon=$(nextval.elf bluetooth | sed -n 's/.*"bluetooth": \([0-9]*\).*/\1/p')
-$SYSTEM_PATH/etc/bluetooth/bt_init.sh start > /dev/null 2>&1 &
+cp -f $SYSTEM_PATH/etc/bluetooth/bt_init.sh /etc/bluetooth/bt_init.sh
+/etc/bluetooth/bt_init.sh start > /dev/null 2>&1 &
 if [ "$bluetoothon" -ne 1 ]; then
 	# Wait briefly for bluetoothd to start, then power off adapter
 	(sleep 5; bluetoothctl power off 2>/dev/null) &

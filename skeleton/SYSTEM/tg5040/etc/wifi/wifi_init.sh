@@ -23,7 +23,7 @@ EOF
 	/etc/init.d/wpa_supplicant start
 
 	# Start DHCP client to obtain IP address
-	if ! pidof udhcpc > /dev/null 2>&1; then	
+	if ! pgrep -f udhcpc > /dev/null 2>&1; then
 		udhcpc -i $WIFI_INTERFACE -b 2>/dev/null
 	fi
 }
@@ -34,7 +34,7 @@ stop() {
 	rfkill.elf block wifi
 
 	# Kill DHCP client
-	killall udhcpc 2>/dev/null
+	kill $(pgrep -f udhcpc) 2>/dev/null
 }
 
 case "$1" in

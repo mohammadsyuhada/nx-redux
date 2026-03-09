@@ -39,7 +39,7 @@ static int bt_run_cmd(const char* cmd, char* output, size_t output_len);
 // Check if bluetoothd is running — prevents bluetoothctl from hanging
 // when the daemon has crashed or wasn't restarted after sleep/wake.
 static bool bt_daemon_alive(void) {
-	return system("pgrep -x bluetoothd >/dev/null 2>&1") == 0;
+	return system("pgrep bluetoothd >/dev/null 2>&1") == 0;
 }
 
 // Run a system() call guarded by a bluetoothd liveness check.
@@ -335,7 +335,7 @@ void PLAT_bluetoothEnable(bool shouldBeOn) {
 		// Stop discovery if active
 		if (bt_discovering) {
 			bt_system("bluetoothctl scan off 2>/dev/null");
-			system("pkill -f 'bluetoothctl scan on' 2>/dev/null");
+			system("kill $(pgrep -f 'bluetoothctl scan on') 2>/dev/null");
 			bt_discovering = false;
 		}
 		// Just power off the adapter — keep bluetoothd running so
@@ -399,7 +399,7 @@ void PLAT_bluetoothDiscovery(int on) {
 		btlog("Stopping BT discovery.\n");
 		bt_system("bluetoothctl scan off 2>/dev/null");
 		// Also try to kill any background scan processes
-		system("pkill -f 'bluetoothctl scan on' 2>/dev/null");
+		system("kill $(pgrep -f 'bluetoothctl scan on') 2>/dev/null");
 		bt_discovering = false;
 	}
 }

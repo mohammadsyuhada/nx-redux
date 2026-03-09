@@ -118,18 +118,11 @@ int wget_download_file(const char* url, const char* filepath,
 	unlink(done_marker);
 	unlink(headers_file);
 
-	// Download (proven working: -q with stderr to /dev/null)
+	// Download with -S to capture response headers (Content-Length) via stderr
 	snprintf(cmd, sizeof(cmd),
-			 "(" WGET_BIN " --no-check-certificate -q -T 30 -t 2"
-			 " -O '%s' '%s' 2>/dev/null; touch '%s') &",
-			 safe_filepath, safe_url, safe_done_marker);
-	system(cmd);
-
-	// Best-effort: probe content-length via spider in background
-	snprintf(cmd, sizeof(cmd),
-			 WGET_BIN " --no-check-certificate --spider -S --max-redirect=10 -T 10 -t 1"
-					  " '%s' 2>'%s' &",
-			 safe_url, safe_headers_file);
+			 "(" WGET_BIN " --no-check-certificate -S -T 30 -t 2"
+			 " -O '%s' '%s' 2>'%s'; touch '%s') &",
+			 safe_filepath, safe_url, safe_headers_file, safe_done_marker);
 	system(cmd);
 
 	// Step 2: Poll file size for progress with speed/stall tracking
@@ -217,16 +210,16 @@ int wget_download_file(const char* url, const char* filepath,
 			prev_time = now;
 		}
 
-		// Stall detection: if file size hasn't changed for 60 seconds, kill wget
+		// Stall detection: only after data has started flowing
 		if (curr_size != stall_size) {
 			stall_size = curr_size;
 			stall_start = now;
-		} else {
+		} else if (curr_size > 0) {
 			double stall_elapsed = (now.tv_sec - stall_start.tv_sec) +
 								   (now.tv_nsec - stall_start.tv_nsec) / 1e9;
 			if (stall_elapsed >= 60.0) {
 				LOG_error("[WgetFetch] download stalled for 60s, killing: %s\n", url);
-				snprintf(cmd, sizeof(cmd), "pkill -f 'wget.*%s' 2>/dev/null", safe_filepath);
+				snprintf(cmd, sizeof(cmd), "kill $(pgrep -f 'wget.*%s') 2>/dev/null", safe_filepath);
 				system(cmd);
 				unlink(done_marker);
 				unlink(headers_file);
@@ -245,7 +238,7 @@ int wget_download_file(const char* url, const char* filepath,
 	// Step 4: Handle cancellation
 	if (should_stop && *should_stop) {
 		// Kill wget and clean up — remove file on cancel
-		snprintf(cmd, sizeof(cmd), "pkill -f 'wget.*%s' 2>/dev/null", safe_filepath);
+		snprintf(cmd, sizeof(cmd), "kill $(pgrep -f 'wget.*%s') 2>/dev/null", safe_filepath);
 		system(cmd);
 		unlink(done_marker);
 		unlink(headers_file);

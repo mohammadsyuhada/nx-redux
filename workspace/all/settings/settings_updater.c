@@ -13,15 +13,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
+#include <time.h>
 
 #include "settings_updater.h"
 #include "settings_menu.h"
 #include "defines.h"
 #include "api.h"
-#include "http.h"
 #include "ui_components.h"
 #include "wget_fetch.h"
 
@@ -30,7 +32,7 @@
 // ============================================
 
 #define UPDATER_REPO_OWNER "mohammadsyuhada"
-#define UPDATER_REPO_NAME "nextui-redux"
+#define UPDATER_REPO_NAME "nx-redux"
 #define VERSION_FILE_PATH "/mnt/SDCARD/.system/version.txt"
 #define DOWNLOAD_PATH "/mnt/SDCARD/.tmp_update.zip"
 #define EXTRACT_DEST "/mnt/SDCARD/"
@@ -82,7 +84,7 @@ static char current_tag_cache[128] = "";
 static pthread_t auto_tid;
 static volatile int auto_done = 0;
 static volatile int auto_success = 0;
-static HTTP_Response* auto_response = NULL;
+static char* auto_response_data = NULL;
 static char auto_error[256] = "";
 
 // ============================================
@@ -263,6 +265,9 @@ static int run_command(char* const argv[]) {
 // Background auto-check thread
 // ============================================
 
+// Buffer size for GitHub API response (releases/latest JSON)
+#define API_RESPONSE_SIZE (64 * 1024)
+
 static void* auto_check_thread(void* arg) {
 	(void)arg;
 
@@ -271,19 +276,27 @@ static void* auto_check_thread(void* arg) {
 			 "https://api.github.com/repos/%s/%s/releases/latest",
 			 UPDATER_REPO_OWNER, UPDATER_REPO_NAME);
 
-	auto_response = HTTP_get(url);
-
-	if (!auto_response || auto_response->http_status != 200 || !auto_response->data) {
-		if (auto_response && auto_response->error)
-			snprintf(auto_error, sizeof(auto_error), "%.250s", auto_response->error);
-		else
-			snprintf(auto_error, sizeof(auto_error), "Failed to check for updates");
+	uint8_t* buf = malloc(API_RESPONSE_SIZE);
+	if (!buf) {
+		snprintf(auto_error, sizeof(auto_error), "Memory allocation failed");
 		auto_success = 0;
 		__sync_synchronize();
 		auto_done = 1;
 		return NULL;
 	}
 
+	int ret = wget_fetch(url, buf, API_RESPONSE_SIZE);
+	if (ret < 0) {
+		snprintf(auto_error, sizeof(auto_error), "Failed to check for updates");
+		free(buf);
+		auto_success = 0;
+		__sync_synchronize();
+		auto_done = 1;
+		return NULL;
+	}
+
+	buf[ret] = '\0';
+	auto_response_data = (char*)buf;
 	auto_success = 1;
 	__sync_synchronize();
 	auto_done = 1;
@@ -295,26 +308,25 @@ static void process_auto_check_result(void) {
 	pthread_join(auto_tid, NULL);
 
 	if (!auto_success) {
-		if (auto_response)
-			HTTP_freeResponse(auto_response);
-		auto_response = NULL;
+		free(auto_response_data);
+		auto_response_data = NULL;
 		auto_state = UPDATE_ERROR;
 		snprintf(item_label, sizeof(item_label), "Updater");
 		snprintf(item_desc, sizeof(item_desc), "%s", auto_error);
 		return;
 	}
 
-	HTTP_Response* response = auto_response;
-	auto_response = NULL;
+	char* data = auto_response_data;
+	auto_response_data = NULL;
 	ReleaseInfo release = {0};
 
-	if (!find_json_string(response->data, "tag_name", release.tag_name,
+	if (!find_json_string(data, "tag_name", release.tag_name,
 						  sizeof(release.tag_name)) ||
-		!find_json_string(response->data, "target_commitish", release.commit_sha,
+		!find_json_string(data, "target_commitish", release.commit_sha,
 						  sizeof(release.commit_sha)) ||
-		!find_zip_asset_url(response->data, get_device_name(), release.download_url,
+		!find_zip_asset_url(data, get_device_name(), release.download_url,
 							sizeof(release.download_url))) {
-		HTTP_freeResponse(response);
+		free(data);
 		auto_state = UPDATE_ERROR;
 		snprintf(item_label, sizeof(item_label), "Updater");
 		snprintf(item_desc, sizeof(item_desc), "Could not parse release info");
@@ -322,9 +334,9 @@ static void process_auto_check_result(void) {
 	}
 
 	char body[4096] = "";
-	find_json_string(response->data, "body", body, sizeof(body));
+	find_json_string(data, "body", body, sizeof(body));
 	extract_first_paragraph(body, release.release_notes, sizeof(release.release_notes));
-	HTTP_freeResponse(response);
+	free(data);
 
 	// Compare tag names
 	int is_same = 0;
@@ -343,40 +355,6 @@ static void process_auto_check_result(void) {
 		snprintf(item_label, sizeof(item_label), "Install Update");
 		snprintf(item_desc, sizeof(item_desc), "%s", release.tag_name);
 	}
-}
-
-// ============================================
-// Download context (for wget thread)
-// ============================================
-
-typedef struct {
-	volatile int done;
-	volatile int success;
-	volatile int progress_pct;
-	volatile int speed_bps;
-	volatile int eta_sec;
-	volatile bool should_stop;
-	char error[256];
-	char url[512];
-} DownloadContext;
-
-static void* download_thread(void* arg) {
-	DownloadContext* ctx = (DownloadContext*)arg;
-
-	int ret = wget_download_file(ctx->url, DOWNLOAD_PATH,
-								 &ctx->progress_pct, &ctx->should_stop,
-								 &ctx->speed_bps, &ctx->eta_sec);
-
-	if (ret < 0) {
-		if (!ctx->should_stop)
-			snprintf(ctx->error, sizeof(ctx->error), "Download failed");
-		ctx->success = 0;
-	} else {
-		ctx->success = 1;
-	}
-	__sync_synchronize();
-	ctx->done = 1;
-	return NULL;
 }
 
 // ============================================
@@ -452,65 +430,68 @@ static void render_update_page(SDL_Surface* screen, const char* title,
 	if (show_cancel)
 		UI_renderButtonHintBar(screen, (char*[]){"B", "CANCEL", NULL});
 
+	int hw = screen->w;
 	int cy = screen->h / 2;
 
-	// Status text
+	// Status text above progress bar
 	if (status && status[0]) {
 		SDL_Surface* status_surf = TTF_RenderUTF8_Blended(font.large, status, COLOR_WHITE);
 		if (status_surf) {
 			SDL_BlitSurface(status_surf, NULL, screen,
-							&(SDL_Rect){(screen->w - status_surf->w) / 2, cy - status_surf->h - SCALE1(PADDING * 2)});
+							&(SDL_Rect){(hw - status_surf->w) / 2, cy - status_surf->h - SCALE1(PADDING)});
 			SDL_FreeSurface(status_surf);
 		}
 	}
 
-	// Progress bar (centered, wide)
+	// Progress bar
+	int below_bar_y = cy + SCALE1(PADDING);
 	if (progress_pct >= 0) {
-		int bar_w = screen->w - SCALE1(PADDING * 8);
-		int bar_height = SCALE1(SETTINGS_SIZE);
-		int bar_x = (screen->w - bar_w) / 2;
+		int bar_w = hw - SCALE1(PADDING * 8);
+		int bar_h = SCALE1(12);
+		int bar_x = SCALE1(PADDING * 4);
 		int bar_y = cy;
 
-		// Background bar
-		GFX_blitPillColor(ASSET_BAR_BG, screen,
-						  &(SDL_Rect){bar_x, bar_y, bar_w, bar_height},
-						  THEME_COLOR3, RGB_WHITE);
+		// Background
+		SDL_FillRect(screen, &(SDL_Rect){bar_x, bar_y, bar_w, bar_h},
+					 SDL_MapRGB(screen->format, 64, 64, 64));
 
-		// Fill bar
+		// Fill
 		if (progress_pct > 0) {
-			float pct = progress_pct / 100.0f;
-			GFX_blitPillDark(ASSET_BAR, screen,
-							 &(SDL_Rect){bar_x, bar_y, (int)(bar_w * pct), bar_height});
+			int prog_w = (bar_w * progress_pct) / 100;
+			SDL_FillRect(screen, &(SDL_Rect){bar_x, bar_y, prog_w, bar_h},
+						 SDL_MapRGB(screen->format, 100, 200, 100));
 		}
 
-		// Percentage text below bar
-		char pct_text[32];
-		snprintf(pct_text, sizeof(pct_text), "%d%%", progress_pct);
-		SDL_Surface* pct_surf = TTF_RenderUTF8_Blended(font.small, pct_text, COLOR_WHITE);
-		if (pct_surf) {
-			SDL_BlitSurface(pct_surf, NULL, screen,
-							&(SDL_Rect){(screen->w - pct_surf->w) / 2, bar_y + bar_height + SCALE1(PADDING)});
-			SDL_FreeSurface(pct_surf);
+		// Percentage text inside bar
+		char pct_str[16];
+		snprintf(pct_str, sizeof(pct_str), "%d%%", progress_pct);
+		SDL_Surface* pct_text = TTF_RenderUTF8_Blended(font.tiny, pct_str, COLOR_WHITE);
+		if (pct_text) {
+			SDL_BlitSurface(pct_text, NULL, screen,
+							&(SDL_Rect){bar_x + (bar_w - pct_text->w) / 2,
+										bar_y + (bar_h - pct_text->h) / 2});
+			SDL_FreeSurface(pct_text);
 		}
 
-		// Speed and ETA below percentage
-		if ((speed_str && speed_str[0]) || (eta_str && eta_str[0])) {
-			char info[128] = "";
-			if (speed_str && speed_str[0] && eta_str && eta_str[0])
-				snprintf(info, sizeof(info), "%s - %s remaining", speed_str, eta_str);
-			else if (speed_str && speed_str[0])
-				snprintf(info, sizeof(info), "%s", speed_str);
-			else if (eta_str && eta_str[0])
-				snprintf(info, sizeof(info), "%s remaining", eta_str);
+		below_bar_y = bar_y + bar_h + SCALE1(PADDING);
+	}
 
-			if (info[0]) {
-				SDL_Surface* info_surf = TTF_RenderUTF8_Blended(font.small, info, COLOR_GRAY);
-				if (info_surf) {
-					SDL_BlitSurface(info_surf, NULL, screen,
-									&(SDL_Rect){(screen->w - info_surf->w) / 2,
-												bar_y + bar_height + SCALE1(PADDING * 3)});
-					SDL_FreeSurface(info_surf);
-				}
+	// Speed and ETA below progress bar
+	if ((speed_str && speed_str[0]) || (eta_str && eta_str[0])) {
+		char info[128] = "";
+		if (speed_str && speed_str[0] && eta_str && eta_str[0])
+			snprintf(info, sizeof(info), "%s - %s remaining", speed_str, eta_str);
+		else if (speed_str && speed_str[0])
+			snprintf(info, sizeof(info), "%s", speed_str);
+		else if (eta_str && eta_str[0])
+			snprintf(info, sizeof(info), "%s remaining", eta_str);
+
+		if (info[0]) {
+			SDL_Surface* info_surf = TTF_RenderUTF8_Blended(font.small, info, COLOR_GRAY);
+			if (info_surf) {
+				SDL_BlitSurface(info_surf, NULL, screen,
+								&(SDL_Rect){(hw - info_surf->w) / 2, below_bar_y});
+				SDL_FreeSurface(info_surf);
 			}
 		}
 	}
@@ -575,44 +556,192 @@ static int show_update_info(SDL_Surface* screen, ReleaseInfo* release) {
 static void do_install(SDL_Surface* screen, ReleaseInfo* release) {
 	pthread_t tid;
 
+	// Prevent screen off and disable WiFi power save during download
+	PWR_disableAutosleep();
+	system("iw dev wlan0 set power_save off 2>/dev/null");
+
 	// --- Download phase ---
-	DownloadContext dl = {0};
-	strncpy(dl.url, release->download_url, sizeof(dl.url) - 1);
+	// Remove stale files
+	char done_marker[256], headers_file[256];
+	snprintf(done_marker, sizeof(done_marker), "%s.done", DOWNLOAD_PATH);
+	snprintf(headers_file, sizeof(headers_file), "%s.headers", DOWNLOAD_PATH);
+	unlink(DOWNLOAD_PATH);
+	unlink(done_marker);
+	unlink(headers_file);
 
-	if (pthread_create(&tid, NULL, download_thread, &dl) != 0) {
-		show_message_page(screen, "Update Error", "Failed to start download");
-		return;
-	}
+	// Start wget in background with -S to capture Content-Length via stderr
+	char cmd[4096];
+	snprintf(cmd, sizeof(cmd),
+			 "(" SHARED_BIN_PATH "/wget --no-check-certificate -S -T 30 -t 2"
+			 " -O '%s' '%s' 2>'%s'; echo $? > '%s') &",
+			 DOWNLOAD_PATH, release->download_url, headers_file, done_marker);
+	system(cmd);
 
-	// Render download progress until done or cancelled
-	while (!dl.done) {
+	// Poll download progress from main thread
+	long total_size = 0;
+	int headers_parsed = 0;
+	long prev_size = 0;
+	int speed_bps = 0;
+	int eta_sec = 0;
+	struct timespec prev_time;
+	clock_gettime(CLOCK_MONOTONIC, &prev_time);
+	struct timespec stall_start = prev_time;
+	long stall_size = 0;
+	int cancelled = 0;
+	int dl_success = 0;
+	char dl_error[256] = "";
+
+	while (1) {
 		GFX_startFrame();
 		PAD_poll();
 
+		// Cancel
 		if (PAD_justPressed(BTN_B)) {
-			dl.should_stop = true;
-			// Wait for thread to finish
-			while (!dl.done)
-				usleep(50000);
+			system("kill $(pgrep -f 'wget.*tmp_update') 2>/dev/null");
+			unlink(DOWNLOAD_PATH);
+			unlink(done_marker);
+			unlink(headers_file);
+			cancelled = 1;
 			break;
+		}
+
+		// Check if wget finished
+		int wget_done = (access(done_marker, F_OK) == 0);
+
+		// Parse Content-Length from headers file (take last one after redirects)
+		if (!headers_parsed) {
+			FILE* hf = fopen(headers_file, "r");
+			if (hf) {
+				char line[256];
+				long last_cl = 0;
+				while (fgets(line, sizeof(line), hf)) {
+					const char* p = line;
+					while (*p == ' ' || *p == '\t')
+						p++;
+					if (strncasecmp(p, "Content-Length:", 15) == 0) {
+						long val = atol(p + 15);
+						if (val > 0)
+							last_cl = val;
+					}
+				}
+				fclose(hf);
+				if (last_cl > 1024) {
+					total_size = last_cl;
+					headers_parsed = 1;
+				}
+			}
+		}
+
+		// Poll file size
+		struct stat st;
+		long curr_size = 0;
+		if (stat(DOWNLOAD_PATH, &st) == 0)
+			curr_size = st.st_size;
+
+		// Progress percentage
+		int progress_pct = 0;
+		if (total_size > 0) {
+			progress_pct = (int)((curr_size * 100) / total_size);
+			if (progress_pct > 99 && !wget_done)
+				progress_pct = 99;
+		}
+
+		// Speed and ETA (every ~1 second)
+		struct timespec now;
+		clock_gettime(CLOCK_MONOTONIC, &now);
+		double elapsed = (now.tv_sec - prev_time.tv_sec) +
+						 (now.tv_nsec - prev_time.tv_nsec) / 1e9;
+		if (elapsed >= 1.0) {
+			long bytes_delta = curr_size - prev_size;
+			speed_bps = (int)(bytes_delta / elapsed);
+			if (speed_bps < 0)
+				speed_bps = 0;
+			if (speed_bps > 0 && total_size > 0)
+				eta_sec = (int)((total_size - curr_size) / speed_bps);
+			else
+				eta_sec = 0;
+			prev_size = curr_size;
+			prev_time = now;
+		}
+
+		// Stall detection (only after data started flowing)
+		if (curr_size != stall_size) {
+			stall_size = curr_size;
+			stall_start = now;
+		} else if (curr_size > 0) {
+			double stall_elapsed = (now.tv_sec - stall_start.tv_sec) +
+								   (now.tv_nsec - stall_start.tv_nsec) / 1e9;
+			if (stall_elapsed >= 60.0) {
+				system("kill $(pgrep -f 'wget.*tmp_update') 2>/dev/null");
+				snprintf(dl_error, sizeof(dl_error), "Download stalled");
+				unlink(done_marker);
+				unlink(headers_file);
+				break;
+			}
+		}
+
+		// Build status text: "v1.0.2 - 9.1 MB (3%)"
+		char dl_status[256];
+		if (curr_size > 0) {
+			char size_str[64];
+			if (curr_size >= 1024 * 1024 && total_size >= 1024 * 1024)
+				snprintf(size_str, sizeof(size_str), "%.1f / %.0f MB",
+						 curr_size / (1024.0 * 1024.0), total_size / (1024.0 * 1024.0));
+			else if (curr_size >= 1024 * 1024)
+				snprintf(size_str, sizeof(size_str), "%.1f MB",
+						 curr_size / (1024.0 * 1024.0));
+			else
+				snprintf(size_str, sizeof(size_str), "%.0f KB", curr_size / 1024.0);
+
+			if (progress_pct > 0)
+				snprintf(dl_status, sizeof(dl_status), "%s - %s (%d%%)",
+						 release->tag_name, size_str, progress_pct);
+			else
+				snprintf(dl_status, sizeof(dl_status), "%s - %s",
+						 release->tag_name, size_str);
+		} else {
+			snprintf(dl_status, sizeof(dl_status), "%s - Connecting...",
+					 release->tag_name);
 		}
 
 		char speed_str[32] = "";
 		char eta_str[32] = "";
-		format_speed(dl.speed_bps, speed_str, sizeof(speed_str));
-		format_eta(dl.eta_sec, eta_str, sizeof(eta_str));
+		format_speed(speed_bps, speed_str, sizeof(speed_str));
+		format_eta(eta_sec, eta_str, sizeof(eta_str));
 
 		render_update_page(screen, "Downloading Update",
-						   release->tag_name, dl.progress_pct,
-						   speed_str, eta_str, 1);
-	}
-	__sync_synchronize();
-	pthread_join(tid, NULL);
+						   dl_status, progress_pct, speed_str, eta_str, 1);
 
-	if (!dl.success) {
-		if (dl.should_stop)
-			return; // User cancelled
-		show_message_page(screen, "Update Error", dl.error);
+		// Check completion after render
+		if (wget_done) {
+			// Verify wget exit code
+			int wget_exit = -1;
+			FILE* mf = fopen(done_marker, "r");
+			if (mf) {
+				fscanf(mf, "%d", &wget_exit);
+				fclose(mf);
+			}
+			unlink(done_marker);
+			unlink(headers_file);
+
+			if (wget_exit == 0 && curr_size > 1024) {
+				dl_success = 1;
+			} else {
+				snprintf(dl_error, sizeof(dl_error), "Download failed (error %d)", wget_exit);
+			}
+			break;
+		}
+	}
+
+	// Re-enable autosleep and WiFi power save after download
+	PWR_enableAutosleep();
+	system("iw dev wlan0 set power_save on 2>/dev/null");
+
+	if (cancelled)
+		return;
+
+	if (!dl_success) {
+		show_message_page(screen, "Update Error", dl_error);
 		return;
 	}
 
@@ -675,18 +804,43 @@ void updater_about_on_show(SettingsPage* page) {
 		auto_state == UPDATE_AVAILABLE)
 		return;
 
+	// Check WiFi before attempting update check
+	if (!WIFI_connected()) {
+		auto_state = UPDATE_ERROR;
+		snprintf(item_label, sizeof(item_label), "Updater");
+		snprintf(item_desc, sizeof(item_desc), "No internet connection");
+		SettingItem* item = find_updater_item(page);
+		if (item) {
+			item->name = item_label;
+			item->desc = item_desc;
+		}
+		return;
+	}
+
 	auto_done = 0;
 	auto_success = 0;
-	auto_response = NULL;
+	auto_response_data = NULL;
 	auto_error[0] = '\0';
 	auto_state = UPDATE_CHECKING;
-	snprintf(item_label, sizeof(item_label), "Fetching update..");
+	snprintf(item_label, sizeof(item_label), "Checking for update..");
 	item_desc[0] = '\0';
+
+	SettingItem* item = find_updater_item(page);
+	if (item) {
+		item->name = item_label;
+		item->desc = item_desc;
+		item->type = ITEM_STATIC;
+	}
 
 	if (pthread_create(&auto_tid, NULL, auto_check_thread, NULL) != 0) {
 		auto_state = UPDATE_ERROR;
 		snprintf(item_label, sizeof(item_label), "Updater");
 		snprintf(item_desc, sizeof(item_desc), "Failed to start update check");
+		if (item) {
+			item->name = item_label;
+			item->desc = item_desc;
+			item->type = ITEM_BUTTON;
+		}
 	}
 }
 
@@ -701,6 +855,11 @@ void updater_about_on_tick(SettingsPage* page) {
 	if (item) {
 		item->name = item_label;
 		item->desc = item_desc;
+		// Only make clickable if there's an update or error (retry)
+		item->type = (auto_state == UPDATE_AVAILABLE || auto_state == UPDATE_ERROR)
+						 ? ITEM_BUTTON
+						 : ITEM_STATIC;
+		page->needs_layout = 1;
 	}
 }
 
@@ -709,7 +868,8 @@ const char* updater_get_status(void) {
 }
 
 void updater_check_for_updates(void) {
-	// Do nothing while background check is in progress
+	// Item is ITEM_STATIC during checking, so this shouldn't be called,
+	// but guard anyway
 	if (auto_state == UPDATE_CHECKING)
 		return;
 

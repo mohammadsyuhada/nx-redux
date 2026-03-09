@@ -103,6 +103,7 @@ export LD_LIBRARY_PATH=$SYSTEM_PATH/lib:$SHARED_SYSTEM_PATH/lib:/usr/trimui/lib:
 export PATH=$SYSTEM_PATH/bin:$SHARED_SYSTEM_PATH/bin:/usr/trimui/bin:$PATH
 export SSL_CERT_FILE="$SHARED_SYSTEM_PATH/etc/ssl/certs/ca-certificates.crt"
 
+
 # leds_off
 echo 0 > /sys/class/led_anim/max_scale
 if [ "$TRIMUI_MODEL" = "Trimui Brick" ]; then

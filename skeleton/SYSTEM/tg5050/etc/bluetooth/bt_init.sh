@@ -51,6 +51,13 @@ start_bt() {
 		sleep 1
 	fi
 
+	# Wait for SDIO driver to finish probing (BT and WiFi share the aic8800 chip)
+	# wlan0 appearing means the shared driver is fully initialized
+	for i in $(seq 1 20); do
+		[ -d /sys/class/net/wlan0 ] && break
+		sleep 0.5
+	done
+
 	if [ -d "/sys/class/bluetooth/hci0" ];then
 		echo "Bluetooth init has been completed!!"
 	else

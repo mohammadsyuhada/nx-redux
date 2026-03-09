@@ -188,7 +188,7 @@ void Downloader_cancelSearch(void) {
 	search_should_stop = true;
 	if (search_running) {
 		// Kill any running yt-dlp search process to allow immediate re-search
-		system("pkill -f 'yt-dlp.*music.youtube.com/search' 2>/dev/null");
+		system("kill $(pgrep -f 'yt-dlp.*music.youtube.com/search') 2>/dev/null");
 		search_running = false;
 	}
 }

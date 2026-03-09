@@ -584,8 +584,9 @@ void PLAT_wifiConnectPass(const char* ssid, WifiSecurityType sec, const char* pa
 			system(WPA_CLI_CMD " enable_network all 2>/dev/null");
 
 			// Request IP via DHCP (persistent so lease renewals keep working)
+			// Kill existing instance first to force a fresh lease on the new network
 			wifilog("Requesting IP address via DHCP...\n");
-			system("killall udhcpc 2>/dev/null");
+			system("kill $(pgrep -f udhcpc) 2>/dev/null; sleep 0.1");
 			char dhcp_cmd[128];
 			snprintf(dhcp_cmd, sizeof(dhcp_cmd), "udhcpc -i %s -b 2>/dev/null &", WIFI_INTERFACE);
 			system(dhcp_cmd);
