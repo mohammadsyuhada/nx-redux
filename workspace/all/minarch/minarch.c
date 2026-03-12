@@ -6402,6 +6402,7 @@ static int OptionEmulator_optionDetail(MenuList* list, int i) {
 		config.core.enabled_count = prev_enabled_count;
 		config.core.enabled_options = prev_enabled;
 		OptionEmulator_menu.items = prev_items;
+		return MENU_CALLBACK_NOP;
 	} else {
 		Option* option = OptionList_getOption(&config.core, item->key);
 		if (option->full)
