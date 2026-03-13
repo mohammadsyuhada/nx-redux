@@ -40,7 +40,7 @@ if [ ! -f "$DEVICE_CONFIG_DIR/.initialized" ]; then
     touch "$DEVICE_CONFIG_DIR/.initialized"
 fi
 
-export HOME="$USERDATA_DIR"
+export HOME="$USERDATA_PATH"
 export LD_LIBRARY_PATH="$PAK_DIR:$EMU_DIR:$SDCARD_PATH/.system/tg5050/lib:/usr/trimui/lib:$LD_LIBRARY_PATH"
 export LD_PRELOAD="libEGL.so"
 
@@ -58,26 +58,10 @@ mkdir -p "$MINUI_DIR"
 export EMU_OVERLAY_SCREENSHOT_DIR="$MINUI_DIR"
 export EMU_OVERLAY_ROMFILE="$(basename "$ROM")"
 
-# Audio device detection: BT via .asoundrc, USB DAC via /proc/asound/cards
-AUDIODEV="default"
-if grep -q "bluealsa" "$HOME/.asoundrc" 2>/dev/null; then
-    AUDIODEV="bluealsa"
-    # Set BT A2DP mixer to max for software volume control
-    amixer scontrols 2>/dev/null | grep -i 'A2DP' | \
-        sed "s/.*'\([^']*\)'.*/\1/" | \
-        while read ctrl; do amixer sset "$ctrl" 127 2>/dev/null; done
-elif grep -q "USB-Audio\|USB Audio" /proc/asound/cards 2>/dev/null; then
-    # USB DAC: set card 1 mixer controls to 100%
-    amixer -c 1 sset PCM 100% 2>/dev/null
-    amixer -c 1 sset Master 100% 2>/dev/null
-    amixer -c 1 sset Speaker 100% 2>/dev/null
-    amixer -c 1 sset Headphone 100% 2>/dev/null
-    amixer -c 1 sset Headset 100% 2>/dev/null
-fi
-export AUDIODEV
-
-# Sync audio sink in msettings (so keymon volume buttons use correct mixer path)
-syncsettings.elf &
+# Mute speaker before launch to prevent audio pop, then unmute after init
+echo 1 > /sys/class/speaker/mute 2>/dev/null || true
+(sleep 5; echo 0 > /sys/class/speaker/mute 2>/dev/null; syncsettings.elf) &
+SYNC_PID=$!
 
 # Launch from PAK_DIR so core library resolves via ./
 cd "$PAK_DIR"
@@ -127,6 +111,8 @@ done
 [ -n "$BEST_TID" ] && taskset -p 0x20 "$BEST_TID" 2>/dev/null  # mask 0x20 = cpu5
 
 wait $EMU_PID
+kill $SYNC_PID 2>/dev/null || true
+echo 0 > /sys/class/speaker/mute 2>/dev/null || true
 
 # Cleanup: disable swap, restore VM defaults
 swapoff "$SWAPFILE" 2>/dev/null

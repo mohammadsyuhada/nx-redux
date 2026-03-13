@@ -455,74 +455,26 @@ static void render_update_page(SDL_Surface* screen, const char* title,
 	GFX_clear(screen);
 	UI_renderMenuBar(screen, title);
 
+	// Build detail string from speed and ETA
+	char detail[128] = "";
+	if ((speed_str && speed_str[0]) || (eta_str && eta_str[0])) {
+		if (speed_str && speed_str[0] && eta_str && eta_str[0])
+			snprintf(detail, sizeof(detail), "%s - %s remaining", speed_str, eta_str);
+		else if (speed_str && speed_str[0])
+			snprintf(detail, sizeof(detail), "%s", speed_str);
+		else if (eta_str && eta_str[0])
+			snprintf(detail, sizeof(detail), "%s remaining", eta_str);
+	}
+
+	UI_renderDownloadProgress(screen, &(UIDownloadProgress){
+										  .status = status,
+										  .detail = detail,
+										  .progress = progress_pct,
+										  .show_bar = (progress_pct >= 0),
+									  });
+
 	if (show_cancel)
 		UI_renderButtonHintBar(screen, (char*[]){"B", "CANCEL", NULL});
-
-	int hw = screen->w;
-	int cy = screen->h / 2;
-
-	// Status text above progress bar
-	if (status && status[0]) {
-		SDL_Surface* status_surf = TTF_RenderUTF8_Blended(font.large, status, COLOR_WHITE);
-		if (status_surf) {
-			SDL_BlitSurface(status_surf, NULL, screen,
-							&(SDL_Rect){(hw - status_surf->w) / 2, cy - status_surf->h - SCALE1(PADDING)});
-			SDL_FreeSurface(status_surf);
-		}
-	}
-
-	// Progress bar
-	int below_bar_y = cy + SCALE1(PADDING);
-	if (progress_pct >= 0) {
-		int bar_w = hw - SCALE1(PADDING * 8);
-		int bar_h = SCALE1(12);
-		int bar_x = SCALE1(PADDING * 4);
-		int bar_y = cy;
-
-		// Background
-		SDL_FillRect(screen, &(SDL_Rect){bar_x, bar_y, bar_w, bar_h},
-					 SDL_MapRGB(screen->format, 64, 64, 64));
-
-		// Fill
-		if (progress_pct > 0) {
-			int prog_w = (bar_w * progress_pct) / 100;
-			SDL_FillRect(screen, &(SDL_Rect){bar_x, bar_y, prog_w, bar_h},
-						 SDL_MapRGB(screen->format, 100, 200, 100));
-		}
-
-		// Percentage text inside bar
-		char pct_str[16];
-		snprintf(pct_str, sizeof(pct_str), "%d%%", progress_pct);
-		SDL_Surface* pct_text = TTF_RenderUTF8_Blended(font.tiny, pct_str, COLOR_WHITE);
-		if (pct_text) {
-			SDL_BlitSurface(pct_text, NULL, screen,
-							&(SDL_Rect){bar_x + (bar_w - pct_text->w) / 2,
-										bar_y + (bar_h - pct_text->h) / 2});
-			SDL_FreeSurface(pct_text);
-		}
-
-		below_bar_y = bar_y + bar_h + SCALE1(PADDING);
-	}
-
-	// Speed and ETA below progress bar
-	if ((speed_str && speed_str[0]) || (eta_str && eta_str[0])) {
-		char info[128] = "";
-		if (speed_str && speed_str[0] && eta_str && eta_str[0])
-			snprintf(info, sizeof(info), "%s - %s remaining", speed_str, eta_str);
-		else if (speed_str && speed_str[0])
-			snprintf(info, sizeof(info), "%s", speed_str);
-		else if (eta_str && eta_str[0])
-			snprintf(info, sizeof(info), "%s remaining", eta_str);
-
-		if (info[0]) {
-			SDL_Surface* info_surf = TTF_RenderUTF8_Blended(font.small, info, COLOR_GRAY);
-			if (info_surf) {
-				SDL_BlitSurface(info_surf, NULL, screen,
-								&(SDL_Rect){(hw - info_surf->w) / 2, below_bar_y});
-				SDL_FreeSurface(info_surf);
-			}
-		}
-	}
 
 	GFX_flip(screen);
 }

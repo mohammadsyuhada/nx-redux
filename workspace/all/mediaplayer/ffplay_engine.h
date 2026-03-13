@@ -28,9 +28,14 @@ typedef struct {
 	bool is_hevc;	  // true = HEVC/H.265 codec (enables aggressive decode opts)
 } FfplayConfig;
 
+// Exit code returned when playback was interrupted by an audio device change
+#define FFPLAY_EXIT_AUDIO_CHANGED 200
+
 // Play a video using ffplay subprocess
 // This function releases PAD, forks ffplay, waits for it to exit, then re-initializes PAD.
 // On TG5050, recovers the display pipeline after ffplay exits.
+// Automatically restarts ffplay if the audio output device changes mid-playback
+// (e.g., Bluetooth headphones connected/disconnected).
 // Returns the ffplay exit code (0 = normal exit, non-zero = error)
 int FfplayEngine_play(FfplayConfig* config);
 

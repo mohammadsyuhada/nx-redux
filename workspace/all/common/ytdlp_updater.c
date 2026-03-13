@@ -500,7 +500,7 @@ void render_ytdlp_updating(SDL_Surface* screen, IndicatorType show_setting) {
 	snprintf(ver_str, sizeof(ver_str), "Current: %s", status->current_version);
 	SDL_Surface* ver_text = TTF_RenderUTF8_Blended(font.medium, ver_str, COLOR_GRAY);
 	if (ver_text) {
-		SDL_BlitSurface(ver_text, NULL, screen, &(SDL_Rect){(hw - ver_text->w) / 2, hh / 2 - SCALE1(50)});
+		SDL_BlitSurface(ver_text, NULL, screen, &(SDL_Rect){(hw - ver_text->w) / 2, hh / 2 - SCALE1(70)});
 		SDL_FreeSurface(ver_text);
 	}
 
@@ -524,7 +524,7 @@ void render_ytdlp_updating(SDL_Surface* screen, IndicatorType show_setting) {
 
 	SDL_Surface* status_text = TTF_RenderUTF8_Blended(font.medium, status_msg, COLOR_WHITE);
 	if (status_text) {
-		SDL_BlitSurface(status_text, NULL, screen, &(SDL_Rect){(hw - status_text->w) / 2, hh / 2});
+		SDL_BlitSurface(status_text, NULL, screen, &(SDL_Rect){(hw - status_text->w) / 2, hh / 2 - SCALE1(40)});
 		SDL_FreeSurface(status_text);
 	}
 
@@ -533,48 +533,19 @@ void render_ytdlp_updating(SDL_Surface* screen, IndicatorType show_setting) {
 		snprintf(ver_str, sizeof(ver_str), "Latest: %s", status->latest_version);
 		SDL_Surface* latest_text = TTF_RenderUTF8_Blended(font.small, ver_str, COLOR_GRAY);
 		if (latest_text) {
-			SDL_BlitSurface(latest_text, NULL, screen, &(SDL_Rect){(hw - latest_text->w) / 2, hh / 2 + SCALE1(30)});
+			SDL_BlitSurface(latest_text, NULL, screen, &(SDL_Rect){(hw - latest_text->w) / 2, hh / 2 - SCALE1(15)});
 			SDL_FreeSurface(latest_text);
 		}
 	}
 
 	// Progress bar
 	if (status->updating) {
-		int bar_w = hw - SCALE1(PADDING * 8);
-		int bar_h = SCALE1(12);
-		int bar_x = SCALE1(PADDING * 4);
-		int bar_y = hh / 2 + SCALE1(55);
-
-		// Background
-		SDL_Rect bg_rect = {bar_x, bar_y, bar_w, bar_h};
-		SDL_FillRect(screen, &bg_rect, SDL_MapRGB(screen->format, 64, 64, 64));
-
-		// Progress fill
-		int prog_w = (bar_w * status->progress_percent) / 100;
-		if (prog_w > 0) {
-			SDL_Rect prog_rect = {bar_x, bar_y, prog_w, bar_h};
-			SDL_FillRect(screen, &prog_rect, SDL_MapRGB(screen->format, 100, 200, 100));
-		}
-
-		// Download detail text
-		if (strlen(status->status_detail) > 0) {
-			SDL_Surface* detail_text = TTF_RenderUTF8_Blended(font.small, status->status_detail, COLOR_GRAY);
-			if (detail_text) {
-				SDL_BlitSurface(detail_text, NULL, screen, &(SDL_Rect){(hw - detail_text->w) / 2, bar_y + bar_h + SCALE1(6)});
-				SDL_FreeSurface(detail_text);
-			}
-		}
-
-		// Percentage text
-		char pct_str[16];
-		snprintf(pct_str, sizeof(pct_str), "%d%%", status->progress_percent);
-		SDL_Surface* pct_text = TTF_RenderUTF8_Blended(font.tiny, pct_str, COLOR_WHITE);
-		if (pct_text) {
-			int pct_x = bar_x + (bar_w - pct_text->w) / 2;
-			int pct_y = bar_y + (bar_h - pct_text->h) / 2;
-			SDL_BlitSurface(pct_text, NULL, screen, &(SDL_Rect){pct_x, pct_y});
-			SDL_FreeSurface(pct_text);
-		}
+		UI_renderDownloadProgress(screen, &(UIDownloadProgress){
+											  .status = NULL,
+											  .detail = strlen(status->status_detail) > 0 ? status->status_detail : NULL,
+											  .progress = status->progress_percent,
+											  .show_bar = true,
+										  });
 	}
 
 	UI_renderButtonHintBar(screen, (char*[]){"START", "CONTROLS", "B", status->updating ? "CANCEL" : "BACK", NULL});

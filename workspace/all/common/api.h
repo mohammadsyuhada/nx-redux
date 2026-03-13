@@ -422,6 +422,7 @@ size_t SND_batchSamples(const SND_Frame* frames, size_t frame_count);
 size_t SND_batchSamples_fixed_rate(const SND_Frame* frames, size_t frame_count);
 void SND_quit(void);
 void SND_resetAudio(double sample_rate, double frame_rate);
+void SND_flushALSAConfig(void); // flush cached .asoundrc so ALSA re-reads on next open
 void SND_pauseAudio(bool paused);
 void SND_setQuality(int quality);
 

@@ -2487,7 +2487,7 @@ void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 	spec_in.callback = SND_audioCallback;
 
 #if defined(USE_SDL2)
-	snd.device_id = SDL_OpenAudioDevice(SND_findExternalAudioDevice(), 0, &spec_in, &spec_out, SDL_AUDIO_ALLOW_ANY_CHANGE);
+	snd.device_id = SDL_OpenAudioDevice(NULL, 0, &spec_in, &spec_out, SDL_AUDIO_ALLOW_ANY_CHANGE);
 	if (snd.device_id <= 0) {
 		LOG_info("SDL_OpenAudioDevice error: %s\n", SDL_GetError());
 		if (SDL_OpenAudio(&spec_in, &spec_out) < 0) {
@@ -2548,8 +2548,18 @@ void SND_quit(void) {
 	}
 }
 
+// Weak reference: resolves to NULL if -lasound is not linked.
+extern int snd_config_update_free_global(void) __attribute__((weak));
+
+void SND_flushALSAConfig(void) {
+	if (snd_config_update_free_global)
+		snd_config_update_free_global();
+}
+
 void SND_resetAudio(double sample_rate, double frame_rate) {
+	PLAT_overrideMute(1);
 	SND_quit();
+	SND_flushALSAConfig();
 	SND_init(sample_rate, frame_rate);
 }
 
@@ -3435,9 +3445,8 @@ static void PWR_exitSleep(void) {
 	LOG_info("Reinitialize audio after sleep\n");
 	SND_resetAudio(snd.sample_rate_in, snd.frame_rate);
 
-	// Restore volume and unmute AFTER audio device is reinitialized to prevent pop
+	// Restore volume (also unmutes speaker amp) AFTER audio device is reinitialized
 	if (!GetHDMI()) {
-		SND_overrideMute(1);
 		SetVolume(GetVolume());
 	}
 

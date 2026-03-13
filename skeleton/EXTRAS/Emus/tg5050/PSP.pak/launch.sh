@@ -26,35 +26,37 @@ echo 200 >/proc/sys/vm/vfs_cache_pressure 2>/dev/null
 sync
 echo 3 >/proc/sys/vm/drop_caches 2>/dev/null
 
-# Shared save directories (across all devices)
-SHARED_DIR="$SHARED_USERDATA_PATH/PSP-ppsspp/shared"
-mkdir -p "$SHARED_DIR/SAVEDATA"
+# Save states shared across devices
+SHARED_DIR="$SHARED_USERDATA_PATH/PSP-ppsspp"
 mkdir -p "$SHARED_DIR/PPSSPP_STATE"
 
-# Device-specific HOME
-DEVICE_HOME="$SHARED_USERDATA_PATH/PSP-ppsspp/tg5050"
-mkdir -p "$DEVICE_HOME/PSP/SYSTEM"
+# PPSSPP v1.20.1 on Linux reads config from XDG path ($HOME/.config/ppsspp/)
+export HOME="$USERDATA_PATH"
+PPSSPP_DIR="$HOME/.config/ppsspp/PSP"
+PPSSPP_CONFIG="$PPSSPP_DIR/SYSTEM"
+mkdir -p "$PPSSPP_CONFIG"
+mkdir -p "$PPSSPP_DIR/SAVEDATA"
+mkdir -p "$PPSSPP_DIR/PPSSPP_STATE"
 
-# Symlink shared saves into device HOME
-ln -sfn "$SHARED_DIR/SAVEDATA" "$DEVICE_HOME/PSP/SAVEDATA"
-ln -sfn "$SHARED_DIR/PPSSPP_STATE" "$DEVICE_HOME/PSP/PPSSPP_STATE"
+# Bind mount saves and shared save states into PPSSPP paths (symlinks don't work on exFAT)
+mount -o bind "$SAVES_PATH/$EMU_TAG" "$PPSSPP_DIR/SAVEDATA" 2>/dev/null || true
+mount -o bind "$SHARED_DIR/PPSSPP_STATE" "$PPSSPP_DIR/PPSSPP_STATE" 2>/dev/null || true
 
 # First run: copy device-specific defaults
-if [ ! -f "$DEVICE_HOME/.initialized" ]; then
-    cp "$PAK_DIR/default.ini" "$DEVICE_HOME/PSP/SYSTEM/ppsspp.ini"
-    touch "$DEVICE_HOME/.initialized"
+if [ ! -f "$PPSSPP_DIR/.initialized" ]; then
+    cp "$PAK_DIR/default.ini" "$PPSSPP_CONFIG/ppsspp.ini"
+    touch "$PPSSPP_DIR/.initialized"
 fi
 
-export HOME="$DEVICE_HOME"
 export LD_LIBRARY_PATH="$PAK_DIR:$EMU_DIR:$SDCARD_PATH/.system/tg5050/lib:/usr/trimui/lib:$LD_LIBRARY_PATH"
 export LD_PRELOAD="libEGL.so"
 
 # Clear stale graphics backend failure markers (PPSSPP persists these across runs)
-rm -f "$DEVICE_HOME/.config/ppsspp/PSP/SYSTEM/FailedGraphicsBackends.txt" 2>/dev/null
+rm -f "$PPSSPP_CONFIG/FailedGraphicsBackends.txt" 2>/dev/null
 
 # Overlay menu config
 export EMU_OVERLAY_JSON="$EMU_DIR/overlay_settings.json"
-export EMU_OVERLAY_INI="$DEVICE_HOME/PSP/SYSTEM/ppsspp.ini"
+export EMU_OVERLAY_INI="$PPSSPP_CONFIG/ppsspp.ini"
 export EMU_OVERLAY_GAME="$(basename "$ROM" | sed 's/\.[^.]*$//')"
 # Font and icon resources for overlay menu (from NextUI system resources)
 FONT_FILE=$(ls "$SDCARD_PATH/.system/res/"*.ttf 2>/dev/null | head -1)
@@ -66,26 +68,10 @@ mkdir -p "$MINUI_DIR"
 export EMU_OVERLAY_SCREENSHOT_DIR="$MINUI_DIR"
 export EMU_OVERLAY_ROMFILE="$(basename "$ROM")"
 
-# Audio device detection: BT via .asoundrc, USB DAC via /proc/asound/cards
-AUDIODEV="default"
-if grep -q "bluealsa" "$HOME/.asoundrc" 2>/dev/null; then
-    AUDIODEV="bluealsa"
-    # Set BT A2DP mixer to max for software volume control
-    amixer scontrols 2>/dev/null | grep -i 'A2DP' | \
-        sed "s/.*'\([^']*\)'.*/\1/" | \
-        while read ctrl; do amixer sset "$ctrl" 127 2>/dev/null; done
-elif grep -q "USB-Audio\|USB Audio" /proc/asound/cards 2>/dev/null; then
-    # USB DAC: set card 1 mixer controls to 100%
-    amixer -c 1 sset PCM 100% 2>/dev/null
-    amixer -c 1 sset Master 100% 2>/dev/null
-    amixer -c 1 sset Speaker 100% 2>/dev/null
-    amixer -c 1 sset Headphone 100% 2>/dev/null
-    amixer -c 1 sset Headset 100% 2>/dev/null
-fi
-export AUDIODEV
-
-# Sync audio sink in msettings (so keymon volume buttons use correct mixer path)
-syncsettings.elf &
+# Mute speaker before launch to prevent audio pop, then unmute after init
+echo 1 > /sys/class/speaker/mute 2>/dev/null || true
+(sleep 5; echo 0 > /sys/class/speaker/mute 2>/dev/null; syncsettings.elf) &
+SYNC_PID=$!
 
 # Launch PPSSPP (binary in PAK_DIR, assets in EMU_DIR)
 cd "$EMU_DIR"
@@ -130,7 +116,11 @@ done
 [ -n "$BEST_TID" ] && taskset -p 0x20 "$BEST_TID" 2>/dev/null  # mask 0x20 = cpu5
 
 wait $EMU_PID
+kill $SYNC_PID 2>/dev/null || true
+echo 0 > /sys/class/speaker/mute 2>/dev/null || true
 
-# Cleanup: disable swap, restore VM defaults
+# Cleanup: unmount shared saves, disable swap, restore VM defaults
+umount "$PPSSPP_DIR/SAVEDATA" 2>/dev/null || true
+umount "$PPSSPP_DIR/PPSSPP_STATE" 2>/dev/null || true
 swapoff "$SWAPFILE" 2>/dev/null
 echo 100 >/proc/sys/vm/vfs_cache_pressure 2>/dev/null

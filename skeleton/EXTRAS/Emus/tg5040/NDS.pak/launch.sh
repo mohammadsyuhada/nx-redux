@@ -79,35 +79,16 @@ main() {
     # Launch drastic — use dummy video driver.
     # Tell SDL where the gamepad is (udev not running, so SDL can't auto-detect).
     cd "$EMU_DIR"
-    export HOME="$EMU_DIR"
+    export HOME="$USERDATA_PATH"
     export SDL_VIDEODRIVER=dummy
     export SDL_AUDIODRIVER=alsa
     export SDL_AUDIO_BUFFER_SIZE=2048
     export SDL_JOYSTICK_DEVICE=/dev/input/event3
     export SDL_JOYSTICK_DISABLE_UDEV=1
 
-    # Audio device detection: BT via .asoundrc, USB DAC via /proc/asound/cards
-    if grep -q "bluealsa" "$USERDATA_PATH/.asoundrc" 2>/dev/null; then
-        export AUDIODEV=bluealsa
-        # Set BT A2DP mixer to max for software volume control
-        amixer scontrols 2>/dev/null | grep -i 'A2DP' | \
-            sed "s/.*'\([^']*\)'.*/\1/" | \
-            while read ctrl; do amixer sset "$ctrl" 127 2>/dev/null; done
-    elif grep -q "USB-Audio\|USB Audio" /proc/asound/cards 2>/dev/null; then
-        export AUDIODEV=default
-        # USB DAC: set card 1 mixer controls to 100%
-        amixer -c 1 sset PCM 100% 2>/dev/null || true
-        amixer -c 1 sset Master 100% 2>/dev/null || true
-        amixer -c 1 sset Speaker 100% 2>/dev/null || true
-        amixer -c 1 sset Headphone 100% 2>/dev/null || true
-        amixer -c 1 sset Headset 100% 2>/dev/null || true
-    else
-        export AUDIODEV=default
-    fi
-
     # Mute speaker before launch to prevent audio pop, then unmute after init
     echo 1 > /sys/class/speaker/mute 2>/dev/null || true
-    (sleep 2; echo 0 > /sys/class/speaker/mute 2>/dev/null; syncsettings.elf) &
+    (sleep 5; echo 0 > /sys/class/speaker/mute 2>/dev/null; syncsettings.elf) &
     SYNC_PID=$!
 
     "$EMU_DIR/drastic" "$*"

@@ -72,8 +72,8 @@ static void write_audio_file(const char* device_identifier, enum DeviceType type
 	} else if (type == DEVICE_USB_AUDIO) {
 		fprintf(f,
 				"pcm.!default {\n"
-				"    type hw\n"
-				"    card %s\n"
+				"    type plug\n"
+				"    slave.pcm \"hw:%s,0\"\n"
 				"}\n"
 				"ctl.!default {\n"
 				"    type hw\n"
@@ -224,6 +224,15 @@ static void handle_bt_connected(DBusConnection* conn, const char* path) {
 		audiomon_log(log_buf);
 		write_audio_file(mac, DEVICE_BLUETOOTH);
 		SetAudioSink(AUDIO_SINK_BLUETOOTH);
+
+		// Set BT A2DP mixer to max for software volume control
+		system("amixer scontrols 2>/dev/null | grep -i 'A2DP' | "
+			   "sed \"s/.*'\\([^']*\\)'.*/\\1/\" | "
+			   "while read ctrl; do amixer sset \"$ctrl\" 127 2>/dev/null; done");
+		audiomon_log("Set BT A2DP mixer volume to max");
+
+		// Apply user's saved volume immediately
+		SetVolume(GetVolume());
 	}
 }
 
@@ -254,9 +263,26 @@ static void handle_usb_audio_connected(struct udev_device* dev) {
 	audiomon_log(log_buf);
 	write_audio_file(card, DEVICE_USB_AUDIO);
 	SetAudioSink(AUDIO_SINK_USBDAC);
+
+	// Set USB DAC mixer controls to 100%
+	char cmd[512];
+	snprintf(cmd, sizeof(cmd),
+			 "amixer -c %s sset PCM 100%% 2>/dev/null; "
+			 "amixer -c %s sset Master 100%% 2>/dev/null; "
+			 "amixer -c %s sset Speaker 100%% 2>/dev/null; "
+			 "amixer -c %s sset Headphone 100%% 2>/dev/null; "
+			 "amixer -c %s sset Headset 100%% 2>/dev/null",
+			 card, card, card, card, card);
+	system(cmd);
+	audiomon_log("Set USB DAC mixer volume to 100%");
+
+	// Apply user's saved volume to the new DAC immediately
+	SetVolume(GetVolume());
 }
 
 static void handle_usb_audio_disconnected(void) {
+	if (current_usb_card[0] == '\0')
+		return; // already handled
 	audiomon_log("USB audio device disconnected");
 	current_usb_card[0] = '\0';
 	clear_audio_file();
@@ -390,9 +416,13 @@ static void process_udev_events(struct udev_monitor* mon) {
 			udev_device_unref(dev);
 	}
 
-	// Process once after draining all events
-	if (saw_add && add_dev)
+	// Process once after draining all events.
+	// Brief delay lets the ALSA card finish initializing (kernel events arrive
+	// before udevd rules run, so mixer controls may not be ready immediately).
+	if (saw_add && add_dev) {
+		usleep(500000); // 500ms
 		handle_usb_audio_connected(add_dev);
+	}
 	if (saw_remove && !saw_add)
 		handle_usb_audio_disconnected();
 
@@ -412,21 +442,44 @@ int main(int argc, char* argv[]) {
 	signal(SIGINT, signal_handler);
 	signal(SIGTERM, signal_handler);
 
-	// Initialize D-Bus
+	// Initialize D-Bus (optional — needed for Bluetooth, not for USB audio)
+	// IMPORTANT: Must use dbus_connection_open_private + manual register instead of
+	// dbus_bus_get, because dbus_bus_get internally registers on the bus and if the
+	// connection is rejected/dropped during registration, the default exit-on-disconnect
+	// handler calls exit(1) before we can disable it.
 	DBusError err;
 	dbus_error_init(&err);
+	DBusConnection* conn = NULL;
 
-	DBusConnection* conn = dbus_bus_get(DBUS_BUS_SYSTEM, &err);
-	if (!conn) {
-		audiomon_log("Failed to connect to system D-Bus");
-		return 1;
+	const char* bus_addr = getenv("DBUS_SYSTEM_BUS_ADDRESS");
+	if (!bus_addr)
+		bus_addr = "unix:path=/var/run/dbus/system_bus_socket";
+
+	conn = dbus_connection_open_private(bus_addr, &err);
+	if (conn) {
+		// Disable exit-on-disconnect BEFORE registering on the bus
+		dbus_connection_set_exit_on_disconnect(conn, FALSE);
+		if (!dbus_bus_register(conn, &err)) {
+			audiomon_log("D-Bus register failed — Bluetooth audio monitoring disabled");
+			if (dbus_error_is_set(&err))
+				dbus_error_free(&err);
+			dbus_connection_close(conn);
+			dbus_connection_unref(conn);
+			conn = NULL;
+		}
+	} else {
+		audiomon_log("D-Bus unavailable — Bluetooth audio monitoring disabled, USB audio still active");
+		if (dbus_error_is_set(&err))
+			dbus_error_free(&err);
 	}
-	audiomon_log("Connected to system D-Bus");
 
-	dbus_bus_add_match(conn,
-					   "type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged'",
-					   NULL);
-	dbus_connection_flush(conn);
+	if (conn) {
+		audiomon_log("Connected to system D-Bus");
+		dbus_bus_add_match(conn,
+						   "type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged'",
+						   NULL);
+		dbus_connection_flush(conn);
+	}
 
 	// Initialize udev
 	struct udev* udev = udev_new();
@@ -435,15 +488,20 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
-	// Use "udev" events (arrive after device nodes are ready, unlike "kernel" events)
-	struct udev_monitor* mon = udev_monitor_new_from_netlink(udev, "udev");
+	// Use "kernel" events — device nodes (/dev/snd/*) are created by devtmpfs before
+	// the event fires. "udev" events depend on udevd processing rules for the sound
+	// subsystem, which doesn't happen on all platforms (e.g. TG5040).
+	struct udev_monitor* mon = udev_monitor_new_from_netlink(udev, "kernel");
 	if (!mon) {
 		audiomon_log("Failed to create udev monitor");
 		udev_unref(udev);
 		return 1;
 	}
 
-	udev_monitor_filter_add_match_subsystem_devtype(mon, "sound", NULL);
+	// NOTE: Don't use udev_monitor_filter_add_match_subsystem_devtype() here.
+	// On older libudev (e.g. 1.6.3 / kernel 4.9), the BPF filter doesn't work
+	// correctly with "kernel" source and silently drops all events.
+	// We filter manually in process_udev_events() instead.
 	udev_monitor_enable_receiving(mon);
 
 	// Scan for existing USB audio devices before starting event monitoring
@@ -452,12 +510,13 @@ int main(int argc, char* argv[]) {
 	int udev_fd = udev_monitor_get_fd(mon);
 	int dbus_fd = -1;
 
-	if (!dbus_connection_get_unix_fd(conn, &dbus_fd)) {
+	if (conn && !dbus_connection_get_unix_fd(conn, &dbus_fd)) {
 		audiomon_log("Warning: Could not get D-Bus file descriptor, will use polling");
 		dbus_fd = -1;
 	}
 
-	audiomon_log("Monitoring for Bluetooth and USB audio device events");
+	audiomon_log(conn ? "Monitoring for Bluetooth and USB audio device events"
+					  : "Monitoring for USB audio device events (no D-Bus)");
 
 	while (running) {
 		fd_set readfds;
@@ -482,15 +541,18 @@ int main(int argc, char* argv[]) {
 			break;
 		}
 
-		if (dbus_fd >= 0 && FD_ISSET(dbus_fd, &readfds))
+		if (conn && dbus_fd >= 0 && FD_ISSET(dbus_fd, &readfds))
 			process_dbus_events(conn);
 
 		if (FD_ISSET(udev_fd, &readfds))
 			process_udev_events(mon);
 	}
 
-	// Cleanup
-	dbus_connection_unref(conn);
+	// Cleanup (private connection must be closed before unref)
+	if (conn) {
+		dbus_connection_close(conn);
+		dbus_connection_unref(conn);
+	}
 	udev_monitor_unref(mon);
 	udev_unref(udev);
 	QuitSettings();

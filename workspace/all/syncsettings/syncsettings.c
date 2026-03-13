@@ -22,11 +22,15 @@ static int detect_usbdac(void) {
 
 // Detect Bluetooth by reading .asoundrc for bluealsa config
 static int detect_bluetooth(void) {
-	const char* home = getenv("HOME");
-	if (!home)
+	// Use USERDATA_PATH (where audiomon writes .asoundrc) instead of HOME,
+	// because standalone emulators may override HOME to their own config dir.
+	const char* userdata = getenv("USERDATA_PATH");
+	if (!userdata)
+		userdata = getenv("HOME");
+	if (!userdata)
 		return 0;
 	char path[512];
-	snprintf(path, sizeof(path), "%s/.asoundrc", home);
+	snprintf(path, sizeof(path), "%s/.asoundrc", userdata);
 	FILE* f = fopen(path, "r");
 	if (!f)
 		return 0;

@@ -1,6 +1,7 @@
 #include <string.h>
 #include <msettings.h>
 #include "api.h"
+#include "audio_manager.h"
 #include "module_common.h"
 #include "ui_components.h"
 #include "ui_toast.h"
@@ -158,6 +159,9 @@ void ModuleCommon_quit(void) {
 }
 
 void ModuleCommon_PWR_update(bool* dirty, IndicatorType* show_setting) {
+	// Poll for audio device changes (keeps AudioManager state current)
+	AudioMgr_pollEvents();
+
 	// Track overlay-triggering buttons for auto-hide (check BEFORE PWR_update)
 	// MENU = brightness, SELECT = color temp, PLUS/MINUS = volume
 	bool overlay_buttons_active = PAD_isPressed(BTN_PLUS) || PAD_isPressed(BTN_MINUS) || PAD_isPressed(BTN_MENU) || PAD_isPressed(BTN_SELECT);

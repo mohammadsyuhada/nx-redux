@@ -8773,6 +8773,7 @@ int main(int argc, char* argv[]) {
 			has_pending_opt_change = 0;
 			if (Core_updateAVInfo()) {
 				SND_resetAudio(core.sample_rate, core.fps);
+				SetVolume(GetVolume());
 			}
 			chooseSyncRef();
 		}
@@ -8787,10 +8788,11 @@ int main(int argc, char* argv[]) {
 			chooseSyncRef();
 		}
 
-		AudioMgr_pollEvents(); // re-detects sink, sets AUDIODEV, invokes callback
+		AudioMgr_pollEvents(); // checks msettings for sink change, invokes callback
 		if (resetAudio) {
 			resetAudio = false;
 			SND_resetAudio(core.sample_rate, core.fps);
+			SetVolume(GetVolume());
 		}
 
 		hdmimon();

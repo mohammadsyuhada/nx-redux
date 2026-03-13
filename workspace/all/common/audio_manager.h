@@ -20,11 +20,8 @@ bool AudioMgr_isBluetoothActive(void);
 bool AudioMgr_isUSBDACActive(void);
 
 // Get the preferred SDL audio device name for the current sink.
-// Returns explicit device name (never NULL unless no device found).
+// Returns NULL — apps always use ALSA default, audiomon manages .asoundrc.
 const char* AudioMgr_getPreferredDevice(void);
-
-// Configure amixer for current sink (BT A2DP volume, USB DAC mixer)
-void AudioMgr_configureMixer(void);
 
 // Callback invoked on main thread when audio sink changes
 typedef void (*AudioMgrCallback)(int sink_type);

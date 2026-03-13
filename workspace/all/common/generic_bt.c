@@ -745,7 +745,7 @@ static int detect_audio_device_type() {
 			is_bluetooth = 1;
 			break;
 		}
-		if (strstr(line, "type hw")) {
+		if (strstr(line, "type hw") || strstr(line, "slave.pcm \"hw:")) {
 			//LOG_info("detect_audio_device_type: found hw card\n");
 			is_usb_dac = 1;
 			break;

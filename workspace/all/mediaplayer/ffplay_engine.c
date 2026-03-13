@@ -5,15 +5,24 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <errno.h>
+#include <time.h>
 #include "vp_defines.h"
 #include "api.h"
 #include "msettings.h"
+#include "audio_manager.h"
 #include "display_helper.h"
 #include "ffplay_engine.h"
-#include "audio_manager.h"
 
 // PID of the currently running ffplay child process (0 = none)
 static pid_t ffplay_pid = 0;
+
+// Audio device change detection during ffplay playback
+static volatile bool audio_device_changed = false;
+
+static void on_ffplay_audio_changed(int sink_type) {
+	(void)sink_type;
+	audio_device_changed = true;
+}
 
 // Build argv for ffplay and exec in a forked child. Returns exit status.
 static int ffplay_exec(FfplayConfig* config, int use_subs) {
@@ -154,33 +163,20 @@ static int ffplay_exec(FfplayConfig* config, int use_subs) {
 	argv[argc] = NULL;
 
 
-	// Configure mixer for current audio sink (BT A2DP, USB DAC, or speaker)
-	AudioMgr_configureMixer();
-	int bt_audio = AudioMgr_isBluetoothActive();
-	int usb_audio = AudioMgr_isUSBDACActive();
-
-	// Mute hardware before ffplay opens audio device to prevent amplifier pop on TG5050
-	int is_tg5050 = (strcmp(PLATFORM, "tg5050") == 0);
-	if (is_tg5050)
-		SetRawVolume(0);
+	// Mute speaker amp before ffplay opens audio device to prevent pop
+	PLAT_overrideMute(1);
 
 	// Fork and exec ffplay
 	ffplay_pid = fork();
 	if (ffplay_pid < 0) {
 		LOG_error("fork() failed: %s\n", strerror(errno));
-		if (is_tg5050)
-			SetVolume(GetVolume());
+		SetVolume(GetVolume());
 		return -1;
 	}
 
 	if (ffplay_pid == 0) {
-		// Child process: configure audio environment before exec
-		if (bt_audio) {
-			setenv("AUDIODEV", "bluealsa", 1);
-		} else if (usb_audio) {
-			// USB DAC: let ffplay use the default ALSA device (card 1 via .asoundrc)
-			setenv("AUDIODEV", "default", 1);
-		}
+		// Child process: ensure ALSA finds .asoundrc managed by audiomon
+		setenv("HOME", USERDATA_PATH, 1);
 		// Generate a minimal fontconfig pointing to system fonts directory
 		// so fontconfig doesn't scan the entire filesystem (~13s startup delay)
 		if (use_subs) {
@@ -206,19 +202,43 @@ static int ffplay_exec(FfplayConfig* config, int use_subs) {
 		_exit(127);
 	}
 
-	// Parent process: restore hardware volume after ffplay opens audio device
-	if (is_tg5050) {
-		usleep(300000); // 300ms for ffplay to initialize audio
-		SetVolume(GetVolume());
-	}
+	// Parent process: restore volume after ffplay opens audio device
+	// ffplay needs time to probe media, open codecs, and open ALSA device
+	usleep(2000000); // 2s for ffplay to fully initialize audio
+	SetVolume(GetVolume());
 
-	// Wait for ffplay to exit
+	// Start monitoring for audio device changes (BT connect/disconnect, USB DAC)
+	audio_device_changed = false;
+	AudioMgr_setCallback(on_ffplay_audio_changed);
+
+	// Wait for ffplay to exit, polling for audio device changes
 	int status = 0;
 	int result;
-	do {
-		result = waitpid(ffplay_pid, &status, 0);
-	} while (result == -1 && errno == EINTR);
+	while (1) {
+		result = waitpid(ffplay_pid, &status, WNOHANG);
+		if (result > 0)
+			break; // ffplay exited
+		if (result == -1 && errno != EINTR)
+			break; // error
 
+		AudioMgr_pollEvents();
+
+		if (audio_device_changed) {
+			// Audio output changed — kill ffplay so it can be restarted
+			// with the new ALSA device (audiomon has updated .asoundrc)
+			kill(ffplay_pid, SIGTERM);
+			usleep(100000);
+			kill(ffplay_pid, SIGKILL);
+			waitpid(ffplay_pid, NULL, 0);
+			ffplay_pid = 0;
+			AudioMgr_setCallback(NULL);
+			return FFPLAY_EXIT_AUDIO_CHANGED;
+		}
+
+		usleep(100000); // 100ms between polls
+	}
+
+	AudioMgr_setCallback(NULL);
 	ffplay_pid = 0;
 
 	if (WIFEXITED(status)) {
@@ -251,7 +271,34 @@ int FfplayEngine_play(FfplayConfig* config) {
 	DisplayHelper_prepareForExternal();
 
 	int has_subs = (config->subtitle_path[0] != '\0') || (config->subtitle_count > 0);
-	int exit_code = ffplay_exec(config, has_subs);
+	int exit_code;
+
+	// Track playback time so we can approximate seek position on restart
+	struct timespec play_start;
+	clock_gettime(CLOCK_MONOTONIC, &play_start);
+	int original_start = config->start_position_sec;
+
+	do {
+		exit_code = ffplay_exec(config, has_subs);
+
+		if (exit_code == FFPLAY_EXIT_AUDIO_CHANGED) {
+			// Approximate elapsed playback time and update seek position
+			// so restart resumes near where we left off (local files only)
+			if (!config->is_stream) {
+				struct timespec now;
+				clock_gettime(CLOCK_MONOTONIC, &now);
+				int elapsed = (int)(now.tv_sec - play_start.tv_sec);
+				config->start_position_sec = original_start + elapsed;
+			}
+
+			// Brief pause for new audio device to settle
+			usleep(500000);
+			LOG_info("ffplay: restarting for audio device change\n");
+		}
+	} while (exit_code == FFPLAY_EXIT_AUDIO_CHANGED);
+
+	// Restore original start position
+	config->start_position_sec = original_start;
 
 	// TG5050: restore display after ffplay exits
 	DisplayHelper_recoverDisplay();

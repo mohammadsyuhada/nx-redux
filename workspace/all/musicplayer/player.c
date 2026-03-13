@@ -1429,28 +1429,10 @@ int Player_init(void) {
 	want.callback = audio_callback;
 	want.userdata = &player;
 
-	// Always use explicit device name to bypass stale ALSA config cache
-	{
-		const char* device_name = AudioMgr_getPreferredDevice();
-
-		player.audio_device = SDL_OpenAudioDevice(device_name, 0, &want, &have, 0);
-		if (player.audio_device == 0) {
-			LOG_error("Failed to open audio device (%s): %s\n",
-					  device_name ? device_name : "default", SDL_GetError());
-
-			// Fall back: try speaker device explicitly, then NULL
-			const char* fallback = SND_findSpeakerDevice();
-			want.freq = SAMPLE_RATE_SPEAKER;
-			player.audio_device = SDL_OpenAudioDevice(fallback, 0, &want, &have, 0);
-			if (player.audio_device == 0 && fallback) {
-				player.audio_device = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
-			}
-
-			if (player.audio_device == 0) {
-				LOG_error("All fallback audio devices failed\n");
-				return -1;
-			}
-		}
+	player.audio_device = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
+	if (player.audio_device == 0) {
+		LOG_error("Failed to open audio device: %s\n", SDL_GetError());
+		return -1;
 	}
 
 	player.audio_initialized = true;
@@ -1516,6 +1498,9 @@ static void reopen_audio_device(void) {
 	// Remember current playback state
 	PlayerState prev_state = player.state;
 
+	// Mute speaker amp to prevent pop during device switch
+	SND_overrideMute(1);
+
 	// Full SDL audio subsystem restart to clear stale ALSA state after device removal
 	if (player.audio_device > 0) {
 		SDL_PauseAudioDevice(player.audio_device, 1);
@@ -1523,6 +1508,7 @@ static void reopen_audio_device(void) {
 		player.audio_device = 0;
 	}
 	SDL_QuitSubSystem(SDL_INIT_AUDIO);
+	SND_flushALSAConfig();
 	SDL_InitSubSystem(SDL_INIT_AUDIO);
 
 	// Get target sample rate for the new audio sink
@@ -1538,19 +1524,10 @@ static void reopen_audio_device(void) {
 	want.callback = audio_callback;
 	want.userdata = &player;
 
-	// Always use explicit device name to bypass stale ALSA config cache
-	const char* device_name = AudioMgr_getPreferredDevice();
-
-	player.audio_device = SDL_OpenAudioDevice(device_name, 0, &want, &have, 0);
+	player.audio_device = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
 	if (player.audio_device == 0) {
-		LOG_error("Failed to reopen audio device (%s): %s\n",
-				  device_name ? device_name : "default", SDL_GetError());
-		// Retry with NULL as last resort
-		player.audio_device = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
-		if (player.audio_device == 0) {
-			LOG_error("Fallback audio device also failed: %s\n", SDL_GetError());
-			return;
-		}
+		LOG_error("Failed to reopen audio device: %s\n", SDL_GetError());
+		return;
 	}
 
 	current_sample_rate = have.freq;
@@ -1564,6 +1541,9 @@ static void reopen_audio_device(void) {
 	if (prev_state == PLAYER_STATE_PLAYING) {
 		SDL_PauseAudioDevice(player.audio_device, 0);
 	}
+
+	// Restore volume and unmute speaker amp
+	SetVolume(GetVolume());
 }
 
 // Callback from AudioMgr when audio sink changes — reopen SDL audio device

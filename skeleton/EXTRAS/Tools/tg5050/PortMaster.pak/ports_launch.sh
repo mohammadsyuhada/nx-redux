@@ -1,7 +1,6 @@
 #!/bin/sh
-# Mute speaker amp to suppress pop during SDL audio init
-amixer cset numid=30 0 >/dev/null 2>&1
-amixer cset numid=29 0 >/dev/null 2>&1
+# Mute speaker to suppress pop during SDL audio init
+echo 1 > /sys/class/speaker/mute 2>/dev/null || true
 
 PAK_DIR="$(dirname "$0")"
 PAK_NAME="$(basename "$PAK_DIR")"
@@ -35,6 +34,8 @@ export SSL_CERT_FILE="$EMU_DIR/ssl/certs/ca-certificates.crt"
 export SDL_GAMECONTROLLERCONFIG_FILE="$EMU_DIR/gamecontrollerdb.txt"
 export PYSDL2_DLL_PATH="/usr/trimui/lib"
 export HOME="$SHARED_USERDATA_PATH/PORTS-portmaster"
+# Copy audio config so ALSA finds Bluetooth/USB DAC routing (audiomon writes to USERDATA_PATH)
+[ -f "$USERDATA_PATH/.asoundrc" ] && cp "$USERDATA_PATH/.asoundrc" "$HOME/.asoundrc"
 export XDG_DATA_HOME="$HOME/.local/share"
 mkdir -p "$XDG_DATA_HOME"
 
@@ -222,14 +223,14 @@ main() {
     cd "$ROM_DIR"
 
     # Unmute speaker after game audio has initialized
-    (sleep 5; amixer cset numid=30 1 >/dev/null 2>&1; amixer cset numid=29 1 >/dev/null 2>&1; syncsettings.elf) &
+    (sleep 5; echo 0 > /sys/class/speaker/mute 2>/dev/null; syncsettings.elf) &
     SYNC_PID=$!
 
     bash "$ROM_PATH"
 
     kill $SYNC_PID 2>/dev/null || true
-    amixer cset numid=30 1 >/dev/null 2>&1 || true
-    amixer cset numid=29 1 >/dev/null 2>&1 || true
+    echo 0 > /sys/class/speaker/mute 2>/dev/null || true
+    rm -f "$HOME/.asoundrc" 2>/dev/null
 }
 
 main "$@"

@@ -77,11 +77,14 @@ Build and push a specific component directly using docker:
 # nextui
 docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/nextui && make PLATFORM=tg5040' && adb push workspace/all/nextui/build/tg5040/nextui.elf /mnt/SDCARD/.system/tg5040/bin/ && adb shell reboot
 
+# audiomon
+docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5050-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/audiomon && make PLATFORM=tg5050' && adb push workspace/all/audiomon/build/tg5050/audiomon.elf /mnt/SDCARD/.system/tg5050/bin/ && adb shell reboot
+
 # minarch
 docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/minarch && make PLATFORM=tg5040' && adb push workspace/all/minarch/build/tg5040/minarch.elf /mnt/SDCARD/.system/tg5040/bin/ && adb shell reboot
 
 # settings
-docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/settings && make PLATFORM=tg5040' && adb push workspace/all/settings/build/tg5040/settings.elf /mnt/SDCARD/Tools/tg5040/Settings.pak/
+docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5050-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/settings && make PLATFORM=tg5050' && adb push workspace/all/settings/build/tg5050/settings.elf /mnt/SDCARD/Tools/tg5050/Settings.pak/
 
 # updater
 docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/updater && make PLATFORM=tg5040' && adb push workspace/all/updater/build/tg5040/updater.elf /mnt/SDCARD/Tools/tg5040/Updater.pak/
