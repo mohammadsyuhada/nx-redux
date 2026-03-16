@@ -16,11 +16,11 @@
 #include "wget_fetch.h"
 
 // PortMaster paths
-#define TOOL_PAK_DIR TOOLS_PATH "/PortMaster.pak"
 #define PORTS_PAK_DIR SDCARD_PATH "/Emus/" PLATFORM "/PORTS.pak"
 #define PORTMASTER_DIR SDCARD_PATH "/Emus/shared/PortMaster"
 #define PUGWASH_PATH PORTMASTER_DIR "/pugwash"
 #define PORTS_ROM_DIR ROMS_PATH "/Ports (PORTS)"
+#define PORTS_LAUNCH_SRC TOOLS_PATH "/PortMaster.pak/ports_launch.sh"
 
 // PortMaster release URL
 #define PM_RELEASE_URL "https://github.com/PortsMaster/PortMaster-GUI/releases/latest/download/PortMaster.zip"
@@ -219,24 +219,27 @@ static void sync_port_artwork(void) {
 }
 
 static void cleanup_portmaster(void) {
-	char cmd[512];
-	snprintf(cmd, sizeof(cmd), "rm -rf '%s'", PORTMASTER_DIR);
+	char cmd[1024];
+	// Remove all PortMaster files except bundled ones from skeleton
+	snprintf(cmd, sizeof(cmd),
+			 "find '%s' -mindepth 1 -maxdepth 1 "
+			 "! -name 'disable_python_function.py' "
+			 "! -name 'gamecontrollerdb_nintendo.txt' "
+			 "! -name 'gamecontrollerdb_xbox.txt' "
+			 "-exec rm -rf {} +",
+			 PORTMASTER_DIR);
 	system(cmd);
 	snprintf(cmd, sizeof(cmd), "rm -rf '%s'", PORTS_PAK_DIR);
 	system(cmd);
 	invalidate_emulist_cache();
 }
 
-static void install_ports_pak(void) {
-	char cmd[1024];
-	snprintf(cmd, sizeof(cmd),
-			 "mkdir -p '%s/files' && "
-			 "cp -f '%s/ports_launch.sh' '%s/launch.sh' && "
-			 "cp -f '%s/files/'* '%s/files/'",
-			 PORTS_PAK_DIR,
-			 TOOL_PAK_DIR, PORTS_PAK_DIR,
-			 TOOL_PAK_DIR, PORTS_PAK_DIR);
+static void create_ports_pak(void) {
+	char cmd[512];
+	mkdir_p(PORTS_PAK_DIR);
+	snprintf(cmd, sizeof(cmd), "cp -f '%s' '%s/launch.sh'", PORTS_LAUNCH_SRC, PORTS_PAK_DIR);
 	system(cmd);
+	invalidate_emulist_cache();
 }
 
 static int extract_portmaster(void) {
@@ -294,7 +297,16 @@ static void patch_platform_py(void) {
 	// Disable portmaster_install in first_run (causes crash on TrimUI)
 	// Uses disable_python_function.py to inject 'return' at the start of the function
 	snprintf(cmd, sizeof(cmd),
-			 PORTMASTER_DIR "/bin/python3 " TOOL_PAK_DIR "/files/disable_python_function.py '%s' portmaster_install",
+			 PORTMASTER_DIR "/bin/python3 " PORTMASTER_DIR "/disable_python_function.py '%s' portmaster_install",
+			 platform_py);
+	system(cmd);
+
+	// Fix hardcoded ROM/image paths for NextUI directory naming
+	// PortMaster expects /mnt/SDCARD/Roms/PORTS and /mnt/SDCARD/Imgs/PORTS
+	// but NextUI uses /mnt/SDCARD/Roms/Ports (PORTS)
+	snprintf(cmd, sizeof(cmd),
+			 "sed -i 's|/mnt/SDCARD/Roms/PORTS|" SDCARD_PATH "/Roms/Ports (PORTS)|g;"
+			 "s|/mnt/SDCARD/Imgs/PORTS|" SDCARD_PATH "/Roms/Ports (PORTS)/.media|g' '%s'",
 			 platform_py);
 	system(cmd);
 }
@@ -388,6 +400,54 @@ static void ensure_default_config(void) {
 	fclose(fp);
 }
 
+static void create_busybox_wrappers(void) {
+	char bin_dir[512];
+	char marker[512];
+	char bb_path[512];
+	snprintf(bin_dir, sizeof(bin_dir), "%s/bin", PORTMASTER_DIR);
+	snprintf(marker, sizeof(marker), "%s/busybox_wrappers.done", bin_dir);
+	snprintf(bb_path, sizeof(bb_path), "%s/busybox", bin_dir);
+
+	// Skip if already done
+	if (access(marker, F_OK) == 0)
+		return;
+
+	// Skip if busybox not installed yet
+	if (access(bb_path, F_OK) != 0)
+		return;
+
+	// Get list of busybox applets and create wrapper scripts
+	// Shell printf gets: '#!/bin/sh\nexec <bb_path> %s "$@"\n' "$cmd"
+	// where %s is the shell printf format specifier for $cmd
+	char cmd[1024];
+	snprintf(cmd, sizeof(cmd),
+			 "cd '%s' && BB='%s' && created='' && "
+			 "for cmd in $(\"$BB\" --list); do "
+			 "  case \"$cmd\" in sh) continue ;; esac; "
+			 "  if [ ! -e \"$cmd\" ]; then "
+			 "    printf '#!/bin/sh\\nexec %%s %%s \"$@\"\\n' \"$BB\" \"$cmd\" > \"$cmd\"; "
+			 "    created=\"$created $cmd\"; "
+			 "  fi; "
+			 "done && "
+			 "[ -n \"$created\" ] && chmod +x $created; "
+			 "touch '%s'",
+			 bin_dir, bb_path, marker);
+	system(cmd);
+}
+
+static void patch_mod_trimui(void) {
+	char mod_path[512];
+	snprintf(mod_path, sizeof(mod_path), "%s/mod_TrimUI.txt", PORTMASTER_DIR);
+
+	// Patch HOME override: upstream uses /mnt/SDCARD/Data/home which doesn't exist
+	// Replace with our shared userdata path that ports_launch.sh already sets as HOME
+	char cmd[1024];
+	snprintf(cmd, sizeof(cmd),
+			 "sed -i 's|/mnt/SDCARD/Data/home|" SHARED_USERDATA_PATH "/PORTS-portmaster|g' '%s' 2>/dev/null",
+			 mod_path);
+	system(cmd);
+}
+
 static void patch_control_txt(void) {
 	char control_path[512];
 	snprintf(control_path, sizeof(control_path), "%s/control.txt", PORTMASTER_DIR);
@@ -450,8 +510,8 @@ static void fix_port_scripts(void) {
 
 static void set_controller_layout(const char* layout) {
 	char cmd[512];
-	snprintf(cmd, sizeof(cmd), "cp -f '%s/files/gamecontrollerdb_%s.txt' '%s/gamecontrollerdb.txt'",
-			 TOOL_PAK_DIR, layout, PORTMASTER_DIR);
+	snprintf(cmd, sizeof(cmd), "cp -f '%s/gamecontrollerdb_%s.txt' '%s/gamecontrollerdb.txt'",
+			 PORTMASTER_DIR, layout, PORTMASTER_DIR);
 	system(cmd);
 }
 
@@ -471,14 +531,18 @@ static void toggle_layout(void) {
 }
 
 static void launch_pugwash(void) {
-	// Always ensure control.txt has correct NextUI paths before launching
-	// (PortMaster's first_run may have overwritten it with default TrimUI paths)
+	// Always ensure NextUI patches are applied before launching
+	// (PortMaster's first_run or updates may have overwritten them)
 	patch_control_txt();
+	patch_device_info();
+	patch_platform_py();
+	patch_mod_trimui();
 
-	// PortMaster GUI uses Xbox button layout
+	// PortMaster GUI (pugwash) uses Xbox button layout internally
+	// (its XBOX FIXER always swaps to Nintendo in the UI regardless)
 	set_controller_layout("xbox");
 
-	char cmd[2048];
+	char cmd[3072];
 	// tg5050 ships newer lib versions than what some bundled binaries expect
 	system("[ ! -e " PORTMASTER_DIR "/lib/libffi.so.7 ] && [ -e /usr/lib/libffi.so.8 ] && "
 		   "cp /usr/lib/libffi.so.8 " PORTMASTER_DIR "/lib/libffi.so.7;"
@@ -491,26 +555,43 @@ static void launch_pugwash(void) {
 			 "export PYSDL2_DLL_PATH=/usr/trimui/lib:/usr/lib && "
 			 "export SSL_CERT_FILE=" PORTMASTER_DIR "/ssl/certs/ca-certificates.crt && "
 			 "export HOME=" SHARED_USERDATA_PATH "/PORTS-portmaster && "
-			 "export XDG_DATA_HOME=$HOME/.local/share && "
-			 "mkdir -p $XDG_DATA_HOME && "
-			 "mkdir -p $XDG_DATA_HOME/PortMaster && "
-			 "mount -o bind '" PORTMASTER_DIR "' $XDG_DATA_HOME/PortMaster 2>/dev/null; "
+			 "export XDG_DATA_HOME='" SDCARD_PATH "/Emus/shared' && "
 			 "export HM_TOOLS_DIR='" SDCARD_PATH "/Emus/shared' && "
 			 "export HM_PORTS_DIR='" SDCARD_PATH "/Roms/Ports (PORTS)/.ports' && "
 			 "export HM_SCRIPTS_DIR='" SDCARD_PATH "/Roms/Ports (PORTS)' && "
 			 "export SDL_GAMECONTROLLERCONFIG_FILE='%s/gamecontrollerdb.txt' && "
 			 "cd '%s' && "
 			 "rm -f .pugwash-reboot && "
-			 "while true; do " PORTMASTER_DIR "/bin/python3 pugwash --debug 2>&1 | tee " SDCARD_PATH "/.userdata/" PLATFORM "/logs/portmaster_pugwash.txt; "
-			 "[ ! -f .pugwash-reboot ] && break; "
-			 "rm -f .pugwash-reboot; "
+			 "while true; do "
+			 // Patch platform.py before each pugwash run — fixes hardcoded PORTS paths
+			 // and disables portmaster_install (crashes on TrimUI). This handles both
+			 // first-run (pylibs just extracted by pugwash) and self-update scenarios.
+			 "PP=pylibs/harbourmaster/platform.py; "
+			 "if [ -f \"$PP\" ]; then "
+			 "sed -i 's|/mnt/SDCARD/Roms/PORTS|" SDCARD_PATH "/Roms/Ports (PORTS)|g;"
+			 "s|/mnt/SDCARD/Imgs/PORTS|" SDCARD_PATH "/Roms/Ports (PORTS)/.media|g' \"$PP\"; " PORTMASTER_DIR "/bin/python3 " PORTMASTER_DIR "/disable_python_function.py "
+			 "\"$PP\" portmaster_install 2>/dev/null; "
+			 "rm -rf pylibs/harbourmaster/__pycache__; "
+			 "fi; " PORTMASTER_DIR "/bin/python3 pugwash 2>&1 | tee " SDCARD_PATH "/.userdata/" PLATFORM "/logs/portmaster_pugwash.txt; "
+			 "[ -f .pugwash-reboot ] && rm -f .pugwash-reboot && continue; "
+			 // If platform.py still has unpatched paths, pugwash just extracted fresh
+			 // pylibs (first_run or update) and crashed — retry with patches applied
+			 "grep -q '/Roms/PORTS' \"$PP\" 2>/dev/null && continue; "
+			 "break; "
 			 "done",
 			 PORTMASTER_DIR, PORTMASTER_DIR);
 	system(cmd);
 
-	// Re-patch control.txt after pugwash exits
-	// (pugwash first_run or updates may have overwritten it)
+	// Re-patch after pugwash exits
+	// (pugwash first_run or updates may have overwritten these)
 	patch_control_txt();
+	patch_device_info();
+	patch_platform_py();
+	patch_mod_trimui();
+
+	// Restore user's preferred controller layout
+	// (pugwash or updates may have overwritten gamecontrollerdb.txt)
+	set_controller_layout(is_nintendo_layout() ? "nintendo" : "xbox");
 
 	// Fix hardcoded paths in any newly installed port scripts
 	fix_port_scripts();
@@ -592,7 +673,7 @@ static void render_screen(void) {
 
 	case PM_STATE_PATCHING:
 		UI_renderMenuBar(screen, "PortMaster");
-		UI_renderCenteredMessage(screen, "Configuring for NextUI...");
+		UI_renderCenteredMessage(screen, "Configuring PortMaster...");
 		break;
 
 	case PM_STATE_INSTALL_DONE:
@@ -819,14 +900,16 @@ int main(int argc, char* argv[]) {
 			patch_control_txt();
 			patch_platform_py();
 			patch_device_info();
+			patch_mod_trimui();
 			ensure_default_config();
-			install_ports_pak();
 			invalidate_emulist_cache();
 			{
 				char cmd[512];
 				snprintf(cmd, sizeof(cmd), "chmod -R +x '%s' 2>/dev/null", PORTMASTER_DIR);
 				system(cmd);
 			}
+			create_busybox_wrappers();
+			create_ports_pak();
 			PWR_enableSleep();
 			state = PM_STATE_INSTALL_DONE;
 			dirty = true;
@@ -858,6 +941,7 @@ int main(int argc, char* argv[]) {
 			GFX_quit();
 
 			launch_pugwash();
+			create_busybox_wrappers(); // Re-create if pugwash update wiped them
 			sync_port_artwork();
 			invalidate_emulist_cache();
 

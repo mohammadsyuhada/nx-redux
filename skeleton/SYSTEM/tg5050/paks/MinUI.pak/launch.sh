@@ -66,10 +66,8 @@ sync
 # echo -n out > /sys/class/gpio/gpio335/direction
 # echo -n 1 > /sys/class/gpio/gpio335/value
 
-#rumble motor PH12
-echo 236 > /sys/class/gpio/export
-echo -n out > /sys/class/gpio/gpio236/direction
-echo -n 0 > /sys/class/gpio/gpio236/value
+#rumble motor (PWM motor driver, 16-bit level 0-65535)
+echo 0 > /sys/class/motor/level
 
 #Left/Right Pad PK12/PK16 , run in trimui_inputd
 # echo 332 > /sys/class/gpio/export
@@ -112,7 +110,7 @@ echo 2000000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
 #CPU_SPEED_PERF_LITTLE=2000000
 #echo $CPU_SPEED_PERF_LITTLE > $LITTLE_PATH
 
-echo performance > /sys/devices/platform/soc@3000000/1800000.gpu/devfreq/1800000.gpu/governor
+
 
 # Very little libretro cores profit from multithreading, even stock OS is 
 # only very seldomly using more than 1+2 cores. Use as a baseline, the 
