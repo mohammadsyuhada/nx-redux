@@ -53,6 +53,7 @@ export HM_PORTS_DIR="$TEMP_DATA_DIR/ports"
 export HM_SCRIPTS_DIR="$TEMP_DATA_DIR/ports"
 
 cleanup() {
+    killall sleepmon.elf 2>/dev/null || true
     kill $SYNC_PID 2>/dev/null || true
     echo 0 > /sys/class/speaker/mute 2>/dev/null || true
 
@@ -131,6 +132,9 @@ main() {
     else
         set_controller_layout nintendo
     fi
+
+    # Start power button sleep/poweroff handler
+    sleepmon.elf &
 
     echo "Starting port: $ROM_PATH"
     cd "$ROM_DIR"

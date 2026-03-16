@@ -36,6 +36,7 @@ endif
 	cd ./$(PLATFORM)/libmsettings && make
 	cd ./$(PLATFORM) && make early # eg. other libs
 	cd ./$(PLATFORM)/keymon && make
+	cd ./$(PLATFORM)/sleepmon && make
 	cd ./all/nextui/ && make
 	cd ./all/minarch/ && make
 	cd ./all/libgametimedb/ && make
@@ -72,6 +73,7 @@ endif
 clean:
 ifneq ($(PLATFORM), desktop)
 	cd ./$(PLATFORM)/keymon && make clean
+	cd ./$(PLATFORM)/sleepmon && make clean
 	cd ./all/syncsettings/ && make cleans
 	cd ./all/show2/ && make clean
 ifeq ($(PLATFORM), tg5040)

@@ -83,6 +83,9 @@ echo 1 > /sys/class/speaker/mute 2>/dev/null || true
 (sleep 5; echo 0 > /sys/class/speaker/mute 2>/dev/null; syncsettings.elf) &
 SYNC_PID=$!
 
+# Start power button sleep/poweroff handler
+sleepmon.elf &
+
 # Launch PPSSPP (binary in PAK_DIR, assets in EMU_DIR)
 cd "$EMU_DIR"
 "$PAK_DIR/PPSSPPSDL" --fullscreen --xres "$DEVICE_XRES" --yres "$DEVICE_YRES" "$ROM" &> "$LOGS_PATH/$EMU_TAG.txt" &
@@ -126,6 +129,7 @@ done
 [ -n "$BEST_TID" ] && taskset -p 2 "$BEST_TID" 2>/dev/null  # mask 0x2 = cpu1
 
 wait $EMU_PID
+killall sleepmon.elf 2>/dev/null || true
 kill $SYNC_PID 2>/dev/null || true
 echo 0 > /sys/class/speaker/mute 2>/dev/null || true
 

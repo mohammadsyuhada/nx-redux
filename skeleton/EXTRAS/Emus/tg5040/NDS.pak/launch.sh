@@ -91,8 +91,12 @@ main() {
     (sleep 5; echo 0 > /sys/class/speaker/mute 2>/dev/null; syncsettings.elf) &
     SYNC_PID=$!
 
+    # Start power button sleep/poweroff handler
+    sleepmon.elf &
+
     "$EMU_DIR/drastic" "$*"
 
+    killall sleepmon.elf 2>/dev/null || true
     kill $SYNC_PID 2>/dev/null || true
     echo 0 > /sys/class/speaker/mute 2>/dev/null || true
 }

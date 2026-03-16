@@ -63,6 +63,9 @@ echo 1 > /sys/class/speaker/mute 2>/dev/null || true
 (sleep 5; echo 0 > /sys/class/speaker/mute 2>/dev/null; syncsettings.elf) &
 SYNC_PID=$!
 
+# Start power button sleep/poweroff handler
+sleepmon.elf &
+
 # Launch from PAK_DIR so core library resolves via ./
 cd "$PAK_DIR"
 ./mupen64plus --fullscreen --resolution 1280x720 \
@@ -111,6 +114,7 @@ done
 [ -n "$BEST_TID" ] && taskset -p 0x20 "$BEST_TID" 2>/dev/null  # mask 0x20 = cpu5
 
 wait $EMU_PID
+killall sleepmon.elf 2>/dev/null || true
 kill $SYNC_PID 2>/dev/null || true
 echo 0 > /sys/class/speaker/mute 2>/dev/null || true
 
