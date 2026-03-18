@@ -9,6 +9,9 @@ Minimal on the surface. Structured underneath. Built to last.
 
 ![nextui-redux](https://raw.githubusercontent.com/mohammadsyuhada/NextUI-Redux/main/.github/resources/demo.gif)
 
+Refer to the Youtube Video below for demonstration of the features:
+[![nx-redux-youtube](https://github.com/user-attachments/assets/e4cf9c86-604b-49a4-b888-4b569ba592a9)](https://www.youtube.com/watch?v=l4iJBRgUe4U)
+
 ## Supported Devices
 
 - **Trimui Brick**
