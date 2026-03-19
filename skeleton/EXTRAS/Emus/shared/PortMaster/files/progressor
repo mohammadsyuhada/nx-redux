@@ -1,0 +1,57 @@
+#!/bin/sh
+# Replacement for PortMaster's SDL2-based progressor binary.
+# Uses show2.elf to display a "please wait" screen while running a command.
+
+TITLE="Loading"
+COMMAND=""
+
+cleanup() {
+    killall show2.elf >/dev/null 2>&1 || true
+}
+
+main() {
+    trap "cleanup" EXIT INT TERM HUP QUIT
+
+    # Parse arguments (compatible with the original progressor interface)
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --title)
+                TITLE="$2"
+                shift 2
+                ;;
+            --*)
+                # Skip unknown options and their values (e.g. --log, --font)
+                shift
+                if [ $# -gt 0 ] && [ "${1#--}" = "$1" ]; then
+                    shift
+                fi
+                ;;
+            *)
+                COMMAND="$*"
+                break
+                ;;
+        esac
+    done
+
+    if [ -z "$COMMAND" ]; then
+        echo "Usage: $0 [--title title] command [args...]"
+        exit 1
+    fi
+
+    # Run the actual command in background
+    sh -c "$COMMAND" &
+    CMD_PID=$!
+
+    # Show loading screen with indeterminate progress bar using show2.elf
+    killall show2.elf >/dev/null 2>&1 || true
+    show2.elf --mode=progress --image=/dev/null \
+        --text="$TITLE, please wait..." --progress=-1 \
+        --texty=45 --progressy=55 --fontsize=28 &
+
+    wait $CMD_PID
+    exit_code=$?
+
+    exit $exit_code
+}
+
+main "$@"

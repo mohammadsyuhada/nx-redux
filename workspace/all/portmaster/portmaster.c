@@ -26,20 +26,21 @@
 #define PM_RELEASE_URL "https://github.com/PortsMaster/PortMaster-GUI/releases/latest/download/PortMaster.zip"
 #define PM_ZIP_PATH "/tmp/PortMaster.zip"
 
-// PortMaster runtime dependencies — pinned to minui-portmaster v2.10.1 (de77fbb)
-#define PM_DEPS_BASE "https://github.com/ben16w/minui-portmaster/raw/de77fbb0f085c0f2cd07d3cc8d27c5376d9e6731/files"
-#define PM_BIN_URL PM_DEPS_BASE "/bin.tar.gz"
-#define PM_LIB_URL PM_DEPS_BASE "/lib.tar.gz"
-#define PM_CERT_URL PM_DEPS_BASE "/ca-certificates.crt"
-#define PM_BIN_TAR "/tmp/portmaster_bin.tar.gz"
-#define PM_LIB_TAR "/tmp/portmaster_lib.tar.gz"
+// PortMaster runtime dependencies (bundled in skeleton/files/)
+#define PM_FILES_DIR PORTMASTER_DIR "/files"
+#define PM_BUNDLED_BIN PM_FILES_DIR "/bin.zip"
+#define PM_BUNDLED_LIB PM_FILES_DIR "/lib.zip"
+#define PM_BUNDLED_LIBS PM_FILES_DIR "/libs.zip"
+#define PM_BUNDLED_PYLIBS PM_FILES_DIR "/pylibs.zip"
+#define PM_BUNDLED_CERT PM_FILES_DIR "/ca-certificates.crt"
+#define PM_BUNDLED_PROGRESSOR PM_FILES_DIR "/progressor"
+#define PM_BUNDLED_DISABLE_PY PM_FILES_DIR "/disable_python_function.py"
 
 enum PMState {
 	PM_STATE_CHECK,
 	PM_STATE_NOT_INSTALLED,
 	PM_STATE_INSTALLED,
 	PM_STATE_DOWNLOADING,
-	PM_STATE_DOWNLOADING_DEPS,
 	PM_STATE_EXTRACTING,
 	PM_STATE_PATCHING,
 	PM_STATE_INSTALL_DONE,
@@ -64,6 +65,7 @@ static bool download_thread_active = false;
 static int menu_selected = 0;
 static int menu_scroll = 0;
 static bool is_nintendo = true;
+static const char* extract_status = "Extracting PortMaster...";
 
 // Layout marker
 #define LAYOUT_MARKER SHARED_USERDATA_PATH "/PORTS-portmaster/xbox_layout"
@@ -81,8 +83,7 @@ static void toggle_layout(void);
 #define MENU_UNINSTALL 2
 
 // Download label for UI display
-static volatile int download_file_index = 0; // 0=PortMaster.zip, 1=bin.tar.gz, 2=lib.tar.gz
-static const char* download_labels[] = {"PortMaster", "binaries", "libraries"};
+
 
 static void* download_thread_func(void* arg) {
 	(void)arg;
@@ -94,35 +95,6 @@ static void* download_thread_func(void* arg) {
 	return NULL;
 }
 
-static void* download_deps_thread_func(void* arg) {
-	(void)arg;
-
-	// Download bin.tar.gz
-	download_file_index = 1;
-	download_progress = 0;
-	download_speed = 0;
-	download_eta = 0;
-	download_result = wget_download_file(
-		PM_BIN_URL, PM_BIN_TAR,
-		&download_progress, &download_cancel,
-		&download_speed, &download_eta);
-	if (download_result <= 0 || download_cancel) {
-		download_done = true;
-		return NULL;
-	}
-
-	// Download lib.tar.gz
-	download_file_index = 2;
-	download_progress = 0;
-	download_speed = 0;
-	download_eta = 0;
-	download_result = wget_download_file(
-		PM_LIB_URL, PM_LIB_TAR,
-		&download_progress, &download_cancel,
-		&download_speed, &download_eta);
-	download_done = true;
-	return NULL;
-}
 
 static bool portmaster_installed(void) {
 	return access(PUGWASH_PATH, F_OK) == 0;
@@ -220,12 +192,10 @@ static void sync_port_artwork(void) {
 
 static void cleanup_portmaster(void) {
 	char cmd[1024];
-	// Remove all PortMaster files except bundled ones from skeleton
+	// Remove all PortMaster files except the bundled files/ directory from skeleton
 	snprintf(cmd, sizeof(cmd),
 			 "find '%s' -mindepth 1 -maxdepth 1 "
-			 "! -name 'disable_python_function.py' "
-			 "! -name 'gamecontrollerdb_nintendo.txt' "
-			 "! -name 'gamecontrollerdb_xbox.txt' "
+			 "! -name 'files' "
 			 "-exec rm -rf {} +",
 			 PORTMASTER_DIR);
 	system(cmd);
@@ -254,33 +224,84 @@ static int extract_portmaster(void) {
 	return ret;
 }
 
+static void render_screen(void); // forward declaration
+
 static int extract_deps(void) {
 	char cmd[1024];
 	int ret;
 
-	// Extract bin.tar.gz to PortMaster/bin/
+	// Extract bundled bin.zip to PortMaster/bin/
+	extract_status = "Extracting binaries...";
+	render_screen();
 	mkdir_p(PORTMASTER_DIR "/bin");
-	snprintf(cmd, sizeof(cmd), "gunzip -c '%s' | tar xf - -C '%s/bin/'", PM_BIN_TAR, PORTMASTER_DIR);
+	snprintf(cmd, sizeof(cmd), SHARED_BIN_PATH "/7zzs.aarch64 x '%s' -o'" PORTMASTER_DIR "/bin' -aoa >/dev/null 2>&1", PM_BUNDLED_BIN);
 	ret = system(cmd);
-	unlink(PM_BIN_TAR);
 	if (ret != 0)
 		return ret;
 
-	// Extract lib.tar.gz to PortMaster/lib/
+	// Extract bundled lib.zip to PortMaster/lib/
+	extract_status = "Extracting libraries...";
+	render_screen();
 	mkdir_p(PORTMASTER_DIR "/lib");
-	snprintf(cmd, sizeof(cmd), "gunzip -c '%s' | tar xf - -C '%s/lib/'", PM_LIB_TAR, PORTMASTER_DIR);
+	snprintf(cmd, sizeof(cmd), SHARED_BIN_PATH "/7zzs.aarch64 x '%s' -o'" PORTMASTER_DIR "/lib' -aoa >/dev/null 2>&1", PM_BUNDLED_LIB);
 	ret = system(cmd);
-	unlink(PM_LIB_TAR);
 	if (ret != 0)
 		return ret;
 
-	// Download SSL certificates
+	// Extract bundled libs.zip to PortMaster/libs/
+	extract_status = "Extracting additional libraries...";
+	render_screen();
+	mkdir_p(PORTMASTER_DIR "/libs");
+	snprintf(cmd, sizeof(cmd), SHARED_BIN_PATH "/7zzs.aarch64 x '%s' -o'" PORTMASTER_DIR "/libs' -aoa >/dev/null 2>&1", PM_BUNDLED_LIBS);
+	ret = system(cmd);
+	if (ret != 0)
+		return ret;
+
+	// Extract bundled pylibs.zip to PortMaster/ root (contains exlibs/ and pylibs/ folders)
+	extract_status = "Extracting Python libraries...";
+	render_screen();
+	snprintf(cmd, sizeof(cmd), SHARED_BIN_PATH "/7zzs.aarch64 x '%s' -o'" PORTMASTER_DIR "' -aoa >/dev/null 2>&1", PM_BUNDLED_PYLIBS);
+	ret = system(cmd);
+	if (ret != 0)
+		return ret;
+
+	// Copy bundled SSL certificates
 	mkdir_p(PORTMASTER_DIR "/ssl/certs");
+	snprintf(cmd, sizeof(cmd), "cp -f '%s' '%s/ssl/certs/ca-certificates.crt'", PM_BUNDLED_CERT, PORTMASTER_DIR);
+	system(cmd);
+
+	// Copy disable_python_function.py to PortMaster root for patching
+	snprintf(cmd, sizeof(cmd), "cp -f '%s' '%s/disable_python_function.py'", PM_BUNDLED_DISABLE_PY, PORTMASTER_DIR);
+	system(cmd);
+
+	// Move compat libs (newer glib, fontconfig, freetype, brotli) to lib/compat/
+	// These override system libs and break pugwash's SDL2 stack, so they must only
+	// be in the LD_LIBRARY_PATH for port launches (set in ports_launch.sh), not pugwash.
+	mkdir_p(PORTMASTER_DIR "/lib/compat");
 	snprintf(cmd, sizeof(cmd),
-			 SHARED_BIN_PATH "/wget --no-check-certificate -q -T 15 -t 2 -O '%s/ssl/certs/ca-certificates.crt' "
-							 "'" PM_CERT_URL "'",
+			 "cd '%s/lib' && "
+			 "for f in libglib-2.0.so* libfontconfig.so* libfreetype.so* libbrotlidec.so* libbrotlicommon.so*; do "
+			 "[ -f \"$f\" ] && mv -f \"$f\" compat/; "
+			 "done 2>/dev/null",
 			 PORTMASTER_DIR);
-	system(cmd); // non-fatal if this fails
+	system(cmd);
+
+	// Create unversioned .so copies for libs that only have versioned names
+	// (FAT32 doesn't support symlinks, and some ports link against unversioned .so names)
+	// In lib/: skip GL/EGL/DRM libs — unversioned copies override system GPU drivers and crash gl4es
+	// In lib/compat/: create all unversioned copies (ports need them and compat isn't in pugwash's path)
+	snprintf(cmd, sizeof(cmd),
+			 "cd '%s/lib' && for f in *.so.*; do "
+			 "case \"$f\" in libEGL*|libGL*|libGLU*|libGLX*|libGLd*|libdrm*|libOpenGL*) continue ;; esac; "
+			 "base=$(echo \"$f\" | sed 's/\\.so\\..*/\\.so/'); "
+			 "[ ! -e \"$base\" ] && cp -f \"$f\" \"$base\"; "
+			 "done 2>/dev/null; "
+			 "cd '%s/lib/compat' && for f in *.so.*; do "
+			 "base=$(echo \"$f\" | sed 's/\\.so\\..*/\\.so/'); "
+			 "[ ! -e \"$base\" ] && cp -f \"$f\" \"$base\"; "
+			 "done 2>/dev/null",
+			 PORTMASTER_DIR, PORTMASTER_DIR);
+	system(cmd);
 
 	// Make binaries executable
 	snprintf(cmd, sizeof(cmd), "chmod -R +x '%s/bin/' 2>/dev/null", PORTMASTER_DIR);
@@ -424,7 +445,7 @@ static void create_busybox_wrappers(void) {
 			 "cd '%s' && BB='%s' && created='' && "
 			 "for cmd in $(\"$BB\" --list); do "
 			 "  case \"$cmd\" in sh) continue ;; esac; "
-			 "  if [ ! -e \"$cmd\" ]; then "
+			 "  if [ ! -e \"$cmd\" ] || grep -q 'exec .*/busybox .*\\$@' \"$cmd\" 2>/dev/null; then "
 			 "    printf '#!/bin/sh\\nexec %%s %%s \"$@\"\\n' \"$BB\" \"$cmd\" > \"$cmd\"; "
 			 "    created=\"$created $cmd\"; "
 			 "  fi; "
@@ -508,10 +529,30 @@ static void fix_port_scripts(void) {
 	system(cmd);
 }
 
+static void ensure_bash_symlink(void) {
+	// Many port scripts use #!/bin/bash shebangs but the device has no /bin/bash.
+	// Create a symlink to PortMaster's bundled bash so these scripts can execute.
+	if (access("/bin/bash", F_OK) != 0) {
+		symlink(PORTMASTER_DIR "/bin/bash", "/bin/bash");
+	}
+}
+
+static void replace_progressor_binaries(void) {
+	// Port-bundled progressor binaries are SDL2/OpenGL GUI apps that fail on our display.
+	// Replace them with our show2.elf-based shell script that shows a loading screen.
+	char cmd[1024];
+	snprintf(cmd, sizeof(cmd),
+			 "for f in '%s/.ports'/*/progressor; do "
+			 "[ -f \"$f\" ] && cp -f '%s' \"$f\" && chmod +x \"$f\"; "
+			 "done",
+			 PORTS_ROM_DIR, PM_BUNDLED_PROGRESSOR);
+	system(cmd);
+}
+
 static void set_controller_layout(const char* layout) {
 	char cmd[512];
 	snprintf(cmd, sizeof(cmd), "cp -f '%s/gamecontrollerdb_%s.txt' '%s/gamecontrollerdb.txt'",
-			 PORTMASTER_DIR, layout, PORTMASTER_DIR);
+			 PM_FILES_DIR, layout, PORTMASTER_DIR);
 	system(cmd);
 }
 
@@ -531,6 +572,9 @@ static void toggle_layout(void) {
 }
 
 static void launch_pugwash(void) {
+	// Ensure /bin/bash exists for port scripts with #!/bin/bash shebangs
+	ensure_bash_symlink();
+
 	// Always ensure NextUI patches are applied before launching
 	// (PortMaster's first_run or updates may have overwritten them)
 	patch_control_txt();
@@ -562,6 +606,7 @@ static void launch_pugwash(void) {
 			 "export SDL_GAMECONTROLLERCONFIG_FILE='%s/gamecontrollerdb.txt' && "
 			 "cd '%s' && "
 			 "rm -f .pugwash-reboot && "
+			 "RETRIES=0; "
 			 "while true; do "
 			 // Patch platform.py before each pugwash run — fixes hardcoded PORTS paths
 			 // and disables portmaster_install (crashes on TrimUI). This handles both
@@ -575,8 +620,9 @@ static void launch_pugwash(void) {
 			 "fi; " PORTMASTER_DIR "/bin/python3 pugwash 2>&1 | tee " SDCARD_PATH "/.userdata/" PLATFORM "/logs/portmaster_pugwash.txt; "
 			 "[ -f .pugwash-reboot ] && rm -f .pugwash-reboot && continue; "
 			 // If platform.py still has unpatched paths, pugwash just extracted fresh
-			 // pylibs (first_run or update) and crashed — retry with patches applied
-			 "grep -q '/Roms/PORTS' \"$PP\" 2>/dev/null && continue; "
+			 // pylibs (first_run or update) and crashed — retry once with patches applied
+			 "if grep -q '/Roms/PORTS' \"$PP\" 2>/dev/null && [ $RETRIES -lt 1 ]; then "
+			 "RETRIES=$((RETRIES+1)); continue; fi; "
 			 "break; "
 			 "done",
 			 PORTMASTER_DIR, PORTMASTER_DIR);
@@ -595,6 +641,9 @@ static void launch_pugwash(void) {
 
 	// Fix hardcoded paths in any newly installed port scripts
 	fix_port_scripts();
+
+	// Replace port-bundled progressor binaries with our show2.elf-based script
+	//replace_progressor_binaries();
 }
 
 static void format_speed(int bps, char* buf, int buf_size) {
@@ -609,7 +658,6 @@ static void format_speed(int bps, char* buf, int buf_size) {
 static void start_download(void) {
 	PWR_disableSleep();
 	state = PM_STATE_DOWNLOADING;
-	download_file_index = 0;
 	download_progress = 0;
 	download_cancel = false;
 	download_speed = 0;
@@ -642,11 +690,10 @@ static void render_screen(void) {
 		break;
 
 	case PM_STATE_DOWNLOADING:
-	case PM_STATE_DOWNLOADING_DEPS:
 		UI_renderMenuBar(screen, "PortMaster");
 		{
 			char status_msg[128];
-			snprintf(status_msg, sizeof(status_msg), "Downloading %s...", download_labels[download_file_index]);
+			snprintf(status_msg, sizeof(status_msg), "Downloading PortMaster...");
 
 			char detail[128];
 			char speed_str[64];
@@ -668,7 +715,7 @@ static void render_screen(void) {
 
 	case PM_STATE_EXTRACTING:
 		UI_renderMenuBar(screen, "PortMaster");
-		UI_renderCenteredMessage(screen, "Extracting PortMaster...");
+		UI_renderCenteredMessage(screen, extract_status);
 		break;
 
 	case PM_STATE_PATCHING:
@@ -833,53 +880,13 @@ int main(int argc, char* argv[]) {
 			break;
 
 		case PM_STATE_EXTRACTING:
+			extract_status = "Extracting PortMaster...";
 			render_screen();
 			{
 				int ret = extract_portmaster();
 				if (ret == 0 && portmaster_installed()) {
-					// Start downloading dependencies (bin.tar.gz + lib.tar.gz)
-					state = PM_STATE_DOWNLOADING_DEPS;
-					download_file_index = 1;
-					download_progress = 0;
-					download_cancel = false;
-					download_speed = 0;
-					download_eta = 0;
-					download_result = 0;
-					download_done = false;
-					pthread_create(&download_thread, NULL, download_deps_thread_func, NULL);
-					download_thread_active = true;
-				} else {
-					cleanup_portmaster();
-					PWR_enableSleep();
-					state = PM_STATE_INSTALL_FAILED;
-				}
-			}
-			dirty = true;
-			break;
-
-		case PM_STATE_DOWNLOADING_DEPS:
-			dirty = true; // always redraw for progress
-			if (PAD_justPressed(BTN_B)) {
-				download_cancel = true;
-				if (download_thread_active) {
-					pthread_join(download_thread, NULL);
-					download_thread_active = false;
-				}
-				download_done = false;
-				unlink(PM_BIN_TAR);
-				unlink(PM_LIB_TAR);
-				cleanup_portmaster();
-				PWR_enableSleep();
-				state = PM_STATE_NOT_INSTALLED;
-			}
-			if (download_thread_active && download_done) {
-				pthread_join(download_thread, NULL);
-				download_thread_active = false;
-				download_done = false;
-				if (download_result > 0) {
-					// Extract deps and move to patching
 					render_screen();
-					int ret = extract_deps();
+					ret = extract_deps();
 					if (ret == 0) {
 						state = PM_STATE_PATCHING;
 					} else {
@@ -893,10 +900,12 @@ int main(int argc, char* argv[]) {
 					state = PM_STATE_INSTALL_FAILED;
 				}
 			}
+			dirty = true;
 			break;
 
 		case PM_STATE_PATCHING:
 			render_screen();
+			ensure_bash_symlink();
 			patch_control_txt();
 			patch_platform_py();
 			patch_device_info();

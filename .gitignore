@@ -8,6 +8,7 @@
 *.elf
 *.dtb
 *.zip
+!skeleton/EXTRAS/Emus/shared/PortMaster/files/*
 
 build
 releases
@@ -55,8 +56,6 @@ skeleton/EXTRAS/Emus/shared/drastic/*
 
 workspace/hash.txt
 workspace/readmes
-workspace/nextui-music-player
-workspace/nextui-video-player
-workspace/nextui-netplay
 compile_commands.json
 BUILD.md
+skeleton/EXTRAS/Emus/shared/PortMaster/files/.DS_Store

@@ -15,7 +15,8 @@ mkdir -p "$SHARED_USERDATA_PATH/PORTS-portmaster"
 
 EMU_DIR="$SDCARD_PATH/Emus/shared/PortMaster"
 export PATH="$EMU_DIR/bin:$EMU_DIR:$SHARED_SYSTEM_PATH/bin:$PATH"
-export LD_LIBRARY_PATH="$EMU_DIR/lib:/usr/trimui/lib:$LD_LIBRARY_PATH"
+[ ! -f /bin/bash ] && ln -sf "$EMU_DIR/bin/bash" /bin/bash
+export LD_LIBRARY_PATH="$EMU_DIR/lib/compat:$EMU_DIR/lib:/usr/trimui/lib:$LD_LIBRARY_PATH"
 export SSL_CERT_FILE="$EMU_DIR/ssl/certs/ca-certificates.crt"
 export SDL_GAMECONTROLLERCONFIG_FILE="$EMU_DIR/gamecontrollerdb.txt"
 export PYSDL2_DLL_PATH="/usr/trimui/lib"
@@ -42,6 +43,7 @@ export HM_SCRIPTS_DIR="$TEMP_DATA_DIR/ports"
 
 cleanup() {
     killall sleepmon.elf 2>/dev/null || true
+    killall show2.elf 2>/dev/null || true
     kill $SYNC_PID 2>/dev/null || true
     echo 0 > /sys/class/speaker/mute 2>/dev/null || true
 
