@@ -196,6 +196,7 @@ static void cleanup_portmaster(void) {
 	snprintf(cmd, sizeof(cmd),
 			 "find '%s' -mindepth 1 -maxdepth 1 "
 			 "! -name 'files' "
+			 "! -name 'patchedScripts' "
 			 "-exec rm -rf {} +",
 			 PORTMASTER_DIR);
 	system(cmd);
@@ -512,6 +513,21 @@ static void patch_control_txt(void) {
 	fclose(fp);
 }
 
+static void apply_patched_scripts(void) {
+	// Overwrite port scripts in Roms dir with patched versions from patchedScripts/
+	// Patched scripts fix issues like broken symlinks on exFAT, incorrect mount paths, etc.
+	char cmd[1024];
+	snprintf(cmd, sizeof(cmd),
+			 "PATCH_DIR='" PORTMASTER_DIR "/patchedScripts' && "
+			 "ROM_DIR='" PORTS_ROM_DIR "' && "
+			 "[ -d \"$PATCH_DIR\" ] && "
+			 "for f in \"$PATCH_DIR\"/*.sh; do "
+			 "[ -f \"$f\" ] && [ -f \"$ROM_DIR/$(basename \"$f\")\" ] && "
+			 "cp -f \"$f\" \"$ROM_DIR/$(basename \"$f\")\"; "
+			 "done");
+	system(cmd);
+}
+
 static void fix_port_scripts(void) {
 	// Fix hardcoded /roms/ports/PortMaster paths in port scripts after pugwash installs them
 	char cmd[2048];
@@ -641,6 +657,9 @@ static void launch_pugwash(void) {
 
 	// Fix hardcoded paths in any newly installed port scripts
 	fix_port_scripts();
+
+	// Replace port scripts with patched versions (fixes exFAT symlink issues, mount paths, etc.)
+	apply_patched_scripts();
 
 	// Replace port-bundled progressor binaries with our show2.elf-based script
 	//replace_progressor_binaries();
