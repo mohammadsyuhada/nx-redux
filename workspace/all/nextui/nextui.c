@@ -808,7 +808,8 @@ int main(int argc, char* argv[]) {
 				renderThumbnail(1);
 
 				GFX_clearLayers(LAYER_TRANSITION);
-				GFX_clearLayers(LAYER_SCROLLTEXT);
+				if (!ScrollText_isScrolling(&list_scroll))
+					GFX_clearLayers(LAYER_SCROLLTEXT);
 			}
 			if (!startgame) // dont flip if game gonna start
 				GFX_flip(screen);
