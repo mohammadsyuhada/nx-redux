@@ -8351,7 +8351,7 @@ static void Menu_loop(void) {
 
 			UI_renderMenuBar(screen, rom_name);
 
-			UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "OKAY", BTN_SLEEP == BTN_POWER ? "POWER" : "MENU", "SLEEP", NULL});
+			UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "SELECT", NULL});
 
 			// list
 			int oy = (((DEVICE_HEIGHT / FIXED_SCALE) - PADDING * 2) - (MENU_ITEM_COUNT * PILL_SIZE)) / 2;

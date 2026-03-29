@@ -26,6 +26,7 @@
 #include "quickmenu.h"
 #include "search.h"
 #include "ui_list.h"
+#include "ui_contextmenu.h"
 #include "recents.h"
 #include "types.h"
 
@@ -179,7 +180,68 @@ static int GameList_handleInput(unsigned long now, int currentScreen,
 	int total = top->entries->count;
 	int row_count = MAIN_ROW_COUNT - 1;
 
-	if (PAD_tappedMenu(now)) {
+	if (PAD_tappedMenu(now) && !ContextMenu_isOpen()) {
+		// Open contextual menu based on current page
+		Entry* entry = (total > 0) ? top->entries->items[selected] : NULL;
+		int idx = 0;
+		ContextMenuItem items[CONTEXTMENU_MAX_ITEMS];
+
+		if (stack->count == 1) {
+			// Root menu (main console list)
+			strncpy(items[idx].label, "Refresh Roms", CONTEXTMENU_MAX_TEXT);
+			items[idx].id = 1;
+			idx++;
+		} else if (exactMatch(top->path, FAUX_RECENT_PATH)) {
+			// Recently Played
+			if (entry) {
+				strncpy(items[idx].label, "Remove Game", CONTEXTMENU_MAX_TEXT);
+				items[idx].id = 10;
+				idx++;
+			}
+		} else if (Shortcuts_isInToolsFolder(top->path)) {
+			// Tools listing
+			if (entry) {
+				if (Shortcuts_exists(entry->path + strlen(SDCARD_PATH))) {
+					strncpy(items[idx].label, "Unpin Tool", CONTEXTMENU_MAX_TEXT);
+					items[idx].id = 21;
+				} else {
+					strncpy(items[idx].label, "Pin Tool", CONTEXTMENU_MAX_TEXT);
+					items[idx].id = 20;
+				}
+				idx++;
+			}
+		} else if (entry) {
+			// ROM listing (console directory or subfolder)
+			if (canPinEntry(entry)) {
+				if (Shortcuts_exists(entry->path + strlen(SDCARD_PATH))) {
+					strncpy(items[idx].label, "Unpin Item", CONTEXTMENU_MAX_TEXT);
+					items[idx].id = 31;
+				} else {
+					strncpy(items[idx].label, "Pin Item", CONTEXTMENU_MAX_TEXT);
+					items[idx].id = 30;
+				}
+				idx++;
+			}
+			if (entry->type == ENTRY_ROM) {
+				strncpy(items[idx].label, "Delete Rom", CONTEXTMENU_MAX_TEXT);
+				items[idx].id = 32;
+				idx++;
+				strncpy(items[idx].label, "Rename Rom", CONTEXTMENU_MAX_TEXT);
+				items[idx].id = 33;
+				idx++;
+				strncpy(items[idx].label, "Add to Collection", CONTEXTMENU_MAX_TEXT);
+				items[idx].id = 34;
+				idx++;
+			}
+		}
+
+		if (idx > 0) {
+			ContextMenu_open("Options", items, idx);
+			dirty = true;
+		}
+
+		return currentScreen;
+	} else if (PAD_quickMenuPressed(now)) {
 		currentScreen = SCREEN_QUICKMENU;
 		animationdirection = SLIDE_DOWN;
 		dirty = true;
@@ -453,6 +515,21 @@ int main(int argc, char* argv[]) {
 		if (PAD_anyPressed())
 			last_active_input = SDL_GetTicks();
 
+		// Handle context menu input (consumes input when open)
+		if (ContextMenu_isOpen()) {
+			// Keep long-press state machine ticking so it doesn't fire on stale state after close
+			PAD_longPressedMenu(now);
+			PAD_tappedMenu(now);
+
+			ContextMenuResult cmr = ContextMenu_handleInput();
+			if (cmr.action != CONTEXTMENU_NONE) {
+				dirty = true; // redraw underlying screen after close
+			} else if (PAD_anyJustPressed()) {
+				// Redraw overlay only when navigating (selection changed)
+				dirty = true;
+			}
+		}
+
 		int total = top->entries->count;
 
 		PWR_update(&dirty, &show_setting, NULL, NULL);
@@ -503,7 +580,7 @@ int main(int argc, char* argv[]) {
 				if (currentScreen == SCREEN_GAMELIST)
 					animationdirection = SLIDE_RIGHT;
 			}
-		} else {
+		} else if (!ContextMenu_isOpen()) {
 			int prevScreen = currentScreen;
 			currentScreen =
 				GameList_handleInput(now, currentScreen, show_setting);
@@ -540,7 +617,7 @@ int main(int argc, char* argv[]) {
 				if (lastScreen != SCREEN_GAMELIST)
 					GFX_clearLayers(LAYER_THUMBNAIL);
 				GFX_clearLayers(LAYER_SCROLLTEXT);
-				GFX_clearLayers(LAYER_IDK2);
+				GFX_clearLayers(LAYER_OVERLAY);
 			}
 			GFX_clear(screen);
 
@@ -763,7 +840,7 @@ int main(int argc, char* argv[]) {
 					GFX_clearLayers(LAYER_THUMBNAIL);
 					if (menuBarSurface)
 						GFX_drawOnLayer(menuBarSurface, 0, 0, screen->w,
-										menuBarSurface->h, 1.0f, 0, LAYER_IDK2);
+										menuBarSurface->h, 1.0f, 0, LAYER_OVERLAY);
 					GFX_flipHidden();
 					SDL_Surface* tmpNewScreen = GFX_captureRendererToSurface();
 					SDL_SetSurfaceBlendMode(tmpNewScreen, SDL_BLENDMODE_BLEND);
@@ -789,7 +866,7 @@ int main(int argc, char* argv[]) {
 							tmpNewScreen, 0, FIXED_HEIGHT, 0, 0,
 							FIXED_WIDTH, FIXED_HEIGHT, 250, LAYER_THUMBNAIL);
 					GFX_clearLayers(LAYER_THUMBNAIL);
-					GFX_clearLayers(LAYER_IDK2);
+					GFX_clearLayers(LAYER_OVERLAY);
 					SDL_FreeSurface(tmpNewScreen);
 				}
 				// animation done
@@ -810,6 +887,10 @@ int main(int argc, char* argv[]) {
 				GFX_clearLayers(LAYER_TRANSITION);
 				if (!ScrollText_isScrolling(&list_scroll))
 					GFX_clearLayers(LAYER_SCROLLTEXT);
+			}
+			if (ContextMenu_isOpen()) {
+				GFX_clearLayers(LAYER_SCROLLTEXT);
+				ContextMenu_render(screen);
 			}
 			if (!startgame) // dont flip if game gonna start
 				GFX_flip(screen);

@@ -1889,7 +1889,7 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, IndicatorType show_setting) {
 char** GFX_getHardwareHintPairs(IndicatorType show_setting) {
 	static char* brightness_pairs[] = {BRIGHTNESS_BUTTON_LABEL, "BRIGHTNESS", NULL};
 	static char* colortemp_pairs[] = {BRIGHTNESS_BUTTON_LABEL, "COLOR TEMP", NULL};
-	static char* default_pairs[] = {"MNU", "BRGHT", "SEL", "CLTMP", NULL};
+	static char* default_pairs[] = {"SELECT", "BRGHTNESS", NULL};
 
 	if (show_setting == INDICATOR_BRIGHTNESS)
 		return brightness_pairs;
@@ -3070,6 +3070,34 @@ int PAD_tappedSelect(uint32_t now) {
 	return PAD_tappedBtn(BTN_SELECT, now);
 }
 
+int PAD_longPressedMenu(uint32_t now) {
+#define MENU_LONG_PRESS_DELAY 500
+	static uint32_t press_start = 0;
+	static int fired = 0;
+	static int ignored = 0;
+
+	if (PAD_justPressed(BTN_MENU)) {
+		press_start = now;
+		fired = 0;
+		ignored = 0;
+	}
+
+	if (PAD_isPressed(BTN_MENU) && (PAD_isPressed(BTN_PLUS) || PAD_isPressed(BTN_MINUS))) {
+		ignored = 1;
+	}
+
+	if (PAD_isPressed(BTN_MENU) && !fired && !ignored && now - press_start >= MENU_LONG_PRESS_DELAY) {
+		fired = 1;
+		return 1;
+	}
+
+	return 0;
+}
+
+int PAD_quickMenuPressed(uint32_t now) {
+	return PAD_longPressedMenu(now) || PAD_justPressed(BTN_HOME);
+}
+
 ///////////////////////////////
 static struct VIB_Context {
 	int initialized;
@@ -3246,7 +3274,7 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 	static uint32_t checked_charge_at = 0; // timestamp of last time checking charge
 	static uint32_t setting_shown_at = 0;  // timestamp when settings started being shown
 	static uint32_t power_pressed_at = 0;  // timestamp when power button was just pressed
-	static uint32_t mod_unpressed_at = 0;  // timestamp of last time settings modifier key was NOT down
+	static uint32_t mod_unpressed_at = 0;  // timestamp of last time brightness modifier was NOT held
 	static uint32_t was_muted = -1;
 	if (was_muted == -1 && InitializedSettings())
 		was_muted = GetMute();
@@ -3307,29 +3335,34 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 
 	bool was_dirty = dirty; // dirty list (not including settings/battery)
 
-	// TODO: only delay hiding setting changes if that setting didn't require a modifier button be held, otherwise release as soon as modifier is released
+	// Track when brightness modifier is not held (for delayed overlay show)
+	if (!BTN_MOD_BRIGHTNESS || !PAD_isPressed(BTN_MOD_BRIGHTNESS)) {
+		mod_unpressed_at = now;
+	}
 
-	int delay_settings = BTN_MOD_BRIGHTNESS == BTN_MENU; // when both volume and brighness require a modifier hide settings as soon as it is released
+	// Hide the setting overlay after a delay, or immediately when modifier is released
 #define SETTING_DELAY 500
-	if (show_setting && (now - setting_shown_at >= SETTING_DELAY || !delay_settings) && !PAD_isPressed(BTN_MOD_VOLUME) && !PAD_isPressed(BTN_MOD_BRIGHTNESS) && !PAD_isPressed(BTN_MOD_COLORTEMP)) {
+	int brightness_held = BTN_MOD_BRIGHTNESS && PAD_isPressed(BTN_MOD_BRIGHTNESS);
+	int colortemp_held = BTN_MOD_COLORTEMP && PAD_isPressed(BTN_MOD_COLORTEMP);
+	if (show_setting && now - setting_shown_at >= SETTING_DELAY && !brightness_held && !colortemp_held) {
 		show_setting = INDICATOR_NONE;
 		dirty = true;
 	}
 
-	if (!show_setting && !PAD_isPressed(BTN_MOD_VOLUME) && !PAD_isPressed(BTN_MOD_BRIGHTNESS) && !PAD_isPressed(BTN_MOD_COLORTEMP)) {
-		mod_unpressed_at = now; // this feels backwards but is correct
-	}
-
+	// Show setting overlay when adjusting volume or brightness
 #define MOD_DELAY 250
+	int plus_minus_active = PAD_isPressed(BTN_MOD_PLUS) || PAD_isPressed(BTN_MOD_MINUS);
+	int plus_minus_repeated = PAD_justRepeated(BTN_MOD_PLUS) || PAD_justRepeated(BTN_MOD_MINUS);
+	int brightness_long_held = brightness_held && now - mod_unpressed_at >= MOD_DELAY;
 	if (
-		(
-			(PAD_isPressed(BTN_MOD_VOLUME) || PAD_isPressed(BTN_MOD_BRIGHTNESS) || PAD_isPressed(BTN_MOD_COLORTEMP)) &&
-			(!delay_settings || now - mod_unpressed_at >= MOD_DELAY)) ||
-		((!BTN_MOD_VOLUME || !BTN_MOD_BRIGHTNESS || !BTN_MOD_COLORTEMP) && (PAD_justRepeated(BTN_MOD_PLUS) || PAD_justRepeated(BTN_MOD_MINUS)))) {
+		(brightness_long_held) ||
+		(brightness_held && plus_minus_active) ||
+		(colortemp_held && plus_minus_active) ||
+		((!BTN_MOD_VOLUME || !BTN_MOD_BRIGHTNESS || !BTN_MOD_COLORTEMP) && plus_minus_repeated)) {
 		setting_shown_at = now;
-		if (PAD_isPressed(BTN_MOD_BRIGHTNESS)) {
+		if (brightness_held) {
 			show_setting = INDICATOR_BRIGHTNESS;
-		} else if (PAD_isPressed(BTN_MOD_COLORTEMP)) {
+		} else if (colortemp_held) {
 			show_setting = INDICATOR_COLORTEMP;
 		} else {
 			show_setting = INDICATOR_VOLUME;

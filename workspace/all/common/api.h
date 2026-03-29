@@ -267,7 +267,7 @@ enum {
 	LAYER_TRANSITION = 2,
 	LAYER_THUMBNAIL = 3,
 	LAYER_SCROLLTEXT = 4,
-	LAYER_IDK2 = 5, // unused?
+	LAYER_OVERLAY = 5,
 };
 
 SDL_Surface* GFX_init(int mode);
@@ -510,8 +510,10 @@ static inline int PAD_navigateMenu(int* selected, int count) {
 	return 0;
 }
 
-int PAD_tappedMenu(uint32_t now);	// special case, returns 1 on release of BTN_MENU within 250ms if BTN_PLUS/BTN_MINUS haven't been pressed
-int PAD_tappedSelect(uint32_t now); // special case, returns 1 on release of BTN_SELECT within 250ms if BTN_PLUS/BTN_MINUS haven't been pressed
+int PAD_tappedMenu(uint32_t now);		// special case, returns 1 on release of BTN_MENU within 250ms if BTN_PLUS/BTN_MINUS haven't been pressed
+int PAD_tappedSelect(uint32_t now);		// special case, returns 1 on release of BTN_SELECT within 250ms if BTN_PLUS/BTN_MINUS haven't been pressed
+int PAD_longPressedMenu(uint32_t now);	// returns 1 once when BTN_MENU held >= 500ms without BTN_PLUS/BTN_MINUS
+int PAD_quickMenuPressed(uint32_t now); // returns 1 on Home press, Menu long-press, or Menu tap
 
 ///////////////////////////////
 #define VIB_sleepStrength 4

@@ -177,8 +177,7 @@ int main(int argc, char* argv[]) {
 
 	// Input state
 	uint32_t val;
-	uint32_t menu_pressed = 0;
-	uint32_t menu2_pressed = 0;
+	uint32_t select_pressed = 0;
 
 	uint32_t up_pressed = 0;
 	uint32_t up_just_pressed = 0;
@@ -217,8 +216,7 @@ int main(int argc, char* argv[]) {
 		now = now_ms();
 		if (now - then > 1000) {
 			// Ignore stale input after sleep
-			menu_pressed = 0;
-			menu2_pressed = 0;
+			select_pressed = 0;
 			up_pressed = up_just_pressed = 0;
 			down_pressed = down_just_pressed = 0;
 			up_repeat_at = 0;
@@ -271,11 +269,8 @@ int main(int argc, char* argv[]) {
 					if (val)
 						down_repeat_at = now + REPEAT_DELAY_MS;
 					break;
-				case CODE_MENU2:
-					menu_pressed = val;
-					break;
-				case CODE_MENU0:
-					menu2_pressed = val;
+				case CODE_MENU0: // BTN_SELECT (314) — physical Select button
+					select_pressed = val;
 					break;
 				default:
 					break;
@@ -285,14 +280,10 @@ int main(int argc, char* argv[]) {
 
 		// Handle key repeat for volume/brightness
 		if (up_just_pressed || (up_pressed && now >= up_repeat_at)) {
-			if (menu_pressed) {
+			if (select_pressed) {
 				val = GetBrightness();
 				if (val < BRIGHTNESS_MAX)
 					SetBrightness(++val);
-			} else if (menu2_pressed) {
-				val = GetColortemp();
-				if (val < COLORTEMP_MAX)
-					SetColortemp(++val);
 			} else {
 				val = GetVolume();
 				if (val < VOLUME_MAX)
@@ -306,14 +297,10 @@ int main(int argc, char* argv[]) {
 		}
 
 		if (down_just_pressed || (down_pressed && now >= down_repeat_at)) {
-			if (menu_pressed) {
+			if (select_pressed) {
 				val = GetBrightness();
 				if (val > BRIGHTNESS_MIN)
 					SetBrightness(--val);
-			} else if (menu2_pressed) {
-				val = GetColortemp();
-				if (val > COLORTEMP_MIN)
-					SetColortemp(--val);
 			} else {
 				val = GetVolume();
 				if (val > VOLUME_MIN)

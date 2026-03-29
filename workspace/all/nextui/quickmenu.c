@@ -433,7 +433,7 @@ QuickMenuResult QuickMenu_handleInput(unsigned long now) {
 
 	int qm_total = qm_row == QM_ROW_ITEMS ? quick->count : quickActions->count;
 
-	if (PAD_justPressed(BTN_B) || PAD_tappedMenu(now)) {
+	if (PAD_justPressed(BTN_B) || PAD_tappedMenu(now) || PAD_quickMenuPressed(now)) {
 		result.screen = SCREEN_GAMELIST;
 		result.folderbgchanged = true;
 		result.dirty = true;
