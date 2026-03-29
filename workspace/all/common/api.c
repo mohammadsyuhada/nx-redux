@@ -3095,7 +3095,8 @@ int PAD_longPressedMenu(uint32_t now) {
 }
 
 int PAD_quickMenuPressed(uint32_t now) {
-	return PAD_longPressedMenu(now) || PAD_justPressed(BTN_HOME);
+	(void)now;
+	return 0; // Quick menu handled by trimui_osdd via keymon on all platforms
 }
 
 ///////////////////////////////

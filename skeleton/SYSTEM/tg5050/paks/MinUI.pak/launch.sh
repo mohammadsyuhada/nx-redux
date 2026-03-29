@@ -132,6 +132,10 @@ echo 0 > /sys/devices/system/cpu/cpu5/online
 
 keymon.elf & # &> $SDCARD_PATH/keymon.txt &
 
+# Start TrimUI OSD overlay daemon (system-wide quick menu)
+cd /usr/trimui/osd && ./trimui_osdd &
+cd "$SYSTEM_PATH/bin"
+
 # Ensure .asoundrc is clean at boot — /etc/asound.conf handles speaker routing.
 # audiomon will write .asoundrc when USB/BT devices connect.
 rm -f $USERDATA_PATH/.asoundrc
