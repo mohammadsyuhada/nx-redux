@@ -5,43 +5,28 @@
     "timeupdatevalue" : 3000,
     "widgetlist": [
         {
+            "package":"com.trimui.osd.slider.backlight"
+        },
+        {
+            "package":"com.trimui.osd.slider.volumeglobal"
+        },
+        {
             "package":"com.trimui.osd.toggle.ledenable"
         },
         {
             "package":"com.trimui.osd.toggle.rumble"
         },
         {
-            "package":"com.trimui.osd.app.musicplayer"
-        },
-        {
             "package":"com.trimui.osd.toggle.wifienable"
-        },        
+        },
         {
             "package":"com.trimui.osd.toggle.btenable"
         },
         {
-            "package":"com.trimui.osd.slider.volumeglobal"
+            "package":"com.trimui.osd.static.temperature"
         },
         {
             "package":"com.trimui.osd.static.cpuinfo"
-        },
-        {
-            "package":"com.trimui.osd.slider.backlight"
-        },
-        {
-            "package":"com.trimui.osd.static.temperature"
-        },        
-        {
-            "package":"com.trimui.osd.static.dram"
-        },
-        {
-            "package":"com.trimui.osd.toggle.mute"
-        },
-        {
-            "package":"com.trimui.osd.toggle.poweroff"
-        },
-        {
-            "package":"com.trimui.osd.static.battery"
-        }        
+        }
     ]
 }

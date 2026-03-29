@@ -1,23 +1,25 @@
+#!/bin/sh
+export LD_LIBRARY_PATH="/mnt/SDCARD/.system/tg5040/lib:/usr/trimui/lib:$LD_LIBRARY_PATH"
+OSDCTL="/mnt/SDCARD/.system/tg5040/bin/osdctl"
+
 if [ $# -eq 0 ] ; then
-    value=`shmvar brightness`
+    value=$($OSDCTL get brightness)
     mkdir -p /tmp/trimui_osd/slider_backlight/
     echo "$value/10" > /tmp/trimui_osd/slider_backlight/status
 else
-    if [ "$1" -eq 0 ] ; then
-        value=`shmvar brightness`
+    value=$($OSDCTL get brightness)
+    if [ $1 -eq 0 ] ; then
         value=$((value-1))
-        if [ "$value" -lt 0 ] ; then
+        if [ $value -lt 0 ] ; then
             value=0
         fi
-        echo $value > /tmp/system/set_brightness
-        echo "$value/10" > /tmp/trimui_osd/slider_backlight/status
-    elif [ "$1" -eq 1 ] ; then
-        value=`shmvar brightness`
+    elif [ $1 -eq 1 ] ; then
         value=$((value+1))
-        if [ "$value" -gt 10 ] ; then
+        if [ $value -gt 10 ] ; then
             value=10
         fi
-        echo $value > /tmp/system/set_brightness
-        echo "$value/10" > /tmp/trimui_osd/slider_backlight/status
     fi
+    $OSDCTL set brightness $value
+    mkdir -p /tmp/trimui_osd/slider_backlight/
+    echo "$value/10" > /tmp/trimui_osd/slider_backlight/status
 fi

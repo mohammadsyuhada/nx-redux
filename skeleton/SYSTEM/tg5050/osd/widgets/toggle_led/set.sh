@@ -1,20 +1,48 @@
+#!/bin/sh
+# TG5050 has 3 LED zones that must all be controlled together
+LED_MAIN="/sys/class/led_anim/max_scale"
+LED_LR="/sys/class/led_anim/max_scale_lr"
+LED_F1F2="/sys/class/led_anim/max_scale_f1f2"
+LED_SETTINGS="/mnt/SDCARD/.userdata/shared/ledsettings.txt"
+
+# Read configured brightness from ledsettings.txt (first zone's value)
+get_configured_brightness() {
+    if [ -f "$LED_SETTINGS" ]; then
+        val=$(grep -m1 "^brightness=" "$LED_SETTINGS" | cut -d= -f2)
+        [ -n "$val" ] && [ "$val" -gt 0 ] 2>/dev/null && echo "$val" && return
+    fi
+    echo "50"
+}
+
+led_is_on() {
+    value=$(cat $LED_MAIN 2>/dev/null)
+    [ "$value" != "0" ] && [ -n "$value" ] && return 0
+    return 1
+}
+
+set_all_leds() {
+    echo $1 > $LED_MAIN 2>/dev/null
+    echo $1 > $LED_LR 2>/dev/null
+    echo $1 > $LED_F1F2 2>/dev/null
+}
+
+mkdir -p /tmp/trimui_osd/toggle_led/
+
 if [ $# -eq 0 ] ; then
-    value=`shmvar ledswitch`
-    mkdir -p /tmp/trimui_osd/toggle_led/
-    echo $value > /tmp/trimui_osd/toggle_led/status
-else
-    value=`shmvar ledswitch`
-    if [ $value -eq 1 ] ; then
-        if ! [ -f /tmp/system/led_turn_off ] ; then
-            touch /tmp/system/led_turn_off
-        fi
-        mkdir -p /tmp/trimui_osd/toggle_led/
+    if led_is_on; then
+        echo 1 > /tmp/trimui_osd/toggle_led/status
+    else
         echo 0 > /tmp/trimui_osd/toggle_led/status
-    elif [ $value -eq 0 ] ; then
-        if ! [ -f /tmp/system/led_turn_on ] ; then
-            touch /tmp/system/led_turn_on            
-        fi
-        mkdir -p /tmp/trimui_osd/toggle_led/
+    fi
+else
+    if led_is_on; then
+        # Currently on, turn off
+        set_all_leds 0
+        echo 0 > /tmp/trimui_osd/toggle_led/status
+    else
+        # Currently off, turn on at configured brightness
+        brightness=$(get_configured_brightness)
+        set_all_leds $brightness
         echo 1 > /tmp/trimui_osd/toggle_led/status
     fi
 fi

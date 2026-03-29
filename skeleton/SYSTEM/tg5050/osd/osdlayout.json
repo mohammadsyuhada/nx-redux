@@ -5,12 +5,6 @@
     "timeupdatevalue" : 3000,
     "widgetlist": [
         {
-            "package":"com.trimui.osd.static.pic1"
-        },
-        {
-            "package":"com.trimui.osd.app.musicplayer"
-        },
-        {
             "package":"com.trimui.osd.slider.backlight"
         },
         {
@@ -27,7 +21,7 @@
         },
         {
             "package":"com.trimui.osd.toggle.rumble"
-        },        
+        },
         {
             "package":"com.trimui.osd.static.temperature"
         },

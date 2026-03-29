@@ -119,8 +119,32 @@ echo 1008000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
 
 keymon.elf & # &> $SDCARD_PATH/keymon.txt &
 
+# Overlay SD card OSD widget scripts onto /usr/trimui/osd/ (where trimui_osdd reads from)
+mount -o remount,rw /
+OSD_DST="/usr/trimui/osd"
+OSD_SRC="$SYSTEM_PATH/osd"
+# Copy custom osdlayout.json if present (back up stock as .stock)
+if [ -f "$OSD_SRC/osdlayout.json" ]; then
+    [ -f "$OSD_DST/osdlayout.json" ] && [ ! -f "$OSD_DST/osdlayout.json.stock" ] && \
+        mv "$OSD_DST/osdlayout.json" "$OSD_DST/osdlayout.json.stock"
+    cp "$OSD_SRC/osdlayout.json" "$OSD_DST/osdlayout.json"
+fi
+# Overlay widget scripts (back up stock as .stock)
+for widget_dir in "$OSD_DST"/widgets/*/; do
+    widget=$(basename "$widget_dir")
+    src="$OSD_SRC/widgets/$widget"
+    [ -d "$src" ] || continue
+    for script in set.sh update.sh refresh.sh launch.sh; do
+        [ -f "$src/$script" ] || continue
+        [ -f "${widget_dir}${script}" ] && [ ! -f "${widget_dir}${script}.stock" ] && \
+            mv "${widget_dir}${script}" "${widget_dir}${script}.stock"
+        cp "$src/$script" "${widget_dir}${script}"
+        chmod +x "${widget_dir}${script}"
+    done
+done
+
 # Start OSD overlay daemon (system-wide quick menu)
-cd "$SYSTEM_PATH/osd" && ./trimui_osdd &
+cd "$OSD_DST" && ./trimui_osdd &
 cd "$SYSTEM_PATH/bin"
 
 # Ensure .asoundrc is clean at boot — /etc/asound.conf handles speaker routing.

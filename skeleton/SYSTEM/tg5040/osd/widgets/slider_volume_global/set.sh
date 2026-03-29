@@ -1,23 +1,25 @@
+#!/bin/sh
+export LD_LIBRARY_PATH="/mnt/SDCARD/.system/tg5040/lib:/usr/trimui/lib:$LD_LIBRARY_PATH"
+OSDCTL="/mnt/SDCARD/.system/tg5040/bin/osdctl"
+
 if [ $# -eq 0 ] ; then
-    value=`shmvar vol`
+    value=$($OSDCTL get volume)
     mkdir -p /tmp/trimui_osd/slider_volume/
     echo "$value/20" > /tmp/trimui_osd/slider_volume/status
 else
-    if [ "$1" -eq 0 ] ; then
-        value=`shmvar vol`
+    value=$($OSDCTL get volume)
+    if [ $1 -eq 0 ] ; then
         value=$((value-1))
-        if [ "$value" -lt 0 ] ; then
+        if [ $value -lt 0 ] ; then
             value=0
         fi
-        echo $value > /tmp/system/set_volume
-        echo "$value/20" > /tmp/trimui_osd/slider_volume/status        
-    elif [ "$1" -eq 1 ] ; then
-        value=`shmvar vol`
+    elif [ $1 -eq 1 ] ; then
         value=$((value+1))
         if [ $value -gt 20 ] ; then
             value=20
         fi
-        echo $value > /tmp/system/set_volume
-        echo "$value/20" > /tmp/trimui_osd/slider_volume/status
     fi
+    $OSDCTL set volume $value
+    mkdir -p /tmp/trimui_osd/slider_volume/
+    echo "$value/20" > /tmp/trimui_osd/slider_volume/status
 fi

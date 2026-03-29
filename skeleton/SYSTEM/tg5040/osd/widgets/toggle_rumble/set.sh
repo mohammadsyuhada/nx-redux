@@ -1,20 +1,31 @@
+#!/bin/sh
+RUMBLE_STATE="/tmp/trimui_osd/toggle_rumble/enabled"
+RUMBLE_GPIO="/sys/class/gpio/gpio227/value"
+
+mkdir -p /tmp/trimui_osd/toggle_rumble/
+
+# Initialize state file from current setting if it doesn't exist
+if [ ! -f "$RUMBLE_STATE" ]; then
+    echo 1 > "$RUMBLE_STATE"
+fi
+
 if [ $# -eq 0 ] ; then
-    value=`shmvar rumbleswitch`
-    mkdir -p /tmp/trimui_osd/toggle_rumble/
+    value=$(cat "$RUMBLE_STATE" 2>/dev/null)
+    [ -z "$value" ] && value=1
     echo $value > /tmp/trimui_osd/toggle_rumble/status
 else
-    value=`shmvar rumbleswitch`
-    if [ $value -eq 1 ] ; then
-        if ! [ -f /tmp/system/rumble_turn_off ] ; then
-            touch /tmp/system/rumble_turn_off
-        fi
-        mkdir -p /tmp/trimui_osd/toggle_rumble/
+    value=$(cat "$RUMBLE_STATE" 2>/dev/null)
+    [ -z "$value" ] && value=1
+    if [ "$value" -eq 1 ] ; then
+        # Currently on, turn off
+        echo 0 > "$RUMBLE_STATE"
         echo 0 > /tmp/trimui_osd/toggle_rumble/status
-    elif [ $value -eq 0 ] ; then
-        if ! [ -f /tmp/system/rumble_turn_on ] ; then
-            touch /tmp/system/rumble_turn_on            
-        fi
-        mkdir -p /tmp/trimui_osd/toggle_rumble/
+    else
+        # Currently off, turn on — give brief haptic feedback
+        echo 1 > "$RUMBLE_STATE"
+        echo 1 > $RUMBLE_GPIO 2>/dev/null
+        sleep 0.1
+        echo 0 > $RUMBLE_GPIO 2>/dev/null
         echo 1 > /tmp/trimui_osd/toggle_rumble/status
     fi
 fi

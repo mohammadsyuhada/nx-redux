@@ -1,3 +1,7 @@
-value=`shmvar wifiswitch`
+#!/bin/sh
 mkdir -p /tmp/trimui_osd/toggle_wifi/
-echo $value > /tmp/trimui_osd/toggle_wifi/status
+if ip link show wlan0 2>/dev/null | grep -q "UP"; then
+    echo 1 > /tmp/trimui_osd/toggle_wifi/status
+else
+    echo 0 > /tmp/trimui_osd/toggle_wifi/status
+fi
