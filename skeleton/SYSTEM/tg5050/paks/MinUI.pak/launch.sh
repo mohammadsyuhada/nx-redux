@@ -87,7 +87,7 @@ echo 0 > /sys/class/motor/level
 #######################################
 
 export LD_LIBRARY_PATH=$SYSTEM_PATH/lib:$SHARED_SYSTEM_PATH/lib:/usr/trimui/lib:$LD_LIBRARY_PATH
-export PATH=$SYSTEM_PATH/bin:$SHARED_SYSTEM_PATH/bin:/usr/trimui/bin:$PATH
+export PATH=$SYSTEM_PATH/bin:$SHARED_SYSTEM_PATH/bin:$PATH
 
 
 echo before leds `cat /proc/uptime` >> /tmp/nextui_boottime
@@ -132,8 +132,8 @@ echo 0 > /sys/devices/system/cpu/cpu5/online
 
 keymon.elf & # &> $SDCARD_PATH/keymon.txt &
 
-# Start TrimUI OSD overlay daemon (system-wide quick menu)
-cd /usr/trimui/osd && ./trimui_osdd &
+# Start OSD overlay daemon (system-wide quick menu)
+cd "$SYSTEM_PATH/osd" && ./trimui_osdd &
 cd "$SYSTEM_PATH/bin"
 
 # Ensure .asoundrc is clean at boot — /etc/asound.conf handles speaker routing.

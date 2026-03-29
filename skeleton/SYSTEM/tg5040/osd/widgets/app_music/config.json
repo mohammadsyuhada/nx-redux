@@ -1,0 +1,22 @@
+{
+    "type":"app",
+    "package":"com.trimui.osd.app.musicplayer",
+    "label":"Music",
+    "label.ch.lang":"音乐",
+    "gridwidth":4,
+    "gridheight":2,
+    "icon0":"icon0.png",
+    "icon1":"icon1.png",
+    "launch":"launch.sh",
+    "update":"",
+    "set":"",
+    "status":"",
+    "cmd" : "/tmp/trimui_music/widget_cmd",
+    "canvasv" : "/tmp/trimui_music/vfb_osd",
+    "canvasp" : "",
+    "canvaswidth" : 540,
+    "canvasheight" : 260,
+    "canvasbpp" : 32,
+    "canvasfps" : 12,
+    "description":"TRIMUI Music Player Widget"
+}

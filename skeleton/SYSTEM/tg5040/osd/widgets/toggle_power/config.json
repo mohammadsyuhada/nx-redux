@@ -1,0 +1,13 @@
+{
+    "type":"toggle",
+    "package":"com.trimui.osd.toggle.poweroff",
+    "label":"Power",
+    "label.ch.lang":"关机",
+    "gridwidth":1,
+    "gridheight":1,
+    "icon0":"icon-power-off.png",
+    "icon1":"icon-power-off.png",
+    "launch":"set.sh",
+    "status":"",
+    "description":"Power Off Switch"
+}

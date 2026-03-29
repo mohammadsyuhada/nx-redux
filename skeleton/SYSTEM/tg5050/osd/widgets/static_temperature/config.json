@@ -1,0 +1,14 @@
+{
+    "type":"static",
+    "package":"com.trimui.osd.static.temperature",
+    "label":"Temperature",
+    "label.ch.lang":"温度",
+    "gridwidth":2,
+    "gridheight":1,
+    "icon0":"icon-temp-info.png",
+    "icon1":"",
+    "launch":"set.sh",
+    "update":"refresh.sh",
+    "status":"/tmp/trimui_osd/toggle_temperature/temperature",
+    "description":""
+}

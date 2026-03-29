@@ -1,0 +1,14 @@
+{
+    "type":"toggle",
+    "package":"com.trimui.osd.toggle.ledenable",
+    "label":"LED",
+    "label.ch.lang":"氛围灯",
+    "gridwidth":1,
+    "gridheight":1,
+    "icon0":"icon-led-off.png",
+    "icon1":"icon-led-on.png",
+    "launch":"set.sh",
+    "update":"update.sh",
+    "status":"/tmp/trimui_osd/toggle_led/status",
+    "description":"LED Enable Switch"
+}
