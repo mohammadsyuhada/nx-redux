@@ -33,6 +33,7 @@ NX Redux is where those two goals meet.
 
 Improvements:
 - Refactored `nextui.c`, splitting the monolithic code into smaller, focused components.
+- Refactored `minarch.c`, splitting the ~9,000-line monolith into focused `ma_*` modules (game, saves, rewind, config, shaders, options, input, video, audio, core, menu and more).
 - Applied various bug fixes and optimizations across the refactored components.
 - Added clang-format tooling with enforced code style and VSCode support.
 - Introduced reusable UI components for consistent design across tools.
@@ -82,13 +83,17 @@ New Features:
 - Bundled `PPSSPP Playstation Portable` emulator.
 - Bundled `Portmaster` in the Tools.
     - Configured by default with Nintendo input layout (configurable)
+- Added `Netplay` for local wireless multiplayer, available from the in-game menu.
+    - Host or join over a regular Wi-Fi network, or let the host device start its own hotspot (no router needed).
+    - `GB Link` support for Game Boy (gambatte) — link cable games like Pokémon trades and battles.
+    - `GBA Link` support for Game Boy Advance (gpSP) — wireless adapter and link cable games.
+    - Classic lockstep netplay for the other supported cores.
+    - Save states, fast-forward and rewind are automatically disabled during a session to protect the connection.
 
 Upcoming Features:
 - Built-in ROMs collection management
-- Integration with [Netplay](https://github.com/mohammadsyuhada/nextui-netplay)
 - Netplay for `Mupen64Plus Nintendo 64` emulator
-- Netplay for `PPSSPP Playstation Portable` emulator 
-- Minarch refactor
+- Netplay for `PPSSPP Playstation Portable` emulator
 
 Ongoing focus areas:
 - Cleaner, more maintainable core code
