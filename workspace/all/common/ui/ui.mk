@@ -13,6 +13,7 @@ CFLAGS += $(UI_INCDIR)
 
 UI_COMPONENT_SRCS = \
 	$(UI_DIR)/ui_draw.c \
+	$(UI_DIR)/ui_fonts.c \
 	$(UI_DIR)/ui_icons.c \
 	$(UI_DIR)/ui_image.c \
 	$(UI_DIR)/ui_message.c \

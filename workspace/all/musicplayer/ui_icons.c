@@ -4,7 +4,7 @@
 #include <SDL2/SDL_image.h>
 #include "defines.h"
 #include "ui_icons.h"
-#include "ui/ui_icons.h" // common empty-icon component (local header shadows the name)
+#include "ui/ui_icons.h" // common icon helpers (local header shadows the name)
 
 #define ICON_FOLDER RES_PATH "/icon-folder.png"
 #define ICON_AUDIO RES_PATH "/icon-audio.png"
@@ -51,79 +51,24 @@ typedef struct {
 
 static IconSet icons = {0};
 
-// Invert colors of a surface (black <-> white)
-// Creates a new surface with inverted colors, preserving alpha
-static SDL_Surface* invert_surface(SDL_Surface* src) {
-	if (!src)
-		return NULL;
-
-	// Create a new surface with same format
-	SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(
-		0, src->w, src->h, 32, SDL_PIXELFORMAT_RGBA32);
-
-	if (!dst)
-		return NULL;
-
-	// Lock surfaces for direct pixel access
-	SDL_LockSurface(src);
-	SDL_LockSurface(dst);
-
-	Uint32* src_pixels = (Uint32*)src->pixels;
-	Uint32* dst_pixels = (Uint32*)dst->pixels;
-	int pixel_count = src->w * src->h;
-
-	for (int i = 0; i < pixel_count; i++) {
-		Uint8 r, g, b, a;
-		SDL_GetRGBA(src_pixels[i], src->format, &r, &g, &b, &a);
-
-		// Invert RGB, keep alpha
-		r = 255 - r;
-		g = 255 - g;
-		b = 255 - b;
-
-		dst_pixels[i] = SDL_MapRGBA(dst->format, r, g, b, a);
-	}
-
-	SDL_UnlockSurface(dst);
-	SDL_UnlockSurface(src);
-
-	return dst;
-}
-
-// Load an icon and create its inverted version
-static void load_icon_pair(const char* path, SDL_Surface** original, SDL_Surface** inverted) {
-	*original = IMG_Load(path);
-	if (*original) {
-		// Convert to RGBA32 for consistent pixel access
-		SDL_Surface* converted = SDL_ConvertSurfaceFormat(*original, SDL_PIXELFORMAT_RGBA32, 0);
-		if (converted) {
-			SDL_FreeSurface(*original);
-			*original = converted;
-		}
-		*inverted = invert_surface(*original);
-	} else {
-		*inverted = NULL;
-	}
-}
-
 // Initialize icons
 void Icons_init(void) {
 	if (icons.loaded)
 		return;
 
-	load_icon_pair(ICON_FOLDER, &icons.folder, &icons.folder_inv);
-	load_icon_pair(ICON_AUDIO, &icons.audio, &icons.audio_inv);
-	load_icon_pair(ICON_PLAY_ALL, &icons.play_all, &icons.play_all_inv);
-	load_icon_pair(ICON_MP3, &icons.mp3, &icons.mp3_inv);
-	load_icon_pair(ICON_FLAC, &icons.flac, &icons.flac_inv);
-	load_icon_pair(ICON_OGG, &icons.ogg, &icons.ogg_inv);
-	load_icon_pair(ICON_WAV, &icons.wav, &icons.wav_inv);
-	load_icon_pair(ICON_M4A, &icons.m4a, &icons.m4a_inv);
-	load_icon_pair(ICON_AAC, &icons.aac, &icons.aac_inv);
-	load_icon_pair(ICON_OPUS, &icons.opus, &icons.opus_inv);
+	UI_loadIconPair(ICON_FOLDER, &icons.folder, &icons.folder_inv);
+	UI_loadIconPair(ICON_AUDIO, &icons.audio, &icons.audio_inv);
+	UI_loadIconPair(ICON_PLAY_ALL, &icons.play_all, &icons.play_all_inv);
+	UI_loadIconPair(ICON_MP3, &icons.mp3, &icons.mp3_inv);
+	UI_loadIconPair(ICON_FLAC, &icons.flac, &icons.flac_inv);
+	UI_loadIconPair(ICON_OGG, &icons.ogg, &icons.ogg_inv);
+	UI_loadIconPair(ICON_WAV, &icons.wav, &icons.wav_inv);
+	UI_loadIconPair(ICON_M4A, &icons.m4a, &icons.m4a_inv);
+	UI_loadIconPair(ICON_AAC, &icons.aac, &icons.aac_inv);
+	UI_loadIconPair(ICON_OPUS, &icons.opus, &icons.opus_inv);
 	// Podcast badge icons
-	load_icon_pair(ICON_COMPLETE, &icons.complete, &icons.complete_inv);
-	load_icon_pair(ICON_DOWNLOAD, &icons.download, &icons.download_inv);
+	UI_loadIconPair(ICON_COMPLETE, &icons.complete, &icons.complete_inv);
+	UI_loadIconPair(ICON_DOWNLOAD, &icons.download, &icons.download_inv);
 	UI_initEmptyIcon();
 
 	// Consider loaded if at least folder icon exists
@@ -132,103 +77,18 @@ void Icons_init(void) {
 
 // Cleanup icons
 void Icons_quit(void) {
-	if (icons.folder) {
-		SDL_FreeSurface(icons.folder);
-		icons.folder = NULL;
-	}
-	if (icons.folder_inv) {
-		SDL_FreeSurface(icons.folder_inv);
-		icons.folder_inv = NULL;
-	}
-	if (icons.audio) {
-		SDL_FreeSurface(icons.audio);
-		icons.audio = NULL;
-	}
-	if (icons.audio_inv) {
-		SDL_FreeSurface(icons.audio_inv);
-		icons.audio_inv = NULL;
-	}
-	if (icons.play_all) {
-		SDL_FreeSurface(icons.play_all);
-		icons.play_all = NULL;
-	}
-	if (icons.play_all_inv) {
-		SDL_FreeSurface(icons.play_all_inv);
-		icons.play_all_inv = NULL;
-	}
-	if (icons.mp3) {
-		SDL_FreeSurface(icons.mp3);
-		icons.mp3 = NULL;
-	}
-	if (icons.mp3_inv) {
-		SDL_FreeSurface(icons.mp3_inv);
-		icons.mp3_inv = NULL;
-	}
-	if (icons.flac) {
-		SDL_FreeSurface(icons.flac);
-		icons.flac = NULL;
-	}
-	if (icons.flac_inv) {
-		SDL_FreeSurface(icons.flac_inv);
-		icons.flac_inv = NULL;
-	}
-	if (icons.ogg) {
-		SDL_FreeSurface(icons.ogg);
-		icons.ogg = NULL;
-	}
-	if (icons.ogg_inv) {
-		SDL_FreeSurface(icons.ogg_inv);
-		icons.ogg_inv = NULL;
-	}
-	if (icons.wav) {
-		SDL_FreeSurface(icons.wav);
-		icons.wav = NULL;
-	}
-	if (icons.wav_inv) {
-		SDL_FreeSurface(icons.wav_inv);
-		icons.wav_inv = NULL;
-	}
-	if (icons.m4a) {
-		SDL_FreeSurface(icons.m4a);
-		icons.m4a = NULL;
-	}
-	if (icons.m4a_inv) {
-		SDL_FreeSurface(icons.m4a_inv);
-		icons.m4a_inv = NULL;
-	}
-	if (icons.aac) {
-		SDL_FreeSurface(icons.aac);
-		icons.aac = NULL;
-	}
-	if (icons.aac_inv) {
-		SDL_FreeSurface(icons.aac_inv);
-		icons.aac_inv = NULL;
-	}
-	if (icons.opus) {
-		SDL_FreeSurface(icons.opus);
-		icons.opus = NULL;
-	}
-	if (icons.opus_inv) {
-		SDL_FreeSurface(icons.opus_inv);
-		icons.opus_inv = NULL;
-	}
-	// Podcast badge icons
-	if (icons.complete) {
-		SDL_FreeSurface(icons.complete);
-		icons.complete = NULL;
-	}
-	if (icons.complete_inv) {
-		SDL_FreeSurface(icons.complete_inv);
-		icons.complete_inv = NULL;
-	}
-	if (icons.download) {
-		SDL_FreeSurface(icons.download);
-		icons.download = NULL;
-	}
-	if (icons.download_inv) {
-		SDL_FreeSurface(icons.download_inv);
-		icons.download_inv = NULL;
-	}
+	UI_freeIconPair(&icons.folder, &icons.folder_inv);
+	UI_freeIconPair(&icons.audio, &icons.audio_inv);
+	UI_freeIconPair(&icons.play_all, &icons.play_all_inv);
+	UI_freeIconPair(&icons.mp3, &icons.mp3_inv);
+	UI_freeIconPair(&icons.flac, &icons.flac_inv);
+	UI_freeIconPair(&icons.ogg, &icons.ogg_inv);
+	UI_freeIconPair(&icons.wav, &icons.wav_inv);
+	UI_freeIconPair(&icons.m4a, &icons.m4a_inv);
+	UI_freeIconPair(&icons.aac, &icons.aac_inv);
+	UI_freeIconPair(&icons.opus, &icons.opus_inv);
+	UI_freeIconPair(&icons.complete, &icons.complete_inv);
+	UI_freeIconPair(&icons.download, &icons.download_inv);
 	UI_quitEmptyIcon();
 	icons.loaded = false;
 }

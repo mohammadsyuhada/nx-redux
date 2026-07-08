@@ -1,12 +1,8 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdbool.h>
-
-#include "defines.h"
+#include "ui_fonts.h"
 #include "api.h"
 #include "config.h"
-#include "ui_fonts.h"
+#include "defines.h"
+#include <string.h>
 
 // Get text color for list items based on selection state
 SDL_Color Fonts_getListTextColor(bool selected) {

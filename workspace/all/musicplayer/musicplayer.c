@@ -13,7 +13,9 @@
 
 // UI modules
 #include "ui_icons.h"
+#include "ui_podcast.h"
 #include "ui_splash.h"
+#include "wifi.h"
 
 // Module architecture
 #include "module_common.h"
@@ -58,6 +60,9 @@ int main(int argc, char* argv[]) {
 	WIFI_init();
 	psa_crypto_init();
 	Icons_init();
+
+	// The connecting screen must also reset the podcast title scroll state
+	Wifi_setConnectScreenHook(Podcast_clearTitleScroll);
 
 	signal(SIGINT, sigHandler);
 	signal(SIGTERM, sigHandler);

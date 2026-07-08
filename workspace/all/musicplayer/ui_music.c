@@ -8,6 +8,7 @@
 #include "ui_music.h"
 #include "ui_icons.h"
 #include "ui_utils.h"
+#include "utils.h"
 #include "ui_list.h"
 #include "ui_album_art.h"
 #include "spectrum.h"
@@ -401,14 +402,14 @@ void PlayTime_renderGPU(void) {
 
 	// Render position text
 	char pos_str[16];
-	format_time(pos_str, position);
+	format_time(pos_str, position / 1000);
 	SDL_Surface* pos_surf = TTF_RenderUTF8_Blended(font.small, pos_str, COLOR_WHITE);
 	if (!pos_surf)
 		return;
 
 	// Render duration text
 	char dur_str[16];
-	format_time(dur_str, duration);
+	format_time(dur_str, duration / 1000);
 	SDL_Surface* dur_surf = TTF_RenderUTF8_Blended(font.tiny, dur_str, COLOR_GRAY);
 
 	// Calculate total width needed

@@ -10,7 +10,7 @@
 #include "ui_menubar.h"
 #include "ui_subscriptions.h"
 #include "ui_fonts.h"
-#include "ui_utils.h"
+#include "utils.h"
 #include "subscriptions.h"
 
 // Avatar thumbnail cache (in-memory)

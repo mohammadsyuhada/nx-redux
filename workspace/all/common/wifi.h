@@ -14,4 +14,8 @@ bool Wifi_ensureConnected(SDL_Surface* scr, IndicatorType show_setting);
 // Check if WiFi is currently connected
 bool Wifi_isConnected(void);
 
+// Register an app hook run before each "Connecting..." render, replacing the
+// default scroll-layer clear (e.g. to also reset app-side scroll state)
+void Wifi_setConnectScreenHook(void (*hook)(void));
+
 #endif

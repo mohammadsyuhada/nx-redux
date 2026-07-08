@@ -262,6 +262,16 @@ void serializeTime(char* dest_str, int nTime) {
 		sprintf(dest_str, "%ds", nTime);
 	}
 }
+void format_time(char* buf, int seconds) {
+	int hrs = seconds / 3600;
+	int mins = (seconds % 3600) / 60;
+	int secs = seconds % 60;
+	if (hrs > 0) {
+		sprintf(buf, "%d:%02d:%02d", hrs, mins, secs);
+	} else {
+		sprintf(buf, "%02d:%02d", mins, secs);
+	}
+}
 int countChar(const char* str, char ch) {
 	size_t i;
 	int count = 0;

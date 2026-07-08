@@ -8,7 +8,7 @@
 #include "ui_buttonhintbar.h"
 #include "ui_emptystate.h"
 #include "ui_youtube.h"
-#include "ui_utils.h"
+#include "utils.h"
 
 // ============================================
 // Carousel: gradient overlay + fullscreen thumbnail

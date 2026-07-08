@@ -9,7 +9,7 @@ static SDL_Surface* empty_icon = NULL;
 static SDL_Surface* empty_icon_inv = NULL;
 static bool empty_icon_loaded = false;
 
-static SDL_Surface* invert_icon_surface(SDL_Surface* src) {
+SDL_Surface* UI_invertIconSurface(SDL_Surface* src) {
 	if (!src)
 		return NULL;
 	SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(
@@ -34,30 +34,41 @@ static SDL_Surface* invert_icon_surface(SDL_Surface* src) {
 	return dst;
 }
 
+void UI_loadIconPair(const char* path, SDL_Surface** original, SDL_Surface** inverted) {
+	*original = IMG_Load(path);
+	if (*original) {
+		// Convert to RGBA32 for consistent pixel access
+		SDL_Surface* converted = SDL_ConvertSurfaceFormat(*original, SDL_PIXELFORMAT_RGBA32, 0);
+		if (converted) {
+			SDL_FreeSurface(*original);
+			*original = converted;
+		}
+		*inverted = UI_invertIconSurface(*original);
+	} else {
+		*inverted = NULL;
+	}
+}
+
+void UI_freeIconPair(SDL_Surface** original, SDL_Surface** inverted) {
+	if (*original) {
+		SDL_FreeSurface(*original);
+		*original = NULL;
+	}
+	if (*inverted) {
+		SDL_FreeSurface(*inverted);
+		*inverted = NULL;
+	}
+}
+
 void UI_initEmptyIcon(void) {
 	if (empty_icon_loaded)
 		return;
-	empty_icon = IMG_Load(ICON_EMPTY_PATH);
-	if (empty_icon) {
-		SDL_Surface* converted = SDL_ConvertSurfaceFormat(empty_icon, SDL_PIXELFORMAT_RGBA32, 0);
-		if (converted) {
-			SDL_FreeSurface(empty_icon);
-			empty_icon = converted;
-		}
-		empty_icon_inv = invert_icon_surface(empty_icon);
-	}
+	UI_loadIconPair(ICON_EMPTY_PATH, &empty_icon, &empty_icon_inv);
 	empty_icon_loaded = true;
 }
 
 void UI_quitEmptyIcon(void) {
-	if (empty_icon) {
-		SDL_FreeSurface(empty_icon);
-		empty_icon = NULL;
-	}
-	if (empty_icon_inv) {
-		SDL_FreeSurface(empty_icon_inv);
-		empty_icon_inv = NULL;
-	}
+	UI_freeIconPair(&empty_icon, &empty_icon_inv);
 	empty_icon_loaded = false;
 }
 

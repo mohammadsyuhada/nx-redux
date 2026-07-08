@@ -1,14 +1,4 @@
-#include <stdio.h>
-#include <string.h>
 #include "ui_utils.h"
-
-// Format duration as MM:SS
-void format_time(char* buf, int ms) {
-	int total_secs = ms / 1000;
-	int mins = total_secs / 60;
-	int secs = total_secs % 60;
-	sprintf(buf, "%02d:%02d", mins, secs);
-}
 
 // Get format name string
 const char* get_format_name(AudioFormat format) {

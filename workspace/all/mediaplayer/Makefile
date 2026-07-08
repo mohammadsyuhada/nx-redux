@@ -36,14 +36,14 @@ INCDIR += -I../include -I../include/mbedtls_lib
 # mbedTLS source files (for HTTPS support)
 MBEDTLS_SRC = $(wildcard ../include/mbedtls_lib/*.c)
 
-SOURCE = $(TARGET).c ffplay_engine.c video_browser.c settings.c wifi.c \
+SOURCE = $(TARGET).c ffplay_engine.c video_browser.c settings.c \
          youtube.c subscriptions.c iptv.c iptv_curated.c \
          module_common.c module_menu.c module_player.c module_youtube.c module_subscriptions.c module_iptv.c module_settings.c \
-         ui_fonts.c ui_icons.c ui_utils.c ui_main.c ui_player.c ui_youtube.c ui_subscriptions.c ui_iptv.c ui_settings.c \
+         ui_icons.c ui_main.c ui_player.c ui_youtube.c ui_subscriptions.c ui_iptv.c ui_settings.c \
          ../include/parson/parson.c \
          ../include/mbedtls_entropy_alt.c \
          $(MBEDTLS_SRC) \
-         ../common/utils.c ../common/api.c ../common/audio_manager.c ../common/config.c ../common/scaler.c ../common/display_helper.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_toast.c $(UI_DIR)/ui_list.c $(UI_DIR)/ui_keyboard.c ../common/ytdlp_updater.c ../common/wget_fetch.c \
+         ../common/utils.c ../common/api.c ../common/audio_manager.c ../common/config.c ../common/scaler.c ../common/display_helper.c ../common/wifi.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_toast.c $(UI_DIR)/ui_list.c $(UI_DIR)/ui_keyboard.c ../common/ytdlp_updater.c ../common/wget_fetch.c \
          ../../$(PLATFORM)/platform/platform.c
 
 CC = $(CROSS_COMPILE)gcc

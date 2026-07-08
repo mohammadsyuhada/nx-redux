@@ -1,18 +1,29 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include "defines.h"
+
 #include "api.h"
 #include "wifi.h"
-#include "ui_podcast.h" // For Podcast_clearTitleScroll
 
 // WiFi connection timeout (in 500ms intervals)
 #define WIFI_CONNECT_TIMEOUT_INTERVALS 10 // 5 seconds total
 
+// Optional app hook run before each "Connecting..." render, replacing the
+// default scroll-layer clear (apps may need to reset their own scroll state)
+static void (*pre_render_hook)(void) = NULL;
+
+void Wifi_setConnectScreenHook(void (*hook)(void)) {
+	pre_render_hook = hook;
+}
+
 // Render a simple "Connecting..." screen
 static void render_connecting_screen(SDL_Surface* scr, IndicatorType show_setting) {
 	// Clear GPU scroll text layer to prevent bleeding through
-	Podcast_clearTitleScroll();
+	if (pre_render_hook) {
+		pre_render_hook();
+	} else {
+		GFX_clearLayers(LAYER_SCROLLTEXT);
+	}
 	GFX_clear(scr);
 
 	int hw = scr->w;

@@ -25,6 +25,8 @@ void wrapString(char* string, size_t max_len, size_t max_lines);
 size_t trimString(char* out, size_t len, const char* str, bool first);
 void removeParentheses(char* str_out, const char* str_in);
 void serializeTime(char* dest_str, int nTime);
+// Format duration as HH:MM:SS or MM:SS
+void format_time(char* buf, int seconds);
 int countChar(const char* str, char ch);
 char* removeExtension(const char* myStr);
 const char* baseName(const char* filename);
