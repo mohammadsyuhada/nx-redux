@@ -13,7 +13,7 @@
 
 // UI modules
 #include "ui_icons.h"
-#include "ui_components.h"
+#include "ui_splash.h"
 
 // Module architecture
 #include "module_common.h"

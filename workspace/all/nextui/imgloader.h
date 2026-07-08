@@ -53,4 +53,8 @@ void onBackgroundLoaded(SDL_Surface* surface);
 bool startLoadThumb(const char* thumbpath);
 int thumbCheckAsyncLoaded(void);
 
+// Layer render helpers shared by the main render loop (moved from nextui.c)
+void updateBackgroundLayer(SDL_Surface* blackBG);
+void renderThumbnail(int reset_changed, bool hide);
+
 #endif // IMGLOADER_H

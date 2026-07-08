@@ -3,7 +3,7 @@
 #include "defines.h"
 #include "api.h"
 #include "ui_main.h"
-#include "ui_components.h"
+#include "ui_controlshelp.h"
 #include "ui_fonts.h"
 #include "ui_list.h"
 #include "ui_toast.h"

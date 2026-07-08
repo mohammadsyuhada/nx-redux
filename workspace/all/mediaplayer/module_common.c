@@ -3,7 +3,7 @@
 #include "api.h"
 #include "audio_manager.h"
 #include "module_common.h"
-#include "ui_components.h"
+#include "ui_confirmdialog.h"
 #include "ui_toast.h"
 #include "ui_main.h"
 

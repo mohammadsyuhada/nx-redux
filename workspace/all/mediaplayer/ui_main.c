@@ -5,7 +5,7 @@
 #include "api.h"
 #include "ui_main.h"
 #include "ui_list.h"
-#include "ui_components.h"
+#include "ui_controlshelp.h"
 #include "ui_toast.h"
 // Base menu items (always present)
 static const char* base_menu_items[] = {"Library", "YouTube", "Online TV", "Settings"};

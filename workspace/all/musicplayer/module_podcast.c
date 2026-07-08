@@ -10,7 +10,7 @@
 #include "player.h"
 #include "ui_keyboard.h"
 #include "display_helper.h"
-#include "ui_components.h"
+#include "ui_confirmdialog.h"
 #include "ui_podcast.h"
 #include "ui_radio.h"
 #include "ui_main.h"

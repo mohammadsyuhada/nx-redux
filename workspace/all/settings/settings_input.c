@@ -2,7 +2,8 @@
 #include "defines.h"
 #include "api.h"
 #include "utils.h"
-#include "ui_components.h"
+#include "ui_buttonhintbar.h"
+#include "ui_menubar.h"
 
 #include <stdio.h>
 #include <stdlib.h>

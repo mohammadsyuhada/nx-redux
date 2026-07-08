@@ -15,7 +15,7 @@
 #include "ui_music.h"
 #include "ui_album_art.h"
 #include "ui_main.h"
-#include "ui_components.h"
+#include "ui_confirmdialog.h"
 #include "lyrics.h"
 #include "settings.h"
 #include "add_to_playlist.h"

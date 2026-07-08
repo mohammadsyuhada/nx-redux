@@ -4,7 +4,7 @@
 #include <SDL2/SDL_image.h>
 #include "vp_defines.h"
 #include "ui_icons.h"
-#include "ui_components.h"
+#include "ui/ui_icons.h" // common empty-icon component (local header shadows the name)
 
 #define ICON_FOLDER RES_PATH "/icon-folder.png"
 #define ICON_VIDEO RES_PATH "/icon-video.png"

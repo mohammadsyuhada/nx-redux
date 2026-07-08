@@ -25,7 +25,6 @@
 #include "defines.h"
 #include "api.h"
 #include "audio_manager.h"
-#include "ui_components.h"
 #include "ui_list.h"
 #include "utils.h"
 #include "scaler.h"

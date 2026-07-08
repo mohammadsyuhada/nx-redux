@@ -11,7 +11,7 @@
 #include "wifi.h"
 #include "display_helper.h"
 #include "ffplay_engine.h"
-#include "ui_components.h"
+#include "ui_confirmdialog.h"
 #include "ui_iptv.h"
 #include "ui_icons.h"
 #include "ui_toast.h"

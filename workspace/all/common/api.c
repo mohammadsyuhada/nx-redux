@@ -1,6 +1,5 @@
 #include "defines.h"
 #include "api.h"
-#include "ui_components.h"
 
 #include <errno.h>
 #include <fcntl.h>

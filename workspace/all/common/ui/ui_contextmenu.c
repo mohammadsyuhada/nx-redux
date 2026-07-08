@@ -1,5 +1,6 @@
 #include "ui_contextmenu.h"
 #include "ui_list.h"
+#include "ui_draw.h"
 #include "api.h"
 #include "defines.h"
 #include <string.h>
@@ -88,19 +89,8 @@ void ContextMenu_render(SDL_Surface* screen) {
 	int panel_y = (sh - panel_h) / 2;
 
 	// Panel background (dark rounded rect)
-	int radius = SCALE1(8);
 	uint32_t panel_color = SDL_MapRGBA(surf->format, 30, 30, 30, 255);
-	SDL_FillRect(surf, &(SDL_Rect){panel_x + radius, panel_y, panel_w - 2 * radius, panel_h}, panel_color);
-	SDL_FillRect(surf, &(SDL_Rect){panel_x, panel_y + radius, panel_w, panel_h - 2 * radius}, panel_color);
-	for (int dy = 0; dy < radius; dy++) {
-		int yd = radius - dy;
-		int inset = radius - (int)sqrtf((float)(radius * radius - yd * yd));
-		int row_w = panel_w - 2 * inset;
-		if (row_w <= 0)
-			continue;
-		SDL_FillRect(surf, &(SDL_Rect){panel_x + inset, panel_y + dy, row_w, 1}, panel_color);
-		SDL_FillRect(surf, &(SDL_Rect){panel_x + inset, panel_y + panel_h - 1 - dy, row_w, 1}, panel_color);
-	}
+	UI_fillRoundedRect(surf, panel_x, panel_y, panel_w, panel_h, SCALE1(8), panel_color);
 
 	// Items
 	int items_y = panel_y + pad;
@@ -110,26 +100,12 @@ void ContextMenu_render(SDL_Surface* screen) {
 
 		// Selection highlight (themed rounded pill)
 		if (selected) {
-			int pill_x = panel_x + pad;
-			int pill_w = panel_w - pad * 2;
-			int pill_r = item_h / 3;
-			if (pill_r > pill_w / 2)
-				pill_r = pill_w / 2;
 			// Convert THEME_COLOR1 (RGB565/RGB888 mapped to screen format) to ARGB for our surface
 			uint8_t cr, cg, cb;
 			SDL_GetRGB(THEME_COLOR1, screen->format, &cr, &cg, &cb);
 			uint32_t pill_color = SDL_MapRGBA(surf->format, cr, cg, cb, 255);
-			if (item_h - 2 * pill_r > 0)
-				SDL_FillRect(surf, &(SDL_Rect){pill_x, y + pill_r, pill_w, item_h - 2 * pill_r}, pill_color);
-			for (int dy = 0; dy < pill_r; dy++) {
-				int yd = pill_r - dy;
-				int inset = pill_r - (int)sqrtf((float)(pill_r * pill_r - yd * yd));
-				int row_w = pill_w - 2 * inset;
-				if (row_w <= 0)
-					continue;
-				SDL_FillRect(surf, &(SDL_Rect){pill_x + inset, y + dy, row_w, 1}, pill_color);
-				SDL_FillRect(surf, &(SDL_Rect){pill_x + inset, y + item_h - 1 - dy, row_w, 1}, pill_color);
-			}
+			UI_fillRoundedRect(surf, panel_x + pad, y, panel_w - pad * 2, item_h,
+							   item_h / 3, pill_color);
 		}
 
 		// Item text (themed colors matching list items)

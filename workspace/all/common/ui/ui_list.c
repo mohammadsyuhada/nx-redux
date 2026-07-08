@@ -2,7 +2,9 @@
 #include <string.h>
 #include <math.h>
 #include "ui_list.h"
-#include "ui_components.h"
+#include "ui_draw.h"
+#include "ui_buttonhintbar.h"
+#include "ui_menubar.h"
 
 // Scroll gap for software scrolling
 #define SCROLL_GAP 30
@@ -54,6 +56,16 @@ void ScrollText_reset(ScrollTextState* state, const char* text, TTF_Font* font, 
 			}
 		}
 	}
+}
+
+void ScrollText_clear(ScrollTextState* state) {
+	if (state->cached_scroll_surface) {
+		SDL_FreeSurface(state->cached_scroll_surface);
+		state->cached_scroll_surface = NULL;
+	}
+	state->text[0] = '\0';
+	state->needs_scroll = false;
+	state->scroll_active = false;
 }
 
 bool ScrollText_isScrolling(ScrollTextState* state) {
@@ -313,42 +325,11 @@ ListItemBadgedPos UI_renderListItemPillBadged(
 		if (badge_area_w > 0) {
 			// Layer 1: THEME_COLOR2 outer capsule covering title + badge area
 			int total_w = pos.pill_width + badge_area_w;
-			int r = item_h / 3;
-			if (r > total_w / 2)
-				r = total_w / 2;
-			if (item_h - 2 * r > 0) {
-				SDL_FillRect(screen, &(SDL_Rect){px, y + r, total_w, item_h - 2 * r}, THEME_COLOR2);
-			}
-			for (int dy = 0; dy < r; dy++) {
-				int yd = r - dy;
-				int inset = r - (int)sqrtf((float)(r * r - yd * yd));
-				int row_w = total_w - 2 * inset;
-				if (row_w <= 0)
-					continue;
-				SDL_FillRect(screen, &(SDL_Rect){px + inset, y + dy, row_w, 1}, THEME_COLOR2);
-				SDL_FillRect(screen, &(SDL_Rect){px + inset, y + item_h - 1 - dy, row_w, 1}, THEME_COLOR2);
-			}
+			UI_fillRoundedRect(screen, px, y, total_w, item_h, item_h / 3, THEME_COLOR2);
 		}
 
 		// Layer 2 (or only layer): THEME_COLOR1 inner capsule for title area
-		{
-			int pw = pos.pill_width;
-			int r = item_h / 3;
-			if (r > pw / 2)
-				r = pw / 2;
-			if (item_h - 2 * r > 0) {
-				SDL_FillRect(screen, &(SDL_Rect){px, y + r, pw, item_h - 2 * r}, THEME_COLOR1);
-			}
-			for (int dy = 0; dy < r; dy++) {
-				int yd = r - dy;
-				int inset = r - (int)sqrtf((float)(r * r - yd * yd));
-				int row_w = pw - 2 * inset;
-				if (row_w <= 0)
-					continue;
-				SDL_FillRect(screen, &(SDL_Rect){px + inset, y + dy, row_w, 1}, THEME_COLOR1);
-				SDL_FillRect(screen, &(SDL_Rect){px + inset, y + item_h - 1 - dy, row_w, 1}, THEME_COLOR1);
-			}
-		}
+		UI_fillRoundedRect(screen, px, y, pos.pill_width, item_h, item_h / 3, THEME_COLOR1);
 	}
 
 	// Text positions: two rows vertically centered
@@ -736,24 +717,8 @@ ListItemRichPos UI_renderListItemPillRich(SDL_Surface* screen, ListLayout* layou
 	}
 
 	if (selected) {
-		int px = SCALE1(PADDING);
-		int pw = pos.pill_width;
-		int r = item_h / 3;
-		if (r > pw / 2)
-			r = pw / 2;
-
-		if (item_h - 2 * r > 0) {
-			SDL_FillRect(screen, &(SDL_Rect){px, y + r, pw, item_h - 2 * r}, THEME_COLOR1);
-		}
-		for (int dy = 0; dy < r; dy++) {
-			int yd = r - dy;
-			int inset = r - (int)sqrtf((float)(r * r - yd * yd));
-			int row_w = pw - 2 * inset;
-			if (row_w <= 0)
-				continue;
-			SDL_FillRect(screen, &(SDL_Rect){px + inset, y + dy, row_w, 1}, THEME_COLOR1);
-			SDL_FillRect(screen, &(SDL_Rect){px + inset, y + item_h - 1 - dy, row_w, 1}, THEME_COLOR1);
-		}
+		UI_fillRoundedRect(screen, SCALE1(PADDING), y, pos.pill_width, item_h,
+						   item_h / 3, THEME_COLOR1);
 	}
 
 	int text_start_x = SCALE1(PADDING) + image_area_w;
@@ -801,25 +766,7 @@ MenuItemPos UI_renderMenuItemPill(SDL_Surface* screen, ListLayout* layout,
 // ============================================
 
 void UI_renderRoundedRectBg(SDL_Surface* screen, int x, int y, int w, int h, uint32_t color) {
-	int r = SCALE1(7);
-	if (r > h / 2)
-		r = h / 2;
-	if (r > w / 2)
-		r = w / 2;
-
-	if (h - 2 * r > 0) {
-		SDL_FillRect(screen, &(SDL_Rect){x, y + r, w, h - 2 * r}, color);
-	}
-
-	for (int dy = 0; dy < r; dy++) {
-		int yd = r - dy;
-		int inset = r - (int)sqrtf((float)(r * r - yd * yd));
-		int row_w = w - 2 * inset;
-		if (row_w <= 0)
-			continue;
-		SDL_FillRect(screen, &(SDL_Rect){x + inset, y + dy, row_w, 1}, color);
-		SDL_FillRect(screen, &(SDL_Rect){x + inset, y + h - 1 - dy, row_w, 1}, color);
-	}
+	UI_fillRoundedRect(screen, x, y, w, h, SCALE1(7), color);
 }
 
 // ============================================

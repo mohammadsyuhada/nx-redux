@@ -25,12 +25,13 @@ INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
 COMMON_PATH = ../common
 PLATFORM_PATH = ../../$(PLATFORM)
 
+include ../common/ui/ui.mk
 SOURCE = scraper.c scraper_api.c scraper_compositor.c scraper_systems.c \
          $(COMMON_PATH)/utils.c $(COMMON_PATH)/api.c \
          $(COMMON_PATH)/config.c $(COMMON_PATH)/scaler.c \
          $(COMMON_PATH)/http.c \
-         $(COMMON_PATH)/ui_components.c $(COMMON_PATH)/ui_list.c \
-         $(COMMON_PATH)/ui_keyboard.c \
+         $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c \
+         $(UI_DIR)/ui_keyboard.c \
          $(COMMON_PATH)/display_helper.c \
          $(COMMON_PATH)/cjson/cJSON.c \
          $(PLATFORM_PATH)/platform/platform.c

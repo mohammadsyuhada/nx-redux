@@ -4,7 +4,10 @@
 #include "imgloader.h"
 #include "launcher.h"
 #include "recents.h"
-#include "ui_components.h"
+#include "ui_buttonhintbar.h"
+#include "ui_emptystate.h"
+#include "ui_image.h"
+#include "ui_message.h"
 #include "utils.h"
 
 #include <unistd.h>

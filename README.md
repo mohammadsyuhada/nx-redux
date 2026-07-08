@@ -32,11 +32,14 @@ NX Redux is where those two goals meet.
 ## What's Different
 
 Improvements:
-- Refactored `nextui.c`, splitting the monolithic code into smaller, focused components.
+- Refactored `nextui.c`, splitting the monolithic code into smaller, focused components (game list, game switcher, quick menu, search, launcher, image loader and more).
 - Refactored `minarch.c`, splitting the ~9,000-line monolith into focused `ma_*` modules (game, saves, rewind, config, shaders, options, input, video, audio, core, menu and more).
 - Applied various bug fixes and optimizations across the refactored components.
 - Added clang-format tooling with enforced code style and VSCode support.
-- Introduced reusable UI components for consistent design across tools.
+- Introduced a reusable UI component library in `common/ui/` for consistent design across tools.
+    - Strict one-component-per-file layout (menu bar, button hint bar, dialogs, overlays, lists, keyboard, toast, etc.), each with its own header — apps include only what they use.
+    - Single `ui.mk` fragment wires the components into every app build, so adding a component is a one-line change.
+    - Shared drawing primitives (rounded rects/pills, scrim surfaces, centered button rows) replace previously duplicated rendering code across the UI files.
 - Fixed incorrect Wi-Fi/Bluetooth state icons in the quick menu.
 - Added a semi-transparent progress overlay for blocking actions.
 - Added confirmation dialogs for actions that require them.

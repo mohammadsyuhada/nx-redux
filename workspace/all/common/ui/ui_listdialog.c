@@ -1,6 +1,8 @@
 #include "ui_listdialog.h"
 #include "ui_list.h"
-#include "ui_components.h"
+#include "ui_buttonhintbar.h"
+#include "ui_menubar.h"
+#include "ui_draw.h"
 #include "api.h"
 #include "defines.h"
 #include <string.h>
@@ -122,23 +124,8 @@ static void render_item(SDL_Surface* screen, ListLayout* layout,
 
 	// Draw rounded rect background for selected item
 	if (selected) {
-		int px = SCALE1(PADDING);
-		int pw = pill_width;
-		int h = layout->item_h;
-		int r = h / 3;
-		if (r > pw / 2)
-			r = pw / 2;
-		if (h - 2 * r > 0)
-			SDL_FillRect(screen, &(SDL_Rect){px, y + r, pw, h - 2 * r}, THEME_COLOR1);
-		for (int dy = 0; dy < r; dy++) {
-			int yd = r - dy;
-			int inset = r - (int)sqrtf((float)(r * r - yd * yd));
-			int row_w = pw - 2 * inset;
-			if (row_w <= 0)
-				continue;
-			SDL_FillRect(screen, &(SDL_Rect){px + inset, y + dy, row_w, 1}, THEME_COLOR1);
-			SDL_FillRect(screen, &(SDL_Rect){px + inset, y + h - 1 - dy, row_w, 1}, THEME_COLOR1);
-		}
+		UI_fillRoundedRect(screen, SCALE1(PADDING), y, pill_width,
+						   layout->item_h, layout->item_h / 3, THEME_COLOR1);
 	}
 
 	int text_x = SCALE1(PADDING) + SCALE1(BUTTON_PADDING);

@@ -3,7 +3,9 @@
 
 #include "vp_defines.h"
 #include "api.h"
-#include "ui_components.h"
+#include "ui_buttonhintbar.h"
+#include "ui_emptystate.h"
+#include "ui_menubar.h"
 #include "ui_player.h"
 #include "ui_icons.h"
 #include "video_browser.h"

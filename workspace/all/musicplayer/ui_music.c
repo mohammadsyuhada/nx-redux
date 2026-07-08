@@ -2,7 +2,9 @@
 #include <string.h>
 #include "defines.h"
 #include "api.h"
-#include "ui_components.h"
+#include "ui_buttonhintbar.h"
+#include "ui_emptystate.h"
+#include "ui_menubar.h"
 #include "ui_music.h"
 #include "ui_icons.h"
 #include "ui_utils.h"

@@ -27,7 +27,9 @@ endif
 include ../../$(PLATFORM)/platform/Makefile.env
 
 TARGET = musicplayer
+include ../common/ui/ui.mk
 INCDIR = -I. -I./audio -I../common/ -I../../$(PLATFORM)/platform/ -I../minarch/libretro-common/include
+INCDIR += $(UI_INCDIR)
 INCDIR += -I../include -I../include/mbedtls_lib -I./include/yxml
 INCDIR += -I./include/libogg -I./include/libopus/include -I./include/opusfile/include
 
@@ -61,7 +63,7 @@ SOURCE = $(TARGET).c player.c playlist.c playlist_m3u.c radio.c radio_net.c albu
          ../include/parson/parson.c \
          ../include/mbedtls_entropy_alt.c \
          $(MBEDTLS_SRC) \
-         ../common/utils.c ../common/api.c ../common/audio_manager.c ../common/config.c ../common/scaler.c ../common/display_helper.c ../common/ui_components.c ../common/ui_toast.c ../common/ui_list.c ../common/ui_listdialog.c ../common/ui_keyboard.c ../common/ytdlp_updater.c ../common/wget_fetch.c \
+         ../common/utils.c ../common/api.c ../common/audio_manager.c ../common/config.c ../common/scaler.c ../common/display_helper.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_toast.c $(UI_DIR)/ui_list.c $(UI_DIR)/ui_listdialog.c $(UI_DIR)/ui_keyboard.c ../common/ytdlp_updater.c ../common/wget_fetch.c \
          ../../$(PLATFORM)/platform/platform.c
 
 CC = $(CROSS_COMPILE)gcc

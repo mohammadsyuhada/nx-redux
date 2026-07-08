@@ -5,7 +5,8 @@
 #include <SDL2/SDL_image.h>
 
 #include "api.h"
-#include "ui_components.h"
+#include "ui_buttonhintbar.h"
+#include "ui_emptystate.h"
 #include "ui_youtube.h"
 #include "ui_utils.h"
 

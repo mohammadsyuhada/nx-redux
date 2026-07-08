@@ -1,6 +1,7 @@
 #include "ma_internal.h"
 #include "ui_list.h"
-#include "ui_components.h"
+#include "ui_buttonhintbar.h"
+#include "ui_menubar.h"
 #include "ma_menu.h"
 #include "ma_frontend_opts.h"
 #include "ma_saves.h"

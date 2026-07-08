@@ -8,7 +8,7 @@
 #include "module_player.h"
 #include "settings.h"
 #include "ui_main.h"
-#include "ui_components.h"
+#include "ui_confirmdialog.h"
 #include "ui_music.h"
 #include "ui_radio.h"
 #include "player.h"

@@ -10,7 +10,7 @@
 #include "api.h"
 #include "ui_list.h"
 #include "ui_keyboard.h"
-#include "ui_components.h"
+#include "ui_loadingoverlay.h"
 #include "display_helper.h"
 
 // ============================================

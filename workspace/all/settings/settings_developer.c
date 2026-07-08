@@ -14,7 +14,7 @@
 #include "settings_developer.h"
 #include "defines.h"
 #include "api.h"
-#include "ui_components.h"
+#include "ui_loadingoverlay.h"
 
 // ============================================
 // Developer settings page

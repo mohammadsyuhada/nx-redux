@@ -3,7 +3,9 @@
 
 #include "ui_list.h"
 #include "api.h"
-#include "ui_components.h"
+#include "ui_buttonhintbar.h"
+#include "ui_emptystate.h"
+#include "ui_menubar.h"
 #include "ui_iptv.h"
 #include "ui_fonts.h"
 #include "ui_toast.h"

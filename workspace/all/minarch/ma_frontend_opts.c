@@ -1,7 +1,7 @@
 #include "ma_internal.h"
 #include "ma_frontend_opts.h"
 #include "notification.h"
-#include "ui_components.h"
+#include "ui_buttonhintbar.h"
 #include "ra_integration.h"
 #include "ma_core.h"
 #include <libgen.h>

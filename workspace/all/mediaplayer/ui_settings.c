@@ -2,7 +2,8 @@
 #include <string.h>
 
 #include "api.h"
-#include "ui_components.h"
+#include "ui_buttonhintbar.h"
+#include "ui_menubar.h"
 #include "ui_settings.h"
 #include "ui_list.h"
 

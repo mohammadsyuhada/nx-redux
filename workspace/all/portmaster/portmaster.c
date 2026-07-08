@@ -10,7 +10,12 @@
 
 #include "defines.h"
 #include "api.h"
-#include "ui_components.h"
+#include "ui_buttonhintbar.h"
+#include "ui_confirmdialog.h"
+#include "ui_downloadprogress.h"
+#include "ui_menubar.h"
+#include "ui_message.h"
+#include "ui_splash.h"
 #include "ui_list.h"
 #include "utils.h"
 #include "wget_fetch.h"

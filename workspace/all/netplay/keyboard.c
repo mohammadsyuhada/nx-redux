@@ -11,7 +11,7 @@
 #include "keyboard.h"
 #include "defines.h"
 #include "api.h"
-#include "ui_components.h"
+#include "ui_buttonhintbar.h"
 
 // Minarch accessor and utility functions
 #include "minarch.h"

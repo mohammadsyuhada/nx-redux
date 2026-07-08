@@ -2,13 +2,12 @@
 #include "config.h"
 #include "defines.h"
 #include "shortcuts.h"
-#include "ui_components.h"
+#include "ui_menubar.h"
 #include "utils.h"
 #include <assert.h>
 #include <ctype.h>
 #include <dirent.h>
 #include <fcntl.h>
-#include <libgen.h>
 #include <limits.h>
 #include <msettings.h>
 #include <pthread.h>
@@ -20,6 +19,7 @@
 
 #include "content.h"
 #include "display_helper.h"
+#include "gamelist.h"
 #include "gameswitcher.h"
 #include "imgloader.h"
 #include "launcher.h"
@@ -53,6 +53,7 @@ static void Menu_init(void) {
 
 	QuickMenu_init(simple_mode);
 	Search_init();
+	GameList_init(simple_mode);
 }
 static void Menu_quit(void) {
 	Recents_quit();
@@ -66,9 +67,6 @@ static void Menu_quit(void) {
 ///////////////////////////////////////
 
 static bool dirty = true;
-static ScrollTextState list_scroll = {0};
-static ShortcutAction confirm_shortcut_action = SHORTCUT_NONE;
-static Entry* confirm_shortcut_entry = NULL;
 
 #define IDLE_TIMEOUT_MS 3000 // 3 seconds of no input
 #define IDLE_FRAME_MS 100	 // ~10 FPS when idle
@@ -76,380 +74,8 @@ static uint32_t last_active_input = 0;
 
 SDL_Surface* screen = NULL;
 static SDL_Surface* blackBG = NULL;
-static bool had_thumb = false;
-static int ox;
 
-static void updateBackgroundLayer(void) {
-	SDL_LockMutex(bgMutex);
-	if (folderbgchanged) {
-		GFX_drawOnLayer(blackBG, 0, 0, screen->w, screen->h, 1.0f, 0,
-						LAYER_BACKGROUND);
-		if (folderbgbmp)
-			GFX_drawOnLayer(folderbgbmp, 0, 0, screen->w, screen->h, 1.0f, 0,
-							LAYER_BACKGROUND);
-		folderbgchanged = 0;
-	}
-	SDL_UnlockMutex(bgMutex);
-}
-
-static void renderThumbnail(int reset_changed) {
-	SDL_LockMutex(thumbMutex);
-	if (confirm_shortcut_action != SHORTCUT_NONE) {
-		GFX_clearLayers(LAYER_THUMBNAIL);
-		GFX_clearLayers(LAYER_SCROLLTEXT);
-	} else if (thumbbmp && thumbchanged) {
-		int max_w = (int)(screen->w * CFG_getGameArtWidth());
-		int max_h = (int)(screen->h * 0.6);
-		int new_w, new_h;
-		UI_calcImageFit(thumbbmp->w, thumbbmp->h, max_w, max_h, &new_w, &new_h);
-
-		int target_x = screen->w - (new_w + SCALE1(BUTTON_MARGIN * 3));
-		int target_y = (int)(screen->h * 0.50);
-		int center_y = target_y - (new_h / 2);
-		GFX_clearLayers(LAYER_THUMBNAIL);
-		GFX_drawOnLayer(thumbbmp, target_x, center_y, new_w, new_h, 1.0f, 0,
-						LAYER_THUMBNAIL);
-		if (reset_changed)
-			thumbchanged = 0;
-	} else if (thumbchanged) {
-		GFX_clearLayers(LAYER_THUMBNAIL);
-		if (reset_changed)
-			thumbchanged = 0;
-	}
-	SDL_UnlockMutex(thumbMutex);
-}
-
-static void resolveAndLoadBackground(Entry* entry, const char* rompath,
-									 char* folderBgPath, size_t pathSize,
-									 bool* list_show_entry_names) {
-	// Persists across calls to avoid redundant background reloads
-	static int lastType = -1;
-
-	char defaultBgPath[512];
-	snprintf(defaultBgPath, sizeof(defaultBgPath), SDCARD_PATH "/bg.png");
-
-	// Resolve: what path to compare for changes, and what bg image to load
-	const char* cmpPath = NULL;
-	char bgPath[512] = {0};
-
-	if ((entry->type == ENTRY_DIR || entry->type == ENTRY_ROM) &&
-		Shortcuts_exists(entry->path + strlen(SDCARD_PATH))) {
-		cmpPath = entry->path;
-	} else if ((entry->type == ENTRY_DIR || entry->type == ENTRY_ROM) &&
-			   CFG_getRomsUseFolderBackground()) {
-		cmpPath = entry->type == ENTRY_DIR ? entry->path : rompath;
-		snprintf(bgPath, sizeof(bgPath), "%s/.media/%s.png", cmpPath,
-				 entry->type == ENTRY_DIR ? "bg" : "bglist");
-		if (!exists(bgPath))
-			strncpy(bgPath, defaultBgPath, sizeof(bgPath) - 1);
-	} else if (entry->type == ENTRY_PAK && suffixMatch(".pak", entry->path)) {
-		cmpPath = entry->path;
-		snprintf(bgPath, sizeof(bgPath), TOOLS_PATH "/.media/%s/bg.png",
-				 Shortcuts_getPakBasename(entry->path));
-	} else if (exists(defaultBgPath) &&
-			   strcmp(defaultBgPath, folderBgPath) != 0) {
-		cmpPath = defaultBgPath;
-		strncpy(bgPath, defaultBgPath, sizeof(bgPath) - 1);
-	} else {
-		*list_show_entry_names = true;
-		return;
-	}
-
-	if (!cmpPath)
-		return;
-
-	// Skip if background hasn't changed
-	if (strcmp(cmpPath, folderBgPath) == 0 && lastType == entry->type)
-		return;
-
-	lastType = entry->type;
-	strncpy(folderBgPath, cmpPath, pathSize - 1);
-
-	// Load background, or clear if image doesn't exist
-	if (bgPath[0] && exists(bgPath))
-		startLoadFolderBackground(bgPath, onBackgroundLoaded);
-	else {
-		onBackgroundLoaded(NULL);
-		*list_show_entry_names = true;
-	}
-}
-
-static int GameList_handleInput(unsigned long now, int currentScreen,
-								IndicatorType show_setting) {
-	int selected = top->selected;
-	int total = top->entries->count;
-	int row_count = MAIN_ROW_COUNT - 1;
-
-	if (PAD_tappedMenu(now) && !ContextMenu_isOpen()) {
-		// Open contextual menu based on current page
-		Entry* entry = (total > 0) ? top->entries->items[selected] : NULL;
-		int idx = 0;
-		ContextMenuItem items[CONTEXTMENU_MAX_ITEMS];
-
-		if (stack->count == 1) {
-			// Root menu (main console list)
-			strncpy(items[idx].label, "Refresh Roms", CONTEXTMENU_MAX_TEXT);
-			items[idx].id = 1;
-			idx++;
-		} else if (exactMatch(top->path, FAUX_RECENT_PATH)) {
-			// Recently Played
-			if (entry) {
-				strncpy(items[idx].label, "Remove Game", CONTEXTMENU_MAX_TEXT);
-				items[idx].id = 10;
-				idx++;
-			}
-		} else if (Shortcuts_isInToolsFolder(top->path)) {
-			// Tools listing
-			if (entry) {
-				if (Shortcuts_exists(entry->path + strlen(SDCARD_PATH))) {
-					strncpy(items[idx].label, "Unpin Tool", CONTEXTMENU_MAX_TEXT);
-					items[idx].id = 21;
-				} else {
-					strncpy(items[idx].label, "Pin Tool", CONTEXTMENU_MAX_TEXT);
-					items[idx].id = 20;
-				}
-				idx++;
-			}
-		} else if (entry) {
-			// ROM listing (console directory or subfolder)
-			if (canPinEntry(entry)) {
-				if (Shortcuts_exists(entry->path + strlen(SDCARD_PATH))) {
-					strncpy(items[idx].label, "Unpin Item", CONTEXTMENU_MAX_TEXT);
-					items[idx].id = 31;
-				} else {
-					strncpy(items[idx].label, "Pin Item", CONTEXTMENU_MAX_TEXT);
-					items[idx].id = 30;
-				}
-				idx++;
-			}
-			if (entry->type == ENTRY_ROM) {
-				strncpy(items[idx].label, "Delete Rom", CONTEXTMENU_MAX_TEXT);
-				items[idx].id = 32;
-				idx++;
-				strncpy(items[idx].label, "Rename Rom", CONTEXTMENU_MAX_TEXT);
-				items[idx].id = 33;
-				idx++;
-				strncpy(items[idx].label, "Add to Collection", CONTEXTMENU_MAX_TEXT);
-				items[idx].id = 34;
-				idx++;
-			}
-		}
-
-		if (idx > 0) {
-			ContextMenu_open("Options", items, idx);
-			dirty = true;
-		}
-
-		return currentScreen;
-	} else if (PAD_quickMenuPressed(now)) {
-		currentScreen = SCREEN_QUICKMENU;
-		animationdirection = SLIDE_DOWN;
-		dirty = true;
-		folderbgchanged = 1;
-		GFX_clearLayers(LAYER_SCROLLTEXT);
-		if (list_scroll.cached_scroll_surface) {
-			SDL_FreeSurface(list_scroll.cached_scroll_surface);
-			list_scroll.cached_scroll_surface = NULL;
-		}
-		list_scroll.text[0] = '\0';
-		list_scroll.needs_scroll = false;
-		list_scroll.scroll_active = false;
-		if (!HAS_POWER_BUTTON && !simple_mode)
-			PWR_enableSleep();
-		return currentScreen;
-	} else if (PAD_tappedSelect(now) && confirm_shortcut_action == SHORTCUT_NONE) {
-		currentScreen = SCREEN_GAMESWITCHER;
-		GameSwitcher_resetSelection();
-		animationdirection = SLIDE_UP;
-		dirty = true;
-		GFX_clearLayers(LAYER_SCROLLTEXT);
-		if (list_scroll.cached_scroll_surface) {
-			SDL_FreeSurface(list_scroll.cached_scroll_surface);
-			list_scroll.cached_scroll_surface = NULL;
-		}
-		list_scroll.text[0] = '\0';
-		list_scroll.needs_scroll = false;
-		list_scroll.scroll_active = false;
-		return currentScreen;
-	} else if (total > 0 && confirm_shortcut_action == SHORTCUT_NONE) {
-		if (PAD_justRepeated(BTN_UP)) {
-			if (selected == 0 && !PAD_justPressed(BTN_UP)) {
-			} else {
-				selected -= 1;
-				if (selected < 0) {
-					selected = total - 1;
-					int start = total - row_count;
-					top->start = (start < 0) ? 0 : start;
-					top->end = total;
-				} else if (selected < top->start) {
-					top->start -= 1;
-					top->end -= 1;
-				}
-			}
-		} else if (PAD_justRepeated(BTN_DOWN)) {
-			if (selected == total - 1 && !PAD_justPressed(BTN_DOWN)) {
-			} else {
-				selected += 1;
-				if (selected >= total) {
-					selected = 0;
-					top->start = 0;
-					top->end = (total < row_count) ? total : row_count;
-				} else if (selected >= top->end) {
-					top->start += 1;
-					top->end += 1;
-				}
-			}
-		}
-		if (PAD_justRepeated(BTN_LEFT)) {
-			selected -= row_count;
-			if (selected < 0) {
-				selected = 0;
-				top->start = 0;
-				top->end = (total < row_count) ? total : row_count;
-			} else if (selected < top->start) {
-				top->start -= row_count;
-				if (top->start < 0)
-					top->start = 0;
-				top->end = top->start + row_count;
-			}
-		} else if (PAD_justRepeated(BTN_RIGHT)) {
-			selected += row_count;
-			if (selected >= total) {
-				selected = total - 1;
-				int start = total - row_count;
-				top->start = (start < 0) ? 0 : start;
-				top->end = total;
-			} else if (selected >= top->end) {
-				top->end += row_count;
-				if (top->end > total)
-					top->end = total;
-				top->start = top->end - row_count;
-			}
-		}
-	}
-
-	if (confirm_shortcut_action == SHORTCUT_NONE && PAD_justRepeated(BTN_L1) &&
-		!PAD_isPressed(BTN_R1) &&
-		!PWR_ignoreSettingInput(BTN_L1, show_setting)) { // previous alpha
-		Entry* entry = top->entries->items[selected];
-		int i = entry->alpha - 1;
-		if (i >= 0) {
-			selected = top->alphas.items[i];
-			if (total > row_count) {
-				top->start = selected;
-				top->end = top->start + row_count;
-				if (top->end > total)
-					top->end = total;
-				top->start = top->end - row_count;
-			}
-		}
-	} else if (confirm_shortcut_action == SHORTCUT_NONE && PAD_justRepeated(BTN_R1) &&
-			   !PAD_isPressed(BTN_L1) &&
-			   !PWR_ignoreSettingInput(BTN_R1, show_setting)) { // next alpha
-		Entry* entry = top->entries->items[selected];
-		int i = entry->alpha + 1;
-		if (i < top->alphas.count) {
-			selected = top->alphas.items[i];
-			if (total > row_count) {
-				top->start = selected;
-				top->end = top->start + row_count;
-				if (top->end > total)
-					top->end = total;
-				top->start = top->end - row_count;
-			}
-		}
-	}
-
-	if (selected != top->selected) {
-		top->selected = selected;
-		dirty = true;
-	}
-
-	Entry* entry = top->entries->items[top->selected];
-
-	if (dirty && total > 0)
-		readyResume(entry);
-
-	// Handle confirmation dialog for shortcuts
-	if (confirm_shortcut_action != SHORTCUT_NONE) {
-		if (PAD_justPressed(BTN_A)) {
-			Shortcuts_confirmAction(confirm_shortcut_action,
-									confirm_shortcut_entry);
-			confirm_shortcut_action = SHORTCUT_NONE;
-			confirm_shortcut_entry = NULL;
-
-			// Refresh root directory to show updated shortcuts
-			Directory* root = stack->items[0];
-			EntryArray_free(root->entries);
-			root->entries = getRoot(simple_mode);
-			IntArray_init(&root->alphas);
-			Directory_index(root);
-			// Keep selected in bounds
-			if (root->selected >= root->entries->count) {
-				root->selected =
-					root->entries->count > 0 ? root->entries->count - 1 : 0;
-			}
-
-			dirty = true;
-		} else if (PAD_justPressed(BTN_B)) {
-			confirm_shortcut_action = SHORTCUT_NONE;
-			confirm_shortcut_entry = NULL;
-			dirty = true;
-		}
-	} else if (total > 0 && resume.can_resume && PAD_justReleased(BTN_RESUME) && !PAD_isPressed(BTN_L2) && !PAD_isPressed(BTN_R2)) {
-		resume.should_resume = true;
-		Entry_open(entry);
-		dirty = true;
-	}
-	// Y to search at root
-	else if (stack->count == 1 && PAD_justReleased(BTN_Y)) {
-		if (Search_open()) {
-			currentScreen = SCREEN_SEARCH;
-			animationdirection = SLIDE_LEFT;
-			GFX_clearLayers(LAYER_SCROLLTEXT);
-			if (list_scroll.cached_scroll_surface) {
-				SDL_FreeSurface(list_scroll.cached_scroll_surface);
-				list_scroll.cached_scroll_surface = NULL;
-			}
-			list_scroll.text[0] = '\0';
-			list_scroll.needs_scroll = false;
-			list_scroll.scroll_active = false;
-		}
-		dirty = true;
-		return currentScreen;
-	}
-	// Y to add/remove shortcut (only in Tools folder or console directory)
-	else if (total > 0 &&
-			 (Shortcuts_isInToolsFolder(top->path) ||
-			  Shortcuts_isInConsoleDir(top->path)) &&
-			 canPinEntry(entry) && PAD_justReleased(BTN_Y)) {
-		if (Shortcuts_exists(entry->path + strlen(SDCARD_PATH))) {
-			confirm_shortcut_action = SHORTCUT_REMOVE;
-		} else {
-			confirm_shortcut_action = SHORTCUT_ADD;
-		}
-		confirm_shortcut_entry = entry;
-		dirty = true;
-	} else if (total > 0 && PAD_justPressed(BTN_A)) {
-		Entry_open(entry);
-		if (entry->type == ENTRY_DIR && !startgame) {
-			animationdirection = SLIDE_LEFT;
-		}
-		dirty = true;
-
-		if (top->entries->count > 0)
-			readyResume(top->entries->items[top->selected]);
-	} else if (PAD_justPressed(BTN_B) && stack->count > 1) {
-		closeDirectory();
-		animationdirection = SLIDE_RIGHT;
-		dirty = true;
-
-		if (top->entries->count > 0)
-			readyResume(top->entries->items[top->selected]);
-	}
-
-	return currentScreen;
-}
+// Game list screen (input + render) lives in gamelist.c
 
 int main(int argc, char* argv[]) {
 	if (autoResume())
@@ -530,8 +156,6 @@ int main(int argc, char* argv[]) {
 			}
 		}
 
-		int total = top->entries->count;
-
 		PWR_update(&dirty, &show_setting, NULL, NULL);
 
 		if (UI_statusBarChanged())
@@ -582,13 +206,17 @@ int main(int argc, char* argv[]) {
 			}
 		} else if (!ContextMenu_isOpen()) {
 			int prevScreen = currentScreen;
-			currentScreen =
-				GameList_handleInput(now, currentScreen, show_setting);
+			GameListResult glr =
+				GameList_handleInput(now, currentScreen, show_setting, &dirty);
+			currentScreen = glr.screen;
+			if (glr.animdir != ANIM_NONE)
+				animationdirection = glr.animdir;
+			if (glr.folderbgchanged)
+				folderbgchanged = 1;
 			if (currentScreen == SCREEN_QUICKMENU &&
 				prevScreen != SCREEN_QUICKMENU) {
 				QuickMenu_resetSelection();
 			}
-			total = top->entries->count;
 		}
 
 		// TG5050: search keyboard may have triggered display recovery (new screen surface)
@@ -633,18 +261,8 @@ int main(int argc, char* argv[]) {
 
 			// capture menu bar for fixed overlay during animation
 			SDL_Surface* menuBarSurface = NULL;
-			if (animationdirection != ANIM_NONE) {
-				int bar_h = SCALE1(BUTTON_SIZE) + SCALE1(BUTTON_MARGIN * 2);
-				menuBarSurface = SDL_CreateRGBSurfaceWithFormat(
-					0, screen->w, bar_h, screen->format->BitsPerPixel,
-					screen->format->format);
-				if (menuBarSurface) {
-					SDL_FillRect(menuBarSurface, NULL,
-								 SDL_MapRGBA(menuBarSurface->format, 0, 0, 0, 255));
-					SDL_BlitSurface(screen, &(SDL_Rect){0, 0, screen->w, bar_h},
-									menuBarSurface, NULL);
-				}
-			}
+			if (animationdirection != ANIM_NONE)
+				menuBarSurface = UI_captureMenuBar(screen);
 
 			if (currentScreen == SCREEN_QUICKMENU) {
 				QuickMenu_render(lastScreen, show_setting, ow,
@@ -661,171 +279,7 @@ int main(int argc, char* argv[]) {
 				GameSwitcher_render(lastScreen, blackBG, gsanimdir);
 				lastScreen = SCREEN_GAMESWITCHER;
 			} else {
-				Entry* entry = top->entries->items[top->selected];
-				assert(entry);
-				char tmp_path[MAX_PATH];
-				strncpy(tmp_path, entry->path, sizeof(tmp_path) - 1);
-				tmp_path[sizeof(tmp_path) - 1] = '\0';
-
-				char* res_name = strrchr(tmp_path, '/');
-				if (res_name)
-					res_name++;
-				else
-					res_name = tmp_path;
-
-				char path_copy[1024];
-				strncpy(path_copy, entry->path, sizeof(path_copy) - 1);
-				path_copy[sizeof(path_copy) - 1] = '\0';
-
-				char* rompath = dirname(path_copy);
-
-				char res_copy[1024];
-				strncpy(res_copy, res_name, sizeof(res_copy) - 1);
-				res_copy[sizeof(res_copy) - 1] = '\0';
-
-				char* dot = strrchr(res_copy, '.');
-				if (dot)
-					*dot = '\0';
-
-				// this is only a choice on the root folder
-				list_show_entry_names =
-					stack->count > 1 || CFG_getShowFolderNamesAtRoot();
-
-				// load folder background
-				resolveAndLoadBackground(entry, rompath, folderBgPath,
-										 sizeof(folderBgPath),
-										 &list_show_entry_names);
-
-				// load game thumbnails
-				if (total > 0) {
-					if (CFG_getShowGameArt()) {
-						char thumbpath[1024];
-						snprintf(thumbpath, sizeof(thumbpath), "%s/.media/%s.png", rompath,
-								 res_copy);
-						had_thumb = startLoadThumb(thumbpath);
-						int max_w = (int)(screen->w - (screen->w * CFG_getGameArtWidth()));
-						if (had_thumb)
-							ox = (int)(max_w)-SCALE1(BUTTON_MARGIN * 5);
-						else
-							ox = screen->w;
-					}
-				}
-
-				// buttons
-				{
-					char* right_pairs[16] = {NULL};
-					int p = 0;
-
-					// pin action (hardware hints override this when volume is pressed)
-					if (!(show_setting && !GetHDMI()) && total > 0 &&
-						!GetHDMI() &&
-						(Shortcuts_isInToolsFolder(top->path) ||
-						 Shortcuts_isInConsoleDir(top->path)) &&
-						canPinEntry(entry)) {
-						right_pairs[p++] = "Y";
-						right_pairs[p++] = Shortcuts_exists(entry->path + strlen(SDCARD_PATH))
-											   ? "UNPIN"
-											   : "PIN";
-					}
-
-					// search hint at root
-					if (!(show_setting && !GetHDMI()) && !GetHDMI() &&
-						stack->count == 1 && total > 0) {
-						right_pairs[p++] = "Y";
-						right_pairs[p++] = "SEARCH";
-					}
-
-					// navigation actions
-					if (total == 0) {
-						if (stack->count > 1) {
-							right_pairs[p++] = "B";
-							right_pairs[p++] = "BACK";
-						}
-					} else if (confirm_shortcut_action == SHORTCUT_NONE) {
-						if (resume.can_resume) {
-							right_pairs[p++] = "X";
-							right_pairs[p++] = "RESUME";
-							if (stack->count > 1) {
-								right_pairs[p++] = "B";
-								right_pairs[p++] = "BACK";
-							}
-							right_pairs[p++] = "A";
-							right_pairs[p++] = "OPEN";
-						} else if (stack->count > 1) {
-							right_pairs[p++] = "B";
-							right_pairs[p++] = "BACK";
-							right_pairs[p++] = "A";
-							right_pairs[p++] = "OPEN";
-						} else {
-							right_pairs[p++] = "A";
-							right_pairs[p++] = "OPEN";
-						}
-					}
-
-					if (right_pairs[0])
-						UI_renderButtonHintBar(screen, right_pairs);
-				}
-
-				if (total > 0) {
-					selected_row = top->selected - top->start;
-
-					for (int i = top->start, j = 0; i < top->end; i++, j++) {
-						Entry* entry = top->entries->items[i];
-						char* entry_name = entry->name;
-						char* entry_unique = entry->unique;
-						bool row_is_selected = (j == selected_row);
-						bool row_is_top = (i == top->start);
-
-						// Calculate per-item available width (thumbnail-aware)
-						int available_width =
-							MAX(0, (had_thumb ? ox + SCALE1(BUTTON_MARGIN)
-											  : screen->w - SCALE1(BUTTON_MARGIN)) -
-									   SCALE1(PADDING * 2));
-
-						// Prepare display text: prefer unique name, fall back to entry name
-						trimSortingMeta(&entry_name);
-						if (entry_unique)
-							trimSortingMeta(&entry_unique);
-						char* display_text = entry_unique ? entry_unique : entry_name;
-
-						int top_offset = PILL_SIZE;
-						int y = SCALE1(PADDING + top_offset + j * PILL_SIZE);
-
-						if (list_show_entry_names) {
-							char truncated[256];
-							ListLayout item_layout = {
-								.item_h = SCALE1(PILL_SIZE),
-								.max_width = available_width,
-							};
-							ListItemPos pos = UI_renderListItemPill(
-								screen, &item_layout, font.large,
-								display_text, truncated, y, row_is_selected, 0);
-							int text_width = pos.pill_width - SCALE1(BUTTON_PADDING * 2);
-							UI_renderListItemText(screen,
-												  row_is_selected ? &list_scroll : NULL,
-												  display_text, font.large,
-												  pos.text_x, pos.text_y, text_width, row_is_selected);
-						}
-					}
-					UI_renderScrollIndicators(screen, top->start, MAIN_ROW_COUNT - 1, total);
-
-					if (lastScreen == SCREEN_OFF) {
-						GFX_animateSurfaceOpacity(blackBG, 0, 0, screen->w, screen->h, 255,
-												  0, CFG_getMenuTransitions() ? 200 : 20,
-												  LAYER_THUMBNAIL);
-					}
-
-				} else {
-					UI_renderCenteredMessage(screen, "Empty folder");
-				}
-
-				// Render confirmation dialog for shortcuts
-				if (confirm_shortcut_action != SHORTCUT_NONE && confirm_shortcut_entry) {
-					char* title =
-						confirm_shortcut_action == SHORTCUT_ADD ? "Pin shortcut?" : "Unpin shortcut?";
-					UI_renderConfirmDialog(screen, title, confirm_shortcut_entry->name);
-				}
-
+				GameList_render(screen, lastScreen, show_setting, blackBG);
 				lastScreen = SCREEN_GAMELIST;
 			}
 
@@ -876,16 +330,16 @@ int main(int argc, char* argv[]) {
 				SDL_FreeSurface(menuBarSurface);
 
 			if (lastScreen == SCREEN_QUICKMENU) {
-				updateBackgroundLayer();
+				updateBackgroundLayer(blackBG);
 			} else if (lastScreen == SCREEN_SEARCH) {
-				updateBackgroundLayer();
-				renderThumbnail(1);
+				updateBackgroundLayer(blackBG);
+				renderThumbnail(1, GameList_confirmOpen());
 			} else if (lastScreen == SCREEN_GAMELIST) {
-				updateBackgroundLayer();
-				renderThumbnail(1);
+				updateBackgroundLayer(blackBG);
+				renderThumbnail(1, GameList_confirmOpen());
 
 				GFX_clearLayers(LAYER_TRANSITION);
-				if (!ScrollText_isScrolling(&list_scroll))
+				if (!GameList_scrollIsScrolling())
 					GFX_clearLayers(LAYER_SCROLLTEXT);
 			}
 			if (ContextMenu_isOpen()) {
@@ -899,21 +353,13 @@ int main(int argc, char* argv[]) {
 				SDL_FreeSurface(tmpOldScreen);
 
 			dirty = false;
-		} else if (folderbgchanged || thumbchanged ||
-				   ScrollText_isScrolling(&list_scroll) || ScrollText_needsRender(&list_scroll)) {
-			updateBackgroundLayer();
-			renderThumbnail(1);
+		} else if (folderbgchanged || thumbchanged || GameList_scrollBusy()) {
+			updateBackgroundLayer(blackBG);
+			renderThumbnail(1, GameList_confirmOpen());
 			if (currentScreen != SCREEN_GAMESWITCHER &&
 				currentScreen != SCREEN_QUICKMENU &&
 				currentScreen != SCREEN_SEARCH) {
-				if (confirm_shortcut_action != SHORTCUT_NONE) {
-					GFX_clearLayers(LAYER_SCROLLTEXT);
-				} else {
-					ScrollText_activateAfterDelay(&list_scroll);
-					if (ScrollText_isScrolling(&list_scroll)) {
-						ScrollText_animateOnly(&list_scroll);
-					}
-				}
+				GameList_scrollTickIdle();
 			} else {
 				SDL_Delay(16);
 			}
@@ -978,10 +424,7 @@ int main(int argc, char* argv[]) {
 	PAD_quit();
 
 	// Cleanup scroll text state
-	if (list_scroll.cached_scroll_surface) {
-		SDL_FreeSurface(list_scroll.cached_scroll_surface);
-		list_scroll.cached_scroll_surface = NULL;
-	}
+	GameList_clearScroll();
 
 	// Cleanup worker threads and their synchronization primitives
 	cleanupImageLoaderPool();

@@ -8,6 +8,7 @@
 #include "utils.h"
 #include "config.h"
 #include "imgloader.h"
+#include "ui_image.h"
 
 ///////////////////////////////////////
 // Internal task queue structures
@@ -409,6 +410,51 @@ bool startLoadThumb(const char* thumbpath) {
 	task->callback = NULL;
 	enqueueTask(&thumbQueue, task);
 	return has_thumb;
+}
+
+// Push the (black + folder background) surfaces to the background GPU layer
+// when the loader flagged a change. Safe to call every frame. (moved from nextui.c)
+void updateBackgroundLayer(SDL_Surface* blackBG) {
+	SDL_LockMutex(bgMutex);
+	if (folderbgchanged) {
+		GFX_drawOnLayer(blackBG, 0, 0, screen->w, screen->h, 1.0f, 0,
+						LAYER_BACKGROUND);
+		if (folderbgbmp)
+			GFX_drawOnLayer(folderbgbmp, 0, 0, screen->w, screen->h, 1.0f, 0,
+							LAYER_BACKGROUND);
+		folderbgchanged = 0;
+	}
+	SDL_UnlockMutex(bgMutex);
+}
+
+// Draw the async-loaded thumbnail on its GPU layer, or clear the thumbnail and
+// scroll-text layers when `hide` is set (e.g. a confirmation dialog is open).
+// (moved from nextui.c)
+void renderThumbnail(int reset_changed, bool hide) {
+	SDL_LockMutex(thumbMutex);
+	if (hide) {
+		GFX_clearLayers(LAYER_THUMBNAIL);
+		GFX_clearLayers(LAYER_SCROLLTEXT);
+	} else if (thumbbmp && thumbchanged) {
+		int max_w = (int)(screen->w * CFG_getGameArtWidth());
+		int max_h = (int)(screen->h * 0.6);
+		int new_w, new_h;
+		UI_calcImageFit(thumbbmp->w, thumbbmp->h, max_w, max_h, &new_w, &new_h);
+
+		int target_x = screen->w - (new_w + SCALE1(BUTTON_MARGIN * 3));
+		int target_y = (int)(screen->h * 0.50);
+		int center_y = target_y - (new_h / 2);
+		GFX_clearLayers(LAYER_THUMBNAIL);
+		GFX_drawOnLayer(thumbbmp, target_x, center_y, new_w, new_h, 1.0f, 0,
+						LAYER_THUMBNAIL);
+		if (reset_changed)
+			thumbchanged = 0;
+	} else if (thumbchanged) {
+		GFX_clearLayers(LAYER_THUMBNAIL);
+		if (reset_changed)
+			thumbchanged = 0;
+	}
+	SDL_UnlockMutex(thumbMutex);
 }
 
 int thumbCheckAsyncLoaded(void) {

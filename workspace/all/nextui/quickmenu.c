@@ -5,7 +5,9 @@
 #include "imgloader.h"
 #include "launcher.h"
 #include "types.h"
-#include "ui_components.h"
+#include "ui_buttonhintbar.h"
+#include "ui_image.h"
+#include "ui_loadingoverlay.h"
 #include "ui_connect.h"
 #include "api.h"
 #include <msettings.h>

@@ -10,7 +10,7 @@
 #include "player.h"
 #include "radio.h"
 #include "album_art.h"
-#include "ui_components.h"
+#include "ui_confirmdialog.h"
 #include "ui_radio.h"
 #include "ui_album_art.h"
 #include "ui_main.h"

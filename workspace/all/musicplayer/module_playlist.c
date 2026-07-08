@@ -12,7 +12,7 @@
 #include "playlist.h"
 #include "ui_keyboard.h"
 #include "display_helper.h"
-#include "ui_components.h"
+#include "ui_confirmdialog.h"
 #include "ui_playlist.h"
 #include "ui_list.h"
 

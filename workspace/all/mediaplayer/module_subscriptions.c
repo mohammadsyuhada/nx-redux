@@ -13,7 +13,7 @@
 #include "wifi.h"
 #include "display_helper.h"
 #include "ffplay_engine.h"
-#include "ui_components.h"
+#include "ui_confirmdialog.h"
 #include "ui_subscriptions.h"
 #include "ui_youtube.h"
 #include "ui_icons.h"

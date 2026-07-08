@@ -21,8 +21,9 @@ SDL?=SDL
 
 TARGET = sync
 INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
-SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/config.c ../common/scaler.c ../common/ui_components.c \
-         ../common/ui_list.c \
+include ../common/ui/ui.mk
+SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/config.c ../common/scaler.c $(UI_COMPONENT_SRCS) \
+         $(UI_DIR)/ui_list.c \
          ../../$(PLATFORM)/platform/platform.c
 
 CC = $(CROSS_COMPILE)gcc

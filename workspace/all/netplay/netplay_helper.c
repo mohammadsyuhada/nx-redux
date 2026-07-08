@@ -6,7 +6,7 @@
 #include "netplay_helper.h"
 #include "defines.h"
 #include "api.h"
-#include "ui_components.h"
+#include "ui_buttonhintbar.h"
 #include "network_common.h"
 #ifdef HAS_WIFIMG
 #include "wifi_direct.h"

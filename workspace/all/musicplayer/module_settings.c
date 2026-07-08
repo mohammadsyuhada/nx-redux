@@ -5,7 +5,7 @@
 #include "settings.h"
 #include "downloader.h"
 #include "ytdlp_updater.h"
-#include "ui_components.h"
+#include "ui_confirmdialog.h"
 #include "ui_settings.h"
 #include "wifi.h"
 #include "album_art.h"

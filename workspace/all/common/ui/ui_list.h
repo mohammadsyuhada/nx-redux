@@ -24,6 +24,9 @@ typedef struct {
 
 void ScrollText_reset(ScrollTextState* state, const char* text,
 					  TTF_Font* font, int max_width, bool use_gpu);
+// Free the cached scroll surface and return the state to inactive/empty.
+// Call when the scrolled row leaves the screen (screen switch, list exit).
+void ScrollText_clear(ScrollTextState* state);
 bool ScrollText_isScrolling(ScrollTextState* state);
 bool ScrollText_needsRender(ScrollTextState* state);
 void ScrollText_activateAfterDelay(ScrollTextState* state);

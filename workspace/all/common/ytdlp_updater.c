@@ -11,7 +11,9 @@
 
 #include "defines.h"
 #include "api.h"
-#include "ui_components.h"
+#include "ui_buttonhintbar.h"
+#include "ui_downloadprogress.h"
+#include "ui_menubar.h"
 
 // Paths
 static const char* ytdlp_path = SHARED_BIN_PATH "/yt-dlp";

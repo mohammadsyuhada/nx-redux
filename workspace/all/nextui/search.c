@@ -6,7 +6,8 @@
 #include "imgloader.h"
 #include "launcher.h"
 #include "types.h"
-#include "ui_components.h"
+#include "ui_buttonhintbar.h"
+#include "ui_message.h"
 #include "ui_keyboard.h"
 #include "ui_list.h"
 #include "api.h"
@@ -74,13 +75,7 @@ SearchResult Search_handleInput(unsigned long now) {
 		result.dirty = true;
 		result.folderbgchanged = true;
 		GFX_clearLayers(LAYER_SCROLLTEXT);
-		if (search_list_scroll.cached_scroll_surface) {
-			SDL_FreeSurface(search_list_scroll.cached_scroll_surface);
-			search_list_scroll.cached_scroll_surface = NULL;
-		}
-		search_list_scroll.text[0] = '\0';
-		search_list_scroll.needs_scroll = false;
-		search_list_scroll.scroll_active = false;
+		ScrollText_clear(&search_list_scroll);
 		return result;
 	}
 

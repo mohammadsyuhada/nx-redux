@@ -21,7 +21,8 @@ SDL?=SDL
 
 TARGET = bootlogo
 INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
-SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/config.c ../common/scaler.c ../common/ui_components.c ../../$(PLATFORM)/platform/platform.c
+include ../common/ui/ui.mk
+SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/config.c ../common/scaler.c $(UI_COMPONENT_SRCS) ../../$(PLATFORM)/platform/platform.c
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS  += $(OPT)

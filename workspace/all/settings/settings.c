@@ -19,7 +19,9 @@
 #include "settings_input.h"
 #include "settings_clock.h"
 #include "settings_bootlogo.h"
-#include "ui_components.h"
+#include "ui_menubar.h"
+#include "ui_quitrequest.h"
+#include "ui_splash.h"
 #include "display_helper.h"
 
 #include <stdio.h>
