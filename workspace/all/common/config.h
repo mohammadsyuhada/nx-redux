@@ -47,7 +47,7 @@ enum {
 	// actual views
 	SCREEN_GAMELIST,
 	SCREEN_GAMESWITCHER,
-	SCREEN_QUICKMENU,
+	SCREEN_QUICKMENU_REMOVED, // former quick menu; slot kept so stored defaultView ints don't shift
 	SCREEN_SEARCH,
 	// meta
 	SCREEN_GAME,
@@ -104,7 +104,6 @@ typedef struct
 	bool showEmulators;
 	bool showFolderNamesAtRoot;
 	bool romsUseFolderBackground;
-	bool showQuickSwitcherUi;
 	int defaultView;
 
 	// Mute switch
@@ -189,7 +188,6 @@ typedef struct
 #define CFG_DEFAULT_GAMEARTWIDTH 0.45
 #define CFG_DEFAULT_WIFI false
 #define CFG_DEFAULT_VIEW SCREEN_GAMELIST
-#define CFG_DEFAULT_SHOWQUICKWITCHERUI true
 #define CFG_DEFAULT_WIFI_DIAG false
 #define CFG_DEFAULT_SHOWTOOLS true
 #define CFG_DEFAULT_BLUETOOTH false
@@ -316,9 +314,6 @@ void CFG_setWifi(bool on);
 // Default view on boot
 int CFG_getDefaultView(void);
 void CFG_setDefaultView(int view);
-// Quick switcher UI painting on/off
-bool CFG_getShowQuickswitcherUI(void);
-void CFG_setShowQuickswitcherUI(bool on);
 // WiFi diagnostic logging on/off
 bool CFG_getWifiDiagnostics(void);
 void CFG_setWifiDiagnostics(bool on);

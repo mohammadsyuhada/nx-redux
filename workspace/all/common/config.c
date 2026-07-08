@@ -58,7 +58,6 @@ void CFG_defaults(NextUISettings* cfg) {
 		.showEmulators = CFG_DEFAULT_SHOWEMULATORS,
 		.gameSwitcherScaling = CFG_DEFAULT_GAMESWITCHERSCALING,
 		.defaultView = CFG_DEFAULT_VIEW,
-		.showQuickSwitcherUi = CFG_DEFAULT_SHOWQUICKWITCHERUI,
 
 		.muteLeds = CFG_DEFAULT_MUTELEDS,
 
@@ -253,10 +252,6 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 			}
 			if (sscanf(line, "defaultView=%i", &temp_value) == 1) {
 				CFG_setDefaultView(temp_value);
-				continue;
-			}
-			if (sscanf(line, "quickSwitcherUi=%i", &temp_value) == 1) {
-				CFG_setShowQuickswitcherUI(temp_value);
 				continue;
 			}
 			if (sscanf(line, "wifiDiagnostics=%i", &temp_value) == 1) {
@@ -673,16 +668,11 @@ int CFG_getDefaultView(void) {
 }
 
 void CFG_setDefaultView(int view) {
+	// configs written before the quick menu was removed may still carry its
+	// screen id (or any other stale value) — only real views are accepted
+	if (view != SCREEN_GAMELIST && view != SCREEN_GAMESWITCHER)
+		view = SCREEN_GAMELIST;
 	settings.defaultView = view;
-	CFG_sync();
-}
-
-bool CFG_getShowQuickswitcherUI(void) {
-	return settings.showQuickSwitcherUi;
-}
-
-void CFG_setShowQuickswitcherUI(bool on) {
-	settings.showQuickSwitcherUi = on;
 	CFG_sync();
 }
 
@@ -973,8 +963,6 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", (int)(CFG_getWifi()));
 	} else if (strcmp(key, "defaultView") == 0) {
 		sprintf(value, "%i", (int)(CFG_getDefaultView()));
-	} else if (strcmp(key, "quickSwitcherUi") == 0) {
-		sprintf(value, "%i", (int)(CFG_getShowQuickswitcherUI()));
 	} else if (strcmp(key, "wifiDiagnostics") == 0) {
 		sprintf(value, "%i", (int)(CFG_getWifiDiagnostics()));
 	} else if (strcmp(key, "bluetooth") == 0) {
@@ -1064,7 +1052,6 @@ void CFG_sync(void) {
 	fprintf(file, "artWidth=%i\n", (int)(settings.gameArtWidth * 100));
 	fprintf(file, "wifi=%i\n", settings.wifi);
 	fprintf(file, "defaultView=%i\n", settings.defaultView);
-	fprintf(file, "quickSwitcherUi=%i\n", settings.showQuickSwitcherUi);
 	fprintf(file, "wifiDiagnostics=%i\n", settings.wifiDiagnostics);
 	fprintf(file, "bluetooth=%i\n", settings.bluetooth);
 	fprintf(file, "btDiagnostics=%i\n", settings.bluetoothDiagnostics);
@@ -1126,7 +1113,6 @@ void CFG_print(void) {
 	printf("\t\"artWidth\": %i,\n", (int)(settings.gameArtWidth * 100));
 	printf("\t\"wifi\": %i,\n", settings.wifi);
 	printf("\t\"defaultView\": %i,\n", settings.defaultView);
-	printf("\t\"quickSwitcherUi\": %i,\n", settings.showQuickSwitcherUi);
 	printf("\t\"wifiDiagnostics\": %i,\n", settings.wifiDiagnostics);
 	printf("\t\"bluetooth\": %i,\n", settings.bluetooth);
 	printf("\t\"btDiagnostics\": %i,\n", settings.bluetoothDiagnostics);

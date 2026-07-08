@@ -15,12 +15,12 @@
 #define PID_FILE "/tmp/screenshot.pid"
 #define SCREENSHOT_DIR "/mnt/SDCARD/Images/Screenshots"
 #define FFMPEG_PATH "/usr/bin/ffmpeg"
+#define OSD_TOAST_PATH "/tmp/trimui_osd/osd_toast_msg"
 #define INPUT_COUNT 5
 
-// evdev codes for L2/R2 analog triggers and X button
-#define ABS_Z_CODE 2		// L2 trigger axis
-#define ABS_RZ_CODE 5		// R2 trigger axis
-#define BTN_WEST_CODE 0x134 // X button (BTN_WEST)
+// evdev codes for L2/R2 analog triggers
+#define ABS_Z_CODE 2  // L2 trigger axis
+#define ABS_RZ_CODE 5 // R2 trigger axis
 
 #define COOLDOWN_MS 1000 // minimum ms between screenshots
 
@@ -56,6 +56,47 @@ static void mkdir_p(const char* path) {
 #define FB_MIRROR_WIDTH "1280"
 #define FB_MIRROR_HEIGHT "720"
 #define FB_MIRROR_VIDEO_SIZE FB_MIRROR_WIDTH "x" FB_MIRROR_HEIGHT
+
+// Toast size:1 draws the 400px-wide bg_msg_w2.png background
+#define TOAST_BG_WIDTH 400
+
+static int screen_width(void) {
+	int w = 1280;
+	FILE* f = fopen("/sys/class/graphics/fb0/virtual_size", "r");
+	if (f) {
+		int fw = 0;
+		if (fscanf(f, "%d", &fw) == 1 && fw > 0)
+			w = fw;
+		fclose(f);
+	}
+	return w;
+}
+
+// Toast rendered by trimui_osdd (ignored silently if the daemon isn't running)
+static void osd_toast(const char* msg, int duration_ms) {
+	FILE* f = fopen(OSD_TOAST_PATH, "w");
+	if (!f)
+		return;
+	fprintf(f,
+			"{\n"
+			"    \"type\":\"default\",\n"
+			"    \"id\":\"com.trimui.osd.msg.default\",\n"
+			"    \"duration\":%d,\n"
+			"    \"size\":1,\n"
+			"    \"x\":%d,\n"
+			"    \"y\":500,\n"
+			"    \"w\":300,\n"
+			"    \"h\":80,\n"
+			"    \"message\":\"%s\",\n"
+			"    \"font\":\"\",\n"
+			"    \"bg\":\"\",\n"
+			"    \"icon\":\"\",\n"
+			"    \"fontsize\":24,\n"
+			"    \"fontcolor\":\"FFFFFFFF\"\n"
+			"}\n",
+			duration_ms, (screen_width() - TOAST_BG_WIDTH) / 2, msg);
+	fclose(f);
+}
 
 static void capture_screenshot(void) {
 	mkdir_p(SCREENSHOT_DIR);
@@ -99,7 +140,12 @@ static void capture_screenshot(void) {
 	}
 
 	// Wait for ffmpeg to finish (single frame capture is fast)
-	waitpid(pid, NULL, 0);
+	int status = 0;
+	waitpid(pid, &status, 0);
+	if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+		osd_toast("Screenshot saved", 1500);
+	else
+		osd_toast("Screenshot failed", 1500);
 }
 
 int main(int argc, char* argv[]) {
@@ -124,6 +170,7 @@ int main(int argc, char* argv[]) {
 
 	int l2_pressed = 0;
 	int r2_pressed = 0;
+	int combo_latched = 0; // require both triggers released before the next shot
 	uint32_t last_capture_ms = 0;
 	struct input_event ev;
 	struct timeval tod;
@@ -141,15 +188,18 @@ int main(int argc, char* argv[]) {
 						l2_pressed = ev.value > 0;
 					else if (ev.code == ABS_RZ_CODE)
 						r2_pressed = ev.value > 0;
-				} else if (ev.type == EV_KEY && ev.value == 1) {
-					if (ev.code == BTN_WEST_CODE &&
-						l2_pressed && r2_pressed &&
-						(now_ms - last_capture_ms) > COOLDOWN_MS) {
-						capture_screenshot();
-						last_capture_ms = now_ms;
-					}
 				}
 			}
+		}
+
+		if (l2_pressed && r2_pressed) {
+			if (!combo_latched && (now_ms - last_capture_ms) > COOLDOWN_MS) {
+				combo_latched = 1;
+				capture_screenshot();
+				last_capture_ms = now_ms;
+			}
+		} else {
+			combo_latched = 0;
 		}
 
 		usleep(16666); // ~60fps polling

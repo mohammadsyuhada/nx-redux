@@ -1743,7 +1743,10 @@ static void* capture_worker_func(void* arg) {
 static void capture_check(void) {
 	if (strcmp(PLATFORM, "tg5050") != 0)
 		return;
-	if (++capture_counter < 60)
+	// Checked every 15 rendered frames (not wall time): dirty-flag apps like
+	// nextui only flip on activity, so a large gate would make capture take
+	// ages to notice a PID file from the OSD toggles on an idle screen.
+	if (++capture_counter < 15)
 		return;
 	capture_counter = 0;
 

@@ -23,6 +23,12 @@
             "package":"com.trimui.osd.toggle.btenable"
         },
         {
+            "package":"com.nextui.osd.toggle.screenshot"
+        },
+        {
+            "package":"com.nextui.osd.toggle.screenrecord"
+        },
+        {
             "package":"com.trimui.osd.static.temperature"
         },
         {

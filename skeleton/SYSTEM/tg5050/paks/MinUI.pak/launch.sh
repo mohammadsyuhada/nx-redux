@@ -142,11 +142,24 @@ if [ -f "$OSD_SRC/osdlayout.json" ]; then
         mv "$OSD_DST/osdlayout.json" "$OSD_DST/osdlayout.json.stock"
     cp "$OSD_SRC/osdlayout.json" "$OSD_DST/osdlayout.json"
 fi
-# Overlay widget scripts (back up stock as .stock)
-for widget_dir in "$OSD_DST"/widgets/*/; do
-    widget=$(basename "$widget_dir")
-    src="$OSD_SRC/widgets/$widget"
-    [ -d "$src" ] || continue
+# Overlay widget scripts (back up stock as .stock). Widgets that don't exist
+# in the stock firmware (e.g. toggle_screenshot/toggle_screenrecord) are
+# installed wholesale — config.json and icons included — marked with a
+# .nextui file, and fully re-synced from the SD card on every boot.
+for src in "$OSD_SRC"/widgets/*/; do
+    widget=$(basename "$src")
+    widget_dir="$OSD_DST/widgets/$widget/"
+    if [ ! -d "$widget_dir" ]; then
+        cp -r "$src" "$widget_dir"
+        touch "${widget_dir}.nextui"
+        chmod +x "$widget_dir"*.sh
+        continue
+    fi
+    if [ -f "${widget_dir}.nextui" ]; then
+        cp "$src"* "$widget_dir"
+        chmod +x "$widget_dir"*.sh
+        continue
+    fi
     for script in set.sh update.sh refresh.sh launch.sh; do
         [ -f "$src/$script" ] || continue
         [ -f "${widget_dir}${script}" ] && [ ! -f "${widget_dir}${script}.stock" ] && \

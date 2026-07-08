@@ -134,7 +134,6 @@ extern int is_brick;
 
 #define MAIN_ROW_COUNT (is_brick ? 7 : 10)
 #define SETTINGS_ROW_COUNT (is_brick ? 9 : 11)
-#define QUICK_SWITCHER_COUNT (is_brick ? 3 : 4)
 #define PADDING (is_brick ? 5 : 10)
 
 ///////////////////////////////

@@ -23,7 +23,6 @@
 #include "gameswitcher.h"
 #include "imgloader.h"
 #include "launcher.h"
-#include "quickmenu.h"
 #include "search.h"
 #include "ui_list.h"
 #include "ui_contextmenu.h"
@@ -45,13 +44,11 @@ static void Menu_init(void) {
 	Recents_init();
 	Recents_setHasEmu(hasEmu);
 	Recents_setHasM3u(hasM3u);
-	Launcher_setCleanupFunc(cleanupImageLoaderPool);
 	Shortcuts_init();
 
 	openDirectory(SDCARD_PATH, 0);
 	loadLast(); // restore state when available
 
-	QuickMenu_init(simple_mode);
 	Search_init();
 	GameList_init(simple_mode);
 }
@@ -60,7 +57,6 @@ static void Menu_quit(void) {
 	Shortcuts_quit();
 	DirectoryArray_free(stack);
 
-	QuickMenu_quit();
 	Search_quit();
 }
 
@@ -170,17 +166,7 @@ int main(int argc, char* argv[]) {
 
 		int gsanimdir = ANIM_NONE;
 
-		if (currentScreen == SCREEN_QUICKMENU) {
-			QuickMenuResult qmr = QuickMenu_handleInput(now);
-			if (qmr.dirty)
-				dirty = true;
-			if (qmr.folderbgchanged)
-				folderbgchanged = 1;
-			if (qmr.screen != SCREEN_QUICKMENU) {
-				currentScreen = qmr.screen;
-				animationdirection = SLIDE_UP;
-			}
-		} else if (currentScreen == SCREEN_GAMESWITCHER) {
+		if (currentScreen == SCREEN_GAMESWITCHER) {
 			GameSwitcherResult gsr = GameSwitcher_handleInput(now);
 			if (gsr.dirty)
 				dirty = true;
@@ -208,7 +194,6 @@ int main(int argc, char* argv[]) {
 					animationdirection = SLIDE_RIGHT;
 			}
 		} else if (!ContextMenu_isOpen()) {
-			int prevScreen = currentScreen;
 			GameListResult glr =
 				GameList_handleInput(now, currentScreen, show_setting, &dirty);
 			currentScreen = glr.screen;
@@ -216,10 +201,6 @@ int main(int argc, char* argv[]) {
 				animationdirection = glr.animdir;
 			if (glr.folderbgchanged)
 				folderbgchanged = 1;
-			if (currentScreen == SCREEN_QUICKMENU &&
-				prevScreen != SCREEN_QUICKMENU) {
-				QuickMenu_resetSelection();
-			}
 		}
 
 		// TG5050: search keyboard may have triggered display recovery (new screen surface)
@@ -267,11 +248,7 @@ int main(int argc, char* argv[]) {
 			if (animationdirection != ANIM_NONE)
 				menuBarSurface = UI_captureMenuBar(screen);
 
-			if (currentScreen == SCREEN_QUICKMENU) {
-				QuickMenu_render(lastScreen, show_setting, ow,
-								 folderBgPath, sizeof(folderBgPath), blackBG);
-				lastScreen = SCREEN_QUICKMENU;
-			} else if (currentScreen == SCREEN_SEARCH) {
+			if (currentScreen == SCREEN_SEARCH) {
 				Search_render(screen, blackBG, lastScreen);
 				lastScreen = SCREEN_SEARCH;
 			} else if (startgame) {
@@ -332,9 +309,7 @@ int main(int argc, char* argv[]) {
 			if (menuBarSurface)
 				SDL_FreeSurface(menuBarSurface);
 
-			if (lastScreen == SCREEN_QUICKMENU) {
-				updateBackgroundLayer(blackBG);
-			} else if (lastScreen == SCREEN_SEARCH) {
+			if (lastScreen == SCREEN_SEARCH) {
 				updateBackgroundLayer(blackBG);
 				renderThumbnail(1, false);
 			} else if (lastScreen == SCREEN_GAMELIST) {
@@ -360,7 +335,6 @@ int main(int argc, char* argv[]) {
 			updateBackgroundLayer(blackBG);
 			renderThumbnail(1, false);
 			if (currentScreen != SCREEN_GAMESWITCHER &&
-				currentScreen != SCREEN_QUICKMENU &&
 				currentScreen != SCREEN_SEARCH) {
 				GameList_scrollTickIdle();
 			} else {

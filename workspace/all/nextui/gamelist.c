@@ -546,16 +546,6 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 		}
 
 		return result;
-	} else if (PAD_quickMenuPressed(now)) {
-		result.screen = SCREEN_QUICKMENU;
-		result.animdir = SLIDE_DOWN;
-		result.folderbgchanged = true;
-		*dirty = true;
-		GFX_clearLayers(LAYER_SCROLLTEXT);
-		ScrollText_clear(&list_scroll);
-		if (!HAS_POWER_BUTTON && !gl_simple_mode)
-			PWR_enableSleep();
-		return result;
 	} else if (PAD_tappedSelect(now)) {
 		result.screen = SCREEN_GAMESWITCHER;
 		GameSwitcher_resetSelection();

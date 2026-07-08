@@ -161,6 +161,11 @@ Each widget has a directory under `/tmp/trimui_osd/`:
 }
 ```
 
+Note: the `hotkey` field is **inert** — the daemon never reads it (the string
+"hotkey" doesn't appear in the binary). The OSD is actually triggered by our
+keymon via `/tmp/show_osdd`: HOME press (instant) or MENU long-press (500ms).
+Verified empirically: a short MENU+SELECT chord does not open the OSD.
+
 ### Widget Directory Structure
 
 Each widget under `/usr/trimui/osd/widgets/` has:
@@ -178,6 +183,12 @@ current value from the `status` file path in `config.json`.
 
 At boot, `launch.sh` overlays our scripts from `$SYSTEM_PATH/osd/widgets/` onto
 `/usr/trimui/osd/widgets/`, backing up the stock versions as `<script>.stock`.
+Widgets that don't exist in the stock firmware (`toggle_screenshot`,
+`toggle_screenrecord`) are installed wholesale — `config.json` and icon PNGs
+included — marked with a `.nextui` file in the widget dir, and fully re-synced
+from the SD card on every boot (so the SD card stays authoritative for them;
+`trimui_osdd` itself has `/usr/trimui/osd/` hardcoded and can't read widgets
+from the SD card directly).
 Note the wifi/bt toggle scripts write the status file optimistically before the
 radio transition completes, so the icon can bounce once via the 3s refresh
 during a slow start (~7s for wifi, longer for BT).
@@ -188,6 +199,19 @@ Platform note: on **tg5050** the BT toggle powers the adapter off/on via a live
 combo chip drops WiFi throughput from ~330 KB/s to ~2 KB/s while bluetoothd
 runs. The apps tolerate losing bluetoothd mid-call via command timeouts in
 `generic_bt.c`.
+
+Capture toggles: both are PID-file driven. `toggle_screenshot` starts/stops
+`screenshot.elf` (daemon owns `/tmp/screenshot.pid`; L2+R2 together captures a
+frame — the widget shows a hint toast on enable, and the daemon toasts
+"Screenshot saved" after each capture).
+`toggle_screenrecord` on tg5050 brings cpu2 online and starts
+`screenrecorder.elf <output> 1280 720` (owns `/tmp/screenrecorder.pid`); on
+tg5040 it records `/dev/fb0` directly with ffmpeg and the script owns the PID
+file. The foreground app (`capture_check()` in `generic_video.c`, tg5050 only)
+notices the PID files on rendered frames and publishes RGBA frames to the
+`/tmp/fb_mirror.raw` shm. Because dirty-flag apps like nextui only render on
+activity, capture starts once the user interacts after toggling; the recorder
+waits up to 60s for the mirror before giving up.
 
 ### Available Widgets
 
@@ -202,6 +226,8 @@ runs. The apps tolerate losing bluetoothd mid-call via command timeouts in
 | `toggle_rumble` | toggle | Vibration on/off |
 | `toggle_mute` | toggle | Audio mute |
 | `toggle_power` | toggle | Power off |
+| `toggle_screenshot` | toggle | Screenshot daemon on/off (custom; L2+R2 captures to `/mnt/SDCARD/Images/Screenshots`) |
+| `toggle_screenrecord` | toggle | Screen recording on/off (custom; records to `/mnt/SDCARD/Videos/Recordings`) |
 | `static_pic_1` | static | Background/header image |
 | `static_battery` | static | Battery level display |
 | `static_cpu_freq` | static | CPU frequency display |

@@ -79,9 +79,12 @@ int main(int argc, char* argv[]) {
 
 	ensure_output_dir(output_path);
 
-	// Wait for shm file to appear (capture system creates it)
+	// Wait for shm file to appear (capture system creates it). Generous
+	// timeout: the foreground app only services capture_check() on rendered
+	// frames, and dirty-flag apps (nextui) don't render until the user closes
+	// the OSD and starts interacting again.
 	int shm_fd = -1;
-	for (int i = 0; i < 300 && !quit; i++) { // up to ~10s
+	for (int i = 0; i < 1800 && !quit; i++) { // up to ~60s
 		shm_fd = open(SHM_PATH, O_RDONLY);
 		if (shm_fd >= 0)
 			break;

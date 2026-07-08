@@ -1,0 +1,13 @@
+{
+    "type":"toggle",
+    "package":"com.nextui.osd.toggle.screenrecord",
+    "label":"Record",
+    "gridwidth":1,
+    "gridheight":1,
+    "icon0":"icon-record-off.png",
+    "icon1":"icon-record-on.png",
+    "launch":"set.sh",
+    "update":"update.sh",
+    "status":"/tmp/trimui_osd/toggle_screenrecord/status",
+    "description":"Screen recording to /mnt/SDCARD/Videos/Recordings"
+}

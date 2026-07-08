@@ -48,20 +48,6 @@ enum EntryType {
 	ENTRY_DIR,
 	ENTRY_PAK,
 	ENTRY_ROM,
-	ENTRY_DIP,
-};
-
-enum QuickAction {
-	QUICK_NONE = 0,
-	QUICK_WIFI,
-	QUICK_BLUETOOTH,
-	QUICK_SLEEP,
-	QUICK_REBOOT,
-	QUICK_POWEROFF,
-	QUICK_SETTINGS,
-	QUICK_PAK_STORE,
-	QUICK_SCREENRECORD,
-	QUICK_SCREENSHOT,
 };
 
 typedef struct Entry {
@@ -70,7 +56,6 @@ typedef struct Entry {
 	char* unique;
 	int type;
 	int alpha;	 // index in parent Directory's alphas Array, which points to the index of an Entry in its entries Array :sweat_smile:
-	int quickId; // QuickAction enum, 0 for non-DIP entries
 } Entry;
 
 Entry* Entry_new(const char* path, int type);

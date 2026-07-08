@@ -35,10 +35,6 @@ int getFirstDisc(char* m3u_path, char* disc_path);
 Array* getEntries(char* path);
 void addEntries(Array* entries, char* path);
 
-// Quick menu content
-Array* getQuickEntries(int simple_mode);
-Array* getQuickToggles(int simple_mode);
-
 // Search
 Array* Content_searchRoms(const char* query);
 

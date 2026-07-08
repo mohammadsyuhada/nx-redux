@@ -16,12 +16,6 @@
 #include "launcher.h"
 #include "shortcuts.h"
 
-static CleanupPoolFunc _cleanupPool = NULL;
-
-void Launcher_setCleanupFunc(CleanupPoolFunc func) {
-	_cleanupPool = func;
-}
-
 ///////////////////////////////////////
 
 void queueNext(char* cmd) {
@@ -517,35 +511,6 @@ void closeDirectory(void) {
 	restore.relative = top->selected;
 }
 
-void toggleQuick(Entry* self) {
-	if (!self)
-		return;
-
-	switch (self->quickId) {
-	case QUICK_WIFI:
-		WIFI_enable(!WIFI_enabled());
-		break;
-	case QUICK_BLUETOOTH:
-		BT_enable(!BT_enabled());
-		break;
-	case QUICK_SLEEP:
-		PWR_sleep();
-		break;
-	case QUICK_REBOOT:
-		if (_cleanupPool)
-			_cleanupPool();
-		PWR_powerOff(1);
-		break;
-	case QUICK_POWEROFF:
-		if (_cleanupPool)
-			_cleanupPool();
-		PWR_powerOff(0);
-		break;
-	default:
-		break;
-	}
-}
-
 void Entry_open(Entry* self) {
 	Recents_setAlias(self->name);
 	if (self->type == ENTRY_ROM) {
@@ -570,8 +535,6 @@ void Entry_open(Entry* self) {
 		openPak(self->path);
 	} else if (self->type == ENTRY_DIR) {
 		openDirectory(self->path, 1);
-	} else if (self->type == ENTRY_DIP) {
-		toggleQuick(self);
 	}
 }
 

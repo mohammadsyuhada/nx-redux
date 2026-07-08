@@ -34,10 +34,6 @@ typedef struct {
 extern ResumeState resume;
 extern RestoreState restore;
 
-// Set cleanup function (called by toggleQuick for Reboot/Poweroff)
-typedef void (*CleanupPoolFunc)(void);
-void Launcher_setCleanupFunc(CleanupPoolFunc func);
-
 // Navigation
 void queueNext(char* cmd);
 void openDirectory(char* path, int auto_launch);
@@ -53,7 +49,6 @@ int autoResume(void);
 void openPak(char* path);
 void openRom(char* path, char* last);
 void Entry_open(Entry* self);
-void toggleQuick(Entry* self);
 
 // State persistence
 void saveLast(char* path);

@@ -240,9 +240,9 @@ static const char* ra_sort_labels[] = {
 #define RA_SORT_LABEL_COUNT 11
 
 /* Default view */
-static int default_view_values[] = {SCREEN_GAMELIST, SCREEN_GAMESWITCHER, SCREEN_QUICKMENU};
-static const char* default_view_labels[] = {"Content List", "Game Switcher", "Quick Menu"};
-#define DEFAULT_VIEW_COUNT 3
+static int default_view_values[] = {SCREEN_GAMELIST, SCREEN_GAMESWITCHER};
+static const char* default_view_labels[] = {"Content List", "Game Switcher"};
+#define DEFAULT_VIEW_COUNT 2
 
 /* Save format */
 static int save_format_values[] = {SAVE_FORMAT_SAV, SAVE_FORMAT_SRM, SAVE_FORMAT_SRM_UNCOMPRESSED, SAVE_FORMAT_GEN};
@@ -669,17 +669,6 @@ static void set_roms_use_folder_bg(int v) {
 }
 static void reset_roms_use_folder_bg(void) {
 	CFG_setRomsUseFolderBackground(CFG_DEFAULT_ROMSUSEFOLDERBACKGROUND);
-}
-
-/* Show Quickswitcher UI */
-static int get_show_quickswitcher(void) {
-	return CFG_getShowQuickswitcherUI() ? 1 : 0;
-}
-static void set_show_quickswitcher(int v) {
-	CFG_setShowQuickswitcherUI(v != 0);
-}
-static void reset_show_quickswitcher(void) {
-	CFG_setShowQuickswitcherUI(CFG_DEFAULT_SHOWQUICKWITCHERUI);
 }
 
 // ============================================
@@ -1511,9 +1500,6 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Use folder background for ROMs", "If enabled, used the emulator background image.",
 		on_off_labels, 2, on_off_values, get_roms_use_folder_bg, set_roms_use_folder_bg, reset_roms_use_folder_bg);
-	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Show Quickswitcher UI", "Show/hide Quickswitcher UI elements.",
-		on_off_labels, 2, on_off_values, get_show_quickswitcher, set_show_quickswitcher, reset_show_quickswitcher);
 	appearance_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
 		"Bootlogo", "Change the device boot logo.",
 		launch_bootlogo);

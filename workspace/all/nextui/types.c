@@ -132,7 +132,6 @@ Entry* Entry_new(const char* path, int type) {
 	self->unique = NULL;
 	self->type = type;
 	self->alpha = 0;
-	self->quickId = QUICK_NONE;
 	return self;
 }
 

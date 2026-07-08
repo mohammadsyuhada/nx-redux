@@ -3093,11 +3093,6 @@ int PAD_longPressedMenu(uint32_t now) {
 	return 0;
 }
 
-int PAD_quickMenuPressed(uint32_t now) {
-	(void)now;
-	return 0; // Quick menu handled by trimui_osdd via keymon on all platforms
-}
-
 ///////////////////////////////
 static struct VIB_Context {
 	int initialized;

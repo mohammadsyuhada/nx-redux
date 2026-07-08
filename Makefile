@@ -97,6 +97,7 @@ ifneq ($(PLATFORM), desktop)
 	cp ./workspace/all/audiomon/build/$(PLATFORM)/audiomon.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/show2/build/$(PLATFORM)/show2.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/screenshot/build/$(PLATFORM)/screenshot.elf ./build/SYSTEM/$(PLATFORM)/bin/
+	cp ./workspace/all/screenrecorder/build/$(PLATFORM)/screenrecorder.elf ./build/SYSTEM/$(PLATFORM)/bin/
 
 	# game time tracking
 	cp ./workspace/all/libgametimedb/build/$(PLATFORM)/libgametimedb.so ./build/SYSTEM/$(PLATFORM)/lib
