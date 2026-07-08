@@ -16,7 +16,6 @@
 #define NOTIF_ICON_GAP 4  // Gap between icon and text
 
 // System indicator sizing (must match GFX_blitHardwareIndicator dimensions)
-#define SYS_INDICATOR_EXTRA_PAD 4 // Extra padding for indicator pill
 
 ///////////////////////////////
 // Internal state
@@ -251,7 +250,7 @@ void Notification_update(uint32_t now) {
 
 // Render system indicator (top-right)
 static void render_system_indicator(void) {
-	int indicator_width = SCALE1(PILL_SIZE + SETTINGS_WIDTH + PADDING + SYS_INDICATOR_EXTRA_PAD);
+	int indicator_width = SCALE1(HW_INDICATOR_WIDTH);
 	int indicator_height = SCALE1(PILL_SIZE);
 	int indicator_x = screen_width - SCALE1(PADDING) - indicator_width;
 	int indicator_y = SCALE1(PADDING);
@@ -545,7 +544,7 @@ int Notification_getSystemIndicatorWidth(void) {
 	if (!initialized || system_indicator_type == SYSTEM_INDICATOR_NONE) {
 		return 0;
 	}
-	return SCALE1(PILL_SIZE + SETTINGS_WIDTH + PADDING + SYS_INDICATOR_EXTRA_PAD);
+	return SCALE1(HW_INDICATOR_WIDTH);
 }
 
 ///////////////////////////////

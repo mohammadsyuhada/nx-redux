@@ -1708,7 +1708,7 @@ int GFX_blitHardwareIndicator(SDL_Surface* dst, int x, int y, IndicatorType indi
 	int setting_max;
 	int asset;
 
-	int ow = SCALE1(PILL_SIZE + SETTINGS_WIDTH + 10 + 4);
+	int ow = SCALE1(HW_INDICATOR_WIDTH);
 	int ox = x;
 	int oy = y;
 
@@ -1776,7 +1776,7 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, IndicatorType show_setting) {
 
 	if (show_setting && !GetHDMI()) {
 		// Use the helper function to render the indicator at the standard position
-		ow = SCALE1(PILL_SIZE + SETTINGS_WIDTH + 10 + 4);
+		ow = SCALE1(HW_INDICATOR_WIDTH);
 		ox = dst->w - SCALE1(PADDING) - ow;
 		GFX_blitHardwareIndicator(dst, ox, 0, (IndicatorType)show_setting);
 	} else {

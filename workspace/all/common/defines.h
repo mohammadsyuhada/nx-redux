@@ -88,6 +88,7 @@
 #define BUTTON_PADDING 10
 #define SETTINGS_SIZE 4
 #define SETTINGS_WIDTH 80
+#define HW_INDICATOR_WIDTH (PILL_SIZE + SETTINGS_WIDTH + 10 + 4) // pill drawn by GFX_blitHardwareIndicator
 
 #ifndef MAIN_ROW_COUNT
 #define MAIN_ROW_COUNT 6 // FIXED_HEIGHT / (PILL_SIZE * FIXED_SCALE) - 2 (floor and subtract 1 if not an integer)
