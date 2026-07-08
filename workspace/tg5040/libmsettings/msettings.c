@@ -1298,7 +1298,7 @@ static int get_a2dp_simple_control_name(char* buf, size_t buflen) {
 }
 
 void SetRawVolume(int val) { // in: 0-100
-	if (settings->mute)
+	if (settings->mute && GetMutedVolume() != SETTINGS_DEFAULT_MUTE_NO_CHANGE)
 		val = scaleVolume(GetMutedVolume());
 
 	if (GetAudioSink() == AUDIO_SINK_BLUETOOTH) {

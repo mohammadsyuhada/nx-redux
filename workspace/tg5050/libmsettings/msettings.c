@@ -337,7 +337,7 @@ void SetColortemp(int value) {
 	SaveSettings();
 }
 void SetVolume(int value) { // 0-20
-	if (settings->mute)
+	if (settings->mute && GetMutedVolume() != SETTINGS_DEFAULT_MUTE_NO_CHANGE)
 		return SetRawVolume(scaleVolume(GetMutedVolume()));
 
 	if (settings->jack || settings->audiosink != AUDIO_SINK_DEFAULT)
@@ -939,7 +939,7 @@ static int get_a2dp_simple_control_name(char* buf, size_t buflen) {
 }
 
 void SetRawVolume(int val) { // in: 0-100
-	if (settings->mute)
+	if (settings->mute && GetMutedVolume() != SETTINGS_DEFAULT_MUTE_NO_CHANGE)
 		val = scaleVolume(GetMutedVolume());
 
 	if (GetAudioSink() == AUDIO_SINK_BLUETOOTH) {
