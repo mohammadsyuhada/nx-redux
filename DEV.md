@@ -1,5 +1,28 @@
 # NextUI Development Guide
 
+## Build Targets & Platforms
+
+The root `makefile` runs on the **host** (macOS/Linux), not inside Docker, and picks a build path from the target platform:
+
+- **Device builds** (`tg5040`, `tg5050`) compile inside the LoveRetro Docker toolchain images and produce flashable release archives.
+- **Desktop builds** (`desktop`) compile natively against Homebrew libraries for fast UI/debug iteration on your machine.
+
+| Platform  | Device(s)                | Toolchain                                   |
+|-----------|--------------------------|---------------------------------------------|
+| `tg5040`  | Trimui Smart Pro / Brick | `ghcr.io/loveretro/tg5040-toolchain:latest` |
+| `tg5050`  | Trimui Smart Pro S       | `ghcr.io/loveretro/tg5050-toolchain:latest` |
+| `desktop` | Native host debug build  | Homebrew GCC + SDL (see Desktop Setup below) |
+
+`make all` builds both device platforms by default (`PLATFORMS = tg5040 tg5050`) and packages one release zip **per device variant** into `releases/`:
+
+| Zip suffix   | Platform | Overlays / bg |
+|--------------|----------|---------------|
+| `-brick`     | tg5040   | 768p / 1024   |
+| `-smartpro`  | tg5040   | 720p / 1280   |
+| `-smartpros` | tg5050   | 720p / 1280   |
+
+**Host requirements for device builds:** Docker and `adb`. On the first build for a platform, its toolchain repo is cloned into `toolchains/` and the Docker image is pulled automatically. Apple Silicon / arm64 hosts are the least painful for the Docker toolchain; x86_64 hosts have historically hit cross-architecture dependency issues.
+
 ## Desktop Development Setup
 
 ### Prerequisites
@@ -69,9 +92,31 @@ cd workspace/all/nextui
 DYLD_LIBRARY_PATH=/opt/homebrew/lib ./build/desktop/nextui.elf
 ```
 
+## Full Build & Deploy (Device)
+
+Build every component for both device platforms and package release zips. This drives the Docker toolchain for you — no manual `docker run` needed:
+
+```bash
+# firmware/UI only (fast — reuses prebuilt cores)
+make all
+
+# include emulator cores (slow; only needed on first build or after core changes)
+make all COMPILE_CORES=true
+```
+
+Output archives land in `releases/`, one per device variant (see the table above).
+
+Build, package, push to a connected device, and reboot in one step. `PLATFORM` is **required** (the build errors without it):
+
+```bash
+make deploy PLATFORM=tg5040   # or PLATFORM=tg5050
+```
+
+`make deploy` pushes `build/BASE/MinUI-<platform>.zip` to `/mnt/SDCARD/MinUI.zip` and reboots — a full OTA-style update of the base UI.
+
 ## Quick Build (Device - Docker)
 
-Build and push a specific component directly using docker:
+For fast iteration on a single component, build and push just that binary directly via Docker (skips the full package/release step):
 
 ```bash
 # nextui

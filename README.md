@@ -72,6 +72,13 @@ New Features:
     - `Page Navigation` slides in from the right on enter and out to the left on exit
 - Added `Simple Mode` in `Settings`
 - Added `Search` function in main menu (Press `Y` to activate)
+- Added a game-list context menu (press `MENU` on a highlighted game):
+    - Built-in ROMs collection management — add a game to an existing collection or create a new one on the spot.
+    - Pin or unpin a game to the main menu.
+    - Rename a game — its box art, saves and save states are renamed along with it.
+    - Delete a game.
+    - Remove a game from `Recently Played`.
+    - Refresh the ROMs list.
 - Added jostick and calibration feature in `Input` app
 - Added `Device Sync` to sync game saves, states, user settings, and ROMs (optional) across devices. 
 - Added `Artwork Manager` to fetch custom mix box art for ROMs. 
@@ -83,26 +90,28 @@ New Features:
 - Bundled `Drastic Nintendo DS` emulator.
 - Bundled `Mupen64Plus Nintendo 64` emulator.
     - Support for high resolution textures (with limitations due to 1GB RAM)
-- Bundled `PPSSPP Playstation Portable` emulator.
 - Bundled `Portmaster` in the Tools.
     - Configured by default with Nintendo input layout (configurable)
-- Added `Netplay` for local wireless multiplayer, available from the in-game menu.
+- Added [Netplay](https://github.com/mohammadsyuhada/nextui-netplay) for local wireless multiplayer, available from the in-game menu.
     - Host or join over a regular Wi-Fi network, or let the host device start its own hotspot (no router needed).
     - `GB Link` support for Game Boy (gambatte) — link cable games like Pokémon trades and battles.
     - `GBA Link` support for Game Boy Advance (gpSP) — wireless adapter and link cable games.
     - Classic lockstep netplay for the other supported cores.
     - Save states, fast-forward and rewind are automatically disabled during a session to protect the connection.
 
-Upcoming Features:
-- Built-in ROMs collection management
-- Netplay for `Mupen64Plus Nintendo 64` emulator
-- Netplay for `PPSSPP Playstation Portable` emulator
-
 Ongoing focus areas:
 - Cleaner, more maintainable core code
 - Improved file and module structure
 - Refactoring for readability
 - Selective feature improvements as needed
+
+## Additional Emulators
+
+Some emulators are not bundled with NX Redux. If you want to run PPSSPP — or any other system that isn't included — you can install a community pak instead:
+
+- **PPSSPP** (PlayStation Portable) — [ben16w/minui-psp](https://github.com/ben16w/minui-psp)
+
+> ⚠️ These paks are built for **NextUI** (which NX Redux is based on), **not** for NX Redux. They will generally work, but they are not developed, maintained, or supported for NX Redux. Please **do not** report issues you hit while using them on NX Redux to their developers — those developers build for NextUI and cannot help with NX Redux-specific behavior.
 
 ## Upstream
 

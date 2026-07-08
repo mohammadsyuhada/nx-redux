@@ -247,7 +247,7 @@ setup: name
 
 	# remove authoring detritus
 	cd ./build && find . -type f -name '.keep' -delete
-	cd ./build && find . -type f -name '*.meta' -not -path '*/ppsspp/*' -delete
+	cd ./build && find . -type f -name '*.meta' -delete
 	echo $(BUILD_HASH) > ./workspace/hash.txt
 	
 	# copy readmes to workspace so we can use Linux fmt instead of host's

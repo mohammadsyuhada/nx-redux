@@ -37,9 +37,6 @@ libchdr
 **/other/mupen64plus/*
 !**/other/mupen64plus/README.md
 !**/other/mupen64plus/*.patch
-**/other/ppsspp/ppsspp
-!**/other/ppsspp/
-!**/other/ppsspp/pvr_libs/*.so
 **/other/351files
 **/other/fbset
 **/other/mkbootimg
