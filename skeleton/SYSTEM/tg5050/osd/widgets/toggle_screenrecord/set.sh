@@ -48,4 +48,6 @@ else
     # plain & (no setsid — tg5040's busybox lacks it; kept consistent here); survives fine under trimui_osdd
     "$RECORDER" "$output" 1280 720 >/dev/null 2>&1 &
     echo 1 > $STATUS_DIR/status
+    # close the OSD so it doesn't sit in the recording
+    touch /tmp/hide_osdd
 fi

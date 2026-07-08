@@ -132,42 +132,20 @@ echo 0 > /sys/devices/system/cpu/cpu5/online
 
 keymon.elf & # &> $SDCARD_PATH/keymon.txt &
 
-# Overlay SD card OSD widget scripts onto /usr/trimui/osd/ (where trimui_osdd reads from)
+# Sync the complete OSD tree from the SD card onto /usr/trimui/osd — the SD
+# card is the source of truth for the OSD (daemon binary, assets, toast
+# scripts, every widget). trimui_osdd has /usr/trimui/osd hardcoded in the
+# closed-source binary, so it can't read from the SD card directly; instead
+# the tree (~1MB) is copied over at every boot, which also makes updates
+# take effect automatically. regular.ttf (16MB CJK font) is deliberately not
+# shipped — the firmware's copy is used (files are only overwritten, never
+# deleted).
 mount -o remount,rw /
 OSD_DST="/usr/trimui/osd"
 OSD_SRC="$SYSTEM_PATH/osd"
-# Copy custom osdlayout.json if present (back up stock as .stock)
-if [ -f "$OSD_SRC/osdlayout.json" ]; then
-    [ -f "$OSD_DST/osdlayout.json" ] && [ ! -f "$OSD_DST/osdlayout.json.stock" ] && \
-        mv "$OSD_DST/osdlayout.json" "$OSD_DST/osdlayout.json.stock"
-    cp "$OSD_SRC/osdlayout.json" "$OSD_DST/osdlayout.json"
-fi
-# Overlay widget scripts (back up stock as .stock). Widgets that don't exist
-# in the stock firmware (e.g. toggle_screenshot/toggle_screenrecord) are
-# installed wholesale — config.json and icons included — marked with a
-# .nextui file, and fully re-synced from the SD card on every boot.
-for src in "$OSD_SRC"/widgets/*/; do
-    widget=$(basename "$src")
-    widget_dir="$OSD_DST/widgets/$widget/"
-    if [ ! -d "$widget_dir" ]; then
-        cp -r "$src" "$widget_dir"
-        touch "${widget_dir}.nextui"
-        chmod +x "$widget_dir"*.sh
-        continue
-    fi
-    if [ -f "${widget_dir}.nextui" ]; then
-        cp "$src"* "$widget_dir"
-        chmod +x "$widget_dir"*.sh
-        continue
-    fi
-    for script in set.sh update.sh refresh.sh launch.sh; do
-        [ -f "$src/$script" ] || continue
-        [ -f "${widget_dir}${script}" ] && [ ! -f "${widget_dir}${script}.stock" ] && \
-            mv "${widget_dir}${script}" "${widget_dir}${script}.stock"
-        cp "$src/$script" "${widget_dir}${script}"
-        chmod +x "${widget_dir}${script}"
-    done
-done
+cp -r "$OSD_SRC/." "$OSD_DST/"
+chmod +x "$OSD_DST/trimui_osdd" "$OSD_DST"/*.sh \
+    "$OSD_DST"/widgets/*/*.sh "$OSD_DST"/widgets/app_music/pic2argb 2>/dev/null
 
 # Start OSD overlay daemon (system-wide quick menu)
 cd "$OSD_DST" && ./trimui_osdd &

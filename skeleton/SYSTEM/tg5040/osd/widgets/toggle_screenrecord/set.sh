@@ -45,4 +45,6 @@ else
         -c:v mjpeg -q:v 10 -y "$output" >/dev/null 2>&1 &
     echo $! > $PID_FILE
     echo 1 > $STATUS_DIR/status
+    # close the OSD so it doesn't sit in the recording
+    touch /tmp/hide_osdd
 fi

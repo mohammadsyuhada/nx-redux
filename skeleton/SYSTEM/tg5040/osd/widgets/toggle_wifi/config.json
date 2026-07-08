@@ -1,0 +1,14 @@
+{
+    "type":"toggle",
+    "package":"com.trimui.osd.toggle.wifienable",
+    "label":"Wi-Fi",
+    "label.ch.lang":"无线网络",
+    "gridwidth":1,
+    "gridheight":1,
+    "icon0":"icon-wifi-off.png",
+    "icon1":"icon-wifi-on.png",
+    "launch":"set.sh",
+    "update":"update.sh",
+    "status":"/tmp/trimui_osd/toggle_wifi/status",
+    "description":"Wifi Power Switch"
+}

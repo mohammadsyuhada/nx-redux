@@ -50,5 +50,7 @@ else
     # plain & (no setsid — the Brick's busybox lacks it); survives fine under trimui_osdd
     "$DAEMON" >/dev/null 2>&1 &
     echo 1 > $STATUS_DIR/status
+    # close the OSD so the user can line up the shot; the toast still renders
+    touch /tmp/hide_osdd
     show_hint_toast
 fi

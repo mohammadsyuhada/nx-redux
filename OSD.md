@@ -181,14 +181,20 @@ The script names come from `config.json` — toggles use `update.sh`, the static
 widgets (temperature, CPU clock) use `refresh.sh`. The daemon reads the widget's
 current value from the `status` file path in `config.json`.
 
-At boot, `launch.sh` overlays our scripts from `$SYSTEM_PATH/osd/widgets/` onto
-`/usr/trimui/osd/widgets/`, backing up the stock versions as `<script>.stock`.
-Widgets that don't exist in the stock firmware (`toggle_screenshot`,
-`toggle_screenrecord`) are installed wholesale — `config.json` and icon PNGs
-included — marked with a `.nextui` file in the widget dir, and fully re-synced
-from the SD card on every boot (so the SD card stays authoritative for them;
-`trimui_osdd` itself has `/usr/trimui/osd/` hardcoded and can't read widgets
-from the SD card directly).
+Both platforms vendor the **complete OSD tree** on the SD card
+(`skeleton/SYSTEM/<platform>/osd/`) — daemon binary, UI assets, toast scripts,
+and every widget (stock and custom). At boot, `launch.sh` copies the whole
+tree (~1MB) over `/usr/trimui/osd/`, making the SD card the source of truth
+regardless of firmware version. `regular.ttf` (16MB CJK font) is deliberately
+not shipped — the firmware's copy is used, since files are only overwritten,
+never deleted. `trimui_osdd` has `/usr/trimui/osd/` hardcoded in the
+closed-source binary, so it can't read from the SD card directly — the
+boot-time copy is the only way to control it. The two platforms' daemon
+builds differ (different md5), so each skeleton carries its own.
+
+Activating screenshot, screen record, or power auto-hides the OSD panel
+(`touch /tmp/hide_osdd`) so the user lands back on the app; toasts still
+render while the panel is hidden.
 Note the wifi/bt toggle scripts write the status file optimistically before the
 radio transition completes, so the icon can bounce once via the 3s refresh
 during a slow start (~7s for wifi, longer for BT).
@@ -224,16 +230,16 @@ waits up to 60s for the mirror before giving up.
 | `toggle_wifi` | toggle | WiFi on/off |
 | `toggle_led` | toggle | LED strip on/off |
 | `toggle_rumble` | toggle | Vibration on/off |
-| `toggle_mute` | toggle | Audio mute |
-| `toggle_power` | toggle | Power off |
+| `toggle_mute` | toggle | Audio mute (osdctl-based) |
+| `toggle_power` | toggle | Power off — stock ships an empty `set.sh`; ours implements the launch.sh contract (`rm /tmp/nextui_exec` + `touch /tmp/poweroff` + kill foreground app → `poweroff_next`). In-game press exits minarch without quicksave. |
 | `toggle_screenshot` | toggle | Screenshot daemon on/off (custom; L2+R2 captures to `/mnt/SDCARD/Images/Screenshots`) |
 | `toggle_screenrecord` | toggle | Screen recording on/off (custom; records to `/mnt/SDCARD/Videos/Recordings`) |
-| `static_pic_1` | static | Background/header image |
+| `static_pic_1` | static | Background/header image (not shipped — removed from the tg5040 vendored tree) |
 | `static_battery` | static | Battery level display |
 | `static_cpu_freq` | static | CPU frequency display |
 | `static_temperature` | static | CPU temperature display |
-| `static_dram` | static | RAM usage display |
-| `app_music` | app | Music player controls |
+| `static_dram` | static | Used-memory display — stock widget was incomplete (empty `set.sh`, no update hook); ours adds `refresh.sh` (MemTotal−MemAvailable) |
+| `app_music` | app | Music player controls — vendored but not in the layout yet; to be integrated with `workspace/all/musicplayer` |
 
 ## DRM Plane Details
 

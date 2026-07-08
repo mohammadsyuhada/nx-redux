@@ -32,7 +32,7 @@ NX Redux is where those two goals meet.
 ## What's Different
 
 Improvements:
-- Refactored `nextui.c`, splitting the monolithic code into smaller, focused components (game list, game switcher, quick menu, search, launcher, image loader and more).
+- Refactored `nextui.c`, splitting the monolithic code into smaller, focused components (game list, game switcher, search, launcher, image loader and more).
 - Refactored `minarch.c`, splitting the ~9,000-line monolith into focused `ma_*` modules (game, saves, rewind, config, shaders, options, input, video, audio, core, menu and more).
 - Applied various bug fixes and optimizations across the refactored components.
 - Added clang-format tooling with enforced code style and VSCode support.
@@ -40,7 +40,6 @@ Improvements:
     - Strict one-component-per-file layout (menu bar, button hint bar, dialogs, overlays, lists, keyboard, toast, etc.), each with its own header — apps include only what they use.
     - Single `ui.mk` fragment wires the components into every app build, so adding a component is a one-line change.
     - Shared drawing primitives (rounded rects/pills, scrim surfaces, centered button rows) replace previously duplicated rendering code across the UI files.
-- Fixed incorrect Wi-Fi/Bluetooth state icons in the quick menu.
 - Added a semi-transparent progress overlay for blocking actions.
 - Added confirmation dialogs for actions that require them.
 - Rewrote the `Settings` app in C with a redesigned UI
@@ -59,15 +58,13 @@ New Features:
 - Game art fallback for titles without save states in the game switcher
 - Main menu shortcut for quick access to frequently used `Tools` and `Games`
 - Option to disable the emulator folders (ideal for users who prefer listing only selected games via shortcuts in the main menu)
-- Direct selection of Wi-Fi networks and Bluetooth devices from the quick menu.
+- Direct selection of Wi-Fi networks and Bluetooth devices from `Settings`.
     - IP address is displayed in the bottom button hint bar when connected.
 - Added `Developer options` in `Settings`:
     - Toggle SSH service and autostart
     - Disable system sleep (useful for ADB)
     - Clean up macOS-specific dotfiles (if any were copied)
-    - Quickly turn off Developer Mode from the quick menu
 - Added slide transition animations (can be disabled in Settings)
-    - `Quick Menu` slides down on enter and up on exit
     - `Game Switcher` slides up on enter and down on exit
     - `Page Navigation` slides in from the right on enter and out to the left on exit
 - Added `Simple Mode` in `Settings`
@@ -82,9 +79,17 @@ New Features:
 - Added jostick and calibration feature in `Input` app
 - Added `Device Sync` to sync game saves, states, user settings, and ROMs (optional) across devices. 
 - Added `Artwork Manager` to fetch custom mix box art for ROMs. 
-- Built-in `Screenshot` and `Screen Recorder` option in quick menu
-    - When Screenshot is enabled, press `L2` + `R2` + `X` to capture the screen
-    - When Screen Recorder is enabled, recording runs automatically in the background.
+- Added `On-Screen Display (OSD)` for quick access to common actions from anywhere — in the menus or in-game.
+    - Opened with the `Home` button on devices that have one (Smart Pro S), or by long-pressing the `MENU` button (Brick / Smart Pro).
+    - Volume slider with mute toggle, brightness slider, and rumble toggle.
+    - Wi-Fi, Bluetooth and LED toggles with live state.
+    - Built-in `Screenshot` and `Screen Recorder`:
+        - When Screenshot is enabled, press `L2` + `R2` to capture the screen — an on-screen hint shows the shortcut, and a toast confirms each saved capture.
+        - When Screen Recorder is enabled, recording runs automatically in the background (the record icon turns red while recording).
+        - The OSD closes itself when either is activated, so it never gets in the way of the capture.
+    - System monitors: CPU frequency, memory usage and temperature (plus fan control on the Smart Pro S).
+    - Power off button.
+    - The entire OSD (layout, widgets, icons) ships on the SD card, so it stays consistent regardless of the stock firmware version.
 - Built-in [Music Player](https://github.com/mohammadsyuhada/nextui-music-player)
 - Built-in [Media Player](https://github.com/mohammadsyuhada/nextui-video-player)
 - Bundled `Drastic Nintendo DS` emulator.
@@ -100,8 +105,8 @@ New Features:
     - Save states, fast-forward and rewind are automatically disabled during a session to protect the connection.
 
 Upcoming Features:
-- `On-Screen Display (OSD)` for quick access to common actions — brightness, volume and connectivity — from anywhere, in the menus or in-game.
-    - Opened with the `Home` button on devices that have one (Smart Pro S), or by long-pressing the `MENU` button (Brick / Smart Pro).
+- `CPU mode` switch in the OSD — quickly change the CPU governor (e.g. performance mode) from anywhere; defaults to auto.
+- Background `Music Player` — keep music playing while you browse, with playback controls in the OSD.
 
 Ongoing focus areas:
 - Cleaner, more maintainable core code

@@ -34,7 +34,11 @@ ContextMenuResult ContextMenu_handleInput(void) {
 	if (!cm_open)
 		return result;
 
-	if (PAD_justPressed(BTN_B) || PAD_justPressed(BTN_MENU)) {
+	// MENU closes on the RELEASE edge: the release is what re-triggers
+	// PAD_tappedMenu in the game list, so it must land inside the close-guard
+	// window — closing on the press meant the release arrived frames after
+	// the guard expired and instantly reopened the menu (broken toggle).
+	if (PAD_justPressed(BTN_B) || PAD_justReleased(BTN_MENU)) {
 		result.action = CONTEXTMENU_CANCEL;
 		cm_open = false;
 		cm_close_guard = 2;
