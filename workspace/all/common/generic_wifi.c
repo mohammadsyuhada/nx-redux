@@ -117,25 +117,35 @@ void PLAT_wifiInit() {
 }
 
 bool PLAT_wifiEnabled() {
-	return CFG_getWifi();
+	// Live interface state (IFF_UP), not the cached config value: wifi can be
+	// toggled outside this process (e.g. the OSD overlay) and the UI should
+	// reflect reality.
+	FILE* f = fopen("/sys/class/net/" WIFI_INTERFACE "/flags", "r");
+	if (!f)
+		return false;
+	unsigned int flags = 0;
+	bool up = fscanf(f, "%x", &flags) == 1 && (flags & 0x1); // IFF_UP
+	fclose(f);
+	return up;
 }
 
 void PLAT_wifiEnable(bool on) {
 	if (on) {
 		wifilog("turning wifi on...\n");
 		system(SYSTEM_PATH "/etc/wifi/wifi_init.sh start > /dev/null 2>&1");
-		// Keep config in sync
+		// Keep config in sync (after the script, so CFG_sync captures the
+		// radio state the script actually produced)
 		CFG_setWifi(on);
 	} else {
 		wifilog("turning wifi off...\n");
+		system(SYSTEM_PATH "/etc/wifi/wifi_init.sh stop > /dev/null 2>&1");
 		// Keep config in sync
 		CFG_setWifi(on);
-		system(SYSTEM_PATH "/etc/wifi/wifi_init.sh stop > /dev/null 2>&1");
 	}
 }
 
 int PLAT_wifiScan(struct WIFI_network* networks, int max) {
-	if (!CFG_getWifi()) {
+	if (!PLAT_wifiEnabled()) {
 		LOG_error("PLAT_wifiScan: wifi is currently disabled.\n");
 		return -1;
 	}
@@ -237,7 +247,7 @@ int PLAT_wifiScan(struct WIFI_network* networks, int max) {
 }
 
 bool PLAT_wifiConnected() {
-	if (!CFG_getWifi()) {
+	if (!PLAT_wifiEnabled()) {
 		wifilog("PLAT_wifiConnected: wifi is currently disabled.\n");
 		return false;
 	}
@@ -257,7 +267,7 @@ bool PLAT_wifiConnected() {
 }
 
 int PLAT_wifiConnection(struct WIFI_connection* connection_info) {
-	if (!CFG_getWifi()) {
+	if (!PLAT_wifiEnabled()) {
 		wifilog("PLAT_wifiConnection: wifi is currently disabled.\n");
 		connection_reset(connection_info);
 		return -1;
@@ -350,7 +360,7 @@ bool PLAT_wifiHasCredentials(char* ssid, WifiSecurityType sec) {
 		}
 	}
 
-	if (!CFG_getWifi()) {
+	if (!PLAT_wifiEnabled()) {
 		LOG_error("PLAT_wifiHasCredentials: wifi is currently disabled.\n");
 		return false;
 	}
@@ -460,7 +470,7 @@ static int wifi_find_network_id(const char* ssid) {
 }
 
 void PLAT_wifiForget(char* ssid, WifiSecurityType sec) {
-	if (!CFG_getWifi()) {
+	if (!PLAT_wifiEnabled()) {
 		LOG_error("PLAT_wifiForget: wifi is currently disabled.\n");
 		return;
 	}
@@ -483,7 +493,7 @@ void PLAT_wifiForget(char* ssid, WifiSecurityType sec) {
 // a clean teardown (failed join, crash, power-off) never remove theirs, so the
 // wpa_supplicant config grows without bound. Returns the number removed.
 int PLAT_wifiForgetPrefix(const char* prefix) {
-	if (!CFG_getWifi()) {
+	if (!PLAT_wifiEnabled()) {
 		LOG_error("PLAT_wifiForgetPrefix: wifi is currently disabled.\n");
 		return 0;
 	}
@@ -544,7 +554,7 @@ int PLAT_wifiForgetPrefix(const char* prefix) {
 // disables every network except the chosen one; this restores the others so the
 // saved config isn't left with home/other networks stuck disabled. Caller persists.
 void PLAT_wifiEnableAll(void) {
-	if (!CFG_getWifi())
+	if (!PLAT_wifiEnabled())
 		return;
 	system(WPA_CLI_CMD " enable_network all 2>/dev/null");
 }
@@ -554,7 +564,7 @@ void PLAT_wifiConnect(char* ssid, WifiSecurityType sec) {
 }
 
 void PLAT_wifiConnectPass(const char* ssid, WifiSecurityType sec, const char* pass) {
-	if (!CFG_getWifi()) {
+	if (!PLAT_wifiEnabled()) {
 		wifilog("PLAT_wifiConnectPass: wifi is currently disabled.\n");
 		return;
 	}
@@ -670,7 +680,7 @@ void PLAT_wifiConnectPass(const char* ssid, WifiSecurityType sec, const char* pa
 }
 
 void PLAT_wifiSelectOnly(const char* ssid) {
-	if (!CFG_getWifi()) {
+	if (!PLAT_wifiEnabled()) {
 		LOG_error("PLAT_wifiSelectOnly: wifi is currently disabled.\n");
 		return;
 	}

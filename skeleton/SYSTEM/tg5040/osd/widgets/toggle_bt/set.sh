@@ -24,7 +24,10 @@ if [ $# -eq 0 ] ; then
     fi
 else
     if bt_is_on; then
-        # Currently on, turn off
+        # Currently on, turn off. Unlike tg5050, this must fully stop the BT
+        # stack (not just power off the adapter): on the xradio combo chip a
+        # live bluetoothd drops WiFi throughput from ~330 KB/s to ~2 KB/s.
+        # Apps survive losing bluetoothd mid-call via their command timeouts.
         $SYSTEM_PATH/etc/bluetooth/bt_init.sh stop > /dev/null 2>&1 &
         update_config 0
         echo 0 > /tmp/trimui_osd/toggle_bt/status

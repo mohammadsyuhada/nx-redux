@@ -7,6 +7,11 @@
 #include "defines.h"
 #include "utils.h"
 
+// Live radio state, provided by api.c/platform.c when linked (see CFG_sync).
+// Declared weak so binaries that only link config.c still build.
+extern bool PLAT_wifiEnabled(void) __attribute__((weak));
+extern bool PLAT_bluetoothEnabled(void) __attribute__((weak));
+
 NextUISettings settings = {0};
 
 // deprecated
@@ -1016,6 +1021,15 @@ void CFG_sync(void) {
 		printf("[CFG] Unable to open settings file, cant write\n");
 		return;
 	}
+
+	// WiFi/BT can be toggled outside this process (e.g. the OSD overlay), so
+	// re-capture the live radio state — otherwise a sync for an unrelated
+	// setting would write back stale values and clobber the external toggle.
+	// Weak references: some binaries link config.c without api.c/platform.c.
+	if (PLAT_wifiEnabled)
+		settings.wifi = PLAT_wifiEnabled();
+	if (PLAT_bluetoothEnabled)
+		settings.bluetooth = PLAT_bluetoothEnabled();
 
 	fprintf(file, "font=%i\n", settings.font);
 	fprintf(file, "color1=0x%06X\n", settings.color1_255);

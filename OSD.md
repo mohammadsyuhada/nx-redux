@@ -167,10 +167,27 @@ Each widget under `/usr/trimui/osd/widgets/` has:
 
 ```
 widgets/toggle_wifi/
-├── config.json       # Widget metadata (name, type, icon paths)
-├── set.sh            # Called when toggled (receives value)
-└── refresh.sh        # Called to query current state (returns value)
+├── config.json       # Widget metadata (name, type, icons, script names, status file)
+├── set.sh            # config.json "launch": called on press (toggles get an argument)
+└── update.sh         # config.json "update": refreshes the status file (every 3s)
 ```
+
+The script names come from `config.json` — toggles use `update.sh`, the static
+widgets (temperature, CPU clock) use `refresh.sh`. The daemon reads the widget's
+current value from the `status` file path in `config.json`.
+
+At boot, `launch.sh` overlays our scripts from `$SYSTEM_PATH/osd/widgets/` onto
+`/usr/trimui/osd/widgets/`, backing up the stock versions as `<script>.stock`.
+Note the wifi/bt toggle scripts write the status file optimistically before the
+radio transition completes, so the icon can bounce once via the 3s refresh
+during a slow start (~7s for wifi, longer for BT).
+
+Platform note: on **tg5050** the BT toggle powers the adapter off/on via a live
+`bluetoothd` (matching the Settings app; killing the daemon wedges other apps'
+`bluetoothctl` calls). On **tg5040** it must fully stop the stack — the xradio
+combo chip drops WiFi throughput from ~330 KB/s to ~2 KB/s while bluetoothd
+runs. The apps tolerate losing bluetoothd mid-call via command timeouts in
+`generic_bt.c`.
 
 ### Available Widgets
 
@@ -254,12 +271,14 @@ Both platforms use the same approach: `keymon` detects the trigger → toggles O
 
 ## Known Issues
 
-- Missing widget scripts (`set.sh` for `static_temperature`, `static_cpu_freq`) cause non-fatal errors
-- Fan level widget references `/tmp/system/set_fanlevel` which doesn't exist in our setup
 - `trimui_inputd` grab signaling (`/tmp/trimui_inputd/grab`) may not work if `trimui_inputd` isn't configured for it
+
+Previously listed issues, since fixed:
+
+- ~~Missing `set.sh` for `static_temperature`/`static_cpu_freq`~~ — no-op stubs shipped in the skeleton
+- ~~Fan level widget references `/tmp/system/set_fanlevel`~~ — replaced with an `osdctl`-based script driving NextUI's fan control
+- ~~WiFi/BT toggles not reflected in Settings, hangs when toggling while Settings open~~ — apps now read live radio state (sysfs/HCI ioctl) instead of cached config, `bluetoothctl` shell-outs are timeout-killed, and `CFG_sync()` re-captures radio state so it can't clobber the OSD's `minuisettings.txt` edits
 
 ## Future Work
 
-- Custom `osdlayout.json` with NextUI-specific widgets
-- Custom widget scripts for NextUI settings integration
 - Potentially build our own OSD daemon using the same DRM plane approach for full control

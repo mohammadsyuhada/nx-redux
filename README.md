@@ -99,6 +99,10 @@ New Features:
     - Classic lockstep netplay for the other supported cores.
     - Save states, fast-forward and rewind are automatically disabled during a session to protect the connection.
 
+Upcoming Features:
+- `On-Screen Display (OSD)` for quick access to common actions — brightness, volume and connectivity — from anywhere, in the menus or in-game.
+    - Opened with the `Home` button on devices that have one (Smart Pro S), or by long-pressing the `MENU` button (Brick / Smart Pro).
+
 Ongoing focus areas:
 - Cleaner, more maintainable core code
 - Improved file and module structure

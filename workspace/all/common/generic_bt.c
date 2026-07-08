@@ -21,13 +21,58 @@
 
 #include <pthread.h>
 #include <unistd.h>
+#include <errno.h>
+#include <signal.h>
+#include <time.h>
+#include <sys/ioctl.h>
 #include <sys/select.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
+
+// Minimal HCI ioctl definitions (subset of <bluetooth/hci.h>, which the
+// toolchains don't ship). Layout must match the kernel's struct hci_dev_info.
+#define BT_AF_BLUETOOTH 31
+#define BT_BTPROTO_HCI 1
+#define BT_HCIGETDEVINFO _IOR('H', 211, int)
+#define BT_HCI_UP (1U << 0)
+
+struct bt_hci_dev_info {
+	uint16_t dev_id;
+	char name[8];
+	uint8_t bdaddr[6];
+	uint32_t flags;
+	uint8_t type;
+	uint8_t features[8];
+	uint32_t pkt_type;
+	uint32_t link_policy;
+	uint32_t link_mode;
+	uint16_t acl_mtu;
+	uint16_t acl_pkts;
+	uint16_t sco_mtu;
+	uint16_t sco_pkts;
+	uint32_t stat[10];
+};
+
+// Live adapter state: hci0 exists and is powered (HCI_UP). Asks the kernel
+// directly — no bluetoothd/D-Bus involved, so it can't hang and it stays
+// correct when BT is toggled outside this process (e.g. the OSD overlay).
+static bool bt_adapter_powered(void) {
+	int sock = socket(BT_AF_BLUETOOTH, SOCK_RAW | SOCK_CLOEXEC, BT_BTPROTO_HCI);
+	if (sock < 0)
+		return false;
+	struct bt_hci_dev_info di;
+	memset(&di, 0, sizeof(di));
+	di.dev_id = 0; // hci0
+	bool powered = ioctl(sock, BT_HCIGETDEVINFO, &di) == 0 && (di.flags & BT_HCI_UP);
+	close(sock);
+	return powered;
+}
 
 bool PLAT_hasBluetooth() {
 	return true;
 }
 bool PLAT_bluetoothEnabled() {
-	return CFG_getBluetooth();
+	return bt_adapter_powered();
 }
 
 #define btlog(fmt, ...) \
@@ -42,14 +87,115 @@ static bool bt_daemon_alive(void) {
 	return system("pgrep bluetoothd >/dev/null 2>&1") == 0;
 }
 
-// Run a system() call guarded by a bluetoothd liveness check.
-// Returns -1 without executing if bluetoothd is not running.
+// Run `cmd` via /bin/sh in its own process group, reading stdout into `output`
+// (if non-NULL). Kills the whole process group and returns -1 if the command
+// hasn't finished within `timeout_s` seconds. popen()/pclose() are unusable
+// here: pclose() waits for the child forever, and bluetoothctl hangs on D-Bus
+// when bluetoothd is killed out from under it (e.g. by the OSD overlay).
+static int bt_run_cmd_deadline(const char* cmd, char* output, size_t output_len, int timeout_s) {
+	int pipefd[2] = {-1, -1};
+	if (output && output_len > 0) {
+		output[0] = '\0';
+		if (pipe(pipefd) != 0) {
+			LOG_error("bt_run_cmd_deadline: pipe failed: %s\n", strerror(errno));
+			return -1;
+		}
+	}
+
+	pid_t pid = fork();
+	if (pid < 0) {
+		LOG_error("bt_run_cmd_deadline: fork failed: %s\n", strerror(errno));
+		if (pipefd[0] >= 0) {
+			close(pipefd[0]);
+			close(pipefd[1]);
+		}
+		return -1;
+	}
+
+	if (pid == 0) {
+		setpgid(0, 0); // own group, so a timeout kill reaches sh and its children
+		if (pipefd[1] >= 0) {
+			dup2(pipefd[1], STDOUT_FILENO);
+			close(pipefd[0]);
+			close(pipefd[1]);
+		}
+		execl("/bin/sh", "sh", "-c", cmd, (char*)NULL);
+		_exit(127);
+	}
+
+	setpgid(pid, pid); // from the parent too, closing the race
+	if (pipefd[1] >= 0)
+		close(pipefd[1]);
+
+	time_t deadline = time(NULL) + timeout_s;
+	bool timed_out = false;
+
+	if (pipefd[0] >= 0) {
+		size_t total = 0;
+		for (;;) {
+			time_t remaining = deadline - time(NULL);
+			if (remaining <= 0) {
+				timed_out = true;
+				break;
+			}
+			fd_set fds;
+			FD_ZERO(&fds);
+			FD_SET(pipefd[0], &fds);
+			struct timeval tv = {.tv_sec = remaining, .tv_usec = 0};
+			int sel = select(pipefd[0] + 1, &fds, NULL, NULL, &tv);
+			if (sel < 0 && errno == EINTR)
+				continue;
+			if (sel <= 0) {
+				timed_out = (sel == 0);
+				break;
+			}
+			char buf[256];
+			ssize_t n = read(pipefd[0], buf, sizeof(buf));
+			if (n <= 0)
+				break; // EOF: command closed stdout (usually exited)
+			size_t copy = (size_t)n;
+			if (copy > output_len - 1 - total)
+				copy = output_len - 1 - total;
+			memcpy(output + total, buf, copy);
+			total += copy;
+		}
+		output[total] = '\0';
+		close(pipefd[0]);
+	}
+
+	// Reap the child, still honoring the deadline (EOF on the pipe doesn't
+	// guarantee it exited, and without a pipe we haven't waited at all).
+	int status = 0;
+	for (;;) {
+		pid_t r = waitpid(pid, &status, WNOHANG);
+		if (r == pid)
+			break;
+		if (r < 0 && errno != EINTR) {
+			LOG_error("bt_run_cmd_deadline: waitpid failed: %s\n", strerror(errno));
+			return -1;
+		}
+		if (timed_out || time(NULL) >= deadline) {
+			LOG_warn("bt_run_cmd_deadline: killing timed-out command: %s\n", cmd);
+			kill(-pid, SIGKILL);
+			waitpid(pid, &status, 0);
+			return -1;
+		}
+		usleep(50 * 1000);
+	}
+
+	return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
+// Run a command with no output capture, guarded by a bluetoothd liveness
+// check. The generous cap only exists to keep a wedged bluetoothctl (dead
+// daemon mid-command) from blocking the UI forever; pair/connect can
+// legitimately take many seconds.
 static int bt_system(const char* cmd) {
 	if (!bt_daemon_alive()) {
 		LOG_warn("bluetoothd not running, skipping command: %s\n", cmd);
 		return -1;
 	}
-	return system(cmd);
+	return bt_run_cmd_deadline(cmd, NULL, 0, 30);
 }
 
 // Bluetoothctl version detection
@@ -120,8 +266,9 @@ static volatile bool bt_initialized = false;
 // (e.g. if bluetoothd is briefly unavailable during sleep/wake).
 static int bt_run_cmd(const char* cmd, char* output, size_t output_len) {
 	// If command uses bluetoothctl, verify bluetoothd is running first
-	// to avoid hanging indefinitely on D-Bus connection attempts
-	if (strstr(cmd, "bluetoothctl") != NULL && !bt_daemon_alive()) {
+	// to avoid pointlessly waiting out the timeout on D-Bus connection attempts
+	int is_bluetoothctl = (strstr(cmd, "bluetoothctl") != NULL);
+	if (is_bluetoothctl && !bt_daemon_alive()) {
 		LOG_warn("bluetoothd not running, skipping command: %s\n", cmd);
 		if (output && output_len > 0)
 			output[0] = '\0';
@@ -129,42 +276,7 @@ static int bt_run_cmd(const char* cmd, char* output, size_t output_len) {
 	}
 
 	btlog("Running command: %s\n", cmd);
-	FILE* fp = popen(cmd, "r");
-	if (!fp) {
-		LOG_error("Failed to run command: %s\n", cmd);
-		return -1;
-	}
-
-	if (output && output_len > 0) {
-		output[0] = '\0';
-		size_t total = 0;
-		int use_timeout = (strstr(cmd, "bluetoothctl") != NULL);
-		int fd = fileno(fp);
-		char buf[256];
-
-		while (total < output_len - 1) {
-			if (use_timeout) {
-				fd_set fds;
-				struct timeval tv;
-				FD_ZERO(&fds);
-				FD_SET(fd, &fds);
-				tv.tv_sec = 5;
-				tv.tv_usec = 0;
-				if (select(fd + 1, &fds, NULL, NULL, &tv) <= 0)
-					break; // timeout or error
-			}
-			if (!fgets(buf, sizeof(buf), fp))
-				break;
-			size_t len = strlen(buf);
-			if (total + len < output_len) {
-				strcpy(output + total, buf);
-				total += len;
-			}
-		}
-	}
-
-	int status = pclose(fp);
-	return WEXITSTATUS(status);
+	return bt_run_cmd_deadline(cmd, output, output_len, is_bluetoothctl ? 5 : 10);
 }
 
 // Helper to add device to discovered list
@@ -290,11 +402,7 @@ static BluetoothDeviceType bt_get_device_type(const char* addr) {
 
 // Check if bluetooth adapter is powered on
 static bool bt_is_powered(void) {
-	char output[256];
-	if (bt_run_cmd("bluetoothctl show 2>/dev/null | grep 'Powered:' | awk '{print $2}'", output, sizeof(output)) == 0) {
-		return strstr(output, "yes") != NULL;
-	}
-	return false;
+	return bt_adapter_powered();
 }
 
 /////////////////////////////////
@@ -418,7 +526,7 @@ bool PLAT_bluetoothDiscovering() {
 }
 
 int PLAT_bluetoothScan(struct BT_device* devices, int max) {
-	if (!CFG_getBluetooth()) {
+	if (!PLAT_bluetoothEnabled()) {
 		return 0;
 	}
 
@@ -500,7 +608,7 @@ int PLAT_bluetoothScan(struct BT_device* devices, int max) {
 }
 
 int PLAT_bluetoothPaired(struct BT_devicePaired* paired, int max) {
-	if (!CFG_getBluetooth()) {
+	if (!PLAT_bluetoothEnabled()) {
 		return 0;
 	}
 
