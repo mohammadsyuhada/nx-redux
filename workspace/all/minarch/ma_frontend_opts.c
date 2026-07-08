@@ -210,11 +210,6 @@ int OptionEmulator_openMenu(MenuList* list, int index) {
 
 	if (cat_count || config.core.enabled_count) {
 		Menu_options(&OptionEmulator_menu);
-		free(OptionEmulator_menu.items);
-		free(config.core.enabled_options);
-		OptionEmulator_menu.items = NULL;
-		config.core.enabled_count = 0;
-		config.core.enabled_options = NULL;
 	} else {
 		if (list->category) {
 			Menu_message("This category has no options.", (char*[]){"B", "BACK", NULL});
@@ -222,6 +217,13 @@ int OptionEmulator_openMenu(MenuList* list, int index) {
 			Menu_message("This core has no options.", (char*[]){"B", "BACK", NULL});
 		}
 	}
+
+	// freed on both branches — the empty-menu path used to leak these
+	free(OptionEmulator_menu.items);
+	free(config.core.enabled_options);
+	OptionEmulator_menu.items = NULL;
+	config.core.enabled_count = 0;
+	config.core.enabled_options = NULL;
 
 	return MENU_CALLBACK_NOP;
 }
@@ -533,11 +535,8 @@ int OptionCheats_openMenu(MenuList* list, int i) {
 	} else {
 		// update
 		for (int j = 0; j < cheatcodes.count; j++) {
-			struct Cheat* cheat = &cheatcodes.cheats[i];
-			MenuItem* item = &OptionCheats_menu.items[i];
-			// I guess that makes sense, nobody is changing these but us - what about state restore?
-			if (!cheat->enabled)
-				continue;
+			struct Cheat* cheat = &cheatcodes.cheats[j];
+			MenuItem* item = &OptionCheats_menu.items[j];
 			item->value = cheat->enabled;
 		}
 	}
@@ -598,14 +597,18 @@ int OptionPragmas_optionChanged(MenuList* list, int i) {
 	MenuItem* item = &list->items[i];
 	for (int shader_index = 0; shader_index < config.shaders.options[SH_NROFSHADERS].value; shader_index++) {
 		ShaderParam* params = PLAT_getShaderPragmas(shader_index);
+		if (!params)
+			continue;
 		for (int j = 0; j < 32; j++) {
 			if (exactMatch(params[j].name, item->key)) {
 				params[j].value = strtof(item->values[item->value], NULL);
 			}
 		}
 	}
+	// iterate the active shader count, not SH_NROFSHADERS (an enum index, 2) —
+	// this must mirror the loop that built the menu in OptionPragmas_openMenu
 	int global_index = 0;
-	for (int y = 0; y < SH_NROFSHADERS; y++) {
+	for (int y = 0; y < config.shaders.options[SH_NROFSHADERS].value; y++) {
 		for (int j = 0; j < config.shaderpragmas[y].count; j++) {
 			MenuItem* item = &list->items[global_index];
 			config.shaderpragmas[y].options[j].value = item->value;
@@ -627,7 +630,10 @@ int OptionPragmas_openMenu(MenuList* list, int i) {
 		totalcount += config.shaderpragmas[y].count;
 	}
 	PragmasOptions_menu.items = calloc(totalcount + 1, sizeof(MenuItem));
-	for (int y = 0; y < SH_NROFSHADERS; y++) {
+	// fill bound must match the allocation loop above — SH_NROFSHADERS is an
+	// enum index (2), not the shader count, and using it both overflowed the
+	// allocation and dropped shader 3's settings
+	for (int y = 0; y < config.shaders.options[SH_NROFSHADERS].value; y++) {
 		for (int j = 0; j < config.shaderpragmas[y].count; j++) {
 			MenuItem* item = &PragmasOptions_menu.items[progressCount];
 			Option* configitem = &config.shaderpragmas[y].options[j];
@@ -646,6 +652,9 @@ int OptionPragmas_openMenu(MenuList* list, int i) {
 	} else {
 		Menu_message("No extra settings found", (char*[]){"B", "BACK", NULL});
 	}
+
+	free(PragmasOptions_menu.items);
+	PragmasOptions_menu.items = NULL;
 
 	return MENU_CALLBACK_NOP;
 }
@@ -678,9 +687,15 @@ int OptionShaders_openMenu(MenuList* list, int i) {
 
 	// Check if folder read failed or no files found
 	if (!filelist || filecount == 0) {
+		free_file_list(filelist); // may be a non-NULL empty list
 		Menu_message("No shaders available\n/Shaders folder or shader files not found", (char*[]){"B", "BACK", NULL});
 		return MENU_CALLBACK_NOP;
 	}
+
+	// the three shader options share one file list (values AND labels alias
+	// it); replace it once and free the previous list, which used to leak on
+	// every menu open
+	char** old_filelist = config.shaders.options[SH_SHADER1].values;
 
 	ShaderOptions_menu.items = calloc(config.shaders.count + 1, sizeof(MenuItem));
 	for (int i = 0; i < config.shaders.count; i++) {
@@ -699,17 +714,24 @@ int OptionShaders_openMenu(MenuList* list, int i) {
 			strcmp(config.shaders.options[i].key, "minarch_shader3") == 0) {
 			item->values = filelist;
 			config.shaders.options[i].values = filelist;
+			config.shaders.options[i].labels = filelist;
+			config.shaders.options[i].count = filecount;
 		} else {
 			item->values = config.shaders.options[i].values;
 		}
 	}
 
+	if (old_filelist && old_filelist != filelist)
+		free_file_list(old_filelist);
 
 	if (ShaderOptions_menu.items[0].name) {
 		Menu_options(&ShaderOptions_menu);
 	} else {
 		Menu_message("No shaders available\n/Shaders folder or shader files not found", (char*[]){"B", "BACK", NULL});
 	}
+
+	free(ShaderOptions_menu.items);
+	ShaderOptions_menu.items = NULL;
 
 	return MENU_CALLBACK_NOP;
 }

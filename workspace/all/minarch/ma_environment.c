@@ -10,8 +10,17 @@
 #include "gbalink.h"
 
 static bool set_rumble_state(unsigned port, enum retro_rumble_effect effect, uint16_t strength) {
-	// TODO: handle other args? not sure I can
-	VIB_setStrength(strength);
+	(void)port; // single motor, port is not distinguishable
+	// track the strong and weak effects separately and drive the one motor at
+	// the stronger of the two — previously a weak-effect request drove the
+	// motor at full strength (and clobbered the strong value)
+	static uint16_t rumble_strong = 0;
+	static uint16_t rumble_weak = 0;
+	if (effect == RETRO_RUMBLE_STRONG)
+		rumble_strong = strength;
+	else if (effect == RETRO_RUMBLE_WEAK)
+		rumble_weak = strength;
+	VIB_setStrength(rumble_strong > rumble_weak ? rumble_strong : rumble_weak);
 	return 1;
 }
 bool environment_callback(unsigned cmd, void* data) { // copied from picoarch initially
@@ -41,6 +50,7 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 	case RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL: { /* 8 */
 													// puts("RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL");
 													// TODO: used by fceumm at least
+		break;
 	}
 	case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY: { /* 9 */
 		const char** out = (const char**)data;

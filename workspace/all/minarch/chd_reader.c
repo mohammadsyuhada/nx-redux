@@ -94,6 +94,7 @@ static int parse_chd_tracks(chd_file* chd, chd_track_info_t* tracks, int* num_tr
 
 	// Try CDROM_TRACK_METADATA2 first (newer format with pregap info)
 	for (int i = 0; i < CD_MAX_TRACKS; i++) {
+		int is_gdrom = 0;
 		chd_error err = chd_get_metadata(chd, CDROM_TRACK_METADATA2_TAG, i,
 										 metadata, sizeof(metadata),
 										 &metadata_size, NULL, NULL);
@@ -109,25 +110,36 @@ static int parse_chd_tracks(chd_file* chd, chd_track_info_t* tracks, int* num_tr
 									   &metadata_size, NULL, NULL);
 				if (err != CHDERR_NONE)
 					break;
+				is_gdrom = 1;
 			}
 		}
 
+		// chd_get_metadata reports the full entry length, not the bytes copied
+		if (metadata_size >= sizeof(metadata))
+			metadata_size = sizeof(metadata) - 1;
 		metadata[metadata_size] = '\0';
 
 		// Parse the metadata string
-		int track_num, frames, pregap = 0, postgap = 0;
+		int track_num, frames, pad = 0, pregap = 0, postgap = 0;
 		char type_str[32] = {0};
 		char subtype_str[32] = {0};
 		char pgtype_str[32] = {0};
 		char pgsub_str[32] = {0};
 
-		// Full format 2: "TRACK:%d TYPE:%s SUBTYPE:%s FRAMES:%d PREGAP:%d PGTYPE:%s PGSUB:%s POSTGAP:%d"
-		int parsed = sscanf(metadata, "TRACK:%d TYPE:%s SUBTYPE:%s FRAMES:%d PREGAP:%d PGTYPE:%s PGSUB:%s POSTGAP:%d",
+		int parsed;
+		if (is_gdrom) {
+			// "TRACK:%d TYPE:%s SUBTYPE:%s FRAMES:%d PAD:%d PREGAP:%d PGTYPE:%s PGSUB:%s POSTGAP:%d"
+			parsed = sscanf(metadata, "TRACK:%d TYPE:%31s SUBTYPE:%31s FRAMES:%d PAD:%d PREGAP:%d PGTYPE:%31s PGSUB:%31s POSTGAP:%d",
+							&track_num, type_str, subtype_str, &frames, &pad, &pregap, pgtype_str, pgsub_str, &postgap);
+		} else {
+			// Full format 2: "TRACK:%d TYPE:%s SUBTYPE:%s FRAMES:%d PREGAP:%d PGTYPE:%s PGSUB:%s POSTGAP:%d"
+			parsed = sscanf(metadata, "TRACK:%d TYPE:%31s SUBTYPE:%31s FRAMES:%d PREGAP:%d PGTYPE:%31s PGSUB:%31s POSTGAP:%d",
 							&track_num, type_str, subtype_str, &frames, &pregap, pgtype_str, pgsub_str, &postgap);
+		}
 
 		if (parsed < 4) {
 			// Try format 1 (no pregap info)
-			parsed = sscanf(metadata, "TRACK:%d TYPE:%s SUBTYPE:%s FRAMES:%d",
+			parsed = sscanf(metadata, "TRACK:%d TYPE:%31s SUBTYPE:%31s FRAMES:%d",
 							&track_num, type_str, subtype_str, &frames);
 			pregap = 0;
 		}

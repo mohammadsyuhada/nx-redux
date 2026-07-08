@@ -14,6 +14,29 @@
 
 static int switcher_selected = 0;
 
+// Single-entry cache of the decoded+converted preview/boxart for the selected
+// recent. GameSwitcher_render runs on every dirty frame (battery/status ticks,
+// carousel steps), and re-decoding the full-size PNG on the UI thread each time
+// stutters the carousel — key by source path so we only decode on change.
+static char gs_img_path[MAX_PATH] = {0};
+static SDL_Surface* gs_img_surf = NULL;
+
+static SDL_Surface* gs_get_cached_image(const char* path) {
+	if (gs_img_surf && strcmp(gs_img_path, path) == 0)
+		return gs_img_surf;
+	if (gs_img_surf) {
+		SDL_FreeSurface(gs_img_surf);
+		gs_img_surf = NULL;
+	}
+	SDL_Surface* raw = IMG_Load(path);
+	if (raw)
+		raw = UI_convertSurface(raw, screen);
+	gs_img_surf = raw;
+	strncpy(gs_img_path, path, sizeof(gs_img_path) - 1);
+	gs_img_path[sizeof(gs_img_path) - 1] = '\0';
+	return gs_img_surf;
+}
+
 void GameSwitcher_init(void) {
 	switcher_selected = 0;
 }
@@ -37,7 +60,7 @@ int GameSwitcher_getSelected(void) {
 }
 
 const char* GameSwitcher_getSelectedName(void) {
-	static char name_buf[256];
+	static char name_buf[MAX_PATH]; // getDisplayName requires a MAX_PATH out buffer
 	if (Recents_count() <= 0)
 		return "Recents";
 	Recent* recent = Recents_at(switcher_selected);
@@ -65,15 +88,18 @@ GameSwitcherResult GameSwitcher_handleInput(unsigned long now) {
 		result.dirty = true;
 		result.folderbgchanged = true;
 	} else if (Recents_count() > 0 && PAD_justReleased(BTN_A)) {
-		// this will drop us back into game switcher after leaving the game
-		putFile(GAME_SWITCHER_PERSIST_PATH, "unused");
-		result.startgame = true;
 		Entry* selectedEntry =
 			Recents_entryFromRecent(Recents_at(switcher_selected));
-		resume.should_resume = resume.can_resume;
-		Entry_open(selectedEntry);
-		result.dirty = true;
-		Entry_free(selectedEntry);
+		// NULL when the recent's emulator is no longer available
+		if (selectedEntry) {
+			// this will drop us back into game switcher after leaving the game
+			putFile(GAME_SWITCHER_PERSIST_PATH, "unused");
+			result.startgame = true;
+			resume.should_resume = resume.can_resume;
+			Entry_open(selectedEntry);
+			result.dirty = true;
+			Entry_free(selectedEntry);
+		}
 	} else if (Recents_count() > 0 && PAD_justReleased(BTN_Y)) {
 		Recents_removeAt(switcher_selected);
 		if (switcher_selected >= Recents_count())
@@ -144,9 +170,7 @@ void GameSwitcher_render(int lastScreen, SDL_Surface* blackBG,
 		UI_renderButtonHintBar(screen, (char*[]){"Y", "REMOVE", "A", "RESUME", NULL});
 
 	if (resume.has_preview) {
-		SDL_Surface* bmp = IMG_Load(resume.preview_path);
-		if (bmp)
-			bmp = UI_convertSurface(bmp, screen);
+		SDL_Surface* bmp = gs_get_cached_image(resume.preview_path);
 		if (bmp) {
 			int aw = screen->w;
 			int ah = screen->h;
@@ -174,12 +198,9 @@ void GameSwitcher_render(int lastScreen, SDL_Surface* blackBG,
 			} else {
 				drawBackground(bmp, ax, ay, aw, ah, blackBG);
 			}
-			SDL_FreeSurface(bmp);
 		}
 	} else if (resume.has_boxart) {
-		SDL_Surface* boxart = IMG_Load(resume.boxart_path);
-		if (boxart)
-			boxart = UI_convertSurface(boxart, screen);
+		SDL_Surface* boxart = gs_get_cached_image(resume.boxart_path);
 		if (boxart) {
 			int img_w = boxart->w;
 			int img_h = boxart->h;
@@ -209,7 +230,6 @@ void GameSwitcher_render(int lastScreen, SDL_Surface* blackBG,
 			} else {
 				drawBackground(boxart, ax, ay, new_w, new_h, blackBG);
 			}
-			SDL_FreeSurface(boxart);
 		}
 	} else {
 		// No savestate preview and no boxart - show "No Preview"

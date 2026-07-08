@@ -130,17 +130,19 @@ enum {
 	STATUS_RESET = 31,
 };
 
+#define MENU_MAX_DISCS 9
+
 // TODO: I don't love how overloaded this has become
 static struct {
 	SDL_Surface* bitmap;
 	SDL_Surface* overlay;
 	char* items[MENU_ITEM_COUNT];
-	char* disc_paths[9]; // up to 9 paths, Arc the Lad Collection is 7 discs
-	char minui_dir[256];
-	char slot_path[256];
-	char base_path[256];
-	char bmp_path[256];
-	char txt_path[256];
+	char* disc_paths[MENU_MAX_DISCS]; // up to 9 paths, Arc the Lad Collection is 7 discs
+	char minui_dir[MAX_PATH];
+	char slot_path[MAX_PATH];
+	char base_path[MAX_PATH];
+	char bmp_path[MAX_PATH];
+	char txt_path[MAX_PATH];
 	int disc;
 	int total_discs;
 	int slot;
@@ -174,13 +176,13 @@ void Menu_init(void) {
 	Uint32 color = SDL_MapRGBA(menu.overlay->format, 0, 0, 0, 0);
 	SDL_FillRect(screen, NULL, color);
 
-	char emu_name[256];
+	char emu_name[MAX_PATH]; // getEmuName requires MAX_PATH buffers
 	getEmuName(game.path, emu_name);
-	sprintf(menu.minui_dir, SHARED_USERDATA_PATH "/.minui/%s", emu_name);
+	snprintf(menu.minui_dir, sizeof(menu.minui_dir), SHARED_USERDATA_PATH "/.minui/%s", emu_name);
 	mkdir(menu.minui_dir, 0755);
 
 	// always sanitized/outer name, to keep main UI from having to inspect archives
-	sprintf(menu.slot_path, "%s/%s.txt", menu.minui_dir, game.name);
+	snprintf(menu.slot_path, sizeof(menu.slot_path), "%s/%s.txt", menu.minui_dir, game.name);
 
 	if (simple_mode)
 		menu.items[ITEM_OPTS] = "Reset";
@@ -201,13 +203,11 @@ void Menu_init(void) {
 				if (strlen(line) == 0)
 					continue; // skip empty lines
 
-				char disc_path[256];
-				strcpy(disc_path, menu.base_path);
-				tmp = disc_path + strlen(disc_path);
-				strcpy(tmp, line);
+				char disc_path[MAX_PATH];
+				snprintf(disc_path, sizeof(disc_path), "%s%s", menu.base_path, line);
 
 				// found a valid disc path
-				if (exists(disc_path)) {
+				if (exists(disc_path) && menu.total_discs < MENU_MAX_DISCS) {
 					menu.disc_paths[menu.total_discs] = strdup(disc_path);
 					// matched our current disc
 					if (exactMatch(disc_path, game.path)) {
@@ -902,7 +902,7 @@ void OptionAchievements_updateDesc(void) {
 bool getAlias(char* path, char* alias) {
 	bool is_alias = false;
 	char* tmp;
-	char map_path[256];
+	char map_path[MAX_PATH + 8]; // room to swap the filename for "map.txt"
 	strcpy(map_path, path);
 	tmp = strrchr(map_path, '/');
 	if (tmp) {
@@ -1075,72 +1075,81 @@ int Menu_options(MenuList* list) {
 		if (!defer_menu)
 			PWR_update(&dirty, &show_settings, Menu_beforeSleep, Menu_afterSleep);
 
-		if (defer_menu && PAD_justReleased(BTN_MENU))
+		// defer_menu suppresses power handling while the just-bound button (and
+		// any held MENU modifier) is released. Clear it once input has settled
+		// — keying off BTN_MENU alone left it stuck on forever when the user
+		// bound a plain button without holding MENU, disabling sleep/power for
+		// the rest of the options session.
+		if (defer_menu && !PAD_anyPressed())
 			defer_menu = false;
 
-		GFX_clear(screen);
+		if (dirty) {
+			GFX_clear(screen);
 
-		// Dimmed game screenshot background
-		if (menu.bitmap)
-			GFX_drawOnLayer(menu.bitmap, 0, 0, DEVICE_WIDTH, DEVICE_HEIGHT, 0.15f, 1, 0);
+			// Dimmed game screenshot background
+			if (menu.bitmap)
+				GFX_drawOnLayer(menu.bitmap, 0, 0, DEVICE_WIDTH, DEVICE_HEIGHT, 0.15f, 1, 0);
 
-		// Top bar with category/list name
-		UI_renderMenuBar(screen, list->desc ? list->desc : "");
+			// Top bar with category/list name
+			UI_renderMenuBar(screen, list->desc ? list->desc : "");
 
-		// Build UISettingsItem array from MenuItems
-		UISettingsItem settings_items[count];
-		for (int i = 0; i < count; i++) {
-			MenuItem* mi = &items[i];
-			settings_items[i] = (UISettingsItem){
-				.label = mi->name,
-				.value = NULL,
-				.swatch = -1,
-				.cycleable = 0,
-				.desc = mi->desc,
-				.custom_draw = NULL,
-				.custom_draw_ctx = NULL,
-			};
+			// Build UISettingsItem array from MenuItems
+			UISettingsItem settings_items[count];
+			for (int i = 0; i < count; i++) {
+				MenuItem* mi = &items[i];
+				settings_items[i] = (UISettingsItem){
+					.label = mi->name,
+					.value = NULL,
+					.swatch = -1,
+					.cycleable = 0,
+					.desc = mi->desc,
+					.custom_draw = NULL,
+					.custom_draw_ctx = NULL,
+				};
 
-			if (await_input && i == selected) {
-				settings_items[i].value = "...";
-				settings_items[i].cycleable = 0;
-			} else if (mi->values && mi->values != button_labels) {
-				// Has selectable values — show current value
-				if (mi->value >= 0) {
-					int vc = 0;
-					while (mi->values[vc])
-						vc++;
-					if (mi->value < vc)
-						settings_items[i].value = mi->values[mi->value];
+				if (await_input && i == selected) {
+					settings_items[i].value = "...";
+					settings_items[i].cycleable = 0;
+				} else if (mi->values && mi->values != button_labels) {
+					// Has selectable values — show current value
+					if (mi->value >= 0) {
+						int vc = 0;
+						while (mi->values[vc])
+							vc++;
+						if (mi->value < vc)
+							settings_items[i].value = mi->values[mi->value];
+					}
+					settings_items[i].cycleable = 1;
+				} else if (mi->values == button_labels) {
+					// Button binding — show current binding without cycle arrows
+					if (mi->value >= 0) {
+						int vc = 0;
+						while (mi->values[vc])
+							vc++;
+						if (mi->value < vc)
+							settings_items[i].value = mi->values[mi->value];
+					}
+					settings_items[i].cycleable = 0;
+				} else if (mi->submenu || mi->on_confirm || (list->on_confirm && !mi->values)) {
+					// Navigation item — show ">" as value
+					settings_items[i].value = ">";
+					settings_items[i].cycleable = 0;
 				}
-				settings_items[i].cycleable = 1;
-			} else if (mi->values == button_labels) {
-				// Button binding — show current binding without cycle arrows
-				if (mi->value >= 0) {
-					int vc = 0;
-					while (mi->values[vc])
-						vc++;
-					if (mi->value < vc)
-						settings_items[i].value = mi->values[mi->value];
-				}
-				settings_items[i].cycleable = 0;
-			} else if (mi->submenu || mi->on_confirm || (list->on_confirm && !mi->values)) {
-				// Navigation item — show ">" as value
-				settings_items[i].value = ">";
-				settings_items[i].cycleable = 0;
 			}
+
+			UI_renderSettingsPage(screen, &layout, settings_items, count, selected, &scroll, NULL);
+
+			// Bottom bar
+			if (type == MENU_INPUT)
+				UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "SET", "X", "CLEAR", NULL});
+			else
+				UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "OKAY", NULL});
+
+			GFX_flip(screen);
+			dirty = false;
+		} else {
+			GFX_delay();
 		}
-
-		UI_renderSettingsPage(screen, &layout, settings_items, count, selected, &scroll, NULL);
-
-		// Bottom bar
-		if (type == MENU_INPUT)
-			UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "SET", "X", "CLEAR", NULL});
-		else
-			UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "OKAY", NULL});
-
-		GFX_flip(screen);
-		dirty = false;
 
 		hdmimon();
 	}
@@ -1274,14 +1283,14 @@ void Menu_updateState(void) {
 	int last_slot = state_slot;
 	state_slot = menu.slot;
 
-	char save_path[256];
+	char save_path[MAX_PATH];
 	State_getPath(save_path);
 
 	state_slot = last_slot;
 
 	// always sanitized/outer name, to keep main UI from having to inspect archives
-	sprintf(menu.bmp_path, "%s/%s.%d.bmp", menu.minui_dir, game.name, menu.slot);
-	sprintf(menu.txt_path, "%s/%s.%d.txt", menu.minui_dir, game.name, menu.slot);
+	snprintf(menu.bmp_path, sizeof(menu.bmp_path), "%s/%s.%d.bmp", menu.minui_dir, game.name, menu.slot);
+	snprintf(menu.txt_path, sizeof(menu.txt_path), "%s/%s.%d.txt", menu.minui_dir, game.name, menu.slot);
 
 	menu.save_exists = exists(save_path);
 	menu.preview_exists = menu.save_exists && exists(menu.bmp_path);
@@ -1317,7 +1326,7 @@ int save_screenshot_thread(void* data) {
 }
 SDL_Thread* screenshotsavethread;
 void Menu_screenshot(void) {
-	char rom_name[256];
+	char rom_name[MAX_PATH]; // getDisplayName/getAlias can write up to MAX_PATH
 	getDisplayName(game.alt_name, rom_name);
 	getAlias(game.path, rom_name);
 
@@ -1329,8 +1338,8 @@ void Menu_screenshot(void) {
 	// make sure this actually exists
 	mkdir(SDCARD_PATH "/Screenshots", 0755);
 
-	char png_path[256];
-	sprintf(png_path, SDCARD_PATH "/Screenshots/%s.%s.png", rom_name, buffer);
+	char png_path[MAX_PATH];
+	snprintf(png_path, sizeof(png_path), SDCARD_PATH "/Screenshots/%s.%s.png", rom_name, buffer);
 	int cw, ch;
 	unsigned char* pixels = GFX_GL_screenCapture(&cw, &ch);
 	SaveImageArgs* args = malloc(sizeof(SaveImageArgs));
@@ -1353,7 +1362,7 @@ void Menu_saveState(void) {
 
 	Menu_updateState();
 
-	if (menu.total_discs) {
+	if (menu.total_discs && menu.disc >= 0) {
 		char* disc_path = menu.disc_paths[menu.disc];
 		putFile(menu.txt_path, disc_path + strlen(menu.base_path));
 	}
@@ -1395,7 +1404,7 @@ void Menu_loadState(void) {
 	Menu_updateState();
 
 	if (menu.save_exists) {
-		if (menu.total_discs) {
+		if (menu.total_discs && menu.disc >= 0) {
 			char slot_disc_name[256];
 			getFile(menu.txt_path, slot_disc_name, 256);
 
@@ -1471,7 +1480,7 @@ void Menu_loop(void) {
 
 	// path and string things
 	char* tmp;
-	char rom_name[256]; // without extension or cruft
+	char rom_name[MAX_PATH]; // without extension or cruft
 	getDisplayName(game.name, rom_name);
 	getAlias(game.path, rom_name);
 
@@ -1559,7 +1568,7 @@ void Menu_loop(void) {
 		} else if (PAD_justPressed(BTN_A)) {
 			switch (selected) {
 			case ITEM_CONT:
-				if (menu.total_discs && rom_disc != menu.disc) {
+				if (menu.total_discs && menu.disc >= 0 && rom_disc != menu.disc) {
 					status = STATUS_DISC;
 					char* disc_path = menu.disc_paths[menu.disc];
 					Game_changeDisc(disc_path);

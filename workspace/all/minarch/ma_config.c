@@ -825,13 +825,21 @@ struct Config config = {
 								   {NULL}},
 };
 static int Config_getValue(char* cfg, const char* key, char* out_value, int* lock) { // gets value from string
+	size_t key_len = strlen(key);
 	char* tmp = cfg;
 	while ((tmp = strstr(tmp, key))) {
-		if (lock != NULL && tmp > cfg && *(tmp - 1) == '-')
-			*lock = 1; // prefixed with a `-` means lock
-		tmp += strlen(key);
-		if (!strncmp(tmp, " = ", 3))
+		// only accept matches anchored to the start of a line (optionally
+		// behind a `-` lock marker) and followed by " = " — a raw substring
+		// hit can land inside a longer key or an unrelated value
+		char* at = tmp;
+		tmp += key_len;
+		int locked = at > cfg && *(at - 1) == '-';
+		char* line_start = locked ? at - 1 : at;
+		if ((line_start == cfg || *(line_start - 1) == '\n') && !strncmp(tmp, " = ", 3)) {
+			if (lock != NULL && locked)
+				*lock = 1; // prefixed with a `-` means lock
 			break; // matched
+		}
 	};
 	if (!tmp)
 		return 0;
@@ -1003,6 +1011,8 @@ static void apply_live_video_reset(void) {
 }
 
 char** list_files_in_folder(const char* folderPath, int* fileCount, const char* defaultElement, const char* extensionFilter) {
+	*fileCount = 0; // callers read this even when we return NULL
+
 	DIR* dir = opendir(folderPath);
 	if (!dir) {
 		perror("opendir");
@@ -1012,7 +1022,6 @@ char** list_files_in_folder(const char* folderPath, int* fileCount, const char* 
 	struct dirent* entry;
 	struct stat fileStat;
 	char** fileList = NULL;
-	*fileCount = 0;
 
 	if (defaultElement) {
 		fileList = malloc(sizeof(char*) * 2);
@@ -1085,6 +1094,14 @@ char** list_files_in_folder(const char* folderPath, int* fileCount, const char* 
 	return fileList;
 }
 
+void free_file_list(char** list) {
+	if (!list)
+		return;
+	for (int i = 0; list[i]; i++)
+		free(list[i]);
+	free(list);
+}
+
 // CONFIG_WRITE_ALL/CONFIG_WRITE_GAME live in ma_internal.h
 void Config_getPath(char* filename, int override) {
 	char device_tag[64] = {0};
@@ -1106,7 +1123,7 @@ void Config_init(void) {
 	char button_name[128];
 	char button_id[128];
 	int i = 0;
-	while ((tmp = strstr(tmp, "bind "))) {
+	while (i < RETRO_BUTTON_COUNT && (tmp = strstr(tmp, "bind "))) {
 		tmp += 5; // tmp now points to the button name (plus the rest of the line)
 		key = tmp;
 		tmp = strstr(tmp, " = ");
@@ -1114,11 +1131,16 @@ void Config_init(void) {
 			break;
 
 		int len = tmp - key;
+		if (len <= 0 || len >= (int)sizeof(button_name)) {
+			tmp += 3;
+			continue; // malformed or oversized bind name
+		}
 		strncpy(button_name, key, len);
 		button_name[len] = '\0';
 
 		tmp += 3;
-		strncpy(button_id, tmp, 128);
+		strncpy(button_id, tmp, sizeof(button_id) - 1);
+		button_id[sizeof(button_id) - 1] = '\0';
 		tmp2 = strchr(button_id, '\n');
 		if (!tmp2)
 			tmp2 = strchr(button_id, '\r');
@@ -1367,12 +1389,17 @@ void Config_load(void) {
 	config.loaded = override ? CONFIG_GAME : CONFIG_CONSOLE;
 }
 void Config_free(void) {
+	// NULL the pointers: cores can re-register options after startup, which
+	// re-runs Config_readOptions over these buffers
 	if (config.system_cfg)
 		free(config.system_cfg);
+	config.system_cfg = NULL;
 	if (config.default_cfg)
 		free(config.default_cfg);
+	config.default_cfg = NULL;
 	if (config.user_cfg)
 		free(config.user_cfg);
+	config.user_cfg = NULL;
 }
 void Config_readOptions(void) {
 	Config_readOptionsString(config.system_cfg);
@@ -1410,7 +1437,12 @@ void Config_write(int override) {
 	}
 	for (int i = 0; config.core.options[i].key; i++) {
 		Option* option = &config.core.options[i];
-		fprintf(file, "%s = %s\n", option->key, option->values[option->value]);
+		int count = 0;
+		while (option->values && option->values[count])
+			count++;
+		if (option->value >= 0 && option->value < count) {
+			fprintf(file, "%s = %s\n", option->key, option->values[option->value]);
+		}
 	}
 	for (int i = 0; config.shaders.options[i].key; i++) {
 		Option* option = &config.shaders.options[i];

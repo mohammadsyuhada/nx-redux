@@ -12,12 +12,18 @@
 #include "streams/file_stream.h"
 #endif
 
-static void formatSavePath(char* work_name, char* filename, const char* suffix) {
+// strip a 1-4 letter extension (plus dot), matching getDisplayName's rule
+static void stripExtension(char* work_name) {
 	char* tmp = strrchr(work_name, '.');
 	if (tmp != NULL && strlen(tmp) > 2 && strlen(tmp) <= 5) {
 		tmp[0] = '\0';
 	}
-	sprintf(filename, "%s/%s%s", core.saves_dir, work_name, suffix);
+}
+
+// filename must be a MAX_PATH-sized buffer
+static void formatSavePath(char* work_name, char* filename, const char* suffix) {
+	stripExtension(work_name);
+	snprintf(filename, MAX_PATH, "%s/%s%s", core.saves_dir, work_name, suffix);
 }
 
 static void SRAM_getPath(char* filename) {
@@ -30,7 +36,7 @@ static void SRAM_getPath(char* filename) {
 		strcpy(work_name, game.alt_name);
 		formatSavePath(work_name, filename, ".sav");
 	} else {
-		sprintf(filename, "%s/%s.sav", core.saves_dir, game.alt_name);
+		snprintf(filename, MAX_PATH, "%s/%s.sav", core.saves_dir, game.alt_name);
 	}
 }
 
@@ -117,7 +123,7 @@ void SRAM_write(void) {
 ///////////////////////////////////////
 
 static void RTC_getPath(char* filename) {
-	sprintf(filename, "%s/%s.rtc", core.saves_dir, game.alt_name);
+	snprintf(filename, MAX_PATH, "%s/%s.rtc", core.saves_dir, game.alt_name);
 }
 void RTC_read(void) {
 	size_t rtc_size = core.get_memory_size(RETRO_MEMORY_RTC);
@@ -170,14 +176,7 @@ void RTC_write(void) {
 
 int state_slot = 0;
 
-static void formatStatePath(char* work_name, char* filename, const char* suffix) {
-	char* tmp = strrchr(work_name, '.');
-	if (tmp != NULL && strlen(tmp) > 2 && strlen(tmp) <= 5) {
-		tmp[0] = '\0';
-	}
-	sprintf(filename, "%s/%s%s", core.saves_dir, work_name, suffix);
-}
-
+// filename must be a MAX_PATH-sized buffer
 void State_getPath(char* filename) {
 	char work_name[MAX_PATH];
 
@@ -185,30 +184,24 @@ void State_getPath(char* filename) {
 	// should probably be removed at some point in the future.
 	if (CFG_getStateFormat() == STATE_FORMAT_SRM_EXTRADOT || CFG_getStateFormat() == STATE_FORMAT_SRM_UNCOMPRESSED_EXTRADOT) {
 		strcpy(work_name, game.alt_name);
-		char* tmp = strrchr(work_name, '.');
-		if (tmp != NULL && strlen(tmp) > 2 && strlen(tmp) <= 5) {
-			tmp[0] = '\0';
-		}
+		stripExtension(work_name);
 
 		if (state_slot == AUTO_RESUME_SLOT)
-			sprintf(filename, "%s/%s.state.auto", core.states_dir, work_name);
+			snprintf(filename, MAX_PATH, "%s/%s.state.auto", core.states_dir, work_name);
 		else
-			sprintf(filename, "%s/%s.state.%i", core.states_dir, work_name, state_slot);
+			snprintf(filename, MAX_PATH, "%s/%s.state.%i", core.states_dir, work_name, state_slot);
 	} else if (CFG_getStateFormat() == STATE_FORMAT_SRM || CFG_getStateFormat() == STATE_FORMAT_SRM_UNCOMPRESSED) {
 		strcpy(work_name, game.alt_name);
-		char* tmp = strrchr(work_name, '.');
-		if (tmp != NULL && strlen(tmp) > 2 && strlen(tmp) <= 5) {
-			tmp[0] = '\0';
-		}
+		stripExtension(work_name);
 
 		if (state_slot == AUTO_RESUME_SLOT)
-			sprintf(filename, "%s/%s.state.auto", core.states_dir, work_name);
+			snprintf(filename, MAX_PATH, "%s/%s.state.auto", core.states_dir, work_name);
 		else if (state_slot == 0)
-			sprintf(filename, "%s/%s.state", core.states_dir, work_name);
+			snprintf(filename, MAX_PATH, "%s/%s.state", core.states_dir, work_name);
 		else
-			sprintf(filename, "%s/%s.state%i", core.states_dir, work_name, state_slot);
+			snprintf(filename, MAX_PATH, "%s/%s.state%i", core.states_dir, work_name, state_slot);
 	} else {
-		sprintf(filename, "%s/%s.st%i", core.states_dir, game.alt_name, state_slot);
+		snprintf(filename, MAX_PATH, "%s/%s.st%i", core.states_dir, game.alt_name, state_slot);
 	}
 }
 
@@ -228,20 +221,26 @@ int State_read(void) { // from picoarch
 	int was_ff = fast_forward;
 	fast_forward = 0;
 
+	char filename[MAX_PATH];
+	State_getPath(filename);
+
+	uint8_t rastate_header[RASTATE_HEADER_SIZE] = {0};
+
+	// declared (and initialized) before the first goto so the error paths
+	// never see an indeterminate handle
+#ifdef HAS_SRM
+	rzipstream_t* state_rzfile = NULL;
+#else
+	FILE* state_file = NULL;
+#endif
+
 	void* state = calloc(1, state_size);
 	if (!state) {
 		LOG_error("Couldn't allocate memory for state\n");
 		goto error;
 	}
 
-	char filename[MAX_PATH];
-	State_getPath(filename);
-
-	uint8_t rastate_header[RASTATE_HEADER_SIZE] = {0};
-
 #ifdef HAS_SRM
-	rzipstream_t* state_rzfile = NULL;
-
 	state_rzfile = rzipstream_open(filename, RETRO_VFS_FILE_ACCESS_READ);
 	if (!state_rzfile) {
 		if (state_slot != RESUME_SLOT_DEFAULT) { // default state in MiniUI, may not exist
@@ -263,7 +262,7 @@ int State_read(void) { // from picoarch
 
 	// some cores report the wrong serialize size initially for some games, eg. mgba: Wario Land 4
 	// so we allow a size mismatch as long as the actual size fits in the buffer we've allocated
-	if (state_size < rzipstream_read(state_rzfile, state, state_size)) {
+	if (rzipstream_read(state_rzfile, state, state_size) < 0) {
 		LOG_error("Error reading state data from file: %s (%s)\n", filename, strerror(errno));
 		goto error;
 	}
@@ -280,7 +279,7 @@ error:
 	if (state_rzfile)
 		rzipstream_close(state_rzfile);
 #else
-	FILE* state_file = fopen(filename, "r");
+	state_file = fopen(filename, "r");
 	if (!state_file) {
 		if (state_slot != RESUME_SLOT_DEFAULT) { // default state in MiniUI, may not exist
 			LOG_error("Error opening state file: %s (%s)\n", filename, strerror(errno));
@@ -299,8 +298,8 @@ error:
 	}
 
 	// some cores report the wrong serialize size initially for some games, eg. mgba: Wario Land 4
-	// so we allow a size mismatch as long as the actual size fits in the buffer we've allocated
-	if (state_size < fread(state, 1, state_size, state_file)) {
+	// so we allow a size mismatch (short read at EOF) as long as it fits the buffer we've allocated
+	if (fread(state, 1, state_size, state_file) < state_size && ferror(state_file)) {
 		LOG_error("Error reading state data from file: %s (%s)\n", filename, strerror(errno));
 		goto error;
 	}
@@ -336,6 +335,15 @@ int State_write(void) { // from picoarch
 	int was_ff = fast_forward;
 	fast_forward = 0;
 
+	char filename[MAX_PATH];
+	State_getPath(filename);
+
+	// declared (and initialized) before the first goto so the error paths
+	// never see an indeterminate handle
+#ifndef HAS_SRM
+	FILE* state_file = NULL;
+#endif
+
 	void* state = calloc(1, state_size);
 	if (!state) {
 		LOG_error("Couldn't allocate memory for state\n");
@@ -347,8 +355,6 @@ int State_write(void) { // from picoarch
 		goto error;
 	}
 
-	char filename[MAX_PATH];
-	State_getPath(filename);
 #ifdef HAS_SRM
 	if (CFG_getStateFormat() == STATE_FORMAT_SRM || CFG_getStateFormat() == STATE_FORMAT_SRM_EXTRADOT) {
 		if (!rzipstream_write_file(filename, state, state_size)) {
@@ -368,7 +374,7 @@ error:
 	if (state)
 		free(state);
 #else
-	FILE* state_file = fopen(filename, "w");
+	state_file = fopen(filename, "w");
 	if (!state_file) {
 		LOG_error("Error opening state file: %s (%s)\n", filename, strerror(errno));
 		goto error;

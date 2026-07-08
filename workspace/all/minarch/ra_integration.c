@@ -101,6 +101,7 @@ typedef struct {
 
 #define RA_RESPONSE_QUEUE_SIZE 16
 static RA_QueuedResponse ra_response_queue[RA_RESPONSE_QUEUE_SIZE];
+static bool ra_queue_shutdown = false;
 static volatile int ra_response_queue_count = 0;
 static SDL_mutex* ra_queue_mutex = NULL;
 
@@ -307,12 +308,16 @@ static void ra_queue_init(void) {
 	if (!ra_queue_mutex) {
 		ra_queue_mutex = SDL_CreateMutex();
 	}
+	ra_queue_shutdown = false;
 	ra_response_queue_count = 0;
 	memset(ra_response_queue, 0, sizeof(ra_response_queue));
 }
 
 static void ra_queue_quit(void) {
-	// Drain any pending responses
+	// Drain any pending responses. The mutex is deliberately never destroyed:
+	// detached HTTP worker threads may still be between ra_queue_push's
+	// NULL-check and SDL_LockMutex, so destroying it here would be a
+	// use-after-free race. The shutdown flag makes them bail out instead.
 	if (ra_queue_mutex) {
 		SDL_LockMutex(ra_queue_mutex);
 		for (int i = 0; i < ra_response_queue_count; i++) {
@@ -320,10 +325,8 @@ static void ra_queue_quit(void) {
 			ra_response_queue[i].body = NULL;
 		}
 		ra_response_queue_count = 0;
+		ra_queue_shutdown = true;
 		SDL_UnlockMutex(ra_queue_mutex);
-
-		SDL_DestroyMutex(ra_queue_mutex);
-		ra_queue_mutex = NULL;
 	}
 }
 
@@ -334,39 +337,52 @@ static bool ra_queue_push(const char* body, size_t body_length, int http_status,
 		return false;
 	}
 
-	bool success = false;
-	SDL_LockMutex(ra_queue_mutex);
+	// The main thread drains the queue every frame in RA_idle, so on a full
+	// queue wait briefly instead of dropping — a dropped response strands the
+	// rcheevos operation (login/unlock never completes) and leaks its
+	// callback_data. Worker threads are detached and dedicated, so a short
+	// blocking wait here is fine.
+	for (int attempt = 0; attempt < 100; attempt++) {
+		SDL_LockMutex(ra_queue_mutex);
 
-	if (ra_response_queue_count < RA_RESPONSE_QUEUE_SIZE) {
-		RA_QueuedResponse* resp = &ra_response_queue[ra_response_queue_count];
-
-		// Copy the body data (caller will free original)
-		if (body && body_length > 0) {
-			resp->body = (char*)malloc(body_length + 1);
-			if (resp->body) {
-				memcpy(resp->body, body, body_length);
-				resp->body[body_length] = '\0';
-				resp->body_length = body_length;
-			} else {
-				resp->body_length = 0;
-			}
-		} else {
-			resp->body = NULL;
-			resp->body_length = 0;
+		if (ra_queue_shutdown) {
+			SDL_UnlockMutex(ra_queue_mutex);
+			return false;
 		}
 
-		resp->http_status_code = http_status;
-		resp->callback = callback;
-		resp->callback_data = callback_data;
+		if (ra_response_queue_count < RA_RESPONSE_QUEUE_SIZE) {
+			RA_QueuedResponse* resp = &ra_response_queue[ra_response_queue_count];
 
-		ra_response_queue_count++;
-		success = true;
-	} else {
-		RA_LOG_WARN("Warning: Response queue full, dropping response\n");
+			// Copy the body data (caller will free original)
+			if (body && body_length > 0) {
+				resp->body = (char*)malloc(body_length + 1);
+				if (resp->body) {
+					memcpy(resp->body, body, body_length);
+					resp->body[body_length] = '\0';
+					resp->body_length = body_length;
+				} else {
+					resp->body_length = 0;
+				}
+			} else {
+				resp->body = NULL;
+				resp->body_length = 0;
+			}
+
+			resp->http_status_code = http_status;
+			resp->callback = callback;
+			resp->callback_data = callback_data;
+
+			ra_response_queue_count++;
+			SDL_UnlockMutex(ra_queue_mutex);
+			return true;
+		}
+
+		SDL_UnlockMutex(ra_queue_mutex);
+		SDL_Delay(10);
 	}
 
-	SDL_UnlockMutex(ra_queue_mutex);
-	return success;
+	RA_LOG_WARN("Warning: Response queue full for >1s, dropping response\n");
+	return false;
 }
 
 // Called from main thread - dequeue a response for processing
@@ -558,13 +574,15 @@ static uint32_t ra_read_memory(uint32_t address, uint8_t* buffer, uint32_t num_b
 	void* mem_data = ra_get_memory_data(0);
 	size_t mem_size = ra_get_memory_size(0);
 
-	if (!mem_data || address + num_bytes > mem_size) {
+	// note: written to avoid uint32 wrap in `address + num_bytes` — achievement
+	// definitions are server-supplied and can carry addresses near UINT32_MAX
+	if (!mem_data || address > mem_size || num_bytes > mem_size - address) {
 		// Try save RAM as fallback (some cores expose different memory types)
 		// RETRO_MEMORY_SAVE_RAM = 1
 		mem_data = ra_get_memory_data(1);
 		mem_size = ra_get_memory_size(1);
 
-		if (!mem_data || address + num_bytes > mem_size) {
+		if (!mem_data || address > mem_size || num_bytes > mem_size - address) {
 			return 0;
 		}
 	}
@@ -1255,6 +1273,13 @@ void RA_loadGame(const char* rom_path, const uint8_t* rom_data, size_t rom_size,
 
 	// If not logged in yet, store the game info for deferred loading
 	if (!ra_logged_in) {
+		// only defer (which copies the whole ROM) when a login can actually
+		// complete — same condition RA_init uses to start one. Otherwise the
+		// copy would sit in RAM for the entire session with no consumer.
+		if (!(CFG_getRAAuthenticated() && strlen(CFG_getRAToken()) > 0)) {
+			RA_LOG_WARN("Not authenticated - skipping game load for: %s\n", rom_path);
+			return;
+		}
 		RA_LOG_DEBUG("Login in progress - deferring game load for: %s\n", rom_path);
 
 		// Clear any previous pending game

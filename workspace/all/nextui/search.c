@@ -3,6 +3,7 @@
 #include "content.h"
 #include "defines.h"
 #include "display_helper.h"
+#include "gamelist.h"
 #include "imgloader.h"
 #include "launcher.h"
 #include "types.h"
@@ -123,6 +124,9 @@ void Search_render(SDL_Surface* screen, SDL_Surface* blackBG, int lastScreen) {
 	if (lastScreen != SCREEN_SEARCH) {
 		onBackgroundLoaded(NULL);
 		GFX_clearLayers(LAYER_THUMBNAIL);
+		// we just cleared the shared folder background; make the game list
+		// reload it on return instead of trusting its stale change-detection
+		GameList_invalidateBackground();
 	}
 
 	int total = search_results ? search_results->count : 0;

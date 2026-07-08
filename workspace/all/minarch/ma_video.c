@@ -650,13 +650,29 @@ void screen_flip(SDL_Surface* screen) {
 }
 
 // couple of animation functions for pixel data keeping them all cause wanna use them later
+// lazily sized to the actual frame instead of a permanent 8MB BSS array;
+// freed in Video_cleanup at shutdown
+static uint32_t* fade_buffer = NULL;
+static size_t fade_buffer_len = 0;
+
 void applyFadeIn(uint32_t** data, size_t pitch, unsigned width, unsigned height, int* frame_counter, int max_frames) {
 	size_t pixels_per_row = pitch / sizeof(uint32_t);
-	static uint32_t temp_buffer[1920 * 1080];
 
 	if (*frame_counter >= max_frames) {
 		return;
 	}
+
+	size_t needed = (size_t)height * pixels_per_row;
+	if (needed == 0)
+		return;
+	if (fade_buffer_len < needed) {
+		uint32_t* tmp = realloc(fade_buffer, needed * sizeof(uint32_t));
+		if (!tmp)
+			return; // out of memory — skip the fade rather than overflow
+		fade_buffer = tmp;
+		fade_buffer_len = needed;
+	}
+	uint32_t* temp_buffer = fade_buffer;
 
 	float progress = (float)(*frame_counter) / (float)max_frames;
 	float eased = progress * progress * (3 - 2 * progress);
@@ -738,18 +754,22 @@ static void drawDebugHud(const void* data, unsigned width, unsigned height, size
 	}
 }
 
+// last displayed-frame time; shared with video_refresh_callback so the
+// fast-forward throttle can drop frames *before* the pixel conversion
+static uint32_t last_flip_time = 0;
+
+// 10 seems to be the sweet spot that allows 2x in NES and SNES and 8x in GB at 60fps
+// 14 will let GB hit 10x but NES and SNES will drop to 1.5x at 30fps (not sure why)
+// but 10 hurts PS...
+// TODO: 10 was based on rg35xx, probably different results on other supported platforms
+#define FF_FRAME_INTERVAL_MS 10
+
 static void video_refresh_callback_main(const void* data, unsigned width, unsigned height, size_t pitch) {
 	// return;
 
 	Special_render();
 
-	static uint32_t last_flip_time = 0;
-
-	// 10 seems to be the sweet spot that allows 2x in NES and SNES and 8x in GB at 60fps
-	// 14 will let GB hit 10x but NES and SNES will drop to 1.5x at 30fps (not sure why)
-	// but 10 hurts PS...
-	// TODO: 10 was based on rg35xx, probably different results on other supported platforms
-	if (fast_forward && SDL_GetTicks() - last_flip_time < 10)
+	if (fast_forward && SDL_GetTicks() - last_flip_time < FF_FRAME_INTERVAL_MS)
 		return;
 
 	// FFVII menus
@@ -781,7 +801,7 @@ static void video_refresh_callback_main(const void* data, unsigned width, unsign
 
 	static int frame_counter = 0;
 	const int max_frames = 8;
-	if (frame_counter < 9) {
+	if (frame_counter < max_frames) {
 		applyFadeIn((uint32_t**)&data, pitch, width, height, &frame_counter, max_frames);
 	}
 
@@ -967,10 +987,17 @@ void video_refresh_callback(const void* data, unsigned width, unsigned height, s
 	if (skip_video_output)
 		return;
 
+	// During fast-forward most frames are dropped by the throttle in
+	// video_refresh_callback_main; bail out here so we skip the full-frame
+	// pixel conversion and ambient scan for frames that will never be shown
+	if (fast_forward && SDL_GetTicks() - last_flip_time < FF_FRAME_INTERVAL_MS)
+		return;
+
 	// Allocate RGBA buffer if needed
 	if (!rgbaData || rgbaDataSize != width * height) {
 		if (rgbaData)
 			free(rgbaData);
+		lastframe = NULL; // pointed into the freed buffer
 		rgbaDataSize = width * height;
 		rgbaData = (Uint32*)malloc(rgbaDataSize * sizeof(Uint32));
 		if (!rgbaData) {
@@ -1013,5 +1040,10 @@ void Video_cleanup(void) {
 		free(rgbaData);
 		rgbaData = NULL;
 		rgbaDataSize = 0;
+	}
+	if (fade_buffer) {
+		free(fade_buffer);
+		fade_buffer = NULL;
+		fade_buffer_len = 0;
 	}
 }

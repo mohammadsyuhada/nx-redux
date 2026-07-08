@@ -15,13 +15,18 @@
 void Core_getName(char* in_name, char* out_name) {
 	strcpy(out_name, basename(in_name));
 	char* tmp = strrchr(out_name, '_');
-	tmp[0] = '\0';
+	if (tmp)
+		tmp[0] = '\0';
 }
 void Core_open(const char* core_path, const char* tag_name) {
 	core.handle = dlopen(core_path, RTLD_LAZY);
 
-	if (!core.handle)
-		LOG_error("%s\n", dlerror());
+	if (!core.handle) {
+		// every dlsym below would return garbage and crash a few lines later;
+		// exit cleanly so the launcher regains control
+		LOG_error("dlopen failed for %s: %s\n", core_path, dlerror());
+		exit(EXIT_FAILURE);
+	}
 
 	core.init = dlsym(core.handle, "retro_init");
 	core.deinit = dlsym(core.handle, "retro_deinit");
@@ -60,9 +65,10 @@ void Core_open(const char* core_path, const char* tag_name) {
 	core.get_system_info(&info);
 
 	Core_getName((char*)core_path, (char*)core.name);
-	sprintf((char*)core.version, "%s (%s)", info.library_name, info.library_version);
+	snprintf((char*)core.version, sizeof(core.version), "%s (%s)", info.library_name, info.library_version);
 	strcpy((char*)core.tag, tag_name);
-	strcpy((char*)core.extensions, info.valid_extensions);
+	// valid_extensions may legally be NULL (no-content cores)
+	snprintf((char*)core.extensions, sizeof(core.extensions), "%s", info.valid_extensions ? info.valid_extensions : "");
 
 	core.need_fullpath = info.need_fullpath;
 
@@ -128,11 +134,15 @@ void Core_load(void) {
 	core.has_gblink = false;
 	core.show_netplay = false;
 
-	struct retro_game_info game_info;
+	struct retro_game_info game_info = {};
 	game_info.path = game.tmp_path[0] ? game.tmp_path : game.path;
 	game_info.data = game.data;
 	game_info.size = game.size;
-	core.load_game(&game_info);
+	if (!core.load_game(&game_info)) {
+		// running a core with no loaded game is a guaranteed crash inside the core
+		LOG_error("core refused to load game: %s\n", game_info.path);
+		exit(EXIT_FAILURE);
+	}
 
 	CoreLinkSupport link_support = checkCoreLinkSupport(core.name);
 	core.show_netplay = link_support.show_netplay;

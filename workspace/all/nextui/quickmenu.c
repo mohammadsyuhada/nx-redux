@@ -91,6 +91,47 @@ static SDL_Surface* qm_get_record_icon(void) {
 	return icon_record;
 }
 
+// Cache of decoded item icons keyed by name. The items row used to IMG_Load +
+// convert every icon on every render (each dirty frame), which stutters input
+// on the SD-card read path.
+#define QM_ICON_CACHE_MAX 24
+static struct {
+	char name[64];
+	SDL_Surface* surface;
+} qm_icon_cache[QM_ICON_CACHE_MAX];
+static int qm_icon_cache_count = 0;
+
+static SDL_Surface* qm_get_item_icon(const char* name) {
+	for (int i = 0; i < qm_icon_cache_count; i++) {
+		if (strcmp(qm_icon_cache[i].name, name) == 0)
+			return qm_icon_cache[i].surface;
+	}
+
+	char icon_path[MAX_PATH];
+	snprintf(icon_path, sizeof(icon_path),
+			 SDCARD_PATH "/.system/res/%s@%ix.png", name, FIXED_SCALE);
+	SDL_Surface* bmp = IMG_Load(icon_path);
+	if (bmp)
+		bmp = UI_convertSurface(bmp, screen);
+
+	if (qm_icon_cache_count < QM_ICON_CACHE_MAX) {
+		// negative entries (bmp == NULL) are cached too, to avoid re-stat'ing a missing icon each frame
+		strncpy(qm_icon_cache[qm_icon_cache_count].name, name, sizeof(qm_icon_cache[0].name) - 1);
+		qm_icon_cache[qm_icon_cache_count].name[sizeof(qm_icon_cache[0].name) - 1] = '\0';
+		qm_icon_cache[qm_icon_cache_count].surface = bmp;
+		qm_icon_cache_count++;
+	}
+	return bmp;
+}
+
+static void qm_free_icon_cache(void) {
+	for (int i = 0; i < qm_icon_cache_count; i++) {
+		if (qm_icon_cache[i].surface)
+			SDL_FreeSurface(qm_icon_cache[i].surface);
+	}
+	qm_icon_cache_count = 0;
+}
+
 static bool qm_is_recording(void) {
 	FILE* f = fopen(SCREENREC_PID_FILE, "r");
 	if (!f)
@@ -207,14 +248,21 @@ static void qm_stop_recording(void) {
 
 		// Send SIGTERM and wait for screenrecorder to finish encoding
 		kill(pid, SIGTERM);
+		bool reaped = false;
 		for (int i = 0; i < 10; i++) {
 			usleep(500000);
 			int wr = waitpid(pid, NULL, WNOHANG);
-			if (wr == pid || (wr < 0 && kill(pid, 0) != 0))
+			if (wr == pid || (wr < 0 && kill(pid, 0) != 0)) {
+				reaped = true;
 				break;
+			}
 		}
-		kill(pid, SIGKILL);
-		waitpid(pid, NULL, 0);
+		// only force-kill if it's still alive — after a reap the pid may be
+		// recycled, so an unconditional SIGKILL could hit an unrelated process
+		if (!reaped) {
+			kill(pid, SIGKILL);
+			waitpid(pid, NULL, 0);
+		}
 		remove(SCREENREC_PID_FILE);
 
 		// Take cpu2 offline
@@ -241,14 +289,20 @@ static void qm_stop_recording(void) {
 	}
 
 	kill(pid, SIGINT);
+	bool reaped = false;
 	for (int i = 0; i < 10; i++) {
 		usleep(500000);
 		int wr = waitpid(pid, NULL, WNOHANG);
-		if (wr == pid || (wr < 0 && kill(pid, 0) != 0))
+		if (wr == pid || (wr < 0 && kill(pid, 0) != 0)) {
+			reaped = true;
 			break;
+		}
 	}
-	kill(pid, SIGKILL);
-	waitpid(pid, NULL, 0);
+	// only force-kill if still alive (see tg5050 branch above)
+	if (!reaped) {
+		kill(pid, SIGKILL);
+		waitpid(pid, NULL, 0);
+	}
 	remove(SCREENREC_PID_FILE);
 }
 
@@ -389,6 +443,7 @@ void QuickMenu_init(int simple_mode) {
 void QuickMenu_quit(void) {
 	EntryArray_free(quick);
 	EntryArray_free(quickActions);
+	qm_free_icon_cache();
 	if (icon_record) {
 		SDL_FreeSurface(icon_record);
 		icon_record = NULL;
@@ -728,13 +783,7 @@ void QuickMenu_render(int lastScreen, IndicatorType show_setting, int ow,
 
 			GFX_blitRectColor(ASSET_STATE_BG, screen, &item_rect, item_color);
 
-			char icon_path[MAX_PATH];
-			snprintf(icon_path, sizeof(icon_path),
-					 SDCARD_PATH "/.system/res/%s@%ix.png", item->name,
-					 FIXED_SCALE);
-			SDL_Surface* bmp = IMG_Load(icon_path);
-			if (bmp)
-				bmp = UI_convertSurface(bmp, screen);
+			SDL_Surface* bmp = qm_get_item_icon(item->name);
 			if (bmp) {
 				int x = (item_rect.w - bmp->w) / 2;
 				int y =
@@ -744,8 +793,6 @@ void QuickMenu_render(int lastScreen, IndicatorType show_setting, int ow,
 									 0}; // width/height not required
 				GFX_blitSurfaceColor(bmp, NULL, screen, &destRect, icon_color);
 			}
-			if (bmp)
-				SDL_FreeSurface(bmp);
 
 			int w, h;
 			GFX_sizeText(font.tiny, item->name, SCALE1(FONT_TINY), &w, &h);

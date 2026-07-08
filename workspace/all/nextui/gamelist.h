@@ -23,13 +23,18 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 void GameList_render(SDL_Surface* screen, int lastScreen,
 					 IndicatorType show_setting, SDL_Surface* blackBG);
 
-// True while the pin/unpin confirmation dialog is up (thumbnail is hidden then).
-bool GameList_confirmOpen(void);
-
 // Scroll-text (marquee) state, driven by the main loop's idle path.
 bool GameList_scrollBusy(void);		   // still needs animation/render ticks
 bool GameList_scrollIsScrolling(void); // actively scrolling right now
 void GameList_scrollTickIdle(void);	   // advance marquee on non-dirty frames
 void GameList_clearScroll(void);	   // drop cached scroll state (screen switch/exit)
+
+// Invalidate the folder-background cache so the next render reloads it.
+// Call when another screen clears the shared background surface.
+void GameList_invalidateBackground(void);
+
+// Run a context-menu action selected in the overlay (the id built in
+// GameList_handleInput). Called by nextui.c when ContextMenu returns SELECTED.
+void GameList_runContextAction(int id);
 
 #endif // GAMELIST_H

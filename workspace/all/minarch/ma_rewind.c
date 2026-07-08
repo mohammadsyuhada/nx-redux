@@ -189,17 +189,20 @@ static int Rewind_write_entry_locked(const uint8_t* compressed, size_t dest_len,
 		}
 	}
 
-	// Drop any entries that overlap with the region we're about to write: [write_offset, write_offset + dest_len)
-	// We need to check all entries from tail to head and drop any that overlap.
-	// Since entries are stored oldest-to-newest, we drop from oldest while they overlap.
-	while (rewind_ctx.entry_count > 0) {
-		int oldest_idx = rewind_ctx.entry_tail;
-		if (Rewind_entry_overlaps_range(oldest_idx, write_offset, write_offset + dest_len)) {
-			Rewind_drop_oldest_locked();
-		} else {
-			break;
-		}
+	// Drop entries until none overlap the region we're about to write:
+	// [write_offset, write_offset + dest_len). Entries can only be dropped from
+	// the tail (the delta chain must stay contiguous), but after a wrap the
+	// overlapping entries are the *newer* ones at low offsets — behind a
+	// non-overlapping oldest entry at high offsets — so find the newest
+	// overlapping entry and drop everything up to and including it.
+	int drops = 0;
+	for (int k = 0; k < rewind_ctx.entry_count; k++) {
+		int idx = (rewind_ctx.entry_tail + k) % rewind_ctx.entry_capacity;
+		if (Rewind_entry_overlaps_range(idx, write_offset, write_offset + dest_len))
+			drops = k + 1;
 	}
+	while (drops-- > 0)
+		Rewind_drop_oldest_locked();
 
 	// Still need to make room based on free space calculation
 	while (rewind_ctx.entry_count > 0 && Rewind_free_space_locked() <= dest_len) {
@@ -224,11 +227,8 @@ static int Rewind_write_entry_locked(const uint8_t* compressed, size_t dest_len,
 		rewind_ctx.head = 0;
 
 	rewind_ctx.entry_head = (rewind_ctx.entry_head + 1) % rewind_ctx.entry_capacity;
-	if (rewind_ctx.entry_count < rewind_ctx.entry_capacity) {
-		rewind_ctx.entry_count += 1;
-	} else {
-		Rewind_drop_oldest_locked();
-	}
+	// the table-full pre-drop above guarantees room here
+	rewind_ctx.entry_count += 1;
 	rewind_warn_empty = 0;
 	return 1;
 }
@@ -425,8 +425,13 @@ int Rewind_init(size_t state_size) {
 	rewind_ctx.free_count = rewind_ctx.pool_size;
 
 	if (pthread_create(&rewind_ctx.worker, NULL, Rewind_worker_thread, NULL) != 0) {
-		// fallback to synchronous path
+		// fallback to synchronous path; free the pool buffers before zeroing
+		// pool_size or Rewind_free's loop would orphan them
 		LOG_error("Rewind: failed to start worker thread, falling back to synchronous capture\n");
+		for (int i = 0; i < rewind_ctx.pool_size; i++) {
+			free(rewind_ctx.capture_pool[i]);
+			rewind_ctx.capture_pool[i] = NULL;
+		}
 		rewind_ctx.pool_size = 0;
 		rewind_ctx.queue_capacity = 0;
 		rewind_ctx.free_count = 0;
@@ -721,8 +726,15 @@ int Rewind_step_back(void) {
 	}
 
 	if (!core.unserialize(rewind_ctx.state_buf, rewind_ctx.state_size)) {
+		// drop the failing newest entry (like the decode-failure path above) —
+		// dropping the oldest would retry the same bad entry forever while
+		// silently draining the history from the other end
 		LOG_error("Rewind: unserialize failed\n");
-		Rewind_drop_oldest_locked();
+		rewind_ctx.entry_head = idx;
+		rewind_ctx.entry_count -= 1;
+		if (rewind_ctx.entry_count == 0) {
+			rewind_ctx.head = rewind_ctx.tail = 0;
+		}
 		pthread_mutex_unlock(&rewind_ctx.lock);
 		return REWIND_STEP_EMPTY;
 	}

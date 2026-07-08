@@ -47,7 +47,7 @@ void Game_open(char* path) {
 		char exts[128];
 		char* extensions[32];
 		strcpy(exts, core.extensions);
-		while ((ext = strtok(i ? NULL : exts, "|"))) {
+		while (i < 31 && (ext = strtok(i ? NULL : exts, "|"))) {
 			extensions[i++] = ext;
 			if (!strcmp("zip", ext)) {
 				supports_zip = 1;
@@ -80,25 +80,38 @@ void Game_open(char* path) {
 		}
 
 		fseek(file, 0, SEEK_END);
-		game.size = ftell(file);
+		long file_size = ftell(file);
+		if (file_size < 0) {
+			LOG_error("Couldn't get size of file: %s\n", path);
+			fclose(file);
+			return;
+		}
+		game.size = file_size;
 
 		rewind(file);
 		game.data = malloc(game.size);
 		if (game.data == NULL) {
 			LOG_error("Couldn't allocate memory for file: %s\n", path);
+			fclose(file);
 			return;
 		}
 
-		fread(game.data, sizeof(uint8_t), game.size, file);
+		if (fread(game.data, sizeof(uint8_t), game.size, file) != game.size) {
+			LOG_error("Error reading game data: %s\n", path);
+			free(game.data);
+			game.data = NULL;
+			fclose(file);
+			return;
+		}
 
 		fclose(file);
 	}
 
 	// m3u-based?
 	char* tmp;
-	char m3u_path[256];
-	char base_path[256];
-	char dir_name[256];
+	char m3u_path[MAX_PATH];
+	char base_path[MAX_PATH];
+	char dir_name[MAX_PATH];
 
 	strcpy(m3u_path, game.path);
 	tmp = strrchr(m3u_path, '/') + 1;
@@ -112,11 +125,9 @@ void Game_open(char* path) {
 	tmp = strrchr(m3u_path, '/');
 	strcpy(dir_name, tmp);
 
-	tmp = m3u_path + strlen(m3u_path);
-	strcpy(tmp, dir_name);
-
-	tmp = m3u_path + strlen(m3u_path);
-	strcpy(tmp, ".m3u");
+	// m3u named after the containing folder, inside it
+	size_t used = strlen(m3u_path);
+	snprintf(m3u_path + used, sizeof(m3u_path) - used, "%s.m3u", dir_name);
 
 	if (exists(m3u_path)) {
 		strcpy(game.m3u_path, m3u_path);
@@ -153,18 +164,18 @@ void Game_changeDisc(char* path) {
 }
 
 int extract_zip(char** extensions) {
-	char buf[100];
+	// only runs on the main thread at game load; a big buffer keeps the
+	// read/write syscall count sane for multi-MB roms
+	static char buf[65536];
 	struct zip* za;
 	int ze;
+	int result = 0;
 	if ((za = zip_open(game.path, 0, &ze)) == NULL) {
 		zip_error_t error;
 		zip_error_init_with_code(&error, ze);
 		LOG_error("can't open zip archive `%s': %s\n", game.path, zip_error_strerror(&error));
 		return 0;
 	}
-
-	// char tmp_template[MAX_PATH];
-	// strcpy(tmp_template, "/tmp/minarch-XXXXXX");
 
 	mkdir("/tmp/nextarch", 0777);
 	char tmp_dirname[255];
@@ -179,13 +190,13 @@ int extract_zip(char** extensions) {
 	for (i = 0; i < zip_get_num_entries(za, 0); i++) {
 		if (zip_stat_index(za, i, 0, &sb) == 0) {
 			len = strlen(sb.name);
-			if (sb.name[len - 1] == '/') {
-				sprintf(game.tmp_path, "%s/%s", tmp_dirname, basename((char*)sb.name));
+			if (len > 0 && sb.name[len - 1] == '/') {
+				snprintf(game.tmp_path, sizeof(game.tmp_path), "%s/%s", tmp_dirname, basename((char*)sb.name));
 			} else {
 				int found = 0;
-				char extension[8];
+				char extension[34];
 				for (int e = 0; extensions[e]; e++) {
-					sprintf(extension, ".%s", extensions[e]);
+					snprintf(extension, sizeof(extension), ".%s", extensions[e]);
 					if (suffixMatch(extension, sb.name)) {
 						found = 1;
 						break;
@@ -194,19 +205,20 @@ int extract_zip(char** extensions) {
 				if (!found)
 					continue;
 
-				sprintf(game.tmp_path, "%s/%s", tmp_dirname, basename((char*)sb.name));
+				snprintf(game.tmp_path, sizeof(game.tmp_path), "%s/%s", tmp_dirname, basename((char*)sb.name));
 
 				// Check if file already exists and has the correct size
 				struct stat st;
 				if (stat(game.tmp_path, &st) == 0 && st.st_size == sb.size) {
 					// File already exists with correct size, skip extraction
-					return 1;
+					result = 1;
+					goto done;
 				}
 
 				zf = zip_fopen_index(za, i, 0);
 				if (!zf) {
 					LOG_error("zip_fopen_index failed\n");
-					return 0;
+					goto done;
 				}
 
 				// Try to create file exclusively first to avoid race condition
@@ -216,50 +228,64 @@ int extract_zip(char** extensions) {
 						// File was created by another process, verify it's complete
 						zip_fclose(zf);
 						if (stat(game.tmp_path, &st) == 0 && st.st_size == sb.size) {
-							return 1;
+							result = 1;
+							goto done;
 						}
 						// File exists but wrong size, try to truncate and rewrite
 						fd = open(game.tmp_path, O_RDWR | O_TRUNC, 0644);
 						if (fd < 0) {
 							LOG_error("open failed after EEXIST: %s\n", strerror(errno));
-							return 0;
+							goto done;
 						}
 						zf = zip_fopen_index(za, i, 0);
 						if (!zf) {
 							LOG_error("zip_fopen_index failed on retry\n");
 							close(fd);
-							return 0;
+							goto done;
 						}
 					} else {
 						LOG_error("open failed: %s\n", strerror(errno));
 						zip_fclose(zf);
-						return 0;
+						goto done;
 					}
 				}
 
 				sum = 0;
 				while (sum != sb.size) {
-					len = zip_fread(zf, buf, 100);
-					if (len < 0) {
+					zip_int64_t n = zip_fread(zf, buf, sizeof(buf));
+					if (n < 0) {
 						LOG_error("zip_fread failed\n");
 						close(fd);
 						zip_fclose(zf);
-						return 0;
+						goto done;
 					}
-					write(fd, buf, len);
-					sum += len;
+					if (n == 0) {
+						// EOF before the header-declared size: corrupt archive
+						LOG_error("zip entry truncated: %s\n", sb.name);
+						close(fd);
+						zip_fclose(zf);
+						goto done;
+					}
+					if (write(fd, buf, n) != n) {
+						LOG_error("write failed: %s\n", strerror(errno));
+						close(fd);
+						zip_fclose(zf);
+						goto done;
+					}
+					sum += n;
 				}
 				close(fd);
 				zip_fclose(zf);
-				return 1;
+				result = 1;
+				goto done;
 			}
 		}
 	}
 
+done:
 	if (zip_close(za) == -1) {
 		LOG_error("can't close zip archive `%s'\n", game.path);
-		return 0;
 	}
 
-	return 0;
+	return result;
 }

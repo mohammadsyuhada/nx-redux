@@ -15,3 +15,4 @@ void Config_readControls(void);
 void Config_write(int override);
 void Config_restore(void);
 char** list_files_in_folder(const char* folderPath, int* fileCount, const char* defaultElement, const char* extensionFilter);
+void free_file_list(char** list);

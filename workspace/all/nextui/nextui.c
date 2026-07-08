@@ -148,7 +148,10 @@ int main(int argc, char* argv[]) {
 			PAD_tappedMenu(now);
 
 			ContextMenuResult cmr = ContextMenu_handleInput();
-			if (cmr.action != CONTEXTMENU_NONE) {
+			if (cmr.action == CONTEXTMENU_SELECTED) {
+				GameList_runContextAction(cmr.id); // may run a blocking modal
+				dirty = true;
+			} else if (cmr.action != CONTEXTMENU_NONE) {
 				dirty = true; // redraw underlying screen after close
 			} else if (PAD_anyJustPressed()) {
 				// Redraw overlay only when navigating (selection changed)
@@ -333,10 +336,10 @@ int main(int argc, char* argv[]) {
 				updateBackgroundLayer(blackBG);
 			} else if (lastScreen == SCREEN_SEARCH) {
 				updateBackgroundLayer(blackBG);
-				renderThumbnail(1, GameList_confirmOpen());
+				renderThumbnail(1, false);
 			} else if (lastScreen == SCREEN_GAMELIST) {
 				updateBackgroundLayer(blackBG);
-				renderThumbnail(1, GameList_confirmOpen());
+				renderThumbnail(1, false);
 
 				GFX_clearLayers(LAYER_TRANSITION);
 				if (!GameList_scrollIsScrolling())
@@ -355,7 +358,7 @@ int main(int argc, char* argv[]) {
 			dirty = false;
 		} else if (folderbgchanged || thumbchanged || GameList_scrollBusy()) {
 			updateBackgroundLayer(blackBG);
-			renderThumbnail(1, GameList_confirmOpen());
+			renderThumbnail(1, false);
 			if (currentScreen != SCREEN_GAMESWITCHER &&
 				currentScreen != SCREEN_QUICKMENU &&
 				currentScreen != SCREEN_SEARCH) {
@@ -370,9 +373,10 @@ int main(int argc, char* argv[]) {
 			}
 			dirty = false;
 		} else {
-			// want to draw only if needed
-			SDL_LockMutex(bgqueueMutex);
-			SDL_LockMutex(thumbqueueMutex);
+			// want to draw only if needed. getNeedDraw() is an SDL atomic, so it
+			// needs no locking — holding the loader queue mutexes here (across the
+			// idle SDL_Delay below) only blocked the worker threads from dequeuing
+			// pending thumbnail/background loads for up to IDLE_FRAME_MS.
 			if (getNeedDraw()) {
 				PLAT_GPU_Flip();
 				setNeedDraw(0);
@@ -382,8 +386,6 @@ int main(int argc, char* argv[]) {
 				if (elapsed < frame_target)
 					SDL_Delay(frame_target - elapsed);
 			}
-			SDL_UnlockMutex(thumbqueueMutex);
-			SDL_UnlockMutex(bgqueueMutex);
 		}
 
 		SDL_LockMutex(frameMutex);
@@ -403,9 +405,13 @@ int main(int argc, char* argv[]) {
 		if (has_hdmi != had_hdmi) {
 			had_hdmi = has_hdmi;
 
-			Entry* entry = top->entries->items[top->selected];
-			LOG_info("restarting after HDMI change... (%s)\n", entry->path);
-			saveLast(entry->path); // NOTE: doesn't work in Recents (by design)
+			Entry* entry = top->entries->count > 0
+							   ? top->entries->items[top->selected]
+							   : NULL;
+			LOG_info("restarting after HDMI change... (%s)\n",
+					 entry ? entry->path : "no selection");
+			if (entry)
+				saveLast(entry->path); // NOTE: doesn't work in Recents (by design)
 			sleep(4);
 			quit = true;
 		}

@@ -97,6 +97,8 @@ void Recents_save(void) {
 }
 
 void Recents_add(char* path, char* alias) {
+	if (!prefixMatch(SDCARD_PATH, path)) // only SD paths can be made platform-agnostic
+		return;
 	path += strlen(SDCARD_PATH); // makes paths platform agnostic
 	int id = RecentArray_indexOf(recents, path);
 	if (id == -1) { // add
@@ -137,7 +139,7 @@ int Recents_load(void) {
 		changed = true;
 		char sd_path[MAX_PATH];
 		getFile(CHANGE_DISC_PATH, sd_path, MAX_PATH);
-		if (exists(sd_path)) {
+		if (exists(sd_path) && prefixMatch(SDCARD_PATH, sd_path)) {
 			char* disc_path = sd_path + strlen(SDCARD_PATH); // makes path platform agnostic
 			Recent* recent = Recent_new(disc_path, NULL);
 			if (!recent)

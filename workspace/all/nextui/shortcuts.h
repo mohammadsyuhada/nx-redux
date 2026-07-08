@@ -5,12 +5,6 @@
 
 #define MAX_SHORTCUTS 12
 
-typedef enum {
-	SHORTCUT_NONE = 0,
-	SHORTCUT_ADD = 1,
-	SHORTCUT_REMOVE = 2,
-} ShortcutAction;
-
 // Initialize shortcuts (call in Menu_init)
 void Shortcuts_init(void);
 
@@ -47,7 +41,5 @@ int Shortcuts_validate(void);
 // Extract PAK basename from path (e.g., "/path/to/Retroarch.pak" -> "Retroarch")
 // Returns pointer to static buffer, caller should copy if needed
 char* Shortcuts_getPakBasename(const char* path);
-
-void Shortcuts_confirmAction(ShortcutAction action, Entry* entry);
 
 #endif // SHORTCUTS_H

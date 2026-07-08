@@ -6,16 +6,42 @@
 void readShadersPreset(int i) {
 	char shaderspath[MAX_PATH] = {0};
 	sprintf(shaderspath, SHADERS_FOLDER "/%s", config.shaders.options[SH_SHADERS_PRESET].values[i]);
+	// free the previous preset buffer before replacing it
+	if (config.shaders_preset) {
+		free(config.shaders_preset);
+		config.shaders_preset = NULL;
+	}
 	if (exists(shaderspath)) {
 		config.shaders_preset = allocFile(shaderspath);
 		Config_readOptionsString(config.shaders_preset);
-	} else
-		config.shaders_preset = NULL;
+	}
+}
+
+// free a pragma option set built by loadShaderSettings (values/labels share
+// the same strings and key/name/desc point into platform-owned ShaderParams)
+static void freeShaderSettings(int i) {
+	if (config.shaderpragmas[i].options) {
+		for (int j = 0; config.shaderpragmas[i].options[j].key; j++) {
+			Option* o = &config.shaderpragmas[i].options[j];
+			if (o->values) {
+				for (int s = 0; o->values[s]; s++)
+					free(o->values[s]);
+				free(o->values);
+			}
+			free(o->labels);
+		}
+		free(config.shaderpragmas[i].options);
+		config.shaderpragmas[i].options = NULL;
+	}
+	config.shaderpragmas[i].count = 0;
 }
 
 void loadShaderSettings(int i) {
 	int menucount = 0;
+	freeShaderSettings(i); // called on every shader change; drop the old set
 	config.shaderpragmas[i].options = calloc(32 + 1, sizeof(Option));
+	if (!config.shaderpragmas[i].options)
+		return;
 	ShaderParam* params = PLAT_getShaderPragmas(i);
 	if (params == NULL)
 		return;
@@ -29,14 +55,28 @@ void loadShaderSettings(int i) {
 			// Skip invalid parameter names
 			continue;
 		}
+
+		int steps = (int)((params[j].max - params[j].min) / params[j].step) + 1;
+		if (steps <= 0 || steps > 1024) {
+			// malformed #pragma parameter (min > max, or absurd step) — a
+			// negative steps would index values[steps] out of bounds below
+			continue;
+		}
+
 		config.shaderpragmas[i].options[menucount].key = params[j].name;
 		config.shaderpragmas[i].options[menucount].name = params[j].name;
 		config.shaderpragmas[i].options[menucount].desc = params[j].name;
 		config.shaderpragmas[i].options[menucount].default_value = params[j].def;
 
-		int steps = (int)((params[j].max - params[j].min) / params[j].step) + 1;
 		config.shaderpragmas[i].options[menucount].values = malloc(sizeof(char*) * (steps + 1));
 		config.shaderpragmas[i].options[menucount].labels = malloc(sizeof(char*) * (steps + 1));
+		if (!config.shaderpragmas[i].options[menucount].values || !config.shaderpragmas[i].options[menucount].labels) {
+			free(config.shaderpragmas[i].options[menucount].values);
+			free(config.shaderpragmas[i].options[menucount].labels);
+			config.shaderpragmas[i].options[menucount].values = NULL;
+			config.shaderpragmas[i].options[menucount].labels = NULL;
+			continue;
+		}
 		for (int s = 0; s < steps; s++) {
 			float val = params[j].min + s * params[j].step;
 			char* str = malloc(16);
@@ -80,8 +120,7 @@ void Config_syncShaders(char* key, int value) {
 	} else if (exactMatch(key, config.shaders.options[SH_SRCTYPE1].key)) {
 		GFX_updateShader(0, NULL, NULL, NULL, NULL, &value);
 		i = SH_SRCTYPE1;
-	}
-	if (exactMatch(key, config.shaders.options[SH_SCALETYPE1].key)) {
+	} else if (exactMatch(key, config.shaders.options[SH_SCALETYPE1].key)) {
 		GFX_updateShader(0, NULL, NULL, NULL, &value, NULL);
 		i = SH_SCALETYPE1;
 	} else if (exactMatch(key, config.shaders.options[SH_UPSCALE1].key)) {
@@ -126,8 +165,7 @@ void Config_syncShaders(char* key, int value) {
 	} else if (exactMatch(key, config.shaders.options[SH_SHADER3_FILTER].key)) {
 		GFX_updateShader(2, NULL, NULL, &value, NULL, NULL);
 		i = SH_SHADER3_FILTER;
-	}
-	if (exactMatch(key, config.shaders.options[SH_SRCTYPE3].key)) {
+	} else if (exactMatch(key, config.shaders.options[SH_SRCTYPE3].key)) {
 		GFX_updateShader(2, NULL, NULL, NULL, NULL, &value);
 		i = SH_SRCTYPE3;
 	} else if (exactMatch(key, config.shaders.options[SH_SCALETYPE3].key)) {

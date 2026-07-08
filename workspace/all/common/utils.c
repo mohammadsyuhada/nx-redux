@@ -362,9 +362,9 @@ bool pathRelativeTo(char* path_out, const char* dir_from, const char* file_to) {
 	return true;
 }
 
-void getDisplayName(const char* in_name, char* out_name) {
+void getDisplayName(const char* in_name, char* out_name) { // NOTE: out_name needs to be MAX_PATH length!
 	char* tmp;
-	char work_name[256];
+	char work_name[MAX_PATH];
 	strcpy(work_name, in_name);
 	strcpy(out_name, in_name);
 

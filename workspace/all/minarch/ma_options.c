@@ -52,9 +52,12 @@ void OptionList_init(const struct retro_core_option_definition* defs) {
 			item->key = calloc(len, sizeof(char));
 			strcpy(item->key, def->key);
 
-			len = strlen(def->desc) + 1;
+			// getOptionNameFromKey may return a fixed string longer than desc,
+			// so size the allocation from what is actually copied
+			const char* opt_name = getOptionNameFromKey(def->key, def->desc);
+			len = strlen(opt_name) + 1;
 			item->name = calloc(len, sizeof(char));
-			strcpy(item->name, getOptionNameFromKey(def->key, def->desc));
+			strcpy(item->name, opt_name);
 
 			if (def->info) {
 				len = strlen(def->info) + 1;
@@ -265,12 +268,27 @@ void OptionList_reset(void) {
 		free(item->values);
 		free(item->labels);
 		free(item->key);
-		free(item->name);
+		// legacy vars alias name to the same allocation as var (freed above)
+		if (item->name != item->var)
+			free(item->name);
+		free(item->category);
 	}
 	if (config.core.enabled_options)
 		free(config.core.enabled_options);
 	config.core.enabled_count = 0;
 	free(config.core.options);
+	config.core.options = NULL;
+	config.core.count = 0;
+
+	if (config.core.categories) {
+		for (int i = 0; config.core.categories[i].key; i++) {
+			free(config.core.categories[i].key);
+			free(config.core.categories[i].desc);
+			free(config.core.categories[i].info);
+		}
+		free(config.core.categories);
+		config.core.categories = NULL;
+	}
 }
 
 Option* OptionList_getOption(OptionList* list, const char* key) {

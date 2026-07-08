@@ -144,6 +144,8 @@ Entry* Entry_newNamed(const char* path, int type, const char* displayName) {
 }
 
 void Entry_free(Entry* self) {
+	if (!self)
+		return;
 	free(self->path);
 	free(self->name);
 	if (self->unique)

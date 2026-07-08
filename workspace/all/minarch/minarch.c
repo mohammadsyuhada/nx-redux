@@ -172,7 +172,7 @@ void Special_render(void) {
 		Special_refreshDMGPalette();
 }
 static void Special_quit(void) {
-	system("rm -f /tmp/dmg_grid_color");
+	unlink("/tmp/dmg_grid_color"); // avoid spawning a shell on every quit
 }
 ///////////////////////////////
 
@@ -259,7 +259,7 @@ int main(int argc, char* argv[]) {
 	char rom_path[MAX_PATH];
 	char tag_name[MAX_PATH];
 
-	if (argc < 2)
+	if (argc < 3)
 		return EXIT_FAILURE;
 
 	strcpy(core_path, argv[1]);
@@ -390,8 +390,11 @@ int main(int argc, char* argv[]) {
 		// Update and render notifications overlay
 		Notification_update(SDL_GetTicks());
 
-		// Poll for volume/brightness/colortemp changes and show system indicators
-		{
+		// Poll for volume/brightness/colortemp changes and show system indicators.
+		// Guard the whole block on the setting so we skip three sysfs/msettings
+		// reads every frame when the feature is off (it previously polled
+		// unconditionally and only gated the notification).
+		if (CFG_getNotifyAdjustments()) {
 			static int last_volume = -1;
 			static int last_brightness = -1;
 			static int last_colortemp = -1;
@@ -409,18 +412,15 @@ int main(int argc, char* argv[]) {
 				// Check for changes
 				if (cur_volume != last_volume) {
 					last_volume = cur_volume;
-					if (CFG_getNotifyAdjustments())
-						Notification_showSystemIndicator(SYSTEM_INDICATOR_VOLUME);
+					Notification_showSystemIndicator(SYSTEM_INDICATOR_VOLUME);
 				}
 				if (cur_brightness != last_brightness) {
 					last_brightness = cur_brightness;
-					if (CFG_getNotifyAdjustments())
-						Notification_showSystemIndicator(SYSTEM_INDICATOR_BRIGHTNESS);
+					Notification_showSystemIndicator(SYSTEM_INDICATOR_BRIGHTNESS);
 				}
 				if (cur_colortemp != last_colortemp) {
 					last_colortemp = cur_colortemp;
-					if (CFG_getNotifyAdjustments())
-						Notification_showSystemIndicator(SYSTEM_INDICATOR_COLORTEMP);
+					Notification_showSystemIndicator(SYSTEM_INDICATOR_COLORTEMP);
 				}
 			}
 		}
@@ -580,11 +580,14 @@ void minarch_reloadGame(void) {
 	SRAM_write();
 	core.unload_game();
 
-	struct retro_game_info game_info;
+	struct retro_game_info game_info = {};
 	game_info.path = game.tmp_path[0] ? game.tmp_path : game.path;
 	game_info.data = game.data;
 	game_info.size = game.size;
-	core.load_game(&game_info);
+	if (!core.load_game(&game_info)) {
+		LOG_error("core refused to reload game: %s\n", game_info.path);
+		return;
+	}
 
 	SRAM_read();
 	Core_updateAVInfo();

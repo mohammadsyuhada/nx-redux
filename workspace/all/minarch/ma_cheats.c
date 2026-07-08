@@ -15,18 +15,19 @@ static size_t parse_count(FILE* file) {
 }
 
 static const char* find_val(const char* start) {
-	start--;
-	while (!isspace(*++start))
-		;
-
-	while (isspace(*++start))
-		;
+	// skip the key token, then whitespace, expect '=', then skip whitespace;
+	// every loop stops at NUL so a line without spaces can't scan out of bounds
+	while (*start && !isspace((unsigned char)*start))
+		start++;
+	while (*start && isspace((unsigned char)*start))
+		start++;
 
 	if (*start != '=')
 		return NULL;
+	start++;
 
-	while (isspace(*++start))
-		;
+	while (*start && isspace((unsigned char)*start))
+		start++;
 
 	return start;
 }
@@ -52,7 +53,7 @@ static int parse_string(const char* ptr, char* buf, size_t len) {
 		return -1;
 
 	while (*ptr != '\0' && *ptr != '"' && index < len - 1) {
-		if (*ptr == '\\' && index < input_len - 1) {
+		if (*ptr == '\\' && *(ptr + 1) != '\0') {
 			ptr++;
 			buf[index++] = *ptr++;
 		} else if (*ptr == '&' && !strncmp(ptr, "&quot;", 6)) {
@@ -84,7 +85,11 @@ static int parse_cheats(struct Cheats* cheats, FILE* file) {
 			break;
 		}
 
-		if (line[strlen(line) - 1] != '\n' && !feof(file)) {
+		size_t line_len = strlen(line);
+		if (line_len == 0)
+			continue; // line starting with NUL (binary garbage)
+
+		if (line[line_len - 1] != '\n' && !feof(file)) {
 			LOG_warn("Cheat line too long\n");
 			continue;
 		}
@@ -95,7 +100,7 @@ static int parse_cheats(struct Cheats* cheats, FILE* file) {
 			size_t len;
 			sscanf(ptr, "cheat%d", &index);
 
-			if (index >= cheats->count)
+			if (index < 0 || index >= cheats->count)
 				continue;
 			cheat = &cheats->cheats[index];
 
@@ -158,9 +163,9 @@ finish:
 // return variations with/without extensions and other cruft
 void Cheat_getPaths(char paths[CHEAT_MAX_PATHS][MAX_PATH], int* count) {
 	// Generate possible paths, ordered by most likely to be used (pre v6.2.3 style first)
-	sprintf(paths[(*count)++], "%s/%s.cht", core.cheats_dir, game.name); // /mnt/SDCARD/Cheats/GB/Super Example World.<ext>.cht
+	snprintf(paths[(*count)++], MAX_PATH, "%s/%s.cht", core.cheats_dir, game.name); // /mnt/SDCARD/Cheats/GB/Super Example World.<ext>.cht
 	if (CFG_getUseExtractedFileName())
-		sprintf(paths[(*count)++], "%s/%s.cht", core.cheats_dir, game.alt_name); // /mnt/SDCARD/Cheats/GB/Super Example World (USA).<ext>.cht
+		snprintf(paths[(*count)++], MAX_PATH, "%s/%s.cht", core.cheats_dir, game.alt_name); // /mnt/SDCARD/Cheats/GB/Super Example World (USA).<ext>.cht
 
 	// game.alt_name, but with all extension-like stuff removed (apart from .cht)
 	// eg. Super Example World (USA).zip -> Super Example World (USA).cht
@@ -192,7 +197,7 @@ void Cheat_getPaths(char paths[CHEAT_MAX_PATHS][MAX_PATH], int* count) {
 				// Add length check before sprintf to prevent buffer overflow
 				int needed_len = strlen(core.cheats_dir) + strlen(rom_name) + strlen(ext) + 10; // +10 for "/", ".", ".cht", etc.
 				if (needed_len < MAX_PATH) {
-					sprintf(paths[(*count)++], "%s/%s.%s.cht", core.cheats_dir, rom_name, ext);
+					snprintf(paths[(*count)++], MAX_PATH, "%s/%s.%s.cht", core.cheats_dir, rom_name, ext);
 				}
 			}
 			i++;
@@ -205,40 +210,33 @@ void Cheat_getPaths(char paths[CHEAT_MAX_PATHS][MAX_PATH], int* count) {
 	//     Super Example World (USA) (Rev 1).rar -> Super Example World
 	char rom_name[MAX_PATH];
 	getDisplayName(game.alt_name, rom_name);
-	sprintf(paths[(*count)++], "%s/%s.cht", core.cheats_dir, rom_name); // /mnt/SDCARD/Cheats/GB/Super Example World.cht
+	if (*count < CHEAT_MAX_PATHS)
+		snprintf(paths[(*count)++], MAX_PATH, "%s/%s.cht", core.cheats_dir, rom_name); // /mnt/SDCARD/Cheats/GB/Super Example World.cht
 	// Respect map.txt: use alias if available
 	// eg. 1941.zip	-> 1941: Counter Attack
-	if (getAlias(game.path, rom_name))
-		sprintf(paths[(*count)++], "%s/%s.cht", core.cheats_dir, rom_name); // /mnt/SDCARD/Cheats/GB/Super Example World.cht
+	if (getAlias(game.path, rom_name) && *count < CHEAT_MAX_PATHS)
+		snprintf(paths[(*count)++], MAX_PATH, "%s/%s.cht", core.cheats_dir, rom_name); // /mnt/SDCARD/Cheats/GB/Super Example World.cht
 
 	// Santitized alias, ignoring all extra cruft - including Cheat specifics like "(Game Breaker)" etc.
 	// This is a wildcard that may match something unexpected, but also may find something when nothing else does.
 	getDisplayName(game.alt_name, rom_name);
 	getAlias(game.path, rom_name);
-	sprintf(paths[(*count)++], "%s/%s*.cht", core.cheats_dir, rom_name); // /mnt/SDCARD/Cheats/GB/Super Example World*.cht
-	// Log all path candidates
-	{
-		int i;
-		char list[CHEAT_MAX_LIST_LENGTH] = {0};
-		for (i = 0; i < *count; i++) {
-			strcat(list, paths[i]);
-			if (i < *count - 1)
-				strcat(list, ", ");
-		}
-	}
+	if (*count < CHEAT_MAX_PATHS)
+		snprintf(paths[(*count)++], MAX_PATH, "%s/%s*.cht", core.cheats_dir, rom_name); // /mnt/SDCARD/Cheats/GB/Super Example World*.cht
 }
 
 void Cheats_free() {
-	size_t i;
-	for (i = 0; i < cheatcodes.count; i++) {
-		struct Cheat* cheat = &cheatcodes.cheats[i];
-		if (cheat) {
+	if (cheatcodes.cheats) {
+		size_t i;
+		for (i = 0; i < cheatcodes.count; i++) {
+			struct Cheat* cheat = &cheatcodes.cheats[i];
 			free((char*)cheat->name);
 			free((char*)cheat->info);
 			free((char*)cheat->code);
 		}
+		free(cheatcodes.cheats);
+		cheatcodes.cheats = NULL;
 	}
-	free(cheatcodes.cheats);
 	cheatcodes.count = 0;
 }
 
@@ -322,4 +320,6 @@ finish:
 
 	if (file)
 		fclose(file);
+
+	return success;
 }

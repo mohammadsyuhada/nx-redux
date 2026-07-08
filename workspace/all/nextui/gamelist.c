@@ -7,42 +7,54 @@
 #include "api.h"
 #include "config.h"
 #include "defines.h"
+#include "display_helper.h"
 #include "shortcuts.h"
 #include "ui_buttonhintbar.h"
 #include "ui_confirmdialog.h"
 #include "ui_message.h"
 #include "ui_contextmenu.h"
+#include "ui_keyboard.h"
 #include "ui_list.h"
+#include "ui_listdialog.h"
 #include "utils.h"
 
 #include "content.h"
 #include "gameswitcher.h"
 #include "imgloader.h"
 #include "launcher.h"
+#include "recents.h"
 #include "search.h"
 #include "types.h"
 
 #include <assert.h>
+#include <dirent.h>
 #include <msettings.h>
 #include <libgen.h>
+#include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 static bool gl_simple_mode = false;
 
 static ScrollTextState list_scroll = {0};
-static ShortcutAction confirm_shortcut_action = SHORTCUT_NONE;
-static Entry* confirm_shortcut_entry = NULL;
 
 static bool had_thumb = false;
 static int ox;
 static char folderBgPath[1024] = {0};
+// last background type loaded; file-scope so it can be reset alongside
+// folderBgPath when another screen clears the shared background surface
+static int bgLastType = -1;
+
+void GameList_invalidateBackground(void) {
+	// force resolveAndLoadBackground to reload next render — call this whenever
+	// something else (eg. Search) clears the shared folder background, otherwise
+	// the change-detection cache thinks it's still loaded and skips the reload
+	folderBgPath[0] = '\0';
+	bgLastType = -1;
+}
 
 void GameList_init(bool simple_mode) {
 	gl_simple_mode = simple_mode;
-}
-
-bool GameList_confirmOpen(void) {
-	return confirm_shortcut_action != SHORTCUT_NONE;
 }
 
 bool GameList_scrollBusy(void) {
@@ -54,13 +66,9 @@ bool GameList_scrollIsScrolling(void) {
 }
 
 void GameList_scrollTickIdle(void) {
-	if (confirm_shortcut_action != SHORTCUT_NONE) {
-		GFX_clearLayers(LAYER_SCROLLTEXT);
-	} else {
-		ScrollText_activateAfterDelay(&list_scroll);
-		if (ScrollText_isScrolling(&list_scroll)) {
-			ScrollText_animateOnly(&list_scroll);
-		}
+	ScrollText_activateAfterDelay(&list_scroll);
+	if (ScrollText_isScrolling(&list_scroll)) {
+		ScrollText_animateOnly(&list_scroll);
 	}
 }
 
@@ -71,7 +79,8 @@ void GameList_clearScroll(void) {
 static void resolveAndLoadBackground(Entry* entry, const char* rompath,
 									 bool* list_show_entry_names) {
 	// Persists across calls to avoid redundant background reloads
-	static int lastType = -1;
+	// (file-scope bgLastType so GameList_invalidateBackground can reset it)
+	int* lastType = &bgLastType;
 
 	char defaultBgPath[512];
 	snprintf(defaultBgPath, sizeof(defaultBgPath), SDCARD_PATH "/bg.png");
@@ -80,17 +89,17 @@ static void resolveAndLoadBackground(Entry* entry, const char* rompath,
 	const char* cmpPath = NULL;
 	char bgPath[512] = {0};
 
-	if ((entry->type == ENTRY_DIR || entry->type == ENTRY_ROM) &&
+	if (entry && (entry->type == ENTRY_DIR || entry->type == ENTRY_ROM) &&
 		Shortcuts_exists(entry->path + strlen(SDCARD_PATH))) {
 		cmpPath = entry->path;
-	} else if ((entry->type == ENTRY_DIR || entry->type == ENTRY_ROM) &&
+	} else if (entry && (entry->type == ENTRY_DIR || entry->type == ENTRY_ROM) &&
 			   CFG_getRomsUseFolderBackground()) {
 		cmpPath = entry->type == ENTRY_DIR ? entry->path : rompath;
 		snprintf(bgPath, sizeof(bgPath), "%s/.media/%s.png", cmpPath,
 				 entry->type == ENTRY_DIR ? "bg" : "bglist");
 		if (!exists(bgPath))
 			strncpy(bgPath, defaultBgPath, sizeof(bgPath) - 1);
-	} else if (entry->type == ENTRY_PAK && suffixMatch(".pak", entry->path)) {
+	} else if (entry && entry->type == ENTRY_PAK && suffixMatch(".pak", entry->path)) {
 		cmpPath = entry->path;
 		snprintf(bgPath, sizeof(bgPath), TOOLS_PATH "/.media/%s/bg.png",
 				 Shortcuts_getPakBasename(entry->path));
@@ -107,10 +116,11 @@ static void resolveAndLoadBackground(Entry* entry, const char* rompath,
 		return;
 
 	// Skip if background hasn't changed
-	if (strcmp(cmpPath, folderBgPath) == 0 && lastType == entry->type)
+	int curType = entry ? entry->type : -1;
+	if (strcmp(cmpPath, folderBgPath) == 0 && *lastType == curType)
 		return;
 
-	lastType = entry->type;
+	*lastType = curType;
 	strncpy(folderBgPath, cmpPath, sizeof(folderBgPath) - 1);
 
 	// Load background, or clear if image doesn't exist
@@ -119,6 +129,347 @@ static void resolveAndLoadBackground(Entry* entry, const char* rompath,
 	else {
 		onBackgroundLoaded(NULL);
 		*list_show_entry_names = true;
+	}
+}
+
+///////////////////////////////////////
+// Context-menu actions (dispatched from nextui.c by the item id built above)
+
+// Rebuild the directory at stack index `idx` from its path, clamping selection
+// and the visible window. Used to refresh the list after a mutating action.
+static void reloadDirectoryAt(int idx, int keep_selected) {
+	if (idx < 0 || idx >= stack->count)
+		return;
+	Directory* old = stack->items[idx];
+	char path[MAX_PATH];
+	strncpy(path, old->path, sizeof(path) - 1);
+	path[sizeof(path) - 1] = '\0';
+
+	Directory* fresh = Directory_new(path, 0);
+	int n = fresh->entries->count;
+	int sel = keep_selected;
+	if (sel >= n)
+		sel = n > 0 ? n - 1 : 0;
+	if (sel < 0)
+		sel = 0;
+	fresh->selected = sel;
+
+	int rc = MAIN_ROW_COUNT - 1;
+	fresh->start = 0;
+	fresh->end = (n < rc) ? n : rc;
+	if (sel >= fresh->end && n > rc) {
+		fresh->end = sel + 1;
+		fresh->start = fresh->end - rc;
+	}
+
+	Directory_free(old);
+	stack->items[idx] = fresh;
+	if (idx == stack->count - 1)
+		top = fresh;
+}
+
+// A file "belongs" to base if it is exactly <base> or starts with "<base>.".
+// The trailing-dot boundary is what makes this safe: it renames Game.gba /
+// Game.png / Game.srm / Game.gba.sav / Game.state without ever touching
+// Game2.gba or its saves.
+static bool nameMatchesBase(const char* name, const char* base, size_t baselen) {
+	if (strncmp(name, base, baselen) != 0)
+		return false;
+	return name[baselen] == '\0' || name[baselen] == '.';
+}
+
+// Rename every file in `dir` that belongs to oldbase so its leading oldbase
+// becomes newbase (suffix preserved). No-ops if `dir` isn't a directory.
+static void renameSweepDir(const char* dir, const char* oldbase, const char* newbase) {
+	DIR* dh = opendir(dir);
+	if (!dh)
+		return;
+	size_t oldlen = strlen(oldbase);
+	struct dirent* dp;
+	while ((dp = readdir(dh)) != NULL) {
+		if (dp->d_name[0] == '.' && (dp->d_name[1] == '\0' ||
+									 (dp->d_name[1] == '.' && dp->d_name[2] == '\0')))
+			continue; // "." / ".."
+		if (!nameMatchesBase(dp->d_name, oldbase, oldlen))
+			continue;
+		char from[MAX_PATH];
+		char to[MAX_PATH];
+		snprintf(from, sizeof(from), "%s/%s", dir, dp->d_name);
+		snprintf(to, sizeof(to), "%s/%s%s", dir, newbase, dp->d_name + oldlen);
+		rename(from, to);
+	}
+	closedir(dh);
+}
+
+// Real file rename of a ROM plus its art, saves and states, all keyed by the
+// ROM's base name (filename minus final extension). Returns the new full ROM
+// path in new_path (>= MAX_PATH), or false if the rename was rejected.
+static bool renameRomFiles(Entry* entry, const char* newbase, char* new_path) {
+	// split path into <dir>/<filename>
+	char dir[MAX_PATH];
+	strncpy(dir, entry->path, sizeof(dir) - 1);
+	dir[sizeof(dir) - 1] = '\0';
+	char* slash = strrchr(dir, '/');
+	if (!slash)
+		return false;
+	*slash = '\0';
+	const char* filename = slash + 1;
+
+	// oldbase = filename minus final extension; ext keeps the leading dot
+	char oldbase[MAX_PATH];
+	strncpy(oldbase, filename, sizeof(oldbase) - 1);
+	oldbase[sizeof(oldbase) - 1] = '\0';
+	const char* fdot = strrchr(filename, '.');
+	char ext[MAX_PATH];
+	if (fdot) {
+		oldbase[fdot - filename] = '\0';
+		strncpy(ext, fdot, sizeof(ext) - 1);
+		ext[sizeof(ext) - 1] = '\0';
+	} else {
+		ext[0] = '\0';
+	}
+
+	if (strcmp(oldbase, newbase) == 0)
+		return false; // no change
+
+	// refuse to clobber an existing ROM of the new name
+	snprintf(new_path, MAX_PATH, "%s/%s%s", dir, newbase, ext);
+	if (exists(new_path))
+		return false;
+
+	char emu[MAX_PATH];
+	getEmuName(entry->path, emu);
+
+	// 1) the ROM folder itself (renames Game.gba + any Game.cue / Game.m3u)
+	renameSweepDir(dir, oldbase, newbase);
+
+	// 2) box/thumbnail art
+	char media[MAX_PATH];
+	snprintf(media, sizeof(media), "%s/.media", dir);
+	renameSweepDir(media, oldbase, newbase);
+
+	// 3) SRAM / RTC saves
+	char saves[MAX_PATH];
+	snprintf(saves, sizeof(saves), "%s/Saves/%s", SDCARD_PATH, emu);
+	renameSweepDir(saves, oldbase, newbase);
+
+	// 4) resume slot + save-state preview bitmaps
+	char minui[MAX_PATH];
+	snprintf(minui, sizeof(minui), "%s/.minui/%s", SHARED_USERDATA_PATH, emu);
+	renameSweepDir(minui, oldbase, newbase);
+
+	// 5) save-state binaries live under one dir per core: <emu>-<corename>
+	char emu_prefix[MAX_PATH];
+	snprintf(emu_prefix, sizeof(emu_prefix), "%s-", emu);
+	size_t plen = strlen(emu_prefix);
+	DIR* ud = opendir(SHARED_USERDATA_PATH);
+	if (ud) {
+		struct dirent* dp;
+		while ((dp = readdir(ud)) != NULL) {
+			if (strncmp(dp->d_name, emu_prefix, plen) != 0)
+				continue;
+			char states[MAX_PATH];
+			snprintf(states, sizeof(states), "%s/%s", SHARED_USERDATA_PATH, dp->d_name);
+			renameSweepDir(states, oldbase, newbase);
+		}
+		closedir(ud);
+	}
+
+	return true;
+}
+
+// Full-screen blocking confirm dialog. Returns true on A, false on B.
+static bool confirmModal(const char* title, const char* subtitle) {
+	bool result = false;
+	GFX_clearLayers(LAYER_ALL);
+	while (1) {
+		GFX_startFrame();
+		PAD_poll();
+		if (PAD_justPressed(BTN_A)) {
+			result = true;
+			break;
+		}
+		if (PAD_justPressed(BTN_B)) {
+			result = false;
+			break;
+		}
+		UI_renderConfirmDialog(screen, title, subtitle);
+		GFX_flip(screen);
+	}
+	GFX_clearLayers(LAYER_ALL);
+	return result;
+}
+
+// Full-screen blocking collection picker. Returns the chosen collection index
+// (0..count-1), COLLECTION_PICK_NEW for "New Collection…", or -1 on cancel.
+#define COLLECTION_PICK_NEW (-2)
+static int pickCollectionModal(Array* collections) {
+	ListDialogItem items[LISTDIALOG_MAX_ITEMS];
+	int n = collections->count;
+	if (n > LISTDIALOG_MAX_ITEMS - 1)
+		n = LISTDIALOG_MAX_ITEMS - 1;
+	for (int i = 0; i < n; i++) {
+		Entry* c = collections->items[i];
+		memset(&items[i], 0, sizeof(ListDialogItem));
+		strncpy(items[i].text, c->name, LISTDIALOG_MAX_TEXT - 1);
+		items[i].prepend_icons[0] = -1;
+		items[i].append_icons[0] = -1;
+	}
+	memset(&items[n], 0, sizeof(ListDialogItem));
+	strncpy(items[n].text, "New Collection...", LISTDIALOG_MAX_TEXT - 1);
+	items[n].prepend_icons[0] = -1;
+	items[n].append_icons[0] = -1;
+	int count = n + 1;
+
+	ListDialog_init("Add to Collection");
+	ListDialog_setItems(items, count);
+
+	int chosen = -1;
+	GFX_clearLayers(LAYER_ALL);
+	while (1) {
+		GFX_startFrame();
+		PAD_poll();
+		ListDialogResult r = ListDialog_handleInput();
+		if (r.action == LISTDIALOG_SELECTED) {
+			chosen = r.index;
+			break;
+		}
+		if (r.action == LISTDIALOG_CANCEL) {
+			chosen = -1;
+			break;
+		}
+		ListDialog_render(screen);
+		GFX_flip(screen);
+	}
+	ListDialog_quit();
+	GFX_clearLayers(LAYER_ALL);
+
+	if (chosen < 0)
+		return -1;
+	if (chosen == n)
+		return COLLECTION_PICK_NEW;
+	return chosen;
+}
+
+// Append the ROM's SD-relative path to a collection .txt (deduped).
+static void addRomToCollectionFile(const char* collection_path, Entry* entry) {
+	if (!prefixMatch(SDCARD_PATH, entry->path))
+		return;
+	const char* rel = entry->path + strlen(SDCARD_PATH);
+
+	FILE* f = fopen(collection_path, "r");
+	if (f) {
+		char line[MAX_PATH];
+		while (fgets(line, sizeof(line), f) != NULL) {
+			normalizeNewline(line);
+			trimTrailingNewlines(line);
+			if (exactMatch(line, rel)) {
+				fclose(f);
+				return; // already present
+			}
+		}
+		fclose(f);
+	}
+
+	FILE* out = fopen(collection_path, "a");
+	if (out) {
+		fprintf(out, "%s\n", rel);
+		fclose(out);
+	}
+}
+
+static void doAddToCollection(Entry* entry) {
+	Array* collections = getCollections();
+	int pick = pickCollectionModal(collections);
+
+	if (pick == COLLECTION_PICK_NEW) {
+		char* name = UIKeyboard_open("New collection name");
+		DisplayHelper_recoverDisplay();
+		if (name && strlen(name) > 0 && !strchr(name, '/')) {
+			mkdir_p(COLLECTIONS_PATH);
+			char coll_path[MAX_PATH];
+			snprintf(coll_path, sizeof(coll_path), "%s/%s.txt", COLLECTIONS_PATH, name);
+			addRomToCollectionFile(coll_path, entry);
+		}
+		if (name)
+			free(name);
+	} else if (pick >= 0 && pick < collections->count) {
+		Entry* coll = collections->items[pick];
+		addRomToCollectionFile(coll->path, entry);
+	}
+
+	EntryArray_free(collections);
+}
+
+static void doRename(Entry* entry, int sel) {
+	char prompt[MAX_PATH];
+	snprintf(prompt, sizeof(prompt), "Rename: %s", entry->name);
+	char* newname = UIKeyboard_open(prompt);
+	DisplayHelper_recoverDisplay();
+	if (newname && strlen(newname) > 0 && !strchr(newname, '/')) {
+		char new_path[MAX_PATH];
+		if (renameRomFiles(entry, newname, new_path))
+			reloadDirectoryAt(stack->count - 1, sel);
+	}
+	if (newname)
+		free(newname);
+}
+
+// Dispatch a selected context-menu item (ids assigned in GameList_handleInput).
+// Runs in nextui.c's main loop; blocking modals here are safe (the flip is
+// synchronous, and UIKeyboard_open already blocks mid-loop from Search).
+void GameList_runContextAction(int id) {
+	int sel = top->selected;
+	Entry* entry = (top->entries->count > 0 && sel >= 0 && sel < top->entries->count)
+					   ? top->entries->items[sel]
+					   : NULL;
+	int root_sel = ((Directory*)stack->items[0])->selected;
+
+	switch (id) {
+	case 1: // Refresh Roms (root)
+		Content_invalidateEmulist();
+		reloadDirectoryAt(0, root_sel);
+		break;
+	case 10: // Remove Game (Recently Played)
+		if (entry) {
+			Recents_removeAt(sel);
+			reloadDirectoryAt(stack->count - 1, sel);
+		}
+		break;
+	case 20: // Pin Tool
+	case 30: // Pin Item
+		if (entry) {
+			Shortcuts_add(entry);
+			reloadDirectoryAt(0, root_sel);
+			reloadDirectoryAt(stack->count - 1, sel);
+		}
+		break;
+	case 21: // Unpin Tool
+	case 31: // Unpin Item
+		if (entry) {
+			Shortcuts_remove(entry);
+			reloadDirectoryAt(0, root_sel);
+			reloadDirectoryAt(stack->count - 1, sel);
+		}
+		break;
+	case 32: // Delete Rom
+		if (entry && entry->type == ENTRY_ROM) {
+			if (confirmModal("Delete ROM?", entry->name)) {
+				unlink(entry->path);
+				reloadDirectoryAt(stack->count - 1, sel);
+			}
+		}
+		break;
+	case 33: // Rename Rom
+		if (entry && entry->type == ENTRY_ROM)
+			doRename(entry, sel);
+		break;
+	case 34: // Add to Collection
+		if (entry && entry->type == ENTRY_ROM)
+			doAddToCollection(entry);
+		break;
+	default:
+		break;
 	}
 }
 
@@ -205,7 +556,7 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 		if (!HAS_POWER_BUTTON && !gl_simple_mode)
 			PWR_enableSleep();
 		return result;
-	} else if (PAD_tappedSelect(now) && confirm_shortcut_action == SHORTCUT_NONE) {
+	} else if (PAD_tappedSelect(now)) {
 		result.screen = SCREEN_GAMESWITCHER;
 		GameSwitcher_resetSelection();
 		result.animdir = SLIDE_UP;
@@ -213,7 +564,7 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 		GFX_clearLayers(LAYER_SCROLLTEXT);
 		ScrollText_clear(&list_scroll);
 		return result;
-	} else if (total > 0 && confirm_shortcut_action == SHORTCUT_NONE) {
+	} else if (total > 0) {
 		if (PAD_justRepeated(BTN_UP)) {
 			if (selected == 0 && !PAD_justPressed(BTN_UP)) {
 			} else {
@@ -270,7 +621,7 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 		}
 	}
 
-	if (confirm_shortcut_action == SHORTCUT_NONE && PAD_justRepeated(BTN_L1) &&
+	if (total > 0 && PAD_justRepeated(BTN_L1) &&
 		!PAD_isPressed(BTN_R1) &&
 		!PWR_ignoreSettingInput(BTN_L1, show_setting)) { // previous alpha
 		Entry* entry = top->entries->items[selected];
@@ -285,7 +636,7 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 				top->start = top->end - row_count;
 			}
 		}
-	} else if (confirm_shortcut_action == SHORTCUT_NONE && PAD_justRepeated(BTN_R1) &&
+	} else if (total > 0 && PAD_justRepeated(BTN_R1) &&
 			   !PAD_isPressed(BTN_L1) &&
 			   !PWR_ignoreSettingInput(BTN_R1, show_setting)) { // next alpha
 		Entry* entry = top->entries->items[selected];
@@ -307,43 +658,17 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 		*dirty = true;
 	}
 
-	Entry* entry = top->entries->items[top->selected];
+	Entry* entry = total > 0 ? top->entries->items[top->selected] : NULL;
 
 	if (*dirty && total > 0)
 		readyResume(entry);
 
-	// Handle confirmation dialog for shortcuts
-	if (confirm_shortcut_action != SHORTCUT_NONE) {
-		if (PAD_justPressed(BTN_A)) {
-			Shortcuts_confirmAction(confirm_shortcut_action,
-									confirm_shortcut_entry);
-			confirm_shortcut_action = SHORTCUT_NONE;
-			confirm_shortcut_entry = NULL;
-
-			// Refresh root directory to show updated shortcuts
-			Directory* root = stack->items[0];
-			EntryArray_free(root->entries);
-			root->entries = getRoot(gl_simple_mode);
-			IntArray_init(&root->alphas);
-			Directory_index(root);
-			// Keep selected in bounds
-			if (root->selected >= root->entries->count) {
-				root->selected =
-					root->entries->count > 0 ? root->entries->count - 1 : 0;
-			}
-
-			*dirty = true;
-		} else if (PAD_justPressed(BTN_B)) {
-			confirm_shortcut_action = SHORTCUT_NONE;
-			confirm_shortcut_entry = NULL;
-			*dirty = true;
-		}
-	} else if (total > 0 && resume.can_resume && PAD_justReleased(BTN_RESUME) && !PAD_isPressed(BTN_L2) && !PAD_isPressed(BTN_R2)) {
+	if (total > 0 && resume.can_resume && PAD_justReleased(BTN_RESUME) && !PAD_isPressed(BTN_L2) && !PAD_isPressed(BTN_R2)) {
 		resume.should_resume = true;
 		Entry_open(entry);
 		*dirty = true;
 	}
-	// Y to search at root
+	// Y to search at root (pin/unpin now lives in the context menu)
 	else if (stack->count == 1 && PAD_justReleased(BTN_Y)) {
 		if (Search_open()) {
 			result.screen = SCREEN_SEARCH;
@@ -353,19 +678,6 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 		}
 		*dirty = true;
 		return result;
-	}
-	// Y to add/remove shortcut (only in Tools folder or console directory)
-	else if (total > 0 &&
-			 (Shortcuts_isInToolsFolder(top->path) ||
-			  Shortcuts_isInConsoleDir(top->path)) &&
-			 canPinEntry(entry) && PAD_justReleased(BTN_Y)) {
-		if (Shortcuts_exists(entry->path + strlen(SDCARD_PATH))) {
-			confirm_shortcut_action = SHORTCUT_REMOVE;
-		} else {
-			confirm_shortcut_action = SHORTCUT_ADD;
-		}
-		confirm_shortcut_entry = entry;
-		*dirty = true;
 	} else if (total > 0 && PAD_justPressed(BTN_A)) {
 		Entry_open(entry);
 		if (entry->type == ENTRY_DIR && !startgame) {
@@ -391,31 +703,34 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 					 IndicatorType show_setting, SDL_Surface* blackBG) {
 	int total = top->entries->count;
 
-	Entry* entry = top->entries->items[top->selected];
-	assert(entry);
-	char tmp_path[MAX_PATH];
-	strncpy(tmp_path, entry->path, sizeof(tmp_path) - 1);
-	tmp_path[sizeof(tmp_path) - 1] = '\0';
-
-	char* res_name = strrchr(tmp_path, '/');
-	if (res_name)
-		res_name++;
-	else
-		res_name = tmp_path;
-
+	Entry* entry = total > 0 ? top->entries->items[top->selected] : NULL;
 	char path_copy[1024];
-	strncpy(path_copy, entry->path, sizeof(path_copy) - 1);
-	path_copy[sizeof(path_copy) - 1] = '\0';
+	char res_copy[1024] = {0};
+	char* rompath = NULL;
 
-	char* rompath = dirname(path_copy);
+	if (entry) {
+		char tmp_path[MAX_PATH];
+		strncpy(tmp_path, entry->path, sizeof(tmp_path) - 1);
+		tmp_path[sizeof(tmp_path) - 1] = '\0';
 
-	char res_copy[1024];
-	strncpy(res_copy, res_name, sizeof(res_copy) - 1);
-	res_copy[sizeof(res_copy) - 1] = '\0';
+		char* res_name = strrchr(tmp_path, '/');
+		if (res_name)
+			res_name++;
+		else
+			res_name = tmp_path;
 
-	char* dot = strrchr(res_copy, '.');
-	if (dot)
-		*dot = '\0';
+		strncpy(path_copy, entry->path, sizeof(path_copy) - 1);
+		path_copy[sizeof(path_copy) - 1] = '\0';
+
+		rompath = dirname(path_copy);
+
+		strncpy(res_copy, res_name, sizeof(res_copy) - 1);
+		res_copy[sizeof(res_copy) - 1] = '\0';
+
+		char* dot = strrchr(res_copy, '.');
+		if (dot)
+			*dot = '\0';
+	}
 
 	// this is only a choice on the root folder
 	bool list_show_entry_names =
@@ -444,18 +759,6 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		char* right_pairs[16] = {NULL};
 		int p = 0;
 
-		// pin action (hardware hints override this when volume is pressed)
-		if (!(show_setting && !GetHDMI()) && total > 0 &&
-			!GetHDMI() &&
-			(Shortcuts_isInToolsFolder(top->path) ||
-			 Shortcuts_isInConsoleDir(top->path)) &&
-			canPinEntry(entry)) {
-			right_pairs[p++] = "Y";
-			right_pairs[p++] = Shortcuts_exists(entry->path + strlen(SDCARD_PATH))
-								   ? "UNPIN"
-								   : "PIN";
-		}
-
 		// search hint at root
 		if (!(show_setting && !GetHDMI()) && !GetHDMI() &&
 			stack->count == 1 && total > 0) {
@@ -469,7 +772,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 				right_pairs[p++] = "B";
 				right_pairs[p++] = "BACK";
 			}
-		} else if (confirm_shortcut_action == SHORTCUT_NONE) {
+		} else {
 			if (resume.can_resume) {
 				right_pairs[p++] = "X";
 				right_pairs[p++] = "RESUME";
@@ -544,12 +847,5 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 
 	} else {
 		UI_renderCenteredMessage(screen, "Empty folder");
-	}
-
-	// Render confirmation dialog for shortcuts
-	if (confirm_shortcut_action != SHORTCUT_NONE && confirm_shortcut_entry) {
-		char* title =
-			confirm_shortcut_action == SHORTCUT_ADD ? "Pin shortcut?" : "Unpin shortcut?";
-		UI_renderConfirmDialog(screen, title, confirm_shortcut_entry->name);
 	}
 }

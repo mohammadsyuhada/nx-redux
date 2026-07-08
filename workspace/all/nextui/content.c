@@ -618,8 +618,10 @@ Array* getRoot(int simple_mode) {
 		if (entries->count) {
 			Array_push(root, Entry_new(COLLECTIONS_PATH, ENTRY_DIR));
 		} else { // No visible systems, promote collections to root
+			// yoink into root directly — yoinking into `entries` meant the
+			// promoted collections never appeared when emulators were hidden
 			Array* collections = getCollections();
-			Array_yoink(entries, collections);
+			Array_yoink(root, collections);
 		}
 	}
 
@@ -658,6 +660,11 @@ Array* getRoot(int simple_mode) {
 	if (CFG_getShowEmulators()) {
 		// Move entries to root
 		Array_yoink(root, entries);
+	} else {
+		// emulators hidden: `entries` never reaches root, so free it (and its
+		// Entry items) here instead of leaking the whole console list on every
+		// root rebuild
+		EntryArray_free(entries);
 	}
 
 	// Add tools if applicable

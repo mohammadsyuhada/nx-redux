@@ -252,11 +252,3 @@ char* Shortcuts_getPakBasename(const char* path) {
 
 	return basename;
 }
-
-void Shortcuts_confirmAction(ShortcutAction action, Entry* entry) {
-	if (action == SHORTCUT_ADD) {
-		Shortcuts_add(entry);
-	} else if (action == SHORTCUT_REMOVE) {
-		Shortcuts_remove(entry);
-	}
-}
