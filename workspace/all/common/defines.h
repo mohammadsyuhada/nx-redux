@@ -41,6 +41,10 @@
 #define NOUI_PATH "/tmp/noui"
 #define EMULIST_CACHE_PATH "/tmp/emulist_cache.txt"
 #define ROMINDEX_CACHE_PATH "/tmp/romindex_cache.txt"
+// Owned by the OSD LED toggle (osd/widgets/toggle_led/set.sh): while this file
+// exists, LEDS_setProfile forces LIGHT_PROFILE_OFF so app startup and profile
+// changes (charging, sleep, ambient) don't relight LEDs the user switched off.
+#define LEDS_DISABLED_PATH "/tmp/leds_disabled" // transient
 
 #define TRIAD_WHITE 0xff, 0xff, 0xff
 #define TRIAD_BLACK 0x00, 0x00, 0x00

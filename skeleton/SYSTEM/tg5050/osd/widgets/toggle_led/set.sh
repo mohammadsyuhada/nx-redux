@@ -36,11 +36,16 @@ if [ $# -eq 0 ] ; then
     fi
 else
     if led_is_on; then
-        # Currently on, turn off
+        # Currently on, turn off. The flag file tells the apps' LED profile
+        # engine (LEDS_setProfile, see defines.h LEDS_DISABLED_PATH) to stay
+        # off — otherwise the next app launch or charging/sleep profile
+        # change would reapply ledsettings and relight the LEDs.
+        touch /tmp/leds_disabled
         set_all_leds 0
         echo 0 > /tmp/trimui_osd/toggle_led/status
     else
         # Currently off, turn on at configured brightness
+        rm -f /tmp/leds_disabled
         brightness=$(get_configured_brightness)
         set_all_leds $brightness
         echo 1 > /tmp/trimui_osd/toggle_led/status

@@ -3606,6 +3606,11 @@ void LEDS_setProfile(int profile) {
 	if (lights_initialized == 0)
 		return;
 
+	// The OSD LED toggle owns this flag: while it exists the user has
+	// explicitly switched the LEDs off, so no profile may relight them.
+	if (profile != LIGHT_PROFILE_OFF && access(LEDS_DISABLED_PATH, F_OK) == 0)
+		profile = LIGHT_PROFILE_OFF;
+
 	LightSettings* new_lights = NULL;
 	bool indicator = true;
 
