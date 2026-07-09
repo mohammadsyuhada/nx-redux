@@ -49,6 +49,12 @@ int toggle(char* path); // creates or removes file
 void putFile(char* path, char* contents);
 char* allocFile(char* path); // caller must free
 void getFile(char* path, char* buffer, size_t buffer_size);
+// Simple Mode PIN: reads SIMPLE_MODE_PATH's content. Returns true when the
+// file holds exactly 4 ASCII digits (trailing whitespace ignored) and copies
+// them NUL-terminated into pin_out (pass NULL to just probe). An empty or
+// malformed file is a legacy enable flag: simple mode without a PIN gate.
+// The length 4 must stay in sync with PINDIALOG_PIN_LEN (ui_pindialog.h).
+bool SimpleMode_readPin(char pin_out[5]);
 void putInt(char* path, int value);
 int getInt(char* path);
 

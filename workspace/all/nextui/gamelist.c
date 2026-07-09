@@ -16,6 +16,7 @@
 #include "ui_keyboard.h"
 #include "ui_list.h"
 #include "ui_listdialog.h"
+#include "ui_pindialog.h"
 #include "utils.h"
 
 #include "content.h"
@@ -298,6 +299,55 @@ static bool confirmModal(const char* title, const char* subtitle) {
 	}
 	GFX_clearLayers(LAYER_ALL);
 	return result;
+}
+
+// Simple mode: launching Settings requires the parent PIN (when one is set).
+// Re-prompts on a wrong PIN, B cancels. Returns true when launch may proceed.
+static bool settingsPinAllows(Entry* entry) {
+	if (!gl_simple_mode || !entry || entry->type != ENTRY_PAK)
+		return true;
+
+	char settings_path[MAX_PATH];
+	snprintf(settings_path, sizeof(settings_path), "%s/Tools/%s/Settings.pak",
+			 SDCARD_PATH, PLATFORM);
+	if (!exactMatch(entry->path, settings_path))
+		return true;
+
+	char pin[PINDIALOG_PIN_LEN + 1];
+	if (!SimpleMode_readPin(pin))
+		return true; // legacy flag file without a PIN: ungated
+
+	bool allowed = false;
+	const char* error = NULL;
+	GFX_clearLayers(LAYER_ALL);
+	while (!allowed) {
+		PinDialog_init("Enter Settings PIN");
+		PinDialog_setError(error);
+		bool cancelled = false;
+		PinDialogResult r = {PINDIALOG_NONE, ""};
+		while (1) {
+			GFX_startFrame();
+			PAD_poll();
+			r = PinDialog_handleInput();
+			if (r.action == PINDIALOG_CONFIRMED)
+				break;
+			if (r.action == PINDIALOG_CANCEL) {
+				cancelled = true;
+				break;
+			}
+			PinDialog_render(screen);
+			GFX_flip(screen);
+		}
+		PinDialog_quit();
+		if (cancelled)
+			break;
+		if (strcmp(r.pin, pin) == 0)
+			allowed = true;
+		else
+			error = "Wrong PIN. Try again."; // re-init also resets digits to 0
+	}
+	GFX_clearLayers(LAYER_ALL);
+	return allowed;
 }
 
 // Full-screen blocking collection picker. Returns the chosen collection index
@@ -669,9 +719,11 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 		*dirty = true;
 		return result;
 	} else if (total > 0 && PAD_justPressed(BTN_A)) {
-		Entry_open(entry);
-		if (entry->type == ENTRY_DIR && !startgame) {
-			result.animdir = SLIDE_LEFT;
+		if (settingsPinAllows(entry)) {
+			Entry_open(entry);
+			if (entry->type == ENTRY_DIR && !startgame) {
+				result.animdir = SLIDE_LEFT;
+			}
 		}
 		*dirty = true;
 

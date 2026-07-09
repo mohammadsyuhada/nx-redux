@@ -56,3 +56,5 @@ workspace/readmes
 compile_commands.json
 BUILD.md
 skeleton/EXTRAS/Emus/shared/PortMaster/files/.DS_Store
+docs/
+docs/plans/

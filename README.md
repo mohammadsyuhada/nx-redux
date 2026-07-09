@@ -66,7 +66,10 @@ New Features:
 - Added slide transition animations (can be disabled in Settings)
     - `Game Switcher` slides up on enter and down on exit
     - `Page Navigation` slides in from the right on enter and out to the left on exit
-- Added `Simple Mode` in `Settings`
+- Added `Simple Mode` in `Settings` — a simplified menu for children or casual users.
+    - Hides `Tools` from the main menu and replaces `Options` with `Reset` in-game.
+    - `Settings` stays on the main menu, protected by a 4-digit PIN set when enabling Simple Mode.
+    - Forgot the PIN? Delete `.userdata/shared/enable-simple-mode` from the SD card to turn Simple Mode off.
 - Added `Search` function in main menu (Press `Y` to activate)
 - Added a game-list context menu (press `MENU` on a highlighted game):
     - Built-in ROMs collection management — add a game to an existing collection or create a new one on the spot.

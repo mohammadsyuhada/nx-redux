@@ -156,6 +156,7 @@ static void cycle_item_next(SettingItem* item, int step) {
 	int val = item->values ? item->values[item->current_idx] : item->current_idx;
 	if (item->set_value)
 		item->set_value(val);
+	settings_item_sync(item); // setter may refuse (e.g. cancelled PIN setup)
 }
 
 static void cycle_item_prev(SettingItem* item, int step) {
@@ -167,6 +168,7 @@ static void cycle_item_prev(SettingItem* item, int step) {
 	int val = item->values ? item->values[item->current_idx] : item->current_idx;
 	if (item->set_value)
 		item->set_value(val);
+	settings_item_sync(item); // setter may refuse (e.g. cancelled PIN setup)
 }
 
 // ============================================

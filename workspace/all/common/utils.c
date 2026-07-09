@@ -539,6 +539,24 @@ char* allocFile(char* path) { // caller must free!
 	}
 	return contents;
 }
+bool SimpleMode_readPin(char pin_out[5]) {
+	char buf[16] = {0};
+	getFile((char*)SIMPLE_MODE_PATH, buf, sizeof(buf));
+	int len = strlen(buf);
+	while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r' ||
+					   buf[len - 1] == ' ' || buf[len - 1] == '\t'))
+		buf[--len] = '\0';
+	if (len != 4)
+		return false;
+	for (int i = 0; i < 4; i++)
+		if (buf[i] < '0' || buf[i] > '9')
+			return false;
+	if (pin_out) {
+		memcpy(pin_out, buf, 4);
+		pin_out[4] = '\0';
+	}
+	return true;
+}
 int getInt(char* path) {
 	int i = 0;
 	if (path == NULL)

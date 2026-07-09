@@ -672,6 +672,14 @@ Array* getRoot(int simple_mode) {
 		char tools_path[MAX_PATH];
 		snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
 		Array_push(root, Entry_new(tools_path, ENTRY_DIR));
+	} else if (simple_mode) {
+		// Simple mode hides Tools, but Settings must stay reachable (the
+		// game list PIN-gates it) or parents get locked out of the device.
+		char settings_path[MAX_PATH];
+		snprintf(settings_path, sizeof(settings_path), "%s/Tools/%s/Settings.pak",
+				 SDCARD_PATH, PLATFORM);
+		if (exists(settings_path))
+			Array_push(root, Entry_newNamed(settings_path, ENTRY_PAK, "Settings"));
 	}
 
 	return root;

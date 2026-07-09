@@ -25,4 +25,5 @@ UI_COMPONENT_SRCS = \
 	$(UI_DIR)/ui_loadingoverlay.c \
 	$(UI_DIR)/ui_splash.c \
 	$(UI_DIR)/ui_downloadprogress.c \
-	$(UI_DIR)/ui_emptystate.c
+	$(UI_DIR)/ui_emptystate.c \
+	$(UI_DIR)/ui_pindialog.c
