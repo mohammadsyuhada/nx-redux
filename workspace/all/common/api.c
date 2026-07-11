@@ -3279,7 +3279,7 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 		was_charging = SDL_AtomicGet(&pwr.is_charging);
 
 	uint32_t now = SDL_GetTicks();
-	if (was_charging || PAD_anyPressed() || last_input_at == 0)
+	if (PAD_anyPressed() || last_input_at == 0)
 		last_input_at = now;
 
 #define CHARGE_DELAY 1000
@@ -3561,7 +3561,7 @@ void PWR_enableAutosleep(void) {
 	pwr.can_autosleep = 1;
 }
 int PWR_preventAutosleep(void) {
-	return SDL_AtomicGet(&pwr.is_charging) || !pwr.can_autosleep || GetHDMI();
+	return !pwr.can_autosleep || GetHDMI();
 }
 
 // updated by PWR_updateBatteryStatus()
