@@ -45,6 +45,9 @@ endif
 	cd ./all/syncsettings/ && make
 	cd ./all/nextval/ && make
 	cd ./all/settings/ && make
+ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
+	cd ./all/ratools/ && make
+endif
 	cd ./all/audiomon && make all
 	cd ./all/show2/ && make
 	cd ./all/screenshot/ && make
@@ -94,6 +97,7 @@ endif
 	cd ./all/gametime/ && make clean
 	cd ./all/nextval/ && make clean
 	cd ./all/settings/ && make clean
+	cd ./all/ratools/ && make clean
 	cd ./all/screenshot/ && make clean
 	cd ./all/screenrecorder/ && make clean
 	cd ./all/audiomon/ && make clean

@@ -134,6 +134,9 @@ endif
 	# libchdr for RetroAchievements CHD hashing
 	cp ./workspace/all/minarch/build/$(PLATFORM)/libchdr.so.* ./build/SYSTEM/$(PLATFORM)/lib/
 
+	# RetroAchievements tools pak
+	cp ./workspace/all/ratools/build/$(PLATFORM)/ratools.elf ./build/EXTRAS/Tools/$(PLATFORM)/RetroAchievements.pak/
+
 ifeq ($(PLATFORM), tg5040)
 	# liblz4 for Rewind support
 	cp -L ./workspace/all/minarch/build/$(PLATFORM)/liblz4.so.1 ./build/SYSTEM/$(PLATFORM)/lib/

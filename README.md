@@ -105,6 +105,17 @@ New Features:
     - `GBA Link` support for Game Boy Advance (gpSP) — wireless adapter and link cable games.
     - Classic lockstep netplay for the other supported cores.
     - Save states, fast-forward and rewind are automatically disabled during a session to protect the connection.
+- Added `RetroAchievements` with full offline support (powered by [rcheevos](https://github.com/RetroAchievements/rcheevos)).
+    - Earn achievements while completely offline — they are journaled to the SD card and submitted automatically the next time you play online.
+    - Achievement data (definitions, unlock state and badges) is cached as you play and can be pre-downloaded for your whole library, so games work offline even if you have never launched them online before.
+    - Softcore only by design — NX Redux is not an RA-approved hardcore emulator, so hardcore mode is intentionally omitted to keep your account safe.
+    - New `RetroAchievements` tool as the single home for the feature:
+        - Sign in and manage all achievement settings here (moved out of `Settings`).
+        - Browse every cached game and its achievements — unlocked, pending-sync and locked — with box art and badges, fully offline.
+        - Per-achievement details: description, points, unlock date, unlock rate and type (Progression / Win Condition / Missable), honouring your chosen sort order.
+        - `Sync now` to push pending offline unlocks, and `Download all game data` to cache your whole library with a live progress bar.
+        - `Reset account data` (for switching accounts) and `Erase all achievement data` options.
+    - In-game achievement unlock and progress notifications, with a per-achievement mute toggle.
 
 Upcoming Features:
 - `CPU mode` switch in the OSD — quickly change the CPU governor (e.g. performance mode) from anywhere; defaults to auto.
@@ -134,6 +145,7 @@ Architectural decisions here prioritize clarity and maintainability over strict 
 ## Credits
 
 - [ro8inmorgan](https://github.com/ro8inmorgan), [frysee](https://github.com/frysee) and all contributors for developing NextUI
+- [clintonium-119](https://github.com/clintonium-119) for the original [RetroAchievements integration](https://github.com/LoveRetro/NextUI/pull/633) in NextUI that our offline support is built on
 - [KrutzOtrem](https://github.com/KrutzOtrem/Trimui-Brick-Overlays) for the overlays
 - [timbueno](https://github.com/timbueno/ArtBookNextUI.theme) for the Artbook theme
 - [anthonycaccese](https://github.com/anthonycaccese/art-book-next-es.git) for the Artbook artwork

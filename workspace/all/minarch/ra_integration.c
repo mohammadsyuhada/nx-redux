@@ -1,10 +1,12 @@
 #include "ra_integration.h"
 #include "ra_consoles.h"
-#include "chd_reader.h"
+#include "ra_hash_cdreader.h"
 #include "config.h"
 #include "http.h"
 #include "notification.h"
 #include "ra_badges.h"
+#include "ra_offline.h"
+#include "ra_offline_net.h"
 #include "defines.h"
 #include "api.h"
 
@@ -36,6 +38,11 @@ static bool ra_logged_in = false;
 
 // Current game hash (for mute file path)
 static char ra_game_hash[64] = {0};
+
+// Rom path for the game currently being loaded (set at the top of
+// ra_do_load_game; used by ra_game_loaded_callback to record art lookup
+// info for the offline achievements browser)
+static char ra_current_rom_path[512] = {0};
 
 // Muted achievements tracking
 #define RA_MAX_MUTED_ACHIEVEMENTS 1024
@@ -78,6 +85,12 @@ typedef struct {
 } RALoginRetry;
 
 static RALoginRetry ra_login_retry = {0};
+
+// Background journal sync (runs once after a successful online login)
+static SDL_Thread* ra_sync_thread = NULL;
+static volatile bool ra_sync_done = false;
+static volatile int ra_sync_synced = 0;
+static bool ra_sync_started = false;
 
 // Wifi wait config
 #define RA_WIFI_WAIT_MAX_MS 3000 // 3 seconds max blocking wait
@@ -123,148 +136,7 @@ static void ra_reset_login_state(void);
 static void ra_start_login(void);
 static uint32_t ra_get_retry_delay_ms(int attempt);
 static void ra_login_callback(int result, const char* error_message, rc_client_t* client, void* userdata);
-
-/*****************************************************************************
- * CHD (compressed hunks of data) reader support for disc images
- * 
- * The default rcheevos CD reader only supports CUE/BIN and ISO formats.
- * We wrap the CD reader callbacks to try CHD first, then fall back to default.
- * 
- * We use a wrapper handle to track whether a handle came from CHD or default
- * reader, so we can route subsequent calls to the correct implementation.
- *****************************************************************************/
-
-// Store default CD reader callbacks for fallback
-static rc_hash_cdreader_t ra_default_cdreader;
-
-// Wrapper handle to distinguish CHD vs default reader handles
-#define RA_CDHANDLE_MAGIC 0x43484448 // "CHDH"
-typedef struct {
-	uint32_t magic;		// Magic number to identify our wrapper
-	bool is_chd;		// true = CHD handle, false = default reader handle
-	void* inner_handle; // The actual handle from CHD or default reader
-} ra_cdreader_handle_t;
-
-// Helper to create a wrapper handle
-static void* ra_cdreader_wrap_handle(void* inner_handle, bool is_chd) {
-	if (!inner_handle)
-		return NULL;
-
-	ra_cdreader_handle_t* wrapper = (ra_cdreader_handle_t*)malloc(sizeof(ra_cdreader_handle_t));
-	if (!wrapper) {
-		// Failed to allocate wrapper - close the inner handle
-		if (is_chd) {
-			chd_close_track(inner_handle);
-		} else if (ra_default_cdreader.close_track) {
-			ra_default_cdreader.close_track(inner_handle);
-		}
-		return NULL;
-	}
-
-	wrapper->magic = RA_CDHANDLE_MAGIC;
-	wrapper->is_chd = is_chd;
-	wrapper->inner_handle = inner_handle;
-	return wrapper;
-}
-
-// Helper to validate and unwrap handle
-static ra_cdreader_handle_t* ra_cdreader_unwrap(void* handle) {
-	if (!handle)
-		return NULL;
-	ra_cdreader_handle_t* wrapper = (ra_cdreader_handle_t*)handle;
-	if (wrapper->magic != RA_CDHANDLE_MAGIC)
-		return NULL;
-	return wrapper;
-}
-
-// Wrapper: Try CHD first, then default
-static void* ra_cdreader_open_track(const char* path, uint32_t track) {
-	// Try CHD reader first
-	void* handle = chd_open_track(path, track);
-	if (handle) {
-		return ra_cdreader_wrap_handle(handle, true);
-	}
-	// Fall back to default reader
-	if (ra_default_cdreader.open_track) {
-		handle = ra_default_cdreader.open_track(path, track);
-		if (handle) {
-			return ra_cdreader_wrap_handle(handle, false);
-		}
-	}
-	return NULL;
-}
-
-static void* ra_cdreader_open_track_iterator(const char* path, uint32_t track, const rc_hash_iterator_t* iterator) {
-	// Try CHD reader first
-	void* handle = chd_open_track_iterator(path, track, iterator);
-	if (handle) {
-		return ra_cdreader_wrap_handle(handle, true);
-	}
-	// Fall back to default reader
-	if (ra_default_cdreader.open_track_iterator) {
-		handle = ra_default_cdreader.open_track_iterator(path, track, iterator);
-		if (handle) {
-			return ra_cdreader_wrap_handle(handle, false);
-		}
-	}
-	if (ra_default_cdreader.open_track) {
-		handle = ra_default_cdreader.open_track(path, track);
-		if (handle) {
-			return ra_cdreader_wrap_handle(handle, false);
-		}
-	}
-	return NULL;
-}
-
-static size_t ra_cdreader_read_sector(void* track_handle, uint32_t sector, void* buffer, size_t requested_bytes) {
-	ra_cdreader_handle_t* wrapper = ra_cdreader_unwrap(track_handle);
-	if (!wrapper)
-		return 0;
-
-	if (wrapper->is_chd) {
-		return chd_read_sector(wrapper->inner_handle, sector, buffer, requested_bytes);
-	} else if (ra_default_cdreader.read_sector) {
-		return ra_default_cdreader.read_sector(wrapper->inner_handle, sector, buffer, requested_bytes);
-	}
-	return 0;
-}
-
-static void ra_cdreader_close_track(void* track_handle) {
-	ra_cdreader_handle_t* wrapper = ra_cdreader_unwrap(track_handle);
-	if (!wrapper)
-		return;
-
-	if (wrapper->is_chd) {
-		chd_close_track(wrapper->inner_handle);
-	} else if (ra_default_cdreader.close_track) {
-		ra_default_cdreader.close_track(wrapper->inner_handle);
-	}
-
-	// Clear magic and free wrapper
-	wrapper->magic = 0;
-	free(wrapper);
-}
-
-static uint32_t ra_cdreader_first_track_sector(void* track_handle) {
-	ra_cdreader_handle_t* wrapper = ra_cdreader_unwrap(track_handle);
-	if (!wrapper)
-		return 0;
-
-	if (wrapper->is_chd) {
-		return chd_first_track_sector(wrapper->inner_handle);
-	} else if (ra_default_cdreader.first_track_sector) {
-		return ra_default_cdreader.first_track_sector(wrapper->inner_handle);
-	}
-	return 0;
-}
-
-// Initialize CHD-aware CD reader callbacks
-static void ra_init_cdreader(void) {
-	// Get default callbacks to use as fallback
-	rc_hash_get_default_cdreader(&ra_default_cdreader);
-
-	RA_LOG_DEBUG("Initializing CHD-aware CD reader\n");
-}
+static int ra_sync_thread_fn(void* data);
 
 /*****************************************************************************
  * Helper: Get retry delay for login attempts
@@ -605,6 +477,7 @@ static uint32_t ra_read_memory(uint32_t address, uint8_t* buffer, uint32_t num_b
 typedef struct {
 	rc_client_server_callback_t callback;
 	void* callback_data;
+	char* post_data_copy; // for response classification when caching
 } RA_ServerCallData;
 
 static void ra_http_callback(HTTP_Response* response, void* userdata) {
@@ -626,6 +499,13 @@ static void ra_http_callback(HTTP_Response* response, void* userdata) {
 		}
 	}
 
+	// Online write-through cache: mirror successful responses to disk so
+	// they can be served when offline
+	if (body && http_status == 200 && data->post_data_copy &&
+		RA_Offline_getMode() == RA_NET_ONLINE) {
+		RA_Offline_cacheResponse(data->post_data_copy, body, body_length);
+	}
+
 	// Queue the response for main thread processing
 	// The queue makes a copy of the body, so we can free the response after
 	if (!ra_queue_push(body, body_length, http_status, data->callback, data->callback_data)) {
@@ -637,6 +517,7 @@ static void ra_http_callback(HTTP_Response* response, void* userdata) {
 	if (response) {
 		HTTP_freeResponse(response);
 	}
+	free(data->post_data_copy);
 	free(data);
 }
 
@@ -644,6 +525,20 @@ static void ra_server_call(const rc_api_request_t* request,
 						   rc_client_server_callback_t callback,
 						   void* callback_data, rc_client_t* client) {
 	(void)client; // unused
+
+	// Offline: serve from cache / journal instead of hitting the network.
+	// Responses go through the normal queue so rcheevos callbacks still
+	// fire on the main thread.
+	if (RA_Offline_getMode() == RA_NET_OFFLINE) {
+		char* body = NULL;
+		size_t body_len = 0;
+		int status = 0;
+		if (RA_Offline_handleRequest(request->post_data, &body, &body_len, &status)) {
+			ra_queue_push(body, body_len, status, callback, callback_data);
+			free(body);
+			return;
+		}
+	}
 
 	// Allocate data structure to pass through to callback
 	RA_ServerCallData* data = (RA_ServerCallData*)malloc(sizeof(RA_ServerCallData));
@@ -658,6 +553,7 @@ static void ra_server_call(const rc_api_request_t* request,
 
 	data->callback = callback;
 	data->callback_data = callback_data;
+	data->post_data_copy = request->post_data ? strdup(request->post_data) : NULL;
 
 	// Make async HTTP request
 	if (request->post_data && strlen(request->post_data) > 0) {
@@ -804,6 +700,17 @@ static void ra_event_handler(const rc_client_event_t* event, rc_client_t* client
 }
 
 /*****************************************************************************
+ * Background journal sync (after online login)
+ *****************************************************************************/
+static int ra_sync_thread_fn(void* data) {
+	(void)data;
+	int synced = RA_OfflineNet_syncAll(CFG_getRAUsername(), CFG_getRAToken(), NULL, NULL);
+	ra_sync_synced = synced;
+	ra_sync_done = true; // picked up on the main thread in RA_idle
+	return 0;
+}
+
+/*****************************************************************************
  * Callback: Login callback
  *****************************************************************************/
 
@@ -827,6 +734,16 @@ static void ra_login_callback(int result, const char* error_message,
 			ra_do_load_game(ra_pending_load.rom_path, ra_pending_load.rom_data,
 							ra_pending_load.rom_size, ra_pending_load.emu_tag);
 			ra_clear_pending_game();
+		}
+
+		// First online login of the session: flush any journaled offline
+		// unlocks in the background
+		if (RA_Offline_getMode() == RA_NET_ONLINE && !ra_sync_started &&
+			RA_Offline_pendingCount() > 0) {
+			ra_sync_started = true;
+			ra_sync_thread = SDL_CreateThread(ra_sync_thread_fn, "ra_offline_sync", NULL);
+			if (!ra_sync_thread)
+				ra_sync_started = false;
 		}
 	} else {
 		// Failure - attempt retry or give up
@@ -852,10 +769,22 @@ static void ra_login_callback(int result, const char* error_message,
 		} else {
 			// All retries exhausted
 			RA_LOG_ERROR("All login retries exhausted\n");
-			Notification_push(NOTIFICATION_ACHIEVEMENT,
-							  "RetroAchievements: Connection failed", NULL);
-			ra_reset_login_state();
-			ra_clear_pending_game();
+			if (RA_Offline_getMode() == RA_NET_ONLINE && RA_Offline_hasLoginCache()) {
+				// Server unreachable but we have cached data: fall back to
+				// offline mode and log in from the cache
+				RA_LOG_WARN("Falling back to offline mode\n");
+				RA_Offline_setMode(RA_NET_OFFLINE);
+				rc_client_set_hardcore_enabled(ra_client, 0);
+				Notification_push(NOTIFICATION_ACHIEVEMENT,
+								  "RetroAchievements: offline (softcore)", NULL);
+				ra_reset_login_state();
+				ra_start_login(); // served from cache by the shim
+			} else {
+				Notification_push(NOTIFICATION_ACHIEVEMENT,
+								  "RetroAchievements: Connection failed", NULL);
+				ra_reset_login_state();
+				ra_clear_pending_game();
+			}
 		}
 	}
 }
@@ -934,6 +863,11 @@ static void ra_game_loaded_callback(int result, const char* error_message,
 				snprintf(ra_game_hash, sizeof(ra_game_hash), "%u", game->id);
 			}
 
+			// Record the rom path so the offline achievements browser can
+			// later locate the game's box art
+			if (ra_current_rom_path[0] != '\0')
+				RA_Offline_setGameRomPath(ra_game_hash, ra_current_rom_path);
+
 			// Load muted achievements for this game
 			ra_load_muted_achievements();
 
@@ -1002,30 +936,37 @@ void RA_init(void) {
 		return;
 	}
 
-	// Check wifi state before attempting to connect
-	if (!PLAT_wifiEnabled()) {
-		RA_LOG_WARN("WiFi disabled - cannot connect to RetroAchievements\n");
-		Notification_push(NOTIFICATION_ACHIEVEMENT,
-						  "RetroAchievements requires WiFi", NULL);
-		return;
+	RA_Offline_init(SHARED_USERDATA_PATH "/.ra");
+
+	// Determine connectivity. Unlike before, no WiFi no longer disables RA -
+	// if a login was ever cached we run in offline mode instead.
+	bool online = false;
+	if (PLAT_wifiEnabled()) {
+		if (PLAT_wifiConnected()) {
+			online = true;
+		} else {
+			// Wait for wifi to connect (handles wake-from-sleep scenario)
+			RA_LOG_DEBUG("WiFi enabled but not connected, waiting up to %dms...\n", RA_WIFI_WAIT_MAX_MS);
+			uint32_t start = SDL_GetTicks();
+			while (!PLAT_wifiConnected() &&
+				   (SDL_GetTicks() - start) < RA_WIFI_WAIT_MAX_MS) {
+				SDL_Delay(RA_WIFI_WAIT_POLL_MS);
+			}
+			online = PLAT_wifiConnected();
+		}
 	}
 
-	// Wait for wifi to connect (handles wake-from-sleep scenario)
-	if (!PLAT_wifiConnected()) {
-		RA_LOG_DEBUG("WiFi enabled but not connected, waiting up to %dms...\n", RA_WIFI_WAIT_MAX_MS);
-		uint32_t start = SDL_GetTicks();
-		while (!PLAT_wifiConnected() &&
-			   (SDL_GetTicks() - start) < RA_WIFI_WAIT_MAX_MS) {
-			SDL_Delay(RA_WIFI_WAIT_POLL_MS);
-		}
-
-		if (!PLAT_wifiConnected()) {
-			RA_LOG_WARN("WiFi did not connect within %dms\n", RA_WIFI_WAIT_MAX_MS);
+	if (!online) {
+		if (!RA_Offline_hasLoginCache()) {
+			RA_LOG_WARN("Offline with no cached login - RA disabled this session\n");
 			Notification_push(NOTIFICATION_ACHIEVEMENT,
-							  "RetroAchievements requires WiFi", NULL);
+							  "RetroAchievements requires WiFi for first-time setup", NULL);
 			return;
 		}
-		RA_LOG_DEBUG("WiFi connected after %ums\n", SDL_GetTicks() - start);
+		RA_Offline_setMode(RA_NET_OFFLINE);
+		RA_LOG_INFO("Starting in offline mode (softcore)\n");
+		Notification_push(NOTIFICATION_ACHIEVEMENT,
+						  "RetroAchievements: offline (softcore)", NULL);
 	}
 
 	RA_LOG_INFO("Initializing...\n");
@@ -1047,24 +988,19 @@ void RA_init(void) {
 	rc_client_set_event_handler(ra_client, ra_event_handler);
 
 	// Initialize and register CHD-aware CD reader for disc game hashing
-	ra_init_cdreader();
 	{
 		rc_hash_callbacks_t hash_callbacks;
 		memset(&hash_callbacks, 0, sizeof(hash_callbacks));
-
-		// Set up CHD-aware CD reader callbacks
-		hash_callbacks.cdreader.open_track = ra_cdreader_open_track;
-		hash_callbacks.cdreader.open_track_iterator = ra_cdreader_open_track_iterator;
-		hash_callbacks.cdreader.read_sector = ra_cdreader_read_sector;
-		hash_callbacks.cdreader.close_track = ra_cdreader_close_track;
-		hash_callbacks.cdreader.first_track_sector = ra_cdreader_first_track_sector;
-
+		RA_HashCdreader_get(&hash_callbacks.cdreader);
 		rc_client_set_hash_callbacks(ra_client, &hash_callbacks);
 		RA_LOG_DEBUG("CHD disc image support enabled\n");
 	}
 
-	// Configure hardcore mode from settings
-	rc_client_set_hardcore_enabled(ra_client, CFG_getRAHardcoreMode() ? 1 : 0);
+	// Always softcore: nx-redux is not an RA-approved hardcore-compliant
+	// emulator, so hardcore unlocks are softcore-locked server-side and
+	// running hardcore only risks the account being untracked. The
+	// raHardcoreMode config value is deliberately ignored.
+	rc_client_set_hardcore_enabled(ra_client, 0);
 
 	// Reset login state before attempting
 	ra_reset_login_state();
@@ -1079,6 +1015,15 @@ void RA_init(void) {
 }
 
 void RA_quit(void) {
+	// Wait for a background journal sync to finish (it holds no RA state,
+	// but must not outlive HTTP/config teardown)
+	if (ra_sync_thread) {
+		SDL_WaitThread(ra_sync_thread, NULL);
+		ra_sync_thread = NULL;
+	}
+	ra_sync_started = false;
+	ra_sync_done = false;
+
 	// Clear any pending game data
 	ra_clear_pending_game();
 
@@ -1230,6 +1175,9 @@ static int ra_is_cd_extension(const char* path) {
  * Helper: Actually load the game (internal, assumes logged in)
  *****************************************************************************/
 static void ra_do_load_game(const char* rom_path, const uint8_t* rom_data, size_t rom_size, const char* emu_tag) {
+	strncpy(ra_current_rom_path, rom_path, sizeof(ra_current_rom_path) - 1);
+	ra_current_rom_path[sizeof(ra_current_rom_path) - 1] = '\0';
+
 	int console_id = RA_getConsoleId(emu_tag);
 	if (console_id == RC_CONSOLE_UNKNOWN) {
 		RA_LOG_WARN("Unknown console for tag '%s' - achievements disabled\n", emu_tag);
@@ -1369,6 +1317,23 @@ void RA_idle(void) {
 	if (ra_login_retry.pending && SDL_GetTicks() >= ra_login_retry.next_time) {
 		ra_login_retry.pending = false;
 		ra_start_login();
+	}
+
+	// Report background journal sync completion (thread-safe: worker only
+	// sets the flags, notification happens here on the main thread)
+	if (ra_sync_done) {
+		ra_sync_done = false;
+		SDL_WaitThread(ra_sync_thread, NULL);
+		ra_sync_thread = NULL;
+		if (ra_sync_synced > 0) {
+			char msg[NOTIFICATION_MAX_MESSAGE];
+			snprintf(msg, sizeof(msg), "%d offline achievement%s synced",
+					 ra_sync_synced, ra_sync_synced == 1 ? "" : "s");
+			Notification_push(NOTIFICATION_ACHIEVEMENT, msg, NULL);
+		}
+		int remaining = RA_Offline_pendingCount();
+		if (remaining > 0)
+			RA_LOG_WARN("%d journaled unlock(s) still pending after sync\n", remaining);
 	}
 
 	rc_client_idle(ra_client);

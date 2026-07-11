@@ -109,7 +109,7 @@ jobs:
 
       - name: Restore cached core
         id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: workspace/${{ matrix.toolchain }}/cores/output/
           key: core-${{ matrix.toolchain }}-${{ matrix.core }}-${{ steps.cache-key.outputs.hash }}
@@ -123,7 +123,7 @@ jobs:
         run: make build-core CORE=${{ matrix.core }}
 
       - name: Upload core
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v6.0.0
         with:
           name: core-${{ matrix.toolchain }}-${{ matrix.core }}.zip
           path: workspace/${{ env.PLATFORM }}/cores/output/
@@ -150,7 +150,7 @@ jobs:
         run: make setup
 
       - name: Download Cores (tg5040)
-        uses: actions/download-artifact@v4.3.0
+        uses: actions/download-artifact@v7.0.0
         with:
           path: workspace/tg5040/cores/output/
           pattern: core-tg5040-*
@@ -160,7 +160,7 @@ jobs:
         run: make common PLATFORM=tg5040
 
       - name: Download Cores (tg5050)
-        uses: actions/download-artifact@v4.3.0
+        uses: actions/download-artifact@v7.0.0
         with:
           path: workspace/tg5050/cores/output/
           pattern: core-tg5050-*
@@ -176,13 +176,13 @@ jobs:
         run: make package BUILD_TAG=${{ needs.prepare.outputs.next-tag }}
 
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v6.0.0
         with:
           name: release-artifacts
           path: releases/*.zip
 
       - name: Attest Build Provenance
-        uses: actions/attest-build-provenance@v2.3.0
+        uses: actions/attest-build-provenance@v3.2.0
         with:
           subject-path: releases/*.zip
 
@@ -198,7 +198,7 @@ jobs:
           fetch-depth: 0
 
       - name: Download Release Artifacts
-        uses: actions/download-artifact@v4.3.0
+        uses: actions/download-artifact@v7.0.0
         with:
           path: releases/
           pattern: release-artifacts
@@ -214,7 +214,7 @@ jobs:
           GIT_NEXT_TAG: ${{ needs.prepare.outputs.next-tag }}
 
       - name: Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: releases/*
           generate_release_notes: true

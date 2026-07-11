@@ -24,9 +24,15 @@
 
 #define RA_BADGE_BASE_URL "https://media.retroachievements.org/Badge/"
 #define MAX_BADGE_NAME 32
-#define MAX_CACHED_BADGES 256
+// Each achievement caches two variants (colored + locked), so this must be
+// 2x the largest achievement set we want to fully support. 2048 covers sets
+// up to 1024 achievements (e.g. Pokemon Unbound's 844); at 256 anything past
+// 128 achievements was silently dropped (upstream NextUI PR #689).
+#define MAX_CACHED_BADGES 2048
 #define MAX_CONCURRENT_DOWNLOADS 8
-#define MAX_QUEUED_DOWNLOADS 512
+// The download queue must admit everything the cache can hold, or queue
+// rejections silently drop badges long before the cache is full.
+#define MAX_QUEUED_DOWNLOADS MAX_CACHED_BADGES
 #define NOTIFICATION_TIMEOUT_MS 15000
 
 /*****************************************************************************

@@ -9,7 +9,6 @@
 #include "defines.h"
 #include "api.h"
 #include "utils.h"
-#include "ra_auth.h"
 #include "settings_menu.h"
 #include "settings_wifi.h"
 #include "settings_bt.h"
@@ -213,33 +212,6 @@ static const char* notify_duration_labels[] = {"1s", "2s", "3s", "4s", "5s"};
 static int progress_duration_values[] = {0, 1, 2, 3, 4, 5};
 static const char* progress_duration_labels[] = {"Off", "1s", "2s", "3s", "4s", "5s"};
 #define PROGRESS_DURATION_COUNT 6
-
-/* RA sort order */
-static int ra_sort_values[] = {
-	RA_SORT_UNLOCKED_FIRST,
-	RA_SORT_DISPLAY_ORDER_FIRST,
-	RA_SORT_DISPLAY_ORDER_LAST,
-	RA_SORT_WON_BY_MOST,
-	RA_SORT_WON_BY_LEAST,
-	RA_SORT_POINTS_MOST,
-	RA_SORT_POINTS_LEAST,
-	RA_SORT_TITLE_AZ,
-	RA_SORT_TITLE_ZA,
-	RA_SORT_TYPE_ASC,
-	RA_SORT_TYPE_DESC};
-static const char* ra_sort_labels[] = {
-	"Unlocked First",
-	"Display Order (First)",
-	"Display Order (Last)",
-	"Won By (Most)",
-	"Won By (Least)",
-	"Points (Most)",
-	"Points (Least)",
-	"Title (A-Z)",
-	"Title (Z-A)",
-	"Type (Asc)",
-	"Type (Desc)"};
-#define RA_SORT_LABEL_COUNT 11
 
 /* Default view */
 static int default_view_values[] = {SCREEN_GAMELIST, SCREEN_GAMESWITCHER};
@@ -1110,117 +1082,6 @@ static void reset_notify_duration(void) {
 }
 
 // ============================================
-// RetroAchievements callbacks
-// ============================================
-
-static int get_ra_enable(void) {
-	return CFG_getRAEnable() ? 1 : 0;
-}
-static void set_ra_enable(int v) {
-	CFG_setRAEnable(v != 0);
-}
-static void reset_ra_enable(void) {
-	CFG_setRAEnable(CFG_DEFAULT_RA_ENABLE);
-}
-
-static const char* get_ra_username_display(void) {
-	const char* u = CFG_getRAUsername();
-	return (u && u[0]) ? u : "(not set)";
-}
-
-static void on_ra_username_set(const char* text) {
-	if (text)
-		CFG_setRAUsername(text);
-}
-
-static const char* get_ra_password_display(void) {
-	const char* p = CFG_getRAPassword();
-	return (p && p[0]) ? "********" : "(not set)";
-}
-
-static void on_ra_password_set(const char* text) {
-	if (text)
-		CFG_setRAPassword(text);
-}
-
-/* RA authenticate button */
-static char ra_auth_status_msg[256] = "";
-
-static void on_ra_authenticate(void) {
-	const char* username = CFG_getRAUsername();
-	const char* password = CFG_getRAPassword();
-
-	if (!username || !username[0] || !password || !password[0]) {
-		snprintf(ra_auth_status_msg, sizeof(ra_auth_status_msg),
-				 "Error: Username and password required");
-		return;
-	}
-
-	RA_AuthResponse response;
-	RA_AuthResult result = RA_authenticateSync(username, password, &response);
-
-	if (result == RA_AUTH_SUCCESS) {
-		CFG_setRAToken(response.token);
-		CFG_setRAAuthenticated(true);
-		snprintf(ra_auth_status_msg, sizeof(ra_auth_status_msg),
-				 "Authenticated as %s", response.display_name);
-	} else {
-		CFG_setRAToken("");
-		CFG_setRAAuthenticated(false);
-		snprintf(ra_auth_status_msg, sizeof(ra_auth_status_msg),
-				 "Error: %s", response.error_message);
-	}
-}
-
-static const char* get_ra_status(void) {
-	if (ra_auth_status_msg[0])
-		return ra_auth_status_msg;
-	if (CFG_getRAAuthenticated() && strlen(CFG_getRAToken()) > 0)
-		return "Authenticated";
-	return "Not authenticated";
-}
-
-static int get_ra_show_notifications(void) {
-	return CFG_getRAShowNotifications() ? 1 : 0;
-}
-static void set_ra_show_notifications(int v) {
-	CFG_setRAShowNotifications(v != 0);
-}
-static void reset_ra_show_notifications(void) {
-	CFG_setRAShowNotifications(CFG_DEFAULT_RA_SHOW_NOTIFICATIONS);
-}
-
-static int get_ra_notify_duration(void) {
-	return CFG_getRANotificationDuration();
-}
-static void set_ra_notify_duration(int val) {
-	CFG_setRANotificationDuration(val);
-}
-static void reset_ra_notify_duration(void) {
-	CFG_setRANotificationDuration(CFG_DEFAULT_RA_NOTIFICATION_DURATION);
-}
-
-static int get_ra_progress_duration(void) {
-	return CFG_getRAProgressNotificationDuration();
-}
-static void set_ra_progress_duration(int val) {
-	CFG_setRAProgressNotificationDuration(val);
-}
-static void reset_ra_progress_duration(void) {
-	CFG_setRAProgressNotificationDuration(CFG_DEFAULT_RA_PROGRESS_NOTIFICATION_DURATION);
-}
-
-static int get_ra_sort_order(void) {
-	return CFG_getRAAchievementSortOrder();
-}
-static void set_ra_sort_order(int val) {
-	CFG_setRAAchievementSortOrder(val);
-}
-static void reset_ra_sort_order(void) {
-	CFG_setRAAchievementSortOrder(CFG_DEFAULT_RA_ACHIEVEMENT_SORT_ORDER);
-}
-
-// ============================================
 // About page static display callbacks
 // ============================================
 
@@ -1315,7 +1176,6 @@ static void init_about_info(void) {
 #define MAX_SYSTEM_ITEMS 20
 #define MAX_MUTE_ITEMS 20
 #define MAX_NOTIFY_ITEMS 8
-#define MAX_RA_ITEMS 15
 #define MAX_ABOUT_ITEMS 8
 #define MAX_SIMPLE_MODE_ITEMS 2
 #define MAX_MAIN_ITEMS 15
@@ -1325,7 +1185,6 @@ static SettingItem display_items[MAX_DISPLAY_ITEMS];
 static SettingItem system_items[MAX_SYSTEM_ITEMS];
 static SettingItem mute_items[MAX_MUTE_ITEMS];
 static SettingItem notify_items[MAX_NOTIFY_ITEMS];
-static SettingItem ra_items[MAX_RA_ITEMS];
 static SettingItem about_items[MAX_ABOUT_ITEMS];
 static SettingItem simple_mode_items[MAX_SIMPLE_MODE_ITEMS];
 static SettingItem main_items[MAX_MAIN_ITEMS];
@@ -1336,7 +1195,6 @@ static SettingsPage system_page;
 static SettingsPage mute_page;
 static SettingsPage fn_switch_page; /* wraps mute_items into "FN Switch" titled page */
 static SettingsPage notify_page;
-static SettingsPage ra_page;
 static SettingsPage about_page;
 static SettingsPage simple_mode_page;
 static SettingsPage main_page;
@@ -1463,9 +1321,6 @@ static void reset_mute_page(void) {
 }
 static void reset_notify_page(void) {
 	settings_page_reset_all(&notify_page);
-}
-static void reset_ra_page(void) {
-	settings_page_reset_all(&ra_page);
 }
 
 static SettingItem* refresh_emulist_item = NULL;
@@ -1789,42 +1644,6 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	init_page(&notify_page, "Settings | In-game notifications", notify_items, idx, 0);
 
 	// ============================
-	// RetroAchievements page
-	// ============================
-	idx = 0;
-	ra_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Enable achievements", "Enable RetroAchievements integration",
-		on_off_labels, 2, on_off_values, get_ra_enable, set_ra_enable, reset_ra_enable);
-	ra_items[idx++] = (SettingItem)ITEM_TEXT_INPUT_INIT(
-		"Username", "RetroAchievements username",
-		get_ra_username_display, on_ra_username_set);
-	ra_items[idx++] = (SettingItem)ITEM_TEXT_INPUT_INIT(
-		"Password", "RetroAchievements password",
-		get_ra_password_display, on_ra_password_set);
-	ra_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
-		"Authenticate", "Test credentials and retrieve API token",
-		on_ra_authenticate);
-	ra_items[idx++] = (SettingItem)ITEM_STATIC_INIT(
-		"Status", "Authentication status",
-		get_ra_status);
-	ra_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Show notifications", "Show achievement unlock notifications",
-		on_off_labels, 2, on_off_values, get_ra_show_notifications, set_ra_show_notifications, reset_ra_show_notifications);
-	ra_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Notification duration", "How long achievement notifications stay on screen",
-		notify_duration_labels, NOTIFY_DURATION_COUNT, notify_duration_values, get_ra_notify_duration, set_ra_notify_duration, reset_ra_notify_duration);
-	ra_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Progress duration", "Duration for progress updates (top-left). Off to disable.",
-		progress_duration_labels, PROGRESS_DURATION_COUNT, progress_duration_values, get_ra_progress_duration, set_ra_progress_duration, reset_ra_progress_duration);
-	ra_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Achievement sort order", "How achievements are sorted in the in-game menu",
-		ra_sort_labels, RA_SORT_LABEL_COUNT, ra_sort_values, get_ra_sort_order, set_ra_sort_order, reset_ra_sort_order);
-	ra_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
-		"Reset to defaults", "Resets all options in this menu to their default values.",
-		reset_ra_page);
-	init_page(&ra_page, "Settings | RetroAchievements", ra_items, idx, 0);
-
-	// ============================
 	// Simple Mode page
 	// ============================
 	idx = 0;
@@ -1890,9 +1709,6 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		}
 	}
 
-	main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
-		"RetroAchievements", "Achievement tracking settings", &ra_page);
-
 	if (has_mute_toggle(dev)) {
 		main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
 			"FN switch", "FN switch settings", &fn_switch_page);
@@ -1925,7 +1741,7 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	{
 		SettingsPage* pages[] = {
 			&appearance_page, &display_page, &system_page,
-			&fn_switch_page, &notify_page, &ra_page, &simple_mode_page, NULL};
+			&fn_switch_page, &notify_page, &simple_mode_page, NULL};
 		for (int p = 0; pages[p]; p++) {
 			for (int i = 0; i < pages[p]->item_count; i++) {
 				settings_item_sync(&pages[p]->items[i]);

@@ -360,6 +360,15 @@ static int OptionAchievements_showDetail(MenuList* list, int i) {
 	bool dirty = true;
 	int show_detail = 1;
 
+	// Content renders onto this transparent canvas first so its total height
+	// is known, then the canvas is blitted vertically centered on screen.
+	SDL_Surface* detail_canvas = SDL_CreateRGBSurfaceWithFormat(
+		0, screen->w, screen->h, 32, SDL_PIXELFORMAT_ARGB8888);
+	if (!detail_canvas) {
+		GFX_setMode(MODE_MENU);
+		return i;
+	}
+
 	while (show_detail) {
 		GFX_startFrame();
 		PAD_poll();
@@ -389,11 +398,15 @@ static int OptionAchievements_showDetail(MenuList* list, int i) {
 			bool is_muted = RA_isAchievementMuted(ach->id);
 
 			GFX_clear(screen);
+			SDL_FillRect(detail_canvas, NULL,
+						 SDL_MapRGBA(detail_canvas->format, 0, 0, 0, 0));
 
-			// Layout: badge icon centered at top, then title, then details
-			int badge_size = SCALE1(64);				 // 64px badge
-			int content_y = SCALE1(PADDING) + SCALE1(6); // Extra padding above icon
-			int center_x = screen->w / 2;
+			// Layout: badge icon centered at top, then title, then details.
+			// Everything is drawn onto the canvas starting at y=0; once the
+			// total height is known the canvas is centered vertically.
+			int badge_size = SCALE1(64); // 64px badge
+			int content_y = 0;
+			int center_x = detail_canvas->w / 2;
 
 			// Badge icon centered at top
 			SDL_Surface* badge = RA_Badges_get(ach->badge_name, !ach->unlocked);
@@ -403,17 +416,19 @@ static int OptionAchievements_showDetail(MenuList* list, int i) {
 					center_x - badge_size / 2,
 					content_y,
 					badge_size, badge_size};
-				SDL_BlitScaled(badge, &badge_src, screen, &badge_dst);
+				SDL_BlitScaled(badge, &badge_src, detail_canvas, &badge_dst);
 				content_y += badge_size + SCALE1(6);
 			}
 
-			// Title centered - wrap to max 2 lines with ellipsis if needed
-			int max_text_width = screen->w - SCALE1(PADDING * 2);
-			content_y = GFX_blitWrappedText(font.medium, ach->title, max_text_width, 2, COLOR_WHITE, screen, content_y);
+			// Title centered - wrap to max 2 lines with ellipsis if needed.
+			// Wider side margins (3x PADDING each side) keep long wrapped
+			// descriptions from hugging the screen edges.
+			int max_text_width = screen->w - SCALE1(PADDING * 6);
+			content_y = GFX_blitWrappedText(font.medium, ach->title, max_text_width, 2, COLOR_WHITE, detail_canvas, content_y);
 			content_y += SCALE1(2); // Spacing after title
 
 			// Description - unlimited lines
-			content_y = GFX_blitWrappedText(font.small, ach->description, max_text_width, 0, COLOR_WHITE, screen, content_y);
+			content_y = GFX_blitWrappedText(font.small, ach->description, max_text_width, 0, COLOR_WHITE, detail_canvas, content_y);
 			content_y += SCALE1(4); // Spacing after description
 
 			// Points (singular/plural) - use tiny font like other metadata
@@ -424,7 +439,7 @@ static int OptionAchievements_showDetail(MenuList* list, int i) {
 				snprintf(points_str, sizeof(points_str), "%u points", ach->points);
 			}
 			SDL_Surface* points_text = TTF_RenderUTF8_Blended(font.tiny, points_str, COLOR_LIGHT_TEXT);
-			SDL_BlitSurface(points_text, NULL, screen, &(SDL_Rect){center_x - points_text->w / 2, content_y});
+			SDL_BlitSurface(points_text, NULL, detail_canvas, &(SDL_Rect){center_x - points_text->w / 2, content_y});
 			content_y += points_text->h + SCALE1(2);
 			SDL_FreeSurface(points_text);
 
@@ -434,14 +449,14 @@ static int OptionAchievements_showDetail(MenuList* list, int i) {
 				char time_buf[64];
 				strftime(time_buf, sizeof(time_buf), "Unlocked %B %d %Y, %I:%M%p", tm_info);
 				SDL_Surface* time_text = TTF_RenderUTF8_Blended(font.tiny, time_buf, COLOR_LIGHT_TEXT);
-				SDL_BlitSurface(time_text, NULL, screen, &(SDL_Rect){center_x - time_text->w / 2, content_y});
+				SDL_BlitSurface(time_text, NULL, detail_canvas, &(SDL_Rect){center_x - time_text->w / 2, content_y});
 				content_y += time_text->h + SCALE1(2);
 				SDL_FreeSurface(time_text);
 			} else if (ach->measured_progress[0]) {
 				char progress_buf[64];
 				snprintf(progress_buf, sizeof(progress_buf), "Progress: %s", ach->measured_progress);
 				SDL_Surface* progress_text = TTF_RenderUTF8_Blended(font.tiny, progress_buf, COLOR_LIGHT_TEXT);
-				SDL_BlitSurface(progress_text, NULL, screen, &(SDL_Rect){center_x - progress_text->w / 2, content_y});
+				SDL_BlitSurface(progress_text, NULL, detail_canvas, &(SDL_Rect){center_x - progress_text->w / 2, content_y});
 				content_y += progress_text->h + SCALE1(2);
 				SDL_FreeSurface(progress_text);
 			}
@@ -451,7 +466,7 @@ static int OptionAchievements_showDetail(MenuList* list, int i) {
 				char rarity_buf[32];
 				snprintf(rarity_buf, sizeof(rarity_buf), "%.2f%% unlock rate", ach->rarity);
 				SDL_Surface* rarity_text = TTF_RenderUTF8_Blended(font.tiny, rarity_buf, COLOR_LIGHT_TEXT);
-				SDL_BlitSurface(rarity_text, NULL, screen, &(SDL_Rect){center_x - rarity_text->w / 2, content_y});
+				SDL_BlitSurface(rarity_text, NULL, detail_canvas, &(SDL_Rect){center_x - rarity_text->w / 2, content_y});
 				content_y += rarity_text->h + SCALE1(2);
 				SDL_FreeSurface(rarity_text);
 			}
@@ -473,7 +488,7 @@ static int OptionAchievements_showDetail(MenuList* list, int i) {
 			}
 			if (type_str) {
 				SDL_Surface* type_text = TTF_RenderUTF8_Blended(font.tiny, type_str, COLOR_LIGHT_TEXT);
-				SDL_BlitSurface(type_text, NULL, screen, &(SDL_Rect){center_x - type_text->w / 2, content_y});
+				SDL_BlitSurface(type_text, NULL, detail_canvas, &(SDL_Rect){center_x - type_text->w / 2, content_y});
 				content_y += type_text->h + SCALE1(2);
 				SDL_FreeSurface(type_text);
 			}
@@ -481,8 +496,21 @@ static int OptionAchievements_showDetail(MenuList* list, int i) {
 			// Muted status below other info with gap before title
 			if (is_muted) {
 				SDL_Surface* mute_text = TTF_RenderUTF8_Blended(font.tiny, "MUTED: Will not show in notifications", COLOR_LIGHT_TEXT);
-				SDL_BlitSurface(mute_text, NULL, screen, &(SDL_Rect){center_x - mute_text->w / 2, content_y + SCALE1(4)});
+				SDL_BlitSurface(mute_text, NULL, detail_canvas, &(SDL_Rect){center_x - mute_text->w / 2, content_y + SCALE1(4)});
+				content_y += SCALE1(4) + mute_text->h;
 				SDL_FreeSurface(mute_text);
+			}
+
+			// Blit the finished block vertically centered between the top of
+			// the screen and the button hint bar
+			{
+				int avail_h = screen->h - SCALE1(PADDING + BUTTON_SIZE + BUTTON_MARGIN);
+				int dest_y = (avail_h - content_y) / 2;
+				if (dest_y < SCALE1(PADDING))
+					dest_y = SCALE1(PADDING);
+				SDL_BlitSurface(detail_canvas,
+								&(SDL_Rect){0, 0, detail_canvas->w, content_y},
+								screen, &(SDL_Rect){0, dest_y});
 			}
 
 			// Button hints - update based on current mute state
@@ -495,6 +523,7 @@ static int OptionAchievements_showDetail(MenuList* list, int i) {
 		hdmimon();
 	}
 
+	SDL_FreeSurface(detail_canvas);
 	GFX_setMode(MODE_MENU);
 	// Return the current index so caller can update selection
 	return i;
