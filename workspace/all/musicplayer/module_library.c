@@ -3,27 +3,20 @@
 #include "defines.h"
 #include "api.h"
 #include "module_common.h"
-#include "ui_toast.h"
 #include "module_library.h"
 #include "module_player.h"
 #include "module_playlist.h"
-#include "module_downloader.h"
 #include "ui_list.h"
 
 // Library submenu items
 #define LIBRARY_FILES 0
 #define LIBRARY_PLAYLISTS 1
-#define LIBRARY_DOWNLOADER 2
-#define LIBRARY_ITEM_COUNT 3
+#define LIBRARY_ITEM_COUNT 2
 
 // Help state for controls dialog
 #define LIBRARY_MENU_HELP_STATE 55
 
-static const char* library_items[] = {"Files", "Playlists", "Downloader"};
-
-// Toast state
-static char library_toast_message[128] = "";
-static uint32_t library_toast_time = 0;
+static const char* library_items[] = {"Files", "Playlists"};
 
 static void render_library_menu(SDL_Surface* screen, IndicatorType show_setting, int menu_selected) {
 	SimpleMenuConfig config = {
@@ -35,12 +28,6 @@ static void render_library_menu(SDL_Surface* screen, IndicatorType show_setting,
 		.render_badge = NULL,
 		.get_icon = NULL};
 	UI_renderSimpleMenu(screen, menu_selected, &config);
-	UI_renderToast(screen, library_toast_message, library_toast_time);
-}
-
-void LibraryModule_setToast(const char* message) {
-	snprintf(library_toast_message, sizeof(library_toast_message), "%s", message);
-	library_toast_time = SDL_GetTicks();
 }
 
 ModuleExitReason LibraryModule_run(SDL_Surface* screen) {
@@ -81,9 +68,6 @@ ModuleExitReason LibraryModule_run(SDL_Surface* screen) {
 			case LIBRARY_PLAYLISTS:
 				reason = PlaylistModule_run(screen);
 				break;
-			case LIBRARY_DOWNLOADER:
-				reason = DownloaderModule_run(screen);
-				break;
 			}
 
 			if (reason == MODULE_EXIT_QUIT) {
@@ -105,8 +89,6 @@ ModuleExitReason LibraryModule_run(SDL_Surface* screen) {
 
 			GFX_flip(screen);
 			dirty = 0;
-
-			ModuleCommon_tickToast(library_toast_message, library_toast_time, &dirty);
 		} else {
 			GFX_sync();
 		}

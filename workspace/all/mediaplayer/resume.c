@@ -100,15 +100,6 @@ void Resume_saveLocal(const char* video_path, const char* video_name,
 	save_to_disk();
 }
 
-void Resume_saveYouTube(const char* url, const char* video_name, int position_sec) {
-	state.type = RESUME_TYPE_YOUTUBE;
-	snprintf(state.video_path, sizeof(state.video_path), "%s", url ? url : "");
-	snprintf(state.video_name, sizeof(state.video_name), "%s", video_name ? video_name : "");
-	state.subtitle_path[0] = '\0';
-	state.position_sec = position_sec;
-	save_to_disk();
-}
-
 void Resume_saveIPTV(const char* url, const char* channel_name) {
 	state.type = RESUME_TYPE_IPTV;
 	snprintf(state.video_path, sizeof(state.video_path), "%s", url ? url : "");

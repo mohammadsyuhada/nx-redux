@@ -6,9 +6,8 @@
 // Resume source types for video player
 typedef enum {
 	RESUME_TYPE_NONE,
-	RESUME_TYPE_LOCAL,	 // Local video file
-	RESUME_TYPE_YOUTUBE, // YouTube stream
-	RESUME_TYPE_IPTV	 // IPTV/Online TV stream
+	RESUME_TYPE_LOCAL, // Local video file
+	RESUME_TYPE_IPTV   // IPTV/Online TV stream
 } ResumeType;
 
 // Resume state
@@ -35,9 +34,6 @@ const char* Resume_getLabel(void);
 // Save resume state for local video
 void Resume_saveLocal(const char* video_path, const char* video_name,
 					  const char* subtitle_path, int position_sec);
-
-// Save resume state for YouTube video
-void Resume_saveYouTube(const char* url, const char* video_name, int position_sec);
 
 // Save resume state for IPTV channel
 void Resume_saveIPTV(const char* url, const char* channel_name);

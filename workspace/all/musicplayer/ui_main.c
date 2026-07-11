@@ -262,25 +262,6 @@ static const ControlHelp podcast_playing_controls[] = {
 	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
-// YouTube menu controls (A/B shown in footer)
-static const ControlHelp youtube_menu_controls[] = {
-	{"Up/Down", "Navigate"},
-	{"Start (hold)", "Exit App"},
-	{NULL, NULL}};
-
-// YouTube results controls (A/B shown in footer)
-static const ControlHelp youtube_results_controls[] = {
-	{"Up/Down", "Navigate"},
-	{"B", "Back"},
-	{"Start (hold)", "Exit App"},
-	{NULL, NULL}};
-
-// YouTube queue controls (A/B/X shown in footer)
-static const ControlHelp youtube_queue_controls[] = {
-	{"Up/Down", "Navigate"},
-	{"Start (hold)", "Exit App"},
-	{NULL, NULL}};
-
 // Playlist list controls (A/B shown in footer)
 static const ControlHelp playlist_list_controls[] = {
 	{"Up/Down", "Navigate"},
@@ -377,18 +358,6 @@ void render_controls_help(SDL_Surface* screen, int app_state) {
 	case 37: // PODCAST_INTERNAL_PLAYING
 		controls = podcast_playing_controls;
 		page_title = "Podcast Player";
-		break;
-	case 16: // STATE_DOWNLOADER_MENU
-		controls = youtube_menu_controls;
-		page_title = "Downloader";
-		break;
-	case 18: // STATE_DOWNLOADER_RESULTS
-		controls = youtube_results_controls;
-		page_title = "Search Results";
-		break;
-	case 19: // STATE_DOWNLOADER_QUEUE
-		controls = youtube_queue_controls;
-		page_title = "Download Queue";
 		break;
 	case 23: // STATE_ABOUT
 		controls = about_controls;

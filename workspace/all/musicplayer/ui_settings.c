@@ -16,8 +16,7 @@
 #define SETTINGS_ITEM_SOFT_LIMITER 2
 #define SETTINGS_ITEM_CLEAR_CACHE 3
 #define SETTINGS_ITEM_CLEAR_LYRICS 4
-#define SETTINGS_ITEM_UPDATE_YTDLP 5
-#define SETTINGS_ITEM_COUNT 6
+#define SETTINGS_ITEM_COUNT 5
 
 // Format cache size as human-readable string
 static void format_cache_size(long bytes, char* buf, int buf_size) {
@@ -55,7 +54,6 @@ void render_settings_menu(SDL_Surface* screen, IndicatorType show_setting, int m
 		{.label = "Soft Limiter", .value = Settings_getSoftLimiterDisplayStr(), .swatch = -1, .cycleable = 1, .desc = "Limit volume peaks to prevent clipping"},
 		{.label = cache_label, .swatch = -1, .desc = "Delete cached album art images"},
 		{.label = lyrics_label, .swatch = -1, .desc = "Delete cached lyrics files"},
-		{.label = "Update yt-dlp", .swatch = -1, .desc = "Download the latest version of yt-dlp"},
 	};
 
 	static int scroll = 0;

@@ -54,16 +54,16 @@ OPUS_INCDIR = -I./include/libogg -I./include/libopus/include -I./include/opusfil
 OPUS_CFLAGS = -O2 -fomit-frame-pointer -DOPUS_BUILD -DVAR_ARRAYS -DHAVE_LRINTF \
               -DOP_DISABLE_HTTP -DOP_DISABLE_FLOAT_API -std=gnu99
 
-SOURCE = $(TARGET).c player.c playlist.c playlist_m3u.c radio.c radio_net.c album_art.c lyrics.c radio_hls.c radio_curated.c downloader.c \
+SOURCE = $(TARGET).c player.c playlist.c playlist_m3u.c radio.c radio_net.c album_art.c lyrics.c radio_hls.c radio_curated.c \
          podcast.c podcast_rss.c podcast_search.c http_download.c settings.c resume.c add_to_playlist.c background.c \
-         module_common.c module_menu.c module_library.c module_player.c module_playlist.c module_radio.c module_podcast.c module_downloader.c module_settings.c \
-         ui_icons.c ui_utils.c browser.c ui_album_art.c ui_main.c ui_music.c ui_radio.c ui_downloader.c ui_podcast.c ui_playlist.c ui_settings.c \
+         module_common.c module_menu.c module_library.c module_player.c module_playlist.c module_radio.c module_podcast.c module_settings.c \
+         ui_icons.c ui_utils.c browser.c ui_album_art.c ui_main.c ui_music.c ui_radio.c ui_podcast.c ui_playlist.c ui_settings.c \
          spectrum.c audio/kiss_fft.c audio/kiss_fftr.c \
          include/yxml/yxml.c \
          ../include/parson/parson.c \
          ../include/mbedtls_entropy_alt.c \
          $(MBEDTLS_SRC) \
-         ../common/utils.c ../common/api.c ../common/audio_manager.c ../common/config.c ../common/scaler.c ../common/display_helper.c ../common/wifi.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_toast.c $(UI_DIR)/ui_list.c $(UI_DIR)/ui_listdialog.c $(UI_DIR)/ui_keyboard.c ../common/ytdlp_updater.c ../common/wget_fetch.c \
+         ../common/utils.c ../common/api.c ../common/audio_manager.c ../common/config.c ../common/scaler.c ../common/display_helper.c ../common/wifi.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_toast.c $(UI_DIR)/ui_list.c $(UI_DIR)/ui_listdialog.c $(UI_DIR)/ui_keyboard.c ../common/wget_fetch.c \
          ../../$(PLATFORM)/platform/platform.c
 
 CC = $(CROSS_COMPILE)gcc

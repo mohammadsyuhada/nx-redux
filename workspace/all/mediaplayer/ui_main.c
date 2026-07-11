@@ -8,8 +8,8 @@
 #include "ui_controlshelp.h"
 #include "ui_toast.h"
 // Base menu items (always present)
-static const char* base_menu_items[] = {"Library", "YouTube", "Online TV", "Settings"};
-#define BASE_MENU_ITEM_COUNT 4
+static const char* base_menu_items[] = {"Library", "Online TV"};
+#define BASE_MENU_ITEM_COUNT 2
 
 // Render the main menu
 void render_menu(SDL_Surface* screen, IndicatorType show_setting, int menu_selected,
@@ -41,11 +41,6 @@ static const ControlHelp browser_controls[] = {
 	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
-// Settings/About controls
-static const ControlHelp settings_controls[] = {
-	{"Start (hold)", "Exit App"},
-	{NULL, NULL}};
-
 // IPTV user channel list controls
 static const ControlHelp iptv_list_controls[] = {
 	{"Up/Down", "Navigate"},
@@ -57,27 +52,6 @@ static const ControlHelp iptv_list_controls[] = {
 // IPTV curated browse controls
 static const ControlHelp iptv_curated_controls[] = {
 	{"Up/Down", "Navigate"},
-	{"Start (hold)", "Exit App"},
-	{NULL, NULL}};
-
-// YouTube search results controls
-static const ControlHelp youtube_results_controls[] = {
-	{"Left/Right", "Navigate"},
-	{"Up", "Channel Info"},
-	{"Y", "New Search"},
-	{"Start (hold)", "Exit App"},
-	{NULL, NULL}};
-
-// YouTube menu controls
-static const ControlHelp youtube_menu_controls[] = {
-	{"Up/Down", "Navigate"},
-	{"Start (hold)", "Exit App"},
-	{NULL, NULL}};
-
-// Subscriptions list controls
-static const ControlHelp subscriptions_controls[] = {
-	{"Up/Down", "Navigate"},
-	{"X", "Remove"},
 	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
@@ -104,10 +78,6 @@ void render_controls_help(SDL_Surface* screen, int app_state) {
 		controls = default_controls;
 		page_title = "Media Player";
 		break;
-	case STATE_SETTINGS:
-		controls = settings_controls;
-		page_title = "Settings";
-		break;
 	case STATE_IPTV_LIST:
 		controls = iptv_list_controls;
 		page_title = "IPTV";
@@ -116,18 +86,6 @@ void render_controls_help(SDL_Surface* screen, int app_state) {
 	case STATE_IPTV_CURATED_CHANNELS:
 		controls = iptv_curated_controls;
 		page_title = "Browse Channels";
-		break;
-	case STATE_YOUTUBE_RESULTS:
-		controls = youtube_results_controls;
-		page_title = "YouTube";
-		break;
-	case STATE_YOUTUBE_MENU:
-		controls = youtube_menu_controls;
-		page_title = "YouTube";
-		break;
-	case STATE_SUBSCRIPTIONS:
-		controls = subscriptions_controls;
-		page_title = "Subscriptions";
 		break;
 	default:
 		controls = default_controls;

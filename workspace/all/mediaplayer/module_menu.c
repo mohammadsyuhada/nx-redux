@@ -11,8 +11,8 @@
 static char menu_toast_message[128] = "";
 static uint32_t menu_toast_time = 0;
 
-// Menu items: Local, YouTube, IPTV, Settings
-#define MENU_ITEM_COUNT 4
+// Menu items: Local, IPTV
+#define MENU_ITEM_COUNT 2
 
 // Map visual index -> logical menu item
 static int get_menu_item_id(int visual_index) {
@@ -20,11 +20,7 @@ static int get_menu_item_id(int visual_index) {
 	case 0:
 		return MENU_LOCAL;
 	case 1:
-		return MENU_YOUTUBE;
-	case 2:
 		return MENU_IPTV;
-	case 3:
-		return MENU_SETTINGS;
 	default:
 		return MENU_LOCAL;
 	}

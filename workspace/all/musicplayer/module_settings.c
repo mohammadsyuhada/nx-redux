@@ -3,11 +3,8 @@
 #include "module_common.h"
 #include "module_settings.h"
 #include "settings.h"
-#include "downloader.h"
-#include "ytdlp_updater.h"
 #include "ui_confirmdialog.h"
 #include "ui_settings.h"
-#include "wifi.h"
 #include "album_art.h"
 #include "lyrics.h"
 #include <stdbool.h>
@@ -16,8 +13,7 @@
 typedef enum {
 	SETTINGS_STATE_MENU,
 	SETTINGS_STATE_CLEAR_CACHE_CONFIRM,
-	SETTINGS_STATE_CLEAR_LYRICS_CONFIRM,
-	SETTINGS_STATE_UPDATING_YTDLP
+	SETTINGS_STATE_CLEAR_LYRICS_CONFIRM
 } SettingsState;
 
 // Settings menu items
@@ -26,8 +22,7 @@ typedef enum {
 #define SETTINGS_ITEM_SOFT_LIMITER 2
 #define SETTINGS_ITEM_CLEAR_CACHE 3
 #define SETTINGS_ITEM_CLEAR_LYRICS 4
-#define SETTINGS_ITEM_UPDATE_YTDLP 5
-#define SETTINGS_ITEM_COUNT 6
+#define SETTINGS_ITEM_COUNT 5
 
 // Internal app state constants for controls help
 // These match the pattern used in ui_main.c
@@ -108,13 +103,6 @@ ModuleExitReason SettingsModule_run(SDL_Surface* screen) {
 					state = SETTINGS_STATE_CLEAR_LYRICS_CONFIRM;
 					dirty = 1;
 					break;
-				case SETTINGS_ITEM_UPDATE_YTDLP:
-					if (Downloader_init() == 0 && Wifi_ensureConnected(screen, show_setting)) {
-						YtdlpUpdater_startUpdate();
-						state = SETTINGS_STATE_UPDATING_YTDLP;
-					}
-					dirty = 1;
-					break;
 				}
 			}
 			// B button - back to main menu
@@ -146,23 +134,6 @@ ModuleExitReason SettingsModule_run(SDL_Surface* screen) {
 				dirty = 1;
 			}
 			break;
-
-		case SETTINGS_STATE_UPDATING_YTDLP: {
-			const YtdlpUpdateStatus* ytdlp_status = YtdlpUpdater_getUpdateStatus();
-
-			if (PAD_justPressed(BTN_B)) {
-				if (ytdlp_status->updating) {
-					YtdlpUpdater_cancelUpdate();
-				}
-				state = SETTINGS_STATE_MENU;
-			}
-
-			// Always repaint while on the updating screen
-			// (need to show final state: success, error, or already-up-to-date)
-			dirty = 1;
-
-			break;
-		}
 		}
 
 		// Handle power management
@@ -181,9 +152,6 @@ ModuleExitReason SettingsModule_run(SDL_Surface* screen) {
 			case SETTINGS_STATE_CLEAR_LYRICS_CONFIRM:
 				render_settings_menu(screen, show_setting, menu_selected);
 				UI_renderConfirmDialog(screen, "Clear lyrics cache?", NULL);
-				break;
-			case SETTINGS_STATE_UPDATING_YTDLP:
-				render_ytdlp_updating(screen, show_setting);
 				break;
 			}
 

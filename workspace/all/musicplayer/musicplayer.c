@@ -24,7 +24,6 @@
 #include "module_player.h"
 #include "module_radio.h"
 #include "module_podcast.h"
-#include "downloader.h"
 #include "module_settings.h"
 #include "settings.h"
 #include "resume.h"
@@ -93,8 +92,6 @@ int main(int argc, char* argv[]) {
 	// Initialize resume state
 	Resume_init();
 
-	// Initialize YouTube downloader (loads queue, auto-resumes pending downloads)
-	Downloader_init();
 
 	// Main application loop
 	while (!quit) {
@@ -166,7 +163,6 @@ cleanup:
 	GFX_flip(screen);
 
 	Background_stopAll();
-	Downloader_cleanup();
 	Settings_quit();
 	ModuleCommon_quit();
 	Player_quit();

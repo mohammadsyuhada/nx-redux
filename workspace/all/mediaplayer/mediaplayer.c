@@ -15,18 +15,12 @@
 #include "module_common.h"
 #include "module_menu.h"
 #include "module_player.h"
-#include "module_youtube.h"
 #include "module_iptv.h"
-#include "module_settings.h"
 #include "display_helper.h"
 #include "ffplay_engine.h"
 #include "settings.h"
-#include "ytdlp_updater.h"
-#include "youtube.h"
-#include "subscriptions.h"
 #include "iptv.h"
 #include "iptv_curated.h"
-#include "ui_keyboard.h"
 
 // Global quit flag
 static bool quit = false;
@@ -102,16 +96,6 @@ int main(int argc, char* argv[]) {
 	// Initialize app-specific settings
 	Settings_init();
 
-	// Initialize yt-dlp updater
-	YtdlpUpdater_init();
-
-	// Initialize YouTube module
-	YouTube_init();
-	UIKeyboard_init();
-
-	// Initialize subscriptions (loads from disk)
-	Subscriptions_init();
-
 	// Initialize IPTV (loads playlists + cached channels)
 	IPTV_init();
 	IPTV_curated_init();
@@ -133,14 +117,8 @@ int main(int argc, char* argv[]) {
 		case MENU_LOCAL:
 			reason = PlayerModule_run(screen);
 			break;
-		case MENU_YOUTUBE:
-			reason = YouTubeModule_run(screen);
-			break;
 		case MENU_IPTV:
 			reason = IPTVModule_run(screen);
-			break;
-		case MENU_SETTINGS:
-			reason = SettingsModule_run(screen);
 			break;
 		}
 
@@ -161,9 +139,6 @@ int main(int argc, char* argv[]) {
 
 	IPTV_curated_cleanup();
 	IPTV_cleanup();
-	Subscriptions_cleanup();
-	YouTube_cleanup();
-	YtdlpUpdater_cleanup();
 	Settings_quit();
 	ModuleCommon_quit();
 	Icons_quit();
