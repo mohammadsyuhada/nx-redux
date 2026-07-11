@@ -1,0 +1,28 @@
+diff --git a/src/def.h b/src/def.h
+index 144ca1d..f1c5d42 100644
+--- a/src/def.h
++++ b/src/def.h
+@@ -37,17 +37,17 @@
+ #define DIALOG_PADDING 8
+ 
+ // Colors
+-#define COLOR_TITLE_BG 29, 30, 37
++#define COLOR_TITLE_BG 16, 16, 16
+ #define COLOR_KEY 255, 0, 255
+ #define COLOR_TEXT_NORMAL 255, 255, 255
+ #define COLOR_TEXT_TITLE 255, 255, 255
+ #define COLOR_TEXT_DIR 255, 255, 255
+ #define COLOR_TEXT_SELECTED 154, 247, 145
+-#define COLOR_CURSOR_1 145, 96, 253
+-#define COLOR_CURSOR_2 79, 61, 130
+-#define COLOR_BG_1 36, 38, 48
+-#define COLOR_BG_2 44, 46, 58
+-#define COLOR_BORDER 29, 30, 37
++#define COLOR_CURSOR_1 0, 34, 34
++#define COLOR_CURSOR_2 0, 17, 17
++#define COLOR_BG_1 0, 0, 0
++#define COLOR_BG_2 12, 12, 12
++#define COLOR_BORDER 16, 16, 16
+ #define COLOR_BORDER_ERROR 128, 55, 55
+ 
+ #endif // _DEF_H_

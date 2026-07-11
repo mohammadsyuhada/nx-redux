@@ -257,6 +257,7 @@ static const ControlHelp podcast_episodes_controls[] = {
 static const ControlHelp podcast_playing_controls[] = {
 	{"Left", "Rewind 10s"},
 	{"Right", "Forward 30s"},
+	{"Up/Down", "Playback Speed"},
 	{"Select", "Screen Off"},
 	{"Select + A", "Wake Screen"},
 	{"Start (hold)", "Exit App"},
