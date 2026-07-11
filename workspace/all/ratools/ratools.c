@@ -400,7 +400,7 @@ static void render_main_screen(SDL_Surface* screen, int selected) {
 	int list_top = render_main_header(screen);
 	render_main_list(screen, list_top, selected);
 
-	UI_renderButtonHintBar(screen, (char*[]){"A", "OPEN", "B", "EXIT", NULL});
+	UI_renderButtonHintBar(screen, (char*[]){"B", "EXIT", "A", "OPEN", NULL});
 }
 
 // Run the settings_menu framework for ra_settings_page only, then return to

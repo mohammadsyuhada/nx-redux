@@ -422,6 +422,16 @@ void play_activity_stop_all(void) {
 		"DELETE FROM play_activity WHERE play_time < 0;");
 }
 
+void play_activity_delete(int rom_id) {
+	//LOG_info("\n:: play_activity_delete(%d)\n", rom_id);
+	char* sql = sqlite3_mprintf(
+		"DELETE FROM play_activity WHERE rom_id = %d;"
+		"DELETE FROM rom WHERE id = %d;",
+		rom_id, rom_id);
+	play_activity_db_execute(sql);
+	sqlite3_free(sql);
+}
+
 void play_activity_list_all(void) {
 	//LOG_info("\n:: play_activity_list_all()");
 	int total_play_time = play_activity_get_total_play_time();

@@ -6,6 +6,7 @@
 #include "defines.h"
 #include "api.h"
 #include "ui_buttonhintbar.h"
+#include "ui_confirmdialog.h"
 #include "ui_emptystate.h"
 #include "ui_menubar.h"
 #include "ui_splash.h"
@@ -244,18 +245,19 @@ void renderList(int count, int start, int end, int selected) {
 
 		serializeTime(total, entry->play_time_total);
 		serializeTime(average, entry->play_time_average);
-		snprintf(plays, 24, "%d", entry->play_count);
+		snprintf(plays, sizeof(plays), "%d", entry->play_count);
 
-		const char* details[] = {"TOTAL ", total, "  AVERAGE ", average, "  # PLAYS ", plays};
+		// values first in the accent color, lowercase labels in muted gray
+		const char* details[] = {total, " total  ·  ", average, " avg  ·  ", plays, entry->play_count == 1 ? " play" : " plays"};
 		SDL_Rect detailsRect = {
 			layout.list_display_start_x + num_width + thumbMargin + SCALE1(IMG_MAX_WIDTH),
 			layout.list_display_start_y + thumbMargin / 2 + textHeight + elemHeight * row,
 			layout.list_display_size_x,
 			textHeight};
+		// accent only reads well on the selected white pill; use light gray on dark rows
+		SDL_Color valueCol = isSelected ? colorFromUint(THEME_COLOR2_255) : COLOR_LIGHT_TEXT;
 		for (int i = 0; i < 6; i++) {
-			SDL_Color detailCol = i % 2 == 0 ? COLOR_DARK_TEXT : colorFromUint(THEME_COLOR2_255);
-			//SDL_Color detailCol = colorFromUint(i % 2 == 0 ? THEME_COLOR3_255 : THEME_COLOR2_255);
-			//SDL_Color detailCol = i % 2 == 0 ? COLOR_DARK_TEXT : COLOR_LIGHT_TEXT;
+			SDL_Color detailCol = i % 2 == 0 ? valueCol : COLOR_DARK_TEXT;
 			detailsRect.x += renderText(details[i], font.small, detailCol, &detailsRect);
 		}
 	}
@@ -318,78 +320,76 @@ int main(int argc, char* argv[]) {
 
 	int count = play_activities->count;
 
-	if (count == 0) {
-		bool dirty = true;
-		IndicatorType show_setting = INDICATOR_NONE;
-		while (!app_quit) {
-			GFX_startFrame();
-			PAD_poll();
-
-			if (PAD_justPressed(BTN_B)) {
-				app_quit = true;
-			}
-
-			PWR_update(&dirty, &show_setting, NULL, NULL);
-
-			if (dirty) {
-				GFX_clear(screen);
-				UI_renderMenuBar(screen, "Game Time");
-				UI_renderEmptyState(screen, "No play activity", "Play some games to track your time", NULL);
-				GFX_flip(screen);
-				dirty = false;
-			} else
-				GFX_sync();
-		}
-
-		free_play_activities(play_activities);
-
-		QuitSettings();
-		PWR_quit();
-		PAD_quit();
-		GFX_quit();
-
-		return EXIT_SUCCESS;
-	}
-
 	initLayout();
 	preloadRomImages();
 	int selected = 0;
 	int start = 0;
 	int end = MIN(count, layout.items_per_page);
-	int visible_rows = end;
 
+	bool confirm_delete = false;
 	bool dirty = true;
 	IndicatorType show_setting = INDICATOR_NONE;
 	while (!app_quit) {
 		GFX_startFrame();
 		PAD_poll();
 
-		if (PAD_justRepeated(BTN_UP)) {
-			selected -= 1;
-			if (selected < 0) {
-				selected = count - 1;
-				start = MAX(0, count - layout.items_per_page);
-				end = count;
-			} else if (selected < start) {
-				start -= 1;
-				end -= 1;
+		if (confirm_delete) {
+			if (PAD_justPressed(BTN_A)) {
+				play_activity_delete(play_activities->play_activity[selected]->rom->id);
+
+				// reload the list; free images before the activities they index
+				freeRomImages();
+				free_play_activities(play_activities);
+				play_activities = play_activity_find_all();
+				count = play_activities->count;
+				preloadRomImages();
+				initLayout();
+
+				if (selected >= count)
+					selected = MAX(0, count - 1);
+				start = MIN(start, MAX(0, count - layout.items_per_page));
+				if (selected < start)
+					start = selected;
+				end = MIN(count, start + layout.items_per_page);
+
+				confirm_delete = false;
+				dirty = true;
+			} else if (PAD_justPressed(BTN_B)) {
+				confirm_delete = false;
+				dirty = true;
 			}
-			dirty = true;
-		} else if (PAD_justRepeated(BTN_DOWN)) {
-			selected += 1;
-			if (selected >= count) {
-				selected = 0;
-				start = 0;
-				end = visible_rows;
-			} else if (selected >= end) {
-				start += 1;
-				end += 1;
+		} else if (count > 0) {
+			if (PAD_justRepeated(BTN_UP)) {
+				selected -= 1;
+				if (selected < 0) {
+					selected = count - 1;
+					start = MAX(0, count - layout.items_per_page);
+					end = count;
+				} else if (selected < start) {
+					start -= 1;
+					end -= 1;
+				}
+				dirty = true;
+			} else if (PAD_justRepeated(BTN_DOWN)) {
+				selected += 1;
+				if (selected >= count) {
+					selected = 0;
+					start = 0;
+					end = MIN(count, layout.items_per_page);
+				} else if (selected >= end) {
+					start += 1;
+					end += 1;
+				}
+				dirty = true;
+			} else if (PAD_justPressed(BTN_X)) {
+				confirm_delete = true;
+				dirty = true;
+			} else if (PAD_justPressed(BTN_B)) {
+				app_quit = true;
 			}
-			dirty = true;
 		} else if (PAD_justPressed(BTN_B)) {
 			app_quit = true;
 		}
-
 
 		PWR_update(&dirty, &show_setting, NULL, NULL);
 
@@ -399,17 +399,26 @@ int main(int argc, char* argv[]) {
 		if (dirty) {
 			GFX_clear(screen);
 
-			{
+			if (count == 0) {
+				UI_renderMenuBar(screen, "Game Time");
+				UI_renderEmptyState(screen, "No play activity", "Play some games to track your time", NULL);
+			} else {
 				char play_time_total_formatted[255];
 				serializeTime(play_time_total_formatted, play_activities->play_time_total);
 				char title[256];
 				snprintf(title, sizeof(title), "Game Time: %s", play_time_total_formatted);
 				UI_renderMenuBar(screen, title);
+
+				renderList(count, start, end, selected);
+
+				UI_renderButtonHintBar(screen, (char*[]){"B", "EXIT", "X", "DELETE", NULL});
+
+				if (confirm_delete) {
+					char rom_name[255];
+					cleanName(rom_name, play_activities->play_activity[selected]->rom->name);
+					UI_renderConfirmDialog(screen, "Delete Record?", rom_name);
+				}
 			}
-
-			renderList(count, start, end, selected);
-
-			UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "U/D", "SCROLL", NULL});
 
 			GFX_flip(screen);
 			dirty = false;

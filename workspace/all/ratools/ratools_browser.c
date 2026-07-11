@@ -392,7 +392,7 @@ static void rat_show_achievements(SDL_Surface* screen, const RAT_Game* game) {
 										list_top + rows_visible * row_h + SCALE1(4));
 			}
 
-			UI_renderButtonHintBar(screen, (char*[]){"A", "DETAILS", "B", "BACK", NULL});
+			UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "DETAILS", NULL});
 			GFX_flip(screen);
 			dirty = false;
 		} else {
@@ -505,7 +505,7 @@ void RATBrowser_run(SDL_Surface* screen) {
 								"No cached games. Play online once or run Download all game data.",
 								font.small, col_sub, SCALE1(20), list_top);
 
-			UI_renderButtonHintBar(screen, (char*[]){"A", "OPEN", "B", "BACK", NULL});
+			UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "OPEN", NULL});
 			GFX_flip(screen);
 			dirty = false;
 		} else {

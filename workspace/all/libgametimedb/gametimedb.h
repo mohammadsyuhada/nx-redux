@@ -39,6 +39,7 @@ void play_activity_start(char* rom_file_path);
 void play_activity_resume(void);
 void play_activity_stop(char* rom_file_path);
 void play_activity_stop_all(void);
+void play_activity_delete(int rom_id);
 void play_activity_list_all(void);
 
 #endif // __gametime_db_h__

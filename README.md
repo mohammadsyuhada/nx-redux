@@ -51,6 +51,8 @@ Improvements:
 - All standalone emulators now support save states with screenshots.
 - Added sleep by pressing power button support for all standalone emulator and Portmaster games. 
 - Added top and bottom scroll indicators to the all menu list.
+- Redesigned the `Game Tracker` tool with a cleaner play-stats list (total · average · play count per game).
+    - Any game's play record can now be deleted (press `X`, with a confirmation dialog). The record starts fresh the next time the game is played.
 
 New Features:
 - Redesigned UI with consistent styling across the system.
