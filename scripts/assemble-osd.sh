@@ -1,0 +1,59 @@
+#!/bin/sh
+# Assemble one device's OSD tree from the layered source in skeleton/SYSTEM/osd.
+#
+# Layers compose by last-wins recursive copy:
+#   common/          device-agnostic (widgets, icons, progress art, key.wav)
+#   res/<WxH>/       anything with a pixel coordinate baked in (block*.png,
+#                    show_*.sh toast scripts)
+#   device/<dev>/    trimui_osdd, osdlayout.json, bg.png, plus any override
+#
+# The output shape is dictated by what each platform's launch.sh reads and must
+# not be changed without changing launch.sh:
+#   tg5040   layered  osd/ (common) + osd-$DEVICE/ (res + device)
+#   tg5050   flat     osd/ (common + res + device)
+#
+# usage: assemble-osd.sh <device> <platform> <osd_res> <dest_system_dir> [src_root]
+set -e
+
+DEVICE="$1"
+PLATFORM="$2"
+OSD_RES="$3"
+DEST="$4"
+SRC="${5:-skeleton/SYSTEM/osd}"
+
+if [ -z "$DEVICE" ] || [ -z "$PLATFORM" ] || [ -z "$OSD_RES" ] || [ -z "$DEST" ]; then
+	echo "usage: $0 <device> <platform> <osd_res> <dest_system_dir> [src_root]" >&2
+	exit 1
+fi
+
+for layer in "$SRC/common" "$SRC/res/$OSD_RES" "$SRC/device/$DEVICE"; do
+	if [ ! -d "$layer" ]; then
+		echo "assemble-osd: missing layer $layer" >&2
+		exit 1
+	fi
+done
+
+shared_out="$DEST/$PLATFORM/osd"
+if [ "$PLATFORM" = "tg5050" ]; then
+	model_out="$shared_out"
+else
+	model_out="$DEST/$PLATFORM/osd-$DEVICE"
+fi
+mkdir -p "$shared_out" "$model_out"
+
+cp -R "$SRC/common/."         "$shared_out/"
+cp -R "$SRC/res/$OSD_RES/."   "$model_out/"
+cp -R "$SRC/device/$DEVICE/." "$model_out/"
+
+# Fail loudly rather than shipping a silently dead OSD: a botched layer copy
+# otherwise only surfaces on hardware, as an OSD that never opens.
+for required in trimui_osdd osdlayout.json bg.png block1x1.png show_default_msg.sh; do
+	if [ ! -f "$model_out/$required" ]; then
+		echo "assemble-osd: $DEVICE tree is missing $required" >&2
+		exit 1
+	fi
+done
+if [ ! -d "$shared_out/widgets" ]; then
+	echo "assemble-osd: $DEVICE tree is missing widgets/" >&2
+	exit 1
+fi

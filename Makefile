@@ -3,10 +3,13 @@
 # NOTE: this runs on the host system (eg. macOS) not in a docker image
 # it has to, otherwise we'd be running a docker in a docker and oof
 
-# prevent accidentally triggering a full build with invalid calls
-ifneq (,$(PLATFORM))
+# prevent accidentally triggering a full build with invalid calls.
+# DEVICE is included because `deploy` is the default goal: without it,
+# `make DEVICE=brick` with no target runs a full build and pushes to a
+# connected device.
+ifneq (,$(PLATFORM)$(DEVICE))
 ifeq (,$(MAKECMDGOALS))
-$(error found PLATFORM arg but no target, did you mean "make PLATFORM=$(PLATFORM) shell"?)
+$(error found PLATFORM/DEVICE arg but no target, did you mean "make deploy DEVICE=$(DEVICE)" or "make PLATFORM=$(PLATFORM) shell"?)
 endif
 endif
 
@@ -15,9 +18,10 @@ ifeq (,$(PLATFORMS))
 PLATFORMS = tg5040 tg5050
 endif
 
-# Device variants: device=platform,overlay_res,bg_res
-# Each device produces a separate release zip
-DEVICES = brick=tg5040,768p,1024 brickpro=tg5040,768p,1024 smartpro=tg5040,720p,1280 smartpros=tg5050,720p,1280
+# Device variants: device=platform,overlay_res,bg_res,osd_res
+# Each device produces a separate release zip. osd_res is spelled out rather
+# than derived from bg_res so the OSD layer a device gets is readable here.
+DEVICES = brick=tg5040,768p,1024,1024x768 brickpro=tg5040,768p,1024,1024x768 smartpro=tg5040,720p,1280,1280x720 smartpros=tg5050,720p,1280,1280x720
 
 # Pinned upstream commits — update these when upgrading to a new version
 DRASTIC_REPO=https://github.com/trngaje/advanced_drastic
@@ -52,12 +56,31 @@ PACKAGE_URL_MAPPINGS := \
 
 export MAKEFLAGS=--no-print-directory
 
-ifndef PLATFORM
+ifeq (,$(PLATFORM)$(DEVICE))
 deploy:
-	$(error PLATFORM is required for deploy (e.g. make deploy PLATFORM=tg5040))
+	$(error DEVICE or PLATFORM is required for deploy (e.g. make deploy DEVICE=brickpro))
 else
+# Payloads are per-device, not per-platform: a tg5040 zip built for smartpro
+# carries only osd-smartpro, so pushing it to a Brick Pro would leave that
+# device without an OSD overlay. DEVICE= names the payload directly; PLATFORM=
+# resolves to that platform's first entry in DEVICES and says which it picked.
 deploy: setup $(PLATFORMS) special package
-	adb push ./build/BASE/MinUI-$(PLATFORM).zip /mnt/SDCARD/MinUI.zip && adb shell reboot
+	@dev="$(DEVICE)"; \
+	if [ -n "$$dev" ] && [ -n "$(PLATFORM)" ]; then \
+		echo "DEVICE=$$dev overrides PLATFORM=$(PLATFORM) (ignoring PLATFORM)"; \
+	fi; \
+	if [ -z "$$dev" ]; then \
+		for entry in $(DEVICES); do \
+			d=$$(echo $$entry | cut -d= -f1); \
+			p=$$(echo $$entry | cut -d= -f2 | cut -d, -f1); \
+			if [ "$$p" = "$(PLATFORM)" ]; then dev=$$d; break; fi; \
+		done; \
+		if [ -z "$$dev" ]; then echo "no device in DEVICES for PLATFORM=$(PLATFORM)" >&2; exit 1; fi; \
+		echo "PLATFORM=$(PLATFORM) -> deploying '$$dev' (pass DEVICE= to choose another)"; \
+	fi; \
+	zip=./build/BASE/MinUI-$$dev.zip; \
+	if [ ! -f "$$zip" ]; then echo "missing $$zip (unknown DEVICE '$$dev'?)" >&2; exit 1; fi; \
+	adb push "$$zip" /mnt/SDCARD/MinUI.zip && adb shell reboot
 endif
 
 all: setup $(PLATFORMS) special package done
@@ -273,6 +296,10 @@ setup: name
 	rm -rf ./build
 	mkdir -p ./releases
 	cp -R ./skeleton ./build
+	# skeleton/SYSTEM/osd is layered OSD *source*, assembled per-device at
+	# package time by scripts/assemble-osd.sh. It is never shipped verbatim,
+	# so keep build/ a faithful picture of what ships.
+	rm -rf ./build/SYSTEM/osd
 
 	# Fetch advanced drastic emulator (pinned to $(DRASTIC_COMMIT))
 	@echo "Fetching advanced drastic..."
@@ -349,15 +376,16 @@ package: tidy
 	-mv $(VENDOR_DEST)/* ./build/BASE/ 2>/dev/null; true
 
 	# --- Per-device packaging ---
-	# DEVICES format: device=platform,overlay_res,bg_res
+	# DEVICES format: device=platform,overlay_res,bg_res,osd_res
 	@for dev_entry in $(DEVICES); do \
 		dev=$$(echo $$dev_entry | cut -d= -f1); \
 		dev_config=$$(echo $$dev_entry | cut -d= -f2); \
 		plat=$$(echo $$dev_config | cut -d, -f1); \
 		overlay_res=$$(echo $$dev_config | cut -d, -f2); \
 		bg_res=$$(echo $$dev_config | cut -d, -f3); \
+		osd_res=$$(echo $$dev_config | cut -d, -f4); \
 		\
-		echo "# ===== Packaging $$dev (platform=$$plat, overlays=$$overlay_res, bg=$$bg_res) ====="; \
+		echo "# ===== Packaging $$dev (platform=$$plat, overlays=$$overlay_res, bg=$$bg_res, osd=$$osd_res) ====="; \
 		rm -rf ./build/PAYLOAD-$$dev; \
 		mkdir -p ./build/PAYLOAD-$$dev/.system; \
 		\
@@ -368,6 +396,9 @@ package: tidy
 		cp ./build/SYSTEM/version.txt ./build/PAYLOAD-$$dev/.system/version.txt; \
 		cp ./build/SYSTEM/commits.txt ./build/PAYLOAD-$$dev/.system/commits.txt; \
 		\
+		echo "  assembling OSD ($$osd_res)"; \
+		./scripts/assemble-osd.sh $$dev $$plat $$osd_res ./build/PAYLOAD-$$dev/.system || exit 1; \
+		\
 		echo "  assembling .tmp_update"; \
 		cp -R ./build/BOOT/.tmp_update ./build/PAYLOAD-$$dev/.tmp_update; \
 		\
@@ -377,7 +408,7 @@ package: tidy
 		\
 		echo "  creating MinUI.zip"; \
 		cd ./build/PAYLOAD-$$dev && zip -r MinUI.zip .system .tmp_update Tools && cd ../..; \
-		cp ./build/PAYLOAD-$$dev/MinUI.zip ./build/BASE/MinUI-$$plat.zip; \
+		cp ./build/PAYLOAD-$$dev/MinUI.zip ./build/BASE/MinUI-$$dev.zip; \
 		\
 		echo "  resolving overlays for $$dev ($$overlay_res)"; \
 		for overlay_root in ./build/BASE/Overlays ./build/EXTRAS/Overlays; do \

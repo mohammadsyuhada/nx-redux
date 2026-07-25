@@ -31,29 +31,38 @@ The binary is model-specific: the Brick, Brick Pro and Smart Pro firmwares each
 ship a different `trimui_osdd` build, and they are not interchangeable. The main
 OSD assets are also resolution-locked (`bg.png` and the `block*.png` tiles:
 1024×768/124px grid on Brick and Brick Pro vs 1280×720/120px grid on Smart Pro).
-On tg5040 the skeleton therefore splits the tree: `osd/` holds everything shared
-(widgets, icons, `key.wav`) and `osd-brick/` / `osd-brickpro/` / `osd-smartpro/`
-hold the model-specific pieces: the daemon binary, the resolution-locked PNGs,
-`osdlayout.json` (Smart Pro's is the tg5050 layout minus the fan widget), and the
-`show_*_msg.sh` toast scripts (x/y coordinates tuned per resolution — Smart Pro
-uses the tg5050 values). At boot `launch.sh` copies `osd/` then
-overlays `osd-$DEVICE/` on top, gated by a content-hash stamp
-(`/usr/trimui/osd/.nx_osd_stamp`) so the rootfs is only written when the SD
-tree actually changed. If no overlay exists for the running model, the sync is
-skipped entirely and the firmware's own `/usr/trimui/osd` is left alone — a
-partial tree (shared widgets, no daemon, no `bg.png`) would leave the OSD dead
-rather than merely un-themed.
+
+The skeleton therefore keeps one layered source tree at `skeleton/SYSTEM/osd/`
+rather than a copy per device:
+
+| Layer | Holds |
+|---|---|
+| `common/` | What every device shares — widgets, icons, progress art, `key.wav` |
+| `res/<WxH>/` | Anything with a pixel coordinate baked in — `block*.png`, and the `show_*.sh` toast scripts, which differ only in their baked-in coordinates (13 of 14 in `"x"` alone, e.g. 650 vs 850; `show_volume_msg.sh` in both `"x"` and `"y"`) |
+| `device/<dev>/` | `trimui_osdd`, `osdlayout.json`, `bg.png`, plus any file that device overrides |
+
+`scripts/assemble-osd.sh` composes those layers during `make package` into the
+shape each platform's `launch.sh` reads: tg5040 gets `osd/` (common) plus
+`osd-$DEVICE/` (res + device), tg5050 gets a single flat `osd/`. Each device zip
+carries only its own assets.
+
+At boot `launch.sh` copies `osd/` and then, on tg5040, overlays `osd-$DEVICE/`,
+gated by a content-hash stamp (`/usr/trimui/osd/.nx_osd_stamp`) so the rootfs is
+only written when the SD tree actually changed. If no overlay exists for the
+running model, the sync is skipped entirely and the firmware's own
+`/usr/trimui/osd` is left alone — a partial tree (shared widgets, no daemon, no
+`bg.png`) would leave the OSD dead rather than merely un-themed.
 
 The Smart Pro binary and assets were extracted from
 `sd_recovery_tg5040_smartpro_ver1.1.1_20251128.img` (stock rootfs, ext4 at
 sector 126478). The Brick Pro's came from
 `sd_recovery_tg4040_brickpro_ver1.1.1_20260717.img` (ext4 at sector 126432 —
 the image holds three 540 MB ext4 filesystems; only the first has a populated
-`/usr/trimui`). Only three files actually differ from `osd-brick/`:
-`trimui_osdd`, `bg.png` and `osdlayout.json`; the block tiles and every toast
-script are byte-identical between the two 1024×768 models. Brick Pro's stock
-layout includes the battery widget, so `osd-brickpro/osdlayout.json` keeps it
-(the widget itself lives in the shared `osd/widgets/static_battery`, and is
+`/usr/trimui`). Only three files actually differ between the two 1024×768
+models: `trimui_osdd`, `bg.png` and `osdlayout.json`; the block tiles and every toast
+script are byte-identical. Brick Pro's stock
+layout includes the battery widget, so `device/brickpro/osdlayout.json` keeps it
+(the widget itself lives in the shared `common/widgets/static_battery`, and is
 simply not referenced by the Brick or Smart Pro layouts). Extraction recipe,
 run from a Linux container since macOS cannot mount ext4:
 
@@ -216,16 +225,16 @@ The script names come from `config.json` — toggles use `update.sh`, the static
 widgets (temperature, CPU clock) use `refresh.sh`. The daemon reads the widget's
 current value from the `status` file path in `config.json`.
 
-Both platforms vendor the **complete OSD tree** on the SD card
-(`skeleton/SYSTEM/<platform>/osd/`) — daemon binary, UI assets, toast scripts,
-and every widget (stock and custom). At boot, `launch.sh` copies the whole
-tree (~1MB) over `/usr/trimui/osd/`, making the SD card the source of truth
-regardless of firmware version. `regular.ttf` (16MB CJK font) is deliberately
-not shipped — the firmware's copy is used, since files are only overwritten,
-never deleted. `trimui_osdd` has `/usr/trimui/osd/` hardcoded in the
-closed-source binary, so it can't read from the SD card directly — the
-boot-time copy is the only way to control it. The two platforms' daemon
-builds differ (different md5), so each skeleton carries its own.
+Both platforms vendor the **complete OSD tree** on the SD card — daemon binary,
+UI assets, toast scripts, and every widget (stock and custom) — assembled per
+device from `skeleton/SYSTEM/osd/` at package time. At boot, `launch.sh` copies
+the whole tree (~1MB) over `/usr/trimui/osd/`, making the SD card the source of
+truth regardless of firmware version. `regular.ttf` (16MB CJK font) is
+deliberately not shipped — the firmware's copy is used, since files are only
+overwritten, never deleted. `trimui_osdd` has `/usr/trimui/osd/` hardcoded in
+the closed-source binary, so it can't read from the SD card directly — the
+boot-time copy is the only way to control it. Every model's daemon build differs
+(different md5), so each lives in its own `device/<dev>/` layer.
 
 Activating screenshot, screen record, or power auto-hides the OSD panel
 (`touch /tmp/hide_osdd`) so the user lands back on the app; toasts still

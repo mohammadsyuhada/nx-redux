@@ -15,12 +15,12 @@ The root `makefile` runs on the **host** (macOS/Linux), not inside Docker, and p
 
 `make all` builds both device platforms by default (`PLATFORMS = tg5040 tg5050`) and packages one release zip **per device variant** into `releases/`:
 
-| Zip suffix   | Platform | Overlays / bg |
-|--------------|----------|---------------|
-| `-brick`     | tg5040   | 768p / 1024   |
-| `-brickpro`  | tg5040   | 768p / 1024   |
-| `-smartpro`  | tg5040   | 720p / 1280   |
-| `-smartpros` | tg5050   | 720p / 1280   |
+| Zip suffix   | Platform | Overlays / bg | OSD        |
+|--------------|----------|---------------|------------|
+| `-brick`     | tg5040   | 768p / 1024   | 1024x768   |
+| `-brickpro`  | tg5040   | 768p / 1024   | 1024x768   |
+| `-smartpro`  | tg5040   | 720p / 1280   | 1280x720   |
+| `-smartpros` | tg5050   | 720p / 1280   | 1280x720   |
 
 **Host requirements for device builds:** Docker and `adb`. On the first build for a platform, its toolchain repo is cloned into `toolchains/` and the Docker image is pulled automatically. Apple Silicon / arm64 hosts are the least painful for the Docker toolchain; x86_64 hosts have historically hit cross-architecture dependency issues.
 
@@ -107,13 +107,23 @@ make all COMPILE_CORES=true
 
 Output archives land in `releases/`, one per device variant (see the table above).
 
-Build, package, push to a connected device, and reboot in one step. `PLATFORM` is **required** (the build errors without it):
+Build, package, push to a connected device, and reboot in one step. Payloads are
+per-device, so name the device:
 
 ```bash
-make deploy PLATFORM=tg5040   # or PLATFORM=tg5050
+make deploy DEVICE=brickpro   # brick | brickpro | smartpro | smartpros
 ```
 
-`make deploy` pushes `build/BASE/MinUI-<platform>.zip` to `/mnt/SDCARD/MinUI.zip` and reboots — a full OTA-style update of the base UI.
+`PLATFORM=` still works and resolves to that platform's first device, printing
+which one it picked:
+
+```bash
+make deploy PLATFORM=tg5040   # -> deploys 'brick'
+```
+
+`make deploy` pushes `build/BASE/MinUI-<device>.zip` to `/mnt/SDCARD/MinUI.zip`
+and reboots — a full OTA-style update of the base UI. Pushing the wrong device's
+zip leaves that unit without an OSD overlay, since each zip carries only its own.
 
 ## Quick Build (Device - Docker)
 
