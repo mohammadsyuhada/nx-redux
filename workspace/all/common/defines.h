@@ -179,6 +179,20 @@ enum {
 #define JOY_HOME JOY_NA
 #endif
 
+// L4/R4 are Brick Pro only (its FN1/FN2 keys); every other device leaves them unset
+#ifndef BUTTON_L4
+#define BUTTON_L4 BUTTON_NA
+#define BUTTON_R4 BUTTON_NA
+#endif
+#ifndef CODE_L4
+#define CODE_L4 CODE_NA
+#define CODE_R4 CODE_NA
+#endif
+#ifndef JOY_L4
+#define JOY_L4 JOY_NA
+#define JOY_R4 JOY_NA
+#endif
+
 #ifndef AXIS_L2
 #define AXIS_L2 AXIS_NA
 #define AXIS_R2 AXIS_NA
@@ -222,6 +236,10 @@ enum {
 	BTN_ID_R2,
 	BTN_ID_L3,
 	BTN_ID_R3,
+	// NOTE: L4/R4 must stay inside the first LOCAL_BUTTON_COUNT ids (i.e. before
+	// BTN_ID_MENU) — minarch's bind capture only scans that contiguous range.
+	BTN_ID_L4,
+	BTN_ID_R4,
 	BTN_ID_MENU,
 	BTN_ID_PLUS,
 	BTN_ID_MINUS,
@@ -255,6 +273,8 @@ enum {
 	BTN_R2 = 1 << BTN_ID_R2,
 	BTN_L3 = 1 << BTN_ID_L3,
 	BTN_R3 = 1 << BTN_ID_R3,
+	BTN_L4 = 1 << BTN_ID_L4,
+	BTN_R4 = 1 << BTN_ID_R4,
 	BTN_MENU = 1 << BTN_ID_MENU,
 	BTN_PLUS = 1 << BTN_ID_PLUS,
 	BTN_MINUS = 1 << BTN_ID_MINUS,

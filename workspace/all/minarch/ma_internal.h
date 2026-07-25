@@ -154,7 +154,9 @@ extern SDL_Thread* screenshotsavethread;
    Input / shortcut / options enums and types
    ----------------------------------------------------------------------- */
 
-#define LOCAL_BUTTON_COUNT 16 // depends on device
+// NOTE: must match the number of BTN_ID_* entries up to (but excluding) BTN_ID_MENU,
+// and the L1..R4 span of button_labels[] in ma_config.c
+#define LOCAL_BUTTON_COUNT 18 // depends on device
 #define RETRO_BUTTON_COUNT 16 // allow L3/R3 to be remapped by user if desired, eg. Virtual Boy uses extra buttons for right d-pad
 
 typedef struct ButtonMapping {

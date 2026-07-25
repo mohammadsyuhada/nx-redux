@@ -9,7 +9,7 @@ The root `makefile` runs on the **host** (macOS/Linux), not inside Docker, and p
 
 | Platform  | Device(s)                | Toolchain                                   |
 |-----------|--------------------------|---------------------------------------------|
-| `tg5040`  | Trimui Smart Pro / Brick | `ghcr.io/loveretro/tg5040-toolchain:latest` |
+| `tg5040`  | Trimui Smart Pro / Brick / Brick Pro | `ghcr.io/loveretro/tg5040-toolchain:latest` |
 | `tg5050`  | Trimui Smart Pro S       | `ghcr.io/loveretro/tg5050-toolchain:latest` |
 | `desktop` | Native host debug build  | Homebrew GCC + SDL (see Desktop Setup below) |
 
@@ -18,6 +18,7 @@ The root `makefile` runs on the **host** (macOS/Linux), not inside Docker, and p
 | Zip suffix   | Platform | Overlays / bg |
 |--------------|----------|---------------|
 | `-brick`     | tg5040   | 768p / 1024   |
+| `-brickpro`  | tg5040   | 768p / 1024   |
 | `-smartpro`  | tg5040   | 720p / 1280   |
 | `-smartpros` | tg5050   | 720p / 1280   |
 

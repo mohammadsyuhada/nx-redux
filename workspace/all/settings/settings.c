@@ -44,6 +44,7 @@
 typedef enum {
 	MODEL_UNKNOWN = 0,
 	MODEL_BRICK,
+	MODEL_BRICKPRO,
 	MODEL_SMARTPRO,
 	MODEL_SMARTPROS,
 	MODEL_FLIP
@@ -62,6 +63,9 @@ static DeviceInfo device_detect(void) {
 
 	if (exactMatch("brick", device)) {
 		dev.model = MODEL_BRICK;
+		dev.platform = PLAT_TG5040;
+	} else if (exactMatch("brickpro", device)) {
+		dev.model = MODEL_BRICKPRO;
 		dev.platform = PLAT_TG5040;
 	} else if (exactMatch("smartpro", device)) {
 		dev.model = MODEL_SMARTPRO;
@@ -97,7 +101,7 @@ static int has_mute_toggle(const DeviceInfo* dev) {
 }
 
 static int has_analog_sticks(const DeviceInfo* dev) {
-	return dev->model == MODEL_SMARTPRO || dev->model == MODEL_SMARTPROS;
+	return dev->model == MODEL_SMARTPRO || dev->model == MODEL_SMARTPROS || dev->model == MODEL_BRICKPRO;
 }
 
 static int has_wifi(const DeviceInfo* dev) {

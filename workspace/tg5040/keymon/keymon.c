@@ -85,6 +85,10 @@ static int getInt(char* path) {
 static pthread_t mute_pt;
 static void* watchMute(void* arg) {
 	int is_muted, was_muted;
+	// the Brick Pro's motor is noticeably stronger, so its confirmation buzz
+	// needs a lower voltage to feel the same
+	const char* device = getenv("DEVICE");
+	int is_brickpro = device && strcmp(device, "brickpro") == 0;
 
 	is_muted = was_muted = getInt(MUTE_STATE_PATH);
 	SetMute(is_muted);
@@ -97,7 +101,10 @@ static void* watchMute(void* arg) {
 			was_muted = is_muted;
 			SetMute(is_muted);
 			if (GetMute()) {
-				system("echo 1500000 > /sys/class/motor/voltage");
+				if (is_brickpro)
+					system("echo 900000 > /sys/class/motor/voltage");
+				else
+					system("echo 1500000 > /sys/class/motor/voltage");
 				system("echo 1 > /sys/class/gpio/gpio227/value");
 				usleep(100000);
 				system("echo 0 > /sys/class/gpio/gpio227/value");

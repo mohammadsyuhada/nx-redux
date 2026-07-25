@@ -11,7 +11,11 @@
 
 ///////////////////////////////
 
+// Brick and Brick Pro share the 1024x768 panel and its 3x layout; the Brick Pro
+// additionally has analog sticks, two extra shoulder buttons (L4/R4) and a HOME
+// key, so screen geometry keys off (is_brick || is_brickpro) while input does not.
 extern int is_brick;
+extern int is_brickpro;
 
 ///////////////////////////////
 
@@ -34,6 +38,8 @@ extern int is_brick;
 #define BUTTON_R2 BUTTON_NA
 #define BUTTON_L3 BUTTON_NA
 #define BUTTON_R3 BUTTON_NA
+#define BUTTON_L4 BUTTON_NA
+#define BUTTON_R4 BUTTON_NA
 
 #define BUTTON_MENU BUTTON_NA
 #define BUTTON_MENU_ALT BUTTON_NA
@@ -62,6 +68,8 @@ extern int is_brick;
 #define CODE_R2 CODE_NA
 #define CODE_L3 CODE_NA
 #define CODE_R3 CODE_NA
+#define CODE_L4 CODE_NA
+#define CODE_R4 CODE_NA
 
 #define CODE_MENU CODE_NA
 #define CODE_POWER 102
@@ -89,13 +97,18 @@ extern int is_brick;
 #define JOY_R1 5
 #define JOY_L2 JOY_NA
 #define JOY_R2 JOY_NA
-#define JOY_L3 (is_brick ? 9 : JOY_NA)
-#define JOY_R3 (is_brick ? 10 : JOY_NA)
+// Brick: 9/10 are the FN1/FN2 keys. Brick Pro: 9/10 are the stick clicks and the
+// FN keys move up to 11/12 (L4/R4).
+#define JOY_L3 (is_brick || is_brickpro ? 9 : JOY_NA)
+#define JOY_R3 (is_brick || is_brickpro ? 10 : JOY_NA)
+#define JOY_L4 (is_brickpro ? 11 : JOY_NA)
+#define JOY_R4 (is_brickpro ? 12 : JOY_NA)
 
 #define JOY_MENU 8
+#define JOY_HOME (is_brickpro ? 15 : JOY_NA)
 #define JOY_POWER 102
-#define JOY_PLUS (is_brick ? 14 : 128)
-#define JOY_MINUS (is_brick ? 13 : 129)
+#define JOY_PLUS (is_brick || is_brickpro ? 14 : 128)
+#define JOY_MINUS (is_brick || is_brickpro ? 13 : 129)
 
 ///////////////////////////////
 
@@ -122,9 +135,9 @@ extern int is_brick;
 
 ///////////////////////////////
 
-#define FIXED_SCALE (is_brick ? 3 : 2)
-#define FIXED_WIDTH (is_brick ? 1024 : 1280)
-#define FIXED_HEIGHT (is_brick ? 768 : 720)
+#define FIXED_SCALE (is_brick || is_brickpro ? 3 : 2)
+#define FIXED_WIDTH (is_brick || is_brickpro ? 1024 : 1280)
+#define FIXED_HEIGHT (is_brick || is_brickpro ? 768 : 720)
 #define FIXED_BPP 2
 #define FIXED_DEPTH (FIXED_BPP * 8)
 #define FIXED_PITCH (FIXED_WIDTH * FIXED_BPP)
@@ -132,9 +145,9 @@ extern int is_brick;
 
 ///////////////////////////////
 
-#define MAIN_ROW_COUNT (is_brick ? 7 : 10)
-#define SETTINGS_ROW_COUNT (is_brick ? 9 : 11)
-#define PADDING (is_brick ? 5 : 10)
+#define MAIN_ROW_COUNT (is_brick || is_brickpro ? 7 : 10)
+#define SETTINGS_ROW_COUNT (is_brick || is_brickpro ? 9 : 11)
+#define PADDING (is_brick || is_brickpro ? 5 : 10)
 
 ///////////////////////////////
 
@@ -144,7 +157,8 @@ extern int is_brick;
 // this should be set to the devices native screen refresh rate
 #define SCREEN_FPS 60.235
 
-#define MAX_LIGHTS 4
+// Brick Pro has 5 zones (f1, f2, top bar, joysticks, triggers), Brick 4, Smart Pro 3
+#define MAX_LIGHTS 5
 
 ///////////////////////////////
 

@@ -507,6 +507,7 @@ static int run_rsync_phase(int phase) {
 		"--exclude=game_logs.sqlite "
 		"--exclude=ledsettings.txt "
 		"--exclude=ledsettings_brick.txt "
+		"--exclude=ledsettings_brickpro.txt "
 		"--exclude=minuisettings.txt";
 
 	phase_files_done = 0;

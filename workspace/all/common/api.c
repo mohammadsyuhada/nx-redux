@@ -2712,6 +2712,9 @@ FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 			} else if (code == CODE_L3) {
 				btn = BTN_L3;
 				id = BTN_ID_L3;
+			} else if (code == CODE_L4) {
+				btn = BTN_L4;
+				id = BTN_ID_L4;
 			} else if (code == CODE_R1) {
 				btn = BTN_R1;
 				id = BTN_ID_R1;
@@ -2721,6 +2724,9 @@ FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 			} else if (code == CODE_R3) {
 				btn = BTN_R3;
 				id = BTN_ID_R3;
+			} else if (code == CODE_R4) {
+				btn = BTN_R4;
+				id = BTN_ID_R4;
 			} else if (code == CODE_PLUS) {
 				btn = BTN_PLUS;
 				id = BTN_ID_PLUS;
@@ -2789,6 +2795,9 @@ FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 			} else if (joy == JOY_L3) {
 				btn = BTN_L3;
 				id = BTN_ID_L3;
+			} else if (joy == JOY_L4) {
+				btn = BTN_L4;
+				id = BTN_ID_L4;
 			} else if (joy == JOY_R1) {
 				btn = BTN_R1;
 				id = BTN_ID_R1;
@@ -2798,6 +2807,9 @@ FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 			} else if (joy == JOY_R3) {
 				btn = BTN_R3;
 				id = BTN_ID_R3;
+			} else if (joy == JOY_R4) {
+				btn = BTN_R4;
+				id = BTN_ID_R4;
 			} else if (joy == JOY_PLUS) {
 				btn = BTN_PLUS;
 				id = BTN_ID_PLUS;
@@ -3589,6 +3601,9 @@ FALLBACK_IMPLEMENTATION int PLAT_setDateTime(int y, int m, int d, int h, int i, 
 ///////////////////////////////
 // RGB LED cruft
 
+FALLBACK_IMPLEMENTATION int PLAT_getLedCount(void) {
+	return 0;
+}
 FALLBACK_IMPLEMENTATION void PLAT_initLeds(LightSettings* lights) {}
 FALLBACK_IMPLEMENTATION void PLAT_setLedBrightness(LightSettings* led) {}
 FALLBACK_IMPLEMENTATION void PLAT_setLedEffect(LightSettings* led) {}
@@ -3694,11 +3709,7 @@ void LEDS_updateLeds(bool indicator_only) {
 		return;
 	}
 
-	int lightsize = 3;
-	char* device = getenv("DEVICE");
-	int is_brick = exactMatch("brick", device);
-	if (is_brick)
-		lightsize = 4;
+	int lightsize = PLAT_getLedCount();
 	if (!lights) {
 		LOG_error("LEDS_updateLeds called but lights is NULL\n");
 		return;

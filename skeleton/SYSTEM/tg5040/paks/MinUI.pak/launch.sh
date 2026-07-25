@@ -50,6 +50,8 @@ mkdir -p "$SHARED_USERDATA_PATH/.minui"
 export TRIMUI_MODEL=`strings /usr/trimui/bin/MainUI | grep ^Trimui`
 if [ "$TRIMUI_MODEL" = "Trimui Brick" ]; then
 	export DEVICE="brick"
+elif [ "$TRIMUI_MODEL" = "Trimui Brick Pro" ]; then
+	export DEVICE="brickpro"
 else
 	export DEVICE="smartpro"
 fi
@@ -105,9 +107,13 @@ export PATH=$SYSTEM_PATH/bin:$SHARED_SYSTEM_PATH/bin:$PATH
 
 # leds_off
 echo 0 > /sys/class/led_anim/max_scale
-if [ "$TRIMUI_MODEL" = "Trimui Brick" ]; then
+if [ "$DEVICE" = "brick" ] || [ "$DEVICE" = "brickpro" ]; then
 	echo 0 > /sys/class/led_anim/max_scale_lr
 	echo 0 > /sys/class/led_anim/max_scale_f1f2
+fi
+if [ "$DEVICE" = "brickpro" ]; then
+	# Brick Pro's fifth zone (triggers)
+	echo 0 > /sys/class/led_anim/max_scale_rear
 fi
 
 # start the device's own stock gpio input daemon, by absolute path: Smart Pro
@@ -137,23 +143,34 @@ OSD_SRC="$SYSTEM_PATH/osd"
 # model-specific and firmware builds are NOT interchangeable, so they live in
 # an osd-$DEVICE overlay copied on top of the shared tree.
 OSD_SRC_MODEL="$SYSTEM_PATH/osd-$DEVICE"
+if [ ! -d "$OSD_SRC_MODEL" ]; then
+	# No overlay shipped for this model yet. Keep whatever the firmware already
+	# has under /usr/trimui/osd rather than syncing a half tree: the shared
+	# widgets alone have no daemon, no bg.png and no osdlayout.json, which would
+	# leave the OSD dead instead of merely un-themed.
+	OSD_SRC_MODEL=""
+fi
 # Only copy when the SD trees actually changed: hash both trees (file
 # contents + paths; the overlay path differs per model, so the stamp is
 # implicitly model-specific) and compare against the stamp left by the
 # previous sync. An empty hash (md5sum unavailable) falls back to copying
 # every boot and never writes a stamp.
 OSD_STAMP="$OSD_DST/.nx_osd_stamp"
-OSD_HASH=$(find "$OSD_SRC" "$OSD_SRC_MODEL" -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | cut -d' ' -f1)
-if [ -z "$OSD_HASH" ] || [ "$OSD_HASH" != "$(cat "$OSD_STAMP" 2>/dev/null)" ]; then
-	cp -r "$OSD_SRC/." "$OSD_DST/"
-	cp -r "$OSD_SRC_MODEL/." "$OSD_DST/"
-	chmod +x "$OSD_DST/trimui_osdd" "$OSD_DST"/*.sh \
-	    "$OSD_DST"/widgets/*/*.sh "$OSD_DST"/widgets/app_music/pic2argb 2>/dev/null
-	[ -n "$OSD_HASH" ] && echo "$OSD_HASH" > "$OSD_STAMP"
+if [ -n "$OSD_SRC_MODEL" ]; then
+	OSD_HASH=$(find "$OSD_SRC" "$OSD_SRC_MODEL" -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | cut -d' ' -f1)
+	if [ -z "$OSD_HASH" ] || [ "$OSD_HASH" != "$(cat "$OSD_STAMP" 2>/dev/null)" ]; then
+		cp -r "$OSD_SRC/." "$OSD_DST/"
+		cp -r "$OSD_SRC_MODEL/." "$OSD_DST/"
+		chmod +x "$OSD_DST/trimui_osdd" "$OSD_DST"/*.sh \
+		    "$OSD_DST"/widgets/*/*.sh "$OSD_DST"/widgets/app_music/pic2argb 2>/dev/null
+		[ -n "$OSD_HASH" ] && echo "$OSD_HASH" > "$OSD_STAMP"
+	fi
 fi
 
 # Start OSD overlay daemon (system-wide quick menu)
-cd "$OSD_DST" && ./trimui_osdd &
+if [ -x "$OSD_DST/trimui_osdd" ]; then
+	cd "$OSD_DST" && ./trimui_osdd &
+fi
 cd "$SYSTEM_PATH/bin"
 
 # Ensure .asoundrc is clean at boot — /etc/asound.conf handles speaker routing.

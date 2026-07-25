@@ -17,7 +17,7 @@ endif
 
 # Device variants: device=platform,overlay_res,bg_res
 # Each device produces a separate release zip
-DEVICES = brick=tg5040,768p,1024 smartpro=tg5040,720p,1280 smartpros=tg5050,720p,1280
+DEVICES = brick=tg5040,768p,1024 brickpro=tg5040,768p,1024 smartpro=tg5040,720p,1280 smartpros=tg5050,720p,1280
 
 # Pinned upstream commits — update these when upgrading to a new version
 DRASTIC_REPO=https://github.com/trngaje/advanced_drastic

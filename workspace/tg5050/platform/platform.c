@@ -415,6 +415,9 @@ ConnectionStrength PLAT_connectionStrength(void) {
 		return SIGNAL_STRENGTH_LOW;
 }
 
+int PLAT_getLedCount(void) {
+	return 3; // joystick L, joystick R, logo
+}
 void PLAT_initDefaultLeds() {
 	lightsDefault[0] = (LightSettings){
 		"Joystick L",

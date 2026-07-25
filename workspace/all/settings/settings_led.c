@@ -86,7 +86,11 @@ static int led_brightness_values[LED_BRIGHTNESS_LABEL_COUNT];
 // Device info
 // ============================================
 
+/* Brick and Brick Pro address each zone's brightness separately (and share one
+   node between F1 and F2); the Smart Pro family has a single global one. */
 static int led_is_brick = 0;
+static int led_is_brickpro = 0;
+static int led_per_zone_brightness = 0;
 static int led_num_lights = 0;
 
 // ============================================
@@ -129,7 +133,9 @@ static void led_init_labels(void) {
 
 static void led_save_settings(void) {
 	char diskfilename[256];
-	if (led_is_brick) {
+	if (led_is_brickpro) {
+		snprintf(diskfilename, sizeof(diskfilename), SHARED_USERDATA_PATH "/ledsettings_brickpro.txt");
+	} else if (led_is_brick) {
 		snprintf(diskfilename, sizeof(diskfilename), SHARED_USERDATA_PATH "/ledsettings_brick.txt");
 	} else {
 		snprintf(diskfilename, sizeof(diskfilename), SHARED_USERDATA_PATH "/ledsettings.txt");
@@ -184,14 +190,15 @@ static SettingItem zone_items[MAX_LIGHTS][MAX_ZONE_ITEMS];
  * Hardware brightness paths are shared between zones:
  *   Brick: F1+F2 share max_scale_f1f2 (F2 writes are skipped by platform)
  *          Topbar has max_scale, L&R has max_scale_lr
- *   Non-brick: all zones share max_scale
+ *   Brick Pro: same, plus triggers on max_scale_rear
+ *   Smart Pro/S: all zones share max_scale
  *
  * When one zone's brightness changes, sync the coupled zones'
  * stored values and UI items so everything stays consistent.
  */
 static void led_sync_coupled_brightness(int source_zone) {
 	int val = lightsDefault[source_zone].brightness;
-	if (led_is_brick) {
+	if (led_per_zone_brightness) {
 		/* F1 (zone 0) and F2 (zone 1) share brightness */
 		if (source_zone <= 1) {
 			lightsDefault[0].brightness = val;
@@ -210,7 +217,7 @@ static void led_sync_coupled_brightness(int source_zone) {
 
 static void led_sync_coupled_inbrightness(int source_zone) {
 	int val = lightsDefault[source_zone].inbrightness;
-	if (led_is_brick) {
+	if (led_per_zone_brightness) {
 		if (source_zone <= 1) {
 			lightsDefault[0].inbrightness = val;
 			lightsDefault[1].inbrightness = val;
@@ -313,13 +320,13 @@ static void led_build_zone_page(int zone_idx, const char* title,
 		speed_labels, SPEED_LABEL_COUNT, speed_values,
 		zone_get_speed[zone_idx], zone_set_speed[zone_idx], NULL);
 
-	const char* brightness_name = led_is_brick ? "Brightness" : "Brightness (All LEDs)";
+	const char* brightness_name = led_per_zone_brightness ? "Brightness" : "Brightness (All LEDs)";
 	zone_items[zone_idx][idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		brightness_name, "LED brightness level",
 		led_brightness_labels, LED_BRIGHTNESS_LABEL_COUNT, led_brightness_values,
 		zone_get_brightness[zone_idx], zone_set_brightness[zone_idx], NULL);
 
-	const char* inbrightness_name = led_is_brick ? "Info Brightness" : "Info Brightness (All LEDs)";
+	const char* inbrightness_name = led_per_zone_brightness ? "Info Brightness" : "Info Brightness (All LEDs)";
 	zone_items[zone_idx][idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		inbrightness_name, "LED brightness during charging/low battery",
 		led_brightness_labels, LED_BRIGHTNESS_LABEL_COUNT, led_brightness_values,
@@ -346,35 +353,37 @@ static SettingsPage led_root_page;
 
 /* Zone title strings (static storage for page titles) */
 static const char* brick_zone_titles[] = {"F1 key", "F2 key", "Top bar", "L&R triggers"};
+static const char* brickpro_zone_titles[] = {"F1 key", "F2 key", "Top bar", "Joysticks", "L&R triggers"};
 static const char* default_zone_titles[] = {"Joystick L", "Joystick R", "Logo"};
 
 SettingsPage* led_page_create(void) {
 	char* device = getenv("DEVICE");
-	if (exactMatch("brick", device)) {
-		led_is_brick = 1;
-		led_num_lights = 4;
-	} else {
-		led_is_brick = 0;
-		led_num_lights = 3;
-	}
+	led_is_brick = exactMatch("brick", device);
+	led_is_brickpro = exactMatch("brickpro", device);
+	led_per_zone_brightness = led_is_brick || led_is_brickpro;
+	led_num_lights = PLAT_getLedCount();
 
 	led_init_labels();
 
-	const char** zone_titles = led_is_brick ? brick_zone_titles : default_zone_titles;
+	const char** zone_titles = led_is_brickpro ? brickpro_zone_titles
+							   : led_is_brick  ? brick_zone_titles
+											   : default_zone_titles;
 
-	/* Build per-zone pages */
+	/* Build per-zone pages. The extended effect sets belong to specific sysfs
+	   nodes, so select them by the zone's node name rather than by index — on the
+	   Brick "lr" drives the triggers, on the Brick Pro it drives the joysticks. */
 	for (int z = 0; z < led_num_lights; z++) {
 		const char** eff_names;
 		int* eff_values;
 		int eff_count;
+		const char* node = lightsDefault[z].filename;
 
-		if (led_is_brick && z == 2) {
+		if (led_per_zone_brightness && exactMatch("m", node)) {
 			/* Top bar */
 			eff_names = topbar_effect_names;
 			eff_values = topbar_effect_values;
 			eff_count = TOPBAR_EFFECT_COUNT;
-		} else if (led_is_brick && z == 3) {
-			/* L&R triggers */
+		} else if (led_per_zone_brightness && exactMatch("lr", node)) {
 			eff_names = lr_effect_names;
 			eff_values = lr_effect_values;
 			eff_count = LR_EFFECT_COUNT;

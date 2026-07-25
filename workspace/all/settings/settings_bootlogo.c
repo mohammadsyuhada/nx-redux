@@ -29,7 +29,7 @@ static int count = 0;
 static int loadImages(void) {
 	char* device = getenv("DEVICE");
 	char basepath[MAX_PATH];
-	if (device && (exactMatch("brick", device) || exactMatch("smartpros", device))) {
+	if (device && (exactMatch("brick", device) || exactMatch("brickpro", device) || exactMatch("smartpros", device))) {
 		snprintf(basepath, sizeof(basepath), "%s/Settings.pak/bootlogo/brick/", TOOLS_PATH);
 	} else {
 		snprintf(basepath, sizeof(basepath), "%s/Settings.pak/bootlogo/smartpro/", TOOLS_PATH);

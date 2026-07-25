@@ -14,6 +14,7 @@ Refer to the Youtube Video below for demonstration of the features:
 ## Supported Devices
 
 - **Trimui Brick**
+- **Trimui Brick Pro**
 - **Trimui Smart Pro**
 - **Trimui Smart Pro S**
 
@@ -45,7 +46,7 @@ Improvements:
 - Removed the `Battery` monitoring feature. 
 - Merged the `LED Control`, `Input`, `Clock` and `Updater` into the `Settings` app (no separate app required)
 - Integrated the `Remove Loading` feature directly into the install script (no separate app required) 
-- Split release builds into per-platform zips packages (brick/smartpro/smartpros).
+- Split release builds into per-platform zips packages (brick/brickpro/smartpro/smartpros).
 - All standalone emulators now support USB-C and Bluetooth audio. 
 - All standalone emulators now include a custom in-game menu with UI styling consistent with the system.
 - All standalone emulators now support save states with screenshots.
@@ -84,7 +85,7 @@ New Features:
 - Added `Device Sync` to sync game saves, states, user settings, and ROMs (optional) across devices. 
 - Added `Artwork Manager` to fetch custom mix box art for ROMs. 
 - Added `On-Screen Display (OSD)` for quick access to common actions from anywhere — in the menus or in-game.
-    - Opened with the `Home` button on devices that have one (Smart Pro S), or by long-pressing the `MENU` button (Brick / Smart Pro).
+    - Opened with the `Home` button on devices that have one (Smart Pro S), or by long-pressing the `MENU` button (Brick / Brick Pro / Smart Pro).
     - Volume slider with mute toggle, brightness slider, and rumble toggle.
     - Wi-Fi, Bluetooth and LED toggles with live state.
     - Built-in `Screenshot` and `Screen Recorder`:

@@ -34,6 +34,12 @@ if [ "$DEVICE" = "brick" ]; then
     DEVICE_CONFIG_DIR="$USERDATA_DIR/config/tg5040-brick"
     DEVICE_DEFAULT_CFG="$PAK_DIR/default-brick.cfg"
     DEVICE_RESOLUTION="1024x768"
+elif [ "$DEVICE" = "brickpro" ]; then
+    # same resolution as the Brick, but keep its own config dir so a shared SD
+    # card doesn't carry tuning between the two
+    DEVICE_CONFIG_DIR="$USERDATA_DIR/config/tg5040-brickpro"
+    DEVICE_DEFAULT_CFG="$PAK_DIR/default-brickpro.cfg"
+    DEVICE_RESOLUTION="1024x768"
 else
     DEVICE_CONFIG_DIR="$USERDATA_DIR/config/tg5040-smart-pro"
     DEVICE_DEFAULT_CFG="$PAK_DIR/default-smartpro.cfg"

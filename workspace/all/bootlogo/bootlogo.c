@@ -21,7 +21,7 @@ static int count = 0;
 int loadImages() {
 	char* device = getenv("DEVICE");
 	char basepath[MAX_PATH];
-	if (device && (exactMatch("brick", device) || exactMatch("smartpros", device))) {
+	if (device && (exactMatch("brick", device) || exactMatch("brickpro", device) || exactMatch("smartpros", device))) {
 		snprintf(basepath, sizeof(basepath), "%s/Bootlogo.pak/brick/", TOOLS_PATH);
 	} else {
 		snprintf(basepath, sizeof(basepath), "%s/Bootlogo.pak/smartpro/", TOOLS_PATH);

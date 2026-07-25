@@ -41,6 +41,10 @@ main() {
     if [ "$DEVICE" = "brick" ]; then
         DEVICE_CONFIG_PATH="$SHARED_USERDATA_PATH/NDS-advanced-drastic/config/tg5040-brick"
         DEVICE_PAK_DIR="$PAK_DIR/devices/trimui-brick"
+    elif [ "$DEVICE" = "brickpro" ]; then
+        # same 1024x768 panel as the Brick, so it reuses the Brick layout assets
+        DEVICE_CONFIG_PATH="$SHARED_USERDATA_PATH/NDS-advanced-drastic/config/tg5040-brickpro"
+        DEVICE_PAK_DIR="$PAK_DIR/devices/trimui-brick"
     else
         DEVICE_CONFIG_PATH="$SHARED_USERDATA_PATH/NDS-advanced-drastic/config/tg5040-smart-pro"
         DEVICE_PAK_DIR="$PAK_DIR/devices/trimui-smart-pro"

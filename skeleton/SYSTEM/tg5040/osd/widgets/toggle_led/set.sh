@@ -1,14 +1,18 @@
 #!/bin/sh
-# TG5040 (Brick) has 3 LED zones that must all be controlled together
+# TG5040 has several brightness nodes that must all be controlled together:
+# Brick has max_scale/_lr/_f1f2, Brick Pro adds _rear. Writing a node the device
+# doesn't have is harmless (the file simply isn't there).
 LED_MAIN="/sys/class/led_anim/max_scale"
 LED_LR="/sys/class/led_anim/max_scale_lr"
 LED_F1F2="/sys/class/led_anim/max_scale_f1f2"
-LED_SETTINGS="/mnt/SDCARD/.userdata/shared/ledsettings_brick.txt"
+LED_REAR="/sys/class/led_anim/max_scale_rear"
+LED_SETTINGS="/mnt/SDCARD/.userdata/shared/ledsettings_brickpro.txt"
+LED_SETTINGS_BRICK="/mnt/SDCARD/.userdata/shared/ledsettings_brick.txt"
 LED_SETTINGS_ALT="/mnt/SDCARD/.userdata/shared/ledsettings.txt"
 
 # Read configured brightness from ledsettings (first zone's value)
 get_configured_brightness() {
-    for f in "$LED_SETTINGS" "$LED_SETTINGS_ALT"; do
+    for f in "$LED_SETTINGS" "$LED_SETTINGS_BRICK" "$LED_SETTINGS_ALT"; do
         if [ -f "$f" ]; then
             val=$(grep -m1 "^brightness=" "$f" | cut -d= -f2)
             [ -n "$val" ] && [ "$val" -gt 0 ] 2>/dev/null && echo "$val" && return
@@ -27,6 +31,7 @@ set_all_leds() {
     echo $1 > $LED_MAIN 2>/dev/null
     echo $1 > $LED_LR 2>/dev/null
     echo $1 > $LED_F1F2 2>/dev/null
+    echo $1 > $LED_REAR 2>/dev/null
 }
 
 mkdir -p /tmp/trimui_osd/toggle_led/

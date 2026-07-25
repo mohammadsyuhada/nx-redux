@@ -276,10 +276,12 @@ int peekVersion(const char* filename) {
 }
 
 static int is_brick = 0;
+static int is_brickpro = 0;
 
 void InitSettings(void) {
 	char* device = getenv("DEVICE");
 	is_brick = exactMatch("brick", device);
+	is_brickpro = exactMatch("brickpro", device);
 
 	sprintf(SettingsPath, "%s/msettings.bin", getenv("USERDATA_PATH"));
 
@@ -908,7 +910,8 @@ int scaleVolume(int value) {
 
 int scaleBrightness(int value) {
 	int raw;
-	if (is_brick) {
+	// the Brick Pro's panel takes the same curve as the Brick's
+	if (is_brick || is_brickpro) {
 		switch (value) {
 		case 0:
 			raw = 1;

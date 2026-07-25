@@ -728,6 +728,9 @@ typedef enum {
 ConnectionStrength PLAT_connectionStrength(void);
 int PLAT_setDateTime(int y, int m, int d, int h, int i, int s);
 
+// number of addressable LED zones on this device (3 on Smart Pro/S, 4 on Brick,
+// 5 on Brick Pro); MAX_LIGHTS is only the compile-time upper bound
+int PLAT_getLedCount(void);
 void PLAT_initLeds(LightSettings* lights);
 void PLAT_setLedEffect(LightSettings* led);
 void PLAT_setLedColor(LightSettings* led);

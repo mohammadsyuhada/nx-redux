@@ -46,6 +46,8 @@ static const char* get_device_name(void) {
 	char* device = getenv("DEVICE");
 	if (device && strcmp(device, "brick") == 0)
 		return "brick";
+	if (device && strcmp(device, "brickpro") == 0)
+		return "brickpro";
 	return "smartpro";
 }
 

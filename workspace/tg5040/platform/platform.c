@@ -25,17 +25,18 @@
 #include <dirent.h>
 
 int is_brick = 0;
+int is_brickpro = 0;
 void PLAT_initPlatform(void) {
 	// TODO: replace with something that doesnt bleed out of tg5040 scope
 	char* device = getenv("DEVICE");
 	is_brick = exactMatch("brick", device);
+	is_brickpro = exactMatch("brickpro", device);
 }
 
 static SDL_Joystick** joysticks = NULL;
 static int num_joysticks = 0;
 void PLAT_initInput(void) {
-	char* device = getenv("DEVICE");
-	is_brick = exactMatch("brick", device);
+	PLAT_initPlatform();
 	if (SDL_InitSubSystem(SDL_INIT_JOYSTICK) < 0)
 		LOG_error("Failed initializing joysticks: %s\n", SDL_GetError());
 	num_joysticks = SDL_NumJoysticks();
@@ -181,7 +182,7 @@ void PLAT_getBatteryStatusFine(int* is_charging, int* charge) {
 
 void PLAT_enableBacklight(int enable) {
 	if (enable) {
-		if (is_brick)
+		if (is_brick || is_brickpro)
 			SetRawBrightness(8);
 		SetBrightness(GetBrightness());
 	} else {
@@ -317,7 +318,9 @@ void PLAT_setCPUSpeedAuto(void) {
 
 #define MAX_STRENGTH 0xFFFF
 #define MIN_VOLTAGE 500000
-#define MAX_VOLTAGE 3300000
+// The Brick Pro drives its motor at 3.3V, which is unpleasantly strong at the
+// higher rumble settings, so cap it lower.
+#define MAX_VOLTAGE (is_brickpro ? 2500000 : 3300000)
 #define RUMBLE_PATH "/sys/class/gpio/gpio227/value"
 #define RUMBLE_VOLTAGE_PATH "/sys/class/motor/voltage"
 
@@ -376,13 +379,64 @@ ConnectionStrength PLAT_connectionStrength(void) {
 		return SIGNAL_STRENGTH_LOW;
 }
 
-void PLAT_initDefaultLeds() {
-	char* device = getenv("DEVICE");
-	is_brick = exactMatch("brick", device);
+// Zone display name paired with the sysfs node suffix it drives
+// (/sys/class/led_anim/*_<filename>). Every other default is identical, so the
+// tables only carry what actually differs between models.
+typedef struct {
+	const char* name;
+	const char* filename;
+} LedZone;
+
+static const LedZone led_zones_brick[] = {
+	{"FN 1 key", "f1"},
+	{"FN 2 key", "f2"},
+	{"Topbar", "m"},
+	{"L/R triggers", "lr"},
+};
+static const LedZone led_zones_brickpro[] = {
+	{"FN 1 key", "f1"},
+	{"FN 2 key", "f2"},
+	{"Topbar", "m"},
+	{"Joysticks", "lr"},
+	{"L/R triggers", "rear"},
+};
+static const LedZone led_zones_smartpro[] = {
+	{"Joystick L", "l"},
+	{"Joystick R", "r"},
+	{"Logo", "m"},
+};
+
+static const LedZone* PLAT_getLedZones(int* count) {
+	if (is_brickpro) {
+		*count = sizeof(led_zones_brickpro) / sizeof(led_zones_brickpro[0]);
+		return led_zones_brickpro;
+	}
 	if (is_brick) {
-		lightsDefault[0] = (LightSettings){
-			"FN 1 key",
-			"f1",
+		*count = sizeof(led_zones_brick) / sizeof(led_zones_brick[0]);
+		return led_zones_brick;
+	}
+	*count = sizeof(led_zones_smartpro) / sizeof(led_zones_smartpro[0]);
+	return led_zones_smartpro;
+}
+
+int PLAT_getLedCount(void) {
+	// callable before GFX_init (which is what normally sets the model flags)
+	PLAT_initPlatform();
+
+	int count = 0;
+	PLAT_getLedZones(&count);
+	return count;
+}
+
+void PLAT_initDefaultLeds() {
+	PLAT_initPlatform();
+
+	int count = 0;
+	const LedZone* zones = PLAT_getLedZones(&count);
+	for (int i = 0; i < count; i++) {
+		lightsDefault[i] = (LightSettings){
+			"",
+			"",
 			4,
 			1000,
 			5,
@@ -393,94 +447,16 @@ void PLAT_initDefaultLeds() {
 			1,
 			0,
 			0};
-		lightsDefault[1] = (LightSettings){
-			"FN 2 key",
-			"f2",
-			4,
-			1000,
-			5,
-			0xFFFFFF,
-			0xFFFFFF,
-			0,
-			{},
-			1,
-			0,
-			0};
-		lightsDefault[2] = (LightSettings){
-			"Topbar",
-			"m",
-			4,
-			1000,
-			5,
-			0xFFFFFF,
-			0xFFFFFF,
-			0,
-			{},
-			1,
-			0,
-			0};
-		lightsDefault[3] = (LightSettings){
-			"L/R triggers",
-			"lr",
-			4,
-			1000,
-			5,
-			0xFFFFFF,
-			0xFFFFFF,
-			0,
-			{},
-			1,
-			0,
-			0};
-	} else {
-		lightsDefault[0] = (LightSettings){
-			"Joystick L",
-			"l",
-			4,
-			1000,
-			5,
-			0xFFFFFF,
-			0xFFFFFF,
-			0,
-			{},
-			1,
-			0,
-			0};
-		lightsDefault[1] = (LightSettings){
-			"Joystick R",
-			"r",
-			4,
-			1000,
-			5,
-			0xFFFFFF,
-			0xFFFFFF,
-			0,
-			{},
-			1,
-			0,
-			0};
-		lightsDefault[2] = (LightSettings){
-			"Logo",
-			"m",
-			4,
-			1000,
-			5,
-			0xFFFFFF,
-			0xFFFFFF,
-			0,
-			{},
-			1,
-			0,
-			0};
+		strncpy(lightsDefault[i].name, zones[i].name, sizeof(lightsDefault[i].name) - 1);
+		strncpy(lightsDefault[i].filename, zones[i].filename, sizeof(lightsDefault[i].filename) - 1);
 	}
 }
 void PLAT_initLeds(LightSettings* lights) {
-	char* device = getenv("DEVICE");
-	is_brick = exactMatch("brick", device);
-
 	PLAT_initDefaultLeds();
 	FILE* file;
-	if (is_brick) {
+	if (is_brickpro) {
+		file = PLAT_OpenSettings("ledsettings_brickpro.txt");
+	} else if (is_brick) {
 		file = PLAT_OpenSettings("ledsettings_brick.txt");
 	} else {
 		file = PLAT_OpenSettings("ledsettings.txt");
@@ -549,57 +525,45 @@ void PLAT_initLeds(LightSettings* lights) {
 	}
 }
 
-#define LED_PATH1 "/sys/class/led_anim/max_scale"
-#define LED_PATH2 "/sys/class/led_anim/max_scale_lr"
-#define LED_PATH3 "/sys/class/led_anim/max_scale_f1f2"
+// Brick/Brick Pro have per-zone brightness nodes; the Smart Pro has a single
+// global one. f1 and f2 share max_scale_f1f2, which is why f2 writes are skipped.
+// The generic suffix covers max_scale_lr (Brick triggers / Brick Pro joysticks)
+// and max_scale_rear (Brick Pro triggers).
+#define LED_PATH_GLOBAL "/sys/class/led_anim/max_scale"
 
-void PLAT_setLedInbrightness(LightSettings* led) {
-	char filepath[256];
-	FILE* file;
-	// first set brightness
-	if (is_brick) {
+static void PLAT_getLedBrightnessPath(LightSettings* led, char* filepath, size_t size) {
+	if (is_brick || is_brickpro) {
 		if (strcmp(led->filename, "m") == 0) {
-			snprintf(filepath, sizeof(filepath), LED_PATH1);
+			snprintf(filepath, size, LED_PATH_GLOBAL);
 		} else if (strcmp(led->filename, "f1") == 0) {
-			snprintf(filepath, sizeof(filepath), LED_PATH3);
+			snprintf(filepath, size, "/sys/class/led_anim/max_scale_f1f2");
 		} else {
-			snprintf(filepath, sizeof(filepath), "/sys/class/led_anim/max_scale_%s", led->filename);
+			snprintf(filepath, size, "/sys/class/led_anim/max_scale_%s", led->filename);
 		}
 	} else {
-		snprintf(filepath, sizeof(filepath), LED_PATH1);
-	}
-	if (strcmp(led->filename, "f2") != 0) {
-		// do nothhing for f2
-		file = fopen(filepath, "w");
-		if (file != NULL) {
-			fprintf(file, "%i\n", led->inbrightness);
-			fclose(file);
-		}
+		snprintf(filepath, size, LED_PATH_GLOBAL);
 	}
 }
-void PLAT_setLedBrightness(LightSettings* led) {
+
+static void PLAT_writeLedBrightness(LightSettings* led, int value) {
+	if (strcmp(led->filename, "f2") == 0)
+		return; // f2 shares f1's node, nothing of its own to write
+
 	char filepath[256];
-	FILE* file;
-	// first set brightness
-	if (is_brick) {
-		if (strcmp(led->filename, "m") == 0) {
-			snprintf(filepath, sizeof(filepath), "/sys/class/led_anim/max_scale");
-		} else if (strcmp(led->filename, "f1") == 0) {
-			snprintf(filepath, sizeof(filepath), "/sys/class/led_anim/max_scale_f1f2");
-		} else {
-			snprintf(filepath, sizeof(filepath), "/sys/class/led_anim/max_scale_%s", led->filename);
-		}
-	} else {
-		snprintf(filepath, sizeof(filepath), "/sys/class/led_anim/max_scale");
+	PLAT_getLedBrightnessPath(led, filepath, sizeof(filepath));
+
+	FILE* file = fopen(filepath, "w");
+	if (file != NULL) {
+		fprintf(file, "%i\n", value);
+		fclose(file);
 	}
-	if (strcmp(led->filename, "f2") != 0) {
-		// do nothhing for f2
-		file = fopen(filepath, "w");
-		if (file != NULL) {
-			fprintf(file, "%i\n", led->brightness);
-			fclose(file);
-		}
-	}
+}
+
+void PLAT_setLedInbrightness(LightSettings* led) {
+	PLAT_writeLedBrightness(led, led->inbrightness);
+}
+void PLAT_setLedBrightness(LightSettings* led) {
+	PLAT_writeLedBrightness(led, led->brightness);
 }
 void PLAT_setLedEffect(LightSettings* led) {
 	char filepath[256];

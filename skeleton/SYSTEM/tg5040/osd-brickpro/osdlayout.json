@@ -1,0 +1,50 @@
+{
+    "hotkey" : "MENU+SELECT",
+    "timefadein" : 250,
+    "timefadeout" : 0,
+    "timeupdatevalue" : 3000,
+    "widgetlist": [
+        {
+            "package":"com.trimui.osd.slider.volumeglobal"
+        },
+        {
+            "package":"com.trimui.osd.toggle.mute"
+        },
+        {
+            "package":"com.trimui.osd.toggle.rumble"
+        },
+        {
+            "package":"com.trimui.osd.slider.backlight"
+        },
+        {
+            "package":"com.nextui.osd.toggle.screenshot"
+        },
+        {
+            "package":"com.nextui.osd.toggle.screenrecord"
+        },
+        {
+            "package":"com.trimui.osd.static.cpuinfo"
+        },
+        {
+            "package":"com.trimui.osd.static.dram"
+        },
+        {
+            "package":"com.trimui.osd.static.temperature"
+        },
+        {
+            "package":"com.trimui.osd.static.battery"
+        },
+        {
+            "package":"com.trimui.osd.toggle.ledenable"
+        },
+        {
+            "package":"com.trimui.osd.toggle.wifienable"
+        },
+        {
+            "package":"com.trimui.osd.toggle.btenable"
+        },
+        {
+            "package":"com.trimui.osd.toggle.poweroff"
+        }
+    ]
+}
