@@ -1,4 +1,9 @@
 #!/bin/sh
+# tg5050 OVERRIDES this file entirely — see
+# device/smartpros/widgets/toggle_screenrecord/set.sh, and edit both if you
+# change shared logic here. The two use different capture mechanisms, so they
+# cannot be merged: tg5050 runs screenrecorder.elf against an shm mirror.
+#
 # Screen recording toggle (tg5040). No shm capture mirror on this platform,
 # so record the framebuffer directly with ffmpeg (fbdev probes the resolution
 # itself, which also covers the Brick's 1024x768). ffmpeg doesn't manage a

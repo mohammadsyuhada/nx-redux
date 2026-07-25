@@ -1,6 +1,13 @@
 #!/bin/sh
 RUMBLE_STATE="/tmp/trimui_osd/toggle_rumble/enabled"
-RUMBLE_GPIO="/sys/class/gpio/gpio227/value"
+# The rumble motor hangs off a different GPIO per platform. The platform token
+# below is substituted by assemble-osd.sh at package time, so the shipped
+# script tests a literal. Everything else here is platform-independent.
+if [ "__PLATFORM__" = "tg5050" ]; then
+    RUMBLE_GPIO="/sys/class/gpio/gpio236/value"
+else
+    RUMBLE_GPIO="/sys/class/gpio/gpio227/value"
+fi
 
 mkdir -p /tmp/trimui_osd/toggle_rumble/
 

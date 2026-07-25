@@ -3,7 +3,7 @@
 # a screenshot to /mnt/SDCARD/Images/Screenshots (see workspace/all/screenshot).
 # The daemon writes/removes /tmp/screenshot.pid itself.
 PID_FILE=/tmp/screenshot.pid
-DAEMON=/mnt/SDCARD/.system/tg5040/bin/screenshot.elf
+DAEMON=/mnt/SDCARD/.system/__PLATFORM__/bin/screenshot.elf
 STATUS_DIR=/tmp/trimui_osd/toggle_screenshot
 
 daemon_running() {
@@ -13,7 +13,7 @@ daemon_running() {
 
 # Tell the user how to trigger a capture (toast rendered by trimui_osdd).
 # size:1 draws the 400px-wide bg_msg_w2.png; x centers it on the framebuffer
-# (also correct on the 1024-wide Brick).
+# (read from fb0, so correct at any panel width).
 show_hint_toast() {
     fbw=$(cut -d, -f1 /sys/class/graphics/fb0/virtual_size 2>/dev/null)
     [ -n "$fbw" ] && [ "$fbw" -gt 0 ] 2>/dev/null || fbw=1280
@@ -47,7 +47,7 @@ elif daemon_running; then
     kill "$(cat $PID_FILE)" 2>/dev/null
     echo 0 > $STATUS_DIR/status
 else
-    # plain & (no setsid — the Brick's busybox lacks it); survives fine under trimui_osdd
+    # plain & (no setsid — busybox on these devices lacks it); survives fine under trimui_osdd
     "$DAEMON" >/dev/null 2>&1 &
     echo 1 > $STATUS_DIR/status
     # close the OSD so the user can line up the shot; the toast still renders

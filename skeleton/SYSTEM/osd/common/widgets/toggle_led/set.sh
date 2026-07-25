@@ -1,23 +1,35 @@
 #!/bin/sh
-# TG5040 has several brightness nodes that must all be controlled together:
-# Brick has max_scale/_lr/_f1f2, Brick Pro adds _rear. Writing a node the device
-# doesn't have is harmless (the file simply isn't there).
+# Every model has several brightness nodes that must all be controlled
+# together: Smart Pro/S and Brick have max_scale/_lr/_f1f2, Brick Pro adds
+# _rear. Writing a node the device doesn't have is harmless (the file simply
+# isn't there), and the settings-file probe below covers every model's name,
+# so one script serves all four devices.
 LED_MAIN="/sys/class/led_anim/max_scale"
 LED_LR="/sys/class/led_anim/max_scale_lr"
 LED_F1F2="/sys/class/led_anim/max_scale_f1f2"
 LED_REAR="/sys/class/led_anim/max_scale_rear"
-LED_SETTINGS="/mnt/SDCARD/.userdata/shared/ledsettings_brickpro.txt"
-LED_SETTINGS_BRICK="/mnt/SDCARD/.userdata/shared/ledsettings_brick.txt"
-LED_SETTINGS_ALT="/mnt/SDCARD/.userdata/shared/ledsettings.txt"
+# Pick THIS model's settings file, don't probe for whichever exists. All three
+# live in .userdata/shared, which is shared across platforms — sync.c excludes
+# all three precisely because they coexist — so a card that has been in a Brick
+# still carries ledsettings_brick.txt on a Smart Pro. Probing in a fixed order
+# would then read the wrong model's brightness, permanently: Settings writes
+# ledsettings.txt on both Smart Pro and Smart Pro S, and it would stay shadowed.
+# Brick Pro is the only model with a _rear zone; Brick is the only other model
+# at 1024 px wide; everything else uses the plain file.
+if [ -e "$LED_REAR" ]; then
+    LED_SETTINGS="/mnt/SDCARD/.userdata/shared/ledsettings_brickpro.txt"
+elif [ "$(cut -d, -f1 /sys/class/graphics/fb0/virtual_size 2>/dev/null)" = "1024" ]; then
+    LED_SETTINGS="/mnt/SDCARD/.userdata/shared/ledsettings_brick.txt"
+else
+    LED_SETTINGS="/mnt/SDCARD/.userdata/shared/ledsettings.txt"
+fi
 
-# Read configured brightness from ledsettings (first zone's value)
+# Read configured brightness from this model's ledsettings (first zone's value)
 get_configured_brightness() {
-    for f in "$LED_SETTINGS" "$LED_SETTINGS_BRICK" "$LED_SETTINGS_ALT"; do
-        if [ -f "$f" ]; then
-            val=$(grep -m1 "^brightness=" "$f" | cut -d= -f2)
-            [ -n "$val" ] && [ "$val" -gt 0 ] 2>/dev/null && echo "$val" && return
-        fi
-    done
+    if [ -f "$LED_SETTINGS" ]; then
+        val=$(grep -m1 "^brightness=" "$LED_SETTINGS" | cut -d= -f2)
+        [ -n "$val" ] && [ "$val" -gt 0 ] 2>/dev/null && echo "$val" && return
+    fi
     echo "50"
 }
 

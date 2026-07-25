@@ -1,6 +1,6 @@
 #!/bin/sh
-export LD_LIBRARY_PATH="/mnt/SDCARD/.system/tg5040/lib:/usr/trimui/lib:$LD_LIBRARY_PATH"
-OSDCTL="/mnt/SDCARD/.system/tg5040/bin/osdctl"
+export LD_LIBRARY_PATH="/mnt/SDCARD/.system/__PLATFORM__/lib:/usr/trimui/lib:$LD_LIBRARY_PATH"
+OSDCTL="/mnt/SDCARD/.system/__PLATFORM__/bin/osdctl"
 
 if [ $# -eq 0 ] ; then
     value=$($OSDCTL get volume)

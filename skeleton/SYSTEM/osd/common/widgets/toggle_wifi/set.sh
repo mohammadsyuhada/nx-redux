@@ -1,5 +1,5 @@
 #!/bin/sh
-SYSTEM_PATH="/mnt/SDCARD/.system/tg5040"
+SYSTEM_PATH="/mnt/SDCARD/.system/__PLATFORM__"
 SETTINGS_FILE="/mnt/SDCARD/.userdata/shared/minuisettings.txt"
 
 wifi_is_on() {

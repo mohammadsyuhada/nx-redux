@@ -1,5 +1,11 @@
 #!/bin/sh
-SYSTEM_PATH="/mnt/SDCARD/.system/tg5040"
+# This is the tg5040 behaviour. tg5050 OVERRIDES this file entirely —
+# see device/smartpros/widgets/toggle_bt/set.sh, and edit both if you change
+# shared logic here. The two are deliberately opposite on toggle-off: tg5040
+# must fully stop the BT stack, because on its xradio combo chip a live
+# bluetoothd collapses WiFi throughput from ~330 KB/s to ~2 KB/s; tg5050 must
+# keep bluetoothd alive, because killing it mid-call wedges the caller.
+SYSTEM_PATH="/mnt/SDCARD/.system/__PLATFORM__"
 SETTINGS_FILE="/mnt/SDCARD/.userdata/shared/minuisettings.txt"
 
 bt_is_on() {

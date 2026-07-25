@@ -38,8 +38,8 @@ rather than a copy per device:
 | Layer | Holds |
 |---|---|
 | `common/` | What every device shares — widgets, icons, progress art, `key.wav` |
-| `res/<WxH>/` | Anything with a pixel coordinate baked in — `block*.png`, and the `show_*.sh` toast scripts, which differ only in their baked-in coordinates (13 of 14 in `"x"` alone, e.g. 650 vs 850; `show_volume_msg.sh` in both `"x"` and `"y"`) |
-| `device/<dev>/` | `trimui_osdd`, `osdlayout.json`, `bg.png`, plus any file that device overrides |
+| `res/<WxH>/` | Anything sized to the panel — `bg.png`, `block*.png`, and the `show_*.sh` toast scripts, which differ only in their baked-in coordinates (13 of 14 in `"x"` alone, e.g. 650 vs 850; `show_volume_msg.sh` in both `"x"` and `"y"`) |
+| `device/<dev>/` | `trimui_osdd`, `osdlayout.json`, plus any file that device overrides |
 
 `scripts/assemble-osd.sh` composes those layers during `make package` into the
 shape each platform's `launch.sh` reads: tg5040 gets `osd/` (common) plus
@@ -58,9 +58,11 @@ The Smart Pro binary and assets were extracted from
 sector 126478). The Brick Pro's came from
 `sd_recovery_tg4040_brickpro_ver1.1.1_20260717.img` (ext4 at sector 126432 —
 the image holds three 540 MB ext4 filesystems; only the first has a populated
-`/usr/trimui`). Only three files actually differ between the two 1024×768
-models: `trimui_osdd`, `bg.png` and `osdlayout.json`; the block tiles and every toast
-script are byte-identical. Brick Pro's stock
+`/usr/trimui`). Only two files actually differ between the two 1024×768
+models: `trimui_osdd` and `osdlayout.json`; the block tiles and every toast
+script are byte-identical, and Brick Pro now ships the Brick's `bg.png` from
+`res/1024x768/` (its stock background differed only by a small teal accent —
+see `DEV_CHECKLIST.md`). Brick Pro's stock
 layout includes the battery widget, so `device/brickpro/osdlayout.json` keeps it
 (the widget itself lives in the shared `common/widgets/static_battery`, and is
 simply not referenced by the Brick or Smart Pro layouts). Extraction recipe,

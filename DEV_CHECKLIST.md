@@ -83,12 +83,63 @@ Shared code moved, so these need a pass on at least one older device:
       could silently corrupt existing configs.
 - [ ] **LED page** — Brick still shows 4 zones, Smart Pro/S still 3, and existing
       `ledsettings*.txt` files still parse after the `MAX_LIGHTS` 4 → 5 bump.
-- [ ] **OSD still starts** — the boot sync is now skipped when no `osd-$DEVICE` overlay
-      exists and the daemon only starts if present; confirm Brick and Smart Pro are unaffected.
-- [ ] **OSD assets after the dedup refactor** — the assembled trees were verified
-      byte-identical to `66c76db8`, so this is a spot-check, not a proof: on Brick
-      and Smart Pro S confirm the tile grid, `bg.png` and toast positions look
-      unchanged.
+- [x] **OSD still starts** — the boot sync is now skipped when no `osd-$DEVICE` overlay
+      exists and the daemon only starts if present. *Verified 2026-07-26 on Brick and
+      Smart Pro S (sync fired, daemon running, scripts executable). Smart Pro:
+      untestable — no hardware.*
+- [x] **OSD assets after the dedup refactor** — the assembled trees were verified
+      byte-identical to `66c76db8`, so this is a spot-check, not a proof.
+      *Verified 2026-07-26 on Brick and Smart Pro S: tile grid, `bg.png` and toast
+      positions unchanged.*
+- [x] **Toggle icons on tg5040 — deliberate visual change, needs eyes.** Brick,
+      Brick Pro and Smart Pro now use the tg5050 icon set: an active toggle draws
+      a solid white disc with a dark glyph instead of the old faint translucent
+      disc. Affects wifi, bluetooth, LED, rumble and mute. This is the one part
+      of the OSD work that is *not* byte-identical to `66c76db8` — 8 files on
+      3 devices, verified to be exactly those and nothing else. Confirm on a
+      Brick that the active state reads correctly against that model's OSD
+      background, and that `toggle_screenshot` (still a fully transparent disc)
+      does not look broken next to them. *Verified 2026-07-26 on Brick. Smart
+      Pro: untestable — no hardware; same assets as Brick, differing only in the
+      1280×720 res layer. Brick Pro: pending hardware.*
+- [x] **LED toggle on Smart Pro S — now runs tg5040's script.** `toggle_led`'s
+      tg5050 override was merged into `common/`; the shared version writes a
+      superset of nodes (`max_scale`, `_lr`, `_f1f2`, plus `_rear`, which does
+      not exist on tg5050 and is swallowed by `2>/dev/null`). Confirm the LED
+      toggle still turns all three zones on and off at the configured
+      brightness. *Verified 2026-07-26 on Smart Pro S.*
+- [x] **LED brightness now picks the running model's settings file.** All three
+      `ledsettings*.txt` live in `.userdata/shared/`, which is shared across
+      platforms (`sync.c:508-510` excludes all three precisely because they
+      coexist), so a card moved between models carries several. The old code
+      probed `_brickpro` → `_brick` → plain and took the first that existed —
+      meaning a Smart Pro that had ever been in a Brick read the *Brick's*
+      brightness, permanently, since Settings writes the plain file on both
+      Smart Pro and Smart Pro S. It now selects by hardware instead: `_rear`
+      node present → Brick Pro, else fb0 width 1024 → Brick, else the plain
+      file. **This fixes a pre-existing bug on Smart Pro**, so verify there too,
+      not just on Smart Pro S: set a distinctive brightness in Settings, toggle
+      the LEDs off and on from the OSD, and confirm they come back at that
+      brightness rather than another model's. *Verified 2026-07-26 on Smart
+      Pro S — on-device probe confirmed the discriminator's inputs (no `_rear`
+      node, fb0 width 1280 → plain file). Smart Pro: untestable — no hardware;
+      the fix is code-identical there, selected by the same fb0-width branch.*
+- [ ] **Brick Pro OSD background is now the Brick's.** `bg.png` moved into
+      `res/<WxH>/` (it is exactly panel-sized, so it is resolution-locked art).
+      The 1280×720 pair was byte-identical, so Smart Pro / Smart Pro S are
+      unaffected. Brick Pro's stock version differed in 192 of 786,432 pixels:
+      54 are ±1 alpha rounding on the panel corners (y≈56–80, invisible), and
+      the other **138** are a teal accent (`0,255,163`) mirrored at x=41 and
+      x=982, y≈686–711 — a 28 px fully-opaque core plus 110 px of anti-aliased
+      edge. Brick's background is plain black there, so Brick Pro loses both
+      accents. Judged negligible while the hardware is
+      unavailable — look at it once a Brick Pro is in hand and restore
+      `device/brickpro/bg.png` if the accents matter.
+- [x] **CPU widget on Smart Pro S is now display-only.** `static_cpu_freq`'s
+      `"launch"` was `set.sh` on tg5050 and empty on tg5040; it is now empty
+      everywhere. `OSD.md` records that `set.sh` as a no-op stub, so tapping the
+      widget should have done nothing anyway. *Verified 2026-07-26 on Smart
+      Pro S — nothing visibly regressed.*
 
 ### 3. Deliberately deferred
 
@@ -100,17 +151,11 @@ Shared code moved, so these need a pass on at least one older device:
 - **Display calibration / white point** — upstream's `displaycal.h` does not exist in this
   fork at all, so upstream's Brick Pro calibration commits (`64160e99`, `45406e12`) were out of
   scope. Porting white-point correction is its own piece of work.
-- **Hardcoded platform paths in OSD widgets** — four of the 18 files in
-  `skeleton/SYSTEM/osd/device/smartpros/widgets/` (`slider_backlight`,
-  `slider_volume_global`, `toggle_mute`, `toggle_wifi`, each `set.sh`) differ
-  from `common/` only by a hardcoded `/mnt/SDCARD/.system/tg50X0` path:
-  `toggle_wifi` via a `SYSTEM_PATH=` variable (one changed line), the other
-  three via `LD_LIBRARY_PATH` and `OSDCTL` (two changed lines each, no
-  `SYSTEM_PATH` variable involved). Deriving that path instead — the widget
-  already runs from a known location — would delete all four overrides. Left
-  out of the dedup refactor because it changes shipped bytes and so forfeits
-  that change's byte-equality proof; it needs its own on-device check of the
-  backlight, volume, mute and wifi widgets.
+- **~~Hardcoded platform paths in OSD widgets~~** — done. The four overrides
+  that differed from `common/` only by a `/mnt/SDCARD/.system/tg50X0` path are
+  gone: the path is now written `__PLATFORM__` in `common/` and substituted per
+  device by `assemble-osd.sh`. Assembled output is byte-identical, so this
+  needs no hardware check of its own.
 - **Music widget tile is the wrong size on 1024×768** —
   `skeleton/SYSTEM/osd/common/widgets/app_music/skin/block4x2.png` is 540×260
   and `block4x2_sel.png` is 544×264, both byte-identical to the 1280×720
