@@ -1,0 +1,670 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 8340288fe..e2b512404 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -312,6 +312,67 @@ if(NINTENDO_SWITCH)
+ 	target_include_directories(${PROJECT_NAME} PRIVATE shell/switch)
+ endif()
+ 
++# NextUI overlay menu (shared library, lives in the nx-redux workspace).
++# Standalone Linux only (this project builds tg5040/tg5050 standalone
++# targets; LIBRETRO/ANDROID/APPLE/WIN32 builds don't have a nx-redux pak).
++if(NOT LIBRETRO AND NOT ANDROID AND NOT APPLE AND NOT WIN32)
++	set(NX_OVERLAY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../common")
++	set(NX_OVERLAY_SOURCES
++		core/nx_overlay.cpp
++		${NX_OVERLAY_DIR}/emu_overlay.c
++		${NX_OVERLAY_DIR}/emu_overlay_cfg.c
++		${NX_OVERLAY_DIR}/emu_overlay_sdl.c
++		${NX_OVERLAY_DIR}/cjson/cJSON.c
++	)
++	target_sources(${PROJECT_NAME} PRIVATE ${NX_OVERLAY_SOURCES})
++	# Deliberately NOT target_include_directories() (target-wide): the
++	# workspace ships its own workspace/all/common/sdl.h shim (used by other
++	# emulator cores, requires -DUSE_SDL2 which flycast doesn't define), and
++	# this Docker bind mount (macOS host -> Linux container) is
++	# case-insensitive, so adding common/ to the whole target's search path
++	# makes every unrelated flycast file's #include <SDL.h> incorrectly
++	# resolve to that shim instead of the real toolchain SDL2 header
++	# (observed: fatal error pulling in nonexistent SDL/SDL_image.h on
++	# tg5050, and a cascade of bogus "begin/end not declared" errors
++	# elsewhere on tg5040). None of the four common/*.c files above actually
++	# need this include dir themselves (they use "quoted" includes for their
++	# own co-located headers, resolved relative to each file regardless of
++	# -I); only nx_overlay.cpp does, for the "emu_overlay*.h" trio. So the
++	# include dir is scoped to just these 5 new files via
++	# set_source_files_properties(), leaving every pre-existing flycast
++	# source's include search path untouched.
++	set_source_files_properties(${NX_OVERLAY_SOURCES}
++		PROPERTIES INCLUDE_DIRECTORIES ${NX_OVERLAY_DIR})
++	# No SDL2_ttf/SDL2_image CMake config or pkg-config module ships in
++	# either toolchain sysroot (only SDL2 itself does, via the cmake-hints
++	# SDL2Config.cmake); both libs' headers/.so are present directly under
++	# the sysroot's usr/include/usr/lib though, which the cross-compiler's
++	# default --sysroot search path already covers, so plain link flags
++	# resolve without any extra -L/-I.
++	# emu_overlay_sdl.c calls GLES3 functions (glCreateShader, glReadPixels,
++	# etc.) directly via <GLES3/gl3.h> rather than through flycast's own
++	# glad/dlopen indirection (that's specific to flycast's main renderer,
++	# for runtime GL-API switching; the overlay doesn't need it), so it
++	# needs an actual link-time GLESv2 library. libGLESv2.so is present in
++	# both toolchain sysroots and is how every other emulator core in this
++	# workspace links GLES (mupen64plus-core, mgba, musicplayer all use
++	# -lGLESv2) - same pattern here.
++	# tg5050's libGLESv2.so is a thin stub whose symbols are actually
++	# defined in libmali.so.0 (the Mali GPU driver blob, usr/lib64); with
++	# GNU ld's default --no-copy-dt-needed-entries, linking -lGLESv2 alone
++	# fails there ("DSO missing from command line") because libmali isn't
++	# on flycast's own link line, only transitively via libGLESv2's NEEDED
++	# entry. tg5040's sysroot has no libmali at all - its libGLESv2.so
++	# defines everything itself and links fine without it. find_library()
++	# rather than an FLYCAST_TOOLCHAIN_PLATFORM check so this adapts
++	# automatically if either sysroot's GL stack shape changes.
++	find_library(NX_OVERLAY_MALI_LIBRARY NAMES mali)
++	target_link_libraries(${PROJECT_NAME} PRIVATE SDL2_ttf SDL2_image GLESv2)
++	if(NX_OVERLAY_MALI_LIBRARY)
++		target_link_libraries(${PROJECT_NAME} PRIVATE ${NX_OVERLAY_MALI_LIBRARY})
++	endif()
++endif()
++
+ if(CMAKE_SYSTEM_NAME STREQUAL "OpenBSD")
+ 	target_link_options(${PROJECT_NAME} PRIVATE "-Wl,--no-execute-only")
+ endif()
+diff --git a/core/audio/audiobackend_sdl2.cpp b/core/audio/audiobackend_sdl2.cpp
+index 99d932677..8d873cd92 100644
+--- a/core/audio/audiobackend_sdl2.cpp
++++ b/core/audio/audiobackend_sdl2.cpp
+@@ -93,31 +93,45 @@ public:
+ 		wav_spec.userdata = this;
+ 		needs_resampling = false;
+ 
+-		// Try 44.1KHz which should be faster since it's native.
++		// NextUI: prefer 48 kHz output — the device's ALSA dmix runs at 48 kHz and
++		// alsa-lib's plug would otherwise linear-resample our 44.1 kHz stream (audible
++		// distortion). SDL's converter is much higher quality. See DC.pak notes.
++		wav_spec.freq = 48000;
++		needs_resampling = true;
+ 		audiodev = SDL_OpenAudioDevice(NULL, 0, &wav_spec, &out_spec, 0);
+ 		if (audiodev == 0)
+ 		{
+-			INFO_LOG(AUDIO, "SDL2: SDL_OpenAudioDevice failed: %s", SDL_GetError());
+-			needs_resampling = true;
+-			wav_spec.freq = 48000;
++			// NOTICE_LOG (not INFO_LOG): INFO-level logging is compiled out entirely in
++			// Release builds (MAX_LOGLEVEL, core/log/Log.h) -- this line must survive so
++			// the on-device log proves which path was taken.
++			NOTICE_LOG(AUDIO, "SDL2: SDL_OpenAudioDevice (48 KHz) failed: %s", SDL_GetError());
++		}
++		else
++		{
++			int ret = SDL_BuildAudioCVT(&audioCvt, AUDIO_S16, 2, 44100, AUDIO_S16, 2, 48000);
++			if (ret != 1 || audioCvt.needed == 0)
++			{
++				ERROR_LOG(AUDIO, "SDL2: can't build audio converter: %s", SDL_GetError());
++				SDL_CloseAudioDevice(audiodev);
++				audiodev = 0;
++			}
++			else
++			{
++				audioCvt.buf = new u8[SAMPLE_COUNT * 2 * sizeof(uint32_t) * audioCvt.len_mult];
++				NOTICE_LOG(AUDIO, "SDL2: Using resampling to 48 KHz");
++			}
++		}
++
++		if (audiodev == 0)
++		{
++			// 48 kHz open (or converter build) failed -- fall back to native 44.1 kHz.
++			needs_resampling = false;
++			wav_spec.freq = 44100;
+ 			audiodev = SDL_OpenAudioDevice(NULL, 0, &wav_spec, &out_spec, 0);
+ 			if (audiodev == 0)
+ 				ERROR_LOG(AUDIO, "SDL2: SDL_OpenAudioDevice failed: %s", SDL_GetError());
+ 			else
+-			{
+-				INFO_LOG(AUDIO, "SDL2: Using resampling to 48 KHz");
+-				int ret = SDL_BuildAudioCVT(&audioCvt, AUDIO_S16, 2, 44100, AUDIO_S16, 2, 48000);
+-				if (ret != 1 || audioCvt.needed == 0)
+-				{
+-					ERROR_LOG(AUDIO, "SDL2: can't build audio converter: %s", SDL_GetError());
+-					SDL_CloseAudioDevice(audiodev);
+-					audiodev = 0;
+-				}
+-				else
+-				{
+-					audioCvt.buf = new u8[SAMPLE_COUNT * 2 * sizeof(uint32_t) * audioCvt.len_mult];
+-				}
+-			}
++				NOTICE_LOG(AUDIO, "SDL2: Using native 44.1 KHz output");
+ 		}
+ 
+ 		return audiodev != 0;
+diff --git a/core/hw/sh4/sh4_interrupts.cpp b/core/hw/sh4/sh4_interrupts.cpp
+index 49a3be455..40eacc928 100644
+--- a/core/hw/sh4/sh4_interrupts.cpp
++++ b/core/hw/sh4/sh4_interrupts.cpp
+@@ -20,21 +20,48 @@
+ 
+ //these are fixed
+ const u16 IRLPriority = 0x0246;
+-#define IRLP9 &IRLPriority,0
+-#define IRLP11 &IRLPriority,4
+-#define IRLP13 &IRLPriority,8
+-
+-#define GIPA(p) &INTC_IPRA.reg_data,4*p
+-#define GIPB(p) &INTC_IPRB.reg_data,4*p
+-#define GIPC(p) &INTC_IPRC.reg_data,4*p
++#define IRLP9 IprReg::Fixed,0
++#define IRLP11 IprReg::Fixed,4
++#define IRLP13 IprReg::Fixed,8
++
++#define GIPA(p) IprReg::IPRA,4*p
++#define GIPB(p) IprReg::IPRB,4*p
++#define GIPC(p) IprReg::IPRC,4*p
++
++// GCC 8.3.0 ICE workaround (tg5040 toolchain; internal compiler error in
++// gen_reg_rtx at emit-rtl.c:1187 while expanding this file's global
++// initializer; absent under GCC 10.3.0). Root cause: InterruptSourceList
++// below is `static const`, but its entries used to store a `const u16*`
++// initialized via &INTC_IPRA.reg_data (SH4IO_REG_T reinterpret-casts the
++// INTC[5] MMIO array) — a reinterpret_cast is never a core constant
++// expression, so the whole array needed a dynamic global constructor to
++// compute ~22 pointers at process startup, and GCC 8.3.0's aarch64 backend
++// crashes expanding that constructor. Replacing the pointer field with this
++// enum tag (resolved to the live register in GetPrLvl() below, at the same
++// call site and cost as the old `*PrioReg` dereference) makes
++// InterruptSourceList fully constant-initializable again — no dynamic
++// initializer is emitted, and the ICE construct no longer exists. Purely a
++// storage-representation change; behavior is identical.
++enum class IprReg : u8 { Fixed, IPRA, IPRB, IPRC };
+ 
+ struct InterptSourceList_Entry
+ {
+-	const u16* PrioReg;
++	IprReg Reg;
+ 	u32 Shift;
+ 	Sh4ExceptionCode IntEvnCode;
+ 
+-	int GetPrLvl() const { return (*PrioReg >> Shift) & 0xF; }
++	int GetPrLvl() const
++	{
++		u16 v;
++		switch (Reg)
++		{
++		case IprReg::IPRA: v = INTC_IPRA.reg_data; break;
++		case IprReg::IPRB: v = INTC_IPRB.reg_data; break;
++		case IprReg::IPRC: v = INTC_IPRC.reg_data; break;
++		default:           v = IRLPriority;        break;
++		}
++		return (v >> Shift) & 0xF;
++	}
+ };
+ 
+ static const InterptSourceList_Entry InterruptSourceList[sh4_INT_ID_COUNT] =
+diff --git a/core/input/gamepad_device.cpp b/core/input/gamepad_device.cpp
+index 9babc2bd6..9d807b816 100644
+--- a/core/input/gamepad_device.cpp
++++ b/core/input/gamepad_device.cpp
+@@ -24,6 +24,7 @@
+ #include "emulator.h"
+ #include "hw/maple/maple_devs.h"
+ #include "mouse.h"
++#include "nx_overlay.h"
+ 
+ #include <algorithm>
+ #include <mutex>
+@@ -88,7 +89,7 @@ bool GamepadDevice::handleButtonInput(int port, DreamcastKey key, bool pressed)
+ 			break;
+ 		case EMU_BTN_MENU:
+ 			if (pressed)
+-				gui_open_settings();
++				nx_overlay_request_menu();
+ 			break;
+ 		case EMU_BTN_FFORWARD:
+ 			if (pressed && !gui_is_open())
+diff --git a/core/nx_overlay.cpp b/core/nx_overlay.cpp
+new file mode 100644
+index 000000000..a6fc54e11
+--- /dev/null
++++ b/core/nx_overlay.cpp
+@@ -0,0 +1,382 @@
++#include "nx_overlay.h"
++#include "emulator.h"
++#include "types.h"
++#include "ui/gui.h" // gui_stop_game() - resume-failure fallback (Important 3)
++#include "cfg/cfg.h" // cfgSaveBool()/cfgSaveInt() - see write_config_if_dirty()
++// Explicit SDL2/ subpath (not <SDL.h>): this file's own -I includes
++// workspace/all/common (for the emu_overlay* headers below), which also
++// hosts nx-redux's own case-insensitively-colliding sdl.h shim (see the
++// CMakeLists.txt comment next to NX_OVERLAY_SOURCES) — <SDL2/SDL.h> has no
++// such ambiguity and matches the toolchain header the rest of flycast uses.
++#include <SDL2/SDL.h>
++#include <cstdio>
++#include <cstring>
++#include <cstdlib>
++
++extern "C" {
++#include "emu_overlay.h"
++#include "emu_overlay_cfg.h"
++#include "emu_overlay_sdl.h"
++}
++
++static EmuOvl s_overlay;
++static EmuOvlConfig s_overlayConfig;
++static bool s_overlayInitialized = false;
++static bool s_overlayConfigLoaded = false;
++static bool s_overlayConfigFailed = false;
++static char s_overlayJsonPath[512] = "";
++static char s_overlayIniPath[512] = "";
++static bool s_menuBtnPrev = false;
++static bool s_menuRequested = false;
++static bool s_menuActive = false;
++static bool s_resumeChecked = false;
++static SDL_Joystick* s_joy = nullptr;
++static Uint8 s_prevHat = 0;
++static Uint32 s_prevButtons = 0;
++
++static void overlay_init_paths()
++{
++	const char* json = getenv("EMU_OVERLAY_JSON");
++	const char* ini  = getenv("EMU_OVERLAY_INI");
++	if (json) strncpy(s_overlayJsonPath, json, sizeof(s_overlayJsonPath) - 1);
++	if (ini)  strncpy(s_overlayIniPath,  ini,  sizeof(s_overlayIniPath) - 1);
++}
++
++static void overlay_ensure_init(int w, int h)
++{
++	if (s_overlayInitialized || s_overlayConfigFailed)
++		return;
++
++	if (!s_overlayConfigLoaded) {
++		overlay_init_paths();
++		if (s_overlayJsonPath[0] == '\0') {
++			s_overlayConfigFailed = true; // no overlay configured for this launch
++			return;
++		}
++		memset(&s_overlayConfig, 0, sizeof(s_overlayConfig));
++		if (emu_ovl_cfg_load(&s_overlayConfig, s_overlayJsonPath) != 0) {
++			fprintf(stderr, "[Overlay] Failed to load config: %s\n", s_overlayJsonPath);
++			s_overlayConfigFailed = true;
++			return;
++		}
++		if (s_overlayIniPath[0] != '\0')
++			emu_ovl_cfg_read_ini(&s_overlayConfig, s_overlayIniPath);
++		s_overlayConfigLoaded = true;
++	}
++
++	// GL init retried each frame until the context exists; we are called on the
++	// thread that owns the GL context (mainui loop).
++	EmuOvlRenderBackend* render = overlay_sdl_get_backend();
++	if (render->init(w, h) != 0)
++		return;
++	const char* gameName = getenv("EMU_OVERLAY_GAME");
++	emu_ovl_init(&s_overlay, &s_overlayConfig, render,
++	             gameName ? gameName : "Dreamcast", w, h);
++	s_overlayInitialized = true;
++	fprintf(stderr, "[Overlay] Initialized successfully (%dx%d)\n", w, h);
++}
++
++// Opens s_joy if it isn't already; returns whether a joystick is available.
++// Shared by check_menu_button() and nx_overlay_after_render() so the latter
++// can refuse to open the menu (rather than open one nothing can navigate or
++// close) when no joystick has ever been found.
++static bool ensure_joystick()
++{
++	if (s_joy)
++		return true;
++	if (SDL_NumJoysticks() > 0)
++		s_joy = SDL_JoystickOpen(0);
++	return s_joy != nullptr;
++}
++
++static bool check_menu_button()
++{
++	SDL_JoystickUpdate();
++	if (!ensure_joystick())
++		return false;
++	bool pressed = SDL_JoystickGetButton(s_joy, 8) != 0;
++	bool justPressed = pressed && !s_menuBtnPrev;
++	s_menuBtnPrev = pressed;
++	return justPressed;
++}
++
++static Uint8 read_dpad_state()
++{
++	// Merge d-pad hat with the analog stick (axes 0/1): the Brick's FN switch
++	// reroutes the d-pad to the stick, which would leave the menu unnavigable.
++	Uint8 dir = SDL_JoystickGetHat(s_joy, 0);
++	const Sint16 T = 16384;
++	Sint16 ax = SDL_JoystickGetAxis(s_joy, 0);
++	Sint16 ay = SDL_JoystickGetAxis(s_joy, 1);
++	if (ay < -T) dir |= SDL_HAT_UP;
++	if (ay >  T) dir |= SDL_HAT_DOWN;
++	if (ax < -T) dir |= SDL_HAT_LEFT;
++	if (ax >  T) dir |= SDL_HAT_RIGHT;
++	return dir;
++}
++
++static EmuOvlInput poll_overlay_input()
++{
++	EmuOvlInput input;
++	memset(&input, 0, sizeof(input));
++	SDL_JoystickUpdate();
++	if (!s_joy) return input;
++
++	Uint8 hat = read_dpad_state();
++	Uint8 hatPressed = hat & ~s_prevHat;
++	s_prevHat = hat;
++	if (hatPressed & SDL_HAT_UP)    input.up    = true;
++	if (hatPressed & SDL_HAT_DOWN)  input.down  = true;
++	if (hatPressed & SDL_HAT_LEFT)  input.left  = true;
++	if (hatPressed & SDL_HAT_RIGHT) input.right = true;
++
++	// SDL button indices: 0=A(hw), 1=B(hw), 4=L1, 5=R1, 8=Menu
++	static const int btnMap[] = {0, 1, 4, 5, 8};
++	Uint32 curButtons = 0;
++	for (int i = 0; i < 5; i++)
++		if (SDL_JoystickGetButton(s_joy, btnMap[i]))
++			curButtons |= (1u << btnMap[i]);
++	Uint32 btnPressed = curButtons & ~s_prevButtons;
++	s_prevButtons = curButtons;
++
++	if (btnPressed & (1u << 0)) input.b    = true;
++	if (btnPressed & (1u << 1)) input.a    = true;
++	if (btnPressed & (1u << 4)) input.l1   = true;
++	if (btnPressed & (1u << 5)) input.r1   = true;
++	if (btnPressed & (1u << 8)) input.menu = true;
++	return input;
++}
++
++static void reset_input_edges()
++{
++	s_prevHat = read_dpad_state();
++	s_prevButtons = 0;
++	for (int i : {0, 1, 4, 5, 8})
++		if (SDL_JoystickGetButton(s_joy, i))
++			s_prevButtons |= (1u << i);
++	s_menuBtnPrev = true; // prevent instant re-trigger
++}
++
++void nx_overlay_request_menu()
++{
++	s_menuRequested = true;
++}
++
++static void write_config_if_dirty()
++{
++	if (emu_ovl_cfg_has_changes(&s_overlayConfig)) {
++		if (s_overlayIniPath[0] != '\0')
++			emu_ovl_cfg_write_ini(&s_overlayConfig, s_overlayIniPath);
++
++		// Also push every dirty item into flycast's own in-memory config db
++		// (core/cfg/cfg.cpp's cfgdb), BEFORE emu_ovl_cfg_apply_staged() below
++		// clears the dirty flags. Root cause of the "Options revert after
++		// restart" bug: emu_ovl_cfg_write_ini() above only ever patches the
++		// raw emu.cfg *file*; it never touches cfgdb, and cfgdb is what actually
++		// matters for durability. ANY flycast-side cfgSaveStr() call during the
++		// same session rewrites the file straight from cfgdb - e.g.
++		// GamepadDevice::SaveMaplePorts() (core/input/gamepad_device.cpp:729),
++		// cheat auto-discovery (core/cheats.cpp:437), or the native Settings UI -
++		// because cfgSaveStr() does cfgdb.set() then, since autoSave defaults
++		// true, immediately calls saveConfigFile() (core/cfg/cfg.cpp:26-31),
++		// which rewrites the ENTIRE emu.cfg from cfgdb. One such write reverts
++		// every prior file-only edit, since it doesn't merge - it replaces the
++		// file wholesale with whatever cfgdb currently holds. On top of that,
++		// plain Quit itself reloads every in-memory Option from cfgdb: dc_exit()
++		// -> Emulator::unloadGame() (core/emulator.cpp:750-751) unconditionally
++		// runs config::Settings::instance().reset() then .load(false), which
++		// re-populates every Option straight from cfgdb, NOT from the file. So
++		// keeping cfgdb in sync here - not just the file - is the only thing that
++		// survives both of those; the file write above is effectively redundant
++		// once this loop runs, but kept per the brief (N64.pak's shared overlay
++		// code relies on the same file-write path).
++		//
++		// Two more things this depends on, confirmed against source:
++		// (a) Option::load() only reads a per-game [gameId] section
++		// ("config.<key>" keys) when settings.hasPerGameConfig() is true, i.e. a
++		// [gameId] section already exists in cfgdb (core/cfg/option.h:119-127) -
++		// not reachable with any of the shipped default cfgs, which carry no
++		// per-game section, so the plain [config] path below is always the one
++		// that applies here.
++		// (b) ConfigFile::save() (core/cfg/ini.cpp:291) always writes entries as
++		// "key = value" (spaces around '=') whenever flycast itself rewrites the
++		// file - DC.pak's launch.sh sed patterns (e.g. 's/^UseReios =.*/.../')
++		// depend on that exact spacing surviving flycast's own rewrites, not
++		// just ours.
++		for (int s = 0; s < s_overlayConfig.section_count; s++) {
++			EmuOvlSection* sec = &s_overlayConfig.sections[s];
++			const char* ini_section = sec->ini_section[0] != '\0'
++				? sec->ini_section
++				: s_overlayConfig.config_section;
++			for (int i = 0; i < sec->item_count; i++) {
++				EmuOvlItem* item = &sec->items[i];
++				if (!item->dirty)
++					continue;
++				if (item->type == EMU_OVL_TYPE_BOOL) {
++					cfgSaveBool(ini_section, item->key, item->staged_value != 0);
++				} else {
++					// NOTE: float_scale (INI value stored as a float, staged
++					// as scaled int - see emu_overlay_cfg.c's write_item_value())
++					// is unhandled here: no current overlay_settings.json item
++					// uses it. A future float_scale item would need a
++					// cfgSaveFloat(ini_section, item->key,
++					// (float)item->staged_value / item->float_scale) branch here.
++					cfgSaveInt(ini_section, item->key, item->staged_value);
++				}
++			}
++		}
++
++		emu_ovl_cfg_apply_staged(&s_overlayConfig);
++	}
++}
++
++static void handle_menu_close()
++{
++	s_menuActive = false;
++	write_config_if_dirty();
++	EmuOvlAction action = emu_ovl_get_action(&s_overlay);
++	switch (action) {
++	case EMU_OVL_ACTION_SAVE_STATE: {
++		int slot = emu_ovl_get_action_param(&s_overlay);
++		// dc_savestate() can throw SerializeBase::Exception (a
++		// std::runtime_error, NOT FlycastException, and unlike
++		// dc_loadstate() it has no internal catch of its own) - a save
++		// hiccup must not skip emu.start() below (permanent stop) or
++		// escape mainui_rend_frame()'s try/catch (which only wraps the
++		// emu.render() branch, not this one -> process terminates).
++		try {
++			dc_savestate(slot);
++			emu_ovl_save_slot_screenshot(&s_overlay, slot);
++		} catch (...) {
++			fprintf(stderr, "[Overlay] Save state failed (slot %d)\n", slot);
++		}
++		emu.start();
++		break;
++	}
++	case EMU_OVL_ACTION_LOAD_STATE: {
++		int slot = emu_ovl_get_action_param(&s_overlay);
++		// dc_loadstate() only catches its own Deserializer::Exception
++		// internally; other exceptions (e.g. from emu.loadstate()) still
++		// propagate, so this needs the same guard as the save path above.
++		try {
++			dc_loadstate(slot);
++		} catch (...) {
++			fprintf(stderr, "[Overlay] Load state failed (slot %d)\n", slot);
++		}
++		emu.start();
++		break;
++	}
++	case EMU_OVL_ACTION_QUIT:
++		// Auto-save so the game switcher can always resume (hidden slot 9).
++		// A throw here must not skip dc_exit() below - the user asked to
++		// quit, and dc_exit() itself is guarded too so quitting can't hang.
++		try {
++			dc_savestate(EMU_OVL_AUTO_SLOT);
++			emu_ovl_save_slot_screenshot(&s_overlay, EMU_OVL_AUTO_SLOT);
++		} catch (...) {
++			fprintf(stderr, "[Overlay] Auto-save-on-quit failed (slot %d)\n", EMU_OVL_AUTO_SLOT);
++		}
++		try {
++			dc_exit();
++		} catch (...) {
++			fprintf(stderr, "[Overlay] dc_exit() threw\n");
++		}
++		break;
++	default: // CONTINUE / NONE
++		emu.start();
++		break;
++	}
++}
++
++bool nx_overlay_frame()
++{
++	int w = settings.display.width;
++	int h = settings.display.height;
++	overlay_ensure_init(w, h);
++	if (!s_overlayInitialized) {
++		s_menuRequested = false;
++		return false;
++	}
++
++	// One-shot game-switcher resume (slot written by nextui's launcher).
++	if (!s_resumeChecked && emu.running()) {
++		s_resumeChecked = true;
++		int slot = emu_ovl_consume_resume_slot();
++		if (slot >= 0) {
++			try {
++				emu.stop();
++			} catch (const FlycastException& e) {
++				// A throwing emu.stop() leaves the emulator in state Error:
++				// emu.start() would refuse and emu.render() would return
++				// false forever, spinning mainui_loop with no swap (frozen
++				// screen, hot CPU). Follow flycast's own convention (see
++				// gui.cpp's gui_loadState()/gui_saveState()) and fall back
++				// to the content browser instead of swallowing this.
++				fprintf(stderr, "[Overlay] Resume: emu.stop() failed (slot %d): %s\n", slot, e.what());
++				gui_stop_game(e.what());
++				return false;
++			} catch (...) {
++				fprintf(stderr, "[Overlay] Resume: emu.stop() failed (slot %d)\n", slot);
++				gui_stop_game("Resume failed");
++				return false;
++			}
++			// dc_loadstate() is inside its own try so a bad/missing resume
++			// slot can't skip emu.start() below and leave the emulator
++			// stopped (stop()/start() must stay paired on every path,
++			// including this failure one).
++			try {
++				dc_loadstate(slot);
++			} catch (...) {
++				fprintf(stderr, "[Overlay] Resume load failed (slot %d)\n", slot);
++			}
++			emu.start();
++		}
++	}
++
++	if (s_menuActive) {
++		// Discard any menu-open signal that arrived while the overlay was
++		// already showing (e.g. a mapped EMU_BTN_MENU press dispatched via
++		// os_UpdateInputState(), independent of s_menuActive) — otherwise it
++		// survives to nx_overlay_after_render() and reopens the menu on the
++		// very next frame after this session closes.
++		s_menuRequested = false;
++		EmuOvlInput input = poll_overlay_input();
++		emu_ovl_update(&s_overlay, &input);
++		emu_ovl_render(&s_overlay);
++		if (!emu_ovl_is_active(&s_overlay))
++			handle_menu_close();
++		return true;
++	}
++
++	// Direct MENU-button polling (mapping-independent, mirrors GLideN64 hook).
++	if (emu.running() && check_menu_button())
++		s_menuRequested = true;
++	return false;
++}
++
++void nx_overlay_after_render()
++{
++	if (!s_menuRequested)
++		return;
++	s_menuRequested = false;
++	if (!s_overlayInitialized || !emu.running())
++		return;
++	// Guarded BEFORE emu.stop(): the overlay is only navigable/closable via
++	// s_joy (poll_overlay_input() returns all-false without one). The
++	// direct-polling path (check_menu_button()) always opens s_joy first,
++	// but the mapped EMU_BTN_MENU path (gamepad_device.cpp) can set
++	// s_menuRequested without ever touching s_joy. Opening the menu with no
++	// joystick available would stop emulation into an overlay nothing can
++	// close - abort instead, before emulation is even stopped.
++	SDL_JoystickUpdate();
++	if (!ensure_joystick())
++		return;
++	try {
++		emu.stop();
++	} catch (...) {
++		return;
++	}
++	emu_ovl_open(&s_overlay); // captures the just-rendered backbuffer
++	reset_input_edges();
++	s_menuActive = true;
++}
+diff --git a/core/nx_overlay.h b/core/nx_overlay.h
+new file mode 100644
+index 000000000..350dfe13b
+--- /dev/null
++++ b/core/nx_overlay.h
+@@ -0,0 +1,11 @@
++// NextUI in-game overlay menu hook (see workspace/all/common/emu_overlay.h).
++#pragma once
++
++// Called each frame from mainui_rend_frame(); renders the overlay and returns
++// true when the overlay consumed the frame (emulation is stopped meanwhile).
++bool nx_overlay_frame();
++// Called immediately after a successful emu.render() so the menu-open capture
++// reads a valid game frame from the backbuffer.
++void nx_overlay_after_render();
++// Requests the menu (safe from input handlers).
++void nx_overlay_request_menu();
+diff --git a/core/ui/mainui.cpp b/core/ui/mainui.cpp
+index 4b1ad55b5..a1b81678a 100644
+--- a/core/ui/mainui.cpp
++++ b/core/ui/mainui.cpp
+@@ -26,6 +26,7 @@
+ #include "emulator.h"
+ #include "imgui_driver.h"
+ #include "profiler/fc_profiler.h"
++#include "nx_overlay.h"
+ 
+ #include <chrono>
+ #include <thread>
+@@ -41,7 +42,20 @@ bool mainui_rend_frame()
+ 	os_DoEvents();
+ 	os_UpdateInputState();
+ 
+-	if (gui_is_open())
++	if (nx_overlay_frame())
++	{
++		// The overlay draws into the backbuffer itself (outside the
++		// emu.render()/gui_display_ui() paths that normally set this), so
++		// present() below must be told explicitly or it never swaps and
++		// the menu stays invisible while emulation sits stopped (soft-lock)
++		// — mirrors the reference GLideN64 hook's explicit swap-buffers call.
++		if (imguiDriver != nullptr)
++			imguiDriver->setFrameRendered();
++#ifndef TARGET_IPHONE
++		std::this_thread::sleep_for(std::chrono::milliseconds(16));
++#endif
++	}
++	else if (gui_is_open())
+ 	{
+ 		gui_display_ui();
+ #ifndef TARGET_IPHONE
+@@ -53,6 +67,7 @@ bool mainui_rend_frame()
+ 		try {
+ 			if (!emu.render())
+ 				return false;
++			nx_overlay_after_render();
+ 			if (config::ProfilerEnabled && config::ProfilerDrawToGUI)
+ 				gui_display_profiler();
+ 		} catch (const FlycastException& e) {

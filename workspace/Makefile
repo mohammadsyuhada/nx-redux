@@ -43,6 +43,7 @@ endif
 	cd ./all/gametimectl/ && make
 	cd ./all/gametime/ && make
 	cd ./all/syncsettings/ && make
+	cd ./all/taskset/ && make
 	cd ./all/nextval/ && make
 	cd ./all/settings/ && make
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
@@ -79,6 +80,7 @@ ifneq ($(PLATFORM), desktop)
 	cd ./$(PLATFORM)/keymon && make clean
 	cd ./$(PLATFORM)/sleepmon && make clean
 	cd ./all/syncsettings/ && make cleans
+	cd ./all/taskset/ && make clean
 	cd ./all/show2/ && make clean
 ifeq ($(PLATFORM), tg5040)
 	cd ./$(PLATFORM)/rfkill && make clean

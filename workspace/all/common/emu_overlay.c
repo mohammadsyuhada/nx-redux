@@ -799,7 +799,7 @@ int emu_ovl_get_action_param(EmuOvl* ovl) {
 int emu_ovl_save_slot_screenshot(EmuOvl* ovl, int slot) {
 	if (!ovl || !ovl->render || !ovl->render->save_captured_frame)
 		return -1;
-	if (slot < 0 || slot >= EMU_OVL_MAX_SLOTS)
+	if (slot < 0 || (slot >= EMU_OVL_MAX_SLOTS && slot != EMU_OVL_AUTO_SLOT))
 		return -1;
 	if (ovl->screenshot_dir[0] == '\0' || ovl->rom_file[0] == '\0')
 		return -1;
@@ -831,9 +831,11 @@ int emu_ovl_consume_resume_slot(void) {
 		slot = -1;
 	fclose(f);
 	remove("/tmp/resume_slot.txt");
-	// The overlay only saves slots 0..EMU_OVL_MAX_SLOTS-1. NextUI writes 8
-	// (RESUME_SLOT_DEFAULT) on a non-resume launch and 9 (AUTO_RESUME_SLOT)
-	// only for minarch auto-resume — both mean "no overlay state to load".
+	// The overlay saves slots 0..EMU_OVL_MAX_SLOTS-1 plus the hidden
+	// EMU_OVL_AUTO_SLOT written by save-on-quit. NextUI writes 8
+	// (RESUME_SLOT_DEFAULT) on a non-resume launch — "no state to load".
+	if (slot == EMU_OVL_AUTO_SLOT)
+		return slot;
 	if (slot < 0 || slot >= EMU_OVL_MAX_SLOTS)
 		return -1;
 	return slot;

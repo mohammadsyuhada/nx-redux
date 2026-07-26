@@ -117,6 +117,11 @@ ifneq ($(PLATFORM), desktop)
 	cp ./workspace/$(PLATFORM)/keymon/keymon.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/$(PLATFORM)/sleepmon/sleepmon.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/syncsettings/build/$(PLATFORM)/syncsettings.elf ./build/SYSTEM/$(PLATFORM)/bin/
+	# taskset: used for CPU-affinity pinning by N64.pak, DC.pak, and (tg5050)
+	# PS.pak launch.sh. Built from source here so a full `make deploy` stays
+	# reproducible; see workspace/all/taskset/Makefile for why it must be
+	# dynamically linked (NOT -static) on this toolchain/kernel combination.
+	cp ./workspace/all/taskset/build/$(PLATFORM)/taskset ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/audiomon/build/$(PLATFORM)/audiomon.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/show2/build/$(PLATFORM)/show2.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/screenshot/build/$(PLATFORM)/screenshot.elf ./build/SYSTEM/$(PLATFORM)/bin/

@@ -1,0 +1,74 @@
+{
+  "emulator": "flycast",
+  "config_file": "emu.cfg",
+  "config_section": "config",
+  "options_hint": "Restart game to apply changes",
+  "save_state": true,
+  "load_state": true,
+  "sections": [
+    {
+      "name": "Video",
+      "items": [
+        {
+          "key": "rend.WideScreen",
+          "label": "Widescreen",
+          "description": "Render 16:9 instead of the native 4:3",
+          "type": "bool",
+          "default": false
+        },
+        {
+          "key": "rend.WidescreenGameHacks",
+          "label": "Widescreen Cheats",
+          "description": "Game-specific widescreen hacks (needs Widescreen)",
+          "type": "bool",
+          "default": false
+        },
+        {
+          "key": "rend.Resolution",
+          "label": "Internal Resolution",
+          "description": "Higher costs performance; 480 is native",
+          "type": "cycle",
+          "values": [480, 640, 720],
+          "labels": ["480 (native)", "640", "720"],
+          "default": 480
+        },
+        {
+          "key": "pvr.AutoSkipFrame",
+          "label": "Auto Frame Skip",
+          "description": "Skip frames when the emulator falls behind",
+          "type": "cycle",
+          "values": [0, 1, 2],
+          "labels": ["Off", "Normal", "Maximum"],
+          "default": 1
+        },
+        {
+          "key": "rend.vsync",
+          "label": "VSync",
+          "description": "Sync presentation to the display",
+          "type": "bool",
+          "default": true
+        }
+      ]
+    },
+    {
+      "name": "RetroAchievements",
+      "ini_section": "achievements",
+      "items": [
+        {
+          "key": "Enabled",
+          "label": "Achievements",
+          "description": "Requires login via the RetroAchievements app",
+          "type": "bool",
+          "default": false
+        },
+        {
+          "key": "HardcoreMode",
+          "label": "Hardcore Mode",
+          "description": "Disables save states while playing for achievements",
+          "type": "bool",
+          "default": false
+        }
+      ]
+    }
+  ]
+}

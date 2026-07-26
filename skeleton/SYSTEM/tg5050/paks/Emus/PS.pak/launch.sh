@@ -15,8 +15,16 @@ echo 1 >/sys/devices/system/cpu/cpu5/online 2>/dev/null
 # GPU: lock to performance for PS1 hardware-accelerated OpenGL rendering
 echo performance >/sys/devices/platform/soc@3000000/1800000.gpu/devfreq/1800000.gpu/governor 2>/dev/null
 
-# Launch on big cores, then pin threads after startup
-taskset -c 4,5 minarch.elf "$CORES_PATH/${EMU_EXE}_libretro.so" "$ROM" &> "$LOGS_PATH/$EMU_TAG.txt" &
+# Launch on big cores, then pin threads after startup. Probe taskset once
+# first: this platform's taskset binary (skeleton/SYSTEM/tg5050/bin/taskset)
+# is a fresh dynamic rebuild that has never run on real Smart Pro S hardware,
+# and the old shared fallback binary (skeleton/SYSTEM/shared/bin/taskset) is
+# gone, so a broken taskset here must not block the emulator from launching.
+if taskset -c 4,5 true 2>/dev/null; then
+    taskset -c 4,5 minarch.elf "$CORES_PATH/${EMU_EXE}_libretro.so" "$ROM" &> "$LOGS_PATH/$EMU_TAG.txt" &
+else
+    minarch.elf "$CORES_PATH/${EMU_EXE}_libretro.so" "$ROM" &> "$LOGS_PATH/$EMU_TAG.txt" &
+fi
 EMU_PID=$!
 sleep 2
 

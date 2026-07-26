@@ -42,18 +42,45 @@ Two related changes:
 
 ### Standalone emulators still without resume
 
-The repo ships exactly two standalone (non-minarch) emulator paks; everything else in
+The repo ships exactly three standalone (non-minarch) emulator paks; everything else in
 `skeleton/EXTRAS/Emus/` launches `minarch.elf` and already resumes via `State_resume()`:
 
 | Pak | Emulator | Resume status |
 |---|---|---|
 | N64 | mupen64plus + GLideN64 overlay | **Works** (this change) |
+| DC | flycast + nx_overlay | **Works**, incl. auto-save-on-quit to hidden slot 9 (consumed via `/tmp/resume_slot.txt`) — same handshake as N64. Built on branch `flycast-dc-pak` (staged, not yet merged). User-verified on both physical target devices: Brick (tg5040) hardware 2026-07-26 (HLE boot, overlay menu, save/load slots, quit-to-slot-9, switcher resume) and Smart Pro S (tg5050) in a later full session (real-BIOS boot verified on both devices, needs only `dc_boot.bin`; controller mapping shipped; tg5050 fully verified). Honestly still pending: full RA session test (a live achievement unlock, not just login/HTTPS), and Brick Pro (tg4040) once that hardware arrives. See `workspace/all/other/flycast/README.md` for details. |
 | NDS | DraStic (closed-source binary) | **No resume, by design.** No overlay integration and no `.minui/` slot files, so NDS games are hidden by the resumable-only filter and show `A START` in "All" mode — honest behavior. Baking resume in would need DraStic's own savestate CLI/auto-load hooks, if any exist; the emu_overlay approach is not available without source. |
 
 User-installed paks that are not part of this repo (e.g. a community PSP/PPSSPP pak) are
 in the same position as NDS unless they write `.minui/<EMU>/<rom>.txt` slot files — if one
 does, it must also consume `/tmp/resume_slot.txt` or the switcher's RESUME promise will be
 cosmetic (exactly the bug fixed for N64).
+
+### Deferred: auto-save-on-quit parity (minarch + N64)
+
+The DC pak's quit behavior — every quit auto-saves to hidden slot 9 (`AUTO_RESUME_SLOT`)
+with a switcher screenshot and repoints `.minui/<EMU>/<rom>.txt` at it, so RESUME always
+returns to the exact quit moment — should be ported to the other resume-capable emulators.
+Requested 2026-07-26; not started.
+
+- [ ] **minarch (all libretro cores)** — a plain Quit from the in-game menu should
+      `State_autosave()`-style save to `AUTO_RESUME_SLOT` (9), write the slot-9 switcher
+      screenshot, and update the `.minui` slot file, mirroring what `Menu_saveState()`
+      already does for the MENU+SELECT switcher path (`ma_menu.c:1388`) but to slot 9
+      instead of `menu.slot`. Today only Save&Quit / switcher-entry / sleep save anything;
+      a bare quit leaves the switcher pointing at a stale (or no) state. Note the resume
+      side already works: nextui copies the `.minui` txt slot into `/tmp/resume_slot.txt`
+      and `State_resume()` loads it — slot 9 maps to the `.state.auto` filename
+      (`State_getPath`, `ma_saves.c:189-204`).
+- [ ] **N64 (mupen64plus + GLideN64 overlay)** — port the DC QUIT branch: on
+      `EMU_OVL_ACTION_QUIT`, save state to `EMU_OVL_AUTO_SLOT` + `emu_ovl_save_slot_screenshot(9)`
+      before `M64CMD_STOP` (hook site: `DisplayWindow::swapBuffers` in
+      `GLideN64-standalone.patch`; DC reference implementation:
+      `flycast.patch` → `core/nx_overlay.cpp` `handle_menu_close()` QUIT branch).
+      The shared `emu_overlay.c` already accepts slot 9 (added on `flycast-dc-pak`), so
+      this is a small patch change — but it requires a GLideN64 rebuild, which means the
+      static-libs gotcha below (self-built zlib ≥1.2.9) applies, plus pushing the rebuilt
+      `.so` to every SD card's `Emus/shared/mupen64plus/`.
 
 ### Gotchas
 
@@ -199,3 +226,43 @@ Shared code moved, so these need a pass on at least one older device:
 - Don't push an `.elf` over a running copy — stop the pak first. Only `nextui`/`minarch`
   need a reboot after pushing; other paks just need to not be running.
 - Never `killall nextui` on device: the `kill -9` path powers the unit off.
+
+---
+
+## Thread-pinning `taskset` now actually works — re-verify everything that uses it
+
+**Status:** fixed and staged 2026-07-27 (branch `flycast-dc-pak`, task 11 fix round).
+tg5050 (Smart Pro S) is now fully verified: native `taskset`, PS.pak's affinity probe,
+and DC.pak's pinning all confirmed on real hardware. tg5040 (Brick) N64.pak
+re-verification with pinning actually active is still pending, and N64.pak has no
+Smart Pro S coverage yet (no N64 games installed on that card).
+
+`skeleton/SYSTEM/shared/bin/taskset` — the binary every pak's `taskset` calls resolved
+to via `PATH` — was a `-static` build that aborted with `FATAL: kernel too old` on the
+Brick's real 4.9.191 kernel. Every call site wraps `taskset` in `2>/dev/null`, so this
+failure was completely silent: **every existing thread-pinning call in the repo has
+been a no-op on tg5040 this whole time**, not just for DC.pak. Fixed by dropping
+`-static` from `workspace/all/taskset/Makefile` and shipping working, platform-specific,
+dynamically-linked binaries at `skeleton/SYSTEM/{tg5040,tg5050}/bin/taskset` (which
+shadow the old shared path via existing `PATH` ordering — no call-site changes needed).
+The old shared binary was deleted this round, so **there is no fallback anymore** if a
+platform's `taskset` turns out to be broken on some device.
+
+- [ ] **N64.pak pinning on Brick, with pinning actually active** — re-verify audio/perf
+      with real affinity applied. The masks and the thread-name heuristic
+      (`skeleton/EXTRAS/Emus/tg5040/N64.pak/launch.sh:100,108,127`) were written and
+      shipped blind, against a `taskset` that always silently failed; they were never
+      exercised for real until this fix, the same way DC.pak's pinning was
+      evidence-gated by direct measurement (task-11 report) before shipping.
+- [x] **tg5050 `taskset` + PS.pak on Smart Pro S** — done. The tg5050 binary
+      (`skeleton/SYSTEM/tg5050/bin/taskset`) runs natively on real Smart Pro S
+      hardware (no "kernel too old" abort). PS.pak's `taskset -c 4,5` launch line
+      and its `pin_threads` calls (`skeleton/SYSTEM/tg5050/paks/Emus/PS.pak/launch.sh`)
+      were confirmed applying real affinity, not silently falling back to a bare
+      launch.
+- [x] **DC.pak on Smart Pro S** — done. Same taskset binary; DC.pak's dual-cluster
+      pinning was confirmed exact on real Smart Pro S hardware.
+- [ ] **N64.pak on Smart Pro S** — still open, but not for lack of trying: no N64
+      games are currently installed on that card, so N64.pak's own bare `taskset`
+      calls (`skeleton/EXTRAS/Emus/tg5050/N64.pak/launch.sh:87,95,114`) remain
+      unverified on this platform pending a game to launch with.

@@ -268,9 +268,13 @@ void emu_ovl_cfg_free(EmuOvlConfig* cfg) {
 // INI reading — mupen64plus.cfg format: "key = value" inside [section]
 // ---------------------------------------------------------------------------
 
-// Parse a bool value from an INI string: "True"/"False" or "1"/"0".
+// Parse a bool value from an INI string. Accepts "true"/"1"/"yes"/"on"
+// (case-insensitive) as true; everything else is false. "yes"/"no" cover
+// flycast's emu.cfg format (core/cfg/ini.cpp ConfigFile::set_bool), which
+// rewrites the whole file with those tokens on every settings save.
 static int parse_ini_bool(const char* val) {
-	if (str_eq_nocase(val, "true") || str_eq_nocase(val, "1"))
+	if (str_eq_nocase(val, "true") || str_eq_nocase(val, "1") ||
+		str_eq_nocase(val, "yes") || str_eq_nocase(val, "on"))
 		return 1;
 	return 0;
 }
@@ -447,6 +451,13 @@ int emu_ovl_cfg_write_ini(EmuOvlConfig* cfg, const char* ini_path) {
 	char current_ini_section[EMU_OVL_MAX_STR] = "";
 	char* cursor = original;
 
+	// Tracks whether the last byte written to `out` was a newline. Only the
+	// file's own final line, if it lacks a trailing '\n', can leave this
+	// false — everything we generate ourselves (write_item_value, headers)
+	// always ends in '\n'. Appended items must be newline-framed regardless,
+	// so any code appending after the main loop checks this first.
+	bool out_ends_with_nl = true;
+
 	while (cursor && *cursor) {
 		// Find end of current line
 		char* eol = strchr(cursor, '\n');
@@ -456,6 +467,11 @@ int emu_ovl_cfg_write_ini(EmuOvlConfig* cfg, const char* ini_path) {
 		} else {
 			line_len = strlen(cursor);
 		}
+		// Default outcome for this chunk if copied verbatim (all copy paths
+		// below write exactly `cursor[0..line_len)` unchanged); the one
+		// branch that writes something else (a dirty-key replacement)
+		// overrides this to true, since write_item_value always ends in '\n'.
+		out_ends_with_nl = (eol != NULL);
 
 		// Make a mutable copy of this line for inspection
 		char line_buf[1024];
@@ -472,8 +488,10 @@ int emu_ovl_cfg_write_ini(EmuOvlConfig* cfg, const char* ini_path) {
 			// Leaving current section — append any unwritten dirty items for it
 			if (current_ini_section[0] != '\0') {
 				for (int d = 0; d < dirty_count; d++) {
-					if (!dirty[d].written && strcmp(dirty[d].ini_section, current_ini_section) == 0)
+					if (!dirty[d].written && strcmp(dirty[d].ini_section, current_ini_section) == 0) {
 						write_item_value(out, dirty[d].item);
+						dirty[d].written = true;
+					}
 				}
 			}
 
@@ -545,6 +563,7 @@ int emu_ovl_cfg_write_ini(EmuOvlConfig* cfg, const char* ini_path) {
 			// Write replacement line and mark as written
 			write_item_value(out, dirty[matched_idx].item);
 			dirty[matched_idx].written = true;
+			out_ends_with_nl = true;
 		} else {
 			// Not a dirty key, write unchanged
 			fwrite(cursor, 1, line_len, out);
@@ -556,8 +575,41 @@ int emu_ovl_cfg_write_ini(EmuOvlConfig* cfg, const char* ini_path) {
 	// If we ended while still in a section, append unwritten items for it
 	if (current_ini_section[0] != '\0') {
 		for (int d = 0; d < dirty_count; d++) {
-			if (!dirty[d].written && strcmp(dirty[d].ini_section, current_ini_section) == 0)
+			if (!dirty[d].written && strcmp(dirty[d].ini_section, current_ini_section) == 0) {
+				// The file's final line may not have had a trailing '\n' —
+				// don't let an appended item run onto it.
+				if (!out_ends_with_nl) {
+					fputc('\n', out);
+					out_ends_with_nl = true;
+				}
 				write_item_value(out, dirty[d].item);
+				dirty[d].written = true;
+			}
+		}
+	}
+
+	// Any dirty items whose [section] header never appeared in the file at
+	// all (empty file, or a section the file simply doesn't have yet — e.g.
+	// flycast's [achievements] before RetroAchievements is ever touched)
+	// are still unwritten at this point. Append them grouped under freshly
+	// written headers so they aren't silently dropped.
+	for (int d = 0; d < dirty_count; d++) {
+		if (dirty[d].written)
+			continue;
+		// Same newline guard as above: this can be the first append of all
+		// (e.g. the section-present-but-final-line-unterminated case above
+		// never ran) so it must be checked independently here too.
+		if (!out_ends_with_nl) {
+			fputc('\n', out);
+			out_ends_with_nl = true;
+		}
+		const char* target = dirty[d].ini_section;
+		fprintf(out, "[%s]\n", target);
+		for (int d2 = d; d2 < dirty_count; d2++) {
+			if (!dirty[d2].written && strcmp(dirty[d2].ini_section, target) == 0) {
+				write_item_value(out, dirty[d2].item);
+				dirty[d2].written = true;
+			}
 		}
 	}
 

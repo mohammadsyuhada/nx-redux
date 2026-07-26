@@ -7,6 +7,10 @@
 #define EMU_OVL_MAX_MAIN_ITEMS 8
 #define EMU_OVL_MAX_SLOTS 8
 
+// Hidden auto-save slot used for save-on-quit (matches minarch's
+// AUTO_RESUME_SLOT in defines.h; hardcoded for out-of-tree emulator builds).
+#define EMU_OVL_AUTO_SLOT 9
+
 typedef enum {
 	EMU_OVL_STATE_CLOSED,
 	EMU_OVL_STATE_MAIN_MENU,
