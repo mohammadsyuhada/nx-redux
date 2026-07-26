@@ -12,7 +12,8 @@ this file is a to-do list, not a changelog.
 
 **Status:** built and staged 2026-07-26 (branch `game-switcher-list-resumable-games-only`).
 Switcher filter + setting verified on Brick (tg5040) and Smart Pro S (tg5050). N64 resume
-handshake verified on Brick only.
+handshake now verified on both Brick and Smart Pro S (tg5050 verified 2026-07-27, see
+`.superpowers/sdd/2026-07-26-flycast-dc-pak/n64-tg5050-report.md`).
 
 Two related changes:
 
@@ -29,14 +30,25 @@ Two related changes:
 
 ### On-device verification
 
-- [ ] **N64 resume on Smart Pro S** — blocked on two things: the rebuilt
-      `mupen64plus-video-GLideN64.so` must be pushed to that SD card's
-      `Emus/shared/mupen64plus/` (each card has its own copy; the Brick's was updated
-      2026-07-26, hash `ba02da6f`), and no N64 games are currently installed there.
-      Test: save in-game via overlay, quit, resume from switcher → lands in the save.
-      The plugin is platform-shared, so behavior should match the Brick.
-- [ ] **N64 fresh launch still cold-boots** on Smart Pro S after the .so push (nextui
-      writes slot 8 on non-resume launches; the hook must ignore it).
+- [x] **N64 resume on Smart Pro S** — done, 2026-07-27. `.so` and `N64.pak/` were
+      already in sync with the repo on this card (no push needed — see report).
+      User-verified end-to-end on real hardware (Mario Kart 64): saved to slot 0 via
+      overlay, quit, relaunched — log shows `Core Status: State loaded from:
+      Mario Kart 64 (U) [!]-3A67D998.st0` immediately after `[Overlay] Initialized
+      successfully`, with no menu button touched, confirming the
+      `/tmp/resume_slot.txt` handshake fired automatically. Matches Brick's
+      already-verified behavior. Full evidence:
+      `.superpowers/sdd/2026-07-26-flycast-dc-pak/n64-tg5050-report.md`.
+      Found (not fixed): N64 save-state/SRAM data is not actually shared across
+      devices despite `N64.pak/launch.sh`'s comment claiming it is — only the
+      `.minui/<rom>.txt` resume marker is genuinely shared; the real `.st0`/`.eep`/
+      `.mpk` files land under the per-device `$HOME` (`$USERDATA_PATH`), not
+      `$SHARED_USERDATA_PATH`. Not exercised by same-device testing but would
+      break resume across a physically-moved SD card.
+- [x] **N64 fresh launch still cold-boots** on Smart Pro S — done, 2026-07-27.
+      Verified directly (`/tmp/resume_slot.txt`=8, fresh launch): file consumed
+      and unlinked, zero state/resume log lines, confirming
+      `emu_ovl_consume_resume_slot()`'s `slot >= EMU_OVL_MAX_SLOTS` guard holds.
 - [ ] **Brick Pro (pending hardware)** — switcher filter + setting, and N64 resume if the
       pak gains a tg4040 build.
 
@@ -93,6 +105,43 @@ Requested 2026-07-26; not started.
   2026-07-26; per-platform dirs keep only the gitignored source checkouts). The GLideN64
   patch is regenerated against the pinned `GLIDEN64_COMMIT` in the platform Makefile —
   regenerate against that pin, not upstream master.
+
+---
+
+## Backlog: audio output routing + quality options (not started)
+
+Requested 2026-07-27 (GitHub comment on the music player + flycast audio investigation).
+Today every app plays through ALSA `default` = `softvol → dmix(48 kHz) → internal codec`,
+hardcoded in the firmware's `/etc/asound.conf`. USB-C DACs enumerate as ALSA card 1 but
+nothing routes to them; BT audio plumbing exists on-device (`bluealsa`, `pulseaudio`,
+alsa-lib plugin modules all shipped) but the default PCM never reaches it. The 3.5 mm
+jack "works" only because the codec chip switches speaker→headphone amp in hardware.
+
+- [ ] **Music player** (the GitHub request): settings for output device (system default
+      vs. detected USB DAC — cards visible in `/proc/asound/cards`), sample-rate mode
+      (fixed 48 kHz vs. follow-source-when-sink-accepts, fallback to resample), SRC
+      resampler quality (`src-sinc-fastest`/`medium`/`best` — currently hardcoded
+      fastest), and buffer size (currently fixed 2048). Direct `hw:` output bypasses
+      `softvol`, so device volume keys won't apply — fine for USB DACs (own volume),
+      must be documented.
+- [ ] **Sink-aware output for emulators** (flycast/minarch/N64): same routing question.
+      flycast currently always opens SDL default at 48 kHz (deliberate — see
+      `workspace/all/other/flycast/README.md` audio section). A USB/BT-aware path would
+      need per-sink rate choice (USB DACs often prefer source rate) and a volume story.
+      The internal codec HAS hardware volume controls (`DAC Volume`, `HPOUT Gain` —
+      verified via amixer on tg5050), so a hw-volume route exists if softvol is bypassed.
+- [ ] **BT audio**: confirm whether the stock/NextUI stack can route game audio to BT at
+      all (bluealsa PCM open from an app), before promising it anywhere.
+
+**Per-sink rate policy (design decision, 2026-07-27):** the output rate must follow the
+selected sink, not a global constant — internal codec via dmix = always 48 kHz (dmix is
+fixed there; anything else hits alsa-lib's linear resampler, the exact bug fixed in
+flycast); direct `hw:` to the internal codec or a USB DAC = open at source rate,
+negotiated, falling back to the nearest supported rate with an in-app quality resample
+(SRC/SDL), never ALSA `plug`; Bluetooth = match whatever rate the A2DP codec negotiated
+via the bluealsa PCM. Crucially, the rate CANNOT be autodetected through the `default`
+PCM — `plug` accepts any rate and converts silently — so the policy keys off the
+user-selected output device: `default` → force 48 kHz, `hw:X`/bluealsa → negotiate.
 
 ---
 
@@ -233,9 +282,9 @@ Shared code moved, so these need a pass on at least one older device:
 
 **Status:** fixed and staged 2026-07-27 (branch `flycast-dc-pak`, task 11 fix round).
 tg5050 (Smart Pro S) is now fully verified: native `taskset`, PS.pak's affinity probe,
-and DC.pak's pinning all confirmed on real hardware. tg5040 (Brick) N64.pak
-re-verification with pinning actually active is still pending, and N64.pak has no
-Smart Pro S coverage yet (no N64 games installed on that card).
+DC.pak's pinning, and N64.pak's pinning (2026-07-27, once a game was installed) all
+confirmed on real hardware. tg5040 (Brick) N64.pak re-verification with pinning
+actually active is still pending.
 
 `skeleton/SYSTEM/shared/bin/taskset` — the binary every pak's `taskset` calls resolved
 to via `PATH` — was a `-static` build that aborted with `FATAL: kernel too old` on the
@@ -254,6 +303,17 @@ platform's `taskset` turns out to be broken on some device.
       shipped blind, against a `taskset` that always silently failed; they were never
       exercised for real until this fix, the same way DC.pak's pinning was
       evidence-gated by direct measurement (task-11 report) before shipping.
+      **Known gap, measured on Smart Pro S 2026-07-27 (reproduced twice, incl. a real
+      user session):** the "pin the busiest `mupen64plus`-named thread" heuristic only
+      pins ONE of the (at least) two non-main threads named `mupen64plus`; the other is
+      left on the unrestricted 0-7 mask. Measured impact is small: its load is bursty
+      init/loading work (~3.6% during boot, ~0% in live gameplay), and since NextUI only
+      brings cpu0-1/4(/5) online (8-core silicon run as effective 4-core by boot policy),
+      "unrestricted" still lands it on the contended cores. Fix when re-verifying
+      (deliberately NOT fixed on `flycast-dc-pak` — evidence said low impact, and the
+      change belongs with a measured Brick re-verify): pin all unmatched threads to
+      LITTLE by default (else-branch in the scan loop; DC.pak's `pin_threads()` is the
+      reference pattern).
 - [x] **tg5050 `taskset` + PS.pak on Smart Pro S** — done. The tg5050 binary
       (`skeleton/SYSTEM/tg5050/bin/taskset`) runs natively on real Smart Pro S
       hardware (no "kernel too old" abort). PS.pak's `taskset -c 4,5` launch line
@@ -262,7 +322,11 @@ platform's `taskset` turns out to be broken on some device.
       launch.
 - [x] **DC.pak on Smart Pro S** — done. Same taskset binary; DC.pak's dual-cluster
       pinning was confirmed exact on real Smart Pro S hardware.
-- [ ] **N64.pak on Smart Pro S** — still open, but not for lack of trying: no N64
-      games are currently installed on that card, so N64.pak's own bare `taskset`
-      calls (`skeleton/EXTRAS/Emus/tg5050/N64.pak/launch.sh:87,95,114`) remain
-      unverified on this platform pending a game to launch with.
+- [x] **N64.pak on Smart Pro S** — done, 2026-07-27, once a game was installed.
+      All three bare `taskset` calls (`skeleton/EXTRAS/Emus/tg5050/N64.pak/launch.sh:87,95,114`)
+      confirmed applying real affinity on two independent sessions (my own launch +
+      a real user session): main thread → cpu4, video thread → cpu5, `m64pwq`/`mali-*`
+      helpers → cpu0-1, all correct. Known gap (measured, not fixed): a second,
+      unnamed `mupen64plus` thread is never pinned — see the Brick bullet above,
+      where the fix is recorded as prescribed follow-up. Full evidence + CPU% tables:
+      `.superpowers/sdd/2026-07-26-flycast-dc-pak/n64-tg5050-report.md`.
