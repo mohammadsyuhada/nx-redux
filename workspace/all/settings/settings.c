@@ -20,6 +20,7 @@
 #include "settings_clock.h"
 #include "settings_bootlogo.h"
 #include "ui_menubar.h"
+#include "ui_confirmdialog.h"
 #include "ui_quitrequest.h"
 #include "ui_splash.h"
 #include "ui_pindialog.h"
@@ -94,6 +95,17 @@ static int has_exposure(const DeviceInfo* dev) {
 
 static int has_active_cooling(const DeviceInfo* dev) {
 	return dev->platform == PLAT_TG5050;
+}
+
+static int has_stock_osd_restore(const DeviceInfo* dev) {
+	if (dev->platform != PLAT_TG5040 && dev->platform != PLAT_TG5050)
+		return 0;
+	const char* device = getenv("DEVICE");
+	if (!device)
+		return 0;
+	char path[MAX_PATH];
+	snprintf(path, sizeof(path), SYSTEM_PATH "/osd-stock/%s.zip", device);
+	return access(path, F_OK) == 0;
 }
 
 static int has_mute_toggle(const DeviceInfo* dev) {
@@ -1178,7 +1190,7 @@ static void init_about_info(void) {
 
 #define MAX_APPEARANCE_ITEMS 21
 #define MAX_DISPLAY_ITEMS 8
-#define MAX_SYSTEM_ITEMS 20
+#define MAX_SYSTEM_ITEMS 21
 #define MAX_MUTE_ITEMS 20
 #define MAX_NOTIFY_ITEMS 8
 #define MAX_ABOUT_ITEMS 8
@@ -1237,6 +1249,29 @@ static bool run_pin_dialog(const char* title, const char* error, char* pin_out) 
 		GFX_flip(g_screen);
 	}
 	PinDialog_quit();
+	PAD_poll();
+	PAD_reset(); // don't leak the confirm/cancel press to the menu underneath
+	return confirmed;
+}
+
+// Blocking confirmation modal on g_screen. A confirms, B cancels.
+static bool run_confirm_dialog(const char* title, const char* subtitle) {
+	if (!g_screen)
+		return false;
+
+	bool confirmed = false;
+	while (!app_quit) {
+		GFX_startFrame();
+		PAD_poll();
+		if (PAD_justPressed(BTN_A)) {
+			confirmed = true;
+			break;
+		}
+		if (PAD_justPressed(BTN_B))
+			break;
+		UI_renderConfirmDialog(g_screen, title, subtitle);
+		GFX_flip(g_screen);
+	}
 	PAD_poll();
 	PAD_reset(); // don't leak the confirm/cancel press to the menu underneath
 	return confirmed;
@@ -1334,6 +1369,26 @@ static void refresh_emulist(void) {
 	unlink(ROMINDEX_CACHE_PATH);
 	if (refresh_emulist_item)
 		refresh_emulist_item->desc = "Done! Emulator list will refresh on next launch.";
+}
+
+static SettingItem* restore_osd_item = NULL;
+
+static void restore_stock_osd(void) {
+	if (!run_confirm_dialog("Restore stock OSD?",
+							"Puts the console's built-in OSD files back to factory state."))
+		return;
+
+	const char* device = getenv("DEVICE");
+	if (!device)
+		return;
+	char cmd[MAX_PATH];
+	snprintf(cmd, sizeof(cmd),
+			 "sh \"" SYSTEM_PATH "/paks/MinUI.pak/restore-stock-osd.sh\" %s", device);
+	int rc = system(cmd);
+	if (restore_osd_item)
+		restore_osd_item->desc = (rc == 0)
+									 ? "Done! Stock OSD files restored."
+									 : "Restore failed.";
 }
 
 // ============================================
@@ -1537,6 +1592,13 @@ static void build_menu_tree(const DeviceInfo* dev) {
 			on_off_labels, 2, on_off_values, get_power_off_protection, set_power_off_protection, reset_power_off_protection);
 	}
 
+	if (has_stock_osd_restore(dev)) {
+		system_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
+			"Restore stock OSD", "Restores the console's factory OSD files. The NX OSD is unaffected.",
+			restore_stock_osd);
+		restore_osd_item = &system_items[idx - 1];
+	}
+
 	if (has_active_cooling(dev)) {
 		system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 			"Fan Speed", "Select the fan speed percentage (Quiet/Normal/Performance or 0-100%)",
@@ -1671,7 +1733,7 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	about_items[idx++] = (SettingItem)ITEM_STATIC_INIT(
 		"Platform", "", get_about_platform);
 	about_items[idx++] = (SettingItem)ITEM_STATIC_INIT(
-		"Stock OS version", "", get_about_os_version);
+		"Firmware version", "", get_about_os_version);
 	about_items[idx++] = (SettingItem)ITEM_STATIC_INIT(
 		"Busybox version", "", get_about_busybox);
 	about_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(

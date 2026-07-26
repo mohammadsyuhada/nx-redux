@@ -128,44 +128,50 @@ echo 1008000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
 
 keymon.elf & # &> $SDCARD_PATH/keymon.txt &
 
-# Sync the complete OSD tree from the SD card onto /usr/trimui/osd — the SD
-# card is the source of truth for the OSD (daemon binary, assets, toast
-# scripts, every widget). trimui_osdd has /usr/trimui/osd hardcoded in the
-# closed-source binary, so it can't read from the SD card directly; instead
-# the tree (~1MB) is copied over, so SD updates take effect on the next
-# boot. regular.ttf (16MB CJK font) is deliberately not shipped — the
-# firmware's copy is used (files are only overwritten, never deleted).
+# Overlay-mount the SD card's OSD tree onto /usr/trimui/osd — the SD card is
+# the source of truth for the OSD (daemon binary, assets, toast scripts,
+# every widget). trimui_osdd has /usr/trimui/osd hardcoded in the
+# closed-source binary, so it can't read from the SD card directly. tg5050
+# overlay-mounts the SD tree itself as the lower layer, but tg5040's kernel
+# 4.9 overlayfs rejects the exFAT SD card outright ("filesystem on '...' not
+# supported" — its exfat driver's dentry revalidation isn't supported by
+# overlayfs; hardware-verified on Brick 2026-07-26). So here the assembled
+# tree (~1MB, no font) is staged into tmpfs first and the overlay is built
+# from that staging copy instead of straight off the SD card. The copy lands
+# in RAM, never on the rootfs, so rootfs writes stay at zero; SD edits take
+# effect next boot via re-staging. Stock-only files the SD tree doesn't ship
+# (regular.ttf, the 16MB CJK font) show through from the rootfs layer
+# underneath.
+
+# /etc writes below (bt/wifi init scripts) still need a writable rootfs
 mount -o remount,rw /
+
 OSD_DST="/usr/trimui/osd"
 OSD_SRC="$SYSTEM_PATH/osd"
 # The daemon binary and its resolution-locked assets (bg.png, block*.png:
 # 1024x768/124px grid on Brick vs 1280x720/120px grid on Smart Pro) are
 # model-specific and firmware builds are NOT interchangeable, so they live in
-# an osd-$DEVICE overlay copied on top of the shared tree.
+# an osd-$DEVICE layer stacked above the shared tree. No layer shipped for
+# this model -> leave the firmware's OSD alone: the shared widgets alone have
+# no daemon, no bg.png and no osdlayout.json, which would leave the OSD dead
+# instead of merely un-themed. On staging or mount failure the daemon below
+# still starts from whatever the rootfs holds; the marker records the
+# failure for diagnosis.
 OSD_SRC_MODEL="$SYSTEM_PATH/osd-$DEVICE"
-if [ ! -d "$OSD_SRC_MODEL" ]; then
-	# No overlay shipped for this model yet. Keep whatever the firmware already
-	# has under /usr/trimui/osd rather than syncing a half tree: the shared
-	# widgets alone have no daemon, no bg.png and no osdlayout.json, which would
-	# leave the OSD dead instead of merely un-themed.
-	OSD_SRC_MODEL=""
-fi
-# Only copy when the SD trees actually changed: hash both trees (file
-# contents + paths; the overlay path differs per model, so the stamp is
-# implicitly model-specific) and compare against the stamp left by the
-# previous sync. An empty hash (md5sum unavailable) falls back to copying
-# every boot and never writes a stamp.
-OSD_STAMP="$OSD_DST/.nx_osd_stamp"
-if [ -n "$OSD_SRC_MODEL" ]; then
-	OSD_HASH=$(find "$OSD_SRC" "$OSD_SRC_MODEL" -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | cut -d' ' -f1)
-	if [ -z "$OSD_HASH" ] || [ "$OSD_HASH" != "$(cat "$OSD_STAMP" 2>/dev/null)" ]; then
-		cp -r "$OSD_SRC/." "$OSD_DST/"
-		cp -r "$OSD_SRC_MODEL/." "$OSD_DST/"
-		chmod +x "$OSD_DST/trimui_osdd" "$OSD_DST"/*.sh \
-		    "$OSD_DST"/widgets/*/*.sh "$OSD_DST"/widgets/app_music/pic2argb 2>/dev/null
-		[ -n "$OSD_HASH" ] && echo "$OSD_HASH" > "$OSD_STAMP"
+if [ -d "$OSD_SRC_MODEL" ] && ! grep -q " $OSD_DST " /proc/mounts; then
+	OSD_STAGE="/tmp/nx_osd"
+	rm -rf "$OSD_STAGE"
+	mkdir -p "$OSD_STAGE"
+	if cp -r "$OSD_SRC/." "$OSD_STAGE/" && cp -r "$OSD_SRC_MODEL/." "$OSD_STAGE/"; then
+		chmod +x "$OSD_STAGE/trimui_osdd" "$OSD_STAGE"/*.sh \
+			"$OSD_STAGE"/widgets/*/*.sh "$OSD_STAGE"/widgets/app_music/pic2argb 2> /dev/null
+		mount -t overlay overlay \
+			-o ro,lowerdir="$OSD_STAGE:$OSD_DST" "$OSD_DST" \
+			|| touch /tmp/nx_osd_mount_failed
+	else
+		touch /tmp/nx_osd_mount_failed
 	fi
-fi
+fi # end osd overlay mount
 
 # Start OSD overlay daemon (system-wide quick menu)
 if [ -x "$OSD_DST/trimui_osdd" ]; then

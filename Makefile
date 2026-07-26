@@ -300,6 +300,9 @@ setup: name
 	# package time by scripts/assemble-osd.sh. It is never shipped verbatim,
 	# so keep build/ a faithful picture of what ships.
 	rm -rf ./build/SYSTEM/osd
+	# stock OSD zips are consumed per-device at package time from skeleton/
+	# (manifest .md5 files must not ship either)
+	rm -rf ./build/SYSTEM/osd-stock
 
 	# Fetch advanced drastic emulator (pinned to $(DRASTIC_COMMIT))
 	@echo "Fetching advanced drastic..."
@@ -398,6 +401,14 @@ package: tidy
 		\
 		echo "  assembling OSD ($$osd_res)"; \
 		./scripts/assemble-osd.sh $$dev $$plat $$osd_res ./build/PAYLOAD-$$dev/.system || exit 1; \
+		\
+		if [ -f ./skeleton/SYSTEM/osd-stock/$$dev.zip ]; then \
+			echo "  assembling osd-stock ($$dev)"; \
+			mkdir -p ./build/PAYLOAD-$$dev/.system/$$plat/osd-stock; \
+			cp ./skeleton/SYSTEM/osd-stock/$$dev.zip ./build/PAYLOAD-$$dev/.system/$$plat/osd-stock/ || exit 1; \
+		else \
+			echo "  (no stock OSD tree for $$dev; Settings restore stays hidden)"; \
+		fi; \
 		\
 		echo "  assembling .tmp_update"; \
 		cp -R ./build/BOOT/.tmp_update ./build/PAYLOAD-$$dev/.tmp_update; \

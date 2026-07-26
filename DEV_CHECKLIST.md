@@ -64,6 +64,9 @@ Confirmed by reading the stock rootfs out of
       adjust the selection in `settings_led.c` (`led_page_create`).
 - [ ] **OSD** — long-press `MENU` opens it. Check the background/tile layout at 1024×768, that
       toasts land on-screen, and that the battery widget works (stock layout implies it does).
+- [ ] **OSD stock restore** — overlay in `/proc/filesystems`; OSD overlay mount present after
+      boot; Settings → Restore stock OSD round-trip (restore, verify rootfs matches
+      `skeleton/SYSTEM/osd-stock/brickpro.manifest.md5`, reboot, NX OSD returns)
 - [ ] **Rumble** — capped at 2.5 V; confirm it isn't unpleasantly strong at max.
 - [ ] **Mute toggle buzz** — the FN-switch mute pulse uses 900000 µV on this model.
 - [ ] **Backlight** — brightness ladder uses the Brick curve; check the low end isn't black.
@@ -169,8 +172,11 @@ Shared code moved, so these need a pass on at least one older device:
 
 ### Gotchas
 
-- The OSD sync is **hash-gated**. If you replace anything under `skeleton/SYSTEM/osd/`
-  and the device doesn't pick it up, delete `/usr/trimui/osd/.nx_osd_stamp` and reboot.
+- OSD is overlay-mounted read-only at boot — from the SD directly on tg5050,
+  via a tmpfs staging copy on tg5040 (its kernel 4.9 overlayfs rejects exFAT
+  as a lower layer); no rootfs writes and no stamp on either. If the OSD looks
+  stale or dead, check `/proc/mounts` for `/usr/trimui/osd` and
+  `/tmp/nx_osd_mount_failed`.
 - OSD assets are layered (`common/`, `res/<WxH>/`, `device/<dev>/`) and assembled
   by `scripts/assemble-osd.sh` at package time — edit the layer, not a device tree.
 - `make deploy` now takes `DEVICE=` (e.g. `make deploy DEVICE=brickpro`). Passing

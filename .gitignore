@@ -9,6 +9,7 @@
 *.dtb
 *.zip
 !skeleton/EXTRAS/Emus/shared/PortMaster/files/*
+!skeleton/SYSTEM/osd-stock/*.zip
 
 build
 releases

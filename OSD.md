@@ -46,12 +46,67 @@ shape each platform's `launch.sh` reads: tg5040 gets `osd/` (common) plus
 `osd-$DEVICE/` (res + device), tg5050 gets a single flat `osd/`. Each device zip
 carries only its own assets.
 
-At boot `launch.sh` copies `osd/` and then, on tg5040, overlays `osd-$DEVICE/`,
-gated by a content-hash stamp (`/usr/trimui/osd/.nx_osd_stamp`) so the rootfs is
-only written when the SD tree actually changed. If no overlay exists for the
-running model, the sync is skipped entirely and the firmware's own
-`/usr/trimui/osd` is left alone — a partial tree (shared widgets, no daemon, no
-`bg.png`) would leave the OSD dead rather than merely un-themed.
+At boot `launch.sh` overlay-mounts the OSD tree read-only onto
+`/usr/trimui/osd`, but the two platforms get there differently. tg5050 mounts
+the SD card's tree directly (`lowerdir=$SYSTEM_PATH/osd:/usr/trimui/osd`).
+tg5040 can't: its kernel 4.9 overlayfs rejects the exFAT SD card as a lower
+layer outright (`overlayfs: filesystem on '...' not supported` — its exfat
+driver's dentry revalidation isn't supported by overlayfs; hardware-verified
+on Brick 2026-07-26), so there `launch.sh` first stages the assembled tree
+(~1MB, no font) into tmpfs at `/tmp/nx_osd`, then mounts from that staging
+copy instead (`lowerdir=/tmp/nx_osd:/usr/trimui/osd`). Either way
+`trimui_osdd` reads its hardcoded path, but the bytes actually served come
+from the SD-sourced tree — the stock rootfs underneath is never written,
+since on tg5040 the staging copy lands in tmpfs (RAM), not on disk. Stock-only
+files not shipped on the SD card (notably `regular.ttf`, the 16MB CJK font)
+show through from the rootfs layer beneath the mount, on both platforms. SD
+edits take effect on the next boot — via re-staging on tg5040, immediately on
+tg5050 — and there is no hash stamp on either platform. If the mount fails,
+`/tmp/nx_osd_mount_failed` is created and the daemon starts from whatever the
+rootfs already holds; on tg5040 the same marker also covers a failed staging
+copy. A model that ships no `osd-$DEVICE` overlay at all is a different case:
+the mount (and, on tg5040, the staging copy) is never attempted, so no marker
+is written and nothing fails — `trimui_osdd` simply runs against the full
+firmware OSD already on the rootfs, untouched.
+
+Two behaviors verified on Smart Pro S hardware (2026-07-26) worth knowing:
+directory *listings* through the merged view can come back empty for
+subdirectories (`ls /usr/trimui/osd/widgets` shows nothing) because the SD's
+fuseblk/exFAT lower layer doesn't provide `d_type` — path lookups are
+unaffected and `trimui_osdd` opens everything by explicit path, so the OSD
+works fully; just don't debug the mount with `ls`. This quirk is specific to
+tg5050's direct SD lowerdir; tg5040's lowerdir is the tmpfs staging copy, an
+ordinary filesystem that provides `d_type` fine, so its merged-view listings
+don't have this problem. Separately, the tg5050 firmware self-heals
+`/usr/trimui/osd` back to factory stock during boot, so on that model the
+rootfs stays pristine on its own once nothing rewrites it (under the old
+copy-based sync the heal was silently re-clobbered every boot, which is why
+the hash-stamp gate never actually skipped there).
+
+Devices that ran v1.2.0–v1.2.x wrote NX files directly onto the rootfs's stock
+OSD tree via that release's copy-based sync; the overlay mount above shadows
+those files without cleaning them up. Files that sync wrote but current NX no
+longer ships at all — `.nx_osd_stamp`, since-removed widgets — have nothing
+in the overlay to shadow them, so they can still show through the merged
+view; running the restore below is what clears them. *Settings →
+System → Restore stock OSD* (shown when `$SYSTEM_PATH/osd-stock/$DEVICE.zip` is
+shipped) runs `paks/MinUI.pak/restore-stock-osd.sh`, which reaches under the
+live mount through a temporary bind mount of `/` and unzips the pristine
+stock archive there — the live NX OSD is unaffected and no reboot is needed.
+The unzip itself prefers the Info-Zip `unzip` every installed card already
+carries at `<SDCARD>/.tmp_update/<platform>/unzip` (the updater's own
+vendored binary), falling back to whatever `unzip` is on `PATH` (busybox's
+applet) if that vendored copy is missing or not executable. Stock archives
+are extracted from each model's recovery image by
+`scripts/extract-stock-osd.sh` (see its header for the docker invocation,
+plus an OpenixCard pre-step for Allwinner IMAGEWTY containers like the
+tg5050 recovery image) and verified against
+`skeleton/SYSTEM/osd-stock/<device>.manifest.md5` — each manifest describes
+the zip's contents (paths relative to the archive root) and pins the
+specific recovery-image firmware version it was pulled from (smartpro
+v1.1.1, smartpros v1.0.1, brickpro v1.1.1, brick v1.1.1); restore puts back
+those exact bytes, not whatever newer firmware a given unit may since have
+received.
 
 The Smart Pro binary and assets were extracted from
 `sd_recovery_tg5040_smartpro_ver1.1.1_20251128.img` (stock rootfs, ext4 at
@@ -229,14 +284,17 @@ current value from the `status` file path in `config.json`.
 
 Both platforms vendor the **complete OSD tree** on the SD card — daemon binary,
 UI assets, toast scripts, and every widget (stock and custom) — assembled per
-device from `skeleton/SYSTEM/osd/` at package time. At boot, `launch.sh` copies
-the whole tree (~1MB) over `/usr/trimui/osd/`, making the SD card the source of
-truth regardless of firmware version. `regular.ttf` (16MB CJK font) is
-deliberately not shipped — the firmware's copy is used, since files are only
-overwritten, never deleted. `trimui_osdd` has `/usr/trimui/osd/` hardcoded in
-the closed-source binary, so it can't read from the SD card directly — the
-boot-time copy is the only way to control it. Every model's daemon build differs
-(different md5), so each lives in its own `device/<dev>/` layer.
+device from `skeleton/SYSTEM/osd/` at package time. At boot, `launch.sh`
+overlay-mounts that tree read-only onto `/usr/trimui/osd/` — directly from the
+SD card on tg5050, via a tmpfs staging copy on tg5040 (see "Binary Location"
+above for why) — making the SD card the source of truth regardless of
+firmware version. `regular.ttf` (16MB CJK
+font) is deliberately not shipped on the SD card — the firmware's copy shows
+through from the rootfs layer underneath the mount. `trimui_osdd` has
+`/usr/trimui/osd/` hardcoded in the closed-source binary, so it can't read
+from the SD card directly — the overlay mount is the only way to control it.
+Every model's daemon build differs (different md5), so each lives in its own
+`device/<dev>/` layer.
 
 Activating screenshot, screen record, or power auto-hides the OSD panel
 (`touch /tmp/hide_osdd`) so the user lands back on the app; toasts still
