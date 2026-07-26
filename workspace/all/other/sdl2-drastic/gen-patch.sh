@@ -1,11 +1,25 @@
 #!/bin/bash
 set -e
 
-WORK_DIR="/Users/mohammadsyuhada/Work/Personal/NextUI-Redux/workspace/tg5050/other/sdl2-drastic"
+# Regenerates fix-<platform>.patch: the diff between a pristine SDL_drastic
+# baseline (base commit eb2e00f + the shared 0006 hook patch) and the current
+# per-platform working tree at workspace/<platform>/other/sdl2-drastic/SDL_drastic.
+# The regenerated fix-<platform>.patch is written next to this script.
+#
+# Usage: ./gen-patch.sh <tg5040|tg5050>
+
+PLATFORM="$1"
+case "$PLATFORM" in
+	tg5040|tg5050) ;;
+	*) echo "usage: $0 <tg5040|tg5050>" >&2; exit 1 ;;
+esac
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+WORK_DIR="$SCRIPT_DIR/../../../$PLATFORM/other/sdl2-drastic"
 SDL_DIR="$WORK_DIR/SDL_drastic"
-TMPDIR="/tmp/sdl2-drastic-baseline-tg5050"
-PATCH_0006="$WORK_DIR/0006-add-hook-for-drastic.patch"
-OUTPUT="$WORK_DIR/fix-tg5050.patch"
+TMPDIR="/tmp/sdl2-drastic-baseline-$PLATFORM"
+PATCH_0006="$SCRIPT_DIR/0006-add-hook-for-drastic.patch"
+OUTPUT="$SCRIPT_DIR/fix-$PLATFORM.patch"
 
 # Clean up any previous worktree
 git -C "$SDL_DIR" worktree remove "$TMPDIR" 2>/dev/null || true
@@ -52,8 +66,7 @@ echo "Patch generated at $OUTPUT"
 wc -l "$OUTPUT"
 
 # Fix paths in the patch file to use a/ and b/ prefixes
-# The diff will have the full /tmp/... and /Users/... paths
-# We need to replace them with a/ and b/ relative paths
+# The diff will have the full /tmp/... and absolute workspace paths
 sed -i '' "s|$TMPDIR/|a/|g" "$OUTPUT"
 sed -i '' "s|$SDL_DIR/|b/|g" "$OUTPUT"
 

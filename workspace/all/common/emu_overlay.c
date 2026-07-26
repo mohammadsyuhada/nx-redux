@@ -814,3 +814,27 @@ int emu_ovl_save_slot_screenshot(EmuOvl* ovl, int slot) {
 
 	return ret;
 }
+
+int emu_ovl_consume_resume_slot(void) {
+	// NextUI writes the slot to resume from to /tmp/resume_slot.txt before
+	// launching any game (RESUME_SLOT_PATH in defines.h; hardcoded here because
+	// this file is also compiled into standalone emulators outside the repo
+	// include paths). minarch consumes it in State_resume; standalone emulators
+	// with the overlay consume it through this helper. Returns the slot to
+	// auto-load, or -1 for a fresh start. Always unlinks the file so a stale
+	// slot never leaks into a later launch.
+	FILE* f = fopen("/tmp/resume_slot.txt", "r");
+	if (!f)
+		return -1;
+	int slot = -1;
+	if (fscanf(f, "%d", &slot) != 1)
+		slot = -1;
+	fclose(f);
+	remove("/tmp/resume_slot.txt");
+	// The overlay only saves slots 0..EMU_OVL_MAX_SLOTS-1. NextUI writes 8
+	// (RESUME_SLOT_DEFAULT) on a non-resume launch and 9 (AUTO_RESUME_SLOT)
+	// only for minarch auto-resume — both mean "no overlay state to load".
+	if (slot < 0 || slot >= EMU_OVL_MAX_SLOTS)
+		return -1;
+	return slot;
+}

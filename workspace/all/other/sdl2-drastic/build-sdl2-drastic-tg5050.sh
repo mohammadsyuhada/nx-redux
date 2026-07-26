@@ -1,7 +1,7 @@
 #!/bin/bash
 set -ex
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+OUT_DIR="$(pwd)/output"  # per-platform: run with cwd = workspace/<platform>/other/sdl2-drastic
 EXTRA_PREFIX="$(pwd)/extra-deps"
 
 # ============================================================
@@ -192,9 +192,9 @@ make -j$(nproc) \
 # ============================================================
 # Step 7: Output
 # ============================================================
-mkdir -p "$SCRIPT_DIR/output"
-cp build/.libs/libSDL2-2.0.so.0 "$SCRIPT_DIR/output/"
+mkdir -p "$OUT_DIR"
+cp build/.libs/libSDL2-2.0.so.0 "$OUT_DIR/"
 echo "=== Build complete (ADVDRASTIC_DRM enabled) ==="
-ls -la "$SCRIPT_DIR/output/libSDL2-2.0.so.0"
-file "$SCRIPT_DIR/output/libSDL2-2.0.so.0"
-strings "$SCRIPT_DIR/output/libSDL2-2.0.so.0" | grep -i "drm_init\|gbm_create\|Cannot create gbm"
+ls -la "$OUT_DIR/libSDL2-2.0.so.0"
+file "$OUT_DIR/libSDL2-2.0.so.0"
+strings "$OUT_DIR/libSDL2-2.0.so.0" | grep -i "drm_init\|gbm_create\|Cannot create gbm"

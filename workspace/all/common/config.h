@@ -105,6 +105,7 @@ typedef struct
 	bool showFolderNamesAtRoot;
 	bool romsUseFolderBackground;
 	int defaultView;
+	bool gameSwitcherResumableOnly;
 
 	// Mute switch
 	bool muteLeds;
@@ -176,6 +177,7 @@ typedef struct
 #define CFG_DEFAULT_SHOWEMULATORS true
 #define CFG_DEFAULT_SHOWFOLDERNAMESATROOT true
 #define CFG_DEFAULT_GAMESWITCHERSCALING GFX_SCALE_FULLSCREEN
+#define CFG_DEFAULT_GAMESWITCHERRESUMABLEONLY true
 #define CFG_DEFAULT_SCREENTIMEOUTSECS 60
 #define CFG_DEFAULT_SUSPENDTIMEOUTSECS 30
 #define CFG_DEFAULT_POWEROFFPROTECTION true
@@ -283,6 +285,9 @@ void CFG_setRomsUseFolderBackground(bool);
 // The scaling algorithm used for the game switcher preview image.
 int CFG_getGameSwitcherScaling(void);
 void CFG_setGameSwitcherScaling(int enumValue);
+// Whether the game switcher lists only games with a resumable save state.
+bool CFG_getGameSwitcherResumableOnly(void);
+void CFG_setGameSwitcherResumableOnly(bool resumableOnly);
 // Enable/disable haptics.
 bool CFG_getHaptics(void);
 void CFG_setHaptics(bool enable);

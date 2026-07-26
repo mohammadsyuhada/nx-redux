@@ -57,6 +57,7 @@ void CFG_defaults(NextUISettings* cfg) {
 		.showGameArt = CFG_DEFAULT_SHOWGAMEART,
 		.showEmulators = CFG_DEFAULT_SHOWEMULATORS,
 		.gameSwitcherScaling = CFG_DEFAULT_GAMESWITCHERSCALING,
+		.gameSwitcherResumableOnly = CFG_DEFAULT_GAMESWITCHERRESUMABLEONLY,
 		.defaultView = CFG_DEFAULT_VIEW,
 
 		.muteLeds = CFG_DEFAULT_MUTELEDS,
@@ -216,6 +217,10 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 			}
 			if (sscanf(line, "switcherscale=%i", &temp_value) == 1) {
 				CFG_setGameSwitcherScaling(temp_value);
+				continue;
+			}
+			if (sscanf(line, "switcherresumableonly=%i", &temp_value) == 1) {
+				CFG_setGameSwitcherResumableOnly((bool)temp_value);
 				continue;
 			}
 			if (sscanf(line, "haptics=%i", &temp_value) == 1) {
@@ -600,6 +605,15 @@ void CFG_setGameSwitcherScaling(int enumValue) {
 	CFG_sync();
 }
 
+bool CFG_getGameSwitcherResumableOnly(void) {
+	return settings.gameSwitcherResumableOnly;
+}
+
+void CFG_setGameSwitcherResumableOnly(bool resumableOnly) {
+	settings.gameSwitcherResumableOnly = resumableOnly;
+	CFG_sync();
+}
+
 bool CFG_getHaptics(void) {
 	return settings.haptics;
 }
@@ -947,6 +961,8 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", CFG_getPowerOffProtection());
 	} else if (strcmp(key, "switcherscale") == 0) {
 		sprintf(value, "%i", CFG_getGameSwitcherScaling());
+	} else if (strcmp(key, "switcherresumableonly") == 0) {
+		sprintf(value, "%i", CFG_getGameSwitcherResumableOnly());
 	} else if (strcmp(key, "romfolderbg") == 0) {
 		sprintf(value, "%i", CFG_getRomsUseFolderBackground());
 	} else if (strcmp(key, "saveFormat") == 0) {
@@ -1043,6 +1059,7 @@ void CFG_sync(void) {
 	fprintf(file, "suspendTimeout=%i\n", settings.suspendTimeoutSecs);
 	fprintf(file, "powerOffProtection=%i\n", settings.powerOffProtection);
 	fprintf(file, "switcherscale=%i\n", settings.gameSwitcherScaling);
+	fprintf(file, "switcherresumableonly=%i\n", settings.gameSwitcherResumableOnly);
 	fprintf(file, "haptics=%i\n", settings.haptics);
 	fprintf(file, "romfolderbg=%i\n", settings.romsUseFolderBackground);
 	fprintf(file, "saveFormat=%i\n", settings.saveFormat);
@@ -1104,6 +1121,7 @@ void CFG_print(void) {
 	printf("\t\"suspendTimeout\": %i,\n", settings.suspendTimeoutSecs);
 	printf("\t\"powerOffProtection\": %i,\n", settings.powerOffProtection);
 	printf("\t\"switcherscale\": %i,\n", settings.gameSwitcherScaling);
+	printf("\t\"switcherresumableonly\": %i,\n", settings.gameSwitcherResumableOnly);
 	printf("\t\"haptics\": %i,\n", settings.haptics);
 	printf("\t\"romfolderbg\": %i,\n", settings.romsUseFolderBackground);
 	printf("\t\"saveFormat\": %i,\n", settings.saveFormat);

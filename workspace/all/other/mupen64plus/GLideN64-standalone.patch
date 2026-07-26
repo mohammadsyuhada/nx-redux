@@ -1,5 +1,231 @@
+diff --git a/SETTINGS.md b/SETTINGS.md
+new file mode 100644
+index 00000000..82791025
+--- /dev/null
++++ b/SETTINGS.md
+@@ -0,0 +1,220 @@
++# GLideN64 Standalone Plugin — Settings Reference
++
++Config file: `mupen64plus_sa/mupen64plus.cfg` → `[Video-GLideN64]` section
++
++---
++
++## Rendering
++
++| Setting | Values | Default | Description |
++|---------|--------|---------|-------------|
++| `UseNativeResolutionFactor` | 0-8 | 0 | Internal resolution multiplier. 0=window resolution, 1=320x240 (native), 2=640x480, 3=960x720, 4=1280x960, etc. |
++| `AspectRatio` | 0-4 | 1 | 0=stretch, 1=force 4:3, 2=force 16:9, 3=adjust 4:3, 4=adjust 16:9 |
++| `MultiSampling` | 0,2,4,8,16 | 0 | MSAA anti-aliasing. Higher = smoother edges, more GPU load |
++| `FXAA` | True/False | False | Fast Approximate Anti-Aliasing. Lighter than MSAA |
++| `anisotropy` | 0-16 | 0 | Anisotropic filtering for textures viewed at angles |
++| `bilinearMode` | 0/1 | 1 | 0=N64 3-point filtering (authentic), 1=standard bilinear |
++| `enableHalosRemoval` | True/False | False | Remove halos around filtered textures |
++| `EnableHybridFilter` | True/False | True | Hybrid integer scaling filter. **Can be slow on embedded GPUs** |
++| `EnableHWLighting` | True/False | False | Per-pixel hardware lighting. More accurate, heavier |
++| `EnableCoverage` | True/False | False | Pixel coverage calculation. Better blending, needs fast GPU |
++| `EnableClipping` | True/False | True | Software vertex clipping. Recommended on |
++| `ThreadedVideo` | True/False | False | Threaded video backend. **May break input on embedded** |
++| `BufferSwapMode` | 0-2 | 0 | 0=On VI update, 1=On VI origin change, 2=On buffer update |
++
++## Sprite / Texrect Fix (black lines between 2D elements)
++
++These settings fix visible lines/gaps between 2D sprites and UI elements:
++
++| Setting | Values | Default | Description |
++|---------|--------|---------|-------------|
++| `CorrectTexrectCoords` | 0-2 | 0 | **Fix black lines between 2D texrects.** 0=Off, 1=Auto, 2=Force. Try `1` or `2` if you see lines |
++| `EnableNativeResTexrects` | 0-2 | 0 | Render 2D texrects in native resolution to fix misalignment. 0=Off, 1=Optimized, 2=Unoptimized |
++| `EnableTexCoordBounds` | 0/1 | 0 | Bound texture coordinates to native values. Prevents garbage at texture edges but can cause hard edges |
++
++**If you see horizontal/vertical lines between sprites**, set:
++```
++CorrectTexrectCoords = 2
++EnableNativeResTexrects = 1
++```
++
++## Dithering
++
++| Setting | Values | Default | Description |
++|---------|--------|---------|-------------|
++| `EnableDitheringPattern` | True/False | False | Dithering pattern on output image |
++| `EnableHiresNoiseDithering` | True/False | False | Hi-res noise dithering |
++| `DitheringQuantization` | True/False | True | Color quantization dithering |
++| `RDRAMImageDitheringMode` | 0-3 | 3 | 0=disable, 1=bayer, 2=magic square, 3=blue noise |
++
++## Hi-Res Texture Packs
++
++| Setting | Values | Default | Description |
++|---------|--------|---------|-------------|
++| `txHiresEnable` | True/False | False | **Master switch for hi-res texture packs** |
++| `txPath` | path | `./data/hires_texture` | Folder containing texture pack subfolders (named by ROM internal name) |
++| `txHiresTextureFileStorage` | True/False | False | **Load textures from files on demand (no RAM cache). Best for embedded devices** |
++| `txHiresFullAlphaChannel` | True/False | True | Full alpha channel for hi-res textures |
++| `txHresAltCRC` | True/False | False | Alternative CRC calculation for paletted textures |
++| `txHiresVramLimit` | MB | 0 | VRAM limit for hi-res textures. 0=unlimited |
++| `txNoTextureFileStorage` | True/False | False | Disable all file storage/cache for HD textures |
++| `txForce16bpp` | True/False | False | Force 16-bit textures (saves VRAM, lower quality) |
++
++## Texture Enhancement (upscales native N64 textures)
++
++| Setting | Values | Default | Description |
++|---------|--------|---------|-------------|
++| `txFilterMode` | 0-6 | 0 | 0=none, 1-4=smooth filtering (1=lightest, 4=heaviest), 5-6=sharp filtering |
++| `txEnhancementMode` | 0-13 | 0 | 0=none, 1=store as is, 2=X2, 3=X2SAI, 4=HQ2X, 5=HQ2XS, 6=LQ2X, 7=LQ2XS, 8=HQ4X, 9=2xBRZ, 10=3xBRZ, 11=4xBRZ, 12=5xBRZ, 13=6xBRZ |
++| `txDeposterize` | True/False | False | Deposterize before enhancement |
++| `txFilterIgnoreBG` | True/False | False | Don't filter background textures |
++| `txEnhancedTextureFileStorage` | True/False | False | File storage for enhanced textures |
++
++## Texture Cache
++
++| Setting | Values | Default | Description |
++|---------|--------|---------|-------------|
++| `txCacheSize` | MB | 100 | Memory cache size for enhanced textures |
++| `txCacheCompression` | True/False | True | Compress texture cache |
++| `txSaveCache` | True/False | True | Save texture cache to disk |
++| `txCachePath` | path | `./cache/cache` | Cache file location |
++| `txDump` | True/False | False | Dump textures (for texture pack creation) |
++| `txDumpPath` | path | `./cache/texture_dump` | Dump output location |
++| `txStrongCRC` | True/False | False | Strong CRC for texture dump |
++
++## Frame Buffer Emulation
++
++| Setting | Values | Default | Description |
++|---------|--------|---------|-------------|
++| `EnableFBEmulation` | True/False | True | Master switch for frame buffer emulation. Required for many effects |
++| `EnableCopyColorToRDRAM` | 0-3 | 2 | 0=don't copy, 1=sync, 2=double buffer, 3=triple buffer |
++| `EnableCopyDepthToRDRAM` | 0-2 | 2 | 0=don't copy, 1=from video memory, 2=software render |
++| `EnableCopyColorFromRDRAM` | True/False | False | Copy color buffer from RDRAM |
++| `EnableCopyAuxiliaryToRDRAM` | True/False | False | Copy auxiliary buffers to RDRAM |
++| `EnableN64DepthCompare` | 0-2 | 0 | 0=off, 1=fast, 2=compatible. Experimental |
++| `ForceDepthBufferClear` | True/False | False | Hack for Eikou no Saint Andrews |
++| `DisableFBInfo` | True/False | True | Disable FBInfo read/write. Use for problem games |
++| `FBInfoReadColorChunk` | True/False | False | Read color buffer in 4KB chunks |
++| `FBInfoReadDepthChunk` | True/False | True | Read depth buffer in 4KB chunks |
++
++## Overscan
++
++| Setting | Values | Default | Description |
++|---------|--------|---------|-------------|
++| `EnableOverscan` | True/False | False | Crop output by overscan bounds |
++| `OverscanNtscLeft/Right/Top/Bottom` | pixels | 0 | NTSC crop bounds |
++| `OverscanPalLeft/Right/Top/Bottom` | pixels | 0 | PAL crop bounds |
++
++## Performance (Embedded / Low-End GPU)
++
++| Setting | Values | Default | Description |
++|---------|--------|---------|-------------|
++| `EnableInaccurateTextureCoordinates` | True/False | False | **Faster shaders, less accurate** |
++| `EnableLegacyBlending` | True/False | False | **Skip shader-based blending. Faster but may glitch** |
++| `EnableShadersStorage` | True/False | True | Cache compiled shaders to disk. Faster startup after first run |
++| `EnableFragmentDepthWrite` | True/False | True | Some mobile GPUs need this off |
++| `EnableHybridFilter` | True/False | True | **Disable for better performance on slow GPUs** |
++| `BackgroundsMode` | 0/1 | 1 | 0=One piece (fast), 1=Stripped (precise) |
++
++## Display / OSD
++
++| Setting | Values | Default | Description |
++|---------|--------|---------|-------------|
++| `ShowFPS` | True/False | False | Show FPS counter |
++| `ShowVIS` | True/False | False | Show VI/s counter |
++| `ShowPercent` | True/False | False | Show speed percentage |
++| `ShowInternalResolution` | True/False | False | Show internal resolution |
++| `ShowRenderingResolution` | True/False | False | Show rendering resolution |
++| `ShowStatistics` | True/False | False | Show draw call statistics |
++| `CountersPos` | bitmask | 8 | 1=top-left, 2=top-center, 4=top-right, 8=bottom-left, 16=bottom-center, 32=bottom-right |
++| `fontName` | filename | FreeSans.ttf | OSD font file |
++| `fontSize` | pixels | 18 | OSD font size |
++| `fontColor` | RGB hex | B5E61D | OSD font color |
++
++## Gamma
++
++| Setting | Values | Default | Description |
++|---------|--------|---------|-------------|
++| `ForceGammaCorrection` | True/False | False | Force gamma correction |
++| `GammaCorrectionLevel` | float | 2.0 | Gamma level |
++
++## Recommended Settings for TG5050 / TG5040
++
++These are the optimized defaults based on testing on both devices.
++Both devices support GLES 3.2 (TG5040: PowerVR GE8300, TG5050: Mali-G57).
++
++```ini
++[Video-GLideN64]
++
++# === Rendering ===
++UseNativeResolutionFactor = 2    # 640x480 upscaled (good balance of quality/performance)
++AspectRatio = 1                  # Force 4:3
++bilinearMode = 1                 # Standard bilinear filtering
++FXAA = False                     # Disabled — saves GPU
++MultiSampling = 0                # No MSAA — saves GPU
++anisotropy = 2                   # Light anisotropic filtering
++EnableHybridFilter = False       # Disabled — slow on embedded GPUs
++EnableHWLighting = False         # Disabled — saves GPU
++EnableCoverage = False           # Disabled — needs fast GPU
++EnableClipping = True            # Software vertex clipping — recommended on
++ThreadedVideo = False            # Disabled — can break input on embedded
++BufferSwapMode = 0               # On VI update (default)
++
++# === Sprite / Texrect Fix ===
++CorrectTexrectCoords = 2         # Force — fixes black lines between 2D sprites
++EnableNativeResTexrects = 1      # Optimized — fixes 2D element misalignment
++EnableTexCoordBounds = 0         # Off — can cause hard edges if enabled
++
++# === Dithering ===
++EnableDitheringPattern = False   # Off
++DitheringQuantization = True     # Color quantization dithering
++RDRAMImageDitheringMode = 3      # Blue noise (best quality)
++EnableHiresNoiseDithering = False
++
++# === Hi-Res Texture Packs ===
++txHiresEnable = True             # Enable hi-res texture loading
++txHiresTextureFileStorage = True # Lazy load from files (no RAM cache — critical for embedded)
++txHiresFullAlphaChannel = True   # Full alpha channel support
++txHresAltCRC = False             # Standard CRC calculation
++txPath = "/mnt/SDCARD/Roms/Nintendo 64 (N64)/.hires_texture"
++txCacheSize = 100                # 100MB cache size
++txCacheCompression = True        # Compress cache
++txSaveCache = True               # Save cache to disk
++
++# === Texture Enhancement ===
++txFilterMode = 0                 # None (no extra filtering)
++txEnhancementMode = 0            # None (no upscaling of native textures)
++txDeposterize = False
++txFilterIgnoreBG = False
++
++# === Frame Buffer Emulation ===
++EnableFBEmulation = True         # Required for many visual effects
++EnableCopyColorToRDRAM = 2       # Double buffer (good balance)
++EnableCopyDepthToRDRAM = 2       # Software render (most compatible)
++EnableCopyColorFromRDRAM = False
++EnableCopyAuxiliaryToRDRAM = False
++EnableN64DepthCompare = 0        # Off (experimental feature)
++ForceDepthBufferClear = False
++DisableFBInfo = True             # Disabled for compatibility
++
++# === Performance ===
++EnableInaccurateTextureCoordinates = False  # Keep accurate
++EnableLegacyBlending = False     # Keep shader-based blending
++EnableShadersStorage = True      # Cache shaders — faster startup after first run
++EnableFragmentDepthWrite = True  # Required by some GPUs
++BackgroundsMode = 0             # One piece (faster)
++
++# === Gamma ===
++ForceGammaCorrection = False
++GammaCorrectionLevel = 2.0
++```
++
++### TG5040-specific notes
++- Same GPU capability (GLES 3.2) but weaker CPU (Cortex-A53 vs A55)
++- Consider `UseNativeResolutionFactor = 1` (native 320x240) if performance is tight
++- Screen is smaller so lower resolution is less noticeable
++
++### TG5050-specific notes
++- Stronger CPU with big cluster (Cortex-A55 @ 2160 MHz)
++- `UseNativeResolutionFactor = 2` (640x480) works well
++- Can try `anisotropy = 4` or `UseNativeResolutionFactor = 3` on less demanding games
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index ff7e8a5..69838f8 100644
+index ff7e8a52..69838f8f 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
 @@ -145,6 +145,18 @@ set(GLideN64_SOURCES
@@ -144,7 +370,7 @@ index ff7e8a5..69838f8 100644
  	install(TARGETS ${GLideN64_DLL_NAME}
  		DESTINATION "${CMAKE_INSTALL_LIBDIR}/mupen64plus"
 diff --git a/src/DisplayLoadProgress.cpp b/src/DisplayLoadProgress.cpp
-index 647ca32..9a482c1 100644
+index 647ca326..9a482c12 100644
 --- a/src/DisplayLoadProgress.cpp
 +++ b/src/DisplayLoadProgress.cpp
 @@ -1,6 +1,7 @@
@@ -242,7 +468,7 @@ index 647ca32..9a482c1 100644
  
  	if (pBuffer != nullptr)
 diff --git a/src/DisplayLoadProgress.h b/src/DisplayLoadProgress.h
-index 701d27d..e6ad4c8 100644
+index 701d27d2..e6ad4c80 100644
 --- a/src/DisplayLoadProgress.h
 +++ b/src/DisplayLoadProgress.h
 @@ -2,5 +2,6 @@
@@ -253,7 +479,7 @@ index 701d27d..e6ad4c8 100644
  
  #endif // DISPLAYLOADPROGRESS_H
 diff --git a/src/DisplayWindow.cpp b/src/DisplayWindow.cpp
-index 59725f6..5cc6fc1 100644
+index 59725f62..dcc40269 100644
 --- a/src/DisplayWindow.cpp
 +++ b/src/DisplayWindow.cpp
 @@ -1,5 +1,7 @@
@@ -264,7 +490,7 @@ index 59725f6..5cc6fc1 100644
  #include "Config.h"
  #include "RSP.h"
  #include "VI.h"
-@@ -8,6 +10,261 @@
+@@ -8,6 +10,262 @@
  #include "PluginAPI.h"
  #include "FrameBuffer.h"
  
@@ -316,6 +542,7 @@ index 59725f6..5cc6fc1 100644
 +static SDL_Joystick* s_joy = nullptr;
 +static Uint8 s_prevHat = 0;
 +static Uint32 s_prevButtons = 0;
++static bool s_resumeChecked = false;
 +
 +// ---------------------------------------------------------------------------
 +// Overlay helpers
@@ -526,7 +753,7 @@ index 59725f6..5cc6fc1 100644
  bool DisplayWindow::start()
  {
  	if (!_start())
-@@ -48,6 +305,32 @@ void DisplayWindow::swapBuffers()
+@@ -48,6 +306,46 @@ void DisplayWindow::swapBuffers()
  {
  	m_drawer.drawOSD();
  	m_drawer.clearStatistics();
@@ -535,6 +762,20 @@ index 59725f6..5cc6fc1 100644
 +	// avoids confusing overlay menu while hi-res textures are being indexed)
 +	if (!isLoadProgressActive()) {
 +		overlay_ensure_init(getScreenWidth(), getScreenHeight());
++
++		// One-shot: if NextUI launched us with a resume request (game switcher
++		// A-press writes the slot to /tmp/resume_slot.txt), auto-load that save
++		// state once emulation is rendering frames — mirrors minarch's
++		// State_resume side of the handshake.
++		if (s_overlayInitialized && !s_resumeChecked) {
++			s_resumeChecked = true;
++			int resumeSlot = emu_ovl_consume_resume_slot();
++			if (resumeSlot >= 0 && CoreDoCommand) {
++				CoreDoCommand(M64CMD_STATE_SET_SLOT, resumeSlot, nullptr);
++				CoreDoCommand(M64CMD_STATE_LOAD, 0, nullptr);
++			}
++		}
++
 +		if (s_overlayInitialized && check_menu_button()) {
 +			EmuOvlAction action = run_overlay_loop(*this);
 +			if (action == EMU_OVL_ACTION_QUIT) {
@@ -560,7 +801,7 @@ index 59725f6..5cc6fc1 100644
  	if (!RSP.LLE) {
  		if ((config.generalEmulation.hacks & hack_doNotResetOtherModeL) == 0)
 diff --git a/src/GLideNHQ/inc/png.h b/src/GLideNHQ/inc/png.h
-index 51ac8ab..83d3903 100644
+index 51ac8abe..83d39031 100644
 --- a/src/GLideNHQ/inc/png.h
 +++ b/src/GLideNHQ/inc/png.h
 @@ -1,68 +1,105 @@
@@ -1311,7 +1552,7 @@ index 51ac8ab..83d3903 100644
  /* Return values: NOTE: there are four values and 'off' is *not* zero */
  #define PNG_OPTION_UNSET   0 /* Unset - defaults to off */
 diff --git a/src/GLideNHQ/inc/pngconf.h b/src/GLideNHQ/inc/pngconf.h
-index c0f1554..000d7b1 100644
+index c0f15547..000d7b1a 100644
 --- a/src/GLideNHQ/inc/pngconf.h
 +++ b/src/GLideNHQ/inc/pngconf.h
 @@ -1,11 +1,12 @@
@@ -1424,7 +1665,7 @@ index c0f1554..000d7b1 100644
  #ifdef PNG_STDIO_SUPPORTED
  typedef FILE            * png_FILE_p;
 diff --git a/src/GLideNHQ/inc/pnglibconf.h b/src/GLideNHQ/inc/pnglibconf.h
-index 9e45f73..a81a642 100644
+index 9e45f731..a81a642e 100644
 --- a/src/GLideNHQ/inc/pnglibconf.h
 +++ b/src/GLideNHQ/inc/pnglibconf.h
 @@ -1,10 +1,9 @@
@@ -1483,13 +1724,17 @@ index 9e45f73..a81a642 100644
  #define PNG_Z_DEFAULT_NOFILTER_STRATEGY 0
  #define PNG_Z_DEFAULT_STRATEGY 1
 diff --git a/src/GLideNHQ/lib/libpng.a b/src/GLideNHQ/lib/libpng.a
-index bb5dec0..49f9c37 100644
+index bb5dec03..11f293fb 100644
 Binary files a/src/GLideNHQ/lib/libpng.a and b/src/GLideNHQ/lib/libpng.a differ
 diff --git a/src/GLideNHQ/lib/libz.a b/src/GLideNHQ/lib/libz.a
-index 98a63cc..eb3e00c 100644
+index 98a63cca..a0cde4c7 100644
 Binary files a/src/GLideNHQ/lib/libz.a and b/src/GLideNHQ/lib/libz.a differ
+diff --git a/src/GLideNHQ/lib/libzstd.a b/src/GLideNHQ/lib/libzstd.a
+new file mode 100644
+index 00000000..ac6ff094
+Binary files /dev/null and b/src/GLideNHQ/lib/libzstd.a differ
 diff --git a/src/Graphics/OpenGLContext/GLFunctions.cpp b/src/Graphics/OpenGLContext/GLFunctions.cpp
-index 1a6b8f6..80b1e86 100644
+index 1a6b8f68..80b1e869 100644
 --- a/src/Graphics/OpenGLContext/GLFunctions.cpp
 +++ b/src/Graphics/OpenGLContext/GLFunctions.cpp
 @@ -14,7 +14,29 @@
@@ -1524,7 +1769,7 @@ index 1a6b8f6..80b1e86 100644
  #define GL_GET_PROC_ADR_EGL(proc_type, proc_name) ptr##proc_name = (proc_type) glGetProcAddress("egl"#proc_name)
  
 diff --git a/src/Graphics/OpenGLContext/ThreadedOpenGl/opengl_Wrapper.cpp b/src/Graphics/OpenGLContext/ThreadedOpenGl/opengl_Wrapper.cpp
-index 952c05e..55ba143 100644
+index 952c05e7..55ba1437 100644
 --- a/src/Graphics/OpenGLContext/ThreadedOpenGl/opengl_Wrapper.cpp
 +++ b/src/Graphics/OpenGLContext/ThreadedOpenGl/opengl_Wrapper.cpp
 @@ -60,6 +60,14 @@ namespace opengl {
@@ -1543,7 +1788,7 @@ index 952c05e..55ba143 100644
  	{
  		bool timeToShutdown = false;
 diff --git a/src/Graphics/OpenGLContext/ThreadedOpenGl/opengl_Wrapper.h b/src/Graphics/OpenGLContext/ThreadedOpenGl/opengl_Wrapper.h
-index 27210fa..6768543 100644
+index 27210fa8..67685436 100644
 --- a/src/Graphics/OpenGLContext/ThreadedOpenGl/opengl_Wrapper.h
 +++ b/src/Graphics/OpenGLContext/ThreadedOpenGl/opengl_Wrapper.h
 @@ -57,6 +57,8 @@ namespace opengl {
@@ -1556,7 +1801,7 @@ index 27210fa..6768543 100644
  		static void wrBlendFunc(GLenum sfactor, GLenum dfactor);
  		static void wrBlendFuncSeparate(GLenum sfactorcolor, GLenum dfactorcolor, GLenum sfactoralpha, GLenum dfactoralpha);
 diff --git a/src/Graphics/OpenGLContext/mupen64plus/mupen64plus_DisplayWindow.cpp b/src/Graphics/OpenGLContext/mupen64plus/mupen64plus_DisplayWindow.cpp
-index 1573c83..03ab5c7 100644
+index 1573c831..03ab5c70 100644
 --- a/src/Graphics/OpenGLContext/mupen64plus/mupen64plus_DisplayWindow.cpp
 +++ b/src/Graphics/OpenGLContext/mupen64plus/mupen64plus_DisplayWindow.cpp
 @@ -56,9 +56,15 @@ void DisplayWindowMupen64plus::_setAttributes()
@@ -1576,7 +1821,7 @@ index 1573c83..03ab5c7 100644
  	FunctionWrapper::CoreVideo_GL_SetAttribute(M64P_GL_DOUBLEBUFFER, 1);
  	FunctionWrapper::CoreVideo_GL_SetAttribute(M64P_GL_SWAP_CONTROL, config.video.verticalSync);
 diff --git a/src/Graphics/OpenGLContext/opengl_GLInfo.cpp b/src/Graphics/OpenGLContext/opengl_GLInfo.cpp
-index 3f9bc3e..e9b0c04 100644
+index 3f9bc3e0..e9b0c042 100644
 --- a/src/Graphics/OpenGLContext/opengl_GLInfo.cpp
 +++ b/src/Graphics/OpenGLContext/opengl_GLInfo.cpp
 @@ -6,7 +6,8 @@
@@ -1600,7 +1845,7 @@ index 3f9bc3e..e9b0c04 100644
  
  #ifdef OS_ANDROID
 diff --git a/src/TextureFilterHandler.cpp b/src/TextureFilterHandler.cpp
-index aa864df..86784c1 100644
+index aa864df6..86784c17 100644
 --- a/src/TextureFilterHandler.cpp
 +++ b/src/TextureFilterHandler.cpp
 @@ -123,6 +123,8 @@ void TextureFilterHandler::init()
@@ -1613,7 +1858,7 @@ index aa864df..86784c1 100644
  
  void TextureFilterHandler::shutdown()
 diff --git a/src/mupenplus/GLideN64_mupenplus.h b/src/mupenplus/GLideN64_mupenplus.h
-index ba4bb16..1540543 100644
+index ba4bb168..15405432 100644
 --- a/src/mupenplus/GLideN64_mupenplus.h
 +++ b/src/mupenplus/GLideN64_mupenplus.h
 @@ -52,6 +52,8 @@ extern ptr_VidExt_GL_GetAttribute       CoreVideo_GL_GetAttribute;
@@ -1626,7 +1871,7 @@ index ba4bb16..1540543 100644
  
  extern void*                            CoreDebugCallbackContext;
 diff --git a/src/mupenplus/MupenPlusAPIImpl.cpp b/src/mupenplus/MupenPlusAPIImpl.cpp
-index f059581..23e6e36 100644
+index f0595819..23e6e36b 100644
 --- a/src/mupenplus/MupenPlusAPIImpl.cpp
 +++ b/src/mupenplus/MupenPlusAPIImpl.cpp
 @@ -47,6 +47,8 @@ ptr_VidExt_GL_GetAttribute       CoreVideo_GL_GetAttribute = nullptr;
@@ -1647,278 +1892,9 @@ index f059581..23e6e36 100644
  #ifndef M64P_GLIDENUI
  	if (Config_SetDefault()) {
  		config.version = ConfigGetParamInt(g_configVideoGliden64, "configVersion");
-diff --git a/SETTINGS.md b/SETTINGS.md
-new file mode 100644
-index 0000000..8279102
---- /dev/null
-+++ b/SETTINGS.md
-@@ -0,0 +1,220 @@
-+# GLideN64 Standalone Plugin — Settings Reference
-+
-+Config file: `mupen64plus_sa/mupen64plus.cfg` → `[Video-GLideN64]` section
-+
-+---
-+
-+## Rendering
-+
-+| Setting | Values | Default | Description |
-+|---------|--------|---------|-------------|
-+| `UseNativeResolutionFactor` | 0-8 | 0 | Internal resolution multiplier. 0=window resolution, 1=320x240 (native), 2=640x480, 3=960x720, 4=1280x960, etc. |
-+| `AspectRatio` | 0-4 | 1 | 0=stretch, 1=force 4:3, 2=force 16:9, 3=adjust 4:3, 4=adjust 16:9 |
-+| `MultiSampling` | 0,2,4,8,16 | 0 | MSAA anti-aliasing. Higher = smoother edges, more GPU load |
-+| `FXAA` | True/False | False | Fast Approximate Anti-Aliasing. Lighter than MSAA |
-+| `anisotropy` | 0-16 | 0 | Anisotropic filtering for textures viewed at angles |
-+| `bilinearMode` | 0/1 | 1 | 0=N64 3-point filtering (authentic), 1=standard bilinear |
-+| `enableHalosRemoval` | True/False | False | Remove halos around filtered textures |
-+| `EnableHybridFilter` | True/False | True | Hybrid integer scaling filter. **Can be slow on embedded GPUs** |
-+| `EnableHWLighting` | True/False | False | Per-pixel hardware lighting. More accurate, heavier |
-+| `EnableCoverage` | True/False | False | Pixel coverage calculation. Better blending, needs fast GPU |
-+| `EnableClipping` | True/False | True | Software vertex clipping. Recommended on |
-+| `ThreadedVideo` | True/False | False | Threaded video backend. **May break input on embedded** |
-+| `BufferSwapMode` | 0-2 | 0 | 0=On VI update, 1=On VI origin change, 2=On buffer update |
-+
-+## Sprite / Texrect Fix (black lines between 2D elements)
-+
-+These settings fix visible lines/gaps between 2D sprites and UI elements:
-+
-+| Setting | Values | Default | Description |
-+|---------|--------|---------|-------------|
-+| `CorrectTexrectCoords` | 0-2 | 0 | **Fix black lines between 2D texrects.** 0=Off, 1=Auto, 2=Force. Try `1` or `2` if you see lines |
-+| `EnableNativeResTexrects` | 0-2 | 0 | Render 2D texrects in native resolution to fix misalignment. 0=Off, 1=Optimized, 2=Unoptimized |
-+| `EnableTexCoordBounds` | 0/1 | 0 | Bound texture coordinates to native values. Prevents garbage at texture edges but can cause hard edges |
-+
-+**If you see horizontal/vertical lines between sprites**, set:
-+```
-+CorrectTexrectCoords = 2
-+EnableNativeResTexrects = 1
-+```
-+
-+## Dithering
-+
-+| Setting | Values | Default | Description |
-+|---------|--------|---------|-------------|
-+| `EnableDitheringPattern` | True/False | False | Dithering pattern on output image |
-+| `EnableHiresNoiseDithering` | True/False | False | Hi-res noise dithering |
-+| `DitheringQuantization` | True/False | True | Color quantization dithering |
-+| `RDRAMImageDitheringMode` | 0-3 | 3 | 0=disable, 1=bayer, 2=magic square, 3=blue noise |
-+
-+## Hi-Res Texture Packs
-+
-+| Setting | Values | Default | Description |
-+|---------|--------|---------|-------------|
-+| `txHiresEnable` | True/False | False | **Master switch for hi-res texture packs** |
-+| `txPath` | path | `./data/hires_texture` | Folder containing texture pack subfolders (named by ROM internal name) |
-+| `txHiresTextureFileStorage` | True/False | False | **Load textures from files on demand (no RAM cache). Best for embedded devices** |
-+| `txHiresFullAlphaChannel` | True/False | True | Full alpha channel for hi-res textures |
-+| `txHresAltCRC` | True/False | False | Alternative CRC calculation for paletted textures |
-+| `txHiresVramLimit` | MB | 0 | VRAM limit for hi-res textures. 0=unlimited |
-+| `txNoTextureFileStorage` | True/False | False | Disable all file storage/cache for HD textures |
-+| `txForce16bpp` | True/False | False | Force 16-bit textures (saves VRAM, lower quality) |
-+
-+## Texture Enhancement (upscales native N64 textures)
-+
-+| Setting | Values | Default | Description |
-+|---------|--------|---------|-------------|
-+| `txFilterMode` | 0-6 | 0 | 0=none, 1-4=smooth filtering (1=lightest, 4=heaviest), 5-6=sharp filtering |
-+| `txEnhancementMode` | 0-13 | 0 | 0=none, 1=store as is, 2=X2, 3=X2SAI, 4=HQ2X, 5=HQ2XS, 6=LQ2X, 7=LQ2XS, 8=HQ4X, 9=2xBRZ, 10=3xBRZ, 11=4xBRZ, 12=5xBRZ, 13=6xBRZ |
-+| `txDeposterize` | True/False | False | Deposterize before enhancement |
-+| `txFilterIgnoreBG` | True/False | False | Don't filter background textures |
-+| `txEnhancedTextureFileStorage` | True/False | False | File storage for enhanced textures |
-+
-+## Texture Cache
-+
-+| Setting | Values | Default | Description |
-+|---------|--------|---------|-------------|
-+| `txCacheSize` | MB | 100 | Memory cache size for enhanced textures |
-+| `txCacheCompression` | True/False | True | Compress texture cache |
-+| `txSaveCache` | True/False | True | Save texture cache to disk |
-+| `txCachePath` | path | `./cache/cache` | Cache file location |
-+| `txDump` | True/False | False | Dump textures (for texture pack creation) |
-+| `txDumpPath` | path | `./cache/texture_dump` | Dump output location |
-+| `txStrongCRC` | True/False | False | Strong CRC for texture dump |
-+
-+## Frame Buffer Emulation
-+
-+| Setting | Values | Default | Description |
-+|---------|--------|---------|-------------|
-+| `EnableFBEmulation` | True/False | True | Master switch for frame buffer emulation. Required for many effects |
-+| `EnableCopyColorToRDRAM` | 0-3 | 2 | 0=don't copy, 1=sync, 2=double buffer, 3=triple buffer |
-+| `EnableCopyDepthToRDRAM` | 0-2 | 2 | 0=don't copy, 1=from video memory, 2=software render |
-+| `EnableCopyColorFromRDRAM` | True/False | False | Copy color buffer from RDRAM |
-+| `EnableCopyAuxiliaryToRDRAM` | True/False | False | Copy auxiliary buffers to RDRAM |
-+| `EnableN64DepthCompare` | 0-2 | 0 | 0=off, 1=fast, 2=compatible. Experimental |
-+| `ForceDepthBufferClear` | True/False | False | Hack for Eikou no Saint Andrews |
-+| `DisableFBInfo` | True/False | True | Disable FBInfo read/write. Use for problem games |
-+| `FBInfoReadColorChunk` | True/False | False | Read color buffer in 4KB chunks |
-+| `FBInfoReadDepthChunk` | True/False | True | Read depth buffer in 4KB chunks |
-+
-+## Overscan
-+
-+| Setting | Values | Default | Description |
-+|---------|--------|---------|-------------|
-+| `EnableOverscan` | True/False | False | Crop output by overscan bounds |
-+| `OverscanNtscLeft/Right/Top/Bottom` | pixels | 0 | NTSC crop bounds |
-+| `OverscanPalLeft/Right/Top/Bottom` | pixels | 0 | PAL crop bounds |
-+
-+## Performance (Embedded / Low-End GPU)
-+
-+| Setting | Values | Default | Description |
-+|---------|--------|---------|-------------|
-+| `EnableInaccurateTextureCoordinates` | True/False | False | **Faster shaders, less accurate** |
-+| `EnableLegacyBlending` | True/False | False | **Skip shader-based blending. Faster but may glitch** |
-+| `EnableShadersStorage` | True/False | True | Cache compiled shaders to disk. Faster startup after first run |
-+| `EnableFragmentDepthWrite` | True/False | True | Some mobile GPUs need this off |
-+| `EnableHybridFilter` | True/False | True | **Disable for better performance on slow GPUs** |
-+| `BackgroundsMode` | 0/1 | 1 | 0=One piece (fast), 1=Stripped (precise) |
-+
-+## Display / OSD
-+
-+| Setting | Values | Default | Description |
-+|---------|--------|---------|-------------|
-+| `ShowFPS` | True/False | False | Show FPS counter |
-+| `ShowVIS` | True/False | False | Show VI/s counter |
-+| `ShowPercent` | True/False | False | Show speed percentage |
-+| `ShowInternalResolution` | True/False | False | Show internal resolution |
-+| `ShowRenderingResolution` | True/False | False | Show rendering resolution |
-+| `ShowStatistics` | True/False | False | Show draw call statistics |
-+| `CountersPos` | bitmask | 8 | 1=top-left, 2=top-center, 4=top-right, 8=bottom-left, 16=bottom-center, 32=bottom-right |
-+| `fontName` | filename | FreeSans.ttf | OSD font file |
-+| `fontSize` | pixels | 18 | OSD font size |
-+| `fontColor` | RGB hex | B5E61D | OSD font color |
-+
-+## Gamma
-+
-+| Setting | Values | Default | Description |
-+|---------|--------|---------|-------------|
-+| `ForceGammaCorrection` | True/False | False | Force gamma correction |
-+| `GammaCorrectionLevel` | float | 2.0 | Gamma level |
-+
-+## Recommended Settings for TG5050 / TG5040
-+
-+These are the optimized defaults based on testing on both devices.
-+Both devices support GLES 3.2 (TG5040: PowerVR GE8300, TG5050: Mali-G57).
-+
-+```ini
-+[Video-GLideN64]
-+
-+# === Rendering ===
-+UseNativeResolutionFactor = 2    # 640x480 upscaled (good balance of quality/performance)
-+AspectRatio = 1                  # Force 4:3
-+bilinearMode = 1                 # Standard bilinear filtering
-+FXAA = False                     # Disabled — saves GPU
-+MultiSampling = 0                # No MSAA — saves GPU
-+anisotropy = 2                   # Light anisotropic filtering
-+EnableHybridFilter = False       # Disabled — slow on embedded GPUs
-+EnableHWLighting = False         # Disabled — saves GPU
-+EnableCoverage = False           # Disabled — needs fast GPU
-+EnableClipping = True            # Software vertex clipping — recommended on
-+ThreadedVideo = False            # Disabled — can break input on embedded
-+BufferSwapMode = 0               # On VI update (default)
-+
-+# === Sprite / Texrect Fix ===
-+CorrectTexrectCoords = 2         # Force — fixes black lines between 2D sprites
-+EnableNativeResTexrects = 1      # Optimized — fixes 2D element misalignment
-+EnableTexCoordBounds = 0         # Off — can cause hard edges if enabled
-+
-+# === Dithering ===
-+EnableDitheringPattern = False   # Off
-+DitheringQuantization = True     # Color quantization dithering
-+RDRAMImageDitheringMode = 3      # Blue noise (best quality)
-+EnableHiresNoiseDithering = False
-+
-+# === Hi-Res Texture Packs ===
-+txHiresEnable = True             # Enable hi-res texture loading
-+txHiresTextureFileStorage = True # Lazy load from files (no RAM cache — critical for embedded)
-+txHiresFullAlphaChannel = True   # Full alpha channel support
-+txHresAltCRC = False             # Standard CRC calculation
-+txPath = "/mnt/SDCARD/Roms/Nintendo 64 (N64)/.hires_texture"
-+txCacheSize = 100                # 100MB cache size
-+txCacheCompression = True        # Compress cache
-+txSaveCache = True               # Save cache to disk
-+
-+# === Texture Enhancement ===
-+txFilterMode = 0                 # None (no extra filtering)
-+txEnhancementMode = 0            # None (no upscaling of native textures)
-+txDeposterize = False
-+txFilterIgnoreBG = False
-+
-+# === Frame Buffer Emulation ===
-+EnableFBEmulation = True         # Required for many visual effects
-+EnableCopyColorToRDRAM = 2       # Double buffer (good balance)
-+EnableCopyDepthToRDRAM = 2       # Software render (most compatible)
-+EnableCopyColorFromRDRAM = False
-+EnableCopyAuxiliaryToRDRAM = False
-+EnableN64DepthCompare = 0        # Off (experimental feature)
-+ForceDepthBufferClear = False
-+DisableFBInfo = True             # Disabled for compatibility
-+
-+# === Performance ===
-+EnableInaccurateTextureCoordinates = False  # Keep accurate
-+EnableLegacyBlending = False     # Keep shader-based blending
-+EnableShadersStorage = True      # Cache shaders — faster startup after first run
-+EnableFragmentDepthWrite = True  # Required by some GPUs
-+BackgroundsMode = 0             # One piece (faster)
-+
-+# === Gamma ===
-+ForceGammaCorrection = False
-+GammaCorrectionLevel = 2.0
-+```
-+
-+### TG5040-specific notes
-+- Same GPU capability (GLES 3.2) but weaker CPU (Cortex-A53 vs A55)
-+- Consider `UseNativeResolutionFactor = 1` (native 320x240) if performance is tight
-+- Screen is smaller so lower resolution is less noticeable
-+
-+### TG5050-specific notes
-+- Stronger CPU with big cluster (Cortex-A55 @ 2160 MHz)
-+- `UseNativeResolutionFactor = 2` (640x480) works well
-+- Can try `anisotropy = 4` or `UseNativeResolutionFactor = 3` on less demanding games
-diff --git a/toolchain-aarch64.cmake b/toolchain-aarch64.cmake
-new file mode 100644
-index 0000000..3d79fd8
---- /dev/null
-+++ b/toolchain-aarch64.cmake
-@@ -0,0 +1,37 @@
-+set(CMAKE_SYSTEM_NAME Linux)
-+set(CMAKE_SYSTEM_PROCESSOR aarch64)
-+
-+set(TOOLCHAIN_ROOT /opt/aarch64-nextui-linux-gnu)
-+set(SYSROOT ${TOOLCHAIN_ROOT}/aarch64-nextui-linux-gnu/sysroot)
-+set(LIBC_ROOT ${TOOLCHAIN_ROOT}/aarch64-nextui-linux-gnu/libc)
-+
-+set(CMAKE_C_COMPILER ${TOOLCHAIN_ROOT}/bin/aarch64-nextui-linux-gnu-gcc)
-+set(CMAKE_CXX_COMPILER ${TOOLCHAIN_ROOT}/bin/aarch64-nextui-linux-gnu-g++)
-+
-+set(CMAKE_FIND_ROOT_PATH ${SYSROOT} ${LIBC_ROOT}/usr)
-+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
-+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
-+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
-+
-+# GLES/EGL headers from workspace
-+include_directories(/root/workspace/all/include)
-+
-+# aarch64 libpng and zlib from toolchain libc
-+include_directories(${LIBC_ROOT}/usr/include)
-+link_directories(${LIBC_ROOT}/usr/lib)
-+
-+# Set PNG/ZLIB paths for find_package
-+set(PNG_LIBRARY ${LIBC_ROOT}/usr/lib/libpng.a)
-+set(PNG_PNG_INCLUDE_DIR ${LIBC_ROOT}/usr/include)
-+set(ZLIB_LIBRARY ${LIBC_ROOT}/usr/lib/libz.so)
-+set(ZLIB_INCLUDE_DIR ${LIBC_ROOT}/usr/include)
-+
-+# Freetype2 for OSD text rendering
-+set(FREETYPE_INCLUDE_DIRS ${LIBC_ROOT}/usr/include/freetype2)
-+set(FREETYPE_LIBRARIES ${LIBC_ROOT}/usr/lib/libfreetype.a ${LIBC_ROOT}/usr/lib/libbz2.a)
-+set(FREETYPE_FOUND TRUE)
-+
-+# SDL_ttf and SDL_image for overlay menu fonts and button icons
-+set(SDL_TTF_INCLUDE_DIRS ${LIBC_ROOT}/usr/include/SDL2)
-+set(SDL_TTF_LIBRARIES ${LIBC_ROOT}/usr/lib/libSDL2_ttf.so)
-+set(SDL_IMAGE_LIBRARIES ${LIBC_ROOT}/usr/lib/libSDL2_image.so)
 diff --git a/src/overlay/OverlayGL.cpp b/src/overlay/OverlayGL.cpp
 new file mode 100644
-index 0000000..8da4772
+index 00000000..8da47721
 --- /dev/null
 +++ b/src/overlay/OverlayGL.cpp
 @@ -0,0 +1,650 @@
@@ -2574,7 +2550,7 @@ index 0000000..8da4772
 +}
 diff --git a/src/overlay/OverlayGL.h b/src/overlay/OverlayGL.h
 new file mode 100644
-index 0000000..51cc6da
+index 00000000..51cc6da7
 --- /dev/null
 +++ b/src/overlay/OverlayGL.h
 @@ -0,0 +1,16 @@
@@ -2594,3 +2570,46 @@ index 0000000..51cc6da
 +#endif
 +
 +#endif
+diff --git a/toolchain-aarch64.cmake b/toolchain-aarch64.cmake
+new file mode 100644
+index 00000000..3d79fd8b
+--- /dev/null
++++ b/toolchain-aarch64.cmake
+@@ -0,0 +1,37 @@
++set(CMAKE_SYSTEM_NAME Linux)
++set(CMAKE_SYSTEM_PROCESSOR aarch64)
++
++set(TOOLCHAIN_ROOT /opt/aarch64-nextui-linux-gnu)
++set(SYSROOT ${TOOLCHAIN_ROOT}/aarch64-nextui-linux-gnu/sysroot)
++set(LIBC_ROOT ${TOOLCHAIN_ROOT}/aarch64-nextui-linux-gnu/libc)
++
++set(CMAKE_C_COMPILER ${TOOLCHAIN_ROOT}/bin/aarch64-nextui-linux-gnu-gcc)
++set(CMAKE_CXX_COMPILER ${TOOLCHAIN_ROOT}/bin/aarch64-nextui-linux-gnu-g++)
++
++set(CMAKE_FIND_ROOT_PATH ${SYSROOT} ${LIBC_ROOT}/usr)
++set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
++set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
++set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
++
++# GLES/EGL headers from workspace
++include_directories(/root/workspace/all/include)
++
++# aarch64 libpng and zlib from toolchain libc
++include_directories(${LIBC_ROOT}/usr/include)
++link_directories(${LIBC_ROOT}/usr/lib)
++
++# Set PNG/ZLIB paths for find_package
++set(PNG_LIBRARY ${LIBC_ROOT}/usr/lib/libpng.a)
++set(PNG_PNG_INCLUDE_DIR ${LIBC_ROOT}/usr/include)
++set(ZLIB_LIBRARY ${LIBC_ROOT}/usr/lib/libz.so)
++set(ZLIB_INCLUDE_DIR ${LIBC_ROOT}/usr/include)
++
++# Freetype2 for OSD text rendering
++set(FREETYPE_INCLUDE_DIRS ${LIBC_ROOT}/usr/include/freetype2)
++set(FREETYPE_LIBRARIES ${LIBC_ROOT}/usr/lib/libfreetype.a ${LIBC_ROOT}/usr/lib/libbz2.a)
++set(FREETYPE_FOUND TRUE)
++
++# SDL_ttf and SDL_image for overlay menu fonts and button icons
++set(SDL_TTF_INCLUDE_DIRS ${LIBC_ROOT}/usr/include/SDL2)
++set(SDL_TTF_LIBRARIES ${LIBC_ROOT}/usr/lib/libSDL2_ttf.so)
++set(SDL_IMAGE_LIBRARIES ${LIBC_ROOT}/usr/lib/libSDL2_image.so)

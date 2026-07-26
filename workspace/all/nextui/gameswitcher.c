@@ -15,6 +15,35 @@
 
 static int switcher_selected = 0;
 
+// Filtered view of the recents list: gs_indices[i] holds the recents index of
+// the i-th switcher entry. Identity mapping when the resumable-only setting is
+// off, so behavior matches the unfiltered switcher exactly.
+static int gs_indices[MAX_RECENTS];
+static int gs_count = 0;
+
+// Clobbers the shared `resume` global while probing each recent; safe because
+// GameSwitcher_render re-runs readyResume for the selected entry on every
+// dirty frame, and the A-press handler reads `resume` only after a render
+// has refreshed it for the current selection.
+static void gs_rebuildIndices(void) {
+	gs_count = 0;
+	bool resumable_only = CFG_getGameSwitcherResumableOnly();
+	for (int i = 0; i < Recents_count() && gs_count < MAX_RECENTS; i++) {
+		if (resumable_only) {
+			Entry* entry = Recents_entryFromRecent(Recents_at(i));
+			if (!entry)
+				continue; // emulator no longer available
+			readyResume(entry);
+			Entry_free(entry);
+			if (!resume.can_resume)
+				continue;
+		}
+		gs_indices[gs_count++] = i;
+	}
+	if (gs_count == 0)
+		readyResume(NULL); // leave a known-false resume state, not the last probe's
+}
+
 // Single-entry cache of the decoded+converted preview/boxart for the selected
 // recent. GameSwitcher_render runs on every dirty frame (battery/status ticks,
 // carousel steps), and re-decoding the full-size PNG on the UI thread each time
@@ -40,6 +69,7 @@ static SDL_Surface* gs_get_cached_image(const char* path) {
 
 void GameSwitcher_init(void) {
 	switcher_selected = 0;
+	gs_rebuildIndices();
 }
 
 int GameSwitcher_shouldStartInSwitcher(void) {
@@ -54,6 +84,7 @@ int GameSwitcher_shouldStartInSwitcher(void) {
 
 void GameSwitcher_resetSelection(void) {
 	switcher_selected = 0;
+	gs_rebuildIndices();
 }
 
 int GameSwitcher_getSelected(void) {
@@ -62,9 +93,9 @@ int GameSwitcher_getSelected(void) {
 
 const char* GameSwitcher_getSelectedName(void) {
 	static char name_buf[MAX_PATH]; // getDisplayName requires a MAX_PATH out buffer
-	if (Recents_count() <= 0)
+	if (gs_count <= 0)
 		return "Recents";
-	Recent* recent = Recents_at(switcher_selected);
+	Recent* recent = Recents_at(gs_indices[switcher_selected]);
 	if (!recent)
 		return "Recents";
 	if (recent->alias) {
@@ -88,9 +119,9 @@ GameSwitcherResult GameSwitcher_handleInput(unsigned long now) {
 		switcher_selected = 0;
 		result.dirty = true;
 		result.folderbgchanged = true;
-	} else if (Recents_count() > 0 && PAD_justReleased(BTN_A)) {
+	} else if (gs_count > 0 && PAD_justReleased(BTN_A)) {
 		Entry* selectedEntry =
-			Recents_entryFromRecent(Recents_at(switcher_selected));
+			Recents_entryFromRecent(Recents_at(gs_indices[switcher_selected]));
 		// NULL when the recent's emulator is no longer available
 		if (selectedEntry) {
 			// this will drop us back into game switcher after leaving the game
@@ -101,23 +132,24 @@ GameSwitcherResult GameSwitcher_handleInput(unsigned long now) {
 			result.dirty = true;
 			Entry_free(selectedEntry);
 		}
-	} else if (Recents_count() > 0 && PAD_justReleased(BTN_Y)) {
-		Recents_removeAt(switcher_selected);
-		if (switcher_selected >= Recents_count())
-			switcher_selected = Recents_count() - 1;
+	} else if (gs_count > 0 && PAD_justReleased(BTN_Y)) {
+		Recents_removeAt(gs_indices[switcher_selected]);
+		gs_rebuildIndices();
+		if (switcher_selected >= gs_count)
+			switcher_selected = gs_count - 1;
 		if (switcher_selected < 0)
 			switcher_selected = 0;
 		result.dirty = true;
-	} else if (PAD_justPressed(BTN_RIGHT)) {
+	} else if (gs_count > 0 && PAD_justPressed(BTN_RIGHT)) {
 		switcher_selected++;
-		if (switcher_selected == Recents_count())
+		if (switcher_selected >= gs_count)
 			switcher_selected = 0; // wrap
 		result.dirty = true;
 		result.gsanimdir = SLIDE_LEFT;
-	} else if (PAD_justPressed(BTN_LEFT)) {
+	} else if (gs_count > 0 && PAD_justPressed(BTN_LEFT)) {
 		switcher_selected--;
 		if (switcher_selected < 0)
-			switcher_selected = Recents_count() - 1; // wrap
+			switcher_selected = gs_count - 1; // wrap
 		result.dirty = true;
 		result.gsanimdir = SLIDE_RIGHT;
 	}
@@ -154,18 +186,21 @@ void GameSwitcher_render(int lastScreen, SDL_Surface* blackBG,
 						 int gsanimdir) {
 	GFX_clearLayers(LAYER_ALL);
 
-	if (Recents_count() <= 0) {
+	if (gs_count <= 0) {
 		SDL_FillRect(screen, &(SDL_Rect){0, 0, screen->w, screen->h}, 0);
-		UI_renderEmptyState(screen, "No Recents", "Play a game to see it here", NULL);
+		if (Recents_count() > 0)
+			UI_renderEmptyState(screen, "No Resumable Games", "Suspend a game to see it here", NULL);
+		else
+			UI_renderEmptyState(screen, "No Recents", "Play a game to see it here", NULL);
 		GFX_flipHidden();
 		return;
 	}
 
 	Entry* selectedEntry =
-		Recents_entryFromRecent(Recents_at(switcher_selected));
+		Recents_entryFromRecent(Recents_at(gs_indices[switcher_selected]));
 	readyResume(selectedEntry);
 
-	UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "Y", "REMOVE", "A", "RESUME", NULL});
+	UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "Y", "REMOVE", "A", resume.can_resume ? "RESUME" : "START", NULL});
 
 	if (resume.has_preview) {
 		SDL_Surface* bmp = gs_get_cached_image(resume.preview_path);

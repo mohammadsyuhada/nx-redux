@@ -11,8 +11,6 @@ static char* recent_alias = NULL;
 static HasEmuFunc _hasEmu = NULL;
 static HasM3uFunc _hasM3u = NULL;
 
-#define MAX_RECENTS 24 // a multiple of all menu rows
-
 ///////////////////////////////////////
 // Lifecycle
 

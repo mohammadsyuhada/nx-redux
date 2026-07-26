@@ -38,6 +38,9 @@ libchdr
 **/other/mupen64plus/*
 !**/other/mupen64plus/README.md
 !**/other/mupen64plus/*.patch
+**/other/sdl2-drastic/SDL_drastic
+**/other/sdl2-drastic/extra-deps
+**/other/sdl2-drastic/output
 **/other/351files
 **/other/fbset
 **/other/mkbootimg

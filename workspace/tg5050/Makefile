@@ -26,8 +26,8 @@ MUPEN64PLUS_UI_REPO=https://github.com/mupen64plus/mupen64plus-ui-console.git
 MUPEN64PLUS_UI_COMMIT=927abd08a390325ee3712a99a5e11d94855ddaee  # 2026-02-19
 MUPEN64PLUS_AUDIO_REPO=https://github.com/mupen64plus/mupen64plus-audio-sdl.git
 MUPEN64PLUS_AUDIO_COMMIT=2ed23eda04f10f1285fdc1d26807b5c34f9f3faa  # 2026-02-19
-GLIDEN64_REPO=https://github.com/gonetz/GLideN64.git
-GLIDEN64_COMMIT=c8ef81c7d9aede9f67f6ed3d3426c90541f9f13e  # 2026-01-25
+# GLideN64 is built once from the tg5040 checkout and shared across platforms —
+# see workspace/all/other/mupen64plus/README.md
 
 all: readmes
 
@@ -46,7 +46,7 @@ clean:
 
 $(REQUIRES_FILEMGR):
 	git clone --depth 1 https://github.com/LoveRetro/NextCommander.git $(REQUIRES_FILEMGR)
-	cd $(REQUIRES_FILEMGR) && git apply ../NextCommander-accent.patch
+	cd $(REQUIRES_FILEMGR) && git apply ../../../all/other/NextCommander-accent.patch
 
 $(REQUIRES_EVTEST):
 	git clone --depth 1 https://github.com/freedesktop-unofficial-mirror/evtest.git $(REQUIRES_EVTEST)
@@ -63,17 +63,14 @@ $(REQUIRES_MUPEN64PLUS)/mupen64plus-core:
 	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-core && git checkout $(MUPEN64PLUS_CORE_COMMIT)
 	git clone $(MUPEN64PLUS_UI_REPO) $(REQUIRES_MUPEN64PLUS)/mupen64plus-ui-console
 	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-ui-console && git checkout $(MUPEN64PLUS_UI_COMMIT)
-	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-ui-console && git apply ../mupen64plus-ui-console.patch
+	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-ui-console && git apply ../../../../all/other/mupen64plus/mupen64plus-ui-console.patch
 	git clone $(MUPEN64PLUS_AUDIO_REPO) $(REQUIRES_MUPEN64PLUS)/mupen64plus-audio-sdl
 	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-audio-sdl && git checkout $(MUPEN64PLUS_AUDIO_COMMIT)
-	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-audio-sdl && git apply ../mupen64plus-audio-sdl.patch
-	git clone $(GLIDEN64_REPO) $(REQUIRES_MUPEN64PLUS)/GLideN64-standalone
-	cd $(REQUIRES_MUPEN64PLUS)/GLideN64-standalone && git checkout $(GLIDEN64_COMMIT) && git submodule update --init --recursive
 
 $(REQUIRES_SDL2_DRASTIC)/SDL_drastic:
 	git clone $(SDL_DRASTIC_REPO) $(REQUIRES_SDL2_DRASTIC)/SDL_drastic
 	cd $(REQUIRES_SDL2_DRASTIC)/SDL_drastic && git checkout $(SDL_DRASTIC_COMMIT)
-	cd $(REQUIRES_SDL2_DRASTIC)/SDL_drastic && patch -p1 < ../0006-add-hook-for-drastic.patch
-	cd $(REQUIRES_SDL2_DRASTIC)/SDL_drastic && patch -p1 < ../fix-tg5050.patch
+	cd $(REQUIRES_SDL2_DRASTIC)/SDL_drastic && patch -p1 < ../../../../all/other/sdl2-drastic/0006-add-hook-for-drastic.patch
+	cd $(REQUIRES_SDL2_DRASTIC)/SDL_drastic && patch -p1 < ../../../../all/other/sdl2-drastic/fix-tg5050.patch
 
 include ../all/readmes/Makefile

@@ -91,5 +91,6 @@ bool emu_ovl_is_active(EmuOvl* ovl);
 EmuOvlAction emu_ovl_get_action(EmuOvl* ovl);
 int emu_ovl_get_action_param(EmuOvl* ovl);
 int emu_ovl_save_slot_screenshot(EmuOvl* ovl, int slot);
+int emu_ovl_consume_resume_slot(void);
 
 #endif

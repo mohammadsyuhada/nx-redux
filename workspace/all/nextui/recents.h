@@ -4,6 +4,8 @@
 #include "types.h"
 #include <stdbool.h>
 
+#define MAX_RECENTS 24 // a multiple of all menu rows
+
 ///////////////////////////////////////
 // Recent
 

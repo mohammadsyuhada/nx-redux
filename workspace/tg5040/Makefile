@@ -46,7 +46,7 @@ clean:
 
 $(REQUIRES_FILEMGR):
 	git clone --depth 1 https://github.com/LoveRetro/NextCommander.git $(REQUIRES_FILEMGR)
-	cd $(REQUIRES_FILEMGR) && git apply ../NextCommander-accent.patch
+	cd $(REQUIRES_FILEMGR) && git apply ../../../all/other/NextCommander-accent.patch
 
 $(REQUIRES_EVTEST):
 	git clone --depth 1 https://github.com/freedesktop-unofficial-mirror/evtest.git $(REQUIRES_EVTEST)
@@ -63,18 +63,19 @@ $(REQUIRES_MUPEN64PLUS)/mupen64plus-core:
 	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-core && git checkout $(MUPEN64PLUS_CORE_COMMIT)
 	git clone $(MUPEN64PLUS_UI_REPO) $(REQUIRES_MUPEN64PLUS)/mupen64plus-ui-console
 	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-ui-console && git checkout $(MUPEN64PLUS_UI_COMMIT)
-	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-ui-console && git apply ../mupen64plus-ui-console.patch
+	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-ui-console && git apply ../../../../all/other/mupen64plus/mupen64plus-ui-console.patch
 	git clone $(MUPEN64PLUS_AUDIO_REPO) $(REQUIRES_MUPEN64PLUS)/mupen64plus-audio-sdl
 	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-audio-sdl && git checkout $(MUPEN64PLUS_AUDIO_COMMIT)
-	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-audio-sdl && git apply ../mupen64plus-audio-sdl.patch
-	git clone $(GLIDEN64_REPO) $(REQUIRES_MUPEN64PLUS)/GLideN64-standalone
-	cd $(REQUIRES_MUPEN64PLUS)/GLideN64-standalone && git checkout $(GLIDEN64_COMMIT) && git submodule update --init --recursive
-	cd $(REQUIRES_MUPEN64PLUS)/GLideN64-standalone && git apply ../GLideN64-standalone.patch
+	[ -d ../all/other/mupen64plus/GLideN64-standalone ] || ( \
+		git clone $(GLIDEN64_REPO) ../all/other/mupen64plus/GLideN64-standalone && \
+		cd ../all/other/mupen64plus/GLideN64-standalone && \
+		git checkout $(GLIDEN64_COMMIT) && git submodule update --init --recursive && \
+		git apply ../GLideN64-standalone.patch )
 
 $(REQUIRES_SDL2_DRASTIC)/SDL_drastic:
 	git clone $(SDL_DRASTIC_REPO) $(REQUIRES_SDL2_DRASTIC)/SDL_drastic
 	cd $(REQUIRES_SDL2_DRASTIC)/SDL_drastic && git checkout $(SDL_DRASTIC_COMMIT)
-	cd $(REQUIRES_SDL2_DRASTIC)/SDL_drastic && patch -p1 < ../0006-add-hook-for-drastic.patch
-	cd $(REQUIRES_SDL2_DRASTIC)/SDL_drastic && patch -p1 < ../fix-tg5040.patch
+	cd $(REQUIRES_SDL2_DRASTIC)/SDL_drastic && patch -p1 < ../../../../all/other/sdl2-drastic/0006-add-hook-for-drastic.patch
+	cd $(REQUIRES_SDL2_DRASTIC)/SDL_drastic && patch -p1 < ../../../../all/other/sdl2-drastic/fix-tg5040.patch
 
 include ../all/readmes/Makefile

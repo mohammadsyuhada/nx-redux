@@ -8,6 +8,67 @@ this file is a to-do list, not a changelog.
 
 ---
 
+## Game Switcher resumable filter + standalone-emulator resume
+
+**Status:** built and staged 2026-07-26 (branch `game-switcher-list-resumable-games-only`).
+Switcher filter + setting verified on Brick (tg5040) and Smart Pro S (tg5050). N64 resume
+handshake verified on Brick only.
+
+Two related changes:
+
+1. **Switcher filter** — the Game Switcher lists only games with a resumable save state
+   by default; Settings → System → "Game Switcher games" toggles between "Resumable only"
+   and "All recent games" (config key `switcherresumableonly`). Non-resumable entries in
+   "All" mode show `A START` instead of `A RESUME`.
+2. **Standalone resume handshake** — nextui writes the slot to `/tmp/resume_slot.txt` on
+   every launch; minarch consumes it in `State_resume()`. The N64 pak (mupen64plus +
+   GLideN64 overlay) now consumes it too: `emu_ovl_consume_resume_slot()`
+   (`emu_overlay.c`) is called once from `DisplayWindow::swapBuffers` after overlay init
+   and auto-loads slots 0-7 via `M64CMD_STATE_SET_SLOT` + `M64CMD_STATE_LOAD`. Slots 8/9
+   (fresh launch / minarch auto-resume) are ignored by design.
+
+### On-device verification
+
+- [ ] **N64 resume on Smart Pro S** — blocked on two things: the rebuilt
+      `mupen64plus-video-GLideN64.so` must be pushed to that SD card's
+      `Emus/shared/mupen64plus/` (each card has its own copy; the Brick's was updated
+      2026-07-26, hash `ba02da6f`), and no N64 games are currently installed there.
+      Test: save in-game via overlay, quit, resume from switcher → lands in the save.
+      The plugin is platform-shared, so behavior should match the Brick.
+- [ ] **N64 fresh launch still cold-boots** on Smart Pro S after the .so push (nextui
+      writes slot 8 on non-resume launches; the hook must ignore it).
+- [ ] **Brick Pro (pending hardware)** — switcher filter + setting, and N64 resume if the
+      pak gains a tg4040 build.
+
+### Standalone emulators still without resume
+
+The repo ships exactly two standalone (non-minarch) emulator paks; everything else in
+`skeleton/EXTRAS/Emus/` launches `minarch.elf` and already resumes via `State_resume()`:
+
+| Pak | Emulator | Resume status |
+|---|---|---|
+| N64 | mupen64plus + GLideN64 overlay | **Works** (this change) |
+| NDS | DraStic (closed-source binary) | **No resume, by design.** No overlay integration and no `.minui/` slot files, so NDS games are hidden by the resumable-only filter and show `A START` in "All" mode — honest behavior. Baking resume in would need DraStic's own savestate CLI/auto-load hooks, if any exist; the emu_overlay approach is not available without source. |
+
+User-installed paks that are not part of this repo (e.g. a community PSP/PPSSPP pak) are
+in the same position as NDS unless they write `.minui/<EMU>/<rom>.txt` slot files — if one
+does, it must also consume `/tmp/resume_slot.txt` or the switcher's RESUME promise will be
+cosmetic (exactly the bug fixed for N64).
+
+### Gotchas
+
+- The GLideN64 build needs three aarch64 static libs recreated after applying the patch
+  (bundled ones are x86-64; the patch records them content-lessly). Recipe in
+  `workspace/all/other/mupen64plus/README.md` — note especially that `libz.a` must be
+  a self-built zlib ≥1.2.9, NOT the sysroot's (sysroot zlib lacks `adler32_z` → the .so
+  builds fine but fails `dlopen` at runtime with a blank screen).
+- mupen64plus patches + docs live in `workspace/all/other/mupen64plus/` (deduped
+  2026-07-26; per-platform dirs keep only the gitignored source checkouts). The GLideN64
+  patch is regenerated against the pinned `GLIDEN64_COMMIT` in the platform Makefile —
+  regenerate against that pin, not upstream master.
+
+---
+
 ## Trimui Brick Pro (tg4040)
 
 **Status:** ported and building on branch `brick-pro-support` (2026-07-25). Never run on
@@ -86,47 +147,6 @@ Shared code moved, so these need a pass on at least one older device:
       could silently corrupt existing configs.
 - [ ] **LED page** — Brick still shows 4 zones, Smart Pro/S still 3, and existing
       `ledsettings*.txt` files still parse after the `MAX_LIGHTS` 4 → 5 bump.
-- [x] **OSD still starts** — the boot sync is now skipped when no `osd-$DEVICE` overlay
-      exists and the daemon only starts if present. *Verified 2026-07-26 on Brick and
-      Smart Pro S (sync fired, daemon running, scripts executable). Smart Pro:
-      untestable — no hardware.*
-- [x] **OSD assets after the dedup refactor** — the assembled trees were verified
-      byte-identical to `66c76db8`, so this is a spot-check, not a proof.
-      *Verified 2026-07-26 on Brick and Smart Pro S: tile grid, `bg.png` and toast
-      positions unchanged.*
-- [x] **Toggle icons on tg5040 — deliberate visual change, needs eyes.** Brick,
-      Brick Pro and Smart Pro now use the tg5050 icon set: an active toggle draws
-      a solid white disc with a dark glyph instead of the old faint translucent
-      disc. Affects wifi, bluetooth, LED, rumble and mute. This is the one part
-      of the OSD work that is *not* byte-identical to `66c76db8` — 8 files on
-      3 devices, verified to be exactly those and nothing else. Confirm on a
-      Brick that the active state reads correctly against that model's OSD
-      background, and that `toggle_screenshot` (still a fully transparent disc)
-      does not look broken next to them. *Verified 2026-07-26 on Brick. Smart
-      Pro: untestable — no hardware; same assets as Brick, differing only in the
-      1280×720 res layer. Brick Pro: pending hardware.*
-- [x] **LED toggle on Smart Pro S — now runs tg5040's script.** `toggle_led`'s
-      tg5050 override was merged into `common/`; the shared version writes a
-      superset of nodes (`max_scale`, `_lr`, `_f1f2`, plus `_rear`, which does
-      not exist on tg5050 and is swallowed by `2>/dev/null`). Confirm the LED
-      toggle still turns all three zones on and off at the configured
-      brightness. *Verified 2026-07-26 on Smart Pro S.*
-- [x] **LED brightness now picks the running model's settings file.** All three
-      `ledsettings*.txt` live in `.userdata/shared/`, which is shared across
-      platforms (`sync.c:508-510` excludes all three precisely because they
-      coexist), so a card moved between models carries several. The old code
-      probed `_brickpro` → `_brick` → plain and took the first that existed —
-      meaning a Smart Pro that had ever been in a Brick read the *Brick's*
-      brightness, permanently, since Settings writes the plain file on both
-      Smart Pro and Smart Pro S. It now selects by hardware instead: `_rear`
-      node present → Brick Pro, else fb0 width 1024 → Brick, else the plain
-      file. **This fixes a pre-existing bug on Smart Pro**, so verify there too,
-      not just on Smart Pro S: set a distinctive brightness in Settings, toggle
-      the LEDs off and on from the OSD, and confirm they come back at that
-      brightness rather than another model's. *Verified 2026-07-26 on Smart
-      Pro S — on-device probe confirmed the discriminator's inputs (no `_rear`
-      node, fb0 width 1280 → plain file). Smart Pro: untestable — no hardware;
-      the fix is code-identical there, selected by the same fb0-width branch.*
 - [ ] **Brick Pro OSD background is now the Brick's.** `bg.png` moved into
       `res/<WxH>/` (it is exactly panel-sized, so it is resolution-locked art).
       The 1280×720 pair was byte-identical, so Smart Pro / Smart Pro S are
@@ -138,11 +158,6 @@ Shared code moved, so these need a pass on at least one older device:
       accents. Judged negligible while the hardware is
       unavailable — look at it once a Brick Pro is in hand and restore
       `device/brickpro/bg.png` if the accents matter.
-- [x] **CPU widget on Smart Pro S is now display-only.** `static_cpu_freq`'s
-      `"launch"` was `set.sh` on tg5050 and empty on tg5040; it is now empty
-      everywhere. `OSD.md` records that `set.sh` as a no-op stub, so tapping the
-      widget should have done nothing anyway. *Verified 2026-07-26 on Smart
-      Pro S — nothing visibly regressed.*
 
 ### 3. Deliberately deferred
 

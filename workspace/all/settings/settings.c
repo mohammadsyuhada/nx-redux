@@ -235,6 +235,11 @@ static int default_view_values[] = {SCREEN_GAMELIST, SCREEN_GAMESWITCHER};
 static const char* default_view_labels[] = {"Content List", "Game Switcher"};
 #define DEFAULT_VIEW_COUNT 2
 
+/* Game switcher games */
+static int switcher_games_values[] = {1, 0};
+static const char* switcher_games_labels[] = {"Resumable only", "All recent games"};
+#define SWITCHER_GAMES_COUNT 2
+
 /* Save format */
 static int save_format_values[] = {SAVE_FORMAT_SAV, SAVE_FORMAT_SRM, SAVE_FORMAT_SRM_UNCOMPRESSED, SAVE_FORMAT_GEN};
 static const char* save_format_labels[] = {"MinUI", "Retroarch (compressed)", "Retroarch (uncompressed)", "Generic"};
@@ -768,6 +773,16 @@ static void set_default_view(int val) {
 }
 static void reset_default_view(void) {
 	CFG_setDefaultView(CFG_DEFAULT_VIEW);
+}
+
+static int get_switcher_resumable_only(void) {
+	return CFG_getGameSwitcherResumableOnly() ? 1 : 0;
+}
+static void set_switcher_resumable_only(int v) {
+	CFG_setGameSwitcherResumableOnly(v != 0);
+}
+static void reset_switcher_resumable_only(void) {
+	CFG_setGameSwitcherResumableOnly(CFG_DEFAULT_GAMESWITCHERRESUMABLEONLY);
 }
 
 static int get_clock24h(void) {
@@ -1557,6 +1572,9 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Default view", "The initial view to show on boot",
 		default_view_labels, DEFAULT_VIEW_COUNT, default_view_values, get_default_view, set_default_view, reset_default_view);
+	system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Game Switcher games", "Which recently played games appear in the Game Switcher.",
+		switcher_games_labels, SWITCHER_GAMES_COUNT, switcher_games_values, get_switcher_resumable_only, set_switcher_resumable_only, reset_switcher_resumable_only);
 	system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Show 24h time format", "Show clock in the 24hrs time format",
 		on_off_labels, 2, on_off_values, get_clock24h, set_clock24h, reset_clock24h);
