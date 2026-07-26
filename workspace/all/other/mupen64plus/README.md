@@ -14,7 +14,7 @@ lives in this directory (cloned by the tg5040 Makefile rule).
 |---|---|
 | `mupen64plus-core/` | Emulator core library (`libmupen64plus.so.2`) |
 | `mupen64plus-ui-console/` | Console frontend binary (`mupen64plus`) |
-| `mupen64plus-audio-sdl/` | Audio plugin (`mupen64plus-audio-sdl.so`) — builds from unpatched source |
+| `mupen64plus-audio-sdl/` | Audio plugin (`mupen64plus-audio-sdl.so`) — patched for 48 kHz output |
 | `GLideN64-standalone/` | Video plugin (`mupen64plus-video-GLideN64.so`) — **built once, shared across platforms**; checkout lives HERE (`workspace/all/other/mupen64plus/`), built with the tg5040 toolchain image |
 
 Pinned upstream commits live in `workspace/<platform>/Makefile` (`MUPEN64PLUS_*_COMMIT`,
@@ -31,6 +31,42 @@ symbols from the core library are visible to plugins loaded later:
 *pLibHandle = dlopen(pccLibraryPath, RTLD_NOW | RTLD_GLOBAL);
 ```
 
+### mupen64plus-audio-sdl (`mupen64plus-audio-sdl.patch`)
+
+**`src/main.c` / `src/sdl_backend.c`** — Fixes for distorted/rough audio on the
+Trimui devices (verified on the Brick with Mario Kart 64, 2026-07):
+
+- **`OUTPUT_FREQUENCY` config parameter** (default 48000) overriding the hardcoded
+  44100 Hz output rate. The devices' `/etc/asound.conf` routes ALSA `default`
+  through a dmix slave locked at 48000 Hz, and with no `rate_converter` configured
+  alsa-lib converts 44100→48000 with its built-in linear interpolator — audibly
+  distorted. Outputting 48000 directly means a single sinc resample (game rate →
+  48 kHz) and no ALSA-side conversion. Set to 0 to restore upstream auto-selection
+  (11025/22050/44100), e.g. for a Bluetooth sink that prefers 44100.
+- **Dynamic rate control** — the audio callback nudges the resample ratio (max
+  ±0.5%, inaudible) to steer the buffer level toward `PRIMARY_BUFFER_TARGET`.
+  With `AUDIO_SYNC=False` nothing else couples the emulated AI clock to the DAC
+  clock, so drift used to pin the buffer at full (dropped chunks = crackle every
+  ~15 s) or drain it (silence gaps).
+- **Partial fill on underrun** — a short buffer now plays what's available with a
+  zero-filled tail instead of a whole callback (43 ms) of silence.
+- **SCHED_FIFO for the audio callback thread** (set from the callback itself; needs
+  root) — the thread shares cpu2-3 with GPU workers, and starvation caused SDL
+  catch-up callbacks that drained the buffer in bursts.
+- **Prime-to-target before unpausing** — after start/device re-init/starvation the
+  audio stays paused until the buffer reaches target, replacing a burst of
+  machine-gun underruns with one ~250 ms silent prime.
+- **Underrun logging** — periodic (5 s) and session-total counts, so audio health
+  is diagnosable from `$LOGS_PATH/N64.txt`.
+
+Buffer sizing in the default cfgs goes with this: `PRIMARY_BUFFER_SIZE = 24576`,
+`PRIMARY_BUFFER_TARGET = 12288` (256 ms operating level — the emulator's audio
+production is bursty and a thinner cushion measurably underruns; the original
+un-regulated buffer sat at ~370 ms).
+
+Measured on the Brick (4-minute MK64 race, counters from the log): stock chain
+62 underruns + 16 dropped chunks → patched chain 1 underrun, 0 drops.
+
 ### GLideN64-standalone (`GLideN64-standalone.patch`)
 
 **`toolchain-aarch64.cmake`** — Cross-compilation toolchain for Docker builds.
@@ -38,7 +74,10 @@ symbols from the core library are visible to plugins loaded later:
 **`src/overlay/OverlayGL.cpp`** — OpenGL ES render backend for the in-game overlay menu.
 
 **`src/DisplayWindow.cpp`** — Overlay integration: init, menu button detection, overlay
-loop, save/load state handling via `CoreDoCommand`. Also the NextUI resume handshake:
+loop, save/load state handling via `CoreDoCommand`. Menu navigation reads the d-pad hat
+merged with analog stick axes 0/1 (`read_dpad_state()`) — on the Brick the FN switch
+reroutes the d-pad to the stick axes for analog steering, which would otherwise leave
+the menu unnavigable. Also the NextUI resume handshake:
 on the first rendered frame after overlay init, `emu_ovl_consume_resume_slot()` reads
 and unlinks `/tmp/resume_slot.txt` (written by nextui on every launch; slot 0-7 only
 on a game-switcher resume) and auto-loads that slot via `M64CMD_STATE_SET_SLOT` +
@@ -135,9 +174,10 @@ Output: `mupen64plus-ui-console/projects/unix/mupen64plus`
 
 ### 3. mupen64plus-audio-sdl
 
-Built from source (no patch) to enable the `src-sinc-fastest` resampler (requires
-libsamplerate, available in the toolchain). The stock binary only includes the
-`trivial` resampler.
+Built from source to enable the `src-sinc-fastest` resampler (requires libsamplerate,
+available in the toolchain — the stock binary only includes the `trivial` resampler)
+and patched with `mupen64plus-audio-sdl.patch` for 48 kHz output (see Source
+Modifications above).
 
 ```sh
 docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c '
@@ -150,7 +190,7 @@ cd /root/workspace/tg5040/other/mupen64plus/mupen64plus-audio-sdl/projects/unix
 make -j$(nproc) all \
   CROSS_COMPILE=aarch64-nextui-linux-gnu- HOST_CPU=aarch64 PIE=1 \
   PKG_CONFIG=pkg-config \
-  SDL_CFLAGS="$SDL_C" SDL_LDLIBS="$SDL_L" \
+  SDL_CFLAGS="$SDL_C" SDL_LDLIBS="$SDL_L -lpthread" \
   APIDIR=/root/workspace/tg5040/other/mupen64plus/mupen64plus-core/src/api \
   OPTFLAGS="-O3"
 '

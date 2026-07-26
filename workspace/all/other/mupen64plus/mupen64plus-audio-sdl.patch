@@ -1,0 +1,167 @@
+diff --git a/src/main.c b/src/main.c
+index 4d472d7..4fcca05 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -77,6 +77,12 @@
+    They tend to rely on a default frequency, apparently, never the same one ;)*/
+ #define DEFAULT_FREQUENCY 33600
+ 
++/* Default audio output frequency. 0 selects 11025/22050/44100 based on the game
++   frequency. NextUI devices route ALSA through a dmix slave locked at 48000 Hz
++   and convert any other rate with alsa-lib's low-quality linear resampler, so
++   output 48000 directly to bypass that conversion. */
++#define OUTPUT_FREQUENCY 48000
++
+ #define SDL_MixAudio(A, B, C, D) SDL_MixAudioFormat(A, B, AUDIO_S16SYS, C, D)
+ 
+ /* local variables */
+@@ -227,6 +233,7 @@ EXPORT m64p_error CALL PluginStartup(m64p_dynlib_handle CoreLibHandle, void *Con
+     /* set the default values for this plugin */
+     ConfigSetDefaultFloat(l_ConfigAudio, "Version",             CONFIG_PARAM_VERSION,  "Mupen64Plus SDL Audio Plugin config parameter version number");
+     ConfigSetDefaultInt(l_ConfigAudio, "DEFAULT_FREQUENCY",     DEFAULT_FREQUENCY,     "Frequency which is used if rom doesn't want to change it");
++    ConfigSetDefaultInt(l_ConfigAudio, "OUTPUT_FREQUENCY",      OUTPUT_FREQUENCY,      "Audio output frequency in Hz (0 = auto select 11025/22050/44100 based on game frequency)");
+     ConfigSetDefaultBool(l_ConfigAudio, "SWAP_CHANNELS",        0,                     "Swaps left and right channels");
+     ConfigSetDefaultInt(l_ConfigAudio, "PRIMARY_BUFFER_SIZE",   PRIMARY_BUFFER_SIZE,   "Size of primary buffer in output samples. This is where audio is loaded after it's extracted from n64's memory.");
+     ConfigSetDefaultInt(l_ConfigAudio, "PRIMARY_BUFFER_TARGET", PRIMARY_BUFFER_TARGET, "Fullness level target for Primary audio buffer, in equivalent output samples. This value must be larger than the SECONDARY_BUFFER_SIZE. Decreasing this value will reduce audio latency but requires a faster PC to avoid choppiness. Increasing this will increase audio latency but reduce the chance of drop-outs.");
+diff --git a/src/sdl_backend.c b/src/sdl_backend.c
+index 572aae3..c4260e6 100644
+--- a/src/sdl_backend.c
++++ b/src/sdl_backend.c
+@@ -21,6 +21,8 @@
+ 
+ #include <SDL.h>
+ #include <SDL_audio.h>
++#include <pthread.h>
++#include <sched.h>
+ #include <stdlib.h>
+ #include <string.h>
+ 
+@@ -74,6 +76,12 @@ struct sdl_backend
+ 
+     unsigned int underrun_count;
+ 
++    /* periodic underrun/level reporting (core thread) */
++    unsigned int last_report_time;
++    unsigned int last_report_underruns;
++
++    unsigned int rt_prio_set;
++
+     unsigned int error;
+ 
+     /* Resampler */
+@@ -93,18 +101,49 @@ static void my_audio_callback(void* userdata, unsigned char* stream, int len)
+ {
+     struct sdl_backend* sdl_backend = (struct sdl_backend*)userdata;
+ 
++    /* promote this thread to SCHED_FIFO (needs root): if the callback gets
++       starved by other threads on its CPU, SDL fires catch-up callbacks
++       back-to-back and drains the buffer in a burst — audible as gaps */
++    if (!sdl_backend->rt_prio_set) {
++        struct sched_param sp;
++        memset(&sp, 0, sizeof(sp));
++        sp.sched_priority = 40;
++        pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
++        sdl_backend->rt_prio_set = 1;
++    }
++
+     /* mark the time, for synchronization on the input side */
+     sdl_backend->last_cb_time = SDL_GetTicks();
+ 
+     unsigned int newsamplerate = sdl_backend->output_frequency * 100 / sdl_backend->speed_factor;
+     unsigned int oldsamplerate = sdl_backend->input_frequency;
+-    size_t needed = (len * oldsamplerate) / newsamplerate;
+     size_t available;
+     size_t consumed;
+ 
+     const void* src = cbuff_tail(&sdl_backend->primary_buffer, &available);
+-    if ((available > 0) && (available >= needed))
++
++    /* Dynamic rate control: nudge the resample ratio (max +/-0.5%, inaudible) to
++       steer the buffer level toward target, so steady clock drift between the
++       emulated AI rate and the DAC can never accumulate into a full buffer
++       (dropped chunks) or an empty one (silence gaps). */
++    size_t target_bytes = (size_t)(((uint64_t)sdl_backend->target * N64_SAMPLE_BYTES * oldsamplerate) / newsamplerate);
++    if (target_bytes > 0) {
++        double deviation = ((double)available - (double)target_bytes) / (double)target_bytes;
++        if (deviation > 1.0) { deviation = 1.0; }
++        if (deviation < -1.0) { deviation = -1.0; }
++        newsamplerate = (unsigned int)(newsamplerate * (1.0 - 0.005 * deviation));
++    }
++
++    size_t needed = (len * oldsamplerate) / newsamplerate;
++
++    if (available > 0)
+     {
++        /* on a short buffer, still output what we have (resampler zero-fills the
++           tail) — a partial gap is less audible than a full callback of silence */
++        if (available < needed) {
++            ++sdl_backend->underrun_count;
++        }
++
+         consumed = ResampleAndMix(sdl_backend->resampler, sdl_backend->iresampler,
+                 sdl_backend->mix_buffer,
+                 src, available, oldsamplerate,
+@@ -180,7 +219,10 @@ static void sdl_init_audio_device(struct sdl_backend* sdl_backend)
+     DebugMessage(M64MSG_VERBOSE, "Secondary buffer: %i output samples.", (uint32_t) sdl_backend->secondary_buffer_size);
+ 
+     memset(&desired, 0, sizeof(desired));
+-    desired.freq = select_output_frequency(sdl_backend->input_frequency);
++    desired.freq = ConfigGetParamInt(sdl_backend->config, "OUTPUT_FREQUENCY");
++    if (desired.freq <= 0) {
++        desired.freq = select_output_frequency(sdl_backend->input_frequency);
++    }
+     desired.format = AUDIO_S16SYS;
+     desired.channels = 2;
+     desired.samples = sdl_backend->secondary_buffer_size;
+@@ -311,6 +353,9 @@ void release_sdl_backend(struct sdl_backend* sdl_backend)
+     }
+ 
+     if (sdl_backend->error == 0) {
++        if (sdl_backend->underrun_count > 0) {
++            DebugMessage(M64MSG_INFO, "audio: %u underrun(s) total this session", sdl_backend->underrun_count);
++        }
+         release_audio_device(sdl_backend);
+     }
+ 
+@@ -386,6 +431,21 @@ void sdl_push_samples(struct sdl_backend* sdl_backend, const void* src, size_t s
+     {
+         DebugMessage(M64MSG_WARNING, "sdl_push_samples: pushing %zu bytes, but only %zu available !", size, available);
+     }
++
++    /* report underruns every 5s so audio gaps are diagnosable from logs */
++    unsigned int now = SDL_GetTicks();
++    if (sdl_backend->last_report_time == 0) {
++        sdl_backend->last_report_time = now;
++    }
++    else if (now - sdl_backend->last_report_time >= 5000) {
++        unsigned int new_underruns = sdl_backend->underrun_count - sdl_backend->last_report_underruns;
++        if (new_underruns > 0) {
++            DebugMessage(M64MSG_WARNING, "audio: %u underrun(s) in last %ums (buffer level %zu bytes)",
++                    new_underruns, now - sdl_backend->last_report_time, sdl_backend->primary_buffer.head);
++        }
++        sdl_backend->last_report_time = now;
++        sdl_backend->last_report_underruns = sdl_backend->underrun_count;
++    }
+ }
+ 
+ 
+@@ -440,9 +500,16 @@ void sdl_synchronize_audio(struct sdl_backend* sdl_backend)
+     else
+     {
+         /* Expected fullness is within tolerance,
+-         * audio thread is running */
+-        if (sdl_backend->paused_for_sync) { SDL_PauseAudio(0); }
+-        sdl_backend->paused_for_sync = 0;
++         * audio thread is running.
++         * When paused (startup, device re-init, or after starvation), stay
++         * paused until the buffer is primed to target: one silent prime is
++         * less audible than a burst of underruns while the level is thin. */
++        if (sdl_backend->paused_for_sync) {
++            if (expected_level >= sdl_backend->target) {
++                SDL_PauseAudio(0);
++                sdl_backend->paused_for_sync = 0;
++            }
++        }
+     }
+ }
+ 

@@ -66,6 +66,7 @@ $(REQUIRES_MUPEN64PLUS)/mupen64plus-core:
 	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-ui-console && git apply ../../../../all/other/mupen64plus/mupen64plus-ui-console.patch
 	git clone $(MUPEN64PLUS_AUDIO_REPO) $(REQUIRES_MUPEN64PLUS)/mupen64plus-audio-sdl
 	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-audio-sdl && git checkout $(MUPEN64PLUS_AUDIO_COMMIT)
+	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-audio-sdl && git apply ../../../../all/other/mupen64plus/mupen64plus-audio-sdl.patch
 	[ -d ../all/other/mupen64plus/GLideN64-standalone ] || ( \
 		git clone $(GLIDEN64_REPO) ../all/other/mupen64plus/GLideN64-standalone && \
 		cd ../all/other/mupen64plus/GLideN64-standalone && \

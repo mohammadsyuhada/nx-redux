@@ -479,7 +479,7 @@ index 701d27d2..e6ad4c80 100644
  
  #endif // DISPLAYLOADPROGRESS_H
 diff --git a/src/DisplayWindow.cpp b/src/DisplayWindow.cpp
-index 59725f62..dcc40269 100644
+index 59725f62..a627d7ea 100644
 --- a/src/DisplayWindow.cpp
 +++ b/src/DisplayWindow.cpp
 @@ -1,5 +1,7 @@
@@ -490,7 +490,7 @@ index 59725f62..dcc40269 100644
  #include "Config.h"
  #include "RSP.h"
  #include "VI.h"
-@@ -8,6 +10,262 @@
+@@ -8,6 +10,278 @@
  #include "PluginAPI.h"
  #include "FrameBuffer.h"
  
@@ -625,6 +625,22 @@ index 59725f62..dcc40269 100644
 +	return justPressed;
 +}
 +
++static Uint8 read_dpad_state()
++{
++	// Merge the d-pad hat with the analog stick (axes 0/1): on the Brick the FN
++	// switch reroutes the d-pad to the stick axes (for analog steering), which
++	// would otherwise leave the menu unnavigable.
++	Uint8 dir = SDL_JoystickGetHat(s_joy, 0);
++	const Sint16 T = 16384;
++	Sint16 ax = SDL_JoystickGetAxis(s_joy, 0);
++	Sint16 ay = SDL_JoystickGetAxis(s_joy, 1);
++	if (ay < -T) dir |= SDL_HAT_UP;
++	if (ay >  T) dir |= SDL_HAT_DOWN;
++	if (ax < -T) dir |= SDL_HAT_LEFT;
++	if (ax >  T) dir |= SDL_HAT_RIGHT;
++	return dir;
++}
++
 +static EmuOvlInput poll_overlay_input()
 +{
 +	EmuOvlInput input;
@@ -635,8 +651,8 @@ index 59725f62..dcc40269 100644
 +	SDL_JoystickUpdate();
 +	if (!s_joy) return input;
 +
-+	// D-pad (hat) — edge detect: only trigger on newly-pressed directions
-+	Uint8 hat = SDL_JoystickGetHat(s_joy, 0);
++	// D-pad (hat) or analog stick — edge detect: only trigger on newly-pressed directions
++	Uint8 hat = read_dpad_state();
 +	Uint8 hatPressed = hat & ~s_prevHat;
 +	s_prevHat = hat;
 +
@@ -684,7 +700,7 @@ index 59725f62..dcc40269 100644
 +		);
 +
 +		// Reset input edge detection state and drain pending SDL events
-+		s_prevHat = SDL_JoystickGetHat(s_joy, 0);
++		s_prevHat = read_dpad_state();
 +		s_prevButtons = 0;
 +		for (int i : {0, 1, 4, 5, 8}) {
 +			if (SDL_JoystickGetButton(s_joy, i))
@@ -715,7 +731,7 @@ index 59725f62..dcc40269 100644
 +		// Non-threaded mode: everything runs on the main thread
 +		emu_ovl_open(&s_overlay);
 +
-+		s_prevHat = SDL_JoystickGetHat(s_joy, 0);
++		s_prevHat = read_dpad_state();
 +		s_prevButtons = 0;
 +		for (int i : {0, 1, 4, 5, 8}) {
 +			if (SDL_JoystickGetButton(s_joy, i))
@@ -753,7 +769,7 @@ index 59725f62..dcc40269 100644
  bool DisplayWindow::start()
  {
  	if (!_start())
-@@ -48,6 +306,46 @@ void DisplayWindow::swapBuffers()
+@@ -48,6 +322,46 @@ void DisplayWindow::swapBuffers()
  {
  	m_drawer.drawOSD();
  	m_drawer.clearStatistics();
