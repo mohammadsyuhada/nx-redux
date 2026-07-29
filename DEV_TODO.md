@@ -37,6 +37,90 @@ blind (which is how the original masks got here).
 
 ---
 
+## Trimui Brick Pro: joystick calibration (stock-parity)
+
+**Requested:** 2026-07-29, after on-device probing of the stock firmware (v1.1.1) confirmed
+NX's existing calibration cannot work on this model. Stock OS has a "calibrate joystick"
+option, so users migrating to redux will expect one.
+
+**Why NX's current path is a no-op here:** `settings_input.c`'s calibration (entered via
+`L3+R3` in Settings → Input Tester) reads raw ADC packets from the hall-stick MCU serial
+ports `/dev/ttyAS5` / `/dev/ttyAS7` (19200 baud, 19-byte `0xFF…0xFE` packets). The Brick
+Pro has NO `/dev/ttyAS*` nodes at all — its sticks are read by `trimui_inputd` over I2C
+(`/dev/i2c-3`), which synthesizes the `TRIMUI Player1` uinput gamepad.
+
+**The acquisition protocol is fully reverse-engineered and hardware-verified
+(2026-07-29, live device over adb).** Raw ADC does NOT pass through the event device —
+that path was tested and disproved: with the flag set, `js0` emitted ZERO events during
+8 s of continuous stick movement (baseline without the flag: 818 events, full-scale
+−32603…+32727 sweeps). Instead, stock MainUI reads the stick ADCs **directly over I2C**,
+the same way `trimui_inputd` does. Protocol, extracted from the UNSTRIPPED
+`/usr/trimui/bin/trimui_inputd` (`_i2c_read` + `trimui_poll_thread_joy_i2c`) and
+confirmed live with `i2cdetect` (present on the stock firmware at `/usr/sbin/i2cdetect`):
+
+- Bus `/dev/i2c-3`, two ADC chips at 7-bit addresses **0x28 and 0x29** (the binary
+  passes 8-bit 0x50/0x52 and shifts right) — one chip per stick. `i2cdetect -y 3`
+  shows exactly these two and nothing else.
+- Read = `I2C_RDWR` write-then-read pair: write 1 register byte **0xB0**, read
+  **4 bytes** = X then Y, little-endian u16 each, 12-bit range (values sanitized to
+  0–4095; matches the factory config's ~1120–3050 span). inputd sets
+  `I2C_TIMEOUT=5`, `I2C_RETRIES=1`, opens and closes the fd around every poll.
+- Flag semantics (verified live): `/tmp/joypad_testmode` present → inputd SKIPS the
+  poll entirely (also skipped while `/tmp/system_suspend` exists) — it stops feeding
+  uinput AND releases the bus so the calibrator can be sole reader. This is a
+  quiesce flag, not a raw-passthrough mode.
+- Config consume side (from the same disassembly): calibrated output =
+  `(v − zero) * 32760 / (max_or_min − zero)` clamped, a squared-radius circular
+  deadzone (`x² + y² < r²` → 0), and ±0x7f change-hysteresis before an event is
+  emitted. Keys parsed: `x_min/x_max/y_min/y_max/x_zero/y_zero` plus `z_min/z_max`
+  (analog triggers) and `deadzone`.
+
+The downstream contract is shared with the existing serial path: write the same
+`/mnt/UDISK/joypad.config` / `joypad_right.config` files NX already writes (factory
+unit shipped with `joypad.config` = center ~2086/2038, range ~1120–3050, deadzone
+0.10, and NO `joypad_right.config`), then touch `/tmp/trimui_inputd/cal_update` to
+make inputd reload.
+
+**Implementation sketch:** in `settings_input.c`, branch on device (or on the absence
+of `/dev/ttyAS5`): instead of `cal_open_serial()` + packet parsing, touch
+`/tmp/joypad_testmode`, then during the existing range/center capture phases
+(`CAL_RANGE_SECS`/`CAL_CENTER_SECS` UX stays as-is) read both chips via `I2C_RDWR`
+(addr 0x28/0x29, reg 0xB0, 4 bytes → X,Y u16 LE). Write the same two config files,
+`rm` the flag, touch `/tmp/trimui_inputd/cal_update`. Everything but the ~40-line
+sampling function reuses the existing code.
+
+- [x] Chip-to-stick mapping — RESOLVED 2026-07-29 empirically (hold-one-stick sessions
+      with a cross-compiled I2C reader; static disassembly trace agrees):
+      **0x29 = LEFT stick, 0x28 = RIGHT stick.** Direction/wire notes: values are
+      BIG-endian u16 on the wire (inputd `rev16`s them); left stick pushed EAST drove
+      X DOWN (~2011 → ~1090), right stick pushed UP drove Y UP (~2040 → ~3025 ≈
+      factory y_max) — i.e. raw axes are not consistently oriented, but calibration
+      only needs min/max/center so orientation is inputd's problem, not ours. Also
+      observed: this unit's real deflection (1072) EXCEEDS the factory config span
+      (x_min=1120) — live proof per-unit calibration matters. Both sticks' ADCs
+      verified working (bring-up datapoint for the DEV_CHECKLIST "Analog sticks"
+      item). Reader tool: ~50-line `i2cread.c` (open `/dev/i2c-3`, `I2C_RDWR`
+      write-0xB0-read-4 per chip) built with the `ghcr.io/loveretro/tg5040-toolchain`
+      docker image — MUST be linked dynamically: `-static` glibc from that toolchain
+      aborts with `FATAL: kernel too old` on the 4.9 kernel, the exact taskset trap
+      from 2026-07-27. Binary left at `/tmp/i2cread` on the device (tmpfs — gone
+      after reboot); source in the session scratchpad, trivially recreatable from
+      the protocol above.
+- [ ] Implement the brickpro acquisition branch in `settings_input.c` per the sketch.
+- [ ] Decide whether to include trigger (`z_min`/`z_max`) calibration or leave triggers
+      at inputd defaults — and find where trigger raw values come from (possibly a
+      different register on the same chips, or the SoC keyadc; NOT yet traced).
+- [ ] Remove the interim "hide/disable or leave inert" ambiguity: the Brick Pro
+      DEV_CHECKLIST bring-up item now expects `L3+R3` calibration to WORK on this model
+      once this lands.
+
+Evidence artifacts from the probe session (scratchpad, not committed): pulled
+`trimui_inputd` binary, `jsA.bin`/`jsB.bin` js0 captures. Redux install still waiting
+on an SD card; implementation itself is NOT hardware-blocked any more — only the
+stick-to-chip mapping check is.
+
+---
+
 ## Trimui Brick Pro: deferred from the port
 
 Scoped out of the Brick Pro port (`c0da09c7`) on purpose. None of these block the port's

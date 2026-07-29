@@ -14,9 +14,10 @@ Refer to the Youtube Video below for demonstration of the features:
 ## Supported Devices
 
 - **Trimui Brick**
-- **Trimui Brick Pro**
-- **Trimui Smart Pro**
+- **Trimui Brick Hammer**
+- **Trimui Brick Pro** 
 - **Trimui Smart Pro S**
+- **Trimui Smart Pro** (It should work in theory, but I can't confirm it because I don't have the device to test)
 
 ## Why Fork?
 

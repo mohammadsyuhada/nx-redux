@@ -40,6 +40,7 @@ constexpr int PROGRESS_BAR_WIDTH = 400;
 constexpr int TEXT_PADDING = 20;
 constexpr int LOGO_TEXT_PADDING = 40;
 constexpr int FONT_SIZE = 24;
+constexpr int HINT_GAP = 8;   // Pixels between the status line and the hint
 constexpr int FPS = 60;
 
 enum class DisplayMode {
@@ -54,6 +55,7 @@ struct Config {
     uint32_t bg_color_rgb = 0x000000;
     uint32_t font_color_rgb = 0xFFFFFF;
     std::string text;
+    std::string hint;         // Optional second line under the status text
     int progress = 0;
     int text_y_pct = 80;      // Text Y position as percentage of screen height
     int progress_y_pct = 90;  // Progress bar Y position as percentage of screen height
@@ -367,6 +369,27 @@ private:
                 SDL_FreeSurface(text_surface);
             }
         }
+
+        // Optional second line, drawn under the status text. Absent --hint
+        // this block is skipped entirely, so existing callers -- notably
+        // the first-boot install splash in install/boot.sh -- render
+        // exactly as they did before. renderProgress() calls this function,
+        // so both display modes are covered.
+        if (font && !config.hint.empty()) {
+            SDL_Surface* hint_surface = TTF_RenderUTF8_Blended(font, config.hint.c_str(), font_color);
+            if (hint_surface) {
+                int hint_y = (screen->h * current_text_y_pct) / 100
+                             + config.font_size + HINT_GAP;
+                SDL_Rect hint_dst = {
+                    (screen->w - hint_surface->w) / 2,
+                    hint_y,
+                    hint_surface->w,
+                    hint_surface->h
+                };
+                SDL_BlitSurface(hint_surface, nullptr, screen, &hint_dst);
+                SDL_FreeSurface(hint_surface);
+            }
+        }
     }
 
     void renderProgress() {
@@ -537,6 +560,7 @@ void printUsage() {
     std::cout << "                 [--logoheight=N] [--fontsize=24] [--timeout=N]\n";
     std::cout << "  Daemon mode:   show2.elf --mode=daemon --image=<path> [--bgcolor=0x000000] [--fontcolor=0xFFFFFF]\n";
     std::cout << "                 [--text=\"message\"] [--texty=80] [--progressy=90] [--logoheight=N] [--fontsize=24]\n";
+    std::cout << "                 [--hint=\"second line\"]\n";
     std::cout << "\n";
     std::cout << "Position parameters (texty, progressy) are percentages of screen height (0-100)\n";
     std::cout << "Default positions: texty=80, progressy=90\n";
@@ -614,6 +638,10 @@ int main(int argc, char* argv[]) {
 
     if (args.find("fontsize") != args.end()) {
         config.font_size = std::stoi(args["fontsize"]);
+    }
+
+    if (args.find("hint") != args.end()) {
+        config.hint = args["hint"];
     }
 
     // Create and run app

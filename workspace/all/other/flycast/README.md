@@ -638,6 +638,358 @@ Mode is active — upstream behavior, not something this pak adds or can route
 around. The overlay's Save/Load actions will fail silently in that mode.
 Accepted as v1 behavior.
 
+## Netplay (GGPO + DCNet)
+
+Flycast v2.6 ships two unrelated online mechanisms; both are compiled into
+our binaries already (GGPO builds unconditionally under `if(NOT LIBRETRO)`,
+`CMakeLists.txt`; DCNet is `core/network/dcnet.cpp`). No patch changes were
+needed — the overlay's `Netplay` section (`overlay_settings.json`) plus the
+seeded `[network]` block in the `default-*.cfg` files are the entire
+integration.
+
+**GGPO** — rollback netplay between two flycast instances running the same
+game (Dreamcast console games included — `ggpo.cpp` has an explicit console
+path). Peers sync inputs over **UDP 19713** and re-simulate on rollback.
+Config lives in `emu.cfg` `[network]`:
+
+```ini
+[network]
+GGPO = yes          # overlay: "GGPO Netplay"
+ActAsServer = yes   # host/P1 on one device, no (join/P2) on the other
+GGPODelay = 0       # overlay: "Input Delay" — 2-3 trades latency for fewer rollback hitches
+server = 192.168.x.x  # auto-written by launch.sh discovery; manual fallback only
+EnableUPnP = no     # forced by launch.sh on every GGPO launch (see below)
+```
+
+Constraints, all verified in source:
+- The handshake exchanges MD5s of **BIOS + game + flash/VMU state**
+  (`ggpo.cpp:537`) and fails with "Peer verification failed" on mismatch.
+  launch.sh automates the state match ("host brings the memory card"):
+  the host plays on its **real** VMU/flash and serves a tar of exactly
+  the hashed files (`vmu_save_*.bin` + `dc_nvmem.bin`, hashed per
+  `maple_cfg.cpp:381` / `nvmem.cpp:267`) over a small HTTP server on
+  **TCP 19714** — busybox `httpd` where the firmware provides it
+  (tg5040), `python3 -u -m http.server` on tg5050 (its busybox 1.35
+  lacks the httpd applet), fail-open if neither exists; the client
+  pulls it into an isolated `netplay-data/` dir
+  (`XDG_DATA_HOME` override) and plays on the borrowed copy, so the
+  client's real saves are never touched and whoever hosts contributes
+  their own unlocks. The host snapshots its card to `netplay-backup/`
+  (one-deep) before each session. Only `dc_boot.bin` and the CHD must
+  still be byte-identical on both cards by hand — BIOS and game images
+  are never synced.
+- IP setup is automatic too, and **symmetric**. GGPO is peer-to-peer, so
+  each side has to know the other's address (`ggpo.cpp:579-597`): an
+  empty `server =` makes flycast target loopback on `localPort ^ 1` —
+  `127.0.0.1:19712` from the host, `127.0.0.1:19713` from the client
+  (`ggpo.cpp:584-590`, `:808-811`) — and wait
+  forever on "Starting Network", which has no timeout — the modal's
+  Cancel button is the only way out (`gui.cpp:1286`). So **both** devices
+  serve a two-line `netplay-info` on **TCP 19714** (line 1 the ROM
+  filename with its extension stripped, line 2 the role, `host` or
+  `client`), and **both** scan the
+  LAN for a peer serving the same ROM in the *opposite* role: the ROM
+  line prevents cross-game pairing, the role line prevents two hosts (or
+  two clients) from pairing. Each side tries the stored `[network]
+  server =` first, but **only when the device holds a /24 lease and that
+  address falls inside it**. Two things follow. After moving to a
+  different network the stored address belongs to the old one and can
+  never answer, so it is skipped instead of burning ~3 s on a dead
+  probe. And on a **non-/24 lease** the subnet is never parsed at all —
+  the address is read with `sed -n 's|.*inet \([0-9.]*\)/24 .*|\1|p'`,
+  which matches nothing on a /16 or /23 — so there the stored address is
+  skipped *unconditionally*, not merely when the octets differ. A repeat
+  session on the same /24 with an unchanged DHCP lease still pairs
+  almost instantly. Otherwise it ping-sweeps its own /24 and probes the
+  `ip neigh` neighbors **concurrently** (one background probe per
+  candidate, results collected through a hits dir), so a pass costs a
+  fixed ~7 s — a 3 s settle after the sweep plus a 4 s collect, extended
+  only by the slowest straggler probe, each of which is bounded by the
+  fetch watchdog at 3 s — rather than ~1 s per reachable host. Scan time
+  no longer scales with how busy the LAN is.
+
+  Two details here are load-bearing, and the first real pair test failed
+  because neither was in place. Candidates are **deduplicated by MAC**
+  before probing: the sweep itself leaves an ARP entry for every address
+  it touched, and a router that answers ARP for unused addresses turns
+  that into hundreds of phantom neighbours sharing a handful of MACs
+  (measured on a home LAN: 22 entries before a sweep, 259 after, ~19 real
+  MACs). Probing all of them swamps a 4-core handheld and nothing
+  finishes inside the collect window. And `nx_fetch` names each download
+  with `mktemp` rather than the pid: in POSIX sh `$$` keeps the *parent*
+  shell's pid inside a subshell, so a pid-derived name is literally the
+  same file in every concurrent probe — one probe's cleanup deletes
+  another's payload, and a dead host can `cat` a live host's answer and
+  win the selection. Concurrency is what made both of these reachable;
+  neither could bite while probes ran serially. All of it is bounded by a
+  90 s wall-clock deadline. Whoever resolves a peer writes its IP back
+  to `server =`, which stays a manual fallback
+  for LANs where discovery fails — with one caveat on a non-/24 lease,
+  where the fast path never probes it: a hand-set `server =` is then
+  reached only if that host happens to sit in the `ip neigh` table, and
+  nothing sweeps to populate that table off a /24. flycast still reads
+  the hand-set value and can connect on it (launch.sh leaves it alone
+  when discovery finds nothing), but the client will not have pulled the
+  save tar — the GGPO connection and the state sync part ways there.
+  **Launch order does not matter** —
+  either device may start first, with any gap up to the deadline. On top
+  of this shared discovery, the host additionally serves the VMU/flash
+  tar and the client additionally pulls it. Every failure path fails open
+  into a normal launch so GGPO surfaces errors visibly.
+- A discovery long enough to be worth covering is no longer a silent
+  black screen. (A fast one still is, and correctly so — see the end of
+  this bullet.) While the netplay
+  block runs, launch.sh drives the already-shipped `show2.elf` in daemon
+  mode — resolved bare via `PATH`, exactly like the scripts' other helper
+  binaries, so nothing new was built. The opening "starting" message is
+  the daemon's own `--text=` argument (the FIFO does not exist yet at
+  that point); from there on launch.sh pushes `TEXT:` lines over
+  `/tmp/show2.fifo` at each stage: preparing saves (host, `TEXT:` only —
+  it carries no `PROGRESS:`, so no percentage is left standing in front
+  of the long wait that follows), looking for the peer — the host names
+  the `<subnet>.x` it is scanning, or "the network" when it holds no /24
+  lease to name — then peer found at `<ip>`, which on
+  the client is a **single** combined `host found at <ip> - copying
+  saves...` message rather than two updates (plain ASCII hyphen — a
+  tester matches these against the screen), or "starting anyway" when
+  nothing turned up. `PROGRESS:` rides along only where it means
+  something: `-1` (the marquee again) for the open-ended search, a real
+  percentage once a peer is resolved or the search has given up.
+  Sent is not the same as seen. Which message is on screen at any moment
+  is not something the design pins down: each write is *queued* from its
+  own background subshell polling for the FIFO on an independent 1 s
+  cadence, so any of the messages racing show2's init may end up the
+  survivor; and the terminal messages are followed immediately by a
+  `killall -9` that destroys the daemon, leaving them a frame at most. It
+  follows that the screen will ordinarily disappear still showing a
+  search message. The client's "copying saves" is the one update that is
+  reliably readable, because the tar fetch follows it — ~1-2 s for a
+  ~384 KB card over LAN (derived), the 30 s in `nx_fetch` being only the
+  watchdog ceiling for a host that stalls. Read the screen as evidence
+  that discovery is running, not as a progress transcript. And note the
+  corollary: on the repeat-session fast path the stored-`server =` probe
+  resolves in about a second, so the whole block can finish about as fast
+  as show2 comes up — expect a brief flash, or nothing at all. Either is
+  the feature working: there was barely a wait to cover. The screen
+  takes exactly **one** input — B skips netplay (next bullet), which is
+  why a second line sits under the status text — and is otherwise
+  informational: nothing else on it is interactive and it has no other
+  effect on what discovery does. It runs with
+  `--image=/dev/null` (there is no netplay artwork — the repo's existing
+  "no logo" idiom) and `--progress=-1`, show2's indeterminate marquee,
+  because the wait has no knowable length. `/dev/null` is accepted at
+  runtime: `IMG_Load` logs "not a regular file or pipe" and rendering
+  carries on (measured, Brick, 2026-07-29). show2 paints nothing until
+  its SDL2/DRM init finishes, and only creates its FIFO after that
+  (`mkfifo` is the first thing `runDaemonMode()` does after unlinking any
+  stale node) — **measured at ≤1 s** on tg5040 over three cold runs, so
+  only the first moment of a netplay launch is dark. Teardown must use
+  `killall -9`: show2 handles SIGINT only (`show2.cpp:623`) and `SDL_Init`
+  traps SIGTERM into an `SDL_QUIT` event its daemon loop never pumps, so
+  a plain `killall` leaves it running (measured alive 6 s later) and
+  holding the display against flycast. Everything
+  degrades silently: no `show2.elf` on `PATH`, or a daemon that died,
+  means no status screen and an otherwise-normal launch — exactly the
+  old silent behavior — and every FIFO write happens inside a background
+  subshell so a half-dead daemon can never stall the launch. Verified on
+  hardware at the function level only (start / update / stop / no-op when
+  absent, Brick 2026-07-29; the deployed tg5050 binary separately shown
+  to start, create its FIFO in ~1 s and take `TEXT:`/`PROGRESS:`
+  updates). No one has yet watched it driven by a real game launch on
+  either device.
+- **Press B during discovery to skip netplay — for that run only.** The
+  status screen's second line reads `B = skip netplay`, and pressing B
+  stops the search and launches the game single-player. The window is
+  the whole netplay block: `nx_cancel_arm` runs immediately after the
+  screen is started, before any network work, and the flag survives
+  until `nx_cancel_disarm` runs on the far side of the block, just
+  before flycast is started. It is checked at every phase boundary —
+  after the host has snapshotted and served its VMU tar, after the
+  client has published its identity, on entry to each discovery pass
+  and before each neighbour probe — and *inside* the network waits as
+  well: `nx_fetch`'s own watchdog polls it once a second, so a press
+  during the client's tar download (watchdog ceiling 30 s) is acted on
+  within about a second instead of after the download finishes. "Skip"
+  means **this run only**. launch.sh starts flycast with `-config
+  network:GGPO=no`; flycast stores a `-config` value as a **virtual**
+  setting — `get_entry()` prefers virtual values and `ConfigFile::save()`
+  never writes them (`cl.cpp` → `cfgSetVirtual`, `ini.cpp`) — so
+  `emu.cfg` is left untouched: `[network] GGPO` is still `yes`
+  afterwards and the next launch attempts netplay again. A cancelled
+  client also skips the `XDG_DATA_HOME` redirect, so it plays on its
+  **own** VMU rather than the host's borrowed copy (with GGPO off there
+  is nothing to isolate; its real saves were never at risk either way).
+  The screen shows `Skipped - starting game...` for a beat first — the
+  one-second pause on the cancel path exists only so that message can
+  be painted at all, since `nx_ui` merely *queues* its write and
+  `nx_ui_stop` kills the daemon two lines later; a press early enough to
+  precede show2's FIFO still cancels, it just cannot be confirmed on
+  screen. One residual: `[input] device2 = 0` is written unconditionally
+  at the top of the block and no cancel path reverts it, so it stays
+  until a launch with GGPO **off** puts it back to `10`.
+- How the press is read, and what the design deliberately leaves
+  behind. The hint line is show2's new **optional `--hint`** argument: a
+  second line drawn under the status text in `renderSimple()` — which
+  `renderProgress()` calls, so both display modes get it — and skipped
+  entirely when the argument is absent, so the first-boot install
+  splash, which is the same binary, renders exactly as before. B is js0
+  event **number `00`**, measured on **both** units — five consecutive
+  presses on each, every one type `01` number `00` with a non-zero
+  value, the Smart Pro S reading identical to the Brick — which agrees
+  with this pak's own `SDL_Xbox 360 Controller.cfg` (`bind0 =
+  0:btn_b`). So the one shared constant is right for both and the
+  byte-identical block needs no per-device handling. An earlier reading
+  of `02` came from a block-buffered reader that misattributed delayed
+  events and must not be restored.
+  The reader opens `/dev/input/js0` **once** on fd 3 and then runs one
+  short-lived `dd bs=8 count=1 <&3 | hexdump` per event, so hexdump
+  exits — and therefore flushes — every time. Both obvious alternatives
+  were tried on-device and fail: a persistent `dd | hexdump | while
+  read` pipeline block-buffers (~4 KB, ~170 events) and recorded zero
+  presses across a 45 s capture, and a `count=1` loop that re-opens the
+  device replays joydev's init burst on every pass and spins. Nothing
+  but a real press can trip it: the init burst is type 81/82 with value
+  0, releases carry value 0, and stick motion is type 02. If js0 is
+  unreadable the watcher exits at once and cancel is simply unavailable
+  — every other path is unchanged. Killing the watcher does **not**
+  reap its `dd`/`hexdump` children, and that leak is accepted on
+  purpose. It clears itself: the `dd` has `count=1`, so the first
+  controller event after the game starts ends it, hexdump then EOFs, and
+  joydev gives each opener an independent event buffer so nothing is
+  taken from flycast meanwhile. Both sweeps that would clean it up are
+  wrong — matching `/proc/<pid>/cmdline` cannot work (the device is a
+  redirection, never an argument; verified on-device to find none of the
+  holders), and matching open descriptors does find them all but "kill
+  whatever holds js0" would also hit `keymon.elf`, which opens input
+  devices for the whole session, or the launcher, and killing the
+  launcher powers this device off.
+- What has actually been tested (2026-07-29) — bench level, both
+  devices. The shipped helpers pass 12/12 checks on the Brick, run
+  against the functions extracted verbatim from launch.sh: arm/disarm
+  lifecycle, a stale flag cleared by `nx_cancel_arm`, the flag honoured,
+  and `nx_fetch` returning empty 2 s into a 30 s timeout when the flag
+  appears (the check that proves a press during the tar download is
+  acted on promptly). The rebuilt show2 was watched on hardware
+  rendering two lines, with the hint persisting across `TEXT:` updates
+  and the marquee animating, freezing on a numeric `PROGRESS:` and
+  re-arming on a later `PROGRESS:-1`; the no-`--hint` install-splash
+  invocation was unaffected. Both rebuilt binaries are now **deployed**
+  (Brick md5 `2678718c` → `4be3ac43`, Smart Pro S `fe7d510b` →
+  `c943d4b7`, each md5-verified against the local build, and `show2.elf`
+  resolves bare via `PATH` on both); the pre-change binary is kept
+  on-device as `show2.elf.orig` beside it, so rolling the shared install
+  splash back needs no computer. The deployed tg5050 copy was then run
+  with `--hint` on the Smart Pro S — a platform that had never run show2
+  at all — and starts, creates its FIFO in ~1 s, accepts `TEXT:` and
+  `PROGRESS:` updates and stays alive. **Not** tested, all three needing
+  a real session: an actual B press during a real game launch — that it
+  cancels, lands in single-player and leaves `[network] GGPO = yes`
+  afterwards — which cannot be driven over adb, since input cannot be
+  injected; any two-device pair test with the new block on both units;
+  and the cancelled-client-plays-on-its-own-saves path, which is
+  code-verified and reasoned but never exercised in a session.
+- Netplay launches also plug a controller into Dreamcast **port B**:
+  launch.sh sets `[input] device2 = 0` (`MDT_SegaController`) while GGPO
+  is on, automatically on both devices, and puts it back to `10`
+  (`MDT_None`) when GGPO is off, so single-player sessions see the stock
+  one-pad Dreamcast. GGPO **always drives port B as player 2** — the
+  remote player on the host, the *local* player on the client
+  (`ggpo.cpp:500`/`:569` set the local player to `localPlayerNum + 1`,
+  and `ggpo.cpp:643-650` writes `inputState[player]` straight to the
+  maple port index) — so both machines need a pad there. flycast leaves
+  port B empty by default (`option.cpp:197-201`, enum
+  `maple_cfg.h:6-18`), so those inputs reached no maple device at all —
+  MvC2's VS mode stayed greyed out and the second device's Start did
+  nothing (that device's *own* player is port B). **Both
+  peers must carry the identical value** or the emulated machines differ
+  and desync; that is why launch.sh owns the key on both sides rather
+  than leaving it to a hand edit. A bare controller on port B does not
+  perturb the GGPO verification digest — `vmuDigest()`
+  (`maple_cfg.cpp:364`) only hashes devices whose `getData()` is
+  non-null.
+- Security posture: the rendezvous is deliberately unauthenticated
+  (home-LAN scope). While netplay is on, the serve dir is readable by
+  any device on the network for the session's duration — on the host
+  that is the `netplay-info` identity file plus the VMU/flash tar, on
+  the client only `netplay-info` (the python3 branch also
+  directory-indexes the dir; the server writes no request log at all —
+  busybox `httpd` runs without `-v` — and the stdout/stderr file it does
+  write lives outside the serve dir, so nothing there is served). Note
+  what that tar actually contains: `data/flycast` is shared by **all**
+  Dreamcast games, so the host serves its **entire VMU set** (every
+  `vmu_save_*.bin` plus `dc_nvmem.bin`), not just the saves of the game
+  being played. Outbound, every netplay-on launch **ping-sweeps all 254
+  addresses of the local /24 repeatedly and HTTP-GETs each neighbor**
+  for up to 90 s; on a network that is not your own home LAN that
+  traffic reads as a port scan. Inbound, the client
+  extracts a synced tar only when all **five** guard conditions hold:
+  the file is non-empty; `tar tf` lists at least one entry (a non-tar
+  payload lists nothing, which would pass every negated test
+  vacuously); every name is a bare allowlisted filename (no slashes,
+  no `..`, no absolute paths); every `tar tvf` mode column is `-`; and
+  no entry is a link (` -> `). The link test is not redundant with the
+  mode column: busybox tar prints a HARDLINK with a leading `-`, so on
+  this firmware the mode column alone would accept one. Verdicts on
+  device (Brick, busybox 1.27.2): good tar ACCEPT; path-traversal,
+  symlink, hardlink, non-tar junk and empty all REJECT. A hostile peer
+  can at worst replace the client's netplay-data VMU copies, never
+  write outside them.
+- **UPnP is forced off** on every GGPO launch: launch.sh writes
+  `[network] EnableUPnP = no`. flycast defaults it to **true**
+  (`option.cpp:172`) and `ggpo.cpp:801-804` runs `miniupnp.Init()` +
+  `AddPortMapping(19713/UDP)` *before* the `ActAsServer` branch, so
+  **both** roles would otherwise punch a router mapping with an 86400 s
+  lease (`miniupnp.cpp`). The `EnableUPnP = no` seeded in the
+  `default*.cfg` files only reaches **fresh installs** (they're gated
+  behind `.initialized`), so writing it from launch.sh is what closes it
+  on already-installed devices. There is no restore-when-off branch —
+  the value is only read on the GGPO path.
+- **Pairing key gotcha:** peers match on the ROM **filename with its
+  extension stripped** (`EMU_OVERLAY_GAME`), *not* on CHD content. Two
+  byte-identical CHDs stored under different filenames will never pair,
+  and the symptom is thin: the status screen sits for the full 90 s on
+  whatever message survived show2's init window — "looking for the host"
+  on the client, either "preparing saves" or "looking for player 2 …" on
+  the host — then simply
+  disappears, because the "starting anyway" update is queued and killed
+  before it can be read. flycast then drops into its untimed "Starting
+  Network". Nothing names the mismatch. Keep the game file named
+  identically on both cards.
+- **Leave flycast's `PerGameVmu` off.** With it on, the port-A1 VMU file
+  is written as `<gameId>_vmu_save_A1.bin` (`oslib.cpp:52-66`) — a name
+  the host's `tar cf … vmu_save_*.bin` glob misses and the client's
+  allowlist (`vmu_save_[A-D][12].bin`) rejects. The sync then silently
+  ships an incomplete card and the only symptom is "Peer verification
+  failed" with no hint as to why.
+- A shared `<rom basename>.state.net` savestate is still honored by
+  flycast when present (auto-loaded at start, its MD5 replaces the
+  VMU/flash hash — `emulator.cpp:674`, `ggpo.cpp:541`) but is no longer
+  needed by the pak's own flow.
+- GGPO forces the SH4 clock to stock 200 MHz and, under threaded rendering,
+  disables framebuffer emulation (`emulator.cpp:864,983`) — automatic.
+- GGPO disconnects a peer after 3 s of silence (`ggpo.cpp:566`) — opening
+  the overlay menu (pause) or save/load state mid-session will drop or
+  desync the match. Both sides launch the same game and sync from boot.
+- `GGPOAnalogAxes` must match on both peers (default 0 on both; digital-only
+  fighters like MvC2 don't need it).
+
+**DCNet** (`DCNet = yes`, overlay: "DCNet Online") — emulates the DC modem
+(or BBA with `EmulateBBA = yes`) and tunnels PPP/Ethernet traffic to the
+public `dcnet.flyca.st` relay, which routes to fan-run revival servers. This
+is for games with *native* online modes (PSO, ChuChu Rocket, Quake III,
+Alien Front Online, …), needs internet (not just LAN), needs no peer
+config, and does nothing for games without an online menu (MvC2). Off by
+default; independent of GGPO.
+
+Existing installs are already `.initialized`, so they never receive the
+newly seeded `[network]` block — that's fine: the overlay toggles create
+their keys through cfgdb on first save, and launch.sh creates/updates the
+`server =` and `EnableUPnP` lines itself (the latter on every GGPO launch,
+which is the only way an upgraded install ever gets it). The same is true of
+`[input] device2`: flycast drops keys left at their default when it
+rewrites the cfg, so a live file routinely has no `[input]` section at all
+— launch.sh creates the section and the key when it needs them.
+
 ## Runtime libraries
 
 **Nothing is shipped in the pak.** Verified on the Brick (tg5040) via
