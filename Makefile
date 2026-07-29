@@ -165,6 +165,11 @@ endif
 	# RetroAchievements tools pak
 	cp ./workspace/all/ratools/build/$(PLATFORM)/ratools.elf ./build/EXTRAS/Tools/$(PLATFORM)/RetroAchievements.pak/
 
+	# Dreamcast netplay pre-launch wizard (run bare off PATH by DC.pak/launch.sh);
+	# gated here, not with the other SYSTEM bin copies, because it is only built
+	# for tg5040/tg5050 (see workspace/Makefile).
+	cp ./workspace/all/netplay-wizard/build/$(PLATFORM)/netplay.elf ./build/SYSTEM/$(PLATFORM)/bin/
+
 ifeq ($(PLATFORM), tg5040)
 	# liblz4 for Rewind support
 	cp -L ./workspace/all/minarch/build/$(PLATFORM)/liblz4.so.1 ./build/SYSTEM/$(PLATFORM)/lib/

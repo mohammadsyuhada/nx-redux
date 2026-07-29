@@ -75,20 +75,6 @@
       "ini_section": "network",
       "items": [
         {
-          "key": "GGPO",
-          "label": "GGPO Netplay",
-          "description": "2P rollback play; peer and state auto-discovered on the LAN",
-          "type": "bool",
-          "default": false
-        },
-        {
-          "key": "ActAsServer",
-          "label": "Host (Player 1)",
-          "description": "On = host as Player 1 (your saves are used); Off = join as P2",
-          "type": "bool",
-          "default": false
-        },
-        {
           "key": "GGPODelay",
           "label": "Input Delay",
           "description": "Frames of input delay; higher = fewer rollback hitches",

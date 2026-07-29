@@ -114,6 +114,7 @@ New Features:
         - On the game's first launch the pack is converted into a cache in `Roms/Nintendo 64 (N64)/.cache/` with an on-screen progress display — large packs take several minutes and need extra free space on the SD card (e.g. a 2.6 GB pack produces a ~450 MB cache). Later launches load straight from the cache and start fast.
 - Bundled `Flycast Sega Dreamcast` emulator.
     - Runs out of the box without a BIOS (HLE boot); drop `dc_boot.bin` into `Bios/DC/` on the SD card to boot through the real BIOS instead.
+    - GGPO netplay for Dreamcast games: press `Y` on a supported game in the list (or use the "Launch with Netplay" option) to host or join over Wi-Fi or a device-hosted hotspot — no manual IP entry, no persistent toggle to remember to turn back off, and save data is synced automatically before the match starts.
 - Bundled `Portmaster` in the Tools.
     - Configured by default with Nintendo input layout (configurable)
 - Added [Netplay](https://github.com/mohammadsyuhada/nextui-netplay) for local wireless multiplayer, available from the in-game menu.

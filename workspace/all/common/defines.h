@@ -38,6 +38,7 @@
 #define LAST_PATH "/tmp/last.txt" // transient
 #define CHANGE_DISC_PATH "/tmp/change_disc.txt"
 #define RESUME_SLOT_PATH "/tmp/resume_slot.txt"
+#define NETPLAY_LAUNCH_PATH "/tmp/netplay_launch"
 #define NOUI_PATH "/tmp/noui"
 #define EMULIST_CACHE_PATH "/tmp/emulist_cache.txt"
 #define ROMINDEX_CACHE_PATH "/tmp/romindex_cache.txt"

@@ -73,6 +73,11 @@ static SDL_Surface* blackBG = NULL;
 // Game list screen (input + render) lives in gamelist.c
 
 int main(int argc, char* argv[]) {
+	// Must precede autoResume(): that path returns before the rest of init, so
+	// a stale flag would ride into the auto-resumed game as a silent netplay
+	// launch. Stale = a previous launch never consumed it.
+	unlink(NETPLAY_LAUNCH_PATH);
+
 	if (autoResume())
 		return 0; // nothing to do
 

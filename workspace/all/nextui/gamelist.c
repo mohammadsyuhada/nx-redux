@@ -465,6 +465,33 @@ static void doRename(Entry* entry, int sel) {
 		free(newname);
 }
 
+// Netplay-capable = the entry's owning emu pak ships a "netplay" marker
+// file beside its launch.sh. Cached by path: this is called from the
+// input poll and the hint bar every frame.
+static char netplay_cap_path[MAX_PATH] = {0};
+static bool netplay_cap = false;
+static bool entryNetplayCapable(Entry* entry) {
+	if (!entry || entry->type != ENTRY_ROM)
+		return false;
+	if (!prefixMatch(ROMS_PATH, entry->path))
+		return false;
+	if (exactMatch(netplay_cap_path, entry->path))
+		return netplay_cap;
+	strncpy(netplay_cap_path, entry->path, MAX_PATH - 1);
+	netplay_cap_path[MAX_PATH - 1] = '\0';
+	netplay_cap = false;
+	char emu_name[MAX_PATH];
+	getEmuName(entry->path, emu_name);
+	char pak_path[MAX_PATH];
+	getEmuPath(emu_name, pak_path);
+	char* slash = strrchr(pak_path, '/');
+	if (slash) {
+		strcpy(slash + 1, "netplay"); // replaces "launch.sh"; same dir
+		netplay_cap = exists(pak_path);
+	}
+	return netplay_cap;
+}
+
 // Dispatch a selected context-menu item (ids assigned in GameList_handleInput).
 // Runs in nextui.c's main loop; blocking modals here are safe (the flip is
 // synchronous, and UIKeyboard_open already blocks mid-loop from Search).
@@ -523,6 +550,12 @@ void GameList_runContextAction(int id) {
 	case 34: // Add to Collection
 		if (entry && entry->type == ENTRY_ROM)
 			doAddToCollection(entry);
+		break;
+	case 35: // Launch with Netplay
+		if (entry && entryNetplayCapable(entry)) {
+			putFile(NETPLAY_LAUNCH_PATH, "1\n");
+			Entry_open(entry);
+		}
 		break;
 	default:
 		break;
@@ -601,6 +634,11 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 				strncpy(items[idx].label, "Add to Collection", CONTEXTMENU_MAX_TEXT);
 				items[idx].id = 34;
 				idx++;
+				if (entryNetplayCapable(entry)) {
+					strncpy(items[idx].label, "Launch with Netplay", CONTEXTMENU_MAX_TEXT);
+					items[idx].id = 35;
+					idx++;
+				}
 			}
 		}
 
@@ -722,8 +760,15 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 		Entry_open(entry);
 		*dirty = true;
 	}
-	// Y to search at root (pin/unpin now lives in the context menu)
-	else if (stack->count == 1 && PAD_justReleased(BTN_Y)) {
+	// Y launches netplay-capable ROMs with netplay (works at root for
+	// pinned games too — root Search moved to START for this)
+	else if (total > 0 && PAD_justReleased(BTN_Y) && entryNetplayCapable(entry)) {
+		putFile(NETPLAY_LAUNCH_PATH, "1\n");
+		Entry_open(entry);
+		*dirty = true;
+	}
+	// START to search at root (was Y; pin/unpin lives in the context menu)
+	else if (stack->count == 1 && PAD_justReleased(BTN_START)) {
 		if (Search_open()) {
 			result.screen = SCREEN_SEARCH;
 			result.animdir = SLIDE_LEFT;
@@ -818,7 +863,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		// search hint at root
 		if (!(show_setting && !GetHDMI()) && !GetHDMI() &&
 			stack->count == 1 && total > 0) {
-			right_pairs[p++] = "Y";
+			right_pairs[p++] = "START";
 			right_pairs[p++] = "SEARCH";
 		}
 
@@ -829,24 +874,21 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 				right_pairs[p++] = "BACK";
 			}
 		} else {
-			if (resume.can_resume) {
-				if (stack->count > 1) {
-					right_pairs[p++] = "B";
-					right_pairs[p++] = "BACK";
-				}
-				right_pairs[p++] = "X";
-				right_pairs[p++] = "RESUME";
-				right_pairs[p++] = "A";
-				right_pairs[p++] = "OPEN";
-			} else if (stack->count > 1) {
+			bool netplay_hint = entryNetplayCapable(entry);
+			if (stack->count > 1) {
 				right_pairs[p++] = "B";
 				right_pairs[p++] = "BACK";
-				right_pairs[p++] = "A";
-				right_pairs[p++] = "OPEN";
-			} else {
-				right_pairs[p++] = "A";
-				right_pairs[p++] = "OPEN";
 			}
+			if (netplay_hint) {
+				right_pairs[p++] = "Y";
+				right_pairs[p++] = "NETPLAY";
+			}
+			if (resume.can_resume) {
+				right_pairs[p++] = "X";
+				right_pairs[p++] = "RESUME";
+			}
+			right_pairs[p++] = "A";
+			right_pairs[p++] = "OPEN";
 		}
 
 		if (right_pairs[0])
