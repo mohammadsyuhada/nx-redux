@@ -122,6 +122,8 @@ static void parse_item(const cJSON* json_item, EmuOvlItem* item) {
 			item->type = EMU_OVL_TYPE_CYCLE;
 		else if (strcmp(type_str, "int") == 0)
 			item->type = EMU_OVL_TYPE_INT;
+		else if (strcmp(type_str, "enum") == 0)
+			item->type = EMU_OVL_TYPE_ENUM;
 		else
 			item->type = EMU_OVL_TYPE_BOOL;
 	}
@@ -154,6 +156,32 @@ static void parse_item(const cJSON* json_item, EmuOvlItem* item) {
 		}
 	}
 
+	// enum type: values[] holds strings; svalues owns them and the internal
+	// int value is simply the index into that array
+	if (item->type == EMU_OVL_TYPE_ENUM) {
+		item->value_count = 0;
+		if (cJSON_IsArray(values_arr)) {
+			int count = cJSON_GetArraySize(values_arr);
+			if (count > EMU_OVL_MAX_VALUES)
+				count = EMU_OVL_MAX_VALUES;
+			for (int i = 0; i < count; i++) {
+				const cJSON* v = cJSON_GetArrayItem(values_arr, i);
+				if (cJSON_IsString(v) && v->valuestring)
+					item->svalues[item->value_count] = strdup(v->valuestring);
+				else
+					item->svalues[item->value_count] = strdup("");
+				// labels[] was already filled positionally above; backfill the
+				// value string where the schema gave no label
+				if (item->labels[item->value_count][0] == '\0')
+					safe_strcpy(item->labels[item->value_count],
+								sizeof(item->labels[item->value_count]),
+								item->svalues[item->value_count]);
+				item->values[item->value_count] = item->value_count;
+				item->value_count++;
+			}
+		}
+	}
+
 	// int range
 	item->int_min = json_get_int(json_item, "min", 0);
 	item->int_max = json_get_int(json_item, "max", 100);
@@ -167,6 +195,18 @@ static void parse_item(const cJSON* json_item, EmuOvlItem* item) {
 	// default — JSON bools need special handling
 	if (item->type == EMU_OVL_TYPE_BOOL) {
 		item->default_value = json_get_bool(json_item, "default", false) ? 1 : 0;
+	} else if (item->type == EMU_OVL_TYPE_ENUM) {
+		// string default -> index in svalues; 0 when absent or unknown
+		const char* d = json_get_string(json_item, "default");
+		item->default_value = 0;
+		if (d) {
+			for (int i = 0; i < item->value_count; i++) {
+				if (strcmp(item->svalues[i], d) == 0) {
+					item->default_value = i;
+					break;
+				}
+			}
+		}
 	} else {
 		item->default_value = json_get_int(json_item, "default", 0);
 	}
@@ -196,6 +236,8 @@ static void parse_section(const cJSON* json_sec, EmuOvlSection* sec) {
 	for (int i = 0; i < count; i++) {
 		const cJSON* json_item = cJSON_GetArrayItem(items_arr, i);
 		if (!json_item)
+			continue;
+		if (json_get_bool(json_item, "hidden", false))
 			continue;
 		parse_item(json_item, &sec->items[sec->item_count]);
 		sec->item_count++;
@@ -261,6 +303,19 @@ int emu_ovl_cfg_load(EmuOvlConfig* cfg, const char* json_path) {
 void emu_ovl_cfg_free(EmuOvlConfig* cfg) {
 	if (!cfg)
 		return;
+	// Release enum value strings; the memset below nulls the pointers so a
+	// second free is a no-op.
+	for (int s = 0; s < cfg->section_count; s++) {
+		EmuOvlSection* sec = &cfg->sections[s];
+		for (int i = 0; i < sec->item_count; i++) {
+			for (int v = 0; v < EMU_OVL_MAX_VALUES; v++) {
+				if (sec->items[i].svalues[v]) {
+					free(sec->items[i].svalues[v]);
+					sec->items[i].svalues[v] = NULL;
+				}
+			}
+		}
+	}
 	memset(cfg, 0, sizeof(*cfg));
 }
 
@@ -300,6 +355,14 @@ static int parse_item_value(const EmuOvlItem* item, const char* val) {
 		if (item->float_scale > 0)
 			return (int)(atof(val) * item->float_scale + 0.5);
 		return parse_ini_int(val);
+	case EMU_OVL_TYPE_ENUM:
+		// exact string match against the value set; -1 when unknown so
+		// callers can decide whether to intern or keep the default
+		for (int i = 0; i < item->value_count; i++) {
+			if (strcmp(item->svalues[i], val) == 0)
+				return i;
+		}
+		return -1;
 	default:
 		return parse_ini_int(val);
 	}
@@ -357,9 +420,13 @@ bool emu_ovl_cfg_parse_value(const EmuOvlItem* item, const char* str, int* out_v
 	// per-game override file is arbitrary input and garbage silently
 	// collapsing to 0 would look like a deliberate setting. Bools stay
 	// total, exactly as read_ini treats them (anything not true-ish is 0).
-	if (item->type != EMU_OVL_TYPE_BOOL && !str_is_number(str))
+	// Enums are string-valued: no numeric gate, unknown strings just fail.
+	if (item->type != EMU_OVL_TYPE_BOOL && item->type != EMU_OVL_TYPE_ENUM &&
+		!str_is_number(str))
 		return false;
 	int val = parse_item_value(item, str);
+	if (item->type == EMU_OVL_TYPE_ENUM && val < 0)
+		return false;
 	if (out_value)
 		*out_value = val;
 	return true;
@@ -424,6 +491,11 @@ int emu_ovl_cfg_read_ini(EmuOvlConfig* cfg, const char* ini_path) {
 
 				int val = parse_item_value(item, ini_val);
 
+				// Unknown enum value in the file: keep the default rather
+				// than storing an out-of-range index.
+				if (item->type == EMU_OVL_TYPE_ENUM && val < 0)
+					continue;
+
 				item->current_value = val;
 				item->staged_value = val;
 				item->dirty = false;
@@ -459,7 +531,32 @@ void emu_ovl_cfg_format_value(const EmuOvlItem* item, int value, char* out, int 
 		else
 			snprintf(out, (size_t)out_size, "%d", value);
 		break;
+	case EMU_OVL_TYPE_ENUM:
+		if (item->value_count <= 0)
+			break; // out[0] already '\0'
+		if (value < 0)
+			value = 0;
+		else if (value >= item->value_count)
+			value = item->value_count - 1;
+		snprintf(out, (size_t)out_size, "%s", item->svalues[value]);
+		break;
 	}
+}
+
+int emu_ovl_cfg_enum_intern(EmuOvlItem* item, const char* value) {
+	if (!item || item->type != EMU_OVL_TYPE_ENUM || !value)
+		return -1;
+	for (int i = 0; i < item->value_count; i++)
+		if (strcmp(item->svalues[i], value) == 0)
+			return i;
+	if (item->value_count >= EMU_OVL_MAX_VALUES)
+		return -1;
+	int i = item->value_count;
+	item->svalues[i] = strdup(value);
+	safe_strcpy(item->labels[i], sizeof(item->labels[i]), value);
+	item->values[i] = i;
+	item->value_count++;
+	return i;
 }
 
 // Helper: write a single item's value to file. The "key = value" spacing is

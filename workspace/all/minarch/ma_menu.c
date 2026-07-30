@@ -872,7 +872,6 @@ static MenuList options_menu = {
 	.type = MENU_LIST,
 	.items = (MenuItem[]){
 		{"Frontend", "NextUI (" BUILD_DATE " " BUILD_HASH ")", .on_confirm = OptionFrontend_openMenu},
-		{"Emulator", .on_confirm = OptionEmulator_openMenu},
 		{"Shaders", .on_confirm = OptionShaders_openMenu},
 		{"Cheats", .on_confirm = OptionCheats_openMenu},
 		{"Controls", .on_confirm = OptionControls_openMenu},
@@ -884,25 +883,25 @@ static MenuList options_menu = {
 	}};
 
 // Track the index of Save Changes menu item (changes based on RA visibility)
-static int save_changes_index = 7;
+static int save_changes_index = 6;
 
 // Update options menu visibility based on RA enable state
 void Options_updateVisibility(void) {
 	if (CFG_getRAEnable()) {
-		// RA enabled: show Achievements at index 6, Save Changes at index 7
-		options_menu.items[6].name = "Achievements";
-		options_menu.items[6].on_confirm = OptionAchievements_openMenu;
-		options_menu.items[7].name = "Save Changes";
-		options_menu.items[7].on_confirm = OptionSaveChanges_openMenu;
-		save_changes_index = 7;
-	} else {
-		// RA disabled: hide Achievements, move Save Changes to index 6
+		// RA enabled: show Achievements at index 5, Save Changes at index 6
+		options_menu.items[5].name = "Achievements";
+		options_menu.items[5].on_confirm = OptionAchievements_openMenu;
 		options_menu.items[6].name = "Save Changes";
-		options_menu.items[6].desc = NULL;
 		options_menu.items[6].on_confirm = OptionSaveChanges_openMenu;
-		options_menu.items[7].name = NULL;
-		options_menu.items[7].on_confirm = NULL;
 		save_changes_index = 6;
+	} else {
+		// RA disabled: hide Achievements, move Save Changes to index 5
+		options_menu.items[5].name = "Save Changes";
+		options_menu.items[5].desc = NULL;
+		options_menu.items[5].on_confirm = OptionSaveChanges_openMenu;
+		options_menu.items[6].name = NULL;
+		options_menu.items[6].on_confirm = NULL;
+		save_changes_index = 5;
 	}
 }
 
@@ -921,11 +920,11 @@ void OptionAchievements_updateDesc(void) {
 		RA_getAchievementSummary(&unlocked, &total);
 		if (total > 0) {
 			snprintf(ach_desc_buffer, sizeof(ach_desc_buffer), "%u / %u unlocked", unlocked, total);
-			options_menu.items[6].desc = ach_desc_buffer;
+			options_menu.items[5].desc = ach_desc_buffer;
 			return;
 		}
 	}
-	options_menu.items[6].desc = NULL;
+	options_menu.items[5].desc = NULL;
 }
 
 #define OPTION_PADDING 8
@@ -1839,7 +1838,9 @@ void Menu_loop(void) {
 
 
 // main() sets the core version shown in the options menu through this accessor
-// because options_menu is file-static here.
+// because options_menu is file-static here. The core version used to appear as
+// the subtitle of the in-game "Emulator" row; that row was removed (core options
+// now live in the pre-launch editor), so there is no longer a slot for it here.
 void Menu_setCoreVersionDesc(const char* version) {
-	options_menu.items[1].desc = (char*)version;
+	(void)version;
 }

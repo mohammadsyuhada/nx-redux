@@ -11,6 +11,110 @@ Move an entry from there to here once it compiles and needs hardware time.
 
 ---
 
+## minarch pre-launch options (built 2026-07-31)
+
+**Status:** Tasks 1-5 (enum item type in `emu_overlay_cfg`, minarch's
+`--dump-options` schema serializer, the flat-cfg minarch storage backend in
+`options.elf` (`--minarch-*` flags), removal of minarch's in-game Options
+menu, and the 74 generated `options.sh` files — 7 BASE + 30 EXTRAS per
+platform — plus the Emulator Settings picker update) are built, compile
+clean on both platforms (tg5040 + tg5050 full builds 2026-07-31, all four
+host test suites pass), and staged (not committed). This makes minarch
+cores the third pre-launch-options adopter after flycast and mupen64plus.
+Design: `docs/superpowers/plans/2026-07-30-minarch-prelaunch-options.md`.
+
+**Deployed 2026-07-31 to tg5040 Brick** over adb (40 files, all md5-verified
+against local: `minarch.elf` + `options.elf` to `.system/tg5040/bin/`, 7 BASE
++ 30 EXTRAS `options.sh`, `Emulator Settings.pak/launch.sh`). The tg5050
+Smart Pro S was **not connected** — its artifacts are built but NOT deployed
+(see below).
+
+**Verified 2026-07-31 on tg5040 Brick, headless over adb:**
+`minarch.elf --dump-options gpsp_libretro.so` exits 0 with structurally sane
+JSON (sections / enum items, gpsp: 1 section, 13 enum options); the
+`options.sh` cache flow live: `$USERDATA_PATH/GBA-gpsp/options.json`
+generated on first run, condition correctly "fresh" on second run; BusyBox
+ash (`/bin/sh -> busybox`) supports `[ CORE -nt CACHE ]` — `touch` on the
+core flipped the condition to regen, re-dump succeeded, core mtime restored
+after (this closes the deferred Task 5 "-nt not POSIX" finding);
+`options.elf` usage errors exit 2 headlessly (`--minarch-dir` without
+`--json`, and no args). What remains is the UI pass below.
+
+### On-device verification (tg5040 Brick — UI pass, needs a human)
+
+- [x] **Fresh-card path:** verified 2026-07-31 — with the cache dir empty,
+      context-menu Emulator Options on a GBA game generated
+      `GBA-gpsp/options.json` (5.7 KB, valid) and opened the editor with
+      gpsp's options; backing out unchanged wrote no per-game and no console
+      cfg. `gpsp_turbo_period` (117 values) emitted as an int range.
+- [x] **Global edit** — verified 2026-07-31: picker (alphabetical, BASE +
+      EXTRAS) → gpsp → Color Correction On; `minarch-brick.cfg` created with
+      exactly `gpsp_color_correction = enabled`; in-game colors visibly
+      changed at launch; cfg md5-stable after the session.
+- [x] **Per-game edit** — verified 2026-07-31: Frameskip=Auto on Advance
+      Wars created `Advance Wars.gba-brick.cfg` (full 13-key carry-forward
+      incl. console's color-correction), no file for other games. (The
+      "Clear All removes the file" phrasing applies only when nothing
+      non-schema is in it; the richer interplay below is the real check.)
+- [x] **In-game interplay** — verified 2026-07-31: pause menu shows NO
+      Emulator row; in-game "Save for game" grew the same file to an
+      81-line full snapshot (32 binds, `minarch_debug_hud = On`) with the
+      pre-launch values carried through the live session; "Clear All
+      Overrides" then reverted ONLY the core option (frameskip →
+      console-effective `disabled`) and preserved the in-game save
+      byte-intact, file kept.
+- [x] **Multi-disc** — verified 2026-07-31 with a planted `MDTest`
+      folder-m3u game: per-game edit landed in
+      `PS-pcsx_rearmed/MDTest.m3u-brick.cfg` (m3u name, extension kept).
+      Disc-2 nuance is structural: nextui folder games are a single entry
+      that always resolves to the m3u. (Fixture removed after the test.)
+- [x] **Big core** — verified 2026-07-31 on vice_x64: multiple category
+      sections, 113 options all present, manual-crop options step as
+      numeric int ranges (0-60) via the new serializer detection. (FBN
+      swapped out: no FBN roms on the test card — see Gotcha below.)
+- [x] **Locked option** — verified 2026-07-31: `-gpsp_sprlim = disabled`
+      planted in GBA.pak `default.cfg` hid the Sprite Limit row (13 → 12
+      options); the lock lives in a file the editor never writes, so
+      line preservation is structural. (Fixture reverted after the test.)
+- [x] **Picker** — verified 2026-07-31: lists all 39 entries (BASE +
+      EXTRAS, alphabetical after the cap raise to 64 + sort fix); BASE
+      editor launched via picker (gpsp), EXTRAS via picker (32X after the
+      CORES_PATH fix); exiting an editor returns to the list (launch.sh
+      loop replacing the old one-shot `exec`; cursor restarts at top —
+      remembering it would need options.elf cursor state, deliberate
+      simplification).
+
+### Gotchas
+
+- **Late-registering cores (FBNeo) have no pre-launch schema until a game
+  has been launched once.** FBNeo builds its option list (incl. per-game
+  DIP switches) inside `retro_load_game`, which `--dump-options`
+  deliberately never calls — verified 2026-07-31: dump exits 1 with
+  nothing captured, editor shows "Settings unavailable". The launch-time
+  cache refresh fills the schema on the first real game launch; the editor
+  works from then on (with whatever DIP set the last-launched game
+  registered). By design, not a bug; the fresh-card guarantee holds for
+  every core that registers at `retro_set_environment`/`retro_init`
+  (all other cores checked so far).
+
+### Smart Pro S (tg5050) — verified 2026-07-31
+
+- [x] **Deploy** — 42 files pushed and md5-verified (2 binaries with all
+      2026-07-31 fixes, picker launch.sh, 7 BASE + 32 EXTRAS options.sh).
+- [x] **tg5050 twin checks** — headless: gpsp dump exit 0 (schema
+      byte-size-identical to Brick), usage exits 2; UI: picker alphabetical
+      + return-to-list loop works, global Color Correction edit wrote
+      exactly one line to `minarch-smartpros.cfg` (DEVICE=smartpros
+      confirmed set in MinUI env), colors visibly changed in-game, no
+      Emulator row in the pause menu.
+
+**Section fully verified — delete it when the stage is committed.** On
+deletion, move the FBNeo late-registration Gotcha above into
+`workspace/all/emu-options/` docs (it describes permanent core behavior,
+not a bring-up fact).
+
+---
+
 ## N64 pre-launch options + overlay Options removal (built 2026-07-30)
 
 **Status:** Tasks 1-5 (N64 `options.sh` + shared `nx_paths.sh`, the per-game

@@ -36,6 +36,7 @@
 #include "ma_config.h"
 #include "ma_shaders.h"
 #include "ma_options.h"
+#include "ma_opts_dump.h"
 #include "ma_input.h"
 #include "ma_video.h"
 #include "ma_audio.h"
@@ -244,6 +245,9 @@ void hdmimon(void) {
 #define PWR_UPDATE_FREQ_INGAME 20
 
 int main(int argc, char* argv[]) {
+	if (argc == 4 && !strcmp(argv[1], "--dump-options"))
+		return OptsDump_run(argv[2], argv[3]);
+
 	pthread_t cpucheckthread;
 	pthread_attr_t attr;
 	pthread_attr_init(&attr);

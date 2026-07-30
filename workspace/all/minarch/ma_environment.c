@@ -4,6 +4,7 @@
 #include "ma_input.h"
 #include "ma_config.h"
 #include "ma_options.h"
+#include "ma_opts_dump.h"
 #include "ra_integration.h"
 #include "gbalink.h"
 
@@ -114,6 +115,7 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		// puts("RETRO_ENVIRONMENT_SET_VARIABLES");
 		const struct retro_variable* vars = (const struct retro_variable*)data;
 		if (vars) {
+			OptsCache_refreshVars(vars);
 			OptionList_reset();
 			OptionList_vars(vars);
 		}
@@ -227,6 +229,7 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 	case RETRO_ENVIRONMENT_SET_CORE_OPTIONS: { /* 53 */
 		// puts("RETRO_ENVIRONMENT_SET_CORE_OPTIONS");
 		if (data) {
+			OptsCache_refreshV1((const struct retro_core_option_definition*)data);
 			OptionList_reset();
 			OptionList_init((const struct retro_core_option_definition*)data);
 			Config_readOptions();
@@ -237,6 +240,7 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		// puts("RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL");
 		const struct retro_core_options_intl* options = (const struct retro_core_options_intl*)data;
 		if (options && options->us) {
+			OptsCache_refreshV1(options->us);
 			OptionList_reset();
 			OptionList_init(options->us);
 			Config_readOptions();
@@ -299,6 +303,7 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 	case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2: { /* 67 */
 		// puts("RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2");
 		if (data) {
+			OptsCache_refreshV2((const struct retro_core_options_v2*)data);
 			OptionList_reset();
 			OptionList_v2_init((const struct retro_core_options_v2*)data);
 		}
@@ -308,6 +313,7 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		// puts("RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL");
 		if (data) {
 			const struct retro_core_options_v2_intl* intl = (const struct retro_core_options_v2_intl*)data;
+			OptsCache_refreshV2(intl->us);
 			OptionList_reset();
 			OptionList_v2_init(intl->us);
 		}

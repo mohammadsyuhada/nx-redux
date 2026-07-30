@@ -15,6 +15,53 @@ Neither file is a changelog — delete an entry when it lands, don't mark it don
 
 ---
 
+## Merge EXTRAS Emus + Tools into `.system` (SD folders become pure override layers)
+
+**Decided:** 2026-07-31, after the minarch pre-launch options rollout exposed the
+core problem: redux ships six broken `options.sh` files to `/Emus`-installed paks and
+a zip update would never have fixed them, because updates only replace `.system`.
+Redux's paks (N64, NDS, DC, PortMaster, all minarch paks, every Tool) are redux
+components with actively-maintained scripts, not optional add-ons — updates MUST be
+able to replace their `launch.sh`/`options.sh`/`default.cfg`.
+
+**Decision (made, not open):** ship all Emus and Tools paks inside
+`.system/<platform>/paks/`, and keep `/Emus/<platform>/` + `/Tools/<platform>/` as
+pure override/community layers. The precedence machinery already exists and keeps
+working unchanged: `getEmuPath` prefers SD (`utils.c:439-444`), the Emulator Settings
+picker scans both with SD-wins, nextui's probes resolve through `getEmuPath`. Users
+who want to customize a pak create an override copy in `/Emus` — they no longer edit
+shipped files in place.
+
+**Migration policy (the hard part — decided in principle):** existing cards have
+redux-shipped paks in `/Emus` that would shadow the fresh system paks forever. On
+update, for each SD pak whose tag matches a system pak:
+
+- every file matches a hash redux **ever shipped** for that pak → stale redux copy,
+  delete it;
+- anything differs → deliberate user override, leave it (and surface a one-line
+  notice so shadowing is never silent).
+
+The "ever shipped" manifest is generated mechanically from git history of
+`skeleton/EXTRAS/` (finite per-pak file-hash set, shipped in `.system`). Note the
+cfg nuance this gets right: an untouched old `default.cfg` hashes as shipped and is
+cleaned; an edited one survives as an override.
+
+- [ ] Manifest generator (git-history sweep of `skeleton/EXTRAS/` → per-pak hash
+      list shipped in `.system`), plus updater logic applying the policy above.
+- [ ] nextui Tools menu: scan `$PAKS_PATH/Tools` alongside `/Tools`, SD wins —
+      mirror of the Emus precedence.
+- [ ] Packaging: move `skeleton/EXTRAS/{Emus,Tools}` content into the SYSTEM tree
+      (or repackage at build time); rework top-level Makefile `tidy`/`package`
+      targets and the per-device zips. `.system` grows substantially (bundled
+      cores, drastic, ppsspp are the bulk) — measure and accept.
+- [ ] Read-only overlay / restore-to-stock file lists must learn the new layout.
+- [ ] Upgrade test matrix: fresh card; upgrade with stale redux paks in `/Emus`
+      (expect cleanup); upgrade with a user-customized pak (expect survival +
+      notice); community pak with a tag redux doesn't ship (untouched).
+- [ ] Decide what, if anything, remains of the EXTRAS distribution zip.
+
+---
+
 ## nextui: renaming a ROM must update collection records that reference it
 
 **Requested:** 2026-07-30, after on-device verification of the folder-game rename
@@ -51,50 +98,6 @@ one-line snapshot here.
 
 - [ ] Snapshot `entry->type` before `Entry_open` in the BTN_A branch; audit the rest of
       `gamelist.c` for any other `entry` deref after `Entry_open`/`openDirectory`.
-
----
-
-## Pre-launch options: minarch adoption
-
-**Recorded:** 2026-07-29, alongside the DC pre-launch options build (see
-`docs/superpowers/specs/2026-07-29-dc-prelaunch-options-design.md`). flycast/DC was
-the first adopter; N64/mupen64plus followed 2026-07-30
-(`docs/superpowers/specs/2026-07-30-n64-prelaunch-options-design.md`, now in
-`DEV_CHECKLIST.md`). Both have adopted — minarch is the remaining deliberate
-follow-up.
-
-The mechanism is already generic: `options.elf` is schema-driven, nextui's
-context-menu probe and the `Emulator Settings` picker both key off nothing but
-"does this pak ship an `options.sh`", and no part of either is flycast-specific.
-Adopting an emulator is therefore adding an `options.sh` plus whatever the
-emulator's own config storage needs.
-
-- [ ] **minarch cores** — much harder than N64, and **not** a copy of DC's
-      `options.sh`. Two real obstacles, both worth settling before any code:
-      1. *Storage.* minarch already has its own layered config and its own per-game
-         tier — `Config_getPath` (`ma_config.c:1113`) writes either
-         `minarch[-device].cfg` (console) or `<alt_name>[-device].cfg` (that one
-         game), read on top of a system cfg and the pak's default cfg. Per-game
-         values must go into that existing game-tier file, not a new override INI, so
-         an adapter has to translate both directions — or `options.elf` grows a
-         second storage backend. The *convention* is at least shared: minarch collapses
-         a folder-m3u game's discs to one key too (`ma_game.c:110-136`). The strings
-         differ, though — minarch's `alt_name` keeps the extension (`Game.m3u` →
-         `Game.m3u[-device].cfg`) where `nx_rom_base()` drops it (`Game`) — so an
-         adapter still has to translate the filename, not just reuse it.
-      2. *Schema.* minarch's option list is **not** static: `config.core.options` is
-         filled in by the core at runtime via `RETRO_ENVIRONMENT_SET_CORE_OPTIONS`
-         (`ma_environment.c:227`). A hand-written JSON schema per core would drift
-         silently, so a pre-launch editor needs either a generated/cached schema (dump
-         it on first launch from the live core, then edit against the cache) or to
-         `dlopen` the core just to enumerate — neither of which the DC path had to
-         solve. This, not the shell plumbing, is the actual piece of work.
-
-Note the two shared-overlay emulators (flycast and mupen64plus) had their in-game
-overlay Options screen removed outright when they adopted — `emu_overlay.c`'s
-Options UI is gone and there is no `EMU_OVERLAY_HIDE_OPTIONS` gate anymore. minarch
-does not use `emu_overlay.c` at all, so retiring **its** in-game options screen is a
-separate change in minarch's own menu code.
 
 ---
 

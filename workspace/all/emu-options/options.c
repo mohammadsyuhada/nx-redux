@@ -1,7 +1,7 @@
 /*
  * options.elf — pre-launch emulator options editor and emulator picker.
  *
- * Three modes, one binary (the CLI shape Tasks 4/5 script against):
+ * Four modes, one binary (the CLI shape Tasks 4/5 script against):
  *
  *   options.elf --json J --ini I --game NAME
  *       Global mode. Edits the device-wide emulator config (flycast's
@@ -12,6 +12,13 @@
  *       minimal per-game override file that carries just the diff (see
  *       opts_override.h). Rows that differ from the global value are marked
  *       with a leading "* ".
+ *
+ *   options.elf --json J --minarch-dir D [--minarch-game NAME]
+ *               [--minarch-system P] [--minarch-default P] --game NAME
+ *       Minarch mode. Edits minarch's layered flat cfg files (see
+ *       opts_minarch.h): global edits land in D/minarch[-$DEVICE].cfg,
+ *       --minarch-game switches to the full-snapshot per-game file. Mutually
+ *       exclusive with --ini/--override.
  *
  *   options.elf --pick --entry NAME PATH [--entry NAME PATH ...]
  *       Emulator picker. Prints the chosen PATH on stdout and nothing else,
@@ -26,6 +33,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h> // strcasecmp, for the picker's alphabetical sort
 #include <unistd.h>
 
 #include <msettings.h>
@@ -33,6 +41,7 @@
 #include "defines.h"
 #include "api.h"
 #include "emu_overlay_cfg.h"
+#include "opts_minarch.h"
 #include "opts_override.h"
 #include "ui_buttonhintbar.h"
 #include "ui_list.h"
@@ -41,7 +50,11 @@
 #include "ui_splash.h"
 
 // --entry pairs accepted in picker mode; extras are reported and dropped.
-#define MAX_PICK_ENTRIES 16
+// A card carrying every minarch EXTRAS pak plus DC/N64 plus the 7 BASE paks
+// offers 39 entries (seen in the field 2026-07-31 — the BASE paks, appended
+// last by Emulator Settings.pak, were all silently dropped at 32), so the
+// cap needs real headroom above the worst known card.
+#define MAX_PICK_ENTRIES 64
 // Longest screen is a section's items plus the trailing reset row.
 #define MAX_ROWS (EMU_OVL_MAX_ITEMS + 1)
 /*
@@ -59,10 +72,15 @@
 // How long a terminal message stays up before the process moves on (ms).
 #define OPTS_MESSAGE_MS 2000
 
-// EmuOvlConfig is ~1.3 MB (16 sections x 32 items x a 2.5 KB item) and
-// OptsOverrideState another ~2.5 KB; neither belongs on this binary's stack.
+// EmuOvlConfig is ~11 MB at this binary's raised limits (32 sections x 64
+// items x a ~5 KB item — see the Makefile's -DEMU_OVL_MAX_* line) and the
+// two state structs another ~20 KB. None of that belongs on any stack, and
+// as BSS it costs nothing until touched: zero-fill pages are only committed
+// on write, and this is a standalone process that lives for one edit session
+// and exits.
 static EmuOvlConfig cfg;
 static OptsOverrideState st;
+static OptsMinarchState mst;
 
 // Row text for whichever list is on screen, rebuilt on every state change and
 // after every edit.
@@ -250,6 +268,23 @@ static int run_picker(int argc, char** argv, const char** out_path) {
 	if (count == 0)
 		return 2;
 
+	// Alphabetical, case-insensitive. Entries arrive in the caller's glob
+	// order — SD paks first, then BASE paks appended by Emulator
+	// Settings.pak — which puts "Game Boy Advance" after "Virtual Boy";
+	// sorting here keeps every caller consistent without shell-side gymnastics.
+	for (int i = 1; i < count; i++) {
+		const char* n = names[i];
+		const char* p = paths[i];
+		int j = i - 1;
+		while (j >= 0 && strcasecmp(names[j], n) > 0) {
+			names[j + 1] = names[j];
+			paths[j + 1] = paths[j];
+			j--;
+		}
+		names[j + 1] = n;
+		paths[j + 1] = p;
+	}
+
 	int selected = 0;
 	int scroll = 0;
 	bool dirty = true;
@@ -315,6 +350,11 @@ static void cycle_item(EmuOvlItem* item, int dir) {
 		else if (item->staged_value < item->int_min)
 			item->staged_value = item->int_min;
 		break;
+	case EMU_OVL_TYPE_ENUM:
+		if (item->value_count <= 0)
+			break;
+		item->staged_value = (item->staged_value + dir + item->value_count) % item->value_count;
+		break;
 	}
 }
 
@@ -355,6 +395,8 @@ static void row_label(const EmuOvlItem* item, bool overridden, char* out, int ou
 // visible immediately, and it prefers the schema's human label over
 // emu_ovl_cfg_format_value's output — that formatter speaks the INI's dialect
 // ("True"/"False", raw ints), which is right for the file and wrong for a row.
+// ENUM rows ride the same label scan (values[i] == i for enums), and the
+// format_value fallback prints the raw value string.
 static void row_value_text(const EmuOvlItem* item, char* out, int out_size) {
 	const char* human = NULL;
 
@@ -569,6 +611,10 @@ int main(int argc, char* argv[]) {
 	const char* ini_path = NULL;
 	const char* override_path = NULL;
 	const char* game_name = NULL;
+	const char* minarch_dir = NULL;
+	const char* minarch_game = NULL;
+	const char* minarch_system = NULL;
+	const char* minarch_default = NULL;
 	bool pick = false;
 	int entry_count = 0;
 
@@ -586,6 +632,14 @@ int main(int argc, char* argv[]) {
 			override_path = argv[++i];
 		} else if (strcmp(arg, "--game") == 0 && has_value) {
 			game_name = argv[++i];
+		} else if (strcmp(arg, "--minarch-dir") == 0 && has_value) {
+			minarch_dir = argv[++i];
+		} else if (strcmp(arg, "--minarch-game") == 0 && has_value) {
+			minarch_game = argv[++i];
+		} else if (strcmp(arg, "--minarch-system") == 0 && has_value) {
+			minarch_system = argv[++i];
+		} else if (strcmp(arg, "--minarch-default") == 0 && has_value) {
+			minarch_default = argv[++i];
 		} else if (strcmp(arg, "--entry") == 0 && i + 2 < argc) {
 			entry_count++;
 			i += 2; // run_picker re-walks argv for these
@@ -601,8 +655,16 @@ int main(int argc, char* argv[]) {
 		fprintf(stderr, "options: --pick needs at least one '--entry NAME PATH'\n");
 		return 2;
 	}
-	if (!pick && (!json_path || !ini_path)) {
+	if (!pick && minarch_dir && (ini_path || override_path)) {
+		fprintf(stderr, "options: --minarch-dir is exclusive with --ini/--override\n");
+		return 2;
+	}
+	if (!pick && !minarch_dir && (!json_path || !ini_path)) {
 		fprintf(stderr, "options: --json and --ini are required\n");
+		return 2;
+	}
+	if (!pick && minarch_dir && !json_path) {
+		fprintf(stderr, "options: --minarch-dir requires --json\n");
 		return 2;
 	}
 
@@ -627,6 +689,29 @@ int main(int argc, char* argv[]) {
 
 	if (pick) {
 		exit_code = run_picker(argc, argv, &picked_path);
+	} else if (minarch_dir) {
+		if (emu_ovl_cfg_load(&cfg, json_path) != 0) {
+			fprintf(stderr, "options: failed to load schema %s\n", json_path);
+			show_message("Settings unavailable", OPTS_MESSAGE_MS);
+			exit_code = 1;
+		} else if (opts_minarch_load(&cfg, &mst, &st, minarch_system, minarch_default,
+									 minarch_dir, minarch_game) != 0) {
+			fprintf(stderr, "options: failed to read minarch config in %s\n", minarch_dir);
+			show_message("Settings unavailable", OPTS_MESSAGE_MS);
+			exit_code = 1;
+		} else {
+			// opts_minarch_load filled st with the console baseline, so the
+			// per-game markers, counts and resets below are the exact same
+			// machinery the --override path uses.
+			bool per_game = (minarch_game != NULL);
+			run_editor(game_name ? game_name : "Emulator Settings", per_game);
+			if (opts_minarch_save(&cfg, &mst, &st) < 0) {
+				fprintf(stderr, "options: failed to save minarch config\n");
+				show_message("Failed to save - check SD card", OPTS_MESSAGE_MS);
+			}
+			opts_minarch_free(&mst);
+			emu_ovl_cfg_free(&cfg);
+		}
 	} else if (emu_ovl_cfg_load(&cfg, json_path) != 0) {
 		fprintf(stderr, "options: failed to load schema %s\n", json_path);
 		show_message("Settings unavailable", OPTS_MESSAGE_MS);

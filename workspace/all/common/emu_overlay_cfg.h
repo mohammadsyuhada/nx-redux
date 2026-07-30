@@ -3,24 +3,41 @@
 
 #include <stdbool.h>
 
+#ifndef EMU_OVL_MAX_SECTIONS
 #define EMU_OVL_MAX_SECTIONS 16
+#endif
+#ifndef EMU_OVL_MAX_ITEMS
 #define EMU_OVL_MAX_ITEMS 32
+#endif
+#ifndef EMU_OVL_MAX_VALUES
 #define EMU_OVL_MAX_VALUES 16
+#endif
+#ifndef EMU_OVL_MAX_STR
 #define EMU_OVL_MAX_STR 128
+#endif
+// Item descriptions; larger in the pre-launch editor build, where core info
+// strings routinely exceed EMU_OVL_MAX_STR.
+#ifndef EMU_OVL_MAX_DESC
+#define EMU_OVL_MAX_DESC EMU_OVL_MAX_STR
+#endif
 
 typedef enum {
 	EMU_OVL_TYPE_BOOL,
 	EMU_OVL_TYPE_CYCLE,
-	EMU_OVL_TYPE_INT
+	EMU_OVL_TYPE_INT,
+	EMU_OVL_TYPE_ENUM
 } EmuOvlItemType;
 
 typedef struct {
 	char key[EMU_OVL_MAX_STR];
 	char label[EMU_OVL_MAX_STR];
-	char description[EMU_OVL_MAX_STR];
+	char description[EMU_OVL_MAX_DESC];
 	EmuOvlItemType type;
 	int values[EMU_OVL_MAX_VALUES];
 	char labels[EMU_OVL_MAX_VALUES][EMU_OVL_MAX_STR];
+	// ENUM only: heap-owned value strings (index == the item's internal int
+	// value). NULL for other types. Freed by emu_ovl_cfg_free.
+	char* svalues[EMU_OVL_MAX_VALUES];
 	int value_count;
 	int int_min, int_max, int_step;
 	int float_scale; // >0: INI value is float; multiply by scale to get int, divide when writing
@@ -75,5 +92,9 @@ bool emu_ovl_cfg_parse_value(const EmuOvlItem* item, const char* str, int* out_v
 // goes through. `value` is explicit so callers can format either the staged
 // or the current value. Always NUL-terminates when out_size > 0.
 void emu_ovl_cfg_format_value(const EmuOvlItem* item, int value, char* out, int out_size);
+
+// ENUM only: index of `value` in svalues, appending it (label = the value
+// string) when absent and there is room. -1 when full or not an enum.
+int emu_ovl_cfg_enum_intern(EmuOvlItem* item, const char* value);
 
 #endif
