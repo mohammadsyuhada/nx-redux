@@ -286,12 +286,83 @@ static int parse_ini_int(const char* val) {
 	return atoi(val);
 }
 
+// Convert an INI string to this item's internal int representation. Sole
+// owner of the per-type dispatch: emu_ovl_cfg_read_ini and the public
+// emu_ovl_cfg_parse_value both route through here so the overlay, the
+// pre-launch options editor and launch.sh can never disagree about what a
+// stored value means.
+static int parse_item_value(const EmuOvlItem* item, const char* val) {
+	switch (item->type) {
+	case EMU_OVL_TYPE_BOOL:
+		return parse_ini_bool(val);
+	case EMU_OVL_TYPE_CYCLE:
+	case EMU_OVL_TYPE_INT:
+		if (item->float_scale > 0)
+			return (int)(atof(val) * item->float_scale + 0.5);
+		return parse_ini_int(val);
+	default:
+		return parse_ini_int(val);
+	}
+}
+
+// Whole string is a well-formed decimal/float number (no leading sign-only,
+// no trailing junk). Leading whitespace is tolerated by strtod; callers are
+// expected to have trimmed already.
+static bool str_is_number(const char* s) {
+	if (!s || !*s)
+		return false;
+	char* end = NULL;
+	strtod(s, &end);
+	return end != NULL && end != s && *end == '\0';
+}
+
 // Get the effective INI section name for a config section.
 // Uses per-section ini_section if set, otherwise falls back to global config_section.
 static const char* get_ini_section(const EmuOvlConfig* cfg, const EmuOvlSection* sec) {
 	if (sec->ini_section[0] != '\0')
 		return sec->ini_section;
 	return cfg->config_section;
+}
+
+const char* emu_ovl_cfg_section_name(const EmuOvlConfig* cfg, int sec_idx) {
+	if (sec_idx < 0 || sec_idx >= cfg->section_count)
+		return cfg->config_section;
+	return get_ini_section(cfg, &cfg->sections[sec_idx]);
+}
+
+EmuOvlItem* emu_ovl_cfg_find_item(EmuOvlConfig* cfg, const char* ini_section, const char* key, int* out_sec, int* out_item) {
+	if (!cfg || !ini_section || !key)
+		return NULL;
+	for (int s = 0; s < cfg->section_count; s++) {
+		if (strcmp(emu_ovl_cfg_section_name(cfg, s), ini_section) != 0)
+			continue;
+		for (int i = 0; i < cfg->sections[s].item_count; i++) {
+			if (strcmp(cfg->sections[s].items[i].key, key) == 0) {
+				if (out_sec)
+					*out_sec = s;
+				if (out_item)
+					*out_item = i;
+				return &cfg->sections[s].items[i];
+			}
+		}
+	}
+	return NULL;
+}
+
+bool emu_ovl_cfg_parse_value(const EmuOvlItem* item, const char* str, int* out_value) {
+	if (!item || !str || !*str)
+		return false;
+	// Numeric types must actually look numeric. read_ini's atoi/atof
+	// tolerance is fine when re-reading a file we wrote ourselves, but a
+	// per-game override file is arbitrary input and garbage silently
+	// collapsing to 0 would look like a deliberate setting. Bools stay
+	// total, exactly as read_ini treats them (anything not true-ish is 0).
+	if (item->type != EMU_OVL_TYPE_BOOL && !str_is_number(str))
+		return false;
+	int val = parse_item_value(item, str);
+	if (out_value)
+		*out_value = val;
+	return true;
 }
 
 int emu_ovl_cfg_read_ini(EmuOvlConfig* cfg, const char* ini_path) {
@@ -351,22 +422,7 @@ int emu_ovl_cfg_read_ini(EmuOvlConfig* cfg, const char* ini_path) {
 				if (strcmp(item->key, ini_key) != 0)
 					continue;
 
-				int val;
-				switch (item->type) {
-				case EMU_OVL_TYPE_BOOL:
-					val = parse_ini_bool(ini_val);
-					break;
-				case EMU_OVL_TYPE_CYCLE:
-				case EMU_OVL_TYPE_INT:
-					if (item->float_scale > 0)
-						val = (int)(atof(ini_val) * item->float_scale + 0.5);
-					else
-						val = parse_ini_int(ini_val);
-					break;
-				default:
-					val = parse_ini_int(ini_val);
-					break;
-				}
+				int val = parse_item_value(item, ini_val);
 
 				item->current_value = val;
 				item->staged_value = val;
@@ -383,22 +439,36 @@ int emu_ovl_cfg_read_ini(EmuOvlConfig* cfg, const char* ini_path) {
 // INI writing — preserve entire file, only replace matching keys in [section]
 // ---------------------------------------------------------------------------
 
-// Helper: write a single item's value to file
-static void write_item_value(FILE* out, const EmuOvlItem* item) {
+// The one and only value formatter. Widest output is a float_scale value
+// ("-2147483648.000000", 18 chars), so 64 bytes is always enough for the
+// callers below.
+void emu_ovl_cfg_format_value(const EmuOvlItem* item, int value, char* out, int out_size) {
+	if (!out || out_size <= 0)
+		return;
+	out[0] = '\0';
+	if (!item)
+		return;
 	switch (item->type) {
 	case EMU_OVL_TYPE_BOOL:
-		fprintf(out, "%s = %s\n", item->key,
-				item->staged_value ? "True" : "False");
+		snprintf(out, (size_t)out_size, "%s", value ? "True" : "False");
 		break;
 	case EMU_OVL_TYPE_CYCLE:
 	case EMU_OVL_TYPE_INT:
 		if (item->float_scale > 0)
-			fprintf(out, "%s = %f\n", item->key,
-					(double)item->staged_value / item->float_scale);
+			snprintf(out, (size_t)out_size, "%f", (double)value / item->float_scale);
 		else
-			fprintf(out, "%s = %d\n", item->key, item->staged_value);
+			snprintf(out, (size_t)out_size, "%d", value);
 		break;
 	}
+}
+
+// Helper: write a single item's value to file. The "key = value" spacing is
+// load-bearing — flycast's ConfigFile::save() writes exactly this and
+// DC.pak/launch.sh's sed patterns ("^$key =") match on it.
+static void write_item_value(FILE* out, const EmuOvlItem* item) {
+	char value[64];
+	emu_ovl_cfg_format_value(item, item->staged_value, value, sizeof(value));
+	fprintf(out, "%s = %s\n", item->key, value);
 }
 
 // Dirty item tracking with its target INI section name

@@ -84,6 +84,8 @@ typedef struct {
 	char screenshot_dir[512];		   // e.g. /mnt/SDCARD/.userdata/shared/.minui/N64
 	char rom_file[256];				   // e.g. "Super Mario 64.z64"
 	int slot_icons[EMU_OVL_MAX_SLOTS]; // icon_id per slot, -1 = none
+
+	bool hide_options; // EMU_OVERLAY_HIDE_OPTIONS=1: options edited pre-launch instead
 } EmuOvl;
 
 int emu_ovl_init(EmuOvl* ovl, EmuOvlConfig* cfg, EmuOvlRenderBackend* render,

@@ -46,6 +46,7 @@ int autoResume(void);
 
 // Game launching
 void openPak(char* path);
+void openScript(char* script_path, char* arg, char* last_path);
 void openRom(char* path, char* last);
 void Entry_open(Entry* self);
 

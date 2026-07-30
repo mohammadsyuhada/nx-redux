@@ -15,6 +15,108 @@ Neither file is a changelog — delete an entry when it lands, don't mark it don
 
 ---
 
+## nextui: renaming a ROM must update collection records that reference it
+
+**Requested:** 2026-07-30, after on-device verification of the folder-game rename
+(renaming `Multidisc Test` → `mdisk` left `Collections/qq.txt` pointing at the old
+`.m3u` path, so the game silently dropped out of the collection — `getCollection`
+skips lines whose path no longer exists).
+
+`doRename`/`renameRomFiles` (`gamelist.c`) already sweep saves, states and art to the
+new basename, but never touch `Collections/*.txt`. Fix: after a successful rename, scan
+every `Collections/*.txt` for lines referencing the renamed entry and rewrite them
+in place.
+
+- [ ] Plain ROM rename: rewrite lines whose SD-relative path matches the old rom path
+      (the collection stores the exact path `addRomToCollectionFile` wrote).
+- [ ] Folder-game rename: the collection line points at the folder-named cue/m3u
+      INSIDE the folder, so two path components change
+      (`/Roms/DC/Old/Old.m3u` → `/Roms/DC/New/New.m3u`) — match on the old folder
+      prefix + old basename, not string equality alone.
+- [ ] Check `Collections/map.txt` (display-alias map, see `content.c`'s map handling)
+      for path-keyed entries and rewrite those too if they exist.
+- [ ] Same sweep on DELETE is the natural sibling (prune lines referencing the deleted
+      rom/folder) — decide whether to include it while in there; today a delete also
+      leaves dangling collection lines, they're just invisible because
+      `getCollection` filters non-existent paths.
+
+**Recorded:** 2026-07-30, found during review of the folder-game context-menu change.
+
+`gamelist.c`'s BTN_A branch reads `entry->type` after `Entry_open(entry)` (around
+`gamelist.c:985`). `Entry_open` → `openDirectory` can free the whole directory stack on
+its non-direct-subdirectory path (`launcher.c:512`), leaving `entry` dangling — the same
+defect class the folder-game change fixed at its two netplay sites with a
+`bool was_dir = entry->type == ENTRY_DIR;` snapshot taken before the call. Apply the same
+one-line snapshot here.
+
+- [ ] Snapshot `entry->type` before `Entry_open` in the BTN_A branch; audit the rest of
+      `gamelist.c` for any other `entry` deref after `Entry_open`/`openDirectory`.
+
+---
+
+## Pre-launch options: N64 + minarch adoption
+
+**Recorded:** 2026-07-29, alongside the DC pre-launch options build (see
+`DEV_CHECKLIST.md`'s "Dreamcast pre-launch options" section and
+`docs/superpowers/specs/2026-07-29-dc-prelaunch-options-design.md`). Scoped out of
+that effort on purpose — flycast/DC was the first adopter, everything else is the
+deliberate follow-up.
+
+The mechanism is already generic: `options.elf` is schema-driven, nextui's
+context-menu probe and the `Emulator Settings` picker both key off nothing but
+"does this pak ship an `options.sh`", and no part of either is flycast-specific.
+Adopting an emulator is therefore adding an `options.sh` plus whatever the
+emulator's own config storage needs.
+
+- [ ] **N64 (`N64.pak`)** — the smaller of the two, and mostly already in place:
+      the schema exists (`skeleton/EXTRAS/Emus/shared/mupen64plus/overlay_settings.json`,
+      `config_section = Video-GLideN64`, config file `mupen64plus.cfg`), and
+      mupen64plus takes command-line config overrides as
+      `--set Section[KEY]=VALUE` — which `launch.sh` already uses for the audio rate
+      (`AUDIO_OVERRIDE`, tg5040 `launch.sh:125`). So the work is: an `options.sh`
+      (with a `# NAME:` line so the Emulator Settings picker labels it, modeled on
+      `skeleton/EXTRAS/Emus/tg5040/DC.pak/options.sh`), the same `nx_paths.sh`-style
+      split of config-dir resolution + seeding out of `launch.sh`, and an awk step
+      emitting `--set Sec[KEY]=v` instead of `-config sec:key=v`.
+      **Verify before relying on it:** that `--set` is a virtual/runtime override
+      and mupen64plus does not write those values back into `mupen64plus.cfg` on
+      exit. flycast's `-config` is explicitly virtual (`cfgSetVirtual`); if
+      mupen64plus persists instead, the whole point of the design is lost and the
+      per-game half needs another mechanism (write-launch-restore is NOT acceptable —
+      that is exactly the config-rewriting problem this avoids), leaving
+      global-mode-only as the honest fallback for N64.
+- [ ] **minarch cores** — much harder than N64, and **not** a copy of DC's
+      `options.sh`. Two real obstacles, both worth settling before any code:
+      1. *Storage.* minarch already has its own layered config and its own per-game
+         tier — `Config_getPath` (`ma_config.c:1113`) writes either
+         `minarch[-device].cfg` (console) or `<alt_name>[-device].cfg` (that one
+         game), read on top of a system cfg and the pak's default cfg. Per-game
+         values must go into that existing game-tier file, not a new override INI, so
+         an adapter has to translate both directions — or `options.elf` grows a
+         second storage backend. The *convention* is at least shared: minarch collapses
+         a folder-m3u game's discs to one key too (`ma_game.c:110-136`). The strings
+         differ, though — minarch's `alt_name` keeps the extension (`Game.m3u` →
+         `Game.m3u[-device].cfg`) where `nx_rom_base()` drops it (`Game`) — so an
+         adapter still has to translate the filename, not just reuse it.
+      2. *Schema.* minarch's option list is **not** static: `config.core.options` is
+         filled in by the core at runtime via `RETRO_ENVIRONMENT_SET_CORE_OPTIONS`
+         (`ma_environment.c:227`). A hand-written JSON schema per core would drift
+         silently, so a pre-launch editor needs either a generated/cached schema (dump
+         it on first launch from the live core, then edit against the cache) or to
+         `dlopen` the core just to enumerate — neither of which the DC path had to
+         solve. This, not the shell plumbing, is the actual piece of work.
+- [ ] **Hide the in-game entry last, not first.** Only once an emulator's per-game
+      path actually works should its `launch.sh` export
+      `EMU_OVERLAY_HIDE_OPTIONS=1` — the gate is per-pak (`emu_overlay.c`'s
+      `hide_options`), so a half-adopted emulator that hides in-game Options while its
+      pre-launch editor can't set per-game values leaves users with no way to change
+      anything. Note the env var only covers the two shared-overlay emulators
+      (flycast and mupen64plus, via `flycast.patch` / `GLideN64-standalone.patch`);
+      minarch does not use `emu_overlay.c` at all, so retiring **its** in-game options
+      screen is a separate change in minarch's own menu code.
+
+---
+
 ## Netplay wizard: minarch migration
 
 **Recorded:** 2026-07-29, alongside the DC pre-launch wizard build (see
@@ -207,4 +309,22 @@ hardware bring-up (that checklist lives in `DEV_CHECKLIST.md`).
       by side. **Blocked on an asset:** a 1024×768 pair does not exist anywhere in the
       repo. Until one is produced the file correctly stays in `common/`, since there is
       only one variant to ship.
+
+---
+
+## DC pre-launch options: no launch transition into the editor (cosmetic)
+
+**Recorded:** 2026-07-30, noted while moving the pre-launch options gotchas into
+`workspace/all/other/flycast/README.md`.
+
+Opening "Emulator Options" from the game-list context menu doesn't play the
+usual into-game transition. `gamelist.c`'s case 36 (the pre-launch editor
+launch) doesn't set nextui's `startgame` flag, so the screen-blank-out at
+`nextui.c:265-268` is skipped and the game list stays visible until the editor
+draws over it. Cosmetic only — decide on-device how it actually looks before
+choosing whether it's worth setting the flag (which would blank the screen on
+the way in, matching a normal launch).
+
+- [ ] On device, watch the transition into the editor from the context menu and
+      decide whether to set `startgame` in `gamelist.c` case 36.
 

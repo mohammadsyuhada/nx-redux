@@ -203,6 +203,24 @@ void openPak(char* path) {
 	snprintf(cmd, sizeof(cmd), "'%s/launch.sh'", escapeSingleQuotes(escaped_path, sizeof(escaped_path)));
 	queueNext(cmd);
 }
+void openScript(char* script_path, char* arg, char* last_path) {
+	// Tools-style round trip: run a pak script and come back to this list
+	// position (saveLast is what loadLast() restores from on relaunch).
+	saveLast(last_path);
+
+	// escapeSingleQuotes modifies its buffer, so use separate copies.
+	char escaped_script[MAX_PATH];
+	strncpy(escaped_script, script_path, sizeof(escaped_script) - 1);
+	escaped_script[sizeof(escaped_script) - 1] = '\0';
+
+	char escaped_arg[MAX_PATH];
+	strncpy(escaped_arg, arg, sizeof(escaped_arg) - 1);
+	escaped_arg[sizeof(escaped_arg) - 1] = '\0';
+
+	char cmd[MAX_PATH * 2];
+	snprintf(cmd, sizeof(cmd), "'%s' '%s'", escapeSingleQuotes(escaped_script, sizeof(escaped_script)), escapeSingleQuotes(escaped_arg, sizeof(escaped_arg)));
+	queueNext(cmd);
+}
 void openRom(char* path, char* last) {
 	LOG_info("openRom(%s,%s)\n", path, last);
 

@@ -18,8 +18,12 @@ rewritten DC.pak `launch.sh`) are built, compile clean on both platforms, and st
 (not committed). This supersedes the shell-based overlay-toggle flow entirely — see
 `workspace/all/other/flycast/README.md`'s Netplay chapter for what changed and why, and
 `docs/superpowers/specs/2026-07-29-netplay-prelaunch-wizard-design.md` for the design.
-**None of it has been run on real hardware yet** — every item below is a pending
-device check, not a regression from something that used to pass.
+**Verified 2026-07-29/30 on tg5040 Brick** (WiFi pairing + session in real use; solo
+failure-path pass over adb: rc contracts — no `--game` rc=2, `--cleanup` no-op rc=0 —
+first-screen cancel, hotspot AP up/`NextUI-<code>`/teardown-on-cancel within budget,
+kill-and-heal of an orphaned AP healed instantly, migration guard rewrote planted
+`GGPO=yes`/`device2=0`, `emu.cfg` md5 stable across all cancels). What remains below is
+the two-device pair matrix and its bundled checks.
 
 Shape of the shipped feature: `Y` on a netplay-capable ROM (Phase 1: DC.pak only,
 marked by a `netplay` file beside its `launch.sh`) writes `/tmp/netplay_launch` and
@@ -37,24 +41,12 @@ restores prior WiFi, stops a stray rsyncd, and removes the session file, bounded
 
 ### On-device verification
 
-- [ ] **Wizard solo, one device (Task 1/2/3/6 bring-up)**
-      — marker present/absent correctly gates the Y hint, the Y branch, and the
-      "Launch with Netplay" context item (present in ROM listings; per Task 1's own
-      notes, unreachable from the context menu at root, though Y itself works there);
-      Y writes `/tmp/netplay_launch` and launches exactly like an A press otherwise;
-      `START` opens root Search where `Y` used to.
-      Every wizard screen renders and `B` backs out one step at a time; `B` on the
-      very first screen exits the wizard (rc=1) and `launch.sh` returns to the game
-      list without ever starting flycast. Invoking `netplay.elf` with no `--game`
-      exits rc=2; `--cleanup` with no session file present is a harmless no-op (rc=0).
-      Hotspot host brings up `NextUI-<code>` and it is joinable from a second device
-      (or a phone); the WiFi picker scans and connects on a real LAN (not just the
-      bench fake-peer rig); a wrong password, then `B`, leaves other networks still
-      selectable. A stale session file left by a simulated kill is healed (hotspot
-      torn down / WiFi restored) before the wizard's very first menu appears.
 - [ ] **Pair test, Brick ↔ Smart Pro S, a netplay-capable DC game (e.g. MvC2), all
-      four quadrants** (host/client × hotspot/WiFi) — from the spec's hardware
-      verification plan plus Task 4/5/7's device items:
+      four quadrants** (host/client × hotspot/WiFi) — *WiFi pairing + a full session
+      already proven in real use 2026-07-29/30; still open: the hotspot quadrants, the
+      mismatch `REJECT`, the save-sync integrity checks, the post-session port sweep,
+      and (bundled here) the full-session `emu.cfg` hash from the item below* — from
+      the spec's hardware verification plan plus Task 4/5/7's device items:
       - pairing completes with no IP ever typed in any quadrant (UDP 55441 broadcast
         + TCP 55440 handshake, not the old ping sweep).
       - only hosts broadcasting the *identical* game name appear in the client's
@@ -76,26 +68,11 @@ restores prior WiFi, stops a stray rsyncd, and removes the session file, bounded
         out of `netplay-data/`); host's `netplay-backup/` holds its pre-session copy.
       - after the session, `netstat` shows no listener on 55440/18731 on either
         device, and `pidof hostapd`/`pidof rsync` are clean.
-- [ ] **Migration regression** — on a card that still has `[network] GGPO = yes` (or
-      `input device2 = 0`) on disk from the old overlay-toggle flow, a plain
-      `A`-launch must fire the guard and go straight to a single-player game — no
-      90 s peer wait — and the on-disk values must now read `GGPO = no` /
-      `device2 = 10`.
 - [ ] **`emu.cfg` untouched by a netplay run** — hash/diff it before and after a full
       hosted and a full joined session on both devices: no key changes at all (the
-      migration guard's one-time rewrite aside), confirming the five netplay values
-      really are virtual-only.
-- [ ] **Cancel → game list** — cancelling the wizard at any step (before and after
-      network setup has started) returns cleanly to the game list; flycast is never
-      started on a non-zero wizard exit.
-- [ ] **Kill-and-heal** — kill the pak mid-session via the OSD/power path (bypassing
-      `launch.sh`'s own `--cleanup` call) instead of quitting normally, then start a
-      netplay attempt again: the startup self-heal must tear down the orphaned
-      hotspot/rsyncd and restore WiFi before the wizard's first menu, within the
-      19 s teardown budget (`WIZ_TEARDOWN_BUDGET_MS`).
-- [ ] **`sh -n` on-device** — re-check both DC.pak `launch.sh` files with the
-      device's own busybox ash (`adb shell sh -n <path>`); already clean under macOS
-      `sh -n`, but that is not proof against busybox's parser.
+      migration guard's one-time rewrite aside), confirming the six netplay values
+      really are virtual-only — including `DCNet`, which the netplay block forces to `no`
+      virtually and must therefore leave at its overlay value on disk.
 
 ### Gotchas
 
@@ -107,7 +84,11 @@ restores prior WiFi, stops a stray rsyncd, and removes the session file, bounded
   lease; `server =` semantics (empty → loopback deadlock, flycast's "Starting
   Network" modal has no timeout, Cancel is the only exit) are still exactly what a
   broken pairing looks like at the flycast layer, even though the wizard should now
-  make that unreachable in normal use.
+  make that unreachable in normal use. **DCNet is likewise forced off** (virtually,
+  `network:DCNet=no` last in `NETPLAY_ARGS`): it relays the emulated modem to an
+  external cloud service, an input the GGPO lockstep never synchronizes, so leaving a
+  per-game or global `DCNet = yes` in force on a session is a desync. It is on by
+  default now, so this is the common case, not a corner one.
 - **`PerGameVmu` must stay off.** With it on, flycast writes the per-game VMU file as
   `<gameId>_vmu_save_A1.bin`, which does not match the wizard's `--fetch-files` glob
   (`vmu_save_*.bin`) any more than it matched the old tar glob — the sync silently
@@ -312,24 +293,14 @@ sun50iw10, 2026-07-29 (device arrived, no SD card, redux not installed):
       Settings → Input Tester and press everything. Expected: 9/10 = stick clicks (L3/R3),
       11/12 = FN1/FN2 (shown as L4/R4), 13/14 = volume, 15 = HOME, 8 = MENU.
       Wrong indices look like dead or swapped buttons, **not** a crash.
-- [ ] **Analog sticks** — both nubs move the on-screen indicators; `L3+R3` enters calibration.
-- [x] **Hall-stick calibration** — RESOLVED 2026-07-29 on-device (stock fw): no
-      `/dev/ttyAS*` nodes exist at all, so NX's calibration (`settings_input.c:68-71`,
-      entered via `L3+R3` in the Input Tester) is a no-op on this model. Stock DOES
-      calibrate here, via a different transport with the same downstream contract:
-      the Brick Pro's sticks are read by `trimui_inputd` over I2C (`/dev/i2c-3`), and
-      stock MainUI's flow is touch `/tmp/joypad_testmode` (raw/uncalibrated ADC mode)
-      → sample → write the SAME `/mnt/UDISK/joypad.config` /
-      `joypad_right.config` files NX already writes → touch
-      `/tmp/trimui_inputd/cal_update` to make inputd reload ("calibrate update"
-      string). DECIDED 2026-07-29: implement a native brickpro calibration on this
-      mechanism. Same-day probe session reverse-engineered and hardware-verified the
-      full acquisition protocol (raw ADC does NOT pass through the event device —
-      the flag QUIESCES inputd; the calibrator reads the two stick ADC chips
-      directly: `/dev/i2c-3`, 7-bit 0x28/0x29, reg 0xB0, 4 bytes = X,Y u16 LE,
-      12-bit) — full protocol + design in `DEV_TODO.md` ("Trimui Brick Pro: joystick
-      calibration"). Until it lands, `L3+R3` on brickpro is known-inert. Note the
-      factory unit shipped with `joypad.config` present but NO `joypad_right.config`.
+- [ ] **Analog sticks** — both nubs move the on-screen indicators. Note: `L3+R3`
+      calibration is known-inert on this model until the I2C implementation lands
+      (protocol + design in `DEV_TODO.md`, "Trimui Brick Pro: joystick calibration").
+- [ ] **DC pre-launch options smoke (60 s)** — open "Emulator Options" once on a DC
+      game: proves seeding into `config/tg5040-brickpro` from `default-brickpro.cfg`.
+      Everything else on that feature is transitively covered — Brick Pro runs the same
+      tg5040 binaries at the same 1024×768/3× geometry verified on the Brick, and has no
+      fan daemon (the tg5050 picker-hang class does not apply).
 - [ ] **LEDs, all five zones** — Settings → LED Control shows F1 key / F2 key / Top bar /
       Joysticks / L/R triggers. Verify each zone lights the part it names (in particular that
       `lr` is the *joysticks* here and `rear` is the *triggers* — the opposite of the Brick).

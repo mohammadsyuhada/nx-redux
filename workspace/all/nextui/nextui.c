@@ -153,8 +153,12 @@ int main(int argc, char* argv[]) {
 				dirty = true;
 			} else if (cmr.action != CONTEXTMENU_NONE) {
 				dirty = true; // redraw underlying screen after close
-			} else if (PAD_anyJustPressed()) {
-				// Redraw overlay only when navigating (selection changed)
+			} else if (PAD_anyJustPressed() || PAD_justRepeated(BTN_UP) ||
+					   PAD_justRepeated(BTN_DOWN)) {
+				// Redraw overlay only when navigating (selection changed).
+				// ContextMenu_handleInput moves cm_selected via PAD_navigateMenu,
+				// which fires on PAD_justRepeated — a held direction changed the
+				// selection with no redraw until the next unrelated dirty event.
 				dirty = true;
 			}
 		}
@@ -342,11 +346,19 @@ int main(int argc, char* argv[]) {
 				SDL_FreeSurface(tmpOldScreen);
 
 			dirty = false;
-		} else if (folderbgchanged || thumbchanged || GameList_scrollBusy()) {
+		} else if (folderbgchanged || thumbchanged ||
+				   (GameList_scrollBusy() && !ContextMenu_isOpen())) {
 			updateBackgroundLayer(blackBG);
 			renderThumbnail(1, false);
+			// Same flash as the dirty pass (see gamelist.c / 81a0c40a): the idle
+			// marquee tick presents the screen itself (ScrollText_animateOnly ->
+			// GFX_scrollTextTexture -> PLAT_GPU_Flip), which would blink the
+			// marquee band out from under the context menu's scrim. Gate the
+			// scrollBusy *term* too, not just the tick: needs_scroll stays
+			// latched while the menu is open, so an otherwise-idle loop must
+			// fall through to the sleeping path below instead of spinning here.
 			if (currentScreen != SCREEN_GAMESWITCHER &&
-				currentScreen != SCREEN_SEARCH) {
+				currentScreen != SCREEN_SEARCH && !ContextMenu_isOpen()) {
 				GameList_scrollTickIdle();
 			} else {
 				SDL_Delay(16);

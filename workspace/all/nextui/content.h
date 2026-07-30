@@ -17,6 +17,7 @@ void getUniqueName(Entry* entry, char* out_name);
 int hasEmu(char* emu_name);
 int hasCue(char* dir_path, char* cue_path);
 int hasM3u(char* rom_path, char* m3u_path);
+int dirGameFile(const char* dir_path, char* out_path);
 int hasCollections(void);
 int hasRoms(char* dir_name);
 int hasTools(void);

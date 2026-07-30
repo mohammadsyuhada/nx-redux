@@ -249,6 +249,21 @@ int hasM3u(char* rom_path, char* m3u_path) { // NOTE: rom_path not dir_path
 	return exists(m3u_path);
 }
 
+int dirGameFile(const char* dir_path, char* out_path) {
+	// A directory is a "folder game" when it contains a folder-named .cue or
+	// .m3u, e.g. /Roms/PSX/Game → /Roms/PSX/Game/Game.cue. Cue wins over m3u,
+	// matching openDirectory's auto-launch order. out_path (>= MAX_PATH)
+	// receives the resolved file — the entry's effective ROM for actions.
+	char* dir_name = strrchr(dir_path, '/');
+	if (!dir_name)
+		return 0;
+	snprintf(out_path, MAX_PATH, "%s%s.cue", dir_path, dir_name);
+	if (exists(out_path))
+		return 1;
+	snprintf(out_path, MAX_PATH, "%s%s.m3u", dir_path, dir_name);
+	return exists(out_path);
+}
+
 int canPinEntry(Entry* entry) {
 	// PAK and ROM can always be pinned
 	if (entry->type == ENTRY_PAK || entry->type == ENTRY_ROM) {
@@ -256,18 +271,8 @@ int canPinEntry(Entry* entry) {
 	}
 	// ENTRY_DIR can be pinned only if it has a .cue or .m3u file (multi-disc game)
 	if (entry->type == ENTRY_DIR) {
-		char cue_path[MAX_PATH];
-		if (hasCue(entry->path, cue_path))
-			return 1;
-		// hasM3u expects a file path, so build the m3u path directly for directories:
-		// e.g. /Roms/PSX/Game → /Roms/PSX/Game/Game.m3u
-		char* dir_name = strrchr(entry->path, '/');
-		if (dir_name) {
-			char m3u_path[MAX_PATH];
-			snprintf(m3u_path, sizeof(m3u_path), "%s%s.m3u", entry->path, dir_name);
-			return exists(m3u_path);
-		}
-		return 0;
+		char game_path[MAX_PATH];
+		return dirGameFile(entry->path, game_path);
 	}
 	return 0;
 }

@@ -885,6 +885,122 @@ all. Existing installs still routinely have no `[input]` section (flycast
 drops keys left at default when it rewrites the file), but that no longer
 matters either, since `device2` is virtual-only on the netplay path.
 
+## Pre-launch options (Emulator Options / Emulator Settings)
+
+Flycast's `emu.cfg` keys can be set **before** a game starts, without opening
+the in-game overlay, through two entry points that share one schema. **Per-game
+overrides** come from the game-list context menu's "Emulator Options" item —
+shown only when a pak beside the ROM's `launch.sh` also ships an `options.sh`
+probe. **Global defaults** come from Tools → Emulator Settings, which runs
+`options.elf --pick`. Both edit the same shared schema,
+`overlay_settings.json` (the very file the in-game Options screen reads, above),
+so a key is described in exactly one place. A per-game edit is written to its own
+file at
+`$SHARED_USERDATA_PATH/DC-flycast/config/<device>/games/<key>.cfg`, where `<key>`
+comes from `nx_rom_base()` — a folder-named `.m3u` game collapses to the folder
+name. At launch, `launch.sh` turns any present per-game file into virtual
+`-config` arguments (`$GAME_ARGS`) placed **before** `$NETPLAY_ARGS`, i.e. the
+same last-`-config`-wins mechanism the netplay path above uses. Setting
+`EMU_OVERLAY_HIDE_OPTIONS=1` hides the in-game Options menu for that launch.
+Design: `docs/superpowers/specs/2026-07-29-dc-prelaunch-options-design.md`.
+
+### Override precedence and the argv contract
+
+- **Override precedence is argv order, not sections.** `launch.sh` runs
+  `./flycast $GAME_ARGS $NETPLAY_ARGS "$ROM"`, and flycast's last `-config` for a
+  repeated `section:key` wins: `ParseCommandLine()` walks argv left-to-right
+  (`core/cfg/cl.cpp`) and each `-config` lands in `cfgSetVirtual()` →
+  `ConfigSection::set()`, a plain `std::map` assignment (`core/cfg/ini.cpp`).
+  Swapping the two variables silently inverts netplay precedence, so `GAME_ARGS`
+  stays first and `NETPLAY_ARGS` last.
+- **Both arg variables are deliberately unquoted** — they are word-split argument
+  lists whose values are ints/bools with no whitespace, and empty on a normal
+  launch. A schema that ever grew a string-valued option would break this; it
+  would need a different mechanism, not quoting.
+- **Bools are written `True`/`False`, not `yes`/`no`.**
+  `emu_ovl_cfg_format_value` speaks flycast's INI dialect and both spellings
+  parse fine, so don't "fix" an override file that reads `rend.WideScreen = True`
+  — and don't grep argv for `=yes`; the pair to expect there is
+  `-config config:rend.WideScreen=True`. The single spaces around `=` in the
+  override file ARE load-bearing: `launch.sh`'s awk splits on `-F' = '`, so a
+  hand-edited `key=value` line is silently dropped.
+
+### Debugging: argv is the only witness
+
+- **Applied overrides leave NO trace in `$LOGS_PATH/DC.txt` — don't look for
+  one.** flycast does log every virtual pair (`Virtual cfg <sec>:<key>=<val>`,
+  `core/cfg/cl.cpp:51`) but that call is an `INFO_LOG`, and INFO level is
+  compiled **out** of Release builds (`MAX_LOGLEVEL` = `LWARNING` under `NDEBUG`,
+  `core/log/Log.h:58-63`; the paks are built `-DCMAKE_BUILD_TYPE=Release`).
+  Verified against the shipped binaries: `strings` finds zero `Virtual cfg`
+  occurrences in either `DC.pak/flycast`, while NOTICE-level log strings from the
+  same builds are present. This is the same trap `flycast.patch:110-112` already
+  documents for the audio path. **The witness is argv**, not the log:
+  `tr '\0' ' ' < /proc/$(pidof flycast)/cmdline` (or `xargs -0 echo <` the same
+  file) shows every `-config` pair and, crucially, their order — the same applies
+  to netplay's six pairs. Read `/proc` directly rather than reaching for `ps w`:
+  the device's busybox `ps` only honors `w` when built with `FEATURE_PS_WIDE`,
+  and without it argv is truncated to the terminal width, silently hiding the
+  very `-config` pairs you're looking for.
+- **Never run `DC.pak/launch.sh` (or `options.sh`) from a bare adb shell to see
+  what path it computes.** Both source `nx_paths.sh`, which builds every path
+  from `SHARED_USERDATA_PATH` and branches on `DEVICE` — and those are exported by
+  `MinUI.pak/launch.sh` (`:23`, `:52-56`), not by the pak itself. Outside
+  nextui's environment they're empty/unset, so the pak resolves
+  `$DEVICE_CONFIG_DIR` to a bogus
+  **`/DC-flycast/config/tg5040-smart-pro/…`** on the rootfs (empty prefix,
+  `DEVICE` falling through to the smart-pro `else`), happily `mkdir`s it and seeds
+  a junk `emu.cfg` there. `SDCARD_PATH` being empty also breaks
+  `LD_LIBRARY_PATH`, `EMU_OVERLAY_JSON` and `FLYCAST_BIOS_PATH`, so the run is not
+  a faithful launch either. Only the trailing `<key>.cfg` basename would be
+  trustworthy from such a trace. If you genuinely need to trace the pak, export
+  the environment first — `skeleton/SYSTEM/tg5040/dbg/launch.sh:3-27` is the
+  ready-made export list (note it leaves `DEVICE` unset on Smart Pro, where
+  `nx_paths.sh`'s `else` happens to land correctly).
+
+### File format and lifecycle edge cases
+
+- **A malformed or unreadable override file is skipped silently** — the game
+  launches with globals only, no error anywhere, and (per the debugging note
+  above) nothing in the log either way. If an override "doesn't apply", dump
+  argv: pair absent → `launch.sh` never parsed the file (wrong filename, or a
+  line not matching `key = value`); pair present but no visible effect → flycast
+  took the value and something else is wrong. The editor treats a malformed file
+  as empty and rewrites it cleanly on the next save.
+- **The override key can collide by design.** `nx_rom_base()` maps a folder-m3u
+  game to the folder name, so a flat ROM that happens to share that name resolves
+  to the same override file. Inherent to the mandated one-file-per-game scheme,
+  accepted.
+- **Renaming or deleting a ROM orphans its override file** — harmless, and
+  deliberately not cleaned up (explicit non-goal). It will silently re-attach if
+  a ROM with the old name ever reappears.
+
+### The editor binary (`options.elf`)
+
+- **`options.elf` is a SYSTEM bin on `PATH`, invoked bare** — same shape as
+  `netplay.elf`. Pushing a rebuilt copy needs no reboot (it is not
+  nextui/minarch), but the editor must not be running at the time.
+- **`options.sh`'s stdout must stay uncaptured.** Only stderr is redirected (to
+  `$LOGS_PATH/emu-options.txt`); the Emulator Settings tool captures
+  `options.elf --pick`'s stdout **directly** and `exec`s the result, so wrapping
+  `options.sh` in `$(…)` anywhere would swallow the editor's own output stream.
+  This is the same class of bug the tg5050 fancontrol lesson taught: a
+  `system("… &")` daemon (the fan-control daemon respawned by `InitSettings()`)
+  inherited the picker's `$()` pipe write end and hung the capture, because the
+  pipe stays open as long as any process holds its write end. `options.c` now
+  parks stdout with `FD_CLOEXEC` (`stdout_park`) for exactly this reason, so a
+  daemon a child spawns can never keep the capture pipe open.
+- **Editor exit 1 means two different things** — cancel in `--pick` mode,
+  config-load failure in the edit modes; a plain usage error exits 2. Callers
+  must not conflate the two exit-1 cases (they currently don't: `options.sh`
+  ignores the edit-mode code, the tool treats empty stdout as cancel).
+- **Emulator Settings exits silently (rc=0) when no pak on the card ships an
+  `options.sh`** — an empty Tools app, not an error. Expected on any platform
+  other than tg5040/tg5050, where `options.elf` isn't even built.
+- The schema's `options_hint` still reads "Restart game to apply changes" —
+  correct for the in-game overlay, vacuous in the pre-launch editor (nothing is
+  running yet). Cosmetic; left alone so both consumers share one schema file.
+
 ## Runtime libraries
 
 **Nothing is shipped in the pak.** Verified on the Brick (tg5040) via

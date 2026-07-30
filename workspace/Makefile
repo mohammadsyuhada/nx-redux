@@ -59,6 +59,7 @@ endif
 	cd ./all/sync/ && make
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
 	cd ./all/netplay-wizard/ && make
+	cd ./all/emu-options/ && make
 endif
 	cd ./all/scraper/ && make
 endif
@@ -111,5 +112,6 @@ endif
 	cd ./all/portmaster/ && make clean
 	cd ./all/sync/ && make clean
 	cd ./all/netplay-wizard/ && make clean
+	cd ./all/emu-options/ && make clean
 	cd ./all/scraper/ && make clean
 	cd ./$(PLATFORM) && make clean

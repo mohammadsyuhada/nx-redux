@@ -33,6 +33,7 @@
 #include <libgen.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 static bool gl_simple_mode = false;
@@ -169,6 +170,81 @@ static void reloadDirectoryAt(int idx, int keep_selected) {
 		top = fresh;
 }
 
+// A "folder game" is an ENTRY_DIR under Roms containing a folder-named .cue
+// or .m3u (multi-disc game); opening it auto-launches disc 1, so the context
+// menu treats it like a ROM. Fills game_file_out (>= MAX_PATH) with the
+// resolved cue/m3u — the entry's effective ROM file for all actions.
+static bool entryFolderGame(Entry* entry, char* game_file_out) {
+	if (!entry || entry->type != ENTRY_DIR)
+		return false;
+	if (!prefixMatch(ROMS_PATH, entry->path))
+		return false;
+	// a console dir is a library, never a game — even if it happens to
+	// contain a playlist named after itself
+	if (isConsoleDir(entry->path))
+		return false;
+	return dirGameFile(entry->path, game_file_out) != 0;
+}
+
+// True when `path` is the folder-named .cue/.m3u of its parent dir (basename
+// minus extension == parent dir name) — the file that makes the parent a
+// folder game. Fills parent_out (>= MAX_PATH) with the parent dir path.
+static bool isFolderGameFile(const char* path, char* parent_out) {
+	if (!suffixMatch(".cue", path) && !suffixMatch(".m3u", path))
+		return false;
+	if (!prefixMatch(ROMS_PATH, path))
+		return false;
+	char work[MAX_PATH];
+	strncpy(work, path, sizeof(work) - 1);
+	work[sizeof(work) - 1] = '\0';
+	char* slash = strrchr(work, '/');
+	if (!slash)
+		return false;
+	char base[MAX_PATH];
+	strncpy(base, slash + 1, sizeof(base) - 1);
+	base[sizeof(base) - 1] = '\0';
+	char* dot = strrchr(base, '.');
+	if (dot)
+		*dot = '\0';
+	*slash = '\0'; // work = parent dir
+	// never treat a console dir as the "game folder" — a stray playlist named
+	// after the console (eg. DC/DC.m3u) must not delete the whole library
+	if (isConsoleDir(work))
+		return false;
+	char* parent_name = strrchr(work, '/');
+	if (!parent_name || !exactMatch(parent_name + 1, base))
+		return false;
+	strncpy(parent_out, work, MAX_PATH - 1);
+	parent_out[MAX_PATH - 1] = '\0';
+	return true;
+}
+
+// Depth-first recursive delete. Symlink-safe: lstat, so symlinks are
+// unlinked without ever being followed; files unlink, dirs rmdir last.
+static void removeRecursive(const char* path) {
+	struct stat st;
+	if (lstat(path, &st) != 0)
+		return;
+	if (!S_ISDIR(st.st_mode)) {
+		unlink(path);
+		return;
+	}
+	DIR* dh = opendir(path);
+	if (dh) {
+		struct dirent* dp;
+		while ((dp = readdir(dh)) != NULL) {
+			if (dp->d_name[0] == '.' && (dp->d_name[1] == '\0' ||
+										 (dp->d_name[1] == '.' && dp->d_name[2] == '\0')))
+				continue; // "." / ".."
+			char child[MAX_PATH];
+			snprintf(child, sizeof(child), "%s/%s", path, dp->d_name);
+			removeRecursive(child);
+		}
+		closedir(dh);
+	}
+	rmdir(path);
+}
+
 // A file "belongs" to base if it is exactly <base> or starts with "<base>.".
 // The trailing-dot boundary is what makes this safe: it renames Game.gba /
 // Game.png / Game.srm / Game.gba.sav / Game.state without ever touching
@@ -216,11 +292,14 @@ static bool renameRomFiles(Entry* entry, const char* newbase, char* new_path) {
 	*slash = '\0';
 	const char* filename = slash + 1;
 
-	// oldbase = filename minus final extension; ext keeps the leading dot
+	// oldbase = filename minus final extension; ext keeps the leading dot.
+	// Folder games are directories, so the whole name is the base — a dotted
+	// folder like "Game v1.1" must not be split on its last dot.
+	bool is_dir_game = entry->type == ENTRY_DIR;
 	char oldbase[MAX_PATH];
 	strncpy(oldbase, filename, sizeof(oldbase) - 1);
 	oldbase[sizeof(oldbase) - 1] = '\0';
-	const char* fdot = strrchr(filename, '.');
+	const char* fdot = is_dir_game ? NULL : strrchr(filename, '.');
 	char ext[MAX_PATH];
 	if (fdot) {
 		oldbase[fdot - filename] = '\0';
@@ -241,7 +320,28 @@ static bool renameRomFiles(Entry* entry, const char* newbase, char* new_path) {
 	char emu[MAX_PATH];
 	getEmuName(entry->path, emu);
 
-	// 1) the ROM folder itself (renames Game.gba + any Game.cue / Game.m3u)
+	// 0) folder games: rename the inner folder-named .cue/.m3u (and matching
+	// art in the folder's own .media) BEFORE the folder itself moves — the
+	// old folder path must still be valid. Discs keep their names, so
+	// cue/m3u contents that reference them stay correct.
+	if (is_dir_game) {
+		const char* game_exts[] = {".cue", ".m3u"};
+		for (int i = 0; i < 2; i++) {
+			char from[MAX_PATH];
+			snprintf(from, sizeof(from), "%s/%s%s", entry->path, oldbase, game_exts[i]);
+			if (exists(from)) {
+				char to[MAX_PATH];
+				snprintf(to, sizeof(to), "%s/%s%s", entry->path, newbase, game_exts[i]);
+				rename(from, to);
+			}
+		}
+		char inner_media[MAX_PATH];
+		snprintf(inner_media, sizeof(inner_media), "%s/.media", entry->path);
+		renameSweepDir(inner_media, oldbase, newbase);
+	}
+
+	// 1) the ROM folder itself (renames Game.gba + any Game.cue / Game.m3u,
+	// or the game folder for a folder game)
 	renameSweepDir(dir, oldbase, newbase);
 
 	// 2) box/thumbnail art
@@ -402,10 +502,13 @@ static int pickCollectionModal(Array* collections) {
 }
 
 // Append the ROM's SD-relative path to a collection .txt (deduped).
-static void addRomToCollectionFile(const char* collection_path, Entry* entry) {
-	if (!prefixMatch(SDCARD_PATH, entry->path))
+// rom_path is a file path: for folder games the caller passes the resolved
+// folder-named cue/m3u (getCollection types every non-.pak line ENTRY_ROM,
+// so a bare folder line would produce a broken entry).
+static void addRomToCollectionFile(const char* collection_path, const char* rom_path) {
+	if (!prefixMatch(SDCARD_PATH, rom_path))
 		return;
-	const char* rel = entry->path + strlen(SDCARD_PATH);
+	const char* rel = rom_path + strlen(SDCARD_PATH);
 
 	FILE* f = fopen(collection_path, "r");
 	if (f) {
@@ -428,7 +531,7 @@ static void addRomToCollectionFile(const char* collection_path, Entry* entry) {
 	}
 }
 
-static void doAddToCollection(Entry* entry) {
+static void doAddToCollection(const char* rom_path) {
 	Array* collections = getCollections();
 	int pick = pickCollectionModal(collections);
 
@@ -439,13 +542,13 @@ static void doAddToCollection(Entry* entry) {
 			mkdir_p(COLLECTIONS_PATH);
 			char coll_path[MAX_PATH];
 			snprintf(coll_path, sizeof(coll_path), "%s/%s.txt", COLLECTIONS_PATH, name);
-			addRomToCollectionFile(coll_path, entry);
+			addRomToCollectionFile(coll_path, rom_path);
 		}
 		if (name)
 			free(name);
 	} else if (pick >= 0 && pick < collections->count) {
 		Entry* coll = collections->items[pick];
-		addRomToCollectionFile(coll->path, entry);
+		addRomToCollectionFile(coll->path, rom_path);
 	}
 
 	EntryArray_free(collections);
@@ -471,15 +574,20 @@ static void doRename(Entry* entry, int sel) {
 static char netplay_cap_path[MAX_PATH] = {0};
 static bool netplay_cap = false;
 static bool entryNetplayCapable(Entry* entry) {
-	if (!entry || entry->type != ENTRY_ROM)
-		return false;
-	if (!prefixMatch(ROMS_PATH, entry->path))
+	if (!entry)
 		return false;
 	if (exactMatch(netplay_cap_path, entry->path))
 		return netplay_cap;
 	strncpy(netplay_cap_path, entry->path, MAX_PATH - 1);
 	netplay_cap_path[MAX_PATH - 1] = '\0';
 	netplay_cap = false;
+	// eligibility lands in the cache too (false for ineligible paths) so the
+	// per-frame hint bar never re-stats folder-game probes for the same entry
+	char game_file[MAX_PATH];
+	if (entry->type != ENTRY_ROM && !entryFolderGame(entry, game_file))
+		return false;
+	if (!prefixMatch(ROMS_PATH, entry->path))
+		return false;
 	char emu_name[MAX_PATH];
 	getEmuName(entry->path, emu_name);
 	char pak_path[MAX_PATH];
@@ -490,6 +598,37 @@ static bool entryNetplayCapable(Entry* entry) {
 		netplay_cap = exists(pak_path);
 	}
 	return netplay_cap;
+}
+
+// Mirrors entryNetplayCapable: an emu pak opts into the pre-launch options
+// editor by shipping options.sh beside its launch.sh. Single-slot cache
+// because the context-menu builder can ask for this repeatedly.
+static char emuopts_cap_path[MAX_PATH] = {0};
+static bool emuopts_cap = false;
+static bool entryEmuOptionsCapable(Entry* entry) {
+	if (!entry)
+		return false;
+	if (exactMatch(emuopts_cap_path, entry->path))
+		return emuopts_cap;
+	strncpy(emuopts_cap_path, entry->path, MAX_PATH - 1);
+	emuopts_cap_path[MAX_PATH - 1] = '\0';
+	emuopts_cap = false;
+	// eligibility lands in the cache too — see entryNetplayCapable
+	char game_file[MAX_PATH];
+	if (entry->type != ENTRY_ROM && !entryFolderGame(entry, game_file))
+		return false;
+	if (!prefixMatch(ROMS_PATH, entry->path))
+		return false;
+	char emu_name[MAX_PATH];
+	getEmuName(entry->path, emu_name);
+	char pak_path[MAX_PATH];
+	getEmuPath(emu_name, pak_path);
+	char* slash = strrchr(pak_path, '/');
+	if (slash) {
+		strcpy(slash + 1, "options.sh"); // replaces "launch.sh"; same dir
+		emuopts_cap = exists(pak_path);
+	}
+	return emuopts_cap;
 }
 
 // Dispatch a selected context-menu item (ids assigned in GameList_handleInput).
@@ -536,25 +675,76 @@ void GameList_runContextAction(int id) {
 		}
 		break;
 	case 32: // Delete Rom
-		if (entry && entry->type == ENTRY_ROM) {
+		if (entry) {
+			char game_file[MAX_PATH];
+			char parent_dir[MAX_PATH];
+			bool folder_game = entryFolderGame(entry, game_file);
+			if (entry->type != ENTRY_ROM && !folder_game)
+				break;
 			if (confirmModal("Delete ROM?", entry->name)) {
-				unlink(entry->path);
+				if (folder_game)
+					removeRecursive(entry->path);
+				else if (isFolderGameFile(entry->path, parent_dir))
+					// the folder-named cue/m3u IS the game (eg. selected from a
+					// collection): take the whole folder, don't orphan the discs
+					removeRecursive(parent_dir);
+				else
+					unlink(entry->path);
 				reloadDirectoryAt(stack->count - 1, sel);
 			}
 		}
 		break;
 	case 33: // Rename Rom
-		if (entry && entry->type == ENTRY_ROM)
-			doRename(entry, sel);
+		if (entry) {
+			char game_file[MAX_PATH];
+			if (entry->type == ENTRY_ROM || entryFolderGame(entry, game_file))
+				doRename(entry, sel);
+		}
 		break;
 	case 34: // Add to Collection
-		if (entry && entry->type == ENTRY_ROM)
-			doAddToCollection(entry);
+		if (entry) {
+			char game_file[MAX_PATH];
+			if (entry->type == ENTRY_ROM)
+				doAddToCollection(entry->path);
+			else if (entryFolderGame(entry, game_file))
+				// collections hold file paths: write the resolved cue/m3u
+				doAddToCollection(game_file);
+		}
 		break;
 	case 35: // Launch with Netplay
 		if (entry && entryNetplayCapable(entry)) {
+			// snapshot before Entry_open: its directory fall-through can
+			// rebuild the stack and free entry
+			bool was_dir = entry->type == ENTRY_DIR;
 			putFile(NETPLAY_LAUNCH_PATH, "1\n");
 			Entry_open(entry);
+			// folder games launch via openDirectory's auto-launch; if that
+			// fell through (eg. empty m3u) nothing was queued and the flag
+			// would stay armed until next boot — disarm it
+			if (was_dir && !quit)
+				unlink(NETPLAY_LAUNCH_PATH);
+		}
+		break;
+	case 36: // Emulator Options (pre-launch editor)
+		if (entry && entryEmuOptionsCapable(entry)) {
+			// folder games: hand options.sh the resolved cue/m3u, not the
+			// folder (a dotted folder name would derive a different rom key),
+			// but keep last_path on the folder so loadLast reselects it
+			char game_file[MAX_PATH];
+			char* rom_arg = entry->path;
+			if (entry->type == ENTRY_DIR && entryFolderGame(entry, game_file))
+				rom_arg = game_file;
+			char emu_name[MAX_PATH];
+			getEmuName(entry->path, emu_name);
+			char pak_path[MAX_PATH];
+			getEmuPath(emu_name, pak_path);
+			char* slash = strrchr(pak_path, '/');
+			if (slash) {
+				strcpy(slash + 1, "options.sh"); // replaces "launch.sh"; same dir
+				// options.sh cd's to its own dir, so it must be invoked by the
+				// absolute path getEmuPath already produced.
+				openScript(pak_path, rom_arg, entry->path);
+			}
 		}
 		break;
 	default:
@@ -624,7 +814,8 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 				}
 				idx++;
 			}
-			if (entry->type == ENTRY_ROM) {
+			char game_file[MAX_PATH];
+			if (entry->type == ENTRY_ROM || entryFolderGame(entry, game_file)) {
 				strncpy(items[idx].label, "Delete Rom", CONTEXTMENU_MAX_TEXT);
 				items[idx].id = 32;
 				idx++;
@@ -637,6 +828,11 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 				if (entryNetplayCapable(entry)) {
 					strncpy(items[idx].label, "Launch with Netplay", CONTEXTMENU_MAX_TEXT);
 					items[idx].id = 35;
+					idx++;
+				}
+				if (entryEmuOptionsCapable(entry)) {
+					strncpy(items[idx].label, "Emulator Options", CONTEXTMENU_MAX_TEXT);
+					items[idx].id = 36;
 					idx++;
 				}
 			}
@@ -763,8 +959,14 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 	// Y launches netplay-capable ROMs with netplay (works at root for
 	// pinned games too — root Search moved to START for this)
 	else if (total > 0 && PAD_justReleased(BTN_Y) && entryNetplayCapable(entry)) {
+		// snapshot before Entry_open: its directory fall-through can rebuild
+		// the stack and free entry
+		bool was_dir = entry->type == ENTRY_DIR;
 		putFile(NETPLAY_LAUNCH_PATH, "1\n");
 		Entry_open(entry);
+		// folder games: disarm if the auto-launch fell through (see case 35)
+		if (was_dir && !quit)
+			unlink(NETPLAY_LAUNCH_PATH);
 		*dirty = true;
 	}
 	// START to search at root (was Y; pin/unpin lives in the context menu)
@@ -929,8 +1131,33 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 					screen, &item_layout, font.large,
 					display_text, truncated, y, row_is_selected, 0);
 				int text_width = pos.pill_width - SCALE1(BUTTON_PADDING * 2);
+				// This call site is the only place list_scroll resyncs (via
+				// ScrollText_update's strcmp), so while it's gated off below a
+				// context action that changes the selection (Delete/Rename Rom,
+				// Remove Game, Pin, Tools, Refresh) would leave the state
+				// describing the *old* title at the *old* row — and the guard
+				// frames after close would then animate that stale band over the
+				// correct list. Drop the state instead: ScrollText_clear empties
+				// text and needs_scroll, so GameList_scrollBusy() goes false and
+				// ScrollText_animateOnly cannot fire until a real (ungated)
+				// ScrollText_render has refreshed last_x/last_y/last_font. Note
+				// ScrollText_reset would NOT be safe here — it leaves
+				// needsRender() true with those last_* fields stale.
+				if (row_is_selected && ContextMenu_isOpen() &&
+					strcmp(list_scroll.text, display_text) != 0)
+					ScrollText_clear(&list_scroll);
+				// Freeze the marquee while the context menu is up: its GPU path
+				// presents the screen itself (ScrollText_render ->
+				// GFX_scrollTextTexture -> PLAT_GPU_Flip), so it would show one
+				// full vsync frame *after* nextui.c cleared LAYER_OVERLAY but
+				// *before* ContextMenu_render — the undimmed, menu-less list =
+				// a full-screen flash on every keypress. Passing NULL takes the
+				// static/truncated path (no present), which is also the correct
+				// modal behaviour. Same class of bug as 81a0c40a.
 				UI_renderListItemText(screen,
-									  row_is_selected ? &list_scroll : NULL,
+									  (row_is_selected && !ContextMenu_isOpen())
+										  ? &list_scroll
+										  : NULL,
 									  display_text, font.large,
 									  pos.text_x, pos.text_y, text_width, row_is_selected);
 			}

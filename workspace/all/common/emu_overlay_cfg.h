@@ -57,4 +57,23 @@ void emu_ovl_cfg_reset_section_to_defaults(EmuOvlSection* sec);
 void emu_ovl_cfg_apply_staged(EmuOvlConfig* cfg);
 bool emu_ovl_cfg_has_changes(EmuOvlConfig* cfg);
 
+// Resolved INI section name for sections[sec_idx]: the section's own
+// ini_section when set, else the global config_section (which is also what an
+// out-of-range index returns). Never NULL.
+const char* emu_ovl_cfg_section_name(const EmuOvlConfig* cfg, int sec_idx);
+
+// Find the item with `key` in any schema section resolving to `ini_section`.
+// out_sec/out_item receive the indices when non-NULL. NULL when not found.
+EmuOvlItem* emu_ovl_cfg_find_item(EmuOvlConfig* cfg, const char* ini_section, const char* key, int* out_sec, int* out_item);
+
+// INI string -> internal int, using the exact per-type conversion
+// emu_ovl_cfg_read_ini applies. False (and *out_value untouched) when the
+// string cannot be parsed as this item's type.
+bool emu_ovl_cfg_parse_value(const EmuOvlItem* item, const char* str, int* out_value);
+
+// Internal int -> INI string, the single formatter emu_ovl_cfg_write_ini also
+// goes through. `value` is explicit so callers can format either the staged
+// or the current value. Always NUL-terminates when out_size > 0.
+void emu_ovl_cfg_format_value(const EmuOvlItem* item, int value, char* out, int out_size);
+
 #endif

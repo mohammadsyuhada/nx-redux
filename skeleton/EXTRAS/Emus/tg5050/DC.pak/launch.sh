@@ -15,18 +15,8 @@ echo 1992000 >/sys/devices/system/cpu/cpu4/cpufreq/scaling_min_freq
 # GPU: lock to performance for flycast rendering
 echo performance >/sys/devices/platform/soc@3000000/1800000.gpu/devfreq/1800000.gpu/governor 2>/dev/null
 
-# User data (config per device, VMU + save states shared across devices)
-USERDATA_DIR="$SHARED_USERDATA_PATH/DC-flycast"
-DEVICE_CONFIG_DIR="$USERDATA_DIR/config/tg5050"
-DEVICE_DEFAULT_CFG="$PAK_DIR/default.cfg"
-mkdir -p "$DEVICE_CONFIG_DIR/flycast/mappings" "$USERDATA_DIR/data/flycast"
-
-# First run: copy device-specific defaults
-if [ ! -f "$DEVICE_CONFIG_DIR/.initialized" ]; then
-    cp "$DEVICE_DEFAULT_CFG" "$DEVICE_CONFIG_DIR/flycast/emu.cfg"
-    touch "$DEVICE_CONFIG_DIR/.initialized"
-fi
-EMU_CFG="$DEVICE_CONFIG_DIR/flycast/emu.cfg"
+# Config-dir resolution + emu.cfg seeding shared with options.sh
+. "$PAK_DIR/nx_paths.sh"
 
 # Install the curated controller mapping if not already present. Deliberately
 # NOT gated by .initialized: that marker only tracks the emu.cfg seed, so an
@@ -75,6 +65,7 @@ MINUI_DIR="$SHARED_USERDATA_PATH/.minui/$EMU_TAG"
 mkdir -p "$MINUI_DIR"
 export EMU_OVERLAY_SCREENSHOT_DIR="$MINUI_DIR"
 export EMU_OVERLAY_ROMFILE="$(basename "$ROM")"
+export EMU_OVERLAY_HIDE_OPTIONS=1  # options moved to the pre-launch editor (options.sh)
 
 # Mute speaker before launch to prevent audio pop, then unmute after init
 echo 1 > /sys/class/speaker/mute 2>/dev/null || true
@@ -114,8 +105,10 @@ export NX_AUDIO_RATE=$(nx_pick_audio_rate 44100)
 # VMU/flash read-only on TCP 18731; the client pulls into netplay-data).
 # Every netplay value below is passed as a VIRTUAL -config: flycast's
 # get_entry() prefers virtual values and ConfigFile::save() never writes
-# them, so emu.cfg is untouched by a netplay run. GGPODelay/DCNet remain
-# real overlay settings that flycast reads from emu.cfg itself.
+# them, so emu.cfg is untouched by a netplay run. GGPODelay remains a
+# real overlay setting that flycast reads from emu.cfg itself; DCNet is
+# forced off among the virtual values below, so its overlay/per-game
+# value only ever reaches a normal launch.
 # Design: docs/superpowers/specs/2026-07-29-netplay-prelaunch-wizard-design.md
 
 # Read one key from one section of emu.cfg (empty when absent).
@@ -202,15 +195,43 @@ if [ -f /tmp/netplay_launch ]; then
     # device2=0 plugs a pad into DC port B on BOTH sides (GGPO drives
     # port B as player 2 -- remote on the host, LOCAL on the client);
     # EnableUPnP=no stops ggpo.cpp:801-804 punching a router mapping.
-    NETPLAY_ARGS="-config network:GGPO=yes -config network:ActAsServer=$NX_AS_SERVER -config network:server=$NETPLAY_PEER_IP -config network:EnableUPnP=no -config input:device2=0"
+    # DCNet=no is forced: DCNet routes the emulated modem to an external
+    # cloud service, an input the GGPO lockstep never synchronizes, so a
+    # peer's modem traffic desyncs the session. A per-game or global
+    # DCNet=yes IS a repeated key here and NETPLAY_ARGS comes last, so it
+    # loses on a netplay launch and still applies to a normal one.
+    NETPLAY_ARGS="-config network:GGPO=yes -config network:ActAsServer=$NX_AS_SERVER -config network:server=$NETPLAY_PEER_IP -config network:EnableUPnP=no -config input:device2=0 -config network:DCNet=no"
 fi
 # --- end netplay -------------------------------------------------------
 
+# --- Per-game option overrides ------------------------------------------
+# Written by options.elf ("Emulator Options" in the game list's context
+# menu). Each entry becomes a VIRTUAL -config (never persisted by flycast),
+# so emu.cfg stays the device-global config and flycast's wholesale config
+# rewriting can never bake per-game values into it. Values are ints/bools
+# and never contain whitespace, so word-splitting GAME_ARGS is safe.
+# A malformed or unreadable file yields no args: the game still launches.
+GAME_ARGS=""
+NX_ROM_BASE="$(nx_rom_base "$ROM")"
+NX_GAME_CFG="$DEVICE_CONFIG_DIR/games/$NX_ROM_BASE.cfg"
+if [ -f "$NX_GAME_CFG" ]; then
+    GAME_ARGS=$(awk -F' = ' '
+        /^\[.*\]$/ { sec = substr($0, 2, length($0) - 2); next }
+        NF == 2 && sec != "" { printf "-config %s:%s=%s ", sec, $1, $2 }
+    ' "$NX_GAME_CFG" 2>/dev/null)
+fi
+# --- end per-game overrides ---------------------------------------------
+
 cd "$PAK_DIR"
-# $NETPLAY_ARGS is deliberately UNQUOTED: it is a word-split argument list
-# (-config pairs) whose values contain no whitespace, and it is empty on
-# every normal launch, where it word-splits to nothing at all.
-./flycast $NETPLAY_ARGS "$ROM" &> "$LOGS_PATH/$EMU_TAG.txt" &
+# $GAME_ARGS / $NETPLAY_ARGS are deliberately UNQUOTED: word-split argument
+# lists (-config pairs) whose values contain no whitespace, empty on normal
+# launches. NETPLAY_ARGS comes last so its network:* values win over any
+# per-game override on a netplay launch: flycast's LAST -config wins for a
+# repeated section:key -- ParseCommandLine() walks argv left-to-right
+# (core/cfg/cl.cpp) and every -config lands in cfgSetVirtual() ->
+# ConfigSection::set(), a plain std::map assignment that overwrites
+# (core/cfg/ini.cpp).
+./flycast $GAME_ARGS $NETPLAY_ARGS "$ROM" &> "$LOGS_PATH/$EMU_TAG.txt" &
 EMU_PID=$!
 
 # Thread pinning (dual cluster). Evidence-based (see task-11 report): tg5040

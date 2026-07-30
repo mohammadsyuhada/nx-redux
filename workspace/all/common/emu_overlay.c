@@ -38,7 +38,7 @@ static void build_main_menu(EmuOvl* ovl) {
 		n++;
 	}
 
-	if (ovl->config->section_count > 0) {
+	if (ovl->config->section_count > 0 && !ovl->hide_options) {
 		snprintf(ovl->main_items[n].label, sizeof(ovl->main_items[n].label), "Options");
 		ovl->main_items[n].type = EMU_OVL_MAIN_OPTIONS;
 		n++;
@@ -234,6 +234,10 @@ int emu_ovl_init(EmuOvl* ovl, EmuOvlConfig* cfg, EmuOvlRenderBackend* render,
 		ovl->items_per_page = 5;
 	else
 		ovl->items_per_page = 8;
+
+	// Options are edited pre-launch on some platforms; hide the in-game entry
+	const char* hide_opts = getenv("EMU_OVERLAY_HIDE_OPTIONS");
+	ovl->hide_options = hide_opts && strcmp(hide_opts, "1") == 0;
 
 	build_main_menu(ovl);
 
