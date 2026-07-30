@@ -11,6 +11,93 @@ Move an entry from there to here once it compiles and needs hardware time.
 
 ---
 
+## N64 pre-launch options + overlay Options removal (built 2026-07-30)
+
+**Status:** Tasks 1-5 (N64 `options.sh` + shared `nx_paths.sh`, the per-game
+`--set` override path in both N64.pak `launch.sh` scripts, and the outright
+removal of the in-game overlay Options UI) are built, compile clean on both
+platforms, and staged (not committed).
+**Verified 2026-07-30 on tg5040 Brick** (automated over adb: `sh -n` on all
+scripts, busybox awk `--set` translation byte-exact, seeding idempotence
+(`.initialized` honored), live launch argv carrying
+`--nosaveoptions --set Video-GLideN64[UseNativeResolutionFactor]=3`,
+`mupen64plus.cfg` md5 byte-identical across a real play session, rebuilt
+GLideN64 `.so` initializing the overlay at 1024×768; UI pass: context-menu
+entry, per-game edit visibly applying with revert-deletes-file, "Clear All
+Overrides" deleting a planted two-key override file end to end, Emulator
+Settings listing both emulators with global edits applying, N64 and DC in-game
+menus showing Continue / Save State / Load State / Quit only with
+save/load/slot-screenshots/quit-autosave intact; fresh-card round-trip:
+config dir wiped → "Emulator Options" alone seeded `mupen64plus.cfg`
+byte-identical to `default-brick.cfg` + `.initialized`, an edit survived the
+first game launch un-re-seeded, per-game `--set` never leaked into the global
+cfg, and the second launch left the cfg byte-identical — see the Gotcha below
+about the first launch's one-time rewrite; 44.1 kHz sink session via a
+simulated `/tmp/nx_audio_sink` (`rates=44100`): argv carried
+`--set Audio-SDL[OUTPUT_FREQUENCY]=44100`, cfg md5 byte-identical after the
+session with `OUTPUT_FREQUENCY = 48000` untouched on disk — the audio-rate
+drift bug is dead; a both-rates sink correctly stayed at native 48 kHz,
+confirming `nx_pick_audio_rate`'s exact-match preference live). Real-BT
+audio output itself was verified in the audio-routing round and is not
+re-tested here. What remains below is the Smart Pro S pass.
+This makes mupen64plus the second
+pre-launch-options adopter after flycast — same schema-driven `options.elf`,
+same nextui context-menu probe and `Emulator Settings` picker, nothing N64 has
+of its own beyond an `options.sh` and its config storage. Design:
+`docs/superpowers/specs/2026-07-30-n64-prelaunch-options-design.md`.
+
+Shape of the shipped feature: the game-list context menu's "Emulator Options"
+item and Tools → Emulator Settings both key off the same capability marker —
+does the pak ship an `options.sh`. For N64, per-game overrides go to
+`$SHARED_USERDATA_PATH/N64-mupen64plus/config/<device>/games/<rom-base>.cfg`
+(one key per changed value; `<rom-base>` collapses a folder-m3u game's discs to
+the folder name, `nx_paths.sh`'s `nx_rom_base()`), while global defaults edit
+the per-device `mupen64plus.cfg`. `launch.sh` reads the override with an awk
+step emitting `--set Section[KEY]=VALUE`, applied under `--nosaveoptions` so
+every `--set` is a session-virtual runtime override that ui-console never
+persists back to `mupen64plus.cfg` — the mupen64plus analogue of flycast's
+`cfgSetVirtual`. Config-dir resolution + first-run `mupen64plus.cfg` seeding
+were split out of `launch.sh` into a sourced `nx_paths.sh` so options can be
+edited before a game has ever launched without the two scripts drifting.
+Alongside this, the overlay Options UI was deleted outright from
+`workspace/all/common/emu_overlay.c`/`.h` (the old `EMU_OVERLAY_HIDE_OPTIONS`
+env-var gate is gone entirely — there is nothing left to hide), and both flycast
+binaries and the shared GLideN64 `.so` were rebuilt against the trimmed overlay.
+
+### On-device verification
+
+- [ ] **Smart Pro S (tg5050) pass** — deploy the staged tg5050 artifacts
+      (`N64.pak` scripts, `DC.pak` launch.sh + flycast, shared GLideN64 `.so`)
+      and repeat the Brick checks: context-menu + Emulator Settings wiring,
+      per-game override apply/revert, `--set` virtuality hash, N64 + DC
+      in-game menus (four entries, save/load intact).
+
+### Gotchas
+
+- **On a freshly-seeded config, the FIRST game launch rewrites
+  `mupen64plus.cfg` once. This is normal, not the drift bug.** Why: the
+  shipped `default-*.cfg` files predate ~35 settings newer GLideN64 knows
+  (unused `hk*` hotkey bindings), so on the first launch the plugin adds them
+  with empty defaults and saves the file — once. Verified harmless on the
+  Brick 2026-07-30: existing values survive, per-game `--set` values do NOT
+  get written in, and every launch after the first leaves the file
+  byte-identical. Practical consequence, and the only reason this note
+  exists: when running the md5 "cfg unchanged" checks (44.1 kHz item above,
+  Smart Pro S pass), launch a game once BEFORE taking the "before" hash —
+  otherwise this one-time rewrite looks like the drift bug came back.
+  Deliberately not fixed (would mean regenerating all four `default-*.cfg`
+  files and re-verifying seeding per device, to avoid one harmless write);
+  fold the missing keys in whenever those defaults are next touched anyway.
+  **When this section is verified and deleted** (after the Smart Pro S pass),
+  this note moves to `workspace/all/other/mupen64plus/README.md` — it
+  describes permanent GLideN64/default-cfg behavior, not a one-off bring-up
+  fact. Move the correct patch-regen recipe there in the same edit (the
+  GLideN64 patch's `.a` entries are content-less placeholders: regenerate
+  WITHOUT `--binary`, round-trip with
+  `git apply --check -R --exclude='src/GLideNHQ/lib/*'`).
+
+---
+
 ## DC netplay pre-launch wizard (built 2026-07-29)
 
 **Status:** Tasks 1-7 (nextui Y-launch, the standalone `netplay.elf` wizard, and the

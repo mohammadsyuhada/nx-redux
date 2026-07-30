@@ -38,119 +38,11 @@ static void build_main_menu(EmuOvl* ovl) {
 		n++;
 	}
 
-	if (ovl->config->section_count > 0 && !ovl->hide_options) {
-		snprintf(ovl->main_items[n].label, sizeof(ovl->main_items[n].label), "Options");
-		ovl->main_items[n].type = EMU_OVL_MAIN_OPTIONS;
-		n++;
-	}
-
 	snprintf(ovl->main_items[n].label, sizeof(ovl->main_items[n].label), "Quit");
 	ovl->main_items[n].type = EMU_OVL_MAIN_QUIT;
 	n++;
 
 	ovl->main_item_count = n;
-}
-
-static int find_options_index(EmuOvl* ovl) {
-	for (int i = 0; i < ovl->main_item_count; i++) {
-		if (ovl->main_items[i].type == EMU_OVL_MAIN_OPTIONS)
-			return i;
-	}
-	return 0;
-}
-
-static void cycle_item_next(EmuOvlItem* item) {
-	switch (item->type) {
-	case EMU_OVL_TYPE_BOOL:
-		item->staged_value = item->staged_value ? 0 : 1;
-		break;
-	case EMU_OVL_TYPE_CYCLE: {
-		int idx = -1;
-		for (int i = 0; i < item->value_count; i++) {
-			if (item->values[i] == item->staged_value) {
-				idx = i;
-				break;
-			}
-		}
-		if (idx < 0)
-			idx = 0;
-		else
-			idx = (idx + 1) % item->value_count;
-		item->staged_value = item->values[idx];
-		break;
-	}
-	case EMU_OVL_TYPE_INT:
-		item->staged_value += item->int_step;
-		if (item->staged_value > item->int_max)
-			item->staged_value = item->int_min;
-		break;
-	}
-	item->dirty = (item->staged_value != item->current_value);
-}
-
-static void cycle_item_prev(EmuOvlItem* item) {
-	switch (item->type) {
-	case EMU_OVL_TYPE_BOOL:
-		item->staged_value = item->staged_value ? 0 : 1;
-		break;
-	case EMU_OVL_TYPE_CYCLE: {
-		int idx = -1;
-		for (int i = 0; i < item->value_count; i++) {
-			if (item->values[i] == item->staged_value) {
-				idx = i;
-				break;
-			}
-		}
-		if (idx < 0)
-			idx = 0;
-		else
-			idx = (idx - 1 + item->value_count) % item->value_count;
-		item->staged_value = item->values[idx];
-		break;
-	}
-	case EMU_OVL_TYPE_INT:
-		item->staged_value -= item->int_step;
-		if (item->staged_value < item->int_min)
-			item->staged_value = item->int_max;
-		break;
-	}
-	item->dirty = (item->staged_value != item->current_value);
-}
-
-static const char* get_item_display_value(EmuOvlItem* item, char* buf, int buf_size) {
-	switch (item->type) {
-	case EMU_OVL_TYPE_BOOL:
-		return item->staged_value ? "On" : "Off";
-	case EMU_OVL_TYPE_CYCLE:
-		for (int i = 0; i < item->value_count; i++) {
-			if (item->values[i] == item->staged_value) {
-				if (item->labels[i][0] != '\0')
-					return item->labels[i];
-				snprintf(buf, buf_size, "%d", item->staged_value);
-				return buf;
-			}
-		}
-		snprintf(buf, buf_size, "%d", item->staged_value);
-		return buf;
-	case EMU_OVL_TYPE_INT:
-		snprintf(buf, buf_size, "%d", item->staged_value);
-		return buf;
-	}
-	return "";
-}
-
-static void ensure_scroll(EmuOvl* ovl, int total_count) {
-	if (ovl->selected < ovl->scroll_offset)
-		ovl->scroll_offset = ovl->selected;
-	else if (ovl->selected >= ovl->scroll_offset + ovl->items_per_page)
-		ovl->scroll_offset = ovl->selected - ovl->items_per_page + 1;
-	if (ovl->scroll_offset < 0)
-		ovl->scroll_offset = 0;
-	int max_scroll = total_count - ovl->items_per_page;
-	if (max_scroll < 0)
-		max_scroll = 0;
-	if (ovl->scroll_offset > max_scroll)
-		ovl->scroll_offset = max_scroll;
 }
 
 // ---------------------------------------------------------------------------
@@ -235,10 +127,6 @@ int emu_ovl_init(EmuOvl* ovl, EmuOvlConfig* cfg, EmuOvlRenderBackend* render,
 	else
 		ovl->items_per_page = 8;
 
-	// Options are edited pre-launch on some platforms; hide the in-game entry
-	const char* hide_opts = getenv("EMU_OVERLAY_HIDE_OPTIONS");
-	ovl->hide_options = hide_opts && strcmp(hide_opts, "1") == 0;
-
 	build_main_menu(ovl);
 
 	// Screenshot directory (matches minarch's .minui path for game switcher)
@@ -281,7 +169,6 @@ void emu_ovl_open(EmuOvl* ovl) {
 	ovl->action = EMU_OVL_ACTION_NONE;
 	ovl->action_param = 0;
 	ovl->save_slot = 0;
-	ovl->scroll_offset = 0;
 
 	if (ovl->render && ovl->render->capture_frame)
 		ovl->render->capture_frame();
@@ -314,12 +201,6 @@ bool emu_ovl_update(EmuOvl* ovl, EmuOvlInput* input) {
 				ovl->state = EMU_OVL_STATE_LOAD_SELECT;
 				ovl->save_slot = 0;
 				load_slot_screenshots(ovl);
-				break;
-			case EMU_OVL_MAIN_OPTIONS:
-				ovl->state = EMU_OVL_STATE_SECTION_LIST;
-				ovl->selected = 0;
-				ovl->scroll_offset = 0;
-				ovl->current_section = 0;
 				break;
 			case EMU_OVL_MAIN_QUIT:
 				ovl->action = EMU_OVL_ACTION_QUIT;
@@ -363,54 +244,6 @@ bool emu_ovl_update(EmuOvl* ovl, EmuOvlInput* input) {
 			}
 		}
 		break;
-
-	// ----- SECTION LIST -----
-	case EMU_OVL_STATE_SECTION_LIST:
-		if (input->up) {
-			ovl->selected = (ovl->selected - 1 + ovl->config->section_count) % ovl->config->section_count;
-			ensure_scroll(ovl, ovl->config->section_count);
-		} else if (input->down) {
-			ovl->selected = (ovl->selected + 1) % ovl->config->section_count;
-			ensure_scroll(ovl, ovl->config->section_count);
-		} else if (input->a) {
-			ovl->current_section = ovl->selected;
-			ovl->state = EMU_OVL_STATE_SECTION_ITEMS;
-			ovl->selected = 0;
-			ovl->scroll_offset = 0;
-		} else if (input->b) {
-			ovl->state = EMU_OVL_STATE_MAIN_MENU;
-			ovl->selected = find_options_index(ovl);
-		}
-		break;
-
-	// ----- SECTION ITEMS -----
-	case EMU_OVL_STATE_SECTION_ITEMS: {
-		EmuOvlSection* sec = &ovl->config->sections[ovl->current_section];
-		int total_rows = sec->item_count + 1; // +1 for "Reset to Default"
-		if (input->up) {
-			ovl->selected = (ovl->selected - 1 + total_rows) % total_rows;
-			ensure_scroll(ovl, total_rows);
-		} else if (input->down) {
-			ovl->selected = (ovl->selected + 1) % total_rows;
-			ensure_scroll(ovl, total_rows);
-		} else if (input->right || input->a) {
-			if (ovl->selected == sec->item_count) {
-				// "Reset to Default" action
-				emu_ovl_cfg_reset_section_to_defaults(sec);
-			} else if (sec->item_count > 0) {
-				cycle_item_next(&sec->items[ovl->selected]);
-			}
-		} else if (input->left) {
-			if (ovl->selected < sec->item_count && sec->item_count > 0)
-				cycle_item_prev(&sec->items[ovl->selected]);
-		} else if (input->b) {
-			ovl->state = EMU_OVL_STATE_SECTION_LIST;
-			ovl->selected = ovl->current_section;
-			ovl->scroll_offset = 0;
-			ensure_scroll(ovl, ovl->config->section_count);
-		}
-		break;
-	}
 
 	case EMU_OVL_STATE_CLOSED:
 		return false;
@@ -652,110 +485,6 @@ static void render_slot_select(EmuOvl* ovl) {
 	draw_hint_bar(ovl, hints, 6);
 }
 
-static void render_section_list(EmuOvl* ovl) {
-	EmuOvlRenderBackend* r = ovl->render;
-
-	draw_menu_bar(ovl, "Options");
-
-	int row_h = S(PILL_SIZE);
-	int content_x = S(PADDING);
-	int content_w = ovl->screen_w - S(PADDING) * 2;
-
-	// Scroll
-	ensure_scroll(ovl, ovl->config->section_count);
-
-	int vis_count = ovl->items_per_page;
-	if (vis_count > ovl->config->section_count)
-		vis_count = ovl->config->section_count;
-	int list_y = calc_centered_list_y(ovl, vis_count);
-
-	for (int vi = 0; vi < vis_count; vi++) {
-		int idx = ovl->scroll_offset + vi;
-		if (idx >= ovl->config->section_count)
-			break;
-
-		int iy = list_y + vi * row_h;
-		bool sel = (idx == ovl->selected);
-		draw_settings_row(ovl, content_x, iy, content_w, row_h,
-						  ovl->config->sections[idx].name, NULL, sel, false,
-						  EMU_OVL_FONT_LARGE);
-	}
-
-	// Optional hint (e.g. "Restart game to apply changes")
-	if (ovl->config->options_hint[0] != '\0') {
-		int hint_y = list_y + vis_count * row_h + S(4);
-		int tw = r->text_width(ovl->config->options_hint, EMU_OVL_FONT_TINY);
-		r->draw_text(ovl->config->options_hint,
-					 (ovl->screen_w - tw) / 2, hint_y,
-					 EMU_OVL_COLOR_GRAY, EMU_OVL_FONT_TINY);
-	}
-
-	const char* hints[] = {"B", "BACK", "A", "OPEN"};
-	draw_hint_bar(ovl, hints, 4);
-}
-
-static void render_section_items(EmuOvl* ovl) {
-	EmuOvlRenderBackend* r = ovl->render;
-	EmuOvlSection* sec = &ovl->config->sections[ovl->current_section];
-
-	draw_menu_bar(ovl, sec->name);
-
-	int row_h = S(PILL_SIZE);
-	int items_per_page = ovl->items_per_page;
-	int list_y = calc_centered_list_y(ovl, items_per_page);
-	int content_x = S(PADDING);
-	int content_w = ovl->screen_w - S(PADDING) * 2;
-
-	int total_rows = sec->item_count + 1; // +1 for "Reset to Default"
-
-	// Scroll
-	ensure_scroll(ovl, total_rows);
-
-	int vis_count = items_per_page;
-	if (vis_count > total_rows)
-		vis_count = total_rows;
-
-	for (int vi = 0; vi < vis_count; vi++) {
-		int idx = ovl->scroll_offset + vi;
-		if (idx >= total_rows)
-			break;
-
-		int iy = list_y + vi * row_h;
-		bool sel = (idx == ovl->selected);
-
-		if (idx < sec->item_count) {
-			EmuOvlItem* item = &sec->items[idx];
-			char val_buf[64];
-			const char* val_str = get_item_display_value(item, val_buf, sizeof(val_buf));
-			draw_settings_row(ovl, content_x, iy, content_w, row_h,
-							  item->label, val_str, sel, true,
-							  EMU_OVL_FONT_SMALL);
-		} else {
-			// "Reset to Default" row
-			draw_settings_row(ovl, content_x, iy, content_w, row_h,
-							  "Reset to Default", NULL, sel, false,
-							  EMU_OVL_FONT_SMALL);
-		}
-	}
-
-	// Description for selected item / hint text area
-	int desc_y = list_y + vis_count * row_h;
-	int desc_cy = desc_y + row_h / 2 - r->text_height(EMU_OVL_FONT_TINY) / 2;
-
-	if (ovl->selected < sec->item_count) {
-		EmuOvlItem* sel_item = &sec->items[ovl->selected];
-		if (sel_item->description[0] != '\0') {
-			int tw = r->text_width(sel_item->description, EMU_OVL_FONT_TINY);
-			r->draw_text(sel_item->description,
-						 (ovl->screen_w - tw) / 2, desc_cy,
-						 EMU_OVL_COLOR_GRAY, EMU_OVL_FONT_TINY);
-		}
-	}
-
-	const char* hints[] = {"LEFT/RIGHT", "CHANGE", "B", "BACK"};
-	draw_hint_bar(ovl, hints, 4);
-}
-
 void emu_ovl_render(EmuOvl* ovl) {
 	if (ovl->state == EMU_OVL_STATE_CLOSED)
 		return;
@@ -774,12 +503,6 @@ void emu_ovl_render(EmuOvl* ovl) {
 	case EMU_OVL_STATE_SAVE_SELECT:
 	case EMU_OVL_STATE_LOAD_SELECT:
 		render_slot_select(ovl);
-		break;
-	case EMU_OVL_STATE_SECTION_LIST:
-		render_section_list(ovl);
-		break;
-	case EMU_OVL_STATE_SECTION_ITEMS:
-		render_section_items(ovl);
 		break;
 	case EMU_OVL_STATE_CLOSED:
 		break;

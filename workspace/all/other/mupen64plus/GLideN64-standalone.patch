@@ -479,7 +479,7 @@ index 701d27d2..e6ad4c80 100644
  
  #endif // DISPLAYLOADPROGRESS_H
 diff --git a/src/DisplayWindow.cpp b/src/DisplayWindow.cpp
-index 59725f62..3a3ad2a0 100644
+index 59725f62..a718179f 100644
 --- a/src/DisplayWindow.cpp
 +++ b/src/DisplayWindow.cpp
 @@ -1,5 +1,7 @@
@@ -490,7 +490,7 @@ index 59725f62..3a3ad2a0 100644
  #include "Config.h"
  #include "RSP.h"
  #include "VI.h"
-@@ -8,6 +10,284 @@
+@@ -8,6 +10,276 @@
  #include "PluginAPI.h"
  #include "FrameBuffer.h"
  
@@ -761,21 +761,13 @@ index 59725f62..3a3ad2a0 100644
 +
 +	EmuOvlAction action = emu_ovl_get_action(&s_overlay);
 +
-+	// Handle config changes: write to INI first (while dirty flags are set), then apply
-+	if (emu_ovl_cfg_has_changes(&s_overlayConfig)) {
-+		if (s_overlayIniPath[0] != '\0') {
-+			emu_ovl_cfg_write_ini(&s_overlayConfig, s_overlayIniPath);
-+		}
-+		emu_ovl_cfg_apply_staged(&s_overlayConfig);
-+	}
-+
 +	return action;
 +}
 +
  bool DisplayWindow::start()
  {
  	if (!_start())
-@@ -48,6 +328,65 @@ void DisplayWindow::swapBuffers()
+@@ -48,6 +320,65 @@ void DisplayWindow::swapBuffers()
  {
  	m_drawer.drawOSD();
  	m_drawer.clearStatistics();

@@ -54,13 +54,14 @@ one-line snapshot here.
 
 ---
 
-## Pre-launch options: N64 + minarch adoption
+## Pre-launch options: minarch adoption
 
 **Recorded:** 2026-07-29, alongside the DC pre-launch options build (see
-`DEV_CHECKLIST.md`'s "Dreamcast pre-launch options" section and
-`docs/superpowers/specs/2026-07-29-dc-prelaunch-options-design.md`). Scoped out of
-that effort on purpose — flycast/DC was the first adopter, everything else is the
-deliberate follow-up.
+`docs/superpowers/specs/2026-07-29-dc-prelaunch-options-design.md`). flycast/DC was
+the first adopter; N64/mupen64plus followed 2026-07-30
+(`docs/superpowers/specs/2026-07-30-n64-prelaunch-options-design.md`, now in
+`DEV_CHECKLIST.md`). Both have adopted — minarch is the remaining deliberate
+follow-up.
 
 The mechanism is already generic: `options.elf` is schema-driven, nextui's
 context-menu probe and the `Emulator Settings` picker both key off nothing but
@@ -68,23 +69,6 @@ context-menu probe and the `Emulator Settings` picker both key off nothing but
 Adopting an emulator is therefore adding an `options.sh` plus whatever the
 emulator's own config storage needs.
 
-- [ ] **N64 (`N64.pak`)** — the smaller of the two, and mostly already in place:
-      the schema exists (`skeleton/EXTRAS/Emus/shared/mupen64plus/overlay_settings.json`,
-      `config_section = Video-GLideN64`, config file `mupen64plus.cfg`), and
-      mupen64plus takes command-line config overrides as
-      `--set Section[KEY]=VALUE` — which `launch.sh` already uses for the audio rate
-      (`AUDIO_OVERRIDE`, tg5040 `launch.sh:125`). So the work is: an `options.sh`
-      (with a `# NAME:` line so the Emulator Settings picker labels it, modeled on
-      `skeleton/EXTRAS/Emus/tg5040/DC.pak/options.sh`), the same `nx_paths.sh`-style
-      split of config-dir resolution + seeding out of `launch.sh`, and an awk step
-      emitting `--set Sec[KEY]=v` instead of `-config sec:key=v`.
-      **Verify before relying on it:** that `--set` is a virtual/runtime override
-      and mupen64plus does not write those values back into `mupen64plus.cfg` on
-      exit. flycast's `-config` is explicitly virtual (`cfgSetVirtual`); if
-      mupen64plus persists instead, the whole point of the design is lost and the
-      per-game half needs another mechanism (write-launch-restore is NOT acceptable —
-      that is exactly the config-rewriting problem this avoids), leaving
-      global-mode-only as the honest fallback for N64.
 - [ ] **minarch cores** — much harder than N64, and **not** a copy of DC's
       `options.sh`. Two real obstacles, both worth settling before any code:
       1. *Storage.* minarch already has its own layered config and its own per-game
@@ -105,15 +89,12 @@ emulator's own config storage needs.
          it on first launch from the live core, then edit against the cache) or to
          `dlopen` the core just to enumerate — neither of which the DC path had to
          solve. This, not the shell plumbing, is the actual piece of work.
-- [ ] **Hide the in-game entry last, not first.** Only once an emulator's per-game
-      path actually works should its `launch.sh` export
-      `EMU_OVERLAY_HIDE_OPTIONS=1` — the gate is per-pak (`emu_overlay.c`'s
-      `hide_options`), so a half-adopted emulator that hides in-game Options while its
-      pre-launch editor can't set per-game values leaves users with no way to change
-      anything. Note the env var only covers the two shared-overlay emulators
-      (flycast and mupen64plus, via `flycast.patch` / `GLideN64-standalone.patch`);
-      minarch does not use `emu_overlay.c` at all, so retiring **its** in-game options
-      screen is a separate change in minarch's own menu code.
+
+Note the two shared-overlay emulators (flycast and mupen64plus) had their in-game
+overlay Options screen removed outright when they adopted — `emu_overlay.c`'s
+Options UI is gone and there is no `EMU_OVERLAY_HIDE_OPTIONS` gate anymore. minarch
+does not use `emu_overlay.c` at all, so retiring **its** in-game options screen is a
+separate change in minarch's own menu code.
 
 ---
 

@@ -65,7 +65,6 @@ MINUI_DIR="$SHARED_USERDATA_PATH/.minui/$EMU_TAG"
 mkdir -p "$MINUI_DIR"
 export EMU_OVERLAY_SCREENSHOT_DIR="$MINUI_DIR"
 export EMU_OVERLAY_ROMFILE="$(basename "$ROM")"
-export EMU_OVERLAY_HIDE_OPTIONS=1  # options moved to the pre-launch editor (options.sh)
 
 # Mute speaker before launch to prevent audio pop, then unmute after init
 echo 1 > /sys/class/speaker/mute 2>/dev/null || true

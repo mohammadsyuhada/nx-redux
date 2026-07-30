@@ -244,15 +244,14 @@ index 9babc2bd6..9d807b816 100644
  			if (pressed && !gui_is_open())
 diff --git a/core/nx_overlay.cpp b/core/nx_overlay.cpp
 new file mode 100644
-index 000000000..a6fc54e11
+index 000000000..09d45049f
 --- /dev/null
 +++ b/core/nx_overlay.cpp
-@@ -0,0 +1,382 @@
+@@ -0,0 +1,312 @@
 +#include "nx_overlay.h"
 +#include "emulator.h"
 +#include "types.h"
 +#include "ui/gui.h" // gui_stop_game() - resume-failure fallback (Important 3)
-+#include "cfg/cfg.h" // cfgSaveBool()/cfgSaveInt() - see write_config_if_dirty()
 +// Explicit SDL2/ subpath (not <SDL.h>): this file's own -I includes
 +// workspace/all/common (for the emu_overlay* headers below), which also
 +// hosts nx-redux's own case-insensitively-colliding sdl.h shim (see the
@@ -412,78 +411,9 @@ index 000000000..a6fc54e11
 +	s_menuRequested = true;
 +}
 +
-+static void write_config_if_dirty()
-+{
-+	if (emu_ovl_cfg_has_changes(&s_overlayConfig)) {
-+		if (s_overlayIniPath[0] != '\0')
-+			emu_ovl_cfg_write_ini(&s_overlayConfig, s_overlayIniPath);
-+
-+		// Also push every dirty item into flycast's own in-memory config db
-+		// (core/cfg/cfg.cpp's cfgdb), BEFORE emu_ovl_cfg_apply_staged() below
-+		// clears the dirty flags. Root cause of the "Options revert after
-+		// restart" bug: emu_ovl_cfg_write_ini() above only ever patches the
-+		// raw emu.cfg *file*; it never touches cfgdb, and cfgdb is what actually
-+		// matters for durability. ANY flycast-side cfgSaveStr() call during the
-+		// same session rewrites the file straight from cfgdb - e.g.
-+		// GamepadDevice::SaveMaplePorts() (core/input/gamepad_device.cpp:729),
-+		// cheat auto-discovery (core/cheats.cpp:437), or the native Settings UI -
-+		// because cfgSaveStr() does cfgdb.set() then, since autoSave defaults
-+		// true, immediately calls saveConfigFile() (core/cfg/cfg.cpp:26-31),
-+		// which rewrites the ENTIRE emu.cfg from cfgdb. One such write reverts
-+		// every prior file-only edit, since it doesn't merge - it replaces the
-+		// file wholesale with whatever cfgdb currently holds. On top of that,
-+		// plain Quit itself reloads every in-memory Option from cfgdb: dc_exit()
-+		// -> Emulator::unloadGame() (core/emulator.cpp:750-751) unconditionally
-+		// runs config::Settings::instance().reset() then .load(false), which
-+		// re-populates every Option straight from cfgdb, NOT from the file. So
-+		// keeping cfgdb in sync here - not just the file - is the only thing that
-+		// survives both of those; the file write above is effectively redundant
-+		// once this loop runs, but kept per the brief (N64.pak's shared overlay
-+		// code relies on the same file-write path).
-+		//
-+		// Two more things this depends on, confirmed against source:
-+		// (a) Option::load() only reads a per-game [gameId] section
-+		// ("config.<key>" keys) when settings.hasPerGameConfig() is true, i.e. a
-+		// [gameId] section already exists in cfgdb (core/cfg/option.h:119-127) -
-+		// not reachable with any of the shipped default cfgs, which carry no
-+		// per-game section, so the plain [config] path below is always the one
-+		// that applies here.
-+		// (b) ConfigFile::save() (core/cfg/ini.cpp:291) always writes entries as
-+		// "key = value" (spaces around '=') whenever flycast itself rewrites the
-+		// file - DC.pak's launch.sh sed patterns (e.g. 's/^UseReios =.*/.../')
-+		// depend on that exact spacing surviving flycast's own rewrites, not
-+		// just ours.
-+		for (int s = 0; s < s_overlayConfig.section_count; s++) {
-+			EmuOvlSection* sec = &s_overlayConfig.sections[s];
-+			const char* ini_section = sec->ini_section[0] != '\0'
-+				? sec->ini_section
-+				: s_overlayConfig.config_section;
-+			for (int i = 0; i < sec->item_count; i++) {
-+				EmuOvlItem* item = &sec->items[i];
-+				if (!item->dirty)
-+					continue;
-+				if (item->type == EMU_OVL_TYPE_BOOL) {
-+					cfgSaveBool(ini_section, item->key, item->staged_value != 0);
-+				} else {
-+					// NOTE: float_scale (INI value stored as a float, staged
-+					// as scaled int - see emu_overlay_cfg.c's write_item_value())
-+					// is unhandled here: no current overlay_settings.json item
-+					// uses it. A future float_scale item would need a
-+					// cfgSaveFloat(ini_section, item->key,
-+					// (float)item->staged_value / item->float_scale) branch here.
-+					cfgSaveInt(ini_section, item->key, item->staged_value);
-+				}
-+			}
-+		}
-+
-+		emu_ovl_cfg_apply_staged(&s_overlayConfig);
-+	}
-+}
-+
 +static void handle_menu_close()
 +{
 +	s_menuActive = false;
-+	write_config_if_dirty();
 +	EmuOvlAction action = emu_ovl_get_action(&s_overlay);
 +	switch (action) {
 +	case EMU_OVL_ACTION_SAVE_STATE: {

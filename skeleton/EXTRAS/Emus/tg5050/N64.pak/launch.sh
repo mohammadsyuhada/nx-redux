@@ -26,20 +26,8 @@ echo 200 >/proc/sys/vm/vfs_cache_pressure 2>/dev/null
 sync
 echo 3 >/proc/sys/vm/drop_caches 2>/dev/null
 
-# User data directory, shared across devices (saves via XDG_DATA_HOME below;
-# config stays per-device in subdirs)
-USERDATA_DIR="$SHARED_USERDATA_PATH/N64-mupen64plus"
-mkdir -p "$USERDATA_DIR"
-
-# Device-specific config directory
-DEVICE_CONFIG_DIR="$USERDATA_DIR/config/tg5050"
-mkdir -p "$DEVICE_CONFIG_DIR"
-
-# First run: copy device-specific defaults
-if [ ! -f "$DEVICE_CONFIG_DIR/.initialized" ]; then
-    cp "$PAK_DIR/default.cfg" "$DEVICE_CONFIG_DIR/mupen64plus.cfg"
-    touch "$DEVICE_CONFIG_DIR/.initialized"
-fi
+# Config-dir resolution + mupen64plus.cfg seeding shared with options.sh
+. "$PAK_DIR/nx_paths.sh"
 
 export HOME="$USERDATA_PATH"
 # Saves/states genuinely shared across devices: mupen64plus writes .st*/.eep/
@@ -111,13 +99,41 @@ NX_AUDIO_RATE=$(nx_pick_audio_rate 48000)
 AUDIO_OVERRIDE=""
 [ "$NX_AUDIO_RATE" != "48000" ] && AUDIO_OVERRIDE="--set Audio-SDL[OUTPUT_FREQUENCY]=$NX_AUDIO_RATE"
 
+# --- Per-game option overrides ------------------------------------------
+# Written by options.elf ("Emulator Options" in the game list's context
+# menu). Each entry becomes a --set applied under --nosaveoptions, so the
+# values live only in this session's memory: mupen64plus.cfg stays the
+# device-global config and can never absorb per-game values. Values are
+# ints/bools/floats with no whitespace, so word-splitting GAME_ARGS is
+# safe (the [ ] glob chars only expand if a matching file exists in the
+# cwd -- the same exposure AUDIO_OVERRIDE already has). A malformed or
+# unreadable file yields no args: the game still launches on globals.
+GAME_ARGS=""
+NX_ROM_BASE="$(nx_rom_base "$ROM")"
+NX_GAME_CFG="$DEVICE_CONFIG_DIR/games/$NX_ROM_BASE.cfg"
+if [ -f "$NX_GAME_CFG" ]; then
+    GAME_ARGS=$(awk -F' = ' '
+        /^\[.*\]$/ { sec = substr($0, 2, length($0) - 2); next }
+        NF == 2 && sec != "" { printf "--set %s[%s]=%s ", sec, $1, $2 }
+    ' "$NX_GAME_CFG" 2>/dev/null)
+fi
+# --- end per-game overrides ---------------------------------------------
+
 # Launch from PAK_DIR so core library resolves via ./
 cd "$PAK_DIR"
+# --nosaveoptions: without it, ui-console persists --set values at startup
+# (SaveConfigurationOptions, main.c:991) and rewrites mupen64plus.cfg from
+# core memory on exit (ConfigSaveFile, main.c:1135/1150) -- exactly the
+# config rewriting this design forbids. With it, every --set is
+# session-virtual and the cfg is owned solely by options.elf + the
+# nx_paths.sh seeder. $GAME_ARGS before $AUDIO_OVERRIDE so the negotiated
+# audio rate wins any future conflict (--set applies left-to-right).
 ./mupen64plus --fullscreen --resolution 1280x720 \
     --configdir "$DEVICE_CONFIG_DIR" \
     --datadir "$EMU_DIR" \
     --plugindir "$PAK_DIR" \
-    $AUDIO_OVERRIDE \
+    --nosaveoptions \
+    $GAME_ARGS $AUDIO_OVERRIDE \
     --gfx "$EMU_DIR/mupen64plus-video-GLideN64.so" \
     --audio mupen64plus-audio-sdl.so \
     --input mupen64plus-input-sdl.so \
