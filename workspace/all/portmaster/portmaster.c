@@ -21,11 +21,11 @@
 #include "wget_fetch.h"
 
 // PortMaster paths
-#define PORTS_PAK_DIR SDCARD_PATH "/Emus/" PLATFORM "/PORTS.pak"
+#define PORTS_PAK_DIR SDCARD_PATH "/Emus/PORTS.pak"
 #define PORTMASTER_DIR SDCARD_PATH "/Emus/shared/PortMaster"
 #define PUGWASH_PATH PORTMASTER_DIR "/pugwash"
 #define PORTS_ROM_DIR ROMS_PATH "/Ports (PORTS)"
-#define PORTS_LAUNCH_SRC TOOLS_PATH "/PortMaster.pak/ports_launch.sh"
+#define PORTS_LAUNCH_SRC PAKS_PATH "/Tools/PortMaster.pak/ports_launch.sh"
 
 // PortMaster release URL
 #define PM_RELEASE_URL "https://github.com/PortsMaster/PortMaster-GUI/releases/latest/download/PortMaster.zip"
@@ -110,7 +110,7 @@ static void invalidate_emulist_cache(void) {
 	unlink(ROMINDEX_CACHE_PATH);
 }
 
-// Sync cover/screenshot images from .ports/*/  to .media/ for NextUI artwork
+// Sync cover/screenshot images from .ports/*/  to .media/ for NxRedux artwork
 static void sync_port_artwork(void) {
 	char ports_dir[512];
 	char media_dir[512];
@@ -328,9 +328,9 @@ static void patch_platform_py(void) {
 			 platform_py);
 	system(cmd);
 
-	// Fix hardcoded ROM/image paths for NextUI directory naming
+	// Fix hardcoded ROM/image paths for NxRedux directory naming
 	// PortMaster expects /mnt/SDCARD/Roms/PORTS and /mnt/SDCARD/Imgs/PORTS
-	// but NextUI uses /mnt/SDCARD/Roms/Ports (PORTS)
+	// but NxRedux uses /mnt/SDCARD/Roms/Ports (PORTS)
 	snprintf(cmd, sizeof(cmd),
 			 "sed -i 's|/mnt/SDCARD/Roms/PORTS|" SDCARD_PATH "/Roms/Ports (PORTS)|g;"
 			 "s|/mnt/SDCARD/Imgs/PORTS|" SDCARD_PATH "/Roms/Ports (PORTS)/.media|g' '%s'",
@@ -487,7 +487,7 @@ static void patch_control_txt(void) {
 	fprintf(fp, "#\n");
 	fprintf(fp, "# SPDX-License-Identifier: MIT\n");
 	fprintf(fp, "#\n");
-	fprintf(fp, "# Patched for NextUI\n");
+	fprintf(fp, "# Patched for NxRedux\n");
 	fprintf(fp, "\n");
 	fprintf(fp, "CUR_TTY=/dev/tty0\n");
 	fprintf(fp, "\n");
@@ -596,7 +596,7 @@ static void launch_pugwash(void) {
 	// Ensure /bin/bash exists for port scripts with #!/bin/bash shebangs
 	ensure_bash_symlink();
 
-	// Always ensure NextUI patches are applied before launching
+	// Always ensure NxRedux patches are applied before launching
 	// (PortMaster's first_run or updates may have overwritten them)
 	patch_control_txt();
 	patch_device_info();

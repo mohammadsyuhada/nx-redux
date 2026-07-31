@@ -3,12 +3,12 @@
 *.o
 *.so
 !workspace/all/musicplayer/include/fdk_aac/lib/*.so*
-!skeleton/EXTRAS/Emus/**/*.so
+!skeleton/BASE/Emus/**/*.so
 !skeleton/SYSTEM/shared/lib/*.so
 *.elf
 *.dtb
 *.zip
-!skeleton/EXTRAS/Emus/shared/PortMaster/files/*
+!skeleton/BASE/Emus/shared/PortMaster/files/*
 !skeleton/SYSTEM/osd-stock/*.zip
 
 build
@@ -58,14 +58,14 @@ audiomon.elf
 **/tmp
 
 # Advanced drastic base files (fetched at build time from trngaje/advanced_drastic)
-skeleton/EXTRAS/Emus/shared/drastic/*
-!skeleton/EXTRAS/Emus/shared/drastic/resources/
+skeleton/BASE/Emus/shared/drastic/*
+!skeleton/BASE/Emus/shared/drastic/resources/
 
 workspace/hash.txt
 workspace/readmes
 compile_commands.json
 BUILD.md
-skeleton/EXTRAS/Emus/shared/PortMaster/files/.DS_Store
+skeleton/BASE/Emus/shared/PortMaster/files/.DS_Store
 docs/
 docs/plans/
 workspace/all/common/tests/build/

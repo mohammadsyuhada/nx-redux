@@ -7,7 +7,7 @@ index 4d472d7..4fcca05 100644
  #define DEFAULT_FREQUENCY 33600
  
 +/* Default audio output frequency. 0 selects 11025/22050/44100 based on the game
-+   frequency. NextUI devices route ALSA through a dmix slave locked at 48000 Hz
++   frequency. NxRedux devices route ALSA through a dmix slave locked at 48000 Hz
 +   and convert any other rate with alsa-lib's low-quality linear resampler, so
 +   output 48000 directly to bypass that conversion. */
 +#define OUTPUT_FREQUENCY 48000

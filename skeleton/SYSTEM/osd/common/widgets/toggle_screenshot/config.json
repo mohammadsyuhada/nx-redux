@@ -1,6 +1,6 @@
 {
     "type":"toggle",
-    "package":"com.nextui.osd.toggle.screenshot",
+    "package":"com.nxredux.osd.toggle.screenshot",
     "label":"Screenshot",
     "gridwidth":1,
     "gridheight":1,

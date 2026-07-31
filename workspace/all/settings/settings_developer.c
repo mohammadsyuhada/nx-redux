@@ -1,5 +1,5 @@
 /*
- * settings_developer.c - Developer settings for NextUI Settings
+ * settings_developer.c - Developer settings for NxRedux Settings
  *
  * Provides developer-oriented options: disable sleep, SSH toggle,
  * and SSH on boot within the settings framework.

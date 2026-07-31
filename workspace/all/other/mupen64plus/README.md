@@ -82,7 +82,7 @@ Measured on the Brick (4-minute MK64 race, counters from the log): stock chain
 loop, save/load state handling via `CoreDoCommand`. Menu navigation reads the d-pad hat
 merged with analog stick axes 0/1 (`read_dpad_state()`) — on the Brick the FN switch
 reroutes the d-pad to the stick axes for analog steering, which would otherwise leave
-the menu unnavigable. Also the NextUI resume handshake:
+the menu unnavigable. Also the NxRedux resume handshake:
 on the first rendered frame after overlay init, `emu_ovl_consume_resume_slot()` reads
 and unlinks `/tmp/resume_slot.txt` (written by nextui on every launch; slot 0-7 only
 on a game-switcher resume) and auto-loads that slot via `M64CMD_STATE_SET_SLOT` +
@@ -210,7 +210,7 @@ make -j$(nproc) all \
 Output: `mupen64plus-audio-sdl/projects/unix/mupen64plus-audio-sdl.so`
 
 **Note:** The device must have `libsamplerate.so.0` available at runtime. The launch script
-includes `$SDCARD_PATH/.system/tg5040/lib` in `LD_LIBRARY_PATH` for this.
+includes `$SDCARD_PATH/.system/lib` in `LD_LIBRARY_PATH` for this.
 
 ### 4. GLideN64 video plugin (shared across platforms)
 
@@ -260,7 +260,7 @@ Copy built binaries to the pak/shared directories (per platform for the pak, onc
 the shared dir):
 
 ```
-skeleton/EXTRAS/Emus/<tg5040|tg5050>/N64.pak/
+skeleton/SYSTEM/<tg5040|tg5050>/paks/Emus/N64.pak/
 ├── mupen64plus                    ← ui-console binary (per-platform build)
 ├── libmupen64plus.so.2            ← core library (per-platform build)
 ├── mupen64plus-audio-sdl.so       ← audio plugin (built from source, libsamplerate)
@@ -269,7 +269,7 @@ skeleton/EXTRAS/Emus/<tg5040|tg5050>/N64.pak/
 ├── launch.sh
 └── default*.cfg
 
-skeleton/EXTRAS/Emus/shared/mupen64plus/
+skeleton/BASE/Emus/shared/mupen64plus/
 ├── mupen64plus-video-GLideN64.so  ← video plugin (single shared build)
 ├── overlay_settings.json          ← overlay menu config
 ├── mupen64plus.ini                ← ROM database

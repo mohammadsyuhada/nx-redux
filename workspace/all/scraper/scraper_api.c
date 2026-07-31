@@ -12,7 +12,7 @@
 #include <zlib.h>
 
 #define SS_API_BASE "https://api.screenscraper.fr/api2"
-#define SS_SOFTNAME "nextui-scraper"
+#define SS_SOFTNAME "nxredux-scraper"
 #define SS_RATE_LIMIT_MS 1200 // 1.2 seconds between requests
 
 // Obfuscated dev credentials (XOR key 0x5A)

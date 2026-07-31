@@ -411,7 +411,7 @@ static int render_main_header(SDL_Surface* screen) {
 }
 
 // Selectable list of the 3 main actions, drawn with the shared pill list
-// rendering (same idiom as nextui's game list).
+// rendering (same idiom as nxredux's game list).
 static void render_main_list(SDL_Surface* screen, int list_top, int selected) {
 	ListLayout layout = {
 		.item_h = SCALE1(PILL_SIZE),

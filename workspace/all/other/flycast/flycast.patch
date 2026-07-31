@@ -6,7 +6,7 @@ index 8340288fe..e2b512404 100644
  	target_include_directories(${PROJECT_NAME} PRIVATE shell/switch)
  endif()
  
-+# NextUI overlay menu (shared library, lives in the nx-redux workspace).
++# NxRedux overlay menu (shared library, lives in the nx-redux workspace).
 +# Standalone Linux only (this project builds tg5040/tg5050 standalone
 +# targets; LIBRETRO/ANDROID/APPLE/WIN32 builds don't have a nx-redux pak).
 +if(NOT LIBRETRO AND NOT ANDROID AND NOT APPLE AND NOT WIN32)
@@ -87,7 +87,7 @@ index 99d932677..15dbdbdf6 100644
  		needs_resampling = false;
  
 -		// Try 44.1KHz which should be faster since it's native.
-+		// NextUI: open at the sink's preferred rate, published by audiomon and
++		// NxRedux: open at the sink's preferred rate, published by audiomon and
 +		// passed in by DC.pak/launch.sh as NX_AUDIO_RATE. Default 48 kHz: the
 +		// internal codec's dmix runs at 48 kHz and alsa-lib's plug would
 +		// otherwise linear-resample our 44.1 kHz stream (audible distortion).
@@ -478,7 +478,7 @@ index 000000000..09d45049f
 +		return false;
 +	}
 +
-+	// One-shot game-switcher resume (slot written by nextui's launcher).
++	// One-shot game-switcher resume (slot written by nxredux's launcher).
 +	if (!s_resumeChecked && emu.running()) {
 +		s_resumeChecked = true;
 +		int slot = emu_ovl_consume_resume_slot();
@@ -566,7 +566,7 @@ index 000000000..350dfe13b
 --- /dev/null
 +++ b/core/nx_overlay.h
 @@ -0,0 +1,11 @@
-+// NextUI in-game overlay menu hook (see workspace/all/common/emu_overlay.h).
++// NxRedux in-game overlay menu hook (see workspace/all/common/emu_overlay.h).
 +#pragma once
 +
 +// Called each frame from mainui_rend_frame(); renders the overlay and returns

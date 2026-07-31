@@ -1,4 +1,4 @@
-# NextUI Development Guide
+# NX-Redux Development Guide
 
 ## Build Targets & Platforms
 
@@ -52,7 +52,7 @@ gcc --version  # Should say "Homebrew GCC", not "Apple clang"
 
 #### 2. Prepare fake SD card root
 
-The desktop build uses `/var/tmp/nextui/sdcard` as a stand-in for the device's SD card:
+The desktop build uses `/var/tmp/nxredux/sdcard` as a stand-in for the device's SD card:
 
 ```bash
 ./workspace/desktop/prepare_fake_sd_root.sh
@@ -131,13 +131,13 @@ For fast iteration on a single component, build and push just that binary direct
 
 ```bash
 # nextui
-docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/nextui && make PLATFORM=tg5040' && adb push workspace/all/nextui/build/tg5040/nextui.elf /mnt/SDCARD/.system/tg5040/bin/ && adb shell reboot
+docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/nextui && make PLATFORM=tg5040' && adb push workspace/all/nextui/build/tg5040/nextui.elf /mnt/SDCARD/.system/bin/ && adb shell reboot
 
 # audiomon
-docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5050-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/audiomon && make PLATFORM=tg5050' && adb push workspace/all/audiomon/build/tg5050/audiomon.elf /mnt/SDCARD/.system/tg5050/bin/ && adb shell reboot
+docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5050-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/audiomon && make PLATFORM=tg5050' && adb push workspace/all/audiomon/build/tg5050/audiomon.elf /mnt/SDCARD/.system/bin/ && adb shell reboot
 
 # minarch
-docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/minarch && make PLATFORM=tg5040' && adb push workspace/all/minarch/build/tg5040/minarch.elf /mnt/SDCARD/.system/tg5040/bin/ && adb shell reboot
+docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/minarch && make PLATFORM=tg5040' && adb push workspace/all/minarch/build/tg5040/minarch.elf /mnt/SDCARD/.system/bin/ && adb shell reboot
 
 # settings
 docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5050-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/settings && make PLATFORM=tg5050' && adb push workspace/all/settings/build/tg5050/settings.elf /mnt/SDCARD/Tools/tg5050/Settings.pak/

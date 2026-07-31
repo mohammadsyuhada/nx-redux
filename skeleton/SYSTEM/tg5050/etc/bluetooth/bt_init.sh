@@ -1,7 +1,7 @@
 #!/bin/sh
-# Bluetooth initialization script for NextUI
+# Bluetooth initialization script for NX Redux
 bt_hciattach="hciattach"
-DEVICE_NAME="Trimui Smart Pro S (NextUI)"
+DEVICE_NAME="Trimui Smart Pro S (NX Redux)"
 
 reset_bluetooth_power() {
 	echo 0 > /sys/class/rfkill/rfkill0/state;

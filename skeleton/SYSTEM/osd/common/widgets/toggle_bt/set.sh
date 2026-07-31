@@ -5,7 +5,7 @@
 # must fully stop the BT stack, because on its xradio combo chip a live
 # bluetoothd collapses WiFi throughput from ~330 KB/s to ~2 KB/s; tg5050 must
 # keep bluetoothd alive, because killing it mid-call wedges the caller.
-SYSTEM_PATH="/mnt/SDCARD/.system/__PLATFORM__"
+SYSTEM_PATH="/mnt/SDCARD/.system"
 SETTINGS_FILE="/mnt/SDCARD/.userdata/shared/minuisettings.txt"
 
 bt_is_on() {

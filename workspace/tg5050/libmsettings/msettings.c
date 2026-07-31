@@ -1086,7 +1086,7 @@ void SetRawColortemp(int val) { // 0 - 255
 	}
 }
 
-#define FAN_SPEED_CONTROL "/mnt/SDCARD/.system/tg5050/bin/fancontrol"
+#define FAN_SPEED_CONTROL "/mnt/SDCARD/.system/bin/fancontrol"
 #define FAN_LOCK_FILE "/var/run/fan-control.lock"
 
 void SetRawFanSpeed(int val) { // 0-31, -1/-2-3 for auto low/med/high

@@ -128,7 +128,7 @@ extern char** environ;
 #define WIZ_SYNC_LINE_MAX 512
 // Where a pull lands before any of it is allowed into fetch_to. Inside fetch_to
 // so the commit is a same-filesystem rename; leading dot so a directory listing
-// (and NextUI's own file browsers, which hide dotfiles) does not show it.
+// (and NXRedux's own file browsers, which hide dotfiles) does not show it.
 #define WIZ_SYNC_STAGE_DIR ".netplay-staging"
 // Longest path this file builds: fetch_to + '/' + staging + '/' + a 63-char name.
 #define WIZ_SYNC_PATH_MAX 512

@@ -1,5 +1,5 @@
 /*
- * settings_led.c - LED Control integration for NextUI Settings
+ * settings_led.c - LED Control integration for NxRedux Settings
  *
  * Provides per-zone LED effect, color, speed, and brightness settings
  * within the settings framework, replacing the standalone ledcontrol app.

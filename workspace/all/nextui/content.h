@@ -34,6 +34,7 @@ Array* getCollection(char* path);
 Array* getDiscs(char* path);
 int getFirstDisc(char* m3u_path, char* disc_path);
 Array* getEntries(char* path);
+Array* getTools(void);
 void addEntries(Array* entries, char* path);
 
 // Search

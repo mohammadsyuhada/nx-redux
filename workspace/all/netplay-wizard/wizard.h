@@ -8,7 +8,7 @@
 
 #define WIZ_TCP_PORT 55440
 #define WIZ_UDP_PORT 55441
-#define WIZ_MAGIC 0x4E58575Au /* "NXWZ" — NextUI wizard */
+#define WIZ_MAGIC 0x4E58575Au /* "NXWZ" — NXRedux wizard */
 #define WIZ_PROTO_VERSION 1
 #define WIZ_RSYNC_PORT 18731
 #define WIZ_SESSION_PATH_DEFAULT "/tmp/netplay_session"

@@ -6,7 +6,7 @@ index 108148f4579f4727146e5b8c1e05ef7382654208..35e6399147a4ef75947ecb2ad4a94f08
     CFLAGS += -fno-common -ftree-vectorize -funswitch-loops
     DEFINES += -std=c99
  
-+# NextUI debug
++# NxRedux debug
 +else ifeq ($(platform), desktop)
 +   TARGET := $(TARGET_NAME)_libretro.so
 +   CC = $(CROSS_COMPILE)gcc

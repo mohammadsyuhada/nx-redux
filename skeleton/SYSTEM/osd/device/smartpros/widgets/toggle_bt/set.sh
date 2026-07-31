@@ -1,5 +1,5 @@
 #!/bin/sh
-SYSTEM_PATH="/mnt/SDCARD/.system/__PLATFORM__"
+SYSTEM_PATH="/mnt/SDCARD/.system"
 SETTINGS_FILE="/mnt/SDCARD/.userdata/shared/minuisettings.txt"
 
 bt_is_on() {

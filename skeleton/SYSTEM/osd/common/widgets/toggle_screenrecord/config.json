@@ -1,6 +1,6 @@
 {
     "type":"toggle",
-    "package":"com.nextui.osd.toggle.screenrecord",
+    "package":"com.nxredux.osd.toggle.screenrecord",
     "label":"Record",
     "gridwidth":1,
     "gridheight":1,

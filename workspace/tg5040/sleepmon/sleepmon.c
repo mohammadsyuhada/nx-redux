@@ -94,7 +94,7 @@ static void do_suspend(void) {
 
 	// Call platform suspend script (try PATH first, then known locations)
 	if (system("suspend") != 0) {
-		system("/mnt/SDCARD/.system/" PLATFORM "/bin/suspend");
+		system("/mnt/SDCARD/.system/bin/suspend");
 	}
 
 	// Restore backlight and volume on wake

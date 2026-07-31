@@ -116,12 +116,17 @@ install_update_with_progress() {
         ./show2.elf --mode=daemon --image=./$DEVICE/logo.png --bgcolor=0x000000 --text="$message" &
         sleep 0.5
         
-        # Clean replacement
+        # Clean replacement (flattened .system; /Emus, /Tools, /Emus/shared
+        # are user space — never wiped here)
         echo "TEXT:Cleaning old files..." > /tmp/show2.fifo
         echo "PROGRESS:10" > /tmp/show2.fifo
-        rm -rf $SYSTEM_PATH/$PLATFORM/bin
-        rm -rf $SYSTEM_PATH/$PLATFORM/lib
-        rm -rf $SYSTEM_PATH/$PLATFORM/paks/MinUI.pak
+        rm -rf $SYSTEM_PATH/bin
+        rm -rf $SYSTEM_PATH/lib
+        rm -rf $SYSTEM_PATH/paks/MinUI.pak
+        rm -rf $SYSTEM_PATH/paks/Emus
+        rm -rf $SYSTEM_PATH/paks/Tools
+        # device marker files: remove the known set, the zip restores the right one
+        rm -f $SDCARD_PATH/tg5040-brick $SDCARD_PATH/tg5040-brickpro $SDCARD_PATH/tg5040-smartpro $SDCARD_PATH/tg5050-smartpros
         
         # Extract
         echo "TEXT:Extracting update..." > /tmp/show2.fifo
@@ -132,10 +137,10 @@ install_update_with_progress() {
         rm -f "$UPDATE_PATH"
         
         # Run install script
-        if [ -f $SYSTEM_PATH/$PLATFORM/bin/install.sh ]; then
+        if [ -f $SYSTEM_PATH/bin/install.sh ]; then
             echo "TEXT:Running installation script..." > /tmp/show2.fifo
             echo "PROGRESS:80" > /tmp/show2.fifo
-            $SYSTEM_PATH/$PLATFORM/bin/install.sh
+            $SYSTEM_PATH/bin/install.sh
         fi
         
         # Complete

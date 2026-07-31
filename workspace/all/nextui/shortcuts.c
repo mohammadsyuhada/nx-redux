@@ -186,7 +186,7 @@ void Shortcuts_remove(Entry* entry) {
 }
 
 int Shortcuts_isInToolsFolder(const char* path) {
-	return prefixMatch(TOOLS_PATH, path);
+	return prefixMatch(TOOLS_PATH, path) || prefixMatch(PAKS_PATH "/Tools", path);
 }
 
 int Shortcuts_isInConsoleDir(const char* path) {

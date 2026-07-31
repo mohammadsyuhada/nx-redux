@@ -605,7 +605,7 @@ static void wiz_teardown(const WizSession* s, bool interactive, uint32_t deadlin
 	if (strcmp(s->role, "host") == 0) {
 		wiz_stop_hotspot();
 	} else {
-		// Drops this session's NextUI-* entry (and any older one) and re-enables
+		// Drops this session's NXRedux-* entry (and any older one) and re-enables
 		// the saved networks the join's select_network left disabled.
 		//
 		// NOTE, so that nobody "fixes" the wrong end of it: this arm can leave a
@@ -651,7 +651,7 @@ static void wiz_reclaim_session(const char* path, uint32_t deadline) {
 						"undoing what the device still shows\n",
 				path);
 		wiz_sync_serve_stop();
-		// Cheap and never wrong: it only ever removes NextUI-*/GBLink-*/GBALink-*
+		// Cheap and never wrong: it only ever removes NXRedux-*/GBLink-*/GBALink-*
 		// entries, which are single-session by construction, and re-enables the
 		// saved networks. There is no prev_ssid to restore, so the supplicant's
 		// own reassociation is what brings WiFi back.
@@ -931,7 +931,7 @@ int main(int argc, char* argv[]) {
 			// Both non-zero arms undo whatever got as far as being set up. A -2
 			// from the WiFi picker or the hotspot list has usually left nothing
 			// behind (each screen unwinds its own attempt before returning), but
-			// a -1 from wiz_hotspot_join() after it associated has: the NextUI-*
+			// a -1 from wiz_hotspot_join() after it associated has: the NXRedux-*
 			// network is saved by then.
 			if (rc == -2) {
 				wiz_cancel(&session);

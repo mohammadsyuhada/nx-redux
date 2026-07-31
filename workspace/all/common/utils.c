@@ -368,11 +368,6 @@ void getDisplayName(const char* in_name, char* out_name) { // NOTE: out_name nee
 	strcpy(work_name, in_name);
 	strcpy(out_name, in_name);
 
-	if (suffixMatch("/" PLATFORM, work_name)) { // hide platform from Tools path...
-		tmp = strrchr(work_name, '/');
-		tmp[0] = '\0';
-	}
-
 	// extract just the filename if necessary
 	tmp = strrchr(work_name, '/');
 	if (tmp)
@@ -437,7 +432,7 @@ void getEmuName(const char* in_name, char* out_name) { // NOTE: both char arrays
 	// printf(" out_name: %s\n", out_name); fflush(stdout);
 }
 void getEmuPath(char* emu_name, char* pak_path) {
-	sprintf(pak_path, "%s/Emus/%s/%s.pak/launch.sh", SDCARD_PATH, PLATFORM, emu_name);
+	sprintf(pak_path, "%s/Emus/%s.pak/launch.sh", SDCARD_PATH, emu_name);
 	if (exists(pak_path))
 		return;
 	sprintf(pak_path, "%s/Emus/%s.pak/launch.sh", PAKS_PATH, emu_name);

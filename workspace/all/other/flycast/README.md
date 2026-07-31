@@ -1,6 +1,6 @@
 # flycast (Sega Dreamcast) — DC.pak
 
-Standalone flycast pinned at v2.6 (`392a429e`), patched with the shared NextUI
+Standalone flycast pinned at v2.6 (`392a429e`), patched with the shared NxRedux
 in-game overlay menu (`workspace/all/common/emu_overlay*`). Both tg5040 and
 tg5050 build and link clean with `flycast.patch` applied — the "Build"
 section below documents the baseline (unpatched) build first, including a
@@ -430,7 +430,7 @@ binary byte-for-byte except a 4-byte embedded build timestamp.
 ## Patch: what `flycast.patch` does
 
 `workspace/all/other/flycast/flycast.patch` (26,357 bytes, 11 hunks across 7
-files) carries the NextUI in-game overlay integration plus one compiler
+files) carries the NxRedux in-game overlay integration plus one compiler
 workaround and one audio-quality fix, all on top of the pinned v2.6 checkout:
 
 | File | Change |
@@ -467,9 +467,9 @@ mangled by the stage/diff/reset round-trip).
 ## Deploy
 
 ```sh
-adb push skeleton/EXTRAS/Emus/tg5040/DC.pak /mnt/SDCARD/Emus/tg5040/
-adb push skeleton/EXTRAS/Emus/shared/flycast /mnt/SDCARD/Emus/shared/
-adb shell chmod +x /mnt/SDCARD/Emus/tg5040/DC.pak/launch.sh /mnt/SDCARD/Emus/tg5040/DC.pak/flycast
+adb push skeleton/SYSTEM/tg5040/paks/Emus/DC.pak /mnt/SDCARD/.system/paks/Emus/
+adb push skeleton/BASE/Emus/shared/flycast /mnt/SDCARD/Emus/shared/
+adb shell chmod +x "/mnt/SDCARD/.system/paks/Emus/DC.pak/launch.sh" "/mnt/SDCARD/.system/paks/Emus/DC.pak/flycast"
 ```
 
 Same pattern for tg5050 (substitute the platform directory). No reboot needed
@@ -503,18 +503,18 @@ Slots follow the shared overlay convention (`workspace/all/common/emu_overlay.c`
 - **Slots 0–7** — visible, user-managed save states via the in-game overlay
   (MENU button opens it; Save State / Load State pick a slot, with a
   screenshot shown for each occupied slot).
-- **Slot 8** — the launcher's fresh-start sentinel. NextUI writes `8` to
+- **Slot 8** — the launcher's fresh-start sentinel. NxRedux writes `8` to
   `/tmp/resume_slot.txt` on a non-resume ("A START") launch; the overlay's
   one-shot resume check ignores it — never saved to or loaded from
   automatically.
 - **Slot 9** — hidden auto-save-on-quit (`EMU_OVL_AUTO_SLOT`). Choosing Quit
   from the overlay auto-saves to slot 9 plus a Game Switcher screenshot,
-  before calling `dc_exit()`. NextUI writes `9` on a Game Switcher RESUME
+  before calling `dc_exit()`. NxRedux writes `9` on a Game Switcher RESUME
   launch, and the overlay's one-shot resume check loads it. Net effect:
   **every quit is Game-Switcher-resumable** without the player needing to
   remember to save first — the same standalone-resume convention already
   shipped for N64.pak (mupen64plus + GLideN64), consuming the identical
-  `/tmp/resume_slot.txt` handshake nextui writes on every launch.
+  `/tmp/resume_slot.txt` handshake nxredux writes on every launch.
 
 ## BIOS
 
@@ -609,7 +609,7 @@ real BIOS"`/`"Forcing HLE BIOS"`).
 
 ## RetroAchievements
 
-Credentials are synced from NextUI's own RA login on every launch — there is
+Credentials are synced from NxRedux's own RA login on every launch — there is
 no in-app flycast RA login:
 
 ```sh
@@ -618,7 +618,7 @@ RA_TOKEN=$(sed -n 's/^raToken=//p' "$SHARED_USERDATA_PATH/minuisettings.txt" 2>/
 ```
 
 If both are present, `emu.cfg`'s `[achievements] UserName`/`Token` are
-rewritten (so logging into RA elsewhere in NextUI takes effect on the next DC
+rewritten (so logging into RA elsewhere in NxRedux takes effect on the next DC
 launch automatically). If either is missing, `[achievements] Enabled` is
 instead forced to `no` — with no on-device flycast login path, a stale or
 absent credential shouldn't silently sit at `Enabled = yes` with nothing able
@@ -803,7 +803,7 @@ archaeology) live in `docs/superpowers/specs/2026-07-28-netplay-state-sync-desig
   fallback path into a peerless GGPO launch any more.
 - **The `js0` hexdump B-cancel reader** (`dd bs=8 count=1 <&3 | hexdump`,
   one child process per poll) → ordinary SDL input handling inside the
-  wizard, the same as every other NextUI screen.
+  wizard, the same as every other NxRedux screen.
 
 ### flycast internals unaffected by the rewrite (still true)
 
@@ -946,7 +946,7 @@ Design: `docs/superpowers/specs/2026-07-29-dc-prelaunch-options-design.md`.
   what path it computes.** Both source `nx_paths.sh`, which builds every path
   from `SHARED_USERDATA_PATH` and branches on `DEVICE` — and those are exported by
   `MinUI.pak/launch.sh` (`:23`, `:52-56`), not by the pak itself. Outside
-  nextui's environment they're empty/unset, so the pak resolves
+  nxredux's environment they're empty/unset, so the pak resolves
   `$DEVICE_CONFIG_DIR` to a bogus
   **`/DC-flycast/config/tg5040-smart-pro/…`** on the rootfs (empty prefix,
   `DEVICE` falling through to the smart-pro `else`), happily `mkdir`s it and seeds
@@ -1012,7 +1012,7 @@ resolved against the firmware's own copies, zero `not found`:
 |---|---|
 | `libSDL2-2.0.so.0`, `libSDL2_ttf-2.0.so.0`, `libSDL2_image-2.0.so.0` | `/usr/trimui/lib` |
 | `libGLESv2.so.2`, `libcurl.so.4`, `libssl.so.1.1`, `libcrypto.so.1.1` | `/usr/lib64` |
-| `libzip.so.5` | `$SDCARD_PATH/.system/tg5040/lib` |
+| `libzip.so.5` | `$SDCARD_PATH/.system/lib` |
 
 The firmware's own `libcurl.so.4` is itself SSL/HTTP2-enabled (pulls in
 `libnghttp2`, `libssl.so.1.1`, `libcrypto.so.1.1` transitively) — RetroAchievements
@@ -1031,7 +1031,7 @@ verified for runtime library resolution.
 
 ## Overlay options (`overlay_settings.json`)
 
-`skeleton/EXTRAS/Emus/shared/flycast/overlay_settings.json` drives the
+`skeleton/BASE/Emus/shared/flycast/overlay_settings.json` drives the
 in-game Options screen (same schema `workspace/all/common/emu_overlay_cfg.c`
 already reads for N64.pak):
 
@@ -1042,7 +1042,7 @@ already reads for N64.pak):
 | | `rend.Resolution` | cycle | 480 / 640 / 720 | 480 is native |
 | | `pvr.AutoSkipFrame` | cycle | Off / Normal / Maximum | **default `1` (Normal)** — a deliberate handheld-performance deviation from flycast's own compiled default (`0`, off); safe because the default cfg always seeds this key explicitly, so flycast never falls back to its own default here |
 | | `rend.vsync` | bool | — | sync presentation to the display |
-| RetroAchievements (`[achievements]`) | `Enabled` | bool | — | requires a NextUI RA login (see above) |
+| RetroAchievements (`[achievements]`) | `Enabled` | bool | — | requires a NxRedux RA login (see above) |
 | | `HardcoreMode` | bool | — | disables save states while active (flycast behavior, not overridable here) |
 
 Options apply on the **next launch** (`options_hint: "Restart game to apply
@@ -1062,8 +1062,8 @@ this list since `launch.sh` manages it automatically every launch — see
 ## Controller mapping — SHIPPED
 
 A curated `SDL_Xbox 360 Controller.cfg` mapping file ships in both platforms'
-pak trees — `skeleton/EXTRAS/Emus/tg5040/DC.pak/SDL_Xbox 360 Controller.cfg`
-and `skeleton/EXTRAS/Emus/tg5050/DC.pak/SDL_Xbox 360 Controller.cfg`
+pak trees — `skeleton/SYSTEM/tg5040/paks/Emus/DC.pak/SDL_Xbox 360 Controller.cfg`
+and `skeleton/SYSTEM/tg5050/paks/Emus/DC.pak/SDL_Xbox 360 Controller.cfg`
 (byte-identical; kept per-platform because everything else in each pak
 directory is per-platform too) — and `launch.sh` installs it on first launch:
 

@@ -1,5 +1,5 @@
 /*
- * NextUI Netplay Module
+ * NXRedux Netplay Module
  * Simplified implementation based on RetroArch netplay concepts
  *
  * Key design:
@@ -34,9 +34,9 @@
 #include <ifaddrs.h>
 
 // Protocol constants (internal)
-#define NP_PROTOCOL_MAGIC 0x4E585550  // "NXUP" - NextUI Protocol
-#define NP_DISCOVERY_QUERY 0x4E584451 // "NXDQ" - NextUI Discovery Query
-#define NP_DISCOVERY_RESP 0x4E584452  // "NXDR" - NextUI Discovery Response
+#define NP_PROTOCOL_MAGIC 0x4E585550  // "NXUP" - NX Redux Protocol
+#define NP_DISCOVERY_QUERY 0x4E584451 // "NXDQ" - NX Redux Discovery Query
+#define NP_DISCOVERY_RESP 0x4E584452  // "NXDR" - NX Redux Discovery Response
 
 // Optimization: Discovery broadcast interval (microseconds)
 #define DISCOVERY_BROADCAST_INTERVAL_US 500000 // 500ms

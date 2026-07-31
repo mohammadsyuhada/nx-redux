@@ -1,4 +1,4 @@
-# NextUI
+# NXRedux
 
 # NOTE: this runs on the host system (eg. macOS) not in a docker image
 # it has to, otherwise we'd be running a docker in a docker and oof
@@ -43,7 +43,7 @@ ifeq ($(PLATFORM), desktop)
 else
 	TOOLCHAIN_FILE := Makefile.toolchain
 endif
-RELEASE_NAME ?= NextUI-$(RELEASE_TIME)$(RELEASE_BETA)
+RELEASE_NAME ?= NXRedux-$(RELEASE_TIME)$(RELEASE_BETA)
 
 # Extra paks to ship
 VENDOR_DEST := ./build/VENDOR/Tools
@@ -130,18 +130,18 @@ ifneq ($(PLATFORM), desktop)
 	# game time tracking
 	cp ./workspace/all/libgametimedb/build/$(PLATFORM)/libgametimedb.so ./build/SYSTEM/$(PLATFORM)/lib
 	cp ./workspace/all/gametimectl/build/$(PLATFORM)/gametimectl.elf ./build/SYSTEM/$(PLATFORM)/bin/
-	cp ./workspace/all/gametime/build/$(PLATFORM)/gametime.elf ./build/EXTRAS/Tools/$(PLATFORM)/Game\ Tracker.pak/
+	cp ./workspace/all/gametime/build/$(PLATFORM)/gametime.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Game\ Tracker.pak/
 endif
 	cp ./workspace/$(PLATFORM)/libmsettings/libmsettings.so ./build/SYSTEM/$(PLATFORM)/lib
 	cp ./workspace/all/nextui/build/$(PLATFORM)/nextui.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/minarch/build/$(PLATFORM)/minarch.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/nextval/build/$(PLATFORM)/nextval.elf ./build/SYSTEM/$(PLATFORM)/bin/
-	cp ./workspace/all/settings/build/$(PLATFORM)/settings.elf ./build/EXTRAS/Tools/$(PLATFORM)/Settings.pak/
-	cp ./workspace/all/musicplayer/build/$(PLATFORM)/musicplayer.elf ./build/EXTRAS/Tools/$(PLATFORM)/Music\ Player.pak/
-	cp ./workspace/all/mediaplayer/build/$(PLATFORM)/mediaplayer.elf ./build/EXTRAS/Tools/$(PLATFORM)/Media\ Player.pak/
-	cp ./workspace/all/portmaster/build/$(PLATFORM)/portmaster.elf ./build/EXTRAS/Tools/$(PLATFORM)/PortMaster.pak/
-	cp ./workspace/all/sync/build/$(PLATFORM)/sync.elf ./build/EXTRAS/Tools/$(PLATFORM)/Device\ Sync.pak/
-	cp ./workspace/all/scraper/build/$(PLATFORM)/scraper.elf ./build/EXTRAS/Tools/$(PLATFORM)/Artwork\ Manager.pak/
+	cp ./workspace/all/settings/build/$(PLATFORM)/settings.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Settings.pak/
+	cp ./workspace/all/musicplayer/build/$(PLATFORM)/musicplayer.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Music\ Player.pak/
+	cp ./workspace/all/mediaplayer/build/$(PLATFORM)/mediaplayer.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Media\ Player.pak/
+	cp ./workspace/all/portmaster/build/$(PLATFORM)/portmaster.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/PortMaster.pak/
+	cp ./workspace/all/sync/build/$(PLATFORM)/sync.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Device\ Sync.pak/
+	cp ./workspace/all/scraper/build/$(PLATFORM)/scraper.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Artwork\ Manager.pak/
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
 ifeq ($(PLATFORM), tg5040)
 	# Limbo fix
@@ -163,7 +163,7 @@ endif
 	cp ./workspace/all/minarch/build/$(PLATFORM)/libchdr.so.* ./build/SYSTEM/$(PLATFORM)/lib/
 
 	# RetroAchievements tools pak
-	cp ./workspace/all/ratools/build/$(PLATFORM)/ratools.elf ./build/EXTRAS/Tools/$(PLATFORM)/RetroAchievements.pak/
+	cp ./workspace/all/ratools/build/$(PLATFORM)/ratools.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/RetroAchievements.pak/
 
 	# Dreamcast netplay pre-launch wizard (run bare off PATH by DC.pak/launch.sh);
 	# gated here, not with the other SYSTEM bin copies, because it is only built
@@ -185,7 +185,7 @@ cores:
 	# stock cores
 	#cp ./workspace/$(PLATFORM)/cores/output/gambatte_libretro.so ./build/SYSTEM/$(PLATFORM)/cores
 	#cp ./workspace/$(PLATFORM)/cores/output/gpsp_libretro.so ./build/SYSTEM/$(PLATFORM)/cores
-	#cp ./workspace/$(PLATFORM)/cores/output/mgba_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/MGBA.pak
+	#cp ./workspace/$(PLATFORM)/cores/output/mgba_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/MGBA.pak
 else
 cores: # TODO: can't assume every platform will have the same stock cores (platform should be responsible for copy too)
 	# stock cores
@@ -197,30 +197,30 @@ cores: # TODO: can't assume every platform will have the same stock cores (platf
 	cp ./workspace/$(PLATFORM)/cores/output/pcsx_rearmed_libretro.so ./build/SYSTEM/$(PLATFORM)/cores
 	
 	# extras
-	cp ./workspace/$(PLATFORM)/cores/output/a5200_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/A5200.pak
-	cp ./workspace/$(PLATFORM)/cores/output/prosystem_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/A7800.pak
-	cp ./workspace/$(PLATFORM)/cores/output/stella2014_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/A2600.pak
-	cp ./workspace/$(PLATFORM)/cores/output/handy_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/LYNX.pak
-	cp ./workspace/$(PLATFORM)/cores/output/fake08_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/P8.pak
-	cp ./workspace/$(PLATFORM)/cores/output/mgba_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/MGBA.pak
-	cp ./workspace/$(PLATFORM)/cores/output/mgba_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/SGB.pak
-	cp ./workspace/$(PLATFORM)/cores/output/mednafen_pce_fast_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/PCE.pak
-	cp ./workspace/$(PLATFORM)/cores/output/pokemini_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/PKM.pak
-	cp ./workspace/$(PLATFORM)/cores/output/race_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/NGP.pak
-	cp ./workspace/$(PLATFORM)/cores/output/race_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/NGPC.pak
-	cp ./workspace/$(PLATFORM)/cores/output/fbneo_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/FBN.pak
-	cp ./workspace/$(PLATFORM)/cores/output/mednafen_supafaust_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/SUPA.pak
-	cp ./workspace/$(PLATFORM)/cores/output/mednafen_vb_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/VB.pak
-	cp ./workspace/$(PLATFORM)/cores/output/cap32_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/CPC.pak
-	cp ./workspace/$(PLATFORM)/cores/output/puae2021_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/PUAE.pak
-	cp ./workspace/$(PLATFORM)/cores/output/prboom_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/PRBOOM.pak
-	cp ./workspace/$(PLATFORM)/cores/output/vice_x64_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/C64.pak
-	cp ./workspace/$(PLATFORM)/cores/output/vice_x128_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/C128.pak
-	cp ./workspace/$(PLATFORM)/cores/output/vice_xplus4_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/PLUS4.pak
-	cp ./workspace/$(PLATFORM)/cores/output/vice_xpet_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/PET.pak
-	cp ./workspace/$(PLATFORM)/cores/output/vice_xvic_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/VIC.pak
-	cp ./workspace/$(PLATFORM)/cores/output/bluemsx_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/MSX.pak
-	cp ./workspace/$(PLATFORM)/cores/output/gearcoleco_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/COLECO.pak
+	cp ./workspace/$(PLATFORM)/cores/output/a5200_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/A5200.pak
+	cp ./workspace/$(PLATFORM)/cores/output/prosystem_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/A7800.pak
+	cp ./workspace/$(PLATFORM)/cores/output/stella2014_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/A2600.pak
+	cp ./workspace/$(PLATFORM)/cores/output/handy_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/LYNX.pak
+	cp ./workspace/$(PLATFORM)/cores/output/fake08_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/P8.pak
+	cp ./workspace/$(PLATFORM)/cores/output/mgba_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/MGBA.pak
+	cp ./workspace/$(PLATFORM)/cores/output/mgba_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/SGB.pak
+	cp ./workspace/$(PLATFORM)/cores/output/mednafen_pce_fast_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/PCE.pak
+	cp ./workspace/$(PLATFORM)/cores/output/pokemini_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/PKM.pak
+	cp ./workspace/$(PLATFORM)/cores/output/race_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/NGP.pak
+	cp ./workspace/$(PLATFORM)/cores/output/race_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/NGPC.pak
+	cp ./workspace/$(PLATFORM)/cores/output/fbneo_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/FBN.pak
+	cp ./workspace/$(PLATFORM)/cores/output/mednafen_supafaust_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/SUPA.pak
+	cp ./workspace/$(PLATFORM)/cores/output/mednafen_vb_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/VB.pak
+	cp ./workspace/$(PLATFORM)/cores/output/cap32_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/CPC.pak
+	cp ./workspace/$(PLATFORM)/cores/output/puae2021_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/PUAE.pak
+	cp ./workspace/$(PLATFORM)/cores/output/prboom_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/PRBOOM.pak
+	cp ./workspace/$(PLATFORM)/cores/output/vice_x64_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/C64.pak
+	cp ./workspace/$(PLATFORM)/cores/output/vice_x128_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/C128.pak
+	cp ./workspace/$(PLATFORM)/cores/output/vice_xplus4_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/PLUS4.pak
+	cp ./workspace/$(PLATFORM)/cores/output/vice_xpet_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/PET.pak
+	cp ./workspace/$(PLATFORM)/cores/output/vice_xvic_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/VIC.pak
+	cp ./workspace/$(PLATFORM)/cores/output/bluemsx_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/MSX.pak
+	cp ./workspace/$(PLATFORM)/cores/output/gearcoleco_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/COLECO.pak
 endif
 
 common: build system cores
@@ -266,9 +266,6 @@ compile-commands:
 		grep -v 'libretro-common' | \
 		grep -v 'libchdr' | \
 		grep -v 'rcheevos/src' | \
-		grep -v 'nextui-music-player' | \
-		grep -v 'nextui-video-player' | \
-		grep -v 'nextui-netplay' | \
 		grep -v 'mediaplayer/include/ffplay' | \
 	while read -r file; do \
 		extra_flags=""; \
@@ -321,13 +318,13 @@ setup: name
 	# Fetch advanced drastic emulator (pinned to $(DRASTIC_COMMIT))
 	@echo "Fetching advanced drastic..."
 	curl -sL $(DRASTIC_REPO)/archive/$(DRASTIC_COMMIT).tar.gz | tar xz -C /tmp
-	mkdir -p ./build/EXTRAS/Emus/shared/drastic
-	cp -Rf /tmp/advanced_drastic-$(DRASTIC_COMMIT)/* ./build/EXTRAS/Emus/shared/drastic/
+	mkdir -p ./build/BASE/Emus/shared/drastic
+	cp -Rf /tmp/advanced_drastic-$(DRASTIC_COMMIT)/* ./build/BASE/Emus/shared/drastic/
 	rm -rf /tmp/advanced_drastic-$(DRASTIC_COMMIT)
-	rm -f ./build/EXTRAS/Emus/shared/drastic/history.md ./build/EXTRAS/Emus/shared/drastic/launch.sh
-	rm -rf ./build/EXTRAS/Emus/shared/drastic/images
+	rm -f ./build/BASE/Emus/shared/drastic/history.md ./build/BASE/Emus/shared/drastic/launch.sh
+	rm -rf ./build/BASE/Emus/shared/drastic/images
 	# Overlay custom drastic resources (bg, fonts) on top of upstream
-	cp -Rf ./skeleton/EXTRAS/Emus/shared/drastic/resources/ ./build/EXTRAS/Emus/shared/drastic/resources/
+	cp -Rf ./skeleton/BASE/Emus/shared/drastic/resources/ ./build/BASE/Emus/shared/drastic/resources/
 
 	# remove authoring detritus
 	cd ./build && find . -type f -name '.keep' -delete
@@ -337,7 +334,6 @@ setup: name
 	# copy readmes to workspace so we can use Linux fmt instead of host's
 	mkdir -p ./workspace/readmes
 	cp ./skeleton/BASE/README.txt ./workspace/readmes/BASE-in.txt
-	cp ./skeleton/EXTRAS/README.txt ./workspace/readmes/EXTRAS-in.txt
 	
 done:
 	# say "done" 2>/dev/null || true
@@ -372,7 +368,6 @@ package: tidy
 
 	# move formatted readmes from workspace to build
 	cp ./workspace/readmes/BASE-out.txt ./build/BASE/README.txt
-	cp ./workspace/readmes/EXTRAS-out.txt ./build/EXTRAS/README.txt
 	rm -rf ./workspace/readmes
 
 	cd ./build/SYSTEM && printf "%s\n%s\n%s\n" "$(RELEASE_NAME)" "$(BUILD_HASH)" "$(BUILD_TAG)" > version.txt
@@ -406,8 +401,12 @@ package: tidy
 		rm -rf ./build/PAYLOAD-$$dev; \
 		mkdir -p ./build/PAYLOAD-$$dev/.system; \
 		\
-		echo "  assembling .system/$$plat"; \
-		cp -R ./build/SYSTEM/$$plat   ./build/PAYLOAD-$$dev/.system/$$plat; \
+		echo "  assembling .system (contents merge from $$plat)"; \
+		cp -R ./build/SYSTEM/$$plat/. ./build/PAYLOAD-$$dev/.system/; \
+		echo "  installing legacy-boot compat shims"; \
+		mkdir -p ./build/PAYLOAD-$$dev/.system/$$plat/bin "./build/PAYLOAD-$$dev/.system/$$plat/paks/MinUI.pak"; \
+		cp ./workspace/$$plat/install/install-shim.sh ./build/PAYLOAD-$$dev/.system/$$plat/bin/install.sh; \
+		cp ./workspace/$$plat/install/minui-launch-shim.sh "./build/PAYLOAD-$$dev/.system/$$plat/paks/MinUI.pak/launch.sh"; \
 		cp -R ./build/SYSTEM/res      ./build/PAYLOAD-$$dev/.system/res; \
 		cp -R ./build/SYSTEM/shared   ./build/PAYLOAD-$$dev/.system/shared; \
 		cp ./build/SYSTEM/version.txt ./build/PAYLOAD-$$dev/.system/version.txt; \
@@ -418,8 +417,8 @@ package: tidy
 		\
 		if [ -f ./skeleton/SYSTEM/osd-stock/$$dev.zip ]; then \
 			echo "  assembling osd-stock ($$dev)"; \
-			mkdir -p ./build/PAYLOAD-$$dev/.system/$$plat/osd-stock; \
-			cp ./skeleton/SYSTEM/osd-stock/$$dev.zip ./build/PAYLOAD-$$dev/.system/$$plat/osd-stock/ || exit 1; \
+			mkdir -p ./build/PAYLOAD-$$dev/.system/osd-stock; \
+			cp ./skeleton/SYSTEM/osd-stock/$$dev.zip ./build/PAYLOAD-$$dev/.system/osd-stock/ || exit 1; \
 		else \
 			echo "  (no stock OSD tree for $$dev; Settings restore stays hidden)"; \
 		fi; \
@@ -427,16 +426,23 @@ package: tidy
 		echo "  assembling .tmp_update"; \
 		cp -R ./build/BOOT/.tmp_update ./build/PAYLOAD-$$dev/.tmp_update; \
 		\
-		echo "  assembling Tools/$$plat"; \
-		mkdir -p ./build/PAYLOAD-$$dev/Tools; \
-		cp -R ./build/EXTRAS/Tools/$$plat ./build/PAYLOAD-$$dev/Tools/$$plat; \
+		echo "  assembling Emus/shared"; \
+		mkdir -p ./build/PAYLOAD-$$dev/Emus; \
+		cp -R ./build/BASE/Emus/shared ./build/PAYLOAD-$$dev/Emus/shared; \
+		\
+		echo "  assembling Tools/.media ($$bg_res)"; \
+		mkdir -p ./build/PAYLOAD-$$dev/Tools/.media; \
+		cp ./build/BASE/Tools/.media/bg-$$bg_res.png ./build/PAYLOAD-$$dev/Tools/.media/bg.png; \
+		\
+		echo "  creating device marker $$plat-$$dev"; \
+		touch ./build/PAYLOAD-$$dev/$$plat-$$dev; \
 		\
 		echo "  creating MinUI.zip"; \
-		cd ./build/PAYLOAD-$$dev && zip -r MinUI.zip .system .tmp_update Tools && cd ../..; \
+		cd ./build/PAYLOAD-$$dev && zip -r MinUI.zip .system .tmp_update Emus Tools $$plat-$$dev && cd ../..; \
 		cp ./build/PAYLOAD-$$dev/MinUI.zip ./build/BASE/MinUI-$$dev.zip; \
 		\
 		echo "  resolving overlays for $$dev ($$overlay_res)"; \
-		for overlay_root in ./build/BASE/Overlays ./build/EXTRAS/Overlays; do \
+		for overlay_root in ./build/BASE/Overlays; do \
 			if [ -d "$$overlay_root" ]; then \
 				find "$$overlay_root" -mindepth 1 -maxdepth 1 -type d | while read emu_dir; do \
 					if [ -d "$$emu_dir/$$overlay_res" ]; then \
@@ -449,7 +455,6 @@ package: tidy
 		echo "  resolving bg images for $$dev ($$bg_res)"; \
 		find ./build/BASE/Collections ./build/BASE/Favorites \
 			"./build/BASE/Recently Played" ./build/BASE/Roms \
-			./build/EXTRAS/Roms \
 			-path '*/.media/bg-'"$$bg_res"'.png' 2>/dev/null \
 		| while read f; do \
 			cp "$$f" "$$(dirname "$$f")/bg.png"; \
@@ -462,13 +467,6 @@ package: tidy
 			-x '*/bg-*.png' -x '*/720p/*' -x '*/768p/*' \
 			&& cd ../..; \
 		cd ./build/PAYLOAD-$$dev && zip -r ../../releases/$(RELEASE_NAME)-$$dev.zip MinUI.zip && cd ../..; \
-		cd ./build/EXTRAS && zip -r ../../releases/$(RELEASE_NAME)-$$dev.zip \
-			Bios Cheats Roms Saves Overlays README.txt \
-			-x '*/bg-*.png' -x '*/720p/*' -x '*/768p/*' \
-			&& cd ../..; \
-		cd ./build/EXTRAS && zip -r ../../releases/$(RELEASE_NAME)-$$dev.zip \
-			Emus/$$plat Emus/shared Tools/$$plat \
-			&& cd ../..; \
 		if [ -d ./build/PAKZ/$$plat ]; then \
 			cd ./build/PAKZ/$$plat && zip -r ../../../releases/$(RELEASE_NAME)-$$dev.zip *.pakz && cd ../../..; \
 		fi; \
@@ -476,9 +474,8 @@ package: tidy
 		echo "  cleaning up generated files"; \
 		find ./build/BASE/Collections ./build/BASE/Favorites \
 			"./build/BASE/Recently Played" ./build/BASE/Roms \
-			./build/EXTRAS/Roms \
 			-name "bg.png" -path '*/.media/*' -delete 2>/dev/null; \
-		for overlay_root in ./build/BASE/Overlays ./build/EXTRAS/Overlays; do \
+		for overlay_root in ./build/BASE/Overlays; do \
 			if [ -d "$$overlay_root" ]; then \
 				find "$$overlay_root" -mindepth 1 -maxdepth 1 -type d | while read emu_dir; do \
 					if [ -d "$$emu_dir/720p" ] || [ -d "$$emu_dir/768p" ]; then \

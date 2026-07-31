@@ -3,7 +3,7 @@
 **My vision of how NextUI should be.**
 Minimal on the surface. Structured underneath. Built to last.
 
-[NextUI](https://github.com/LoveRetro/NextUI) is a custom firmware for retro handheld gaming devices. It replaces the stock operating system with a clean, minimal interface focused on playing retro games with no unnecessary bloat.
+NX Redux is a fork of [NextUI](https://github.com/LoveRetro/NextUI) (by LoveRetro), which itself descends from [MinUI](https://github.com/shauninman/MinUI) — custom firmware that replaces the stock operating system on retro handheld gaming devices. It keeps that minimal, distraction-free interface — pick up, pick a game, play — while deliberately extending what sits underneath: standalone emulators, netplay, achievements, media tools and more. Those extras stay out of the way until you ask for them, tucked into the Tools and pause menus (and hidden entirely in simple mode), so there's more under the hood without anything in your way.
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Y8Y61SI04B)
 
@@ -18,6 +18,8 @@ Refer to the Youtube Video below for demonstration of the features:
 - **Trimui Brick Pro** 
 - **Trimui Smart Pro S**
 - **Trimui Smart Pro** (It should work in theory, but I can't confirm it because I don't have the device to test)
+
+> ⚠️ **SD cards are built per device model.** Each release is packaged for a specific device — resolution, OSD assets and other layout differ between models — so a card set up for one device (e.g. the Brick) must **not** be moved into another (e.g. the Smart Pro S). To carry saves, save states, settings and (optionally) ROMs across devices, use the built-in **Device Sync** tool instead of swapping cards.
 
 ## Why Fork?
 

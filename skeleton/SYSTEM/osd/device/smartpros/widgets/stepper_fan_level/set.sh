@@ -1,11 +1,11 @@
 #!/bin/sh
-export LD_LIBRARY_PATH="/mnt/SDCARD/.system/__PLATFORM__/lib:/usr/trimui/lib:$LD_LIBRARY_PATH"
-OSDCTL="/mnt/SDCARD/.system/__PLATFORM__/bin/osdctl"
+export LD_LIBRARY_PATH="/mnt/SDCARD/.system/lib:/usr/trimui/lib:$LD_LIBRARY_PATH"
+OSDCTL="/mnt/SDCARD/.system/bin/osdctl"
 
 FAN_MAX_LEVEL=6
 FAN_MIN_LEVEL=-1
 
-# Map stepper level to NextUI fan speed value
+# Map stepper level to NXRedux fan speed value
 # -1=auto(normal), 0=off, 1-6=manual percentages
 fan_level_to_speed() {
     case $1 in
@@ -21,7 +21,7 @@ fan_level_to_speed() {
     esac
 }
 
-# Map NextUI fan speed back to stepper level for display
+# Map NXRedux fan speed back to stepper level for display
 speed_to_fan_level() {
     case $1 in
         -2|-1) echo "-1" ;;

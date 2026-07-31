@@ -1,5 +1,5 @@
 /*
- * settings_updater.c - System updater for NextUI Settings
+ * settings_updater.c - System updater for NxRedux Settings
  *
  * Checks GitHub for the latest release, compares against the installed
  * version, and allows the user to download + install updates.

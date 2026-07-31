@@ -12,7 +12,7 @@ Works on **both TG5040 and TG5050**. TG5050 uses DRM planes (`drmModeSetPlane`),
 ┌─────────────────────────────────────────┐
 │  DRM Display Pipeline (hardware)        │
 │                                         │
-│  Plane 0: Foreground app (nextui/emu)   │  ← SDL/EGL renders here
+│  Plane 0: Foreground app (nxredux/emu)   │  ← SDL/EGL renders here
 │  Plane 1: OSD overlay (trimui_osdd)     │  ← DRM dumb buffer, composited by hardware
 │                                         │
 │  GPU composites both planes per frame   │
@@ -319,7 +319,7 @@ frame — the widget shows a hint toast on enable, and the daemon toasts
 tg5040 it records `/dev/fb0` directly with ffmpeg and the script owns the PID
 file. The foreground app (`capture_check()` in `generic_video.c`, tg5050 only)
 notices the PID files on rendered frames and publishes RGBA frames to the
-`/tmp/fb_mirror.raw` shm. Because dirty-flag apps like nextui only render on
+`/tmp/fb_mirror.raw` shm. Because dirty-flag apps like nxredux only render on
 activity, capture starts once the user interacts after toggling; the recorder
 waits up to 60s for the mirror before giving up.
 
@@ -392,15 +392,15 @@ Both platforms use the same approach: `keymon` detects the trigger → toggles O
 
 - **keymon** detects Home button (`CODE_HOME=172`) and Menu long-press (`CODE_MENU2=316`, 500ms threshold)
 - On trigger: checks `/tmp/trimui_osd/osdd_show_up` to toggle show/hide
-- Menu tap opens the context menu in nextui
+- Menu tap opens the context menu in nxredux
 
 ### TG5040
 
 - **keymon** detects Menu long-press (`CODE_MENU2=316`, 500ms threshold) — no Home button on this device
 - On trigger: same toggle logic via `/tmp/trimui_osd/osdd_show_up`
-- Menu tap opens the context menu in nextui
+- Menu tap opens the context menu in nxredux
 
-### nextui
+### nxredux
 
 - `PAD_quickMenuPressed()` returns 0 on all platforms — built-in quick menu disabled
 - OSD is handled entirely by keymon + trimui_osdd
@@ -412,7 +412,7 @@ Both platforms use the same approach: `keymon` detects the trigger → toggles O
 Previously listed issues, since fixed:
 
 - ~~Missing `set.sh` for `static_temperature`/`static_cpu_freq`~~ — no-op stubs shipped in the skeleton
-- ~~Fan level widget references `/tmp/system/set_fanlevel`~~ — replaced with an `osdctl`-based script driving NextUI's fan control
+- ~~Fan level widget references `/tmp/system/set_fanlevel`~~ — replaced with an `osdctl`-based script driving NxRedux's fan control
 - ~~WiFi/BT toggles not reflected in Settings, hangs when toggling while Settings open~~ — apps now read live radio state (sysfs/HCI ioctl) instead of cached config, `bluetoothctl` shell-outs are timeout-killed, and `CFG_sync()` re-captures radio state so it can't clobber the OSD's `minuisettings.txt` edits
 
 ## Future Work

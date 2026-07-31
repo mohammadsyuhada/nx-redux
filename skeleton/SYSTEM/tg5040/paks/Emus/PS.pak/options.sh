@@ -1,7 +1,7 @@
 #!/bin/sh
 # NAME: PlayStation (pcsx_rearmed)
 # Pre-launch options editor entry point (minarch core options). Its existence
-# is the capability marker nextui probes for the "Emulator Options"
+# is the capability marker nxredux probes for the "Emulator Options"
 # context-menu entry, and the Emulator Settings picker lists it.
 # Usage: options.sh [rom-path]   (no arg: edit the console-wide config)
 

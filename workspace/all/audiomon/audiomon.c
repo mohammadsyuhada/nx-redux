@@ -51,7 +51,7 @@ enum { ROUTED_DEFAULT,
 #define SINK_STATE_FILE "/tmp/nx_audio_sink"
 #define SINK_STATE_TMP "/tmp/.nx_audio_sink.tmp"
 
-// Parse one integer key from the shared NextUI settings file.
+// Parse one integer key from the shared NX Redux settings file.
 // audiomon doesn't link common/config.c, so read the key=value line directly.
 static int read_cfg_int(const char* key, int fallback) {
 	char path[512];

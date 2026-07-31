@@ -1,5 +1,5 @@
 /*
- * NextUI Netplay Module
+ * NXRedux Netplay Module
  * Based on RetroArch netplay architecture
  * Implements frame-synchronized multiplayer over WiFi
  */

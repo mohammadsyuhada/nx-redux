@@ -81,7 +81,7 @@ int main(int argc, char* argv[]) {
 
 	// Wait for shm file to appear (capture system creates it). Generous
 	// timeout: the foreground app only services capture_check() on rendered
-	// frames, and dirty-flag apps (nextui) don't render until the user closes
+	// frames, and dirty-flag apps (nxredux) don't render until the user closes
 	// the OSD and starts interacting again.
 	int shm_fd = -1;
 	for (int i = 0; i < 1800 && !quit; i++) { // up to ~60s

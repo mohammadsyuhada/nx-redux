@@ -18,9 +18,9 @@ Later layers win.
 | `res/<WxH>/` | Anything sized to the panel — `bg.png` (exactly 1024×768 / 1280×720), `block*.png` (124 px grid at 1024×768, 120 px at 1280×720), and the `show_*.sh` toast scripts, which differ only in their baked-in coordinates: 13 of 14 in `"x"` alone, `show_volume_msg.sh` in both `"x"` and `"y"` |
 | `device/<dev>/` | `trimui_osdd` (closed-source, per-firmware, not interchangeable), `osdlayout.json`, plus any file that device overrides |
 
-`device/smartpros/` is the only layer that overrides `common/`, and it is down to
-**two** widgets. Both are genuine behavioural divergence, not incidental drift —
-if you are tempted to merge either into `common/` behind a platform conditional,
+`device/smartpros/` is the only layer that overrides `common/`, down to
+**three** widgets. Each is genuine platform divergence, not incidental drift —
+if you are tempted to merge one into `common/` behind a platform conditional,
 read this first:
 
 - **`toggle_bt/set.sh`** — the two platforms need *opposite* behaviour on
@@ -32,13 +32,17 @@ read this first:
   tg5040 pipes `/dev/fb0` straight into `ffmpeg`; tg5050 runs
   `screenrecorder.elf`, which the foreground app feeds via the
   `/tmp/fb_mirror.raw` shm mirror.
+- **`toggle_rumble/set.sh`** — the rumble motor sits on a different GPIO per
+  platform (gpio227 on tg5040, gpio236 on tg5050). The two copies are identical
+  but for that one path; keep them in sync.
 
 Plus `stepper_fan_level/` — tg5050 is the only device with a fan, so that widget
 has no `common/` counterpart to override.
 
-Selecting a hardware *constant* by platform belongs in `common/` (see
-`toggle_rumble`, below). Branching a whole *policy* does not — that is what this
-layer is for.
+Anything that genuinely differs between platforms — a whole *policy* or a single
+hardware *constant* like `toggle_rumble`'s GPIO — is carried as a `device/<dev>/`
+override, since there is no longer a build-time platform token to select it
+inside `common/` (see Paths, below).
 
 They live here rather than in a `platform/tg5050/` layer because tg5050 has
 exactly one device, so the two would hold identical content. If a second tg5050
@@ -59,27 +63,19 @@ their `device/smartpros/` overrides deleted.
 rather than translucent, so it reads differently from every other toggle. Left
 alone here; it needs an artwork decision, not a refactor.
 
-## The `__PLATFORM__` token
+## Paths
 
-Widget scripts that need the SD card's platform directory write it as
-`__PLATFORM__` (e.g. `OSDCTL="/mnt/SDCARD/.system/__PLATFORM__/bin/osdctl"`).
-`assemble-osd.sh` substitutes the real platform while assembling, so one copy in
-`common/` serves every device. Four overrides existed solely because this path
-was hardcoded; tokenising removed them.
+`.system` has no per-platform subdirectory. Every widget references the card's
+system tree directly (`/mnt/SDCARD/.system/bin`, `/mnt/SDCARD/.system/lib`, …),
+so `assemble-osd.sh` copies the layers verbatim — there is no build-time token
+substitution.
 
-Substitution happens at build time rather than by reading an environment
-variable at runtime because `trimui_osdd` is closed-source and it is unverified
-whether it passes its environment through to the widget scripts it spawns — if
-it does not, a runtime variable would silently break these widgets on every
-device.
-
-`toggle_rumble/set.sh` uses the token to pick a hardware constant rather than a
-path — the motor sits on `gpio227` on tg5040 and `gpio236` on tg5050 — so the
-shipped script tests a literal and only one branch is live.
-
-**Never write `__PLATFORM__` in a comment.** Substitution is a plain text
-replace over the whole file, so prose mentioning the token becomes nonsense in
-the shipped script ("tg5040 is substituted by assemble-osd.sh…").
+Reading an environment variable at runtime is deliberately avoided because
+`trimui_osdd` is closed-source and it is unverified whether it passes its
+environment through to the widget scripts it spawns — if it does not, a runtime
+variable would silently break these widgets on every device. Platform-divergent
+behaviour is therefore baked in per device through the `device/<dev>/` layer
+(see toggle_rumble, above), never via a conditional inside `common/`.
 
 ## Adding a device
 
@@ -87,10 +83,10 @@ Add `device/<dev>/` with `trimui_osdd` and `osdlayout.json`, add the device to `
 the `Makefile` with its `osd_res`, and add `export DEVICE="<dev>"` to the
 platform's `launch.sh`. If it is a new resolution, add `res/<WxH>/` too.
 
-Any new widget script that needs the SD card's platform directory must write it
-as `__PLATFORM__` — never a literal `tg5040`/`tg5050`. `assemble-osd.sh` fails
-the build if the token survives into the assembled tree, which is what happens
-if you put it in a file other than a `*.sh`.
+Widget scripts reference `/mnt/SDCARD/.system/...` directly — there is no
+platform level in the path. Anything that genuinely differs between platforms
+(a GPIO number, a capture mechanism) belongs in the `device/<dev>/` layer, not
+in a conditional inside `common/`.
 
 `regular.ttf` (16 MB CJK font) is deliberately absent — the firmware's copy is
 used, since the boot-time copy only ever overwrites files, never deletes them.

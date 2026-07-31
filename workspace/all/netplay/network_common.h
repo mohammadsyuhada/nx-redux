@@ -1,5 +1,5 @@
 /*
- * NextUI Network Common Module
+ * NXRedux Network Common Module
  * Shared networking utilities for netplay and gbalink
  */
 
@@ -12,7 +12,7 @@
 #include <sys/time.h>
 
 // Unified SSID prefix for all link hotspots (Netplay, GBALink, GBLink)
-#define LINK_HOTSPOT_SSID_PREFIX "NextUI-"
+#define LINK_HOTSPOT_SSID_PREFIX "NXRedux-"
 
 // Configuration for TCP socket setup
 typedef struct {

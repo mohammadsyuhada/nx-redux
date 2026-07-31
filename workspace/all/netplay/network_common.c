@@ -1,5 +1,5 @@
 /*
- * NextUI Network Common Module
+ * NXRedux Network Common Module
  * Shared networking utilities for netplay and gbalink
  */
 

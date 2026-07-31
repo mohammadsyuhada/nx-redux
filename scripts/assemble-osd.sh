@@ -33,11 +33,11 @@ for layer in "$SRC/common" "$SRC/res/$OSD_RES" "$SRC/device/$DEVICE"; do
 	fi
 done
 
-shared_out="$DEST/$PLATFORM/osd"
+shared_out="$DEST/osd"
 if [ "$PLATFORM" = "tg5050" ]; then
 	model_out="$shared_out"
 else
-	model_out="$DEST/$PLATFORM/osd-$DEVICE"
+	model_out="$DEST/osd-$DEVICE"
 fi
 mkdir -p "$shared_out" "$model_out"
 
@@ -45,11 +45,6 @@ cp -R "$SRC/common/."         "$shared_out/"
 cp -R "$SRC/res/$OSD_RES/."   "$model_out/"
 cp -R "$SRC/device/$DEVICE/." "$model_out/"
 
-# Widget scripts carry a __PLATFORM__ placeholder instead of a hardcoded
-# tg5040/tg5050 path, so this is resolved here at assembly time rather than
-# via a runtime $SYSTEM_PATH: trimui_osdd is closed-source and it is
-# unverified whether it passes its environment through to widget scripts, so
-# a runtime variable could silently break these widgets on-device instead.
 # The one or two output directories for this device, held in the positional
 # parameters rather than a space-joined string: a $DEST containing a space
 # would otherwise word-split into bogus paths.
@@ -57,13 +52,6 @@ set -- "$shared_out"
 if [ "$model_out" != "$shared_out" ]; then
 	set -- "$shared_out" "$model_out"
 fi
-
-for subst_dir in "$@"; do
-	find "$subst_dir" -type f -name '*.sh' | while IFS= read -r f; do
-		subst_tmp="$(mktemp)"
-		sed "s/__PLATFORM__/$PLATFORM/g" "$f" > "$subst_tmp" && cat "$subst_tmp" > "$f" && rm -f "$subst_tmp"
-	done
-done
 
 # Normalise executable bits: git records these widget scripts inconsistently
 # (some 644, some 755), and cp -R preserves the mode of a file it OVERWRITES
@@ -93,16 +81,3 @@ if [ ! -d "$shared_out/widgets" ]; then
 	echo "assemble-osd: $DEVICE tree is missing widgets/" >&2
 	exit 1
 fi
-
-# The substitution above only rewrites *.sh. A surviving __PLATFORM__ means the
-# token was used somewhere it is never resolved — a config.json, say — which
-# would ship a literal /mnt/SDCARD/.system/__PLATFORM__ path to the device and
-# fail silently at runtime.
-for leak_dir in "$@"; do
-	if grep -rlF '__PLATFORM__' "$leak_dir" >/dev/null 2>&1; then
-		echo "assemble-osd: $DEVICE tree still contains __PLATFORM__ in:" >&2
-		grep -rlF '__PLATFORM__' "$leak_dir" 2>/dev/null | sed 's/^/  /' >&2
-		echo "assemble-osd: substitution only rewrites *.sh (see skeleton/SYSTEM/osd/README.md)" >&2
-		exit 1
-	fi
-done

@@ -11,7 +11,7 @@ DOCKER_IMAGE = ghcr.io/loveretro/$(PLATFORM)-toolchain:latest
 WORKSPACE    = $(shell cd ../../.. && pwd)
 PLAT_DIR     = ../../../$(PLATFORM)/other/sdl2-drastic
 OUTPUT       = $(PLAT_DIR)/output/libSDL2-2.0.so.0
-SKELETON     = ../../../../skeleton/EXTRAS/Emus/$(PLATFORM)/NDS.pak/libs/libSDL2-2.0.so.0
+SKELETON     = ../../../../skeleton/SYSTEM/$(PLATFORM)/paks/Emus/NDS.pak/libs/libSDL2-2.0.so.0
 
 .PHONY: build deploy clean clean-all
 

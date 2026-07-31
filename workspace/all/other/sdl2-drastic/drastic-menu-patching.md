@@ -25,7 +25,7 @@ provides the "Advanced Drastic (1.1-tr-251109)" version and extra menu features.
 That approach doesn't work on tg5050 because libadvdrastic.so uses fbdev EGL
 which tg5050's Mali GPU doesn't support (requires GBM EGL).
 
-## Current Menu Items (after NextUI patches)
+## Current Menu Items (after NxRedux patches)
 
 The hook code builds the menu in `sdl_create_menu_main` via `puVar10[]` array.
 Items are reordered so Load/Save state appear first. "Change Steward Options"
@@ -198,10 +198,10 @@ cp build/.libs/libSDL2-2.0.so.0 /root/workspace/output/
 ```sh
 # Copy to skeleton
 cp workspace/tg5050/other/sdl2-drastic/output/libSDL2-2.0.so.0 \
-   skeleton/EXTRAS/Emus/shared/Drastic/devices/tg5050/libs/libSDL2-2.0.so.0
+   skeleton/BASE/Emus/shared/Drastic/devices/tg5050/libs/libSDL2-2.0.so.0
 
 # Push to device via ADB
-adb push skeleton/EXTRAS/Emus/shared/Drastic/devices/tg5050/libs/libSDL2-2.0.so.0 \
+adb push skeleton/BASE/Emus/shared/Drastic/devices/tg5050/libs/libSDL2-2.0.so.0 \
   /mnt/SDCARD/Emus/shared/Drastic/devices/tg5050/libs/libSDL2-2.0.so.0
 ```
 

@@ -33,7 +33,7 @@ typedef struct {
 } RAT_RomFile;
 
 // Only prefetch systems whose emulator pak is actually installed, mirroring
-// nextui's launchability rule (SD Emus/<platform>/<TAG>.pak first, then the
+// nxredux's launchability rule (SD Emus/<platform>/<TAG>.pak first, then the
 // system paks) - there is no point caching achievements for roms the device
 // cannot launch.
 static bool rat_has_emu(const char* tag) {

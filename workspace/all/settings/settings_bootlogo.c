@@ -30,9 +30,9 @@ static int loadImages(void) {
 	char* device = getenv("DEVICE");
 	char basepath[MAX_PATH];
 	if (device && (exactMatch("brick", device) || exactMatch("brickpro", device) || exactMatch("smartpros", device))) {
-		snprintf(basepath, sizeof(basepath), "%s/Settings.pak/bootlogo/brick/", TOOLS_PATH);
+		snprintf(basepath, sizeof(basepath), "%s/Tools/Settings.pak/bootlogo/brick/", PAKS_PATH);
 	} else {
-		snprintf(basepath, sizeof(basepath), "%s/Settings.pak/bootlogo/smartpro/", TOOLS_PATH);
+		snprintf(basepath, sizeof(basepath), "%s/Tools/Settings.pak/bootlogo/smartpro/", PAKS_PATH);
 	}
 
 	DIR* dir;

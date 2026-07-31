@@ -15,7 +15,7 @@
 
 #define ROMS_PATH SDCARD_PATH "/Roms"
 #define ROOT_SYSTEM_PATH SDCARD_PATH "/.system/"
-#define SYSTEM_PATH SDCARD_PATH "/.system/" PLATFORM
+#define SYSTEM_PATH SDCARD_PATH "/.system"
 #define RES_PATH SDCARD_PATH "/.system/res"
 #define SHARED_SYSTEM_PATH SDCARD_PATH "/.system/shared"
 #define SHARED_BIN_PATH SHARED_SYSTEM_PATH "/bin"
@@ -23,7 +23,7 @@
 #define SHARED_USERDATA_PATH SDCARD_PATH "/.userdata/shared"
 #define PAKS_PATH SYSTEM_PATH "/paks"
 #define BIN_PATH SYSTEM_PATH "/bin"
-#define TOOLS_PATH SDCARD_PATH "/Tools/" PLATFORM
+#define TOOLS_PATH SDCARD_PATH "/Tools"
 #define RECENT_PATH SHARED_USERDATA_PATH "/.minui/recent.txt"
 #define SHORTCUTS_PATH SHARED_USERDATA_PATH "/.minui/shortcuts.txt"
 #define SIMPLE_MODE_PATH SHARED_USERDATA_PATH "/enable-simple-mode"

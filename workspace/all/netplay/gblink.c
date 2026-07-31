@@ -1,5 +1,5 @@
 /*
- * NextUI GB Link Module
+ * NXRedux GB Link Module
  * Implements GB/GBC Link Cable emulation over WiFi via gambatte core options
  *
  * This module manages gambatte's built-in network serial (HAVE_NETWORK=1)

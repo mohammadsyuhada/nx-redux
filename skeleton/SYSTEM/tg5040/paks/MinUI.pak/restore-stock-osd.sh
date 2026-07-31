@@ -24,9 +24,10 @@ OSD_DST="/usr/trimui/osd"
 # <SDCARD>/.tmp_update/<platform>/unzip (the updater's own vendored binary,
 # see workspace/tg5040/install/boot.sh); fall back to whatever `unzip` is on
 # PATH (e.g. busybox's applet) if that vendored copy isn't there or isn't
-# executable.
-SDCARD="$(cd "$SYSTEM_PATH/../.." && pwd)"
-UNZIP_BIN="$SDCARD/.tmp_update/$(basename "$SYSTEM_PATH")/unzip"
+# executable. The .tmp_update tree keeps its per-platform layout, so the
+# platform is spelled out here — $SYSTEM_PATH (now .system) no longer carries it.
+SDCARD="$(cd "$SYSTEM_PATH/.." && pwd)"
+UNZIP_BIN="$SDCARD/.tmp_update/tg5040/unzip"
 [ -x "$UNZIP_BIN" ] || UNZIP_BIN="unzip"
 
 # refuse before touching the rootfs if the archive is truncated/unreadable —

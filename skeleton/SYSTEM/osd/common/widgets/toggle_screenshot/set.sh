@@ -3,7 +3,7 @@
 # a screenshot to /mnt/SDCARD/Images/Screenshots (see workspace/all/screenshot).
 # The daemon writes/removes /tmp/screenshot.pid itself.
 PID_FILE=/tmp/screenshot.pid
-DAEMON=/mnt/SDCARD/.system/__PLATFORM__/bin/screenshot.elf
+DAEMON=/mnt/SDCARD/.system/bin/screenshot.elf
 STATUS_DIR=/tmp/trimui_osd/toggle_screenshot
 
 daemon_running() {

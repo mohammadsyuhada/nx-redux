@@ -179,12 +179,12 @@ void WIFI_direct_forget(const char* ssid) {
 // Remove ALL saved netplay hotspot networks, not just the current session's. Each
 // join adds a uniquely-named hotspot network; sessions that don't end cleanly leave
 // theirs behind, so without a prefix sweep wpa_supplicant.conf accumulates dozens of
-// stale NextUI-*/GBLink-*/GBALink-* entries. Also re-enables any networks a prior
+// stale NxRedux-*/GBLink-*/GBALink-* entries. Also re-enables any networks a prior
 // select_network() left disabled so the saved config stays clean. Returns count removed.
 int WIFI_direct_forgetAllHotspots(void) {
 	WIFI_enableAll();
 	int removed = 0;
-	removed += WIFI_forgetPrefix(LINK_HOTSPOT_SSID_PREFIX); // current: "NextUI-"
+	removed += WIFI_forgetPrefix(LINK_HOTSPOT_SSID_PREFIX); // current: "NXRedux-"
 	removed += WIFI_forgetPrefix("GBLink-");				// legacy
 	removed += WIFI_forgetPrefix("GBALink-");				// legacy
 	return removed;

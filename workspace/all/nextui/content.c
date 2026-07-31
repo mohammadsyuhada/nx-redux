@@ -174,6 +174,8 @@ Directory* Directory_new(char* path, int selected) {
 		self->entries = getCollection(path);
 	} else if (suffixMatch(".m3u", path)) {
 		self->entries = getDiscs(path);
+	} else if (exactMatch(path, TOOLS_PATH)) {
+		self->entries = getTools();
 	} else {
 		self->entries = getEntries(path);
 	}
@@ -189,7 +191,12 @@ Directory* Directory_new(char* path, int selected) {
 Entry* entryFromPakName(char* pak_name) {
 	char pak_path[MAX_PATH];
 	// Check in Tools
-	snprintf(pak_path, sizeof(pak_path), "%s/Tools/%s/%s.pak", SDCARD_PATH, PLATFORM, pak_name);
+	snprintf(pak_path, sizeof(pak_path), "%s/%s.pak", TOOLS_PATH, pak_name);
+	if (exists(pak_path))
+		return Entry_newNamed(pak_path, ENTRY_PAK, pak_name);
+
+	// Check in system Tools
+	snprintf(pak_path, sizeof(pak_path), "%s/Tools/%s.pak", PAKS_PATH, pak_name);
 	if (exists(pak_path))
 		return Entry_newNamed(pak_path, ENTRY_PAK, pak_name);
 
@@ -199,7 +206,7 @@ Entry* entryFromPakName(char* pak_name) {
 		return Entry_newNamed(pak_path, ENTRY_PAK, pak_name);
 
 	// Check in platform Emus
-	snprintf(pak_path, sizeof(pak_path), "%s/Emus/%s/%s.pak", SDCARD_PATH, PLATFORM, pak_name);
+	snprintf(pak_path, sizeof(pak_path), "%s/Emus/%s.pak", SDCARD_PATH, pak_name);
 	if (exists(pak_path))
 		return Entry_newNamed(pak_path, ENTRY_PAK, pak_name);
 
@@ -212,7 +219,7 @@ int hasEmu(char* emu_name) {
 	if (exists(pak_path))
 		return 1;
 
-	snprintf(pak_path, sizeof(pak_path), "%s/Emus/%s/%s.pak/launch.sh", SDCARD_PATH, PLATFORM, emu_name);
+	snprintf(pak_path, sizeof(pak_path), "%s/Emus/%s.pak/launch.sh", SDCARD_PATH, emu_name);
 	return exists(pak_path);
 }
 
@@ -324,9 +331,9 @@ int hasRoms(char* dir_name) {
 }
 
 int hasTools(void) {
-	char tools_path[MAX_PATH];
-	snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
-	return exists(tools_path);
+	char sys_path[MAX_PATH];
+	snprintf(sys_path, sizeof(sys_path), "%s/Tools", PAKS_PATH);
+	return exists(TOOLS_PATH) || exists(sys_path);
 }
 
 int isConsoleDir(char* path) {
@@ -677,15 +684,14 @@ Array* getRoot(int simple_mode) {
 
 	// Add tools if applicable
 	if (hasTools() && CFG_getShowTools() && !simple_mode) {
-		char tools_path[MAX_PATH];
-		snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
-		Array_push(root, Entry_new(tools_path, ENTRY_DIR));
+		Array_push(root, Entry_new(TOOLS_PATH, ENTRY_DIR));
 	} else if (simple_mode) {
 		// Simple mode hides Tools, but Settings must stay reachable (the
 		// game list PIN-gates it) or parents get locked out of the device.
 		char settings_path[MAX_PATH];
-		snprintf(settings_path, sizeof(settings_path), "%s/Tools/%s/Settings.pak",
-				 SDCARD_PATH, PLATFORM);
+		snprintf(settings_path, sizeof(settings_path), "%s/Settings.pak", TOOLS_PATH);
+		if (!exists(settings_path))
+			snprintf(settings_path, sizeof(settings_path), "%s/Tools/Settings.pak", PAKS_PATH);
 		if (exists(settings_path))
 			Array_push(root, Entry_newNamed(settings_path, ENTRY_PAK, "Settings"));
 	}
@@ -857,6 +863,53 @@ Array* getEntries(char* path) {
 	} else
 		addEntries(entries, path);
 
+	EntryArray_sort(entries);
+	return entries;
+}
+
+Array* getTools(void) {
+	Array* entries = Array_new();
+
+	// SD override layer first (may not exist; opendir just fails). Only
+	// directories belong in the Tools menu (paks and plain folders) -- plain
+	// files like the README migrate-paks.sh drops into /Tools are excluded.
+	DIR* sd = opendir(TOOLS_PATH);
+	if (sd != NULL) {
+		struct dirent* dp;
+		while ((dp = readdir(sd)) != NULL) {
+			if (hide(dp->d_name))
+				continue;
+			if (dp->d_type != DT_DIR)
+				continue;
+			char full_path[MAX_PATH];
+			snprintf(full_path, sizeof(full_path), "%s/%s", TOOLS_PATH, dp->d_name);
+			int type = suffixMatch(".pak", dp->d_name) ? ENTRY_PAK : ENTRY_DIR;
+			Array_push(entries, Entry_new(full_path, type));
+		}
+		closedir(sd);
+	}
+
+	// append system paks not shadowed by an SD pak of the same name
+	char sys_path[MAX_PATH];
+	snprintf(sys_path, sizeof(sys_path), "%s/Tools", PAKS_PATH);
+	DIR* dh = opendir(sys_path);
+	if (dh != NULL) {
+		struct dirent* dp;
+		while ((dp = readdir(dh)) != NULL) {
+			if (hide(dp->d_name))
+				continue;
+			if (dp->d_type != DT_DIR || !suffixMatch(".pak", dp->d_name))
+				continue;
+			char shadow[MAX_PATH];
+			snprintf(shadow, sizeof(shadow), "%s/%s", TOOLS_PATH, dp->d_name);
+			if (exists(shadow))
+				continue;
+			char full_path[MAX_PATH];
+			snprintf(full_path, sizeof(full_path), "%s/%s", sys_path, dp->d_name);
+			Array_push(entries, Entry_new(full_path, ENTRY_PAK));
+		}
+		closedir(dh);
+	}
 	EntryArray_sort(entries);
 	return entries;
 }

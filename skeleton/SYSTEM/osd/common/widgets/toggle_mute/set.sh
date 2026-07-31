@@ -1,6 +1,6 @@
 #!/bin/sh
-export LD_LIBRARY_PATH="/mnt/SDCARD/.system/__PLATFORM__/lib:/usr/trimui/lib:$LD_LIBRARY_PATH"
-OSDCTL="/mnt/SDCARD/.system/__PLATFORM__/bin/osdctl"
+export LD_LIBRARY_PATH="/mnt/SDCARD/.system/lib:/usr/trimui/lib:$LD_LIBRARY_PATH"
+OSDCTL="/mnt/SDCARD/.system/bin/osdctl"
 
 mkdir -p /tmp/trimui_osd/toggle_mute/
 

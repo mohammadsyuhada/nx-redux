@@ -1,14 +1,14 @@
 #!/bin/bash
 
 # Prepares a faux SD card structure for debugging on desktop
-# macOS: /var/tmp/nextui/sdcard
-# Linux: /var/tmp/nextui/sdcard
+# macOS: /var/tmp/nxredux/sdcard
+# Linux: /var/tmp/nxredux/sdcard
 
 # 1. Check if it already exists, we will call this from Makefile. If already prepared, bail and do nothing
-# 2. Copy folder structure from skeleton/(BASE,EXTRAS,SYSTEM) into the folder
+# 2. Copy folder structure from skeleton/(BASE,SYSTEM) into the folder
 set -euo pipefail
 
-TARGET="/var/tmp/nextui/sdcard"
+TARGET="/var/tmp/nxredux/sdcard"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKELETON_DIR="$(cd "$SCRIPT_DIR/../../skeleton" && pwd)"
 
@@ -27,22 +27,28 @@ fi
 # Create target
 mkdir -p "$TARGET"
 
-# Copy structure in specific order: BASE, then EXTRAS, then SYSTEM (into .system)
-for SUBDIR in BASE EXTRAS SYSTEM; do
-    SOURCE_PATH="$SKELETON_DIR/$SUBDIR"
-    if [ -d "$SOURCE_PATH" ]; then
-        if [ "$SUBDIR" = "SYSTEM" ]; then
-            DEST="$TARGET/.system"
-        else
-            DEST="$TARGET"
-        fi
-        mkdir -p "$DEST"
-        if command -v rsync >/dev/null 2>&1; then
-            rsync -a "$SOURCE_PATH"/ "$DEST"/
-        else
-            cp -R "$SOURCE_PATH"/. "$DEST"/
-        fi
+PLATFORM="desktop"
+
+# Copy a directory's contents into a destination, preferring rsync.
+copy_tree() {
+    src="$1"; dst="$2"
+    [ -d "$src" ] || return 0
+    mkdir -p "$dst"
+    if command -v rsync >/dev/null 2>&1; then
+        rsync -a "$src"/ "$dst"/
+    else
+        cp -R "$src"/. "$dst"/
     fi
-done
+}
+
+# Copy structure in specific order: BASE, then SYSTEM.
+# BASE lands at the SD root as-is. SYSTEM is assembled in the FLATTENED
+# layout the packaged card ships (see Makefile "assembling .system"): the
+# desktop platform subtree's contents live directly under .system/ (bin, cores,
+# lib, paks, ...), with shared/ and res/ alongside — no .system/<plat>/ level.
+copy_tree "$SKELETON_DIR/BASE"   "$TARGET"
+copy_tree "$SKELETON_DIR/SYSTEM/$PLATFORM" "$TARGET/.system"
+copy_tree "$SKELETON_DIR/SYSTEM/shared"    "$TARGET/.system/shared"
+copy_tree "$SKELETON_DIR/SYSTEM/res"       "$TARGET/.system/res"
 
 echo "Prepared faux SD root at: $TARGET"

@@ -4,7 +4,7 @@
 # in generic_video.c) sees that file within ~1s and starts publishing RGBA
 # frames to the /tmp/fb_mirror.raw shm that the recorder pipes into ffmpeg.
 PID_FILE=/tmp/screenrecorder.pid
-RECORDER=/mnt/SDCARD/.system/__PLATFORM__/bin/screenrecorder.elf
+RECORDER=/mnt/SDCARD/.system/bin/screenrecorder.elf
 OUTPUT_DIR=/mnt/SDCARD/Videos/Recordings
 STATUS_DIR=/tmp/trimui_osd/toggle_screenrecord
 CPU2=/sys/devices/system/cpu/cpu2/online

@@ -3,6 +3,13 @@
 SDCARD_PATH=/mnt/SDCARD
 
 # --------------------------------------
+# clean shipped-name paks out of /Emus and /Tools (moved into .system
+# 2026-07-31; removal of this hook is tracked in DEV_TODO.md);
+# must run before the brick-migration block below, which can reboot without
+# re-running install.sh; must never fail the update
+sh ${SDCARD_PATH}/.system/shared/bin/migrate-paks.sh tg5040 || true
+
+# --------------------------------------
 # remove old brick system folder
 BRICK_PATH=${SDCARD_PATH}/.system/tg3040
 echo "check for $BRICK_PATH"

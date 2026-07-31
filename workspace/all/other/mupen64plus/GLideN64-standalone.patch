@@ -777,7 +777,7 @@ index 59725f62..a718179f 100644
 +	if (!isLoadProgressActive()) {
 +		overlay_ensure_init(getScreenWidth(), getScreenHeight());
 +
-+		// One-shot: if NextUI launched us with a resume request (game switcher
++		// One-shot: if NxRedux launched us with a resume request (game switcher
 +		// A-press writes the slot to /tmp/resume_slot.txt), auto-load that save
 +		// state once emulation is rendering frames — mirrors minarch's
 +		// State_resume side of the handshake.

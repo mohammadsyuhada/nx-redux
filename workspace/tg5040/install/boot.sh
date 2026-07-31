@@ -95,23 +95,28 @@ if [ -f "$UPDATE_PATH" ]; then
 		echo "TEXT:Installing NX Redux" > /tmp/show2.fifo
 	fi
 
-	# clean replacement for core paths
-	rm -rf $SYSTEM_PATH/$PLATFORM/bin
-	rm -rf $SYSTEM_PATH/$PLATFORM/lib
-	rm -rf $SYSTEM_PATH/$PLATFORM/paks/MinUI.pak
+	# clean replacement for core paths (shipped content is redux-owned; /Emus,
+	# /Tools and /Emus/shared are user space — never wiped here)
+	rm -rf $SYSTEM_PATH/bin
+	rm -rf $SYSTEM_PATH/lib
+	rm -rf $SYSTEM_PATH/paks/MinUI.pak
+	rm -rf $SYSTEM_PATH/paks/Emus
+	rm -rf $SYSTEM_PATH/paks/Tools
+	# device marker files: remove the known set, the zip restores the right one
+	rm -f $SDCARD_PATH/tg5040-brick $SDCARD_PATH/tg5040-brickpro $SDCARD_PATH/tg5040-smartpro $SDCARD_PATH/tg5050-smartpros
 
 	./unzip -o "$UPDATE_PATH" -d "$SDCARD_PATH" # &> /mnt/SDCARD/unzip.txt
 	rm -f "$UPDATE_PATH"
 
 	# the updated system finishes the install/update
-	if [ -f $SYSTEM_PATH/$PLATFORM/bin/install.sh ]; then
-		$SYSTEM_PATH/$PLATFORM/bin/install.sh # &> $SDCARD_PATH/log.txt
+	if [ -f $SYSTEM_PATH/bin/install.sh ]; then
+		$SYSTEM_PATH/bin/install.sh # &> $SDCARD_PATH/log.txt
 	fi
 fi
 
 #kill $SHOW_PID
 
-LAUNCH_PATH="$SYSTEM_PATH/$PLATFORM/paks/MinUI.pak/launch.sh"
+LAUNCH_PATH="$SYSTEM_PATH/paks/MinUI.pak/launch.sh"
 if [ -f "$LAUNCH_PATH" ] ; then
 	"$LAUNCH_PATH"
 fi

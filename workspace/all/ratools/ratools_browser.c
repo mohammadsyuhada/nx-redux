@@ -42,10 +42,10 @@ static void rat_badge_path(const char* badge_name, bool locked, char* buf, size_
 		snprintf(buf, n, RA_BADGE_CACHE_DIR "/%s.png", badge_name);
 }
 
-// Resolve a game's box art from its recorded rom path, mirroring nextui's
+// Resolve a game's box art from its recorded rom path, mirroring nxredux's
 // thumbnail conventions (gamelist.c ~line 788):
 //   single-file rom:  <dir>/.media/<rom-name>.png
-//   multi-file rom (cue/bin/m3u in its own folder): nextui shows the FOLDER
+//   multi-file rom (cue/bin/m3u in its own folder): nxredux shows the FOLDER
 //   as the game entry, so the art is keyed off the folder name one level up:
 //                     <parent>/.media/<folder-name>.png
 static bool rat_game_art_path(const char* game_hash, char* out, size_t out_size) {

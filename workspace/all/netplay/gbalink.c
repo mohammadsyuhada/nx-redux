@@ -1,5 +1,5 @@
 /*
- * NextUI GBA Link Module
+ * NXRedux GBA Link Module
  * Implements GBA Wireless Adapter (RFU) emulation over WiFi
  *
  * This module provides a transport layer for the libretro netpacket interface,

@@ -21,7 +21,7 @@ ifeq ($(UNAME_S),Darwin)
 	CROSS_COMPILE=/usr/local/bin/
 	PREFIX=/opt/homebrew
 endif
-PREFIX_LOCAL=/var/tmp/nextui
+PREFIX_LOCAL=/var/tmp/nxredux
 UNION_PLATFORM=desktop
 
 all: 

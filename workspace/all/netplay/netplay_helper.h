@@ -1,5 +1,5 @@
 /*
- * NextUI Netplay Helper Module
+ * NXRedux Netplay Helper Module
  * Extracted UI helpers and orchestration functions for netplay menus
  *
  * This module contains the UI rendering and orchestration code that was

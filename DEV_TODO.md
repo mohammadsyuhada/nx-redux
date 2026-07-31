@@ -15,50 +15,64 @@ Neither file is a changelog — delete an entry when it lands, don't mark it don
 
 ---
 
-## Merge EXTRAS Emus + Tools into `.system` (SD folders become pure override layers)
+## Remove the /Emus + /Tools pak cleanup from the updater
 
-**Decided:** 2026-07-31, after the minarch pre-launch options rollout exposed the
-core problem: redux ships six broken `options.sh` files to `/Emus`-installed paks and
-a zip update would never have fixed them, because updates only replace `.system`.
-Redux's paks (N64, NDS, DC, PortMaster, all minarch paks, every Tool) are redux
-components with actively-maintained scripts, not optional add-ons — updates MUST be
-able to replace their `launch.sh`/`options.sh`/`default.cfg`.
+**Decided:** 2026-07-31 (owner). The merge itself is built — see
+`DEV_CHECKLIST.md`'s "Emus + Tools merged into .system (2026-07-31)" section and
+`docs/superpowers/specs/2026-07-31-emus-tools-system-merge-design.md`. This entry
+tracks only the deliberate sunset of the transition-period cleanup.
 
-**Decision (made, not open):** ship all Emus and Tools paks inside
-`.system/<platform>/paks/`, and keep `/Emus/<platform>/` + `/Tools/<platform>/` as
-pure override/community layers. The precedence machinery already exists and keeps
-working unchanged: `getEmuPath` prefers SD (`utils.c:439-444`), the Emulator Settings
-picker scans both with SD-wins, nextui's probes resolve through `getEmuPath`. Users
-who want to customize a pak create an override copy in `/Emus` — they no longer edit
-shipped files in place.
+`migrate-paks.sh` (`skeleton/SYSTEM/shared/bin/migrate-paks.sh`, invoked from
+`workspace/<plat>/install/update.sh`) deletes tag-matching paks from the `/Emus`
+and `/Tools` user layers on **every** update, as a transition measure to clear the
+redux-shipped paks that pre-merge cards left shadowing the new
+`.system/paks/{Emus,Tools}` copies (§3 of the spec). It is intentionally
+destructive to a same-tag copy in the user layer, so it must not run forever.
 
-**Migration policy (the hard part — decided in principle):** existing cards have
-redux-shipped paks in `/Emus` that would shadow the fresh system paks forever. On
-update, for each SD pak whose tag matches a system pak:
+The teardown has two independently-timed halves — do each only when its timer is
+up, and mind the order within each.
 
-- every file matches a hash redux **ever shipped** for that pak → stale redux copy,
-  delete it;
-- anything differs → deliberate user override, leave it (and surface a one-line
-  notice so shadowing is never silent).
+**The `/Emus` + `/Tools` pak cleanup** (the always-runs destructive part). After ~2
+releases have shipped with it (long enough that essentially every active card has
+been cleaned once):
 
-The "ever shipped" manifest is generated mechanically from git history of
-`skeleton/EXTRAS/` (finite per-pak file-hash set, shipped in `.system`). Note the
-cfg nuance this gets right: an untouched old `default.cfg` hashes as shipped and is
-cleaned; an edited one survives as an override.
+- [ ] Drop the `migrate-paks.sh` invocation from `workspace/<plat>/install/update.sh`
+      and delete the script (`skeleton/SYSTEM/shared/bin/migrate-paks.sh`) and its
+      test (`scripts/tests/test-migrate-paks.sh`).
+- [ ] Update the `/Emus` + `/Tools` README.txt wording: the "same-named paks are
+      removed on update" warning becomes wrong once the cleanup is gone — with it
+      removed, a same-named pak in `/Emus`/`/Tools` is a usable override via the
+      existing SD-wins precedence (`utils.c:439-444`), which is the whole point of
+      keeping those folders as override layers.
 
-- [ ] Manifest generator (git-history sweep of `skeleton/EXTRAS/` → per-pak hash
-      list shipped in `.system`), plus updater logic applying the policy above.
-- [ ] nextui Tools menu: scan `$PAKS_PATH/Tools` alongside `/Tools`, SD wins —
-      mirror of the Emus precedence.
-- [ ] Packaging: move `skeleton/EXTRAS/{Emus,Tools}` content into the SYSTEM tree
-      (or repackage at build time); rework top-level Makefile `tidy`/`package`
-      targets and the per-device zips. `.system` grows substantially (bundled
-      cores, drastic, ppsspp are the bulk) — measure and accept.
-- [ ] Read-only overlay / restore-to-stock file lists must learn the new layout.
-- [ ] Upgrade test matrix: fresh card; upgrade with stale redux paks in `/Emus`
-      (expect cleanup); upgrade with a user-customized pak (expect survival +
-      notice); community pak with a tag redux doesn't ship (untouched).
-- [ ] Decide what, if anything, remains of the EXTRAS distribution zip.
+**The legacy-boot / pre-flatten apparatus** (the shims + the legacy `.system/<plat>`
+handling). These are what let an update land straight from v1.4.1's unflattened
+layout, so they can only go once updates from v1.4.1 no longer need to work — a
+much longer horizon than the pak cleanup, and they must be removed **together**:
+
+- [ ] Delete the "installing legacy-boot compat shims" block in the Makefile
+      (`~411-414`, the `install-shim.sh` → `.system/<plat>/bin/install.sh` +
+      `minui-launch-shim.sh` → `.system/<plat>/paks/MinUI.pak/launch.sh` copies) and
+      the shim sources `workspace/{tg5040,tg5050}/install/{install-shim,minui-launch-shim}.sh`.
+      Ordering trap: a pre-flatten card's still-running OLD `install.sh` /
+      `MinUI.pak/launch.sh` are what re-exec into the freshly-unzipped tree, so
+      dropping the shims while v1.4.1-direct updates still ship makes such an update
+      finish **without launching** — it self-heals on the next power-on, but
+      migration never ran that boot.
+- [ ] Remove migrate-paks.sh's legacy `.system/<plat>` section (step 3, the
+      `legacy_sys` prune/remove) and its `/tmp/nx_legacy_boot` (`NX_LEGACY_FLAG`)
+      handling in the SAME pass — the flag only exists because a shim set it, so the
+      prune-vs-remove branch is meaningless once the shims are gone. (If the pak
+      cleanup above already retired all of migrate-paks.sh, this is moot; if not,
+      this is the part that outlives it.)
+
+**Not sunset — permanent maintenance.** The device-marker cleanup
+`rm -f $SDCARD_PATH/tg5040-brick tg5040-brickpro tg5040-smartpro tg5050-smartpros`
+is hardcoded in THREE places — `workspace/tg5040/install/boot.sh`,
+`workspace/tg5050/install/boot.sh`, and
+`workspace/all/show2/boot-integration-example.sh` — and must be kept in sync with
+the Makefile `DEVICES` list every time a device is added. This is ongoing upkeep,
+not part of the transition teardown; none of the removals above touch it.
 
 ---
 
@@ -170,7 +184,7 @@ Deliberately left out of the flycast merge (`99985dec`) — the evidence said lo
 belongs with a measured Brick re-verify.
 
 `launch.sh`'s "pin the busiest `mupen64plus`-named thread" heuristic
-(`skeleton/EXTRAS/Emus/tg5040/N64.pak/launch.sh` pinning block and the tg5050 twin)
+(`skeleton/SYSTEM/tg5040/paks/Emus/N64.pak/launch.sh` pinning block and the tg5050 twin)
 only pins ONE of the (at least) two non-main threads named `mupen64plus`;
 the other keeps the unrestricted 0-7 mask.
 
@@ -178,7 +192,7 @@ the other keeps the unrestricted 0-7 mask.
       default. `DC.pak`'s `pin_threads()` is the reference pattern.
 
 Measured impact is small — the stray thread's load is bursty init/loading work (~3.6%
-during boot, ~0% in live gameplay), and since NextUI only brings cpu0-1/4(/5) online,
+during boot, ~0% in live gameplay), and since NxRedux only brings cpu0-1/4(/5) online,
 "unrestricted" still lands it on the contended cores. Do this together with the pending
 Brick pinning re-verification in `DEV_CHECKLIST.md`, so the fix ships measured rather than
 blind (which is how the original masks got here).
@@ -312,3 +326,30 @@ the way in, matching a normal launch).
 - [ ] On device, watch the transition into the editor from the context menu and
       decide whether to set `startgame` in `gamelist.c` case 36.
 
+
+## User-visible branding sweep: NextUI → NX Redux
+
+**Decided:** 2026-07-31 (owner). Scope the rebrand to what users actually read,
+not the codebase's identifiers.
+
+**Do NOT mass-rename code identifiers or filenames.** `nextui.elf`,
+`workspace/all/nextui/`, internal symbols, struct/function names and the like
+stay as `nextui`. Upstream NextUI PRs are still ported into this fork, and a
+wholesale identifier rename would turn every future port into a merge conflict.
+NextUI itself set the precedent by keeping `MinUI.pak` / `MinUI.zip` long after
+diverging from MinUI.
+
+**DO sweep user-VISIBLE strings only** — anything rendered on screen or shown to
+the user — and rename `NextUI` → `NX Redux` there in a future pass:
+- Settings / About screen text.
+- Update-splash `TEXT` lines (the `show2` splash strings in the boot / update flow).
+- Version strings.
+- Any UI-rendered "NextUI" label in the launcher / in-game menus.
+
+Where to look when doing the pass:
+- [ ] `workspace/all/settings` — About/Settings screen copy and version display.
+- [ ] `show2` splash `TEXT` strings in `boot.sh` / the update flow scripts.
+- [ ] `minarch` and `nextui` UI strings (on-screen labels, menu headers, toasts).
+
+Leave doc-link attributions to upstream NextUI docs (e.g.
+`nextui.loveretro.games`) intact — those correctly point at NextUI.

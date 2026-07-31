@@ -20,10 +20,10 @@
             "package":"com.trimui.osd.slider.backlight"
         },
         {
-            "package":"com.nextui.osd.toggle.screenshot"
+            "package":"com.nxredux.osd.toggle.screenshot"
         },
         {
-            "package":"com.nextui.osd.toggle.screenrecord"
+            "package":"com.nxredux.osd.toggle.screenrecord"
         },
         {
             "package":"com.trimui.osd.static.dram"

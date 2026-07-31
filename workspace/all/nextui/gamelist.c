@@ -408,8 +408,9 @@ static bool settingsPinAllows(Entry* entry) {
 		return true;
 
 	char settings_path[MAX_PATH];
-	snprintf(settings_path, sizeof(settings_path), "%s/Tools/%s/Settings.pak",
-			 SDCARD_PATH, PLATFORM);
+	snprintf(settings_path, sizeof(settings_path), "%s/Settings.pak", TOOLS_PATH);
+	if (!exists(settings_path))
+		snprintf(settings_path, sizeof(settings_path), "%s/Tools/Settings.pak", PAKS_PATH);
 	if (!exactMatch(entry->path, settings_path))
 		return true;
 
@@ -647,9 +648,7 @@ void GameList_runContextAction(int id) {
 		reloadDirectoryAt(0, root_sel);
 		break;
 	case 2: { // Tools (root)
-		char tools_path[MAX_PATH];
-		snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
-		openDirectory(tools_path, 0);
+		openDirectory(TOOLS_PATH, 0);
 		break;
 	}
 	case 10: // Remove Game (Recently Played)

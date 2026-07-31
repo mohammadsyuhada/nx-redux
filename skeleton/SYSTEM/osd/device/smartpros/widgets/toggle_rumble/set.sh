@@ -1,0 +1,34 @@
+#!/bin/sh
+RUMBLE_STATE="/tmp/trimui_osd/toggle_rumble/enabled"
+# tg5050 override of the common toggle_rumble widget: its rumble motor hangs off
+# gpio236 rather than tg5040's gpio227. Everything else matches common/ — keep
+# the two in sync when editing.
+RUMBLE_GPIO="/sys/class/gpio/gpio236/value"
+
+mkdir -p /tmp/trimui_osd/toggle_rumble/
+
+# Initialize state file from current setting if it doesn't exist
+if [ ! -f "$RUMBLE_STATE" ]; then
+    echo 1 > "$RUMBLE_STATE"
+fi
+
+if [ $# -eq 0 ] ; then
+    value=$(cat "$RUMBLE_STATE" 2>/dev/null)
+    [ -z "$value" ] && value=1
+    echo $value > /tmp/trimui_osd/toggle_rumble/status
+else
+    value=$(cat "$RUMBLE_STATE" 2>/dev/null)
+    [ -z "$value" ] && value=1
+    if [ "$value" -eq 1 ] ; then
+        # Currently on, turn off
+        echo 0 > "$RUMBLE_STATE"
+        echo 0 > /tmp/trimui_osd/toggle_rumble/status
+    else
+        # Currently off, turn on — give brief haptic feedback
+        echo 1 > "$RUMBLE_STATE"
+        echo 1 > $RUMBLE_GPIO 2>/dev/null
+        sleep 0.1
+        echo 0 > $RUMBLE_GPIO 2>/dev/null
+        echo 1 > /tmp/trimui_osd/toggle_rumble/status
+    fi
+fi

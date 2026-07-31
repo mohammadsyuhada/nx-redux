@@ -1,5 +1,5 @@
 /*
- * settings.c - NextUI Settings application (C99 rewrite)
+ * settings.c - NxRedux Settings application (C99 rewrite)
  *
  * Converted from settings.cpp to pure C.
  * Builds the full settings menu tree and runs the main loop.
@@ -1118,14 +1118,14 @@ static void reset_notify_duration(void) {
 // About page static display callbacks
 // ============================================
 
-static char about_nextui_version[128] = "";
+static char about_nxredux_version[128] = "";
 static char about_release_date[128] = "";
 static char about_platform[128] = "";
 static char about_os_version[128] = "";
 static char about_busybox_version[128] = "";
 
 static const char* get_about_version(void) {
-	return about_nextui_version;
+	return about_nxredux_version;
 }
 static const char* get_about_release_date(void) {
 	return about_release_date;
@@ -1141,7 +1141,7 @@ static const char* get_about_busybox(void) {
 }
 
 static void init_about_info(void) {
-	/* NextUI version: read from version.txt and format as "tag (name-hash)" */
+	/* NxRedux version: read from version.txt and format as "tag (name-hash)" */
 	FILE* vf = fopen(ROOT_SYSTEM_PATH "/version.txt", "r");
 	if (vf) {
 		char line_buf[256];
@@ -1164,11 +1164,11 @@ static void init_about_info(void) {
 		fclose(vf);
 		/* Version: use tag if available, otherwise release name */
 		if (build_tag[0] && strcmp(build_tag, "untagged") != 0)
-			strncpy(about_nextui_version, build_tag, sizeof(about_nextui_version) - 1);
+			strncpy(about_nxredux_version, build_tag, sizeof(about_nxredux_version) - 1);
 		else
-			strncpy(about_nextui_version, release_name, sizeof(about_nextui_version) - 1);
-		about_nextui_version[sizeof(about_nextui_version) - 1] = '\0';
-		/* Release date: extract YYYYMMDD from release name (e.g. "NextUI-20260221-0") */
+			strncpy(about_nxredux_version, release_name, sizeof(about_nxredux_version) - 1);
+		about_nxredux_version[sizeof(about_nxredux_version) - 1] = '\0';
+		/* Release date: extract YYYYMMDD from release name (e.g. "NxRedux-20260221-0") */
 		char* dash = strchr(release_name, '-');
 		if (dash && strlen(dash + 1) >= 8) {
 			char date_raw[9] = {0};

@@ -15,12 +15,12 @@
 
 // Unified SSID prefix for all link hotspots (shared with minarch via network_common.h)
 #ifndef LINK_HOTSPOT_SSID_PREFIX
-#define LINK_HOTSPOT_SSID_PREFIX "NextUI-"
+#define LINK_HOTSPOT_SSID_PREFIX "NXRedux-"
 #endif
 
 // Hotspot configuration
 #define WIFI_DIRECT_HOTSPOT_IP "10.0.0.1"
-#define WIFI_DIRECT_HOTSPOT_PASS "nextui123"
+#define WIFI_DIRECT_HOTSPOT_PASS "nxredux123"
 
 // Network info structure for scan results
 typedef struct {
