@@ -130,8 +130,14 @@ endif
 	$(CC) $(SOURCE) -o $(PRODUCT) $(CFLAGS) $(LDFLAGS)
 endif
 
+# pinned: unpinned master broke the build 2026-07-31 (upstream moved the
+# deflate backends out of trans_stream_zlib.c into trans_stream_deflate.c);
+# keep OBJECTS below in sync with this pin when bumping it
+LIBRETRO_COMMON_COMMIT = 692124dbd8a0b2f5526b48f3bc2026421754e3c5
+
 libretro-common:
 	git clone https://github.com/libretro/libretro-common
+	cd libretro-common && git checkout $(LIBRETRO_COMMON_COMMIT)
 
 rcheevos: rcheevos/Makefile $(PREFIX_LOCAL)/lib/librcheevos.a
 
@@ -157,14 +163,19 @@ $(PREFIX_LOCAL)/include/msettings.h:
 	cd ../../$(PLATFORM)/libmsettings && make
 
 ### libsrm stuff
-OBJECTS = streams/rzip_stream.o streams/file_stream.o vfs/vfs_implementation.o file/file_path.o file/file_path_io.o compat/compat_strl.o time/rtime.o string/stdstring.o encodings/encoding_utf.o streams/trans_stream.o streams/trans_stream_pipe.o streams/trans_stream_zlib.o
+OBJECTS = streams/rzip_stream.o streams/file_stream.o vfs/vfs_implementation.o file/file_path.o file/file_path_io.o compat/compat_strl.o time/rtime.o string/stdstring.o encodings/encoding_utf.o encodings/encoding_deflate.o streams/trans_stream.o streams/trans_stream_pipe.o streams/trans_stream_zlib.o streams/trans_stream_deflate.o
 
-$(OBJECTS) : 
-	cd libretro-common && $(CC) $(CFLAGS) -DHAVE_ZLIB -c -o $@ $(subst .o,.c,$@) -I include/
+# no -flto here: the archive persists in the untracked libretro-common/ dir
+# across toolchain-image upgrades, and LTO bytecode is GCC-version-locked —
+# a stale libsrm.a then kills every minarch link with
+# "bytecode stream ... generated with GCC compiler older than X"
+$(OBJECTS) :
+	cd libretro-common && $(CC) $(filter-out -flto,$(CFLAGS)) -DHAVE_ZLIB -c -o $@ $(subst .o,.c,$@) -I include/
 
 libsrm.a: $(OBJECTS)
 	cd libretro-common && $(AR) $(ARFLAGS) $@ $?
 
 clean:
 	rm -f $(PRODUCT)
+	rm -f $(addprefix libretro-common/,$(OBJECTS)) libretro-common/libsrm.a
 	rm -f $(OBJECTS) $(LIBRARY)
