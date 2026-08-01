@@ -8,13 +8,24 @@ the session. `netplay_boot.c` turns the wizard's env handoff
 (`NETPLAY_ROLE`/`NETPLAY_PEER_IP`/`NETPLAY_MODE`, exported by
 `netplay-prelaunch.sh`) into an engine session before the first frame.
 
-Three link backends, selected per core (`checkCoreLinkSupport`):
+Minarch selects one of three link backends per core (`checkCoreLinkSupport`);
+N64.pak (standalone mupen64plus, not a minarch core) is a fourth, separate
+path that reuses the same pre-launch wizard for rendezvous only:
 
 | Backend | Cores | Ports |
 |---|---|---|
 | Netplay (frame-sync rollback) | fbneo, fceumm, snes9x, supafaust, picodrive, pcsx_rearmed | 55435/55436 |
 | GBA Link (gpSP RFU/serial via libretro netpacket) | gpsp | 55437/55438 |
 | GB Link (gambatte serial) | gambatte | 56400/56421 |
+| N64 core netplay (mupen64plus protocol via on-host `m64p-server.elf`) | mupen64plus (standalone, `N64.pak`) | 55445 (TCP+UDP) |
+
+N64's wizard is rendezvous-only: it just brokers role + peer IP, then
+`N64.pak/launch.sh` starts `m64p-server.elf` on the host and passes
+`--netplay <ip> 55445 --netplay-player <1|2>` to mupen64plus. Saves are not
+rsync'd by the wizard — the mupen64plus core netplay protocol transfers
+player 1's save files to the joiner in-band (P1 authoritative). The joiner's
+in-game writes are staged to `netplay-data/mupen64plus` (`--set
+Core[SaveSRAMPath]=…`) so its real single-player saves stay untouched.
 
 ## Gotchas (all hardware-verified 2026-08-01, Brick ↔ Smart Pro S)
 

@@ -125,6 +125,106 @@ if [ -f "$NX_GAME_CFG" ]; then
 fi
 # --- end per-game overrides ---------------------------------------------
 
+# --- netplay pre-launch wizard -------------------------------------------
+# sleepmon + the unmute timer + swap are already running/active here, so an
+# early exit MUST undo them itself (same rationale as DC.pak's bail helper).
+nx_netplay_bail() {
+    killall sleepmon.elf 2>/dev/null || true
+    kill $SYNC_PID 2>/dev/null || true
+    echo 0 > /sys/class/speaker/mute 2>/dev/null || true
+    swapoff "$SWAPFILE" 2>/dev/null
+    echo 100 >/proc/sys/vm/vfs_cache_pressure 2>/dev/null
+    exit 0
+}
+
+NETPLAY_ARGS=""
+NETPLAY_SERVER_PID=""
+NETPLAY_RAN=""
+if [ -f /tmp/netplay_launch ]; then
+    rm -f /tmp/netplay_launch
+    NETPLAY_RAN=1
+    # No sync args: the mupen64plus netplay protocol transfers P1's save
+    # files to the joiner by itself (TCP_SEND_SAVE/TCP_RECEIVE_SAVE), so
+    # the wizard is rendezvous-only here. --max-players 4: N64 supports up
+    # to 4 players, so the host runs the multi-join lobby (X/N + press-A-to
+    # -start); DC/minarch omit it and stay 2-player (shared wizard).
+    netplay.elf --game "$EMU_OVERLAY_GAME" --max-players 4 &> "$LOGS_PATH/netplay-wizard.txt"
+    if [ $? -ne 0 ]; then
+        # cancelled or failed: back to the game list, never a peerless
+        # netplay launch (single-player is one A press away)
+        nx_netplay_bail
+    fi
+    # Sourcing an absent file is FATAL in ash; bail instead (see DC.pak).
+    [ -f /tmp/netplay_session ] || nx_netplay_bail
+    . /tmp/netplay_session
+    NX_NETPLAY_PORT=55445
+    # Player number + total: explicit from the wizard (4-player), else derived
+    # from role for a 2-player session produced by an older wizard.
+    NX_PLAYER="${NETPLAY_PLAYER:-}"
+    NX_NUM="${NETPLAY_NUM_PLAYERS:-}"
+    if [ -z "$NX_PLAYER" ]; then
+        [ "$NETPLAY_ROLE" = "host" ] && NX_PLAYER=1 || NX_PLAYER=2
+    fi
+    [ -z "$NX_NUM" ] && NX_NUM=2
+
+    # Per-session mupen config dir: local pad STAYS on Control1 (the core routes
+    # it to this device's netplay seat), ports 1..N marked plugged so the game
+    # shows N controllers. Values carry spaces/quotes, so rewrite the config
+    # sections wholesale rather than via --set (see nx_netplay_map.awk).
+    NX_SESSION_CFG="/tmp/n64-netplay-cfg"
+    rm -rf "$NX_SESSION_CFG"; mkdir -p "$NX_SESSION_CFG"
+    cp "$DEVICE_CONFIG_DIR"/*.cfg "$NX_SESSION_CFG"/ 2>/dev/null
+    if ! awk -v P="$NX_PLAYER" -v N="$NX_NUM" -f "$PAK_DIR/nx_netplay_map.awk" \
+            "$DEVICE_CONFIG_DIR/mupen64plus.cfg" > "$NX_SESSION_CFG/mupen64plus.cfg"; then
+        nx_netplay_bail   # a broken controller map must not launch peerless
+    fi
+
+    if [ "$NETPLAY_ROLE" = "host" ]; then
+        # Host runs the netplay server and plays seat 1: the protocol makes
+        # player 1 the source of truth for saves and core settings, so the
+        # host plays on its REAL saves ("host brings the memory card").
+        killall m64p-server.elf 2>/dev/null || true
+        "$PAK_DIR/m64p-server.elf" --port $NX_NETPLAY_PORT --players $NX_NUM --buffer-target 2 \
+            &> "$LOGS_PATH/n64-netplay-server.txt" &
+        NETPLAY_SERVER_PID=$!
+        # Pin the relay server OFF the latency-critical cores. mupen's main/
+        # dynarec thread is pinned to cpu0 and the GLideN64 video thread to cpu1
+        # (below); on the 4-core Brick an UNPINNED server that lands on cpu0
+        # steals dynarec cycles and stalls emulation, delaying even the host's
+        # own input (it round-trips through this local 127.0.0.1 server). Share
+        # the audio/helper cores (cpu2-3) instead — the relay is light but must
+        # not preempt emu/video.
+        taskset -p 0xc "$NETPLAY_SERVER_PID" 2>/dev/null || true
+        NETPLAY_ARGS="--netplay 127.0.0.1 $NX_NETPLAY_PORT --netplay-player $NX_PLAYER"
+    else
+        # Joiner receives the host's saves in-memory at boot, but in-game
+        # writes still land on disk: point them at a disposable staging dir
+        # so the joiner's real single-player saves are untouched. The core
+        # mkdirp()s the dir itself (main.c get_savepathdefault).
+        NETPLAY_ARGS="--netplay $NETPLAY_PEER_IP $NX_NETPLAY_PORT --netplay-player $NX_PLAYER --set Core[SaveSRAMPath]=$USERDATA_DIR/netplay-data/mupen64plus/save"
+    fi
+    # GPU headroom for netplay on this platform's slower SoC. GLideN64/video
+    # settings are LOCAL and never synced by the netplay protocol (only core
+    # CPU/RSP timing is), so lightening them cannot desync the session -- it just
+    # lets the slower device hold 60 fps and keep pace with the input buffer.
+    # NETPLAY_ARGS is applied LAST in the mupen invocation, so these override any
+    # per-game or global cfg value. Session-only (--nosaveoptions) -> single-
+    # player is untouched (keeps hi-res + its configured resolution).
+    #   - hi-res textures OFF: far larger than native N64 textures (GPU memory/
+    #     bandwidth every frame + .hts-cache stream stutters). The biggest win —
+    #     alone it dropped the Brick's buffer lag from ~50 frames to ~1.
+    #   - 1x native resolution: 2x proved too heavy for the Brick during busy
+    #     races even with hi-res off (display fell behind), so netplay forces 1x.
+    # NB: 3+ player split-screen renders one 3D viewport PER seat (~Nx GPU work).
+    # The Brick's Mali cannot hold 60 fps on a 3-way split and drifts seconds
+    # behind (measured: renders ~45 fps while the host feeds 60; cpu2/3 sit idle,
+    # so it's GPU-bound, not CPU/server/network). Stripping GPU features further
+    # (framebuffer readbacks, etc.) did NOT recover it -- 3-player split-screen
+    # needs a Smart-Pro-class GPU on every seat. 2-player (2-way split) is fine.
+    NETPLAY_ARGS="$NETPLAY_ARGS --set Video-GLideN64[txHiresEnable]=False --set Video-GLideN64[UseNativeResolutionFactor]=1"
+fi
+# --- end netplay ----------------------------------------------------------
+
 # Launch from PAK_DIR so core library resolves via ./
 cd "$PAK_DIR"
 # --nosaveoptions: without it, ui-console persists --set values at startup
@@ -135,11 +235,11 @@ cd "$PAK_DIR"
 # nx_paths.sh seeder. $GAME_ARGS before $AUDIO_OVERRIDE so the negotiated
 # audio rate wins any future conflict (--set applies left-to-right).
 ./mupen64plus --fullscreen --resolution "$DEVICE_RESOLUTION" \
-    --configdir "$DEVICE_CONFIG_DIR" \
+    --configdir "${NX_SESSION_CFG:-$DEVICE_CONFIG_DIR}" \
     --datadir "$EMU_DIR" \
     --plugindir "$PAK_DIR" \
     --nosaveoptions \
-    $GAME_ARGS $AUDIO_OVERRIDE \
+    $GAME_ARGS $AUDIO_OVERRIDE $NETPLAY_ARGS \
     --gfx "$EMU_DIR/mupen64plus-video-GLideN64.so" \
     --audio mupen64plus-audio-sdl.so \
     --input mupen64plus-input-sdl.so \
@@ -164,27 +264,36 @@ for TID in $(ls /proc/$EMU_PID/task/ 2>/dev/null); do
     esac
 done
 
-# Find the busiest non-main mupen64plus thread (video thread) and pin to cpu1
+# Pin EVERY non-main mupen64plus worker thread (GLideN64 video, etc.) to cpu1,
+# keeping cpu0 exclusively for the main CPU-emulation/dynarec thread. The old
+# "find the single busiest thread and pin it" heuristic ranked by a 2 s
+# utime-only snapshot and could pick the wrong (light) thread, leaving a heavy
+# worker floating on cpu0 to steal dynarec cycles. That was tolerable in
+# single-player but, under netplay, the extra sync work on cpu0 plus the
+# intruding worker pushed the slower Brick behind the sync buffer (cyclic
+# lag/catch-up). Pinning all workers is snapshot-independent. Non-mupen-named
+# threads (SDL helpers on cpu2-3 above, transient "Netplay key request"
+# threads) are intentionally left as they are.
 sleep 2
-BEST_TID=""
-BEST_UTIME=0
 for TID in $(ls /proc/$EMU_PID/task/ 2>/dev/null); do
     [ "$TID" = "$EMU_PID" ] && continue
     TNAME=$(cat /proc/$EMU_PID/task/$TID/comm 2>/dev/null)
     [ "$TNAME" = "mupen64plus" ] || continue
-    UTIME=$(awk '{print $14}' /proc/$EMU_PID/task/$TID/stat 2>/dev/null)
-    UTIME=${UTIME:-0}
-    if [ "$UTIME" -gt "$BEST_UTIME" ]; then
-        BEST_UTIME=$UTIME
-        BEST_TID=$TID
-    fi
+    taskset -p 0x2 "$TID" 2>/dev/null  # mask 0x2 = cpu1
 done
-[ -n "$BEST_TID" ] && taskset -p 2 "$BEST_TID" 2>/dev/null  # mask 0x2 = cpu1
 
 wait $EMU_PID
 killall sleepmon.elf 2>/dev/null || true
 kill $SYNC_PID 2>/dev/null || true
 echo 0 > /sys/class/speaker/mute 2>/dev/null || true
+
+# Netplay teardown: stop the host's server, undo hotspot/WiFi state.
+[ -n "$NETPLAY_SERVER_PID" ] && kill $NETPLAY_SERVER_PID 2>/dev/null
+if [ -n "$NETPLAY_RAN" ]; then
+    netplay.elf --cleanup >> "$LOGS_PATH/netplay-wizard.txt" 2>&1
+    rm -f /tmp/netplay_session
+    rm -rf "$NX_SESSION_CFG"
+fi
 
 # Cleanup: disable swap, restore VM defaults
 swapoff "$SWAPFILE" 2>/dev/null

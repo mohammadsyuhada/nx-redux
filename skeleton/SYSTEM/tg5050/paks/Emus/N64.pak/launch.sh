@@ -119,6 +119,86 @@ if [ -f "$NX_GAME_CFG" ]; then
 fi
 # --- end per-game overrides ---------------------------------------------
 
+# --- netplay pre-launch wizard -------------------------------------------
+# sleepmon + the unmute timer + swap are already running/active here, so an
+# early exit MUST undo them itself (same rationale as DC.pak's bail helper).
+nx_netplay_bail() {
+    killall sleepmon.elf 2>/dev/null || true
+    kill $SYNC_PID 2>/dev/null || true
+    echo 0 > /sys/class/speaker/mute 2>/dev/null || true
+    swapoff "$SWAPFILE" 2>/dev/null
+    echo 100 >/proc/sys/vm/vfs_cache_pressure 2>/dev/null
+    exit 0
+}
+
+NETPLAY_ARGS=""
+NETPLAY_SERVER_PID=""
+NETPLAY_RAN=""
+if [ -f /tmp/netplay_launch ]; then
+    rm -f /tmp/netplay_launch
+    NETPLAY_RAN=1
+    # No sync args: the mupen64plus netplay protocol transfers P1's save
+    # files to the joiner by itself (TCP_SEND_SAVE/TCP_RECEIVE_SAVE), so
+    # the wizard is rendezvous-only here. --max-players 4: N64 supports up
+    # to 4 players, so the host runs the multi-join lobby (X/N + press-A-to
+    # -start); DC/minarch omit it and stay 2-player (shared wizard).
+    netplay.elf --game "$EMU_OVERLAY_GAME" --max-players 4 &> "$LOGS_PATH/netplay-wizard.txt"
+    if [ $? -ne 0 ]; then
+        # cancelled or failed: back to the game list, never a peerless
+        # netplay launch (single-player is one A press away)
+        nx_netplay_bail
+    fi
+    # Sourcing an absent file is FATAL in ash; bail instead (see DC.pak).
+    [ -f /tmp/netplay_session ] || nx_netplay_bail
+    . /tmp/netplay_session
+    NX_NETPLAY_PORT=55445
+    # Player number + total: explicit from the wizard (4-player), else derived
+    # from role for a 2-player session produced by an older wizard.
+    NX_PLAYER="${NETPLAY_PLAYER:-}"
+    NX_NUM="${NETPLAY_NUM_PLAYERS:-}"
+    if [ -z "$NX_PLAYER" ]; then
+        [ "$NETPLAY_ROLE" = "host" ] && NX_PLAYER=1 || NX_PLAYER=2
+    fi
+    [ -z "$NX_NUM" ] && NX_NUM=2
+
+    # Per-session mupen config dir: local pad STAYS on Control1 (the core routes
+    # it to this device's netplay seat), ports 1..N marked plugged so the game
+    # shows N controllers. Values carry spaces/quotes, so rewrite the config
+    # sections wholesale rather than via --set (see nx_netplay_map.awk).
+    NX_SESSION_CFG="/tmp/n64-netplay-cfg"
+    rm -rf "$NX_SESSION_CFG"; mkdir -p "$NX_SESSION_CFG"
+    cp "$DEVICE_CONFIG_DIR"/*.cfg "$NX_SESSION_CFG"/ 2>/dev/null
+    if ! awk -v P="$NX_PLAYER" -v N="$NX_NUM" -f "$PAK_DIR/nx_netplay_map.awk" \
+            "$DEVICE_CONFIG_DIR/mupen64plus.cfg" > "$NX_SESSION_CFG/mupen64plus.cfg"; then
+        nx_netplay_bail   # a broken controller map must not launch peerless
+    fi
+
+    if [ "$NETPLAY_ROLE" = "host" ]; then
+        # Host runs the netplay server and plays seat 1: the protocol makes
+        # player 1 the source of truth for saves and core settings, so the
+        # host plays on its REAL saves ("host brings the memory card").
+        killall m64p-server.elf 2>/dev/null || true
+        "$PAK_DIR/m64p-server.elf" --port $NX_NETPLAY_PORT --players $NX_NUM --buffer-target 2 \
+            &> "$LOGS_PATH/n64-netplay-server.txt" &
+        NETPLAY_SERVER_PID=$!
+        # Pin the relay server OFF the latency-critical cores. mupen's main/
+        # dynarec thread runs on the big cpu4 and the GLideN64 video thread on
+        # the big cpu5 (pinned below); an unpinned server preempting those
+        # stalls emulation and delays even the host's own input (it round-trips
+        # through this local 127.0.0.1 server). cpu2-3 are free LITTLE cores
+        # here, so the relay gets its own cores clear of emu/video and audio.
+        taskset -p 0xc "$NETPLAY_SERVER_PID" 2>/dev/null || true
+        NETPLAY_ARGS="--netplay 127.0.0.1 $NX_NETPLAY_PORT --netplay-player $NX_PLAYER"
+    else
+        # Joiner receives the host's saves in-memory at boot, but in-game
+        # writes still land on disk: point them at a disposable staging dir
+        # so the joiner's real single-player saves are untouched. The core
+        # mkdirp()s the dir itself (main.c get_savepathdefault).
+        NETPLAY_ARGS="--netplay $NETPLAY_PEER_IP $NX_NETPLAY_PORT --netplay-player $NX_PLAYER --set Core[SaveSRAMPath]=$USERDATA_DIR/netplay-data/mupen64plus/save"
+    fi
+fi
+# --- end netplay ----------------------------------------------------------
+
 # Launch from PAK_DIR so core library resolves via ./
 cd "$PAK_DIR"
 # --nosaveoptions: without it, ui-console persists --set values at startup
@@ -129,11 +209,11 @@ cd "$PAK_DIR"
 # nx_paths.sh seeder. $GAME_ARGS before $AUDIO_OVERRIDE so the negotiated
 # audio rate wins any future conflict (--set applies left-to-right).
 ./mupen64plus --fullscreen --resolution 1280x720 \
-    --configdir "$DEVICE_CONFIG_DIR" \
+    --configdir "${NX_SESSION_CFG:-$DEVICE_CONFIG_DIR}" \
     --datadir "$EMU_DIR" \
     --plugindir "$PAK_DIR" \
     --nosaveoptions \
-    $GAME_ARGS $AUDIO_OVERRIDE \
+    $GAME_ARGS $AUDIO_OVERRIDE $NETPLAY_ARGS \
     --gfx "$EMU_DIR/mupen64plus-video-GLideN64.so" \
     --audio mupen64plus-audio-sdl.so \
     --input mupen64plus-input-sdl.so \
@@ -179,6 +259,14 @@ wait $EMU_PID
 killall sleepmon.elf 2>/dev/null || true
 kill $SYNC_PID 2>/dev/null || true
 echo 0 > /sys/class/speaker/mute 2>/dev/null || true
+
+# Netplay teardown: stop the host's server, undo hotspot/WiFi state.
+[ -n "$NETPLAY_SERVER_PID" ] && kill $NETPLAY_SERVER_PID 2>/dev/null
+if [ -n "$NETPLAY_RAN" ]; then
+    netplay.elf --cleanup >> "$LOGS_PATH/netplay-wizard.txt" 2>&1
+    rm -f /tmp/netplay_session
+    rm -rf "$NX_SESSION_CFG"
+fi
 
 # Cleanup: disable swap, restore VM defaults
 swapoff "$SWAPFILE" 2>/dev/null

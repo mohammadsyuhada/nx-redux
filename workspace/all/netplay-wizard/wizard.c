@@ -96,6 +96,7 @@ static int parse_patterns(const char* csv, WizArgs* a) {
 static int parse_args(int argc, char** argv, WizArgs* a) {
 	memset(a, 0, sizeof(*a));
 	a->session_path = WIZ_SESSION_PATH_DEFAULT;
+	a->max_players = 2;
 
 	for (int i = 1; i < argc; i++) {
 		const char* arg = argv[i];
@@ -114,6 +115,12 @@ static int parse_args(int argc, char** argv, WizArgs* a) {
 		} else if (strcmp(arg, "--fetch-files") == 0 && has_value) {
 			if (parse_patterns(argv[++i], a) != 0)
 				return -1;
+		} else if (strcmp(arg, "--max-players") == 0 && has_value) {
+			a->max_players = atoi(argv[++i]);
+			if (a->max_players < 2)
+				a->max_players = 2;
+			if (a->max_players > 4)
+				a->max_players = 4;
 		} else {
 			fprintf(stderr, "netplay: unknown or incomplete argument '%s'\n", arg);
 			return -1;
@@ -148,6 +155,8 @@ int wizard_write_session(const char* path, const WizSession* s, const char* game
 		return -1;
 	fprintf(fp, "NETPLAY_ROLE=%s\nNETPLAY_PEER_IP=%s\nNETPLAY_MODE=%s\n",
 			s->role, s->peer_ip, s->mode);
+	fprintf(fp, "NETPLAY_PLAYER=%d\nNETPLAY_NUM_PLAYERS=%d\n",
+			s->player_num, s->num_players);
 	fput_shq(fp, "NETPLAY_GAME", game);
 	fput_shq(fp, "NETPLAY_PREV_SSID", s->prev_ssid);
 
@@ -230,6 +239,18 @@ int wizard_read_session(const char* path, WizSession* s) {
 		take_key(line, "NETPLAY_PEER_IP", s->peer_ip, sizeof(s->peer_ip), false);
 		take_key(line, "NETPLAY_MODE", s->mode, sizeof(s->mode), false);
 		take_key(line, "NETPLAY_PREV_SSID", s->prev_ssid, sizeof(s->prev_ssid), true);
+		{
+			char tmp[8] = {0};
+			take_key(line, "NETPLAY_PLAYER", tmp, sizeof(tmp), false);
+			if (tmp[0])
+				s->player_num = atoi(tmp);
+		}
+		{
+			char tmp[8] = {0};
+			take_key(line, "NETPLAY_NUM_PLAYERS", tmp, sizeof(tmp), false);
+			if (tmp[0])
+				s->num_players = atoi(tmp);
+		}
 	}
 
 	fclose(fp);
@@ -894,6 +915,10 @@ int main(int argc, char* argv[]) {
 				dirty = true;
 			} else if (PAD_justPressed(BTN_A)) {
 				strcpy(session.role, role_selected == 0 ? "host" : "client");
+				if (role_selected == 0) {
+					session.player_num = 1;
+					session.num_players = 2;
+				}
 				state = ST_MODE;
 				dirty = true;
 			} else if (PAD_justPressed(BTN_B)) {

@@ -25,6 +25,7 @@ typedef struct {
 	int pattern_count;
 	const char* session_path; // --session-file (default WIZ_SESSION_PATH_DEFAULT)
 	bool cleanup;			  // --cleanup
+	int max_players;		  // --max-players (2..4, default 2). >2 enables multi-join.
 } WizArgs;
 
 typedef struct {
@@ -32,6 +33,8 @@ typedef struct {
 	char peer_ip[16];
 	char mode[8];		// "hotspot" | "wifi"
 	char prev_ssid[33]; // SSID to restore on cleanup ("" = none)
+	int player_num;		// this device's player number (1..4); host = 1
+	int num_players;	// total players in the session (2..4)
 } WizSession;
 
 // All int returns below: 0 = ok, -1 = error (message already drawn by the

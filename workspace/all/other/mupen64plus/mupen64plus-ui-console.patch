@@ -1,3 +1,150 @@
+diff --git a/src/main.c b/src/main.c
+index 678fa1c..03289a3 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -29,6 +29,8 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include <time.h>
++#include <unistd.h>
+ 
+ #include <SDL.h>
+ #include <SDL_main.h>
+@@ -83,6 +85,11 @@ static int   l_SaveOptions = 1;          // save command-line options in configu
+ static int   l_CoreCompareMode = 0;      // 0 = disable, 1 = send, 2 = receive
+ static int   l_LaunchDebugger = 0;
+ 
++static const char *l_NetplayHost = NULL;    // netplay server hostname/IP
++static int         l_NetplayPort = 0;       // netplay server port
++static int         l_NetplayPlayer = 0;     // player seat to request (1-4)
++static int         l_NetplayActive = 0;     // netplay session established
++
+ static eCheatMode l_CheatMode = CHEAT_DISABLE;
+ static char      *l_CheatNumList = NULL;
+ 
+@@ -367,6 +374,8 @@ static void printUsage(const char *progname)
+            "    --fullscreen           : use fullscreen display mode\n"
+            "    --windowed             : use windowed display mode\n"
+            "    --resolution (res)     : display resolution (640x480, 800x600, 1024x768, etc)\n"
++           "    --netplay (host) (port) : connect to a mupen64plus netplay server\n"
++           "    --netplay-player (n)    : netplay player seat to control (1-4)\n"
+            "    --nospeedlimit         : disable core speed limiter (should be used with dummy audio plugin)\n"
+            "    --cheats (cheat-spec)  : enable or list cheat codes for the given rom file\n"
+            "    --corelib (filepath)   : use core library (filepath) (can be only filename or full path)\n"
+@@ -625,6 +634,17 @@ static m64p_error ParseCommandLineMain(int argc, const char **argv)
+                 (*ConfigSetParameter)(l_ConfigVideo, "ScreenHeight", M64TYPE_INT, &yres);
+             }
+         }
++        else if (strcmp(argv[i], "--netplay") == 0 && ArgsLeft >= 2)
++        {
++            l_NetplayHost = argv[i+1];
++            l_NetplayPort = atoi(argv[i+2]);
++            i += 2;
++        }
++        else if (strcmp(argv[i], "--netplay-player") == 0 && ArgsLeft >= 1)
++        {
++            l_NetplayPlayer = atoi(argv[i+1]);
++            i++;
++        }
+         else if (strcmp(argv[i], "--cheats") == 0 && ArgsLeft >= 1)
+         {
+             if (strcmp(argv[i+1], "all") == 0)
+@@ -987,6 +1007,17 @@ int main(int argc, char *argv[])
+         return 6;
+     }
+ 
++    /* validate netplay command-line options */
++    if (l_NetplayHost != NULL &&
++        (l_NetplayPort < 1 || l_NetplayPort > 65535 ||
++         l_NetplayPlayer < 1 || l_NetplayPlayer > 4))
++    {
++        DebugMessage(M64MSG_ERROR, "--netplay requires a valid port and --netplay-player 1-4");
++        printUsage(argv[0]);
++        DetachCoreLib();
++        return 6;
++    }
++
+     /* save the given command-line options in configuration file if requested */
+     if (l_SaveOptions)
+         SaveConfigurationOptions();
+@@ -1135,9 +1166,76 @@ int main(int argc, char *argv[])
+     if (l_SaveOptions && (*ConfigHasUnsavedChanges)(NULL))
+         (*ConfigSaveFile)();
+ 
++    /* set up netplay session if requested */
++#define UI_NETPLAY_API_VERSION 0x010001  /* NETPLAY_API_VERSION, core src/main/version.h */
++
++    if (l_NetplayHost != NULL)
++    {
++        uint32_t netplay_version = 0;
++        m64p_error rval;
++        int attempt;
++
++        if ((*CoreDoCommand)(M64CMD_NETPLAY_GET_VERSION, UI_NETPLAY_API_VERSION,
++                             &netplay_version) != M64ERR_SUCCESS)
++        {
++            DebugMessage(M64MSG_ERROR, "netplay API version mismatch (core: %08x, ui: %08x)",
++                         netplay_version, UI_NETPLAY_API_VERSION);
++            (*CoreDoCommand)(M64CMD_ROM_CLOSE, 0, NULL);
++            (*CoreShutdown)();
++            DetachCoreLib();
++            return 15;
++        }
++
++        /* the peer's server may start a moment after us: retry for ~10 s */
++        rval = M64ERR_SYSTEM_FAIL;
++        for (attempt = 0; attempt < 20; ++attempt)
++        {
++            rval = (*CoreDoCommand)(M64CMD_NETPLAY_INIT, l_NetplayPort,
++                                    (void *) l_NetplayHost);
++            if (rval == M64ERR_SUCCESS)
++                break;
++            usleep(500000);
++        }
++        if (rval != M64ERR_SUCCESS)
++        {
++            DebugMessage(M64MSG_ERROR, "netplay: could not connect to %s:%d",
++                         l_NetplayHost, l_NetplayPort);
++            (*CoreDoCommand)(M64CMD_ROM_CLOSE, 0, NULL);
++            (*CoreShutdown)();
++            DetachCoreLib();
++            return 16;
++        }
++
++        uint32_t reg_id = (((uint32_t) time(NULL)) << 8)
++                        ^ ((uint32_t) getpid())
++                        ^ ((uint32_t) l_NetplayPlayer);
++        if (reg_id == 0)
++            reg_id = 0x4E585250;  /* reg_id 0 means "empty seat" on the wire */
++
++        if ((*CoreDoCommand)(M64CMD_NETPLAY_CONTROL_PLAYER, l_NetplayPlayer,
++                             &reg_id) != M64ERR_SUCCESS)
++        {
++            DebugMessage(M64MSG_ERROR, "netplay: player %d seat rejected by server",
++                         l_NetplayPlayer);
++            (*CoreDoCommand)(M64CMD_NETPLAY_CLOSE, 0, NULL);
++            (*CoreDoCommand)(M64CMD_ROM_CLOSE, 0, NULL);
++            (*CoreShutdown)();
++            DetachCoreLib();
++            return 17;
++        }
++
++        l_NetplayActive = 1;
++        DebugMessage(M64MSG_INFO, "netplay: connected to %s:%d as player %d",
++                     l_NetplayHost, l_NetplayPort, l_NetplayPlayer);
++    }
++
+     /* run the game */
+     (*CoreDoCommand)(M64CMD_EXECUTE, 0, NULL);
+ 
++    /* close netplay session if one was established */
++    if (l_NetplayActive)
++        (*CoreDoCommand)(M64CMD_NETPLAY_CLOSE, 0, NULL);
++
+     /* detach plugins from core and unload them */
+     for (i = 0; i < 4; i++)
+         (*CoreDetachPlugin)(g_PluginMap[i].type);
 diff --git a/src/osal_dynamiclib_unix.c b/src/osal_dynamiclib_unix.c
 index f8ffcdd..da40185 100644
 --- a/src/osal_dynamiclib_unix.c

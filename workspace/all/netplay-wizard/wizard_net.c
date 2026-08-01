@@ -163,6 +163,22 @@ static void wiz_net_render_waiting(const char* big, const char* instruction, con
 	GFX_flip(wiz_screen);
 }
 
+// The lobby variant of the waiting screen. Same three tiers, but the hint bar
+// also offers A=START — the multi-join host (max_players > 2) starts the session
+// on its own A press once at least one joiner is in. Kept a separate function so
+// wiz_net_render_waiting's other callers (and the 2-player flow) keep the plain
+// B-only hint unchanged.
+static void wiz_net_render_lobby(const char* big, const char* instruction, const char* status) {
+	int center_y = wiz_screen->h / 2;
+
+	GFX_clear(wiz_screen);
+	wiz_net_blit(font.large, big, center_y - SCALE1(FONT_LARGE + PADDING));
+	wiz_net_blit(font.medium, instruction, center_y + SCALE1(5));
+	wiz_net_blit(font.small, status, center_y + SCALE1(28));
+	UI_renderButtonHintBar(wiz_screen, (char*[]){"A", "START", "B", "CANCEL", NULL});
+	GFX_flip(wiz_screen);
+}
+
 // Message frame used while a control line is outstanding. cancelable drives the
 // hint only; the wait loop owns the button.
 static void wiz_net_render_wait_status(const char* message, bool cancelable) {
@@ -242,13 +258,14 @@ static void wiz_unesc_spaces(char* s) {
 
 // 0 = parsed a syntactically valid HELLO. game/role come back still escaped.
 static int wiz_parse_hello(const char* line, int* version, char* game, size_t game_size,
-						   char* role, size_t role_size) {
+						   char* role, size_t role_size, int* player_num) {
 	char verb[16];
 	char game_tok[WIZ_NET_TOKEN_MAX];
 	char role_tok[16];
-	int ver = 0;
+	int ver = 0, pnum = 0;
 
-	if (sscanf(line, "%15s %d %255s %15s", verb, &ver, game_tok, role_tok) != 4)
+	int fields = sscanf(line, "%15s %d %255s %15s %d", verb, &ver, game_tok, role_tok, &pnum);
+	if (fields < 4)
 		return -1;
 	if (strcmp(verb, "HELLO") != 0)
 		return -1;
@@ -256,6 +273,8 @@ static int wiz_parse_hello(const char* line, int* version, char* game, size_t ga
 	*version = ver;
 	snprintf(game, game_size, "%s", game_tok);
 	snprintf(role, role_size, "%s", role_tok);
+	if (player_num)
+		*player_num = (fields >= 5) ? pnum : 0;
 	return 0;
 }
 
@@ -800,12 +819,17 @@ static int wiz_host_serve(const WizArgs* a, WizSession* s, int fd, WizLineReader
 	return 0;
 }
 
-// One accepted connection, start to finish. fd stays owned by the caller.
-// 0 = rendezvous complete, 1 = not our peer / dropped, keep waiting,
+// The host half of one accepted connection, up to and INCLUDING the HELLO reply
+// and (for --serve-dir, unused by N64) the save-sync phase — but NOT the START.
+// The START is sent to every retained joiner at once from the start phase in
+// wiz_host_rendezvous, so a handshaked joiner's reader and IP are handed back to
+// the caller through reader_out / ip_out (ip_out must hold at least 16 bytes).
+// fd stays owned by the caller.
+// 0 = handshaked, 1 = not our peer / dropped (keep waiting),
 // -1 = fatal (message drawn), -2 = cancelled.
-static int wiz_host_session(const WizArgs* a, WizSession* s, int fd,
-							const struct sockaddr_in* peer) {
-	WizLineReader reader;
+static int wiz_host_handshake(const WizArgs* a, WizSession* s, int fd,
+							  const struct sockaddr_in* peer, int player_num,
+							  WizLineReader* reader_out, char* ip_out) {
 	char line[WIZ_NET_LINE_MAX];
 	char status[96];
 	char peer_ip[16] = {0};
@@ -823,20 +847,20 @@ static int wiz_host_session(const WizArgs* a, WizSession* s, int fd,
 		fcntl(fd, F_SETFL, peer_flags & ~O_NONBLOCK);
 
 	NET_configureTCPSocket(fd, &WIZ_NET_TCP_CONFIG);
-	wiz_reader_init(&reader, fd);
+	wiz_reader_init(reader_out, fd);
 
 	if (!inet_ntop(AF_INET, &peer->sin_addr, peer_ip, sizeof(peer_ip)))
 		return 1;
 
 	snprintf(status, sizeof(status), "Player connected\n%s", peer_ip);
 
-	int rc = wiz_wait_line(&reader, line, sizeof(line), WIZ_NET_RECV_TIMEOUT_MS, true, status);
+	int rc = wiz_wait_line(reader_out, line, sizeof(line), WIZ_NET_RECV_TIMEOUT_MS, true, status);
 	if (rc == -2)
 		return -2;
 	if (rc != 0)
 		return 1; // no HELLO in time: not worth a reply
 
-	if (wiz_parse_hello(line, &version, game, sizeof(game), role, sizeof(role)) != 0)
+	if (wiz_parse_hello(line, &version, game, sizeof(game), role, sizeof(role), NULL) != 0)
 		return 1; // not a wizard peer at all; closing says it better than REJECT
 
 	wiz_unesc_spaces(game);
@@ -850,9 +874,13 @@ static int wiz_host_session(const WizArgs* a, WizSession* s, int fd,
 	}
 
 	wiz_esc_spaces(a->game, escaped, sizeof(escaped));
-	if (wiz_send_line(fd, "HELLO %d %s host", WIZ_PROTO_VERSION, escaped) != 0)
+	if (wiz_send_line(fd, "HELLO %d %s host %d", WIZ_PROTO_VERSION, escaped, player_num) != 0)
 		return 1;
 
+	snprintf(ip_out, 16, "%s", peer_ip);
+	// wiz_host_serve() serves from this joiner's directory keyed on s->peer_ip;
+	// set it per-joiner. On the m64p star topology (N64) the host's own
+	// s->peer_ip is unused, so the last joiner's value left here is harmless.
 	snprintf(s->peer_ip, sizeof(s->peer_ip), "%s", peer_ip);
 
 	if (a->serve_dir) {
@@ -862,28 +890,12 @@ static int wiz_host_session(const WizArgs* a, WizSession* s, int fd,
 		// Nothing to offer means no sync phase at all: the client reads the next
 		// line either way, and starting a file server for zero files is waste.
 		if (n > 0) {
-			int src = wiz_host_serve(a, s, fd, &reader, names, n);
+			int src = wiz_host_serve(a, s, fd, reader_out, names, n);
 			if (src != 0) {
 				s->peer_ip[0] = '\0';
 				return src;
 			}
 		}
-	}
-
-	if (wiz_send_line(fd, "START") != 0) {
-		s->peer_ip[0] = '\0';
-		return 1;
-	}
-
-	rc = wiz_wait_line(&reader, line, sizeof(line), WIZ_NET_RECV_TIMEOUT_MS, true, "Starting...");
-	if (rc == -2) {
-		s->peer_ip[0] = '\0';
-		return -2;
-	}
-	if (rc != 0 || strcmp(line, "START") != 0) {
-		s->peer_ip[0] = '\0';
-		wiz_net_notice("The other device did not start.\n\nWaiting for another player...");
-		return 1;
 	}
 
 	return 0;
@@ -896,6 +908,19 @@ int wiz_host_rendezvous(const WizArgs* a, WizSession* s) {
 	bool hotspot = (strcmp(s->mode, "hotspot") == 0);
 	bool dirty = true;
 	int result = -1;
+
+	// The joiner table: each handshaked joiner's fd, reader and IP are retained
+	// so the host can send START to all of them at once in the start phase.
+	// Host is player 1; joiners take 2..N by join order.
+	struct {
+		int fd;
+		WizLineReader reader;
+		char ip[16];
+	} joiners[4];
+	int njoin = 0;
+	int max_join = a->max_players - 1;
+	int start_now = 0;
+	bool break_all = false;
 
 	int listen_fd = NET_createListenSocket(WIZ_TCP_PORT, error_text, sizeof(error_text));
 	if (listen_fd < 0) {
@@ -951,7 +976,9 @@ int wiz_host_rendezvous(const WizArgs* a, WizSession* s) {
 			NET_sendDiscoveryBroadcast(udp_fd, WIZ_MAGIC, WIZ_PROTO_VERSION, 0 /* crc unused */,
 									   WIZ_TCP_PORT, WIZ_UDP_PORT, a->game, WIZ_NET_LINK_MODE);
 
-		if (wiz_fd_readable(listen_fd, 0)) {
+		// Accept only while there is still a seat: past max_join, extra callers
+		// are refused in the accept branch (their fd closed immediately).
+		if (njoin < max_join && wiz_fd_readable(listen_fd, 0)) {
 			struct sockaddr_in peer = {0};
 			socklen_t peer_len = sizeof(peer);
 
@@ -960,26 +987,92 @@ int wiz_host_rendezvous(const WizArgs* a, WizSession* s) {
 			// just means no client this frame.
 			int peer_fd = accept(listen_fd, (struct sockaddr*)&peer, &peer_len);
 			if (peer_fd >= 0) {
-				int rc = wiz_host_session(a, s, peer_fd, &peer);
-				close(peer_fd);
-
-				if (rc != 1) {
-					result = rc;
-					break;
+				int assigned = njoin + 2; // players 2..N by join order
+				int rc = wiz_host_handshake(a, s, peer_fd, &peer, assigned,
+											&joiners[njoin].reader, joiners[njoin].ip);
+				if (rc == -2) {
+					result = -2;
+					break_all = true;
+				} else if (rc == -1) {
+					// Fatal (e.g. --serve-dir could not start; message already
+					// drawn). Preserves today's DC behaviour: abort the wizard.
+					close(peer_fd);
+					result = -1;
+					break_all = true;
+				} else if (rc == 0) {
+					joiners[njoin].fd = peer_fd;
+					njoin++;
+					dirty = true;
+				} else {
+					close(peer_fd); // rejected or dropped: keep waiting
+					dirty = true;
 				}
-				dirty = true; // rejected or dropped: waiting screen again
 			}
 		}
+
+		if (break_all)
+			break;
+
+		// Start trigger. With max_players == 2 the first joiner auto-starts, no
+		// A press — byte-identical to the pre-4-player flow. With room for more,
+		// the host presses A once at least one joiner is in.
+		if (a->max_players == 2 && njoin == 1)
+			start_now = 1;
+		if (njoin >= 1 && PAD_justPressed(BTN_A))
+			start_now = 1;
+		if (start_now)
+			break;
 
 		PWR_update(&dirty, NULL, NULL, NULL);
 
 		if (dirty) {
-			wiz_net_render_waiting(big, instruction, "Waiting for player...");
+			char status[64];
+			if (a->max_players > 2)
+				// +1 for the host, who is player 1: with one joiner the lobby
+				// has 2 players, not 1.
+				snprintf(status, sizeof(status), "Players connected: %d / up to %d",
+						 njoin + 1, a->max_players);
+			else
+				snprintf(status, sizeof(status), "%s",
+						 njoin ? "Player connected" : "Waiting for player...");
+
+			// The A=START affordance is a multi-join concept: only the >2 lobby
+			// shows it. The 2-player screen keeps the plain B-only hint.
+			if (a->max_players > 2 && njoin >= 1)
+				wiz_net_render_lobby(big, instruction, status);
+			else
+				wiz_net_render_waiting(big, instruction, status);
 			dirty = false;
 		} else {
 			GFX_sync();
 		}
 	}
+
+	// Start phase: hand every joiner the final player count and collect its
+	// plain START echo (an N-way barrier). Any send or echo failure aborts the
+	// whole lobby — a partial start is out of scope.
+	if (start_now && njoin >= 1) {
+		s->num_players = njoin + 1;
+		int ok = 1;
+		for (int i = 0; i < njoin && ok; i++)
+			if (wiz_send_line(joiners[i].fd, "START %d", s->num_players) != 0)
+				ok = 0;
+		for (int i = 0; i < njoin && ok; i++) {
+			char line[WIZ_NET_LINE_MAX];
+			int rc = wiz_wait_line(&joiners[i].reader, line, sizeof(line),
+								   WIZ_NET_RECV_TIMEOUT_MS, true, "Starting...");
+			if (rc == -2) {
+				result = -2;
+				ok = 0;
+			} else if (rc != 0 || strcmp(line, "START") != 0) {
+				ok = 0;
+			}
+		}
+		result = ok ? 0 : (result == -2 ? -2 : 1);
+	}
+
+	for (int i = 0; i < njoin; i++)
+		close(joiners[i].fd);
 
 	if (udp_fd >= 0)
 		close(udp_fd);
@@ -1208,7 +1301,8 @@ static int wiz_client_session(const WizArgs* a, WizSession* s, int fd, const cha
 		return 1;
 	}
 
-	if (wiz_parse_hello(line, &version, game, sizeof(game), role, sizeof(role)) != 0) {
+	int assigned = 0;
+	if (wiz_parse_hello(line, &version, game, sizeof(game), role, sizeof(role), &assigned) != 0) {
 		wiz_net_error("That device is not waiting\nfor a netplay player.");
 		return 1;
 	}
@@ -1221,11 +1315,20 @@ static int wiz_client_session(const WizArgs* a, WizSession* s, int fd, const cha
 		return 1;
 	}
 
+	s->player_num = (assigned >= 1) ? assigned : 2; // older host omits it -> 2-player
+
 	snprintf(s->peer_ip, sizeof(s->peer_ip), "%s", host_ip);
 
+	// Now that our number is known, tell the player which seat they hold while
+	// they wait. The host may sit in a full lobby for a while before pressing
+	// START, so the window here is far wider than a single line's — still
+	// B-cancelable every frame.
+	char waitmsg[48];
+	snprintf(waitmsg, sizeof(waitmsg), "You are Player %d\nWaiting for host to start...", s->player_num);
+
 	// Next line is SYNC-READY when the host serves saves, START when it does not.
-	rc = wiz_wait_line(&reader, line, sizeof(line), WIZ_NET_RECV_TIMEOUT_MS, true,
-					   "Waiting for the host...");
+	rc = wiz_wait_line(&reader, line, sizeof(line), WIZ_NET_RECV_TIMEOUT_MS * 12, true,
+					   waitmsg);
 	if (rc == -2) {
 		s->peer_ip[0] = '\0';
 		return -2;
@@ -1261,10 +1364,17 @@ static int wiz_client_session(const WizArgs* a, WizSession* s, int fd, const cha
 		}
 	}
 
-	if (strcmp(line, "START") != 0) {
-		s->peer_ip[0] = '\0';
-		wiz_net_error("Unexpected reply from the host.");
-		return 1;
+	{
+		int n2 = 0;
+		if (sscanf(line, "START %d", &n2) >= 1)
+			s->num_players = (n2 >= 2) ? n2 : 2;
+		else if (strcmp(line, "START") == 0)
+			s->num_players = 2;
+		else {
+			s->peer_ip[0] = '\0';
+			wiz_net_error("Unexpected reply from the host.");
+			return 1;
+		}
 	}
 
 	if (wiz_send_line(fd, "START") != 0) {

@@ -301,6 +301,12 @@ static led_set_fn zone_set_inbrightness[] = {led_set_inbrightness_0, led_set_inb
 
 static SettingsPage zone_pages[MAX_LIGHTS];
 
+/* Persistent storage for each zone page's composed title. SettingsPage.title is
+   a const char* dereferenced by UI_renderMenuBar every frame, so the string must
+   outlive led_page_create() — a per-zone static buffer, like the rest of this
+   file's static allocation, keeps led_page_destroy() a no-op. */
+static char zone_title_bufs[MAX_LIGHTS][128];
+
 static void led_build_zone_page(int zone_idx, const char* title,
 								const char** eff_names, int* eff_values, int eff_count) {
 	int idx = 0;
@@ -394,10 +400,9 @@ SettingsPage* led_page_create(void) {
 			eff_count = STANDARD_EFFECT_COUNT;
 		}
 
-		//Todo: bugs title missing
-		char title[128];
-		snprintf(title, sizeof(title), "Settings | LED Control | %s", zone_titles[z]);
-		led_build_zone_page(z, title, eff_names, eff_values, eff_count);
+		snprintf(zone_title_bufs[z], sizeof(zone_title_bufs[z]),
+				 "Settings | LED Control | %s", zone_titles[z]);
+		led_build_zone_page(z, zone_title_bufs[z], eff_names, eff_values, eff_count);
 	}
 
 	/* Sync all zone items */

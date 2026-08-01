@@ -6,6 +6,7 @@
 !skeleton/BASE/Emus/**/*.so
 !skeleton/SYSTEM/shared/lib/*.so
 *.elf
+!skeleton/SYSTEM/**/N64.pak/m64p-server.elf
 *.dtb
 *.zip
 !skeleton/BASE/Emus/shared/PortMaster/files/*
@@ -69,4 +70,7 @@ skeleton/BASE/Emus/shared/PortMaster/files/.DS_Store
 docs/
 docs/plans/
 workspace/all/common/tests/build/
+workspace/all/n64-netplay-server/m64p-server-native
+workspace/all/n64-netplay-server/tests/test_client
+workspace/all/n64-netplay-server/**/*.dSYM/
 .clangd-shim

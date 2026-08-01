@@ -11,6 +11,203 @@ Move an entry from there to here once it compiles and needs hardware time.
 
 ---
 
+## N64 Netplay: 4-player (built 2026-08-01)
+
+**Status:** wizard multi-join (`--max-players N`, dynamic "start when ready" host UI,
+join-order player numbers) + N64.pak `launch.sh` presence mapping (`nx_netplay_map.awk` →
+per-session `--configdir`). **2-player verified on hardware 2026-08-01** (tg5040 Brick ↔
+tg5050 Smart Pro, real wizard) after an on-device debug pass that corrected the controller
+mapping and tuned Brick performance (see below). **3-player was hardware-tested 2026-08-02**
+(Smart Pro host + Brick + Brick Pro) and works at the protocol/wizard level, but is
+**GPU-bound on the Bricks**: N64 renders one split-screen viewport per seat, and the Brick's
+Mali can't hold 60 fps on a 3-way split (it drifts seconds behind). **3-/4-player therefore
+need a Smart-Pro-class GPU on every seat**; on the Bricks netplay tops out at 2 players.
+4-player remains hardware-pending. Design:
+`docs/superpowers/specs/2026-08-01-n64-netplay-4player-design.md`; full behavior +
+performance notes in `workspace/all/other/mupen64plus/README.md` ("Netplay").
+
+The mapping is the real fix behind the earlier "MK64 shows only 1P Game" bug. **Corrected
+model (the original design was inverted):** mupen64plus netplay reads a device's local
+input from **`Control1`** and routes it to the device's assigned seat, so the local pad
+must **stay on `Control1`** on every device — `nx_netplay_map.awk` only marks ports `1..N`
+`plugged=True` (presence) and does **not** move the pad to the player's port. Moving it
+(the first attempt) left the joiner sending zero input. `NETPLAY_PLAYER` drives only
+`--netplay-player`. Player numbering is join order (host = 1, joiners 2–4). The wizard is
+**shared** — DC and minarch call it with no `--max-players` and stay 2-player. The session
+file carries `NETPLAY_PLAYER` and `NETPLAY_NUM_PLAYERS`.
+
+**Brick performance tuning (netplay-only, single-player untouched)** — `launch.sh` pins the
+dynarec to cpu0 exclusively, all mupen workers to cpu1, the relay server to cpu2-3; forces
+`UseNativeResolutionFactor=1` **and** `txHiresEnable=False` (last on the cmdline, so they win
+over per-game/global cfg); the server runs `--buffer-target 2` (briefly tried 4, but with
+1×+hi-res-off the Brick holds 60 fps and the deeper buffer only added felt input latency).
+**Host choice:** the host's input is local (127.0.0.1, snappy) while a joiner's crosses WiFi
+— for 2 players host on the Brick; for 3+ host on the **Smart Pro** (strongest GPU, since the
+host also renders the split + relays to all joiners). **Networking:** the Bricks are
+**2.4 GHz-only**; a shared/public AP gives 5–75 ms jitter + a "queued" feel, while the
+wizard's host-AP hotspot dropped RTT to ~1–2 ms. The 3-way-split limit is **GPU**, confirmed
+on device: Brick cpu2/cpu3 idle, ~45 fps vs the host's 60, server ~6 % CPU / ~68 s input ring
+(relay ruled out). See the README for the full why.
+
+### Deploy (all 3 devices)
+
+- [x] Push the rebuilt `netplay.elf` (both platforms: tg5040 + tg5050), the N64.pak
+      `launch.sh`, and `nx_netplay_map.awk` to each device and md5 source-vs-destination
+      for every file: tg5040 Brick, tg5050 Smart Pro, tg5040 Brick Pro. _(2026-08-02:
+      deployed + md5-verified on Brick, Brick Pro, Smart Pro; Brick Pro was a fresh
+      pre-netplay build and got the full N64.pak set + shared `netplay.elf`.)_
+- [x] Copy the MK64 ROM to the Brick Pro (fresh device) as done for the Smart Pro. _(present)_
+
+### 2-player — VERIFIED on hardware 2026-08-01 (Brick host ↔ Smart Pro joiner)
+
+- [x] Same ROM on host + one joiner (Mario Kart 64): the game shows **"2P Game"**, and
+      **each kart is controllable from its own device**. _(confirmed after the Control1
+      mapping correction; player 2 was dead until then)_
+- [x] `n64-netplay-server.txt` shows **no** `DESYNC` lines. _(confirmed)_
+- [x] Playable steady-state with the Brick hosting, after the perf tuning (pinning + 1×
+      render + hi-res off + `--buffer-target 2`). _(2026-08-02: smooth, buffer health ~1–3
+      vs ~74–144 before the fix; without tuning the Brick lagged/desynced cyclically)_
+- [x] **Brick as *joiner* (Smart Pro host) is also fine** — ~0.5 s felt latency, no drift.
+      _(2026-08-02 isolation test; this is the 2-way-split case that stays within GPU budget)_
+- [ ] The joiner's **real** save dir stays untouched (staged writes only). _(mapping/route
+      verified; a real in-game save-write byte check still to do)_
+
+### 3-player — hardware-tested 2026-08-02 (Smart Pro host + Brick + Brick Pro)
+
+- [x] Host + 2 joiners. The host's wait screen shows `Players connected: X / up to 4`
+      ticking up to **2** joiners; the host presses **A** to start. _(confirmed)_
+- [x] Player numbers assign **1 / 2 / 3** by join order. _(confirmed via seat registrations)_
+- [x] `n64-netplay-server.txt` shows the server launched with `--players 3`, three seat
+      registrations (lead seat 1/2/3 all appear), and **no** `DESYNC` lines. _(confirmed)_
+- [x] **Result: GPU-bound on the Bricks, not a netplay problem.** Host (Smart Pro) smooth;
+      both Bricks drift seconds behind on the 3-way split. Ruled out: server (~6 % CPU, ~68 s
+      ring, ~1–2 ms RTT on host-AP hotspot), CPU (Brick cpu2/cpu3 idle), network (RTT fine).
+      Confirmed GPU: Brick renders ~45 fps while fed 60; lowering GPU settings further did not
+      recover it. **3-player is smooth only with a Smart-Pro-class GPU on every seat.**
+- [ ] Re-test 3-player once ≥3 Smart-Pro-class devices are available (should be smooth).
+
+### Backward-compat regression (shared wizard, `--max-players` default 2)
+
+- [ ] A **Dreamcast (flycast)** 2-player session still pairs and plays: no `--max-players`,
+      host auto-starts on the first joiner (no A-press), session file has **no**
+      `NETPLAY_PLAYER` / `NETPLAY_NUM_PLAYERS` keys.
+- [ ] A **minarch** (e.g. GBA) 2-player session still pairs and plays under the same
+      conditions.
+
+### Failure paths
+
+- [ ] Host cancels with **B** while a joiner is waiting → the joiner(s) bail to the game
+      list, and **no orphan `m64p-server.elf`** is left (`ps | grep m64p-server`).
+- [ ] One joiner drops mid-game → the others continue.
+
+> **Note:** the wizard/server path is code-complete to 4 players and hardware-exercised to
+> **3** (3 devices). 3-player runs correctly but is **GPU-bound on the Bricks** (2-way split
+> is the Brick's ceiling); a genuinely smooth 3-/4-player session needs Smart-Pro-class GPUs
+> on every seat. The 4th seat is also pending a 4th device.
+>
+> **MK64 menu caveat:** N64 game menus (e.g. Mario Kart 64's 1P/2P/3P/4P select) are
+> **hardcoded in the ROM** — they always list all modes regardless of how many controllers
+> are plugged (verified: single-player shows all four with only `Control1` plugged). The
+> presence mapping controls which seats actually *respond*, not what the menu shows; there is
+> no emulator-side fix. Cosmetic and harmless.
+
+---
+
+## N64 Netplay: mupen64plus via the pre-launch wizard (built 2026-08-01)
+
+**Status:** server + `NETPLAY=1` core + ui-console `--netplay` flags + `N64.pak`
+`launch.sh` wiring all built and staged; off-device server tests pass. **Core netplay
+path verified on hardware 2026-08-01** (tg5040 Brick ↔ tg5050 Smart Pro, adb-automated,
+see below); wizard-UI-driven and human-judgment items still manual. Design:
+`docs/superpowers/specs/2026-08-01-n64-netplay-design.md`; usage + architecture recap in
+`workspace/all/other/mupen64plus/README.md` ("Netplay").
+
+Session model: host = seat 1 (protocol source of truth for saves **and** core settings,
+plays on real saves), joiner = seat 2 (receives host saves/settings in-memory, in-game
+writes staged to `netplay-data/mupen64plus/save/` so real saves stay untouched). Port
+55445 (TCP+UDP). Logs: `$LOGS_PATH/netplay-wizard.txt`, `$LOGS_PATH/n64-netplay-server.txt`.
+
+### Automated verification (adb, 2026-08-01, tg5040 192.168.1.15 ↔ tg5050 192.168.1.18)
+
+Method: real `launch.sh` driven with a stub `netplay.elf` on `PATH` that seeds
+`/tmp/netplay_session` — exercises the full server + core-netplay + save/settings relay +
+launch.sh wiring, bypassing **only** the shared, unchanged wizard menu UI (no `sendevent`
+on device). nextui SIGSTOP/CONT for display handoff.
+
+**PASS:**
+- Deploy + md5 (all 5 files/platform match), and on-device sanity: core 9 netplay strings,
+  ui-console `--netplay`, `m64p-server.elf` listens TCP+UDP 55445.
+- Single-player regression: MK64 boots on the new `NETPLAY=1` core (GLideN64 1024×768), **no**
+  netplay path runs (no server/wizard logs).
+- Two-device session (LAN/WiFi): server registered **P1 + P2**, settings synced, **all four
+  save types relayed** (`.mpk`/`.eep`/`.fla`/`.sra`), UDP input relay active (buffer_size
+  adjusting, lead alternating), **zero DESYNC** over ~65 s, both cores ran sustained.
+- Start gate held host at P1 until P2 registered.
+- Client save isolation: joiner **real** save dir stayed empty (untouched); staging dir
+  `netplay-data/mupen64plus/save/` created.
+- Mid-session peer drop: server logged `player 2 disconnected (notice)`, **host survived**.
+- Teardown: no orphan `mupen64plus`/`m64p-server.elf`, nextui resumed both devices.
+
+**Still requires manual/on-device (needs the real wizard UI or human judgment):**
+nextui `Y`-launch + wizard Host/Join navigation; **Hotspot** mode + WiFi-restore; a real
+in-game save write (host real-save byte update + joiner staged bytes); controller-response
+feel + input-lag/frame-pacing judgment over ≥5 min; wizard cancel-at-each-step.
+
+### Deploy (both devices)
+
+- [x] Push changed `N64.pak` files to each device and md5 source-vs-destination for every
+      one: `libmupen64plus.so.2`, `mupen64plus`, `m64p-server.elf`, `launch.sh`, `netplay`
+      (marker file). Do the per-platform builds per device (tg5040 → Brick, tg5050 → Smart
+      Pro S); GLideN64 `.so` is shared/unchanged. _(automated 2026-08-01, md5 verified)_
+
+### Single-player regression (each device, do first)
+
+- [ ] Plain **A-launch** of an N64 game: boots, saves in-game, quits, resumes.
+- [x] No netplay code path ran — `$LOGS_PATH` has **no** `netplay-wizard.txt` /
+      `n64-netplay-server.txt` from this launch. _(automated: MK64 booted, no netplay logs)_
+
+### Two-player session — WiFi mode
+
+- [ ] Same ROM on both (Mario Kart 64): host `Y` → Host, joiner `Y` → Join → picks host.
+      Both enter gameplay; **both controllers respond**.
+- [ ] Play ≥ 5 minutes.
+- [x] `n64-netplay-server.txt` shows buffer-size adjustments and **no** `DESYNC` lines.
+      _(automated: P1+P2 registered, buffer_size adjusted, 0 desync over ~65 s; note: ran
+      ~1 min, not the ≥5 min above — rerun longer with real input for the full sign-off)_
+
+### Two-player session — Hotspot mode
+
+- [ ] Repeat the two-player session via the wizard's hotspot path.
+- [ ] After the session, WiFi is restored on **both** devices (cleanup contract).
+
+### Save semantics
+
+- [x] md5 the **joiner's real** save dir (`N64-mupen64plus/data/mupen64plus/save/`) before
+      and after a session where the game saves — **must be unchanged**. _(automated: real dir
+      stayed empty; idle session drove no in-game write — rerun with a real save for byte proof)_
+- [x] The staged copy appeared under `netplay-data/mupen64plus/save/`. _(automated: dir created
+      by the joiner's `SaveSRAMPath` redirect)_
+- [ ] The **host's real** save updated.
+- [ ] Repeat with an **EEPROM** title (`.eep`) and an **SRAM/FlashRAM** title
+      (`.sra`/`.fla`) for save-relay extension coverage.
+
+### Failure paths
+
+- [ ] Cancel the wizard at **each step** on **each** side → clean return to the game list;
+      no stray `m64p-server.elf` process (`ps | grep m64p-server`).
+- [x] Quit mid-session on one device → the other side shows the core's disconnect handling,
+      both return to the list, server process gone. _(automated: joiner dropped → server logged
+      `player 2 disconnected (notice)`, host survived, clean teardown no orphan server)_
+- [ ] Stale `/tmp/netplay_session` + a plain (non-Y) launch → no netplay runs.
+
+### Feel / lag check
+
+- [ ] Sustained play for input-lag / frame-pacing judgment.
+- [ ] If laggy, retest with `--buffer-target 1` (edit `launch.sh` on-device) and record the
+      verdict for the shipped default.
+
+---
+
 ## Boot: failed MinUI.zip extraction must not brick the boot loop (built 2026-08-01)
 
 Found live on Smart Pro S (fresh install, 2026-08-01): a truncated MinUI.zip
