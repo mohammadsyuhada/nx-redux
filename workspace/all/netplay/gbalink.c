@@ -1102,7 +1102,16 @@ void GBALink_pollReceive(void) {
 			}
 			packets_this_poll++;
 		} else if (hdr.cmd == CMD_HEARTBEAT) {
-			// Heartbeat received - timestamp already updated in recv_packet
+			// Heartbeat received - timestamp already updated in recv_packet.
+			// CLIENT echoes it back: the game sends no RFU traffic until its
+			// wireless features are engaged, and with boot-time pairing (the
+			// pre-launch wizard) that idle stretch routinely exceeds
+			// GBALINK_CONNECTION_TIMEOUT_MS - without an echo the HOST's
+			// receive clock starves on pure silence and it drops the link
+			// before the players ever reach the Union Room. One echo per
+			// host heartbeat (500ms), so no ping-pong amplification.
+			if (gl.mode == GBALINK_CLIENT)
+				send_packet(CMD_HEARTBEAT, NULL, 0, 0);
 		} else if (hdr.cmd == CMD_DISCONNECT) {
 			// Remote sent explicit disconnect command
 			GBALinkMode prev_mode = gl.mode;
@@ -1286,6 +1295,7 @@ void GBALink_update(void) {
 						  (now->tv_usec - last_recv.tv_usec) / 1000;
 
 		if (elapsed_ms > GBALINK_CONNECTION_TIMEOUT_MS) {
+			LOG_info("GBALink: connection timeout (no packets received for %ldms), disconnecting\n", elapsed_ms);
 			GBALink_disconnect();
 			return;
 		}

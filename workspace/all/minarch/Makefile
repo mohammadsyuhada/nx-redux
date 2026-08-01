@@ -26,7 +26,7 @@ include ../common/ui/ui.mk
 SOURCE = $(TARGET).c ma_game.c ma_cheats.c ma_saves.c ma_rewind.c ma_config.c ma_shaders.c ma_options.c \
          ma_input.c ma_environment.c ma_video.c ma_audio.c ma_core.c ma_menu.c ma_frontend_opts.c ma_runframe.c \
          ma_opts_schema.c ma_opts_dump.c ../common/cjson/cJSON.c \
-         ../common/scaler.c ../common/utils.c ../common/config.c ../common/api.c ../common/audio_manager.c ../common/notification.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c ../../$(PLATFORM)/platform/platform.c ../netplay/netplay.c ../netplay/gbalink.c ../netplay/gblink.c ../netplay/network_common.c ../netplay/netplay_helper.c ../netplay/keyboard.c
+         ../common/scaler.c ../common/utils.c ../common/config.c ../common/api.c ../common/audio_manager.c ../common/notification.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c ../../$(PLATFORM)/platform/platform.c ../netplay/netplay.c ../netplay/gbalink.c ../netplay/gblink.c ../netplay/network_common.c ../netplay/netplay_helper.c ../netplay/netplay_boot.c
 
 # RA support
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050 my355 desktop))

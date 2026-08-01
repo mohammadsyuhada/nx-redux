@@ -49,6 +49,7 @@
 #include "gbalink.h"
 #include "gblink.h"
 #include "netplay_helper.h"
+#include "netplay_boot.h"
 #include <dirent.h>
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL.h>
@@ -335,6 +336,16 @@ int main(int argc, char* argv[]) {
 	Menu_initState(); // make ready for state shortcuts
 
 	PWR_disableAutosleep();
+	// Wizard-launched netplay: start the link engine before the first frame.
+	// On failure, exit via the normal quit route (quit=1 skips the main loop
+	// and runs the full epilogue) instead of `goto finish` — the finish label
+	// alone would skip Menu_quit/Notification_quit/QuitSettings/Video_cleanup,
+	// all of which pair with initialization done above.
+	if (NetplayBoot_startFromEnv(core.name) != 0) {
+		Menu_message("Netplay connection failed.", (char*[]){"A", "OKAY", NULL});
+		quit = 1;
+	}
+
 	// we dont need five second updates while ingame, and wifi status isnt displayed either
 	PWR_updateFrequency(PWR_UPDATE_FREQ, 0);
 

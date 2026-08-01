@@ -107,7 +107,7 @@ static int MSG_blitDouble(double num, int x, int y) {
 void MSG_quit(void) {
 	SDL_FreeSurface(digits);
 }
-#define MENU_ITEM_COUNT 6
+#define MENU_ITEM_COUNT 5
 #define MENU_SLOT_COUNT 8
 
 enum {
@@ -115,7 +115,6 @@ enum {
 	ITEM_SAVE,
 	ITEM_LOAD,
 	ITEM_OPTS,
-	ITEM_NETPLAY,
 	ITEM_QUIT,
 };
 
@@ -159,7 +158,6 @@ static struct {
 		[ITEM_SAVE] = "Save",
 		[ITEM_LOAD] = "Load",
 		[ITEM_OPTS] = "Options",
-		[ITEM_NETPLAY] = "Netplay",
 		[ITEM_QUIT] = "Quit",
 	}};
 
@@ -1583,16 +1581,14 @@ void Menu_loop(void) {
 				selected -= 1;
 				if (selected < 0)
 					selected += MENU_ITEM_COUNT;
-			} while ((!core.show_netplay && selected == ITEM_NETPLAY) ||
-					 (mp_active && (selected == ITEM_SAVE || selected == ITEM_LOAD)));
+			} while (mp_active && (selected == ITEM_SAVE || selected == ITEM_LOAD));
 			dirty = true;
 		} else if (PAD_justPressed(BTN_DOWN)) {
 			do {
 				selected += 1;
 				if (selected >= MENU_ITEM_COUNT)
 					selected -= MENU_ITEM_COUNT;
-			} while ((!core.show_netplay && selected == ITEM_NETPLAY) ||
-					 (mp_active && (selected == ITEM_SAVE || selected == ITEM_LOAD)));
+			} while (mp_active && (selected == ITEM_SAVE || selected == ITEM_LOAD));
 			dirty = true;
 		} else if (PAD_justPressed(BTN_LEFT)) {
 			if (menu.total_discs > 1 && selected == ITEM_CONT) {
@@ -1673,15 +1669,6 @@ void Menu_loop(void) {
 					}
 					dirty = true;
 				}
-			} break;
-			case ITEM_NETPLAY: {
-				LinkType link_type = core.has_netpacket ? LINK_TYPE_GBALINK : core.has_gblink ? LINK_TYPE_GBLINK
-																							  : LINK_TYPE_NETPLAY;
-				if (Netplay_menu_link(link_type)) {
-					status = STATUS_CONT;
-					show_menu = 0;
-				}
-				dirty = true;
 			} break;
 			case ITEM_QUIT:
 				// before Netplay_quitAll so the netplay guard inside can skip

@@ -688,16 +688,24 @@ Ports, all distinct from minarch's own in-game netplay (55435-55438,
 - **TCP 55440** — wizard control channel (`HELLO`/`REJECT`/`SYNC-READY`/
   `SYNC-DONE`/`START`, line-based).
 - **UDP 55441** — discovery broadcast, magic `NXWZ` (`0x4E58575A`), sent
-  once a second while a host waits. A client only ever lists hosts
-  broadcasting the *identical* game name, so wrong-game pairing is
-  impossible by construction rather than a stall to diagnose after the
-  fact. The `HELLO` handshake re-checks the game name and protocol version
-  anyway, but only the CLIENT ever sees a mismatch: a rejected client shows
-  the named reason and falls back to its host list (WiFi) or exits the
-  wizard (hotspot has no other host to fall back to). The HOST shows no
-  error at all — it sends `REJECT` and simply keeps showing "Waiting for
-  player...", by design (`wizard_net.c`: "rejecting is not an error here —
-  the host keeps waiting for the peer it is actually paired with").
+  once a second while a host waits. A client lists EVERY broadcasting
+  wizard host, labeled with its game title, same-game hosts sorted first
+  (since 2026-08-01 — before that the list was filtered to the identical
+  name, which made a host with a differently-named file of the same game
+  silently invisible). "Same game" is normalized-name equivalence, not
+  string equality: lowercase alphanumerics with `(...)`/`[...]` tag groups
+  stripped, so `Marvel vs. Capcom 2 (USA).chd` pairs with
+  `marvel vs capcom 2.chd` while a real title difference still counts as a
+  different game. The `HELLO` handshake applies the same equivalence and is
+  the real gate, but only the CLIENT ever sees a mismatch: a rejected
+  client shows the named reason and falls back to its host list (WiFi) or
+  exits the wizard (hotspot has no other host to fall back to). The HOST
+  shows no error at all — it sends `REJECT` and simply keeps showing
+  "Waiting for player...", by design (`wizard_net.c`: "rejecting is not an
+  error here — the host keeps waiting for the peer it is actually paired
+  with"). Note the wizard gate is the ONLY game check a session gets — the
+  link engines never re-verify name or content on a direct connect, and
+  flycast's own GGPO peer verification is the DC-side backstop.
 - **TCP 18731** — the save-sync rsync daemon below. Deliberately not
   Device Sync's 18730, so the two features' daemons never collide.
 

@@ -231,6 +231,7 @@ typedef struct {
 	const char** items;						// Array of menu item labels (can be NULL if get_label provided)
 	int item_count;							// Number of items
 	const char* btn_b_label;				// B button label ("EXIT", "BACK", etc.)
+	const char* btn_a_label;				// Optional: A button label; NULL = "OPEN"
 	MenuItemLabelCallback get_label;		// Optional: customize item label
 	MenuItemBadgeCallback render_badge;		// Optional: render right-side badge
 	MenuItemIconCallback get_icon;			// Optional: get icon for item

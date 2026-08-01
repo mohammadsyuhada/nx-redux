@@ -462,9 +462,9 @@ package: tidy
 		\
 		echo "  creating release zip"; \
 		cd ./build/BASE && zip -r ../../releases/$(RELEASE_NAME)-$$dev.zip \
-			Bios Cheats Collections Favorites Music Overlays \
-			"Recently Played" Roms Saves Shaders trimui *.pakz README.txt \
-			-x '*/bg-*.png' -x '*/720p/*' -x '*/768p/*' \
+			Bios Cheats Collections Emus Favorites Music Overlays \
+			"Recently Played" Roms Saves Shaders Tools trimui Videos *.pakz README.txt \
+			-x '*/bg-*.png' -x '*/720p/*' -x '*/768p/*' -x 'Emus/shared/*' \
 			&& cd ../..; \
 		cd ./build/PAYLOAD-$$dev && zip -r ../../releases/$(RELEASE_NAME)-$$dev.zip MinUI.zip && cd ../..; \
 		if [ -d ./build/PAKZ/$$plat ]; then \

@@ -745,6 +745,7 @@ static void render_role_menu(const char* game, int selected) {
 		.items = role_items,
 		.item_count = WIZ_MENU_ITEMS,
 		.btn_b_label = "CANCEL",
+		.btn_a_label = "SELECT",
 		.hide_controls_hint = true};
 	UI_renderSimpleMenu(wiz_screen, selected, &config);
 	GFX_flip(wiz_screen);
@@ -756,14 +757,9 @@ static void render_mode_menu(int selected) {
 		.items = mode_items,
 		.item_count = WIZ_MENU_ITEMS,
 		.btn_b_label = "BACK",
+		.btn_a_label = "SELECT",
 		.hide_controls_hint = true};
 	UI_renderSimpleMenu(wiz_screen, selected, &config);
-
-	ListLayout layout = UI_calcListLayout(wiz_screen);
-	int y = layout.list_y + WIZ_MENU_ITEMS * layout.item_h + SCALE1(PADDING);
-	GFX_blitText(font.small, "Use hotspot for better gameplay", 0, COLOR_WHITE, wiz_screen,
-				 &(SDL_Rect){SCALE1(PADDING), y, layout.max_width, SCALE1(FONT_SMALL)});
-
 	GFX_flip(wiz_screen);
 }
 

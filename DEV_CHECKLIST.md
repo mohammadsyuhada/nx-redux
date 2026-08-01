@@ -11,201 +11,26 @@ Move an entry from there to here once it compiles and needs hardware time.
 
 ---
 
-## N64 pre-launch options + overlay Options removal (built 2026-07-30)
+## Boot: failed MinUI.zip extraction must not brick the boot loop (built 2026-08-01)
 
-**Status:** Tasks 1-5 (N64 `options.sh` + shared `nx_paths.sh`, the per-game
-`--set` override path in both N64.pak `launch.sh` scripts, and the outright
-removal of the in-game overlay Options UI) are built, compile clean on both
-platforms, and staged (not committed).
-**Verified 2026-07-30 on tg5040 Brick** (automated over adb: `sh -n` on all
-scripts, busybox awk `--set` translation byte-exact, seeding idempotence
-(`.initialized` honored), live launch argv carrying
-`--nosaveoptions --set Video-GLideN64[UseNativeResolutionFactor]=3`,
-`mupen64plus.cfg` md5 byte-identical across a real play session, rebuilt
-GLideN64 `.so` initializing the overlay at 1024×768; UI pass: context-menu
-entry, per-game edit visibly applying with revert-deletes-file, "Clear All
-Overrides" deleting a planted two-key override file end to end, Emulator
-Settings listing both emulators with global edits applying, N64 and DC in-game
-menus showing Continue / Save State / Load State / Quit only with
-save/load/slot-screenshots/quit-autosave intact; fresh-card round-trip:
-config dir wiped → "Emulator Options" alone seeded `mupen64plus.cfg`
-byte-identical to `default-brick.cfg` + `.initialized`, an edit survived the
-first game launch un-re-seeded, per-game `--set` never leaked into the global
-cfg, and the second launch left the cfg byte-identical — see the Gotcha below
-about the first launch's one-time rewrite; 44.1 kHz sink session via a
-simulated `/tmp/nx_audio_sink` (`rates=44100`): argv carried
-`--set Audio-SDL[OUTPUT_FREQUENCY]=44100`, cfg md5 byte-identical after the
-session with `OUTPUT_FREQUENCY = 48000` untouched on disk — the audio-rate
-drift bug is dead; a both-rates sink correctly stayed at native 48 kHz,
-confirming `nx_pick_audio_rate`'s exact-match preference live). Real-BT
-audio output itself was verified in the audio-routing round and is not
-re-tested here. What remains below is the Smart Pro S pass.
-This makes mupen64plus the second
-pre-launch-options adopter after flycast — same schema-driven `options.elf`,
-same nxredux context-menu probe and `Emulator Settings` picker, nothing N64 has
-of its own beyond an `options.sh` and its config storage. Design:
-`docs/superpowers/specs/2026-07-30-n64-prelaunch-options-design.md`.
+Found live on Smart Pro S (fresh install, 2026-08-01): a truncated MinUI.zip
+(card pulled before the 230 MB copy flushed) made `.tmp_update/<plat>.sh`
+extract nothing, then `rm -f MinUI.zip` unconditionally — every later boot had
+no zip, no `.system`, no splash, and fell through to `poweroff`. Looks like a
+dead device. Fixed in both `workspace/{tg5040,tg5050}/install/boot.sh`: the
+zip is consumed only when unzip succeeds; on failure a show2 error line is
+displayed for 10 s and the zip is kept so the next boot retries. The pakz
+loop got the same success-gated consume — a corrupt pakz is renamed
+`<name>.failed` (kept for diagnosis, but not re-matched by the `*.pakz` glob,
+so no per-boot retry nag) and boot continues normally.
 
-Shape of the shipped feature: the game-list context menu's "Emulator Options"
-item and Tools → Emulator Settings both key off the same capability marker —
-does the pak ship an `options.sh`. For N64, per-game overrides go to
-`$SHARED_USERDATA_PATH/N64-mupen64plus/config/<device>/games/<rom-base>.cfg`
-(one key per changed value; `<rom-base>` collapses a folder-m3u game's discs to
-the folder name, `nx_paths.sh`'s `nx_rom_base()`), while global defaults edit
-the per-device `mupen64plus.cfg`. `launch.sh` reads the override with an awk
-step emitting `--set Section[KEY]=VALUE`, applied under `--nosaveoptions` so
-every `--set` is a session-virtual runtime override that ui-console never
-persists back to `mupen64plus.cfg` — the mupen64plus analogue of flycast's
-`cfgSetVirtual`. Config-dir resolution + first-run `mupen64plus.cfg` seeding
-were split out of `launch.sh` into a sourced `nx_paths.sh` so options can be
-edited before a game has ever launched without the two scripts drifting.
-Alongside this, the overlay Options UI was deleted outright from
-`workspace/all/common/emu_overlay.c`/`.h` (the old `EMU_OVERLAY_HIDE_OPTIONS`
-env-var gate is gone entirely — there is nothing left to hide), and both flycast
-binaries and the shared GLideN64 `.so` were rebuilt against the trimmed overlay.
-
-### On-device verification
-
-- [ ] **Smart Pro S (tg5050) pass** — deploy the staged tg5050 artifacts
-      (`N64.pak` scripts, `DC.pak` launch.sh + flycast, shared GLideN64 `.so`)
-      and repeat the Brick checks: context-menu + Emulator Settings wiring,
-      per-game override apply/revert, `--set` virtuality hash, N64 + DC
-      in-game menus (four entries, save/load intact).
-
-### Gotchas
-
-- **On a freshly-seeded config, the FIRST game launch rewrites
-  `mupen64plus.cfg` once. This is normal, not the drift bug.** Why: the
-  shipped `default-*.cfg` files predate ~35 settings newer GLideN64 knows
-  (unused `hk*` hotkey bindings), so on the first launch the plugin adds them
-  with empty defaults and saves the file — once. Verified harmless on the
-  Brick 2026-07-30: existing values survive, per-game `--set` values do NOT
-  get written in, and every launch after the first leaves the file
-  byte-identical. Practical consequence, and the only reason this note
-  exists: when running the md5 "cfg unchanged" checks (44.1 kHz item above,
-  Smart Pro S pass), launch a game once BEFORE taking the "before" hash —
-  otherwise this one-time rewrite looks like the drift bug came back.
-  Deliberately not fixed (would mean regenerating all four `default-*.cfg`
-  files and re-verifying seeding per device, to avoid one harmless write);
-  fold the missing keys in whenever those defaults are next touched anyway.
-  **When this section is verified and deleted** (after the Smart Pro S pass),
-  this note moves to `workspace/all/other/mupen64plus/README.md` — it
-  describes permanent GLideN64/default-cfg behavior, not a one-off bring-up
-  fact. Move the correct patch-regen recipe there in the same edit (the
-  GLideN64 patch's `.a` entries are content-less placeholders: regenerate
-  WITHOUT `--binary`, round-trip with
-  `git apply --check -R --exclude='src/GLideNHQ/lib/*'`).
-
----
-
-## DC netplay pre-launch wizard (built 2026-07-29)
-
-**Status:** Tasks 1-7 (nxredux Y-launch, the standalone `netplay.elf` wizard, and the
-rewritten DC.pak `launch.sh`) are built, compile clean on both platforms, and staged
-(not committed). This supersedes the shell-based overlay-toggle flow entirely — see
-`workspace/all/other/flycast/README.md`'s Netplay chapter for what changed and why, and
-`docs/superpowers/specs/2026-07-29-netplay-prelaunch-wizard-design.md` for the design.
-**Verified 2026-07-29/30 on tg5040 Brick** (WiFi pairing + session in real use; solo
-failure-path pass over adb: rc contracts — no `--game` rc=2, `--cleanup` no-op rc=0 —
-first-screen cancel, hotspot AP up/`NxRedux-<code>`/teardown-on-cancel within budget,
-kill-and-heal of an orphaned AP healed instantly, migration guard rewrote planted
-`GGPO=yes`/`device2=0`, `emu.cfg` md5 stable across all cancels). What remains below is
-the two-device pair matrix and its bundled checks.
-
-Shape of the shipped feature: `Y` on a netplay-capable ROM (Phase 1: DC.pak only,
-marked by a `netplay` file beside its `launch.sh`) writes `/tmp/netplay_launch` and
-launches the pak normally; root Search moved from `Y` to `START`; a "Launch with
-Netplay" context-menu item does the same thing as Y. `DC.pak/launch.sh` sees the flag,
-runs `netplay.elf` (role → hotspot/WiFi → UDP 55441 broadcast discovery / TCP 55440
-handshake → optional rsync save sync on TCP 18731 → `/tmp/netplay_session`), then
-starts flycast with every netplay value as a **virtual** `-config` (`GGPO`,
-`ActAsServer`, `server`, `EnableUPnP`, `device2`) — `emu.cfg` is never written on this
-path. An idempotent migration guard reverts a leftover `GGPO=yes/True` and
-`device2=0` from the old overlay flow on every launch. `--cleanup` (called after the
-game exits, and defensively at the wizard's own startup) tears down any hotspot,
-restores prior WiFi, stops a stray rsyncd, and removes the session file, bounded to a
-19 s budget.
-
-### On-device verification
-
-- [ ] **Pair test, Brick ↔ Smart Pro S, a netplay-capable DC game (e.g. MvC2), all
-      four quadrants** (host/client × hotspot/WiFi) — *WiFi pairing + a full session
-      already proven in real use 2026-07-29/30; still open: the hotspot quadrants, the
-      mismatch `REJECT`, the save-sync integrity checks, the post-session port sweep,
-      and (bundled here) the full-session `emu.cfg` hash from the item below* — from
-      the spec's hardware verification plan plus Task 4/5/7's device items:
-      - pairing completes with no IP ever typed in any quadrant (UDP 55441 broadcast
-        + TCP 55440 handshake, not the old ping sweep).
-      - only hosts broadcasting the *identical* game name appear in the client's
-        list; a deliberately mismatched game/protocol produces a named `REJECT`
-        error on the CLIENT's screen only — it falls back to its host list
-        (WiFi) or exits the wizard (hotspot, nothing else to connect to) — while
-        the HOST shows no error at all: it silently sends `REJECT` and keeps
-        showing "Waiting for player...", by design. Do not expect (or misreport
-        the absence of) a host-side error here.
-      - save sync: client's `netplay-data` copy of `vmu_save_*.bin`/`dc_nvmem.bin`
-        md5-matches the host's real originals after the pull, at WiFi speed; a pull
-        attempted from a third, non-paired IP is refused (rsync `hosts allow`); no
-        `.netplay-staging` directory survives a successful sync; a deliberately
-        failed pull leaves the client's existing saves byte-identical (no partial
-        commit); the progress bar renders correctly at both devices' screen scales.
-      - both devices clear flycast's untimed "Starting Network" modal and P2 inputs
-        work (virtual `device2=0` on both sides).
-      - client's own real saves are untouched after the session (it played entirely
-        out of `netplay-data/`); host's `netplay-backup/` holds its pre-session copy.
-      - after the session, `netstat` shows no listener on 55440/18731 on either
-        device, and `pidof hostapd`/`pidof rsync` are clean.
-- [ ] **`emu.cfg` untouched by a netplay run** — hash/diff it before and after a full
-      hosted and a full joined session on both devices: no key changes at all (the
-      migration guard's one-time rewrite aside), confirming the six netplay values
-      really are virtual-only — including `DCNet`, which the netplay block forces to `no`
-      virtually and must therefore leave at its overlay value on disk.
-
-### Gotchas
-
-- flycast's GGPO/DCNet internals are unaffected by the wizard rewrite and still hold:
-  GGPO always drives Dreamcast **port B** as player 2, so `device2` must be a real
-  pad on both sides or the second device's inputs reach nothing (port B is empty by
-  default); UPnP is forced off because `ggpo.cpp:801-804` punches a router mapping
-  **before** checking `ActAsServer`, so both roles would otherwise leak an 86400 s
-  lease; `server =` semantics (empty → loopback deadlock, flycast's "Starting
-  Network" modal has no timeout, Cancel is the only exit) are still exactly what a
-  broken pairing looks like at the flycast layer, even though the wizard should now
-  make that unreachable in normal use. **DCNet is likewise forced off** (virtually,
-  `network:DCNet=no` last in `NETPLAY_ARGS`): it relays the emulated modem to an
-  external cloud service, an input the GGPO lockstep never synchronizes, so leaving a
-  per-game or global `DCNet = yes` in force on a session is a desync. It is on by
-  default now, so this is the common case, not a corner one.
-- **`PerGameVmu` must stay off.** With it on, flycast writes the per-game VMU file as
-  `<gameId>_vmu_save_A1.bin`, which does not match the wizard's `--fetch-files` glob
-  (`vmu_save_*.bin`) any more than it matched the old tar glob — the sync silently
-  ships an incomplete card, with "Peer verification failed" the only symptom.
-- **Switcher-resume desync.** A netplay session must be started as a fresh launch,
-  never a switcher RESUME on a netplay-capable ROM — GGPO's boot-time sync desyncs
-  against a mid-session state load. This used to mean "must be a plain A START"; it
-  is now "must be a plain **Y** START" (or the "Launch with Netplay" context item) —
-  an ordinary switcher resume on a netplay-capable game is exactly what the Y branch
-  exists to bypass, so don't use it to start netplay.
-- **`show2.elf` must still be killed with `killall -9`, never plain `killall`**, if
-  anything ever drives it again — SIGTERM is swallowed (SDL traps it into an
-  `SDL_QUIT` its daemon loop never pumps). This no longer applies to netplay at all
-  (the wizard has its own screens and owns its own process lifecycle); `show2.elf`
-  remains only the first-boot install splash.
-- **Migration guard fires at most once per card**, by construction: it reverts
-  `GGPO=yes/True → no` and `device2=0 → 10` on every launch, but since the new flow
-  never writes either key back to `emu.cfg`, there's nothing left for it to revert
-  after the first post-upgrade launch. A user who deliberately sets `device2 = 0` in
-  flycast's own Controls UI for local two-pad play will have it reverted the one time
-  the old value is still on disk — same accepted ambiguity as the original overlay
-  flow, just incapable of recurring afterward.
-- A stale `server =` (and `EnableUPnP = no`) left in `emu.cfg` by an old, pre-wizard
-  session is harmless and deliberately not swept — flycast only reads it on the GGPO
-  path, where the wizard's virtual value overrides it anyway.
-- **`wizard_wifi.c`'s picker/scan loops don't poll `app_quit`** — up to 120 s
-  (`WIZ_PICKER_TIMEOUT_MS`). This is what makes a SIGTERM-then-SIGKILL while sitting
-  in the WiFi/hotspot picker a real window for an orphaned AP, i.e. exactly the
-  scenario the kill-and-heal check above exists to catch. Tracked as a follow-up in
-  `DEV_TODO.md` (make the loops poll `app_quit`); not fixed in this build.
+- [ ] Happy path: fresh install extracts and launches normally (both devices).
+- [ ] Corrupt-zip path: truncate a MinUI.zip on card (`head -c 10M`), boot →
+      "Install failed" splash shows ~10 s, MinUI.zip still on card, device
+      powers off; replacing the zip and rebooting installs cleanly.
+- [ ] Corrupt-pakz path: truncate a pakz on card, boot → "Package install
+      failed" splash ~5 s, file renamed `.failed`, system boots normally and
+      the next boot does NOT re-attempt it.
 
 ---
 

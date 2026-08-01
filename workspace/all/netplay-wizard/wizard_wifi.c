@@ -95,6 +95,7 @@ static void wiz_render_list(const char* title, const char** labels, int count,
 		.items = labels + *scroll,
 		.item_count = visible,
 		.btn_b_label = "BACK",
+		.btn_a_label = "SELECT",
 		.hide_controls_hint = true};
 	UI_renderSimpleMenu(wiz_screen, selected - *scroll, &config);
 	UI_renderScrollIndicators(wiz_screen, *scroll, layout.items_per_page, count);
@@ -109,6 +110,7 @@ static void wiz_render_empty(const char* title, const char* message) {
 		.items = NULL,
 		.item_count = 0,
 		.btn_b_label = "BACK",
+		.btn_a_label = "SELECT",
 		.hide_controls_hint = true};
 	UI_renderSimpleMenu(wiz_screen, 0, &config);
 	UI_renderCenteredMessage(wiz_screen, message);

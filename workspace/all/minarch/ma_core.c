@@ -8,7 +8,6 @@
 #include "ma_audio.h"
 #include "ma_environment.h"
 #include "ma_rewind.h"
-#include "netplay_helper.h"
 #include <dlfcn.h>
 #include <libgen.h>
 
@@ -131,8 +130,6 @@ int Core_updateAVInfo(void) {
 
 void Core_load(void) {
 	core.has_netpacket = false;
-	core.has_gblink = false;
-	core.show_netplay = false;
 
 	struct retro_game_info game_info = {};
 	game_info.path = game.tmp_path[0] ? game.tmp_path : game.path;
@@ -143,11 +140,6 @@ void Core_load(void) {
 		LOG_error("core refused to load game: %s\n", game_info.path);
 		exit(EXIT_FAILURE);
 	}
-
-	CoreLinkSupport link_support = checkCoreLinkSupport(core.name);
-	core.show_netplay = link_support.show_netplay;
-	core.has_netpacket = link_support.has_netpacket;
-	core.has_gblink = link_support.has_gblink;
 
 	if (Cheats_load())
 		Core_applyCheats(&cheatcodes);

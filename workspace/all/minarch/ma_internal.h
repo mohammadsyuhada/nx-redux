@@ -60,9 +60,7 @@ struct Core {
 	retro_core_options_update_display_callback_t update_visibility_callback;
 	// retro_audio_buffer_status_callback_t audio_buffer_status;
 
-	bool has_netpacket; // Netpacket interface (for GBA Link support)
-	bool show_netplay;	// Whether to show netplay menu (false for cores that don't support it like mGBA)
-	bool has_gblink;	// GB Link support (gambatte core)
+	bool has_netpacket; // Netpacket interface (for GBA Link support); set by RETRO_ENVIRONMENT_SET_NETPACKET_INTERFACE
 };
 
 struct Game {

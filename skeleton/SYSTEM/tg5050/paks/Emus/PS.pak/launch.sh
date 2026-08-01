@@ -8,6 +8,7 @@ EMU_TAG=$(basename "$(dirname "$0")" .pak)
 ROM="$1"
 HOME="$USERDATA_PATH"
 cd "$HOME"
+. "$SHARED_SYSTEM_PATH/bin/netplay-prelaunch.sh"
 
 # BIG cluster: bring cpu5 online for dual-core emulation
 echo 1 >/sys/devices/system/cpu/cpu5/online 2>/dev/null
@@ -56,3 +57,6 @@ sleep 3
 pin_threads
 
 wait $EMU_PID
+if [ -f /tmp/netplay_session ]; then
+	netplay.elf --cleanup >> "$LOGS_PATH/netplay-wizard.txt" 2>&1
+fi

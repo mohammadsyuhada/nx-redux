@@ -115,46 +115,6 @@ one-line snapshot here.
 
 ---
 
-## Netplay wizard: minarch migration
-
-**Recorded:** 2026-07-29, alongside the DC pre-launch wizard build (see
-`DEV_CHECKLIST.md`'s "DC netplay pre-launch wizard" section and
-`docs/superpowers/specs/2026-07-29-netplay-prelaunch-wizard-design.md`'s
-"Minarch follow-up" section). Scoped out of that effort on purpose — DC/flycast
-was Phase 1, minarch is the deliberate follow-up.
-
-Minarch's own netplay (fbneo/fceumm/snes9x/supafaust/picodrive/pcsx + GBA/GB
-link) currently lives entirely in the in-game pause menu (Host/Join, hotspot/WiFi,
-host list) — good UX, but setup happens after the emulator is already running.
-The plan is to move minarch-core paks onto the same `netplay.elf` wizard DC.pak
-now uses, dropping the in-game setup:
-
-- [ ] Minarch-core paks run the wizard with **no sync args** (`--serve-dir`/
-      `--fetch-to`/`--fetch-files` all omitted) — minarch cores don't need the
-      wizard's rsync save sync; whatever save-state handling they already do
-      stays as-is.
-- [ ] Minarch grows a boot-time path: if `/tmp/netplay_session` is present,
-      start the engine directly with `role`/`peer_ip`/`mode` from the session
-      file and **skip the in-game Host/Join menus** entirely. Link type per core
-      is already a static, hardcoded mapping (the existing core-to-link-type
-      table), so it's knowable before launch — nothing new needs designing
-      there.
-- [ ] Drop (or gate off) the in-game Host/Join entry points once the wizard
-      path lands, so there's exactly one way to start a netplay session.
-- [ ] **Open design question, not yet decided:** whether in-session
-      Disconnect/Status survives the menu removal, and if so, where it lives
-      (a slimmed-down pause-menu entry? An overlay toast?). The control channel
-      and session file are already sufficient to support it; this is a UX
-      decision, not a plumbing one.
-
-The wizard's ports (TCP 55440 control channel, UDP 55441 discovery, TCP 18731
-rsync) were deliberately chosen to avoid minarch's existing in-game netplay
-ports (55435-55438, 56400/56421), so both implementations can run side by side
-during this migration — no coordination needed between the two at the network
-level, only at the "which one starts the emulator" level above.
-
----
-
 ## Netplay wizard: `wizard_wifi.c` picker loops don't honor `app_quit`
 
 **Flagged:** Task 6 of the 2026-07-29 netplay pre-launch wizard build (see

@@ -22,6 +22,7 @@
  * gives up — back to its host list on WiFi, out of the wizard on hotspot.
  */
 
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -188,6 +189,7 @@ static void wiz_net_render_list(const char** labels, int count, int selected, in
 		.items = labels + *scroll,
 		.item_count = visible,
 		.btn_b_label = "BACK",
+		.btn_a_label = "SELECT",
 		.hide_controls_hint = true};
 	UI_renderSimpleMenu(wiz_screen, selected - *scroll, &config);
 	UI_renderScrollIndicators(wiz_screen, *scroll, layout.items_per_page, count);
@@ -200,6 +202,7 @@ static void wiz_net_render_empty(const char* message) {
 		.items = NULL,
 		.item_count = 0,
 		.btn_b_label = "BACK",
+		.btn_a_label = "SELECT",
 		.hide_controls_hint = true};
 	UI_renderSimpleMenu(wiz_screen, 0, &config);
 	UI_renderCenteredMessage(wiz_screen, message);
@@ -256,6 +259,46 @@ static int wiz_parse_hello(const char* line, int* version, char* game, size_t ga
 	return 0;
 }
 
+// Two game names count as the same game when they agree after normalization:
+// lowercase alphanumerics only, with (...) and [...] tag groups removed first.
+// "Marvel vs. Capcom 2 (USA)" pairs with "marvel vs capcom 2" — region tags,
+// dump flags, punctuation and spacing never block a pair — while a real title
+// difference ("... 2" vs "... 3") still does. The \x1f space escaping is
+// non-alphanumeric, so escaped and raw names normalize identically. This is
+// the ONLY game gate a wizard session has: the link engines store name/CRC
+// for their own discovery broadcasts but never re-verify them on a direct
+// connect, so a mismatch that slips past here surfaces only in-game.
+static void wiz_normalize_name(const char* in, char* out, size_t out_size) {
+	size_t o = 0;
+	int in_tag = 0;
+
+	for (const char* p = in; *p && o < out_size - 1; p++) {
+		char c = *p;
+		if (c == '(' || c == '[') {
+			in_tag++;
+		} else if (c == ')' || c == ']') {
+			if (in_tag)
+				in_tag--;
+		} else if (!in_tag && isalnum((unsigned char)c)) {
+			out[o++] = (char)tolower((unsigned char)c);
+		}
+	}
+	out[o] = '\0';
+}
+
+static bool wiz_names_equivalent(const char* a, const char* b) {
+	char na[NET_MAX_GAME_NAME];
+	char nb[NET_MAX_GAME_NAME];
+
+	if (!a || !b)
+		return false;
+	wiz_normalize_name(a, na, sizeof(na));
+	wiz_normalize_name(b, nb, sizeof(nb));
+	if (!na[0] || !nb[0])
+		return false; // a name that is all tags matches nothing
+	return strcmp(na, nb) == 0;
+}
+
 // NULL = the peer is a match. Otherwise the REJECT reason, which is also the
 // key wiz_reject_message() turns into a sentence. Order matters: version is
 // checked first because a different version may not even mean the same thing by
@@ -264,7 +307,7 @@ static const char* wiz_hello_mismatch(int version, const char* game, const char*
 									  const char* own_game, const char* expect_role) {
 	if (version != WIZ_PROTO_VERSION)
 		return "version";
-	if (!own_game || !game || strcmp(game, own_game) != 0)
+	if (!wiz_names_equivalent(game, own_game))
 		return "game";
 	if (!role || strcmp(role, expect_role) != 0)
 		return "role";
@@ -405,18 +448,13 @@ static bool wiz_name_matches(const char* name, const char patterns[][64], int co
 	return false;
 }
 
-// Discovery packets carry the raw title in a fixed 64-byte field, so they need
-// no escaping — but a peer that escaped anyway must still match, and a title
-// longer than the field is truncated on the wire for both sides identically.
+// Same-game test for the host list's ordering: the same normalized-name
+// equivalence the HELLO gate uses (escape-tolerant — normalization strips
+// \x1f). Only ordering rides on this: the broadcast field truncates titles
+// at 64 bytes while own_game is full-length, so an ultra-long title may sort
+// as "other game"; the HELLO gate compares full names and decides for real.
 static bool wiz_game_matches_broadcast(const char* broadcast_game, const char* own_game) {
-	char name[NET_MAX_GAME_NAME];
-
-	if (!broadcast_game || !own_game)
-		return false;
-
-	snprintf(name, sizeof(name), "%s", broadcast_game);
-	wiz_unesc_spaces(name);
-	return strncmp(name, own_game, NET_MAX_GAME_NAME - 1) == 0;
+	return wiz_names_equivalent(broadcast_game, own_game);
 }
 
 //////////////////////////////////
@@ -993,25 +1031,36 @@ static int wiz_client_pick_host(const WizArgs* a, char* ip_out, size_t ip_size) 
 
 			// Rebuilt from scratch rather than appended to: the dedup lives in
 			// NET_receiveDiscoveryResponses, and hosts only ever grows.
+			//
+			// EVERY wizard host is listed, own game or not — differently-named
+			// copies of the same game (region tags, cleaned-up filenames) must
+			// not make a host silently invisible. The label carries the host's
+			// game title, so the join is the user's informed choice; picking a
+			// genuinely different game gets the host's named REJECT at the
+			// HELLO handshake and returns to this list. Two passes keep
+			// same-named hosts at the top.
 			match_count = 0;
-			for (int i = 0; i < host_count; i++) {
-				char title[NET_MAX_GAME_NAME];
+			for (int pass = 0; pass < 2; pass++) {
+				for (int i = 0; i < host_count; i++) {
+					char title[NET_MAX_GAME_NAME];
+					bool same_game = wiz_game_matches_broadcast(hosts[i].game_name, a->game);
 
-				if (strcmp(hosts[i].link_mode, WIZ_NET_LINK_MODE) != 0)
-					continue;
-				if (!wiz_game_matches_broadcast(hosts[i].game_name, a->game))
-					continue;
+					if (strcmp(hosts[i].link_mode, WIZ_NET_LINK_MODE) != 0)
+						continue;
+					if (same_game != (pass == 0))
+						continue;
 
-				// The field is sent raw, but a peer that escaped anyway matched
-				// above and must not put \x1f on screen.
-				snprintf(title, sizeof(title), "%s", hosts[i].game_name);
-				wiz_unesc_spaces(title);
+					// The field is sent raw, but a peer that escaped anyway must
+					// not put \x1f on screen.
+					snprintf(title, sizeof(title), "%s", hosts[i].game_name);
+					wiz_unesc_spaces(title);
 
-				snprintf(label_text[match_count], WIZ_NET_LABEL_MAX, "%s (%s)",
-						 title, hosts[i].host_ip);
-				labels[match_count] = label_text[match_count];
-				matches[match_count] = i;
-				match_count++;
+					snprintf(label_text[match_count], WIZ_NET_LABEL_MAX, "%s (%s)",
+							 title, hosts[i].host_ip);
+					labels[match_count] = label_text[match_count];
+					matches[match_count] = i;
+					match_count++;
+				}
 			}
 
 			if (match_count != before) {

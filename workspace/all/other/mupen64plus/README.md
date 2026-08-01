@@ -131,6 +131,14 @@ aarch64-nextui-linux-gnu-nm -D --undefined-only \
 (`libdxtn.a` is a Windows COFF lib upstream; it is not referenced by this build and
 can stay as-is.)
 
+**Regenerating `GLideN64-standalone.patch`:** the `.a` entries above are deliberately
+content-less placeholders, so regenerate the patch WITHOUT `--binary`, and round-trip
+check it with the lib dir excluded (a plain `-R` check would fail on the placeholders):
+
+```sh
+git apply --check -R --exclude='src/GLideNHQ/lib/*' GLideN64-standalone.patch
+```
+
 ## Build (TG5040)
 
 All builds run inside Docker using `ghcr.io/loveretro/tg5040-toolchain:latest`.
@@ -280,6 +288,32 @@ skeleton/BASE/Emus/shared/mupen64plus/
 
 **Note:** `Emus/shared/` exists per SD card — pushing a new GLideN64 build to one
 device does not update the other.
+
+## Pre-launch options (Emulator Options / Emulator Settings)
+
+mupen64plus is a pre-launch-options adopter (same schema-driven `options.elf` as
+flycast): the game-list context menu's "Emulator Options" and Tools → Emulator
+Settings both key off the pak shipping an `options.sh`. Per-game overrides land in
+`$SHARED_USERDATA_PATH/N64-mupen64plus/config/<device>/games/<rom-base>.cfg` (one key
+per changed value; `nx_rom_base()` in the sourced `nx_paths.sh` collapses a folder-m3u
+game's discs to the folder name), while global edits go to the per-device
+`mupen64plus.cfg`. `launch.sh` translates the override file to
+`--set Section[KEY]=VALUE` args via awk and runs under `--nosaveoptions`, making every
+`--set` a session-virtual runtime override that ui-console never persists back —
+the mupen64plus analogue of flycast's `cfgSetVirtual`. Config-dir resolution and
+first-run `mupen64plus.cfg` seeding live in `nx_paths.sh` (sourced by both scripts)
+so options can be edited before a game has ever launched without drift.
+
+**First-launch one-time cfg rewrite (normal, not the drift bug):** on a
+freshly-seeded config, the FIRST game launch rewrites `mupen64plus.cfg` once — the
+shipped `default-*.cfg` files predate ~35 settings newer GLideN64 knows (unused `hk*`
+hotkey bindings), so the plugin adds them with empty defaults and saves the file,
+once. Verified harmless (Brick, 2026-07-30): existing values survive, per-game
+`--set` values do NOT get written in, and every launch after the first leaves the
+file byte-identical. Practical consequence: when doing md5 "cfg unchanged" checks,
+launch a game once BEFORE taking the "before" hash, or this one-time rewrite looks
+like the audio-rate drift bug returning. Deliberately not fixed — fold the missing
+keys in whenever the four `default-*.cfg` files are next regenerated anyway.
 
 ## Key Build Flags
 

@@ -86,14 +86,23 @@ for pakz in $PAKZ_PATH; do
 	echo "TEXT:Extracting $pakz" > /tmp/show2.fifo
 	cd $(dirname "$0")/$PLATFORM
 
-	./unzip -o -d "$SDCARD_PATH" "$pakz" # >> $pakz.txt
-	rm -f "$pakz"
+	# Consume the pakz ONLY on successful extraction (same defect class as
+	# the MinUI.zip guard below). Unlike MinUI.zip the system boots fine
+	# without a pakz, so a corrupt one is renamed .failed instead of kept —
+	# keeping the name would re-match the glob and nag on every boot.
+	if ./unzip -o -d "$SDCARD_PATH" "$pakz"; then # >> $pakz.txt
+		rm -f "$pakz"
 
-	# run postinstall if present
-	if [ -f $SDCARD_PATH/post_install.sh ]; then
-		echo "TEXT:Installing $pakz" > /tmp/show2.fifo
-		$SDCARD_PATH/post_install.sh # > $pakz_post.txt
-		rm -f $SDCARD_PATH/post_install.sh
+		# run postinstall if present
+		if [ -f $SDCARD_PATH/post_install.sh ]; then
+			echo "TEXT:Installing $pakz" > /tmp/show2.fifo
+			$SDCARD_PATH/post_install.sh # > $pakz_post.txt
+			rm -f $SDCARD_PATH/post_install.sh
+		fi
+	else
+		echo "TEXT:Package install failed: $pakz is corrupt; kept as .failed" > /tmp/show2.fifo
+		mv -f "$pakz" "$pakz.failed"
+		sleep 5
 	fi
 done
 
@@ -119,8 +128,18 @@ if [ -f "$UPDATE_PATH" ]; then
 	# device marker files: remove the known set, the zip restores the right one
 	rm -f $SDCARD_PATH/tg5040-brick $SDCARD_PATH/tg5040-brickpro $SDCARD_PATH/tg5040-smartpro $SDCARD_PATH/tg5050-smartpros
 
-	./unzip -o "$UPDATE_PATH" -d "$SDCARD_PATH" # &> /mnt/SDCARD/unzip.txt
-	rm -f "$UPDATE_PATH"
+	# Consume the zip ONLY on successful extraction. A corrupt/truncated
+	# MinUI.zip (e.g. the card was pulled before the copy flushed) used to be
+	# rm'd here unconditionally, leaving a card with no .system and no zip —
+	# every later boot then powered off with no feedback. Keeping the zip
+	# makes the failure visible and the next boot retry after the user
+	# replaces the file.
+	if ./unzip -o "$UPDATE_PATH" -d "$SDCARD_PATH"; then # &> /mnt/SDCARD/unzip.txt
+		rm -f "$UPDATE_PATH"
+	else
+		echo "TEXT:Install failed: MinUI.zip is corrupt or the card is full. Re-copy MinUI.zip to the card." > /tmp/show2.fifo
+		sleep 10
+	fi
 
 	# the updated system finishes the install/update
 	if [ -f $SYSTEM_PATH/bin/install.sh ]; then
