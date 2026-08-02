@@ -25,6 +25,7 @@
 #define CODE_MENU0 314
 #define CODE_MENU1 315
 #define CODE_MENU2 316
+#define CODE_HOME 172 // KEY_HOMEPAGE — Brick Pro's dedicated Home button (gamepad btn 15)
 #define CODE_PLUS 115
 #define CODE_MINUS 114
 #define CODE_MUTE 1
@@ -317,6 +318,15 @@ int main(int argc, char* argv[]) {
 						menu_pressed = 0;
 						menu_long_fired = 0;
 					}
+					break;
+				case CODE_HOME: // KEY_HOMEPAGE (172) — Brick Pro Home button
+					// The original Brick has no Home button and never emits this;
+					// on the Brick Pro a short press toggles the OSD. Menu long-press
+					// (above) still works on both. Toggle on the press edge only —
+					// val > REPEAT is already filtered out above, so ignore repeat
+					// (2) and release (0) here.
+					if (val == PRESSED)
+						toggle_osd();
 					break;
 				default:
 					break;

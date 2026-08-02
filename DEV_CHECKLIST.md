@@ -279,9 +279,24 @@ sun50iw10, 2026-07-29 (device arrived, no SD card, redux not installed):
       Settings → Input Tester and press everything. Expected: 9/10 = stick clicks (L3/R3),
       11/12 = FN1/FN2 (shown as L4/R4), 13/14 = volume, 15 = HOME, 8 = MENU.
       Wrong indices look like dead or swapped buttons, **not** a crash.
-- [ ] **Analog sticks** — both nubs move the on-screen indicators. Note: `L3+R3`
-      calibration is known-inert on this model until the I2C implementation lands
+- [ ] **Analog sticks** — both nubs move the on-screen indicators. `L3+R3`
+      calibration is now implemented for this model (I2C backend, `cal_run_i2c`);
+      expect it to WORK — see the joystick-calibration verification section below.
       (protocol + design in `DEV_TODO.md`, "Trimui Brick Pro: joystick calibration").
+- [ ] **Joystick calibration (I2C backend)** — the `L3+R3` flow now dispatches to
+      `cal_run_i2c` on Brick Pro (`is_brickpro`). Verify end-to-end on hardware:
+      - [ ] Enter Settings → Input Tester, press `L3+R3`. The "Get ready" countdown
+            appears, then "Opening joystick..." — no "Failed to open joystick I2C bus"
+            and no "Failed to read joystick ADC" error (the fail-fast sanity read).
+      - [ ] Rotate/center each stick through both phases; "Calibration Complete!" shows.
+      - [ ] `/mnt/UDISK/joypad.config` and `joypad_right.config` are (re)written with a
+            plausible per-unit span (factory center ~2086/2038, range ~1120–3050).
+      - [ ] `/tmp/joypad_testmode` is GONE after the flow exits (mandatory `cleanup:`
+            resume) on both the success and every error path (kill mid-flow to check).
+      - [ ] `trimui_inputd` resumes feeding uinput after the flow (sticks still move the
+            indicators) and picks up the new config via `/tmp/trimui_inputd/cal_update`.
+      - [ ] Confirm chip→stick mapping and axis sense feel right in-game (0x29 = left,
+            0x28 = right, big-endian u16 on the wire — see `DEV_TODO.md`).
 - [ ] **DC pre-launch options smoke (60 s)** — open "Emulator Options" once on a DC
       game: proves seeding into `config/tg5040-brickpro` from `default-brickpro.cfg`.
       Everything else on that feature is transitively covered — Brick Pro runs the same

@@ -404,10 +404,10 @@ static bool handle_playing_input(SDL_Surface* screen, PlayerInternalState* state
 	} else if (PAD_justPressed(BTN_Y)) {
 		repeat_enabled = !repeat_enabled;
 		*dirty = 1;
-	} else if (PAD_justPressed(BTN_L3) || PAD_justPressed(BTN_L2)) {
+	} else if (PAD_justPressed(BTN_FN1) || PAD_justPressed(BTN_L2)) {
 		Spectrum_cycleNext();
 		*dirty = 1;
-	} else if (PAD_justPressed(BTN_R3) || PAD_justPressed(BTN_R2)) {
+	} else if (PAD_justPressed(BTN_FN2) || PAD_justPressed(BTN_R2)) {
 		Settings_toggleLyrics();
 		if (!Settings_getLyricsEnabled()) {
 			Lyrics_clear();
@@ -809,10 +809,10 @@ ModuleExitReason PlayerModule_runWithPlaylist(SDL_Surface* screen,
 		} else if (PAD_justPressed(BTN_Y)) {
 			repeat_enabled = !repeat_enabled;
 			dirty = 1;
-		} else if (PAD_justPressed(BTN_L3) || PAD_justPressed(BTN_L2)) {
+		} else if (PAD_justPressed(BTN_FN1) || PAD_justPressed(BTN_L2)) {
 			Spectrum_cycleNext();
 			dirty = 1;
-		} else if (PAD_justPressed(BTN_R3) || PAD_justPressed(BTN_R2)) {
+		} else if (PAD_justPressed(BTN_FN2) || PAD_justPressed(BTN_R2)) {
 			Settings_toggleLyrics();
 			if (!Settings_getLyricsEnabled()) {
 				Lyrics_clear();

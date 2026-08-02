@@ -193,6 +193,18 @@ enum {
 #define JOY_L4 JOY_NA
 #define JOY_R4 JOY_NA
 #endif
+// F1/F2 "function" keys default to the L3/R3 joystick buttons — correct on every device
+// except the Brick Pro, whose platform header remaps them to L4/R4 (its sticks own L3/R3).
+#ifndef BTN_FN1
+#define BTN_FN1 BTN_L3
+#define BTN_FN2 BTN_R3
+#endif
+// Devices without dedicated F1/F2 keys (e.g. Smart Pro/S) fall those actions back onto the
+// stick-click buttons, so the hint shows the L3/R3 index name rather than a printed F-key.
+#ifndef BTN_FN1_NAME
+#define BTN_FN1_NAME "L3"
+#define BTN_FN2_NAME "R3"
+#endif
 
 #ifndef AXIS_L2
 #define AXIS_L2 AXIS_NA

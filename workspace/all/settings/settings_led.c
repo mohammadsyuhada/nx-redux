@@ -279,21 +279,33 @@ LED_ZONE_CALLBACKS(0)
 LED_ZONE_CALLBACKS(1)
 LED_ZONE_CALLBACKS(2)
 LED_ZONE_CALLBACKS(3)
+// Zone 4 (the Brick Pro's "rear" = L&R-triggers zone) exists only on 5-zone devices.
+// MAX_LIGHTS is 5 on tg5040 but 4 on tg5050, so the zone-4 callbacks and their table
+// slots are guarded to avoid an out-of-bounds lightsDefault[4] on tg5050 — where this
+// code compiles away entirely. This is the fix for the Brick Pro crash: there
+// led_num_lights==5, so the zone loop indexed zone_*[4] in 4-entry tables (reading a
+// garbage function pointer) as soon as the L&R-triggers zone was opened or edited.
+#if MAX_LIGHTS > 4
+LED_ZONE_CALLBACKS(4)
+#define LED_Z4(fn) , fn
+#else
+#define LED_Z4(fn)
+#endif
 
 /* Lookup tables for zone callbacks */
 typedef int (*led_get_fn)(void);
 typedef void (*led_set_fn)(int);
 
-static led_get_fn zone_get_effect[] = {led_get_effect_0, led_get_effect_1, led_get_effect_2, led_get_effect_3};
-static led_set_fn zone_set_effect[] = {led_set_effect_0, led_set_effect_1, led_set_effect_2, led_set_effect_3};
-static led_get_fn zone_get_color[] = {led_get_color_0, led_get_color_1, led_get_color_2, led_get_color_3};
-static led_set_fn zone_set_color[] = {led_set_color_0, led_set_color_1, led_set_color_2, led_set_color_3};
-static led_get_fn zone_get_speed[] = {led_get_speed_0, led_get_speed_1, led_get_speed_2, led_get_speed_3};
-static led_set_fn zone_set_speed[] = {led_set_speed_0, led_set_speed_1, led_set_speed_2, led_set_speed_3};
-static led_get_fn zone_get_brightness[] = {led_get_brightness_0, led_get_brightness_1, led_get_brightness_2, led_get_brightness_3};
-static led_set_fn zone_set_brightness[] = {led_set_brightness_0, led_set_brightness_1, led_set_brightness_2, led_set_brightness_3};
-static led_get_fn zone_get_inbrightness[] = {led_get_inbrightness_0, led_get_inbrightness_1, led_get_inbrightness_2, led_get_inbrightness_3};
-static led_set_fn zone_set_inbrightness[] = {led_set_inbrightness_0, led_set_inbrightness_1, led_set_inbrightness_2, led_set_inbrightness_3};
+static led_get_fn zone_get_effect[] = {led_get_effect_0, led_get_effect_1, led_get_effect_2, led_get_effect_3 LED_Z4(led_get_effect_4)};
+static led_set_fn zone_set_effect[] = {led_set_effect_0, led_set_effect_1, led_set_effect_2, led_set_effect_3 LED_Z4(led_set_effect_4)};
+static led_get_fn zone_get_color[] = {led_get_color_0, led_get_color_1, led_get_color_2, led_get_color_3 LED_Z4(led_get_color_4)};
+static led_set_fn zone_set_color[] = {led_set_color_0, led_set_color_1, led_set_color_2, led_set_color_3 LED_Z4(led_set_color_4)};
+static led_get_fn zone_get_speed[] = {led_get_speed_0, led_get_speed_1, led_get_speed_2, led_get_speed_3 LED_Z4(led_get_speed_4)};
+static led_set_fn zone_set_speed[] = {led_set_speed_0, led_set_speed_1, led_set_speed_2, led_set_speed_3 LED_Z4(led_set_speed_4)};
+static led_get_fn zone_get_brightness[] = {led_get_brightness_0, led_get_brightness_1, led_get_brightness_2, led_get_brightness_3 LED_Z4(led_get_brightness_4)};
+static led_set_fn zone_set_brightness[] = {led_set_brightness_0, led_set_brightness_1, led_set_brightness_2, led_set_brightness_3 LED_Z4(led_set_brightness_4)};
+static led_get_fn zone_get_inbrightness[] = {led_get_inbrightness_0, led_get_inbrightness_1, led_get_inbrightness_2, led_get_inbrightness_3 LED_Z4(led_get_inbrightness_4)};
+static led_set_fn zone_set_inbrightness[] = {led_set_inbrightness_0, led_set_inbrightness_1, led_set_inbrightness_2, led_set_inbrightness_3 LED_Z4(led_set_inbrightness_4)};
 
 // ============================================
 // Zone page construction

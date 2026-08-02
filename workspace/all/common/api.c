@@ -2647,11 +2647,30 @@ void PAD_reset(void) {
 	pad.just_released = BTN_NONE;
 	pad.just_repeated = BTN_NONE;
 }
+// Present iff the on-screen OSD is visible (created/removed by trimui_osdd; the same
+// flag keymon toggles). See the gate in PLAT_pollInput below.
+#define OSD_SHOW_FLAG "/tmp/trimui_osd/osdd_show_up"
+
 FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 	// reset transient state
 	pad.just_pressed = BTN_NONE;
 	pad.just_released = BTN_NONE;
 	pad.just_repeated = BTN_NONE;
+
+	// While the OSD is up it owns the pad: it reads the same evdev node we do and is
+	// meant to grab it exclusively, but on devices where its hard-coded grab target
+	// misses the real pad (Brick Pro: the pad is /dev/input/event3 while the OSD grabs
+	// event4, which doesn't exist here) the grab no-ops and input leaks through to the
+	// foreground app. Gate every redux UI here so nothing navigates behind the OSD:
+	// neutralize the pad, drain queued SDL events, and skip repeat generation. Harmless
+	// on devices whose grab already works (SDL simply sees no events there anyway).
+	if (access(OSD_SHOW_FLAG, F_OK) == 0) {
+		pad.is_pressed = BTN_NONE;
+		SDL_Event drain;
+		while (SDL_PollEvent(&drain))
+			;
+		return;
+	}
 
 	uint32_t tick = SDL_GetTicks();
 	for (int i = 0; i < BTN_ID_COUNT; i++) {
@@ -3726,16 +3745,27 @@ void LEDS_updateLeds(bool indicator_only) {
 		return;
 	}
 	for (int i = 0; i < lightsize; i++) {
+		LightSettings led = (*lights)[i]; // local copy — we may force .effect off below
+		int eff_bright = indicator_only ? led.inbrightness : led.brightness;
+
 		// set brightness of each led
 		if (indicator_only)
-			PLAT_setLedInbrightness(&(*lights)[i]);
+			PLAT_setLedInbrightness(&led);
 		else
-			PLAT_setLedBrightness(&(*lights)[i]);
+			PLAT_setLedBrightness(&led);
 
-		PLAT_setLedEffectCycles(&(*lights)[i]); // set how many times animation should loop
-		PLAT_setLedEffectSpeed(&(*lights)[i]);	// set animation speed
-		PLAT_setLedColor(&(*lights)[i]);		// set color
-		PLAT_setLedEffect(&(*lights)[i]);		// finally set the effect, on trimui devices this also applies the settings
+		PLAT_setLedEffectCycles(&led); // set how many times animation should loop
+		PLAT_setLedEffectSpeed(&led);  // set animation speed
+		PLAT_setLedColor(&led);		   // set color
+
+		// On trimui led_anim hardware a brightness (max_scale) of 0 does NOT stop a
+		// running animation — the zone keeps showing its colour (e.g. the green charging
+		// breathe with Info Brightness=0, or a muted/disabled zone). Disable the effect
+		// outright when the effective brightness is 0 so "0" reliably means off. Operates
+		// on the local copy, so the configured effect shown in the UI is untouched.
+		if (eff_bright == 0)
+			led.effect = 0;		 // "disable"
+		PLAT_setLedEffect(&led); // finally set the effect, on trimui devices this also applies the settings
 	}
 }
 

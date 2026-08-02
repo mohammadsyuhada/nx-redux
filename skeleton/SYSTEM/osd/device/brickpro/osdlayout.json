@@ -32,9 +32,6 @@
             "package":"com.trimui.osd.static.temperature"
         },
         {
-            "package":"com.trimui.osd.static.battery"
-        },
-        {
             "package":"com.trimui.osd.toggle.ledenable"
         },
         {

@@ -18,6 +18,16 @@
 #define GAMETIME_LOG_PATH SHARED_USERDATA_PATH
 #define GAMETIME_LOG_FILE GAMETIME_LOG_PATH "/game_logs.sqlite"
 
+// A tracked stint is one contiguous awake session — sleep and returning to the UI
+// both end it via stop_all, and resume opens a fresh row — so a legitimate one never
+// spans a full day. Anything longer is a corrupt duration from a wall-clock jump: the
+// device has no battery-backed RTC, so a game launched before NTP sync stamps
+// created_at near the 1970 epoch, and when the clock corrects mid-session the
+// now-minus-created_at delta explodes (observed 1.78e9 s ≈ 495k h). Such rows are
+// discarded rather than clamped — the real duration is unknowable. This also catches
+// the backward-jump case the code already deleted (play_time < 0).
+#define MAX_PLAUSIBLE_PLAY_TIME (24 * 60 * 60) // 86400 s = 24 h
+
 sqlite3* play_activity_db_open(void) {
 	mkdir(GAMETIME_LOG_PATH, 0777);
 	bool db_exists = exists(GAMETIME_LOG_FILE);
@@ -410,16 +420,26 @@ void play_activity_stop(char* rom_file_path) {
 	if (rom_id == ROM_NOT_FOUND) {
 		exit(1);
 	}
-	char* sql = sqlite3_mprintf("UPDATE play_activity SET play_time = (strftime('%%s', 'now')) - created_at, updated_at = (strftime('%%s', 'now')) WHERE rom_id = %d AND play_time IS NULL;", rom_id);
+	char* sql = sqlite3_mprintf(
+		"UPDATE play_activity SET play_time = (strftime('%%s', 'now')) - created_at, updated_at = (strftime('%%s', 'now')) WHERE rom_id = %d AND play_time IS NULL;"
+		"DELETE FROM play_activity WHERE play_time < 0 OR play_time > %d;",
+		rom_id, MAX_PLAUSIBLE_PLAY_TIME);
 	play_activity_db_execute(sql);
 	sqlite3_free(sql);
 }
 
 void play_activity_stop_all(void) {
 	//LOG_info("\n:: play_activity_stop_all()");
-	play_activity_db_execute(
-		"UPDATE play_activity SET play_time = (strftime('%s', 'now')) - created_at, updated_at = (strftime('%s', 'now')) WHERE play_time IS NULL;"
-		"DELETE FROM play_activity WHERE play_time < 0;");
+	// The DELETE purges any implausible row (see MAX_PLAUSIBLE_PLAY_TIME) — not just
+	// ones just closed above — so a corrupt duration left by an earlier build self-heals
+	// on the next stop_all (which nextui runs at startup, before the Game Tracker pak
+	// is reachable).
+	char* sql = sqlite3_mprintf(
+		"UPDATE play_activity SET play_time = (strftime('%%s', 'now')) - created_at, updated_at = (strftime('%%s', 'now')) WHERE play_time IS NULL;"
+		"DELETE FROM play_activity WHERE play_time < 0 OR play_time > %d;",
+		MAX_PLAUSIBLE_PLAY_TIME);
+	play_activity_db_execute(sql);
+	sqlite3_free(sql);
 }
 
 void play_activity_delete(int rom_id) {

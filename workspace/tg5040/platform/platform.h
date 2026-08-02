@@ -11,9 +11,14 @@
 
 ///////////////////////////////
 
-// Brick and Brick Pro share the 1024x768 panel and its 3x layout; the Brick Pro
-// additionally has analog sticks, two extra shoulder buttons (L4/R4) and a HOME
-// key, so screen geometry keys off (is_brick || is_brickpro) while input does not.
+// Brick and Brick Pro share the 1024x768 panel *resolution* (FIXED_WIDTH/HEIGHT key
+// off is_brick || is_brickpro), but NOT the UI scale: the Brick is a small panel
+// where 3x is right, while the Brick Pro's panel is physically much larger (about
+// the Smart Pro S's height), so 3x renders everything ~1.4x too big. The Brick Pro
+// therefore uses the Smart Pro's 2x layout (FIXED_SCALE / MAIN_ROW_COUNT /
+// SETTINGS_ROW_COUNT / PADDING key off is_brick alone) to match it visually. Input
+// still keys off is_brick || is_brickpro: the Brick Pro additionally has analog
+// sticks, two extra shoulder buttons (L4/R4) and a HOME key.
 extern int is_brick;
 extern int is_brickpro;
 
@@ -104,6 +109,18 @@ extern int is_brickpro;
 #define JOY_L4 (is_brickpro ? 11 : JOY_NA)
 #define JOY_R4 (is_brickpro ? 12 : JOY_NA)
 
+// The two extra "function" keys (F1/F2). The Brick has no analog sticks, so they are the
+// L3/R3 joystick buttons; on the Brick Pro the analog sticks take L3/R3 (stick-click), so
+// the function keys move to L4/R4. Paks that act on F1/F2 must use BTN_FN1/BTN_FN2 rather
+// than hard-coding BTN_L3/BTN_R3 — otherwise the toggle lands on the Brick Pro's stick
+// click instead of its F1/F2 key. Other platforms fall back to BTN_L3/R3 (see defines.h).
+#define BTN_FN1 (is_brickpro ? BTN_L4 : BTN_L3)
+#define BTN_FN2 (is_brickpro ? BTN_R4 : BTN_R3)
+// Display name for those keys — the Brick and Brick Pro both physically print "F1"/"F2"
+// (the underlying index differs, L3/R3 vs L4/R4, but the label the user sees does not).
+#define BTN_FN1_NAME "F1"
+#define BTN_FN2_NAME "F2"
+
 #define JOY_MENU 8
 #define JOY_HOME (is_brickpro ? 15 : JOY_NA)
 #define JOY_POWER 102
@@ -135,7 +152,7 @@ extern int is_brickpro;
 
 ///////////////////////////////
 
-#define FIXED_SCALE (is_brick || is_brickpro ? 3 : 2)
+#define FIXED_SCALE (is_brick ? 3 : 2) // Brick Pro uses 2x (see the panel note above)
 #define FIXED_WIDTH (is_brick || is_brickpro ? 1024 : 1280)
 #define FIXED_HEIGHT (is_brick || is_brickpro ? 768 : 720)
 #define FIXED_BPP 2
@@ -145,9 +162,11 @@ extern int is_brickpro;
 
 ///////////////////////////////
 
-#define MAIN_ROW_COUNT (is_brick || is_brickpro ? 7 : 10)
-#define SETTINGS_ROW_COUNT (is_brick || is_brickpro ? 9 : 11)
-#define PADDING (is_brick || is_brickpro ? 5 : 10)
+// Brick Pro runs the Smart Pro's 2x layout but on a taller panel (768 vs 720), so it
+// fits one extra main-menu row (11 vs 10). Settings/padding stay on the shared 2x values.
+#define MAIN_ROW_COUNT (is_brick ? 7 : (is_brickpro ? 11 : 10))
+#define SETTINGS_ROW_COUNT (is_brick ? 9 : 11)
+#define PADDING (is_brick ? 5 : 10)
 
 ///////////////////////////////
 

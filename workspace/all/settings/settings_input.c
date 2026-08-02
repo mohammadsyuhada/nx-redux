@@ -12,6 +12,10 @@
 #include <math.h>
 #include <fcntl.h>
 #include <termios.h>
+#include <stdint.h>
+#include <sys/ioctl.h>
+#include <linux/i2c.h>
+#include <linux/i2c-dev.h>
 
 // ============================================
 // Rendering helpers
@@ -70,6 +74,12 @@ static void blitButton(char* label, SDL_Surface* dst, int pressed, int x, int y,
 #define JOYPAD_LEFT_CONFIG "/mnt/UDISK/joypad.config"
 #define JOYPAD_RIGHT_CONFIG "/mnt/UDISK/joypad_right.config"
 
+#define JOYPAD_I2C_BUS "/dev/i2c-3"
+#define JOYPAD_I2C_ADDR_LEFT 0x29
+#define JOYPAD_I2C_ADDR_RIGHT 0x28
+#define JOYPAD_I2C_REG 0xB0
+#define JOYPAD_TESTMODE_FLAG "/tmp/joypad_testmode"
+
 #define CAL_PKT_SIZE 19
 #define CAL_PKT_START 0xFF
 #define CAL_PKT_END 0xFE
@@ -85,6 +95,16 @@ typedef struct {
 	int x_min, x_max, y_min, y_max, x_zero, y_zero;
 	float deadzone;
 } JoypadCal;
+
+// Acquisition backend abstraction: the on-screen calibration flow is
+// acquisition-agnostic; only the raw ADC read differs per device.
+typedef int (*cal_sampler)(void* ctx, int* x, int* y); // 0 = good sample
+
+typedef struct {
+	int fd;
+	int x_off;
+	int y_off;
+} SerialSampleCtx;
 
 static int cal_open_serial(const char* path) {
 	int fd = open(path, O_RDONLY | O_NOCTTY);
@@ -131,6 +151,32 @@ static int cal_read_pkt(int fd, int x_off, int y_off, int* x, int* y) {
 		}
 	}
 	return -1;
+}
+
+static int cal_sample_serial(void* ctx, int* x, int* y) {
+	SerialSampleCtx* s = (SerialSampleCtx*)ctx;
+	return cal_read_pkt(s->fd, s->x_off, s->y_off, x, y);
+}
+
+typedef struct {
+	int fd;
+	int addr;
+} I2cSampleCtx;
+
+static int cal_sample_i2c(void* ctx, int* x, int* y) {
+	I2cSampleCtx* s = (I2cSampleCtx*)ctx;
+	uint8_t reg = JOYPAD_I2C_REG;
+	uint8_t buf[4];
+	struct i2c_msg msgs[2] = {
+		{.addr = s->addr, .flags = 0, .len = 1, .buf = &reg},
+		{.addr = s->addr, .flags = I2C_M_RD, .len = 4, .buf = buf},
+	};
+	struct i2c_rdwr_ioctl_data xfer = {.msgs = msgs, .nmsgs = 2};
+	if (ioctl(s->fd, I2C_RDWR, &xfer) < 0)
+		return -1;
+	*x = (buf[0] << 8) | buf[1]; // big-endian u16
+	*y = (buf[2] << 8) | buf[3];
+	return 0;
 }
 
 static int cal_read_config(const char* path, JoypadCal* cal) {
@@ -200,7 +246,7 @@ static void cal_render_msg(SDL_Surface* screen, const char* title, const char* s
 	GFX_flip(screen);
 }
 
-static void cal_track_range(int fd, int x_off, int y_off, JoypadCal* cal,
+static void cal_track_range(cal_sampler sample, void* ctx, JoypadCal* cal,
 							SDL_Surface* screen, const char* title, int secs) {
 	cal->x_min = cal->y_min = 65535;
 	cal->x_max = cal->y_max = 0;
@@ -210,7 +256,7 @@ static void cal_track_range(int fd, int x_off, int y_off, JoypadCal* cal,
 		uint32_t start = SDL_GetTicks();
 		while (SDL_GetTicks() - start < 1000) {
 			int x, y;
-			if (cal_read_pkt(fd, x_off, y_off, &x, &y) == 0) {
+			if (sample(ctx, &x, &y) == 0) {
 				if (x < cal->x_min)
 					cal->x_min = x;
 				if (x > cal->x_max)
@@ -224,17 +270,28 @@ static void cal_track_range(int fd, int x_off, int y_off, JoypadCal* cal,
 	}
 }
 
-static void cal_read_center(int fd, int x_off, int y_off, JoypadCal* cal,
+static void cal_read_center(cal_sampler sample, void* ctx, JoypadCal* cal,
 							SDL_Surface* screen, const char* title, int secs) {
 	long x_sum = 0, y_sum = 0;
 	int count = 0;
+
+	// Settle: the stick was just deflected during the range phase, so it is
+	// still springing back to rest. Drain (do not count) samples briefly first,
+	// otherwise the average is biased toward the last rotation position and the
+	// captured center drifts off true-rest.
+	cal_render_msg(screen, title, "Leave stick at center", secs);
+	uint32_t settle = SDL_GetTicks();
+	while (SDL_GetTicks() - settle < 400) {
+		int x, y;
+		sample(ctx, &x, &y);
+	}
 
 	for (int i = secs; i > 0; i--) {
 		cal_render_msg(screen, title, "Leave stick at center", i);
 		uint32_t start = SDL_GetTicks();
 		while (SDL_GetTicks() - start < 1000) {
 			int x, y;
-			if (cal_read_pkt(fd, x_off, y_off, &x, &y) == 0) {
+			if (sample(ctx, &x, &y) == 0) {
 				x_sum += x;
 				y_sum += y;
 				count++;
@@ -248,7 +305,7 @@ static void cal_read_center(int fd, int x_off, int y_off, JoypadCal* cal,
 	}
 }
 
-static void cal_run(SDL_Surface* screen) {
+static void cal_run_serial(SDL_Surface* screen) {
 	JoypadCal left = {0}, right = {0};
 
 	JoypadCal existing;
@@ -279,13 +336,16 @@ static void cal_run(SDL_Surface* screen) {
 		return;
 	}
 
-	cal_track_range(fd_left, CAL_LEFT_X_OFF, CAL_LEFT_Y_OFF, &left,
+	SerialSampleCtx lctx = {fd_left, CAL_LEFT_X_OFF, CAL_LEFT_Y_OFF};
+	cal_track_range(cal_sample_serial, &lctx, &left,
 					screen, "Left Stick - Rotate", CAL_RANGE_SECS);
-	cal_read_center(fd_left, CAL_LEFT_X_OFF, CAL_LEFT_Y_OFF, &left,
+	cal_read_center(cal_sample_serial, &lctx, &left,
 					screen, "Left Stick - Stop", CAL_CENTER_SECS);
-	cal_track_range(fd_right, CAL_RIGHT_X_OFF, CAL_RIGHT_Y_OFF, &right,
+
+	SerialSampleCtx rctx = {fd_right, CAL_RIGHT_X_OFF, CAL_RIGHT_Y_OFF};
+	cal_track_range(cal_sample_serial, &rctx, &right,
 					screen, "Right Stick - Rotate", CAL_RANGE_SECS);
-	cal_read_center(fd_right, CAL_RIGHT_X_OFF, CAL_RIGHT_Y_OFF, &right,
+	cal_read_center(cal_sample_serial, &rctx, &right,
 					screen, "Right Stick - Stop", CAL_CENTER_SECS);
 
 	close(fd_left);
@@ -300,6 +360,78 @@ static void cal_run(SDL_Surface* screen) {
 
 	cal_render_msg(screen, "Calibration Complete!", "", 0);
 	SDL_Delay(1500);
+}
+
+static void cal_run_i2c(SDL_Surface* screen) {
+	JoypadCal left = {0}, right = {0};
+
+	JoypadCal existing;
+	left.deadzone = (cal_read_config(JOYPAD_LEFT_CONFIG, &existing) == 0) ? existing.deadzone : 0.10f;
+	right.deadzone = (cal_read_config(JOYPAD_RIGHT_CONFIG, &existing) == 0) ? existing.deadzone : 0.10f;
+
+	for (int i = 2; i > 0; i--) {
+		cal_render_msg(screen, "Starting Calibration", "Get ready...", i);
+		SDL_Delay(1000);
+	}
+
+	cal_render_msg(screen, "Starting Calibration", "Opening joystick...", 0);
+	// Quiesce inputd's joy poll and release the I2C bus so we are sole reader.
+	close(open(JOYPAD_TESTMODE_FLAG, O_WRONLY | O_CREAT, 0644));
+	usleep(200000);
+
+	int fd = open(JOYPAD_I2C_BUS, O_RDWR);
+	if (fd < 0) {
+		cal_render_msg(screen, "Error", "Failed to open joystick I2C bus", 0);
+		SDL_Delay(2000);
+		goto cleanup;
+	}
+	ioctl(fd, I2C_TIMEOUT, 5);
+	ioctl(fd, I2C_RETRIES, 1);
+
+	I2cSampleCtx lctx = {fd, JOYPAD_I2C_ADDR_LEFT};
+	I2cSampleCtx rctx = {fd, JOYPAD_I2C_ADDR_RIGHT};
+
+	// Fail fast if the bus/wiring is wrong, before the multi-second capture UX.
+	int tx, ty;
+	if (cal_sample_i2c(&lctx, &tx, &ty) != 0 || cal_sample_i2c(&rctx, &tx, &ty) != 0) {
+		cal_render_msg(screen, "Error", "Failed to read joystick ADC", 0);
+		SDL_Delay(2000);
+		close(fd);
+		goto cleanup;
+	}
+
+	cal_track_range(cal_sample_i2c, &lctx, &left,
+					screen, "Left Stick - Rotate", CAL_RANGE_SECS);
+	cal_read_center(cal_sample_i2c, &lctx, &left,
+					screen, "Left Stick - Stop", CAL_CENTER_SECS);
+	cal_track_range(cal_sample_i2c, &rctx, &right,
+					screen, "Right Stick - Rotate", CAL_RANGE_SECS);
+	cal_read_center(cal_sample_i2c, &rctx, &right,
+					screen, "Right Stick - Stop", CAL_CENTER_SECS);
+
+	close(fd);
+
+	cal_render_msg(screen, "Saving...", "", 0);
+	cal_write_config(JOYPAD_LEFT_CONFIG, &left);
+	cal_write_config(JOYPAD_RIGHT_CONFIG, &right);
+	// Queue inputd's config reload; processed once the quiesce flag is removed below.
+	system("mkdir -p /tmp/trimui_inputd && touch /tmp/trimui_inputd/cal_update");
+
+	cal_render_msg(screen, "Calibration Complete!", "", 0);
+	SDL_Delay(1500);
+
+cleanup:
+	remove(JOYPAD_TESTMODE_FLAG); // mandatory: resume inputd on every exit
+}
+
+static void cal_run(SDL_Surface* screen) {
+	// Detect Brick Pro at runtime via the device string, matching settings_led.c.
+	// Shared all/ code cannot use tg5040's `is_brickpro` global: it does not exist
+	// in the tg5050 build, so referencing it here would break the Smart Pro S build.
+	if (exactMatch("brickpro", getenv("DEVICE")))
+		cal_run_i2c(screen);
+	else
+		cal_run_serial(screen);
 }
 
 // ============================================
@@ -576,6 +708,16 @@ void input_tester_run(SDL_Surface* screen) {
 					int range = jsz / 2 - margin - dot_w / 2;
 					int dx = (int)((long)ax * range / 32767);
 					int dy = (int)((long)ay * range / 32767);
+					// Clamp the dot to the circular guide: a squarish stick gate
+					// drives both axes near full at the diagonals, which would push
+					// the dot outside the ring. Radially clamp the displayed
+					// magnitude to the guide radius (matches stock's tester look).
+					long mag2 = (long)dx * dx + (long)dy * dy;
+					if (mag2 > (long)range * range) {
+						double mag = sqrt((double)mag2);
+						dx = (int)(dx * range / mag);
+						dy = (int)(dy * range / mag);
+					}
 					int cx = x + jsz / 2 + dx - dot_w / 2;
 					int cy = jy + jsz / 2 + dy - dot_h / 2;
 					if (joy_dot) {

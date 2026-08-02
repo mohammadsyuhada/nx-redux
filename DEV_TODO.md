@@ -145,7 +145,9 @@ sampling function reuses the existing code.
       from 2026-07-27. Binary left at `/tmp/i2cread` on the device (tmpfs — gone
       after reboot); source in the session scratchpad, trivially recreatable from
       the protocol above.
-- [ ] Implement the brickpro acquisition branch in `settings_input.c` per the sketch.
+- [x] Implement the brickpro acquisition branch in `settings_input.c` per the sketch.
+      Built 2026-08-02 (`cal_run_i2c` + `is_brickpro` dispatch, clean tg5040
+      cross-compile); on-device verification tracked in `DEV_CHECKLIST.md`.
 - [ ] Decide whether to include trigger (`z_min`/`z_max`) calibration or leave triggers
       at inputd defaults — and find where trigger raw values come from (possibly a
       different register on the same chips, or the SoC keyadc; NOT yet traced).
