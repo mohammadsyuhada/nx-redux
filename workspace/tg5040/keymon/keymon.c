@@ -86,10 +86,15 @@ static int getInt(char* path) {
 static pthread_t mute_pt;
 static void* watchMute(void* arg) {
 	int is_muted, was_muted;
-	// the Brick Pro's motor is noticeably stronger, so its confirmation buzz
-	// needs a lower voltage to feel the same
+	// Motor strength varies by model, so the mute-confirmation buzz voltage is
+	// tuned per device; the timing is a common two 100 ms taps. Levels chosen
+	// by A/B on hardware 2026-08-02:
+	//   Brick Pro : 2.0 V  (strong motor; 3.3 V felt too harsh, 0.9 V too soft).
+	//   Brick     : 3.3 V  (weak motor; 1.5 V / 100 ms was imperceptible).
+	//   others (Smart Pro on tg5040): left at the original 1.5 V, untested.
 	const char* device = getenv("DEVICE");
 	int is_brickpro = device && strcmp(device, "brickpro") == 0;
+	int is_brick = device && strcmp(device, "brick") == 0;
 
 	is_muted = was_muted = getInt(MUTE_STATE_PATH);
 	SetMute(is_muted);
@@ -103,7 +108,9 @@ static void* watchMute(void* arg) {
 			SetMute(is_muted);
 			if (GetMute()) {
 				if (is_brickpro)
-					system("echo 900000 > /sys/class/motor/voltage");
+					system("echo 2000000 > /sys/class/motor/voltage");
+				else if (is_brick)
+					system("echo 3300000 > /sys/class/motor/voltage");
 				else
 					system("echo 1500000 > /sys/class/motor/voltage");
 				system("echo 1 > /sys/class/gpio/gpio227/value");

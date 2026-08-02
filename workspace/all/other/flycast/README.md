@@ -638,6 +638,12 @@ Mode is active — upstream behavior, not something this pak adds or can route
 around. The overlay's Save/Load actions will fail silently in that mode.
 Accepted as v1 behavior.
 
+**Verification status (as of 2026-08-02):** credential sync, the `Enabled`
+gating, and HTTPS connectivity are verified on Brick, Brick Pro, and Smart Pro S.
+A *full* session test — a real achievement actually unlocking in-game, not just
+login/HTTPS reachability — has **not** yet been run. Do this once against a
+known achievement-supported DC title before calling RA fully verified.
+
 ## Netplay (GGPO + DCNet)
 
 Flycast v2.6 ships two unrelated online mechanisms; both are compiled into
@@ -892,6 +898,80 @@ virtual now, nothing about `emu.cfg` needs to change on an upgraded card at
 all. Existing installs still routinely have no `[input]` section (flycast
 drops keys left at default when it rewrites the file), but that no longer
 matters either, since `device2` is virtual-only on the netplay path.
+
+### 4-player GGPO — investigated 2026-08-02, not implemented
+
+The wizard already runs 4-player lobbies for N64 (`--max-players 4`,
+`NETPLAY_PLAYER`/`NETPLAY_NUM_PLAYERS` in the session file), so the question
+was whether DC/GGPO could ride the same flow. Verdict: **possible, no hard
+blocker**, but it needs a flycast patch extension, a wizard protocol
+addition, and carries real performance risk on this hardware. Skipped for
+now; findings recorded here so the next attempt starts warm.
+
+Where the 2-player limit actually lives — three layers:
+
+1. **flycast's GGPO integration layer (the real work).**
+   `core/network/ggpo.cpp:98` hardcodes `constexpr int MAX_PLAYERS = 2`, and
+   `startSession()` (`:478`) adds exactly one local + one remote player:
+   player number derived from `ActAsServer` (host=P1, joiner=P2, `:807-811`),
+   single peer IP from `config::NetworkServer` (`:579-597`), single
+   `remotePlayer` handle used by the stats overlay (`:868`).
+2. **The vendored GGPO library is NOT the blocker.** `GGPO_MAX_PLAYERS` is 4
+   (`core/deps/ggpo/include/ggponet.h:41`) and the p2p backend has a
+   dedicated N-player path (`PollNPlayers`, `backends/p2p.cpp:130`).
+   Flycast's custom additions survive N players too: `SendMessage`
+   (chat/VF4-card, `p2p.cpp:649`) already broadcasts to every endpoint, the
+   MD5 verification handshake runs per-endpoint, and `on_event`/`getInput`
+   are player-count agnostic — `getInput` (`ggpo.cpp:643`) already loops
+   `MAX_PLAYERS` and writes straight into all 4 maple-port slots. Local
+   input always comes from `kcode[0]` regardless of player number
+   (`ggpo.cpp:716`); GGPO redistributes by `player_num`, so the input
+   plumbing generalizes with essentially no change.
+3. **Wizard roster gap.** GGPO is peer-to-peer **full mesh** — every device
+   must connect UDP-directly to every other device. The wizard's multi-join
+   lobby gives the HOST all joiner IPs (`wizard_net.c:990`,
+   `joiners[n].ip`), but joiners only ever receive `START <n>`
+   (`wizard_net.c:1058`) — they never learn each other's addresses, because
+   N64 is client-server and only needs the host IP. The session file
+   (`wizard.c:156`) has no peer-list field.
+
+Implementation sketch (all flycast changes ride in `flycast.patch`):
+
+- **flycast (~100-150 lines):** new configs `network:GGPOPlayerNum` +
+  `network:GGPOPeers` (ordered ip list); `startSession()` loops
+  `ggpo_add_player` over the list; `remotePlayer` becomes a vector (stats
+  display aggregates or shows worst peer).
+- **wizard (~50-80 lines):** host broadcasts the roster at start (e.g.
+  `START <n> <ip2> <ip3> <ip4>`); session file grows `NETPLAY_PEERS`.
+- **DC launch.sh (~20 lines ×2 platforms):** pass `--max-players 4`,
+  translate session vars into the new virtual `-config` keys, and set
+  `input:device3`/`device4=0` for maple ports C/D (same both-sides-identical
+  rule as today's `device2=0` — see "flycast internals" above).
+
+Known risks, in order of concern:
+
+- **Performance.** Rollback re-emulates frames on every misprediction, and
+  misprediction frequency scales with the WORST RTT among 3 WiFi peers;
+  flycast also mallocs a 10 MB savestate every frame during netplay
+  (`save_game_state`, `ggpo.cpp`). 3-player N64 was already GPU-bound on
+  the Brick, and DC emulation is heavier — genuinely uncertain whether
+  4-player is playable on A133 hardware. `GGPODelay` is the main lever
+  (latency traded for fewer rollbacks).
+- **N-player GGPO is the least-battle-tested path.** Upstream flycast never
+  runs `PollNPlayers` — zero real-world mileage on its sync/disconnect
+  handling. Budget for desync debugging.
+- **Config parity ×4:** `GGPOAnalogAxes` (and anything else feeding
+  `inputSize`) must match on ALL devices or the session aborts with
+  `INPUT_SIZE_DIFF` — detectable, but the launch layer should force-sync it
+  like the other virtual values.
+- **Small game library:** ChuChu Rocket!, Power Stone 2, Virtua Tennis 2,
+  San Francisco Rush 2049, NBA/NFL 2K. Confirm the target titles before
+  investing.
+
+Recommended first step if picked up: patch flycast only and bench-test
+3-player (Brick + Brick Pro + Smart Pro S) with ChuChu Rocket! — the
+lightest 4-player title — to answer the performance question before
+touching the wizard UI.
 
 ## Pre-launch options (Emulator Options / Emulator Settings)
 

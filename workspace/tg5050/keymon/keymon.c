@@ -100,11 +100,11 @@ static void* watchMute(void* arg) {
 			was_muted = is_muted;
 			SetMute(is_muted);
 			if (GetMute()) {
-				system("echo 32768 > /sys/class/motor/level");
+				system("echo 45875 > /sys/class/motor/level"); // 70% of 16-bit level (50% was imperceptible, tuned 2026-08-02)
 				usleep(100000);
 				system("echo 0 > /sys/class/motor/level");
 				usleep(100000);
-				system("echo 32768 > /sys/class/motor/level");
+				system("echo 45875 > /sys/class/motor/level"); // 70% of 16-bit level (50% was imperceptible, tuned 2026-08-02)
 				usleep(100000);
 				system("echo 0 > /sys/class/motor/level");
 			}
