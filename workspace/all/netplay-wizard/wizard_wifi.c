@@ -23,6 +23,7 @@
 #include "keyboard.h"
 #include "network_common.h"
 #include "ui_buttonhintbar.h"
+#include "utils.h" // app_quit — a caught signal must unwind the picker/scan loops
 #include "ui_list.h"
 #include "ui_message.h"
 #include "wifi_direct.h"
@@ -72,7 +73,7 @@ static void wiz_error(const char* message) {
 	while (SDL_GetTicks() - start < WIZ_ERROR_TIMEOUT_MS) {
 		GFX_startFrame();
 		PAD_poll();
-		if (PAD_justPressed(BTN_A) || PAD_justPressed(BTN_B))
+		if (PAD_justPressed(BTN_A) || PAD_justPressed(BTN_B) || app_quit)
 			break;
 		GFX_sync();
 	}
@@ -154,6 +155,8 @@ static bool wiz_wait_for_ip(int timeout_ms) {
 	for (int waited = 0; waited < timeout_ms; waited += 500) {
 		if (wiz_have_ip())
 			return true;
+		if (app_quit) // a caught signal must not sit out the full wait
+			return false;
 		SDL_Delay(500);
 	}
 	return wiz_have_ip();
@@ -313,6 +316,16 @@ int wiz_wifi_ensure_connected(WizSession* s) {
 
 	while (1) {
 		uint32_t now = SDL_GetTicks();
+
+		// A caught signal (e.g. a launcher tearing the wizard down with SIGTERM)
+		// must unwind here promptly rather than sit out the 120s timeout — same
+		// cleanup path as a B-press cancel. The rest of the wizard polls app_quit
+		// on this cadence; the picker loops were the one gap (leaving an orphaned
+		// hotspot AP / stray rsyncd reachable for up to two minutes).
+		if (app_quit) {
+			wiz_restore_connection(attempted);
+			return -2;
+		}
 
 		if (now - start_time > WIZ_PICKER_TIMEOUT_MS) {
 			wiz_restore_connection(attempted);
@@ -493,6 +506,11 @@ int wiz_hotspot_join(WizSession* s) {
 
 	while (!selected_ssid[0]) {
 		uint32_t now = SDL_GetTicks();
+
+		// A caught signal must unwind promptly instead of sitting out the timeout
+		// (same as a B-press cancel; see the WiFi picker above).
+		if (app_quit)
+			return -2;
 
 		// wizard: minarch scans once and gives up. This screen rescans, so the
 		// joiner can start first and wait for the host — but only for as long as

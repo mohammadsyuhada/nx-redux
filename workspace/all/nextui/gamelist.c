@@ -278,6 +278,170 @@ static void renameSweepDir(const char* dir, const char* oldbase, const char* new
 	closedir(dh);
 }
 
+// Rewrite or prune one line across every Collections/*.txt. Lines that exactly
+// match old_rel (an SD-relative path in the on-disk format addRomToCollectionFile
+// writes: leading '/', no SDCARD_PATH prefix) are replaced with new_rel, or
+// dropped when new_rel is NULL. Only files that actually change are rewritten,
+// via a .tmp + rename so a crash mid-write can't truncate a collection.
+static void updateCollectionLines(const char* old_rel, const char* new_rel) {
+	DIR* d = opendir(COLLECTIONS_PATH);
+	if (!d)
+		return;
+	struct dirent* dp;
+	while ((dp = readdir(d)) != NULL) {
+		if (!suffixMatch(".txt", dp->d_name))
+			continue;
+		char coll_path[MAX_PATH];
+		snprintf(coll_path, sizeof(coll_path), "%s/%s", COLLECTIONS_PATH, dp->d_name);
+
+		FILE* in = fopen(coll_path, "r");
+		if (!in)
+			continue;
+		char tmp_path[MAX_PATH];
+		snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", coll_path);
+		FILE* out = fopen(tmp_path, "w");
+		if (!out) {
+			fclose(in);
+			continue;
+		}
+
+		bool changed = false;
+		char line[MAX_PATH];
+		while (fgets(line, sizeof(line), in) != NULL) {
+			char trimmed[MAX_PATH];
+			strncpy(trimmed, line, sizeof(trimmed) - 1);
+			trimmed[sizeof(trimmed) - 1] = '\0';
+			normalizeNewline(trimmed);
+			trimTrailingNewlines(trimmed);
+			if (exactMatch(trimmed, old_rel)) {
+				changed = true;
+				if (new_rel)
+					fprintf(out, "%s\n", new_rel);
+				// new_rel == NULL: drop the line (delete)
+			} else {
+				fputs(line, out); // preserve the original line verbatim
+			}
+		}
+		fclose(in);
+		fclose(out);
+
+		if (changed)
+			rename(tmp_path, coll_path);
+		else
+			unlink(tmp_path);
+	}
+	closedir(d);
+}
+
+// Whether a map.txt (key<TAB>alias) has a display alias for `key` (a filename;
+// map.txt is keyed by filename, not path — see content.c Directory_index).
+static bool mapHasKey(const char* map_path, const char* key) {
+	FILE* f = fopen(map_path, "r");
+	if (!f)
+		return false;
+	bool found = false;
+	char line[MAX_PATH];
+	while (fgets(line, sizeof(line), f) != NULL) {
+		char work[MAX_PATH];
+		strncpy(work, line, sizeof(work) - 1);
+		work[sizeof(work) - 1] = '\0';
+		normalizeNewline(work);
+		trimTrailingNewlines(work);
+		char* tab = strchr(work, '\t');
+		if (tab) {
+			*tab = '\0';
+			if (exactMatch(work, key)) {
+				found = true;
+				break;
+			}
+		}
+	}
+	fclose(f);
+	return found;
+}
+
+// Upsert a display alias into a map.txt: rewrite `key`'s value to `value`, or
+// append the pair if absent. Atomic via .tmp + rename. Used when renaming an
+// aliased entry — the alias IS the shown name, so we edit it instead of the
+// file. No-op only if the parent dir is unwritable (fopen of .tmp fails).
+static void setMapAlias(const char* map_path, const char* key, const char* value) {
+	char tmp_path[MAX_PATH];
+	snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", map_path);
+	FILE* out = fopen(tmp_path, "w");
+	if (!out)
+		return;
+
+	bool replaced = false;
+	FILE* in = fopen(map_path, "r");
+	if (in) {
+		char line[MAX_PATH];
+		while (fgets(line, sizeof(line), in) != NULL) {
+			char work[MAX_PATH];
+			strncpy(work, line, sizeof(work) - 1);
+			work[sizeof(work) - 1] = '\0';
+			normalizeNewline(work);
+			trimTrailingNewlines(work);
+			char* tab = strchr(work, '\t');
+			if (tab) {
+				*tab = '\0';
+				if (exactMatch(work, key)) {
+					fprintf(out, "%s\t%s\n", key, value);
+					replaced = true;
+					continue;
+				}
+			}
+			fputs(line, out);
+		}
+		fclose(in);
+	}
+	if (!replaced)
+		fprintf(out, "%s\t%s\n", key, value);
+	fclose(out);
+	rename(tmp_path, map_path);
+}
+
+// Remove a basename-keyed alias line from a map.txt (key<TAB>alias). Used on
+// delete so a later file that reuses the name doesn't inherit the dead entry's
+// alias. No-op if the file or the key is absent.
+static void dropMapKey(const char* map_path, const char* key) {
+	FILE* in = fopen(map_path, "r");
+	if (!in)
+		return;
+	char tmp_path[MAX_PATH];
+	snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", map_path);
+	FILE* out = fopen(tmp_path, "w");
+	if (!out) {
+		fclose(in);
+		return;
+	}
+
+	bool changed = false;
+	char line[MAX_PATH];
+	while (fgets(line, sizeof(line), in) != NULL) {
+		char work[MAX_PATH];
+		strncpy(work, line, sizeof(work) - 1);
+		work[sizeof(work) - 1] = '\0';
+		normalizeNewline(work);
+		trimTrailingNewlines(work);
+		char* tab = strchr(work, '\t');
+		if (tab) {
+			*tab = '\0';
+			if (exactMatch(work, key)) {
+				changed = true;
+				continue; // drop the aliased line
+			}
+		}
+		fputs(line, out);
+	}
+	fclose(in);
+	fclose(out);
+
+	if (changed)
+		rename(tmp_path, map_path);
+	else
+		unlink(tmp_path);
+}
+
 // Real file rename of a ROM plus its art, saves and states, all keyed by the
 // ROM's base name (filename minus final extension). Returns the new full ROM
 // path in new_path (>= MAX_PATH), or false if the rename was rejected.
@@ -374,6 +538,38 @@ static bool renameRomFiles(Entry* entry, const char* newbase, char* new_path) {
 			renameSweepDir(states, oldbase, newbase);
 		}
 		closedir(ud);
+	}
+
+	// 6) collections store this ROM by path; a file rename must rewrite those
+	// lines or the game silently drops out (getCollection filters missing paths).
+	// Only reached for non-aliased entries (doRename routes aliased renames to
+	// the alias, leaving the file — and these paths — untouched), so there is no
+	// display alias to fix up here.
+	{
+		char old_line[MAX_PATH] = "";
+		char new_line[MAX_PATH] = "";
+
+		if (is_dir_game) {
+			// Collections store the resolved folder-named cue/m3u, not the
+			// folder itself; find which extension this game uses (post-rename).
+			const char* game_exts[] = {".cue", ".m3u"};
+			for (int i = 0; i < 2; i++) {
+				char cand[MAX_PATH];
+				snprintf(cand, sizeof(cand), "%s/%s/%s%s", dir, newbase, newbase, game_exts[i]);
+				if (exists(cand)) {
+					// both the folder segment and the basename change
+					snprintf(old_line, sizeof(old_line), "%s/%s/%s%s", dir, oldbase, oldbase, game_exts[i]);
+					snprintf(new_line, sizeof(new_line), "%s/%s/%s%s", dir, newbase, newbase, game_exts[i]);
+					break;
+				}
+			}
+		} else {
+			snprintf(old_line, sizeof(old_line), "%s/%s%s", dir, oldbase, ext);
+			snprintf(new_line, sizeof(new_line), "%s/%s%s", dir, newbase, ext);
+		}
+
+		if (old_line[0] && prefixMatch(SDCARD_PATH, old_line) && prefixMatch(SDCARD_PATH, new_line))
+			updateCollectionLines(old_line + strlen(SDCARD_PATH), new_line + strlen(SDCARD_PATH));
 	}
 
 	return true;
@@ -537,6 +733,10 @@ static void doAddToCollection(const char* rom_path) {
 	int pick = pickCollectionModal(collections);
 
 	if (pick == COLLECTION_PICK_NEW) {
+		// tg5050: release the DRM display before the external keyboard binary
+		// grabs it, then recover after — without the release, recoverDisplay is
+		// a no-op and the returning pageflip wedges black (mirrors Search_open)
+		DisplayHelper_prepareForExternal();
 		char* name = UIKeyboard_open("New collection name");
 		DisplayHelper_recoverDisplay();
 		if (name && strlen(name) > 0 && !strchr(name, '/')) {
@@ -558,15 +758,63 @@ static void doAddToCollection(const char* rom_path) {
 static void doRename(Entry* entry, int sel) {
 	char prompt[MAX_PATH];
 	snprintf(prompt, sizeof(prompt), "Rename: %s", entry->name);
+	// tg5050: release the DRM display before the external keyboard binary grabs
+	// it, then recover after — without the release, recoverDisplay is a no-op and
+	// the returning pageflip wedges the screen black (mirrors Search_open)
+	DisplayHelper_prepareForExternal();
 	char* newname = UIKeyboard_open(prompt);
 	DisplayHelper_recoverDisplay();
-	if (newname && strlen(newname) > 0 && !strchr(newname, '/')) {
+	if (!newname || strlen(newname) == 0) {
+		free(newname);
+		return;
+	}
+
+	// The shown name may come from a map.txt display alias rather than the
+	// filename. If so, the user is renaming what they SEE — the alias — so edit
+	// the alias (map.txt is keyed by filename; see content.c Directory_index) and
+	// leave the file, its saves/states/art and collection paths untouched.
+	// Aliases are keyed by basename:
+	//   list view  -> <rom dir>/map.txt keyed by the entry's own basename
+	//   collection -> Collections/map.txt keyed by the collection line's basename
+	//                 (the resolved cue/m3u for folder games)
+	char parent_dir[MAX_PATH];
+	strncpy(parent_dir, entry->path, sizeof(parent_dir) - 1);
+	parent_dir[sizeof(parent_dir) - 1] = '\0';
+	char* pslash = strrchr(parent_dir, '/');
+	char home_key[MAX_PATH];
+	strncpy(home_key, pslash ? pslash + 1 : parent_dir, sizeof(home_key) - 1);
+	home_key[sizeof(home_key) - 1] = '\0';
+	if (pslash)
+		*pslash = '\0';
+	char home_map[MAX_PATH];
+	char coll_map[MAX_PATH];
+	snprintf(home_map, sizeof(home_map), "%s/map.txt", parent_dir);
+	snprintf(coll_map, sizeof(coll_map), "%s/map.txt", COLLECTIONS_PATH);
+
+	char coll_key[MAX_PATH];
+	char game_file[MAX_PATH];
+	if (entryFolderGame(entry, game_file)) {
+		char* gslash = strrchr(game_file, '/');
+		strncpy(coll_key, gslash ? gslash + 1 : game_file, sizeof(coll_key) - 1);
+	} else {
+		strncpy(coll_key, home_key, sizeof(coll_key) - 1);
+	}
+	coll_key[sizeof(coll_key) - 1] = '\0';
+
+	if (mapHasKey(home_map, home_key) || mapHasKey(coll_map, coll_key)) {
+		// aliased: rename the display name in both maps; the file stays put, so
+		// saves/states/art/collection paths need no changes.
+		setMapAlias(home_map, home_key, newname);
+		setMapAlias(coll_map, coll_key, newname);
+		reloadDirectoryAt(stack->count - 1, sel);
+	} else if (!strchr(newname, '/')) {
+		// no alias: rename the real file (+ sweep collection paths / saves / states)
 		char new_path[MAX_PATH];
 		if (renameRomFiles(entry, newname, new_path))
 			reloadDirectoryAt(stack->count - 1, sel);
 	}
-	if (newname)
-		free(newname);
+
+	free(newname);
 }
 
 // Netplay-capable = the entry's owning emu pak ships a "netplay" marker
@@ -689,6 +937,30 @@ void GameList_runContextAction(int id) {
 					removeRecursive(parent_dir);
 				else
 					unlink(entry->path);
+				// prune the deleted game from any collection that lists it
+				// (folder games are stored as their resolved cue/m3u path)
+				const char* del_line = folder_game ? game_file : entry->path;
+				if (prefixMatch(SDCARD_PATH, del_line))
+					updateCollectionLines(del_line + strlen(SDCARD_PATH), NULL);
+				// drop its display alias too, so a future file that reuses the
+				// name doesn't inherit the dead entry's alias (mirrors rename)
+				{
+					char adir[MAX_PATH];
+					strncpy(adir, entry->path, sizeof(adir) - 1);
+					adir[sizeof(adir) - 1] = '\0';
+					char* aslash = strrchr(adir, '/');
+					const char* home_key = aslash ? aslash + 1 : adir;
+					const char* gslash = strrchr(del_line, '/');
+					const char* coll_key = gslash ? gslash + 1 : del_line;
+					char amap[MAX_PATH];
+					if (aslash) {
+						*aslash = '\0'; // adir -> parent dir; home_key still valid
+						snprintf(amap, sizeof(amap), "%s/map.txt", adir);
+						dropMapKey(amap, home_key);
+					}
+					snprintf(amap, sizeof(amap), "%s/map.txt", COLLECTIONS_PATH);
+					dropMapKey(amap, coll_key);
+				}
 				reloadDirectoryAt(stack->count - 1, sel);
 			}
 		}
@@ -824,11 +1096,9 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 				strncpy(items[idx].label, "Add to Collection", CONTEXTMENU_MAX_TEXT);
 				items[idx].id = 34;
 				idx++;
-				if (entryNetplayCapable(entry)) {
-					strncpy(items[idx].label, "Launch with Netplay", CONTEXTMENU_MAX_TEXT);
-					items[idx].id = 35;
-					idx++;
-				}
+				// Netplay launch lives on the Y button (with its own hint), so it
+				// intentionally has no context-menu entry; case 35 stays as the
+				// shared launch path the Y handler documents.
 				if (entryEmuOptionsCapable(entry)) {
 					strncpy(items[idx].label, "Emulator Options", CONTEXTMENU_MAX_TEXT);
 					items[idx].id = 36;
@@ -980,8 +1250,11 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 		return result;
 	} else if (total > 0 && PAD_justPressed(BTN_A)) {
 		if (settingsPinAllows(entry)) {
+			// snapshot before Entry_open: its directory fall-through can rebuild
+			// the stack and free entry (same defect the Y / case-35 sites guard)
+			bool was_dir = entry->type == ENTRY_DIR;
 			Entry_open(entry);
-			if (entry->type == ENTRY_DIR && !startgame) {
+			if (was_dir && !startgame) {
 				result.animdir = SLIDE_LEFT;
 			}
 		}

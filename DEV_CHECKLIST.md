@@ -49,41 +49,13 @@ wizard's host-AP hotspot dropped RTT to ~1–2 ms. The 3-way-split limit is **GP
 on device: Brick cpu2/cpu3 idle, ~45 fps vs the host's 60, server ~6 % CPU / ~68 s input ring
 (relay ruled out). See the README for the full why.
 
-### Deploy (all 3 devices)
-
-- [x] Push the rebuilt `netplay.elf` (both platforms: tg5040 + tg5050), the N64.pak
-      `launch.sh`, and `nx_netplay_map.awk` to each device and md5 source-vs-destination
-      for every file: tg5040 Brick, tg5050 Smart Pro, tg5040 Brick Pro. _(2026-08-02:
-      deployed + md5-verified on Brick, Brick Pro, Smart Pro; Brick Pro was a fresh
-      pre-netplay build and got the full N64.pak set + shared `netplay.elf`.)_
-- [x] Copy the MK64 ROM to the Brick Pro (fresh device) as done for the Smart Pro. _(present)_
-
 ### 2-player — VERIFIED on hardware 2026-08-01 (Brick host ↔ Smart Pro joiner)
 
-- [x] Same ROM on host + one joiner (Mario Kart 64): the game shows **"2P Game"**, and
-      **each kart is controllable from its own device**. _(confirmed after the Control1
-      mapping correction; player 2 was dead until then)_
-- [x] `n64-netplay-server.txt` shows **no** `DESYNC` lines. _(confirmed)_
-- [x] Playable steady-state with the Brick hosting, after the perf tuning (pinning + 1×
-      render + hi-res off + `--buffer-target 2`). _(2026-08-02: smooth, buffer health ~1–3
-      vs ~74–144 before the fix; without tuning the Brick lagged/desynced cyclically)_
-- [x] **Brick as *joiner* (Smart Pro host) is also fine** — ~0.5 s felt latency, no drift.
-      _(2026-08-02 isolation test; this is the 2-way-split case that stays within GPU budget)_
 - [ ] The joiner's **real** save dir stays untouched (staged writes only). _(mapping/route
       verified; a real in-game save-write byte check still to do)_
 
 ### 3-player — hardware-tested 2026-08-02 (Smart Pro host + Brick + Brick Pro)
 
-- [x] Host + 2 joiners. The host's wait screen shows `Players connected: X / up to 4`
-      ticking up to **2** joiners; the host presses **A** to start. _(confirmed)_
-- [x] Player numbers assign **1 / 2 / 3** by join order. _(confirmed via seat registrations)_
-- [x] `n64-netplay-server.txt` shows the server launched with `--players 3`, three seat
-      registrations (lead seat 1/2/3 all appear), and **no** `DESYNC` lines. _(confirmed)_
-- [x] **Result: GPU-bound on the Bricks, not a netplay problem.** Host (Smart Pro) smooth;
-      both Bricks drift seconds behind on the 3-way split. Ruled out: server (~6 % CPU, ~68 s
-      ring, ~1–2 ms RTT on host-AP hotspot), CPU (Brick cpu2/cpu3 idle), network (RTT fine).
-      Confirmed GPU: Brick renders ~45 fps while fed 60; lowering GPU settings further did not
-      recover it. **3-player is smooth only with a Smart-Pro-class GPU on every seat.**
 - [ ] Re-test 3-player once ≥3 Smart-Pro-class devices are available (should be smooth).
 
 ### Backward-compat regression (shared wizard, `--max-players` default 2)
@@ -110,101 +82,6 @@ on device: Brick cpu2/cpu3 idle, ~45 fps vs the host's 60, server ~6 % CPU / ~68
 > are plugged (verified: single-player shows all four with only `Control1` plugged). The
 > presence mapping controls which seats actually *respond*, not what the menu shows; there is
 > no emulator-side fix. Cosmetic and harmless.
-
----
-
-## N64 Netplay: mupen64plus via the pre-launch wizard (built 2026-08-01)
-
-**Status:** server + `NETPLAY=1` core + ui-console `--netplay` flags + `N64.pak`
-`launch.sh` wiring all built and staged; off-device server tests pass. **Core netplay
-path verified on hardware 2026-08-01** (tg5040 Brick ↔ tg5050 Smart Pro, adb-automated,
-see below); wizard-UI-driven and human-judgment items still manual. Design:
-`docs/superpowers/specs/2026-08-01-n64-netplay-design.md`; usage + architecture recap in
-`workspace/all/other/mupen64plus/README.md` ("Netplay").
-
-Session model: host = seat 1 (protocol source of truth for saves **and** core settings,
-plays on real saves), joiner = seat 2 (receives host saves/settings in-memory, in-game
-writes staged to `netplay-data/mupen64plus/save/` so real saves stay untouched). Port
-55445 (TCP+UDP). Logs: `$LOGS_PATH/netplay-wizard.txt`, `$LOGS_PATH/n64-netplay-server.txt`.
-
-### Automated verification (adb, 2026-08-01, tg5040 192.168.1.15 ↔ tg5050 192.168.1.18)
-
-Method: real `launch.sh` driven with a stub `netplay.elf` on `PATH` that seeds
-`/tmp/netplay_session` — exercises the full server + core-netplay + save/settings relay +
-launch.sh wiring, bypassing **only** the shared, unchanged wizard menu UI (no `sendevent`
-on device). nextui SIGSTOP/CONT for display handoff.
-
-**PASS:**
-- Deploy + md5 (all 5 files/platform match), and on-device sanity: core 9 netplay strings,
-  ui-console `--netplay`, `m64p-server.elf` listens TCP+UDP 55445.
-- Single-player regression: MK64 boots on the new `NETPLAY=1` core (GLideN64 1024×768), **no**
-  netplay path runs (no server/wizard logs).
-- Two-device session (LAN/WiFi): server registered **P1 + P2**, settings synced, **all four
-  save types relayed** (`.mpk`/`.eep`/`.fla`/`.sra`), UDP input relay active (buffer_size
-  adjusting, lead alternating), **zero DESYNC** over ~65 s, both cores ran sustained.
-- Start gate held host at P1 until P2 registered.
-- Client save isolation: joiner **real** save dir stayed empty (untouched); staging dir
-  `netplay-data/mupen64plus/save/` created.
-- Mid-session peer drop: server logged `player 2 disconnected (notice)`, **host survived**.
-- Teardown: no orphan `mupen64plus`/`m64p-server.elf`, nextui resumed both devices.
-
-**Still requires manual/on-device (needs the real wizard UI or human judgment):**
-nextui `Y`-launch + wizard Host/Join navigation; **Hotspot** mode + WiFi-restore; a real
-in-game save write (host real-save byte update + joiner staged bytes); controller-response
-feel + input-lag/frame-pacing judgment over ≥5 min; wizard cancel-at-each-step.
-
-### Deploy (both devices)
-
-- [x] Push changed `N64.pak` files to each device and md5 source-vs-destination for every
-      one: `libmupen64plus.so.2`, `mupen64plus`, `m64p-server.elf`, `launch.sh`, `netplay`
-      (marker file). Do the per-platform builds per device (tg5040 → Brick, tg5050 → Smart
-      Pro S); GLideN64 `.so` is shared/unchanged. _(automated 2026-08-01, md5 verified)_
-
-### Single-player regression (each device, do first)
-
-- [ ] Plain **A-launch** of an N64 game: boots, saves in-game, quits, resumes.
-- [x] No netplay code path ran — `$LOGS_PATH` has **no** `netplay-wizard.txt` /
-      `n64-netplay-server.txt` from this launch. _(automated: MK64 booted, no netplay logs)_
-
-### Two-player session — WiFi mode
-
-- [ ] Same ROM on both (Mario Kart 64): host `Y` → Host, joiner `Y` → Join → picks host.
-      Both enter gameplay; **both controllers respond**.
-- [ ] Play ≥ 5 minutes.
-- [x] `n64-netplay-server.txt` shows buffer-size adjustments and **no** `DESYNC` lines.
-      _(automated: P1+P2 registered, buffer_size adjusted, 0 desync over ~65 s; note: ran
-      ~1 min, not the ≥5 min above — rerun longer with real input for the full sign-off)_
-
-### Two-player session — Hotspot mode
-
-- [ ] Repeat the two-player session via the wizard's hotspot path.
-- [ ] After the session, WiFi is restored on **both** devices (cleanup contract).
-
-### Save semantics
-
-- [x] md5 the **joiner's real** save dir (`N64-mupen64plus/data/mupen64plus/save/`) before
-      and after a session where the game saves — **must be unchanged**. _(automated: real dir
-      stayed empty; idle session drove no in-game write — rerun with a real save for byte proof)_
-- [x] The staged copy appeared under `netplay-data/mupen64plus/save/`. _(automated: dir created
-      by the joiner's `SaveSRAMPath` redirect)_
-- [ ] The **host's real** save updated.
-- [ ] Repeat with an **EEPROM** title (`.eep`) and an **SRAM/FlashRAM** title
-      (`.sra`/`.fla`) for save-relay extension coverage.
-
-### Failure paths
-
-- [ ] Cancel the wizard at **each step** on **each** side → clean return to the game list;
-      no stray `m64p-server.elf` process (`ps | grep m64p-server`).
-- [x] Quit mid-session on one device → the other side shows the core's disconnect handling,
-      both return to the list, server process gone. _(automated: joiner dropped → server logged
-      `player 2 disconnected (notice)`, host survived, clean teardown no orphan server)_
-- [ ] Stale `/tmp/netplay_session` + a plain (non-Y) launch → no netplay runs.
-
-### Feel / lag check
-
-- [ ] Sustained play for input-lag / frame-pacing judgment.
-- [ ] If laggy, retest with `--buffer-target 1` (edit `launch.sh` on-device) and record the
-      verdict for the shipped default.
 
 ---
 
@@ -474,39 +351,3 @@ widget tile. None of them block bring-up.
 - Don't push an `.elf` over a running copy — stop the pak first. Only `nextui`/`minarch`
   need a reboot after pushing; other paks just need to not be running.
 - Never `killall nextui` on device: the `kill -9` path powers the unit off.
-
----
-
-## Thread-pinning `taskset` now actually works — re-verify everything that uses it
-
-**Status:** fixed and merged to `main` 2026-07-27 (`99985dec`, PR #56 — task 11 fix round).
-tg5050 (Smart Pro S) fully verified (native `taskset`, PS.pak probe, DC.pak + N64.pak
-pinning — evidence in `.superpowers/sdd/2026-07-26-flycast-dc-pak/n64-tg5050-report.md`).
-Only the Brick N64.pak re-verify remains.
-
-`skeleton/SYSTEM/shared/bin/taskset` — the binary every pak's `taskset` calls resolved
-to via `PATH` — was a `-static` build that aborted with `FATAL: kernel too old` on the
-Brick's real 4.9.191 kernel. Every call site wraps `taskset` in `2>/dev/null`, so this
-failure was completely silent: **every existing thread-pinning call in the repo has
-been a no-op on tg5040 this whole time**, not just for DC.pak. Fixed by dropping
-`-static` from `workspace/all/taskset/Makefile` and shipping working, platform-specific,
-dynamically-linked binaries at `skeleton/SYSTEM/{tg5040,tg5050}/bin/taskset` (which
-shadow the old shared path via existing `PATH` ordering — no call-site changes needed).
-The old shared binary was deleted this round, so **there is no fallback anymore** if a
-platform's `taskset` turns out to be broken on some device.
-
-- [ ] **N64.pak pinning on Brick, with pinning actually active** — re-verify audio/perf
-      with real affinity applied. The masks and the thread-name heuristic
-      (`skeleton/SYSTEM/tg5040/paks/Emus/N64.pak/launch.sh:100,108,127`) were written and
-      shipped blind, against a `taskset` that always silently failed; they were never
-      exercised for real until this fix, the same way DC.pak's pinning was
-      evidence-gated by direct measurement (task-11 report) before shipping.
-      **Known gap, measured on Smart Pro S 2026-07-27 (reproduced twice, incl. a real
-      user session):** the "pin the busiest `mupen64plus`-named thread" heuristic only
-      pins ONE of the (at least) two non-main threads named `mupen64plus`; the other is
-      left on the unrestricted 0-7 mask. Measured impact is small: its load is bursty
-      init/loading work (~3.6% during boot, ~0% in live gameplay), and since NxRedux only
-      brings cpu0-1/4(/5) online (8-core silicon run as effective 4-core by boot policy),
-      "unrestricted" still lands it on the contended cores. The fix (pin unmatched threads
-      to LITTLE by default) is written up in `DEV_TODO.md` and should land with this
-      re-verify, so it ships measured rather than blind.

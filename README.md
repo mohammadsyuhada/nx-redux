@@ -89,7 +89,6 @@ New Features:
     - Delete a game.
     - Remove a game from `Recently Played`.
     - Refresh the ROMs list.
-    - Launch game with Netplay
     - Edit per game emulator options
 - Added jostick and calibration feature in `Input` app
 - Added `Device Sync` to sync game saves, states, user settings, and ROMs (optional) across devices. 
@@ -115,13 +114,13 @@ New Features:
     - Support for high resolution textures (with limitations due to 1GB RAM)
         - Place Rice-format texture packs in `Roms/Nintendo 64 (N64)/.hires_texture/<ROM NAME>/`, where `<ROM NAME>` is the ROM's **internal header name** (e.g. `MARIOKART64`), not its filename. To find it, run the game once and look for the `Core: Name:` line in `.userdata/<platform>/logs/N64.txt`.
         - On the game's first launch the pack is converted into a cache in `Roms/Nintendo 64 (N64)/.cache/` with an on-screen progress display — large packs take several minutes and need extra free space on the SD card (e.g. a 2.6 GB pack produces a ~450 MB cache). Later launches load straight from the cache and start fast.
-    - Netplay with up to 4 players for Nintendo 64 games: press `Y` on a supported game in the list (or use the "Launch with Netplay" option) to host or join over Wi-Fi or a device-hosted hotspot — no manual IP entry, no persistent toggle to remember to turn back off, and save data is synced automatically before the match starts.
+    - Netplay with up to 4 players for Nintendo 64 games: press `Y` on a supported game in the list to host or join over Wi-Fi or a device-hosted hotspot — no manual IP entry, no persistent toggle to remember to turn back off, and save data is synced automatically before the match starts.
 - Bundled `Flycast Sega Dreamcast` emulator.
     - Runs out of the box without a BIOS (HLE boot); drop `dc_boot.bin` into `Bios/DC/` on the SD card to boot through the real BIOS instead.
-    - GGPO netplay for Dreamcast games: press `Y` on a supported game in the list (or use the "Launch with Netplay" option) to host or join over Wi-Fi or a device-hosted hotspot — no manual IP entry, no persistent toggle to remember to turn back off, and save data is synced automatically before the match starts.
+    - GGPO netplay for Dreamcast games: press `Y` on a supported game in the list to host or join over Wi-Fi or a device-hosted hotspot — no manual IP entry, no persistent toggle to remember to turn back off, and save data is synced automatically before the match starts.
 - Bundled `Portmaster` in the Tools.
     - Configured by default with Nintendo input layout (configurable)
-- Added [Netplay](https://github.com/mohammadsyuhada/nextui-netplay) for local wireless multiplayer, available from the in-game menu.
+- Added [Netplay](https://github.com/mohammadsyuhada/nextui-netplay) for local wireless multiplayer.
     - Host or join over a regular Wi-Fi network, or let the host device start its own hotspot (no router needed).
     - `GB Link` support for Game Boy (gambatte) — link cable games like Pokémon trades and battles.
     - `GBA Link` support for Game Boy Advance (gpSP) — wireless adapter and link cable games.

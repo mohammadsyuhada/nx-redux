@@ -6,8 +6,13 @@ ROM="$1"
 
 mkdir -p "$SAVES_PATH/$EMU_TAG"
 
-# BIG cluster: cpu4-5 (Cortex-A55, 2160 MHz)
+# BIG cluster: cpu4-7 (Cortex-A55, 2160 MHz). Bring the whole cluster online so
+# each mupen64plus worker gets its own BIG core (see the pinning block below).
+# The cpufreq policy is cluster-shared (related_cpus = 4-7), so the governor and
+# freq caps set on cpu4 apply to all four.
 echo 1 >/sys/devices/system/cpu/cpu5/online 2>/dev/null
+echo 1 >/sys/devices/system/cpu/cpu6/online 2>/dev/null
+echo 1 >/sys/devices/system/cpu/cpu7/online 2>/dev/null
 echo performance >/sys/devices/system/cpu/cpu4/cpufreq/scaling_governor
 echo 2160000 >/sys/devices/system/cpu/cpu4/cpufreq/scaling_max_freq
 echo 1992000 >/sys/devices/system/cpu/cpu4/cpufreq/scaling_min_freq
@@ -185,8 +190,13 @@ if [ -f /tmp/netplay_launch ]; then
         # dynarec thread runs on the big cpu4 and the GLideN64 video thread on
         # the big cpu5 (pinned below); an unpinned server preempting those
         # stalls emulation and delays even the host's own input (it round-trips
-        # through this local 127.0.0.1 server). cpu2-3 are free LITTLE cores
-        # here, so the relay gets its own cores clear of emu/video and audio.
+        # through this local 127.0.0.1 server). cpu2-3 are LITTLE cores clear of
+        # emu/video (BIG) and audio/mali (cpu0-1), but the top-of-script online
+        # block only brings the BIG cluster up, so bring them online here first —
+        # else taskset's mask is all-offline and sched_setaffinity fails EINVAL,
+        # silently leaving the relay on the full 0-1,4-7 mask (incl. cpu4/cpu5).
+        echo 1 >/sys/devices/system/cpu/cpu2/online 2>/dev/null
+        echo 1 >/sys/devices/system/cpu/cpu3/online 2>/dev/null
         taskset -p 0xc "$NETPLAY_SERVER_PID" 2>/dev/null || true
         NETPLAY_ARGS="--netplay 127.0.0.1 $NX_NETPLAY_PORT --netplay-player $NX_PLAYER"
     else
@@ -238,22 +248,33 @@ for TID in $(ls /proc/$EMU_PID/task/ 2>/dev/null); do
     esac
 done
 
-# Find the busiest non-main mupen64plus thread (video thread) and pin to cpu5
+# Pin EVERY non-main mupen64plus worker thread (GLideN64 video + helpers) to its
+# own BIG core, round-robin across cpu5/6/7, keeping BIG cpu4 exclusively for the
+# main CPU-emulation/dynarec thread. Unlike the tg5040 twin (single A53 cluster,
+# where all workers share the one video core), the tg5050 has a 4-core BIG
+# cluster, so we spread the workers instead of co-locating them. The old "find
+# the single busiest thread and pin it" heuristic ranked by a 2 s utime-only
+# snapshot and could pick the wrong (light) thread, leaving a heavy worker on the
+# full online-CPU mask (incl. cpu4) to steal dynarec cycles — tolerable in
+# single-player but, under netplay, the extra sync work plus the intruding worker
+# pushed the slower peer behind the sync buffer (cyclic lag/catch-up). Round-robin
+# is snapshot-independent: whichever worker is heavy lands on a dedicated 2160 MHz
+# core regardless of spawn order. Non-mupen-named threads (SDL/mali helpers on
+# cpu0-1 above, transient "Netplay key request" threads) are left as they are.
 sleep 2
-BEST_TID=""
-BEST_UTIME=0
+i=0
 for TID in $(ls /proc/$EMU_PID/task/ 2>/dev/null); do
     [ "$TID" = "$EMU_PID" ] && continue
     TNAME=$(cat /proc/$EMU_PID/task/$TID/comm 2>/dev/null)
     [ "$TNAME" = "mupen64plus" ] || continue
-    UTIME=$(awk '{print $14}' /proc/$EMU_PID/task/$TID/stat 2>/dev/null)
-    UTIME=${UTIME:-0}
-    if [ "$UTIME" -gt "$BEST_UTIME" ]; then
-        BEST_UTIME=$UTIME
-        BEST_TID=$TID
-    fi
+    case $((i % 3)) in
+        0) BIG_MASK=0x20 ;;  # cpu5
+        1) BIG_MASK=0x40 ;;  # cpu6
+        2) BIG_MASK=0x80 ;;  # cpu7
+    esac
+    taskset -p "$BIG_MASK" "$TID" 2>/dev/null
+    i=$((i + 1))
 done
-[ -n "$BEST_TID" ] && taskset -p 0x20 "$BEST_TID" 2>/dev/null  # mask 0x20 = cpu5
 
 wait $EMU_PID
 killall sleepmon.elf 2>/dev/null || true
