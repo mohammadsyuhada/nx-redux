@@ -1466,6 +1466,7 @@ void Menu_loadState(void) {
 	Menu_updateState();
 
 	if (menu.save_exists) {
+		int disc_changed = 0;
 		if (menu.total_discs && menu.disc >= 0) {
 			char slot_disc_name[256];
 			getFile(menu.txt_path, slot_disc_name, 256);
@@ -1479,12 +1480,20 @@ void Menu_loadState(void) {
 			char* disc_path = menu.disc_paths[menu.disc];
 			if (!exactMatch(slot_disc_path, disc_path)) {
 				Game_changeDisc(slot_disc_path);
+				disc_changed = 1;
 			}
 		}
 
 		state_slot = menu.slot;
 		putInt(menu.slot_path, menu.slot);
-		int success = State_read();
+		int success;
+		if (disc_changed) {
+			// The pre-load state belongs to the disc that was just ejected.
+			State_invalidateUndo();
+			success = State_read();
+		} else {
+			success = State_readWithUndo();
+		}
 		Rewind_on_state_change();
 
 		// Show notification if enabled
@@ -1494,6 +1503,20 @@ void Menu_loadState(void) {
 			snprintf(msg, sizeof(msg), success ? "State Loaded - Slot %d" : "Load Failed - Slot %d", menu.slot + 1);
 			Notification_push(NOTIFICATION_LOAD_STATE, msg, NULL);
 		}
+	}
+}
+
+void Menu_undoLoadState(void) {
+	// Deserializing state during multiplayer breaks the active connection.
+	if (Multiplayer_isActive())
+		return;
+
+	int success = State_undoLoad();
+
+	// Hardcore mode emits its own achievement notification.
+	if (CFG_getNotifyLoad() && !RA_isHardcoreModeActive()) {
+		Notification_push(NOTIFICATION_LOAD_STATE,
+						  success ? "Load State Undone" : "Nothing To Undo", NULL);
 	}
 }
 
@@ -1625,6 +1648,12 @@ void Menu_loop(void) {
 		if (PAD_justPressed(BTN_B) || (BTN_WAKE != BTN_MENU && PAD_tappedMenu(now))) {
 			status = STATUS_CONT;
 			show_menu = 0;
+		} else if (PAD_justPressed(BTN_X)) {
+			if (!mp_active && selected == ITEM_LOAD && State_hasUndo()) {
+				Menu_undoLoadState();
+				status = STATUS_LOAD;
+				show_menu = 0;
+			}
 		} else if (PAD_justPressed(BTN_A)) {
 			switch (selected) {
 			case ITEM_CONT:
@@ -1693,7 +1722,10 @@ void Menu_loop(void) {
 
 			UI_renderMenuBar(screen, rom_name);
 
-			UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "SELECT", NULL});
+			if (!mp_active && selected == ITEM_LOAD && State_hasUndo())
+				UI_renderButtonHintBar(screen, (char*[]){"X", "UNDO LOAD", "B", "BACK", "A", "LOAD", NULL});
+			else
+				UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "SELECT", NULL});
 
 			// list
 			int oy = (((DEVICE_HEIGHT / FIXED_SCALE) - PADDING * 2) - (MENU_ITEM_COUNT * PILL_SIZE)) / 2;
