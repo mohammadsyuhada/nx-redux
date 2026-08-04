@@ -483,8 +483,6 @@ int State_undoLoad(void) {
 
 	free(current_state);
 	fast_forward = was_ff;
-	if (success)
-		Rewind_on_state_change();
 	return success;
 }
 
