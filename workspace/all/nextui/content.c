@@ -1,4 +1,5 @@
 #include <dirent.h>
+#include <sys/stat.h>
 #include "recents.h"
 #include "defines.h"
 #include "utils.h"
@@ -366,6 +367,47 @@ int isConsoleDir(char* path) {
 ///////////////////////////////////////
 // Content retrieval
 
+// The caches persist across boots, so they are only trusted while nothing
+// they were built from has changed: the console dirs under Roms (rom
+// add/remove bumps the dir mtime), Roms/map.txt (console aliases), and the
+// Emus pak roots consulted by hasEmu (pak add/remove). In-app mutations go
+// through Content_invalidateEmulist and don't rely on this check.
+static int cacheIsStale(const char* cache_path) {
+	struct stat st;
+	if (stat(cache_path, &st) != 0)
+		return 1;
+	time_t cache_mtime = st.st_mtime;
+
+	static const char* const source_paths[] = {
+		ROMS_PATH,
+		ROMS_PATH "/map.txt",
+		PAKS_PATH "/Emus",
+		SDCARD_PATH "/Emus",
+		SDCARD_PATH "/Emus/" PLATFORM,
+	};
+	for (size_t i = 0; i < sizeof(source_paths) / sizeof(source_paths[0]); i++) {
+		if (stat(source_paths[i], &st) == 0 && st.st_mtime > cache_mtime)
+			return 1;
+	}
+
+	DIR* dh = opendir(ROMS_PATH);
+	if (!dh)
+		return 1;
+	struct dirent* dp;
+	char path[MAX_PATH];
+	while ((dp = readdir(dh)) != NULL) {
+		if (hide(dp->d_name))
+			continue;
+		snprintf(path, sizeof(path), "%s/%s", ROMS_PATH, dp->d_name);
+		if (stat(path, &st) == 0 && S_ISDIR(st.st_mode) && st.st_mtime > cache_mtime) {
+			closedir(dh);
+			return 1;
+		}
+	}
+	closedir(dh);
+	return 0;
+}
+
 static void writeRomsCache(Array* entries) {
 	FILE* file = fopen(EMULIST_CACHE_PATH, "w");
 	if (!file)
@@ -381,6 +423,14 @@ static void writeRomsCache(Array* entries) {
 }
 
 static Array* readRomsCache(void) {
+	if (cacheIsStale(EMULIST_CACHE_PATH))
+		return NULL;
+	// Both caches are written together by getRoms; a missing rom index with a
+	// valid emulist would satisfy the menu but leave Search permanently empty,
+	// so force the full rebuild that restores both.
+	if (!exists(ROMINDEX_CACHE_PATH))
+		return NULL;
+
 	FILE* file = fopen(EMULIST_CACHE_PATH, "r");
 	if (!file)
 		return NULL;
@@ -423,6 +473,9 @@ static void writeRomIndexCache(Array* entries) {
 }
 
 static Array* readRomIndexCache(void) {
+	if (cacheIsStale(ROMINDEX_CACHE_PATH))
+		return NULL;
+
 	FILE* file = fopen(ROMINDEX_CACHE_PATH, "r");
 	if (!file)
 		return NULL;

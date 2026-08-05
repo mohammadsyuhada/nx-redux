@@ -1391,8 +1391,8 @@ static void refresh_emulist(void) {
 static SettingItem* restore_osd_item = NULL;
 
 static void restore_stock_osd(void) {
-	if (!run_confirm_dialog("Restore stock OSD?",
-							"Puts the console's built-in OSD files back to factory state."))
+	if (!run_confirm_dialog("Restore stock files?",
+							"Returns the console's built-in OSD files and any NX boot patches to factory state."))
 		return;
 
 	const char* device = getenv("DEVICE");
@@ -1404,7 +1404,7 @@ static void restore_stock_osd(void) {
 	int rc = system(cmd);
 	if (restore_osd_item)
 		restore_osd_item->desc = (rc == 0)
-									 ? "Done! Stock OSD files restored."
+									 ? "Done! Stock files restored."
 									 : "Restore failed.";
 }
 
@@ -1614,7 +1614,7 @@ static void build_menu_tree(const DeviceInfo* dev) {
 
 	if (has_stock_osd_restore(dev)) {
 		system_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
-			"Restore stock OSD", "Restores the console's factory OSD files. The NX OSD is unaffected.",
+			"Restore stock files", "Restores the console's factory OSD files and reverts NX boot patches, if any. The NX OSD is unaffected.",
 			restore_stock_osd);
 		restore_osd_item = &system_items[idx - 1];
 	}

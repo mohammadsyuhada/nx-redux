@@ -56,10 +56,9 @@ export IS_NEXT="yes"
 
 #######################################
 
-# taken from stock launch sequence
-sync
-echo 3 > /proc/sys/vm/drop_caches
-sync
+# NOTE: stock's launch sequence did `sync + drop_caches` here; deliberately
+# not carried over — evicting the page cache right before nextui (the biggest
+# reader of the boot) made everything reload cold and slowed boot down.
 
 #5V enable
 # echo 335 > /sys/class/gpio/export
@@ -144,6 +143,19 @@ keymon.elf & # &> $SDCARD_PATH/keymon.txt &
 
 # /etc writes below (wifi init script) still need a writable rootfs
 mount -o remount,rw /
+
+# One-time rootfs patch: stop stock rcS from starting sshd. launch.sh fully
+# owns sshd via the sshOnBoot setting (below), and the stock start blocked
+# every boot ~1.8s waiting on kernel entropy — only for tg5050.sh to kill it
+# again. Original rcS is kept as rcS.nxbak; restore-to-stock puts it back.
+if ! grep -q nx_skip_stock_sshd /etc/init.d/rcS; then
+	cp -f /etc/init.d/rcS /etc/init.d/rcS.nxbak
+	sed -i '/\[ ! -f "\$i" \] && continue/a\
+\
+     # nx_skip_stock_sshd: sshd is managed by MinUI.pak/launch.sh (sshOnBoot\
+     # setting); the stock start blocked boot ~1.8s waiting on kernel entropy.\
+     [ "${i##*/}" = "S50sshd" ] && continue' /etc/init.d/rcS
+fi
 
 OSD_DST="/usr/trimui/osd"
 OSD_SRC="$SYSTEM_PATH/osd"

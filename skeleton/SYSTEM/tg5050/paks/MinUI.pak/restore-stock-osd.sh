@@ -2,6 +2,7 @@
 # Restore the stock /usr/trimui/osd on the rootfs from the SD card's pristine
 # per-model archive (shipped at $SYSTEM_PATH/osd-stock/$DEVICE.zip, extracted
 # from the model's recovery image, minus regular.ttf which NX never touches).
+# Also reverts the nx_skip_stock_sshd boot-time patch in /etc/init.d/rcS.
 #
 # The live OSD is unaffected: it is served from the SD card through the
 # read-only overlay mount, so this only cleans what sits underneath. While
@@ -37,6 +38,25 @@ UNZIP_BIN="$SDCARD/.tmp_update/tg5050/unzip"
 
 # boot already left / rw; re-assert in case the boot flow ever changes
 mount -o remount,rw / 2> /dev/null
+
+# Revert the nx_skip_stock_sshd boot patch in /etc/init.d/rcS (applied every
+# boot by MinUI.pak/launch.sh). Prefer the pristine backup; fall back to
+# stripping the tagged lines so a missing backup can't leave the patch
+# behind. Runs before the OSD work on purpose: even if the unzip below
+# fails, the boot script is already back to stock, and the revert is
+# idempotent across retries. Note the next NX boot re-applies the patch —
+# restoring to stock only sticks if the card is removed afterwards.
+if grep -q nx_skip_stock_sshd /etc/init.d/rcS 2> /dev/null; then
+	if [ -f /etc/init.d/rcS.nxbak ] && ! grep -q nx_skip_stock_sshd /etc/init.d/rcS.nxbak; then
+		cp -f /etc/init.d/rcS.nxbak /etc/init.d/rcS
+	else
+		sed -i -e '/nx_skip_stock_sshd/d' \
+			-e '/waiting on kernel entropy/d' \
+			-e '/"S50sshd" \] && continue/d' /etc/init.d/rcS
+	fi
+	chmod 755 /etc/init.d/rcS
+fi
+rm -f /etc/init.d/rcS.nxbak
 
 REAL="$OSD_DST"
 BIND=""
