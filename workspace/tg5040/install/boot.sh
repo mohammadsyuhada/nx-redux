@@ -50,8 +50,10 @@ echo schedutil > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
 echo 408000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq
 echo 2000000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
 
-# Remove stock loading splash
-sed -i '/^\/usr\/sbin\/pic2fb \/etc\/splash.png/d' /etc/init.d/runtrimui
+# Remove stock loading splash (one-time: skip the rootfs rewrite once gone)
+if grep -q '^/usr/sbin/pic2fb /etc/splash.png' /etc/init.d/runtrimui; then
+	sed -i '/^\/usr\/sbin\/pic2fb \/etc\/splash.png/d' /etc/init.d/runtrimui
+fi
 
 ##Remove Old Led Daemon
 if [ -f "/etc/LedControl" ]; then

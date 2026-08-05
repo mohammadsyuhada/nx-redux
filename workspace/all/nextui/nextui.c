@@ -28,6 +28,24 @@
 #include "recents.h"
 #include "types.h"
 
+// Boot-phase stamps into the same file the launch scripts write, so a slow
+// boot can be attributed (script phase vs GFX init vs content scan vs first
+// frame) straight from /tmp/nextui_boottime on the device.
+static void bootStamp(const char* tag) {
+	FILE* file = fopen("/tmp/nextui_boottime", "a");
+	if (!file)
+		return;
+	char uptime[64] = "?";
+	FILE* up = fopen("/proc/uptime", "r");
+	if (up) {
+		if (fgets(uptime, sizeof(uptime), up))
+			trimTrailingNewlines(uptime);
+		fclose(up);
+	}
+	fprintf(file, "nextui %s %s\n", tag, uptime);
+	fclose(file);
+}
+
 Directory* top;
 Array* stack; // DirectoryArray
 
@@ -84,9 +102,11 @@ int main(int argc, char* argv[]) {
 	simple_mode = exists(SIMPLE_MODE_PATH);
 	Content_setSimpleMode(simple_mode);
 
+	bootStamp("start");
 	InitSettings();
 
 	screen = GFX_init(MODE_MAIN);
+	bootStamp("after gfx init");
 
 	PAD_init();
 	VIB_init();
@@ -96,6 +116,7 @@ int main(int argc, char* argv[]) {
 
 	initImageLoaderPool();
 	Menu_init();
+	bootStamp("after menu init");
 	GameSwitcher_init();
 	int lastScreen = SCREEN_OFF;
 	int currentScreen = CFG_getDefaultView();
@@ -108,8 +129,9 @@ int main(int argc, char* argv[]) {
 		lastScreen = SCREEN_GAME;
 
 	// make sure we have no running games logged as active anymore (we might be
-	// launching back into the UI here)
-	system("gametimectl.elf stop_all");
+	// launching back into the UI here) — backgrounded: it finishes long before
+	// a human can navigate to a game, and waiting on it held up the first frame
+	system("gametimectl.elf stop_all &");
 
 	GFX_setVsync(VSYNC_STRICT);
 
@@ -339,8 +361,14 @@ int main(int argc, char* argv[]) {
 				GFX_clearLayers(LAYER_SCROLLTEXT);
 				ContextMenu_render(screen);
 			}
-			if (!startgame) // dont flip if game gonna start
+			if (!startgame) { // dont flip if game gonna start
 				GFX_flip(screen);
+				static bool first_frame_stamped = false;
+				if (!first_frame_stamped) {
+					first_frame_stamped = true;
+					bootStamp("first frame");
+				}
+			}
 
 			if (tmpOldScreen)
 				SDL_FreeSurface(tmpOldScreen);

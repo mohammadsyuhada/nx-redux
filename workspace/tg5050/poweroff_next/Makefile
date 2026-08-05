@@ -26,8 +26,7 @@ CC = $(CROSS_COMPILE)gcc
 # Override CFLAGS and LDFLAGS to not include SDL2 dependencies
 CFLAGS = $(OPT) -g -std=gnu11 -Wall -Wextra
 CFLAGS += $(INCDIR) -DPLATFORM=\"$(PLATFORM)\"
-# tg5040 cuts power at the AXP2202 PMIC over I2C (limbo-bug workaround)
-CFLAGS += -DHAS_AXP2202_POWEROFF
+# No HAS_AXP2202_POWEROFF here: tg5050 powers off via the reboot syscall
 LDFLAGS = -lpthread -ldl
 
 PRODUCT = build/$(PLATFORM)/$(TARGET).elf

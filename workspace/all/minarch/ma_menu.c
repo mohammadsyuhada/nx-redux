@@ -1300,7 +1300,10 @@ static void Menu_scale(SDL_Surface* src, SDL_Surface* dst) {
 void Menu_initState(void) {
 	if (exists(menu.slot_path))
 		menu.slot = getInt(menu.slot_path);
-	if (menu.slot == RESUME_SLOT_DEFAULT)
+	// The slot file may point at a hidden slot: RESUME_SLOT_DEFAULT (8) or the
+	// AUTO_RESUME_SLOT (9) that a plain quit writes to. Neither is user-visible
+	// in the Save/Load menu, so snap back to a regular slot (0-7) for the UI.
+	if (menu.slot >= MENU_SLOT_COUNT)
 		menu.slot = 0;
 
 	menu.save_exists = 0;
