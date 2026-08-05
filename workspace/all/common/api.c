@@ -2668,7 +2668,13 @@ FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 		pad.is_pressed = BTN_NONE;
 		SDL_Event drain;
 		while (SDL_PollEvent(&drain))
-			;
+			// SDL_QUIT must not be swallowed by the drain: SDL synthesizes it
+			// from SIGTERM exactly once, and the OSD's power widget kills us
+			// while its show-flag still exists (the hide is asynchronous).
+			// Dropping it here strands the app until the widget's 10s
+			// poweroff fallback fires.
+			if (drain.type == SDL_QUIT)
+				PWR_powerOff(0);
 		return;
 	}
 
