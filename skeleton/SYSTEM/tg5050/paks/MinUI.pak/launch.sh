@@ -29,7 +29,7 @@ export HOME="$USERDATA_PATH"
 #######################################
 
 if [ -f "/tmp/poweroff" ]; then
-	poweroff
+	poweroff_next
 	exit 0
 fi
 if [ -f "/tmp/reboot" ]; then
@@ -243,7 +243,7 @@ while [ -f $EXEC_PATH ]; do
 	fi
 
 	if [ -f "/tmp/poweroff" ]; then
-		poweroff
+		poweroff_next
 		exit 0
 	fi
 	if [ -f "/tmp/reboot" ]; then
@@ -252,4 +252,4 @@ while [ -f $EXEC_PATH ]; do
 	fi
 done
 
-poweroff # just in case
+poweroff_next # just in case

@@ -1606,7 +1606,7 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		"Use extracted file name", "Use the extracted file name instead of the archive name.",
 		on_off_labels, 2, on_off_values, get_use_extracted_filename, set_use_extracted_filename, reset_use_extracted_filename);
 
-	if (dev->platform == PLAT_TG5040) {
+	if (dev->platform == PLAT_TG5040 || dev->platform == PLAT_TG5050) {
 		system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 			"Safe poweroff", "Bypasses the stock shutdown procedure to avoid the \"limbo bug\".",
 			on_off_labels, 2, on_off_values, get_power_off_protection, set_power_off_protection, reset_power_off_protection);

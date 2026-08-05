@@ -143,10 +143,8 @@ endif
 	cp ./workspace/all/sync/build/$(PLATFORM)/sync.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Device\ Sync.pak/
 	cp ./workspace/all/scraper/build/$(PLATFORM)/scraper.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Artwork\ Manager.pak/
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
-ifeq ($(PLATFORM), tg5040)
-	# Limbo fix
+	# Fast shutdown (and limbo fix on tg5040)
 	cp ./workspace/$(PLATFORM)/poweroff_next/build/$(PLATFORM)/poweroff_next.elf ./build/SYSTEM/$(PLATFORM)/bin/poweroff_next
-endif
 	# Audio resampling
 	cp ./workspace/all/minarch/build/$(PLATFORM)/libsamplerate.* ./build/SYSTEM/$(PLATFORM)/lib/
 

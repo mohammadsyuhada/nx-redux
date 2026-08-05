@@ -255,7 +255,6 @@ void PLAT_powerOff(int reboot) {
 		VIB_singlePulse(VIB_bootStrength, VIB_bootDuration_ms);
 	}
 	system("rm -f /tmp/nextui_exec && sync");
-	sleep(2);
 
 	SetRawVolume(MUTE_VOLUME_RAW);
 	PLAT_enableBacklight(0);
