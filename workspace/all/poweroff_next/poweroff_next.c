@@ -5,7 +5,9 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#ifdef HAS_AXP2202_POWEROFF
 #include <linux/i2c-dev.h>
+#endif
 #include <linux/reboot.h>
 #include <mntent.h>
 #include <signal.h>
@@ -26,11 +28,24 @@
 #include "platform.h"
 #include "config.h"
 
+#ifdef HAS_AXP2202_POWEROFF
 #define I2C_DEVICE "/dev/i2c-6"
 #define AXP2202_ADDR 0x34
+#endif
 #define LOG_FILE "/root/powerofflog.txt"
 
 static FILE* log_fp = NULL;
+
+// SDCARD_PATH resolved through symlinks: on tg5050 /mnt/SDCARD is a symlink to
+// /mnt/sdcard/mmcblk1p1, and that real path is what /proc/mounts and
+// /proc/<pid>/fd targets contain. On tg5040 they are the same string.
+static char sdcard_path[PATH_MAX] = SDCARD_PATH;
+
+static void resolve_sdcard_path(void) {
+	char resolved[PATH_MAX];
+	if (realpath(SDCARD_PATH, resolved))
+		snprintf(sdcard_path, sizeof(sdcard_path), "%s", resolved);
+}
 
 static void log_msg(const char* format, ...) {
 	va_list args;
@@ -76,14 +91,52 @@ static void kill_processes(int sig) {
 	closedir(proc);
 }
 
+// Userspace processes only: kernel threads and zombies have an empty
+// /proc/<pid>/cmdline and ignore SIGTERM/SIGKILL, so they never count.
+static int count_userspace_processes(void) {
+	pid_t self = getpid();
+	DIR* proc = opendir("/proc");
+	if (!proc)
+		return -1;
+
+	int count = 0;
+	struct dirent* entry;
+	while ((entry = readdir(proc)) != NULL) {
+		if (!isdigit((unsigned char)entry->d_name[0]))
+			continue;
+
+		pid_t pid = (pid_t)strtol(entry->d_name, NULL, 10);
+		if (pid <= 1 || pid == self)
+			continue;
+
+		char path[64];
+		snprintf(path, sizeof(path), "/proc/%d/cmdline", (int)pid);
+		int fd = open(path, O_RDONLY | O_CLOEXEC);
+		if (fd < 0)
+			continue; // exited between readdir and open
+
+		char c;
+		ssize_t n = read(fd, &c, 1);
+		close(fd);
+		if (n > 0)
+			count++;
+	}
+
+	closedir(proc);
+	return count;
+}
+
 static void kill_all_processes(void) {
 	kill_processes(SIGTERM);
 
-	struct timespec ts = {
-		.tv_sec = 2,
-		.tv_nsec = 0, // 2 seconds - give processes time to exit
-	};
-	nanosleep(&ts, NULL);
+	// Give processes up to 2s to exit, but move on as soon as they're gone —
+	// on a typical shutdown everything is dead within a few hundred ms.
+	struct timespec step = {.tv_sec = 0, .tv_nsec = 50000000}; // 50ms
+	for (int i = 0; i < 40; ++i) {
+		nanosleep(&step, NULL);
+		if (count_userspace_processes() == 0)
+			break;
+	}
 
 	kill_processes(SIGKILL);
 }
@@ -182,7 +235,7 @@ static void kill_sdcard_users(void) {
 				continue;
 
 			target[len] = '\0';
-			if (strncmp(target, SDCARD_PATH, strlen(SDCARD_PATH)) == 0) {
+			if (strncmp(target, sdcard_path, strlen(sdcard_path)) == 0) {
 				kill(pid, SIGKILL);
 				break;
 			}
@@ -204,7 +257,7 @@ static bool is_sdcard_mounted(void) {
 
 	struct mntent* ent;
 	while ((ent = getmntent(fp)) != NULL) {
-		if (strcmp(ent->mnt_dir, SDCARD_PATH) == 0) {
+		if (strcmp(ent->mnt_dir, sdcard_path) == 0) {
 			mounted = true;
 			break;
 		}
@@ -216,26 +269,30 @@ static bool is_sdcard_mounted(void) {
 
 static bool unmount_sdcard_with_retries(void) {
 	for (int attempt = 0; attempt < 3; ++attempt) {
-		safe_umount(SDCARD_PATH, MNT_FORCE | MNT_DETACH);
+		safe_umount(sdcard_path, MNT_FORCE | MNT_DETACH);
 
-		struct timespec wait = {.tv_sec = 0, .tv_nsec = 800000000};
-		nanosleep(&wait, NULL);
-
-		if (!is_sdcard_mounted())
-			return true;
+		// MNT_DETACH usually takes effect immediately — check right away and
+		// poll up to 800ms rather than sleeping the full window every time.
+		struct timespec step = {.tv_sec = 0, .tv_nsec = 100000000}; // 100ms
+		for (int i = 0; i < 8; ++i) {
+			if (!is_sdcard_mounted())
+				return true;
+			nanosleep(&step, NULL);
+		}
 
 		kill_sdcard_users();
 		sync();
 	}
 
 	if (is_sdcard_mounted()) {
-		log_msg("poweroff_next: Failed to unmount %s after retries.\n", SDCARD_PATH);
+		log_msg("poweroff_next: Failed to unmount %s after retries.\n", sdcard_path);
 		return false;
 	}
 
 	return true;
 }
 
+#ifdef HAS_AXP2202_POWEROFF
 static int axp2202_write_reg(int fd, uint8_t reg, uint8_t value) {
 	uint8_t buffer[2] = {reg, value};
 	ssize_t bytes = write(fd, buffer, sizeof(buffer));
@@ -280,6 +337,7 @@ static int execute_axp2202_poweroff(void) {
 
 	return ret;
 }
+#endif // HAS_AXP2202_POWEROFF
 
 static int run_poweroff_protection(void) {
 	kill_sdcard_users();
@@ -295,14 +353,22 @@ static int run_poweroff_protection(void) {
 
 	sync();
 
-	struct timespec pre_pmic_wait = {.tv_sec = 0, .tv_nsec = 500000000};
+	// sync() above is synchronous; a short settle before the power cut
+	// is plenty.
+	struct timespec pre_pmic_wait = {.tv_sec = 0, .tv_nsec = 100000000};
 	nanosleep(&pre_pmic_wait, NULL);
 
+#ifdef HAS_AXP2202_POWEROFF
+	// tg5040: cut power at the PMIC directly — the kernel poweroff path is
+	// what causes the "limbo bug" there.
 	if (execute_axp2202_poweroff() != 0) {
 		log_msg("poweroff_next: PMIC shutdown sequence failed.\n");
 		return -1;
 	}
+#endif
 
+	// Other platforms power off cleanly via the reboot syscall (the same
+	// call busybox poweroff ends in, minus its slow init teardown).
 	finalize_poweroff();
 
 	return 0;
@@ -314,7 +380,7 @@ static void run_standard_shutdown(void) {
 	swapoff_all();
 
 	safe_umount("/etc/profile", MNT_FORCE);
-	safe_umount(SDCARD_PATH, MNT_DETACH);
+	safe_umount(sdcard_path, MNT_DETACH);
 
 	finalize_poweroff();
 }
@@ -334,6 +400,10 @@ int main(void) {
 	sigaddset(&block_set, SIGINT);
 	sigaddset(&block_set, SIGHUP);
 	sigprocmask(SIG_BLOCK, &block_set, NULL);
+
+	// Must happen before anything unmounts the SD card (realpath needs the
+	// live symlink), and before CFG_init reads settings off it.
+	resolve_sdcard_path();
 
 	CFG_init(NULL, NULL);
 
