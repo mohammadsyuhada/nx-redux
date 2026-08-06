@@ -32,13 +32,11 @@ void render_menu(SDL_Surface* screen, IndicatorType show_setting, int menu_selec
 // Main menu controls (A/B shown in footer)
 static const ControlHelp main_menu_controls[] = {
 	{"Up/Down", "Navigate"},
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // File browser controls (A/B shown in footer)
 static const ControlHelp browser_controls[] = {
 	{"Up/Down", "Navigate"},
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // IPTV user channel list controls
@@ -46,18 +44,15 @@ static const ControlHelp iptv_list_controls[] = {
 	{"Up/Down", "Navigate"},
 	{"Y", "Browse Channels"},
 	{"X", "Remove Channel"},
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // IPTV curated browse controls
 static const ControlHelp iptv_curated_controls[] = {
 	{"Up/Down", "Navigate"},
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // Generic/default controls
 static const ControlHelp default_controls[] = {
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // Render controls help dialog overlay

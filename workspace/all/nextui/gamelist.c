@@ -1254,8 +1254,10 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 			unlink(NETPLAY_LAUNCH_PATH);
 		*dirty = true;
 	}
-	// START to search at root (was Y; pin/unpin lives in the context menu)
-	else if (stack->count == 1 && PAD_justReleased(BTN_START)) {
+	// START to search at root (was Y; pin/unpin lives in the context menu).
+	// Use a tap, not a raw release: holding START + volume is the color-temp
+	// combo (BTN_MOD_COLORTEMP), and that release must not open search.
+	else if (stack->count == 1 && PAD_tappedStart(now)) {
 		if (Search_open()) {
 			result.screen = SCREEN_SEARCH;
 			result.animdir = SLIDE_LEFT;

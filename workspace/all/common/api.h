@@ -511,6 +511,7 @@ static inline int PAD_navigateMenu(int* selected, int count) {
 
 int PAD_tappedMenu(uint32_t now);	   // special case, returns 1 on release of BTN_MENU within 250ms if BTN_PLUS/BTN_MINUS haven't been pressed
 int PAD_tappedSelect(uint32_t now);	   // special case, returns 1 on release of BTN_SELECT within 250ms if BTN_PLUS/BTN_MINUS haven't been pressed
+int PAD_tappedStart(uint32_t now);	   // special case, returns 1 on release of BTN_START within 250ms if BTN_PLUS/BTN_MINUS haven't been pressed
 int PAD_longPressedMenu(uint32_t now); // returns 1 once when BTN_MENU held >= 500ms without BTN_PLUS/BTN_MINUS
 
 ///////////////////////////////

@@ -2668,7 +2668,13 @@ FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 		pad.is_pressed = BTN_NONE;
 		SDL_Event drain;
 		while (SDL_PollEvent(&drain))
-			;
+			// SDL_QUIT must not be swallowed by the drain: SDL synthesizes it
+			// from SIGTERM exactly once, and the OSD's power widget kills us
+			// while its show-flag still exists (the hide is asynchronous).
+			// Dropping it here strands the app until the widget's 10s
+			// poweroff fallback fires.
+			if (drain.type == SDL_QUIT)
+				PWR_powerOff(0);
 		return;
 	}
 
@@ -3084,25 +3090,38 @@ int PAD_justRepeated(int btn) {
 	return pad.just_repeated & btn;
 }
 
-int PAD_tappedBtn(int btn, uint32_t now) {
+// Per-button tap state is passed in by each wrapper so the buttons don't share
+// statics — GameList_handleInput() tap-checks several in the same frame.
+static int PAD_tappedBtn(int btn, uint32_t now, uint32_t* press_start, int* ignore) {
 #define MENU_DELAY 250 // also in PWR_update()
-	static uint32_t menu_start = 0;
-	static int ignore_menu = 0;
 	if (PAD_justPressed(btn)) {
-		ignore_menu = 0;
-		menu_start = now;
-	} else if (PAD_isPressed(btn) && BTN_MOD_BRIGHTNESS == btn && (PAD_justPressed(BTN_MOD_PLUS) || PAD_justPressed(BTN_MOD_MINUS))) {
-		ignore_menu = 1;
+		*ignore = 0;
+		*press_start = now;
+	} else if (PAD_isPressed(btn) && (btn == BTN_MOD_BRIGHTNESS || btn == BTN_MOD_COLORTEMP) && (PAD_justPressed(BTN_MOD_PLUS) || PAD_justPressed(BTN_MOD_MINUS))) {
+		// A volume press while the brightness/colortemp modifier is held makes this
+		// an adjustment combo, so the eventual release is not a "tap". (Disabled
+		// modifiers are BTN_NONE == 0, which never equals a real button bit.)
+		*ignore = 1;
 	}
-	return (!ignore_menu && PAD_justReleased(btn) && now - menu_start < MENU_DELAY);
+	return (!*ignore && PAD_justReleased(btn) && now - *press_start < MENU_DELAY);
 }
 
 int PAD_tappedMenu(uint32_t now) {
-	return PAD_tappedBtn(BTN_MENU, now);
+	static uint32_t press_start = 0;
+	static int ignore = 0;
+	return PAD_tappedBtn(BTN_MENU, now, &press_start, &ignore);
 }
 
 int PAD_tappedSelect(uint32_t now) {
-	return PAD_tappedBtn(BTN_SELECT, now);
+	static uint32_t press_start = 0;
+	static int ignore = 0;
+	return PAD_tappedBtn(BTN_SELECT, now, &press_start, &ignore);
+}
+
+int PAD_tappedStart(uint32_t now) {
+	static uint32_t press_start = 0;
+	static int ignore = 0;
+	return PAD_tappedBtn(BTN_START, now, &press_start, &ignore);
 }
 
 int PAD_longPressedMenu(uint32_t now) {
@@ -3302,11 +3321,12 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 	bool dirty = _dirty ? *_dirty : false;
 	IndicatorType show_setting = _show_setting ? *_show_setting : INDICATOR_NONE;
 
-	static uint32_t last_input_at = 0;	   // timestamp of last input (autosleep)
-	static uint32_t checked_charge_at = 0; // timestamp of last time checking charge
-	static uint32_t setting_shown_at = 0;  // timestamp when settings started being shown
-	static uint32_t power_pressed_at = 0;  // timestamp when power button was just pressed
-	static uint32_t mod_unpressed_at = 0;  // timestamp of last time brightness modifier was NOT held
+	static uint32_t last_input_at = 0;		  // timestamp of last input (autosleep)
+	static uint32_t checked_charge_at = 0;	  // timestamp of last time checking charge
+	static uint32_t setting_shown_at = 0;	  // timestamp when settings started being shown
+	static uint32_t power_pressed_at = 0;	  // timestamp when power button was just pressed
+	static uint32_t mod_unpressed_at = 0;	  // timestamp of last time brightness modifier was NOT held
+	static uint32_t colortemp_pressed_at = 0; // timestamp of the color-temperature modifier's press edge
 	static uint32_t was_muted = -1;
 	if (was_muted == -1 && InitializedSettings())
 		was_muted = GetMute();
@@ -3371,6 +3391,18 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 	if (!BTN_MOD_BRIGHTNESS || !PAD_isPressed(BTN_MOD_BRIGHTNESS)) {
 		mod_unpressed_at = now;
 	}
+	// Color-temperature modifier: time the hold from its press edge, not from the
+	// last frame it was not held — so holding it alone still shows the indicator/
+	// hint after MOD_DELAY like brightness does. The media/music players consume
+	// the START button (they open a controls modal on it) and skip PWR_update on
+	// those frames, so a "not held" counter would go stale and flash the indicator
+	// when PWR_update later resumes with START still down. Keying off justPressed
+	// means the hold only counts when PWR_update actually observed the press.
+	if (PAD_justPressed(BTN_MOD_COLORTEMP)) {
+		colortemp_pressed_at = now;
+	} else if (!BTN_MOD_COLORTEMP || !PAD_isPressed(BTN_MOD_COLORTEMP)) {
+		colortemp_pressed_at = 0;
+	}
 
 	// Hide the setting overlay after a delay, or immediately when modifier is released
 #define SETTING_DELAY 500
@@ -3386,8 +3418,10 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 	int plus_minus_active = PAD_isPressed(BTN_MOD_PLUS) || PAD_isPressed(BTN_MOD_MINUS);
 	int plus_minus_repeated = PAD_justRepeated(BTN_MOD_PLUS) || PAD_justRepeated(BTN_MOD_MINUS);
 	int brightness_long_held = brightness_held && now - mod_unpressed_at >= MOD_DELAY;
+	int colortemp_long_held = colortemp_held && colortemp_pressed_at && now - colortemp_pressed_at >= MOD_DELAY;
 	if (
 		(brightness_long_held) ||
+		(colortemp_long_held) ||
 		(brightness_held && plus_minus_active) ||
 		(colortemp_held && plus_minus_active) ||
 		((!BTN_MOD_VOLUME || !BTN_MOD_BRIGHTNESS || !BTN_MOD_COLORTEMP) && plus_minus_repeated)) {

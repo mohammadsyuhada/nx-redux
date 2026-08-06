@@ -48,6 +48,7 @@
 #include "ui_menubar.h"
 #include "ui_message.h"
 #include "ui_splash.h"
+#include "ui_quitrequest.h"
 
 // --entry pairs accepted in picker mode; extras are reported and dropped.
 // A card carrying every minarch EXTRAS pak plus DC/N64 plus the 7 BASE paks
@@ -492,6 +493,11 @@ static void run_editor(const char* title, bool per_game) {
 	while (!done) {
 		GFX_startFrame();
 		PAD_poll();
+		// MENU + SELECT exits (same combo as in-game and the other pak tools).
+		bool req_quit = false;
+		UI_handleQuitRequest(screen, &req_quit, &dirty, "Exit Emulator Settings?", NULL);
+		if (req_quit)
+			done = true;
 		PWR_update(&dirty, &show_setting, NULL, NULL);
 
 		if (UI_statusBarChanged())

@@ -468,6 +468,7 @@ int main(int argc, char* argv[]) {
 
 			// Clear FF/rewind state if multiplayer is now active
 			if (Multiplayer_isActive()) {
+				State_invalidateUndo();
 				fast_forward = setFastForward(0);
 				ff_toggled = 0;
 				ff_hold_active = 0;
@@ -512,6 +513,7 @@ finish:
 	RA_quit();
 
 	Game_close();
+	State_freeUndo();
 	Rewind_free();
 	Core_unload();
 	Core_quit();

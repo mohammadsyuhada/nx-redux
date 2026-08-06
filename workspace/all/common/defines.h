@@ -40,8 +40,12 @@
 #define RESUME_SLOT_PATH "/tmp/resume_slot.txt"
 #define NETPLAY_LAUNCH_PATH "/tmp/netplay_launch"
 #define NOUI_PATH "/tmp/noui"
-#define EMULIST_CACHE_PATH "/tmp/emulist_cache.txt"
-#define ROMINDEX_CACHE_PATH "/tmp/romindex_cache.txt"
+// Persisted (not /tmp) so a cold boot renders the menu without rescanning
+// Roms; content.c revalidates against source mtimes before trusting them.
+// Per-platform because the console list depends on which emu paks this
+// platform ships (hasRoms → hasEmu).
+#define EMULIST_CACHE_PATH USERDATA_PATH "/emulist_cache.txt"
+#define ROMINDEX_CACHE_PATH USERDATA_PATH "/romindex_cache.txt"
 // Owned by the OSD LED toggle (osd/widgets/toggle_led/set.sh): while this file
 // exists, LEDS_setProfile forces LIGHT_PROFILE_OFF so app startup and profile
 // changes (charging, sleep, ambient) don't relight LEDs the user switched off.

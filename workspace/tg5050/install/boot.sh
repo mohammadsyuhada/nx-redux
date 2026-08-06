@@ -10,8 +10,6 @@ SYSTEM_PATH="$SDCARD_PATH/.system"
 export LD_LIBRARY_PATH=/usr/trimui/lib:$LD_LIBRARY_PATH
 export PATH=/usr/trimui/bin:$PATH
 
-TRIMUI_MODEL=`strings /usr/trimui/bin/MainUI | grep ^Trimui`
-
 echo 1 > /sys/class/drm/card0-DSI-1/rotate
 echo 1 > /sys/class/drm/card0-DSI-1/force_rotate
 
@@ -46,8 +44,10 @@ fi
 
 echo after splash `cat /proc/uptime` >> /tmp/nextui_boottime
 
-# Remove stock loading splash
-sed -i '/^\/usr\/trimui\/bin\/sdl2display \/usr\/trimui\/bin\/splash.png \&/d' /mnt/SDCARD/.tmp_update/tg5050.sh
+# Remove stock loading splash (one-time: skip the sd-card rewrite once gone)
+if grep -q '^/usr/trimui/bin/sdl2display /usr/trimui/bin/splash.png &' /mnt/SDCARD/.tmp_update/tg5050.sh; then
+	sed -i '/^\/usr\/trimui\/bin\/sdl2display \/usr\/trimui\/bin\/splash.png \&/d' /mnt/SDCARD/.tmp_update/tg5050.sh
+fi
 
 echo schedutil > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
 echo schedutil > /sys/devices/system/cpu/cpu4/cpufreq/scaling_governor

@@ -166,6 +166,9 @@ void input_poll_callback(void) {
 				case SHORTCUT_LOAD_STATE:
 					Menu_loadState();
 					break;
+				case SHORTCUT_UNDO_LOAD_STATE:
+					Menu_undoLoadState();
+					break;
 				case SHORTCUT_SCREENSHOT:
 					Menu_screenshot();
 					break;

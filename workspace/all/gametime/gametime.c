@@ -11,6 +11,7 @@
 #include "ui_emptystate.h"
 #include "ui_menubar.h"
 #include "ui_splash.h"
+#include "ui_quitrequest.h"
 #include "utils.h"
 
 #include <sqlite3.h>
@@ -333,6 +334,11 @@ int main(int argc, char* argv[]) {
 	while (!app_quit) {
 		GFX_startFrame();
 		PAD_poll();
+		// MENU + SELECT exits (same combo as in-game and the other pak tools).
+		bool req_quit = false;
+		UI_handleQuitRequest(screen, &req_quit, &dirty, "Exit Game Tracker?", NULL);
+		if (req_quit)
+			app_quit = true;
 
 		if (confirm_delete) {
 			if (PAD_justPressed(BTN_A)) {

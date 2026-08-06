@@ -19,6 +19,7 @@
 #include "ui_menubar.h"
 #include "ui_message.h"
 #include "ui_splash.h"
+#include "ui_quitrequest.h"
 #include "utils.h"
 
 // Sync configuration
@@ -1034,6 +1035,11 @@ int main(int argc, char* argv[]) {
 	while (!app_quit) {
 		GFX_startFrame();
 		PAD_poll();
+		// MENU + SELECT exits (same combo as in-game and the other pak tools).
+		bool req_quit = false;
+		UI_handleQuitRequest(screen, &req_quit, &dirty, "Exit Device Sync?", NULL);
+		if (req_quit)
+			app_quit = true;
 		PWR_update(&dirty, &show_setting, NULL, NULL);
 
 		if (UI_statusBarChanged())

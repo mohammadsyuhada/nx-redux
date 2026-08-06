@@ -389,6 +389,116 @@ error:
 	return success;
 }
 
+///////////////////////////////////////
+
+// Keep the state from immediately before the last successful manual load in
+// memory. Undo swaps this snapshot with the current state, so invoking it a
+// second time returns to the state that was originally loaded.
+static uint8_t* undo_state = NULL;
+static size_t undo_state_size = 0;
+static int undo_state_valid = 0;
+
+static int State_captureUndo(void) {
+	size_t state_size = core.serialize_size();
+	if (!state_size)
+		return 0;
+
+	if (state_size != undo_state_size) {
+		uint8_t* buffer = realloc(undo_state, state_size);
+		if (!buffer) {
+			LOG_error("Couldn't allocate memory for undo state\n");
+			return 0;
+		}
+		undo_state = buffer;
+		undo_state_size = state_size;
+	}
+
+	if (!core.serialize(undo_state, undo_state_size)) {
+		LOG_error("Error serializing undo state\n");
+		return 0;
+	}
+
+	return 1;
+}
+
+int State_readWithUndo(void) {
+	// Let State_read emit the standard Hardcore notification without doing
+	// unnecessary serialization or replacing an existing undo snapshot.
+	if (RA_isHardcoreModeActive())
+		return State_read();
+
+	int captured = State_captureUndo();
+	int success = State_read();
+	undo_state_valid = captured && success;
+	return success;
+}
+
+int State_hasUndo(void) {
+	if (RA_isHardcoreModeActive() || !undo_state_valid)
+		return 0;
+
+	// Some cores can change their serialized-state size at runtime. Once that
+	// happens, the snapshot is no longer safe even if the size later changes
+	// back to its previous value.
+	if (undo_state_size != core.serialize_size()) {
+		undo_state_valid = 0;
+		return 0;
+	}
+
+	return 1;
+}
+
+int State_undoLoad(void) {
+	// Undoing is another state load, so it follows the same Hardcore rule.
+	if (RA_isHardcoreModeActive()) {
+		LOG_info("Undo load blocked - hardcore mode active\n");
+		Notification_push(NOTIFICATION_ACHIEVEMENT, "Load states disabled in Hardcore mode", NULL);
+		return 0;
+	}
+
+	if (!State_hasUndo())
+		return 0;
+
+	int was_ff = fast_forward;
+	fast_forward = 0;
+
+	// Preserve the current state so another undo swaps back to it. If this
+	// allocation or serialization fails, the first undo can still succeed, but
+	// there will be no redo snapshot.
+	uint8_t* current_state = malloc(undo_state_size);
+	if (current_state && !core.serialize(current_state, undo_state_size)) {
+		free(current_state);
+		current_state = NULL;
+	}
+
+	int success = core.unserialize(undo_state, undo_state_size);
+	if (!success) {
+		LOG_error("Error restoring undo state\n");
+		undo_state_valid = 0;
+	} else if (current_state) {
+		memcpy(undo_state, current_state, undo_state_size);
+	} else {
+		undo_state_valid = 0;
+	}
+
+	free(current_state);
+	fast_forward = was_ff;
+	return success;
+}
+
+void State_invalidateUndo(void) {
+	undo_state_valid = 0;
+}
+
+void State_freeUndo(void) {
+	free(undo_state);
+	undo_state = NULL;
+	undo_state_size = 0;
+	undo_state_valid = 0;
+}
+
+///////////////////////////////////////
+
 void State_autosave(void) {
 	int last_state_slot = state_slot;
 	state_slot = AUTO_RESUME_SLOT;

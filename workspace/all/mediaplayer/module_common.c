@@ -4,19 +4,14 @@
 #include "audio_manager.h"
 #include "module_common.h"
 #include "ui_confirmdialog.h"
+#include "ui_quitrequest.h"
 #include "ui_toast.h"
 #include "ui_main.h"
 
 static bool autosleep_disabled = false;
 
 // Dialog states
-static bool show_quit_confirm = false;
 static bool show_controls_help = false;
-
-// START button long press detection
-static uint32_t start_press_time = 0;
-static bool start_was_pressed = false;
-#define START_LONG_PRESS_MS 500
 
 // Overlay state tracking - force hide after button release
 static bool overlay_buttons_were_active = false;
@@ -37,9 +32,7 @@ void ModuleCommon_tickToast(char* message, uint32_t toast_time, bool* dirty) {
 
 void ModuleCommon_init(void) {
 	autosleep_disabled = false;
-	show_quit_confirm = false;
 	show_controls_help = false;
-	start_was_pressed = false;
 	overlay_buttons_were_active = false;
 	overlay_release_time = 0;
 }
@@ -47,33 +40,44 @@ void ModuleCommon_init(void) {
 GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorType* show_setting, int app_state) {
 	GlobalInputResult result = {false, false, false};
 
-	// Handle quit confirmation dialog
-	if (show_quit_confirm) {
-		if (PAD_justPressed(BTN_A)) {
-			show_quit_confirm = false;
-			result.input_consumed = true;
+	// Quit on MENU + SELECT via the shared confirm dialog — the same combo the
+	// pak tools and in-game minarch use. UI_handleQuitRequest runs its own
+	// blocking A/B dialog and only fires on the chord, so it's a no-op most
+	// frames.
+	{
+		bool want_quit = false, dlg_dirty = false;
+		UI_handleQuitRequest(screen, &want_quit, &dlg_dirty, "Quit Media Player?", NULL);
+		if (want_quit) {
 			result.should_quit = true;
-			return result;
-		} else if (PAD_justPressed(BTN_B) || PAD_justPressed(BTN_START)) {
-			show_quit_confirm = false;
 			result.input_consumed = true;
-			result.dirty = true;
 			return result;
 		}
-		// Dialog is shown, consume input and render (covers entire screen)
-		UI_renderConfirmDialog(screen, "Quit Media Player?", NULL);
-		GFX_flip(screen);
+		if (dlg_dirty) {
+			result.dirty = true;
+			result.input_consumed = true;
+			return result;
+		}
+	}
+
+	// MENU tap toggles the controls-help modal. A long MENU press is the OSD
+	// (handled globally by keymon); PAD_tappedMenu only fires on a short release,
+	// so the two don't collide.
+	if (PAD_tappedMenu(SDL_GetTicks())) {
+		show_controls_help = !show_controls_help;
+		GFX_clearLayers(LAYER_SCROLLTEXT);
+		PLAT_GPU_Flip();
 		result.input_consumed = true;
+		result.dirty = true;
 		return result;
 	}
 
-	// Handle controls help dialog - press any button to close
+	// Controls help modal — any button except MENU (the toggle above) closes it.
 	if (show_controls_help) {
 		if (PAD_justPressed(BTN_A) || PAD_justPressed(BTN_B) || PAD_justPressed(BTN_X) ||
 			PAD_justPressed(BTN_Y) || PAD_justPressed(BTN_START) || PAD_justPressed(BTN_SELECT) ||
 			PAD_justPressed(BTN_UP) || PAD_justPressed(BTN_DOWN) ||
 			PAD_justPressed(BTN_LEFT) || PAD_justPressed(BTN_RIGHT) ||
-			PAD_justPressed(BTN_L1) || PAD_justPressed(BTN_R1) || PAD_justPressed(BTN_MENU)) {
+			PAD_justPressed(BTN_L1) || PAD_justPressed(BTN_R1)) {
 			show_controls_help = false;
 			result.input_consumed = true;
 			result.dirty = true;
@@ -82,43 +86,6 @@ GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorT
 		// Dialog is shown, consume input and render (covers entire screen)
 		render_controls_help(screen, app_state);
 		GFX_flip(screen);
-		result.input_consumed = true;
-		return result;
-	}
-
-	// Handle START button - track press time for short/long press detection
-	if (PAD_justPressed(BTN_START)) {
-		start_press_time = SDL_GetTicks();
-		start_was_pressed = true;
-		result.input_consumed = true;
-		return result;
-	} else if (start_was_pressed) {
-		bool show_dialog = false;
-
-		if (PAD_isPressed(BTN_START)) {
-			// Check for long press threshold while button is held
-			uint32_t hold_time = SDL_GetTicks() - start_press_time;
-			if (hold_time >= START_LONG_PRESS_MS) {
-				show_quit_confirm = true;
-				show_dialog = true;
-			}
-		} else if (PAD_justReleased(BTN_START)) {
-			// Short press - show controls help
-			show_controls_help = true;
-			show_dialog = true;
-		}
-
-		if (show_dialog) {
-			start_was_pressed = false;
-			// Clear GPU scroll text layer so dialog is not obscured
-			GFX_clearLayers(LAYER_SCROLLTEXT);
-			PLAT_GPU_Flip();
-			result.input_consumed = true;
-			result.dirty = true;
-			return result;
-		}
-
-		// Still waiting for press/release
 		result.input_consumed = true;
 		return result;
 	}
@@ -162,9 +129,10 @@ void ModuleCommon_PWR_update(bool* dirty, IndicatorType* show_setting) {
 	// Poll for audio device changes (keeps AudioManager state current)
 	AudioMgr_pollEvents();
 
-	// Track overlay-triggering buttons for auto-hide (check BEFORE PWR_update)
-	// MENU = brightness, SELECT = color temp, PLUS/MINUS = volume
-	bool overlay_buttons_active = PAD_isPressed(BTN_PLUS) || PAD_isPressed(BTN_MINUS) || PAD_isPressed(BTN_MENU) || PAD_isPressed(BTN_SELECT);
+	// Track overlay-triggering buttons for auto-hide (check BEFORE PWR_update):
+	// SELECT = brightness, START = color temp, PLUS/MINUS = volume. START must be
+	// here too or the color-temp indicator never force-hides after release.
+	bool overlay_buttons_active = PAD_isPressed(BTN_PLUS) || PAD_isPressed(BTN_MINUS) || PAD_isPressed(BTN_SELECT) || PAD_isPressed(BTN_START);
 
 	if (overlay_buttons_were_active && !overlay_buttons_active) {
 		// Buttons just released - start timer

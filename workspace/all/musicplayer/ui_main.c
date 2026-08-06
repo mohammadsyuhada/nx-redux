@@ -152,7 +152,6 @@ void render_menu(SDL_Surface* screen, IndicatorType show_setting, int menu_selec
 static const ControlHelp main_menu_controls[] = {
 	{"Up/Down", "Navigate"},
 	{"X", "Clear History/Playback"},
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // File browser controls (A/B shown in footer)
@@ -160,7 +159,6 @@ static const ControlHelp browser_controls[] = {
 	{"Up/Down", "Navigate"},
 	{"Y", "Add to Playlist"},
 	{"X", "Delete File"},
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // Music player controls (A/B shown in footer)
@@ -174,7 +172,6 @@ static const ControlHelp player_controls[] = {
 	{"R2/" BTN_FN2_NAME, "Toggle Lyrics"},
 	{"Select", "Screen Off"},
 	{"Select + A", "Wake Screen"},
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // Radio list controls (A/B shown in footer)
@@ -182,7 +179,6 @@ static const ControlHelp radio_list_controls[] = {
 	{"Up/Down", "Navigate"},
 	{"Y", "Manage Stations"},
 	{"X", "Delete Station"},
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // Radio playing controls (B shown in footer)
@@ -191,14 +187,12 @@ static const ControlHelp radio_playing_controls[] = {
 	{"Down/L1", "Prev Station"},
 	{"Select", "Screen Off"},
 	{"Select + A", "Wake Screen"},
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // Radio manage stations controls - country list (A/B shown in footer)
 static const ControlHelp radio_manage_controls[] = {
 	{"Up/Down", "Navigate"},
 	{"Y", "Manual Setup Help"},
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // Radio browse stations controls - station list (A/B shown in footer)
@@ -206,7 +200,6 @@ static const ControlHelp radio_browse_controls[] = {
 	{"Up/Down", "Navigate"},
 	{"A", "Add/Remove Station"},
 	{"Y", "Manual Setup Help"},
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // Podcast menu controls (shows subscribed podcasts)
@@ -214,20 +207,17 @@ static const ControlHelp podcast_menu_controls[] = {
 	{"Up/Down", "Navigate"},
 	{"X", "Unsubscribe"},
 	{"Y", "Manage Podcasts"},
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // Podcast manage menu controls
 static const ControlHelp podcast_manage_controls[] = {
 	{"Up/Down", "Navigate"},
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // Podcast subscriptions list controls
 static const ControlHelp podcast_subscriptions_controls[] = {
 	{"Up/Down", "Navigate"},
 	{"X", "Unsubscribe"},
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // Podcast top shows controls
@@ -235,14 +225,12 @@ static const ControlHelp podcast_top_shows_controls[] = {
 	{"Up/Down", "Navigate"},
 	{"A", "Subscribe/Unsubscribe"},
 	{"X", "Refresh List"},
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // Podcast search results controls
 static const ControlHelp podcast_search_controls[] = {
 	{"Up/Down", "Navigate"},
 	{"A", "Subscribe/Unsubscribe"},
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // Podcast episodes list controls
@@ -250,7 +238,6 @@ static const ControlHelp podcast_episodes_controls[] = {
 	{"Up/Down", "Navigate"},
 	{"Y", "Refresh Episodes"},
 	{"X", "Mark Played/Unplayed"},
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // Podcast playing controls
@@ -260,38 +247,32 @@ static const ControlHelp podcast_playing_controls[] = {
 	{"Up/Down", "Playback Speed"},
 	{"Select", "Screen Off"},
 	{"Select + A", "Wake Screen"},
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // Playlist list controls (A/B shown in footer)
 static const ControlHelp playlist_list_controls[] = {
 	{"Up/Down", "Navigate"},
 	{"X", "Delete Playlist"},
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // Playlist detail controls (A/B shown in footer)
 static const ControlHelp playlist_detail_controls[] = {
 	{"Up/Down", "Navigate"},
 	{"X", "Remove Track"},
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // About page controls (A/B shown in footer)
 static const ControlHelp about_controls[] = {
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // Settings menu controls
 static const ControlHelp settings_controls[] = {
 	{"Up/Down", "Navigate"},
 	{"Left/Right", "Change Value"},
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // Generic/default controls
 static const ControlHelp default_controls[] = {
-	{"Start (hold)", "Exit App"},
 	{NULL, NULL}};
 
 // Render controls help dialog overlay

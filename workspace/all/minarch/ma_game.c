@@ -2,6 +2,7 @@
 #include "utils.h"
 #include "config.h"
 #include "ma_game.h"
+#include "ma_saves.h"
 #include <zip.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -161,6 +162,9 @@ void Game_changeDisc(char* path) {
 
 	disk_control_ext.replace_image_index(0, &game_info);
 	putFile(CHANGE_DISC_PATH, path); // NextUI still needs to know this to update recents.txt
+
+	// The snapshot belongs to the disc that was just ejected.
+	State_invalidateUndo();
 }
 
 int extract_zip(char** extensions) {

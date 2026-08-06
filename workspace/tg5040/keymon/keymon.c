@@ -212,6 +212,7 @@ int main(int argc, char* argv[]) {
 	// Input state
 	uint32_t val;
 	uint32_t select_pressed = 0;
+	uint32_t start_pressed = 0;
 
 	// OSD trigger state (Menu long-press)
 	uint32_t menu_pressed = 0;
@@ -259,6 +260,7 @@ int main(int argc, char* argv[]) {
 		if (now - then > 1000) {
 			// Ignore stale input after sleep
 			select_pressed = 0;
+			start_pressed = 0;
 			menu_pressed = 0;
 			menu_long_fired = 0;
 			up_pressed = up_just_pressed = 0;
@@ -316,6 +318,9 @@ int main(int argc, char* argv[]) {
 				case CODE_MENU0: // BTN_SELECT (314) — physical Select button
 					select_pressed = val;
 					break;
+				case CODE_MENU1: // BTN_START (315) — physical Start button
+					start_pressed = val;
+					break;
 				case CODE_MENU2: // BTN_MODE (316) — physical Menu button
 					if (val == PRESSED) {
 						menu_pressed = 1;
@@ -358,6 +363,10 @@ int main(int argc, char* argv[]) {
 				val = GetBrightness();
 				if (val < BRIGHTNESS_MAX)
 					SetBrightness(++val);
+			} else if (start_pressed) {
+				val = GetColortemp();
+				if (val < COLORTEMP_MAX)
+					SetColortemp(++val);
 			} else {
 				val = GetVolume();
 				if (val < VOLUME_MAX)
@@ -375,6 +384,10 @@ int main(int argc, char* argv[]) {
 				val = GetBrightness();
 				if (val > BRIGHTNESS_MIN)
 					SetBrightness(--val);
+			} else if (start_pressed) {
+				val = GetColortemp();
+				if (val > COLORTEMP_MIN)
+					SetColortemp(--val);
 			} else {
 				val = GetVolume();
 				if (val > VOLUME_MIN)
