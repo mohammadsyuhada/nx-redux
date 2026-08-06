@@ -12,6 +12,7 @@
 #include "display_helper.h"
 #include "ffplay_engine.h"
 #include "ui_player.h"
+#include "positions.h"
 
 // Browser scroll text state (for selected item marquee)
 static ScrollTextState browser_scroll = {0};
@@ -21,9 +22,85 @@ static void load_video_directory(VideoBrowserContext* browser, const char* path)
 	VideoBrowser_loadDirectory(browser, path, VIDEO_ROOT);
 }
 
+// Resume save policy: skip the first seconds (accidental opens), clear near
+// the end (credits) so the next launch starts fresh.
+#define RESUME_MIN_SEC 10
+#define RESUME_END_WINDOW_SEC 60
+
+// Launch ffplay for a file entry at start_sec, then record where playback
+// ended. Returns the (possibly re-created) screen surface.
+static SDL_Surface* play_video_file(SDL_Surface* screen, VideoFileEntry* entry, int start_sec) {
+	FfplayConfig config;
+	memset(&config, 0, sizeof(config));
+	config.source = FFPLAY_SOURCE_LOCAL;
+	config.is_stream = false;
+	config.start_position_sec = start_sec;
+	config.screen_width = screen->w;
+	config.is_hevc = VideoBrowser_isHEVC(entry->path);
+	strncpy(config.path, entry->path, sizeof(config.path) - 1);
+	config.path[sizeof(config.path) - 1] = '\0';
+	VideoBrowser_getDisplayName(entry->name, config.title, sizeof(config.title));
+
+	// Subtitle handling:
+	// 1. Multiple external files (.srt/.ass next to video) — always preferred
+	//    D-pad DOWN cycles through them + an "off" state
+	// 2. Embedded in video — uses video path as subtitle source,
+	//    but only for files under 500MB (dual-demux blocks on large files)
+	//    Skipped for HEVC — subtitle overlay + HEVC decode is too CPU-heavy
+	SubtitleList sub_list;
+	VideoBrowser_findSubtitles(entry->path, &sub_list);
+
+	if (sub_list.count > 0) {
+		config.subtitle_count = sub_list.count;
+		for (int si = 0; si < sub_list.count; si++) {
+			strncpy(config.subtitle_paths[si], sub_list.entries[si].path, sizeof(config.subtitle_paths[0]) - 1);
+			config.subtitle_paths[si][sizeof(config.subtitle_paths[0]) - 1] = '\0';
+			strncpy(config.subtitle_labels[si], sub_list.entries[si].label, sizeof(config.subtitle_labels[0]) - 1);
+			config.subtitle_labels[si][sizeof(config.subtitle_labels[0]) - 1] = '\0';
+		}
+		// Also set legacy fields to the first subtitle for compatibility
+		strncpy(config.subtitle_path, sub_list.entries[0].path, sizeof(config.subtitle_path) - 1);
+		config.subtitle_path[sizeof(config.subtitle_path) - 1] = '\0';
+		config.subtitle_is_external = true;
+	} else if (!config.is_hevc) {
+		// Embedded subs: only for non-HEVC files under 500MB.
+		// HEVC decode already saturates the CPU — adding the subtitle
+		// overlay filter on top causes frame drops or audio-only playback.
+		struct stat vst;
+		if (stat(entry->path, &vst) == 0 && vst.st_size < (off_t)500 * 1024 * 1024) {
+			strncpy(config.subtitle_path, entry->path, sizeof(config.subtitle_path) - 1);
+			config.subtitle_path[sizeof(config.subtitle_path) - 1] = '\0';
+			config.subtitle_is_external = false;
+		}
+	}
+
+	// Disable autosleep during playback
+	ModuleCommon_setAutosleepDisabled(true);
+
+	// Launch ffplay (releases PAD, waits, re-inits PAD)
+	FfplayEngine_play(&config);
+
+	// Record where playback ended: mid-video -> save for resume;
+	// barely started or near the end -> clear
+	int pos = 0, dur = 0;
+	if (FfplayEngine_getLastPosition(&pos, &dur)) {
+		if (pos < RESUME_MIN_SEC || (dur > 0 && pos >= dur - RESUME_END_WINDOW_SEC))
+			Positions_remove(entry->path);
+		else
+			Positions_set(entry->path, pos);
+	}
+
+	// TG5050: display recovery creates a new screen surface
+	SDL_Surface* ns = DisplayHelper_getReinitScreen();
+	return ns ? ns : screen;
+}
+
 ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 	VideoBrowserContext browser;
 	memset(&browser, 0, sizeof(browser));
+
+	// Load per-video resume positions
+	Positions_init();
 
 	bool dirty = true;
 	IndicatorType show_setting = INDICATOR_NONE;
@@ -90,65 +167,19 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 					GFX_clearLayers(LAYER_SCROLLTEXT);
 					dirty = 1;
 				} else {
-					// Play video file via ffplay
-					FfplayConfig config;
-					memset(&config, 0, sizeof(config));
-					config.source = FFPLAY_SOURCE_LOCAL;
-					config.is_stream = false;
-					config.start_position_sec = 0;
-					config.screen_width = screen->w;
-					config.is_hevc = VideoBrowser_isHEVC(entry->path);
-					strncpy(config.path, entry->path, sizeof(config.path) - 1);
-					config.path[sizeof(config.path) - 1] = '\0';
-					VideoBrowser_getDisplayName(entry->name, config.title, sizeof(config.title));
-
-					// Subtitle handling:
-					// 1. Multiple external files (.srt/.ass next to video) — always preferred
-					//    D-pad DOWN cycles through them + an "off" state
-					// 2. Embedded in video — uses video path as subtitle source,
-					//    but only for files under 500MB (dual-demux blocks on large files)
-					//    Skipped for HEVC — subtitle overlay + HEVC decode is too CPU-heavy
-					SubtitleList sub_list;
-					VideoBrowser_findSubtitles(entry->path, &sub_list);
-
-					if (sub_list.count > 0) {
-						config.subtitle_count = sub_list.count;
-						for (int si = 0; si < sub_list.count; si++) {
-							strncpy(config.subtitle_paths[si], sub_list.entries[si].path, sizeof(config.subtitle_paths[0]) - 1);
-							config.subtitle_paths[si][sizeof(config.subtitle_paths[0]) - 1] = '\0';
-							strncpy(config.subtitle_labels[si], sub_list.entries[si].label, sizeof(config.subtitle_labels[0]) - 1);
-							config.subtitle_labels[si][sizeof(config.subtitle_labels[0]) - 1] = '\0';
-						}
-						// Also set legacy fields to the first subtitle for compatibility
-						strncpy(config.subtitle_path, sub_list.entries[0].path, sizeof(config.subtitle_path) - 1);
-						config.subtitle_path[sizeof(config.subtitle_path) - 1] = '\0';
-						config.subtitle_is_external = true;
-					} else if (!config.is_hevc) {
-						// Embedded subs: only for non-HEVC files under 500MB.
-						// HEVC decode already saturates the CPU — adding the subtitle
-						// overlay filter on top causes frame drops or audio-only playback.
-						struct stat vst;
-						if (stat(entry->path, &vst) == 0 && vst.st_size < (off_t)500 * 1024 * 1024) {
-							strncpy(config.subtitle_path, entry->path, sizeof(config.subtitle_path) - 1);
-							config.subtitle_path[sizeof(config.subtitle_path) - 1] = '\0';
-							config.subtitle_is_external = false;
-						}
-					}
-
-					// Disable autosleep during playback
-					ModuleCommon_setAutosleepDisabled(true);
-
-					// Launch ffplay (releases PAD, waits, re-inits PAD)
-					FfplayEngine_play(&config);
-
-					// TG5050: display recovery creates a new screen surface
-					{
-						SDL_Surface* ns = DisplayHelper_getReinitScreen();
-						if (ns)
-							screen = ns;
-					}
+					// A: play from the start
+					screen = play_video_file(screen, entry, 0);
 
 					// Reset scroll state and force full redraw
+					memset(&browser_scroll, 0, sizeof(browser_scroll));
+					dirty = 1;
+				}
+			} else if (PAD_justPressed(BTN_X)) {
+				// X: resume from the saved position (files with one only)
+				VideoFileEntry* entry = &browser.entries[browser.selected];
+				int resume_sec = entry->is_dir ? 0 : Positions_get(entry->path);
+				if (resume_sec > 0) {
+					screen = play_video_file(screen, entry, resume_sec);
 					memset(&browser_scroll, 0, sizeof(browser_scroll));
 					dirty = 1;
 				}
@@ -168,7 +199,9 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 
 		// Render
 		if (dirty) {
-			render_video_browser(screen, show_setting, &browser, &browser_scroll);
+			VideoFileEntry* sel = (browser.entry_count > 0) ? &browser.entries[browser.selected] : NULL;
+			int resume_sec = (sel && !sel->is_dir) ? Positions_get(sel->path) : 0;
+			render_video_browser(screen, show_setting, &browser, &browser_scroll, resume_sec);
 
 			GFX_flip(screen);
 			dirty = 0;

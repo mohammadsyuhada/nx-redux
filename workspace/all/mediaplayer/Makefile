@@ -36,7 +36,7 @@ INCDIR += -I../include -I../include/mbedtls_lib
 # mbedTLS source files (for HTTPS support)
 MBEDTLS_SRC = $(wildcard ../include/mbedtls_lib/*.c)
 
-SOURCE = $(TARGET).c ffplay_engine.c video_browser.c settings.c \
+SOURCE = $(TARGET).c ffplay_engine.c video_browser.c settings.c positions.c \
          iptv.c iptv_curated.c \
          module_common.c module_menu.c module_player.c module_iptv.c \
          ui_icons.c ui_main.c ui_player.c ui_iptv.c \

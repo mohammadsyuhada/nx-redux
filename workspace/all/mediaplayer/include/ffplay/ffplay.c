@@ -337,6 +337,7 @@ static int lowres = 0;
 static int decoder_reorder_pts = -1;
 static int autoexit;
 static int exit_on_keydown;
+static const char* pos_file = NULL;
 static int exit_on_mousedown;
 static int loop = 1;
 static int framedrop = -1;
@@ -1537,8 +1538,29 @@ static void stream_close(VideoState* is) {
 	av_free(is);
 }
 
+/* Write "<position_sec> <duration_sec>" so the frontend can offer resume.
+   Duration is 0 when unknown. Uses the same clock the OSD progress bar shows. */
+static void write_pos_file(VideoState* is) {
+	double pos, dur;
+	FILE* f;
+	if (!pos_file || !is)
+		return;
+	pos = get_master_clock(is);
+	if (isnan(pos) || pos < 0)
+		return;
+	dur = 0;
+	if (is->ic && is->ic->duration > 0)
+		dur = (double)is->ic->duration / AV_TIME_BASE;
+	f = fopen(pos_file, "w");
+	if (!f)
+		return;
+	fprintf(f, "%d %d\n", (int)pos, (int)dur);
+	fclose(f);
+}
+
 static void do_exit(VideoState* is) {
 	if (is) {
+		write_pos_file(is);
 		stream_close(is);
 	}
 	if (renderer)
@@ -3476,6 +3498,16 @@ static void refresh_loop_wait_event(VideoState* is, SDL_Event* event) {
 			SDL_ShowCursor(0);
 			cursor_hidden = 1;
 		}
+		/* Periodic position dump — survives unclean exits (audio-device
+		   restart SIGKILL, power loss) with <=5s staleness */
+		if (pos_file) {
+			static int64_t pos_last_write = 0;
+			int64_t pos_now = av_gettime_relative();
+			if (pos_now - pos_last_write > 5000000) {
+				write_pos_file(is);
+				pos_last_write = pos_now;
+			}
+		}
 		/* D-pad hold repeat: inject synthetic hat event if held long enough */
 		if (hat_held_direction != 0) {
 			int64_t now = av_gettime_relative();
@@ -3943,6 +3975,7 @@ static const OptionDef options[] = {
 	{"sync", HAS_ARG | OPT_EXPERT, {.func_arg = opt_sync}, "set audio-video sync. type (type=audio/video/ext)", "type"},
 	{"autoexit", OPT_BOOL | OPT_EXPERT, {&autoexit}, "exit at the end", ""},
 	{"exitonkeydown", OPT_BOOL | OPT_EXPERT, {&exit_on_keydown}, "exit on key down", ""},
+	{"posfile", OPT_STRING | HAS_ARG | OPT_EXPERT, {&pos_file}, "periodically write playback position to file", "file"},
 	{"exitonmousedown", OPT_BOOL | OPT_EXPERT, {&exit_on_mousedown}, "exit on mouse down", ""},
 	{"loop", OPT_INT | HAS_ARG | OPT_EXPERT, {&loop}, "set number of times the playback shall be looped", "loop count"},
 	{"framedrop", OPT_BOOL | OPT_EXPERT, {&framedrop}, "drop frames when cpu is too slow", ""},

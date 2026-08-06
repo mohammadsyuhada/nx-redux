@@ -17,6 +17,9 @@
 // PID of the currently running ffplay child process (0 = none)
 static pid_t ffplay_pid = 0;
 
+// Handoff file where the patched ffplay reports playback position (tmpfs)
+#define FFPLAY_POS_FILE "/tmp/ffplay.pos"
+
 // Audio device change detection during ffplay playback
 static volatile bool audio_device_changed = false;
 
@@ -144,6 +147,12 @@ static int ffplay_exec(FfplayConfig* config, int use_subs) {
 	argv[argc++] = "all";
 	argv[argc++] = "-skip_idct"; // Skip IDCT on non-reference frames
 	argv[argc++] = "noref";		 // note: "noref" not "nonref"
+
+	// Position reporting for resume (local files only — streams have no position)
+	if (!config->is_stream) {
+		argv[argc++] = "-posfile";
+		argv[argc++] = FFPLAY_POS_FILE;
+	}
 
 	// Stream-specific buffering options
 	if (config->is_stream) {
@@ -289,17 +298,26 @@ int FfplayEngine_play(FfplayConfig* config) {
 	clock_gettime(CLOCK_MONOTONIC, &play_start);
 	int original_start = config->start_position_sec;
 
+	// Remove any stale position report from a previous playback
+	unlink(FFPLAY_POS_FILE);
+
 	do {
 		exit_code = ffplay_exec(config, has_subs);
 
 		if (exit_code == FFPLAY_EXIT_AUDIO_CHANGED) {
-			// Approximate elapsed playback time and update seek position
-			// so restart resumes near where we left off (local files only)
+			// Resume near where we left off (local files only). Prefer the
+			// exact position ffplay reported — correct across pause/seek —
+			// and fall back to elapsed wall-clock time.
 			if (!config->is_stream) {
-				struct timespec now;
-				clock_gettime(CLOCK_MONOTONIC, &now);
-				int elapsed = (int)(now.tv_sec - play_start.tv_sec);
-				config->start_position_sec = original_start + elapsed;
+				int pos_sec, dur_sec;
+				if (FfplayEngine_getLastPosition(&pos_sec, &dur_sec)) {
+					config->start_position_sec = pos_sec;
+				} else {
+					struct timespec now;
+					clock_gettime(CLOCK_MONOTONIC, &now);
+					int elapsed = (int)(now.tv_sec - play_start.tv_sec);
+					config->start_position_sec = original_start + elapsed;
+				}
 			}
 
 			// Brief pause for new audio device to settle
@@ -331,4 +349,22 @@ void FfplayEngine_stop(void) {
 		waitpid(ffplay_pid, NULL, WNOHANG);
 		ffplay_pid = 0;
 	}
+}
+
+bool FfplayEngine_getLastPosition(int* pos_sec, int* dur_sec) {
+	FILE* f = fopen(FFPLAY_POS_FILE, "r");
+	if (!f)
+		return false;
+
+	int p = 0, d = 0;
+	int n = fscanf(f, "%d %d", &p, &d);
+	fclose(f);
+
+	if (n < 1 || p < 0)
+		return false;
+	if (pos_sec)
+		*pos_sec = p;
+	if (dur_sec)
+		*dur_sec = (n >= 2 && d > 0) ? d : 0;
+	return true;
 }

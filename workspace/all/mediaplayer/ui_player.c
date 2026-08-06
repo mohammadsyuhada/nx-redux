@@ -12,7 +12,8 @@
 
 // Render the video file browser
 void render_video_browser(SDL_Surface* screen, IndicatorType show_setting,
-						  VideoBrowserContext* ctx, ScrollTextState* scroll) {
+						  VideoBrowserContext* ctx, ScrollTextState* scroll,
+						  int selected_resume_sec) {
 	GFX_clear(screen);
 
 	char truncated[256];
@@ -104,8 +105,20 @@ void render_video_browser(SDL_Surface* screen, IndicatorType show_setting,
 	// Scroll indicators (up/down arrows)
 	UI_renderScrollIndicators(screen, ctx->scroll_offset, ctx->items_per_page, ctx->entry_count);
 
-	// Button hints
-	UI_renderButtonHintBar(screen, (char*[]){"START", "CONTROLS", "B", "BACK", "A", "OPEN", NULL});
+	// Button hints — offer Resume when the selected video has a saved position
+	if (selected_resume_sec > 0) {
+		char resume_label[32];
+		int h = selected_resume_sec / 3600;
+		int m = (selected_resume_sec % 3600) / 60;
+		int s = selected_resume_sec % 60;
+		if (h > 0)
+			snprintf(resume_label, sizeof(resume_label), "RESUME %d:%02d:%02d", h, m, s);
+		else
+			snprintf(resume_label, sizeof(resume_label), "RESUME %d:%02d", m, s);
+		UI_renderButtonHintBar(screen, (char*[]){"START", "CONTROLS", "B", "BACK", "X", resume_label, "A", "PLAY", NULL});
+	} else {
+		UI_renderButtonHintBar(screen, (char*[]){"START", "CONTROLS", "B", "BACK", "A", "OPEN", NULL});
+	}
 }
 
 // Render loading/buffering screen

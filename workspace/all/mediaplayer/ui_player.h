@@ -7,7 +7,8 @@
 
 // Render the video file browser
 void render_video_browser(SDL_Surface* screen, IndicatorType show_setting,
-						  VideoBrowserContext* ctx, ScrollTextState* scroll);
+						  VideoBrowserContext* ctx, ScrollTextState* scroll,
+						  int selected_resume_sec);
 
 // Render loading/buffering screen
 void render_loading_screen(SDL_Surface* screen, const char* message);

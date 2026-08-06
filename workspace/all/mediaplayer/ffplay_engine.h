@@ -42,4 +42,9 @@ int FfplayEngine_play(FfplayConfig* config);
 // Stop the currently running ffplay process (if any)
 void FfplayEngine_stop(void);
 
+// Read the position ffplay last reported for a local video (written to
+// /tmp/ffplay.pos every ~5s and on exit). Returns false if unavailable.
+// dur_sec is 0 when the container reported no duration.
+bool FfplayEngine_getLastPosition(int* pos_sec, int* dur_sec);
+
 #endif
