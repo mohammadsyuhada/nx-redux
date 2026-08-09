@@ -175,6 +175,10 @@ typedef struct {
 
 static RadioContext radio = {0};
 
+// Guards radio.metadata: written by the stream thread, read by the UI
+// thread via Radio_getMetadata()
+static pthread_mutex_t meta_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 // Append device-rate samples to the ring (shared by all decode paths)
 static void radio_ring_write(const int16_t* samples, int count) {
 	pthread_mutex_lock(&radio.audio_mutex);
@@ -571,6 +575,7 @@ static int parse_headers(void) {
 
 	// Parse ICY headers
 	radio.icy_metaint = 0;
+	pthread_mutex_lock(&meta_mutex);
 	radio.metadata.bitrate = 0;
 	radio.metadata.station_name[0] = '\0';
 	radio.metadata.content_type[0] = '\0';
@@ -593,6 +598,7 @@ static int parse_headers(void) {
 		}
 		line = strtok(NULL, "\r\n");
 	}
+	pthread_mutex_unlock(&meta_mutex);
 
 	radio.bytes_until_meta = radio.icy_metaint;
 
@@ -626,37 +632,41 @@ static void parse_icy_metadata(const uint8_t* data, int len) {
 	memcpy(meta, data, len);
 	meta[len] = '\0';
 
-	// Save old values to detect changes
-	char old_artist[256], old_title[256];
-	strncpy(old_artist, radio.metadata.artist, sizeof(old_artist) - 1);
-	strncpy(old_title, radio.metadata.title, sizeof(old_title) - 1);
-
 	// Find StreamTitle
 	char* title_start = strstr(meta, "StreamTitle='");
-	if (title_start) {
-		title_start += 13;
-		char* title_end = strchr(title_start, '\'');
-		if (title_end) {
-			*title_end = '\0';
-			strncpy(radio.metadata.title, title_start, sizeof(radio.metadata.title) - 1);
+	if (!title_start)
+		return;
+	title_start += 13;
+	char* title_end = strchr(title_start, '\'');
+	if (!title_end)
+		return;
+	*title_end = '\0';
 
-			// Try to parse "Artist - Title" format
-			char* separator = strstr(radio.metadata.title, " - ");
-			if (separator) {
-				*separator = '\0';
-				strncpy(radio.metadata.artist, radio.metadata.title, sizeof(radio.metadata.artist) - 1);
-				memmove(radio.metadata.title, separator + 3, strlen(separator + 3) + 1);
-			} else {
-				radio.metadata.artist[0] = '\0';
-			}
+	// Parse "Artist - Title" into locals, then publish under the lock so
+	// the UI thread never sees a half-written pair
+	char new_artist[256] = "";
+	char new_title[256];
+	strncpy(new_title, title_start, sizeof(new_title) - 1);
+	new_title[sizeof(new_title) - 1] = '\0';
 
-			// Fetch album art if metadata changed
-			if (strcmp(old_artist, radio.metadata.artist) != 0 ||
-				strcmp(old_title, radio.metadata.title) != 0) {
-				album_art_fetch(radio.metadata.artist, radio.metadata.title);
-			}
-		}
+	char* separator = strstr(new_title, " - ");
+	if (separator) {
+		*separator = '\0';
+		strncpy(new_artist, new_title, sizeof(new_artist) - 1);
+		new_artist[sizeof(new_artist) - 1] = '\0';
+		memmove(new_title, separator + 3, strlen(separator + 3) + 1);
 	}
+
+	pthread_mutex_lock(&meta_mutex);
+	int changed = strcmp(radio.metadata.artist, new_artist) != 0 ||
+				  strcmp(radio.metadata.title, new_title) != 0;
+	strcpy(radio.metadata.artist, new_artist);
+	strcpy(radio.metadata.title, new_title);
+	pthread_mutex_unlock(&meta_mutex);
+
+	// Fetch album art if metadata changed
+	if (changed)
+		album_art_fetch(new_artist, new_title);
 }
 
 // ============== HLS SUPPORT ==============
@@ -833,6 +843,7 @@ static void* hls_stream_thread_func(void* arg) {
 
 		// Save old metadata BEFORE any updates to detect changes for album art fetch
 		char old_artist[256], old_title[256];
+		pthread_mutex_lock(&meta_mutex);
 		strncpy(old_artist, radio.metadata.artist, sizeof(old_artist) - 1);
 		old_artist[sizeof(old_artist) - 1] = '\0';
 		strncpy(old_title, radio.metadata.title, sizeof(old_title) - 1);
@@ -845,6 +856,7 @@ static void* hls_stream_thread_func(void* arg) {
 		if (seg_artist && seg_artist[0] != '\0' && strcmp(seg_artist, " ") != 0) {
 			strncpy(radio.metadata.artist, seg_artist, sizeof(radio.metadata.artist) - 1);
 		}
+		pthread_mutex_unlock(&meta_mutex);
 
 		// Validate URL
 		if (!seg_url || seg_url[0] == '\0') {
@@ -902,7 +914,9 @@ static void* hls_stream_thread_func(void* arg) {
 		if (seg_duration > 0) {
 			int bitrate = (int)((seg_len * 8.0f) / (seg_duration * 1000.0f));
 			if (bitrate > 0 && bitrate < 1000) { // Sanity check (0-1000 kbps)
+				pthread_mutex_lock(&meta_mutex);
 				radio.metadata.bitrate = bitrate;
+				pthread_mutex_unlock(&meta_mutex);
 			}
 		}
 
@@ -913,19 +927,28 @@ static void* hls_stream_thread_func(void* arg) {
 													id3_title, sizeof(id3_title));
 		if (id3_skip > 0) {
 			// Update metadata if ID3 tags found
+			pthread_mutex_lock(&meta_mutex);
 			if (id3_artist[0])
 				strncpy(radio.metadata.artist, id3_artist, sizeof(radio.metadata.artist) - 1);
 			if (id3_title[0])
 				strncpy(radio.metadata.title, id3_title, sizeof(radio.metadata.title) - 1);
+			pthread_mutex_unlock(&meta_mutex);
 			// Adjust buffer to skip ID3 tag
 			seg_len -= id3_skip;
 			memmove(segment_buf, segment_buf + id3_skip, seg_len);
 		}
 
 		// Fetch album art if metadata changed (from either EXTINF or ID3)
-		if (strcmp(old_artist, radio.metadata.artist) != 0 ||
-			strcmp(old_title, radio.metadata.title) != 0) {
-			album_art_fetch(radio.metadata.artist, radio.metadata.title);
+		char now_artist[256], now_title[256];
+		pthread_mutex_lock(&meta_mutex);
+		strncpy(now_artist, radio.metadata.artist, sizeof(now_artist) - 1);
+		now_artist[sizeof(now_artist) - 1] = '\0';
+		strncpy(now_title, radio.metadata.title, sizeof(now_title) - 1);
+		now_title[sizeof(now_title) - 1] = '\0';
+		pthread_mutex_unlock(&meta_mutex);
+		if (strcmp(old_artist, now_artist) != 0 ||
+			strcmp(old_title, now_title) != 0) {
+			album_art_fetch(now_artist, now_title);
 		}
 
 		// Check if segment is MPEG-TS (starts with 0x47) or raw AAC (starts with 0xFF for ADTS)
@@ -1511,7 +1534,9 @@ int Radio_play(const char* url) {
 	radio.audio_ring_read = 0;
 	radio.audio_ring_count = 0;
 
+	pthread_mutex_lock(&meta_mutex);
 	memset(&radio.metadata, 0, sizeof(RadioMetadata));
+	pthread_mutex_unlock(&meta_mutex);
 
 	// Reset HLS state
 	radio.ts_pid_detected = false;
@@ -1800,7 +1825,13 @@ int Radio_findCurrentStationIndex(void) {
 }
 
 const RadioMetadata* Radio_getMetadata(void) {
-	return &radio.metadata;
+	// Snapshot under the lock: the stream thread rewrites radio.metadata.
+	// Only the UI thread calls this, so a static copy is safe to return.
+	static RadioMetadata snapshot;
+	pthread_mutex_lock(&meta_mutex);
+	snapshot = radio.metadata;
+	pthread_mutex_unlock(&meta_mutex);
+	return &snapshot;
 }
 
 float Radio_getBufferLevel(void) {

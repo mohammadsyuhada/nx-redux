@@ -120,6 +120,7 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 			OptsCache_refreshVars(vars);
 			OptionList_reset();
 			OptionList_vars(vars);
+			Config_reapplyOptions();
 		}
 		break;
 	}
@@ -234,7 +235,7 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 			OptsCache_refreshV1((const struct retro_core_option_definition*)data);
 			OptionList_reset();
 			OptionList_init((const struct retro_core_option_definition*)data);
-			Config_readOptions();
+			Config_reapplyOptions();
 		}
 		break;
 	}
@@ -245,7 +246,7 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 			OptsCache_refreshV1(options->us);
 			OptionList_reset();
 			OptionList_init(options->us);
-			Config_readOptions();
+			Config_reapplyOptions();
 		}
 		break;
 	}
@@ -308,6 +309,7 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 			OptsCache_refreshV2((const struct retro_core_options_v2*)data);
 			OptionList_reset();
 			OptionList_v2_init((const struct retro_core_options_v2*)data);
+			Config_reapplyOptions();
 		}
 		break;
 	}
@@ -318,6 +320,7 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 			OptsCache_refreshV2(intl->us);
 			OptionList_reset();
 			OptionList_v2_init(intl->us);
+			Config_reapplyOptions();
 		}
 		break;
 	}

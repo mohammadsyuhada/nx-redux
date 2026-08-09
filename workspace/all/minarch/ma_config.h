@@ -8,6 +8,7 @@ void Config_quit(void);
 void Config_load(void);
 void Config_free(void);
 void Config_readOptions(void);
+void Config_reapplyOptions(void);
 void Config_readOptionsString(char* cfg);
 void Config_readControls(void);
 void Config_write(int override);

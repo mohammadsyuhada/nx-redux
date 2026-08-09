@@ -235,43 +235,54 @@ void settings_menu_handle_input(bool* quit, bool* dirty) {
 		}
 	}
 
+	// Snapshot the selected item before releasing the lock: on scanner
+	// pages the scanner thread may rewrite page->items[] the moment the
+	// wrlock becomes available, and the A-press below runs unlocked.
+	SettingItem sel_snap = {0};
+	if (sel)
+		sel_snap = *sel;
+
 	if (has_lock)
 		pthread_rwlock_unlock(&page->lock);
 
 	// Confirm (A button)
 	if (sel && PAD_justPressed(BTN_A)) {
-		switch (sel->type) {
+		switch (sel_snap.type) {
 		case ITEM_BUTTON:
-			if (sel->on_press)
-				sel->on_press();
+			if (sel_snap.on_press)
+				sel_snap.on_press();
 			changed = 1;
 			break;
-		case ITEM_SUBMENU:
+		case ITEM_SUBMENU: {
 			// Support lazy page creation: if submenu is NULL but on_press
 			// and user_data are set, call on_press to create the page,
 			// then read the result from user_data (a SettingsPage** pointer)
-			if (!sel->submenu && sel->on_press && sel->user_data) {
-				sel->on_press();
-				sel->submenu = *(SettingsPage**)sel->user_data;
+			SettingsPage* submenu = sel_snap.submenu;
+			if (!submenu && sel_snap.on_press && sel_snap.user_data) {
+				sel_snap.on_press();
+				submenu = *(SettingsPage**)sel_snap.user_data;
+				sel->submenu = submenu; // static item; scanners never build submenus
 			}
-			if (sel->submenu) {
-				settings_menu_push(sel->submenu);
+			if (submenu) {
+				settings_menu_push(submenu);
 				changed = 1;
 			}
 			break;
+		}
 		case ITEM_TEXT_INPUT: {
 			// Use external keyboard binary
 			extern char* UIKeyboard_open(const char* prompt);
 			DisplayHelper_prepareForExternal();
-			char* result = UIKeyboard_open(sel->name);
+			char* result = UIKeyboard_open(sel_snap.name);
 			PAD_poll();
 			PAD_reset();
 			DisplayHelper_recoverDisplay();
 			if (result) {
+				// text-input items are static; sel stays valid for the write-back
 				strncpy(sel->text_value, result, sizeof(sel->text_value) - 1);
 				sel->text_value[sizeof(sel->text_value) - 1] = '\0';
-				if (sel->on_text_set)
-					sel->on_text_set(result);
+				if (sel_snap.on_text_set)
+					sel_snap.on_text_set(result);
 				free(result);
 			}
 			changed = 1;

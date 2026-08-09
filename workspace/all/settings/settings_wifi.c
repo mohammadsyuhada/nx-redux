@@ -255,11 +255,20 @@ static void wifi_network_press(void) {
 	if (!page)
 		return;
 
+	// Copy the network info out under the page lock: the scanner thread
+	// rebuilds page->items[] and network_info_pool under the wrlock, and
+	// this handler runs after the menu loop released its read lock.
+	WifiNetworkInfo info;
+	int have_info = 0;
+	pthread_rwlock_rdlock(&page->lock);
 	SettingItem* sel = settings_page_visible_item(page, page->selected);
-	if (!sel || !sel->user_data)
+	if (sel && sel->user_data) {
+		info = *(WifiNetworkInfo*)sel->user_data;
+		have_info = 1;
+	}
+	pthread_rwlock_unlock(&page->lock);
+	if (!have_info)
 		return;
-
-	WifiNetworkInfo* info = (WifiNetworkInfo*)sel->user_data;
 
 	// Reuse options pool
 	if (net_options_used >= MAX_NET_OPTIONS)
@@ -267,7 +276,7 @@ static void wifi_network_press(void) {
 	WifiNetworkOptions* opts = &net_options_pool[net_options_used++];
 	active_net_options = opts;
 
-	build_network_options(opts, info);
+	build_network_options(opts, &info);
 	settings_menu_push(&opts->page);
 }
 

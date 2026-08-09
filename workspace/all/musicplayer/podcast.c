@@ -464,15 +464,17 @@ int Podcast_loadEpisodePage(int feed_index, int offset) {
 	return episode_cache_count;
 }
 
-// Get episode by index (loads from cache, auto-loads page if needed)
-PodcastEpisode* Podcast_getEpisode(int feed_index, int episode_index) {
-	if (feed_index < 0 || feed_index >= subscription_count || episode_index < 0) {
-		return NULL;
+// Get episode by index (loads from cache, auto-loads page if needed).
+// Copies into *out: the cache can be rebuilt at any moment (page reload,
+// background feed refresh), so no pointer into it ever leaves this file.
+bool Podcast_getEpisode(int feed_index, int episode_index, PodcastEpisode* out) {
+	if (!out || feed_index < 0 || feed_index >= subscription_count || episode_index < 0) {
+		return false;
 	}
 
 	PodcastFeed* feed = &subscriptions[feed_index];
 	if (episode_index >= feed->episode_count) {
-		return NULL;
+		return false;
 	}
 
 	pthread_mutex_lock(&episode_cache_mutex);
@@ -490,15 +492,29 @@ PodcastEpisode* Podcast_getEpisode(int feed_index, int episode_index) {
 		pthread_mutex_lock(&episode_cache_mutex);
 	}
 
-	// Get from cache
+	// Copy from cache
 	int cache_index = episode_index - episode_cache_offset;
-	PodcastEpisode* result = NULL;
-	if (cache_index >= 0 && cache_index < episode_cache_count) {
-		result = &episode_cache[cache_index];
+	bool found = false;
+	if (episode_cache_feed_index == feed_index &&
+		cache_index >= 0 && cache_index < episode_cache_count) {
+		*out = episode_cache[cache_index];
+		found = true;
 	}
 
 	pthread_mutex_unlock(&episode_cache_mutex);
-	return result;
+	return found;
+}
+
+// Update the resident cache copy of an episode's progress (callers persist
+// separately via Podcast_saveProgress/Podcast_markAsPlayed)
+void Podcast_setEpisodeProgress(int feed_index, int episode_index, int progress_sec) {
+	pthread_mutex_lock(&episode_cache_mutex);
+	int cache_index = episode_index - episode_cache_offset;
+	if (episode_cache_feed_index == feed_index &&
+		cache_index >= 0 && cache_index < episode_cache_count) {
+		episode_cache[cache_index].progress_sec = progress_sec;
+	}
+	pthread_mutex_unlock(&episode_cache_mutex);
 }
 
 void Podcast_invalidateEpisodeCache(void) {
@@ -1485,8 +1501,8 @@ int Podcast_loadAndSeek(PodcastFeed* feed, int episode_index) {
 	if (feed_idx < 0)
 		return -1;
 
-	PodcastEpisode* ep = Podcast_getEpisode(feed_idx, episode_index);
-	if (!ep)
+	PodcastEpisode ep;
+	if (!Podcast_getEpisode(feed_idx, episode_index, &ep))
 		return -1;
 
 	char local_path[PODCAST_MAX_URL];
@@ -1502,12 +1518,12 @@ int Podcast_loadAndSeek(PodcastFeed* feed, int episode_index) {
 	current_episode_index = episode_index;
 
 	if (Player_load(local_path) == 0) {
-		current_episode_duration_sec = ep->duration_sec;
-		if (ep->progress_sec > 0) {
-			Player_seek(ep->progress_sec * 1000);
+		current_episode_duration_sec = ep.duration_sec;
+		if (ep.progress_sec > 0) {
+			Player_seek(ep.progress_sec * 1000);
 		}
 		// Don't call Player_play() — caller waits for seek to finish
-		return ep->progress_sec > 0 ? 1 : 0; // 1 = seeking, 0 = ready to play
+		return ep.progress_sec > 0 ? 1 : 0; // 1 = seeking, 0 = ready to play
 	}
 
 	snprintf(error_message, sizeof(error_message), "Failed to load local file");
@@ -1517,12 +1533,13 @@ int Podcast_loadAndSeek(PodcastFeed* feed, int episode_index) {
 void Podcast_stop(void) {
 	if (current_feed && current_feed_index >= 0 && current_episode_index >= 0) {
 		// Save progress
-		PodcastEpisode* ep = Podcast_getEpisode(current_feed_index, current_episode_index);
-		if (ep) {
+		PodcastEpisode ep;
+		if (Podcast_getEpisode(current_feed_index, current_episode_index, &ep)) {
 			int position = Player_getPosition();
 			if (position > 0) {
-				ep->progress_sec = position / 1000; // Convert ms to sec
-				Podcast_saveProgress(current_feed->feed_url, ep->guid, ep->progress_sec);
+				int progress_sec = position / 1000; // Convert ms to sec
+				Podcast_setEpisodeProgress(current_feed_index, current_episode_index, progress_sec);
+				Podcast_saveProgress(current_feed->feed_url, ep.guid, progress_sec);
 			}
 		}
 	}
@@ -1643,15 +1660,15 @@ void Podcast_getEpisodeLocalPath(PodcastFeed* feed, int episode_index, char* buf
 	}
 
 	int feed_idx = get_feed_index(feed);
-	PodcastEpisode* ep = (feed_idx >= 0) ? Podcast_getEpisode(feed_idx, episode_index) : NULL;
-	if (!ep) {
+	PodcastEpisode ep;
+	if (feed_idx < 0 || !Podcast_getEpisode(feed_idx, episode_index, &ep)) {
 		if (buf_size > 0)
 			buf[0] = '\0';
 		return;
 	}
 
 	char safe_title[256];
-	strncpy(safe_title, ep->title, sizeof(safe_title) - 1);
+	strncpy(safe_title, ep.title, sizeof(safe_title) - 1);
 	safe_title[sizeof(safe_title) - 1] = '\0';
 	sanitize_for_filename(safe_title);
 
@@ -1733,15 +1750,15 @@ int Podcast_queueDownload(PodcastFeed* feed, int episode_index) {
 	}
 
 	int feed_idx = get_feed_index(feed);
-	PodcastEpisode* ep = (feed_idx >= 0) ? Podcast_getEpisode(feed_idx, episode_index) : NULL;
-	if (!ep) {
+	PodcastEpisode ep;
+	if (feed_idx < 0 || !Podcast_getEpisode(feed_idx, episode_index, &ep)) {
 		return -1;
 	}
 
 	// Check if already in download queue (only block if PENDING or DOWNLOADING)
 	pthread_mutex_lock(&download_mutex);
 	for (int i = 0; i < download_queue_count; i++) {
-		if (strcmp(download_queue[i].episode_guid, ep->guid) == 0) {
+		if (strcmp(download_queue[i].episode_guid, ep.guid) == 0) {
 			if (download_queue[i].status == PODCAST_DOWNLOAD_PENDING ||
 				download_queue[i].status == PODCAST_DOWNLOAD_DOWNLOADING) {
 				pthread_mutex_unlock(&download_mutex);
@@ -1761,9 +1778,9 @@ int Podcast_queueDownload(PodcastFeed* feed, int episode_index) {
 
 	strncpy(item->feed_title, feed->title, PODCAST_MAX_TITLE - 1);
 	strncpy(item->feed_url, feed->feed_url, PODCAST_MAX_URL - 1);
-	strncpy(item->episode_title, ep->title, PODCAST_MAX_TITLE - 1);
-	strncpy(item->episode_guid, ep->guid, PODCAST_MAX_GUID - 1);
-	strncpy(item->url, ep->url, PODCAST_MAX_URL - 1);
+	strncpy(item->episode_title, ep.title, PODCAST_MAX_TITLE - 1);
+	strncpy(item->episode_guid, ep.guid, PODCAST_MAX_GUID - 1);
+	strncpy(item->url, ep.url, PODCAST_MAX_URL - 1);
 
 	// Generate local path
 	Podcast_getEpisodeLocalPath(feed, episode_index, item->local_path, sizeof(item->local_path));
@@ -2209,18 +2226,21 @@ void Podcast_clearNewFlag(int feed_index, int episode_index) {
 	if (feed_index < 0 || feed_index >= subscription_count)
 		return;
 
-	PodcastEpisode* ep = Podcast_getEpisode(feed_index, episode_index);
-	if (!ep || !ep->is_new)
+	PodcastEpisode ep;
+	if (!Podcast_getEpisode(feed_index, episode_index, &ep) || !ep.is_new)
 		return;
 
-	// Copy GUID before releasing cache reference
 	char guid_copy[PODCAST_MAX_GUID];
-	strncpy(guid_copy, ep->guid, PODCAST_MAX_GUID - 1);
+	strncpy(guid_copy, ep.guid, PODCAST_MAX_GUID - 1);
 	guid_copy[PODCAST_MAX_GUID - 1] = '\0';
 
-	// Update in-memory cache under lock
+	// Update in-memory cache under lock (if that episode is still resident)
 	pthread_mutex_lock(&episode_cache_mutex);
-	ep->is_new = false;
+	int cache_index = episode_index - episode_cache_offset;
+	if (episode_cache_feed_index == feed_index &&
+		cache_index >= 0 && cache_index < episode_cache_count) {
+		episode_cache[cache_index].is_new = false;
+	}
 	pthread_mutex_unlock(&episode_cache_mutex);
 
 	PodcastFeed* feed = &subscriptions[feed_index];
@@ -2439,8 +2459,8 @@ static void validate_continue_listening(void) {
 		PodcastFeed* feed = &subscriptions[feed_idx];
 		bool file_found = false;
 		for (int ei = 0; ei < feed->episode_count; ei++) {
-			PodcastEpisode* ep = Podcast_getEpisode(feed_idx, ei);
-			if (ep && strcmp(ep->guid, e->episode_guid) == 0) {
+			PodcastEpisode ep;
+			if (Podcast_getEpisode(feed_idx, ei, &ep) && strcmp(ep.guid, e->episode_guid) == 0) {
 				if (Podcast_episodeFileExists(feed, ei)) {
 					file_found = true;
 				}

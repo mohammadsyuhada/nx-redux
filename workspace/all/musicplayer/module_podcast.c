@@ -280,8 +280,8 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 							int ep_idx = -1;
 							if (feed) {
 								for (int e = 0; e < feed->episode_count; e++) {
-									PodcastEpisode* ep = Podcast_getEpisode(fi, e);
-									if (ep && strcmp(ep->guid, cl_entry->episode_guid) == 0) {
+									PodcastEpisode ep;
+									if (Podcast_getEpisode(fi, e, &ep) && strcmp(ep.guid, cl_entry->episode_guid) == 0) {
 										ep_idx = e;
 										break;
 									}
@@ -651,15 +651,15 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 				dirty = 1;
 			} else if (PAD_justPressed(BTN_A) && count > 0 && feed) {
 				podcast_current_episode_index = podcast_episodes_selected;
-				PodcastEpisode* ep = Podcast_getEpisode(podcast_current_feed_index, podcast_current_episode_index);
+				PodcastEpisode ep;
 
-				if (ep) {
+				if (Podcast_getEpisode(podcast_current_feed_index, podcast_current_episode_index, &ep)) {
 					int dl_progress = 0;
-					int dl_status = Podcast_getEpisodeDownloadStatus(feed->feed_url, ep->guid, &dl_progress);
+					int dl_status = Podcast_getEpisodeDownloadStatus(feed->feed_url, ep.guid, &dl_progress);
 
 					if (dl_status == PODCAST_DOWNLOAD_DOWNLOADING || dl_status == PODCAST_DOWNLOAD_PENDING) {
 						// Cancel download
-						if (Podcast_cancelEpisodeDownload(feed->feed_url, ep->guid) == 0) {
+						if (Podcast_cancelEpisodeDownload(feed->feed_url, ep.guid) == 0) {
 							snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Download cancelled");
 						} else {
 							snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Cancel failed");
@@ -676,7 +676,7 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 							last_progress_save_time = SDL_GetTicks();
 							// Update continue listening
 							Podcast_updateContinueListening(feed->feed_url, feed->feed_id,
-															ep->guid, ep->title, feed->title, feed->artwork_url);
+															ep.guid, ep.title, feed->title, feed->artwork_url);
 							if (load_result == 1) {
 								// Has saved progress — seeking, show player UI while waiting
 								state = PODCAST_INTERNAL_SEEKING;
@@ -704,17 +704,17 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 				}
 				dirty = 1;
 			} else if (PAD_justPressed(BTN_X) && count > 0 && feed) {
-				PodcastEpisode* ep = Podcast_getEpisode(podcast_current_feed_index, podcast_episodes_selected);
-				if (ep) {
+				PodcastEpisode ep;
+				if (Podcast_getEpisode(podcast_current_feed_index, podcast_episodes_selected, &ep)) {
 					// Toggle played status
-					if (ep->progress_sec == -1) {
-						ep->progress_sec = 0;
-						Podcast_saveProgress(feed->feed_url, ep->guid, 0);
+					if (ep.progress_sec == -1) {
+						Podcast_setEpisodeProgress(podcast_current_feed_index, podcast_episodes_selected, 0);
+						Podcast_saveProgress(feed->feed_url, ep.guid, 0);
 						snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Marked as unplayed");
 					} else {
-						ep->progress_sec = -1;
-						Podcast_markAsPlayed(feed->feed_url, ep->guid);
-						Podcast_removeContinueListening(feed->feed_url, ep->guid);
+						Podcast_setEpisodeProgress(podcast_current_feed_index, podcast_episodes_selected, -1);
+						Podcast_markAsPlayed(feed->feed_url, ep.guid);
+						Podcast_removeContinueListening(feed->feed_url, ep.guid);
 						snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Marked as played");
 					}
 					Podcast_flushProgress();
@@ -941,12 +941,13 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 					if (Podcast_isActive() && now - last_progress_save_time >= PROGRESS_SAVE_INTERVAL_MS) {
 						PodcastFeed* feed = Podcast_getSubscription(podcast_current_feed_index);
 						if (feed) {
-							PodcastEpisode* ep = Podcast_getEpisode(podcast_current_feed_index, podcast_current_episode_index);
-							if (ep) {
+							PodcastEpisode ep;
+							if (Podcast_getEpisode(podcast_current_feed_index, podcast_current_episode_index, &ep)) {
 								int position = Player_getPosition();
 								if (position > 0) {
-									ep->progress_sec = position / 1000;
-									Podcast_saveProgress(feed->feed_url, ep->guid, ep->progress_sec);
+									int progress_sec = position / 1000;
+									Podcast_setEpisodeProgress(podcast_current_feed_index, podcast_current_episode_index, progress_sec);
+									Podcast_saveProgress(feed->feed_url, ep.guid, progress_sec);
 									Podcast_flushProgress();
 								}
 							}
@@ -958,12 +959,15 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 				// Detect episode end (player stopped naturally)
 				if (Player_getState() == PLAYER_STATE_STOPPED) {
 					PodcastFeed* feed = Podcast_getSubscription(podcast_current_feed_index);
-					PodcastEpisode* ep = Podcast_getEpisode(podcast_current_feed_index, podcast_current_episode_index);
+					int ended_feed_index = podcast_current_feed_index;
+					int ended_episode_index = podcast_current_episode_index;
+					PodcastEpisode ep;
+					int have_ep = Podcast_getEpisode(ended_feed_index, ended_episode_index, &ep);
 					char saved_feed_url[PODCAST_MAX_URL] = "";
 					char saved_guid[PODCAST_MAX_GUID] = "";
-					if (feed && ep) {
+					if (feed && have_ep) {
 						strncpy(saved_feed_url, feed->feed_url, PODCAST_MAX_URL - 1);
-						strncpy(saved_guid, ep->guid, PODCAST_MAX_GUID - 1);
+						strncpy(saved_guid, ep.guid, PODCAST_MAX_GUID - 1);
 					}
 
 					Podcast_stop();
@@ -972,8 +976,8 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 						Podcast_markAsPlayed(saved_feed_url, saved_guid);
 						Podcast_removeContinueListening(saved_feed_url, saved_guid);
 					}
-					if (ep)
-						ep->progress_sec = -1;
+					if (have_ep)
+						Podcast_setEpisodeProgress(ended_feed_index, ended_episode_index, -1);
 
 					return_to_episodes(&state, &dirty);
 					continue;
@@ -1027,11 +1031,12 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 					render_podcast_playing(screen, show_setting, podcast_current_feed_index, podcast_current_episode_index);
 					// Overlay "Resuming..." text
 					{
-						PodcastEpisode* seek_ep = Podcast_getEpisode(podcast_current_feed_index, podcast_current_episode_index);
+						PodcastEpisode seek_ep;
+						int have_seek_ep = Podcast_getEpisode(podcast_current_feed_index, podcast_current_episode_index, &seek_ep);
 						char seek_msg[64];
-						if (seek_ep && seek_ep->progress_sec > 0) {
-							int m = seek_ep->progress_sec / 60;
-							int s = seek_ep->progress_sec % 60;
+						if (have_seek_ep && seek_ep.progress_sec > 0) {
+							int m = seek_ep.progress_sec / 60;
+							int s = seek_ep.progress_sec % 60;
 							snprintf(seek_msg, sizeof(seek_msg), "Resuming at %d:%02d...", m, s);
 						} else {
 							snprintf(seek_msg, sizeof(seek_msg), "Resuming...");
@@ -1069,12 +1074,13 @@ void PodcastModule_backgroundTick(void) {
 	if (Podcast_isActive() && now - last_progress_save_time >= PROGRESS_SAVE_INTERVAL_MS) {
 		PodcastFeed* feed = Podcast_getSubscription(podcast_current_feed_index);
 		if (feed) {
-			PodcastEpisode* ep = Podcast_getEpisode(podcast_current_feed_index, podcast_current_episode_index);
-			if (ep) {
+			PodcastEpisode ep;
+			if (Podcast_getEpisode(podcast_current_feed_index, podcast_current_episode_index, &ep)) {
 				int position = Player_getPosition();
 				if (position > 0) {
-					ep->progress_sec = position / 1000;
-					Podcast_saveProgress(feed->feed_url, ep->guid, ep->progress_sec);
+					int progress_sec = position / 1000;
+					Podcast_setEpisodeProgress(podcast_current_feed_index, podcast_current_episode_index, progress_sec);
+					Podcast_saveProgress(feed->feed_url, ep.guid, progress_sec);
 					Podcast_flushProgress();
 				}
 			}
@@ -1085,12 +1091,15 @@ void PodcastModule_backgroundTick(void) {
 	// Detect episode end
 	if (Player_getState() == PLAYER_STATE_STOPPED) {
 		PodcastFeed* feed = Podcast_getSubscription(podcast_current_feed_index);
-		PodcastEpisode* ep = Podcast_getEpisode(podcast_current_feed_index, podcast_current_episode_index);
+		int ended_feed_index = podcast_current_feed_index;
+		int ended_episode_index = podcast_current_episode_index;
+		PodcastEpisode ep;
+		int have_ep = Podcast_getEpisode(ended_feed_index, ended_episode_index, &ep);
 		char saved_feed_url[PODCAST_MAX_URL] = "";
 		char saved_guid[PODCAST_MAX_GUID] = "";
-		if (feed && ep) {
+		if (feed && have_ep) {
 			strncpy(saved_feed_url, feed->feed_url, PODCAST_MAX_URL - 1);
-			strncpy(saved_guid, ep->guid, PODCAST_MAX_GUID - 1);
+			strncpy(saved_guid, ep.guid, PODCAST_MAX_GUID - 1);
 		}
 
 		Podcast_stop();
@@ -1099,8 +1108,8 @@ void PodcastModule_backgroundTick(void) {
 			Podcast_markAsPlayed(saved_feed_url, saved_guid);
 			Podcast_removeContinueListening(saved_feed_url, saved_guid);
 		}
-		if (ep)
-			ep->progress_sec = -1;
+		if (have_ep)
+			Podcast_setEpisodeProgress(ended_feed_index, ended_episode_index, -1);
 
 		Background_setActive(BG_NONE);
 		ModuleCommon_setAutosleepDisabled(false);

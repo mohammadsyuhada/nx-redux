@@ -1324,6 +1324,7 @@ static void Config_readControlsString(char* cfg) {
 	}
 }
 void Config_load(void) {
+	config.released = 0;
 	config.device_tag = getenv("DEVICE");
 
 	// update for crop overscan support
@@ -1395,11 +1396,25 @@ void Config_free(void) {
 	if (config.user_cfg)
 		free(config.user_cfg);
 	config.user_cfg = NULL;
+	config.released = 1;
 }
 void Config_readOptions(void) {
 	Config_readOptionsString(config.system_cfg);
 	Config_readOptionsString(config.default_cfg);
 	Config_readOptionsString(config.user_cfg);
+}
+void Config_reapplyOptions(void) {
+	// Cores can re-register their option list mid-game (eg. after a disc
+	// swap); once startup has released the cfg buffers the plain re-read
+	// is a no-op and every option silently reverts to its default, so
+	// bring the files back for the duration of the read.
+	if (config.released) {
+		Config_load();
+		Config_readOptions();
+		Config_free();
+	} else {
+		Config_readOptions();
+	}
 }
 void Config_readControls(void) {
 	Config_readControlsString(config.default_cfg);

@@ -218,6 +218,7 @@ struct Config {
 	ButtonMapping* shortcuts;
 	int loaded;
 	int initialized;
+	int released; // cfg buffers freed by Config_free; reload from disk before re-reading
 };
 
 extern struct Config config;

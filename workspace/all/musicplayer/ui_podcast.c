@@ -1275,11 +1275,11 @@ void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
 	bool selected_is_downloaded = false;
 	bool selected_is_resumable = false;
 	if (selected < count) {
-		PodcastEpisode* sel_ep = Podcast_getEpisode(feed_index, selected);
-		if (sel_ep) {
-			selected_download_status = Podcast_getEpisodeDownloadStatus(feed->feed_url, sel_ep->guid, &selected_progress);
+		PodcastEpisode sel_ep;
+		if (Podcast_getEpisode(feed_index, selected, &sel_ep)) {
+			selected_download_status = Podcast_getEpisodeDownloadStatus(feed->feed_url, sel_ep.guid, &selected_progress);
 			selected_is_downloaded = Podcast_episodeFileExists(feed, selected);
-			selected_is_resumable = (sel_ep->progress_sec > 0);
+			selected_is_resumable = (sel_ep.progress_sec > 0);
 		}
 	}
 
@@ -1291,20 +1291,20 @@ void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
 		if (y + item_h <= base_y || y >= base_y + viewport_h)
 			continue;
 
-		PodcastEpisode* ep = Podcast_getEpisode(feed_index, i);
-		if (!ep)
+		PodcastEpisode ep;
+		if (!Podcast_getEpisode(feed_index, i, &ep))
 			continue;
 
 		bool is_selected = (i == selected);
 
 		// Check episode download status
 		int dl_progress = 0;
-		int dl_status = Podcast_getEpisodeDownloadStatus(feed->feed_url, ep->guid, &dl_progress);
+		int dl_status = Podcast_getEpisodeDownloadStatus(feed->feed_url, ep.guid, &dl_progress);
 
 		// Determine badge info
 		bool is_downloaded = Podcast_episodeFileExists(feed, i);
-		bool is_played = (ep->progress_sec == -1);
-		bool has_progress = (ep->progress_sec > 0);
+		bool is_played = (ep.progress_sec == -1);
+		bool has_progress = (ep.progress_sec > 0);
 
 		// Badge icons: complete icon if played, download icon if not downloaded
 		int badge_icon_size = SCALE1(14);
@@ -1316,11 +1316,11 @@ void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
 		int badge_width = num_badges > 0 ? num_badges * badge_icon_size : 0;
 
 		// Two-layer capsule pill with subtitle inside
-		ListItemBadgedPos pos = UI_renderListItemPillBadged(screen, &layout, font.medium, font.small, font.tiny, ep->title, NULL, truncated, y, is_selected, badge_width, 0);
+		ListItemBadgedPos pos = UI_renderListItemPillBadged(screen, &layout, font.medium, font.small, font.tiny, ep.title, NULL, truncated, y, is_selected, badge_width, 0);
 
 		// Title text (row 1)
 		UI_renderListItemText(screen, is_selected ? &podcast_title_scroll : NULL,
-							  ep->title, font.medium,
+							  ep.title, font.medium,
 							  pos.text_x, pos.text_y,
 							  pos.text_max_width, is_selected);
 
@@ -1352,7 +1352,7 @@ void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
 		int subtitle_x_offset = 0;
 
 		// Render "New" badge pill if episode is new
-		if (ep->is_new) {
+		if (ep.is_new) {
 			SDL_Surface* new_surf = TTF_RenderUTF8_Blended(font.tiny, "New", COLOR_WHITE);
 			if (new_surf) {
 				int badge_h = new_surf->h + SCALE1(2);
@@ -1390,11 +1390,11 @@ void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
 								&(SDL_Rect){pos.subtitle_x + subtitle_x_offset, pos.subtitle_y});
 				SDL_FreeSurface(queued_surf);
 			}
-		} else if (has_progress && ep->duration_sec > 0) {
+		} else if (has_progress && ep.duration_sec > 0) {
 			char progress_str[64];
-			format_duration_pair(progress_str, ep->progress_sec, ep->duration_sec);
+			format_duration_pair(progress_str, ep.progress_sec, ep.duration_sec);
 			char date_str[32];
-			format_date(date_str, ep->pub_date);
+			format_date(date_str, ep.pub_date);
 			if (date_str[0]) {
 				char combined[96];
 				snprintf(combined, sizeof(combined), "%s | %s", progress_str, date_str);
@@ -1410,11 +1410,11 @@ void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
 			}
 		} else {
 			char subtitle_str[64] = {0};
-			if (ep->duration_sec > 0) {
-				format_duration(subtitle_str, ep->duration_sec);
+			if (ep.duration_sec > 0) {
+				format_duration(subtitle_str, ep.duration_sec);
 			}
 			char date_str[32];
-			format_date(date_str, ep->pub_date);
+			format_date(date_str, ep.pub_date);
 			if (date_str[0]) {
 				if (subtitle_str[0]) {
 					char combined[96];
@@ -1657,9 +1657,10 @@ void render_podcast_playing(SDL_Surface* screen, IndicatorType show_setting,
 	char truncated[256];
 
 	PodcastFeed* feed = Podcast_getSubscription(feed_index);
-	PodcastEpisode* ep = Podcast_getEpisode(feed_index, episode_index);
+	PodcastEpisode ep;
+	int have_ep = Podcast_getEpisode(feed_index, episode_index, &ep);
 
-	if (!feed || !ep) {
+	if (!feed || !have_ep) {
 		UI_renderMenuBar(screen, "Now Playing");
 		UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", NULL});
 		return;
@@ -1754,7 +1755,7 @@ void render_podcast_playing(SDL_Surface* screen, IndicatorType show_setting,
 	}
 
 	// Episode title (like Title in music player) - white, title font, with scrolling
-	const char* title = ep->title[0] ? ep->title : "Unknown Episode";
+	const char* title = ep.title[0] ? ep.title : "Unknown Episode";
 	int title_y = info_y;
 
 	// Check if text changed and reset scroll state
@@ -1780,7 +1781,7 @@ void render_podcast_playing(SDL_Surface* screen, IndicatorType show_setting,
 	info_y += TTF_FontHeight(font.title) + SCALE1(2);
 
 	// Episode description (word-wrapped, up to 4 lines)
-	if (ep->description[0]) {
+	if (ep.description[0]) {
 		TTF_Font* desc_font = font.small;
 		int desc_line_h = TTF_FontHeight(desc_font);
 		int max_lines = 4;
@@ -1789,7 +1790,7 @@ void render_podcast_playing(SDL_Surface* screen, IndicatorType show_setting,
 		char desc_buf[512];
 		int di = 0;
 		bool in_tag = false;
-		for (const char* sp = ep->description; *sp && di < 511; sp++) {
+		for (const char* sp = ep.description; *sp && di < 511; sp++) {
 			if (*sp == '<') {
 				in_tag = true;
 				continue;

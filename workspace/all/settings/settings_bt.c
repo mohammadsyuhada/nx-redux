@@ -290,18 +290,27 @@ static void bt_device_press(void) {
 	if (!page)
 		return;
 
+	// Copy the device info out under the page lock: the scanner thread
+	// rebuilds page->items[] and device_info_pool under the wrlock, and
+	// this handler runs after the menu loop released its read lock.
+	BtDeviceInfo info;
+	int have_info = 0;
+	pthread_rwlock_rdlock(&page->lock);
 	SettingItem* sel = settings_page_visible_item(page, page->selected);
-	if (!sel || !sel->user_data)
+	if (sel && sel->user_data) {
+		info = *(BtDeviceInfo*)sel->user_data;
+		have_info = 1;
+	}
+	pthread_rwlock_unlock(&page->lock);
+	if (!have_info)
 		return;
-
-	BtDeviceInfo* info = (BtDeviceInfo*)sel->user_data;
 
 	if (bt_options_used >= MAX_BT_OPTIONS)
 		bt_options_used = 0;
 	BtDeviceOptions* opts = &bt_options_pool[bt_options_used++];
 	active_bt_options = opts;
 
-	build_bt_device_options(opts, info);
+	build_bt_device_options(opts, &info);
 	settings_menu_push(&opts->page);
 }
 

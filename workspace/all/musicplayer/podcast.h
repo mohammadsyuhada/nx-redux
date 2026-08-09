@@ -311,8 +311,14 @@ int Podcast_getDownloadedEpisodeIndex(int feed_index, int episode_index);
 // ============================================================================
 
 // Get episode by index (loads from disk cache if needed)
-// Returns pointer to episode in internal cache, or NULL if invalid
-PodcastEpisode* Podcast_getEpisode(int feed_index, int episode_index);
+// Copies the episode into *out; returns false if invalid. Copy semantics:
+// the internal cache can be rebuilt at any time by a page reload or a
+// background feed refresh, so pointers into it are never exposed.
+bool Podcast_getEpisode(int feed_index, int episode_index, PodcastEpisode* out);
+
+// Update the cached copy of an episode's resume position (does not persist;
+// pair with Podcast_saveProgress/Podcast_markAsPlayed)
+void Podcast_setEpisodeProgress(int feed_index, int episode_index, int progress_sec);
 
 // Load a page of episodes into cache
 // Returns number of episodes loaded
