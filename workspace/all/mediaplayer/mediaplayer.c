@@ -4,7 +4,6 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <signal.h>
-#include <time.h>
 #include <msettings.h>
 
 #include "api.h"

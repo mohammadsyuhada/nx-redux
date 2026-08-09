@@ -29,9 +29,15 @@ static int parse_cpu_list(const char* list, cpu_set_t* set) {
 			unsigned long stop = strtoul(p, &end, 10);
 			if (end == p)
 				return -1;
+			// Bound to the fixed-size cpu_set_t; CPU_SET past CPU_SETSIZE
+			// writes out of bounds.
+			if (start >= CPU_SETSIZE || stop >= CPU_SETSIZE || start > stop)
+				return -1;
 			for (unsigned long i = start; i <= stop; i++)
 				CPU_SET(i, set);
 		} else {
+			if (start >= CPU_SETSIZE)
+				return -1;
 			CPU_SET(start, set);
 		}
 		if (*end == ',')

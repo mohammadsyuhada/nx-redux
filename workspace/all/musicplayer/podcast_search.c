@@ -7,30 +7,13 @@
 #include <ctype.h>
 
 #include "api.h"
+#include "utils.h"
 
 // JSON library
 #include "parson/parson.h"
 
 // URL encode a string for use in query parameters
-static void url_encode(const char* src, char* dest, size_t dest_size) {
-	const char* hex = "0123456789ABCDEF";
-	size_t j = 0;
-
-	for (size_t i = 0; src[i] && j < dest_size - 4; i++) {
-		unsigned char c = (unsigned char)src[i];
-		if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-			(c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~') {
-			dest[j++] = c;
-		} else if (c == ' ') {
-			dest[j++] = '+';
-		} else {
-			dest[j++] = '%';
-			dest[j++] = hex[(c >> 4) & 0x0F];
-			dest[j++] = hex[c & 0x0F];
-		}
-	}
-	dest[j] = '\0';
-}
+// url_encode moved to common/utils.c as urlEncode()
 
 // Convert Apple artwork URL to larger size (100x100 -> 400x400)
 // Example: https://...mzstatic.com/.../100x100bb.png -> https://...mzstatic.com/.../400x400bb.png
@@ -59,7 +42,7 @@ int podcast_search_itunes(const char* query, PodcastSearchResult* results, int m
 
 	// URL encode the query
 	char encoded_query[512];
-	url_encode(query, encoded_query, sizeof(encoded_query));
+	urlEncode(query, encoded_query, sizeof(encoded_query));
 
 	// Build search URL
 	// https://itunes.apple.com/search?term=QUERY&media=podcast&limit=50

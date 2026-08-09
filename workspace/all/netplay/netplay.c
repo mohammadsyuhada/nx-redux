@@ -1073,13 +1073,26 @@ static bool recv_packet(PacketHeader* hdr, void* data, uint16_t max_size, int ti
 		return false; // Reject suspiciously large packets
 	}
 
-	if (hdr->size > 0 && data && hdr->size <= max_size) {
-		ret = recv(np.tcp_fd, data, hdr->size, 0);
+	if (hdr->size > 0) {
+		// Always consume exactly hdr->size payload bytes. If we can't deliver them
+		// to the caller's buffer (none supplied, or larger than max_size), drain
+		// them into scratch — leaving them in the stream would make the next
+		// recv() read payload bytes as a header and desync the session for good.
+		// hdr->size is bounded to <= 4096 by the check above.
+		char scratch[4096];
+		bool deliver = (data && hdr->size <= max_size);
+		void* dst = deliver ? data : (void*)scratch;
+		ret = recv(np.tcp_fd, dst, hdr->size, 0);
 		if (ret == 0) {
 			handle_recv_disconnect();
 			return false;
 		}
 		if (ret != hdr->size) {
+			return false;
+		}
+		if (!deliver) {
+			// Payload drained but not deliverable: reject this packet while the
+			// stream stays aligned for the next header.
 			return false;
 		}
 	}

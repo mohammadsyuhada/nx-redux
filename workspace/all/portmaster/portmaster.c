@@ -21,6 +21,33 @@
 #include "utils.h"
 #include "wget_fetch.h"
 
+// Copy a file without invoking a shell. Used for paths derived from port
+// metadata / directory names, where a `cp '%s'` command would let a crafted
+// name (containing a single quote) break out of the quoting.
+static int copy_file(const char* src, const char* dst) {
+	FILE* in = fopen(src, "rb");
+	if (!in)
+		return -1;
+	FILE* out = fopen(dst, "wb");
+	if (!out) {
+		fclose(in);
+		return -1;
+	}
+	char buf[8192];
+	size_t n;
+	int rc = 0;
+	while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+		if (fwrite(buf, 1, n, out) != n) {
+			rc = -1;
+			break;
+		}
+	}
+	fclose(in);
+	if (fclose(out) != 0)
+		rc = -1;
+	return rc;
+}
+
 // PortMaster paths
 #define PORTS_PAK_DIR SDCARD_PATH "/Emus/PORTS.pak"
 #define LEGACY_PORTS_PAK_DIR SDCARD_PATH "/Emus/" PLATFORM "/PORTS.pak" // pre-flattening installs (platform-subdir layout)
@@ -187,9 +214,7 @@ static void sync_port_artwork(void) {
 		if (!src_path[0])
 			continue;
 
-		char cmd[1024];
-		snprintf(cmd, sizeof(cmd), "cp -f '%s' '%s'", src_path, media_path);
-		system(cmd);
+		copy_file(src_path, media_path);
 	}
 
 	closedir(dir);

@@ -1282,6 +1282,7 @@ void Menu_loadState(void) {
 		int disc_changed = 0;
 		if (menu.total_discs && menu.disc >= 0) {
 			char slot_disc_name[MAX_PATH];
+			slot_disc_name[0] = '\0'; // getFile writes nothing if the .txt is missing
 			getFile(menu.txt_path, slot_disc_name, MAX_PATH);
 
 			char slot_disc_path[MAX_PATH];

@@ -8,7 +8,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <errno.h>
 #include <unistd.h>
 
 // Logging macros using NextUI's LOG_* infrastructure

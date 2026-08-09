@@ -8,8 +8,6 @@
 #include <strings.h>
 #include <unistd.h>
 #include <math.h>
-#include <fcntl.h>
-#include <dirent.h>
 #include <samplerate.h>
 #include <SDL2/SDL_image.h>
 #include "api.h"
@@ -1763,7 +1761,11 @@ static void parse_id3v2(const char* filepath) {
 		// Skip flags
 		pos += 10;
 
-		if (frame_size == 0 || pos + frame_size > tag_size)
+		// Bounds check without adding: pos + frame_size can wrap in uint32_t
+		// (frame_size is an untrusted 32-bit big-endian value in v2.2/v2.3),
+		// so compute the remaining space instead. pos <= tag_size here because
+		// the loop guard was `pos + 10 < tag_size` before the += 10.
+		if (frame_size == 0 || frame_size > tag_size - pos)
 			break;
 
 		// Process text frames (TIT2, TPE1, TALB, etc.)

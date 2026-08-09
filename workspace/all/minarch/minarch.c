@@ -1,19 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdarg.h>
 #include <msettings.h>
 
 #include <unistd.h>
-#include <fcntl.h>
-#include <dlfcn.h>
-#include <libgen.h>
-#include <time.h>
 #include <sys/stat.h>
-#include <errno.h>
-#include <zip.h>
 #include <pthread.h>
-#include <glob.h>
-#include <lz4.h>
 
 // libretro-common
 #include "libretro.h"
@@ -610,7 +601,11 @@ void minarch_reloadGame(void) {
 	game_info.data = game.data;
 	game_info.size = game.size;
 	if (!core.load_game(&game_info)) {
+		// The game was already unload_game()'d above; running the core now would
+		// crash inside it (see Core_load). Quit cleanly instead of returning into
+		// a main loop that keeps calling core.run() on a game-less core.
 		LOG_error("core refused to reload game: %s\n", game_info.path);
+		quit = 1;
 		return;
 	}
 

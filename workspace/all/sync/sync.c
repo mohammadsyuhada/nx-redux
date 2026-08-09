@@ -237,6 +237,15 @@ static void parse_discovery_payload(const char* payload, char* ip_out, size_t ip
 		strncpy(ip_out, payload, ip_len - 1);
 		ip_out[ip_len - 1] = '\0';
 	}
+
+	// The parsed address is later interpolated into a shell command (rsync via
+	// popen), so anything that is not a valid dotted-quad IPv4 literal must be
+	// rejected here. Clearing ip_out makes the caller's `sender_ip[0]` check
+	// discard the packet instead of trusting attacker-controlled bytes.
+	struct in_addr parsed_addr;
+	if (inet_pton(AF_INET, ip_out, &parsed_addr) != 1) {
+		ip_out[0] = '\0';
+	}
 }
 
 static void* discovery_thread_func(void* arg) {

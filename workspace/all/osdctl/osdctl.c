@@ -7,7 +7,15 @@
 #include <errno.h>
 #include "msettings.h"
 
-// Mirror of SettingsV1 from libmsettings for direct shm access
+// Mirror of the active libmsettings Settings struct for direct shm access.
+// The layout differs per platform (see tg5040/tg5050 libmsettings/msettings.c),
+// so this MUST be kept in sync with them:
+//   - tg5040 family (SettingsV10): disable_dpad_on_mute + emulate_joystick_on_mute
+//     follow toggled_volume, and there is no fanSpeed field.
+//   - tg5050 (SettingsV1): no dpad/joystick fields, but a trailing fanSpeed.
+// HAS_FAN is defined by the Makefile for tg5050 only. Getting this wrong shifts
+// every field past toggled_volume, corrupting jack/audiosink reads and the
+// msettings.bin write.
 typedef struct {
 	int version;
 	int brightness;
@@ -24,6 +32,10 @@ typedef struct {
 	int toggled_saturation;
 	int toggled_exposure;
 	int toggled_volume;
+#ifndef HAS_FAN
+	int disable_dpad_on_mute;
+	int emulate_joystick_on_mute;
+#endif
 	int turbo_a;
 	int turbo_b;
 	int turbo_x;
@@ -35,7 +47,9 @@ typedef struct {
 	int unused[2];
 	int jack;
 	int audiosink;
+#ifdef HAS_FAN
 	int fanSpeed;
+#endif
 } SettingsShm;
 
 #define SHM_KEY "/SharedSettings"
@@ -63,7 +77,7 @@ static int get_volume(SettingsShm* s) {
 static void save_settings(SettingsShm* s) {
 	const char* userdata = getenv("USERDATA_PATH");
 	if (!userdata)
-		userdata = "/mnt/SDCARD/.userdata/tg5050";
+		userdata = "/mnt/SDCARD/.userdata/" PLATFORM; // was hardcoded tg5050
 	char path[256];
 	snprintf(path, sizeof(path), "%s/msettings.bin", userdata);
 	int fd = open(path, O_CREAT | O_WRONLY, 0644);
@@ -103,8 +117,10 @@ int main(int argc, char* argv[]) {
 			printf("%d\n", get_volume(s));
 		else if (strcmp(prop, "brightness") == 0)
 			printf("%d\n", s->brightness);
+#ifdef HAS_FAN
 		else if (strcmp(prop, "fanspeed") == 0)
 			printf("%d\n", s->fanSpeed);
+#endif
 		else if (strcmp(prop, "mute") == 0)
 			printf("%d\n", s->mute);
 		else
@@ -131,12 +147,12 @@ int main(int argc, char* argv[]) {
 														: 10 + 21 * value;
 			SetRawBrightness(raw);
 			save_settings(s);
+#ifdef HAS_FAN
 		} else if (strcmp(prop, "fanspeed") == 0) {
 			s->fanSpeed = value;
-#ifdef HAS_FAN
 			SetRawFanSpeed(value);
-#endif
 			save_settings(s);
+#endif
 		} else if (strcmp(prop, "mute") == 0) {
 			s->mute = value;
 			if (value) {

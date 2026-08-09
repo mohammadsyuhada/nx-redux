@@ -299,8 +299,9 @@ const char* baseName(const char* filename) {
 	return p ? p + 1 : (char*)filename;
 }
 void folderPath(const char* path, char* result) {
-	char pathCopy[256];
-	strcpy(pathCopy, path);
+	char pathCopy[MAX_PATH];
+	strncpy(pathCopy, path, sizeof(pathCopy) - 1);
+	pathCopy[sizeof(pathCopy) - 1] = '\0';
 
 	char* lastSlash = strrchr(pathCopy, '/'); // Find the last slash
 	if (lastSlash != NULL) {
@@ -309,6 +310,24 @@ void folderPath(const char* path, char* result) {
 	} else {
 		strcpy(result, ""); // No folder found
 	}
+}
+void urlEncode(const char* src, char* dst, size_t dst_size) {
+	const char* hex = "0123456789ABCDEF";
+	size_t j = 0;
+	for (size_t i = 0; src[i] && j < dst_size - 4; i++) {
+		unsigned char c = (unsigned char)src[i];
+		if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+			(c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~') {
+			dst[j++] = c;
+		} else if (c == ' ') {
+			dst[j++] = '+';
+		} else {
+			dst[j++] = '%';
+			dst[j++] = hex[c >> 4];
+			dst[j++] = hex[c & 0x0F];
+		}
+	}
+	dst[j] = '\0';
 }
 void cleanName(char* name_out, const char* file_name) {
 	char* name_without_ext = removeExtension(file_name);
@@ -426,7 +445,8 @@ void getEmuName(const char* in_name, char* out_name) { // NOTE: both char arrays
 		// printf("    tmp2: %s\n", tmp);
 		memmove(out_name, tmp, strlen(tmp) + 1);
 		tmp = strchr(out_name, ')');
-		tmp[0] = '\0';
+		if (tmp) // guard: an unbalanced '(' (no matching ')') would make this NULL
+			tmp[0] = '\0';
 	}
 
 	// printf(" out_name: %s\n", out_name); fflush(stdout);

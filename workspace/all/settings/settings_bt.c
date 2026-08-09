@@ -8,7 +8,6 @@
 #include "settings_bt.h"
 #include "defines.h"
 #include "api.h"
-#include "config.h"
 #include "ui_list.h"
 #include "ui_loadingoverlay.h"
 
@@ -65,13 +64,22 @@ static void bt_device_draw(SDL_Surface* screen, SettingItem* item,
 // BT toggle (blocking with overlay)
 // ============================================
 
+// File-scope context: the worker is detached and can outlive bt_set_toggle()
+// (the user may press B to stop waiting before BT_enable returns). Keeping the
+// context in static storage — never on the caller's stack — means the thread's
+// final writes land in valid memory, and the busy flag stops a second toggle
+// from racing the first over the same context.
+static struct {
+	int val;
+	volatile int done;
+	volatile int busy;
+} bt_toggle_ctx;
+
 static void* bt_toggle_thread(void* arg) {
-	struct {
-		int val;
-		volatile int* done;
-	}* ctx = arg;
-	BT_enable(ctx->val ? true : false);
-	*ctx->done = 1;
+	(void)arg;
+	BT_enable(bt_toggle_ctx.val ? true : false);
+	bt_toggle_ctx.done = 1;
+	bt_toggle_ctx.busy = 0;
 	return NULL;
 }
 
@@ -83,20 +91,23 @@ static void bt_set_toggle(int val) {
 	SettingsPage* page = settings_menu_current();
 	if (!page || !page->screen)
 		return;
+	if (bt_toggle_ctx.busy) // a toggle is still running in the background
+		return;
 
-	volatile int done = 0;
-	struct {
-		int val;
-		volatile int* done;
-	} ctx = {val, &done};
+	bt_toggle_ctx.busy = 1;
+	bt_toggle_ctx.val = val;
+	bt_toggle_ctx.done = 0;
 
 	pthread_t t;
-	pthread_create(&t, NULL, bt_toggle_thread, &ctx);
+	if (pthread_create(&t, NULL, bt_toggle_thread, NULL) != 0) {
+		bt_toggle_ctx.busy = 0;
+		return;
+	}
 	pthread_detach(t);
 
 	const char* title = val ? "Enabling Bluetooth..." : "Disabling Bluetooth...";
 
-	while (!done) {
+	while (!bt_toggle_ctx.done) {
 		GFX_startFrame();
 		PAD_poll();
 		if (PAD_justPressed(BTN_B))
@@ -129,14 +140,21 @@ static BtDeviceOptions* active_bt_options = NULL;
 typedef struct {
 	void (*action)(char* addr);
 	char addr[18];
-	const char* overlay_msg;
 	volatile int done;
+	volatile int busy;
 } BtActionCtx;
 
+// Static, not stack-allocated: bt_run_action may return (user presses B) while
+// the blocking BT op is still running in the detached worker, so the context it
+// writes on completion must remain valid. The busy flag rejects a second action
+// until the first worker has finished with the shared context.
+static BtActionCtx bt_action_ctx;
+
 static void* bt_action_thread(void* arg) {
-	BtActionCtx* ctx = (BtActionCtx*)arg;
-	ctx->action(ctx->addr);
-	ctx->done = 1;
+	(void)arg;
+	bt_action_ctx.action(bt_action_ctx.addr);
+	bt_action_ctx.done = 1;
+	bt_action_ctx.busy = 0;
 	return NULL;
 }
 
@@ -145,17 +163,24 @@ static void bt_run_action(void (*action)(char*), const char* addr, const char* m
 		return;
 	SDL_Surface* screen = bt_page_ref->screen;
 
-	BtActionCtx ctx = {0};
-	ctx.action = action;
-	strncpy(ctx.addr, addr, sizeof(ctx.addr) - 1);
-	ctx.overlay_msg = msg;
-	ctx.done = 0;
+	if (bt_action_ctx.busy) // a previous action is still running in the background
+		return;
+
+	bt_action_ctx.busy = 1;
+	bt_action_ctx.done = 0;
+	bt_action_ctx.action = action;
+	bt_action_ctx.addr[0] = '\0';
+	strncpy(bt_action_ctx.addr, addr, sizeof(bt_action_ctx.addr) - 1);
+	bt_action_ctx.addr[sizeof(bt_action_ctx.addr) - 1] = '\0';
 
 	pthread_t t;
-	pthread_create(&t, NULL, bt_action_thread, &ctx);
+	if (pthread_create(&t, NULL, bt_action_thread, NULL) != 0) {
+		bt_action_ctx.busy = 0;
+		return;
+	}
 	pthread_detach(t);
 
-	while (!ctx.done) {
+	while (!bt_action_ctx.done) {
 		GFX_startFrame();
 		PAD_poll();
 		if (PAD_justPressed(BTN_B))

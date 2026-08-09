@@ -67,4 +67,9 @@ double clampd(double x, double lower, double upper);
 
 char* findFileInDir(const char* directory, const char* filename);
 
+// Percent-encode src into dst (form style: space -> '+', unreserved kept, rest
+// %XX). dst must hold up to 3x src plus a NUL; encoding stops early if it would
+// overflow dst_size.
+void urlEncode(const char* src, char* dst, size_t dst_size);
+
 #endif

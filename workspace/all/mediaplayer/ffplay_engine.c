@@ -29,6 +29,26 @@ static void on_ffplay_audio_changed(int sink_type) {
 }
 
 // Build argv for ffplay and exec in a forked child. Returns exit status.
+// Escape a value for inclusion inside single quotes in an ffmpeg filtergraph.
+// Inside '...' only the closing quote is special, so a literal ' must be written
+// as '\'' (close-quote, backslash-quote, reopen-quote). Without this, a subtitle
+// path containing an apostrophe (e.g. "my'movie.srt") ends the quoted value early
+// and the rest of the filename is parsed as filtergraph syntax, breaking playback.
+static void escape_filter_squote(const char* in, char* out, size_t out_size) {
+	size_t j = 0;
+	for (size_t i = 0; in[i] && j + 4 < out_size; i++) {
+		if (in[i] == '\'') {
+			out[j++] = '\'';
+			out[j++] = '\\';
+			out[j++] = '\'';
+			out[j++] = '\'';
+		} else {
+			out[j++] = in[i];
+		}
+	}
+	out[j] = '\0';
+}
+
 static int ffplay_exec(FfplayConfig* config, int use_subs) {
 	char* argv[64];
 	int argc = 0;
@@ -81,14 +101,16 @@ static int ffplay_exec(FfplayConfig* config, int use_subs) {
 		argv[argc++] = "-sn";
 		// Multiple external subtitle files — one -vf per file + empty for "off"
 		for (int i = 0; i < config->subtitle_count; i++) {
+			char sub_esc[2048];
+			escape_filter_squote(config->subtitle_paths[i], sub_esc, sizeof(sub_esc));
 			if (scale_filter[0]) {
 				snprintf(vf_strs[i], sizeof(vf_strs[0]),
 						 "%s,subtitles='%s':fontsdir='%s':force_style='Fontname=%s,FontSize=32'",
-						 scale_filter, config->subtitle_paths[i], RES_PATH, sub_fontname);
+						 scale_filter, sub_esc, RES_PATH, sub_fontname);
 			} else {
 				snprintf(vf_strs[i], sizeof(vf_strs[0]),
 						 "subtitles='%s':fontsdir='%s':force_style='Fontname=%s,FontSize=32'",
-						 config->subtitle_paths[i], RES_PATH, sub_fontname);
+						 sub_esc, RES_PATH, sub_fontname);
 			}
 			argv[argc++] = "-vf";
 			argv[argc++] = vf_strs[i];
@@ -108,16 +130,18 @@ static int ffplay_exec(FfplayConfig* config, int use_subs) {
 		// fontsdir: system fontconfig has no fonts, so point to our bundled font
 		// force_style: only for external subs (SRT has no styling); skip for embedded
 		//              ASS/SSA which have their own fonts and positioning
+		char sub_esc[2048];
+		escape_filter_squote(config->subtitle_path, sub_esc, sizeof(sub_esc));
 		if (config->subtitle_is_external) {
 			snprintf(vf_str, sizeof(vf_str),
 					 "%s%ssubtitles='%s':fontsdir='%s':force_style='Fontname=%s,FontSize=32'",
 					 scale_filter, scale_filter[0] ? "," : "",
-					 config->subtitle_path, RES_PATH, sub_fontname);
+					 sub_esc, RES_PATH, sub_fontname);
 		} else {
 			snprintf(vf_str, sizeof(vf_str),
 					 "%s%ssubtitles='%s':fontsdir='%s'",
 					 scale_filter, scale_filter[0] ? "," : "",
-					 config->subtitle_path, RES_PATH);
+					 sub_esc, RES_PATH);
 		}
 		argv[argc++] = "-vf";
 		argv[argc++] = vf_str;

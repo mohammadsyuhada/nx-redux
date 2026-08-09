@@ -944,12 +944,14 @@ static void GBALink_sendHeartbeatIfNeeded(const struct timeval* now) {
 		bool sent_ok = send_packet(CMD_HEARTBEAT, NULL, 0, 0);
 		if (sent_ok) {
 			gl.last_packet_sent = *now;
+			pthread_mutex_unlock(&gl.mutex);
 		} else {
-			// Heartbeat send failed - connection is dead
+			// Heartbeat send failed - connection is dead.
+			// Unlock before GBALink_disconnect(): gl.mutex is non-recursive and
+			// disconnect() re-locks it, so calling it while held self-deadlocks.
+			pthread_mutex_unlock(&gl.mutex);
 			GBALink_disconnect();
-			return;
 		}
-		pthread_mutex_unlock(&gl.mutex);
 	}
 }
 

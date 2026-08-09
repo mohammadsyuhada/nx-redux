@@ -10,6 +10,7 @@
 #include <time.h>
 #include <pthread.h>
 #include "api.h"
+#include "utils.h"
 #include "parson/parson.h"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
@@ -37,6 +38,15 @@ typedef struct {
 } AlbumArtContext;
 
 static AlbumArtContext art_ctx = {0};
+
+// album_art_fetch() is called from the radio streaming thread (ICY/HLS metadata),
+// while album_art_get()/_is_fetching()/_clear() run on the UI thread. Without
+// serialization they can pthread_join() the same handle concurrently, create a
+// new fetch thread over one being joined, and double-free pending_art. This lock
+// makes those four entry points mutually exclusive. The worker thread
+// (fetch_thread_func) deliberately does NOT take this lock, so holding it across
+// pthread_join() cannot deadlock — the worker finishes on its own.
+static pthread_mutex_t art_lock = PTHREAD_MUTEX_INITIALIZER;
 
 // Simple hash function for cache filename
 static unsigned int simple_hash(const char* str) {
@@ -124,24 +134,7 @@ static void save_album_art_to_cache(const char* cache_path, const uint8_t* data,
 }
 
 // URL encode a string for use in query parameters
-static void url_encode(const char* src, char* dst, int dst_size) {
-	const char* hex = "0123456789ABCDEF";
-	int j = 0;
-	for (int i = 0; src[i] && j < dst_size - 4; i++) {
-		unsigned char c = (unsigned char)src[i];
-		if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-			(c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~') {
-			dst[j++] = c;
-		} else if (c == ' ') {
-			dst[j++] = '+';
-		} else {
-			dst[j++] = '%';
-			dst[j++] = hex[c >> 4];
-			dst[j++] = hex[c & 0x0F];
-		}
-	}
-	dst[j] = '\0';
-}
+// url_encode moved to common/utils.c as urlEncode()
 
 // Background thread: fetch album art from iTunes API
 static void* fetch_thread_func(void* arg) {
@@ -166,8 +159,8 @@ static void* fetch_thread_func(void* arg) {
 	// Build search query using iTunes API
 	char encoded_artist[512];
 	char encoded_title[512];
-	url_encode(artist, encoded_artist, sizeof(encoded_artist));
-	url_encode(title, encoded_title, sizeof(encoded_title));
+	urlEncode(artist, encoded_artist, sizeof(encoded_artist));
+	urlEncode(title, encoded_title, sizeof(encoded_title));
 
 	char search_url[1024];
 	if (artist[0] && title[0]) {
@@ -302,6 +295,7 @@ void album_art_init(void) {
 }
 
 void album_art_cleanup(void) {
+	pthread_mutex_lock(&art_lock);
 	// Wait for any active thread to finish
 	if (art_ctx.thread_active) {
 		pthread_join(art_ctx.fetch_thread, NULL);
@@ -318,9 +312,11 @@ void album_art_cleanup(void) {
 	art_ctx.last_art_artist[0] = '\0';
 	art_ctx.last_art_title[0] = '\0';
 	art_ctx.art_fetch_in_progress = false;
+	pthread_mutex_unlock(&art_lock);
 }
 
 void album_art_clear(void) {
+	pthread_mutex_lock(&art_lock);
 	// Wait for any active thread to finish before clearing
 	if (art_ctx.thread_active) {
 		pthread_join(art_ctx.fetch_thread, NULL);
@@ -338,9 +334,11 @@ void album_art_clear(void) {
 	art_ctx.last_art_title[0] = '\0';
 	art_ctx.art_fetch_in_progress = false;
 	art_ctx.result_ready = false;
+	pthread_mutex_unlock(&art_lock);
 }
 
 SDL_Surface* album_art_get(void) {
+	pthread_mutex_lock(&art_lock);
 	// Check if background thread has delivered a result
 	if (art_ctx.result_ready && art_ctx.thread_active) {
 		pthread_join(art_ctx.fetch_thread, NULL);
@@ -356,7 +354,9 @@ SDL_Surface* album_art_get(void) {
 			art_ctx.pending_art = NULL;
 		}
 	}
-	return art_ctx.album_art;
+	SDL_Surface* result = art_ctx.album_art;
+	pthread_mutex_unlock(&art_lock);
+	return result;
 }
 
 bool album_art_is_fetching(void) {
@@ -365,7 +365,10 @@ bool album_art_is_fetching(void) {
 	// itself is only fully cleared inside album_art_get(). Reporting
 	// in-progress until consumption deadlocks the radio screen: render waits
 	// for !fetching, while !fetching waits for a render to call get().
-	return art_ctx.art_fetch_in_progress && !art_ctx.result_ready;
+	pthread_mutex_lock(&art_lock);
+	bool fetching = art_ctx.art_fetch_in_progress && !art_ctx.result_ready;
+	pthread_mutex_unlock(&art_lock);
+	return fetching;
 }
 
 // Fetch album art from iTunes Search API (truly async, non-blocking)
@@ -374,9 +377,12 @@ void album_art_fetch(const char* artist, const char* title) {
 		return;
 	}
 
+	pthread_mutex_lock(&art_lock);
+
 	// Check if we already fetched art for this track
 	if (strcmp(art_ctx.last_art_artist, artist) == 0 &&
 		strcmp(art_ctx.last_art_title, title) == 0) {
+		pthread_mutex_unlock(&art_lock);
 		return; // Already fetched
 	}
 
@@ -407,6 +413,7 @@ void album_art_fetch(const char* artist, const char* title) {
 		// Thread creation failed, fall through
 		art_ctx.art_fetch_in_progress = false;
 	}
+	pthread_mutex_unlock(&art_lock);
 }
 
 // Get the total size of the album art disk cache in bytes

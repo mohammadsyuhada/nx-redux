@@ -1624,6 +1624,14 @@ static void sanitize_for_filename(char* str) {
 			*p = '_';
 		}
 	}
+	// Guard against path-traversal / whole-directory targets. Path separators
+	// are already replaced above, so the only remaining dangerous components are
+	// a name that is exactly "", ".", or ".." — each resolves to the parent (or
+	// the containing directory itself), which would make an unsubscribe delete
+	// far more than the feed's own folder.
+	if (str[0] == '\0' || strcmp(str, ".") == 0 || strcmp(str, "..") == 0) {
+		strcpy(str, "_");
+	}
 }
 
 // Generate local file path for an episode

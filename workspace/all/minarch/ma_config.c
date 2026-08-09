@@ -3,7 +3,6 @@
 #include "ma_config.h"
 #include "ma_options.h"
 #include "ma_rewind.h"
-#include <glob.h>
 #include <dirent.h>
 
 char* onoff_labels[] = {

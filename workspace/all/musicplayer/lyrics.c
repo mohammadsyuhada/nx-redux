@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include "api.h"
+#include "utils.h"
 #include "platform.h"
 #include "parson/parson.h"
 
@@ -55,24 +56,7 @@ static void get_cache_filepath(const char* artist, const char* title, char* path
 }
 
 // URL encode a string for use in query parameters
-static void url_encode(const char* src, char* dst, int dst_size) {
-	const char* hex = "0123456789ABCDEF";
-	int j = 0;
-	for (int i = 0; src[i] && j < dst_size - 4; i++) {
-		unsigned char c = (unsigned char)src[i];
-		if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-			(c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~') {
-			dst[j++] = c;
-		} else if (c == ' ') {
-			dst[j++] = '+';
-		} else {
-			dst[j++] = '%';
-			dst[j++] = hex[c >> 4];
-			dst[j++] = hex[c & 0x0F];
-		}
-	}
-	dst[j] = '\0';
-}
+// url_encode moved to common/utils.c as urlEncode()
 
 // Parse LRC text into a line array. Returns number of lines parsed.
 static int parse_lrc_text(const char* lrc_text, LyricLine* lines, int max_lines) {
@@ -227,8 +211,8 @@ static void* fetch_thread_func(void* arg) {
 	// URL-encode artist and title separately
 	char encoded_artist[512];
 	char encoded_title[512];
-	url_encode(args->artist, encoded_artist, sizeof(encoded_artist));
-	url_encode(args->title, encoded_title, sizeof(encoded_title));
+	urlEncode(args->artist, encoded_artist, sizeof(encoded_artist));
+	urlEncode(args->title, encoded_title, sizeof(encoded_title));
 
 	// Build LRCLIB exact match URL: /api/get?artist_name=X&track_name=Y&duration=Z
 	char url[2048];
@@ -281,7 +265,7 @@ static void* fetch_thread_func(void* arg) {
 		char query[512];
 		snprintf(query, sizeof(query), "%s %s", args->artist, args->title);
 		char encoded_query[1024];
-		url_encode(query, encoded_query, sizeof(encoded_query));
+		urlEncode(query, encoded_query, sizeof(encoded_query));
 		snprintf(url, sizeof(url), "https://lrclib.net/api/search?q=%s", encoded_query);
 
 		bytes = radio_net_fetch(url, response_buf, 64 * 1024, NULL, 0);

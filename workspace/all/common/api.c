@@ -722,6 +722,8 @@ int GFX_truncateText(TTF_Font* font, const char* in_name, char* out_name, int ma
 
 	while (text_width > max_width) {
 		int len = strlen(out_name);
+		if (len < 4) // can't append "..." without writing before out_name
+			break;
 		strcpy(&out_name[len - 4], "...\0");
 		TTF_SizeUTF8(font, out_name, &text_width, NULL);
 		text_width += padding;
@@ -1413,22 +1415,25 @@ void GFX_blitMessage(TTF_Font* font, char* msg, SDL_Surface* dst, SDL_Rect* dst_
 	char line[256];
 	for (int i = 0; i < row_count; i++) {
 		int len;
-		if (i + 1 < row_count) {
+		if (i + 1 < row_count)
 			len = rows[i + 1] - rows[i] - 1;
-			if (len)
-				strncpy(line, rows[i], len);
-			line[len] = '\0';
-		} else {
+		else
 			len = strlen(rows[i]);
-			strcpy(line, rows[i]);
-		}
+		if (len < 0)
+			len = 0;
+		if (len > (int)sizeof(line) - 1) // clamp: a single line may exceed the buffer
+			len = sizeof(line) - 1;
+		memcpy(line, rows[i], len);
+		line[len] = '\0';
 
 		if (len) {
 			text = TTF_RenderUTF8_Blended_Wrapped(font, line, COLOR_WHITE, dst_rect->w);
-			int x = dst_rect->x;
-			x += (dst_rect->w - text->w) / 2;
-			SDL_BlitSurface(text, NULL, dst, &(SDL_Rect){x, y});
-			SDL_FreeSurface(text);
+			if (text) {
+				int x = dst_rect->x;
+				x += (dst_rect->w - text->w) / 2;
+				SDL_BlitSurface(text, NULL, dst, &(SDL_Rect){x, y});
+				SDL_FreeSurface(text);
+			}
 		}
 		y += line_height;
 	}
@@ -1691,20 +1696,23 @@ void GFX_blitText(TTF_Font* font, const char* str, int leading, SDL_Color color,
 	char line[256];
 	for (int i = 0; i < count; i++) {
 		int len;
-		if (i + 1 < count) {
+		if (i + 1 < count)
 			len = lines[i + 1] - lines[i] - 1;
-			if (len)
-				strncpy(line, lines[i], len);
-			line[len] = '\0';
-		} else {
+		else
 			len = strlen(lines[i]);
-			strcpy(line, lines[i]);
-		}
+		if (len < 0)
+			len = 0;
+		if (len > (int)sizeof(line) - 1) // clamp: a single line may exceed the buffer
+			len = sizeof(line) - 1;
+		memcpy(line, lines[i], len);
+		line[len] = '\0';
 
 		if (len) {
 			text = TTF_RenderUTF8_Blended(font, line, color);
-			SDL_BlitSurface(text, NULL, dst, &(SDL_Rect){x + ((dst_rect->w - text->w) / 2), y + (i * leading)});
-			SDL_FreeSurface(text);
+			if (text) {
+				SDL_BlitSurface(text, NULL, dst, &(SDL_Rect){x + ((dst_rect->w - text->w) / 2), y + (i * leading)});
+				SDL_FreeSurface(text);
+			}
 		}
 	}
 }
@@ -2326,16 +2334,16 @@ void PAD_setAnalog(int neg_id, int pos_id, int value, int repeat_at) {
 				pad.just_released |= pos;  // set
 			}
 		}
-	} else {						  // not pressing
-		if (pad.is_pressed & neg) {	  // was pressing
-			pad.is_pressed &= ~neg;	  // unset
-			pad.just_repeated &= neg; // unset
-			pad.just_released |= neg; // set
+	} else {						   // not pressing
+		if (pad.is_pressed & neg) {	   // was pressing
+			pad.is_pressed &= ~neg;	   // unset
+			pad.just_repeated &= ~neg; // unset
+			pad.just_released |= neg;  // set
 		}
-		if (pad.is_pressed & pos) {	  // was pressing
-			pad.is_pressed &= ~pos;	  // unset
-			pad.just_repeated &= pos; // unset
-			pad.just_released |= pos; // set
+		if (pad.is_pressed & pos) {	   // was pressing
+			pad.is_pressed &= ~pos;	   // unset
+			pad.just_repeated &= ~pos; // unset
+			pad.just_released |= pos;  // set
 		}
 	}
 }

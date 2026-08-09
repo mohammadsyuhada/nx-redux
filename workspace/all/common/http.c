@@ -4,7 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-#include <errno.h>
 
 // SDL is used here only for threading (SDL_CreateThread/SDL_DetachThread)
 // to run HTTP requests asynchronously without blocking the main loop.

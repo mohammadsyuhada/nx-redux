@@ -64,13 +64,21 @@ static void wifi_network_draw(SDL_Surface* screen, SettingItem* item,
 // WiFi toggle (blocking with overlay)
 // ============================================
 
+// File-scope context: the worker is detached and can outlive wifi_set_toggle()
+// (the user may press B to stop waiting before WIFI_enable returns), so its
+// completion writes must not target a freed stack frame. The busy flag rejects
+// a second toggle until the running worker releases the shared context.
+static struct {
+	int val;
+	volatile int done;
+	volatile int busy;
+} wifi_toggle_ctx;
+
 static void* wifi_toggle_thread(void* arg) {
-	struct {
-		int val;
-		volatile int* done;
-	}* ctx = arg;
-	WIFI_enable(ctx->val ? true : false);
-	*ctx->done = 1;
+	(void)arg;
+	WIFI_enable(wifi_toggle_ctx.val ? true : false);
+	wifi_toggle_ctx.done = 1;
+	wifi_toggle_ctx.busy = 0;
 	return NULL;
 }
 
@@ -82,20 +90,23 @@ static void wifi_set_toggle(int val) {
 	SettingsPage* page = settings_menu_current();
 	if (!page || !page->screen)
 		return;
+	if (wifi_toggle_ctx.busy) // a toggle is still running in the background
+		return;
 
-	volatile int done = 0;
-	struct {
-		int val;
-		volatile int* done;
-	} ctx = {val, &done};
+	wifi_toggle_ctx.busy = 1;
+	wifi_toggle_ctx.val = val;
+	wifi_toggle_ctx.done = 0;
 
 	pthread_t t;
-	pthread_create(&t, NULL, wifi_toggle_thread, &ctx);
+	if (pthread_create(&t, NULL, wifi_toggle_thread, NULL) != 0) {
+		wifi_toggle_ctx.busy = 0;
+		return;
+	}
 	pthread_detach(t);
 
 	const char* title = val ? "Enabling WiFi..." : "Disabling WiFi...";
 
-	while (!done) {
+	while (!wifi_toggle_ctx.done) {
 		GFX_startFrame();
 		PAD_poll();
 		if (PAD_justPressed(BTN_B))
