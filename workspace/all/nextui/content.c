@@ -430,16 +430,14 @@ static void writeEntryCache(const char* cache_path, Array* entries) {
 	free(buf);
 }
 
-static Array* readRomsCache(void) {
-	if (cacheIsStale(EMULIST_CACHE_PATH))
-		return NULL;
-	// Both caches are written together by getRoms; a missing rom index with a
-	// valid emulist would satisfy the menu but leave Search permanently empty,
-	// so force the full rebuild that restores both.
-	if (!exists(ROMINDEX_CACHE_PATH))
+// Shared reader for the "path\tname\n" caches writeEntryCache emits. Returns
+// NULL (forcing a rescan) when the cache is stale, missing, malformed, or empty;
+// otherwise an Array of Entry_newNamed(path, type, name).
+static Array* readEntryCache(const char* cache_path, int type) {
+	if (cacheIsStale(cache_path))
 		return NULL;
 
-	FILE* file = fopen(EMULIST_CACHE_PATH, "r");
+	FILE* file = fopen(cache_path, "r");
 	if (!file)
 		return NULL;
 
@@ -461,7 +459,7 @@ static Array* readRomsCache(void) {
 		*tab = '\0';
 		char* path = line;
 		char* name = tab + 1;
-		Array_push(entries, Entry_newNamed(path, ENTRY_DIR, name));
+		Array_push(entries, Entry_newNamed(path, type, name));
 	}
 	fclose(file);
 	if (entries->count == 0) { // empty cache is never trusted, force rescan
@@ -471,41 +469,19 @@ static Array* readRomsCache(void) {
 	return entries;
 }
 
+static Array* readRomsCache(void) {
+	// Both caches are written together by getRoms; a missing rom index with a
+	// valid emulist would satisfy the menu but leave Search permanently empty,
+	// so force the full rebuild that restores both. (Ordering vs the staleness
+	// check inside readEntryCache is irrelevant — both are read-only and both
+	// short-circuit to NULL.)
+	if (!exists(ROMINDEX_CACHE_PATH))
+		return NULL;
+	return readEntryCache(EMULIST_CACHE_PATH, ENTRY_DIR);
+}
 
 static Array* readRomIndexCache(void) {
-	if (cacheIsStale(ROMINDEX_CACHE_PATH))
-		return NULL;
-
-	FILE* file = fopen(ROMINDEX_CACHE_PATH, "r");
-	if (!file)
-		return NULL;
-
-	Array* entries = Array_new();
-	// sized to what writeEntryCache can emit: two MAX_PATH strings + tab + newline
-	char line[MAX_PATH * 2 + 8];
-	while (fgets(line, sizeof(line), file) != NULL) {
-		normalizeNewline(line);
-		trimTrailingNewlines(line);
-		if (strlen(line) == 0)
-			continue;
-
-		char* tab = strchr(line, '\t');
-		if (!tab) {
-			EntryArray_free(entries);
-			fclose(file);
-			return NULL;
-		}
-		*tab = '\0';
-		char* path = line;
-		char* name = tab + 1;
-		Array_push(entries, Entry_newNamed(path, ENTRY_ROM, name));
-	}
-	fclose(file);
-	if (entries->count == 0) { // empty cache is never trusted, force rescan
-		EntryArray_free(entries);
-		return NULL;
-	}
-	return entries;
+	return readEntryCache(ROMINDEX_CACHE_PATH, ENTRY_ROM);
 }
 
 void Content_invalidateEmulist(void) {

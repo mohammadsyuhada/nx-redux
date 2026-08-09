@@ -309,28 +309,6 @@ static void get_artwork_cache_path(const char* itunes_id, char* path, int path_s
 	snprintf(path, path_size, PODCAST_CACHE_DIR "/%s.jpg", itunes_id);
 }
 
-// Get artwork thumbnail: memory cache -> disk cache -> NULL (non-blocking)
-static SDL_Surface* get_artwork_thumbnail(const char* itunes_id, int size) {
-	if (!itunes_id || !itunes_id[0] || size <= 0)
-		return NULL;
-
-	// Check memory cache
-	SDL_Surface* cached = find_cached_thumbnail(itunes_id);
-	if (cached)
-		return cached;
-
-	// Check disk cache
-	char cache_path[768];
-	get_artwork_cache_path(itunes_id, cache_path, sizeof(cache_path));
-	SDL_Surface* thumb = load_circular_thumbnail(cache_path, size);
-	if (thumb) {
-		cache_thumbnail(itunes_id, thumb);
-		return thumb;
-	}
-
-	return NULL;
-}
-
 // Lazy fetch: download one artwork from network, save to disk, cache in memory
 // Returns true if an image was fetched (caller should break to limit one per frame)
 static bool artwork_fetch_one(const char* itunes_id, const char* artwork_url, int size) {

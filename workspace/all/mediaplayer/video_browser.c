@@ -220,21 +220,6 @@ void VideoBrowser_getDisplayName(const char* filename, char* out, int max_len) {
 	}
 }
 
-// Count video files in browser
-int VideoBrowser_countVideoFiles(const VideoBrowserContext* ctx) {
-	int count = 0;
-	for (int i = 0; i < ctx->entry_count; i++) {
-		if (!ctx->entries[i].is_dir)
-			count++;
-	}
-	return count;
-}
-
-// Check if browser has parent entry (..)
-bool VideoBrowser_hasParent(const VideoBrowserContext* ctx) {
-	return ctx->entry_count > 0 && strcmp(ctx->entries[0].name, "..") == 0;
-}
-
 // Subtitle extensions used by both single and multi-subtitle discovery
 static const char* sub_exts[] = {
 	SUB_EXT_SRT,
@@ -249,34 +234,6 @@ static bool is_subtitle_ext(const char* ext) {
 		if (strcasecmp(ext, sub_exts[i]) == 0)
 			return true;
 	}
-	return false;
-}
-
-// Find subtitle file matching video
-// Given /path/movie.mp4, checks for /path/movie.srt, .ass, .ssa, .sub
-bool VideoBrowser_findSubtitle(const char* video_path, char* sub_path, int sub_path_size) {
-	if (!video_path || !sub_path || sub_path_size <= 0)
-		return false;
-
-	// Find the base path without extension
-	char base[512];
-	strncpy(base, video_path, sizeof(base) - 1);
-	base[sizeof(base) - 1] = '\0';
-
-	char* dot = strrchr(base, '.');
-	if (dot) {
-		*dot = '\0';
-	}
-
-	// Try each subtitle extension
-	for (int i = 0; sub_exts[i] != NULL; i++) {
-		snprintf(sub_path, sub_path_size, "%s.%s", base, sub_exts[i]);
-		if (access(sub_path, F_OK) == 0) {
-			return true;
-		}
-	}
-
-	sub_path[0] = '\0';
 	return false;
 }
 

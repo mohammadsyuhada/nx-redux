@@ -109,8 +109,6 @@ typedef enum {
 	SCRAPE_STATUS_DONE,
 	SCRAPE_STATUS_NOT_FOUND,
 	SCRAPE_STATUS_ERROR,
-	SCRAPE_STATUS_SKIPPED,
-	SCRAPE_STATUS_CANCELLED,
 } ScrapeStatus;
 
 // ============================================
@@ -453,7 +451,7 @@ static void queueGetStats(int* done, int* total, int* failed) {
 	pthread_mutex_lock(&queue_mutex);
 	for (int i = 0; i < queue_count; i++) {
 		ScrapeStatus s = scrape_queue[i].status;
-		if (s == SCRAPE_STATUS_DONE || s == SCRAPE_STATUS_SKIPPED)
+		if (s == SCRAPE_STATUS_DONE)
 			d++;
 		else if (s == SCRAPE_STATUS_NOT_FOUND || s == SCRAPE_STATUS_ERROR)
 			f++;
@@ -468,7 +466,7 @@ static void queueGetStats(int* done, int* total, int* failed) {
 }
 
 static bool isTerminalStatus(ScrapeStatus s) {
-	return s == SCRAPE_STATUS_DONE || s == SCRAPE_STATUS_SKIPPED ||
+	return s == SCRAPE_STATUS_DONE ||
 		   s == SCRAPE_STATUS_NOT_FOUND || s == SCRAPE_STATUS_ERROR;
 }
 
@@ -584,10 +582,6 @@ static const char* scrapeStatusText(ScrapeStatus status) {
 		return "Not Found";
 	case SCRAPE_STATUS_ERROR:
 		return "Error";
-	case SCRAPE_STATUS_SKIPPED:
-		return "Skipped";
-	case SCRAPE_STATUS_CANCELLED:
-		return "Cancelled";
 	}
 	return "";
 }
@@ -597,27 +591,9 @@ static const char* romStatusLabel(ROMEntry* rom) {
 		return "Done";
 	if (!isROMQueued(rom->path))
 		return NULL;
-	ScrapeStatus qs = getROMQueueStatus(rom->path);
-	switch (qs) {
-	case SCRAPE_STATUS_IDLE:
-		return "Queued";
-	case SCRAPE_STATUS_SEARCHING:
-		return "Searching...";
-	case SCRAPE_STATUS_DOWNLOADING:
-		return "Downloading...";
-	case SCRAPE_STATUS_COMPOSITING:
-		return "Compositing...";
-	case SCRAPE_STATUS_DONE:
-		return "Done";
-	case SCRAPE_STATUS_NOT_FOUND:
-		return "Not Found";
-	case SCRAPE_STATUS_ERROR:
-		return "Error";
-	default:
-		break;
-	}
-	// Not queued and no artwork
-	return NULL;
+	// A queued ROM always has one of the ScrapeStatus values that
+	// scrapeStatusText() maps to a label, so reuse that mapping.
+	return scrapeStatusText(getROMQueueStatus(rom->path));
 }
 
 // ============================================
@@ -818,7 +794,7 @@ static void renderProgress(void) {
 	int done = 0, failed = 0;
 	for (int i = 0; i < count; i++) {
 		ScrapeStatus s = scrape_queue[i].status;
-		if (s == SCRAPE_STATUS_DONE || s == SCRAPE_STATUS_SKIPPED)
+		if (s == SCRAPE_STATUS_DONE)
 			done++;
 		else if (s == SCRAPE_STATUS_NOT_FOUND || s == SCRAPE_STATUS_ERROR)
 			failed++;
@@ -886,6 +862,65 @@ static void renderSettings(void) {
 
 	UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "SELECT", NULL});
 	GFX_flip(screen);
+}
+
+// ============================================
+// Action Helpers
+// ============================================
+
+// Fetch and cache ScreenScraper account info when online.
+static void fetchUserInfoIfOnline(void) {
+	if (ScraperAPI_isOnline()) {
+		UI_renderLoadingOverlay(screen, "Loading", "Fetching account info...");
+		GFX_flip(screen);
+		cached_user_info = ScraperAPI_fetchUserInfo();
+		user_info_fetched = true;
+	}
+}
+
+// Prompt for a credential field via the on-screen keyboard, persist it,
+// and refresh account info if both credentials are now set.
+static void editCredentialField(const char* prompt, char* field, size_t field_size) {
+	UIKeyboard_init();
+	DisplayHelper_prepareForExternal();
+	char* input = UIKeyboard_open(prompt);
+	PAD_poll();
+	PAD_reset();
+	DisplayHelper_recoverDisplay();
+	SDL_Surface* ns = DisplayHelper_getReinitScreen();
+	if (ns)
+		screen = ns;
+	if (input) {
+		snprintf(field, field_size, "%s", input);
+		free(input);
+		saveCredentials();
+		user_info_fetched = false;
+	}
+	// Auto-fetch user info if both credentials are now set
+	if (cred_username[0] && cred_password[0] && !user_info_fetched) {
+		fetchUserInfoIfOnline();
+	}
+}
+
+// Show the "no network" overlay for a fixed dwell.
+static void showNoNetworkOverlay(void) {
+	UI_renderLoadingOverlay(screen, "No Network", "Connect to WiFi first");
+	GFX_flip(screen);
+	SDL_Delay(1500);
+}
+
+// Report how many ROMs were queued (or that nothing needed queuing).
+static void reportQueued(int added) {
+	if (added > 0) {
+		char msg[64];
+		snprintf(msg, sizeof(msg), "Queued %d ROMs", added);
+		UI_renderLoadingOverlay(screen, "Queued", msg);
+	} else {
+		UI_renderLoadingOverlay(screen, "Nothing to queue",
+								"All ROMs already queued or scraped");
+	}
+	GFX_flip(screen);
+	SDL_Delay(1000);
 }
 
 // ============================================
@@ -958,12 +993,7 @@ int main(int argc, char* argv[]) {
 					settings_scroll = 0;
 					// Fetch user info if credentials are set
 					if (ScraperAPI_hasUserCredentials() && !user_info_fetched) {
-						if (ScraperAPI_isOnline()) {
-							UI_renderLoadingOverlay(screen, "Loading", "Fetching account info...");
-							GFX_flip(screen);
-							cached_user_info = ScraperAPI_fetchUserInfo();
-							user_info_fetched = true;
-						}
+						fetchUserInfoIfOnline();
 					}
 					dirty = true;
 					break;
@@ -992,24 +1022,11 @@ int main(int argc, char* argv[]) {
 
 			if (PAD_justPressed(BTN_Y) && system_count > 0) {
 				if (!ScraperAPI_isOnline()) {
-					UI_renderLoadingOverlay(screen, "No Network",
-											"Connect to WiFi first");
-					GFX_flip(screen);
-					SDL_Delay(1500);
+					showNoNetworkOverlay();
 					dirty = true;
 					break;
 				}
-				int added = queueAddAllSystems();
-				if (added > 0) {
-					char msg[64];
-					snprintf(msg, sizeof(msg), "Queued %d ROMs", added);
-					UI_renderLoadingOverlay(screen, "Queued", msg);
-				} else {
-					UI_renderLoadingOverlay(screen, "Nothing to queue",
-											"All ROMs already queued or scraped");
-				}
-				GFX_flip(screen);
-				SDL_Delay(1000);
+				reportQueued(queueAddAllSystems());
 				dirty = true;
 				break;
 			}
@@ -1031,10 +1048,7 @@ int main(int argc, char* argv[]) {
 
 			if (PAD_justPressed(BTN_A) && rom_count > 0) {
 				if (!ScraperAPI_isOnline()) {
-					UI_renderLoadingOverlay(screen, "No Network",
-											"Connect to WiFi first");
-					GFX_flip(screen);
-					SDL_Delay(1500);
+					showNoNetworkOverlay();
 					dirty = true;
 					break;
 				}
@@ -1057,24 +1071,11 @@ int main(int argc, char* argv[]) {
 
 			if (PAD_justPressed(BTN_Y) && rom_count > 0) {
 				if (!ScraperAPI_isOnline()) {
-					UI_renderLoadingOverlay(screen, "No Network",
-											"Connect to WiFi first");
-					GFX_flip(screen);
-					SDL_Delay(1500);
+					showNoNetworkOverlay();
 					dirty = true;
 					break;
 				}
-				int added = queueAddAllROMs(&systems[system_selected]);
-				if (added > 0) {
-					char msg[64];
-					snprintf(msg, sizeof(msg), "Queued %d ROMs", added);
-					UI_renderLoadingOverlay(screen, "Queued", msg);
-				} else {
-					UI_renderLoadingOverlay(screen, "Nothing to queue",
-											"All ROMs already queued or scraped");
-				}
-				GFX_flip(screen);
-				SDL_Delay(1000);
+				reportQueued(queueAddAllROMs(&systems[system_selected]));
 				dirty = true;
 				break;
 			}
@@ -1116,58 +1117,14 @@ int main(int argc, char* argv[]) {
 			if (PAD_justPressed(BTN_A)) {
 				switch (settings_selected) {
 				case 0: { // Username
-					UIKeyboard_init();
-					DisplayHelper_prepareForExternal();
-					char* user = UIKeyboard_open("ScreenScraper Username");
-					PAD_poll();
-					PAD_reset();
-					DisplayHelper_recoverDisplay();
-					SDL_Surface* ns = DisplayHelper_getReinitScreen();
-					if (ns)
-						screen = ns;
-					if (user) {
-						snprintf(cred_username, sizeof(cred_username), "%s", user);
-						free(user);
-						saveCredentials();
-						user_info_fetched = false;
-					}
-					// Auto-fetch user info if both credentials are now set
-					if (cred_username[0] && cred_password[0] && !user_info_fetched) {
-						if (ScraperAPI_isOnline()) {
-							UI_renderLoadingOverlay(screen, "Loading", "Fetching account info...");
-							GFX_flip(screen);
-							cached_user_info = ScraperAPI_fetchUserInfo();
-							user_info_fetched = true;
-						}
-					}
+					editCredentialField("ScreenScraper Username",
+										cred_username, sizeof(cred_username));
 					dirty = true;
 					break;
 				}
 				case 1: { // Password
-					UIKeyboard_init();
-					DisplayHelper_prepareForExternal();
-					char* pass = UIKeyboard_open("ScreenScraper Password");
-					PAD_poll();
-					PAD_reset();
-					DisplayHelper_recoverDisplay();
-					SDL_Surface* ns2 = DisplayHelper_getReinitScreen();
-					if (ns2)
-						screen = ns2;
-					if (pass) {
-						snprintf(cred_password, sizeof(cred_password), "%s", pass);
-						free(pass);
-						saveCredentials();
-						user_info_fetched = false;
-					}
-					// Auto-fetch user info if both credentials are now set
-					if (cred_username[0] && cred_password[0] && !user_info_fetched) {
-						if (ScraperAPI_isOnline()) {
-							UI_renderLoadingOverlay(screen, "Loading", "Fetching account info...");
-							GFX_flip(screen);
-							cached_user_info = ScraperAPI_fetchUserInfo();
-							user_info_fetched = true;
-						}
-					}
+					editCredentialField("ScreenScraper Password",
+										cred_password, sizeof(cred_password));
 					dirty = true;
 					break;
 				}

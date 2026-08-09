@@ -182,30 +182,6 @@ int radio_hls_parse_playlist(HLSContext* ctx, const char* content, const char* b
 	return ctx->segment_count;
 }
 
-// Fetch and parse M3U8 playlist from URL
-int radio_hls_fetch_playlist(HLSContext* ctx, const char* url) {
-	uint8_t* playlist_buf = malloc(64 * 1024);
-	if (!playlist_buf) {
-		return -1;
-	}
-
-	int len = radio_net_fetch(url, playlist_buf, 64 * 1024, NULL, 0);
-	if (len <= 0) {
-		free(playlist_buf);
-		return -1;
-	}
-
-	playlist_buf[len] = '\0';
-
-	char base_url[HLS_MAX_URL_LEN];
-	radio_hls_get_base_url(url, base_url, HLS_MAX_URL_LEN);
-
-	int seg_count = radio_hls_parse_playlist(ctx, (char*)playlist_buf, base_url);
-	free(playlist_buf);
-
-	return seg_count;
-}
-
 // Parse ID3 tags from HLS segment
 int radio_hls_parse_id3_metadata(const uint8_t* data, int len,
 								 char* artist, int artist_size,

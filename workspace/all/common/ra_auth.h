@@ -41,8 +41,6 @@ typedef void (*RA_AuthCallback)(const RA_AuthResponse* response, void* userdata)
  * @param callback Function to call with the result
  * @param userdata User data to pass to callback
  */
-void RA_authenticate(const char* username, const char* password,
-					 RA_AuthCallback callback, void* userdata);
 
 /**
  * Synchronous authentication (blocks until complete).

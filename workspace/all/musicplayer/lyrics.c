@@ -340,24 +340,6 @@ static void* fetch_thread_func(void* arg) {
 	return NULL;
 }
 
-void Lyrics_init(void) {
-	lyrics_line_count = 0;
-	lyrics_current_index = 0;
-	lyrics_available = false;
-	last_artist[0] = '\0';
-	last_title[0] = '\0';
-	fetch_generation = 0;
-}
-
-void Lyrics_cleanup(void) {
-	fetch_generation++; // invalidate any running thread
-	lyrics_line_count = 0;
-	lyrics_current_index = 0;
-	lyrics_available = false;
-	last_artist[0] = '\0';
-	last_title[0] = '\0';
-}
-
 void Lyrics_clear(void) {
 	fetch_generation++; // invalidate any running thread
 	lyrics_line_count = 0;
@@ -456,10 +438,6 @@ const char* Lyrics_getNextLine(void) {
 	if (next >= lyrics_line_count)
 		return NULL;
 	return lyrics_lines[next].text;
-}
-
-bool Lyrics_isAvailable(void) {
-	return lyrics_available;
 }
 
 long Lyrics_getCacheSize(void) {

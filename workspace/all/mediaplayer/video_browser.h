@@ -35,15 +35,6 @@ void VideoBrowser_loadDirectory(VideoBrowserContext* ctx, const char* path, cons
 // Get display name for file (without extension)
 void VideoBrowser_getDisplayName(const char* filename, char* out, int max_len);
 
-// Count video files in browser
-int VideoBrowser_countVideoFiles(const VideoBrowserContext* ctx);
-
-// Check if browser has parent entry (..)
-bool VideoBrowser_hasParent(const VideoBrowserContext* ctx);
-
-// Find subtitle file matching video (returns true if found, fills sub_path)
-bool VideoBrowser_findSubtitle(const char* video_path, char* sub_path, int sub_path_size);
-
 // Multi-subtitle support
 #define MAX_SUBTITLE_FILES 8
 

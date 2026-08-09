@@ -262,9 +262,6 @@ bool AudioMgr_isUSBDACActive(void) {
 	return current_sink == AUDIO_SINK_USBDAC;
 }
 
-const char* AudioMgr_getPreferredDevice(void) {
-	return NULL; // Always use ALSA default — audiomon manages .asoundrc
-}
 
 int AudioMgr_pickRate(int desired) {
 	if (desired <= 0)

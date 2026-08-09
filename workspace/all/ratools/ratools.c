@@ -176,8 +176,9 @@ static void reset_ra_enable(void) {
 // softcore-locked server-side and enabling it only risks the account.
 
 static const char* get_ra_username_display(void) {
-	const char* u = CFG_getRAUsername();
-	return (u && u[0]) ? u : "(not set)";
+	// identical to get_user_display() (defined above); kept as a named
+	// function so it can be used as an ITEM_TEXT_INPUT_INIT getter pointer
+	return get_user_display();
 }
 static void on_ra_username_set(const char* text) {
 	if (text)

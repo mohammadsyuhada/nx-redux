@@ -144,9 +144,6 @@ bool Player_resume(void);
 // Set volume (0.0 to 1.0)
 void Player_setVolume(float volume);
 
-// Get current volume
-float Player_getVolume(void);
-
 // Get current state
 PlayerState Player_getState(void);
 
@@ -170,9 +167,6 @@ const char* Player_getCurrentFile(void);
 // Get visualization buffer (for spectrum analyzer)
 // Returns number of samples copied
 int Player_getVisBuffer(int16_t* buffer, int max_samples);
-
-// Get waveform overview data (for static waveform progress display)
-const WaveformData* Player_getWaveform(void);
 
 // Get album art surface (NULL if no album art available)
 SDL_Surface* Player_getAlbumArt(void);
@@ -199,12 +193,6 @@ void Player_resetSampleRate(void);
 // Set audio device to specific sample rate
 void Player_setSampleRate(int sample_rate);
 
-// Check if Bluetooth audio is currently active
-bool Player_isBluetoothActive(void);
-
-// Check if USB DAC audio is currently active
-bool Player_isUSBDACActive(void);
-
 // USB HID input events (for USB earphone buttons)
 typedef enum {
 	USB_HID_EVENT_NONE = 0,
@@ -215,13 +203,7 @@ typedef enum {
 	USB_HID_EVENT_PREV_TRACK
 } USBHIDEvent;
 
-// Initialize USB HID input monitoring (call after USB DAC is detected)
-void Player_initUSBHID(void);
-
 // Poll for USB HID events (call in main loop)
 USBHIDEvent Player_pollUSBHID(void);
-
-// Cleanup USB HID monitoring
-void Player_quitUSBHID(void);
 
 #endif

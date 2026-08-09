@@ -942,19 +942,6 @@ static struct FX_Context {
 	.color = 0,
 	.next_color = 0,
 };
-static void rgb565_to_rgb888(uint32_t rgb565, uint8_t* r, uint8_t* g, uint8_t* b) {
-	// Extract the red component (5 bits)
-	uint8_t red = (rgb565 >> 11) & 0x1F;
-	// Extract the green component (6 bits)
-	uint8_t green = (rgb565 >> 5) & 0x3F;
-	// Extract the blue component (5 bits)
-	uint8_t blue = rgb565 & 0x1F;
-
-	// Scale the values to 8-bit range
-	*r = (red << 3) | (red >> 2);
-	*g = (green << 2) | (green >> 4);
-	*b = (blue << 3) | (blue >> 2);
-}
 static char* effect_path;
 static int effectUpdated = 0;
 static pthread_mutex_t video_prep_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -1080,35 +1067,6 @@ void PLAT_setOverlay(const char* filename, const char* tag) {
 	LOG_info("Overlay path set to: %s\n", overlay_path);
 }
 
-
-void applyRoundedCorners(SDL_Surface* surface, SDL_Rect* rect, int radius) {
-	if (!surface)
-		return;
-
-	Uint32* pixels = (Uint32*)surface->pixels;
-	SDL_PixelFormat* fmt = surface->format;
-	SDL_Rect target = {0, 0, surface->w, surface->h};
-	if (rect)
-		target = *rect;
-
-	Uint32 transparent_black = SDL_MapRGBA(fmt, 0, 0, 0, 0); // Fully transparent black
-
-	const int xBeg = target.x;
-	const int xEnd = target.x + target.w;
-	const int yBeg = target.y;
-	const int yEnd = target.y + target.h;
-	for (int y = yBeg; y < yEnd; ++y) {
-		for (int x = xBeg; x < xEnd; ++x) {
-			int dx = (x < xBeg + radius) ? xBeg + radius - x : (x >= xEnd - radius) ? x - (xEnd - radius - 1)
-																					: 0;
-			int dy = (y < yBeg + radius) ? yBeg + radius - y : (y >= yEnd - radius) ? y - (yEnd - radius - 1)
-																					: 0;
-			if (dx * dx + dy * dy > radius * radius) {
-				pixels[y * target.w + x] = transparent_black; // Set to fully transparent black
-			}
-		}
-	}
-}
 
 void PLAT_clearLayers(int layer) {
 	if (layer == 0 || layer == 1) {
@@ -1635,10 +1593,6 @@ void PLAT_clearShaders() {
 	vid.blit = NULL;
 }
 
-void PLAT_setCapturePipeFd(int fd) {
-	(void)fd;
-	capture_counter = 60; // trigger immediate capture_check() on next frame
-}
 
 // Synchronously close recording files. Safe to call from any thread.
 // After this returns, capture_rec_fd and capture_ts_file are closed,

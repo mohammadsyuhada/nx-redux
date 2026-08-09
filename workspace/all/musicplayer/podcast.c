@@ -509,13 +509,6 @@ void Podcast_invalidateEpisodeCache(void) {
 	pthread_mutex_unlock(&episode_cache_mutex);
 }
 
-int Podcast_getEpisodeCount(int feed_index) {
-	if (feed_index < 0 || feed_index >= subscription_count) {
-		return 0;
-	}
-	return subscriptions[feed_index].episode_count;
-}
-
 // External RSS parser functions (in podcast_rss.c)
 extern int podcast_rss_parse(const char* xml_data, int xml_len, PodcastFeed* feed);
 
@@ -1479,52 +1472,9 @@ PodcastChartItem* Podcast_getTopShows(int* count) {
 	return top_shows;
 }
 
-const char* Podcast_getCountryCode(void) {
-	return charts_country_code;
-}
-
 // ============================================================================
 // Playback (local files only - streaming removed)
 // ============================================================================
-
-int Podcast_play(PodcastFeed* feed, int episode_index) {
-	if (!feed || episode_index < 0 || episode_index >= feed->episode_count) {
-		return -1;
-	}
-
-	int feed_idx = get_feed_index(feed);
-	if (feed_idx < 0) {
-		return -1;
-	}
-
-	PodcastEpisode* ep = Podcast_getEpisode(feed_idx, episode_index);
-	if (!ep) {
-		return -1;
-	}
-
-	// Check if local file exists
-	char local_path[PODCAST_MAX_URL];
-	Podcast_getEpisodeLocalPath(feed, episode_index, local_path, sizeof(local_path));
-
-	if (access(local_path, F_OK) != 0) {
-		snprintf(error_message, sizeof(error_message), "Episode not downloaded");
-		return -1; // File doesn't exist - caller should start download
-	}
-
-	// Store current feed and episode for later reference
-	current_feed = feed;
-	current_feed_index = feed_idx;
-	current_episode_index = episode_index;
-
-	if (Player_load(local_path) == 0) {
-		current_episode_duration_sec = ep->duration_sec;
-		Player_play();
-		return 0;
-	}
-
-	snprintf(error_message, sizeof(error_message), "Failed to load local file");
-	return -1;
-}
 
 int Podcast_loadAndSeek(PodcastFeed* feed, int episode_index) {
 	if (!feed || episode_index < 0 || episode_index >= feed->episode_count) {

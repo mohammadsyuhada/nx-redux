@@ -38,8 +38,6 @@ typedef struct TaskQueue {
 
 static TaskQueue bgQueue = {0};
 static TaskQueue thumbQueue = {0};
-SDL_mutex* bgqueueMutex = NULL;
-SDL_mutex* thumbqueueMutex = NULL;
 
 static SDL_Thread* bgLoadThread = NULL;
 static SDL_Thread* thumbLoadThread = NULL;
@@ -488,8 +486,6 @@ void initImageLoaderPool(void) {
 	bgQueue.cond = SDL_CreateCond();
 	thumbQueue.mutex = SDL_CreateMutex();
 	thumbQueue.cond = SDL_CreateCond();
-	bgqueueMutex = bgQueue.mutex;
-	thumbqueueMutex = thumbQueue.mutex;
 	bgMutex = SDL_CreateMutex();
 	thumbMutex = SDL_CreateMutex();
 
@@ -593,8 +589,6 @@ void cleanupImageLoaderPool(void) {
 	// Set pointers to NULL after destruction
 	bgQueue = (TaskQueue){0};
 	thumbQueue = (TaskQueue){0};
-	bgqueueMutex = NULL;
-	thumbqueueMutex = NULL;
 	bgMutex = NULL;
 	thumbMutex = NULL;
 }

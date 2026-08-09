@@ -323,23 +323,6 @@ int play_activity_transaction_rom_find_by_file_path(const char* rom_path, bool c
 	return retval;
 }
 
-int play_activity_get_play_time(const char* rom_path) {
-	int play_time = 0;
-	sqlite3* game_log_db = play_activity_db_open();
-	int rom_id = __db_rom_find_by_file_path(game_log_db, rom_path, false);
-	if (rom_id != ROM_NOT_FOUND) {
-		char* sql = sqlite3_mprintf("SELECT SUM(play_time) FROM play_activity WHERE rom_id = %d;", rom_id);
-		sqlite3_stmt* stmt = play_activity_db_prepare(game_log_db, sql);
-		sqlite3_free(sql);
-		if (sqlite3_step(stmt) == SQLITE_ROW) {
-			play_time = sqlite3_column_int(stmt, 0);
-		}
-		sqlite3_finalize(stmt);
-	}
-	play_activity_db_close(game_log_db);
-	return play_time;
-}
-
 bool _get_active_rom_path(char* rom_path_out) {
 	char* ptr;
 	char cmd[STR_MAX];

@@ -1017,6 +1017,18 @@ void RA_init(void) {
 	}
 }
 
+// Free our deep-copied memory map (descriptors, then the map struct).
+static void ra_free_memory_map(void) {
+	if (ra_memory_map_descriptors) {
+		free(ra_memory_map_descriptors);
+		ra_memory_map_descriptors = NULL;
+	}
+	if (ra_memory_map) {
+		free(ra_memory_map);
+		ra_memory_map = NULL;
+	}
+}
+
 void RA_quit(void) {
 	// Wait for a background journal sync to finish (it holds no RA state,
 	// but must not outlive HTTP/config teardown)
@@ -1043,14 +1055,7 @@ void RA_quit(void) {
 	}
 
 	// Free our deep-copied memory map
-	if (ra_memory_map_descriptors) {
-		free(ra_memory_map_descriptors);
-		ra_memory_map_descriptors = NULL;
-	}
-	if (ra_memory_map) {
-		free(ra_memory_map);
-		ra_memory_map = NULL;
-	}
+	ra_free_memory_map();
 
 	if (ra_client) {
 		RA_LOG_INFO("Shutting down...\n");
@@ -1072,14 +1077,7 @@ void RA_setMemoryAccessors(RA_GetMemoryFunc get_data, RA_GetMemorySizeFunc get_s
 
 void RA_setMemoryMap(const void* mmap) {
 	// Free any existing memory map copy
-	if (ra_memory_map_descriptors) {
-		free(ra_memory_map_descriptors);
-		ra_memory_map_descriptors = NULL;
-	}
-	if (ra_memory_map) {
-		free(ra_memory_map);
-		ra_memory_map = NULL;
-	}
+	ra_free_memory_map();
 
 	if (!mmap) {
 		RA_LOG_DEBUG("Memory map cleared\n");

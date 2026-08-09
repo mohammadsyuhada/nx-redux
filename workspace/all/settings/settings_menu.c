@@ -46,10 +46,6 @@ SettingsPage* settings_menu_current(void) {
 	return page_stack[stack_depth - 1];
 }
 
-int settings_menu_depth(void) {
-	return stack_depth;
-}
-
 // ============================================
 // Visible Item Helpers
 // ============================================
@@ -73,18 +69,6 @@ SettingItem* settings_page_visible_item(SettingsPage* page, int visible_idx) {
 		count++;
 	}
 	return NULL;
-}
-
-int settings_page_visible_to_actual(SettingsPage* page, int visible_idx) {
-	int count = 0;
-	for (int i = 0; i < page->item_count; i++) {
-		if (!page->items[i].visible)
-			continue;
-		if (count == visible_idx)
-			return i;
-		count++;
-	}
-	return -1;
 }
 
 int settings_page_actual_to_visible(SettingsPage* page, int actual_idx) {
@@ -138,10 +122,12 @@ void settings_page_init_lock(SettingsPage* page) {
 	pthread_rwlock_init(&page->lock, NULL);
 }
 
-void settings_page_destroy(SettingsPage* page) {
-	if (page->dynamic_start >= 0)
-		pthread_rwlock_destroy(&page->lock);
-}
+// NOTE: no settings_page_destroy — the wifi/bt pages that init this rwlock live
+// for the whole (short-lived) settings process; teardown (wifi_page_destroy /
+// bt_page_destroy) only signals the scanner threads to stop and deliberately
+// lets process exit reclaim the page, its items, and this lock. Destroying the
+// rwlock here would also be unsafe: those scanner threads are not joined, so one
+// could still rdlock it after destruction.
 
 // ============================================
 // Cycle item value change

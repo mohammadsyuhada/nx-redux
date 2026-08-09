@@ -144,13 +144,6 @@ static const char* stack_current(ElementStack* stack) {
 	return "";
 }
 
-static const char* stack_parent(ElementStack* stack) {
-	if (stack->depth > 1) {
-		return stack->elements[stack->depth - 2];
-	}
-	return "";
-}
-
 static bool stack_contains(ElementStack* stack, const char* elem) {
 	for (int i = 0; i < stack->depth; i++) {
 		if (strcmp(stack->elements[i], elem) == 0) {

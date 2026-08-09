@@ -5,8 +5,4 @@
 // Returns -1 if no mapping found
 int ScraperSystems_getId(const char* tag);
 
-// Get display name for a NxRedux tag (e.g. "GBA" -> "Game Boy Advance")
-// Returns the tag itself if no display name found
-const char* ScraperSystems_getName(const char* tag);
-
 #endif // SCRAPER_SYSTEMS_H

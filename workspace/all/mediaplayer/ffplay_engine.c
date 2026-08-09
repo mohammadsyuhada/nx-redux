@@ -339,18 +339,6 @@ int FfplayEngine_play(FfplayConfig* config) {
 	return exit_code;
 }
 
-void FfplayEngine_stop(void) {
-	if (ffplay_pid > 0) {
-		kill(ffplay_pid, SIGTERM);
-		// Give it a moment to clean up
-		usleep(100000);
-		// Force kill if still running
-		kill(ffplay_pid, SIGKILL);
-		waitpid(ffplay_pid, NULL, WNOHANG);
-		ffplay_pid = 0;
-	}
-}
-
 bool FfplayEngine_getLastPosition(int* pos_sec, int* dur_sec) {
 	FILE* f = fopen(FFPLAY_POS_FILE, "r");
 	if (!f)

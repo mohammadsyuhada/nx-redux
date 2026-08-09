@@ -10,8 +10,6 @@
 #include "ra_offline_net.h"
 #include "ui_emptystate.h"
 
-static void rat_sync_message_screen(SDL_Surface* screen, const char* line1, const char* line2);
-
 typedef struct {
 	SDL_Surface* screen;
 } RATSyncUI;

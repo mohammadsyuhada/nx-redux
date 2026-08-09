@@ -120,23 +120,3 @@ void render_video_browser(SDL_Surface* screen, IndicatorType show_setting,
 		UI_renderButtonHintBar(screen, (char*[]){"MENU", "CONTROLS", "B", "BACK", "A", "OPEN", NULL});
 	}
 }
-
-// Render loading/buffering screen
-void render_loading_screen(SDL_Surface* screen, const char* message) {
-	GFX_clear(screen);
-
-	int hw = screen->w;
-	int hh = screen->h;
-
-	const char* text = message ? message : "Loading...";
-
-	SDL_Surface* text_surf = TTF_RenderUTF8_Blended(font.medium, text, COLOR_WHITE);
-	if (text_surf) {
-		int x = (hw - text_surf->w) / 2;
-		int y = (hh - text_surf->h) / 2;
-		SDL_BlitSurface(text_surf, NULL, screen, &(SDL_Rect){x, y, 0, 0});
-		SDL_FreeSurface(text_surf);
-	}
-
-	GFX_flip(screen);
-}

@@ -122,13 +122,3 @@ int ScraperSystems_getId(const char* tag) {
 	}
 	return -1;
 }
-
-const char* ScraperSystems_getName(const char* tag) {
-	if (!tag)
-		return "Unknown";
-	for (int i = 0; systems[i].tag != NULL; i++) {
-		if (strcasecmp(systems[i].tag, tag) == 0)
-			return systems[i].name;
-	}
-	return tag;
-}

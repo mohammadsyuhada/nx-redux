@@ -24,10 +24,8 @@ extern SDL_Surface* folderbgbmp;
 extern SDL_Surface* thumbbmp;
 
 // Synchronization primitives (owned by imgloader.c)
-extern SDL_mutex* bgMutex;		   // protects: folderbgbmp, folderbgchanged
-extern SDL_mutex* thumbMutex;	   // protects: thumbbmp, thumbchanged
-extern SDL_mutex* bgqueueMutex;	   // alias to internal bgQueue.mutex (used by render loop)
-extern SDL_mutex* thumbqueueMutex; // alias to internal thumbQueue.mutex (used by render loop)
+extern SDL_mutex* bgMutex;	  // protects: folderbgbmp, folderbgchanged
+extern SDL_mutex* thumbMutex; // protects: thumbbmp, thumbchanged
 
 // Shared state flags (see mutex comments above for which mutex protects each)
 extern int folderbgchanged;

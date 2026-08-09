@@ -11,16 +11,12 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/ioctl.h>
-#include <sys/mman.h>
 #include <unistd.h>
-#include <sys/stat.h>
 
 #include "utils.h"
 #include "config.h"
 #include "audio_manager.h"
 
-#include <pthread.h>
 
 extern pthread_mutex_t audio_mutex;
 
@@ -105,44 +101,16 @@ SDL_Color ALT_BUTTON_TEXT_COLOR;
 
 // move to utils?
 
-// Function to convert hex color code to RGB and set the values
-static inline uint32_t HexToUint(const char* hexColor) {
-	int r, g, b;
-	sscanf(hexColor, "%02x%02x%02x", &r, &g, &b);
-	return SDL_MapRGB(gfx.screen->format, r, g, b);
-}
-
-static inline uint32_t HexToUint32_unmapped(const char* hexColor) {
-	// Convert the hex string to an unsigned long
-	uint32_t value = (uint32_t)strtoul(hexColor, NULL, 16);
-	return value;
-}
-
 static inline void rgb_unpack(uint32_t col, int* r, int* g, int* b) {
 	*r = (col >> 16) & 0xff;
 	*g = (col >> 8) & 0xff;
 	*b = col & 0xff;
 }
 
-static inline uint32_t rgb_pack(int r, int g, int b) {
-	return (r << 16) + (g << 8) + b;
-}
-
 static inline uint32_t mapUint(uint32_t col) {
 	int r, g, b;
 	rgb_unpack(col, &r, &g, &b);
 	return SDL_MapRGB(gfx.screen->format, r, g, b);
-}
-
-static inline uint32_t UintMult(uint32_t color, uint32_t modulate_rgb) {
-	SDL_Color dest = uintToColour(color);
-	SDL_Color modulate = uintToColour(modulate_rgb);
-
-	dest.r = (int)dest.r * modulate.r / 255;
-	dest.g = (int)dest.g * modulate.g / 255;
-	dest.b = (int)dest.b * modulate.b / 255;
-
-	return (dest.r << 16) | (dest.g << 8) | dest.b;
 }
 
 ///////////////////////////////
@@ -192,7 +160,6 @@ static struct SND_Context {
 
 ///////////////////////////////
 
-static int _;
 
 static double current_fps = SCREEN_FPS;
 static int fps_counter = 0;
@@ -380,32 +347,17 @@ void GFX_quit(void) {
 
 	CFG_quit();
 
-	GFX_freeAAScaler();
-
 	PLAT_quitVideo();
 }
 
 void GFX_setMode(int mode) {
 	gfx.mode = mode;
 }
-int GFX_getVsync(void) {
-	return gfx.vsync;
-}
 void GFX_setVsync(int vsync) {
 	PLAT_setVsync(vsync);
 	gfx.vsync = vsync;
 }
 
-int GFX_hdmiChanged(void) {
-	static int had_hdmi = -1;
-	int has_hdmi = GetHDMI();
-	if (had_hdmi == -1)
-		had_hdmi = has_hdmi;
-	if (had_hdmi == has_hdmi)
-		return 0;
-	had_hdmi = has_hdmi;
-	return 1;
-}
 
 #define FRAME_BUDGET 17 // 60fps
 static uint32_t frame_start = 0;
@@ -777,14 +729,6 @@ int GFX_truncateText(TTF_Font* font, const char* in_name, char* out_name, int ma
 
 	return text_width;
 }
-int GFX_getTextHeight(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding) {
-	int text_height;
-	strcpy(out_name, in_name);
-	TTF_SizeUTF8(font, out_name, NULL, &text_height);
-	text_height += padding;
-
-	return text_height;
-}
 int GFX_getTextWidth(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding) {
 	int text_width;
 	strcpy(out_name, in_name);
@@ -937,249 +881,6 @@ int GFX_blitWrappedText(TTF_Font* font, const char* text, int max_width, int max
 
 ///////////////////////////////
 
-// scale_blend (and supporting logic) from picoarch
-
-struct blend_args {
-	int w_ratio_in;
-	int w_ratio_out;
-	uint16_t w_bp[2];
-	int h_ratio_in;
-	int h_ratio_out;
-	uint16_t h_bp[2];
-	uint16_t* blend_line;
-} blend_args;
-
-// Pure C fallbacks
-static inline uint32_t average16_c(uint32_t c1, uint32_t c2) {
-	return (c1 + c2 + ((c1 ^ c2) & 0x0821)) >> 1;
-}
-
-static inline uint32_t average32_c(uint32_t c1, uint32_t c2) {
-	uint32_t sum = c1 + c2;
-	uint32_t ret = sum + ((c1 ^ c2) & 0x08210821);
-	uint32_t of = ((sum < c1) | (ret < sum)) << 31;
-
-	return (ret >> 1) | of;
-}
-
-// not sure we are activating this anywhere currently, but we could.
-// to be honest, I'm not sure if we're using this function at all right now,
-// but I'm fixing it anyway so might as well improve it.
-#ifdef HAS_NEON
-// #if defined(__ARM_NEON) || defined(__ARM_NEON__)
-static inline uint32x4_t average32_neon(uint32x4_t a, uint32x4_t b) {
-	return vhaddq_u32(a, b); // vector halving add (a + b) >> 1
-}
-#endif
-
-// aarch32 asm
-#if defined(__arm__) && !defined(__aarch64__)
-static inline uint32_t average16(uint32_t c1, uint32_t c2) {
-	uint32_t ret, lowbits = 0x0821;
-	asm volatile(
-		"eor %0, %2, %3\n\t"
-		"and %0, %0, %1\n\t"
-		"add %0, %3, %0\n\t"
-		"add %0, %0, %2\n\t"
-		"lsr %0, %0, #1\n\t"
-		: "=&r"(ret)
-		: "r"(lowbits), "r"(c1), "r"(c2));
-	return ret;
-}
-
-static inline uint32_t average32(uint32_t c1, uint32_t c2) {
-	uint32_t ret, lowbits = 0x08210821;
-	asm volatile(
-		"eor %0, %3, %1\n\t"
-		"and %0, %0, %2\n\t"
-		"adds %0, %1, %0\n\t"
-		"and %1, %1, #0\n\t"
-		"movcs %1, #0x80000000\n\t"
-		"adds %0, %0, %3\n\t"
-		"rrx %0, %0\n\t"
-		"orr %0, %0, %1\n\t"
-		: "=&r"(ret), "+r"(c2)
-		: "r"(lowbits), "r"(c1)
-		: "cc");
-	return ret;
-}
-
-// aarch64 asm
-#elif defined(__aarch64__)
-
-static inline uint32_t average16(uint32_t c1, uint32_t c2) {
-	uint32_t result;
-	asm volatile(
-		"and w2, %w0, %w1\n\t"
-		"eor w3, %w0, %w1\n\t"
-		"lsr w3, w3, #1\n\t"
-		"add %w2, w2, w3\n\t"
-		"mov %w0, w2\n\t"
-		: "+r"(c1)
-		: "r"(c2)
-		: "w2", "w3");
-	return c1;
-}
-
-static inline uint32_t average32(uint32_t c1, uint32_t c2) {
-	uint32_t result;
-	asm volatile(
-		"and w2, %w0, %w1\n\t"
-		"eor w3, %w0, %w1\n\t"
-		"lsr w3, w3, #1\n\t"
-		"add w2, w2, w3\n\t"
-		"mov %w0, w2\n\t"
-		: "+r"(c1)
-		: "r"(c2)
-		: "w2", "w3");
-	return c1;
-}
-
-// fallback if nothing else works
-#else
-#define average16 average16_c
-#define average32 average32_c
-#endif
-
-#define AVERAGE16_NOCHK(c1, c2) (average16((c1), (c2)))
-#define AVERAGE32_NOCHK(c1, c2) (average32((c1), (c2)))
-
-#define AVERAGE16(c1, c2) ((c1) == (c2) ? (c1) : AVERAGE16_NOCHK((c1), (c2)))
-#define AVERAGE16_1_3(c1, c2) ((c1) == (c2) ? (c1) : (AVERAGE16_NOCHK(AVERAGE16_NOCHK((c1), (c2)), (c2))))
-
-#define AVERAGE32(c1, c2) ((c1) == (c2) ? (c1) : AVERAGE32_NOCHK((c1), (c2)))
-#define AVERAGE32_1_3(c1, c2) ((c1) == (c2) ? (c1) : (AVERAGE32_NOCHK(AVERAGE32_NOCHK((c1), (c2)), (c2))))
-
-static inline int gcd(int a, int b) {
-	return b ? gcd(b, a % b) : a;
-}
-
-static void scaleAA(void* __restrict src, void* __restrict dst, uint32_t w, uint32_t h, uint32_t pitch, uint32_t dst_w, uint32_t dst_h, uint32_t dst_p) {
-	int dy = 0;
-	int lines = h;
-
-	int rat_w = blend_args.w_ratio_in;
-	int rat_dst_w = blend_args.w_ratio_out;
-	uint16_t* bw = blend_args.w_bp;
-
-	int rat_h = blend_args.h_ratio_in;
-	int rat_dst_h = blend_args.h_ratio_out;
-	uint16_t* bh = blend_args.h_bp;
-
-	while (lines--) {
-		while (dy < rat_dst_h) {
-			uint16_t* dst16 = (uint16_t*)dst;
-			uint16_t* pblend = (uint16_t*)blend_args.blend_line;
-			int col = w;
-			int dx = 0;
-
-			uint16_t* pnext = (uint16_t*)(src + pitch);
-			if (!lines)
-				pnext -= (pitch / sizeof(uint16_t));
-
-			if (dy > rat_dst_h - bh[0]) {
-				pblend = pnext;
-			} else if (dy <= bh[0]) {
-				/* Drops const, won't get touched later though */
-				pblend = (uint16_t*)src;
-			} else {
-				const uint32_t* src32 = (const uint32_t*)src;
-				const uint32_t* pnext32 = (const uint32_t*)pnext;
-				uint32_t* pblend32 = (uint32_t*)pblend;
-				int count = w / 2;
-
-				if (dy <= bh[1]) {
-					const uint32_t* tmp = pnext32;
-					pnext32 = src32;
-					src32 = tmp;
-				}
-
-				if (dy > rat_dst_h - bh[1] || dy <= bh[1]) {
-					while (count--) {
-						*pblend32++ = AVERAGE32_1_3(*src32, *pnext32);
-						src32++;
-						pnext32++;
-					}
-				} else {
-					while (count--) {
-						*pblend32++ = AVERAGE32(*src32, *pnext32);
-						src32++;
-						pnext32++;
-					}
-				}
-			}
-
-			while (col--) {
-				uint16_t a, b, out;
-
-				a = *pblend;
-				b = *(pblend + 1);
-
-				while (dx < rat_dst_w) {
-					if (a == b) {
-						out = a;
-					} else if (dx > rat_dst_w - bw[0]) { // top quintile, bbbb
-						out = b;
-					} else if (dx <= bw[0]) { // last quintile, aaaa
-						out = a;
-					} else {
-						if (dx > rat_dst_w - bw[1]) { // 2nd quintile, abbb
-							a = AVERAGE16_NOCHK(a, b);
-						} else if (dx <= bw[1]) { // 4th quintile, aaab
-							b = AVERAGE16_NOCHK(a, b);
-						}
-
-						out = AVERAGE16_NOCHK(a, b); // also 3rd quintile, aabb
-					}
-					*dst16++ = out;
-					dx += rat_w;
-				}
-
-				dx -= rat_dst_w;
-				pblend++;
-			}
-
-			dy += rat_h;
-			dst += dst_p;
-		}
-
-		dy -= rat_dst_h;
-		src += pitch;
-	}
-}
-
-scaler_t GFX_getAAScaler(GFX_Renderer* renderer) {
-	int gcd_w, div_w, gcd_h, div_h;
-	blend_args.blend_line = (uint16_t*)calloc(renderer->src_w, sizeof(uint16_t));
-
-	gcd_w = gcd(renderer->src_w, renderer->dst_w);
-	blend_args.w_ratio_in = renderer->src_w / gcd_w;
-	blend_args.w_ratio_out = renderer->dst_w / gcd_w;
-
-	double blend_denominator = (renderer->src_w > renderer->dst_w) ? 5 : 2.5; // TODO: these values are really only good for the nano...
-	// blend_denominator = 5.0; // better for trimui
-	// LOG_info("blend_denominator: %f (%i && %i)\n", blend_denominator, HAS_SKINNY_SCREEN, renderer->dst_w>renderer->src_w);
-
-	div_w = round(blend_args.w_ratio_out / blend_denominator);
-	blend_args.w_bp[0] = div_w;
-	blend_args.w_bp[1] = blend_args.w_ratio_out >> 1;
-
-	gcd_h = gcd(renderer->src_h, renderer->dst_h);
-	blend_args.h_ratio_in = renderer->src_h / gcd_h;
-	blend_args.h_ratio_out = renderer->dst_h / gcd_h;
-
-	div_h = round(blend_args.h_ratio_out / blend_denominator);
-	blend_args.h_bp[0] = div_h;
-	blend_args.h_bp[1] = blend_args.h_ratio_out >> 1;
-
-	return scaleAA;
-}
-void GFX_freeAAScaler(void) {
-	if (blend_args.blend_line != NULL) {
-		free(blend_args.blend_line);
-		blend_args.blend_line = NULL;
-	}
-}
 
 ///////////////////////////////
 
@@ -1297,39 +998,6 @@ SDL_Rect GFX_blitScaleToFill(SDL_Surface* src, SDL_Surface* dst) {
 }
 
 ///////////////////////////////
-void GFX_ApplyRoundedCorners16(SDL_Surface* surface, SDL_Rect* rect, int radius) {
-	if (!surface || radius == 0)
-		return;
-
-	SDL_PixelFormat* fmt = surface->format;
-	SDL_Rect target = {0, 0, surface->w, surface->h};
-	if (rect)
-		target = *rect;
-
-	if (fmt->format != SDL_PIXELFORMAT_RGBA8888) {
-		SDL_Log("Unsupported pixel format: %s", SDL_GetPixelFormatName(fmt->format));
-		return;
-	}
-
-	Uint16* pixels = (Uint16*)surface->pixels; // RGB565 uses 16-bit pixels
-	Uint16 transparent_black = 0x0000;		   // RGB565 has no alpha, so use black (0)
-
-	const int xBeg = target.x;
-	const int xEnd = target.x + target.w;
-	const int yBeg = target.y;
-	const int yEnd = target.y + target.h;
-	for (int y = yBeg; y < yEnd; ++y) {
-		for (int x = xBeg; x < xEnd; ++x) {
-			int dx = (x < xBeg + radius) ? xBeg + radius - x : (x >= xEnd - radius) ? x - (xEnd - radius - 1)
-																					: 0;
-			int dy = (y < yBeg + radius) ? yBeg + radius - y : (y >= yEnd - radius) ? y - (yEnd - radius - 1)
-																					: 0;
-			if (dx * dx + dy * dy > radius * radius) {
-				pixels[y * (surface->pitch / 2) + x] = transparent_black; // Set to black (0)
-			}
-		}
-	}
-}
 
 void GFX_ApplyRoundedCorners(SDL_Surface* surface, SDL_Rect* rect, int radius) {
 	if (!surface)
@@ -1360,36 +1028,6 @@ void GFX_ApplyRoundedCorners(SDL_Surface* surface, SDL_Rect* rect, int radius) {
 	}
 }
 
-void GFX_ApplyRoundedCorners_4444(SDL_Surface* surface, SDL_Rect* rect, int radius) {
-	if (!surface ||
-		(surface->format->format != SDL_PIXELFORMAT_RGBA4444 && surface->format->format != SDL_PIXELFORMAT_ARGB4444))
-		return;
-
-	Uint16* pixels = (Uint16*)surface->pixels;
-	SDL_PixelFormat* fmt = surface->format;
-	int pitch = surface->pitch / 2;
-	SDL_Rect target = {0, 0, surface->w, surface->h};
-	if (rect)
-		target = *rect;
-
-	Uint16 transparent_black = SDL_MapRGB(fmt, 0, 0, 0); // Fully transparent black
-
-	const int xBeg = target.x;
-	const int xEnd = target.x + target.w;
-	const int yBeg = target.y;
-	const int yEnd = target.y + target.h;
-	for (int y = yBeg; y < yEnd; ++y) {
-		for (int x = xBeg; x < xEnd; ++x) {
-			int dx = (x < xBeg + radius) ? xBeg + radius - x : (x >= xEnd - radius) ? x - (xEnd - radius - 1)
-																					: 0;
-			int dy = (y < yBeg + radius) ? yBeg + radius - y : (y >= yEnd - radius) ? y - (yEnd - radius - 1)
-																					: 0;
-			if (dx * dx + dy * dy > radius * radius) {
-				pixels[y * pitch + x] = transparent_black;
-			}
-		}
-	}
-}
 
 void GFX_ApplyRoundedCorners_8888(SDL_Surface* surface, SDL_Rect* rect, int radius) {
 	if (!surface ||
@@ -1538,15 +1176,6 @@ void GFX_assetRect(int asset, SDL_Rect* dst_rect) {
 	*dst_rect = asset_rects[asset];
 }
 
-void GFX_blitBattery(SDL_Surface* dst, SDL_Rect* dst_rect) {
-	int x = 0;
-	int y = 0;
-	if (dst_rect) {
-		x = dst_rect->x;
-		y = dst_rect->y;
-	}
-	GFX_blitBatteryAtPosition(dst, x, y);
-}
 
 // Nav-button glyphs replace the hand-drawn circle/pill in the hint bar with the
 // pre-scaled, anti-aliased art in RES_PATH (nav_*@<scale>x.png, white alpha
@@ -2041,42 +1670,6 @@ char** GFX_getHardwareHintPairs(IndicatorType show_setting) {
 
 
 #define MAX_TEXT_LINES 16
-void GFX_sizeText(TTF_Font* font, const char* str, int leading, int* w, int* h) {
-	const char* lines[MAX_TEXT_LINES];
-	int count = 0;
-
-	const char* tmp;
-	lines[count++] = str;
-	while ((tmp = strchr(lines[count - 1], '\n')) != NULL) {
-		if (count + 1 > MAX_TEXT_LINES)
-			break; // TODO: bail?
-		lines[count++] = tmp + 1;
-	}
-	*h = count * leading;
-
-	int mw = 0;
-	char line[256];
-	for (int i = 0; i < count; i++) {
-		int len;
-		if (i + 1 < count) {
-			len = lines[i + 1] - lines[i] - 1;
-			if (len)
-				strncpy(line, lines[i], len);
-			line[len] = '\0';
-		} else {
-			len = strlen(lines[i]);
-			strcpy(line, lines[i]);
-		}
-
-		if (len) {
-			int lw;
-			TTF_SizeUTF8(font, line, &lw, NULL);
-			if (lw > mw)
-				mw = lw;
-		}
-	}
-	*w = mw;
-}
 void GFX_blitText(TTF_Font* font, const char* str, int leading, SDL_Color color, SDL_Surface* dst, SDL_Rect* dst_rect) {
 	if (dst_rect == NULL)
 		dst_rect = &(SDL_Rect){0, 0, dst->w, dst->h};
@@ -2116,9 +1709,6 @@ void GFX_blitText(TTF_Font* font, const char* str, int leading, SDL_Color color,
 	}
 }
 
-SDL_Color GFX_mapColor(uint32_t c) {
-	return uintToColour(c);
-}
 
 ///////////////////////////////
 
@@ -2561,33 +2151,6 @@ size_t SND_batchSamples_fixed_rate(const SND_Frame* frames, size_t frame_count) 
 	return total_consumed_frames;
 }
 
-const char* SND_findExternalAudioDevice(void) {
-#if defined(USE_SDL2)
-	int num_devices = SDL_GetNumAudioDevices(0);
-	for (int i = 0; i < num_devices; i++) {
-		const char* name = SDL_GetAudioDeviceName(i, 0);
-		if (name && strstr(name, "audiocodec") == NULL) {
-			LOG_info("External audio device found: %s\n", name);
-			return name;
-		}
-	}
-#endif
-	return NULL;
-}
-
-const char* SND_findSpeakerDevice(void) {
-#if defined(USE_SDL2)
-	int num_devices = SDL_GetNumAudioDevices(0);
-	for (int i = 0; i < num_devices; i++) {
-		const char* name = SDL_GetAudioDeviceName(i, 0);
-		if (name && strstr(name, "audiocodec") != NULL) {
-			LOG_info("Speaker audio device found: %s\n", name);
-			return name;
-		}
-	}
-#endif
-	return NULL;
-}
 
 void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 	LOG_info("SND_init\n");
@@ -3348,16 +2911,6 @@ void VIB_singlePulse(int strength, int duration_ms) {
 	VIB_setStrength(0);
 }
 
-void VIB_doublePulse(int strength, int duration_ms, int gap_ms) {
-	VIB_setStrength(0);
-	VIB_singlePulse(VIB_scaleStrength(strength), duration_ms);
-	usleep(gap_ms * 1000);
-	VIB_setStrength(0);
-	usleep(gap_ms * 1000);
-	VIB_singlePulse(VIB_scaleStrength(strength), duration_ms);
-	usleep(gap_ms * 1000);
-	VIB_setStrength(0);
-}
 
 void VIB_triplePulse(int strength, int duration_ms, int gap_ms) {
 	VIB_setStrength(0);
@@ -3775,15 +3328,6 @@ int PWR_preventAutosleep(void) {
 }
 
 // updated by PWR_updateBatteryStatus()
-int PWR_isCharging(void) {
-	return SDL_AtomicGet(&pwr.is_charging);
-}
-int PWR_isUSBConnected(void) {
-	return SDL_AtomicGet(&pwr.is_usb_connected);
-}
-int PWR_getBattery(void) { // 10-100 in 10-20% fragments
-	return SDL_AtomicGet(&pwr.charge);
-}
 
 int PWR_isOnline(void) {
 	return SDL_AtomicGet(&pwr.is_online);

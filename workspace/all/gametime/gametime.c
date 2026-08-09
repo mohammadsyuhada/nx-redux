@@ -71,10 +71,6 @@ int renderText(const char* text, TTF_Font* font, SDL_Color color, SDL_Rect* rect
 	return _renderText(text, font, color, rect, false);
 }
 
-int renderTextAlignRight(const char* text, TTF_Font* font, SDL_Color color, SDL_Rect* rect) {
-	return _renderText(text, font, color, rect, true);
-}
-
 // Set a pixel color on the surface
 void _setPixel(SDL_Surface* surface, int x, int y, Uint32 color) {
 	if (x < 0 || x >= surface->w || y < 0 || y >= surface->h) {
@@ -183,7 +179,6 @@ void freeRomImages() {
 }
 
 void renderList(int count, int start, int end, int selected) {
-	char num_str[12];
 	char rom_name[255];
 	char total[25];
 	char average[25];

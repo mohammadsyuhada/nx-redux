@@ -23,7 +23,6 @@
 
 #define GBLINK_DEFAULT_PORT 56400
 #define GBLINK_DISCOVERY_PORT 56421
-#define GBLINK_MAGIC "GBLC"
 #define GBLINK_PROTOCOL_VERSION 1
 #define GBLINK_MAX_GAME_NAME 64
 #define GBLINK_MAX_HOSTS 8
@@ -62,7 +61,6 @@ bool GBLink_checkCoreSupport(const char* core_name);
 // Host mode (sets gambatte_gb_link_mode = "Network Server")
 // If hotspot_ip is NULL, uses WiFi mode. Otherwise, uses hotspot mode with given IP.
 int GBLink_startHost(const char* game_name, uint32_t game_crc, const char* hotspot_ip);
-int GBLink_stopHost(void);
 int GBLink_stopHostFast(void);
 void GBLink_stopBroadcast(void); // Stop UDP broadcast but keep host session active
 
@@ -72,24 +70,13 @@ int GBLink_stopClient(void);
 
 // Stop all GB Link activity
 // Use this for clean shutdown before quit
-void GBLink_stopAll(void);
 void GBLink_stopAllFast(void);
 
 // Status queries
-GBLinkMode GBLink_getMode(void);
-GBLinkState GBLink_getState(void);
 bool GBLink_isConnected(void);
-const char* GBLink_getStatusMessage(void);
-const char* GBLink_getLocalIP(void);
-bool GBLink_hasNetworkConnection(void);
-
-// Hotspot mode
-bool GBLink_isUsingHotspot(void);
 
 // Host discovery (for client)
-int GBLink_startDiscovery(void);
 void GBLink_stopDiscovery(void);
-int GBLink_getDiscoveredHosts(GBLinkHostInfo* hosts, int max_hosts);
 
 // Core option management - called by minarch to configure gambatte
 // Sets gambatte_gb_link_mode to "Network Server"
@@ -105,7 +92,7 @@ void GBLink_notifyConnectionFromCore(bool connected);
 
 // Observe gambatte's link socket (via the kernel socket table) and update the
 // connection state. Throttled, so it is safe to call every frame and from the
-// menu/wait loops. Called lazily from GBLink_getState()/GBLink_isConnected() and
+// menu/wait loops. Called lazily from GBLink_isConnected() and
 // once per frame from minarch's main loop for in-game disconnect detection.
 void GBLink_pollConnectionState(void);
 

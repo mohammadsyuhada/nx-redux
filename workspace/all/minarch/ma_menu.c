@@ -647,7 +647,7 @@ static int OptionAchievements_openMenu(MenuList* list, int i) {
 			int ox = SCALE1(PADDING);
 			int row_height = SCALE1(BUTTON_SIZE);
 			int selected_row = selected - start;
-			int opt_pad = SCALE1(8); // Local option padding since OPTION_PADDING defined later
+			int opt_pad = SCALE1(8); // Local option padding
 
 			// Status text at top, aligned with hardware pill (not part of centered content)
 			char status_text[64];
@@ -840,7 +840,6 @@ void OptionAchievements_updateDesc(void) {
 	options_menu.items[5].desc = NULL;
 }
 
-#define OPTION_PADDING 8
 // alias must be at least MAX_PATH bytes
 bool getAlias(char* path, char* alias) {
 	bool is_alias = false;

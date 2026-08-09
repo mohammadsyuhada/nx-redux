@@ -16,7 +16,6 @@ typedef struct {
 typedef struct {
 	int requests_today;
 	int max_requests_per_day;
-	int threads;
 	bool valid; // false if fetch failed
 } ScraperUserInfo;
 
@@ -46,7 +45,7 @@ void ScraperAPI_rateLimit(void);
 // Check if network is available
 bool ScraperAPI_isOnline(void);
 
-// Fetch user account info (quota, threads)
+// Fetch user account info (quota)
 // Requires user credentials to be set
 ScraperUserInfo ScraperAPI_fetchUserInfo(void);
 

@@ -8,7 +8,6 @@
 void Icons_init(void);
 void Icons_quit(void);
 SDL_Surface* Icons_getFolder(bool selected);
-SDL_Surface* Icons_getVideo(bool selected);
 SDL_Surface* Icons_getForFormat(VideoFormat format, bool selected);
 bool Icons_isLoaded(void);
 

@@ -84,9 +84,7 @@ static bool rat_game_art_path(const char* game_hash, char* out, size_t out_size)
 // TTF_SetFontWrappedAlign, whose wrapped rendering left-aligns lines, so we
 // wrap manually). The second line is ellipsized when the text doesn't fit.
 static void rat_render_desc_wrapped(SDL_Surface* screen, const char* text,
-									SDL_Color color, int wrap_w, int max_h, int y) {
-	(void)max_h; // height is implied by the fixed two-line layout
-
+									SDL_Color color, int wrap_w, int y) {
 	char work[256], line1[256] = "", line2[260] = "";
 	snprintf(work, sizeof(work), "%s", text);
 
@@ -94,7 +92,6 @@ static void rat_render_desc_wrapped(SDL_Surface* screen, const char* text,
 	bool overflow = false;
 	char* save = NULL;
 	char* cur = line1;
-	size_t cur_sz = sizeof(line1);
 	for (char* tok = strtok_r(work, " ", &save); tok; tok = strtok_r(NULL, " ", &save)) {
 		char cand[256];
 		snprintf(cand, sizeof(cand), "%s%s%s", cur, cur[0] ? " " : "", tok);
@@ -104,8 +101,6 @@ static void rat_render_desc_wrapped(SDL_Surface* screen, const char* text,
 			memcpy(cur, cand, strlen(cand) + 1);
 		} else if (cur == line1) {
 			cur = line2;
-			cur_sz = sizeof(line2);
-			(void)cur_sz;
 			memcpy(cur, tok, strlen(tok) + 1);
 		} else {
 			overflow = true; // words left over past line 2
@@ -279,6 +274,18 @@ static void rat_show_achievement_detail(SDL_Surface* screen, RAT_Achievement* ac
 
 // ---------------- achievements screen (one game) ----------------
 
+// Render a rich-pill subtitle (row 2), clipped to the pill's text width.
+// Shared by the achievements list and the games list.
+static void rat_render_subtitle(SDL_Surface* screen, const char* sub,
+								SDL_Color color, ListItemRichPos pos) {
+	SDL_Surface* s = TTF_RenderUTF8_Blended(font.small, sub, color);
+	if (s) {
+		SDL_Rect src = {0, 0, s->w > pos.text_max_width ? pos.text_max_width : s->w, s->h};
+		SDL_BlitSurface(s, &src, screen, &(SDL_Rect){pos.subtitle_x, pos.subtitle_y});
+		SDL_FreeSurface(s);
+	}
+}
+
 static void rat_show_achievements(SDL_Surface* screen, const RAT_Game* game) {
 	RAT_Achievement* achs = NULL;
 	int count = RAT_loadAchievements(game, &achs);
@@ -387,12 +394,7 @@ static void rat_show_achievements(SDL_Surface* screen, const RAT_Game* game) {
 									  pos.title_x, pos.title_y, pos.text_max_width, sel);
 
 				// Subtitle (row 2), in the achievement's state color
-				SDL_Surface* s = TTF_RenderUTF8_Blended(font.small, sub, state_col);
-				if (s) {
-					SDL_Rect src = {0, 0, s->w > pos.text_max_width ? pos.text_max_width : s->w, s->h};
-					SDL_BlitSurface(s, &src, screen, &(SDL_Rect){pos.subtitle_x, pos.subtitle_y});
-					SDL_FreeSurface(s);
-				}
+				rat_render_subtitle(screen, sub, state_col, pos);
 			}
 
 			UI_renderScrollIndicators(screen, scroll, rows_visible, count);
@@ -404,7 +406,7 @@ static void rat_show_achievements(SDL_Surface* screen, const RAT_Game* game) {
 				// right under the last row - fills the gap to the list and
 				// stays clear of the bottom scroll indicator
 				rat_render_desc_wrapped(screen, achs[selected].description, col_desc,
-										screen->w - SCALE1(PADDING * 2), desc_area_h,
+										screen->w - SCALE1(PADDING * 2),
 										list_top + rows_visible * row_h + SCALE1(4));
 			}
 
@@ -515,12 +517,7 @@ void RATBrowser_run(SDL_Surface* screen) {
 
 				// Subtitle (row 2), yellow while sync is pending
 				SDL_Color sub_col = games[i].pending > 0 ? col_pending : col_sub;
-				SDL_Surface* s = TTF_RenderUTF8_Blended(font.small, sub, sub_col);
-				if (s) {
-					SDL_Rect src = {0, 0, s->w > pos.text_max_width ? pos.text_max_width : s->w, s->h};
-					SDL_BlitSurface(s, &src, screen, &(SDL_Rect){pos.subtitle_x, pos.subtitle_y});
-					SDL_FreeSurface(s);
-				}
+				rat_render_subtitle(screen, sub, sub_col, pos);
 			}
 
 			UI_renderScrollIndicators(screen, scroll, rows_visible, count);

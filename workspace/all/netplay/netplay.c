@@ -23,33 +23,24 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <pthread.h>
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <sys/time.h>
 #include <netinet/in.h>
-#include <netinet/tcp.h>
 #include <arpa/inet.h>
-#include <ifaddrs.h>
 
 // Protocol constants (internal)
-#define NP_PROTOCOL_MAGIC 0x4E585550  // "NXUP" - NX Redux Protocol
-#define NP_DISCOVERY_QUERY 0x4E584451 // "NXDQ" - NX Redux Discovery Query
-#define NP_DISCOVERY_RESP 0x4E584452  // "NXDR" - NX Redux Discovery Response
+#define NP_DISCOVERY_RESP 0x4E584452 // "NXDR" - NX Redux Discovery Response
 
 // Optimization: Discovery broadcast interval (microseconds)
 #define DISCOVERY_BROADCAST_INTERVAL_US 500000 // 500ms
 
 // Network commands
 enum {
-	CMD_INPUT = 0x01,	   // Input data for a frame
-	CMD_STATE_REQ = 0x02,  // Request state transfer
-	CMD_STATE_HDR = 0x03,  // State header (size)
-	CMD_STATE_DATA = 0x04, // State data chunk
-	CMD_STATE_ACK = 0x05,  // State received OK
-	CMD_PING = 0x06,
-	CMD_PONG = 0x07,
+	CMD_INPUT = 0x01,	  // Input data for a frame
+	CMD_STATE_HDR = 0x03, // State header (size)
+	CMD_STATE_ACK = 0x05, // State received OK
 	CMD_DISCONNECT = 0x08,
 	CMD_READY = 0x09,	  // Ready to play
 	CMD_PAUSE = 0x0A,	  // Player paused (menu opened)
@@ -98,9 +89,8 @@ static struct {
 	uint32_t game_crc;
 
 	// Frame synchronization
-	uint32_t self_frame;  // Our current frame
-	uint32_t run_frame;	  // Frame we're executing
-	uint32_t other_frame; // Last frame with complete input
+	uint32_t self_frame; // Our current frame
+	uint32_t run_frame;	 // Frame we're executing
 
 	// Circular frame buffer
 	FrameInput frame_buffer[NETPLAY_FRAME_BUFFER_SIZE];
@@ -110,7 +100,6 @@ static struct {
 
 	// State sync flags
 	bool needs_state_sync;
-	bool state_sync_complete;
 
 	// Discovery
 	NetplayHostInfo discovered_hosts[NETPLAY_MAX_HOSTS];
@@ -346,10 +335,6 @@ static int Netplay_stopHostInternal(bool skip_hotspot_cleanup) {
 	return 0;
 }
 
-int Netplay_stopHost(void) {
-	return Netplay_stopHostInternal(false);
-}
-
 int Netplay_stopHostFast(void) {
 	return Netplay_stopHostInternal(true);
 }
@@ -409,7 +394,6 @@ static void* listen_thread_func(void* arg) {
 					np.needs_state_sync = true;
 					np.self_frame = 0;
 					np.run_frame = 0;
-					np.other_frame = 0;
 
 					init_frame_buffer();
 
@@ -479,7 +463,6 @@ int Netplay_connectToHost(const char* ip, uint16_t port) {
 
 	np.self_frame = 0;
 	np.run_frame = 0;
-	np.other_frame = 0;
 
 	init_frame_buffer();
 
@@ -521,21 +504,6 @@ void Netplay_disconnect(void) {
 // Discovery
 //////////////////////////////////////////////////////////////////////////////
 
-int Netplay_startDiscovery(void) {
-	if (np.discovery_active)
-		return 0;
-
-	np.udp_fd = NET_createDiscoveryListenSocket(NETPLAY_DISCOVERY_PORT);
-	if (np.udp_fd < 0) {
-		snprintf(np.status_msg, sizeof(np.status_msg), "Failed to start discovery");
-		return -1;
-	}
-
-	np.num_hosts = 0;
-	np.discovery_active = true;
-	return 0;
-}
-
 void Netplay_stopDiscovery(void) {
 	if (!np.discovery_active)
 		return;
@@ -546,21 +514,6 @@ void Netplay_stopDiscovery(void) {
 	}
 
 	np.discovery_active = false;
-}
-
-int Netplay_getDiscoveredHosts(NetplayHostInfo* hosts, int max_hosts) {
-	if (!np.discovery_active || np.udp_fd < 0)
-		return 0;
-
-	// Poll for discovery responses using shared function
-	// NetplayHostInfo and NET_HostInfo have identical layouts
-	NET_receiveDiscoveryResponses(np.udp_fd, NP_DISCOVERY_RESP,
-								  (NET_HostInfo*)np.discovered_hosts, &np.num_hosts,
-								  NETPLAY_MAX_HOSTS);
-
-	int count = (np.num_hosts < max_hosts) ? np.num_hosts : max_hosts;
-	memcpy(hosts, np.discovered_hosts, count * sizeof(NetplayHostInfo));
-	return count;
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -765,11 +718,6 @@ bool Netplay_shouldStall(void) {
 	return np.state == NETPLAY_STATE_STALLED;
 }
 
-// Optimization: Uses cached value instead of checking state each call
-bool Netplay_shouldSilenceAudio(void) {
-	return np.audio_should_silence;
-}
-
 //////////////////////////////////////////////////////////////////////////////
 // State Synchronization
 //////////////////////////////////////////////////////////////////////////////
@@ -871,7 +819,6 @@ bool Netplay_needsStateSync(void) {
 void Netplay_completeStateSync(void) {
 	pthread_mutex_lock(&np.mutex);
 	np.needs_state_sync = false;
-	np.state_sync_complete = true;
 	np.state = NETPLAY_STATE_PLAYING;
 
 	// Pre-fill latency buffer frames with neutral input
@@ -900,12 +847,6 @@ void Netplay_completeStateSync(void) {
 NetplayMode Netplay_getMode(void) {
 	return np.mode;
 }
-NetplayState Netplay_getState(void) {
-	return np.state;
-}
-bool Netplay_isUsingHotspot(void) {
-	return np.using_hotspot;
-}
 
 bool Netplay_isConnected(void) {
 	return np.tcp_fd >= 0 &&
@@ -917,23 +858,6 @@ bool Netplay_isConnected(void) {
 
 bool Netplay_isActive(void) {
 	return np.state == NETPLAY_STATE_PLAYING;
-}
-
-const char* Netplay_getStatusMessage(void) {
-	return np.status_msg;
-}
-
-const char* Netplay_getLocalIP(void) {
-	// Refresh IP if not in an active session (to avoid returning stale hotspot IP)
-	if (np.mode == NETPLAY_OFF) {
-		NET_getLocalIP(np.local_ip, sizeof(np.local_ip));
-	}
-	return np.local_ip;
-}
-
-bool Netplay_hasNetworkConnection(void) {
-	NET_getLocalIP(np.local_ip, sizeof(np.local_ip));
-	return NET_hasConnection();
 }
 
 //////////////////////////////////////////////////////////////////////////////

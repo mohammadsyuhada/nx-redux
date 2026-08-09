@@ -34,7 +34,6 @@ ContextMenuResult ContextMenu_handleInput(void);
 void ContextMenu_render(SDL_Surface* screen);
 
 // Close the context menu.
-void ContextMenu_close(void);
 
 // Returns true if the context menu is currently open (or was just closed this frame).
 bool ContextMenu_isOpen(void);

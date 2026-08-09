@@ -9,7 +9,6 @@
 // See: https://github.com/RetroAchievements/rcheevos/wiki/rc_client-integration#showing-the-game-placard
 
 // Badge size for notifications (will be scaled)
-#define RA_BADGE_SIZE 64
 #define RA_BADGE_NOTIFY_SIZE 24 // Size for notification icons
 
 // Cache directory path (under SDCARD_PATH)
@@ -58,7 +57,6 @@ void RA_Badges_prefetch(const char** badge_names, size_t count);
  * @param badge_name The badge name (e.g., "00234")
  * @param locked Whether to download the locked version
  */
-void RA_Badges_prefetchOne(const char* badge_name, bool locked);
 
 /**
  * Get a badge surface. Returns cached surface or NULL if not available.
@@ -88,7 +86,6 @@ SDL_Surface* RA_Badges_getNotificationSize(const char* badge_name, bool locked);
  * @param locked Whether to check the locked version
  * @return RA_BadgeState The current state
  */
-RA_BadgeState RA_Badges_getState(const char* badge_name, bool locked);
 
 /**
  * Get the cache file path for a badge.

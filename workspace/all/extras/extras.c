@@ -491,12 +491,6 @@ static const char* preflight(AddonEntry* e) {
 // hold via SDL_Delay) - copied rather than shared since that one is static
 // to its own TU too.
 #define EXTRAS_MESSAGE_MS 2000
-static void show_message(const char* message, int hold_ms) {
-	GFX_clear(screen);
-	UI_renderCenteredMessage(screen, message);
-	GFX_flip(screen);
-	SDL_Delay(hold_ms);
-}
 
 // --- entry-script runner: popen install.sh/uninstall.sh, stream lines -----
 // Task 11: the in-flight screen is the shared UIDownloadProgress bar
@@ -892,7 +886,7 @@ static int uninstall_generic(AddonEntry* e) {
 			 SDCARD_PATH, e->id);
 	remove(marker);
 
-	show_message("Saves and ROMs kept.", EXTRAS_MESSAGE_MS);
+	UI_showMessage(screen, "Saves and ROMs kept.", EXTRAS_MESSAGE_MS);
 	return 0;
 }
 
@@ -1080,7 +1074,7 @@ static int run_detail(AddonEntry* e) {
 		if (PAD_justPressed(BTN_A)) {
 			const char* err = preflight(e);
 			if (err) {
-				show_message(err, EXTRAS_MESSAGE_MS);
+				UI_showMessage(screen, err, EXTRAS_MESSAGE_MS);
 			} else {
 				if (run_install(e) == 0) {
 					changed = true;

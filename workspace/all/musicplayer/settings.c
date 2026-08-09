@@ -144,18 +144,6 @@ int Settings_getScreenOffTimeout(void) {
 	return current_settings.screen_off_timeout;
 }
 
-void Settings_setScreenOffTimeout(int seconds) {
-	// Validate the value
-	for (int i = 0; i < SCREEN_OFF_VALUE_COUNT; i++) {
-		if (screen_off_values[i] == seconds) {
-			current_settings.screen_off_timeout = seconds;
-			Settings_save();
-			return;
-		}
-	}
-	// Invalid value, ignore
-}
-
 void Settings_cycleScreenOffNext(void) {
 	int index = get_screen_off_index();
 	index = (index + 1) % SCREEN_OFF_VALUE_COUNT;
@@ -209,11 +197,6 @@ bool Settings_getLyricsEnabled(void) {
 	return current_settings.lyrics_enabled;
 }
 
-void Settings_setLyricsEnabled(bool enabled) {
-	current_settings.lyrics_enabled = enabled;
-	Settings_save();
-}
-
 void Settings_toggleLyrics(void) {
 	current_settings.lyrics_enabled = !current_settings.lyrics_enabled;
 	Settings_save();
@@ -247,10 +230,6 @@ const char* Settings_getBassFilterDisplayStr(void) {
 }
 
 // Soft limiter getters/cyclers
-int Settings_getSoftLimiter(void) {
-	return current_settings.soft_limiter_index;
-}
-
 float Settings_getSoftLimiterThreshold(void) {
 	if (current_settings.soft_limiter_index >= 0 && current_settings.soft_limiter_index < SOFT_LIMITER_VALUE_COUNT) {
 		return soft_limiter_thresholds[current_settings.soft_limiter_index];

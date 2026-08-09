@@ -12,12 +12,6 @@ typedef struct {
 // Maximum number of lyric lines
 #define LYRICS_MAX_LINES 512
 
-// Initialize lyrics module
-void Lyrics_init(void);
-
-// Cleanup lyrics module
-void Lyrics_cleanup(void);
-
 // Fetch lyrics for artist/title (non-blocking, runs in background thread)
 void Lyrics_fetch(const char* artist, const char* title, int duration_sec);
 
@@ -31,9 +25,6 @@ const char* Lyrics_getCurrentLine(int position_ms);
 // Get the next lyric line after the current one (call after Lyrics_getCurrentLine)
 // Returns pointer to next lyric text, or NULL if no next line
 const char* Lyrics_getNextLine(void);
-
-// Check if lyrics are available for the current track
-bool Lyrics_isAvailable(void);
 
 // Get total size of lyrics cache on disk (in bytes)
 long Lyrics_getCacheSize(void);

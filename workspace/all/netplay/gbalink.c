@@ -34,18 +34,14 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <pthread.h>
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <sys/time.h>
 #include <netinet/in.h>
-#include <netinet/tcp.h>
 #include <arpa/inet.h>
-#include <ifaddrs.h>
 
 // Protocol constants
-#define GL_PROTOCOL_MAGIC 0x47424C4B  // "GBLK"
 #define GL_DISCOVERY_QUERY 0x47424451 // "GBDQ" - GBA Link Discovery Query
 #define GL_DISCOVERY_RESP 0x47424452  // "GBDR" - GBA Link Discovery Response
 
@@ -219,11 +215,6 @@ static const struct timeval* get_frame_time(void) {
 	return &gl.frame_time;
 }
 
-// Invalidate frame time cache (call at end of frame)
-static void invalidate_frame_time(void) {
-	gl.frame_time_valid = false;
-}
-
 // Compact stream buffer if needed - consolidates fragmented buffer space
 // Only compacts when read_idx is past halfway point AND we need more space
 // This reduces memmove frequency significantly during burst traffic
@@ -323,21 +314,6 @@ void GBALink_setLinkMode(const char* mode) {
 	} else {
 		gl.link_mode[0] = '\0';
 	}
-}
-
-// Get the current link mode (for debugging)
-const char* GBALink_getLinkMode(void) {
-	return gl.link_mode[0] ? gl.link_mode : NULL;
-}
-
-// Get pending link mode (host's mode to change to) after GBALINK_CONNECT_NEEDS_RELOAD
-const char* GBALink_getPendingLinkMode(void) {
-	return gl.needs_reload && gl.pending_link_mode[0] ? gl.pending_link_mode : NULL;
-}
-
-// Get client's current link mode (what it was before host connection)
-const char* GBALink_getClientLinkMode(void) {
-	return gl.needs_reload && gl.client_link_mode[0] ? gl.client_link_mode : NULL;
 }
 
 // Clear pending reload state (called when user cancels)
@@ -490,10 +466,6 @@ static int GBALink_stopHostInternal(bool skip_hotspot_cleanup) {
 	gl.state = GBALINK_STATE_IDLE;
 	snprintf(gl.status_msg, sizeof(gl.status_msg), "GBA Link ready");
 	return 0;
-}
-
-int GBALink_stopHost(void) {
-	return GBALink_stopHostInternal(false);
 }
 
 int GBALink_stopHostFast(void) {
@@ -879,19 +851,6 @@ void GBALink_disconnect(void) {
 // Discovery
 //////////////////////////////////////////////////////////////////////////////
 
-int GBALink_startDiscovery(void) {
-	if (gl.discovery_active)
-		return 0;
-
-	gl.udp_fd = NET_createDiscoveryListenSocket(GBALINK_DISCOVERY_PORT);
-	if (gl.udp_fd < 0)
-		return -1;
-
-	gl.num_hosts = 0;
-	gl.discovery_active = true;
-	return 0;
-}
-
 void GBALink_stopDiscovery(void) {
 	if (!gl.discovery_active)
 		return;
@@ -902,76 +861,6 @@ void GBALink_stopDiscovery(void) {
 	}
 
 	gl.discovery_active = false;
-}
-
-int GBALink_getDiscoveredHosts(GBALinkHostInfo* hosts, int max_hosts) {
-	if (!gl.discovery_active || gl.udp_fd < 0)
-		return 0;
-
-	// Poll for discovery responses using shared function
-	// GBALinkHostInfo and NET_HostInfo have identical layouts
-	NET_receiveDiscoveryResponses(gl.udp_fd, GL_DISCOVERY_RESP,
-								  (NET_HostInfo*)gl.discovered_hosts, &gl.num_hosts,
-								  GBALINK_MAX_HOSTS);
-
-	int count = (gl.num_hosts < max_hosts) ? gl.num_hosts : max_hosts;
-	memcpy(hosts, gl.discovered_hosts, count * sizeof(GBALinkHostInfo));
-	return count;
-}
-
-int GBALink_queryHostLinkMode(const char* host_ip, char* link_mode_out, size_t size) {
-	if (!host_ip || !link_mode_out || size < 2)
-		return -1;
-	link_mode_out[0] = '\0';
-
-	// Create UDP socket for query
-	int query_fd = socket(AF_INET, SOCK_DGRAM, 0);
-	if (query_fd < 0) {
-		return -1;
-	}
-
-	// Set send and receive timeouts to prevent blocking indefinitely
-	struct timeval tv = {.tv_sec = 0, .tv_usec = 500000}; // 500ms timeout
-	setsockopt(query_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-	setsockopt(query_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-
-	// Prepare query packet
-	NET_DiscoveryPacket query_pkt = {0};
-	query_pkt.magic = htonl(GL_DISCOVERY_QUERY);
-	query_pkt.protocol_version = htonl(GBALINK_PROTOCOL_VERSION);
-
-	// Send to host
-	struct sockaddr_in host_addr = {0};
-	host_addr.sin_family = AF_INET;
-	host_addr.sin_port = htons(GBALINK_DISCOVERY_PORT);
-	if (inet_pton(AF_INET, host_ip, &host_addr.sin_addr) <= 0) {
-		close(query_fd);
-		return -1; // Invalid IP address
-	}
-
-	// Try up to 3 times with 500ms timeout each
-	for (int attempt = 0; attempt < 3; attempt++) {
-		sendto(query_fd, &query_pkt, sizeof(query_pkt), 0,
-			   (struct sockaddr*)&host_addr, sizeof(host_addr));
-
-		// Wait for response
-		NET_DiscoveryPacket resp_pkt;
-		struct sockaddr_in sender;
-		socklen_t sender_len = sizeof(sender);
-		ssize_t recv_len = recvfrom(query_fd, &resp_pkt, sizeof(resp_pkt), 0,
-									(struct sockaddr*)&sender, &sender_len);
-
-		if (recv_len >= (ssize_t)sizeof(resp_pkt) && ntohl(resp_pkt.magic) == GL_DISCOVERY_RESP) {
-			// Got response - extract link_mode
-			strncpy(link_mode_out, resp_pkt.link_mode, size - 1);
-			link_mode_out[size - 1] = '\0';
-			close(query_fd);
-			return 0;
-		}
-	}
-
-	close(query_fd);
-	return -1;
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1000,11 +889,6 @@ void GBALink_onNetpacketStop(void) {
 	gl.core_send_fn = NULL;
 	gl.core_poll_fn = NULL;
 	pthread_mutex_unlock(&gl.mutex);
-}
-
-void GBALink_onNetpacketPoll(void) {
-	// Called by core each frame - check for incoming packets
-	GBALink_pollReceive();
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1167,24 +1051,6 @@ void GBALink_pollReceive(void) {
 // Status Functions
 //////////////////////////////////////////////////////////////////////////////
 
-GBALinkMode GBALink_getMode(void) {
-	if (!gl.initialized)
-		return GBALINK_OFF;
-	pthread_mutex_lock(&gl.mutex);
-	GBALinkMode mode = gl.mode;
-	pthread_mutex_unlock(&gl.mutex);
-	return mode;
-}
-
-GBALinkState GBALink_getState(void) {
-	if (!gl.initialized)
-		return GBALINK_STATE_IDLE;
-	pthread_mutex_lock(&gl.mutex);
-	GBALinkState state = gl.state;
-	pthread_mutex_unlock(&gl.mutex);
-	return state;
-}
-
 bool GBALink_isConnected(void) {
 	if (!gl.initialized)
 		return false;
@@ -1192,58 +1058,6 @@ bool GBALink_isConnected(void) {
 	bool connected = gl.tcp_fd >= 0 && gl.state == GBALINK_STATE_CONNECTED;
 	pthread_mutex_unlock(&gl.mutex);
 	return connected;
-}
-
-const char* GBALink_getStatusMessage(void) {
-	return gl.status_msg;
-}
-
-void GBALink_getStatusMessageSafe(char* buf, size_t buf_size) {
-	if (!gl.initialized) {
-		strncpy(buf, "Not initialized", buf_size - 1);
-		buf[buf_size - 1] = '\0';
-		return;
-	}
-	pthread_mutex_lock(&gl.mutex);
-	strncpy(buf, gl.status_msg, buf_size - 1);
-	buf[buf_size - 1] = '\0';
-	pthread_mutex_unlock(&gl.mutex);
-}
-
-// Thread-safe version that copies IP to caller's buffer
-void GBALink_getLocalIPSafe(char* buf, size_t buf_size) {
-	if (!gl.initialized) {
-		strncpy(buf, "0.0.0.0", buf_size - 1);
-		buf[buf_size - 1] = '\0';
-		return;
-	}
-	pthread_mutex_lock(&gl.mutex);
-	strncpy(buf, gl.local_ip, buf_size - 1);
-	buf[buf_size - 1] = '\0';
-	pthread_mutex_unlock(&gl.mutex);
-}
-
-// Note: Returns pointer to internal buffer - use GBALink_getLocalIPSafe for thread safety
-const char* GBALink_getLocalIP(void) {
-	// Refresh IP if not in an active session (to avoid returning stale hotspot IP)
-	if (gl.mode == GBALINK_OFF) {
-		NET_getLocalIP(gl.local_ip, sizeof(gl.local_ip));
-	}
-	return gl.local_ip;
-}
-
-bool GBALink_isUsingHotspot(void) {
-	if (!gl.initialized)
-		return false;
-	pthread_mutex_lock(&gl.mutex);
-	bool using_hotspot = gl.using_hotspot;
-	pthread_mutex_unlock(&gl.mutex);
-	return using_hotspot;
-}
-
-bool GBALink_hasNetworkConnection(void) {
-	NET_getLocalIP(gl.local_ip, sizeof(gl.local_ip));
-	return NET_hasConnection();
 }
 
 void GBALink_update(void) {
@@ -1302,30 +1116,6 @@ void GBALink_update(void) {
 	} else {
 		pthread_mutex_unlock(&gl.mutex);
 	}
-}
-
-bool GBALink_getPendingPacket(void** buf, size_t* len, uint16_t* client_id) {
-	pthread_mutex_lock(&gl.mutex);
-	if (gl.pending_count == 0) {
-		pthread_mutex_unlock(&gl.mutex);
-		return false;
-	}
-	ReceivedPacket* pkt = &gl.pending_packets[gl.pending_read_idx];
-	*buf = pkt->data;
-	*len = pkt->len;
-	if (client_id)
-		*client_id = pkt->client_id;
-	pthread_mutex_unlock(&gl.mutex);
-	return true;
-}
-
-void GBALink_consumePendingPacket(void) {
-	pthread_mutex_lock(&gl.mutex);
-	if (gl.pending_count > 0) {
-		gl.pending_read_idx = (gl.pending_read_idx + 1) % MAX_PENDING_PACKETS;
-		gl.pending_count--;
-	}
-	pthread_mutex_unlock(&gl.mutex);
 }
 
 // Atomic get-and-consume: reduces mutex cycles in hot path (single lock instead of two)
@@ -1676,11 +1466,6 @@ void GBALink_notifyDisconnected(void) {
 	GBALink_onNetpacketStop();
 
 	gl.netpacket_active = false;
-}
-
-// Check if netpacket bridging is active
-bool GBALink_isNetpacketActive(void) {
-	return gl.netpacket_active;
 }
 
 // Poll network and deliver packets to core (call each frame before core.run())

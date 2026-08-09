@@ -2278,10 +2278,6 @@ void Player_setVolume(float volume) {
 	pthread_mutex_unlock(&player.mutex);
 }
 
-float Player_getVolume(void) {
-	return player.volume;
-}
-
 void Player_setPlaybackSpeed(float speed) {
 	if (speed < 0.5f)
 		speed = 0.5f;
@@ -2341,10 +2337,6 @@ int Player_getVisBuffer(int16_t* buffer, int max_samples) {
 	return samples_to_copy;
 }
 
-const WaveformData* Player_getWaveform(void) {
-	return &waveform;
-}
-
 SDL_Surface* Player_getAlbumArt(void) {
 	// Return embedded album art if available
 	if (player.album_art) {
@@ -2370,25 +2362,9 @@ void Player_pauseAudio(void) {
 	}
 }
 
-bool Player_isBluetoothActive(void) {
-	return AudioMgr_isBluetoothActive();
-}
-
-bool Player_isUSBDACActive(void) {
-	return AudioMgr_isUSBDACActive();
-}
-
 // USB HID wrappers — AudioMgr now owns the HID fd
-void Player_initUSBHID(void) {
-	// No-op: AudioMgr manages HID lifecycle
-}
-
 USBHIDEvent Player_pollUSBHID(void) {
 	AudioMgrHIDEvent e = AudioMgr_pollHID();
 	// Enum values are identical by design, just different type names
 	return (USBHIDEvent)e;
-}
-
-void Player_quitUSBHID(void) {
-	// No-op: AudioMgr manages HID lifecycle
 }

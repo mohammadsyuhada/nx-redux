@@ -163,10 +163,6 @@ static void Special_refreshDMGPalette(void) {
 static void Special_init(void) {
 	if (special.palette_updated > 1)
 		special.palette_updated = 1;
-	// else if (exactMatch((char*)core.tag, "GBC"))  {
-	// 	putInt("/tmp/dmg_grid_color",0xF79E);
-	// 	special.palette_updated = 1;
-	// }
 }
 void Special_render(void) {
 	if (special.palette_updated)

@@ -45,17 +45,10 @@ int Playlist_prev(PlaylistContext* ctx);
 // Returns: new index, or -1 if empty
 int Playlist_shuffle(PlaylistContext* ctx);
 
-// Set current track by index
-// Returns: 0 on success, -1 if invalid index
-int Playlist_setCurrentIndex(PlaylistContext* ctx, int index);
-
 // Accessors
 const PlaylistTrack* Playlist_getCurrentTrack(const PlaylistContext* ctx);
 const PlaylistTrack* Playlist_getTrack(const PlaylistContext* ctx, int index);
 int Playlist_getCount(const PlaylistContext* ctx);
 int Playlist_getCurrentIndex(const PlaylistContext* ctx);
-
-// Check if playlist is valid/active
-bool Playlist_isActive(const PlaylistContext* ctx);
 
 #endif // __PLAYLIST_H__

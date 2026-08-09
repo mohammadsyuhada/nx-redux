@@ -19,7 +19,6 @@
 
 #define GBALINK_DEFAULT_PORT 55437
 #define GBALINK_DISCOVERY_PORT 55438
-#define GBALINK_MAGIC "GBLK"
 #define GBALINK_PROTOCOL_VERSION 1
 #define GBALINK_MAX_GAME_NAME 64
 #define GBALINK_MAX_HOSTS 8
@@ -69,45 +68,22 @@ bool GBALink_checkCoreSupport(const char* core_name);
 // Link mode synchronization - host captures mode, client receives and applies it
 // Called before hosting to capture the current gpsp_serial value
 void GBALink_setLinkMode(const char* mode);
-const char* GBALink_getLinkMode(void);
-
-// Pending link mode after GBALINK_CONNECT_NEEDS_RELOAD
-// Client's current mode and host's mode that differs
-const char* GBALink_getPendingLinkMode(void); // Returns host's mode (what to change to)
-const char* GBALink_getClientLinkMode(void);  // Returns client's current mode
-void GBALink_clearPendingReload(void);		  // Clear pending reload state
-void GBALink_applyPendingLinkMode(void);	  // Apply pending mode to config
+void GBALink_clearPendingReload(void);	 // Clear pending reload state
+void GBALink_applyPendingLinkMode(void); // Apply pending mode to config
 
 // Connection management
 // If hotspot_ip is NULL, uses WiFi mode. Otherwise, uses hotspot mode with given IP.
 // link_mode is the gpsp_serial value to sync with client (can be NULL)
 int GBALink_startHost(const char* game_name, uint32_t game_crc, const char* hotspot_ip, const char* link_mode);
-int GBALink_stopHost(void);
 int GBALink_stopHostFast(void);
 int GBALink_connectToHost(const char* ip, uint16_t port);
 void GBALink_disconnect(void);
 
-// Hotspot mode
-bool GBALink_isUsingHotspot(void);
-
 // Status queries
-GBALinkMode GBALink_getMode(void);
-GBALinkState GBALink_getState(void);
 bool GBALink_isConnected(void);
-const char* GBALink_getStatusMessage(void);
-void GBALink_getStatusMessageSafe(char* buf, size_t buf_size);
-const char* GBALink_getLocalIP(void);
-bool GBALink_hasNetworkConnection(void);
 
 // Host discovery (for client)
-int GBALink_startDiscovery(void);
 void GBALink_stopDiscovery(void);
-int GBALink_getDiscoveredHosts(GBALinkHostInfo* hosts, int max_hosts);
-
-// Direct link mode query (for hotspot mode where broadcasts may not work)
-// Sends UDP query directly to host_ip and waits for response
-// Returns 0 on success, -1 on failure/timeout
-int GBALink_queryHostLinkMode(const char* host_ip, char* link_mode_out, size_t size);
 
 // Netpacket interface callbacks for core
 // These are called when the core registers its netpacket interface
@@ -115,7 +91,6 @@ void GBALink_onNetpacketStart(uint16_t client_id,
 							  retro_netpacket_send_t send_fn,
 							  retro_netpacket_poll_receive_t poll_receive_fn);
 void GBALink_onNetpacketStop(void);
-void GBALink_onNetpacketPoll(void);
 
 // Called by frontend to provide send/poll functions to core
 // These wrap the network transport layer
@@ -133,7 +108,6 @@ void GBALink_notifyConnected(int is_host);
 void GBALink_notifyDisconnected(void);
 
 // Netpacket bridging
-bool GBALink_isNetpacketActive(void);
 void GBALink_pollAndDeliverPackets(void); // Call each frame before core.run()
 
 #endif /* GBALINK_H */

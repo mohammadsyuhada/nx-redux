@@ -22,7 +22,6 @@ typedef struct {
 	BluetoothDeviceType device_type;
 	int paired;
 	int connected;
-	int16_t rssi;
 } BtDeviceInfo;
 
 // ============================================
@@ -33,8 +32,7 @@ typedef struct {
 #define BT_IDX_TOGGLE 0
 #define BT_IDX_DIAG 1
 
-static const char* bt_toggle_labels[] = {"Off", "On"};
-static const char* bt_diag_labels[] = {"Off", "On"};
+static const char* on_off_labels[] = {"Off", "On"};
 
 // ============================================
 // Scanner thread state
@@ -53,7 +51,6 @@ static SettingsPage* bt_page_ref = NULL;
 typedef struct {
 	SettingsPage page;
 	SettingItem items[4];
-	int item_count;
 	BtDeviceInfo dev_info;
 } BtDeviceOptions;
 
@@ -252,7 +249,6 @@ static void build_bt_device_options(BtDeviceOptions* opts, BtDeviceInfo* info) {
 		idx++;
 	}
 
-	opts->item_count = idx;
 	opts->page.item_count = idx;
 }
 
@@ -442,7 +438,6 @@ static void* bt_scanner(void* arg) {
 			strncpy(dinfo->addr, paired[i].remote_addr, sizeof(dinfo->addr) - 1);
 			dinfo->paired = 1;
 			dinfo->connected = paired[i].is_connected;
-			dinfo->rssi = paired[i].rssi;
 
 			dinfo->device_type = BLUETOOTH_NONE;
 
@@ -475,7 +470,6 @@ static void* bt_scanner(void* arg) {
 			strncpy(dinfo->addr, available[i].addr, sizeof(dinfo->addr) - 1);
 			dinfo->paired = 0;
 			dinfo->connected = 0;
-			dinfo->rssi = 0;
 			dinfo->device_type = available[i].kind;
 
 			page->items[item_idx] = (SettingItem){
@@ -584,7 +578,7 @@ SettingsPage* bt_page_create(void) {
 		.desc = "Enable or disable Bluetooth",
 		.type = ITEM_CYCLE,
 		.visible = 1,
-		.labels = bt_toggle_labels,
+		.labels = on_off_labels,
 		.label_count = 2,
 		.get_value = bt_get_toggle,
 		.set_value = bt_set_toggle,
@@ -596,7 +590,7 @@ SettingsPage* bt_page_create(void) {
 		.desc = "Enable Bluetooth diagnostic logging",
 		.type = ITEM_CYCLE,
 		.visible = 1,
-		.labels = bt_diag_labels,
+		.labels = on_off_labels,
 		.label_count = 2,
 		.get_value = bt_get_diag,
 		.set_value = bt_set_diag,

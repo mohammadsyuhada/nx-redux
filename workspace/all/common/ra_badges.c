@@ -449,17 +449,6 @@ void RA_Badges_prefetch(const char** badge_names, size_t count) {
 		SDL_UnlockMutex(badge_mutex);
 }
 
-void RA_Badges_prefetchOne(const char* badge_name, bool locked) {
-	if (!initialized || !badge_name || !badge_name[0])
-		return;
-
-	if (badge_mutex)
-		SDL_LockMutex(badge_mutex);
-	start_download(badge_name, locked);
-	process_download_queue();
-	if (badge_mutex)
-		SDL_UnlockMutex(badge_mutex);
-}
 
 SDL_Surface* RA_Badges_get(const char* badge_name, bool locked) {
 	if (!initialized || !badge_name || !badge_name[0])
@@ -529,28 +518,6 @@ SDL_Surface* RA_Badges_getNotificationSize(const char* badge_name, bool locked) 
 	return result;
 }
 
-RA_BadgeState RA_Badges_getState(const char* badge_name, bool locked) {
-	if (!initialized || !badge_name || !badge_name[0])
-		return RA_BADGE_STATE_UNKNOWN;
-
-	if (badge_mutex)
-		SDL_LockMutex(badge_mutex);
-
-	RA_BadgeState state = RA_BADGE_STATE_UNKNOWN;
-
-	for (int i = 0; i < badge_cache_count; i++) {
-		if (badge_cache[i].locked == locked &&
-			strcmp(badge_cache[i].badge_name, badge_name) == 0) {
-			state = badge_cache[i].state;
-			break;
-		}
-	}
-
-	if (badge_mutex)
-		SDL_UnlockMutex(badge_mutex);
-
-	return state;
-}
 
 void RA_Badges_getCachePath(const char* badge_name, bool locked, char* buffer, size_t buffer_size) {
 	if (locked) {

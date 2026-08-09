@@ -135,7 +135,6 @@ enum {
 
 #define SCALE1(a) ((a) * FIXED_SCALE)
 #define SCALE2(a, b) ((a) * FIXED_SCALE), ((b) * FIXED_SCALE)
-#define SCALE3(a, b, c) ((a) * FIXED_SCALE), ((b) * FIXED_SCALE), ((c) * FIXED_SCALE)
 #define SCALE4(a, b, c, d) ((a) * FIXED_SCALE), ((b) * FIXED_SCALE), ((c) * FIXED_SCALE), ((d) * FIXED_SCALE)
 
 ///////////////////////////////

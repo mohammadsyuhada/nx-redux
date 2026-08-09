@@ -82,7 +82,7 @@ static bool parse_cfg_line(char* line, char** key, char** val, bool* locked) {
 // Copy the line at *cursor into buf (NUL-terminated, truncated when huge) and
 // return its raw length including the '\n' when present. Advancing is the
 // caller's job so it can also copy the raw bytes.
-static size_t peek_line(const char* cursor, char* buf, size_t buf_size, bool* had_nl) {
+static size_t peek_line(const char* cursor, char* buf, size_t buf_size) {
 	const char* eol = strchr(cursor, '\n');
 	size_t raw_len = eol ? (size_t)(eol - cursor + 1) : strlen(cursor);
 	size_t copy_len = raw_len;
@@ -90,8 +90,6 @@ static size_t peek_line(const char* cursor, char* buf, size_t buf_size, bool* ha
 		copy_len = buf_size - 1;
 	memcpy(buf, cursor, copy_len);
 	buf[copy_len] = '\0';
-	if (had_nl)
-		*had_nl = (eol != NULL);
 	return raw_len;
 }
 
@@ -104,7 +102,7 @@ static void apply_locks(EmuOvlConfig* cfg, const char* content,
 	const char* cursor = content;
 	char buf[LINE_MAX_LEN];
 	while (*cursor) {
-		size_t raw_len = peek_line(cursor, buf, sizeof(buf), NULL);
+		size_t raw_len = peek_line(cursor, buf, sizeof(buf));
 		char *key, *val;
 		bool lock;
 		if (parse_cfg_line(buf, &key, &val, &lock) && lock) {
@@ -127,7 +125,7 @@ static void apply_values(EmuOvlConfig* cfg, const char* content,
 	const char* cursor = content;
 	char buf[LINE_MAX_LEN];
 	while (*cursor) {
-		size_t raw_len = peek_line(cursor, buf, sizeof(buf), NULL);
+		size_t raw_len = peek_line(cursor, buf, sizeof(buf));
 		cursor += raw_len;
 		char *key, *val;
 		bool lock;
@@ -243,7 +241,7 @@ static char* render_full(EmuOvlConfig* cfg, const char* base_content,
 	const char* cursor = base_content;
 	char buf[LINE_MAX_LEN];
 	while (*cursor) {
-		size_t raw_len = peek_line(cursor, buf, sizeof(buf), NULL);
+		size_t raw_len = peek_line(cursor, buf, sizeof(buf));
 		char *key, *val;
 		bool lock;
 		int s, i;
@@ -402,7 +400,7 @@ static int write_global(EmuOvlConfig* cfg, OptsMinarchState* st) {
 	const char* cursor = st->console_content ? st->console_content : "";
 	char buf[LINE_MAX_LEN];
 	while (*cursor) {
-		size_t raw_len = peek_line(cursor, buf, sizeof(buf), NULL);
+		size_t raw_len = peek_line(cursor, buf, sizeof(buf));
 		char *key, *val;
 		bool lock;
 		int s, i;

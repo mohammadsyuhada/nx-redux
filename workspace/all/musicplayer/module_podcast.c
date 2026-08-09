@@ -1060,11 +1060,6 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 	}
 }
 
-// Check if podcast module is active (playing)
-bool PodcastModule_isActive(void) {
-	return Podcast_isActive();
-}
-
 // Background tick: detect episode end and save progress while in menu
 void PodcastModule_backgroundTick(void) {
 	Podcast_update();

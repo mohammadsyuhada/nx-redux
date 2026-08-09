@@ -15,6 +15,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <pthread.h>
+#include "utils.h"
 #include <sys/wait.h>
 
 #include "settings_updater.h"
@@ -57,7 +58,6 @@ static const char* get_device_name(void) {
 
 typedef struct {
 	char tag_name[128];
-	char commit_sha[64];
 	char download_url[512];
 	char release_notes[2048];
 } ReleaseInfo;
@@ -78,7 +78,6 @@ static UpdateCheckState auto_state = UPDATE_IDLE;
 static ReleaseInfo cached_release = {0};
 static char item_label[160] = "Updater";
 static char item_desc[256] = "";
-static char current_sha_cache[64] = "";
 static char current_tag_cache[128] = "";
 
 // Background check thread
@@ -92,35 +91,6 @@ static char auto_error[256] = "";
 // JSON helpers
 // ============================================
 
-static const char* find_json_string(const char* json, const char* key, char* out, size_t out_size) {
-	if (!json || !key || !out || out_size == 0)
-		return NULL;
-
-	char search[128];
-	snprintf(search, sizeof(search), "\"%s\":\"", key);
-
-	const char* start = strstr(json, search);
-	if (!start) {
-		snprintf(search, sizeof(search), "\"%s\": \"", key);
-		start = strstr(json, search);
-		if (!start)
-			return NULL;
-	}
-
-	start += strlen(search);
-	const char* end = strchr(start, '"');
-	if (!end)
-		return NULL;
-
-	size_t len = end - start;
-	if (len >= out_size)
-		len = out_size - 1;
-
-	strncpy(out, start, len);
-	out[len] = '\0';
-
-	return out;
-}
 
 static const char* find_zip_asset_url(const char* json, const char* platform, char* out, size_t out_size) {
 	if (!json || !platform || !out || out_size == 0)
@@ -325,10 +295,8 @@ static void process_auto_check_result(void) {
 	auto_response_data = NULL;
 	ReleaseInfo release = {0};
 
-	if (!find_json_string(data, "tag_name", release.tag_name,
-						  sizeof(release.tag_name)) ||
-		!find_json_string(data, "target_commitish", release.commit_sha,
-						  sizeof(release.commit_sha)) ||
+	if (!json_extract_string(data, "tag_name", release.tag_name,
+							 sizeof(release.tag_name)) ||
 		!find_zip_asset_url(data, get_device_name(), release.download_url,
 							sizeof(release.download_url))) {
 		free(data);
@@ -339,7 +307,7 @@ static void process_auto_check_result(void) {
 	}
 
 	char body[4096] = "";
-	find_json_string(data, "body", body, sizeof(body));
+	json_extract_string(data, "body", body, sizeof(body));
 	extract_first_paragraph(body, release.release_notes, sizeof(release.release_notes));
 	free(data);
 
@@ -674,8 +642,9 @@ void updater_about_on_show(SettingsPage* page) {
 	(void)page;
 
 	char version[128];
+	char sha[64];
 	read_current_version(version, sizeof(version),
-						 current_sha_cache, sizeof(current_sha_cache),
+						 sha, sizeof(sha),
 						 current_tag_cache, sizeof(current_tag_cache));
 
 	// Only auto-check once per session (retry allowed on error)
@@ -740,10 +709,6 @@ void updater_about_on_tick(SettingsPage* page) {
 						 : ITEM_STATIC;
 		page->needs_layout = 1;
 	}
-}
-
-const char* updater_get_status(void) {
-	return item_label;
 }
 
 void updater_check_for_updates(void) {

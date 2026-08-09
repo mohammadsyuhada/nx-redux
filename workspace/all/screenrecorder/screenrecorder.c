@@ -5,7 +5,6 @@
 #include <string.h>
 #include <fcntl.h>
 #include <signal.h>
-#include <time.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/mman.h>
@@ -174,7 +173,6 @@ int main(int argc, char* argv[]) {
 
 	// Main loop: read from shm, pipe to ffmpeg at ~30fps
 	while (!quit) {
-		ssize_t total = 0;
 		const uint8_t* ptr = shm_ptr;
 		size_t remaining = frame_size;
 		while (remaining > 0) {
@@ -185,7 +183,6 @@ int main(int argc, char* argv[]) {
 			}
 			ptr += n;
 			remaining -= n;
-			total += n;
 		}
 		usleep(POLL_INTERVAL_US);
 	}

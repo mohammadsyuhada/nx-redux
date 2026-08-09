@@ -1014,7 +1014,7 @@ void CFG_get(const char* key, char* value) {
 	} else if (strcmp(key, "muteLeds") == 0) {
 		sprintf(value, "%i", CFG_getMuteLEDs());
 	} else if (strcmp(key, "artWidth") == 0) {
-		sprintf(value, "%i", (int)(CFG_getGameArtWidth()) * 100);
+		sprintf(value, "%i", (int)(CFG_getGameArtWidth() * 100));
 	} else if (strcmp(key, "wifi") == 0) {
 		sprintf(value, "%i", (int)(CFG_getWifi()));
 	} else if (strcmp(key, "defaultView") == 0) {
@@ -1261,26 +1261,8 @@ void CFG_sync(void) {
 
 	// Write atomically: external readers/writers (OSD toggle scripts, pak
 	// launch scripts) must never observe a truncated file.
-	char tmpPath[MAX_PATH];
-	snprintf(tmpPath, sizeof(tmpPath), "%s.tmp", settingsPath);
-	FILE* file = fopen(tmpPath, "w");
-	if (file == NULL) {
-		printf("[CFG] Unable to open settings file, cant write\n");
-		return;
-	}
-	if (fwrite(out, 1, out_len, file) != out_len) {
-		printf("[CFG] Short write, keeping previous settings file\n");
-		fclose(file);
-		unlink(tmpPath);
-		return;
-	}
-	fflush(file);
-	fsync(fileno(file));
-	fclose(file);
-	if (rename(tmpPath, settingsPath) != 0) {
-		printf("[CFG] Unable to replace settings file\n");
-		unlink(tmpPath);
-	}
+	if (!writeFileAtomic(settingsPath, out, out_len))
+		printf("[CFG] Unable to write settings file\n");
 }
 
 void CFG_print(void) {

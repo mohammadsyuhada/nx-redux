@@ -1004,19 +1004,6 @@ void Config_syncFrontend(char* key, int value) {
 	}
 }
 
-// ensure live gameplay immediately picks up scaler/effect changes triggered via shortcuts
-static void apply_live_video_reset(void) {
-	// defer work to the video thread: mark scaler dirty (shader reset not needed here)
-	renderer.dst_p = 0;
-	// If shaders are disabled (0 passes), force a reset so the default pipeline rebuilds
-	if (config.shaders.options[SH_NROFSHADERS].value == 0) {
-		GFX_resetShaders();
-		shader_reset_suppressed = 0;
-	} else {
-		shader_reset_suppressed = 1; // skip reset for >0 shader pipelines
-	}
-}
-
 char** list_files_in_folder(const char* folderPath, int* fileCount, const char* defaultElement, const char* extensionFilter) {
 	*fileCount = 0; // callers read this even when we return NULL
 
@@ -1419,6 +1406,14 @@ void Config_readControls(void) {
 	Config_readControlsString(config.default_cfg);
 	Config_readControlsString(config.user_cfg);
 }
+static void writeOption(FILE* file, Option* option) {
+	int count = 0;
+	while (option->values && option->values[count])
+		count++;
+	if (option->value >= 0 && option->value < count) {
+		fprintf(file, "%s = %s\n", option->key, option->values[option->value]);
+	}
+}
 void Config_write(int override) {
 	char path[MAX_PATH];
 	// sprintf(path, "%s/%s.cfg", core.config_dir, game.alt_name);
@@ -1436,41 +1431,17 @@ void Config_write(int override) {
 		return;
 
 	for (int i = 0; config.frontend.options[i].key; i++) {
-		Option* option = &config.frontend.options[i];
-		int count = 0;
-		while (option->values && option->values[count])
-			count++;
-		if (option->value >= 0 && option->value < count) {
-			fprintf(file, "%s = %s\n", option->key, option->values[option->value]);
-		}
+		writeOption(file, &config.frontend.options[i]);
 	}
 	for (int i = 0; config.core.options[i].key; i++) {
-		Option* option = &config.core.options[i];
-		int count = 0;
-		while (option->values && option->values[count])
-			count++;
-		if (option->value >= 0 && option->value < count) {
-			fprintf(file, "%s = %s\n", option->key, option->values[option->value]);
-		}
+		writeOption(file, &config.core.options[i]);
 	}
 	for (int i = 0; config.shaders.options[i].key; i++) {
-		Option* option = &config.shaders.options[i];
-		int count = 0;
-		while (option->values && option->values[count])
-			count++;
-		if (option->value >= 0 && option->value < count) {
-			fprintf(file, "%s = %s\n", option->key, option->values[option->value]);
-		}
+		writeOption(file, &config.shaders.options[i]);
 	}
 	for (int y = 0; y < config.shaders.options[SH_NROFSHADERS].value; y++) {
 		for (int i = 0; config.shaderpragmas[y].options[i].key; i++) {
-			Option* option = &config.shaderpragmas[y].options[i];
-			int count = 0;
-			while (option->values && option->values[count])
-				count++;
-			if (option->value >= 0 && option->value < count) {
-				fprintf(file, "%s = %s\n", option->key, option->values[option->value]);
-			}
+			writeOption(file, &config.shaderpragmas[y].options[i]);
 		}
 	}
 

@@ -74,10 +74,6 @@ bool WIFI_direct_ensureReady(void) {
 	return WIFI_enabled();
 }
 
-void WIFI_direct_triggerScan(void) {
-	// No-op: PLAT_wifiScan() triggers, waits, and reads results in one blocking call.
-}
-
 int WIFI_direct_scanNetworks(WIFI_direct_network_t* networks, int max_count) {
 	if (!networks || max_count <= 0)
 		return 0;
@@ -168,12 +164,6 @@ int WIFI_direct_connect(const char* ssid, const char* pass) {
 
 void WIFI_direct_disconnect(void) {
 	WIFI_disconnect();
-}
-
-void WIFI_direct_forget(const char* ssid) {
-	if (!ssid || !ssid[0])
-		return;
-	WIFI_forget((char*)ssid, SECURITY_WPA2_PSK);
 }
 
 // Remove ALL saved netplay hotspot networks, not just the current session's. Each
@@ -389,20 +379,4 @@ int WIFI_direct_stopHotspot(void) {
 
 bool WIFI_direct_isHotspotActive(void) {
 	return hotspot_active;
-}
-
-const char* WIFI_direct_getHotspotIP(void) {
-	return WIFI_DIRECT_HOTSPOT_IP;
-}
-
-const char* WIFI_direct_getHotspotSSID(void) {
-	return hotspot_ssid;
-}
-
-const char* WIFI_direct_getHotspotSSIDPrefix(void) {
-	return LINK_HOTSPOT_SSID_PREFIX;
-}
-
-const char* WIFI_direct_getHotspotPassword(void) {
-	return WIFI_DIRECT_HOTSPOT_PASS;
 }

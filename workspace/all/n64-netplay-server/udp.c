@@ -25,17 +25,6 @@
 #define MS_EVENT_SIZE 9	   /* [u32 count][u32 keys][u8 plugin] */
 #define MS_KEY_HDR 5	   /* [type][player][status][count_lag][n] */
 
-static uint32_t rd32(const uint8_t* p) {
-	return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | (uint32_t)p[3];
-}
-
-static void wr32(uint8_t* p, uint32_t v) {
-	p[0] = (uint8_t)(v >> 24);
-	p[1] = (uint8_t)(v >> 16);
-	p[2] = (uint8_t)(v >> 8);
-	p[3] = (uint8_t)v;
-}
-
 //////////////////////////////////
 // Per-seat input store
 //////////////////////////////////

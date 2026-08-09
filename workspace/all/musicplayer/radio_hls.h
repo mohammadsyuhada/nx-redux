@@ -37,10 +37,6 @@ bool radio_hls_is_url(const char* url);
 // Returns number of segments found
 int radio_hls_parse_playlist(HLSContext* ctx, const char* content, const char* base_url);
 
-// Fetch and parse M3U8 playlist from URL
-// Returns number of segments found, or -1 on error
-int radio_hls_fetch_playlist(HLSContext* ctx, const char* url);
-
 // URL utilities
 void radio_hls_get_base_url(const char* url, char* base, int base_size);
 void radio_hls_resolve_url(const char* base, const char* relative, char* result, int result_size);

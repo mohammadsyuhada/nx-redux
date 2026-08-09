@@ -68,9 +68,6 @@ static int wifi_run_cmd(const char* cmd, char* output, size_t output_len) {
 }
 
 // Helper to check if wpa_supplicant is running
-static bool wifi_supplicant_running(void) {
-	return system("pidof wpa_supplicant > /dev/null 2>&1") == 0;
-}
 
 // Helper to get IP address of wifi interface
 static bool wifi_get_ip(char* ip, size_t len) {

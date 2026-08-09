@@ -34,9 +34,6 @@ int netplay_connected_to_hotspot = 0;
 int gbalink_connected_to_hotspot = 0;
 int gblink_connected_to_hotspot = 0;
 
-// Store the hotspot SSID client connected to (shared - only one game runs at a time)
-static char connected_hotspot_ssid[33] = {0};
-
 //////////////////////////////////////////////////////////////////////////////
 // Async Hotspot Stop + WiFi Restore
 //////////////////////////////////////////////////////////////////////////////
@@ -44,7 +41,6 @@ static char connected_hotspot_ssid[33] = {0};
 // Structure for async hotspot stop + WiFi restore
 typedef struct {
 	bool stop_hotspot; // true if host (need to call WIFI_direct_stopHotspot)
-	char hotspot_ssid[33];
 } HotspotStopArgs;
 
 static void* hotspot_stop_thread(void* arg) {
@@ -76,11 +72,6 @@ void stopHotspotAndRestoreWiFiAsync(bool is_host) {
 	}
 
 	args->stop_hotspot = is_host;
-
-	// Copy and clear the connected hotspot SSID
-	strncpy(args->hotspot_ssid, connected_hotspot_ssid, sizeof(args->hotspot_ssid) - 1);
-	args->hotspot_ssid[sizeof(args->hotspot_ssid) - 1] = '\0';
-	connected_hotspot_ssid[0] = '\0';
 
 	// Spawn detached thread
 	pthread_t thread;

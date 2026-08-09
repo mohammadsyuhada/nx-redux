@@ -105,13 +105,6 @@ SDL_Surface* Icons_getFolder(bool selected) {
 	return selected ? icons.folder : icons.folder_inv;
 }
 
-// Get generic audio icon
-SDL_Surface* Icons_getAudio(bool selected) {
-	if (!icons.loaded)
-		return NULL;
-	return selected ? icons.audio : icons.audio_inv;
-}
-
 // Get play all icon
 SDL_Surface* Icons_getPlayAll(bool selected) {
 	if (!icons.loaded)

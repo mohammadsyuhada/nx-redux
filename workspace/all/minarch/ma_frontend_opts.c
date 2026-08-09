@@ -97,14 +97,9 @@ int OptionFrontend_openMenu(MenuList* list, int i) {
 	return MENU_CALLBACK_NOP;
 }
 
-int OptionControls_bind(MenuList* list, int i) {
-	MenuItem* item = &list->items[i];
-	if (item->values != button_labels) {
-		return MENU_CALLBACK_NOP;
-	}
-
-	ButtonMapping* button = &config.controls[item->id];
-
+// Block until the user presses a button, then record it (plus MENU as a
+// modifier) into item/button. Shared by the controls and shortcuts binders.
+static int OptionBind_pollLoop(MenuItem* item, ButtonMapping* button) {
 	int bound = 0;
 	while (!bound) {
 		GFX_startFrame();
@@ -130,6 +125,16 @@ int OptionControls_bind(MenuList* list, int i) {
 		hdmimon();
 	}
 	return MENU_CALLBACK_NEXT_ITEM;
+}
+
+int OptionControls_bind(MenuList* list, int i) {
+	MenuItem* item = &list->items[i];
+	if (item->values != button_labels) {
+		return MENU_CALLBACK_NOP;
+	}
+
+	ButtonMapping* button = &config.controls[item->id];
+	return OptionBind_pollLoop(item, button);
 }
 int OptionControls_unbind(MenuList* list, int i) {
 	MenuItem* item = &list->items[i];
@@ -218,31 +223,7 @@ int OptionControls_openMenu(MenuList* list, int i) {
 int OptionShortcuts_bind(MenuList* list, int i) {
 	MenuItem* item = &list->items[i];
 	ButtonMapping* button = &config.shortcuts[item->id];
-	int bound = 0;
-	while (!bound) {
-		GFX_startFrame();
-		PAD_poll();
-
-		// NOTE: off by one because of the initial NONE value; id 0 is NONE
-		// itself — no button to poll, and 1 << -1 is undefined behavior
-		for (int id = 1; id <= LOCAL_BUTTON_COUNT; id++) {
-			if (PAD_justPressed(1 << (id - 1))) {
-				item->value = id;
-				button->local = id - 1;
-				if (PAD_isPressed(BTN_MENU)) {
-					item->value += LOCAL_BUTTON_COUNT;
-					button->mod = 1;
-				} else {
-					button->mod = 0;
-				}
-				bound = 1;
-				break;
-			}
-		}
-		GFX_delay();
-		hdmimon();
-	}
-	return MENU_CALLBACK_NEXT_ITEM;
+	return OptionBind_pollLoop(item, button);
 }
 int OptionShortcuts_unbind(MenuList* list, int i) {
 	MenuItem* item = &list->items[i];
@@ -263,13 +244,10 @@ char* getSaveDesc(void) {
 	switch (config.loaded) {
 	case CONFIG_NONE:
 		return "Using defaults.";
-		break;
 	case CONFIG_CONSOLE:
 		return "Using console config.";
-		break;
 	case CONFIG_GAME:
 		return "Using game config.";
-		break;
 	}
 	return NULL;
 }

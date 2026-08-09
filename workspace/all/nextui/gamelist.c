@@ -28,7 +28,6 @@
 #include "search.h"
 #include "types.h"
 
-#include <assert.h>
 #include <dirent.h>
 #include <msettings.h>
 #include <libgen.h>
@@ -217,6 +216,27 @@ static bool artFetchTagExcluded(const char* tag) {
 	return false;
 }
 
+// Derive the .media thumbnail / box-art PNG path for a rom path:
+//   <dirname(path)>/.media/<basename-with-final-extension-stripped>.png
+// This is the path GameList_render displays and entryArtInfo / art-fetch target,
+// for BOTH flat roms and folder games (a dotted folder name gets its extension
+// stripped just like a flat rom, so folder art lands where the list looks).
+static void mediaThumbPath(const char* path, char* out, size_t out_size) {
+	char dir_buf[MAX_PATH];
+	snprintf(dir_buf, sizeof(dir_buf), "%s", path);
+	char* dir = dirname(dir_buf);
+
+	char base_name[MAX_PATH];
+	const char* bn = strrchr(path, '/');
+	bn = bn ? bn + 1 : path;
+	snprintf(base_name, sizeof(base_name), "%s", bn);
+	char* dot = strrchr(base_name, '.');
+	if (dot)
+		*dot = '\0';
+
+	snprintf(out, out_size, "%s/.media/%s.png", dir, base_name);
+}
+
 // Resolve art-fetch details for `entry`. rom_to_hash/out_png/tag are MAX_PATH
 // buffers. Returns true iff eligible: a ROM or folder-game whose console tag is
 // not excluded. out_png follows nxredux art conventions:
@@ -241,25 +261,10 @@ static bool entryArtInfo(Entry* entry, char* rom_to_hash, char* out_png, char* t
 	if (tag[0] == '\0' || artFetchTagExcluded(tag))
 		return false;
 
-	// console dir = dirname(entry->path) for both flat and folder games
-	char dir_buf[MAX_PATH];
-	snprintf(dir_buf, sizeof(dir_buf), "%s", entry->path);
-	char* dir = dirname(dir_buf);
-
-	// Mirror GameList_render's thumbnail-path derivation exactly (the res_copy
-	// logic at gamelist.c ~:1557-1573): basename of entry->path with everything
-	// from the last '.' stripped, for BOTH flat and folder entries — so out_png
-	// is always the path the list actually displays. (The folder branch used to
-	// skip the strip, diverging for dotted folder names like "Marvel vs. Capcom".)
-	char base_name[MAX_PATH];
-	const char* bn = strrchr(entry->path, '/');
-	bn = bn ? bn + 1 : entry->path;
-	snprintf(base_name, sizeof(base_name), "%s", bn);
-	char* dot = strrchr(base_name, '.');
-	if (dot)
-		*dot = '\0';
-
-	snprintf(out_png, MAX_PATH, "%s/.media/%s.png", dir, base_name);
+	// out_png follows GameList_render's thumbnail-path derivation exactly (see
+	// mediaThumbPath) for BOTH flat and folder entries, so the fetched art lands
+	// where the list looks for it.
+	mediaThumbPath(entry->path, out_png, MAX_PATH);
 	return true;
 }
 
@@ -977,19 +982,32 @@ static bool doRename(Entry* entry, int sel) {
 	return renamed;
 }
 
-// Netplay-capable = the entry's owning emu pak ships a "netplay" marker
-// file beside its launch.sh. Cached by path: this is called from the
-// input poll and the hint bar every frame.
-static char netplay_cap_path[MAX_PATH] = {0};
-static bool netplay_cap = false;
-static bool entryNetplayCapable(Entry* entry) {
+// Resolve <emu-pak-dir>/<marker> for `entry` — the marker file an emu pak ships
+// beside its launch.sh to opt into a feature. Returns false if no pak path can
+// be formed. Shared by entryEmuMarker (capability probes) and case 36 below.
+static bool entryEmuMarkerPath(Entry* entry, const char* marker, char* out_path) {
+	char emu_name[MAX_PATH];
+	getEmuName(entry->path, emu_name);
+	getEmuPath(emu_name, out_path);
+	char* slash = strrchr(out_path, '/');
+	if (!slash)
+		return false;
+	strcpy(slash + 1, marker); // replaces "launch.sh"; same dir
+	return true;
+}
+
+// Single-slot, per-entry-path cache of a marker probe: does `entry`'s owning emu
+// pak ship `marker` beside its launch.sh? The result (including false for
+// ineligible paths) is cached — these are called from the input poll and the
+// hint bar every frame — so the same entry is never re-stat'd.
+static bool entryEmuMarker(Entry* entry, const char* marker, char* cache_path, bool* cache_val) {
 	if (!entry)
 		return false;
-	if (exactMatch(netplay_cap_path, entry->path))
-		return netplay_cap;
-	strncpy(netplay_cap_path, entry->path, MAX_PATH - 1);
-	netplay_cap_path[MAX_PATH - 1] = '\0';
-	netplay_cap = false;
+	if (exactMatch(cache_path, entry->path))
+		return *cache_val;
+	strncpy(cache_path, entry->path, MAX_PATH - 1);
+	cache_path[MAX_PATH - 1] = '\0';
+	*cache_val = false;
 	// eligibility lands in the cache too (false for ineligible paths) so the
 	// per-frame hint bar never re-stats folder-game probes for the same entry
 	char game_file[MAX_PATH];
@@ -997,47 +1015,26 @@ static bool entryNetplayCapable(Entry* entry) {
 		return false;
 	if (!prefixMatch(ROMS_PATH, entry->path))
 		return false;
-	char emu_name[MAX_PATH];
-	getEmuName(entry->path, emu_name);
 	char pak_path[MAX_PATH];
-	getEmuPath(emu_name, pak_path);
-	char* slash = strrchr(pak_path, '/');
-	if (slash) {
-		strcpy(slash + 1, "netplay"); // replaces "launch.sh"; same dir
-		netplay_cap = exists(pak_path);
-	}
-	return netplay_cap;
+	if (entryEmuMarkerPath(entry, marker, pak_path))
+		*cache_val = exists(pak_path);
+	return *cache_val;
+}
+
+// Netplay-capable = the entry's owning emu pak ships a "netplay" marker file
+// beside its launch.sh.
+static char netplay_cap_path[MAX_PATH] = {0};
+static bool netplay_cap = false;
+static bool entryNetplayCapable(Entry* entry) {
+	return entryEmuMarker(entry, "netplay", netplay_cap_path, &netplay_cap);
 }
 
 // Mirrors entryNetplayCapable: an emu pak opts into the pre-launch options
-// editor by shipping options.sh beside its launch.sh. Single-slot cache
-// because the context-menu builder can ask for this repeatedly.
+// editor by shipping options.sh beside its launch.sh.
 static char emuopts_cap_path[MAX_PATH] = {0};
 static bool emuopts_cap = false;
 static bool entryEmuOptionsCapable(Entry* entry) {
-	if (!entry)
-		return false;
-	if (exactMatch(emuopts_cap_path, entry->path))
-		return emuopts_cap;
-	strncpy(emuopts_cap_path, entry->path, MAX_PATH - 1);
-	emuopts_cap_path[MAX_PATH - 1] = '\0';
-	emuopts_cap = false;
-	// eligibility lands in the cache too — see entryNetplayCapable
-	char game_file[MAX_PATH];
-	if (entry->type != ENTRY_ROM && !entryFolderGame(entry, game_file))
-		return false;
-	if (!prefixMatch(ROMS_PATH, entry->path))
-		return false;
-	char emu_name[MAX_PATH];
-	getEmuName(entry->path, emu_name);
-	char pak_path[MAX_PATH];
-	getEmuPath(emu_name, pak_path);
-	char* slash = strrchr(pak_path, '/');
-	if (slash) {
-		strcpy(slash + 1, "options.sh"); // replaces "launch.sh"; same dir
-		emuopts_cap = exists(pak_path);
-	}
-	return emuopts_cap;
+	return entryEmuMarker(entry, "options.sh", emuopts_cap_path, &emuopts_cap);
 }
 
 #define ARTFETCH_STATUS_PATH "/tmp/nextui_artfetch.status"
@@ -1310,13 +1307,8 @@ void GameList_runContextAction(int id) {
 			char* rom_arg = entry->path;
 			if (entry->type == ENTRY_DIR && entryFolderGame(entry, game_file))
 				rom_arg = game_file;
-			char emu_name[MAX_PATH];
-			getEmuName(entry->path, emu_name);
 			char pak_path[MAX_PATH];
-			getEmuPath(emu_name, pak_path);
-			char* slash = strrchr(pak_path, '/');
-			if (slash) {
-				strcpy(slash + 1, "options.sh"); // replaces "launch.sh"; same dir
+			if (entryEmuMarkerPath(entry, "options.sh", pak_path)) {
 				// options.sh cd's to its own dir, so it must be invoked by the
 				// absolute path getEmuPath already produced.
 				openScript(pak_path, rom_arg, entry->path);
@@ -1604,31 +1596,13 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 
 	Entry* entry = total > 0 ? top->entries->items[top->selected] : NULL;
 	char path_copy[1024];
-	char res_copy[1024] = {0};
 	char* rompath = NULL;
 
 	if (entry) {
-		char tmp_path[MAX_PATH];
-		strncpy(tmp_path, entry->path, sizeof(tmp_path) - 1);
-		tmp_path[sizeof(tmp_path) - 1] = '\0';
-
-		char* res_name = strrchr(tmp_path, '/');
-		if (res_name)
-			res_name++;
-		else
-			res_name = tmp_path;
-
 		strncpy(path_copy, entry->path, sizeof(path_copy) - 1);
 		path_copy[sizeof(path_copy) - 1] = '\0';
 
 		rompath = dirname(path_copy);
-
-		strncpy(res_copy, res_name, sizeof(res_copy) - 1);
-		res_copy[sizeof(res_copy) - 1] = '\0';
-
-		char* dot = strrchr(res_copy, '.');
-		if (dot)
-			*dot = '\0';
 	}
 
 	// this is only a choice on the root folder
@@ -1642,8 +1616,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 	if (total > 0) {
 		if (CFG_getShowGameArt()) {
 			char thumbpath[1024];
-			snprintf(thumbpath, sizeof(thumbpath), "%s/.media/%s.png", rompath,
-					 res_copy);
+			mediaThumbPath(entry->path, thumbpath, sizeof(thumbpath));
 			had_thumb = startLoadThumb(thumbpath);
 			int max_w = (int)(screen->w - (screen->w * CFG_getGameArtWidth()));
 			if (had_thumb)

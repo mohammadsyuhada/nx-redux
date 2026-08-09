@@ -24,18 +24,11 @@ typedef struct {
 void Spectrum_init(void);
 void Spectrum_quit(void);
 void Spectrum_update(void);
-const SpectrumData* Spectrum_getData(void);
 
 void Spectrum_setPosition(int x, int y, int w, int h);
 void Spectrum_renderGPU(void);
 bool Spectrum_needsRefresh(void);
 
-// Style and visibility controls
-void Spectrum_cycleStyle(void);		  // Cycle: style1 -> style2 -> ... -> off -> style1
-void Spectrum_toggleVisibility(void); // Toggle on/off
-bool Spectrum_isVisible(void);
-SpectrumStyle Spectrum_getStyle(void);
-const char* Spectrum_getStyleName(void);
 // Combined cycle: rotates through all 4 styles, then off
 void Spectrum_cycleNext(void);
 

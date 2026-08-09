@@ -103,13 +103,6 @@ SDL_Surface* Icons_getFolder(bool selected) {
 	return selected ? icons.folder : icons.folder_inv;
 }
 
-// Get generic video icon
-SDL_Surface* Icons_getVideo(bool selected) {
-	if (!icons.loaded)
-		return NULL;
-	return selected ? icons.video : icons.video_inv;
-}
-
 // Get icon for specific video format
 // Falls back to generic video icon if format-specific icon not available
 SDL_Surface* Icons_getForFormat(VideoFormat format, bool selected) {

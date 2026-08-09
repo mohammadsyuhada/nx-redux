@@ -19,7 +19,6 @@
 
 typedef struct {
 	char ssid[SSID_MAX];
-	char bssid[128];
 	int rssi;
 	WifiSecurityType security;
 	int connected;
@@ -34,8 +33,7 @@ typedef struct {
 #define WIFI_IDX_TOGGLE 0
 #define WIFI_IDX_DIAG 1
 
-static const char* wifi_toggle_labels[] = {"Off", "On"};
-static const char* wifi_diag_labels[] = {"Off", "On"};
+static const char* on_off_labels[] = {"Off", "On"};
 
 // ============================================
 // Scanner thread state
@@ -44,7 +42,6 @@ static const char* wifi_diag_labels[] = {"Off", "On"};
 static pthread_t wifi_scanner_thread;
 static volatile int wifi_scanner_running = 0;
 static int wifi_scanner_started = 0;
-static SettingsPage* wifi_page_ref = NULL;
 
 // ============================================
 // Network options submenu (allocated per-network)
@@ -53,7 +50,6 @@ static SettingsPage* wifi_page_ref = NULL;
 typedef struct {
 	SettingsPage page;
 	SettingItem items[4]; // max: Connect, Disconnect, Forget, + safety margin
-	int item_count;
 	WifiNetworkInfo net_info;
 } WifiNetworkOptions;
 
@@ -229,7 +225,6 @@ static void build_network_options(WifiNetworkOptions* opts, WifiNetworkInfo* inf
 		idx++;
 	}
 
-	opts->item_count = idx;
 	opts->page.item_count = idx;
 }
 
@@ -428,7 +423,6 @@ static void* wifi_scanner(void* arg) {
 			for (int i = 0; i < dedup_count && item_idx < page->max_items; i++) {
 				WifiNetworkInfo* ninfo = &network_info_pool[network_info_count++];
 				strncpy(ninfo->ssid, deduped[i].ssid, sizeof(ninfo->ssid) - 1);
-				strncpy(ninfo->bssid, deduped[i].bssid, sizeof(ninfo->bssid) - 1);
 				ninfo->rssi = deduped[i].rssi;
 				ninfo->security = deduped[i].security;
 				ninfo->connected = (has_conn && strcmp(conn.ssid, deduped[i].ssid) == 0);
@@ -495,7 +489,6 @@ static void wifi_on_show(SettingsPage* page) {
 	settings_item_sync(&page->items[WIFI_IDX_DIAG]);
 
 	// Start scanner thread
-	wifi_page_ref = page;
 	wifi_scanner_running = 1;
 	wifi_scanner_started = 1;
 	pthread_create(&wifi_scanner_thread, NULL, wifi_scanner, page);
@@ -504,7 +497,6 @@ static void wifi_on_show(SettingsPage* page) {
 static void wifi_on_hide(SettingsPage* page) {
 	(void)page;
 	wifi_scanner_running = 0;
-	wifi_page_ref = NULL;
 }
 
 static void wifi_on_tick(SettingsPage* page) {
@@ -550,7 +542,7 @@ SettingsPage* wifi_page_create(void) {
 		.desc = "Enable or disable WiFi",
 		.type = ITEM_CYCLE,
 		.visible = 1,
-		.labels = wifi_toggle_labels,
+		.labels = on_off_labels,
 		.label_count = 2,
 		.get_value = wifi_get_toggle,
 		.set_value = wifi_set_toggle,
@@ -562,7 +554,7 @@ SettingsPage* wifi_page_create(void) {
 		.desc = "Enable WiFi diagnostic logging",
 		.type = ITEM_CYCLE,
 		.visible = 1,
-		.labels = wifi_diag_labels,
+		.labels = on_off_labels,
 		.label_count = 2,
 		.get_value = wifi_get_diag,
 		.set_value = wifi_set_diag,

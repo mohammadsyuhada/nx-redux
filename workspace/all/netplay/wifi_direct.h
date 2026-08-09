@@ -38,10 +38,6 @@ typedef struct {
 // Returns true if WiFi is ready for operations
 bool WIFI_direct_ensureReady(void);
 
-// Trigger a WiFi scan (non-blocking, just starts the scan)
-// Call this, then wait ~1.5 seconds before calling WIFI_direct_scanNetworks
-void WIFI_direct_triggerScan(void);
-
 // Scan for all available WiFi networks (reads cached results from last trigger)
 // Returns number of networks found
 int WIFI_direct_scanNetworks(WIFI_direct_network_t* networks, int max_count);
@@ -60,9 +56,6 @@ int WIFI_direct_connect(const char* ssid, const char* pass);
 
 // Disconnect from current network
 void WIFI_direct_disconnect(void);
-
-// Forget (remove) a saved network by SSID
-void WIFI_direct_forget(const char* ssid);
 
 // Forget ALL saved netplay hotspot networks (current + legacy prefixes) and
 // re-enable other saved networks. Purges stale entries left by aborted sessions.
@@ -99,17 +92,5 @@ int WIFI_direct_stopHotspot(void);
 
 // Check if hotspot is currently active
 bool WIFI_direct_isHotspotActive(void);
-
-// Get the hotspot's IP address (always 10.0.0.1)
-const char* WIFI_direct_getHotspotIP(void);
-
-// Get the current hotspot SSID
-const char* WIFI_direct_getHotspotSSID(void);
-
-// Get the hotspot SSID prefix (LINK_HOTSPOT_SSID_PREFIX)
-const char* WIFI_direct_getHotspotSSIDPrefix(void);
-
-// Get the hotspot password
-const char* WIFI_direct_getHotspotPassword(void);
 
 #endif // WIFI_DIRECT_H

@@ -21,6 +21,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "../server.h" /* rd32 / wr32 big-endian helpers */
+
 #define TEST_PORT 55545
 #define RECV_TIMEOUT_MS 3000
 
@@ -45,17 +47,6 @@ static void kill_server(void) {
 			exit(1);                               \
 		}                                          \
 	} while (0)
-
-static void wr32(uint8_t* p, uint32_t v) {
-	p[0] = (uint8_t)(v >> 24);
-	p[1] = (uint8_t)(v >> 16);
-	p[2] = (uint8_t)(v >> 8);
-	p[3] = (uint8_t)v;
-}
-
-static uint32_t rd32(const uint8_t* p) {
-	return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | (uint32_t)p[3];
-}
 
 static void spawn_server(void) {
 	server_pid = fork();

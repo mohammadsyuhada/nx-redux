@@ -30,28 +30,12 @@ typedef enum {
 	INDICATOR_COLORTEMP = 3,
 } IndicatorType;
 
-#define PAGE_COUNT 2
-#define PAGE_SCALE 3
-#define PAGE_WIDTH (FIXED_WIDTH * PAGE_SCALE)
-#define PAGE_HEIGHT (FIXED_HEIGHT * PAGE_SCALE)
-#define PAGE_PITCH (PAGE_WIDTH * FIXED_BPP)
-#define PAGE_SIZE (PAGE_PITCH * PAGE_HEIGHT)
 
 ///////////////////////////////
 
-// TODO: these only seem to be used by a tmp.pak in trimui (model s)
-// used by minarch, optionally defined in platform.h
-#ifndef PLAT_PAGE_BPP
-#define PLAT_PAGE_BPP FIXED_BPP
-#endif
-#define PLAT_PAGE_DEPTH (PLAT_PAGE_BPP * 8)
-#define PLAT_PAGE_PITCH (PAGE_WIDTH * PLAT_PAGE_BPP)
-#define PLAT_PAGE_SIZE (PLAT_PAGE_PITCH * PAGE_HEIGHT)
 
 ///////////////////////////////
 
-#define RGBA_MASK_AUTO 0x0, 0x0, 0x0, 0x0
-#define RGBA_MASK_565 0xF800, 0x07E0, 0x001F, 0x0000
 #define RGBA_MASK_8888 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000
 
 ///////////////////////////////
@@ -290,7 +274,6 @@ SDL_Surface* GFX_init(int mode);
 #define GFX_GL_screenCapture PLAT_GL_screenCapture	 //(void)
 
 void GFX_setMode(int mode);
-int GFX_hdmiChanged(void);
 SDL_Color /*GFX_*/ uintToColour(uint32_t colour);
 
 #define GFX_clear PLAT_clearVideo  // (SDL_Surface* screen)
@@ -311,15 +294,12 @@ enum {
 	VSYNC_STRICT,
 };
 
-int GFX_getVsync(void);
 void GFX_setVsync(int vsync);
 
 int GFX_truncateText(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding); // returns final width
 int PLAT_textShouldScroll(TTF_Font* font, const char* in_name, int max_width, SDL_mutex* fontMutex);
 void PLAT_resetScrollText(void);
-void GFX_scrollTextSurface(TTF_Font* font, const char* in_name, SDL_Surface** out_surface, int max_width, int height, int padding, SDL_Color color, float heightratio); // returns final width
-int GFX_getTextWidth(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding);																	// returns final width
-int GFX_getTextHeight(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding);																	// returns final width
+int GFX_getTextWidth(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding); // returns final width
 int GFX_wrapText(TTF_Font* font, char* str, int max_width, int max_lines);
 int GFX_blitWrappedText(TTF_Font* font, const char* text, int max_width, int max_lines, SDL_Color color, SDL_Surface* surface, int y); // returns new y position
 
@@ -331,8 +311,6 @@ int GFX_blitWrappedText(TTF_Font* font, const char* text, int max_width, int max
 #define GFX_updateShader PLAT_updateShader // void:(GFX_Renderer* renderer)
 #define GFX_initShaders PLAT_initShaders   // void:(GFX_Renderer* renderer)
 
-scaler_t GFX_getAAScaler(GFX_Renderer* renderer);
-void GFX_freeAAScaler(void);
 
 // calls the appropriate scale function based on the enum value.
 // returns the SDL_Rect of the resulting image in screen coordinates.
@@ -354,7 +332,6 @@ void GFX_blitPillLight(int asset, SDL_Surface* dst, SDL_Rect* dst_rect);
 void GFX_blitPillDark(int asset, SDL_Surface* dst, SDL_Rect* dst_rect);
 void GFX_blitRect(int asset, SDL_Surface* dst, SDL_Rect* dst_rect);
 void GFX_blitRectColor(int asset, SDL_Surface* dst, SDL_Rect* dst_rect, uint32_t asset_color);
-void GFX_blitBattery(SDL_Surface* dst, SDL_Rect* dst_rect);
 void GFX_blitBatteryAtPosition(SDL_Surface* dst, int x, int y);
 int GFX_getButtonWidth(char* hint, char* button);
 void GFX_blitButton(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_rect);
@@ -386,14 +363,11 @@ SDL_Surface* GFX_createScreenFormatSurface(int width, int height);
 char** GFX_getHardwareHintPairs(IndicatorType show_setting);
 
 void GFX_assetRect(int asset, SDL_Rect* dst_rect);
-void GFX_sizeText(TTF_Font* font, const char* str, int leading, int* w, int* h);
 void GFX_blitText(TTF_Font* font, const char* str, int leading, SDL_Color color, SDL_Surface* dst, SDL_Rect* dst_rect);
 void GFX_setAmbientColor(const void* data, unsigned width, unsigned height, size_t pitch, int mode);
 
 void GFX_ApplyRoundedCorners(SDL_Surface* surface, SDL_Rect* rect, int radius);
-void GFX_ApplyRoundedCorners16(SDL_Surface* surface, SDL_Rect* rect, int radius);
 // for both ARGB44444 and RGBA4444
-void GFX_ApplyRoundedCorners_4444(SDL_Surface* surface, SDL_Rect* rect, int radius);
 // for both ARGB8888 and RGBA8888
 void GFX_ApplyRoundedCorners_8888(SDL_Surface* surface, SDL_Rect* rect, int radius);
 ///////////////////////////////
@@ -410,11 +384,9 @@ typedef struct {
 
 // Returns the name of a non-internal audio device (USB DAC) if one is present, or NULL for default.
 // The returned pointer is only valid until the next SDL audio call.
-const char* SND_findExternalAudioDevice(void);
 
 // Returns the name of the internal speaker audio device (audiocodec), or NULL if not found.
 // Use this instead of NULL when opening SDL audio to bypass stale ALSA config cache.
-const char* SND_findSpeakerDevice(void);
 
 void SND_init(double sample_rate, double frame_rate);
 size_t SND_batchSamples(const SND_Frame* frames, size_t frame_count);
@@ -526,7 +498,6 @@ void VIB_setStrength(int strength);
 int VIB_getStrength(void);
 int VIB_scaleStrength(int strength);
 void VIB_singlePulse(int strength, int duration_ms);
-void VIB_doublePulse(int strength, int duration_ms, int gap_ms);
 void VIB_triplePulse(int strength, int duration_ms, int gap_ms);
 
 ///////////////////////////////
@@ -544,7 +515,6 @@ void PWR_updateFrequency(int secs, int updateWifi);
 
 void PWR_disablePowerOff(void);
 void PWR_powerOff(int reboot);
-int PWR_isPoweringOff(void);
 
 void PWR_sleep(void);
 int PWR_deepSleep(void);
@@ -556,9 +526,6 @@ void PWR_disableAutosleep(void);
 void PWR_enableAutosleep(void);
 int PWR_preventAutosleep(void);
 
-int PWR_isCharging(void);
-int PWR_isUSBConnected(void); // active USB gadget link (data), not mere charging
-int PWR_getBattery(void);
 
 int PWR_isOnline(void);
 
@@ -713,7 +680,6 @@ void PLAT_setCPUSpeedAuto(void);
 // note: this affects the calling thread and every thread spawned from it (after)
 void PLAT_pinToCores(int core_type); // CPU_CORE_EFFICIENCY or CPU_CORE_PERFORMANCE
 void PLAT_setRumble(int strength);
-void PLAT_setCapturePipeFd(int fd);
 void PLAT_captureRecStop(void);
 
 char* PLAT_getModel(void);

@@ -69,7 +69,6 @@ int emu_ovl_cfg_load(EmuOvlConfig* cfg, const char* json_path);
 void emu_ovl_cfg_free(EmuOvlConfig* cfg);
 int emu_ovl_cfg_read_ini(EmuOvlConfig* cfg, const char* ini_path);
 int emu_ovl_cfg_write_ini(EmuOvlConfig* cfg, const char* ini_path);
-void emu_ovl_cfg_reset_staged(EmuOvlConfig* cfg);
 void emu_ovl_cfg_reset_section_to_defaults(EmuOvlSection* sec);
 void emu_ovl_cfg_apply_staged(EmuOvlConfig* cfg);
 bool emu_ovl_cfg_has_changes(EmuOvlConfig* cfg);

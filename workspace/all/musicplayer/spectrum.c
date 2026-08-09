@@ -274,10 +274,6 @@ void Spectrum_update(void) {
 	spectrum_data.valid = true;
 }
 
-const SpectrumData* Spectrum_getData(void) {
-	return &spectrum_data;
-}
-
 void Spectrum_setPosition(int x, int y, int w, int h) {
 	spec_x = x;
 	spec_y = y;
@@ -288,21 +284,6 @@ void Spectrum_setPosition(int x, int y, int w, int h) {
 
 bool Spectrum_needsRefresh(void) {
 	return position_set && spectrum_visible && (Player_getState() == PLAYER_STATE_PLAYING);
-}
-
-void Spectrum_cycleStyle(void) {
-	current_style = (current_style + 1) % SPECTRUM_STYLE_COUNT;
-	save_settings(); // Persist preference
-}
-
-void Spectrum_toggleVisibility(void) {
-	spectrum_visible = !spectrum_visible;
-	if (!spectrum_visible) {
-		// Clear the spectrum layer when hiding
-		PLAT_clearLayers(LAYER_SPECTRUM);
-		PLAT_GPU_Flip();
-	}
-	save_settings(); // Persist preference
 }
 
 void Spectrum_cycleNext(void) {
@@ -322,18 +303,6 @@ void Spectrum_cycleNext(void) {
 		}
 	}
 	save_settings();
-}
-
-bool Spectrum_isVisible(void) {
-	return spectrum_visible;
-}
-
-SpectrumStyle Spectrum_getStyle(void) {
-	return current_style;
-}
-
-const char* Spectrum_getStyleName(void) {
-	return style_names[current_style];
 }
 
 // Draw a vertical gradient bar (for SPECTRUM_STYLE_VERTICAL)

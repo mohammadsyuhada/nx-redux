@@ -644,13 +644,6 @@ void UI_renderScrollIndicators(SDL_Surface* screen, int scroll, int items_per_pa
 // time no matter how fast the caller redraws — lower = snappier.
 #define PILL_ANIM_MS 80
 
-void UI_pillAnimInit(PillAnimState* state) {
-	state->current_y = 0;
-	state->target_y = 0;
-	state->start_y = 0;
-	state->start_time = 0;
-	state->active = false;
-}
 
 void UI_pillAnimSetTarget(PillAnimState* state, int target_y, bool animate) {
 	if (target_y == state->current_y && !state->active)

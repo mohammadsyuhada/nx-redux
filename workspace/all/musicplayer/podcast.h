@@ -229,15 +229,9 @@ const PodcastChartsStatus* Podcast_getChartsStatus(void);
 // Get Top Shows
 PodcastChartItem* Podcast_getTopShows(int* count);
 
-// Get country code (uses device locale or default)
-const char* Podcast_getCountryCode(void);
-
 // ============================================================================
 // Playback (Streaming)
 // ============================================================================
-
-// Play a downloaded episode
-int Podcast_play(PodcastFeed* feed, int episode_index);
 
 // Load episode and seek to saved position without starting playback
 // Returns 0 on success. Caller should poll Player_resume() then call Player_play().
@@ -329,9 +323,6 @@ void Podcast_invalidateEpisodeCache(void);
 
 // Save episodes to disk (called after RSS parse)
 int Podcast_saveEpisodes(int feed_index, PodcastEpisode* episodes, int count);
-
-// Get total episode count for a feed (from metadata, no disk read)
-int Podcast_getEpisodeCount(int feed_index);
 
 // Get path to feed's data directory
 void Podcast_getFeedDataPath(const char* feed_id, char* path, int path_size);

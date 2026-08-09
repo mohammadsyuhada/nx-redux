@@ -156,7 +156,6 @@ typedef struct {
 	bool active;
 } PillAnimState;
 
-void UI_pillAnimInit(PillAnimState* state);
 void UI_pillAnimSetTarget(PillAnimState* state, int target_y, bool animate);
 int UI_pillAnimTick(PillAnimState* state);
 bool UI_pillAnimIsActive(PillAnimState* state);

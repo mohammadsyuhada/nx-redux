@@ -14,7 +14,6 @@
 
 #define NETPLAY_DEFAULT_PORT 55435
 #define NETPLAY_DISCOVERY_PORT 55436
-#define NETPLAY_MAGIC "NXNP"
 #define NETPLAY_PROTOCOL_VERSION 2
 #define NETPLAY_MAX_GAME_NAME 64
 #define NETPLAY_MAX_HOSTS 8
@@ -28,14 +27,6 @@
 #define NETPLAY_STALL_TIMEOUT_FRAMES 180	 // 3 seconds at 60fps (was 30 frames/500ms)
 #define NETPLAY_STALL_WARNING_FRAMES 60		 // 1 second warning before disconnect
 #define NETPLAY_KEEPALIVE_INTERVAL_FRAMES 30 // Send keepalive every 500ms during stall
-
-// Hotspot SSID prefix - use unified prefix for all link types
-#define NETPLAY_HOTSPOT_SSID_PREFIX LINK_HOTSPOT_SSID_PREFIX
-
-typedef enum {
-	NETPLAY_CONN_WIFI = 0,
-	NETPLAY_CONN_HOTSPOT
-} NetplayConnMethod;
 
 // Input latency frames (to hide network jitter)
 #define NETPLAY_INPUT_LATENCY_FRAMES 2
@@ -77,28 +68,18 @@ bool Netplay_checkCoreSupport(const char* core_name);
 // Connection management
 // If hotspot_ip is NULL, uses WiFi mode. Otherwise, uses hotspot mode with given IP.
 int Netplay_startHost(const char* game_name, uint32_t game_crc, const char* hotspot_ip);
-int Netplay_stopHost(void);
 int Netplay_stopHostFast(void);
 void Netplay_stopBroadcast(void); // Stop UDP broadcast but keep session active
 int Netplay_connectToHost(const char* ip, uint16_t port);
 void Netplay_disconnect(void);
 
-// Hotspot mode
-bool Netplay_isUsingHotspot(void);
-
 // Status queries
 NetplayMode Netplay_getMode(void);
-NetplayState Netplay_getState(void);
 bool Netplay_isConnected(void);
 bool Netplay_isActive(void);
-const char* Netplay_getStatusMessage(void);
-const char* Netplay_getLocalIP(void);
-bool Netplay_hasNetworkConnection(void);
 
 // Host discovery (for client)
-int Netplay_startDiscovery(void);
 void Netplay_stopDiscovery(void);
-int Netplay_getDiscoveredHosts(NetplayHostInfo* hosts, int max_hosts);
 
 // Frame synchronization (RetroArch-style)
 // Called at the start of each frame - handles network polling and sync
@@ -119,9 +100,6 @@ void Netplay_postFrame(void);
 
 // Check if we should skip this frame (stalled waiting for input)
 bool Netplay_shouldStall(void);
-
-// Audio control - returns true if audio should be silenced (during stall)
-bool Netplay_shouldSilenceAudio(void);
 
 // State synchronization
 int Netplay_sendState(const void* data, size_t size);

@@ -15,7 +15,6 @@ void Icons_quit(void);
 // selected=false -> white icon (inverted, for black background)
 // selected=true -> black icon (original, for white/light selected background)
 SDL_Surface* Icons_getFolder(bool selected);
-SDL_Surface* Icons_getAudio(bool selected);
 SDL_Surface* Icons_getPlayAll(bool selected);
 SDL_Surface* Icons_getForFormat(AudioFormat format, bool selected);
 

@@ -34,12 +34,8 @@
 #include "embedded_font_rounded.h"
 
 constexpr const char* FIFO_PATH = "/tmp/show2.fifo";
-constexpr int MAX_TEXT_LEN = 256;
 constexpr int PROGRESS_BAR_HEIGHT = 10;
 constexpr int PROGRESS_BAR_WIDTH = 400;
-constexpr int TEXT_PADDING = 20;
-constexpr int LOGO_TEXT_PADDING = 40;
-constexpr int FONT_SIZE = 24;
 constexpr int HINT_GAP = 8;   // Pixels between the status line and the hint
 constexpr int FPS = 60;
 
@@ -201,10 +197,6 @@ public:
 
     void stop() {
         running = false;
-    }
-
-    bool isRunning() const {
-        return running;
     }
 
     static uint32_t parseColor(const std::string& color_str) {

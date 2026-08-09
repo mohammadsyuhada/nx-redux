@@ -112,7 +112,6 @@ void settings_menu_init(void);
 void settings_menu_push(SettingsPage* page);
 void settings_menu_pop(void);
 SettingsPage* settings_menu_current(void);
-int settings_menu_depth(void);
 
 void settings_menu_handle_input(bool* quit, bool* dirty);
 
@@ -128,9 +127,6 @@ int settings_page_visible_count(SettingsPage* page);
 // Get visible item by visible index (skipping hidden items)
 SettingItem* settings_page_visible_item(SettingsPage* page, int visible_idx);
 
-// Map visible index to actual index in items array
-int settings_page_visible_to_actual(SettingsPage* page, int visible_idx);
-
 // Map actual index to visible index
 int settings_page_actual_to_visible(SettingsPage* page, int actual_idx);
 
@@ -141,7 +137,6 @@ void settings_page_reset_all(SettingsPage* page);
 void settings_page_init_lock(SettingsPage* page);
 
 // Clean up a page
-void settings_page_destroy(SettingsPage* page);
 
 // ============================================
 // Helper macros for item initialization

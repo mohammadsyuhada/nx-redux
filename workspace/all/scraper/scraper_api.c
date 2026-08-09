@@ -7,7 +7,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <unistd.h>
 #include <zlib.h>
 
@@ -28,6 +27,12 @@ static void ss_decode(const unsigned char* enc, int len, char* out) {
 	for (int i = 0; i < len; i++)
 		out[i] = enc[i] ^ SS_XOR_KEY;
 	out[len] = '\0';
+}
+
+// Decode both obfuscated dev credentials into caller-provided buffers.
+static void ss_decodeDevCredentials(char* devid, char* devpass) {
+	ss_decode(ss_devid_enc, sizeof(ss_devid_enc), devid);
+	ss_decode(ss_devpass_enc, sizeof(ss_devpass_enc), devpass);
 }
 
 static uint64_t last_request_time = 0;
@@ -261,8 +266,7 @@ bool ScraperAPI_search(const char* rom_filename, const char* rom_path,
 
 	// Decode dev credentials
 	char devid[64], devpass[64];
-	ss_decode(ss_devid_enc, sizeof(ss_devid_enc), devid);
-	ss_decode(ss_devpass_enc, sizeof(ss_devpass_enc), devpass);
+	ss_decodeDevCredentials(devid, devpass);
 
 	// Build base API URL (filename only)
 	char url[2048];
@@ -313,15 +317,14 @@ bool ScraperAPI_search(const char* rom_filename, const char* rom_path,
 }
 
 ScraperUserInfo ScraperAPI_fetchUserInfo(void) {
-	ScraperUserInfo info = {0, 0, 0, false};
+	ScraperUserInfo info = {0, 0, false};
 
 	if (ss_username[0] == '\0' || ss_password[0] == '\0')
 		return info;
 
 	// Decode dev credentials
 	char devid[64], devpass[64];
-	ss_decode(ss_devid_enc, sizeof(ss_devid_enc), devid);
-	ss_decode(ss_devpass_enc, sizeof(ss_devpass_enc), devpass);
+	ss_decodeDevCredentials(devid, devpass);
 
 	char* enc_user = HTTP_urlEncode(ss_username);
 	char* enc_pass = HTTP_urlEncode(ss_password);
@@ -369,7 +372,6 @@ ScraperUserInfo ScraperAPI_fetchUserInfo(void) {
 
 	cJSON* req_today = cJSON_GetObjectItem(ssuser, "requeststoday");
 	cJSON* max_req = cJSON_GetObjectItem(ssuser, "maxrequestsperday");
-	cJSON* threads = cJSON_GetObjectItem(ssuser, "maxthreads");
 
 	if (req_today && cJSON_IsString(req_today))
 		info.requests_today = atoi(req_today->valuestring);
@@ -380,11 +382,6 @@ ScraperUserInfo ScraperAPI_fetchUserInfo(void) {
 		info.max_requests_per_day = atoi(max_req->valuestring);
 	else if (max_req && cJSON_IsNumber(max_req))
 		info.max_requests_per_day = max_req->valueint;
-
-	if (threads && cJSON_IsString(threads))
-		info.threads = atoi(threads->valuestring);
-	else if (threads && cJSON_IsNumber(threads))
-		info.threads = threads->valueint;
 
 	info.valid = true;
 	cJSON_Delete(root);

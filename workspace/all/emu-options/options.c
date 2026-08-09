@@ -31,7 +31,6 @@
 #include <fcntl.h>
 #include <stdbool.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <strings.h> // strcasecmp, for the picker's alphabetical sort
 #include <unistd.h>
@@ -187,12 +186,6 @@ static void render_item_page(const char* title, UISettingsItem* items, int count
 	GFX_flip(screen);
 }
 
-static void show_message(const char* message, int hold_ms) {
-	GFX_clear(screen);
-	UI_renderCenteredMessage(screen, message);
-	GFX_flip(screen);
-	SDL_Delay(hold_ms);
-}
 
 //////////////////////////////////
 // Picker
@@ -573,7 +566,7 @@ static void save_edits(bool per_game, const char* ini_path, const char* override
 		// none; syncs on its own.
 		if (opts_write_override(&cfg, &st, override_path) < 0) {
 			fprintf(stderr, "options: failed to write override %s\n", override_path);
-			show_message("Failed to save - check SD card", OPTS_MESSAGE_MS);
+			UI_showMessage(screen, "Failed to save - check SD card", OPTS_MESSAGE_MS);
 			return;
 		}
 		opts_commit(&cfg, &st);
@@ -601,7 +594,7 @@ static void save_edits(bool per_game, const char* ini_path, const char* override
 
 	if (emu_ovl_cfg_write_ini(&cfg, ini_path) < 0) {
 		fprintf(stderr, "options: failed to write ini %s\n", ini_path);
-		show_message("Failed to save - check SD card", OPTS_MESSAGE_MS);
+		UI_showMessage(screen, "Failed to save - check SD card", OPTS_MESSAGE_MS);
 		return;
 	}
 	emu_ovl_cfg_apply_staged(&cfg);
@@ -698,12 +691,12 @@ int main(int argc, char* argv[]) {
 	} else if (minarch_dir) {
 		if (emu_ovl_cfg_load(&cfg, json_path) != 0) {
 			fprintf(stderr, "options: failed to load schema %s\n", json_path);
-			show_message("Settings unavailable", OPTS_MESSAGE_MS);
+			UI_showMessage(screen, "Settings unavailable", OPTS_MESSAGE_MS);
 			exit_code = 1;
 		} else if (opts_minarch_load(&cfg, &mst, &st, minarch_system, minarch_default,
 									 minarch_dir, minarch_game) != 0) {
 			fprintf(stderr, "options: failed to read minarch config in %s\n", minarch_dir);
-			show_message("Settings unavailable", OPTS_MESSAGE_MS);
+			UI_showMessage(screen, "Settings unavailable", OPTS_MESSAGE_MS);
 			exit_code = 1;
 		} else {
 			// opts_minarch_load filled st with the console baseline, so the
@@ -713,18 +706,18 @@ int main(int argc, char* argv[]) {
 			run_editor(game_name ? game_name : "Emulator Settings", per_game);
 			if (opts_minarch_save(&cfg, &mst, &st) < 0) {
 				fprintf(stderr, "options: failed to save minarch config\n");
-				show_message("Failed to save - check SD card", OPTS_MESSAGE_MS);
+				UI_showMessage(screen, "Failed to save - check SD card", OPTS_MESSAGE_MS);
 			}
 			opts_minarch_free(&mst);
 			emu_ovl_cfg_free(&cfg);
 		}
 	} else if (emu_ovl_cfg_load(&cfg, json_path) != 0) {
 		fprintf(stderr, "options: failed to load schema %s\n", json_path);
-		show_message("Settings unavailable", OPTS_MESSAGE_MS);
+		UI_showMessage(screen, "Settings unavailable", OPTS_MESSAGE_MS);
 		exit_code = 1;
 	} else if (emu_ovl_cfg_read_ini(&cfg, ini_path) != 0) {
 		fprintf(stderr, "options: failed to read config %s\n", ini_path);
-		show_message("Settings unavailable", OPTS_MESSAGE_MS);
+		UI_showMessage(screen, "Settings unavailable", OPTS_MESSAGE_MS);
 		exit_code = 1;
 	} else {
 		bool per_game = (override_path != NULL);

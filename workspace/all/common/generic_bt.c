@@ -401,9 +401,6 @@ static BluetoothDeviceType bt_get_device_type(const char* addr) {
 }
 
 // Check if bluetooth adapter is powered on
-static bool bt_is_powered(void) {
-	return bt_adapter_powered();
-}
 
 /////////////////////////////////
 

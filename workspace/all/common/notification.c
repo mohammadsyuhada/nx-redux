@@ -496,9 +496,6 @@ void Notification_renderToLayer(int layer) {
 	last_system_indicator_type = system_indicator_type;
 }
 
-bool Notification_isActive(void) {
-	return initialized && notification_count > 0;
-}
 
 void Notification_clear(void) {
 	notification_count = 0;
@@ -536,16 +533,6 @@ void Notification_showSystemIndicator(SystemIndicatorType type) {
 	system_indicator_dirty = 1;
 }
 
-bool Notification_hasSystemIndicator(void) {
-	return initialized && system_indicator_type != SYSTEM_INDICATOR_NONE;
-}
-
-int Notification_getSystemIndicatorWidth(void) {
-	if (!initialized || system_indicator_type == SYSTEM_INDICATOR_NONE) {
-		return 0;
-	}
-	return SCALE1(HW_INDICATOR_WIDTH);
-}
 
 ///////////////////////////////
 // Progress Indicator Functions
@@ -589,8 +576,4 @@ void Notification_hideProgressIndicator(void) {
 
 void Notification_setProgressIndicatorPersistent(bool persistent) {
 	progress_state.persistent = persistent ? 1 : 0;
-}
-
-bool Notification_hasProgressIndicator(void) {
-	return initialized && progress_state.active;
 }

@@ -34,12 +34,6 @@
 #include <unistd.h>
 
 // ============================================
-// BusyBox stock version (for OS modification detection)
-// ============================================
-
-#define BUSYBOX_STOCK_VERSION "1.27.2"
-
-// ============================================
 // Device detection
 // ============================================
 

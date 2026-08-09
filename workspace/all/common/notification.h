@@ -79,7 +79,6 @@ void Notification_renderToLayer(int layer);
  * Check if there are any active notifications.
  * @return true if notifications are being displayed
  */
-bool Notification_isActive(void);
 
 /**
  * Clear all notifications immediately.
@@ -109,14 +108,12 @@ void Notification_showSystemIndicator(SystemIndicatorType type);
  * Check if a system indicator is currently being displayed.
  * @return true if a system indicator is active
  */
-bool Notification_hasSystemIndicator(void);
 
 /**
  * Get the width of the system indicator pill.
  * Useful for calculating positions of other elements.
  * @return The width in pixels, or 0 if no indicator is active
  */
-int Notification_getSystemIndicatorWidth(void);
 
 ///////////////////////////////
 // Achievement Progress Indicator
@@ -153,6 +150,5 @@ void Notification_setProgressIndicatorPersistent(bool persistent);
  * Check if a progress indicator is currently being displayed.
  * @return true if a progress indicator is active
  */
-bool Notification_hasProgressIndicator(void);
 
 #endif // __NOTIFICATION_H__

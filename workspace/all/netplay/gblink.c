@@ -29,7 +29,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <pthread.h>
 #include <sys/socket.h>
 #include <sys/select.h>
@@ -38,8 +37,7 @@
 #include <arpa/inet.h>
 
 // Protocol constants for UDP discovery
-#define GL_DISCOVERY_MAGIC 0x47424C43 // "GBLC"
-#define GL_DISCOVERY_RESP 0x47424C52  // "GBLR" - GB Link Discovery Response
+#define GL_DISCOVERY_RESP 0x47424C52 // "GBLR" - GB Link Discovery Response
 
 // Discovery broadcast interval
 #define DISCOVERY_BROADCAST_INTERVAL_US 500000 // 500ms
@@ -323,10 +321,6 @@ static int GBLink_stopHostInternal(bool skip_hotspot_cleanup) {
 	return 0;
 }
 
-int GBLink_stopHost(void) {
-	return GBLink_stopHostInternal(false);
-}
-
 int GBLink_stopHostFast(void) {
 	return GBLink_stopHostInternal(true);
 }
@@ -457,17 +451,6 @@ static void GBLink_disconnect(void) {
 	pthread_mutex_unlock(&gl.mutex);
 }
 
-void GBLink_stopAll(void) {
-	if (gl.mode == GBLINK_OFF)
-		return;
-
-	if (gl.mode == GBLINK_HOST) {
-		GBLink_stopHost();
-	} else if (gl.mode == GBLINK_CLIENT) {
-		GBLink_stopClient();
-	}
-}
-
 void GBLink_stopAllFast(void) {
 	if (gl.mode == GBLINK_OFF)
 		return;
@@ -483,19 +466,6 @@ void GBLink_stopAllFast(void) {
 // Discovery (for clients)
 //////////////////////////////////////////////////////////////////////////////
 
-int GBLink_startDiscovery(void) {
-	if (gl.discovery_active)
-		return 0;
-
-	gl.discovery_fd = NET_createDiscoveryListenSocket(GBLINK_DISCOVERY_PORT);
-	if (gl.discovery_fd < 0)
-		return -1;
-
-	gl.num_hosts = 0;
-	gl.discovery_active = true;
-	return 0;
-}
-
 void GBLink_stopDiscovery(void) {
 	if (!gl.discovery_active)
 		return;
@@ -508,38 +478,9 @@ void GBLink_stopDiscovery(void) {
 	gl.discovery_active = false;
 }
 
-int GBLink_getDiscoveredHosts(GBLinkHostInfo* hosts, int max_hosts) {
-	if (!gl.discovery_active || gl.discovery_fd < 0)
-		return 0;
-
-	// Poll for discovery responses using shared function
-	// GBLinkHostInfo and NET_HostInfo have identical layouts
-	NET_receiveDiscoveryResponses(gl.discovery_fd, GL_DISCOVERY_RESP,
-								  (NET_HostInfo*)gl.discovered_hosts, &gl.num_hosts,
-								  GBLINK_MAX_HOSTS);
-
-	int count = (gl.num_hosts < max_hosts) ? gl.num_hosts : max_hosts;
-	memcpy(hosts, gl.discovered_hosts, count * sizeof(GBLinkHostInfo));
-	return count;
-}
-
 //////////////////////////////////////////////////////////////////////////////
 // Status Functions
 //////////////////////////////////////////////////////////////////////////////
-
-GBLinkMode GBLink_getMode(void) {
-	return gl.mode;
-}
-
-GBLinkState GBLink_getState(void) {
-	if (!gl.initialized)
-		return GBLINK_STATE_IDLE;
-	GBLink_pollConnectionState(); // refresh from the socket table (throttled, self-locking)
-	pthread_mutex_lock(&gl.mutex);
-	GBLinkState state = gl.state;
-	pthread_mutex_unlock(&gl.mutex);
-	return state;
-}
 
 bool GBLink_isConnected(void) {
 	if (!gl.initialized)
@@ -549,27 +490,6 @@ bool GBLink_isConnected(void) {
 	bool connected = (gl.state == GBLINK_STATE_CONNECTED);
 	pthread_mutex_unlock(&gl.mutex);
 	return connected;
-}
-
-const char* GBLink_getStatusMessage(void) {
-	return gl.status_msg;
-}
-
-const char* GBLink_getLocalIP(void) {
-	// Refresh IP if not in an active session (to avoid returning stale hotspot IP)
-	if (gl.mode == GBLINK_OFF) {
-		NET_getLocalIP(gl.local_ip, sizeof(gl.local_ip));
-	}
-	return gl.local_ip;
-}
-
-bool GBLink_isUsingHotspot(void) {
-	return gl.using_hotspot;
-}
-
-bool GBLink_hasNetworkConnection(void) {
-	NET_getLocalIP(gl.local_ip, sizeof(gl.local_ip));
-	return NET_hasConnection();
 }
 
 void GBLink_notifyConnectionFromCore(bool connected) {

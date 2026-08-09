@@ -10,7 +10,6 @@
 
 // App data paths (SHARED_USERDATA_PATH defined in common defines.h)
 #define APP_DATA_DIR SHARED_USERDATA_PATH "/media-player"
-#define APP_SETTINGS_DIR APP_DATA_DIR
 
 #define FFPLAY_PATH SHARED_BIN_PATH "/ffplay"
 
@@ -35,16 +34,14 @@
 #define SUB_EXT_SUB "sub"
 
 // App state enum for controls help context
-typedef enum {
+enum {
 	STATE_MENU = 0,
 	STATE_BROWSER = 1,
 	STATE_PLAYING = 2,
 	STATE_IPTV_LIST = 20,
-	STATE_IPTV_CATEGORIES = 21,
-	STATE_IPTV_PLAYING = 22,
 	STATE_IPTV_CURATED_COUNTRIES = 23,
 	STATE_IPTV_CURATED_CHANNELS = 24,
-} AppState;
+};
 
 // Video format enum
 typedef enum {

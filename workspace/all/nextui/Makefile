@@ -22,7 +22,7 @@ SDL?=SDL
 TARGET = nextui
 INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
 include ../common/ui/ui.mk
-SOURCE = $(TARGET).c types.c recents.c content.c launcher.c imgloader.c shortcuts.c gamelist.c gameswitcher.c search.c ../common/display_helper.c ../common/scaler.c ../common/utils.c ../common/config.c ../common/api.c ../common/audio_manager.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c $(UI_DIR)/ui_listdialog.c $(UI_DIR)/ui_keyboard.c $(UI_DIR)/ui_connect.c $(UI_DIR)/ui_contextmenu.c ../../$(PLATFORM)/platform/platform.c
+SOURCE = $(TARGET).c types.c recents.c content.c launcher.c imgloader.c shortcuts.c gamelist.c gameswitcher.c search.c ../common/display_helper.c ../common/scaler.c ../common/utils.c ../common/config.c ../common/api.c ../common/audio_manager.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c $(UI_DIR)/ui_listdialog.c $(UI_DIR)/ui_keyboard.c $(UI_DIR)/ui_contextmenu.c ../../$(PLATFORM)/platform/platform.c
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS  += $(OPT)

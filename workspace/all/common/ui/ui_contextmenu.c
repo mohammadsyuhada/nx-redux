@@ -127,11 +127,6 @@ void ContextMenu_render(SDL_Surface* screen) {
 	GFX_drawOnLayer(surf, 0, 0, sw, sh, 1.0f, false, LAYER_OVERLAY);
 }
 
-void ContextMenu_close(void) {
-	cm_open = false;
-	cm_close_guard = 2;
-	GFX_clearLayers(LAYER_OVERLAY);
-}
 
 bool ContextMenu_isOpen(void) {
 	return cm_open || cm_close_guard > 0;

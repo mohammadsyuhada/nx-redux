@@ -21,7 +21,6 @@ bool AudioMgr_isUSBDACActive(void);
 
 // Get the preferred SDL audio device name for the current sink.
 // Returns NULL — apps always use ALSA default, audiomon manages .asoundrc.
-const char* AudioMgr_getPreferredDevice(void);
 
 // Pick the device-open rate for a desired rate, from the sink state published
 // by audiomon (/tmp/nx_audio_sink). Exact match wins; else nearest listed rate.

@@ -1,5 +1,6 @@
 #include "ra_auth.h"
 #include "http.h"
+#include "utils.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,37 +11,6 @@
 
 // Minimal JSON helpers for RA login responses
 
-static const char* find_json_string(const char* json, const char* key, char* out, size_t out_size) {
-	if (!json || !key || !out || out_size == 0)
-		return NULL;
-
-	// Search for "key":"value" pattern
-	char search[128];
-	snprintf(search, sizeof(search), "\"%s\":\"", key);
-
-	const char* start = strstr(json, search);
-	if (!start) {
-		// Try "key": "value" (with space)
-		snprintf(search, sizeof(search), "\"%s\": \"", key);
-		start = strstr(json, search);
-		if (!start)
-			return NULL;
-	}
-
-	start += strlen(search);
-	const char* end = strchr(start, '"');
-	if (!end)
-		return NULL;
-
-	size_t len = end - start;
-	if (len >= out_size)
-		len = out_size - 1;
-
-	strncpy(out, start, len);
-	out[len] = '\0';
-
-	return out;
-}
 
 static int find_json_bool(const char* json, const char* key) {
 	if (!json || !key)
@@ -81,10 +51,10 @@ static void parse_login_response(const char* json, RA_AuthResponse* response) {
 		response->result = RA_AUTH_SUCCESS;
 
 		// Extract Token
-		find_json_string(json, "Token", response->token, sizeof(response->token));
+		json_extract_string(json, "Token", response->token, sizeof(response->token));
 
 		// Extract User (display name)
-		find_json_string(json, "User", response->display_name, sizeof(response->display_name));
+		json_extract_string(json, "User", response->display_name, sizeof(response->display_name));
 
 		if (strlen(response->token) == 0) {
 			// Token missing in success response - shouldn't happen but handle it
@@ -96,8 +66,8 @@ static void parse_login_response(const char* json, RA_AuthResponse* response) {
 		response->result = RA_AUTH_ERROR_INVALID;
 
 		// Try to extract error message
-		if (!find_json_string(json, "Error", response->error_message,
-							  sizeof(response->error_message))) {
+		if (!json_extract_string(json, "Error", response->error_message,
+								 sizeof(response->error_message))) {
 			strncpy(response->error_message, "Invalid credentials",
 					sizeof(response->error_message) - 1);
 		}
@@ -151,60 +121,6 @@ static void ra_auth_http_callback(HTTP_Response* http_response, void* userdata) 
 	free(ctx);
 }
 
-void RA_authenticate(const char* username, const char* password,
-					 RA_AuthCallback callback, void* userdata) {
-	if (!username || !password) {
-		RA_AuthResponse response = {0};
-		response.result = RA_AUTH_ERROR_INVALID;
-		strncpy(response.error_message, "Username and password required",
-				sizeof(response.error_message) - 1);
-		if (callback)
-			callback(&response, userdata);
-		return;
-	}
-
-	// URL-encode username and password
-	char* enc_username = HTTP_urlEncode(username);
-	char* enc_password = HTTP_urlEncode(password);
-
-	if (!enc_username || !enc_password) {
-		free(enc_username);
-		free(enc_password);
-		RA_AuthResponse response = {0};
-		response.result = RA_AUTH_ERROR_UNKNOWN;
-		strncpy(response.error_message, "Memory allocation failed",
-				sizeof(response.error_message) - 1);
-		if (callback)
-			callback(&response, userdata);
-		return;
-	}
-
-	// Build POST data: r=login&u=username&p=password
-	char post_data[512];
-	snprintf(post_data, sizeof(post_data), "r=login&u=%s&p=%s",
-			 enc_username, enc_password);
-
-	free(enc_username);
-	free(enc_password);
-
-	// Create async context
-	RA_AsyncAuthContext* ctx = calloc(1, sizeof(RA_AsyncAuthContext));
-	if (!ctx) {
-		RA_AuthResponse response = {0};
-		response.result = RA_AUTH_ERROR_UNKNOWN;
-		strncpy(response.error_message, "Memory allocation failed",
-				sizeof(response.error_message) - 1);
-		if (callback)
-			callback(&response, userdata);
-		return;
-	}
-
-	ctx->callback = callback;
-	ctx->userdata = userdata;
-
-	// Make async POST request
-	HTTP_postAsync(RA_API_URL, post_data, NULL, ra_auth_http_callback, ctx);
-}
 
 RA_AuthResult RA_authenticateSync(const char* username, const char* password,
 								  RA_AuthResponse* response) {

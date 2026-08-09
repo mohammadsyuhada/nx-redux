@@ -798,17 +798,6 @@ void emu_ovl_cfg_reset_section_to_defaults(EmuOvlSection* sec) {
 	}
 }
 
-void emu_ovl_cfg_reset_staged(EmuOvlConfig* cfg) {
-	if (!cfg)
-		return;
-	for (int s = 0; s < cfg->section_count; s++) {
-		EmuOvlSection* sec = &cfg->sections[s];
-		for (int i = 0; i < sec->item_count; i++) {
-			sec->items[i].staged_value = sec->items[i].current_value;
-			sec->items[i].dirty = false;
-		}
-	}
-}
 
 void emu_ovl_cfg_apply_staged(EmuOvlConfig* cfg) {
 	if (!cfg)

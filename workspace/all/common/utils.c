@@ -694,3 +694,35 @@ char* findFileInDir(const char* directory, const char* filename) {
 	free(filename_copy);
 	return full_path;
 }
+
+const char* json_extract_string(const char* json, const char* key, char* out, size_t out_size) {
+	if (!json || !key || !out || out_size == 0)
+		return NULL;
+
+	// Search for "key":"value" pattern
+	char search[128];
+	snprintf(search, sizeof(search), "\"%s\":\"", key);
+
+	const char* start = strstr(json, search);
+	if (!start) {
+		// Try "key": "value" (with space)
+		snprintf(search, sizeof(search), "\"%s\": \"", key);
+		start = strstr(json, search);
+		if (!start)
+			return NULL;
+	}
+
+	start += strlen(search);
+	const char* end = strchr(start, '"');
+	if (!end)
+		return NULL;
+
+	size_t len = end - start;
+	if (len >= out_size)
+		len = out_size - 1;
+
+	strncpy(out, start, len);
+	out[len] = '\0';
+
+	return out;
+}
