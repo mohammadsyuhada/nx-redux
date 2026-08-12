@@ -13,10 +13,12 @@ ListView* IPTVCuratedCountries_view(void);
 
 // Render user's channel list (main screen). The widget absorbs the empty
 // state (count == 0), so there is no separate empty-state renderer.
-void render_iptv_user_channels(SDL_Surface* screen, IndicatorType show_setting);
+void render_iptv_user_channels(SDL_Surface* screen, IndicatorType show_setting,
+							   const char* toast_message, uint32_t toast_time);
 
 // Render curated country list for browsing
-void render_iptv_curated_countries(SDL_Surface* screen, IndicatorType show_setting);
+void render_iptv_curated_countries(SDL_Surface* screen, IndicatorType show_setting,
+								   const char* toast_message, uint32_t toast_time);
 
 // Render curated channels for a country
 void render_iptv_curated_channels(SDL_Surface* screen, IndicatorType show_setting,

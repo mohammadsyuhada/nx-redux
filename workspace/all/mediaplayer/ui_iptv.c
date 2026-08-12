@@ -31,23 +31,19 @@ static void iptv_user_get_row(void* ctx, int i, bool selected,
 	(void)selected;
 }
 
-// "%d channels" scratch: the widget consumes the annotation before the next
-// get_row call, so one static buffer per provider is enough.
-static char country_annotation_buf[32];
-
 static void iptv_countries_get_row(void* ctx, int i, bool selected,
 								   ListViewRow* out) {
+	// Channel counts are unknown until a country is fetched (lazy per-country
+	// loading), so country rows show just the name.
 	const CuratedTVCountry* countries = ctx;
 	out->label = countries[i].name;
-	snprintf(country_annotation_buf, sizeof(country_annotation_buf),
-			 "%d channels", IPTV_curated_get_channel_count(countries[i].code));
-	out->annotation = country_annotation_buf;
 	(void)selected;
 }
 
 // Render user's channel list (main screen). The widget absorbs the empty
 // state when count == 0.
-void render_iptv_user_channels(SDL_Surface* screen, IndicatorType show_setting) {
+void render_iptv_user_channels(SDL_Surface* screen, IndicatorType show_setting,
+							   const char* toast_message, uint32_t toast_time) {
 	(void)show_setting;
 	GFX_clear(screen);
 
@@ -72,10 +68,14 @@ void render_iptv_user_channels(SDL_Surface* screen, IndicatorType show_setting) 
 						? (char*[]){"B", "BACK", "A", "PLAY", NULL}
 						: NULL;
 	UI_listViewRender(v, screen);
+
+	// Playback failure / status feedback set by module_iptv.
+	UI_renderToast(screen, toast_message, toast_time);
 }
 
 // Render curated country list for browsing
-void render_iptv_curated_countries(SDL_Surface* screen, IndicatorType show_setting) {
+void render_iptv_curated_countries(SDL_Surface* screen, IndicatorType show_setting,
+								   const char* toast_message, uint32_t toast_time) {
 	(void)show_setting;
 	GFX_clear(screen);
 
@@ -91,9 +91,14 @@ void render_iptv_curated_countries(SDL_Surface* screen, IndicatorType show_setti
 	v->get_row = iptv_countries_get_row;
 	v->ctx = (void*)countries;
 	v->list_id = (const void*)countries;
-	v->empty_title = NULL; // curated catalog is never empty
+	// Catalog is fetched from iptv-org; an empty list means the fetch failed.
+	v->empty_title = "Couldn't load channel list";
+	v->empty_subtitle = "Press MENU to refresh, or check Wi-Fi";
 	v->hint_pairs = (char*[]){"B", "BACK", "A", "SELECT", NULL};
 	UI_listViewRender(v, screen);
+
+	// Disclaimer / error feedback set by module_iptv.
+	UI_renderToast(screen, toast_message, toast_time);
 }
 
 // Render curated channels for a country

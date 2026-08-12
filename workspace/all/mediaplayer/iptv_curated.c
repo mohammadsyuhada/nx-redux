@@ -1,129 +1,80 @@
 #define _GNU_SOURCE
 #include "iptv_curated.h"
+#include "iptv_net.h"
+#include "m3u.h"
+#include "tz_country.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <dirent.h>
 
-#include "api.h"
+#include "vp_defines.h" // defines.h -> SHARED_USERDATA_PATH; APP_DATA_DIR
 #include "parson/parson.h"
 
-#define MAX_CURATED_COUNTRIES 32
-#define MAX_CURATED_CHANNELS 256
+#define IPTV_ORG_BASE "https://iptv-org.github.io"
+#define CACHE_DIR APP_DATA_DIR "/tv/cache"
+#define COUNTRIES_URL IPTV_ORG_BASE "/api/countries.json"
+#define COUNTRIES_CACHE CACHE_DIR "/countries.json"
+
+#define MAX_CURATED_COUNTRIES 300
+#define MAX_CURATED_CHANNELS 512
 
 static CuratedTVCountry curated_countries[MAX_CURATED_COUNTRIES];
 static int curated_country_count = 0;
 
 static CuratedTVChannel curated_channels[MAX_CURATED_CHANNELS];
 static int curated_channel_count = 0;
-
-static char channels_path[512] = "";
-
-static int load_country_channels(const char* filepath) {
-	JSON_Value* root = json_parse_file(filepath);
-	if (!root) {
-		LOG_error("Failed to parse JSON: %s\n", filepath);
-		return -1;
-	}
-
-	JSON_Object* obj = json_value_get_object(root);
-	if (!obj) {
-		json_value_free(root);
-		return -1;
-	}
-
-	const char* country_name = json_object_get_string(obj, "country");
-	const char* country_code = json_object_get_string(obj, "code");
-
-	if (!country_name || !country_code) {
-		json_value_free(root);
-		return -1;
-	}
-
-	bool country_exists = false;
-	for (int i = 0; i < curated_country_count; i++) {
-		if (strcmp(curated_countries[i].code, country_code) == 0) {
-			country_exists = true;
-			break;
-		}
-	}
-
-	if (!country_exists && curated_country_count < MAX_CURATED_COUNTRIES) {
-		strncpy(curated_countries[curated_country_count].name, country_name, 63);
-		curated_countries[curated_country_count].name[63] = '\0';
-		strncpy(curated_countries[curated_country_count].code, country_code, 7);
-		curated_countries[curated_country_count].code[7] = '\0';
-		curated_country_count++;
-	}
-
-	JSON_Array* channels_arr = json_object_get_array(obj, "channels");
-	if (channels_arr) {
-		int count = json_array_get_count(channels_arr);
-		for (int i = 0; i < count && curated_channel_count < MAX_CURATED_CHANNELS; i++) {
-			JSON_Object* channel = json_array_get_object(channels_arr, i);
-			if (!channel)
-				continue;
-
-			const char* name = json_object_get_string(channel, "name");
-			const char* url = json_object_get_string(channel, "url");
-			const char* category = json_object_get_string(channel, "category");
-			const char* logo = json_object_get_string(channel, "logo");
-			const char* dkey = json_object_get_string(channel, "decryption_key");
-
-			if (name && url) {
-				strncpy(curated_channels[curated_channel_count].name, name, IPTV_MAX_NAME - 1);
-				curated_channels[curated_channel_count].name[IPTV_MAX_NAME - 1] = '\0';
-				strncpy(curated_channels[curated_channel_count].url, url, IPTV_MAX_URL - 1);
-				curated_channels[curated_channel_count].url[IPTV_MAX_URL - 1] = '\0';
-				strncpy(curated_channels[curated_channel_count].category, category ? category : "", IPTV_MAX_GROUP - 1);
-				curated_channels[curated_channel_count].category[IPTV_MAX_GROUP - 1] = '\0';
-				strncpy(curated_channels[curated_channel_count].logo, logo ? logo : "", IPTV_MAX_LOGO - 1);
-				curated_channels[curated_channel_count].logo[IPTV_MAX_LOGO - 1] = '\0';
-				strncpy(curated_channels[curated_channel_count].decryption_key, dkey ? dkey : "", IPTV_MAX_KEY - 1);
-				curated_channels[curated_channel_count].decryption_key[IPTV_MAX_KEY - 1] = '\0';
-				strncpy(curated_channels[curated_channel_count].country_code, country_code, 7);
-				curated_channels[curated_channel_count].country_code[7] = '\0';
-				curated_channel_count++;
-			}
-		}
-	}
-
-	json_value_free(root);
-	return 0;
-}
-
-static void load_curated_channels(void) {
-	curated_country_count = 0;
-	curated_channel_count = 0;
-
-	strcpy(channels_path, "./channels");
-
-	DIR* dir = opendir(channels_path);
-	if (!dir)
-		return;
-
-	struct dirent* ent;
-	while ((ent = readdir(dir)) != NULL) {
-		const char* ext = strrchr(ent->d_name, '.');
-		if (!ext || strcasecmp(ext, ".json") != 0)
-			continue;
-
-		char filepath[768];
-		snprintf(filepath, sizeof(filepath), "%s/%s", channels_path, ent->d_name);
-		load_country_channels(filepath);
-	}
-
-	closedir(dir);
-}
+static char loaded_country_code[8] = ""; // which country curated_channels holds
 
 void IPTV_curated_init(void) {
-	load_curated_channels();
+	IPTV_net_ensureCacheDir(APP_DATA_DIR);
+	IPTV_net_ensureCacheDir(APP_DATA_DIR "/tv");
+	IPTV_net_ensureCacheDir(CACHE_DIR);
+	curated_country_count = 0;
+	curated_channel_count = 0;
+	loaded_country_code[0] = '\0';
 }
 
 void IPTV_curated_cleanup(void) {
 	curated_country_count = 0;
 	curated_channel_count = 0;
-	channels_path[0] = '\0';
+	loaded_country_code[0] = '\0';
+}
+
+int IPTV_curated_loadCountries(bool force, volatile bool* should_stop, volatile int* progress) {
+	if (IPTV_net_ensure(COUNTRIES_URL, COUNTRIES_CACHE, force, should_stop, progress) != 0)
+		return -1;
+
+	JSON_Value* root = json_parse_file(COUNTRIES_CACHE);
+	if (!root)
+		return -1;
+	JSON_Array* arr = json_value_get_array(root);
+	if (!arr) {
+		json_value_free(root);
+		return -1;
+	}
+
+	curated_country_count = 0;
+	size_t n = json_array_get_count(arr);
+	for (size_t i = 0; i < n && curated_country_count < MAX_CURATED_COUNTRIES; i++) {
+		JSON_Object* o = json_array_get_object(arr, i);
+		if (!o)
+			continue;
+		const char* name = json_object_get_string(o, "name");
+		const char* code = json_object_get_string(o, "code");
+		if (!name || !code)
+			continue;
+		CuratedTVCountry* c = &curated_countries[curated_country_count++];
+		snprintf(c->name, sizeof(c->name), "%s", name);
+		snprintf(c->code, sizeof(c->code), "%s", code);
+	}
+	json_value_free(root);
+
+	char home[8];
+	if (!TZ_currentCountryCode(home, sizeof(home)))
+		home[0] = '\0';
+	IPTV_curated_sortCountriesHomeFirst(curated_countries, curated_country_count, home);
+
+	return curated_country_count;
 }
 
 int IPTV_curated_get_country_count(void) {
@@ -134,28 +85,57 @@ const CuratedTVCountry* IPTV_curated_get_countries(void) {
 	return curated_countries;
 }
 
-int IPTV_curated_get_channel_count(const char* country_code) {
-	int count = 0;
-	for (int i = 0; i < curated_channel_count; i++) {
-		if (strcmp(curated_channels[i].country_code, country_code) == 0) {
-			count++;
-		}
+// Lowercase a country code into dst for the URL/cache filename, keeping only
+// [a-z0-9]. The code is third-party data (iptv-org countries.json) and flows
+// into the fetch URL and a cache file path, so stripping other characters
+// prevents shell-metacharacter injection and path traversal (e.g. "../").
+static void lc_code(const char* code, char* dst, int dst_sz) {
+	int j = 0;
+	for (int i = 0; code[i] && j < dst_sz - 1; i++) {
+		char ch = code[i];
+		if (ch >= 'A' && ch <= 'Z')
+			ch = (char)(ch - 'A' + 'a');
+		if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9'))
+			dst[j++] = ch;
 	}
-	return count;
+	dst[j] = '\0';
+}
+
+int IPTV_curated_loadCountryChannels(const char* country_code, bool force,
+									 volatile bool* should_stop, volatile int* progress) {
+	if (!country_code || !country_code[0])
+		return -1;
+
+	char lc[8];
+	lc_code(country_code, lc, sizeof(lc));
+
+	char url[256];
+	char cache[600];
+	snprintf(url, sizeof(url), IPTV_ORG_BASE "/iptv/countries/%s.m3u", lc);
+	snprintf(cache, sizeof(cache), "%s/%s.m3u", CACHE_DIR, lc);
+
+	if (IPTV_net_ensure(url, cache, force, should_stop, progress) != 0)
+		return -1;
+
+	int n = M3U_parseFile(cache, curated_channels, MAX_CURATED_CHANNELS, country_code);
+	if (n < 0)
+		return -1;
+	curated_channel_count = n;
+	snprintf(loaded_country_code, sizeof(loaded_country_code), "%s", country_code);
+	return n;
 }
 
 const CuratedTVChannel* IPTV_curated_get_channels(const char* country_code, int* count) {
-	const CuratedTVChannel* first = NULL;
-	*count = 0;
-
-	for (int i = 0; i < curated_channel_count; i++) {
-		if (strcmp(curated_channels[i].country_code, country_code) == 0) {
-			if (!first) {
-				first = &curated_channels[i];
-			}
-			(*count)++;
-		}
+	if (country_code && strcmp(country_code, loaded_country_code) == 0) {
+		*count = curated_channel_count;
+		return curated_channels;
 	}
+	*count = 0;
+	return curated_channels;
+}
 
-	return first;
+int IPTV_curated_get_channel_count(const char* country_code) {
+	if (country_code && strcmp(country_code, loaded_country_code) == 0)
+		return curated_channel_count;
+	return 0;
 }

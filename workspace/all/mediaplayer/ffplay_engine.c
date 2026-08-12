@@ -5,6 +5,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <time.h>
 #include "vp_defines.h"
 #include "api.h"
@@ -26,6 +27,14 @@ static volatile sig_atomic_t ffplay_stop = 0;
 
 // Handoff file where the patched ffplay reports playback position (tmpfs)
 #define FFPLAY_POS_FILE "/tmp/ffplay.pos"
+
+// Captured ffplay stderr (tmpfs). ffplay exits 0 even when it fails to OPEN the
+// input, so the exit code alone can't tell a real failure from a normal quit;
+// we scan this file for the fatal-open error line instead.
+#define FFPLAY_ERR_FILE "/tmp/ffplay.err"
+
+// Set by FfplayEngine_play when the last run failed to open/play its input.
+static bool last_playback_failed = false;
 
 // Audio device change detection during ffplay playback
 static volatile bool audio_device_changed = false;
@@ -56,9 +65,37 @@ static void escape_filter_squote(const char* in, char* out, size_t out_size) {
 	out[j] = '\0';
 }
 
+// ffplay/ffmpeg exits 0 even when it fails to OPEN the input (e.g. "Invalid
+// data found when processing input", "Server returned 403 Forbidden"). On a
+// fatal open failure it prints a line beginning with the input URL followed by
+// ':'. Detect that in the captured stderr — distinct from benign mid-stream
+// warnings like "[https @ ...] Stream ends prematurely" which a working stream
+// may print. Returns true if a fatal open error was found.
+static bool ffplay_stderr_has_fatal(const char* url) {
+	FILE* f = fopen(FFPLAY_ERR_FILE, "r");
+	if (!f)
+		return false;
+	size_t urllen = strlen(url);
+	char line[1024];
+	bool fatal = false;
+	while (fgets(line, sizeof(line), f)) {
+		if (urllen > 0 && strncmp(line, url, urllen) == 0 && line[urllen] == ':') {
+			LOG_error("ffplay input error: %s", line);
+			fatal = true;
+			break;
+		}
+	}
+	fclose(f);
+	return fatal;
+}
+
 static int ffplay_exec(FfplayConfig* config, int use_subs) {
 	char* argv[64];
 	int argc = 0;
+
+	// Fresh capture file per run; if the child's redirect fails to open it, the
+	// scanner simply finds no file (no false positive).
+	unlink(FFPLAY_ERR_FILE);
 
 	argv[argc++] = FFPLAY_PATH;
 	argv[argc++] = "-fs";		// Fullscreen
@@ -249,6 +286,13 @@ static int ffplay_exec(FfplayConfig* config, int use_subs) {
 		// which would cause DRM master conflicts on TG5050.
 		for (int fd = 3; fd < 256; fd++)
 			close(fd);
+		// Redirect ffplay's stderr to a file so the parent can detect fatal
+		// open errors (ffplay masks them with a 0 exit code).
+		int efd = open(FFPLAY_ERR_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+		if (efd >= 0) {
+			dup2(efd, STDERR_FILENO);
+			close(efd);
+		}
 		execv(FFPLAY_PATH, argv);
 		_exit(127);
 	}
@@ -316,6 +360,10 @@ static int ffplay_exec(FfplayConfig* config, int use_subs) {
 	return -1;
 }
 
+bool FfplayEngine_lastFailed(void) {
+	return last_playback_failed;
+}
+
 void FfplayEngine_signalStop(void) {
 	// Async-signal-safe: only touches sig_atomic_t values and calls kill(2);
 	// errno is preserved so an interrupted syscall's error check isn't clobbered
@@ -340,6 +388,8 @@ int FfplayEngine_play(FfplayConfig* config) {
 	}
 
 	LOG_info("ffplay: playing %s\n", config->path);
+
+	last_playback_failed = false;
 
 	// Release joysticks so ffplay can use them for input.
 	PAD_quit();
@@ -385,6 +435,11 @@ int FfplayEngine_play(FfplayConfig* config) {
 
 	// Restore original start position
 	config->start_position_sec = original_start;
+
+	// ffplay may exit 0 despite failing to open the input; check its stderr for
+	// the fatal-open line so callers can report a real playback failure.
+	if (ffplay_stderr_has_fatal(config->path))
+		last_playback_failed = true;
 
 	// TG5050: restore display after ffplay exits
 	DisplayHelper_recoverDisplay();

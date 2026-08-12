@@ -39,6 +39,11 @@ typedef struct {
 // Returns the ffplay exit code (0 = normal exit, non-zero = error)
 int FfplayEngine_play(FfplayConfig* config);
 
+// True if the most recent FfplayEngine_play() failed to open/play its input.
+// ffplay exits 0 even on fatal open errors (e.g. "Invalid data", HTTP 4xx), so
+// callers should use this rather than the exit code to detect a dead stream.
+bool FfplayEngine_lastFailed(void);
+
 // Request that any running ffplay child be terminated (SIGTERM) and prevent
 // audio-change restarts. Async-signal-safe — intended to be called from the
 // app's SIGINT/SIGTERM handler so quitting doesn't orphan ffplay.
