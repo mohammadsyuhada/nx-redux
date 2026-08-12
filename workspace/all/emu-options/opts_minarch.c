@@ -147,12 +147,18 @@ static void apply_values(EmuOvlConfig* cfg, const char* content,
 }
 
 static void free_item_svalues(EmuOvlItem* item) {
-	for (int v = 0; v < EMU_OVL_MAX_VALUES; v++) {
-		if (item->svalues[v]) {
-			free(item->svalues[v]);
-			item->svalues[v] = NULL;
-		}
+	for (int v = 0; v < item->value_count; v++) {
+		free(item->labels[v]);
+		free(item->svalues[v]);
 	}
+	free(item->values);
+	free(item->labels);
+	free(item->svalues);
+	item->values = NULL;
+	item->labels = NULL;
+	item->svalues = NULL;
+	item->value_count = 0;
+	item->value_cap = 0;
 }
 
 // Drop locked items from the schema, then sections left empty. Runs BEFORE
@@ -251,8 +257,7 @@ static char* render_full(EmuOvlConfig* cfg, const char* base_content,
 				EmuOvlItem* item = &cfg->sections[s].items[i];
 				char value[64];
 				int v = use_staged ? item->staged_value : vals[s][i];
-				emu_ovl_cfg_format_value(item, v, value, sizeof(value));
-				fprintf(out, "%s = %s\n", item->key, value);
+				fprintf(out, "%s = %s\n", item->key, emu_ovl_cfg_value_str(item, v, value, sizeof(value)));
 				emitted[s][i] = true;
 				ends_nl = true;
 			}
@@ -274,8 +279,7 @@ static char* render_full(EmuOvlConfig* cfg, const char* base_content,
 			EmuOvlItem* item = &cfg->sections[s].items[i];
 			char value[64];
 			int v = use_staged ? item->staged_value : vals[s][i];
-			emu_ovl_cfg_format_value(item, v, value, sizeof(value));
-			fprintf(out, "%s = %s\n", item->key, value);
+			fprintf(out, "%s = %s\n", item->key, emu_ovl_cfg_value_str(item, v, value, sizeof(value)));
 		}
 	}
 	if (fclose(out) != 0) {
@@ -409,8 +413,7 @@ static int write_global(EmuOvlConfig* cfg, OptsMinarchState* st) {
 			if (!emitted[s][i]) {
 				EmuOvlItem* item = &cfg->sections[s].items[i];
 				char value[64];
-				emu_ovl_cfg_format_value(item, item->staged_value, value, sizeof(value));
-				fprintf(out, "%s = %s\n", item->key, value);
+				fprintf(out, "%s = %s\n", item->key, emu_ovl_cfg_value_str(item, item->staged_value, value, sizeof(value)));
 				emitted[s][i] = true;
 				ends_nl = true;
 			}
@@ -430,8 +433,7 @@ static int write_global(EmuOvlConfig* cfg, OptsMinarchState* st) {
 			}
 			EmuOvlItem* item = &cfg->sections[s].items[i];
 			char value[64];
-			emu_ovl_cfg_format_value(item, item->staged_value, value, sizeof(value));
-			fprintf(out, "%s = %s\n", item->key, value);
+			fprintf(out, "%s = %s\n", item->key, emu_ovl_cfg_value_str(item, item->staged_value, value, sizeof(value)));
 		}
 	}
 	if (fclose(out) != 0) {

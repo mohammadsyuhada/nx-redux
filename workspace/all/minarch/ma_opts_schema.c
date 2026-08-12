@@ -89,10 +89,10 @@ static int parse_canonical_int(const char* s, int* out) {
 }
 
 // Detect a long, label-less, strictly-ascending arithmetic sequence of
-// canonically-formatted integers. Only lists that would otherwise be
-// truncated (count > OPTS_SCHEMA_MAX_VALUES) qualify — short numeric lists
-// stay enums so their UI behavior is unchanged. Returns 1 and fills
-// min/max/step on success.
+// canonically-formatted integers. Only long lists (count >
+// OPTS_SCHEMA_MAX_VALUES) qualify — short numeric lists stay enums so their
+// UI behavior is unchanged, and long ones make a nicer int slider than a
+// 100-entry cycle. Returns 1 and fills min/max/step on success.
 static int detect_int_range(const struct retro_core_option_value* values, int count, int* out_min, int* out_max, int* out_step) {
 	if (count <= OPTS_SCHEMA_MAX_VALUES)
 		return 0;
@@ -125,8 +125,8 @@ static int detect_int_range(const struct retro_core_option_value* values, int co
 
 // one item in the dialect emu_overlay_cfg.c parses: string-valued "enum" with
 // values[]/labels[] and a string default — or, for long canonical numeric
-// sequences, an "int" range item (min/max/step) that sidesteps the
-// OPTS_SCHEMA_MAX_VALUES truncation entirely
+// sequences, an "int" range item (min/max/step) that keeps a 100-step slider
+// from rendering as a 100-entry cycle
 static void add_item(cJSON* items_arr, const char* key, const char* label, const char* info, const struct retro_core_option_value* values, const char* default_value) {
 	int count = values_count(values);
 	if (count <= 0)
@@ -153,39 +153,17 @@ static void add_item(cJSON* items_arr, const char* key, const char* label, const
 		return;
 	}
 
-	// When truncating, keep the core's default representable: if default_value
-	// sits past the cut, it takes over the LAST kept slot (value + label).
-	// Otherwise parse_item's default lookup misses, a fresh editor shows
-	// values[0], and a full per-game snapshot writes that wrong value into the
-	// game cfg — a silent behavior change for an untouched option.
-	const struct retro_core_option_value* def_rescue = NULL;
-	if (count > OPTS_SCHEMA_MAX_VALUES) {
-		if (default_value) {
-			int kept = 0;
-			for (int i = 0; i < OPTS_SCHEMA_MAX_VALUES; i++) {
-				if (strcmp(values[i].value, default_value) == 0) {
-					kept = 1;
-					break;
-				}
-			}
-			if (!kept) {
-				for (int i = OPTS_SCHEMA_MAX_VALUES; i < count; i++) {
-					if (strcmp(values[i].value, default_value) == 0) {
-						def_rescue = &values[i];
-						break;
-					}
-				}
-			}
-		}
-		fprintf(stderr, "opts-schema: option \"%s\" has %i values, truncating to %i%s\n", key, count, OPTS_SCHEMA_MAX_VALUES, def_rescue ? ", default preserved" : "");
-		count = OPTS_SCHEMA_MAX_VALUES;
-	}
-
+	// Labeled lists are emitted in FULL, however long — the editor's per-item
+	// value arrays are heap-sized (emu_overlay_cfg.c item_reserve_values), so
+	// there is no cap to truncate against. gambatte's 325-palette enum is the
+	// outlier that motivated this; a truncated list made effective values from
+	// lower cfg tiers (e.g. GB.pak default.cfg's TWB64 palette) unrepresentable
+	// and a full per-game snapshot silently rewrote them to the schema default.
 	cJSON_AddStringToObject(item, "type", "enum");
 	cJSON* vals = cJSON_AddArrayToObject(item, "values");
 	cJSON* labs = cJSON_AddArrayToObject(item, "labels");
 	for (int i = 0; i < count; i++) {
-		const struct retro_core_option_value* v = (def_rescue && i == count - 1) ? def_rescue : &values[i];
+		const struct retro_core_option_value* v = &values[i];
 		cJSON_AddItemToArray(vals, cJSON_CreateString(v->value));
 		cJSON_AddItemToArray(labs, cJSON_CreateString(v->label ? v->label : v->value));
 	}
@@ -282,8 +260,7 @@ char* OptsSchema_fromV2(const struct retro_core_options_v2* v2, const char* emul
 	return schema_finish(root, &all);
 }
 
-// raw retro_variable value lists are tiny; anything past this is dropped
-// before add_item's OPTS_SCHEMA_MAX_VALUES truncation even applies
+// raw retro_variable value lists are tiny; this only bounds the split buffer
 #define VARS_MAX_SPLIT 128
 
 char* OptsSchema_fromVars(const struct retro_variable* vars, const char* emulator) {

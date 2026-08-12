@@ -32,9 +32,11 @@ CC = $(CROSS_COMPILE)gcc
 CFLAGS  += $(OPT)
 CFLAGS  += $(INCDIR) -I../../$(PLATFORM)/libmsettings -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
 # Raised emu_overlay_cfg limits so a minarch options.json always fits.
-# MUST stay in lockstep with OPTS_SCHEMA_MAX_* in ../minarch/ma_opts_schema.h
-# (and with the -D line in tests/test_opts_minarch.c's build command).
-CFLAGS  += -DEMU_OVL_MAX_SECTIONS=32 -DEMU_OVL_MAX_ITEMS=64 -DEMU_OVL_MAX_VALUES=32 -DEMU_OVL_MAX_DESC=512
+# MUST stay in lockstep with OPTS_SCHEMA_MAX_SECTIONS/_ITEMS_PER_SECTION in
+# ../minarch/ma_opts_schema.h (and with the -D line in
+# tests/test_opts_minarch.c's build command). Value lists have no limit —
+# they are heap-allocated per item.
+CFLAGS  += -DEMU_OVL_MAX_SECTIONS=32 -DEMU_OVL_MAX_ITEMS=64 -DEMU_OVL_MAX_DESC=512
 LDFLAGS	 += -L../../$(PLATFORM)/libmsettings -lmsettings -lSDL2_image -lSDL2_ttf -lm -ldl -lz -lpthread
 
 PRODUCT= build/$(PLATFORM)/$(TARGET).elf

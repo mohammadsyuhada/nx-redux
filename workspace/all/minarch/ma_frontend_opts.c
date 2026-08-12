@@ -97,6 +97,172 @@ int OptionFrontend_openMenu(MenuList* list, int i) {
 	return MENU_CALLBACK_NOP;
 }
 
+// case-insensitive strstr; strcasestr is GNU-only and would need _GNU_SOURCE
+// ahead of every include in this TU
+static int containsCI(const char* haystack, const char* needle) {
+	if (!haystack)
+		return 0;
+	size_t nlen = strlen(needle);
+	for (; *haystack; haystack++) {
+		if (strncasecmp(haystack, needle, nlen) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+// The libretro options API has no restart-required flag; every shipped core
+// that has restart-only options marks them with "restart" or "reload" in the
+// label or info text (audited against workspace/*/cores/src). Options that
+// can't take effect while a game is running stay in the pre-launch editor
+// (options.elf) and are hidden from the in-game menu.
+static int Option_requiresRestart(Option* option) {
+	static const char* words[] = {"restart", "reload", NULL};
+	for (int i = 0; words[i]; i++) {
+		if (containsCI(option->name, words[i]) || containsCI(option->desc, words[i]) || containsCI(option->full, words[i]))
+			return 1;
+	}
+	return 0;
+}
+
+static int OptionEmulator_optionChanged(MenuList* list, int i) {
+	MenuItem* item = &list->items[i];
+	// sets config.core.changed; the core picks the new value up through
+	// RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE on its next frame
+	OptionList_setOptionRawValue(&config.core, item->key, item->value);
+	return MENU_CALLBACK_NOP;
+}
+
+static int OptionEmulator_optionDetail(MenuList* list, int i);
+
+static MenuList OptionEmulator_menu = {
+	.type = MENU_FIXED,
+	.on_confirm = OptionEmulator_optionDetail, // TODO: this needs pagination to be truly useful
+	.on_change = OptionEmulator_optionChanged,
+	.items = NULL,
+};
+
+static int OptionEmulator_optionDetail(MenuList* list, int i) {
+	MenuItem* item = &list->items[i];
+
+	if (item->values == NULL) {
+		// This is a category item
+		// Display the corresponding submenu
+		list->category = item->key;
+
+		int prev_enabled_count = config.core.enabled_count;
+		Option** prev_enabled = config.core.enabled_options;
+		MenuItem* prev_items = OptionEmulator_menu.items;
+
+		OptionEmulator_openMenu(list, 0);
+		list->category = NULL;
+
+		config.core.enabled_count = prev_enabled_count;
+		config.core.enabled_options = prev_enabled;
+		OptionEmulator_menu.items = prev_items;
+		return MENU_CALLBACK_NOP;
+	} else {
+		Option* option = OptionList_getOption(&config.core, item->key);
+		if (option->full)
+			return Menu_messageWithFont(option->full, (char*[]){"B", "BACK", NULL}, font.medium);
+		else
+			return MENU_CALLBACK_NOP;
+	}
+}
+
+static int OptionEmulator_visible(Option* option) {
+	return !option->lock && !option->hidden && !Option_requiresRestart(option);
+}
+
+int OptionEmulator_openMenu(MenuList* list, int index) {
+	if (list->category == NULL) {
+		if (core.update_visibility_callback) {
+			core.update_visibility_callback();
+		}
+	}
+
+	int enabled_count = 0;
+	config.core.enabled_options = calloc(config.core.count + 1, sizeof(Option*));
+	for (int i = 0; i < config.core.count; i++) {
+		Option* item = &config.core.options[i];
+
+		if (!OptionEmulator_visible(item)) {
+			continue;
+		}
+		// Restrict to the current category
+		if (list->category == NULL && item->category) {
+			continue;
+		}
+		if (list->category && (item->category == NULL || strcmp(item->category, list->category))) {
+			continue;
+		}
+
+		config.core.enabled_options[enabled_count++] = item;
+	}
+	config.core.enabled_count = enabled_count;
+	config.core.enabled_options = realloc(config.core.enabled_options, sizeof(Option*) * (enabled_count + 1));
+
+	// If we are at the top level, add the categories — but only those with at
+	// least one visible option, since the restart filter can empty one out
+	int cat_count = 0;
+	OptionCategory** cats = NULL;
+
+	if (list->category == NULL && config.core.categories) {
+		int total = 0;
+		while (config.core.categories[total].key)
+			total++;
+		cats = calloc(total + 1, sizeof(OptionCategory*));
+		for (int c = 0; c < total; c++) {
+			OptionCategory* cat = &config.core.categories[c];
+			for (int i = 0; i < config.core.count; i++) {
+				Option* item = &config.core.options[i];
+				if (OptionEmulator_visible(item) && item->category && !strcmp(item->category, cat->key)) {
+					cats[cat_count++] = cat;
+					break;
+				}
+			}
+		}
+	}
+
+	OptionEmulator_menu.items = calloc(cat_count + config.core.enabled_count + 1, sizeof(MenuItem));
+
+	for (int i = 0; i < cat_count; i++) {
+		OptionCategory* cat = cats[i];
+		MenuItem* item = &OptionEmulator_menu.items[i];
+		item->key = cat->key;
+		item->name = cat->desc;
+		item->desc = cat->info;
+	}
+
+	for (int i = 0; i < config.core.enabled_count; i++) {
+		Option* option = config.core.enabled_options[i];
+		MenuItem* item = &OptionEmulator_menu.items[cat_count + i];
+		item->key = option->key;
+		item->name = option->name;
+		item->desc = option->desc;
+		item->value = option->value;
+		item->values = option->labels;
+	}
+
+	if (cat_count || config.core.enabled_count) {
+		Menu_options(&OptionEmulator_menu);
+	} else {
+		if (list->category) {
+			Menu_message("This category has no options.", (char*[]){"B", "BACK", NULL});
+		} else {
+			Menu_message("This core has no options that\ncan be changed while running.", (char*[]){"B", "BACK", NULL});
+		}
+	}
+
+	free(cats);
+	free(OptionEmulator_menu.items);
+	free(config.core.enabled_options);
+	OptionEmulator_menu.items = NULL;
+	config.core.enabled_count = 0;
+	config.core.enabled_options = NULL;
+
+	return MENU_CALLBACK_NOP;
+}
+
 // Block until the user presses a button, then record it (plus MENU as a
 // modifier) into item/button. Shared by the controls and shortcuts binders.
 static int OptionBind_pollLoop(MenuItem* item, ButtonMapping* button) {

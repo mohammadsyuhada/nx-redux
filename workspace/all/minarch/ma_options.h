@@ -12,6 +12,8 @@ void OptionList_vars(const struct retro_variable* vars);
 void OptionList_reset(void);
 
 // OptionList accessors (called from Config_* and frontend)
+Option* OptionList_getOption(OptionList* list, const char* key);
 char* OptionList_getOptionValue(OptionList* list, const char* key);
 void OptionList_setOptionValue(OptionList* list, const char* key, const char* value);
+void OptionList_setOptionRawValue(OptionList* list, const char* key, int value);
 void OptionList_setOptionVisibility(OptionList* list, const char* key, int visible);

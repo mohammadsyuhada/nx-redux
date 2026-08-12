@@ -296,7 +296,7 @@ void OptionList_reset(void) {
 	}
 }
 
-static Option* OptionList_getOption(OptionList* list, const char* key) {
+Option* OptionList_getOption(OptionList* list, const char* key) {
 	for (int i = 0; i < list->count; i++) {
 		Option* item = &list->options[i];
 		if (!strcmp(item->key, key))
@@ -316,6 +316,15 @@ char* OptionList_getOptionValue(OptionList* list, const char* key) {
 	}
 	// else LOG_warn("unknown option %s \n", key);
 	return NULL;
+}
+void OptionList_setOptionRawValue(OptionList* list, const char* key, int value) {
+	Option* item = OptionList_getOption(list, key);
+	if (item) {
+		item->value = value;
+		list->changed = 1;
+		if (exactMatch((char*)core.tag, "GB") && containsString(item->key, "palette"))
+			Special_updatedDMGPalette(3); // from options
+	}
 }
 // Core option batching (toggled via minarch_beginOptionsBatch/endOptionsBatch).
 // While batching, OptionList_setOptionValue records that something changed but

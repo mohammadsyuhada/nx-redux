@@ -95,6 +95,31 @@ static bool str_eq_nocase(const char* a, const char* b) {
 	return *a == *b;
 }
 
+// Grow the item's parallel value/label/svalue arrays to hold at least `need`
+// entries. On a partial realloc failure value_cap is left unchanged, so the
+// arrays may disagree in capacity but every slot below value_cap stays valid.
+static int item_reserve_values(EmuOvlItem* item, int need) {
+	if (need <= item->value_cap)
+		return 1;
+	int cap = item->value_cap ? item->value_cap : 8;
+	while (cap < need)
+		cap *= 2;
+	int* nv = realloc(item->values, (size_t)cap * sizeof(*nv));
+	if (!nv)
+		return 0;
+	item->values = nv;
+	char** nl = realloc(item->labels, (size_t)cap * sizeof(*nl));
+	if (!nl)
+		return 0;
+	item->labels = nl;
+	char** ns = realloc(item->svalues, (size_t)cap * sizeof(*ns));
+	if (!ns)
+		return 0;
+	item->svalues = ns;
+	item->value_cap = cap;
+	return 1;
+}
+
 // ---------------------------------------------------------------------------
 // JSON loading
 // ---------------------------------------------------------------------------
@@ -128,57 +153,39 @@ static void parse_item(const cJSON* json_item, EmuOvlItem* item) {
 			item->type = EMU_OVL_TYPE_BOOL;
 	}
 
-	// values array (for cycle type)
+	// values/labels arrays, sized to the actual schema content. For cycle
+	// items values[] holds numbers; for enum items values[] holds strings —
+	// svalues owns them and the internal int value is simply the index into
+	// that array. labels[] is positional either way, backfilled with the value
+	// string (enum) or "" (cycle) where the schema gave no label.
 	item->value_count = 0;
 	const cJSON* values_arr = cJSON_GetObjectItemCaseSensitive(json_item, "values");
-	if (cJSON_IsArray(values_arr)) {
-		int count = cJSON_GetArraySize(values_arr);
-		if (count > EMU_OVL_MAX_VALUES)
-			count = EMU_OVL_MAX_VALUES;
+	const cJSON* labels_arr = cJSON_GetObjectItemCaseSensitive(json_item, "labels");
+	int count = cJSON_IsArray(values_arr) ? cJSON_GetArraySize(values_arr) : 0;
+	if (count > 0 && item_reserve_values(item, count)) {
 		for (int i = 0; i < count; i++) {
 			const cJSON* v = cJSON_GetArrayItem(values_arr, i);
-			if (cJSON_IsNumber(v))
-				item->values[i] = v->valueint;
-		}
-		item->value_count = count;
-	}
-
-	// labels array (for cycle type)
-	const cJSON* labels_arr = cJSON_GetObjectItemCaseSensitive(json_item, "labels");
-	if (cJSON_IsArray(labels_arr)) {
-		int count = cJSON_GetArraySize(labels_arr);
-		if (count > EMU_OVL_MAX_VALUES)
-			count = EMU_OVL_MAX_VALUES;
-		for (int i = 0; i < count; i++) {
-			const cJSON* l = cJSON_GetArrayItem(labels_arr, i);
-			if (cJSON_IsString(l) && l->valuestring)
-				safe_strcpy(item->labels[i], sizeof(item->labels[i]), l->valuestring);
-		}
-	}
-
-	// enum type: values[] holds strings; svalues owns them and the internal
-	// int value is simply the index into that array
-	if (item->type == EMU_OVL_TYPE_ENUM) {
-		item->value_count = 0;
-		if (cJSON_IsArray(values_arr)) {
-			int count = cJSON_GetArraySize(values_arr);
-			if (count > EMU_OVL_MAX_VALUES)
-				count = EMU_OVL_MAX_VALUES;
-			for (int i = 0; i < count; i++) {
-				const cJSON* v = cJSON_GetArrayItem(values_arr, i);
-				if (cJSON_IsString(v) && v->valuestring)
-					item->svalues[item->value_count] = strdup(v->valuestring);
-				else
-					item->svalues[item->value_count] = strdup("");
-				// labels[] was already filled positionally above; backfill the
-				// value string where the schema gave no label
-				if (item->labels[item->value_count][0] == '\0')
-					safe_strcpy(item->labels[item->value_count],
-								sizeof(item->labels[item->value_count]),
-								item->svalues[item->value_count]);
-				item->values[item->value_count] = item->value_count;
-				item->value_count++;
+			const cJSON* l = cJSON_IsArray(labels_arr) ? cJSON_GetArrayItem(labels_arr, i) : NULL;
+			const char* lstr = (cJSON_IsString(l) && l->valuestring) ? l->valuestring : NULL;
+			int n = item->value_count;
+			if (item->type == EMU_OVL_TYPE_ENUM) {
+				const char* vstr = (cJSON_IsString(v) && v->valuestring) ? v->valuestring : "";
+				item->svalues[n] = strdup(vstr);
+				item->labels[n] = strdup(lstr && *lstr ? lstr : vstr);
+				item->values[n] = n;
+				if (!item->svalues[n] || !item->labels[n]) {
+					free(item->svalues[n]);
+					free(item->labels[n]);
+					break;
+				}
+			} else {
+				item->svalues[n] = NULL;
+				item->labels[n] = strdup(lstr ? lstr : "");
+				item->values[n] = cJSON_IsNumber(v) ? v->valueint : 0;
+				if (!item->labels[n])
+					break;
 			}
+			item->value_count++;
 		}
 	}
 
@@ -303,17 +310,19 @@ int emu_ovl_cfg_load(EmuOvlConfig* cfg, const char* json_path) {
 void emu_ovl_cfg_free(EmuOvlConfig* cfg) {
 	if (!cfg)
 		return;
-	// Release enum value strings; the memset below nulls the pointers so a
-	// second free is a no-op.
+	// Release the heap value/label/svalue storage; the memset below nulls the
+	// pointers so a second free is a no-op.
 	for (int s = 0; s < cfg->section_count; s++) {
 		EmuOvlSection* sec = &cfg->sections[s];
 		for (int i = 0; i < sec->item_count; i++) {
-			for (int v = 0; v < EMU_OVL_MAX_VALUES; v++) {
-				if (sec->items[i].svalues[v]) {
-					free(sec->items[i].svalues[v]);
-					sec->items[i].svalues[v] = NULL;
-				}
+			EmuOvlItem* item = &sec->items[i];
+			for (int v = 0; v < item->value_count; v++) {
+				free(item->labels[v]);
+				free(item->svalues[v]);
 			}
+			free(item->values);
+			free(item->labels);
+			free(item->svalues);
 		}
 	}
 	memset(cfg, 0, sizeof(*cfg));
@@ -549,23 +558,49 @@ int emu_ovl_cfg_enum_intern(EmuOvlItem* item, const char* value) {
 	for (int i = 0; i < item->value_count; i++)
 		if (strcmp(item->svalues[i], value) == 0)
 			return i;
-	if (item->value_count >= EMU_OVL_MAX_VALUES)
+	if (!item_reserve_values(item, item->value_count + 1))
 		return -1;
 	int i = item->value_count;
 	item->svalues[i] = strdup(value);
-	safe_strcpy(item->labels[i], sizeof(item->labels[i]), value);
+	item->labels[i] = strdup(value);
 	item->values[i] = i;
+	if (!item->svalues[i] || !item->labels[i]) {
+		free(item->svalues[i]);
+		free(item->labels[i]);
+		return -1;
+	}
 	item->value_count++;
 	return i;
+}
+
+const char* emu_ovl_cfg_value_str(const EmuOvlItem* item, int value, char* buf, int buf_size) {
+	if (!buf || buf_size <= 0)
+		return "";
+	buf[0] = '\0';
+	if (!item)
+		return buf;
+	// ENUM value strings are arbitrary-length core strings and minarch matches
+	// them by exact strcmp — return the stored string itself so a fixed-size
+	// caller buffer can never silently truncate what lands in a cfg file.
+	if (item->type == EMU_OVL_TYPE_ENUM) {
+		if (item->value_count <= 0)
+			return buf;
+		if (value < 0)
+			value = 0;
+		else if (value >= item->value_count)
+			value = item->value_count - 1;
+		return item->svalues[value];
+	}
+	emu_ovl_cfg_format_value(item, value, buf, buf_size);
+	return buf;
 }
 
 // Helper: write a single item's value to file. The "key = value" spacing is
 // load-bearing — flycast's ConfigFile::save() writes exactly this and
 // DC.pak/launch.sh's sed patterns ("^$key =") match on it.
 static void write_item_value(FILE* out, const EmuOvlItem* item) {
-	char value[64];
-	emu_ovl_cfg_format_value(item, item->staged_value, value, sizeof(value));
-	fprintf(out, "%s = %s\n", item->key, value);
+	char buf[64];
+	fprintf(out, "%s = %s\n", item->key, emu_ovl_cfg_value_str(item, item->staged_value, buf, sizeof(buf)));
 }
 
 // Dirty item tracking with its target INI section name

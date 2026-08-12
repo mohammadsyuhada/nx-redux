@@ -16,8 +16,11 @@ char* OptsSchema_fromVars(const struct retro_variable* vars, const char* emulato
 // -1 on I/O error.
 int OptsSchema_writeFile(const char* path, const char* json);
 
-// Caps tied to the pre-launch editor's raised limits — keep in lockstep with
-// the -DEMU_OVL_MAX_* values in workspace/all/emu-options/Makefile.
+// Section/item caps tied to the pre-launch editor's raised limits — keep in
+// lockstep with the -DEMU_OVL_MAX_* values in workspace/all/emu-options/
+// Makefile. Value lists are NOT capped (the editor heap-allocates them);
+// OPTS_SCHEMA_MAX_VALUES survives only as the int-range threshold: numeric
+// lists longer than this become "int" range items, shorter ones stay enums.
 #define OPTS_SCHEMA_MAX_SECTIONS 32
 #define OPTS_SCHEMA_MAX_ITEMS_PER_SECTION 64
 #define OPTS_SCHEMA_MAX_VALUES 32

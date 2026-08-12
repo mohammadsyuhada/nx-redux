@@ -9,9 +9,6 @@
 #ifndef EMU_OVL_MAX_ITEMS
 #define EMU_OVL_MAX_ITEMS 32
 #endif
-#ifndef EMU_OVL_MAX_VALUES
-#define EMU_OVL_MAX_VALUES 16
-#endif
 #ifndef EMU_OVL_MAX_STR
 #define EMU_OVL_MAX_STR 128
 #endif
@@ -33,12 +30,18 @@ typedef struct {
 	char label[EMU_OVL_MAX_STR];
 	char description[EMU_OVL_MAX_DESC];
 	EmuOvlItemType type;
-	int values[EMU_OVL_MAX_VALUES];
-	char labels[EMU_OVL_MAX_VALUES][EMU_OVL_MAX_STR];
-	// ENUM only: heap-owned value strings (index == the item's internal int
-	// value). NULL for other types. Freed by emu_ovl_cfg_free.
-	char* svalues[EMU_OVL_MAX_VALUES];
+	// Per-item value lists are heap-allocated to their actual size (there is
+	// no compile-time cap — gambatte's palette enum alone has 325 values) and
+	// grown by emu_ovl_cfg_enum_intern. All three arrays share value_cap and
+	// are freed by emu_ovl_cfg_free. Invariants for i < value_count:
+	// labels[i] is never NULL (may be ""); svalues[i] is the heap-owned value
+	// string for ENUM items (index == the item's internal int value) and NULL
+	// for every other type.
+	int* values;
+	char** labels;
+	char** svalues;
 	int value_count;
+	int value_cap;
 	int int_min, int_max, int_step;
 	int float_scale; // >0: INI value is float; multiply by scale to get int, divide when writing
 	int default_value;
@@ -95,5 +98,11 @@ void emu_ovl_cfg_format_value(const EmuOvlItem* item, int value, char* out, int 
 // ENUM only: index of `value` in svalues, appending it (label = the value
 // string) when absent and there is room. -1 when full or not an enum.
 int emu_ovl_cfg_enum_intern(EmuOvlItem* item, const char* value);
+
+// The exact string a cfg/INI write must carry for `value`: for ENUM items a
+// pointer to the stored (arbitrary-length) value string, for everything else
+// `buf` filled via emu_ovl_cfg_format_value. Use this — not format_value —
+// when writing to files, so long enum values can never truncate.
+const char* emu_ovl_cfg_value_str(const EmuOvlItem* item, int value, char* buf, int buf_size);
 
 #endif

@@ -57,6 +57,7 @@ int Menu_message(char* message, char** pairs);
 char* getSaveDesc(void);
 
 int OptionFrontend_openMenu(MenuList* list, int i);
+int OptionEmulator_openMenu(MenuList* list, int i);
 int OptionShaders_openMenu(MenuList* list, int i);
 int OptionCheats_openMenu(MenuList* list, int i);
 int OptionControls_openMenu(MenuList* list, int i);

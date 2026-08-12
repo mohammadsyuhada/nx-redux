@@ -30,13 +30,15 @@ the core `.so`.
   (with whatever DIP set the last-launched game registered). Every other
   shipped core registers at `retro_set_environment`/`retro_init` and gets a
   schema on the very first editor open, before any launch.
-- **Value lists cap at 32 entries** (`EMU_OVL_MAX_VALUES`, raised via `-D`
-  in this module's Makefile — keep in lockstep with `OPTS_SCHEMA_MAX_*` in
-  `ma_opts_schema.h`). Long label-less arithmetic integer lists (vice's
-  crop/color sliders) are emitted as `int` ranges instead, which sidesteps
-  the cap; labeled long lists truncate, but the serializer always keeps the
-  core's default among the kept values so a per-game save can never
-  silently change an untouched option.
+- **Value lists are uncapped** — per-item value/label arrays are
+  heap-allocated to actual size (`item_reserve_values`,
+  `emu_overlay_cfg.c`), so even gambatte's 325-palette enum is emitted and
+  edited in full. Long label-less arithmetic integer lists (vice's
+  crop/color sliders) are still emitted as `int` ranges — a slider beats a
+  100-entry cycle. A cfg value missing from the schema list (stale cache,
+  hand-edited file, newer core) is interned as an extra entry at load
+  (`emu_ovl_cfg_enum_intern`), so it displays truthfully and survives a
+  full per-game snapshot instead of silently reverting to the default.
 - **Locked options** (`-key = value` in any cfg layer) are hidden from the
   editor and their lines pass through writes byte-for-byte. Paks use this
   to pin options away from users (e.g. GBA.pak locks `gpsp_save_method`).

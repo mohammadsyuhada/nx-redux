@@ -1,8 +1,7 @@
 // Host-side tests for ma_opts_schema.c (the options.json serializer).
-// Build+run (NOTE -DEMU_OVL_MAX_VALUES must match workspace/all/emu-options/
-// Makefile so the truncation round-trip tests see the device value cap):
+// Build+run:
 //   cd workspace/all/emu-options/tests && mkdir -p build && \
-//   cc -std=gnu99 -Wall -DEMU_OVL_MAX_VALUES=32 -o build/test_opts_schema test_opts_schema.c \
+//   cc -std=gnu99 -Wall -o build/test_opts_schema test_opts_schema.c \
 //      ../../minarch/ma_opts_schema.c ../../common/emu_overlay_cfg.c ../../common/cjson/cJSON.c \
 //      -I.. -I../../common -I../../minarch -I../../minarch/libretro-common/include && \
 //   ./build/test_opts_schema
@@ -178,14 +177,14 @@ static void test_int_range_detection(void) {
 	defs[2].default_value = "10";
 	fill_numeric_values(defs[2].values, pool_step, 40, 0, 5);
 
-	// 4) 40 values but one non-canonical ("007") -> stays enum, truncated to 32
+	// 4) 40 values but one non-canonical ("007") -> stays enum, emitted in full
 	defs[3].key = "tc_noncanon";
 	defs[3].desc = "Non Canonical";
 	defs[3].default_value = "0";
 	fill_numeric_values(defs[3].values, pool_bad, 40, 0, 1);
 	snprintf(pool_bad[7], 16, "007");
 
-	// 5) 40 numeric values but one custom label -> stays enum, truncated to 32
+	// 5) 40 numeric values but one custom label -> stays enum, emitted in full
 	defs[4].key = "tc_labeled";
 	defs[4].desc = "Labeled";
 	defs[4].default_value = "0";
@@ -218,11 +217,11 @@ static void test_int_range_detection(void) {
 	jit = find_json_item(root, "tc_noncanon");
 	assert(jit);
 	assert(strcmp(cJSON_GetObjectItemCaseSensitive(jit, "type")->valuestring, "enum") == 0);
-	assert(cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(jit, "values")) == 32); // existing truncation
+	assert(cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(jit, "values")) == 40); // no truncation
 	jit = find_json_item(root, "tc_labeled");
 	assert(jit);
 	assert(strcmp(cJSON_GetObjectItemCaseSensitive(jit, "type")->valuestring, "enum") == 0);
-	assert(cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(jit, "values")) == 32);
+	assert(cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(jit, "values")) == 40);
 	cJSON_Delete(root);
 
 	// editor-side checks: the emitted int items load end-to-end
@@ -295,13 +294,12 @@ static void test_int_range_detection(void) {
 	free(json);
 }
 
-// Truncated enums must keep the core's default representable: when the
-// default sits past the OPTS_SCHEMA_MAX_VALUES cut it takes over the last
-// kept slot (value + label), otherwise parse_item's default lookup misses,
-// a fresh editor shows values[0], and a full per-game snapshot writes that
-// wrong value into the game cfg. Real case: vice_vicii_color_brightness,
-// 100 values "20".."2000" step 20 with % labels, default "1000".
-static void test_truncation_preserves_default(void) {
+// Long labeled enums are emitted and loaded IN FULL — value lists have no
+// cap since the editor heap-allocates them per item. This is the round-trip
+// that used to truncate at 32 (and needed a default-rescue hack); real
+// cases: vice_vicii_color_brightness (100 labeled values, default "1000" at
+// index 49) and gambatte_gb_internal_palette (325 values).
+static void test_long_enums_emitted_in_full(void) {
 	system("rm -rf " ROOT);
 	system("mkdir -p " ROOT);
 
@@ -333,24 +331,22 @@ static void test_truncation_preserves_default(void) {
 	EmuOvlItem* it = find_loaded_item(&cfg, "tc_bright_pct");
 	assert(it);
 	assert(it->type == EMU_OVL_TYPE_ENUM);
-	assert(it->value_count == 32);
+	assert(it->value_count == 100); // whole list survives the round trip
 	int di = it->default_value;
-	assert(di >= 0 && di < it->value_count);
+	assert(di == 49);							  // "1000" at its true position
 	assert(strcmp(it->svalues[di], "1000") == 0); // default representable
 	assert(strcmp(it->labels[di], "50%") == 0);	  // and its label survives
-	assert(di == 31);							  // in the last kept slot
-	// the head of the list is still the original head
+	// head and tail intact
 	assert(strcmp(it->svalues[0], "20") == 0);
 	assert(strcmp(it->labels[0], "1%") == 0);
-	assert(strcmp(it->svalues[30], "620") == 0);
+	assert(strcmp(it->svalues[99], "2000") == 0);
+	assert(strcmp(it->labels[99], "100%") == 0);
 
-	// default already among the kept values: plain truncation, tail unchanged
 	it = find_loaded_item(&cfg, "tc_bright_kept");
 	assert(it);
-	assert(it->value_count == 32);
+	assert(it->value_count == 100);
 	assert(it->default_value == 0);
-	assert(strcmp(it->svalues[31], "640") == 0);
-	assert(strcmp(it->labels[31], "32%") == 0);
+	assert(strcmp(it->svalues[99], "2000") == 0);
 
 	emu_ovl_cfg_free(&cfg);
 	free(json);
@@ -361,7 +357,7 @@ int main(void) {
 	test_v1_and_write_if_changed();
 	test_vars();
 	test_int_range_detection();
-	test_truncation_preserves_default();
+	test_long_enums_emitted_in_full();
 	printf("test_opts_schema: all tests passed\n");
 	return 0;
 }

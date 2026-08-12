@@ -115,10 +115,9 @@ int opts_write_override(EmuOvlConfig* cfg, const OptsOverrideState* st, const ch
 				if (item->staged_value == st->global_value[s2][i])
 					continue;
 				char value[64];
-				emu_ovl_cfg_format_value(item, item->staged_value, value, sizeof(value));
 				// single spaces around '=' are load-bearing: flycast and
 				// DC.pak/launch.sh's sed patterns both expect "key = value"
-				fprintf(f, "%s = %s\n", item->key, value);
+				fprintf(f, "%s = %s\n", item->key, emu_ovl_cfg_value_str(item, item->staged_value, value, sizeof(value)));
 				written++;
 			}
 		}

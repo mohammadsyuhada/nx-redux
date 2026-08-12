@@ -72,12 +72,13 @@
 // How long a terminal message stays up before the process moves on (ms).
 #define OPTS_MESSAGE_MS 2000
 
-// EmuOvlConfig is ~11 MB at this binary's raised limits (32 sections x 64
-// items x a ~5 KB item — see the Makefile's -DEMU_OVL_MAX_* line) and the
-// two state structs another ~20 KB. None of that belongs on any stack, and
-// as BSS it costs nothing until touched: zero-fill pages are only committed
-// on write, and this is a standalone process that lives for one edit session
-// and exits.
+// EmuOvlConfig is ~2 MB at this binary's raised limits (32 sections x 64
+// items x a ~1 KB item — see the Makefile's -DEMU_OVL_MAX_* line; value
+// lists live on the heap, sized to actual content) and the two state
+// structs another ~20 KB. None of that belongs on any stack, and as BSS it
+// costs nothing until touched: zero-fill pages are only committed on write,
+// and this is a standalone process that lives for one edit session and
+// exits.
 static EmuOvlConfig cfg;
 static OptsOverrideState st;
 static OptsMinarchState mst;

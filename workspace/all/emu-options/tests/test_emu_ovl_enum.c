@@ -89,6 +89,18 @@ static void test_parse_format_intern(void) {
 	assert(strcmp(it->svalues[3], "21:9") == 0);
 	assert(strcmp(it->labels[3], "21:9") == 0);
 	assert(emu_ovl_cfg_enum_intern(it, "21:9") == 3); // idempotent
+
+	// value lists have no cap: intern grows the heap arrays arbitrarily far
+	// (well past the old 32-entry fixed-array limit)
+	char name[32];
+	for (int i = 0; i < 400; i++) {
+		snprintf(name, sizeof(name), "grown-%d", i);
+		assert(emu_ovl_cfg_enum_intern(it, name) == 4 + i);
+	}
+	assert(it->value_count == 404);
+	assert(strcmp(it->svalues[403], "grown-399") == 0);
+	assert(emu_ovl_cfg_enum_intern(it, "grown-0") == 4); // still idempotent
+	assert(strcmp(it->svalues[0], "auto") == 0);		 // originals untouched
 	emu_ovl_cfg_free(&cfg);
 }
 

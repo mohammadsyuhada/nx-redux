@@ -2,13 +2,14 @@
 // Build+run (NOTE the -D limits: must match workspace/all/emu-options/Makefile):
 //   cd workspace/all/emu-options/tests && mkdir -p build && \
 //   cc -std=gnu99 -Wall -DEMU_OVL_MAX_SECTIONS=32 -DEMU_OVL_MAX_ITEMS=64 \
-//      -DEMU_OVL_MAX_VALUES=32 -DEMU_OVL_MAX_DESC=512 \
+//      -DEMU_OVL_MAX_DESC=512 \
 //      -o build/test_opts_minarch test_opts_minarch.c ../opts_minarch.c ../opts_override.c \
 //      ../../common/emu_overlay_cfg.c ../../common/cjson/cJSON.c -I.. -I../../common && \
 //   ./build/test_opts_minarch
 // The EmuOvlConfig test locals are static: at these -D limits the struct is
-// ~11 MB, far past the 8 MB default stack. Safe because every use starts
-// with emu_ovl_cfg_load/opts_minarch_load, which memset their structs.
+// ~2 MB (value lists live on the heap), close to the 8 MB default stack
+// once several coexist. Safe because every use starts with
+// emu_ovl_cfg_load/opts_minarch_load, which memset their structs.
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
