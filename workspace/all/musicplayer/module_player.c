@@ -70,6 +70,26 @@ static void player_show_toast(const char* msg) {
 // Screen off state (module-local)
 static bool screen_off = false;
 
+// Play history: what actually played, in order, so prev retraces shuffled
+// playback instead of stepping current_index-1. Fed by try_load_and_play
+// (the single funnel every track transition goes through).
+#define TRACK_HISTORY_MAX 32
+static char track_history[TRACK_HISTORY_MAX][512];
+static int track_history_count = 0;
+static bool history_retracing = false; // prev in progress: don't re-push
+static char now_playing_path[512] = "";
+
+static void history_push(const char* path) {
+	if (!path || !path[0])
+		return;
+	if (track_history_count == TRACK_HISTORY_MAX) {
+		memmove(track_history[0], track_history[1],
+				sizeof(track_history[0]) * (TRACK_HISTORY_MAX - 1));
+		track_history_count--;
+	}
+	snprintf(track_history[track_history_count++], sizeof(track_history[0]), "%s", path);
+}
+
 // Resume: M3U playlist path (set by PlaylistModule before runWithPlaylist)
 static char resume_playlist_path[512] = "";
 
@@ -106,6 +126,14 @@ static void init_player(void) {
 // Try to load and play a track, returns true on success
 static bool try_load_and_play(const char* path) {
 	if (Player_load(path) == 0) {
+		// Record the outgoing track (skip when retracing via prev, and on
+		// repeat-replays of the same file)
+		if (!history_retracing && now_playing_path[0] &&
+			strcmp(now_playing_path, path) != 0) {
+			history_push(now_playing_path);
+		}
+		snprintf(now_playing_path, sizeof(now_playing_path), "%s", path);
+
 		Player_play();
 		const TrackInfo* info = Player_getTrackInfo();
 
@@ -229,6 +257,8 @@ static void cleanup_playback(bool quit_spectrum) {
 	}
 	Playlist_free(&playlist);
 	playlist_active = false;
+	track_history_count = 0;
+	now_playing_path[0] = '\0';
 	ModuleCommon_setAutosleepDisabled(false);
 }
 
@@ -777,12 +807,21 @@ bool PlayerModule_isActive(void) {
 // Play next track (for USB HID button support)
 void PlayerModule_nextTrack(void) {
 	if (playlist_active) {
-		int new_idx = Playlist_next(&playlist);
+		// Shuffle applies to manual skips too, not just natural track end
+		int new_idx = shuffle_enabled ? Playlist_shuffle(&playlist)
+									  : Playlist_next(&playlist);
 		if (new_idx >= 0) {
 			Player_stop();
 			playlist_try_play(new_idx);
 		}
 	} else if (initialized) {
+		if (shuffle_enabled) {
+			if (Browser_countAudioFiles(&browser) > 1) {
+				Player_stop();
+				browser_pick_random();
+			}
+			return;
+		}
 		for (int i = MusicBrowser_view()->selected + 1; i < browser.entry_count; i++) {
 			if (!browser.entries[i].is_dir) {
 				Player_stop();
@@ -796,6 +835,43 @@ void PlayerModule_nextTrack(void) {
 
 // Play previous track (for USB HID button support)
 void PlayerModule_prevTrack(void) {
+	// Shuffle: retrace the actually-played history instead of index-1.
+	// Entries whose file vanished (deleted, playlist changed) are skipped.
+	if (shuffle_enabled && track_history_count > 0) {
+		while (track_history_count > 0) {
+			const char* prev_path = track_history[--track_history_count];
+			if (playlist_active) {
+				for (int i = 0; i < playlist.track_count; i++) {
+					if (strcmp(playlist.tracks[i].path, prev_path) == 0) {
+						playlist.current_index = i;
+						Player_stop();
+						history_retracing = true;
+						bool ok = playlist_try_play(i);
+						history_retracing = false;
+						if (ok)
+							return;
+						break;
+					}
+				}
+			} else if (initialized) {
+				for (int i = 0; i < browser.entry_count; i++) {
+					if (!browser.entries[i].is_dir &&
+						strcmp(browser.entries[i].path, prev_path) == 0) {
+						Player_stop();
+						MusicBrowser_view()->selected = i;
+						history_retracing = true;
+						bool ok = try_load_and_play(prev_path);
+						history_retracing = false;
+						if (ok)
+							return;
+						break;
+					}
+				}
+			}
+		}
+		return; // history exhausted: don't also jump sequentially
+	}
+
 	if (playlist_active) {
 		int new_idx = Playlist_prev(&playlist);
 		if (new_idx >= 0) {
