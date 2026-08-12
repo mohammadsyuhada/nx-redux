@@ -26,6 +26,10 @@ int M3U_create(const char* name);
 // Delete a playlist file. Returns 0 on success.
 int M3U_delete(const char* m3u_path);
 
+// Rename a playlist file to "<new_name>.m3u" in PLAYLISTS_DIR.
+// Refuses to overwrite an existing playlist. Returns 0 on success.
+int M3U_rename(const char* m3u_path, const char* new_name);
+
 // Append a track to an .m3u file. Returns 0 on success.
 int M3U_addTrack(const char* m3u_path, const char* track_path, const char* display_name);
 

@@ -73,10 +73,9 @@ void render_settings_menu(SDL_Surface* screen, IndicatorType show_setting, int m
 						menu_selected == SETTINGS_ITEM_RESAMPLER ||
 						menu_selected == SETTINGS_ITEM_BUFFER);
 
-	UI_renderButtonHintBar(screen, (char*[]){
-									   "MENU", "CONTROLS",
-									   "B", "BACK",
-									   is_cyclable ? "LEFT/RIGHT" : "A",
-									   is_cyclable ? "CHANGE" : "OPEN",
-									   NULL});
+	// Left/Right leads when shown: the d-pad sits on the device's left side
+	if (is_cyclable)
+		UI_renderButtonHintBar(screen, (char*[]){"LEFT/RIGHT", "CHANGE", "B", "BACK", NULL});
+	else
+		UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "OPEN", NULL});
 }

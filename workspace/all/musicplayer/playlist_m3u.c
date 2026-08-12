@@ -103,6 +103,23 @@ int M3U_delete(const char* m3u_path) {
 	return unlink(m3u_path);
 }
 
+int M3U_rename(const char* m3u_path, const char* new_name) {
+	if (!m3u_path || !new_name || !new_name[0])
+		return -1;
+
+	char new_path[512];
+	snprintf(new_path, sizeof(new_path), "%s/%s.m3u", PLAYLISTS_DIR, new_name);
+
+	if (strcmp(new_path, m3u_path) == 0)
+		return 0;
+
+	// Don't overwrite an existing playlist
+	if (access(new_path, F_OK) == 0)
+		return -1;
+
+	return rename(m3u_path, new_path);
+}
+
 int M3U_addTrack(const char* m3u_path, const char* track_path, const char* display_name) {
 	if (!m3u_path || !track_path)
 		return -1;

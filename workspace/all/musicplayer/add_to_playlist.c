@@ -2,6 +2,7 @@
 #include <string.h>
 #include "api.h"
 #include "add_to_playlist.h"
+#include "playlist.h"
 #include "playlist_m3u.h"
 #include "ui_keyboard.h"
 #include "ui_listdialog.h"
@@ -9,6 +10,7 @@
 
 // Internal state
 static bool active = false;
+static bool is_folder = false; // track_path is a directory: add all audio under it
 static char track_path[512];
 static char track_display_name[256];
 
@@ -46,6 +48,7 @@ void AddToPlaylist_open(const char* path, const char* display_name) {
 		return;
 
 	M3U_init();
+	is_folder = false;
 	snprintf(track_path, sizeof(track_path), "%s", path);
 	snprintf(track_display_name, sizeof(track_display_name), "%s",
 			 display_name ? display_name : "");
@@ -56,6 +59,46 @@ void AddToPlaylist_open(const char* path, const char* display_name) {
 	populate_items();
 
 	active = true;
+}
+
+void AddToPlaylist_openFolder(const char* dir_path, const char* display_name) {
+	AddToPlaylist_open(dir_path, display_name);
+	if (active)
+		is_folder = true;
+}
+
+// Add every audio file under track_path (a directory) to the playlist.
+// Returns the number of tracks actually added (duplicates skipped).
+static int add_folder_tracks(const char* m3u_path) {
+	PlaylistContext ctx = {0};
+	int n = Playlist_buildFromDirectory(&ctx, track_path, "");
+	int added = 0;
+	for (int i = 0; i < n; i++) {
+		const PlaylistTrack* t = Playlist_getTrack(&ctx, i);
+		if (t && M3U_addTrack(m3u_path, t->path, t->name) == 0)
+			added++;
+	}
+	Playlist_free(&ctx);
+	return added;
+}
+
+// Add the pending track/folder to the playlist at `m3u_path` named `name`,
+// and set the result toast.
+static void add_to(const char* m3u_path, const char* name) {
+	if (is_folder) {
+		int added = add_folder_tracks(m3u_path);
+		if (added > 0)
+			snprintf(toast_msg, sizeof(toast_msg), "Added %d track%s to %s",
+					 added, added == 1 ? "" : "s", name);
+		else
+			snprintf(toast_msg, sizeof(toast_msg), "Already in %s", name);
+	} else if (M3U_containsTrack(m3u_path, track_path)) {
+		snprintf(toast_msg, sizeof(toast_msg), "Already in %s", name);
+	} else {
+		M3U_addTrack(m3u_path, track_path, track_display_name);
+		snprintf(toast_msg, sizeof(toast_msg), "Added to %s", name);
+	}
+	toast_time = SDL_GetTicks();
 }
 
 bool AddToPlaylist_isActive(void) {
@@ -84,9 +127,7 @@ int AddToPlaylist_handleInput(void) {
 				if (M3U_create(name) == 0) {
 					char new_path[512];
 					snprintf(new_path, sizeof(new_path), "%s/%s.m3u", PLAYLISTS_DIR, name);
-					M3U_addTrack(new_path, track_path, track_display_name);
-					snprintf(toast_msg, sizeof(toast_msg), "Added to %s", name);
-					toast_time = SDL_GetTicks();
+					add_to(new_path, name);
 				}
 				free(name);
 			}
@@ -94,14 +135,7 @@ int AddToPlaylist_handleInput(void) {
 			// Existing playlist
 			int idx = result.index - 1;
 			if (idx >= 0 && idx < playlist_count) {
-				if (M3U_containsTrack(playlists[idx].path, track_path)) {
-					snprintf(toast_msg, sizeof(toast_msg), "Already in %s", playlists[idx].name);
-					toast_time = SDL_GetTicks();
-				} else {
-					M3U_addTrack(playlists[idx].path, track_path, track_display_name);
-					snprintf(toast_msg, sizeof(toast_msg), "Added to %s", playlists[idx].name);
-					toast_time = SDL_GetTicks();
-				}
+				add_to(playlists[idx].path, playlists[idx].name);
 			}
 		}
 		ListDialog_quit();

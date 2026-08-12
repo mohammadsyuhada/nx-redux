@@ -72,9 +72,13 @@ void render_radio_list(SDL_Surface* screen, IndicatorType show_setting,
 	v->ctx = stations;
 	v->list_id = (const void*)stations;
 	v->empty_title = "No stations saved";
-	v->empty_subtitle = "Press Y to manage stations";
-	v->empty_y_label = "MANAGE";
-	v->hint_pairs = (char*[]){"MENU", "CONTROLS", "B", "BACK", "A", "PLAY", NULL};
+	v->empty_subtitle = "Press A to manage stations";
+	v->empty_y_label = NULL;
+	// Empty state carries all hints; the bottom bar only appears with content
+	v->empty_btn_pairs = (char*[]){"B", "BACK", "A", "MANAGE", NULL};
+	v->hint_pairs = (station_count > 0)
+						? (char*[]){"B", "BACK", "A", "PLAY", NULL}
+						: NULL;
 	UI_listViewRender(v, screen);
 
 	// Show note for users using default stations (no custom stations yet)
@@ -88,7 +92,7 @@ void render_radio_list(SDL_Surface* screen, IndicatorType show_setting,
 			SDL_FreeSurface(note1_surf);
 		}
 
-		const char* note2 = "Press Y to manage stations";
+		const char* note2 = "Press MENU to manage stations";
 		SDL_Surface* note2_surf = TTF_RenderUTF8_Blended(font.tiny, note2, COLOR_GRAY);
 		if (note2_surf) {
 			SDL_BlitSurface(note2_surf, NULL, screen, &(SDL_Rect){(hw - note2_surf->w) / 2, note_y + SCALE1(14)});
@@ -337,7 +341,7 @@ void render_radio_add(SDL_Surface* screen, IndicatorType show_setting) {
 	v->ctx = (void*)countries;
 	v->list_id = (const void*)countries;
 	v->empty_title = NULL; // curated catalog is never empty
-	v->hint_pairs = (char*[]){"MENU", "CONTROLS", "B", "BACK", "A", "SELECT", NULL};
+	v->hint_pairs = (char*[]){"B", "BACK", "A", "SELECT", NULL};
 	UI_listViewRender(v, screen);
 }
 
@@ -443,7 +447,7 @@ void render_radio_add_stations(SDL_Surface* screen, IndicatorType show_setting,
 	UI_renderToast(screen, toast_message, toast_time);
 
 	// Button hints - dynamic based on whether selected station is already added
-	UI_renderButtonHintBar(screen, (char*[]){"MENU", "CONTROLS", "B", "BACK", "A", selected_exists ? "REMOVE" : "ADD", NULL});
+	UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", selected_exists ? "REMOVE" : "ADD", NULL});
 }
 
 // Render help/instructions screen
@@ -559,7 +563,7 @@ void render_radio_help(SDL_Surface* screen, IndicatorType show_setting, int* hel
 	}
 
 	// Button hints
-	UI_renderButtonHintBar(screen, (char*[]){"MENU", "CONTROLS", "B", "BACK", NULL});
+	UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", NULL});
 }
 
 // === GPU STATUS AND BUFFER INDICATOR ===

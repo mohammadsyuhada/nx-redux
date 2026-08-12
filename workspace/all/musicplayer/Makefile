@@ -63,7 +63,7 @@ SOURCE = $(TARGET).c player.c playlist.c playlist_m3u.c radio.c radio_net.c albu
          ../include/parson/parson.c \
          ../include/mbedtls_entropy_alt.c \
          $(MBEDTLS_SRC) \
-         ../common/utils.c ../common/api.c ../common/audio_manager.c ../common/config.c ../common/scaler.c ../common/display_helper.c ../common/wifi.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_toast.c $(UI_DIR)/ui_list.c $(UI_LISTVIEW_SRCS) $(UI_DIR)/ui_listdialog.c $(UI_DIR)/ui_keyboard.c ../common/wget_fetch.c \
+         ../common/utils.c ../common/api.c ../common/audio_manager.c ../common/config.c ../common/scaler.c ../common/display_helper.c ../common/wifi.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_toast.c $(UI_DIR)/ui_list.c $(UI_LISTVIEW_SRCS) $(UI_DIR)/ui_listdialog.c $(UI_DIR)/ui_keyboard.c $(UI_DIR)/ui_contextmenu.c ../common/wget_fetch.c \
          ../../$(PLATFORM)/platform/platform.c
 
 CC = $(CROSS_COMPILE)gcc

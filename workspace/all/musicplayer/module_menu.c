@@ -14,6 +14,23 @@
 static char menu_toast_message[128] = "";
 static uint32_t menu_toast_time = 0;
 
+// Context-menu item ids
+#define MENU_CTX_CLEAR 1 // Stop Playback / Clear History (same as X on row 0)
+
+// Stop background playback or clear the resume entry (X on row 0, and the
+// matching context-menu item).
+static void clear_first_item(int first_item_mode, bool* dirty) {
+	if (first_item_mode == MENU_FIRST_NOW_PLAYING) {
+		Background_stopAll();
+		GFX_clearLayers(LAYER_SCROLLTEXT);
+		*dirty = 1;
+	} else if (first_item_mode == MENU_FIRST_RESUME) {
+		Resume_clear();
+		GFX_clearLayers(LAYER_SCROLLTEXT);
+		*dirty = 1;
+	}
+}
+
 int MenuModule_run(SDL_Surface* screen) {
 	bool dirty = true;
 	IndicatorType show_setting = INDICATOR_NONE;
@@ -44,10 +61,22 @@ int MenuModule_run(SDL_Surface* screen) {
 		}
 		bool has_first = (first_item_mode != MENU_FIRST_NONE);
 
+		// Context menu for this page
+		ContextMenuItem ctx_items[2];
+		int ctx_count = 0;
+		if (first_item_mode == MENU_FIRST_NOW_PLAYING)
+			ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Stop Playback", MENU_CTX_CLEAR);
+		else if (first_item_mode == MENU_FIRST_RESUME)
+			ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Clear History", MENU_CTX_CLEAR);
+		ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+
 		// Handle global input first (volume, START dialogs, power)
-		GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, 0);
+		GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, 0, ctx_items, ctx_count);
 		if (global.should_quit) {
 			return MENU_QUIT;
+		}
+		if (global.context_id == MENU_CTX_CLEAR) {
+			clear_first_item(first_item_mode, &dirty);
 		}
 		if (global.input_consumed) {
 			if (global.dirty)
@@ -72,22 +101,8 @@ int MenuModule_run(SDL_Surface* screen) {
 			GFX_clearLayers(LAYER_SCROLLTEXT);
 			// Exit app from main menu
 			return MENU_QUIT;
-		case LISTVIEW_BUTTON:
-			if (act.btn == BTN_X && act.index == 0) {
-				if (first_item_mode == MENU_FIRST_NOW_PLAYING) {
-					// Stop background playback
-					Background_stopAll();
-					GFX_clearLayers(LAYER_SCROLLTEXT);
-					dirty = 1;
-				} else if (first_item_mode == MENU_FIRST_RESUME) {
-					// Clear resume history
-					Resume_clear();
-					GFX_clearLayers(LAYER_SCROLLTEXT);
-					dirty = 1;
-				}
-			}
-			break;
 		default:
+			// Stop/clear moved to the context menu (MENU tap)
 			break;
 		}
 		if (UI_listViewBusy(v))

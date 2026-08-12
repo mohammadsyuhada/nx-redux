@@ -7,6 +7,10 @@
 // Open the add-to-playlist dialog for a track
 void AddToPlaylist_open(const char* track_path, const char* display_name);
 
+// Open the add-to-playlist dialog for a folder: every audio file under it
+// (recursive, browser sort order) is added to the chosen playlist.
+void AddToPlaylist_openFolder(const char* dir_path, const char* display_name);
+
 // Check if the dialog is currently active
 bool AddToPlaylist_isActive(void);
 

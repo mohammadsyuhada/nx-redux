@@ -41,9 +41,14 @@ ModuleExitReason SettingsModule_run(SDL_Surface* screen) {
 		GFX_startFrame();
 		PAD_poll();
 
+		// Context menu for this page
+		ContextMenuItem ctx_items[1];
+		int ctx_count = 0;
+		ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+
 		// Handle global input first
 		int app_state = SETTINGS_INTERNAL_MENU;
-		GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, app_state);
+		GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, app_state, ctx_items, ctx_count);
 		if (global.should_quit) {
 			return MODULE_EXIT_QUIT;
 		}

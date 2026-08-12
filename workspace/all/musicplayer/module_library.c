@@ -35,7 +35,7 @@ static void render_library_menu(SDL_Surface* screen) {
 	v->get_row = library_get_row;
 	v->ctx = (void*)library_items;
 	v->list_id = (const void*)library_items;
-	v->hint_pairs = (char*[]){"MENU", "CONTROLS", "B", "BACK", "A", "OPEN", NULL};
+	v->hint_pairs = (char*[]){"B", "BACK", "A", "OPEN", NULL};
 	UI_listViewRender(v, screen);
 }
 
@@ -52,8 +52,13 @@ ModuleExitReason LibraryModule_run(SDL_Surface* screen) {
 		GFX_startFrame();
 		PAD_poll();
 
+		// Context menu for this page
+		ContextMenuItem ctx_items[1];
+		int ctx_count = 0;
+		ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+
 		// Handle global input
-		GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, LIBRARY_MENU_HELP_STATE);
+		GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, LIBRARY_MENU_HELP_STATE, ctx_items, ctx_count);
 		if (global.should_quit) {
 			return MODULE_EXIT_QUIT;
 		}

@@ -4,8 +4,8 @@
 #include "api.h"
 #include "defines.h"
 
-void UI_renderEmptyState(SDL_Surface* screen, const char* message,
-						 const char* subtitle, const char* y_button_label) {
+void UI_renderEmptyStateButtons(SDL_Surface* screen, const char* message,
+								const char* subtitle, char** btn_pairs) {
 	int hw = screen->w;
 	int hh = screen->h;
 
@@ -56,8 +56,16 @@ void UI_renderEmptyState(SDL_Surface* screen, const char* message,
 
 	// Buttons (centered, like confirm dialog)
 	y += SCALE1(BUTTON_MARGIN);
+	if (btn_pairs)
+		UI_renderCenteredButtons(screen, y, btn_pairs);
+}
+
+void UI_renderEmptyState(SDL_Surface* screen, const char* message,
+						 const char* subtitle, const char* y_button_label) {
 	if (y_button_label)
-		UI_renderCenteredButtons(screen, y, (char*[]){"B", "BACK", "Y", (char*)y_button_label, NULL});
+		UI_renderEmptyStateButtons(screen, message, subtitle,
+								   (char*[]){"B", "BACK", "Y", (char*)y_button_label, NULL});
 	else
-		UI_renderCenteredButtons(screen, y, (char*[]){"B", "BACK", NULL});
+		UI_renderEmptyStateButtons(screen, message, subtitle,
+								   (char*[]){"B", "BACK", NULL});
 }

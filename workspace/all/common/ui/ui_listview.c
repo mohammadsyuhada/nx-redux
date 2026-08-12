@@ -118,6 +118,13 @@ ListViewAction UI_listViewHandleInput(ListView* v) {
 		a.type = LISTVIEW_ACTIVATED;
 		return a;
 	}
+	if (PAD_justPressed(BTN_A) && v->count == 0) {
+		// Empty list: report A as a button so empty-state actions (e.g. an
+		// advertised A/NEW) can fire; index is already -1.
+		a.type = LISTVIEW_BUTTON;
+		a.btn = BTN_A;
+		return a;
+	}
 	if (PAD_justPressed(BTN_B)) {
 		a.type = LISTVIEW_BACK;
 		return a;
@@ -200,9 +207,14 @@ void UI_listViewRender(ListView* v, SDL_Surface* screen) {
 
 	if (v->count == 0) {
 		v->last_visible = 0;
-		if (v->empty_title)
-			UI_renderEmptyState(screen, v->empty_title, v->empty_subtitle,
-								v->empty_y_label);
+		if (v->empty_title) {
+			if (v->empty_btn_pairs)
+				UI_renderEmptyStateButtons(screen, v->empty_title,
+										   v->empty_subtitle, v->empty_btn_pairs);
+			else
+				UI_renderEmptyState(screen, v->empty_title, v->empty_subtitle,
+									v->empty_y_label);
+		}
 		if (v->hint_pairs)
 			UI_renderButtonHintBar(screen, v->hint_pairs);
 		return;

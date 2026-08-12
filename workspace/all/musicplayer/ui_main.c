@@ -97,27 +97,16 @@ void render_menu(SDL_Surface* screen, IndicatorType show_setting,
 	v->get_row = main_menu_get_row;
 	v->ctx = (void*)items;
 	v->list_id = (const void*)items;
-	v->hint_pairs = (char*[]){"MENU", "CONTROLS", "B", "EXIT", "A", "OPEN", NULL};
+	v->hint_pairs = (char*[]){"B", "EXIT", "A", "OPEN", NULL};
 	UI_listViewRender(v, screen);
 
 	// Toast notification
 	UI_renderToast(screen, toast_message, toast_time);
 }
 
-// Controls help text for each page/state
-
-// Main menu controls (A/B shown in footer)
-static const ControlHelp main_menu_controls[] = {
-	{"Up/Down", "Navigate"},
-	{"X", "Clear History/Playback"},
-	{NULL, NULL}};
-
-// File browser controls (A/B shown in footer)
-static const ControlHelp browser_controls[] = {
-	{"Up/Down", "Navigate"},
-	{"Y", "Add to Playlist"},
-	{"X", "Delete File"},
-	{NULL, NULL}};
+// Controls help text. Only the playing pages still surface this modal
+// (MENU on the music player; the "Playback Controls" context-menu item on
+// the radio/podcast players) — list pages use the context menu instead.
 
 // Music player controls (A/B shown in footer)
 static const ControlHelp player_controls[] = {
@@ -132,70 +121,12 @@ static const ControlHelp player_controls[] = {
 	{"Select + A", "Wake Screen"},
 	{NULL, NULL}};
 
-// Radio list controls (A/B shown in footer)
-static const ControlHelp radio_list_controls[] = {
-	{"Up/Down", "Navigate"},
-	{"Y", "Manage Stations"},
-	{"X", "Delete Station"},
-	{NULL, NULL}};
-
 // Radio playing controls (B shown in footer)
 static const ControlHelp radio_playing_controls[] = {
 	{"Up/R1", "Next Station"},
 	{"Down/L1", "Prev Station"},
 	{"Select", "Screen Off"},
 	{"Select + A", "Wake Screen"},
-	{NULL, NULL}};
-
-// Radio manage stations controls - country list (A/B shown in footer)
-static const ControlHelp radio_manage_controls[] = {
-	{"Up/Down", "Navigate"},
-	{"Y", "Manual Setup Help"},
-	{NULL, NULL}};
-
-// Radio browse stations controls - station list (A/B shown in footer)
-static const ControlHelp radio_browse_controls[] = {
-	{"Up/Down", "Navigate"},
-	{"A", "Add/Remove Station"},
-	{"Y", "Manual Setup Help"},
-	{NULL, NULL}};
-
-// Podcast menu controls (shows subscribed podcasts)
-static const ControlHelp podcast_menu_controls[] = {
-	{"Up/Down", "Navigate"},
-	{"X", "Unsubscribe"},
-	{"Y", "Manage Podcasts"},
-	{NULL, NULL}};
-
-// Podcast manage menu controls
-static const ControlHelp podcast_manage_controls[] = {
-	{"Up/Down", "Navigate"},
-	{NULL, NULL}};
-
-// Podcast subscriptions list controls
-static const ControlHelp podcast_subscriptions_controls[] = {
-	{"Up/Down", "Navigate"},
-	{"X", "Unsubscribe"},
-	{NULL, NULL}};
-
-// Podcast top shows controls
-static const ControlHelp podcast_top_shows_controls[] = {
-	{"Up/Down", "Navigate"},
-	{"A", "Subscribe/Unsubscribe"},
-	{"X", "Refresh List"},
-	{NULL, NULL}};
-
-// Podcast search results controls
-static const ControlHelp podcast_search_controls[] = {
-	{"Up/Down", "Navigate"},
-	{"A", "Subscribe/Unsubscribe"},
-	{NULL, NULL}};
-
-// Podcast episodes list controls
-static const ControlHelp podcast_episodes_controls[] = {
-	{"Up/Down", "Navigate"},
-	{"Y", "Refresh Episodes"},
-	{"X", "Mark Played/Unplayed"},
 	{NULL, NULL}};
 
 // Podcast playing controls
@@ -205,28 +136,6 @@ static const ControlHelp podcast_playing_controls[] = {
 	{"Up/Down", "Playback Speed"},
 	{"Select", "Screen Off"},
 	{"Select + A", "Wake Screen"},
-	{NULL, NULL}};
-
-// Playlist list controls (A/B shown in footer)
-static const ControlHelp playlist_list_controls[] = {
-	{"Up/Down", "Navigate"},
-	{"X", "Delete Playlist"},
-	{NULL, NULL}};
-
-// Playlist detail controls (A/B shown in footer)
-static const ControlHelp playlist_detail_controls[] = {
-	{"Up/Down", "Navigate"},
-	{"X", "Remove Track"},
-	{NULL, NULL}};
-
-// About page controls (A/B shown in footer)
-static const ControlHelp about_controls[] = {
-	{NULL, NULL}};
-
-// Settings menu controls
-static const ControlHelp settings_controls[] = {
-	{"Up/Down", "Navigate"},
-	{"Left/Right", "Change Value"},
 	{NULL, NULL}};
 
 // Generic/default controls
@@ -239,89 +148,17 @@ void render_controls_help(SDL_Surface* screen, int app_state) {
 	const char* page_title;
 
 	switch (app_state) {
-	case 0: // STATE_MENU
-		controls = main_menu_controls;
-		page_title = "Main Menu";
-		break;
-	case 1: // STATE_BROWSER
-		controls = browser_controls;
-		page_title = "File Browser";
-		break;
 	case 2: // STATE_PLAYING
 		controls = player_controls;
 		page_title = "Music Player";
-		break;
-	case 3: // STATE_RADIO_LIST
-		controls = radio_list_controls;
-		page_title = "Radio Stations";
 		break;
 	case 4: // STATE_RADIO_PLAYING
 		controls = radio_playing_controls;
 		page_title = "Radio Player";
 		break;
-	case 5: // STATE_RADIO_ADD
-		controls = radio_manage_controls;
-		page_title = "Manage Stations";
-		break;
-	case 6: // STATE_RADIO_ADD_STATIONS
-		controls = radio_browse_controls;
-		page_title = "Browse Stations";
-		break;
-	case 30: // PODCAST_INTERNAL_MENU
-		controls = podcast_menu_controls;
-		page_title = "Podcasts";
-		break;
-	case 31: // PODCAST_INTERNAL_MANAGE
-		controls = podcast_manage_controls;
-		page_title = "Manage Podcasts";
-		break;
-	case 32: // PODCAST_INTERNAL_SUBSCRIPTIONS
-		controls = podcast_subscriptions_controls;
-		page_title = "Subscriptions";
-		break;
-	case 33: // PODCAST_INTERNAL_TOP_SHOWS
-		controls = podcast_top_shows_controls;
-		page_title = "Top Shows";
-		break;
-	case 34: // PODCAST_INTERNAL_SEARCH_RESULTS
-		controls = podcast_search_controls;
-		page_title = "Search Results";
-		break;
-	case 35: // PODCAST_INTERNAL_EPISODES
-		controls = podcast_episodes_controls;
-		page_title = "Episodes";
-		break;
-	case 36: // PODCAST_INTERNAL_BUFFERING
-		controls = default_controls;
-		page_title = "Buffering";
-		break;
 	case 37: // PODCAST_INTERNAL_PLAYING
 		controls = podcast_playing_controls;
 		page_title = "Podcast Player";
-		break;
-	case 23: // STATE_ABOUT
-		controls = about_controls;
-		page_title = "About";
-		break;
-	case 40: // SETTINGS_INTERNAL_MENU
-		controls = settings_controls;
-		page_title = "Settings";
-		break;
-	case 50: // PLAYLIST_LIST_HELP_STATE
-		controls = playlist_list_controls;
-		page_title = "Playlists";
-		break;
-	case 51: // PLAYLIST_DETAIL_HELP_STATE
-		controls = playlist_detail_controls;
-		page_title = "Playlist Tracks";
-		break;
-	case 55: // LIBRARY_MENU_HELP_STATE
-		controls = main_menu_controls;
-		page_title = "Library";
-		break;
-	case 41: // SETTINGS_INTERNAL_ABOUT
-		controls = about_controls;
-		page_title = "About";
 		break;
 	default:
 		controls = default_controls;

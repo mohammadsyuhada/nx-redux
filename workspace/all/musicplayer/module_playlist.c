@@ -46,6 +46,11 @@ static int confirm_target = -1;
 #define PLAYLIST_LIST_HELP_STATE 50
 #define PLAYLIST_DETAIL_HELP_STATE 51
 
+// Context-menu item ids
+#define PLAYLIST_CTX_RENAME 1		// list: rename selected playlist
+#define PLAYLIST_CTX_DELETE 2		// list: delete selected playlist (confirm)
+#define PLAYLIST_CTX_REMOVE_TRACK 3 // detail: remove selected track (confirm)
+
 static void refresh_playlists(void) {
 	playlist_count = M3U_listPlaylists(playlists, MAX_PLAYLISTS);
 }
@@ -59,6 +64,62 @@ static void refresh_detail(void) {
 static void show_toast(const char* msg) {
 	snprintf(playlist_toast_message, sizeof(playlist_toast_message), "%s", msg);
 	playlist_toast_time = SDL_GetTicks();
+}
+
+// New Playlist via the on-screen keyboard (Y anywhere, A on the empty list).
+// May swap *screen_p on TG5050 display recovery.
+static void create_playlist(SDL_Surface** screen_p) {
+	char* name = UIKeyboard_open("Playlist name");
+	PAD_poll();
+	PAD_reset();
+	{
+		SDL_Surface* ns = DisplayHelper_getReinitScreen();
+		if (ns)
+			*screen_p = ns;
+	}
+	if (name && name[0]) {
+		if (M3U_create(name) == 0) {
+			show_toast("Playlist created");
+			refresh_playlists();
+		} else {
+			show_toast("Already exists");
+		}
+	}
+	free(name);
+}
+
+// Rename the selected playlist via the on-screen keyboard.
+static void rename_playlist(SDL_Surface** screen_p, int idx) {
+	if (idx < 0 || idx >= playlist_count)
+		return;
+	char prompt[300];
+	snprintf(prompt, sizeof(prompt), "Rename: %s", playlists[idx].name);
+	char* name = UIKeyboard_open(prompt);
+	PAD_poll();
+	PAD_reset();
+	{
+		SDL_Surface* ns = DisplayHelper_getReinitScreen();
+		if (ns)
+			*screen_p = ns;
+	}
+	if (name && name[0]) {
+		if (M3U_rename(playlists[idx].path, name) == 0) {
+			show_toast("Playlist renamed");
+			refresh_playlists();
+			ListView* lv = PlaylistList_view();
+			UI_listViewReset(lv, playlist_count, playlists);
+			// Follow the renamed playlist to its new (sorted) position
+			for (int i = 0; i < playlist_count; i++) {
+				if (strcmp(playlists[i].name, name) == 0) {
+					lv->selected = i;
+					break;
+				}
+			}
+		} else {
+			show_toast("Already exists");
+		}
+	}
+	free(name);
 }
 
 ModuleExitReason PlaylistModule_run(SDL_Surface* screen) {
@@ -131,11 +192,57 @@ ModuleExitReason PlaylistModule_run(SDL_Surface* screen) {
 			continue;
 		}
 
+		// Context menu for the current page
+		ContextMenuItem ctx_items[4];
+		int ctx_count = 0;
+		if (state == PLAYLIST_INTERNAL_LIST) {
+			ListView* lv = PlaylistList_view();
+			if (playlist_count > 0 && lv->selected >= 0 && lv->selected < playlist_count) {
+				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Rename Playlist", PLAYLIST_CTX_RENAME);
+				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Delete Playlist", PLAYLIST_CTX_DELETE);
+			}
+		} else {
+			ListView* dv = PlaylistDetail_view();
+			if (detail_track_count > 0 && dv->selected >= 0 && dv->selected < detail_track_count)
+				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Remove from Playlist", PLAYLIST_CTX_REMOVE_TRACK);
+		}
+		ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+
 		// Handle global input
 		int app_state_for_help = (state == PLAYLIST_INTERNAL_LIST) ? PLAYLIST_LIST_HELP_STATE : PLAYLIST_DETAIL_HELP_STATE;
-		GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, app_state_for_help);
+		GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, app_state_for_help, ctx_items, ctx_count);
 		if (global.should_quit) {
 			return MODULE_EXIT_QUIT;
+		}
+		if (global.context_id > 0) {
+			switch (global.context_id) {
+			case PLAYLIST_CTX_RENAME:
+				rename_playlist(&screen, PlaylistList_view()->selected);
+				break;
+			case PLAYLIST_CTX_DELETE: {
+				int idx = PlaylistList_view()->selected;
+				if (idx >= 0 && idx < playlist_count) {
+					snprintf(confirm_name, sizeof(confirm_name), "%s", playlists[idx].name);
+					confirm_action = 0;
+					confirm_target = idx;
+					show_confirm = true;
+					GFX_clearLayers(LAYER_SCROLLTEXT);
+				}
+				break;
+			}
+			case PLAYLIST_CTX_REMOVE_TRACK: {
+				int idx = PlaylistDetail_view()->selected;
+				if (idx >= 0 && idx < detail_track_count) {
+					snprintf(confirm_name, sizeof(confirm_name), "%s", detail_tracks[idx].name);
+					confirm_action = 1;
+					confirm_target = idx;
+					show_confirm = true;
+					GFX_clearLayers(LAYER_SCROLLTEXT);
+				}
+				break;
+			}
+			}
+			dirty = 1;
 		}
 		if (global.input_consumed) {
 			if (global.dirty)
@@ -166,37 +273,12 @@ ModuleExitReason PlaylistModule_run(SDL_Surface* screen) {
 				GFX_clearLayers(LAYER_SCROLLTEXT);
 				return MODULE_EXIT_TO_MENU;
 			case LISTVIEW_BUTTON:
-				if (act.btn == BTN_Y) {
-					// New Playlist: works from the empty list too (act.index
-					// is -1 there)
-					char* name = UIKeyboard_open("Playlist name");
-					PAD_poll();
-					PAD_reset();
-					{
-						SDL_Surface* ns = DisplayHelper_getReinitScreen();
-						if (ns)
-							screen = ns;
-					}
-					if (name && name[0]) {
-						if (M3U_create(name) == 0) {
-							show_toast("Playlist created");
-							refresh_playlists();
-						} else {
-							show_toast("Already exists");
-						}
-						free(name);
-					} else if (name) {
-						free(name);
-					}
-					dirty = 1;
-				} else if (act.btn == BTN_X && act.index >= 0 &&
-						   act.index < playlist_count) {
-					// Delete playlist
-					snprintf(confirm_name, sizeof(confirm_name), "%s", playlists[act.index].name);
-					confirm_action = 0;
-					confirm_target = act.index;
-					show_confirm = true;
-					GFX_clearLayers(LAYER_SCROLLTEXT);
+				if (act.btn == BTN_Y ||
+					(act.btn == BTN_A && playlist_count == 0)) {
+					// New Playlist: Y anywhere, or A from the empty state
+					// (its hint advertises A/NEW; act.index is -1 there).
+					// Delete moved to the context menu (MENU tap).
+					create_playlist(&screen);
 					dirty = 1;
 				}
 				break;
@@ -232,19 +314,8 @@ ModuleExitReason PlaylistModule_run(SDL_Surface* screen) {
 				state = PLAYLIST_INTERNAL_LIST;
 				dirty = 1;
 				break;
-			case LISTVIEW_BUTTON:
-				if (act.btn == BTN_X && act.index >= 0 &&
-					act.index < detail_track_count) {
-					// Remove track
-					snprintf(confirm_name, sizeof(confirm_name), "%s", detail_tracks[act.index].name);
-					confirm_action = 1;
-					confirm_target = act.index;
-					show_confirm = true;
-					GFX_clearLayers(LAYER_SCROLLTEXT);
-					dirty = 1;
-				}
-				break;
 			default:
+				// Remove-track moved to the context menu (MENU tap)
 				break;
 			}
 		}

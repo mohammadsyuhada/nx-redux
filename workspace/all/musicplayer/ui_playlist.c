@@ -57,9 +57,13 @@ void render_playlist_list(SDL_Surface* screen, IndicatorType show_setting,
 	v->ctx = playlists;
 	v->list_id = (const void*)playlists;
 	v->empty_title = "No playlists saved";
-	v->empty_subtitle = "Press Y to create a playlist";
-	v->empty_y_label = "NEW";
-	v->hint_pairs = (char*[]){"MENU", "CONTROLS", "B", "BACK", "A", "SELECT", NULL};
+	v->empty_subtitle = "Press A to create a playlist";
+	v->empty_y_label = NULL;
+	// Empty state carries all hints; the bottom bar only appears with content
+	v->empty_btn_pairs = (char*[]){"B", "BACK", "A", "NEW", NULL};
+	v->hint_pairs = (count > 0)
+						? (char*[]){"B", "BACK", "A", "SELECT", NULL}
+						: NULL;
 	UI_listViewRender(v, screen);
 }
 

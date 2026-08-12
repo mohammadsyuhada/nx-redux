@@ -46,6 +46,10 @@ typedef struct {
 								// draws no empty-state visual (caller may)
 	const char* empty_subtitle; // optional second line
 	const char* empty_y_label;	// optional Y-button label on the empty state
+	char** empty_btn_pairs;		// optional centered button pairs for the empty
+								// state (e.g. {"A", "NEW", NULL}); overrides the
+								// default B/BACK (+ empty_y_label) set. Same
+								// lifetime rule as hint_pairs.
 	char** hint_pairs;			// UI_renderButtonHintBar pairs; NULL = caller draws.
 								// The array must outlive the UI_listViewRender call
 								// (function-scope or static; an if/else-branch-scoped
@@ -70,7 +74,8 @@ typedef struct {
 // LEFT/RIGHT page by the visible window, clamped. A => ACTIVATED{index},
 // B => BACK, MENU tap => MENU{index}, X/Y => BUTTON{btn,index}. Everything
 // else untouched, NONE returned. When the list is empty, B/MENU/X/Y still
-// report (index -1) so apps keep their empty-state actions.
+// report (index -1) so apps keep their empty-state actions, and A reports
+// BUTTON{BTN_A, -1} (empty states may advertise an A action, e.g. "NEW").
 ListViewAction UI_listViewHandleInput(ListView* v);
 
 // Render one frame. Does NOT clear the screen - callers GFX_clear first.

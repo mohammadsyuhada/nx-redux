@@ -54,8 +54,13 @@ void ModuleCommon_init(void) {
 	overlay_release_time = 0;
 }
 
-GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorType* show_setting, int app_state) {
-	GlobalInputResult result = {false, false, false};
+// app_state of the music Now Playing page (see module_player.c): the only
+// page where a MENU tap still opens the controls-help modal directly.
+#define APP_STATE_MUSIC_PLAYING 2
+
+GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorType* show_setting, int app_state,
+												 const ContextMenuItem* menu_items, int menu_count) {
+	GlobalInputResult result = {false, false, false, 0};
 
 	// Poll USB HID events (earphone buttons)
 	USBHIDEvent hid_event;
@@ -149,16 +154,59 @@ GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorT
 		}
 	}
 
-	// MENU tap toggles the controls-help modal. A long MENU press is the OSD
-	// (handled globally by keymon); PAD_tappedMenu only fires on a short release,
-	// so the two don't collide.
+	// Context menu (opened on a MENU tap below): consumes all input while open.
+	if (ContextMenu_isOpen()) {
+		// Keep the MENU-tap state machine ticking so it doesn't fire on stale
+		// state after close (mirrors nextui's main loop).
+		PAD_tappedMenu(SDL_GetTicks());
+
+		ContextMenuResult cmr = ContextMenu_handleInput();
+		if (cmr.action == CONTEXTMENU_SELECTED) {
+			if (cmr.id == CTX_ID_QUIT) {
+				result.should_quit = true;
+			} else if (cmr.id == CTX_ID_CONTROLS) {
+				show_controls_help = true;
+			} else {
+				result.context_id = cmr.id;
+			}
+			result.dirty = true;
+		} else if (cmr.action == CONTEXTMENU_CANCEL) {
+			result.dirty = true;
+		} else if (PAD_justRepeated(BTN_UP) || PAD_justRepeated(BTN_DOWN)) {
+			// Selection moved: redraw the overlay (main surface is untouched)
+			ContextMenu_render(screen);
+			PLAT_GPU_Flip();
+		}
+		result.input_consumed = true;
+		return result;
+	}
+
+	// MENU tap: on the music Now Playing page it toggles the controls-help
+	// modal (so lyric/visualizer shortcuts stay discoverable); everywhere else
+	// it opens the page's context menu. A long MENU press is the OSD (handled
+	// globally by keymon); PAD_tappedMenu only fires on a short release, so
+	// the two don't collide.
 	if (PAD_tappedMenu(SDL_GetTicks())) {
-		show_controls_help = !show_controls_help;
-		GFX_clearLayers(LAYER_SCROLLTEXT);
-		PLAT_clearLayers(LAYER_SPECTRUM);
-		PLAT_clearLayers(LAYER_PLAYTIME);
-		PLAT_GPU_Flip();
-		PlayTime_clear();
+		if (show_controls_help || app_state == APP_STATE_MUSIC_PLAYING) {
+			show_controls_help = !show_controls_help;
+			GFX_clearLayers(LAYER_SCROLLTEXT);
+			PLAT_clearLayers(LAYER_SPECTRUM);
+			PLAT_clearLayers(LAYER_PLAYTIME);
+			PLAT_GPU_Flip();
+			PlayTime_clear();
+		} else if (menu_count > 0) {
+			ContextMenu_open((ContextMenuItem*)menu_items, menu_count);
+			// Clear text/status GPU layers so they don't float above the
+			// menu's dim backdrop; they re-render after close.
+			// (LAYER_PLAYTIME shares its plane with LAYER_PODCAST_PROGRESS.)
+			GFX_clearLayers(LAYER_SCROLLTEXT);
+			PLAT_clearLayers(LAYER_SPECTRUM);
+			PLAT_clearLayers(LAYER_PLAYTIME);
+			PLAT_clearLayers(LAYER_BUFFER);
+			PlayTime_clear();
+			ContextMenu_render(screen);
+			PLAT_GPU_Flip();
+		}
 		result.input_consumed = true;
 		result.dirty = true;
 		return result;
@@ -196,6 +244,14 @@ GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorT
 	}
 
 	return result;
+}
+
+void ModuleCommon_ctxAdd(ContextMenuItem* items, int* count, const char* label, int id) {
+	if (*count >= CONTEXTMENU_MAX_ITEMS)
+		return;
+	snprintf(items[*count].label, CONTEXTMENU_MAX_TEXT, "%s", label);
+	items[*count].id = id;
+	(*count)++;
 }
 
 void ModuleCommon_setAutosleepDisabled(bool disabled) {

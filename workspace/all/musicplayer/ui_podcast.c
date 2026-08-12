@@ -455,7 +455,7 @@ void render_podcast_main_page(SDL_Surface* screen, IndicatorType show_setting,
 
 	// Empty state
 	if (total == 0) {
-		UI_renderEmptyState(screen, "No podcasts subscribed", "Press Y to manage podcasts", "MANAGE");
+		UI_renderEmptyStateButtons(screen, "No podcasts subscribed", "Press A to manage podcasts", (char*[]){"B", "BACK", "A", "MANAGE", NULL});
 		return;
 	}
 
@@ -661,13 +661,13 @@ void render_podcast_main_page(SDL_Surface* screen, IndicatorType show_setting,
 	// Button hints — context dependent
 	if (has_downloads_item && selected == cl_count + sub_count) {
 		// Downloads item selected
-		UI_renderButtonHintBar(screen, (char*[]){"MENU", "CONTROLS", "B", "BACK", "Y", "MANAGE", "A", "OPEN", NULL});
+		UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "OPEN", NULL});
 	} else if (selected < cl_count) {
 		// Continue listening item selected
-		UI_renderButtonHintBar(screen, (char*[]){"MENU", "CONTROLS", "B", "BACK", "Y", "MANAGE", "A", "PLAY", NULL});
+		UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "PLAY", NULL});
 	} else {
 		// Subscription item selected
-		UI_renderButtonHintBar(screen, (char*[]){"MENU", "CONTROLS", "B", "BACK", "Y", "MANAGE", "A", "SELECT", NULL});
+		UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "SELECT", NULL});
 	}
 
 	// Toast
@@ -700,7 +700,7 @@ void render_podcast_manage(SDL_Surface* screen, IndicatorType show_setting,
 	}
 
 	// Button hints
-	UI_renderButtonHintBar(screen, (char*[]){"MENU", "CONTROLS", "B", "BACK", "A", "SELECT", NULL});
+	UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "SELECT", NULL});
 }
 
 // Render Top Shows list
@@ -776,7 +776,7 @@ void render_podcast_top_shows(SDL_Surface* screen, IndicatorType show_setting,
 		selected_is_subscribed = Podcast_isSubscribedByItunesId(items[selected].itunes_id);
 	}
 
-	UI_renderButtonHintBar(screen, (char*[]){"MENU", "CONTROLS", "B", "BACK", "A", selected_is_subscribed ? "UNSUBSCRIBE" : "SUBSCRIBE", NULL});
+	UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", selected_is_subscribed ? "UNSUBSCRIBE" : "SUBSCRIBE", NULL});
 
 	// Toast notification
 	UI_renderToast(screen, toast_message, toast_time);
@@ -855,7 +855,7 @@ void render_podcast_search_results(SDL_Surface* screen, IndicatorType show_setti
 
 	UI_renderScrollIndicators(screen, *scroll, layout.items_per_page, count);
 
-	UI_renderButtonHintBar(screen, (char*[]){"MENU", "CONTROLS", "B", "BACK", "A", selected_is_subscribed ? "UNSUBSCRIBE" : "SUBSCRIBE", NULL});
+	UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", selected_is_subscribed ? "UNSUBSCRIBE" : "SUBSCRIBE", NULL});
 
 	// Toast notification
 	UI_renderToast(screen, toast_message, toast_time);
@@ -1262,7 +1262,7 @@ void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
 			? "CANCEL"
 		: selected_is_downloaded ? (selected_is_resumable ? "RESUME" : "PLAY")
 								 : "DOWNLOAD";
-	UI_renderButtonHintBar(screen, (char*[]){"MENU", "CONTROLS", "B", "BACK", "Y", "REFRESH", "A", (char*)action_label, NULL});
+	UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", (char*)action_label, NULL});
 
 	// Toast notification
 	UI_renderToast(screen, toast_message, toast_time);
@@ -1449,14 +1449,8 @@ void render_podcast_download_queue(SDL_Surface* screen, IndicatorType show_setti
 
 	char* hint_pairs[16];
 	int h = 0;
-	hint_pairs[h++] = "START";
-	hint_pairs[h++] = "CONTROLS";
 	hint_pairs[h++] = "B";
 	hint_pairs[h++] = "BACK";
-	if (queue_count > 0) {
-		hint_pairs[h++] = "X";
-		hint_pairs[h++] = "REMOVE";
-	}
 	hint_pairs[h] = NULL;
 	UI_renderButtonHintBar(screen, hint_pairs);
 

@@ -2,7 +2,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
+#include <dirent.h>
 #include <sys/stat.h>
 #include "defines.h"
 #include "api.h"
@@ -26,6 +28,7 @@
 #include "playlist_m3u.h"
 #include "background.h"
 #include "album_art.h"
+#include "ui_keyboard.h"
 
 // Music folder path
 #define MUSIC_PATH SDCARD_PATH "/Music"
@@ -44,10 +47,25 @@ static PlaylistContext playlist = {0};
 static bool playlist_active = false;
 static bool initialized = false;
 
+// Context-menu item ids (browser page)
+#define PLAYER_CTX_RENAME 1 // rename selected file/folder
+#define PLAYER_CTX_DELETE 2 // delete selected file/folder (confirm)
+#define PLAYER_CTX_ADD 3	// add selected file/folder to a playlist
+
 // Delete confirmation state
 static bool show_delete_confirm = false;
+static bool delete_target_is_dir = false;
 static char delete_target_path[512] = "";
 static char delete_target_name[256] = "";
+
+// Browser action toast (rename/delete feedback)
+static char player_toast_message[128] = "";
+static uint32_t player_toast_time = 0;
+
+static void player_show_toast(const char* msg) {
+	snprintf(player_toast_message, sizeof(player_toast_message), "%s", msg);
+	player_toast_time = SDL_GetTicks();
+}
 
 // Screen off state (module-local)
 static bool screen_off = false;
@@ -239,8 +257,87 @@ static bool build_and_start_playlist(const char* dir_path, const char* start_fil
 
 // Render delete confirmation dialog
 static void render_delete_dialog(SDL_Surface* screen) {
-	UI_renderConfirmDialog(screen, "Delete File?", delete_target_name);
+	UI_renderConfirmDialog(screen, delete_target_is_dir ? "Delete Folder?" : "Delete File?",
+						   delete_target_name);
 	GFX_flip(screen);
+}
+
+// Recursively delete a file or directory tree. Returns 0 on success.
+static int remove_recursive(const char* path) {
+	struct stat st;
+	if (lstat(path, &st) != 0)
+		return -1;
+	if (!S_ISDIR(st.st_mode))
+		return unlink(path);
+
+	DIR* d = opendir(path);
+	if (!d)
+		return -1;
+	int rc = 0;
+	struct dirent* ent;
+	while ((ent = readdir(d)) != NULL) {
+		if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+			continue;
+		char p[1024];
+		int n = snprintf(p, sizeof(p), "%s/%s", path, ent->d_name);
+		if (n < 0 || n >= (int)sizeof(p)) {
+			rc = -1;
+			continue;
+		}
+		if (remove_recursive(p) != 0)
+			rc = -1;
+	}
+	closedir(d);
+	if (rmdir(path) != 0)
+		rc = -1;
+	return rc;
+}
+
+// Rename the selected browser entry via the on-screen keyboard. Files keep
+// their original extension unless the typed name already ends with it.
+// May swap *screen_p on TG5050 display recovery.
+static void rename_browser_entry(SDL_Surface** screen_p, FileEntry* entry) {
+	char prompt[300];
+	snprintf(prompt, sizeof(prompt), "Rename: %s", entry->name);
+	char* newname = UIKeyboard_open(prompt);
+	PAD_poll();
+	PAD_reset();
+	{
+		SDL_Surface* ns = DisplayHelper_getReinitScreen();
+		if (ns)
+			*screen_p = ns;
+	}
+	if (!newname || !newname[0] || strchr(newname, '/')) {
+		free(newname);
+		return;
+	}
+
+	const char* ext = entry->is_dir ? NULL : strrchr(entry->name, '.');
+	if (!ext)
+		ext = "";
+	size_t nl = strlen(newname), el = strlen(ext);
+	bool has_ext = el > 0 && nl >= el && strcasecmp(newname + nl - el, ext) == 0;
+
+	char new_path[1024];
+	snprintf(new_path, sizeof(new_path), "%s/%s%s", browser.current_path,
+			 newname, has_ext ? "" : ext);
+
+	if (access(new_path, F_OK) == 0) {
+		player_show_toast("Already exists");
+	} else if (rename(entry->path, new_path) == 0) {
+		player_show_toast(entry->is_dir ? "Folder renamed" : "File renamed");
+		load_directory(browser.current_path);
+		ListView* v = MusicBrowser_view();
+		for (int i = 0; i < browser.entry_count; i++) {
+			if (strcmp(browser.entries[i].path, new_path) == 0) {
+				v->selected = i;
+				break;
+			}
+		}
+	} else {
+		player_show_toast("Rename failed");
+	}
+	free(newname);
 }
 
 // Handle USB/Bluetooth media button events
@@ -305,24 +402,8 @@ static bool handle_browser_input(PlayerInternalState* state, bool* dirty) {
 			}
 		}
 		break;
-	case LISTVIEW_BUTTON:
-		if (act.index >= 0 && act.index < browser.entry_count) {
-			FileEntry* entry = &browser.entries[act.index];
-			if (!entry->is_dir && !entry->is_play_all) {
-				if (act.btn == BTN_X) {
-					snprintf(delete_target_path, sizeof(delete_target_path), "%s", entry->path);
-					snprintf(delete_target_name, sizeof(delete_target_name), "%s", entry->name);
-					show_delete_confirm = true;
-					GFX_clearLayers(LAYER_SCROLLTEXT);
-					*dirty = 1;
-				} else if (act.btn == BTN_Y) {
-					AddToPlaylist_open(entry->path, entry->name);
-					*dirty = 1;
-				}
-			}
-		}
-		break;
 	default:
+		// Delete / add-to-playlist moved to the context menu (MENU tap)
 		break;
 	}
 
@@ -530,17 +611,23 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 		// Handle delete confirmation dialog (module-specific)
 		if (show_delete_confirm) {
 			if (PAD_justPressed(BTN_A)) {
-				if (unlink(delete_target_path) == 0) {
+				int ok = delete_target_is_dir ? remove_recursive(delete_target_path)
+											  : unlink(delete_target_path);
+				if (ok == 0) {
+					player_show_toast(delete_target_is_dir ? "Folder deleted" : "File deleted");
 					load_directory(browser.current_path);
 					ListView* v = MusicBrowser_view();
 					if (v->selected >= browser.entry_count) {
 						v->selected = browser.entry_count > 0 ? browser.entry_count - 1 : 0;
 					}
+				} else {
+					player_show_toast("Delete failed");
 				}
 			}
 			if (PAD_justPressed(BTN_A) || PAD_justPressed(BTN_B)) {
 				delete_target_path[0] = '\0';
 				delete_target_name[0] = '\0';
+				delete_target_is_dir = false;
 				show_delete_confirm = false;
 				dirty = 1;
 				continue;
@@ -554,11 +641,59 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 		// Handle global input (skip if screen off or hint active)
 		if (!screen_off && !ModuleCommon_isScreenOffHintActive()) {
 			int app_state_for_help = (state == PLAYER_INTERNAL_BROWSER) ? 1 : 2; // STATE_BROWSER=1, STATE_PLAYING=2
-			GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, app_state_for_help);
+
+			// Context menu for the browser page: acts on the selected entry
+			// (".." and "Play All" only get Quit App).
+			ContextMenuItem ctx_items[4];
+			int ctx_count = 0;
+			if (state == PLAYER_INTERNAL_BROWSER) {
+				ListView* v = MusicBrowser_view();
+				if (v->selected >= 0 && v->selected < browser.entry_count) {
+					FileEntry* e = &browser.entries[v->selected];
+					bool is_parent = e->is_dir && strcmp(e->name, "..") == 0;
+					if (!e->is_play_all && !is_parent) {
+						ModuleCommon_ctxAdd(ctx_items, &ctx_count,
+											e->is_dir ? "Rename Folder" : "Rename File", PLAYER_CTX_RENAME);
+						ModuleCommon_ctxAdd(ctx_items, &ctx_count,
+											e->is_dir ? "Delete Folder" : "Delete File", PLAYER_CTX_DELETE);
+						ModuleCommon_ctxAdd(ctx_items, &ctx_count,
+											e->is_dir ? "Add Folder to Playlist" : "Add to Playlist", PLAYER_CTX_ADD);
+					}
+				}
+				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+			}
+
+			GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, app_state_for_help,
+																	  ctx_items, ctx_count);
 			if (global.should_quit) {
 				cleanup_playback(true);
 				Browser_freeEntries(&browser);
 				return MODULE_EXIT_QUIT;
+			}
+			if (global.context_id > 0 && state == PLAYER_INTERNAL_BROWSER) {
+				ListView* v = MusicBrowser_view();
+				if (v->selected >= 0 && v->selected < browser.entry_count) {
+					FileEntry* entry = &browser.entries[v->selected];
+					switch (global.context_id) {
+					case PLAYER_CTX_RENAME:
+						rename_browser_entry(&screen, entry);
+						break;
+					case PLAYER_CTX_DELETE:
+						snprintf(delete_target_path, sizeof(delete_target_path), "%s", entry->path);
+						snprintf(delete_target_name, sizeof(delete_target_name), "%s", entry->name);
+						delete_target_is_dir = entry->is_dir;
+						show_delete_confirm = true;
+						GFX_clearLayers(LAYER_SCROLLTEXT);
+						break;
+					case PLAYER_CTX_ADD:
+						if (entry->is_dir)
+							AddToPlaylist_openFolder(entry->path, entry->name);
+						else
+							AddToPlaylist_open(entry->path, entry->name);
+						break;
+					}
+				}
+				dirty = 1;
 			}
 			if (global.input_consumed) {
 				if (global.dirty)
@@ -614,8 +749,15 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 				UI_renderToast(screen, atp_toast, AddToPlaylist_getToastTime());
 			}
 
+			// Browser action toast (rename/delete feedback)
+			if (player_toast_message[0]) {
+				UI_renderToast(screen, player_toast_message, player_toast_time);
+			}
+
 			GFX_flip(screen);
 			dirty = 0;
+
+			ModuleCommon_tickToast(player_toast_message, player_toast_time, &dirty);
 		} else if (!screen_off) {
 			// Idle marquee tick for the browser view (activate-after-delay +
 			// steady GPU scroll happen here, not via dirty).
@@ -732,7 +874,7 @@ ModuleExitReason PlayerModule_runWithPlaylist(SDL_Surface* screen,
 
 		// Handle global input (skip if screen off or hint active)
 		if (!screen_off && !ModuleCommon_isScreenOffHintActive()) {
-			GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, 2); // STATE_PLAYING=2
+			GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, 2, NULL, 0); // STATE_PLAYING=2
 			if (global.should_quit) {
 				Player_stop();
 				cleanup_album_art_background();
@@ -1002,7 +1144,7 @@ ModuleExitReason PlayerModule_runResume(SDL_Surface* screen, const ResumeState* 
 
 			// Handle global input
 			if (!screen_off && !ModuleCommon_isScreenOffHintActive()) {
-				GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, 2);
+				GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, 2, NULL, 0);
 				if (global.should_quit) {
 					Player_stop();
 					cleanup_album_art_background();

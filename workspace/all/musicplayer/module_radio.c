@@ -49,6 +49,11 @@ static char confirm_station_url[RADIO_MAX_URL] = "";
 // Help screen back-navigation
 static RadioInternalState help_return_state = RADIO_INTERNAL_ADD_COUNTRY;
 
+// Context-menu item ids
+#define RADIO_CTX_MANAGE 1 // list: browse/manage curated stations (same as Y)
+#define RADIO_CTX_DELETE 2 // list: delete selected station (same as X)
+#define RADIO_CTX_HELP 3   // add pages: manual setup help (same as Y)
+
 // Sorted station index mapping for alphabetical display
 static int sorted_station_indices[256];
 static int sorted_station_count = 0;
@@ -201,10 +206,68 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 				break;
 			}
 
-			GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, app_state_for_help);
+			// Context menu for the current page
+			ContextMenuItem ctx_items[4];
+			int ctx_count = 0;
+			switch (state) {
+			case RADIO_INTERNAL_LIST: {
+				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Manage Stations", RADIO_CTX_MANAGE);
+				RadioStation* st;
+				int sc = Radio_getStations(&st);
+				int sel = RadioList_view()->selected;
+				if (sc > 0 && sel >= 0 && sel < sc)
+					ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Delete Station", RADIO_CTX_DELETE);
+				break;
+			}
+			case RADIO_INTERNAL_PLAYING:
+				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Playback Controls", CTX_ID_CONTROLS);
+				break;
+			case RADIO_INTERNAL_ADD_COUNTRY:
+			case RADIO_INTERNAL_ADD_STATIONS:
+				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Manual Setup Help", RADIO_CTX_HELP);
+				break;
+			default:
+				break;
+			}
+			ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+
+			GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, app_state_for_help,
+																	  ctx_items, ctx_count);
 			if (global.should_quit) {
 				Radio_quit();
 				return MODULE_EXIT_QUIT;
+			}
+			if (global.context_id > 0) {
+				switch (global.context_id) {
+				case RADIO_CTX_MANAGE:
+					GFX_clearLayers(LAYER_SCROLLTEXT);
+					UI_listViewReset(RadioCountries_view(),
+									 Radio_getCuratedCountryCount(),
+									 Radio_getCuratedCountries());
+					state = RADIO_INTERNAL_ADD_COUNTRY;
+					break;
+				case RADIO_CTX_DELETE: {
+					RadioStation* st;
+					int sc = Radio_getStations(&st);
+					int sel = RadioList_view()->selected;
+					if (sel >= 0 && sel < sc) {
+						GFX_clearLayers(LAYER_SCROLLTEXT);
+						strncpy(confirm_station_name, st[sel].name, RADIO_MAX_NAME - 1);
+						confirm_station_name[RADIO_MAX_NAME - 1] = '\0';
+						confirm_target_index = sel;
+						confirm_action_type = 0;
+						show_confirm = true;
+					}
+					break;
+				}
+				case RADIO_CTX_HELP:
+					GFX_clearLayers(LAYER_SCROLLTEXT);
+					help_return_state = state;
+					help_scroll = 0;
+					state = RADIO_INTERNAL_HELP;
+					break;
+				}
+				dirty = 1;
 			}
 			if (global.input_consumed) {
 				if (global.dirty)
@@ -252,22 +315,14 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 				}
 				return MODULE_EXIT_TO_MENU;
 			case LISTVIEW_BUTTON:
-				if (act.btn == BTN_Y) {
-					// Enter manage: works from the empty list too (act.index
-					// is -1 there). Reset clears layers + snaps the glide.
+				if (act.btn == BTN_A && station_count == 0) {
+					// Empty state advertises A/MANAGE. Manage/delete otherwise
+					// live in the context menu (MENU tap). Reset clears layers
+					// + snaps the glide.
 					UI_listViewReset(RadioCountries_view(),
 									 Radio_getCuratedCountryCount(),
 									 Radio_getCuratedCountries());
 					state = RADIO_INTERNAL_ADD_COUNTRY;
-					dirty = 1;
-				} else if (act.btn == BTN_X && act.index >= 0 &&
-						   act.index < station_count) {
-					GFX_clearLayers(LAYER_SCROLLTEXT);
-					strncpy(confirm_station_name, stations[act.index].name, RADIO_MAX_NAME - 1);
-					confirm_station_name[RADIO_MAX_NAME - 1] = '\0';
-					confirm_target_index = act.index;
-					confirm_action_type = 0;
-					show_confirm = true;
 					dirty = 1;
 				}
 				break;
@@ -423,16 +478,8 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 				state = RADIO_INTERNAL_LIST;
 				dirty = 1;
 				break;
-			case LISTVIEW_BUTTON:
-				if (act.btn == BTN_Y) {
-					GFX_clearLayers(LAYER_SCROLLTEXT);
-					help_return_state = RADIO_INTERNAL_ADD_COUNTRY;
-					help_scroll = 0;
-					state = RADIO_INTERNAL_HELP;
-					dirty = 1;
-				}
-				break;
 			default:
+				// Manual-setup help moved to the context menu (MENU tap)
 				break;
 			}
 			if (UI_listViewBusy(v))
@@ -471,11 +518,6 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 					}
 					dirty = 1;
 				}
-			} else if (PAD_justPressed(BTN_Y)) {
-				help_return_state = RADIO_INTERNAL_ADD_STATIONS;
-				help_scroll = 0;
-				state = RADIO_INTERNAL_HELP;
-				dirty = 1;
 			} else if (PAD_justPressed(BTN_B)) {
 				radio_toast_message[0] = '\0';
 				UI_clearToast();

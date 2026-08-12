@@ -61,6 +61,14 @@ static int confirm_return_state = 0; // 0 = menu, 1 = top_shows, 2 = search_resu
 // Screen off state
 static bool screen_off = false;
 
+// Context-menu item ids
+#define PODCAST_CTX_UNSUBSCRIBE 1	   // menu: unsubscribe selected podcast (same as X)
+#define PODCAST_CTX_MANAGE 2		   // menu: manage podcasts (same as Y)
+#define PODCAST_CTX_REFRESH_LIST 3	   // top shows: refresh charts (same as X)
+#define PODCAST_CTX_REFRESH_EPISODES 4 // episodes: refresh feed (same as Y)
+#define PODCAST_CTX_MARK_PLAYED 5	   // episodes: toggle played (same as X)
+#define PODCAST_CTX_REMOVE_DOWNLOAD 6  // queue: cancel/remove download (same as X)
+
 // Handle USB/Bluetooth media button events
 static void handle_hid_events(void) {
 	USBHIDEvent hid_event;
@@ -201,10 +209,147 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 				break;
 			}
 
-			GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, app_state_for_help);
+			// Context menu for the current page
+			ContextMenuItem ctx_items[4];
+			int ctx_count = 0;
+			switch (state) {
+			case PODCAST_INTERNAL_MENU: {
+				int cl_raw = Podcast_getContinueListeningCount();
+				int cl = (cl_raw > PODCAST_CONTINUE_LISTENING_DISPLAY) ? PODCAST_CONTINUE_LISTENING_DISPLAY : cl_raw;
+				int subs = Podcast_getSubscriptionCount();
+				if (podcast_menu_selected >= cl && podcast_menu_selected < cl + subs)
+					ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Unsubscribe", PODCAST_CTX_UNSUBSCRIBE);
+				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Manage Podcasts", PODCAST_CTX_MANAGE);
+				break;
+			}
+			case PODCAST_INTERNAL_TOP_SHOWS:
+				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Refresh List", PODCAST_CTX_REFRESH_LIST);
+				break;
+			case PODCAST_INTERNAL_EPISODES: {
+				PodcastFeed* feed = Podcast_getSubscription(podcast_current_feed_index);
+				if (feed) {
+					ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Refresh Episodes", PODCAST_CTX_REFRESH_EPISODES);
+					if (feed->episode_count > 0)
+						ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Mark Played/Unplayed", PODCAST_CTX_MARK_PLAYED);
+				}
+				break;
+			}
+			case PODCAST_INTERNAL_DOWNLOAD_QUEUE: {
+				int qc = 0;
+				Podcast_getDownloadQueue(&qc);
+				if (qc > 0)
+					ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Remove Download", PODCAST_CTX_REMOVE_DOWNLOAD);
+				break;
+			}
+			case PODCAST_INTERNAL_PLAYING:
+				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Playback Controls", CTX_ID_CONTROLS);
+				break;
+			default: // MANAGE, SEARCH_RESULTS, SEEKING
+				break;
+			}
+			ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+
+			GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, app_state_for_help,
+																	  ctx_items, ctx_count);
 			if (global.should_quit) {
 				Podcast_cleanup();
 				return MODULE_EXIT_QUIT;
+			}
+			if (global.context_id > 0) {
+				switch (global.context_id) {
+				case PODCAST_CTX_UNSUBSCRIBE: {
+					int cl_raw = Podcast_getContinueListeningCount();
+					int cl = (cl_raw > PODCAST_CONTINUE_LISTENING_DISPLAY) ? PODCAST_CONTINUE_LISTENING_DISPLAY : cl_raw;
+					int subs = Podcast_getSubscriptionCount();
+					if (podcast_menu_selected >= cl && podcast_menu_selected < cl + subs) {
+						int sub_idx = podcast_menu_selected - cl;
+						PodcastFeed* feed = Podcast_getSubscription(sub_idx);
+						if (feed) {
+							strncpy(confirm_podcast_name, feed->title, sizeof(confirm_podcast_name) - 1);
+							confirm_podcast_name[sizeof(confirm_podcast_name) - 1] = '\0';
+							confirm_target_index = sub_idx;
+							confirm_return_state = 0;
+							Podcast_clearTitleScroll();
+							show_confirm = true;
+						}
+					}
+					break;
+				}
+				case PODCAST_CTX_MANAGE:
+					podcast_manage_selected = 0;
+					podcast_toast_message[0] = '\0';
+					Podcast_clearTitleScroll();
+					UI_clearToast();
+					state = PODCAST_INTERNAL_MANAGE;
+					break;
+				case PODCAST_CTX_REFRESH_LIST:
+					if (!Wifi_ensureConnected(screen, show_setting)) {
+						strncpy(podcast_toast_message, "Internet connection required", sizeof(podcast_toast_message) - 1);
+						podcast_toast_time = SDL_GetTicks();
+					} else {
+						Podcast_clearChartsCache();
+						Podcast_loadCharts(NULL);
+						podcast_top_shows_selected = 0;
+						podcast_top_shows_scroll = 0;
+						strncpy(podcast_toast_message, "Refreshing...", sizeof(podcast_toast_message) - 1);
+						podcast_toast_time = SDL_GetTicks();
+					}
+					break;
+				case PODCAST_CTX_REFRESH_EPISODES:
+					if (Podcast_isRefreshing()) {
+						snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Already refreshing...");
+						podcast_toast_time = SDL_GetTicks();
+					} else if (!Wifi_ensureConnected(screen, show_setting)) {
+						snprintf(podcast_toast_message, sizeof(podcast_toast_message), "No network connection");
+						podcast_toast_time = SDL_GetTicks();
+					} else {
+						Podcast_startRefreshFeed(podcast_current_feed_index);
+						snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Checking for new episodes...");
+						podcast_toast_time = SDL_GetTicks();
+					}
+					break;
+				case PODCAST_CTX_MARK_PLAYED: {
+					PodcastFeed* feed = Podcast_getSubscription(podcast_current_feed_index);
+					PodcastEpisode ep;
+					if (feed && Podcast_getEpisode(podcast_current_feed_index, podcast_episodes_selected, &ep)) {
+						// Toggle played status
+						if (ep.progress_sec == -1) {
+							Podcast_setEpisodeProgress(podcast_current_feed_index, podcast_episodes_selected, 0);
+							Podcast_saveProgress(feed->feed_url, ep.guid, 0);
+							snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Marked as unplayed");
+						} else {
+							Podcast_setEpisodeProgress(podcast_current_feed_index, podcast_episodes_selected, -1);
+							Podcast_markAsPlayed(feed->feed_url, ep.guid);
+							Podcast_removeContinueListening(feed->feed_url, ep.guid);
+							snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Marked as played");
+						}
+						Podcast_flushProgress();
+						podcast_toast_time = SDL_GetTicks();
+					}
+					break;
+				}
+				case PODCAST_CTX_REMOVE_DOWNLOAD: {
+					int qc = 0;
+					PodcastDownloadItem* queue = Podcast_getDownloadQueue(&qc);
+					if (podcast_queue_selected >= 0 && podcast_queue_selected < qc) {
+						PodcastDownloadItem* sel = &queue[podcast_queue_selected];
+						if (Podcast_cancelEpisodeDownload(sel->feed_url, sel->episode_guid) == 0) {
+							snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Download removed");
+						} else {
+							snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Remove failed");
+						}
+						podcast_toast_time = SDL_GetTicks();
+						int new_count = 0;
+						Podcast_getDownloadQueue(&new_count);
+						if (podcast_queue_selected >= new_count && new_count > 0) {
+							podcast_queue_selected = new_count - 1;
+						}
+						Podcast_clearTitleScroll();
+					}
+					break;
+				}
+				}
+				dirty = 1;
 			}
 			if (global.input_consumed) {
 				if (global.dirty)
@@ -330,22 +475,9 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 					state = PODCAST_INTERNAL_EPISODES;
 				}
 				dirty = 1;
-			} else if (PAD_justPressed(BTN_X) && total > 0) {
-				// Only allow unsubscribe on subscription items (not Downloads item)
-				if (podcast_menu_selected >= cl_count && podcast_menu_selected < cl_count + sub_count) {
-					int sub_idx = podcast_menu_selected - cl_count;
-					PodcastFeed* feed = Podcast_getSubscription(sub_idx);
-					if (feed) {
-						strncpy(confirm_podcast_name, feed->title, sizeof(confirm_podcast_name) - 1);
-						confirm_podcast_name[sizeof(confirm_podcast_name) - 1] = '\0';
-						confirm_target_index = sub_idx;
-						confirm_return_state = 0;
-						Podcast_clearTitleScroll();
-						show_confirm = true;
-						dirty = 1;
-					}
-				}
-			} else if (PAD_justPressed(BTN_Y)) {
+			} else if (PAD_justPressed(BTN_A) && total == 0) {
+				// Empty state advertises A/MANAGE. Manage/unsubscribe otherwise
+				// live in the context menu (MENU tap).
 				podcast_manage_selected = 0;
 				podcast_toast_message[0] = '\0';
 				Podcast_clearTitleScroll();
@@ -494,21 +626,8 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 						}
 					}
 					dirty = 1;
-				} else if (PAD_justPressed(BTN_X)) {
-					// Refresh charts - clear cache and reload
-					if (!Wifi_ensureConnected(screen, show_setting)) {
-						strncpy(podcast_toast_message, "Internet connection required", sizeof(podcast_toast_message) - 1);
-						podcast_toast_time = SDL_GetTicks();
-					} else {
-						Podcast_clearChartsCache();
-						Podcast_loadCharts(NULL);
-						podcast_top_shows_selected = 0;
-						podcast_top_shows_scroll = 0;
-						strncpy(podcast_toast_message, "Refreshing...", sizeof(podcast_toast_message) - 1);
-						podcast_toast_time = SDL_GetTicks();
-					}
-					dirty = 1;
 				}
+				// Refresh-charts moved to the context menu (MENU tap)
 			}
 
 			if (PAD_justPressed(BTN_B)) {
@@ -701,38 +820,8 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 					}
 				}
 				dirty = 1;
-			} else if (PAD_justPressed(BTN_X) && count > 0 && feed) {
-				PodcastEpisode ep;
-				if (Podcast_getEpisode(podcast_current_feed_index, podcast_episodes_selected, &ep)) {
-					// Toggle played status
-					if (ep.progress_sec == -1) {
-						Podcast_setEpisodeProgress(podcast_current_feed_index, podcast_episodes_selected, 0);
-						Podcast_saveProgress(feed->feed_url, ep.guid, 0);
-						snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Marked as unplayed");
-					} else {
-						Podcast_setEpisodeProgress(podcast_current_feed_index, podcast_episodes_selected, -1);
-						Podcast_markAsPlayed(feed->feed_url, ep.guid);
-						Podcast_removeContinueListening(feed->feed_url, ep.guid);
-						snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Marked as played");
-					}
-					Podcast_flushProgress();
-					podcast_toast_time = SDL_GetTicks();
-				}
-				dirty = 1;
-			} else if (PAD_justPressed(BTN_Y) && feed) {
-				if (Podcast_isRefreshing()) {
-					snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Already refreshing...");
-					podcast_toast_time = SDL_GetTicks();
-				} else if (!Wifi_ensureConnected(screen, show_setting)) {
-					snprintf(podcast_toast_message, sizeof(podcast_toast_message), "No network connection");
-					podcast_toast_time = SDL_GetTicks();
-				} else {
-					Podcast_startRefreshFeed(podcast_current_feed_index);
-					snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Checking for new episodes...");
-					podcast_toast_time = SDL_GetTicks();
-				}
-				dirty = 1;
 			} else if (PAD_justPressed(BTN_B)) {
+				// Refresh / mark-played moved to the context menu (MENU tap)
 				Podcast_clearTitleScroll();
 				podcast_toast_message[0] = '\0';
 				UI_clearToast();
@@ -780,27 +869,8 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 				podcast_queue_selected = (podcast_queue_selected < queue_count - 1) ? podcast_queue_selected + 1 : 0;
 				Podcast_clearTitleScroll();
 				dirty = 1;
-			} else if (PAD_justPressed(BTN_X) && queue_count > 0) {
-				// Cancel/remove selected item
-				PodcastDownloadItem* queue = Podcast_getDownloadQueue(NULL);
-				if (podcast_queue_selected < queue_count) {
-					PodcastDownloadItem* sel = &queue[podcast_queue_selected];
-					if (Podcast_cancelEpisodeDownload(sel->feed_url, sel->episode_guid) == 0) {
-						snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Download removed");
-					} else {
-						snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Remove failed");
-					}
-					podcast_toast_time = SDL_GetTicks();
-					// Adjust selection if needed
-					int new_count = 0;
-					Podcast_getDownloadQueue(&new_count);
-					if (podcast_queue_selected >= new_count && new_count > 0) {
-						podcast_queue_selected = new_count - 1;
-					}
-					Podcast_clearTitleScroll();
-				}
-				dirty = 1;
 			} else if (PAD_justPressed(BTN_B)) {
+				// Cancel/remove download moved to the context menu (MENU tap)
 				Podcast_clearTitleScroll();
 				podcast_toast_message[0] = '\0';
 				UI_clearToast();

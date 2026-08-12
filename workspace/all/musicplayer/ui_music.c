@@ -113,7 +113,7 @@ void render_browser(SDL_Surface* screen, IndicatorType show_setting, BrowserCont
 	v->list_id = (const void*)browser->entries;
 	v->empty_title = "No music files found";
 	v->empty_subtitle = "Add music to /Music on your SD card";
-	v->hint_pairs = (char*[]){"MENU", "CONTROLS", "B", "BACK", "A", "SELECT", NULL};
+	v->hint_pairs = (char*[]){"B", "BACK", "A", "SELECT", NULL};
 	UI_listViewRender(v, screen);
 }
 
