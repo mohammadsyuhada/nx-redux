@@ -9,7 +9,6 @@
 #include "settings.h"
 #include "ui_main.h"
 #include "ui_confirmdialog.h"
-#include "ui_quitrequest.h"
 #include "ui_music.h"
 #include "ui_radio.h"
 #include "player.h"
@@ -57,6 +56,19 @@ void ModuleCommon_init(void) {
 // app_state of the music Now Playing page (see module_player.c): the only
 // page where a MENU tap still opens the controls-help modal directly.
 #define APP_STATE_MUSIC_PLAYING 2
+
+// Run platform power management (power button, autosleep, volume/brightness
+// indicators). Must run every frame — including while an overlay (context menu,
+// controls help) is open — or the power button and autosleep go dead until the
+// overlay is dismissed.
+static void pump_power(GlobalInputResult* result, IndicatorType* show_setting) {
+	bool dirty_tmp = result->dirty;
+	IndicatorType indicator = (IndicatorType)*show_setting;
+	PWR_update(&dirty_tmp, &indicator, NULL, NULL);
+	*show_setting = (int)indicator;
+	if (dirty_tmp && !result->dirty)
+		result->dirty = true;
+}
 
 GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorType* show_setting, int app_state,
 												 const ContextMenuItem* menu_items, int menu_count) {
@@ -135,24 +147,8 @@ GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorT
 	// = volume). We don't consume input or return early here — let PWR_update
 	// detect the volume button press and set show_setting to display the UI.
 
-	// Quit on MENU + SELECT via the shared confirm dialog — the same combo the
-	// pak tools and in-game minarch use. UI_handleQuitRequest runs its own
-	// blocking A/B dialog and only fires on the chord, so it's a no-op most
-	// frames.
-	{
-		bool want_quit = false, dlg_dirty = false;
-		UI_handleQuitRequest(screen, &want_quit, &dlg_dirty, "Quit Music Player?", NULL);
-		if (want_quit) {
-			result.should_quit = true;
-			result.input_consumed = true;
-			return result;
-		}
-		if (dlg_dirty) {
-			result.dirty = true;
-			result.input_consumed = true;
-			return result;
-		}
-	}
+	// Quitting is done via the context menu's "Quit App" item (every page has
+	// one) or B from the main menu — the old MENU+SELECT chord was removed.
 
 	// Context menu (opened on a MENU tap below): consumes all input while open.
 	if (ContextMenu_isOpen()) {
@@ -177,6 +173,7 @@ GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorT
 			ContextMenu_render(screen);
 			PLAT_GPU_Flip();
 		}
+		pump_power(&result, show_setting); // keep power/autosleep alive while open
 		result.input_consumed = true;
 		return result;
 	}
@@ -207,6 +204,7 @@ GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorT
 			ContextMenu_render(screen);
 			PLAT_GPU_Flip();
 		}
+		pump_power(&result, show_setting);
 		result.input_consumed = true;
 		result.dirty = true;
 		return result;
@@ -220,6 +218,7 @@ GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorT
 			PAD_justPressed(BTN_LEFT) || PAD_justPressed(BTN_RIGHT) ||
 			PAD_justPressed(BTN_L1) || PAD_justPressed(BTN_R1)) {
 			show_controls_help = false;
+			pump_power(&result, show_setting);
 			result.input_consumed = true;
 			result.dirty = true;
 			return result;
@@ -227,27 +226,23 @@ GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorT
 		// Dialog is shown, consume input and render (covers entire screen)
 		render_controls_help(screen, app_state);
 		GFX_flip(screen);
+		pump_power(&result, show_setting); // keep power/autosleep alive while open
 		result.input_consumed = true;
 		return result;
 	}
 
-	// Handle power management
-	{
-		bool dirty_tmp = result.dirty;
-		IndicatorType indicator = (IndicatorType)*show_setting;
-		PWR_update(&dirty_tmp, &indicator, NULL, NULL);
-		*show_setting = (int)indicator;
-
-		if (dirty_tmp && !result.dirty) {
-			result.dirty = true;
-		}
-	}
-
+	// Non-overlay path: the caller runs ModuleCommon_PWR_update this frame, so
+	// don't pump power again here (that double-processed the power button and
+	// indicator timers). Only the overlay early-returns above pump, because the
+	// module skips its own PWR_update on a consumed frame.
 	return result;
 }
 
-void ModuleCommon_ctxAdd(ContextMenuItem* items, int* count, const char* label, int id) {
-	if (*count >= CONTEXTMENU_MAX_ITEMS)
+void ModuleCommon_ctxAdd_impl(ContextMenuItem* items, int* count, int cap, const char* label, int id) {
+	// Bound against BOTH the caller's array capacity and the widget's copy cap.
+	if (cap > CONTEXTMENU_MAX_ITEMS)
+		cap = CONTEXTMENU_MAX_ITEMS;
+	if (*count >= cap)
 		return;
 	snprintf(items[*count].label, CONTEXTMENU_MAX_TEXT, "%s", label);
 	items[*count].id = id;
@@ -362,4 +357,10 @@ void ModuleCommon_PWR_update(bool* dirty, IndicatorType* show_setting) {
 
 	// Check for pending audio device changes (set from inotify thread)
 	Player_update();
+
+	// Advance whatever is playing in the background (track-ended auto-advance,
+	// periodic progress save). Every module's loop calls this, so background
+	// playback keeps progressing on any page — not just the main menu. It's a
+	// no-op when nothing is backgrounded (active_bg == BG_NONE).
+	Background_tick();
 }

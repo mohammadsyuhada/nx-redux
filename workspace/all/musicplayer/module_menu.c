@@ -41,13 +41,14 @@ int MenuModule_run(SDL_Surface* screen) {
 	ListView* v = MusicMainMenu_view();
 	int entry_count = (Background_isPlaying() || Resume_isAvailable()) ? 5 : 4;
 	UI_listViewReset(v, entry_count, NULL);
+	int prev_first_item_mode = -1;
 
 	while (1) {
 		GFX_startFrame();
 		PAD_poll();
 
-		// Handle background player updates (track advancement, resume saving)
-		Background_tick();
+		// Background playback (track advancement, progress save) is ticked
+		// centrally in ModuleCommon_PWR_update below.
 		if (Background_isPlaying()) {
 			ModuleCommon_setAutosleepDisabled(true);
 		}
@@ -60,6 +61,16 @@ int MenuModule_run(SDL_Surface* screen) {
 			first_item_mode = MENU_FIRST_RESUME;
 		}
 		bool has_first = (first_item_mode != MENU_FIRST_NONE);
+
+		// The first row appearing/disappearing (background playback ended, or a
+		// resume entry cleared) changes the row count and shifts every row's
+		// meaning. Rebuild the view and force a redraw so the displayed list
+		// matches has_first — otherwise A on the stale list opens the wrong page.
+		if (first_item_mode != prev_first_item_mode) {
+			UI_listViewReset(v, has_first ? 5 : 4, NULL);
+			prev_first_item_mode = first_item_mode;
+			dirty = 1;
+		}
 
 		// Context menu for this page
 		ContextMenuItem ctx_items[2];

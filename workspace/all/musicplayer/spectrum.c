@@ -29,6 +29,10 @@ static int bin_ranges[SPECTRUM_BARS + 1];
 static float freq_compensation[SPECTRUM_BARS]; // Per-band gain compensation
 
 static int spec_x = 0, spec_y = 0, spec_w = 0, spec_h = 0;
+// Persistent GPU surface, recreated only when the dimensions change (avoids a
+// full ARGB alloc+free every frame while playing).
+static SDL_Surface* spectrum_gpu_surface = NULL;
+static int spectrum_gpu_w = 0, spectrum_gpu_h = 0;
 static bool position_set = false;
 
 static SpectrumStyle current_style = SPECTRUM_STYLE_VERTICAL;
@@ -195,6 +199,11 @@ void Spectrum_quit(void) {
 		kiss_fftr_free(fft_cfg);
 		fft_cfg = NULL;
 	}
+	if (spectrum_gpu_surface) {
+		SDL_FreeSurface(spectrum_gpu_surface);
+		spectrum_gpu_surface = NULL;
+		spectrum_gpu_w = spectrum_gpu_h = 0;
+	}
 	// Clear the GPU layer
 	PLAT_clearLayers(LAYER_SPECTRUM);
 	PLAT_GPU_Flip();
@@ -215,7 +224,11 @@ void Spectrum_update(void) {
 	}
 
 	int samples = Player_getVisBuffer(sample_buffer, SPECTRUM_FFT_SIZE * 2);
-	if (samples < SPECTRUM_FFT_SIZE) {
+	// Need a full FFT window of stereo samples (the loop below consumes
+	// SPECTRUM_FFT_SIZE*2). The old `< SPECTRUM_FFT_SIZE` check let a partial
+	// buffer (an audio underrun) feed the top half of the FFT with the previous
+	// frame's stale samples → glitchy bars.
+	if (samples < SPECTRUM_FFT_SIZE * 2) {
 		spectrum_data.valid = false;
 		return;
 	}
@@ -349,8 +362,16 @@ void Spectrum_renderGPU(void) {
 	if (!spectrum_data.valid)
 		return;
 
-	SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormat(0,
-														  spec_w, spec_h, 32, SDL_PIXELFORMAT_ARGB8888);
+	// Reuse the persistent surface; only reallocate when the size changes.
+	if (!spectrum_gpu_surface || spectrum_gpu_w != spec_w || spectrum_gpu_h != spec_h) {
+		if (spectrum_gpu_surface)
+			SDL_FreeSurface(spectrum_gpu_surface);
+		spectrum_gpu_surface = SDL_CreateRGBSurfaceWithFormat(0, spec_w, spec_h, 32,
+															  SDL_PIXELFORMAT_ARGB8888);
+		spectrum_gpu_w = spec_w;
+		spectrum_gpu_h = spec_h;
+	}
+	SDL_Surface* surface = spectrum_gpu_surface;
 	if (!surface)
 		return;
 
@@ -398,7 +419,7 @@ void Spectrum_renderGPU(void) {
 
 	PLAT_clearLayers(LAYER_SPECTRUM);
 	PLAT_drawOnLayer(surface, spec_x, spec_y, spec_w, spec_h, 1.0f, false, LAYER_SPECTRUM);
-	SDL_FreeSurface(surface);
+	// surface is persistent — not freed here (freed in Spectrum_quit)
 
 	PLAT_GPU_Flip();
 }

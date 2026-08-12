@@ -293,7 +293,11 @@ static void render_delete_dialog(SDL_Surface* screen) {
 }
 
 // Recursively delete a file or directory tree. Returns 0 on success.
-static int remove_recursive(const char* path) {
+#define REMOVE_MAX_DEPTH 32
+static int remove_recursive(const char* path, int depth) {
+	if (depth > REMOVE_MAX_DEPTH) // guard against a pathological/looping tree
+		return -1;
+
 	struct stat st;
 	if (lstat(path, &st) != 0)
 		return -1;
@@ -314,7 +318,7 @@ static int remove_recursive(const char* path) {
 			rc = -1;
 			continue;
 		}
-		if (remove_recursive(p) != 0)
+		if (remove_recursive(p, depth + 1) != 0)
 			rc = -1;
 	}
 	closedir(d);
@@ -403,10 +407,15 @@ static bool handle_browser_input(PlayerInternalState* state, bool* dirty) {
 	switch (act.type) {
 	case LISTVIEW_BACK:
 		if (strcmp(browser.current_path, MUSIC_PATH) != 0) {
-			char* last_slash = strrchr(browser.current_path, '/');
+			// Copy to a local first: load_directory → Browser_loadDirectory does
+			// strncpy(ctx->current_path, path), and passing browser.current_path
+			// directly makes src and dst the same buffer (restrict/aliasing UB).
+			char parent[512];
+			snprintf(parent, sizeof(parent), "%s", browser.current_path);
+			char* last_slash = strrchr(parent, '/');
 			if (last_slash) {
 				*last_slash = '\0';
-				load_directory(browser.current_path);
+				load_directory(parent);
 				*dirty = 1;
 			}
 		} else {
@@ -641,15 +650,22 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 		// Handle delete confirmation dialog (module-specific)
 		if (show_delete_confirm) {
 			if (PAD_justPressed(BTN_A)) {
-				int ok = delete_target_is_dir ? remove_recursive(delete_target_path)
+				int ok = delete_target_is_dir ? remove_recursive(delete_target_path, 0)
 											  : unlink(delete_target_path);
 				if (ok == 0) {
 					player_show_toast(delete_target_is_dir ? "Folder deleted" : "File deleted");
-					load_directory(browser.current_path);
+					// Capture the cursor BEFORE load_directory (it resets
+					// selection to 0), then keep it near the deleted row — the
+					// next entry has shifted into that slot.
 					ListView* v = MusicBrowser_view();
-					if (v->selected >= browser.entry_count) {
-						v->selected = browser.entry_count > 0 ? browser.entry_count - 1 : 0;
-					}
+					int prev_selected = v->selected;
+					load_directory(browser.current_path);
+					if (browser.entry_count > 0)
+						v->selected = prev_selected < browser.entry_count
+										  ? prev_selected
+										  : browser.entry_count - 1;
+					else
+						v->selected = 0;
 				} else {
 					player_show_toast("Delete failed");
 				}
@@ -903,11 +919,16 @@ ModuleExitReason PlayerModule_runWithPlaylist(SDL_Surface* screen,
 	Playlist_init(&playlist);
 	if (!playlist.tracks)
 		return MODULE_EXIT_TO_MENU;
+	int copied = 0;
 	for (int i = 0; i < track_count && i < PLAYLIST_MAX_TRACKS; i++) {
 		playlist.tracks[i] = tracks[i];
+		copied++;
 	}
-	playlist.track_count = track_count;
-	playlist.current_index = start_index;
+	// Clamp the count to what was actually copied (a future caller with >
+	// PLAYLIST_MAX_TRACKS would otherwise let Playlist_getTrack read past the
+	// copied region), and keep start_index in range.
+	playlist.track_count = copied;
+	playlist.current_index = (start_index >= 0 && start_index < copied) ? start_index : 0;
 	playlist_active = true;
 
 	// Start playback

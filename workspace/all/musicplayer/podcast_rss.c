@@ -51,7 +51,9 @@ static uint32_t parse_rfc2822_date(const char* date_str) {
 
 	struct tm tm = {0};
 	char month_str[4] = {0};
-	int day, year, hour, min, sec;
+	// Initialize: sscanf below accepts partial matches (>= 4 / >= 3 fields), so
+	// unmatched time fields would otherwise be read uninitialized by mktime.
+	int day = 0, year = 0, hour = 0, min = 0, sec = 0;
 
 	// Try common formats
 	// Format: "Day, DD Mon YYYY HH:MM:SS TZ"
@@ -121,6 +123,7 @@ static int parse_duration(const char* duration_str) {
 typedef struct {
 	char elements[MAX_STACK_DEPTH][64];
 	int depth;
+	int overflow; // pushes dropped because the stack was full
 } ElementStack;
 
 static void stack_push(ElementStack* stack, const char* elem) {
@@ -128,11 +131,17 @@ static void stack_push(ElementStack* stack, const char* elem) {
 		strncpy(stack->elements[stack->depth], elem, 63);
 		stack->elements[stack->depth][63] = '\0';
 		stack->depth++;
+	} else {
+		// Track dropped opens so the matching closes don't pop real elements
+		// and desync classification of everything after a >32-deep subtree.
+		stack->overflow++;
 	}
 }
 
 static void stack_pop(ElementStack* stack) {
-	if (stack->depth > 0) {
+	if (stack->overflow > 0) {
+		stack->overflow--;
+	} else if (stack->depth > 0) {
 		stack->depth--;
 	}
 }

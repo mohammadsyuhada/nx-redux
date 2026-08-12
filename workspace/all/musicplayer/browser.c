@@ -116,11 +116,17 @@ void Browser_loadDirectory(BrowserContext* ctx, const char* path, const char* mu
 		idx++;
 	}
 
-	// Second pass: fill entries
+	// Second pass: fill entries. Bound writes to the allocation from the first
+	// pass (reserving the trailing Play All slot) — if the directory grew
+	// between the two passes (e.g. files copied in over MTP/network while
+	// browsing), an unbounded fill would overflow the malloc'd array.
+	int fill_limit = add_play_all ? count - 1 : count;
 	rewinddir(dir);
 	while ((ent = readdir(dir)) != NULL) {
 		if (ent->d_name[0] == '.')
 			continue;
+		if (idx >= fill_limit)
+			break; // array full; extra new entries picked up on next load
 
 		char full_path[1024]; // Increased to handle longer paths
 		int path_len = snprintf(full_path, sizeof(full_path), "%s/%s", path, ent->d_name);
@@ -141,8 +147,13 @@ void Browser_loadDirectory(BrowserContext* ctx, const char* path, const char* mu
 				continue;
 		}
 
+		// Explicit NUL-terminate: strncpy doesn't on truncation, and these are
+		// malloc'd (uninitialized) entries, so a 255-char name / long path would
+		// otherwise leave trailing heap garbage that strcmp/render overruns.
 		strncpy(ctx->entries[idx].name, ent->d_name, sizeof(ctx->entries[idx].name) - 1);
+		ctx->entries[idx].name[sizeof(ctx->entries[idx].name) - 1] = '\0';
 		strncpy(ctx->entries[idx].path, full_path, sizeof(ctx->entries[idx].path) - 1);
+		ctx->entries[idx].path[sizeof(ctx->entries[idx].path) - 1] = '\0';
 		ctx->entries[idx].is_dir = is_dir;
 		ctx->entries[idx].is_play_all = false;
 		ctx->entries[idx].format = fmt;
@@ -159,7 +170,7 @@ void Browser_loadDirectory(BrowserContext* ctx, const char* path, const char* mu
 	}
 
 	// Add "Play All" entry at the end if applicable
-	if (add_play_all) {
+	if (add_play_all && idx < count) {
 		strncpy(ctx->entries[idx].name, "Play All", sizeof(ctx->entries[idx].name) - 1);
 		ctx->entries[idx].name[sizeof(ctx->entries[idx].name) - 1] = '\0';
 		strncpy(ctx->entries[idx].path, path, sizeof(ctx->entries[idx].path) - 1);

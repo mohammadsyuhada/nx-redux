@@ -195,7 +195,8 @@ static int download_queue_count = 0;
 static pthread_mutex_t download_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t download_thread;
 static volatile bool download_running = false;
-static volatile bool download_should_stop = false;
+static volatile bool download_should_stop = false; // interrupt the current download
+static volatile bool download_stop_all = false;	   // stop the whole run (not a single cancel)
 static PodcastDownloadProgress download_progress = {0};
 
 // Current playback state
@@ -310,19 +311,37 @@ static void get_episodes_file_path(const char* feed_id, char* path, int path_siz
 // Episode Storage (JSON on disk)
 // ============================================================================
 
-// Save episodes to JSON file for a feed
-int Podcast_saveEpisodes(int feed_index, PodcastEpisode* episodes, int count) {
-	if (feed_index < 0 || feed_index >= subscription_count || !episodes || count < 0) {
-		return -1;
+// Serialize JSON atomically: write to <path>.tmp then rename() over <path>.
+// rename() is atomic within a filesystem, so a concurrent reader (e.g. the UI
+// thread paging episodes while the refresh thread rewrites the same file) never
+// sees a half-written file, and a power loss mid-write can't truncate the
+// existing one. Returns JSONSuccess on success.
+static int json_serialize_atomic(const JSON_Value* root, const char* path) {
+	char tmp[600];
+	snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+	int rc = json_serialize_to_file_pretty(root, tmp);
+	if (rc != JSONSuccess) {
+		unlink(tmp);
+		return rc;
 	}
+	if (rename(tmp, path) != 0) {
+		unlink(tmp);
+		return JSONFailure;
+	}
+	return JSONSuccess;
+}
 
-	PodcastFeed* feed = &subscriptions[feed_index];
-
-	set_feed_id(feed);
+// Save episodes to JSON file for a feed
+// Serialize episodes to the feed's on-disk file, keyed by feed_id. Touches no
+// array state, so it is safe to call while the subscriptions array may be
+// shifting (the background refresh path relies on this).
+static int save_episodes_by_id(const char* feed_id, PodcastEpisode* episodes, int count) {
+	if (!feed_id || !feed_id[0] || !episodes || count < 0)
+		return -1;
 
 	// Create feed directory
 	char feed_dir[512];
-	Podcast_getFeedDataPath(feed->feed_id, feed_dir, sizeof(feed_dir));
+	Podcast_getFeedDataPath(feed_id, feed_dir, sizeof(feed_dir));
 	mkdir_p(feed_dir);
 
 	// Build episodes JSON
@@ -352,17 +371,29 @@ int Podcast_saveEpisodes(int feed_index, PodcastEpisode* episodes, int count) {
 
 	// Save to file
 	char episodes_path[512];
-	get_episodes_file_path(feed->feed_id, episodes_path, sizeof(episodes_path));
-	int result = json_serialize_to_file_pretty(root, episodes_path);
+	get_episodes_file_path(feed_id, episodes_path, sizeof(episodes_path));
+	int result = json_serialize_atomic(root, episodes_path);
 	json_value_free(root);
 
-	if (result == JSONSuccess) {
-		feed->episode_count = count;
+	if (result == JSONSuccess)
 		return 0;
-	}
 
 	LOG_error("[Podcast] Failed to save episodes to %s\n", episodes_path);
 	return -1;
+}
+
+int Podcast_saveEpisodes(int feed_index, PodcastEpisode* episodes, int count) {
+	if (feed_index < 0 || feed_index >= subscription_count || !episodes || count < 0) {
+		return -1;
+	}
+
+	PodcastFeed* feed = &subscriptions[feed_index];
+	set_feed_id(feed);
+	if (save_episodes_by_id(feed->feed_id, episodes, count) != 0)
+		return -1;
+
+	feed->episode_count = count;
+	return 0;
 }
 
 // Load a page of episodes from JSON file into cache
@@ -842,17 +873,32 @@ int Podcast_subscribeFromItunes(const char* itunes_id) {
 
 	int result = Podcast_subscribe(feed_url);
 
-	if (result == 0 && subscription_count > 0) {
-		PodcastFeed* feed = &subscriptions[subscription_count - 1];
-		// Store iTunes ID
-		strncpy(feed->itunes_id, itunes_id, sizeof(feed->itunes_id) - 1);
-		// Always prefer iTunes artwork (guaranteed 400x400) over RSS artwork
-		if (artwork_url[0]) {
-			strncpy(feed->artwork_url, artwork_url, sizeof(feed->artwork_url) - 1);
+	if (result == 0) {
+		// Locate the subscription BY feed_url and stamp it. Podcast_subscribe
+		// returns 0 both when it appends and when the feed is already subscribed
+		// (e.g. added earlier by URL, so the itunes_id guard above missed), so
+		// subscriptions[count-1] may be an unrelated feed.
+		PodcastFeed* feed = NULL;
+		pthread_mutex_lock(&subscriptions_mutex);
+		for (int i = 0; i < subscription_count; i++) {
+			if (strcmp(subscriptions[i].feed_url, feed_url) == 0) {
+				strncpy(subscriptions[i].itunes_id, itunes_id, sizeof(subscriptions[i].itunes_id) - 1);
+				subscriptions[i].itunes_id[sizeof(subscriptions[i].itunes_id) - 1] = '\0';
+				// Always prefer iTunes artwork (guaranteed 400x400) over RSS
+				if (artwork_url[0]) {
+					strncpy(subscriptions[i].artwork_url, artwork_url, sizeof(subscriptions[i].artwork_url) - 1);
+					subscriptions[i].artwork_url[sizeof(subscriptions[i].artwork_url) - 1] = '\0';
+				}
+				feed = &subscriptions[i];
+				break;
+			}
 		}
-		Podcast_saveSubscriptions(); // Save again with iTunes ID and artwork
-		// Fetch artwork if RSS didn't have one but iTunes does
-		download_feed_artwork(feed);
+		pthread_mutex_unlock(&subscriptions_mutex);
+		if (feed) {
+			Podcast_saveSubscriptions(); // Save again with iTunes ID and artwork
+			// Fetch artwork if RSS didn't have one but iTunes does
+			download_feed_artwork(feed);
+		}
 	}
 	return result;
 }
@@ -938,6 +984,17 @@ int Podcast_unsubscribe(int index) {
 	}
 	subscription_count--;
 
+	// Keep the currently-playing feed pointer/index consistent with the shift,
+	// or progress gets saved under the wrong feed (or a freed slot) on stop.
+	if (current_feed_index == index) {
+		// The playing feed itself was removed
+		current_feed = NULL;
+		current_feed_index = -1;
+	} else if (current_feed_index > index) {
+		current_feed_index--;
+		current_feed = &subscriptions[current_feed_index];
+	}
+
 	pthread_mutex_unlock(&subscriptions_mutex);
 
 	Podcast_saveSubscriptions();
@@ -967,16 +1024,25 @@ bool Podcast_isSubscribedByItunesId(const char* itunes_id) {
 }
 
 int Podcast_refreshFeed(int index) {
-	if (index < 0 || index >= subscription_count)
+	// Capture the feed's stable identity (feed_url) under the lock. During the
+	// blocking fetch below, unsubscribe can compact subscriptions[], so we must
+	// NOT keep a pointer or index into it — every write-back re-resolves by
+	// feed_url. Otherwise another feed's metadata and episodes.json get
+	// overwritten with this feed's data.
+	char feed_url[PODCAST_MAX_URL];
+	pthread_mutex_lock(&subscriptions_mutex);
+	if (index < 0 || index >= subscription_count) {
+		pthread_mutex_unlock(&subscriptions_mutex);
 		return -1;
-
-	PodcastFeed* feed = &subscriptions[index];
+	}
+	snprintf(feed_url, sizeof(feed_url), "%s", subscriptions[index].feed_url);
+	pthread_mutex_unlock(&subscriptions_mutex);
 
 	uint8_t* buffer = (uint8_t*)malloc(5 * 1024 * 1024); // 5MB buffer for large RSS feeds
 	if (!buffer)
 		return -1;
 
-	int bytes = wget_fetch(feed->feed_url, buffer, 5 * 1024 * 1024);
+	int bytes = wget_fetch(feed_url, buffer, 5 * 1024 * 1024);
 	if (bytes <= 0) {
 		free(buffer);
 		return -1;
@@ -993,15 +1059,17 @@ int Podcast_refreshFeed(int index) {
 	// Parse into temporary feed
 	PodcastFeed temp_feed;
 	memset(&temp_feed, 0, sizeof(temp_feed));
-	strncpy(temp_feed.feed_url, feed->feed_url, PODCAST_MAX_URL - 1);
+	strncpy(temp_feed.feed_url, feed_url, PODCAST_MAX_URL - 1);
+	// feed_id is derived from feed_url, so it's stable regardless of array
+	// position — use temp_feed's copy for all on-disk paths.
+	set_feed_id(&temp_feed);
 
 	int new_episode_count = 0;
 	if (podcast_rss_parse_with_episodes((const char*)buffer, bytes, &temp_feed,
 										new_episodes, max_episodes, &new_episode_count) == 0) {
 		// Load existing episodes to preserve progress/downloaded status
 		char episodes_path[512];
-		set_feed_id(feed);
-		get_episodes_file_path(feed->feed_id, episodes_path, sizeof(episodes_path));
+		get_episodes_file_path(temp_feed.feed_id, episodes_path, sizeof(episodes_path));
 
 		JSON_Value* old_root = json_parse_file(episodes_path);
 		if (old_root) {
@@ -1033,33 +1101,48 @@ int Podcast_refreshFeed(int index) {
 			json_value_free(old_root);
 		}
 
-		// Update feed metadata
-		pthread_mutex_lock(&subscriptions_mutex);
-		strncpy(feed->title, temp_feed.title, PODCAST_MAX_TITLE - 1);
-		strncpy(feed->author, temp_feed.author, PODCAST_MAX_AUTHOR - 1);
-		strncpy(feed->description, temp_feed.description, PODCAST_MAX_DESCRIPTION - 1);
-		// Only update artwork if we didn't have it from iTunes
-		if (!feed->artwork_url[0] && temp_feed.artwork_url[0]) {
-			strncpy(feed->artwork_url, temp_feed.artwork_url, PODCAST_MAX_URL - 1);
-		}
-		feed->episode_count = new_episode_count;
-		feed->last_updated = (uint32_t)time(NULL);
-		pthread_mutex_unlock(&subscriptions_mutex);
-
-		// Save new episodes to disk
-		Podcast_saveEpisodes(index, new_episodes, new_episode_count);
-
-		// Recount new_episode_count from the episodes we just saved
+		// Count brand-new episodes (reads only the local parse result)
 		int nc = 0;
 		for (int i = 0; i < new_episode_count; i++) {
 			if (new_episodes[i].is_new)
 				nc++;
 		}
-		feed->new_episode_count = nc;
 
-		// Invalidate cache if this feed was cached
-		if (episode_cache_feed_index == index) {
-			Podcast_invalidateEpisodeCache();
+		// Re-resolve the subscription by feed_url under the lock and write the
+		// metadata back into the CORRECT slot (its index may have changed).
+		pthread_mutex_lock(&subscriptions_mutex);
+		int cur = -1;
+		for (int i = 0; i < subscription_count; i++) {
+			if (strcmp(subscriptions[i].feed_url, feed_url) == 0) {
+				cur = i;
+				break;
+			}
+		}
+		bool cache_hit = false;
+		if (cur >= 0) {
+			PodcastFeed* feed = &subscriptions[cur];
+			strncpy(feed->title, temp_feed.title, PODCAST_MAX_TITLE - 1);
+			strncpy(feed->author, temp_feed.author, PODCAST_MAX_AUTHOR - 1);
+			strncpy(feed->description, temp_feed.description, PODCAST_MAX_DESCRIPTION - 1);
+			// Only update artwork if we didn't have it from iTunes
+			if (!feed->artwork_url[0] && temp_feed.artwork_url[0]) {
+				strncpy(feed->artwork_url, temp_feed.artwork_url, PODCAST_MAX_URL - 1);
+			}
+			feed->episode_count = new_episode_count;
+			feed->last_updated = (uint32_t)time(NULL);
+			feed->new_episode_count = nc;
+			cache_hit = (episode_cache_feed_index == cur);
+		}
+		pthread_mutex_unlock(&subscriptions_mutex);
+
+		// Feed was unsubscribed during the refresh — drop the result entirely
+		// (its data dir was already removed) rather than resurrecting it.
+		if (cur >= 0) {
+			// Save keyed by feed_id (array-independent), then invalidate the
+			// episode cache if this feed's page was loaded.
+			save_episodes_by_id(temp_feed.feed_id, new_episodes, new_episode_count);
+			if (cache_hit)
+				Podcast_invalidateEpisodeCache();
 		}
 	}
 
@@ -1098,7 +1181,7 @@ void Podcast_saveSubscriptions(void) {
 	}
 	pthread_mutex_unlock(&subscriptions_mutex);
 
-	json_serialize_to_file_pretty(root, subscriptions_file);
+	json_serialize_atomic(root, subscriptions_file);
 	json_value_free(root);
 }
 
@@ -1339,7 +1422,7 @@ static void save_charts_cache(void) {
 	}
 	json_object_set_value(obj, "top_shows", top_arr_val);
 
-	json_serialize_to_file_pretty(root, charts_cache_file);
+	json_serialize_atomic(root, charts_cache_file);
 	json_value_free(root);
 }
 
@@ -1551,13 +1634,17 @@ void Podcast_saveProgress(const char* feed_url, const char* episode_guid, int po
 		}
 	}
 
-	// Add new entry
-	if (progress_entry_count < MAX_PROGRESS_ENTRIES) {
-		strncpy(progress_entries[progress_entry_count].feed_url, feed_url, PODCAST_MAX_URL - 1);
-		strncpy(progress_entries[progress_entry_count].episode_guid, episode_guid, PODCAST_MAX_GUID - 1);
-		progress_entries[progress_entry_count].position_sec = position_sec;
-		progress_entry_count++;
+	// Add new entry. If the table is full, evict the oldest (FIFO) rather than
+	// silently dropping new progress — it's a rolling window, not a hard cap.
+	if (progress_entry_count >= MAX_PROGRESS_ENTRIES) {
+		memmove(&progress_entries[0], &progress_entries[1],
+				sizeof(progress_entries[0]) * (MAX_PROGRESS_ENTRIES - 1));
+		progress_entry_count = MAX_PROGRESS_ENTRIES - 1;
 	}
+	strncpy(progress_entries[progress_entry_count].feed_url, feed_url, PODCAST_MAX_URL - 1);
+	strncpy(progress_entries[progress_entry_count].episode_guid, episode_guid, PODCAST_MAX_GUID - 1);
+	progress_entries[progress_entry_count].position_sec = position_sec;
+	progress_entry_count++;
 }
 
 int Podcast_getProgress(const char* feed_url, const char* episode_guid) {
@@ -1589,7 +1676,7 @@ void Podcast_flushProgress(void) {
 		json_object_set_number(obj, "position", progress_entries[i].position_sec);
 		json_array_append_value(arr, item);
 	}
-	json_serialize_to_file_pretty(root, progress_file);
+	json_serialize_atomic(root, progress_file);
 	json_value_free(root);
 }
 
@@ -1664,6 +1751,12 @@ int Podcast_getEpisodeDownloadStatus(const char* feed_url, const char* episode_g
 			strcmp(download_queue[i].episode_guid, episode_guid) == 0) {
 			int status = download_queue[i].status;
 			int progress = download_queue[i].progress_percent;
+			// The array slot isn't updated during the blocking download; the
+			// in-flight item's live progress lives in the stable global.
+			if (status == PODCAST_DOWNLOAD_DOWNLOADING &&
+				strcmp(download_progress.current_guid, episode_guid) == 0) {
+				progress = download_progress.current_percent;
+			}
 			if (progress_out) {
 				*progress_out = progress;
 			}
@@ -1719,10 +1812,13 @@ int Podcast_queueDownload(PodcastFeed* feed, int episode_index) {
 		return -1;
 	}
 
-	// Check if already in download queue (only block if PENDING or DOWNLOADING)
+	// Check if already in download queue (only block if PENDING or DOWNLOADING).
+	// Match feed_url too — guids fall back to a truncated enclosure URL, so two
+	// different feeds can collide and evict each other's queue entries.
 	pthread_mutex_lock(&download_mutex);
 	for (int i = 0; i < download_queue_count; i++) {
-		if (strcmp(download_queue[i].episode_guid, ep.guid) == 0) {
+		if (strcmp(download_queue[i].episode_guid, ep.guid) == 0 &&
+			strcmp(download_queue[i].feed_url, feed->feed_url) == 0) {
 			if (download_queue[i].status == PODCAST_DOWNLOAD_PENDING ||
 				download_queue[i].status == PODCAST_DOWNLOAD_DOWNLOADING) {
 				pthread_mutex_unlock(&download_mutex);
@@ -1771,6 +1867,17 @@ PodcastDownloadItem* Podcast_getDownloadQueue(int* count) {
 	return download_queue;
 }
 
+int Podcast_copyDownloadQueue(PodcastDownloadItem* out, int max) {
+	if (!out || max <= 0)
+		return 0;
+	pthread_mutex_lock(&download_mutex);
+	int n = download_queue_count < max ? download_queue_count : max;
+	for (int i = 0; i < n; i++)
+		out[i] = download_queue[i];
+	pthread_mutex_unlock(&download_mutex);
+	return n;
+}
+
 static int Podcast_startDownloads(void) {
 	if (download_running || download_queue_count == 0) {
 		return -1;
@@ -1780,6 +1887,7 @@ static int Podcast_startDownloads(void) {
 	download_progress.total_items = download_queue_count;
 
 	download_should_stop = false;
+	download_stop_all = false;
 	download_running = true;
 
 	if (pthread_create(&download_thread, NULL, download_thread_func, NULL) != 0) {
@@ -1803,75 +1911,97 @@ static void* download_thread_func(void* arg) {
 	// Prevent device auto-sleep during downloads
 	ModuleCommon_setAutosleepDisabled(true);
 
-	for (int i = 0; i < download_queue_count && !download_should_stop; i++) {
-		PodcastDownloadItem* item = &download_queue[i];
+	while (!download_should_stop) {
+		// Pick the next PENDING item under the lock and copy its identity to
+		// locals. The thread must NOT hold a pointer into download_queue across
+		// the long, blocking download: cancel/unsubscribe compact the array
+		// under the same lock, so a held pointer (or a passed &item->field)
+		// would rebind to a different episode — corrupting its status and, via
+		// unlink(), deleting its file.
+		char guid[PODCAST_MAX_GUID], url[PODCAST_MAX_URL], local_path[PODCAST_MAX_URL];
+		char feed_title[PODCAST_MAX_TITLE], episode_title[PODCAST_MAX_TITLE];
+		bool found = false;
 
-		if (item->status != PODCAST_DOWNLOAD_PENDING) {
-			continue;
+		pthread_mutex_lock(&download_mutex);
+		for (int i = 0; i < download_queue_count; i++) {
+			if (download_queue[i].status == PODCAST_DOWNLOAD_PENDING) {
+				download_queue[i].status = PODCAST_DOWNLOAD_DOWNLOADING;
+				download_queue[i].progress_percent = 0;
+				download_queue[i].retry_count = 0;
+				snprintf(guid, sizeof(guid), "%s", download_queue[i].episode_guid);
+				snprintf(url, sizeof(url), "%s", download_queue[i].url);
+				snprintf(local_path, sizeof(local_path), "%s", download_queue[i].local_path);
+				snprintf(feed_title, sizeof(feed_title), "%s", download_queue[i].feed_title);
+				snprintf(episode_title, sizeof(episode_title), "%s", download_queue[i].episode_title);
+				download_progress.current_index = i;
+				snprintf(download_progress.current_title, sizeof(download_progress.current_title), "%s", episode_title);
+				snprintf(download_progress.current_guid, sizeof(download_progress.current_guid), "%s", guid);
+				download_progress.current_percent = 0;
+				found = true;
+				break;
+			}
 		}
+		pthread_mutex_unlock(&download_mutex);
 
-		download_progress.current_index = i;
-		strncpy(download_progress.current_title, item->episode_title, PODCAST_MAX_TITLE - 1);
-		item->status = PODCAST_DOWNLOAD_DOWNLOADING;
-		item->progress_percent = 0;
-		item->retry_count = 0;
+		if (!found)
+			break; // nothing left to download
+
 		download_progress.speed_bps = 0;
 		download_progress.eta_sec = 0;
 
-		// Create directory for podcast (sanitize feed title for directory name)
+		// Create directory for podcast (from our local copy, never the array)
 		char safe_feed[256];
-		strncpy(safe_feed, item->feed_title, sizeof(safe_feed) - 1);
-		safe_feed[sizeof(safe_feed) - 1] = '\0';
+		snprintf(safe_feed, sizeof(safe_feed), "%s", feed_title);
 		sanitize_for_filename(safe_feed);
-
 		char dir_path[512];
 		snprintf(dir_path, sizeof(dir_path), "%s/%s", download_dir, safe_feed);
 		mkdir(dir_path, 0755);
 
 		// Check disk space before downloading
+		bool low_disk = false;
 		struct statvfs fs_stat;
 		if (statvfs(download_dir, &fs_stat) == 0) {
 			unsigned long free_mb = (fs_stat.f_bavail * fs_stat.f_frsize) / (1024 * 1024);
 			if (free_mb < 50) {
-				item->status = PODCAST_DOWNLOAD_FAILED;
+				low_disk = true;
 				snprintf(download_progress.error_message, sizeof(download_progress.error_message),
 						 "Low disk space (%lu MB free)", free_mb);
-				download_progress.failed_count++;
-				LOG_error("[Podcast] Low disk space (%lu MB), skipping: %s\n", free_mb, item->episode_title);
-				continue;
+				LOG_error("[Podcast] Low disk space (%lu MB), skipping: %s\n", free_mb, episode_title);
 			}
 		}
 
-		// Retry loop with WiFi check and exponential backoff
-		int retries = 0;
+		// Retry loop with WiFi check and exponential backoff. Live progress goes
+		// to the stable download_progress.current_percent (single writer), which
+		// the UI reads for the active row — no array slot is written across the
+		// blocking wget call.
 		int bytes = -1;
-		while (retries < PODCAST_MAX_RETRIES && !download_should_stop) {
-			// Check WiFi before each attempt
-			if (!Wifi_ensureConnected(NULL, 0)) {
-				LOG_error("[Podcast] No network connection (attempt %d/%d): %s\n",
-						  retries + 1, PODCAST_MAX_RETRIES, item->episode_title);
+		int retries = 0;
+		if (!low_disk) {
+			while (retries < PODCAST_MAX_RETRIES && !download_should_stop) {
+				if (!Wifi_ensureConnected(NULL, 0)) {
+					LOG_error("[Podcast] No network connection (attempt %d/%d): %s\n",
+							  retries + 1, PODCAST_MAX_RETRIES, episode_title);
+					retries++;
+					if (retries < PODCAST_MAX_RETRIES)
+						usleep(2000000); // 2s backoff
+					continue;
+				}
+
+				download_progress.current_percent = 0;
+				bytes = wget_download_file(url, local_path,
+										   &download_progress.current_percent,
+										   &download_should_stop,
+										   &download_progress.speed_bps,
+										   &download_progress.eta_sec);
+
+				if (bytes > 0 || download_should_stop)
+					break;
+
 				retries++;
-				item->retry_count = retries;
+				LOG_error("[Podcast] Download attempt %d/%d failed: %s\n",
+						  retries, PODCAST_MAX_RETRIES, episode_title);
 				if (retries < PODCAST_MAX_RETRIES)
-					usleep(2000000); // 2s backoff
-				continue;
-			}
-
-			bytes = wget_download_file(item->url, item->local_path,
-									   &item->progress_percent,
-									   &download_should_stop,
-									   &download_progress.speed_bps,
-									   &download_progress.eta_sec);
-
-			if (bytes > 0 || download_should_stop)
-				break;
-
-			retries++;
-			item->retry_count = retries;
-			LOG_error("[Podcast] Download attempt %d/%d failed: %s\n",
-					  retries, PODCAST_MAX_RETRIES, item->episode_title);
-			if (retries < PODCAST_MAX_RETRIES) {
-				usleep(2000000 * retries); // Exponential backoff: 2s, 4s
+					usleep(2000000 * retries); // Exponential backoff: 2s, 4s
 			}
 		}
 
@@ -1879,25 +2009,48 @@ static void* download_thread_func(void* arg) {
 		download_progress.speed_bps = 0;
 		download_progress.eta_sec = 0;
 
+		// Cancelled mid-download: remove our own partial file (by the local_path
+		// copy, so another episode's file can never be deleted) and stop.
 		if (download_should_stop) {
-			// Remove partial file if cancelled
-			unlink(item->local_path);
+			unlink(local_path);
 			break;
 		}
 
-		if (bytes > 0) {
-			item->status = PODCAST_DOWNLOAD_COMPLETE;
-			item->progress_percent = 100;
-			download_progress.completed_count++;
-		} else {
-			item->status = PODCAST_DOWNLOAD_FAILED;
-			download_progress.failed_count++;
-			// Remove partial file after all retries exhausted
-			unlink(item->local_path);
-			snprintf(download_progress.error_message, sizeof(download_progress.error_message),
-					 "Download failed after %d attempts", PODCAST_MAX_RETRIES);
-			LOG_error("[Podcast] Failed to download after %d retries: %s\n",
-					  PODCAST_MAX_RETRIES, item->url);
+		// Write the final status back by RE-LOCATING the item by guid under the
+		// lock — its array index may have changed while we were downloading.
+		pthread_mutex_lock(&download_mutex);
+		int idx = -1;
+		for (int i = 0; i < download_queue_count; i++) {
+			if (strcmp(download_queue[i].episode_guid, guid) == 0) {
+				idx = i;
+				break;
+			}
+		}
+		if (idx >= 0) {
+			download_queue[idx].retry_count = retries;
+			if (!low_disk && bytes > 0) {
+				download_queue[idx].status = PODCAST_DOWNLOAD_COMPLETE;
+				download_queue[idx].progress_percent = 100;
+				download_progress.completed_count++;
+			} else {
+				download_queue[idx].status = PODCAST_DOWNLOAD_FAILED;
+				download_progress.failed_count++;
+			}
+		}
+		pthread_mutex_unlock(&download_mutex);
+
+		// Clean up the file for a failed download, or an orphan left by an
+		// unsubscribe that removed the item mid-download (idx < 0).
+		if (low_disk || bytes <= 0) {
+			unlink(local_path);
+			if (!low_disk) {
+				snprintf(download_progress.error_message, sizeof(download_progress.error_message),
+						 "Download failed after %d attempts", PODCAST_MAX_RETRIES);
+				LOG_error("[Podcast] Failed to download after %d retries: %s\n",
+						  PODCAST_MAX_RETRIES, url);
+			}
+		} else if (idx < 0) {
+			unlink(local_path);
 		}
 	}
 
@@ -1930,11 +2083,29 @@ static void* download_thread_func(void* arg) {
 	download_running = false;
 	podcast_state = PODCAST_STATE_IDLE;
 	Podcast_saveDownloadQueue();
+
+	// A single-item cancel / unsubscribe interrupts the current download but
+	// must not abandon the rest of the queue. If this wasn't a full stop and
+	// PENDING items remain, start a fresh run for them.
+	if (!download_stop_all) {
+		bool has_pending = false;
+		pthread_mutex_lock(&download_mutex);
+		for (int i = 0; i < download_queue_count; i++) {
+			if (download_queue[i].status == PODCAST_DOWNLOAD_PENDING) {
+				has_pending = true;
+				break;
+			}
+		}
+		pthread_mutex_unlock(&download_mutex);
+		if (has_pending)
+			Podcast_startDownloads();
+	}
 	return NULL;
 }
 
 void Podcast_stopDownloads(void) {
 	if (download_running) {
+		download_stop_all = true; // full stop: the thread must NOT auto-resume
 		download_should_stop = true;
 		for (int i = 0; i < 20 && download_running; i++) {
 			usleep(100000); // 100ms, wait up to 2 seconds
@@ -1986,7 +2157,7 @@ void Podcast_saveDownloadQueue(void) {
 	}
 	pthread_mutex_unlock(&download_mutex);
 
-	json_serialize_to_file_pretty(root, downloads_file);
+	json_serialize_atomic(root, downloads_file);
 	json_value_free(root);
 }
 
@@ -2230,7 +2401,7 @@ void Podcast_clearNewFlag(int feed_index, int episode_index) {
 					break;
 				}
 			}
-			json_serialize_to_file_pretty(root, episodes_path);
+			json_serialize_atomic(root, episodes_path);
 		}
 		json_value_free(root);
 	}
@@ -2348,7 +2519,7 @@ static void save_continue_listening(void) {
 		json_array_append_value(arr, val);
 	}
 
-	json_serialize_to_file_pretty(root, continue_listening_file);
+	json_serialize_atomic(root, continue_listening_file);
 	json_value_free(root);
 }
 

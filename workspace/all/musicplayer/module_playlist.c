@@ -78,7 +78,9 @@ static void create_playlist(SDL_Surface** screen_p) {
 			*screen_p = ns;
 	}
 	if (name && name[0]) {
-		if (M3U_create(name) == 0) {
+		if (strchr(name, '/')) {
+			show_toast("Invalid name"); // '/' can't be a filename component
+		} else if (M3U_create(name) == 0) {
 			show_toast("Playlist created");
 			refresh_playlists();
 		} else {
@@ -103,6 +105,11 @@ static void rename_playlist(SDL_Surface** screen_p, int idx) {
 			*screen_p = ns;
 	}
 	if (name && name[0]) {
+		if (strchr(name, '/')) {
+			show_toast("Invalid name");
+			free(name);
+			return;
+		}
 		if (M3U_rename(playlists[idx].path, name) == 0) {
 			show_toast("Playlist renamed");
 			refresh_playlists();
@@ -297,8 +304,17 @@ ModuleExitReason PlaylistModule_run(SDL_Surface* screen) {
 					// Play the playlist starting from selected track
 					GFX_clearLayers(LAYER_SCROLLTEXT);
 					PlayerModule_setResumePlaylistPath(playlists[current_playlist_index].path);
-					PlayerModule_runWithPlaylist(screen, detail_tracks, detail_track_count, act.index);
+					ModuleExitReason reason = PlayerModule_runWithPlaylist(screen, detail_tracks, detail_track_count, act.index);
 					PlayerModule_setResumePlaylistPath(NULL);
+					if (reason == MODULE_EXIT_QUIT)
+						return MODULE_EXIT_QUIT;
+					// TG5050: a keyboard inside playback may have triggered
+					// display recovery — pick up the new screen surface
+					{
+						SDL_Surface* ns = DisplayHelper_getReinitScreen();
+						if (ns)
+							screen = ns;
+					}
 					// On return, refresh and go back to detail
 					refresh_detail();
 					if (v->selected >= detail_track_count)

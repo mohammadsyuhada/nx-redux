@@ -7,6 +7,7 @@
 #include "module_player.h"
 #include "module_playlist.h"
 #include "ui_listview.h"
+#include "display_helper.h"
 
 // Library submenu items
 #define LIBRARY_FILES 0
@@ -87,6 +88,14 @@ ModuleExitReason LibraryModule_run(SDL_Surface* screen) {
 
 			if (reason == MODULE_EXIT_QUIT) {
 				return MODULE_EXIT_QUIT;
+			}
+
+			// TG5050: a keyboard inside the sub-module may have triggered
+			// display recovery — pick up the new screen surface
+			{
+				SDL_Surface* ns = DisplayHelper_getReinitScreen();
+				if (ns)
+					screen = ns;
 			}
 
 			// Sub-module returned to library menu

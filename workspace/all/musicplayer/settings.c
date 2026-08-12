@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 // Settings file path (in shared userdata directory)
 #define SETTINGS_FILE SHARED_USERDATA_PATH "/music-player/settings.cfg"
@@ -174,10 +175,9 @@ const char* Settings_getScreenOffDisplayStr(void) {
 }
 
 void Settings_save(void) {
-	// Ensure directory exists
-	char mkdir_cmd[512];
-	snprintf(mkdir_cmd, sizeof(mkdir_cmd), "mkdir -p %s", SETTINGS_DIR);
-	system(mkdir_cmd);
+	// Ensure directory exists (mkdir(2) — not system("mkdir -p"), which forked a
+	// shell on every settings change). Parent .userdata/shared exists already.
+	mkdir(SETTINGS_DIR, 0755);
 
 	FILE* f = fopen(SETTINGS_FILE, "w");
 	if (!f)

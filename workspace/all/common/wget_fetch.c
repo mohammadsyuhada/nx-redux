@@ -260,6 +260,14 @@ int wget_download_file(const char* url, const char* filepath,
 
 	struct stat st;
 	if (stat(filepath, &st) == 0 && st.st_size > 0) {
+		// If the server told us the size, reject a truncated file: a mid-transfer
+		// disconnect otherwise reports success and the episode plays half.
+		if (total_size > 0 && st.st_size < total_size) {
+			LOG_error("[WgetFetch] truncated download (%ld/%ld bytes): %s\n",
+					  (long)st.st_size, total_size, url);
+			// Keep the partial file so a retry can resume.
+			return -1;
+		}
 		result = (int)st.st_size;
 		if (progress_pct)
 			*progress_pct = 100;

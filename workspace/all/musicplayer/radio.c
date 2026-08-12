@@ -94,6 +94,11 @@ typedef struct {
 	// ICY metadata
 	int icy_metaint;	  // Bytes between metadata
 	int bytes_until_meta; // Countdown to next metadata
+	// A metadata block can straddle a recv() boundary; accumulate it here so
+	// it is parsed whole instead of being dropped (which desyncs framing).
+	uint8_t icy_meta_buf[4080]; // ICY spec cap: 255 * 16
+	int icy_meta_len;			// total length of the in-progress block (0 = none)
+	int icy_meta_got;			// bytes accumulated so far
 	RadioMetadata metadata;
 
 	// Stream buffer (raw network data)
@@ -139,6 +144,9 @@ typedef struct {
 	int hls_prefetch_len;			  // Length of prefetched data
 	int hls_prefetch_segment;		  // Which segment index is prefetched (-1 if none)
 	volatile bool hls_prefetch_ready; // Is prefetch data ready to use?
+	int hls_epoch;					  // Bumped whenever the live playlist is re-parsed;
+									  // a prefetch tagged with a stale epoch is discarded
+									  // (segment indices are renumbered on refresh)
 	pthread_mutex_t hls_mutex;		  // Mutex for HLS prefetch and segments access
 
 	// TS demuxer state
@@ -368,6 +376,76 @@ static int radio_recv(void* buf, size_t len) {
 	}
 }
 
+// Blocking TCP connect bounded by a wall-clock timeout (non-blocking connect +
+// select), returning a connected fd with SO_RCVTIMEO/SO_SNDTIMEO applied, or -1.
+// Without the bound, a server that accepts the SYN then stalls freezes the
+// caller — which today is the UI thread — for the kernel's multi-minute connect
+// and recv timeouts.
+static int tcp_connect_timeout(const char* host, int port, int timeout_sec) {
+	struct addrinfo hints, *result = NULL;
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+
+	char port_str[16];
+	snprintf(port_str, sizeof(port_str), "%d", port);
+	if (getaddrinfo(host, port_str, &hints, &result) != 0 || !result)
+		return -1;
+
+	int fd = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
+	if (fd < 0) {
+		freeaddrinfo(result);
+		return -1;
+	}
+
+	// Non-blocking connect so select() can bound it
+	int flags = fcntl(fd, F_GETFL, 0);
+	fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+
+	int rc = connect(fd, result->ai_addr, result->ai_addrlen);
+	freeaddrinfo(result);
+
+	if (rc < 0 && errno == EINPROGRESS) {
+		// Poll in short slices so Radio_stop (should_stop) can abort a connect
+		// to a dead server promptly, instead of waiting the full timeout.
+		bool connected = false;
+		for (int elapsed_ms = 0; elapsed_ms < timeout_sec * 1000 && !radio.should_stop; elapsed_ms += 200) {
+			fd_set wfds;
+			FD_ZERO(&wfds);
+			FD_SET(fd, &wfds);
+			struct timeval tv = {0, 200 * 1000};
+			int s = select(fd + 1, NULL, &wfds, NULL, &tv);
+			if (s > 0) {
+				connected = true;
+				break;
+			}
+			if (s < 0 && errno != EINTR)
+				break;
+		}
+		if (!connected) {
+			close(fd);
+			return -1; // timed out, aborted, or select error
+		}
+		int soerr = 0;
+		socklen_t slen = sizeof(soerr);
+		if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &slen) != 0 || soerr != 0) {
+			close(fd);
+			return -1;
+		}
+	} else if (rc < 0) {
+		close(fd);
+		return -1;
+	}
+
+	// Restore blocking mode and bound every subsequent recv/send (handshake,
+	// header read, streaming) so a mid-transfer stall can't hang the thread.
+	fcntl(fd, F_SETFL, flags);
+	struct timeval tv = {timeout_sec, 0};
+	setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+	setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+	return fd;
+}
+
 // Connect to stream server (supports HTTP and HTTPS)
 static int connect_stream(const char* url) {
 	char host[256], path[512];
@@ -393,10 +471,13 @@ static int connect_stream(const char* url) {
 			return -1;
 		}
 
-		// Connect using mbedTLS
-		ret = mbedtls_net_connect(&radio.ssl_net, host, port_str, MBEDTLS_NET_PROTO_TCP);
-		if (ret != 0) {
-			LOG_error("mbedtls_net_connect failed: %d\n", ret);
+		// Bounded TCP connect (see tcp_connect_timeout); hand the fd to mbedTLS.
+		// Using our own connect instead of mbedtls_net_connect gives us a
+		// connect timeout and read/write timeouts the blocking mbedTLS helper
+		// doesn't provide.
+		radio.ssl_net.fd = tcp_connect_timeout(host, port, 10);
+		if (radio.ssl_net.fd < 0) {
+			LOG_error("radio TCP connect failed/timed out host=%s\n", host);
 			ssl_cleanup();
 			snprintf(radio.error_msg, sizeof(radio.error_msg), "Connection failed");
 			return -1;
@@ -406,9 +487,10 @@ static int connect_stream(const char* url) {
 		mbedtls_ssl_set_bio(&radio.ssl, &radio.ssl_net,
 							mbedtls_net_send, mbedtls_net_recv, NULL);
 
-		// SSL handshake with timeout protection
-		int handshake_retries = 0;
-		const int max_handshake_retries = 100; // 10 seconds with 100ms sleep
+		// SSL handshake, bounded by wall clock. The fd carries SO_RCVTIMEO, so a
+		// stalled peer surfaces as WANT_READ (EAGAIN) every ~10s rather than
+		// blocking forever; the deadline caps how long we retry.
+		time_t handshake_deadline = time(NULL) + 15;
 		while ((ret = mbedtls_ssl_handshake(&radio.ssl)) != 0) {
 			// TLS 1.3: session ticket received means handshake is complete
 			if (ret == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) {
@@ -420,57 +502,25 @@ static int connect_stream(const char* url) {
 				snprintf(radio.error_msg, sizeof(radio.error_msg), "SSL handshake failed (host=%s)", host);
 				return -1;
 			}
-			if (++handshake_retries > max_handshake_retries) {
-				LOG_error("SSL handshake timeout after %d retries\n", handshake_retries);
+			if (time(NULL) >= handshake_deadline || radio.should_stop) {
+				LOG_error("SSL handshake timeout host=%s\n", host);
 				ssl_cleanup();
 				snprintf(radio.error_msg, sizeof(radio.error_msg), "SSL handshake timeout");
 				return -1;
 			}
-			usleep(100000); // 100ms sleep between retries
+			usleep(50000); // 50ms between retries
 		}
 
 
 		// Store socket fd for select() compatibility
 		radio.socket_fd = radio.ssl_net.fd;
 	} else {
-		// Plain HTTP connection - use getaddrinfo (thread-safe)
-		struct addrinfo hints, *result = NULL;
-		memset(&hints, 0, sizeof(hints));
-		hints.ai_family = AF_INET;
-		hints.ai_socktype = SOCK_STREAM;
-
-		char port_str[16];
-		snprintf(port_str, sizeof(port_str), "%d", port);
-
-		int gai_ret = getaddrinfo(host, port_str, &hints, &result);
-		if (gai_ret != 0 || !result) {
-			if (result)
-				freeaddrinfo(result);
-			snprintf(radio.error_msg, sizeof(radio.error_msg), "DNS lookup failed");
-			return -1;
-		}
-
-		radio.socket_fd = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
+		// Plain HTTP: same bounded connect (connect deadline + recv/send timeouts)
+		radio.socket_fd = tcp_connect_timeout(host, port, 10);
 		if (radio.socket_fd < 0) {
-			freeaddrinfo(result);
-			snprintf(radio.error_msg, sizeof(radio.error_msg), "Socket creation failed");
-			return -1;
-		}
-
-		struct timeval tv;
-		tv.tv_sec = 10;
-		tv.tv_usec = 0;
-		setsockopt(radio.socket_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-		setsockopt(radio.socket_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-
-		if (connect(radio.socket_fd, result->ai_addr, result->ai_addrlen) < 0) {
-			close(radio.socket_fd);
-			radio.socket_fd = -1;
-			freeaddrinfo(result);
 			snprintf(radio.error_msg, sizeof(radio.error_msg), "Connection failed");
 			return -1;
 		}
-		freeaddrinfo(result);
 	}
 
 	// Send HTTP request with ICY headers
@@ -502,7 +552,11 @@ static int connect_stream(const char* url) {
 // Parse HTTP response headers
 // Returns: 0 = success, 1 = redirect (check redirect_url), -1 = error
 static int parse_headers(void) {
-	char header_buf[4096];
+	// 8KB to match radio_net's header buffer — some stations send header blocks
+	// larger than 4KB, and a too-small buffer exits before "\r\n\r\n", parsing
+	// partial headers and then feeding the rest of the header bytes into the
+	// audio decoder (startup garbage / misdetected format).
+	char header_buf[8192];
 	int header_pos = 0;
 	char c;
 
@@ -601,6 +655,8 @@ static int parse_headers(void) {
 	pthread_mutex_unlock(&meta_mutex);
 
 	radio.bytes_until_meta = radio.icy_metaint;
+	radio.icy_meta_len = 0;
+	radio.icy_meta_got = 0;
 
 	// Detect audio format from content type
 	radio.audio_format = RADIO_FORMAT_MP3; // Default to MP3
@@ -686,12 +742,14 @@ static volatile bool hls_prefetch_thread_active = false;
 static void* hls_prefetch_thread_func(void* arg) {
 	int seg_idx = (int)(intptr_t)arg;
 
-	// Validate segment index under mutex
+	// Validate segment index under mutex and capture the playlist epoch this
+	// prefetch belongs to.
 	pthread_mutex_lock(&radio.hls_mutex);
 	if (seg_idx < 0 || seg_idx >= radio.hls.segment_count || radio.should_stop) {
 		pthread_mutex_unlock(&radio.hls_mutex);
 		return NULL;
 	}
+	int my_epoch = radio.hls_epoch;
 
 	// Copy URL to local buffer to avoid use-after-free
 	char local_url[HLS_MAX_URL_LEN];
@@ -707,9 +765,11 @@ static void* hls_prefetch_thread_func(void* arg) {
 	int len = radio_net_fetch(local_url, radio.hls_prefetch_buf,
 							  HLS_SEGMENT_BUF_SIZE, NULL, 0);
 
-	// Only mark as ready if fetch succeeded and we're not stopping
+	// Only mark ready if the fetch succeeded, we're not stopping, AND the
+	// playlist wasn't re-parsed while we fetched (a refresh renumbers segments,
+	// so seg_idx would now point at a different URL).
 	pthread_mutex_lock(&radio.hls_mutex);
-	if (len > 0 && !radio.should_stop) {
+	if (len > 0 && !radio.should_stop && radio.hls_epoch == my_epoch) {
 		radio.hls_prefetch_len = len;
 		radio.hls_prefetch_segment = seg_idx;
 		radio.hls_prefetch_ready = true;
@@ -786,7 +846,14 @@ static void* hls_stream_thread_func(void* arg) {
 					char base_url[HLS_MAX_URL_LEN];
 					radio_hls_get_base_url(radio.current_url, base_url, HLS_MAX_URL_LEN);
 
+					// Rewrite segments[] under the lock (the prefetch thread reads
+					// it), bump the epoch so any in-flight prefetch is discarded,
+					// and drop the current prefetch (its index is now stale).
+					pthread_mutex_lock(&radio.hls_mutex);
 					radio_hls_parse_playlist(&radio.hls, (char*)playlist_buf, base_url);
+					radio.hls_epoch++;
+					radio.hls_prefetch_ready = false;
+					radio.hls_prefetch_segment = -1;
 
 					// Skip segments we've already played based on last_played_sequence
 					// media_sequence is the sequence number of the first segment in the new playlist
@@ -802,6 +869,7 @@ static void* hls_stream_thread_func(void* arg) {
 					} else {
 						radio.hls.current_segment = 0;
 					}
+					pthread_mutex_unlock(&radio.hls_mutex);
 				}
 				free(playlist_buf);
 			}
@@ -973,6 +1041,16 @@ static void* hls_stream_thread_func(void* arg) {
 
 			// Process all AAC data from segment
 			while (aac_pos < aac_len && !radio.should_stop) {
+				// Backpressure INSIDE the decode loop: the pre-fetch gate only
+				// leaves ~1s of headroom, then a whole multi-second segment is
+				// decoded at once and the overflow is silently dropped by
+				// radio_ring_write. Pause here until the callback drains the ring.
+				while (radio.audio_ring_count > AUDIO_RING_SIZE * 9 / 10 && !radio.should_stop) {
+					usleep(20000); // 20ms
+				}
+				if (radio.should_stop)
+					break;
+
 				// Feed data to FDK-AAC (it handles ADTS sync internally)
 				UCHAR* inBuffer[] = {aac_buf + aac_pos};
 				UINT inBufferLength[] = {(UINT)(aac_len - aac_pos)};
@@ -1023,10 +1101,12 @@ static void* hls_stream_thread_func(void* arg) {
 			}
 		}
 
-		// Update state based on buffer level - require 10 seconds of audio before playing
-		// This provides maximum headroom for network latency
+		// Transition to PLAYING once the ring is ~2/3 full. The old threshold
+		// (> AUDIO_RING_SIZE, i.e. the whole 10s ring) was unsatisfiable because
+		// radio_ring_write caps count at AUDIO_RING_SIZE, so HLS streams stayed
+		// in BUFFERING forever and auto screen-off never fired.
 		if (radio.state == RADIO_STATE_BUFFERING &&
-			radio.audio_ring_count > SAMPLE_RATE * 2 * 10) { // 10 seconds of stereo audio
+			radio.audio_ring_count > AUDIO_RING_SIZE * 2 / 3) {
 			radio.state = RADIO_STATE_PLAYING;
 		}
 
@@ -1117,19 +1197,40 @@ static void* stream_thread_func(void* arg) {
 		// Process received data
 		int i = 0;
 		while (i < bytes_read && !radio.should_stop) {
+			// Collecting a metadata block (possibly across recv boundaries):
+			// take what's here, parse only once the whole block has arrived.
+			if (radio.icy_meta_len > 0) {
+				int need = radio.icy_meta_len - radio.icy_meta_got;
+				int avail = bytes_read - i;
+				int take = avail < need ? avail : need;
+				memcpy(radio.icy_meta_buf + radio.icy_meta_got, &recv_buf[i], take);
+				radio.icy_meta_got += take;
+				i += take;
+				if (radio.icy_meta_got == radio.icy_meta_len) {
+					parse_icy_metadata(radio.icy_meta_buf, radio.icy_meta_len);
+					radio.icy_meta_len = 0;
+					radio.icy_meta_got = 0;
+					radio.bytes_until_meta = radio.icy_metaint;
+				}
+				continue;
+			}
+
 			if (radio.icy_metaint > 0 && radio.bytes_until_meta == 0) {
-				// Read metadata length byte (max 255 * 16 = 4080 bytes)
+				// Metadata length byte (block size = byte * 16, max 4080)
 				int meta_len = recv_buf[i++] * 16;
-				// Validate metadata size (max 4080 bytes per ICY spec)
 				if (meta_len > 4080) {
 					LOG_error("ICY metadata too large: %d bytes\n", meta_len);
 					meta_len = 0; // Skip invalid metadata
 				}
-				if (meta_len > 0 && i + meta_len <= bytes_read) {
-					parse_icy_metadata(&recv_buf[i], meta_len);
-					i += meta_len;
+				if (meta_len == 0) {
+					// Zero-length block: no metadata change this interval
+					radio.bytes_until_meta = radio.icy_metaint;
+				} else {
+					// Start collecting; the block above finishes it (this recv
+					// or a later one), so a straddling block is never dropped.
+					radio.icy_meta_len = meta_len;
+					radio.icy_meta_got = 0;
 				}
-				radio.bytes_until_meta = radio.icy_metaint;
 			} else {
 				// Calculate how many bytes to copy
 				int bytes_to_copy = bytes_read - i;
@@ -1518,6 +1619,168 @@ void Radio_loadStations(void) {
 	}
 }
 
+// Fetch + parse the HLS playlist for radio.current_url (network I/O; runs on
+// the stream thread). Returns 0 with segments ready, -1 on error (error_msg set).
+static int hls_connect(void) {
+	uint8_t* playlist_buf = malloc(64 * 1024);
+	if (!playlist_buf) {
+		snprintf(radio.error_msg, sizeof(radio.error_msg), "Memory allocation failed");
+		return -1;
+	}
+
+	int len = radio_net_fetch(radio.current_url, playlist_buf, 64 * 1024, NULL, 0);
+	if (len <= 0) {
+		free(playlist_buf);
+		snprintf(radio.error_msg, sizeof(radio.error_msg), "Failed to fetch playlist");
+		return -1;
+	}
+	if (len >= 64 * 1024 - 1)
+		LOG_error("Warning: M3U8 playlist may be truncated (>64KB)\n");
+	playlist_buf[len] = '\0';
+
+	char base_url[HLS_MAX_URL_LEN];
+	radio_hls_get_base_url(radio.current_url, base_url, HLS_MAX_URL_LEN);
+
+	// Initialize segment tracking for new stream
+	radio.hls.current_segment = 0;
+	radio.hls.last_played_sequence = -1;
+
+	int seg_count = radio_hls_parse_playlist(&radio.hls, (char*)playlist_buf, base_url);
+	free(playlist_buf);
+
+	if (radio.hls.encrypted) {
+		snprintf(radio.error_msg, sizeof(radio.error_msg), "Encrypted stream not supported");
+		return -1;
+	}
+	if (seg_count <= 0) {
+		snprintf(radio.error_msg, sizeof(radio.error_msg), "No segments in playlist");
+		return -1;
+	}
+	return 0;
+}
+
+// Resolve + connect + parse headers for a direct (Shoutcast/Icecast) stream,
+// following redirects (network I/O; runs on the stream thread). Returns 0 with
+// the socket connected and headers consumed, -1 on error.
+static int direct_connect(void) {
+	char current_url[RADIO_MAX_URL];
+	strncpy(current_url, radio.current_url, RADIO_MAX_URL - 1);
+	current_url[RADIO_MAX_URL - 1] = '\0';
+
+	// For HTTPS URLs, pre-resolve redirects using radio_net's TLS stack
+	// (handles TLS 1.3 servers that radio.c's built-in SSL may struggle with)
+	if (strncmp(current_url, "https://", 8) == 0) {
+		char resolved[RADIO_MAX_URL];
+		if (radio_net_resolve_url(current_url, resolved, RADIO_MAX_URL) == 0) {
+			LOG_info("Resolved stream URL: %s\n", resolved);
+			strncpy(current_url, resolved, RADIO_MAX_URL - 1);
+			current_url[RADIO_MAX_URL - 1] = '\0';
+		}
+	}
+
+	int max_redirects = 5;
+	bool tried_http_fallback = false;
+
+connect_attempt:
+	for (int redirect_count = 0; redirect_count <= max_redirects; redirect_count++) {
+		if (radio.should_stop)
+			return -1;
+
+		// Connect to stream
+		if (connect_stream(current_url) != 0) {
+			// If HTTPS connection failed, try HTTP fallback
+			if (!tried_http_fallback && strncmp(current_url, "https://", 8) == 0) {
+				LOG_info("HTTPS stream connection failed, trying HTTP fallback\n");
+				tried_http_fallback = true;
+
+				char http_url[RADIO_MAX_URL];
+				char host[256], path[512];
+				int port;
+				bool is_https;
+				if (radio_net_parse_url(current_url, host, 256, &port, path, 512, &is_https) == 0) {
+					if (port == 443)
+						port = 80;
+					if (port == 80)
+						snprintf(http_url, RADIO_MAX_URL, "http://%s%s", host, path);
+					else
+						snprintf(http_url, RADIO_MAX_URL, "http://%s:%d%s", host, port, path);
+					strncpy(current_url, http_url, RADIO_MAX_URL - 1);
+					current_url[RADIO_MAX_URL - 1] = '\0';
+					goto connect_attempt;
+				}
+			}
+			return -1; // connect_stream set error_msg
+		}
+
+		int header_result = parse_headers();
+		if (header_result == 0) {
+			return 0; // headers parsed, ready to stream
+		} else if (header_result == 1) {
+			// Redirect - cleanup current connection and try the new URL
+			if (radio.use_ssl) {
+				ssl_cleanup();
+				radio.use_ssl = false;
+			} else {
+				close(radio.socket_fd);
+			}
+			radio.socket_fd = -1;
+
+			if (radio.redirect_url[0] == '\0') {
+				snprintf(radio.error_msg, sizeof(radio.error_msg), "Empty redirect URL");
+				return -1;
+			}
+			strncpy(current_url, radio.redirect_url, RADIO_MAX_URL - 1);
+			current_url[RADIO_MAX_URL - 1] = '\0';
+
+			if (redirect_count == max_redirects) {
+				snprintf(radio.error_msg, sizeof(radio.error_msg), "Too many redirects");
+				return -1;
+			}
+		} else {
+			// Error - cleanup connection
+			if (radio.use_ssl) {
+				ssl_cleanup();
+				radio.use_ssl = false;
+			} else {
+				close(radio.socket_fd);
+			}
+			radio.socket_fd = -1;
+			return -1;
+		}
+	}
+	return -1;
+}
+
+// Worker thread: do the blocking connect phase (off the UI thread) then run the
+// streaming loop. This is what makes station selection non-blocking — Radio_play
+// returns immediately in CONNECTING state and every network stall stays here.
+static void* radio_stream_thread_func(void* arg) {
+	(void)arg;
+
+	if (radio.stream_type == STREAM_TYPE_HLS) {
+		if (hls_connect() != 0) {
+			radio.state = RADIO_STATE_ERROR;
+			return NULL;
+		}
+	} else {
+		if (direct_connect() != 0) {
+			radio.state = RADIO_STATE_ERROR;
+			return NULL;
+		}
+	}
+
+	if (radio.should_stop)
+		return NULL;
+
+	// Unpause audio device for radio playback
+	Player_resumeAudio();
+
+	// Tail-call into the streaming loop for the connected stream type
+	if (radio.stream_type == STREAM_TYPE_HLS)
+		return hls_stream_thread_func(NULL);
+	return stream_thread_func(NULL);
+}
+
 int Radio_play(const char* url) {
 	Radio_stop();
 
@@ -1525,6 +1788,7 @@ int Radio_play(const char* url) {
 	Player_resetSampleRate();
 
 	strncpy(radio.current_url, url, RADIO_MAX_URL - 1);
+	radio.current_url[RADIO_MAX_URL - 1] = '\0';
 	radio.state = RADIO_STATE_CONNECTING;
 	radio.error_msg[0] = '\0';
 
@@ -1543,191 +1807,25 @@ int Radio_play(const char* url) {
 	radio.ts_aac_pid = -1;
 	memset(&radio.hls, 0, sizeof(HLSContext));
 
-	// Check if this is an HLS stream
-	if (radio_hls_is_url(url)) {
-		radio.stream_type = STREAM_TYPE_HLS;
+	radio.stream_type = radio_hls_is_url(url) ? STREAM_TYPE_HLS : STREAM_TYPE_DIRECT;
 
-		// Fetch and parse the M3U8 playlist
-		uint8_t* playlist_buf = malloc(64 * 1024);
-		if (!playlist_buf) {
-			radio.state = RADIO_STATE_ERROR;
-			snprintf(radio.error_msg, sizeof(radio.error_msg), "Memory allocation failed");
-			return -1;
-		}
-
-		int len = radio_net_fetch(url, playlist_buf, 64 * 1024, NULL, 0);
-		if (len <= 0) {
-			free(playlist_buf);
-			radio.state = RADIO_STATE_ERROR;
-			snprintf(radio.error_msg, sizeof(radio.error_msg), "Failed to fetch playlist");
-			return -1;
-		}
-
-		// Check if playlist was truncated (buffer full)
-		if (len >= 64 * 1024 - 1) {
-			LOG_error("Warning: M3U8 playlist may be truncated (>64KB)\n");
-		}
-
-		playlist_buf[len] = '\0';
-
-		// Get base URL for resolving relative paths
-		char base_url[HLS_MAX_URL_LEN];
-		radio_hls_get_base_url(url, base_url, HLS_MAX_URL_LEN);
-
-		// Initialize segment tracking for new stream
-		radio.hls.current_segment = 0;
-		radio.hls.last_played_sequence = -1;
-
-		int seg_count = radio_hls_parse_playlist(&radio.hls, (char*)playlist_buf, base_url);
-		free(playlist_buf);
-
-		if (seg_count > 0) {
-			// Playlist parsed successfully
-		}
-
-		if (seg_count <= 0) {
-			radio.state = RADIO_STATE_ERROR;
-			snprintf(radio.error_msg, sizeof(radio.error_msg), "No segments in playlist");
-			return -1;
-		}
-
-		// Start HLS streaming thread with larger stack (mbedtls + getaddrinfo need more stack space)
-		radio.should_stop = false;
-		radio.thread_running = true;
-		pthread_attr_t attr;
-		pthread_attr_init(&attr);
-		size_t stacksize = 1024 * 1024; // 1MB stack - getaddrinfo uses a lot of stack
-		int stack_result = pthread_attr_setstacksize(&attr, stacksize);
-		if (pthread_create(&radio.stream_thread, &attr, hls_stream_thread_func, NULL) != 0) {
-			pthread_attr_destroy(&attr);
-			radio.state = RADIO_STATE_ERROR;
-			snprintf(radio.error_msg, sizeof(radio.error_msg), "Thread creation failed");
-			return -1;
-		}
-		pthread_attr_destroy(&attr);
-
-		// Unpause audio device for radio playback
-		Player_resumeAudio();
-
-		return 0;
-	}
-
-	// Direct stream (Shoutcast/Icecast)
-	radio.stream_type = STREAM_TYPE_DIRECT;
-
-	// For HTTPS URLs, pre-resolve redirects using radio_net's TLS stack
-	// (handles TLS 1.3 servers that radio.c's built-in SSL may struggle with)
-	char current_url[RADIO_MAX_URL];
-	strncpy(current_url, url, RADIO_MAX_URL - 1);
-	current_url[RADIO_MAX_URL - 1] = '\0';
-
-	if (strncmp(current_url, "https://", 8) == 0) {
-		char resolved[RADIO_MAX_URL];
-		if (radio_net_resolve_url(current_url, resolved, RADIO_MAX_URL) == 0) {
-			LOG_info("Resolved stream URL: %s\n", resolved);
-			strncpy(current_url, resolved, RADIO_MAX_URL - 1);
-			current_url[RADIO_MAX_URL - 1] = '\0';
-		}
-	}
-
-	int max_redirects = 5;
-	int header_result;
-	bool tried_http_fallback = false;
-
-connect_attempt:
-	for (int redirect_count = 0; redirect_count <= max_redirects; redirect_count++) {
-		// Connect to stream
-		if (connect_stream(current_url) != 0) {
-			// If HTTPS connection failed, try HTTP fallback
-			if (!tried_http_fallback && strncmp(current_url, "https://", 8) == 0) {
-				LOG_info("HTTPS stream connection failed, trying HTTP fallback\n");
-				tried_http_fallback = true;
-
-				// Convert https:// to http:// and adjust port
-				char http_url[RADIO_MAX_URL];
-				char host[256], path[512];
-				int port;
-				bool is_https;
-				if (radio_net_parse_url(current_url, host, 256, &port, path, 512, &is_https) == 0) {
-					// Use port 80 for HTTP (unless a non-standard port was specified)
-					if (port == 443)
-						port = 80;
-					if (port == 80) {
-						snprintf(http_url, RADIO_MAX_URL, "http://%s%s", host, path);
-					} else {
-						snprintf(http_url, RADIO_MAX_URL, "http://%s:%d%s", host, port, path);
-					}
-					strncpy(current_url, http_url, RADIO_MAX_URL - 1);
-					current_url[RADIO_MAX_URL - 1] = '\0';
-					goto connect_attempt;
-				}
-			}
-			radio.state = RADIO_STATE_ERROR;
-			return -1;
-		}
-
-		// Parse headers
-		header_result = parse_headers();
-
-		if (header_result == 0) {
-			// Success - headers parsed, ready to stream
-			break;
-		} else if (header_result == 1) {
-			// Redirect - cleanup current connection and try new URL
-			if (radio.use_ssl) {
-				ssl_cleanup();
-				radio.use_ssl = false;
-			} else {
-				close(radio.socket_fd);
-			}
-			radio.socket_fd = -1;
-
-			if (radio.redirect_url[0] == '\0') {
-				snprintf(radio.error_msg, sizeof(radio.error_msg), "Empty redirect URL");
-				radio.state = RADIO_STATE_ERROR;
-				return -1;
-			}
-
-			strncpy(current_url, radio.redirect_url, RADIO_MAX_URL - 1);
-			current_url[RADIO_MAX_URL - 1] = '\0';
-
-			if (redirect_count == max_redirects) {
-				snprintf(radio.error_msg, sizeof(radio.error_msg), "Too many redirects");
-				radio.state = RADIO_STATE_ERROR;
-				return -1;
-			}
-		} else {
-			// Error - cleanup connection
-			if (radio.use_ssl) {
-				ssl_cleanup();
-				radio.use_ssl = false;
-			} else {
-				close(radio.socket_fd);
-			}
-			radio.socket_fd = -1;
-			radio.state = RADIO_STATE_ERROR;
-			return -1;
-		}
-	}
-
-	// Start streaming thread
+	// Connect + stream on a worker thread so the UI never blocks on network I/O
+	// (URL resolve, redirects, HLS playlist fetch, TLS handshake). The UI shows
+	// CONNECTING until the thread reaches BUFFERING/PLAYING or ERROR. A large
+	// stack is required — mbedTLS and getaddrinfo use a lot.
 	radio.should_stop = false;
 	radio.thread_running = true;
-	if (pthread_create(&radio.stream_thread, NULL, stream_thread_func, NULL) != 0) {
-		if (radio.use_ssl) {
-			ssl_cleanup();
-			radio.use_ssl = false;
-		} else {
-			close(radio.socket_fd);
-		}
-		radio.socket_fd = -1;
+	pthread_attr_t attr;
+	pthread_attr_init(&attr);
+	pthread_attr_setstacksize(&attr, 1024 * 1024);
+	if (pthread_create(&radio.stream_thread, &attr, radio_stream_thread_func, NULL) != 0) {
+		pthread_attr_destroy(&attr);
+		radio.thread_running = false;
 		radio.state = RADIO_STATE_ERROR;
 		snprintf(radio.error_msg, sizeof(radio.error_msg), "Thread creation failed");
 		return -1;
 	}
-
-	// Unpause audio device for radio playback
-	Player_resumeAudio();
+	pthread_attr_destroy(&attr);
 
 	return 0;
 }

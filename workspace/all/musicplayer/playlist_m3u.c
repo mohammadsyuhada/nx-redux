@@ -138,6 +138,49 @@ int M3U_addTrack(const char* m3u_path, const char* track_path, const char* displ
 	return 0;
 }
 
+int M3U_addTracks(const char* m3u_path, const PlaylistTrack* tracks, int count) {
+	if (!m3u_path || !tracks || count <= 0)
+		return -1;
+
+	// Read the existing paths once for the dup check.
+	PlaylistTrack existing[PLAYLIST_MAX_TRACKS];
+	int existing_count = 0;
+	M3U_loadTracks(m3u_path, existing, PLAYLIST_MAX_TRACKS, &existing_count);
+
+	FILE* f = fopen(m3u_path, "a");
+	if (!f)
+		return -1;
+
+	int added = 0;
+	for (int i = 0; i < count; i++) {
+		const char* path = tracks[i].path;
+		if (!path[0])
+			continue;
+		// Skip if already in the file OR already appended this batch.
+		bool dup = false;
+		for (int j = 0; j < existing_count; j++) {
+			if (strcmp(existing[j].path, path) == 0) {
+				dup = true;
+				break;
+			}
+		}
+		if (dup)
+			continue;
+
+		const char* name = tracks[i].name[0] ? tracks[i].name : path;
+		fprintf(f, "#EXTINF:0,%s\n%s\n", name, path);
+		added++;
+
+		// Record so later tracks in this batch dedup against it too.
+		if (existing_count < PLAYLIST_MAX_TRACKS) {
+			snprintf(existing[existing_count].path, sizeof(existing[existing_count].path), "%s", path);
+			existing_count++;
+		}
+	}
+	fclose(f);
+	return added;
+}
+
 int M3U_removeTrack(const char* m3u_path, int index) {
 	if (!m3u_path || index < 0)
 		return -1;
@@ -171,8 +214,16 @@ int M3U_removeTrack(const char* m3u_path, int index) {
 			lines = new_lines;
 		}
 		lines[line_count] = strdup(buf);
-		if (lines[line_count])
-			line_count++;
+		if (!lines[line_count]) {
+			// Abort rather than silently drop a line (which would corrupt the
+			// rewritten playlist). The original file is left untouched.
+			for (int i = 0; i < line_count; i++)
+				free(lines[i]);
+			free(lines);
+			fclose(f);
+			return -1;
+		}
+		line_count++;
 	}
 	fclose(f);
 
@@ -201,8 +252,12 @@ int M3U_removeTrack(const char* m3u_path, int index) {
 		return -1;
 	}
 
-	// Rewrite the file without the removed track (and its preceding #EXTINF line)
-	f = fopen(m3u_path, "w");
+	// Rewrite atomically: write the new content to a temp file then rename()
+	// over the original, so a power loss (or failure mid-write) can't leave a
+	// truncated/empty playlist.
+	char tmp_path[600];
+	snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", m3u_path);
+	f = fopen(tmp_path, "w");
 	if (!f) {
 		for (int i = 0; i < line_count; i++)
 			free(lines[i]);
@@ -225,6 +280,11 @@ int M3U_removeTrack(const char* m3u_path, int index) {
 	for (int i = 0; i < line_count; i++)
 		free(lines[i]);
 	free(lines);
+
+	if (rename(tmp_path, m3u_path) != 0) {
+		unlink(tmp_path);
+		return -1;
+	}
 	return 0;
 }
 

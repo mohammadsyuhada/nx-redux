@@ -72,12 +72,8 @@ void AddToPlaylist_openFolder(const char* dir_path, const char* display_name) {
 static int add_folder_tracks(const char* m3u_path) {
 	PlaylistContext ctx = {0};
 	int n = Playlist_buildFromDirectory(&ctx, track_path, "");
-	int added = 0;
-	for (int i = 0; i < n; i++) {
-		const PlaylistTrack* t = Playlist_getTrack(&ctx, i);
-		if (t && M3U_addTrack(m3u_path, t->path, t->name) == 0)
-			added++;
-	}
+	// Batch-append (reads the existing .m3u once instead of once per track).
+	int added = (n > 0 && ctx.tracks) ? M3U_addTracks(m3u_path, ctx.tracks, n) : 0;
 	Playlist_free(&ctx);
 	return added;
 }

@@ -780,6 +780,14 @@ int radio_net_resolve_url(const char* url, char* resolved_url, int resolved_url_
 				return -1;
 			}
 			sock_fd = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
+			if (sock_fd >= 0) {
+				// Bound recv/send so a stalled server can't hang the resolve
+				// (which runs on the UI thread). The SSL branch above already
+				// sets these; the connect() SYN stall is left to the IMP-4 rework.
+				struct timeval tv = {RADIO_NET_TIMEOUT_SECONDS, 0};
+				setsockopt(sock_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+				setsockopt(sock_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+			}
 			if (sock_fd < 0 || connect(sock_fd, result->ai_addr, result->ai_addrlen) < 0) {
 				if (sock_fd >= 0)
 					close(sock_fd);

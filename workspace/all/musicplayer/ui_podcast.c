@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#include <pthread.h>
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
@@ -54,23 +55,122 @@ static SDL_Surface* convert_to_argb8888(SDL_Surface* src) {
 	return converted;
 }
 
+// --- Async artwork downloader ---------------------------------------------
+// Podcast artwork/thumbnails used to be fetched with a blocking wget() directly
+// inside the render functions, freezing the UI for the download timeout (and,
+// on failure, re-fetching every single frame). This worker downloads one image
+// at a time to its disk-cache path; the render side keeps its fast memory/disk
+// cache lookups and just requests a download when the file isn't there yet.
+#define ARTWORK_FAILED_MAX 64
+static pthread_t artwork_thread;
+static volatile bool artwork_thread_active = false;
+static pthread_mutex_t artwork_mutex = PTHREAD_MUTEX_INITIALIZER;
+static char artwork_req_url[PODCAST_MAX_URL];
+static char artwork_req_path[768];
+static char artwork_failed[ARTWORK_FAILED_MAX][PODCAST_MAX_URL];
+static int artwork_failed_count = 0;
+
+static bool artwork_url_failed(const char* url) {
+	for (int i = 0; i < artwork_failed_count; i++)
+		if (strcmp(artwork_failed[i], url) == 0)
+			return true;
+	return false;
+}
+
+static void artwork_mark_failed(const char* url) {
+	if (artwork_url_failed(url))
+		return;
+	if (artwork_failed_count < ARTWORK_FAILED_MAX) {
+		snprintf(artwork_failed[artwork_failed_count++], PODCAST_MAX_URL, "%s", url);
+	} else {
+		memmove(artwork_failed[0], artwork_failed[1],
+				sizeof(artwork_failed[0]) * (ARTWORK_FAILED_MAX - 1));
+		snprintf(artwork_failed[ARTWORK_FAILED_MAX - 1], PODCAST_MAX_URL, "%s", url);
+	}
+}
+
+static void* artwork_fetch_thread(void* arg) {
+	(void)arg;
+	PWR_pinToCores(CPU_CORE_EFFICIENCY);
+
+	char url[PODCAST_MAX_URL], path[768];
+	pthread_mutex_lock(&artwork_mutex);
+	snprintf(url, sizeof(url), "%s", artwork_req_url);
+	snprintf(path, sizeof(path), "%s", artwork_req_path);
+	pthread_mutex_unlock(&artwork_mutex);
+
+	static uint8_t buf[PODCAST_ARTWORK_MAX_SIZE]; // only this (single) worker uses it
+	int n = wget_fetch(url, buf, PODCAST_ARTWORK_MAX_SIZE);
+	bool ok = (n > 0 && UI_imageDataComplete(buf, n));
+	if (ok) {
+		// Ensure the parent directory exists so a missing dir isn't recorded as
+		// a permanent failure.
+		char* slash = strrchr(path, '/');
+		if (slash) {
+			*slash = '\0';
+			mkdir(path, 0755);
+			*slash = '/';
+		}
+		FILE* f = fopen(path, "wb");
+		if (f) {
+			fwrite(buf, 1, n, f);
+			fclose(f);
+		} else {
+			ok = false;
+		}
+	}
+
+	pthread_mutex_lock(&artwork_mutex);
+	if (!ok)
+		artwork_mark_failed(url);
+	artwork_thread_active = false;
+	pthread_mutex_unlock(&artwork_mutex);
+	return NULL;
+}
+
+// Request an async download of `url` → `cache_path`. Returns immediately; the
+// file appears when done. No-op if a download is already running or the URL
+// previously failed (so we never re-hammer a dead URL every frame).
+static void artwork_request_async(const char* url, const char* cache_path) {
+	if (!url || !url[0] || !cache_path || !cache_path[0])
+		return;
+	pthread_mutex_lock(&artwork_mutex);
+	if (artwork_thread_active || artwork_url_failed(url)) {
+		pthread_mutex_unlock(&artwork_mutex);
+		return;
+	}
+	snprintf(artwork_req_url, sizeof(artwork_req_url), "%s", url);
+	snprintf(artwork_req_path, sizeof(artwork_req_path), "%s", cache_path);
+	pthread_attr_t attr;
+	pthread_attr_init(&attr);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+	if (pthread_create(&artwork_thread, &attr, artwork_fetch_thread, NULL) == 0)
+		artwork_thread_active = true;
+	pthread_attr_destroy(&attr);
+	pthread_mutex_unlock(&artwork_mutex);
+}
+
+bool UIPodcast_artworkBusy(void) {
+	return artwork_thread_active;
+}
+
 // Fetch podcast artwork from URL (cached in podcast folder)
 // feed_id: the podcast's feed_id for storing artwork in its folder
 static void podcast_fetch_artwork(const char* artwork_url, const char* feed_id) {
 	if (!artwork_url || !artwork_url[0] || !feed_id || !feed_id[0])
 		return;
 
-	// Already have this artwork
+	// Already have exactly this artwork loaded
 	if (strcmp(podcast_artwork_url, artwork_url) == 0 && podcast_artwork)
 		return;
 
-	// Clear old artwork and invalidate album art background cache
+	// A different episode/feed's artwork is loaded — drop it
 	if (podcast_artwork) {
 		SDL_FreeSurface(podcast_artwork);
 		podcast_artwork = NULL;
 		cleanup_album_art_background();
 	}
-	strncpy(podcast_artwork_url, artwork_url, sizeof(podcast_artwork_url) - 1);
+	podcast_artwork_url[0] = '\0'; // set only once artwork is actually loaded
 
 	// Build cache path: <podcast_data_dir>/<feed_id>/artwork.jpg
 	char feed_dir[512];
@@ -79,7 +179,7 @@ static void podcast_fetch_artwork(const char* artwork_url, const char* feed_id) 
 	char cache_path[768];
 	snprintf(cache_path, sizeof(cache_path), "%s/artwork.jpg", feed_dir);
 
-	// Try to load from cache first
+	// Try the disk cache (fast, synchronous)
 	FILE* f = fopen(cache_path, "rb");
 	if (f) {
 		fseek(f, 0, SEEK_END);
@@ -100,31 +200,17 @@ static void podcast_fetch_artwork(const char* artwork_url, const char* feed_id) 
 			free(data);
 		}
 		fclose(f);
-		if (podcast_artwork)
+		if (podcast_artwork) {
+			snprintf(podcast_artwork_url, sizeof(podcast_artwork_url), "%s", artwork_url);
 			return;
+		}
 		// Cached file is corrupt/incomplete — delete it so we re-fetch
 		remove(cache_path);
 	}
 
-	// Fetch from network using static buffer
-	static uint8_t artwork_buffer[PODCAST_ARTWORK_MAX_SIZE];
-	int size = wget_fetch(artwork_url, artwork_buffer, PODCAST_ARTWORK_MAX_SIZE);
-
-	if (size > 0 && UI_imageDataComplete(artwork_buffer, size)) {
-		// Save to podcast folder (directory should already exist from subscription)
-		f = fopen(cache_path, "wb");
-		if (f) {
-			fwrite(artwork_buffer, 1, size, f);
-			fclose(f);
-		}
-
-		// Load as SDL surface and convert to ARGB8888 for proper scaling
-		SDL_RWops* rw = SDL_RWFromConstMem(artwork_buffer, size);
-		if (rw) {
-			SDL_Surface* loaded = IMG_Load_RW(rw, 1);
-			podcast_artwork = convert_to_argb8888(loaded);
-		}
-	}
+	// Not cached — download in the background (off the render thread). The disk
+	// path above will pick it up on a later frame once the worker finishes.
+	artwork_request_async(artwork_url, cache_path);
 }
 
 // Clear podcast artwork (call when leaving playing screen)
@@ -141,7 +227,10 @@ void Podcast_clearArtwork(void) {
 // Thumbnail cache for subscription artwork on main page
 #define THUMBNAIL_CACHE_SIZE 64
 typedef struct {
-	char feed_id[17];
+	// Holds a feed_id OR an itunes_id (up to 32 chars). Must be large enough to
+	// store the full key — a truncated key never matches the full-string lookup,
+	// causing a per-frame re-decode + FIFO thrash.
+	char feed_id[64];
 	SDL_Surface* thumbnail;
 } ThumbnailCacheEntry;
 static ThumbnailCacheEntry thumbnail_cache[THUMBNAIL_CACHE_SIZE];
@@ -236,36 +325,12 @@ static bool artwork_fetch_one(const char* itunes_id, const char* artwork_url, in
 		return true;
 	}
 
-	// Fetch from network
-	static uint8_t art_buf[PODCAST_ARTWORK_MAX_SIZE];
-	int dl_size = wget_fetch(artwork_url, art_buf, PODCAST_ARTWORK_MAX_SIZE);
-	if (dl_size <= 0 || !UI_imageDataComplete(art_buf, dl_size))
-		return false;
-
-	// Save to disk cache
+	// Not cached — download in the background (off the render thread). A later
+	// frame's disk load above picks it up. Returns false (nothing loaded now).
 	mkdir(PODCAST_CACHE_PARENT, 0755);
 	mkdir(PODCAST_CACHE_DIR, 0755);
-	FILE* f = fopen(cache_path, "wb");
-	if (f) {
-		fwrite(art_buf, 1, dl_size, f);
-		fclose(f);
-	}
-
-	// Load into surface from memory
-	SDL_RWops* rw = SDL_RWFromConstMem(art_buf, dl_size);
-	if (!rw)
-		return false;
-	SDL_Surface* raw = IMG_Load_RW(rw, 1);
-	if (!raw)
-		return false;
-
-	thumb = UI_circleFromSurface(raw, size);
-	SDL_FreeSurface(raw);
-	if (!thumb)
-		return false;
-
-	cache_thumbnail(itunes_id, thumb);
-	return true;
+	artwork_request_async(artwork_url, cache_path);
+	return false;
 }
 
 void Podcast_clearThumbnailCache(void) {
@@ -370,6 +435,8 @@ static void format_date(char* buf, uint32_t timestamp) {
 	time_t now = time(NULL);
 	time_t pub = (time_t)timestamp;
 	int days = (now - pub) / (24 * 3600);
+	if (days < 0)
+		days = 0; // future pub date (timezone-less feed / wrong RTC) → "Today"
 
 	if (days == 0) {
 		strcpy(buf, "Today");
@@ -1303,8 +1370,11 @@ void render_podcast_download_queue(SDL_Surface* screen, IndicatorType show_setti
 	int hw = screen->w;
 	char truncated[256];
 
-	int queue_count = 0;
-	PodcastDownloadItem* queue = Podcast_getDownloadQueue(&queue_count);
+	// Snapshot the queue under the lock (don't iterate the live array while the
+	// download thread compacts it).
+	static PodcastDownloadItem queue_snap[PODCAST_MAX_DOWNLOAD_QUEUE];
+	int queue_count = Podcast_copyDownloadQueue(queue_snap, PODCAST_MAX_DOWNLOAD_QUEUE);
+	PodcastDownloadItem* queue = queue_snap;
 	const PodcastDownloadProgress* progress = Podcast_getDownloadProgress();
 
 	// Title with completion count
@@ -1361,6 +1431,13 @@ void render_podcast_download_queue(SDL_Surface* screen, IndicatorType show_setti
 		(void)small_h;
 
 		if (item->status == PODCAST_DOWNLOAD_DOWNLOADING) {
+			// The array slot's progress_percent isn't updated during the
+			// blocking download; the active item's live progress comes from the
+			// stable global (matched by guid).
+			int item_pct = (strcmp(item->episode_guid, progress->current_guid) == 0)
+							   ? progress->current_percent
+							   : item->progress_percent;
+
 			// Progress bar + speed + ETA
 			int bar_w = SCALE1(50);
 			int bar_h = SCALE1(4);
@@ -1372,7 +1449,7 @@ void render_podcast_download_queue(SDL_Surface* screen, IndicatorType show_setti
 			SDL_FillRect(screen, &bar_bg, SDL_MapRGB(screen->format, 60, 60, 60));
 
 			// Bar fill
-			int fill_w = (bar_w * item->progress_percent) / 100;
+			int fill_w = (bar_w * item_pct) / 100;
 			if (fill_w > 0) {
 				SDL_Rect bar_fill = {bar_x, bar_y, fill_w, bar_h};
 				SDL_FillRect(screen, &bar_fill, THEME_COLOR2);
@@ -1387,10 +1464,10 @@ void render_podcast_download_queue(SDL_Surface* screen, IndicatorType show_setti
 
 			if (eta_str[0]) {
 				snprintf(info_str, sizeof(info_str), "%d%%  %s  ETA %s",
-						 item->progress_percent, speed_str, eta_str);
+						 item_pct, speed_str, eta_str);
 			} else {
 				snprintf(info_str, sizeof(info_str), "%d%%  %s",
-						 item->progress_percent, speed_str);
+						 item_pct, speed_str);
 			}
 
 			SDL_Surface* info_surf = TTF_RenderUTF8_Blended(font.small, info_str, COLOR_GRAY);

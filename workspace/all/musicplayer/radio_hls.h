@@ -27,6 +27,7 @@ typedef struct {
 	int media_sequence;
 	int last_played_sequence;
 	bool is_live;
+	bool encrypted; // #EXT-X-KEY with a non-NONE method — segments can't be decoded
 	uint32_t last_playlist_fetch;
 } HLSContext;
 

@@ -53,6 +53,10 @@ void radio_hls_resolve_url(const char* base, const char* relative, char* result,
 			} else {
 				snprintf(result, result_size, "%s%s", base, relative);
 			}
+		} else {
+			// base has no scheme — fall back to the relative path itself rather
+			// than leaving `result` unwritten (stale) for the caller.
+			snprintf(result, result_size, "%s", relative);
 		}
 	} else {
 		// Relative URL
@@ -66,6 +70,7 @@ int radio_hls_parse_playlist(HLSContext* ctx, const char* content, const char* b
 	ctx->is_live = true; // Assume live until we see ENDLIST
 	ctx->target_duration = 10.0f;
 	ctx->media_sequence = 0;
+	ctx->encrypted = false;
 
 	strncpy(ctx->base_url, base_url, HLS_MAX_URL_LEN - 1);
 
@@ -96,6 +101,12 @@ int radio_hls_parse_playlist(HLSContext* ctx, const char* content, const char* b
 
 			if (strncmp(line_buf, "#EXTM3U", 7) == 0) {
 				// Valid M3U8 header
+			} else if (strncmp(line_buf, "#EXT-X-KEY:", 11) == 0) {
+				// Encrypted segments (AES-128 / SAMPLE-AES): we can't decrypt,
+				// so mark the stream so the caller can fail with a clear error
+				// instead of feeding ciphertext to the decoder as noise.
+				if (!strstr(line_buf, "METHOD=NONE"))
+					ctx->encrypted = true;
 			} else if (strncmp(line_buf, "#EXT-X-STREAM-INF:", 18) == 0) {
 				// Master playlist - we need to fetch the variant
 				is_master_playlist = true;
@@ -164,18 +175,26 @@ int radio_hls_parse_playlist(HLSContext* ctx, const char* content, const char* b
 			line++;
 	}
 
-	// If master playlist, fetch the variant playlist
+	// If master playlist, fetch the variant playlist. Bound the recursion so a
+	// hostile/mis-authored playlist that points to another master (or itself)
+	// can't recurse unboundedly (64KB fetch + stack frame per level). Single
+	// stream thread, so a static depth guard is sufficient.
 	if (is_master_playlist && variant_url[0]) {
-		uint8_t* playlist_buf = malloc(64 * 1024);
-		if (playlist_buf) {
-			int len = radio_net_fetch(variant_url, playlist_buf, 64 * 1024, NULL, 0);
-			if (len > 0) {
-				playlist_buf[len] = '\0';
-				// Update base URL for variant
-				radio_hls_get_base_url(variant_url, ctx->base_url, HLS_MAX_URL_LEN);
-				radio_hls_parse_playlist(ctx, (char*)playlist_buf, ctx->base_url);
+		static int master_depth = 0;
+		if (master_depth < 4) {
+			uint8_t* playlist_buf = malloc(64 * 1024);
+			if (playlist_buf) {
+				int len = radio_net_fetch(variant_url, playlist_buf, 64 * 1024, NULL, 0);
+				if (len > 0) {
+					playlist_buf[len] = '\0';
+					// Update base URL for variant
+					radio_hls_get_base_url(variant_url, ctx->base_url, HLS_MAX_URL_LEN);
+					master_depth++;
+					radio_hls_parse_playlist(ctx, (char*)playlist_buf, ctx->base_url);
+					master_depth--;
+				}
+				free(playlist_buf);
 			}
-			free(playlist_buf);
 		}
 	}
 
@@ -230,7 +249,12 @@ int radio_hls_parse_id3_metadata(const uint8_t* data, int len,
 						 (data[pos + 6] << 8) | data[pos + 7];
 		}
 
-		if (frame_size == 0 || pos + 10 + frame_size > (uint32_t)total_size)
+		// Bound frame_size against the remaining bytes WITHOUT adding to it:
+		// for ID3v2.3 frame_size is a raw 32-bit field, so `pos + 10 +
+		// frame_size` would wrap for values near 2^32 and pass this check,
+		// making `frame_size - 1` a huge memcpy length. `pos + 10 < total_size`
+		// (loop guard) makes the subtraction safely positive.
+		if (frame_size == 0 || frame_size > (uint32_t)(total_size - pos - 10))
 			break;
 
 		const uint8_t* frame_data = &data[pos + 10];
@@ -265,15 +289,24 @@ int radio_hls_parse_id3_metadata(const uint8_t* data, int len,
 		else if (strcmp(frame_id, "TXXX") == 0 && frame_size > 1 && title && title_size > 0) {
 			int encoding = frame_data[0];
 			if (encoding == 0 || encoding == 3) {
-				const char* desc = (const char*)&frame_data[1];
+				// Copy the (untrusted, possibly unterminated) frame payload into
+				// a NUL-terminated local buffer before any strstr, so the search
+				// can't run off the end of the segment buffer.
+				int desc_len = frame_size - 1;
+				char descbuf[512];
+				if (desc_len > (int)sizeof(descbuf) - 1)
+					desc_len = sizeof(descbuf) - 1;
+				memcpy(descbuf, &frame_data[1], desc_len);
+				descbuf[desc_len] = '\0';
+				const char* desc = descbuf;
 				if (strstr(desc, "StreamTitle") || strstr(desc, "TITLE")) {
 					const char* value = desc;
-					while (*value && (value - (const char*)frame_data) < (int)frame_size)
+					while (*value && (value - desc) < desc_len)
 						value++;
 					value++;
 
-					if ((value - (const char*)frame_data) < (int)frame_size) {
-						int val_len = frame_size - (value - (const char*)frame_data);
+					if ((value - desc) < desc_len) {
+						int val_len = desc_len - (int)(value - desc);
 						if (val_len > title_size - 1)
 							val_len = title_size - 1;
 
@@ -377,9 +410,11 @@ int radio_hls_demux_ts(const uint8_t* ts_data, int ts_len,
 			int payload_len = TS_PACKET_SIZE - header_len;
 
 			if (pid == TS_PAT_PID && payload_start && !(pid_detected && *pid_detected)) {
-				// Parse PAT to find PMT PID
+				// Parse PAT to find PMT PID. Need pat[0..11] readable, so
+				// require 12 bytes past section_start (the old `+8` check let
+				// pat[10]/pat[11] read up to 3 bytes past the packet).
 				int section_start = payload[0] + 1;
-				if (section_start + 8 < payload_len) {
+				if (section_start + 12 <= payload_len) {
 					const uint8_t* pat = payload + section_start;
 					if (pat[0] == 0x00) { // table_id for PAT
 						int section_len = ((pat[1] & 0x0F) << 8) | pat[2];
@@ -398,7 +433,13 @@ int radio_hls_demux_ts(const uint8_t* ts_data, int ts_len,
 						int prog_info_len = ((pmt[10] & 0x0F) << 8) | pmt[11];
 
 						int es_pos = 12 + prog_info_len;
-						while (es_pos + 5 <= section_len + 3 - 4) {
+						// Bound the ES walk by the ACTUAL packet payload, not
+						// just the wire-supplied section_len (up to 4095) — pmt
+						// points inside a ≤184-byte payload, so trusting
+						// section_len reads far past the packet/segment buffer.
+						int es_avail = payload_len - section_start;
+						while (es_pos + 5 <= section_len + 3 - 4 &&
+							   es_pos + 5 <= es_avail) {
 							int stream_type = pmt[es_pos];
 							int es_pid = ((pmt[es_pos + 1] & 0x1F) << 8) | pmt[es_pos + 2];
 							int es_info_len = ((pmt[es_pos + 3] & 0x0F) << 8) | pmt[es_pos + 4];
@@ -431,8 +472,8 @@ int radio_hls_demux_ts(const uint8_t* ts_data, int ts_len,
 				const uint8_t* pes = payload;
 				int pes_len = payload_len;
 
-				if (payload_start) {
-					// Check PES start code
+				if (payload_start && pes_len >= 9) {
+					// Check PES start code (need pes[0..8] readable)
 					if (pes[0] == 0x00 && pes[1] == 0x00 && pes[2] == 0x01) {
 						// Parse PES header
 						int pes_header_len = 9 + pes[8];

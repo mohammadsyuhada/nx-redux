@@ -20,6 +20,10 @@ void render_podcast_main_page(SDL_Surface* screen, IndicatorType show_setting,
 // Clear thumbnail cache (call from Podcast_cleanup)
 void Podcast_clearThumbnailCache(void);
 
+// True while a background artwork download is in flight. Callers redraw while
+// busy so the fetched image appears once it lands on disk.
+bool UIPodcast_artworkBusy(void);
+
 // Lazy load one pending thumbnail from disk (call from main loop)
 // Returns true if a thumbnail was loaded (caller should set dirty)
 bool Podcast_loadPendingThumbnails(void);

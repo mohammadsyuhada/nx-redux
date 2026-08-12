@@ -141,6 +141,12 @@ typedef struct {
 	char error_message[256];
 	int speed_bps;
 	int eta_sec;
+	// Live status of the item being downloaded, keyed by guid. The download
+	// thread writes these into a stable global (not an array slot that can be
+	// shifted out from under it), and the UI reads the active row's progress
+	// from here when the guid matches.
+	char current_guid[PODCAST_MAX_GUID];
+	int current_percent;
 } PodcastDownloadProgress;
 
 // ============================================================================
@@ -288,6 +294,11 @@ bool Podcast_episodeFileExists(PodcastFeed* feed, int episode_index);
 
 // Get queue items
 PodcastDownloadItem* Podcast_getDownloadQueue(int* count);
+
+// Copy-out snapshot of the download queue under the lock (mirrors the
+// Podcast_getEpisode contract) so the UI never iterates the live array while
+// the download thread compacts it. Returns the number copied (<= max).
+int Podcast_copyDownloadQueue(PodcastDownloadItem* out, int max);
 
 // Stop/cancel downloads
 void Podcast_stopDownloads(void);

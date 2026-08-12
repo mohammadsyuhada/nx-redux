@@ -422,6 +422,16 @@ static int stream_decoder_open(StreamDecoder* sd, const char* filepath) {
 		m4a->channels = track->SampleDescription.audio.channelcount;
 		m4a->current_sample = 0;
 
+		// Reject a zeroed sample rate: load_streaming divides by it (duration,
+		// resample ratio) → division by zero on a malformed stsd.
+		if (m4a->sample_rate <= 0) {
+			MP4D_close(&m4a->mp4);
+			fclose(m4a->file);
+			free(m4a);
+			LOG_error("Stream: Invalid M4A sample rate: %s\n", filepath);
+			return -1;
+		}
+
 		// Initialize FDK-AAC decoder (TT_MP4_RAW for raw AAC frames from MP4 container)
 		m4a->aac_decoder = aacDecoder_Open(TT_MP4_RAW, 1);
 		if (!m4a->aac_decoder) {
@@ -1056,6 +1066,15 @@ static void stream_decoder_close(StreamDecoder* sd) {
 
 // ============ STREAMING RESAMPLER ============
 
+// Persistent scratch for resample_chunk, grown to the largest size seen, so the
+// decode hot path doesn't malloc/free a few KB every chunk. Only the single
+// stream decode thread calls resample_chunk, so no locking is needed. Freed in
+// Player_quit.
+static float* rs_float_in = NULL;
+static size_t rs_float_in_cap = 0; // capacity in floats
+static float* rs_float_out = NULL;
+static size_t rs_float_out_cap = 0;
+
 // Resample a chunk of audio (for streaming)
 // Returns number of output frames
 // Tracks unconsumed input frames in player.resample_leftover for next call
@@ -1082,14 +1101,25 @@ static size_t resample_chunk(int16_t* input, size_t input_frames,
 	size_t leftover_count = player.resample_leftover_count;
 	size_t total_input_frames = leftover_count + input_frames;
 
-	// Allocate buffers for combined input
-	float* float_in = malloc(total_input_frames * AUDIO_CHANNELS * sizeof(float));
-	float* float_out = malloc(max_output_frames * AUDIO_CHANNELS * sizeof(float));
-	if (!float_in || !float_out) {
-		free(float_in);
-		free(float_out);
-		return 0;
+	// Grow the persistent scratch buffers if needed (reused across chunks).
+	size_t need_in = total_input_frames * AUDIO_CHANNELS;
+	size_t need_out = max_output_frames * AUDIO_CHANNELS;
+	if (need_in > rs_float_in_cap) {
+		float* nb = realloc(rs_float_in, need_in * sizeof(float));
+		if (!nb)
+			return 0;
+		rs_float_in = nb;
+		rs_float_in_cap = need_in;
 	}
+	if (need_out > rs_float_out_cap) {
+		float* nb = realloc(rs_float_out, need_out * sizeof(float));
+		if (!nb)
+			return 0;
+		rs_float_out = nb;
+		rs_float_out_cap = need_out;
+	}
+	float* float_in = rs_float_in;
+	float* float_out = rs_float_out;
 
 	// Convert leftover frames to float first
 	size_t float_idx = 0;
@@ -1116,8 +1146,6 @@ static size_t resample_chunk(int16_t* input, size_t input_frames,
 	int error = src_process(src_state, &src_data);
 	if (error) {
 		LOG_error("Resample chunk failed: %s\n", src_strerror(error));
-		free(float_in);
-		free(float_out);
 		return 0;
 	}
 
@@ -1166,9 +1194,18 @@ static size_t resample_chunk(int16_t* input, size_t input_frames,
 		player.resample_leftover_count = 0;
 	}
 
-	free(float_in);
-	free(float_out);
 	return output_frames;
+}
+
+// Create the stream resampler at the configured quality. Returns NULL on
+// failure (callers treat that as "keep dropping chunks", same as before).
+static void* create_resampler(void) {
+	static const int src_quality_map[] = {SRC_SINC_FASTEST, SRC_SINC_MEDIUM_QUALITY, SRC_SINC_BEST_QUALITY};
+	int error;
+	SRC_STATE* state = src_new(src_quality_map[Settings_getResamplerQuality()], AUDIO_CHANNELS, &error);
+	if (!state)
+		LOG_error("Failed to create resampler: %s\n", src_strerror(error));
+	return state;
 }
 
 // ============ STREAMING DECODE THREAD ============
@@ -1190,8 +1227,12 @@ static void* stream_thread_func(void* arg) {
 	}
 
 	while (player.stream_running) {
-		// Check if seeking requested
-		if (player.stream_seeking) {
+		// Consume a seek request atomically: the exchange (acquire) reads-and-
+		// clears the flag, pairing with the writers' release store so
+		// seek_target_frame is guaranteed visible, and a second seek that
+		// arrives after the exchange simply gets picked up next iteration
+		// instead of being lost.
+		if (__atomic_exchange_n(&player.stream_seeking, false, __ATOMIC_ACQUIRE)) {
 			stream_decoder_seek(&player.stream_decoder, player.seek_target_frame);
 			circular_buffer_clear(&player.stream_buffer);
 			if (player.resampler) {
@@ -1200,7 +1241,6 @@ static void* stream_thread_func(void* arg) {
 			// Clear resampler leftover buffer to avoid playing stale samples
 			player.resample_leftover_count = 0;
 			player.stream_eof = false; // Reset EOF flag on seek
-			player.stream_seeking = false;
 		}
 
 		// Check if buffer needs more data (< 50% full)
@@ -1210,8 +1250,11 @@ static void* stream_thread_func(void* arg) {
 			size_t decoded = stream_decoder_read(&player.stream_decoder,
 												 decode_buffer, DECODE_CHUNK_FRAMES);
 			if (decoded == 0) {
-				// Decoder has reached end of file
+				// Decoder has reached end of file. Sleep here too: without it
+				// this loop busy-spins a core at 100% from EOF until the
+				// buffer drains — and forever if playback simply ends.
 				player.stream_eof = true;
+				usleep(5000); // 5ms
 			} else {
 				// Resample chunk to target rate if needed.
 				// Use the already-open device rate (not a fresh
@@ -1229,6 +1272,14 @@ static void* stream_thread_func(void* arg) {
 					output_frames = decoded;
 					circular_buffer_write(&player.stream_buffer, decode_buffer, output_frames);
 				} else {
+					// The resampler is created at load only when rates differ
+					// then; a sink hotplug (reopen_audio_device changes
+					// current_sample_rate) or a speed change can introduce
+					// resampling mid-track — create it lazily here or every
+					// chunk gets dropped (src_process on a NULL state fails).
+					if (!player.resampler)
+						player.resampler = create_resampler();
+
 					// Resample
 					output_frames = resample_chunk(decode_buffer, decoded,
 												   src_rate, dst_rate,
@@ -1358,18 +1409,21 @@ static void audio_callback(void* userdata, Uint8* stream, int len) {
 			pthread_mutex_unlock(&ctx->vis_mutex);
 		}
 
-		// Update position (account for playback speed)
-		audio_position_samples += samples_read;
+		// Update position. Accumulate speed-weighted (source-time) samples so a
+		// mid-track speed change only affects samples played AT that speed — the
+		// old `total_samples * current_speed` retroactively rescaled all elapsed
+		// time (e.g. 1.0x→2.0x at 3:00 jumped the display to 6:00).
 		float spd = ctx->playback_speed > 0.0f ? ctx->playback_speed : 1.0f;
-		ctx->position_ms = (int64_t)((audio_position_samples * 1000.0 * spd) / current_sample_rate);
+		audio_position_samples += (int64_t)(samples_read * spd);
+		ctx->position_ms = (audio_position_samples * 1000) / current_sample_rate;
 
 		// Check if track ended (decoder reached EOF or frame count)
 		if ((ctx->stream_decoder.current_frame >= ctx->stream_decoder.total_frames || ctx->stream_eof) &&
 			circular_buffer_available(&ctx->stream_buffer) == 0) {
 			if (ctx->repeat) {
-				// Seek back to beginning
+				// Seek back to beginning (release: publish target before flag)
 				ctx->seek_target_frame = 0;
-				ctx->stream_seeking = true;
+				__atomic_store_n(&ctx->stream_seeking, true, __ATOMIC_RELEASE);
 				audio_position_samples = 0;
 				ctx->position_ms = 0;
 			} else {
@@ -1529,6 +1583,10 @@ static void reopen_audio_device(void) {
 	player.audio_device = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
 	if (player.audio_device == 0) {
 		LOG_error("Failed to reopen audio device: %s\n", SDL_GetError());
+		// Lift the amp mute even though reopen failed — otherwise a transient
+		// ALSA failure during a sink switch leaves the speaker force-muted
+		// (SND_overrideMute(1) above) until the app restarts.
+		SetVolume(GetVolume());
 		return;
 	}
 
@@ -1571,6 +1629,14 @@ void Player_quit(void) {
 
 	pthread_mutex_destroy(&player.mutex);
 	pthread_mutex_destroy(&player.vis_mutex);
+
+	// Free the persistent resample scratch (Player_stop joined the decode thread)
+	free(rs_float_in);
+	rs_float_in = NULL;
+	rs_float_in_cap = 0;
+	free(rs_float_out);
+	rs_float_out = NULL;
+	rs_float_out_cap = 0;
 
 	player.audio_initialized = false;
 }
@@ -1679,8 +1745,10 @@ static void parse_id3v1(const char* filepath) {
 	// ID3v1 layout: TAG(3) + Title(30) + Artist(30) + Album(30) + Year(4) + Comment(30) + Genre(1)
 	char buf[31];
 
-	// Title (bytes 3-32)
-	if (player.track_info.title[0] == '\0' || strstr(player.track_info.title, ".") != NULL) {
+	// Title (bytes 3-32). Only fill when empty — the old `strstr(".")` guard
+	// (meant to catch filename-derived titles) also clobbered valid ID3v2
+	// titles that legitimately contain a dot, e.g. "S.O.S.".
+	if (player.track_info.title[0] == '\0') {
 		memcpy(buf, &tag[3], 30);
 		buf[30] = '\0';
 		copy_metadata_string(player.track_info.title, buf, sizeof(player.track_info.title));
@@ -1724,6 +1792,13 @@ static void parse_id3v2(const char* filepath) {
 	// uint8_t flags = header[5];
 	uint32_t tag_size = read_syncsafe_int(&header[6]);
 
+	// Cap the allocation: the syncsafe field allows up to 256MB, which an
+	// untrusted file could demand on a small-RAM handheld. Real ID3v2 tags
+	// (art included) are well under a few MB.
+	if (tag_size == 0 || tag_size > 8 * 1024 * 1024) {
+		fclose(f);
+		return;
+	}
 
 	// Read entire tag
 	uint8_t* tag_data = malloc(tag_size);
@@ -2039,11 +2114,8 @@ static int load_streaming(const char* filepath) {
 	int dst_rate = get_target_sample_rate(src_rate);
 
 	if (src_rate != dst_rate) {
-		int error;
-		static const int src_quality_map[] = {SRC_SINC_FASTEST, SRC_SINC_MEDIUM_QUALITY, SRC_SINC_BEST_QUALITY};
-		player.resampler = src_new(src_quality_map[Settings_getResamplerQuality()], AUDIO_CHANNELS, &error);
+		player.resampler = create_resampler();
 		if (!player.resampler) {
-			LOG_error("Stream: Failed to create resampler: %s\n", src_strerror(error));
 			circular_buffer_free(&player.stream_buffer);
 			stream_decoder_close(&player.stream_decoder);
 			return -1;
@@ -2063,7 +2135,19 @@ static int load_streaming(const char* filepath) {
 	player.stream_running = true;
 	player.stream_seeking = false;
 	player.stream_eof = false;
-	pthread_create(&player.stream_thread, NULL, stream_thread_func, NULL);
+	if (pthread_create(&player.stream_thread, NULL, stream_thread_func, NULL) != 0) {
+		// Don't leave stream_running true — a later Player_stop would pthread_join
+		// an invalid thread id (UB).
+		player.stream_running = false;
+		if (player.resampler) {
+			src_delete((SRC_STATE*)player.resampler);
+			player.resampler = NULL;
+		}
+		circular_buffer_free(&player.stream_buffer);
+		stream_decoder_close(&player.stream_decoder);
+		LOG_error("Stream: failed to create decode thread\n");
+		return -1;
+	}
 
 	// Pre-buffer some audio before returning (~0.5 seconds)
 	int prebuffer_timeout = 100; // 100 * 10ms = 1 second max
@@ -2258,7 +2342,9 @@ void Player_seek(int position_ms) {
 		// Calculate target frame in source sample rate
 		int64_t target_frame = (int64_t)position_ms * player.stream_decoder.source_sample_rate / 1000;
 		player.seek_target_frame = target_frame;
-		player.stream_seeking = true;
+		// Release: the decode thread acquire-loads this flag, so the target
+		// above is guaranteed visible before the seek runs.
+		__atomic_store_n(&player.stream_seeking, true, __ATOMIC_RELEASE);
 	}
 
 	player.position_ms = position_ms;
@@ -2267,7 +2353,7 @@ void Player_seek(int position_ms) {
 }
 
 bool Player_resume(void) {
-	return player.stream_seeking;
+	return __atomic_load_n(&player.stream_seeking, __ATOMIC_ACQUIRE);
 }
 
 void Player_setVolume(float volume) {

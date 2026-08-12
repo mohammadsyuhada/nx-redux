@@ -1002,6 +1002,10 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 					Podcast_animateTitleScroll();
 				if (Podcast_titleScrollNeedsRender())
 					dirty = 1;
+				// Keep redrawing while the episode artwork downloads in the
+				// background so it appears once it lands on disk.
+				if (UIPodcast_artworkBusy())
+					dirty = 1;
 
 				// Periodic progress saving (every 30 seconds)
 				{

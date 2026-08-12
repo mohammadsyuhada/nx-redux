@@ -30,15 +30,16 @@
 #include "background.h"
 #include "display_helper.h"
 
-// Global quit flag
-static bool quit = false;
+// Global quit flag. sig_atomic_t + volatile is the only type a signal handler
+// may portably write and the main loop reliably re-read.
+static volatile sig_atomic_t quit = 0;
 static SDL_Surface* screen;
 
 static void sigHandler(int sig) {
 	switch (sig) {
 	case SIGINT:
 	case SIGTERM:
-		quit = true;
+		quit = 1;
 		break;
 	default:
 		break;
@@ -48,6 +49,8 @@ static void sigHandler(int sig) {
 int main(int argc, char* argv[]) {
 	(void)argc;
 	(void)argv;
+
+	bool settings_ready = false;
 
 	screen = GFX_init(MODE_MAIN);
 	PWR_pinToCores(CPU_CORE_EFFICIENCY);
@@ -88,6 +91,7 @@ int main(int argc, char* argv[]) {
 
 	// Initialize app-specific settings
 	Settings_init();
+	settings_ready = true;
 
 	// Initialize resume state
 	Resume_init();
@@ -99,7 +103,7 @@ int main(int argc, char* argv[]) {
 		int selection = MenuModule_run(screen);
 
 		if (selection == MENU_QUIT) {
-			quit = true;
+			quit = 1;
 			continue;
 		}
 
@@ -154,7 +158,7 @@ int main(int argc, char* argv[]) {
 		}
 
 		if (reason == MODULE_EXIT_QUIT) {
-			quit = true;
+			quit = 1;
 		}
 	}
 
@@ -163,7 +167,11 @@ cleanup:
 	GFX_flip(screen);
 
 	Background_stopAll();
-	Settings_quit();
+	// Only persist settings if Settings_init actually ran — otherwise a failed
+	// Player_init (goto cleanup) would save the all-zero static struct, silently
+	// resetting the user's saved preferences.
+	if (settings_ready)
+		Settings_quit();
 	ModuleCommon_quit();
 	Player_quit();
 	Icons_quit();
