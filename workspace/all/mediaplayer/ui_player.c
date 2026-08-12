@@ -54,7 +54,7 @@ static void browser_get_row(void* ctx, int i, bool selected, ListViewRow* out) {
 
 // Render the video file browser
 void render_video_browser(SDL_Surface* screen, IndicatorType show_setting,
-						  VideoBrowserContext* ctx, int selected_resume_sec) {
+						  VideoBrowserContext* ctx) {
 	(void)show_setting;
 	GFX_clear(screen);
 
@@ -69,12 +69,6 @@ void render_video_browser(SDL_Surface* screen, IndicatorType show_setting,
 
 	UI_renderMenuBar(screen, header_title);
 
-	// Button hints — offer Resume when the selected video has a saved position.
-	// resume_label backs the hint pair for the lifetime of this call.
-	char resume_label[32];
-	char* hints_resume[] = {"MENU", "CONTROLS", "B", "BACK", "X", resume_label, "A", "PLAY", NULL};
-	char* hints_plain[] = {"MENU", "CONTROLS", "B", "BACK", "A", "OPEN", NULL};
-
 	ListView* v = &video_browser_view;
 	v->title = NULL; // menu bar drawn above (caller-owned chrome)
 	v->font = font.medium;
@@ -84,18 +78,8 @@ void render_video_browser(SDL_Surface* screen, IndicatorType show_setting,
 	v->list_id = (const void*)ctx->entries;
 	v->empty_title = "No videos found";
 	v->empty_subtitle = "Add videos to /Videos on your SD card";
-	if (selected_resume_sec > 0) {
-		int h = selected_resume_sec / 3600;
-		int m = (selected_resume_sec % 3600) / 60;
-		int s = selected_resume_sec % 60;
-		if (h > 0)
-			snprintf(resume_label, sizeof(resume_label), "RESUME %d:%02d:%02d", h, m, s);
-		else
-			snprintf(resume_label, sizeof(resume_label), "RESUME %d:%02d", m, s);
-		v->hint_pairs = hints_resume;
-	} else {
-		v->hint_pairs = hints_plain;
-	}
+	// Resume (for videos with a saved position) lives in the MENU context menu.
+	v->hint_pairs = (char*[]){"B", "BACK", "A", "OPEN", NULL};
 
 	UI_listViewRender(v, screen);
 }

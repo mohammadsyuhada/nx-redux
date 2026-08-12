@@ -1,12 +1,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "vp_defines.h"
 #include "api.h"
 #include "module_common.h"
 #include "module_menu.h"
 #include "ui_main.h"
-#include "ui_list.h"
 #include "ui_listview.h"
 
 // Toast message state
@@ -42,8 +40,13 @@ int MenuModule_run(SDL_Surface* screen) {
 		GFX_startFrame();
 		PAD_poll();
 
+		// Context menu for this page (MENU tap)
+		ContextMenuItem ctx_items[1];
+		int ctx_count = 0;
+		ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+
 		// Handle global input first (START dialogs, power)
-		GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, STATE_MENU);
+		GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, ctx_items, ctx_count);
 		if (global.should_quit) {
 			return MENU_QUIT;
 		}

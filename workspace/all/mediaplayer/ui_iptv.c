@@ -64,9 +64,13 @@ void render_iptv_user_channels(SDL_Surface* screen, IndicatorType show_setting) 
 	v->ctx = (void*)channels;
 	v->list_id = (const void*)channels;
 	v->empty_title = "No channels saved";
-	v->empty_subtitle = "Press Y to manage channels";
-	v->empty_y_label = "MANAGE";
-	v->hint_pairs = (char*[]){"MENU", "CONTROLS", "B", "BACK", "A", "PLAY", NULL};
+	v->empty_subtitle = "Press A to browse channels";
+	// Empty state carries its own centered buttons; the bottom hint bar only
+	// appears with content. Browse/remove otherwise live in the MENU menu.
+	v->empty_btn_pairs = (char*[]){"B", "BACK", "A", "MANAGE", NULL};
+	v->hint_pairs = (channel_count > 0)
+						? (char*[]){"B", "BACK", "A", "PLAY", NULL}
+						: NULL;
 	UI_listViewRender(v, screen);
 }
 

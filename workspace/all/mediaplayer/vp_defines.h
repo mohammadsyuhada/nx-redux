@@ -33,16 +33,6 @@
 #define SUB_EXT_SSA "ssa"
 #define SUB_EXT_SUB "sub"
 
-// App state enum for controls help context
-enum {
-	STATE_MENU = 0,
-	STATE_BROWSER = 1,
-	STATE_PLAYING = 2,
-	STATE_IPTV_LIST = 20,
-	STATE_IPTV_CURATED_COUNTRIES = 23,
-	STATE_IPTV_CURATED_CHANNELS = 24,
-};
-
 // Video format enum
 typedef enum {
 	VIDEO_FORMAT_UNKNOWN = 0,

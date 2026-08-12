@@ -43,7 +43,7 @@ SOURCE = $(TARGET).c ffplay_engine.c video_browser.c positions.c \
          ../include/parson/parson.c \
          ../include/mbedtls_entropy_alt.c \
          $(MBEDTLS_SRC) \
-         ../common/utils.c ../common/api.c ../common/audio_manager.c ../common/config.c ../common/scaler.c ../common/display_helper.c ../common/wifi.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_toast.c $(UI_DIR)/ui_list.c $(UI_LISTVIEW_SRCS) \
+         ../common/utils.c ../common/api.c ../common/audio_manager.c ../common/config.c ../common/scaler.c ../common/display_helper.c ../common/wifi.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_toast.c $(UI_DIR)/ui_list.c $(UI_DIR)/ui_contextmenu.c $(UI_LISTVIEW_SRCS) \
          ../../$(PLATFORM)/platform/platform.c
 
 CC = $(CROSS_COMPILE)gcc

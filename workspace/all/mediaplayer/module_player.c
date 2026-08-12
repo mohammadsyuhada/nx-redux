@@ -28,6 +28,20 @@ static void load_video_directory(VideoBrowserContext* browser, const char* path)
 #define RESUME_MIN_SEC 10
 #define RESUME_END_WINDOW_SEC 60
 
+// Context-menu item ids
+#define PLAYER_CTX_RESUME 1 // resume the selected video from its saved position
+
+// Format a resume position as "Resume H:MM:SS" / "Resume M:SS" for the menu.
+static void format_resume_label(int sec, char* out, size_t out_sz) {
+	int h = sec / 3600;
+	int m = (sec % 3600) / 60;
+	int s = sec % 60;
+	if (h > 0)
+		snprintf(out, out_sz, "Resume %d:%02d:%02d", h, m, s);
+	else
+		snprintf(out, out_sz, "Resume %d:%02d", m, s);
+}
+
 // Launch ffplay for a file entry at start_sec, then record where playback
 // ended. Returns the (possibly re-created) screen surface.
 static SDL_Surface* play_video_file(SDL_Surface* screen, VideoFileEntry* entry, int start_sec) {
@@ -114,11 +128,35 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 		GFX_startFrame();
 		PAD_poll();
 
+		ListView* v = VideoBrowser_view();
+
+		// Context menu for this page (MENU tap): offer Resume when the selected
+		// video has a saved position, always offer Quit.
+		VideoFileEntry* sel_entry =
+			(browser.entry_count > 0 && v->selected >= 0 && v->selected < browser.entry_count)
+				? &browser.entries[v->selected]
+				: NULL;
+		int sel_resume_sec = (sel_entry && !sel_entry->is_dir) ? Positions_get(sel_entry->path) : 0;
+
+		ContextMenuItem ctx_items[2];
+		int ctx_count = 0;
+		char resume_menu_label[40];
+		if (sel_resume_sec > 0) {
+			format_resume_label(sel_resume_sec, resume_menu_label, sizeof(resume_menu_label));
+			ModuleCommon_ctxAdd(ctx_items, &ctx_count, resume_menu_label, PLAYER_CTX_RESUME);
+		}
+		ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+
 		// Handle global input (START dialogs, volume, etc.)
-		GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, STATE_BROWSER);
+		GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, ctx_items, ctx_count);
 		if (global.should_quit) {
 			VideoBrowser_freeEntries(&browser);
 			return MODULE_EXIT_QUIT;
+		}
+		if (global.context_id == PLAYER_CTX_RESUME && sel_entry && sel_resume_sec > 0) {
+			screen = play_video_file(screen, sel_entry, sel_resume_sec);
+			GFX_clearLayers(LAYER_SCROLLTEXT);
+			dirty = 1;
 		}
 		if (global.input_consumed) {
 			if (global.dirty)
@@ -129,7 +167,6 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 
 		// Browser navigation: the ListView owns nav (UP/DOWN/pageing/wrap);
 		// the module switches on the actions it reports.
-		ListView* v = VideoBrowser_view();
 		ListViewAction act = UI_listViewHandleInput(v);
 		switch (act.type) {
 		case LISTVIEW_BACK:
@@ -171,19 +208,8 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 				}
 			}
 			break;
-		case LISTVIEW_BUTTON:
-			// X: resume from the saved position (files with one only)
-			if (act.btn == BTN_X && act.index >= 0 && act.index < browser.entry_count) {
-				VideoFileEntry* entry = &browser.entries[act.index];
-				int resume_sec = entry->is_dir ? 0 : Positions_get(entry->path);
-				if (resume_sec > 0) {
-					screen = play_video_file(screen, entry, resume_sec);
-					GFX_clearLayers(LAYER_SCROLLTEXT);
-					dirty = 1;
-				}
-			}
-			break;
 		default:
+			// Resume moved to the context menu (MENU tap).
 			break;
 		}
 
@@ -193,9 +219,7 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 		// Render. The busy check keeps the dirty-flag loop redrawing while the
 		// selection pill glides or the marquee needs a main-surface render.
 		if (dirty || UI_listViewBusy(v)) {
-			VideoFileEntry* sel = (browser.entry_count > 0) ? &browser.entries[v->selected] : NULL;
-			int resume_sec = (sel && !sel->is_dir) ? Positions_get(sel->path) : 0;
-			render_video_browser(screen, show_setting, &browser, resume_sec);
+			render_video_browser(screen, show_setting, &browser);
 
 			GFX_flip(screen);
 			dirty = 0;

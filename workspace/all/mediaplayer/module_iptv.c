@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "vp_defines.h"
 #include "api.h"
 #include "module_common.h"
 #include "module_iptv.h"
@@ -23,6 +22,10 @@ typedef enum {
 	IPTV_STATE_CURATED_COUNTRIES, // Browse curated countries
 	IPTV_STATE_CURATED_CHANNELS	  // Browse curated channels in a country
 } IPTVModuleState;
+
+// Context-menu item ids (user-channels page)
+#define IPTV_CTX_BROWSE 1 // browse/manage curated channels (was Y)
+#define IPTV_CTX_REMOVE 2 // remove the selected user channel (was X)
 
 // Curated browse state (user-channel + country selection/scroll live in the
 // ListViews owned by ui_iptv.c - see IPTVUserChannels_view() and
@@ -115,7 +118,11 @@ ModuleExitReason IPTVModule_run(SDL_Surface* screen) {
 
 		// Handle curated countries browsing
 		if (state == IPTV_STATE_CURATED_COUNTRIES) {
-			GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, STATE_IPTV_CURATED_COUNTRIES);
+			ContextMenuItem ctx_items[1];
+			int ctx_count = 0;
+			ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+
+			GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, ctx_items, ctx_count);
 			if (global.should_quit)
 				return MODULE_EXIT_QUIT;
 			if (global.input_consumed) {
@@ -165,7 +172,11 @@ ModuleExitReason IPTVModule_run(SDL_Surface* screen) {
 
 		// Handle curated channels browsing
 		if (state == IPTV_STATE_CURATED_CHANNELS) {
-			GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, STATE_IPTV_CURATED_CHANNELS);
+			ContextMenuItem ctx_items[1];
+			int ctx_count = 0;
+			ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+
+			GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, ctx_items, ctx_count);
 			if (global.should_quit)
 				return MODULE_EXIT_QUIT;
 			if (global.input_consumed) {
@@ -231,19 +242,50 @@ ModuleExitReason IPTVModule_run(SDL_Surface* screen) {
 		}
 
 		// IPTV_STATE_USER_CHANNELS (main screen)
-		GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, STATE_IPTV_LIST);
+		const IPTVChannel* channels = IPTV_getUserChannels();
+		int user_count = IPTV_getUserChannelCount();
+		ListView* v = IPTVUserChannels_view();
+
+		// Context menu for this page (MENU tap): browse the curated catalog,
+		// remove the selected channel, quit.
+		ContextMenuItem ctx_items[3];
+		int ctx_count = 0;
+		ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Browse Channels", IPTV_CTX_BROWSE);
+		if (user_count > 0 && v->selected >= 0 && v->selected < user_count)
+			ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Remove Channel", IPTV_CTX_REMOVE);
+		ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+
+		GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, ctx_items, ctx_count);
 		if (global.should_quit)
 			return MODULE_EXIT_QUIT;
+		if (global.context_id > 0) {
+			switch (global.context_id) {
+			case IPTV_CTX_BROWSE:
+				// Reset clears layers + snaps the glide.
+				UI_listViewReset(IPTVCuratedCountries_view(),
+								 IPTV_curated_get_country_count(),
+								 IPTV_curated_get_countries());
+				state = IPTV_STATE_CURATED_COUNTRIES;
+				break;
+			case IPTV_CTX_REMOVE:
+				if (v->selected >= 0 && v->selected < user_count) {
+					GFX_clearLayers(LAYER_SCROLLTEXT);
+					strncpy(confirm_channel_name, channels[v->selected].name, IPTV_MAX_NAME - 1);
+					confirm_channel_name[IPTV_MAX_NAME - 1] = '\0';
+					confirm_target_index = v->selected;
+					confirm_action_type = 0;
+					show_confirm = true;
+				}
+				break;
+			}
+			dirty = 1;
+		}
 		if (global.input_consumed) {
 			if (global.dirty)
 				dirty = 1;
 			GFX_sync();
 			continue;
 		}
-
-		const IPTVChannel* channels = IPTV_getUserChannels();
-		int user_count = IPTV_getUserChannelCount();
-		ListView* v = IPTVUserChannels_view();
 
 		// The ListView owns navigation; the module switches on actions.
 		ListViewAction act = UI_listViewHandleInput(v);
@@ -284,23 +326,13 @@ ModuleExitReason IPTVModule_run(SDL_Surface* screen) {
 			GFX_clearLayers(LAYER_SCROLLTEXT);
 			return MODULE_EXIT_TO_MENU;
 		case LISTVIEW_BUTTON:
-			if (act.btn == BTN_Y) {
-				// Open curated channel browser: works from the empty list too
-				// (act.index is -1 there). Reset clears layers + snaps glide.
+			// Empty list: A opens the curated browser (advertised as A/MANAGE).
+			// Browse/remove otherwise live in the context menu (MENU tap).
+			if (act.btn == BTN_A && user_count == 0) {
 				UI_listViewReset(IPTVCuratedCountries_view(),
 								 IPTV_curated_get_country_count(),
 								 IPTV_curated_get_countries());
 				state = IPTV_STATE_CURATED_COUNTRIES;
-				dirty = 1;
-			} else if (act.btn == BTN_X && act.index >= 0 &&
-					   act.index < user_count) {
-				// Confirm removal
-				GFX_clearLayers(LAYER_SCROLLTEXT);
-				strncpy(confirm_channel_name, channels[act.index].name, IPTV_MAX_NAME - 1);
-				confirm_channel_name[IPTV_MAX_NAME - 1] = '\0';
-				confirm_target_index = act.index;
-				confirm_action_type = 0;
-				show_confirm = true;
 				dirty = 1;
 			}
 			break;

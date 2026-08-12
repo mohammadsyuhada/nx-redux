@@ -15,7 +15,4 @@ ListView* MediaMainMenu_view(void);
 void render_menu(SDL_Surface* screen, IndicatorType show_setting,
 				 char* toast_message, uint32_t toast_time);
 
-// Render controls help dialog overlay
-void render_controls_help(SDL_Surface* screen, int app_state);
-
 #endif

@@ -5,12 +5,9 @@
 #include "module_common.h"
 #include "ui_quitrequest.h"
 #include "ui_toast.h"
-#include "ui_main.h"
+#include "ui_contextmenu.h"
 
 static bool autosleep_disabled = false;
-
-// Dialog states
-static bool show_controls_help = false;
 
 // Overlay state tracking - force hide after button release
 static bool overlay_buttons_were_active = false;
@@ -31,13 +28,13 @@ void ModuleCommon_tickToast(char* message, uint32_t toast_time, bool* dirty) {
 
 void ModuleCommon_init(void) {
 	autosleep_disabled = false;
-	show_controls_help = false;
 	overlay_buttons_were_active = false;
 	overlay_release_time = 0;
 }
 
-GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorType* show_setting, int app_state) {
-	GlobalInputResult result = {false, false, false};
+GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorType* show_setting,
+												 const ContextMenuItem* menu_items, int menu_count) {
+	GlobalInputResult result = {false, false, false, 0};
 
 	// Quit on MENU + SELECT via the shared confirm dialog — the same combo the
 	// pak tools and in-game minarch use. UI_handleQuitRequest runs its own
@@ -58,34 +55,45 @@ GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorT
 		}
 	}
 
-	// MENU tap toggles the controls-help modal. A long MENU press is the OSD
-	// (handled globally by keymon); PAD_tappedMenu only fires on a short release,
-	// so the two don't collide.
-	if (PAD_tappedMenu(SDL_GetTicks())) {
-		show_controls_help = !show_controls_help;
-		GFX_clearLayers(LAYER_SCROLLTEXT);
-		PLAT_GPU_Flip();
+	// Context menu (opened on a MENU tap below): consumes all input while open.
+	if (ContextMenu_isOpen()) {
+		// Keep the MENU-tap state machine ticking so it doesn't fire on stale
+		// state after close.
+		PAD_tappedMenu(SDL_GetTicks());
+
+		ContextMenuResult cmr = ContextMenu_handleInput();
+		if (cmr.action == CONTEXTMENU_SELECTED) {
+			if (cmr.id == CTX_ID_QUIT) {
+				result.should_quit = true;
+			} else {
+				result.context_id = cmr.id;
+			}
+			result.dirty = true;
+		} else if (cmr.action == CONTEXTMENU_CANCEL) {
+			result.dirty = true;
+		} else if (PAD_justRepeated(BTN_UP) || PAD_justRepeated(BTN_DOWN)) {
+			// Selection moved: redraw the overlay (main surface is untouched)
+			ContextMenu_render(screen);
+			PLAT_GPU_Flip();
+		}
 		result.input_consumed = true;
-		result.dirty = true;
 		return result;
 	}
 
-	// Controls help modal — any button except MENU (the toggle above) closes it.
-	if (show_controls_help) {
-		if (PAD_justPressed(BTN_A) || PAD_justPressed(BTN_B) || PAD_justPressed(BTN_X) ||
-			PAD_justPressed(BTN_Y) || PAD_justPressed(BTN_START) || PAD_justPressed(BTN_SELECT) ||
-			PAD_justPressed(BTN_UP) || PAD_justPressed(BTN_DOWN) ||
-			PAD_justPressed(BTN_LEFT) || PAD_justPressed(BTN_RIGHT) ||
-			PAD_justPressed(BTN_L1) || PAD_justPressed(BTN_R1)) {
-			show_controls_help = false;
-			result.input_consumed = true;
-			result.dirty = true;
-			return result;
+	// MENU tap opens the current page's context menu. A long MENU press is the
+	// OSD (handled globally by keymon); PAD_tappedMenu only fires on a short
+	// release, so the two don't collide.
+	if (PAD_tappedMenu(SDL_GetTicks())) {
+		if (menu_count > 0) {
+			ContextMenu_open((ContextMenuItem*)menu_items, menu_count);
+			// Clear the marquee layer so it doesn't float above the menu's dim
+			// backdrop; it re-renders after close.
+			GFX_clearLayers(LAYER_SCROLLTEXT);
+			ContextMenu_render(screen);
+			PLAT_GPU_Flip();
 		}
-		// Dialog is shown, consume input and render (covers entire screen)
-		render_controls_help(screen, app_state);
-		GFX_flip(screen);
 		result.input_consumed = true;
+		result.dirty = true;
 		return result;
 	}
 
@@ -101,6 +109,14 @@ GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorT
 	}
 
 	return result;
+}
+
+void ModuleCommon_ctxAdd(ContextMenuItem* items, int* count, const char* label, int id) {
+	if (*count >= CONTEXTMENU_MAX_ITEMS)
+		return;
+	snprintf(items[*count].label, CONTEXTMENU_MAX_TEXT, "%s", label);
+	items[*count].id = id;
+	(*count)++;
 }
 
 void ModuleCommon_setAutosleepDisabled(bool disabled) {

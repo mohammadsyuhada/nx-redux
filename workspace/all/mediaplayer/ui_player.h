@@ -8,7 +8,7 @@
 
 // Render the video file browser
 void render_video_browser(SDL_Surface* screen, IndicatorType show_setting,
-						  VideoBrowserContext* ctx, int selected_resume_sec);
+						  VideoBrowserContext* ctx);
 
 // Full-mode ListView for the video browser: ui_player.c owns/renders it,
 // module_player.c drives input through this accessor.
