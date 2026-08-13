@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-#include "iptv_net.h"
+#include "net_cache.h"
 #include "wget_fetch.h"
 #include <stdio.h>
 #include <string.h>
@@ -12,13 +12,13 @@ static bool file_nonempty(const char* p) {
 	return stat(p, &st) == 0 && st.st_size > 0;
 }
 
-int IPTV_net_ensureCacheDir(const char* dir) {
+int NetCache_ensureDir(const char* dir) {
 	if (mkdir(dir, 0755) == 0)
 		return 0;
 	return (errno == EEXIST) ? 0 : -1;
 }
 
-int IPTV_net_ensure(const char* url, const char* cache_path, bool force,
+int NetCache_ensure(const char* url, const char* cache_path, bool force,
 					volatile bool* should_stop, volatile int* progress_pct) {
 	if (!force && file_nonempty(cache_path))
 		return 0;

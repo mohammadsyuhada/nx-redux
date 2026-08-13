@@ -22,7 +22,8 @@ void render_radio_list(SDL_Surface* screen, IndicatorType show_setting,
 void render_radio_playing(SDL_Surface* screen, IndicatorType show_setting, int radio_selected);
 
 // Render add stations - country selection screen
-void render_radio_add(SDL_Surface* screen, IndicatorType show_setting);
+void render_radio_add(SDL_Surface* screen, IndicatorType show_setting,
+					  const char* toast_message, uint32_t toast_time);
 
 // Render add stations - station selection screen
 void render_radio_add_stations(SDL_Surface* screen, IndicatorType show_setting,

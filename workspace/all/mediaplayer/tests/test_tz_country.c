@@ -1,11 +1,11 @@
 // Host-compiled unit test for tz_country.c.
 // Build & run:
-//   cc -I. tz_country.c tests/test_tz_country.c -o /tmp/test_tz && /tmp/test_tz
+//   cc -I. -I../common ../common/tz_country.c tests/test_tz_country.c -o /tmp/test_tz && /tmp/test_tz
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include "../tz_country.h"
+#include "../../common/tz_country.h"
 
 // Stub the platform call so the device convenience wrapper links on host.
 char* PLAT_getCurrentTimezone(void) {

@@ -78,6 +78,13 @@ typedef struct {
 // BUTTON{BTN_A, -1} (empty states may advertise an A action, e.g. "NEW").
 ListViewAction UI_listViewHandleInput(ListView* v);
 
+// Jump the selection to the start of the adjacent first-letter group, for fast
+// navigation of long alphabetically-sorted lists (wired to L1/R1 by callers).
+// dir > 0 -> first row of the next letter; dir < 0 -> first row of the previous
+// letter. Returns true if the cursor moved; no-op at the ends or on an
+// empty/single-row list. Only meaningful for label-sorted lists.
+bool UI_listViewJumpInitial(ListView* v, int dir);
+
 // Render one frame. Does NOT clear the screen - callers GFX_clear first.
 void UI_listViewRender(ListView* v, SDL_Surface* screen);
 

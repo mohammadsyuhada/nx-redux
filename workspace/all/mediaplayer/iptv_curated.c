@@ -1,6 +1,6 @@
 #define _GNU_SOURCE
 #include "iptv_curated.h"
-#include "iptv_net.h"
+#include "net_cache.h"
 #include "m3u.h"
 #include "tz_country.h"
 #include <stdio.h>
@@ -26,9 +26,9 @@ static int curated_channel_count = 0;
 static char loaded_country_code[8] = ""; // which country curated_channels holds
 
 void IPTV_curated_init(void) {
-	IPTV_net_ensureCacheDir(APP_DATA_DIR);
-	IPTV_net_ensureCacheDir(APP_DATA_DIR "/tv");
-	IPTV_net_ensureCacheDir(CACHE_DIR);
+	NetCache_ensureDir(APP_DATA_DIR);
+	NetCache_ensureDir(APP_DATA_DIR "/tv");
+	NetCache_ensureDir(CACHE_DIR);
 	curated_country_count = 0;
 	curated_channel_count = 0;
 	loaded_country_code[0] = '\0';
@@ -41,7 +41,7 @@ void IPTV_curated_cleanup(void) {
 }
 
 int IPTV_curated_loadCountries(bool force, volatile bool* should_stop, volatile int* progress) {
-	if (IPTV_net_ensure(COUNTRIES_URL, COUNTRIES_CACHE, force, should_stop, progress) != 0)
+	if (NetCache_ensure(COUNTRIES_URL, COUNTRIES_CACHE, force, should_stop, progress) != 0)
 		return -1;
 
 	JSON_Value* root = json_parse_file(COUNTRIES_CACHE);
@@ -114,7 +114,7 @@ int IPTV_curated_loadCountryChannels(const char* country_code, bool force,
 	snprintf(url, sizeof(url), IPTV_ORG_BASE "/iptv/countries/%s.m3u", lc);
 	snprintf(cache, sizeof(cache), "%s/%s.m3u", CACHE_DIR, lc);
 
-	if (IPTV_net_ensure(url, cache, force, should_stop, progress) != 0)
+	if (NetCache_ensure(url, cache, force, should_stop, progress) != 0)
 		return -1;
 
 	int n = M3U_parseFile(cache, curated_channels, MAX_CURATED_CHANNELS, country_code);

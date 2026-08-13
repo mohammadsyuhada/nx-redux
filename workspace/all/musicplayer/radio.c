@@ -3,11 +3,12 @@
 #include "radio_net.h"
 #include "album_art.h"
 #include "radio_hls.h"
-#include "radio_curated.h"
+#include "radio_catalog.h"
 #include "player.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h> // strcasecmp
 #include <unistd.h>
 #include <pthread.h>
 #include <errno.h>
@@ -69,7 +70,7 @@ static RadioStation default_stations[] = {
 	{"Hitz FM", "https://stream.rcs.revma.com/488kt4sbv4uvv", "Pop", "More the Hitz, One the Time"},
 };
 
-// Curated stations are now in radio_curated.c module
+// Curated stations are now in radio_catalog.c module
 
 // Radio context
 typedef struct {
@@ -1490,8 +1491,8 @@ int Radio_init(void) {
 	// Try to load custom stations
 	Radio_loadStations();
 
-	// Load curated stations from JSON files
-	radio_curated_init();
+	// Online catalog module (radio-browser.info)
+	RadioCatalog_init();
 
 	// Initialize album art module
 	album_art_init();
@@ -1503,8 +1504,8 @@ int Radio_init(void) {
 void Radio_quit(void) {
 	Radio_stop();
 
-	// Cleanup curated stations module
-	radio_curated_cleanup();
+	// Cleanup online catalog module
+	RadioCatalog_cleanup();
 
 	// Cleanup album art module
 	album_art_cleanup();
@@ -1550,6 +1551,14 @@ int Radio_addStation(const char* name, const char* url, const char* genre, const
 	strncpy(s->url, url, RADIO_MAX_URL - 1);
 	strncpy(s->genre, genre ? genre : "", 63);
 	strncpy(s->slogan, slogan ? slogan : "", 127);
+	s->name[RADIO_MAX_NAME - 1] = '\0';
+	s->url[RADIO_MAX_URL - 1] = '\0';
+	s->genre[63] = '\0';
+	s->slogan[127] = '\0';
+	// An "unknown" genre (radio-browser's placeholder tag) is treated as no
+	// genre, so it isn't shown in the list or the player.
+	if (strcasecmp(s->genre, "unknown") == 0)
+		s->genre[0] = '\0';
 	radio.station_count++;
 
 	return radio.station_count - 1;
@@ -1984,21 +1993,29 @@ bool Radio_isActive(void) {
 	return radio.state != RADIO_STATE_STOPPED && radio.state != RADIO_STATE_ERROR;
 }
 
-// Curated stations API - delegates to radio_curated module
+// Curated stations API - delegates to radio_catalog module
 int Radio_getCuratedCountryCount(void) {
-	return radio_curated_get_country_count();
+	return RadioCatalog_getCountryCount();
 }
 
 const CuratedCountry* Radio_getCuratedCountries(void) {
-	return radio_curated_get_countries();
+	return RadioCatalog_getCountries();
 }
 
 int Radio_getCuratedStationCount(const char* country_code) {
-	return radio_curated_get_station_count(country_code);
+	return RadioCatalog_getStationCount(country_code);
 }
 
 const CuratedStation* Radio_getCuratedStations(const char* country_code, int* count) {
-	return radio_curated_get_stations(country_code, count);
+	return RadioCatalog_getStations(country_code, count);
+}
+
+int Radio_catalogLoadCountries(bool force) {
+	return RadioCatalog_loadCountries(force, NULL, NULL);
+}
+
+int Radio_catalogLoadCountryStations(const char* code, bool force) {
+	return RadioCatalog_loadCountryStations(code, force, NULL, NULL);
 }
 
 bool Radio_stationExists(const char* url) {

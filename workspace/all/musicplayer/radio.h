@@ -109,6 +109,10 @@ int Radio_getCuratedCountryCount(void);
 const CuratedCountry* Radio_getCuratedCountries(void);
 int Radio_getCuratedStationCount(const char* country_code);
 const CuratedStation* Radio_getCuratedStations(const char* country_code, int* count);
+
+// Online catalog (radio-browser.info) fetch triggers — see radio_catalog.c.
+int Radio_catalogLoadCountries(bool force);
+int Radio_catalogLoadCountryStations(const char* code, bool force);
 bool Radio_stationExists(const char* url);
 bool Radio_removeStationByUrl(const char* url);
 

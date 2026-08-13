@@ -247,6 +247,14 @@ ModuleExitReason IPTVModule_run(SDL_Surface* screen) {
 			default:
 				break;
 			}
+			// L1/R1: jump by first letter (the country list is long).
+			if (PAD_justRepeated(BTN_R1)) {
+				if (UI_listViewJumpInitial(v, +1))
+					dirty = 1;
+			} else if (PAD_justRepeated(BTN_L1)) {
+				if (UI_listViewJumpInitial(v, -1))
+					dirty = 1;
+			}
 			if (UI_listViewBusy(v))
 				dirty = 1;
 

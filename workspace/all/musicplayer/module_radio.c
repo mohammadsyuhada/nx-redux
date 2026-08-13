@@ -12,12 +12,14 @@
 #include "album_art.h"
 #include "ui_confirmdialog.h"
 #include "ui_listview.h"
+#include "ui_loadingoverlay.h"
 #include "ui_radio.h"
 #include "ui_album_art.h"
 #include "ui_main.h"
 #include "ui_toast.h"
 #include "wifi.h"
 #include "background.h"
+#include "stream_probe.h"
 
 // Internal states
 typedef enum {
@@ -50,9 +52,10 @@ static char confirm_station_url[RADIO_MAX_URL] = "";
 static RadioInternalState help_return_state = RADIO_INTERNAL_ADD_COUNTRY;
 
 // Context-menu item ids
-#define RADIO_CTX_MANAGE 1 // list: browse/manage curated stations (same as Y)
-#define RADIO_CTX_DELETE 2 // list: delete selected station (same as X)
-#define RADIO_CTX_HELP 3   // add pages: manual setup help (same as Y)
+#define RADIO_CTX_MANAGE 1	// list: browse/manage curated stations (same as Y)
+#define RADIO_CTX_DELETE 2	// list: delete selected station (same as X)
+#define RADIO_CTX_HELP 3	// add pages: manual setup help (same as Y)
+#define RADIO_CTX_REFRESH 4 // add pages: re-fetch the current browse screen
 
 // Sorted station index mapping for alphabetical display
 static int sorted_station_indices[256];
@@ -112,6 +115,38 @@ static void build_sorted_station_indices(const char* country_code) {
 		}
 		sorted_station_indices[j + 1] = key;
 	}
+}
+
+// One-time note that stations come from the public radio-browser.info index.
+static bool catalog_disclaimer_shown = false;
+
+// Fetch (with a blocking overlay) the radio-browser country list and enter the
+// country-browse screen. force=true re-fetches past the cache.
+static void enter_country_browse(SDL_Surface* screen, IndicatorType show_setting,
+								 RadioInternalState* state, bool force) {
+	Wifi_ensureConnected(screen, show_setting);
+	UI_renderLoadingOverlay(screen, "Online Radio", "Loading station list...");
+	GFX_flip(screen);
+
+	int n = Radio_catalogLoadCountries(force);
+	if (n < 0) {
+		snprintf(radio_toast_message, sizeof(radio_toast_message),
+				 "Couldn't load - check Wi-Fi");
+		radio_toast_time = SDL_GetTicks();
+	} else if (!catalog_disclaimer_shown) {
+		snprintf(radio_toast_message, sizeof(radio_toast_message),
+				 "From radio-browser.info - availability varies");
+		radio_toast_time = SDL_GetTicks();
+		catalog_disclaimer_shown = true;
+	} else {
+		radio_toast_message[0] = '\0';
+	}
+
+	GFX_clearLayers(LAYER_SCROLLTEXT);
+	UI_listViewReset(RadioCountries_view(),
+					 Radio_getCuratedCountryCount(),
+					 Radio_getCuratedCountries());
+	*state = RADIO_INTERNAL_ADD_COUNTRY;
 }
 
 ModuleExitReason RadioModule_run(SDL_Surface* screen) {
@@ -224,6 +259,7 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 				break;
 			case RADIO_INTERNAL_ADD_COUNTRY:
 			case RADIO_INTERNAL_ADD_STATIONS:
+				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Refresh List", RADIO_CTX_REFRESH);
 				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Manual Setup Help", RADIO_CTX_HELP);
 				break;
 			default:
@@ -240,11 +276,7 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 			if (global.context_id > 0) {
 				switch (global.context_id) {
 				case RADIO_CTX_MANAGE:
-					GFX_clearLayers(LAYER_SCROLLTEXT);
-					UI_listViewReset(RadioCountries_view(),
-									 Radio_getCuratedCountryCount(),
-									 Radio_getCuratedCountries());
-					state = RADIO_INTERNAL_ADD_COUNTRY;
+					enter_country_browse(screen, show_setting, &state, false);
 					break;
 				case RADIO_CTX_DELETE: {
 					RadioStation* st;
@@ -265,6 +297,24 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 					help_return_state = state;
 					help_scroll = 0;
 					state = RADIO_INTERNAL_HELP;
+					break;
+				case RADIO_CTX_REFRESH:
+					if (state == RADIO_INTERNAL_ADD_COUNTRY) {
+						enter_country_browse(screen, show_setting, &state, true);
+					} else { // RADIO_INTERNAL_ADD_STATIONS
+						Wifi_ensureConnected(screen, show_setting);
+						UI_renderLoadingOverlay(screen, "Online Radio", "Loading stations...");
+						GFX_flip(screen);
+						int n = Radio_catalogLoadCountryStations(add_selected_country_code, true);
+						add_station_selected = 0;
+						add_station_scroll = 0;
+						build_sorted_station_indices(add_selected_country_code);
+						if (n <= 0) {
+							snprintf(radio_toast_message, sizeof(radio_toast_message),
+									 n < 0 ? "Couldn't load stations" : "No stations for this country");
+							radio_toast_time = SDL_GetTicks();
+						}
+					}
 					break;
 				}
 				dirty = 1;
@@ -295,15 +345,29 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 						radio_toast_time = SDL_GetTicks();
 						dirty = 1;
 					} else {
-						Background_stopAll();
-						if (Radio_play(stations[act.index].url) == 0) {
+						// Fast reachability probe: a dead/geo-blocked stream fails
+						// in a few seconds with a toast instead of a long connect
+						// hang. Mirrors the Online TV path (module_iptv.c). The
+						// probe fails open, so a station it can't check still plays.
+						UI_renderLoadingOverlay(screen, stations[act.index].name, "Connecting...");
+						GFX_flip(screen);
+						if (!Stream_probeReachable(stations[act.index].url)) {
+							snprintf(radio_toast_message, sizeof(radio_toast_message),
+									 "Unavailable - offline or geo-blocked");
+							radio_toast_time = SDL_GetTicks();
 							GFX_clearLayers(LAYER_SCROLLTEXT);
-							ModuleCommon_recordInputTime();
-							last_rendered_artist[0] = '\0';
-							last_rendered_title[0] = '\0';
-							last_art_was_fetching = false;
-							state = RADIO_INTERNAL_PLAYING;
 							dirty = 1;
+						} else {
+							Background_stopAll();
+							if (Radio_play(stations[act.index].url) == 0) {
+								GFX_clearLayers(LAYER_SCROLLTEXT);
+								ModuleCommon_recordInputTime();
+								last_rendered_artist[0] = '\0';
+								last_rendered_title[0] = '\0';
+								last_art_was_fetching = false;
+								state = RADIO_INTERNAL_PLAYING;
+								dirty = 1;
+							}
 						}
 					}
 				}
@@ -317,12 +381,8 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 			case LISTVIEW_BUTTON:
 				if (act.btn == BTN_A && station_count == 0) {
 					// Empty state advertises A/MANAGE. Manage/delete otherwise
-					// live in the context menu (MENU tap). Reset clears layers
-					// + snaps the glide.
-					UI_listViewReset(RadioCountries_view(),
-									 Radio_getCuratedCountryCount(),
-									 Radio_getCuratedCountries());
-					state = RADIO_INTERNAL_ADD_COUNTRY;
+					// live in the context menu (MENU tap).
+					enter_country_browse(screen, show_setting, &state, false);
 					dirty = 1;
 				}
 				break;
@@ -466,9 +526,22 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 				GFX_clearLayers(LAYER_SCROLLTEXT);
 				const CuratedCountry* countries = Radio_getCuratedCountries();
 				add_selected_country_code = countries[act.index].code;
+
+				Wifi_ensureConnected(screen, show_setting);
+				UI_renderLoadingOverlay(screen, "Online Radio", "Loading stations...");
+				GFX_flip(screen);
+				int n = Radio_catalogLoadCountryStations(add_selected_country_code, false);
+
 				add_station_selected = 0;
 				add_station_scroll = 0;
 				build_sorted_station_indices(add_selected_country_code);
+				if (n <= 0) {
+					snprintf(radio_toast_message, sizeof(radio_toast_message),
+							 n < 0 ? "Couldn't load stations" : "No stations for this country");
+					radio_toast_time = SDL_GetTicks();
+				} else {
+					radio_toast_message[0] = '\0';
+				}
 				state = RADIO_INTERNAL_ADD_STATIONS;
 				dirty = 1;
 				break;
@@ -481,6 +554,14 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 			default:
 				// Manual-setup help moved to the context menu (MENU tap)
 				break;
+			}
+			// L1/R1: jump by first letter (the country list is long).
+			if (PAD_justRepeated(BTN_R1)) {
+				if (UI_listViewJumpInitial(v, +1))
+					dirty = 1;
+			} else if (PAD_justRepeated(BTN_L1)) {
+				if (UI_listViewJumpInitial(v, -1))
+					dirty = 1;
 			}
 			if (UI_listViewBusy(v))
 				dirty = 1;
@@ -579,7 +660,7 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 					break;
 				}
 				case RADIO_INTERNAL_ADD_COUNTRY:
-					render_radio_add(screen, show_setting);
+					render_radio_add(screen, show_setting, radio_toast_message, radio_toast_time);
 					break;
 				case RADIO_INTERNAL_ADD_STATIONS:
 					render_radio_add_stations(screen, show_setting, add_selected_country_code,
@@ -597,7 +678,8 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 			dirty = 0;
 
 			// Keep refreshing while toast is visible
-			if (state == RADIO_INTERNAL_LIST || state == RADIO_INTERNAL_ADD_STATIONS) {
+			if (state == RADIO_INTERNAL_LIST || state == RADIO_INTERNAL_ADD_COUNTRY ||
+				state == RADIO_INTERNAL_ADD_STATIONS) {
 				ModuleCommon_tickToast(radio_toast_message, radio_toast_time, &dirty);
 			}
 		} else if (!screen_off) {

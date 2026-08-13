@@ -35,17 +35,11 @@ static void radio_list_get_row(void* ctx, int i, bool selected,
 	(void)selected;
 }
 
-// "%d stations" scratch: the widget consumes the annotation before the next
-// get_row call, so one static buffer per provider is enough.
-static char country_annotation_buf[32];
-
 static void radio_countries_get_row(void* ctx, int i, bool selected,
 									ListViewRow* out) {
 	const CuratedCountry* countries = ctx;
 	out->label = countries[i].name;
-	snprintf(country_annotation_buf, sizeof(country_annotation_buf),
-			 "%d stations", Radio_getCuratedStationCount(countries[i].code));
-	out->annotation = country_annotation_buf;
+	out->annotation = NULL; // country name only (station counts vary from playable)
 	(void)selected;
 }
 
@@ -323,7 +317,8 @@ void render_radio_playing(SDL_Surface* screen, IndicatorType show_setting, int r
 }
 
 // Render add stations - country selection screen
-void render_radio_add(SDL_Surface* screen, IndicatorType show_setting) {
+void render_radio_add(SDL_Surface* screen, IndicatorType show_setting,
+					  const char* toast_message, uint32_t toast_time) {
 	(void)show_setting;
 	GFX_clear(screen);
 
@@ -340,9 +335,12 @@ void render_radio_add(SDL_Surface* screen, IndicatorType show_setting) {
 	v->get_row = radio_countries_get_row;
 	v->ctx = (void*)countries;
 	v->list_id = (const void*)countries;
-	v->empty_title = NULL; // curated catalog is never empty
+	v->empty_title = "No countries"; // now possible if a fetch fails
+	v->empty_subtitle = "Press MENU to refresh";
 	v->hint_pairs = (char*[]){"B", "BACK", "A", "SELECT", NULL};
 	UI_listViewRender(v, screen);
+
+	UI_renderToast(screen, toast_message, toast_time);
 }
 
 // Render add stations - station selection screen
@@ -389,6 +387,8 @@ void render_radio_add_stations(SDL_Surface* screen, IndicatorType show_setting,
 	for (int i = 0; i < layout.items_per_page && *add_station_scroll + i < sorted_count; i++) {
 		int idx = *add_station_scroll + i;
 		int actual_idx = sorted_indices[idx];
+		if (actual_idx >= station_count)
+			continue;
 		const CuratedStation* station = &stations[actual_idx];
 		bool selected = (idx == add_station_selected);
 		bool added = Radio_stationExists(station->url);
