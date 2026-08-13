@@ -169,6 +169,10 @@ typedef struct GFX_Fonts {
 	TTF_Font* micro;  // icon overlay text
 } GFX_Fonts;
 extern GFX_Fonts font;
+extern GFX_Fonts font_ar; // secondary Arabic font (MiSans Arabic), same sizes
+
+// The Arabic-font counterpart of a primary size-font (NULL if unavailable).
+TTF_Font* GFX_fallbackFontFor(TTF_Font* primary);
 
 enum {
 	SHARPNESS_SHARP,
@@ -306,6 +310,14 @@ void GFX_setVsync(int vsync);
 // colour changes need no invalidation because the colour is part of the key.
 // Purpose: eliminate per-frame TTF rasterization in animated list redraws.
 SDL_Surface* GFX_getCachedText(TTF_Font* font, const char* text, SDL_Color color);
+
+// Arabic-aware text primitives (drop-in replacements). Non-Arabic input takes
+// the identical legacy path; Arabic is shaped + BiDi-reordered and drawn with
+// the Arabic font. GFX_renderText/GFX_renderTextWrapped return a NEW surface
+// (caller frees), like TTF_RenderUTF8_Blended[_Wrapped]. See text_shape.h.
+SDL_Surface* GFX_renderText(TTF_Font* primary, const char* utf8, SDL_Color color);
+void GFX_measureText(TTF_Font* primary, const char* utf8, int* w, int* h);
+SDL_Surface* GFX_renderTextWrapped(TTF_Font* primary, const char* utf8, SDL_Color color, uint32_t wrap_w);
 
 int GFX_truncateText(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding); // returns final width
 int PLAT_textShouldScroll(TTF_Font* font, const char* in_name, int max_width, SDL_mutex* fontMutex);
@@ -657,6 +669,7 @@ void PLAT_scrollTextTexture(
 	int w, int h, // Clipping width and height
 	SDL_Color color,
 	float transparency,
+	bool rtl,			 // true: scroll right-to-left (Arabic), right-aligned start
 	SDL_mutex* fontMutex // Mutex for thread-safe font access (can be NULL)
 );
 void PLAT_vsync(int remaining);

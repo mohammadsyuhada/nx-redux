@@ -75,7 +75,7 @@ static void kb_draw(SDL_Surface* screen, const char* title, const char* input,
 
 	// Title (the caller's prompt)
 	if (title && title[0]) {
-		text = TTF_RenderUTF8_Blended(font.small, title, COLOR_GRAY);
+		text = GFX_renderText(font.small, title, COLOR_GRAY);
 		if (text) {
 			SDL_BlitSurface(text, NULL, screen,
 							&(SDL_Rect){center_x - text->w / 2, y});
@@ -95,7 +95,7 @@ static void kb_draw(SDL_Surface* screen, const char* title, const char* input,
 	// Typed text with caret; keep the tail visible when it overflows.
 	char shown[KB_MAX_INPUT + 2];
 	snprintf(shown, sizeof(shown), "%s_", input);
-	text = TTF_RenderUTF8_Blended(font.large, shown, COLOR_WHITE);
+	text = GFX_renderText(font.large, shown, COLOR_WHITE);
 	if (text) {
 		int max_w = kb_w;
 		if (text->w > max_w) {
@@ -123,8 +123,8 @@ static void kb_draw(SDL_Surface* screen, const char* title, const char* input,
 				const char* key = layout[row][col];
 				int cx = kb_left + (col == 0 ? kb_w / 4 : (kb_w * 3) / 4);
 				bool focused = (row == cur_row && col == cur_col);
-				text = TTF_RenderUTF8_Blended(font.large, key,
-											  focused ? focused_color : COLOR_WHITE);
+				text = GFX_renderText(font.large, key,
+									  focused ? focused_color : COLOR_WHITE);
 				if (focused) {
 					// Draw the cursor before the glyph so a text-render failure
 					// still shows the capsule (mirrors the narrow-key branch).
@@ -154,8 +154,8 @@ static void kb_draw(SDL_Surface* screen, const char* title, const char* input,
 					UI_fillRoundedRect(screen, cx - d / 2, cy - d / 2,
 									   d, d, d / 2, THEME_COLOR1);
 				}
-				text = TTF_RenderUTF8_Blended(font.large, key,
-											  focused ? focused_color : COLOR_WHITE);
+				text = GFX_renderText(font.large, key,
+									  focused ? focused_color : COLOR_WHITE);
 				if (text) {
 					SDL_BlitSurface(text, NULL, screen,
 									&(SDL_Rect){cx - text->w / 2, cy - text->h / 2});

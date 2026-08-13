@@ -144,7 +144,7 @@ void render_playing(SDL_Surface* screen, IndicatorType show_setting, BrowserCont
 
 	// Format badge "FLAC" with border (smaller, gray) - render first on the left
 	const char* fmt_name = get_format_name(format);
-	SDL_Surface* fmt_surf = TTF_RenderUTF8_Blended(font.tiny, fmt_name, COLOR_GRAY);
+	SDL_Surface* fmt_surf = GFX_renderText(font.tiny, fmt_name, COLOR_GRAY);
 	int badge_h = fmt_surf ? fmt_surf->h + SCALE1(4) : SCALE1(16);
 	int badge_x = SCALE1(PADDING);
 	int badge_w = 0;
@@ -175,7 +175,7 @@ void render_playing(SDL_Surface* screen, IndicatorType show_setting, BrowserCont
 				format_khz(out_rate, out_str, sizeof(out_str));
 				snprintf(rate_str, sizeof(rate_str), "%s→%skHz", src_str, out_str);
 			}
-			SDL_Surface* rate_surf = TTF_RenderUTF8_Blended(font.tiny, rate_str, COLOR_GRAY);
+			SDL_Surface* rate_surf = GFX_renderText(font.tiny, rate_str, COLOR_GRAY);
 			if (rate_surf) {
 				int rate_x = badge_x + badge_w + SCALE1(4);
 				int rate_w = rate_surf->w + SCALE1(10);
@@ -197,7 +197,7 @@ void render_playing(SDL_Surface* screen, IndicatorType show_setting, BrowserCont
 	int total_tracks = (playlist_total > 0) ? playlist_total : Browser_countAudioFiles(browser);
 	char track_str[32];
 	snprintf(track_str, sizeof(track_str), "%02d - %02d", track_num, total_tracks);
-	SDL_Surface* track_surf = TTF_RenderUTF8_Blended(font.tiny, track_str, COLOR_GRAY);
+	SDL_Surface* track_surf = GFX_renderText(font.tiny, track_str, COLOR_GRAY);
 	if (track_surf) {
 		int track_x = badge_x + badge_w + SCALE1(8);
 		int track_y = top_y + (badge_h - track_surf->h) / 2;
@@ -218,7 +218,7 @@ void render_playing(SDL_Surface* screen, IndicatorType show_setting, BrowserCont
 	// Artist name (Medium font, gray)
 	const char* artist = info->artist[0] ? info->artist : "Unknown Artist";
 	GFX_truncateText(font.medium, artist, truncated, max_w_text, 0);
-	SDL_Surface* artist_surf = TTF_RenderUTF8_Blended(font.medium, truncated, COLOR_GRAY);
+	SDL_Surface* artist_surf = GFX_renderText(font.medium, truncated, COLOR_GRAY);
 	if (artist_surf) {
 		SDL_BlitSurface(artist_surf, NULL, screen, &(SDL_Rect){SCALE1(PADDING), info_y});
 		info_y += artist_surf->h + SCALE1(2);
@@ -245,7 +245,7 @@ void render_playing(SDL_Surface* screen, IndicatorType show_setting, BrowserCont
 	} else {
 		// Static text - render to screen surface
 		PLAT_clearLayers(LAYER_SCROLLTEXT);
-		SDL_Surface* title_surf = TTF_RenderUTF8_Blended(font.title, title, COLOR_WHITE);
+		SDL_Surface* title_surf = GFX_renderText(font.title, title, COLOR_WHITE);
 		if (title_surf) {
 			SDL_BlitSurface(title_surf, NULL, screen, &(SDL_Rect){SCALE1(PADDING), title_y, 0, 0});
 			SDL_FreeSurface(title_surf);
@@ -262,7 +262,7 @@ void render_playing(SDL_Surface* screen, IndicatorType show_setting, BrowserCont
 		const char* album = info->album[0] ? info->album : "";
 		if (album[0]) {
 			GFX_truncateText(font.small, album, truncated, max_w_text, 0);
-			SDL_Surface* album_surf = TTF_RenderUTF8_Blended(font.small, truncated, COLOR_GRAY);
+			SDL_Surface* album_surf = GFX_renderText(font.small, truncated, COLOR_GRAY);
 			if (album_surf) {
 				SDL_BlitSurface(album_surf, NULL, screen, &(SDL_Rect){SCALE1(PADDING), info_y});
 				SDL_FreeSurface(album_surf);
@@ -294,7 +294,7 @@ void render_playing(SDL_Surface* screen, IndicatorType show_setting, BrowserCont
 	// Repeat label
 	const char* repeat_text = "REPEAT";
 	SDL_Color repeat_color = repeat_enabled ? COLOR_WHITE : COLOR_GRAY;
-	SDL_Surface* repeat_surf = TTF_RenderUTF8_Blended(font.tiny, repeat_text, repeat_color);
+	SDL_Surface* repeat_surf = GFX_renderText(font.tiny, repeat_text, repeat_color);
 	if (repeat_surf) {
 		label_x -= repeat_surf->w;
 		SDL_BlitSurface(repeat_surf, NULL, screen, &(SDL_Rect){label_x, bottom_y});
@@ -310,7 +310,7 @@ void render_playing(SDL_Surface* screen, IndicatorType show_setting, BrowserCont
 	label_x -= SCALE1(12);
 	const char* shuffle_text = "SHUFFLE";
 	SDL_Color shuffle_color = shuffle_enabled ? COLOR_WHITE : COLOR_GRAY;
-	SDL_Surface* shuffle_surf = TTF_RenderUTF8_Blended(font.tiny, shuffle_text, shuffle_color);
+	SDL_Surface* shuffle_surf = GFX_renderText(font.tiny, shuffle_text, shuffle_color);
 	if (shuffle_surf) {
 		label_x -= shuffle_surf->w;
 		SDL_BlitSurface(shuffle_surf, NULL, screen, &(SDL_Rect){label_x, bottom_y});
@@ -326,7 +326,7 @@ void render_playing(SDL_Surface* screen, IndicatorType show_setting, BrowserCont
 	if (!Settings_getLyricsEnabled()) {
 		label_x -= SCALE1(12);
 		const char* lyric_text = "LYRIC OFF";
-		SDL_Surface* lyric_surf = TTF_RenderUTF8_Blended(font.tiny, lyric_text, COLOR_GRAY);
+		SDL_Surface* lyric_surf = GFX_renderText(font.tiny, lyric_text, COLOR_GRAY);
 		if (lyric_surf) {
 			label_x -= lyric_surf->w;
 			SDL_BlitSurface(lyric_surf, NULL, screen, &(SDL_Rect){label_x, bottom_y});
@@ -404,14 +404,14 @@ void PlayTime_renderGPU(void) {
 	// Render position text
 	char pos_str[16];
 	format_time(pos_str, position / 1000);
-	SDL_Surface* pos_surf = TTF_RenderUTF8_Blended(font.small, pos_str, COLOR_WHITE);
+	SDL_Surface* pos_surf = GFX_renderText(font.small, pos_str, COLOR_WHITE);
 	if (!pos_surf)
 		return;
 
 	// Render duration text
 	char dur_str[16];
 	format_time(dur_str, duration / 1000);
-	SDL_Surface* dur_surf = TTF_RenderUTF8_Blended(font.tiny, dur_str, COLOR_GRAY);
+	SDL_Surface* dur_surf = GFX_renderText(font.tiny, dur_str, COLOR_GRAY);
 
 	// Calculate total width needed
 	int total_w = pos_surf->w + SCALE1(6) + (dur_surf ? dur_surf->w : 0);
@@ -517,14 +517,14 @@ void Lyrics_renderGPU(void) {
 	SDL_Surface* cur_surf = NULL;
 	if (has_cur) {
 		GFX_truncateText(font.small, cur_str, truncated, lyrics_gpu_max_w, 0);
-		cur_surf = TTF_RenderUTF8_Blended(font.small, truncated, COLOR_LIGHT_TEXT);
+		cur_surf = GFX_renderText(font.small, truncated, COLOR_LIGHT_TEXT);
 	}
 
 	// Render next line
 	SDL_Surface* next_surf = NULL;
 	if (has_next) {
 		GFX_truncateText(font.small, next_str, truncated, lyrics_gpu_max_w, 0);
-		next_surf = TTF_RenderUTF8_Blended(font.small, truncated, COLOR_DARK_TEXT);
+		next_surf = GFX_renderText(font.small, truncated, COLOR_DARK_TEXT);
 	}
 
 	// Create combined surface

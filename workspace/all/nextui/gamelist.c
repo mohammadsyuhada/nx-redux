@@ -1001,7 +1001,7 @@ static void artFetchTitle(const char* name, char* out, size_t out_size) {
 	int maxw = screen->w - SCALE1(PADDING * 6);
 	snprintf(out, out_size, "%s", name);
 	int w = 0;
-	TTF_SizeUTF8(font.large, out, &w, NULL);
+	GFX_measureText(font.large, out, &w, NULL);
 	if (w <= maxw)
 		return;
 	size_t len = strlen(out);
@@ -1011,7 +1011,7 @@ static void artFetchTitle(const char* name, char* out, size_t out_size) {
 			len--; // don't split a UTF-8 sequence
 		char cand[256];
 		snprintf(cand, sizeof(cand), "%.*s...", (int)len, name);
-		TTF_SizeUTF8(font.large, cand, &w, NULL);
+		GFX_measureText(font.large, cand, &w, NULL);
 		if (w <= maxw) {
 			snprintf(out, out_size, "%s", cand);
 			return;

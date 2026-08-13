@@ -27,7 +27,7 @@ COMMON_PATH = ../common
 include ../common/ui/ui.mk
 SOURCE = ratools.c ratools_data.c ratools_browser.c ratools_sync.c ratools_prefetch.c ratools_reset.c \
          ../settings/settings_menu.c \
-         $(COMMON_PATH)/utils.c $(COMMON_PATH)/api.c $(COMMON_PATH)/audio_manager.c \
+         $(COMMON_PATH)/utils.c $(COMMON_PATH)/api.c $(COMMON_PATH)/text_shape.c $(COMMON_PATH)/audio_manager.c \
          $(COMMON_PATH)/config.c $(COMMON_PATH)/scaler.c \
          $(COMMON_PATH)/http.c $(COMMON_PATH)/ra_auth.c \
          $(COMMON_PATH)/ra_offline.c $(COMMON_PATH)/ra_offline_net.c \

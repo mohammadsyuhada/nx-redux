@@ -417,7 +417,7 @@ static int render_tab_bar(SDL_Surface* screen, ListLayout* layout, AddonTab acti
 		// color, not this dim one) and made the inactive tab read as bright
 		// as the active one.
 		SDL_Color color = selected ? UI_getListTextColor(true) : COLOR_GRAY;
-		SDL_Surface* surf = TTF_RenderUTF8_Blended(font.small, cell_text[t], color);
+		SDL_Surface* surf = GFX_renderText(font.small, cell_text[t], color);
 		if (surf) {
 			int tx = cx + (cell_w[t] - surf->w) / 2;
 			int ty = y + (strip_h - surf->h) / 2;
@@ -794,7 +794,7 @@ static void draw_result_dialog(const char* title, const char* subtitle, const ch
 	if (sub_line_count) {
 		y += SCALE1(BUTTON_MARGIN);
 		for (int i = 0; i < sub_line_count; i++) {
-			SDL_Surface* s = TTF_RenderUTF8_Blended(font.small, sub_lines[i], COLOR_WHITE);
+			SDL_Surface* s = GFX_renderText(font.small, sub_lines[i], COLOR_WHITE);
 			if (s) {
 				SDL_BlitSurface(s, NULL, screen, &(SDL_Rect){(screen->w - s->w) / 2, y});
 				SDL_FreeSurface(s);
@@ -805,7 +805,7 @@ static void draw_result_dialog(const char* title, const char* subtitle, const ch
 
 	if (detail_h) {
 		y += SCALE1(BUTTON_MARGIN);
-		SDL_Surface* s = TTF_RenderUTF8_Blended(font.tiny, detail, COLOR_GRAY);
+		SDL_Surface* s = GFX_renderText(font.tiny, detail, COLOR_GRAY);
 		if (s) {
 			SDL_BlitSurface(s, NULL, screen, &(SDL_Rect){(screen->w - s->w) / 2, y});
 			SDL_FreeSurface(s);
@@ -1184,7 +1184,7 @@ static int wrap_text(TTF_Font* f, const char* text, int max_width,
 				snprintf(trial, sizeof(trial), "%s", word);
 
 			int tw, th;
-			TTF_SizeUTF8(f, trial, &tw, &th);
+			GFX_measureText(f, trial, &tw, &th);
 			if (tw <= max_width) {
 				snprintf(cur, sizeof(cur), "%s", trial);
 				has_word = true;
@@ -1214,7 +1214,7 @@ static int wrap_text(TTF_Font* f, const char* text, int max_width,
 					memcpy(piece, word + lo, plen);
 					piece[plen] = '\0';
 					int pw, ph;
-					TTF_SizeUTF8(f, piece, &pw, &ph);
+					GFX_measureText(f, piece, &pw, &ph);
 					if (pw > max_width)
 						break;
 					last_fit = hi;
@@ -1249,7 +1249,7 @@ static int wrap_text(TTF_Font* f, const char* text, int max_width,
 			char trial[DESC_LINE_MAX];
 			snprintf(trial, sizeof(trial), "%.*s...", len, last);
 			int tw, th;
-			TTF_SizeUTF8(f, trial, &tw, &th);
+			GFX_measureText(f, trial, &tw, &th);
 			if (tw <= max_width) {
 				// `trial` already holds the winning "<prefix>..." string -
 				// copy it in rather than re-running "%.*s..." with `last`
@@ -1329,7 +1329,7 @@ static int run_detail(AddonEntry* e) {
 			// Title: the same font a selectable list row uses, so the
 			// detail page reads as a continuation of the entry just picked
 			// rather than a smaller/different "settings row" treatment.
-			SDL_Surface* title = TTF_RenderUTF8_Blended(font.large, e->name, COLOR_WHITE);
+			SDL_Surface* title = GFX_renderText(font.large, e->name, COLOR_WHITE);
 			if (title) {
 				SDL_BlitSurface(title, NULL, screen, &(SDL_Rect){x, y, 0, 0});
 				y += title->h;
@@ -1359,7 +1359,7 @@ static int run_detail(AddonEntry* e) {
 				snprintf(meta_lines[1] + voff, sizeof(meta_lines[1]) - voff,
 						 "  \xC2\xB7  Latest %s", e->latest);
 			for (int i = 0; i < 2; i++) {
-				SDL_Surface* meta_surf = TTF_RenderUTF8_Blended(font.small, meta_lines[i], COLOR_GRAY);
+				SDL_Surface* meta_surf = GFX_renderText(font.small, meta_lines[i], COLOR_GRAY);
 				if (meta_surf) {
 					SDL_BlitSurface(meta_surf, NULL, screen, &(SDL_Rect){x, y, 0, 0});
 					y += meta_surf->h;
@@ -1387,7 +1387,7 @@ static int run_detail(AddonEntry* e) {
 			char desc_lines[DESC_MAX_LINES][DESC_LINE_MAX];
 			int n = wrap_text(font.tiny, e->desc, layout.max_width, desc_lines, max_lines);
 			for (int i = 0; i < n; i++) {
-				SDL_Surface* s = TTF_RenderUTF8_Blended(font.tiny, desc_lines[i], COLOR_GRAY);
+				SDL_Surface* s = GFX_renderText(font.tiny, desc_lines[i], COLOR_GRAY);
 				if (s) {
 					SDL_BlitSurface(s, NULL, screen, &(SDL_Rect){x, y, 0, 0});
 					SDL_FreeSurface(s);

@@ -509,7 +509,7 @@ static int show_update_info(SDL_Surface* screen, ReleaseInfo* release) {
 		int bar_h = SCALE1(BUTTON_SIZE) + SCALE1(BUTTON_MARGIN * 2);
 		int y = bar_h + SCALE1(PADDING * 2);
 
-		SDL_Surface* tag_surf = TTF_RenderUTF8_Blended(font.large, release->tag_name, COLOR_WHITE);
+		SDL_Surface* tag_surf = GFX_renderText(font.large, release->tag_name, COLOR_WHITE);
 		if (tag_surf) {
 			SDL_BlitSurface(tag_surf, NULL, screen,
 							&(SDL_Rect){(screen->w - tag_surf->w) / 2, y});

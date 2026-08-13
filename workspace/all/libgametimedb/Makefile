@@ -33,7 +33,7 @@ CC = $(CROSS_COMPILE)gcc
 SYSROOT     := $(shell $(CC) --print-sysroot)
 
 INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
-SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../../$(PLATFORM)/platform/platform.c
+SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/text_shape.c ../../$(PLATFORM)/platform/platform.c
 
 CFLAGS  += $(OPT)
 CFLAGS  += $(INCDIR) -DPLATFORM=\"$(PLATFORM)\" -std=gnu99

@@ -366,7 +366,7 @@ static int render_main_header(SDL_Surface* screen) {
 
 	// Line 1: username, or "Not authenticated"
 	const char* line1 = auth ? get_user_display() : "Not authenticated";
-	SDL_Surface* s1 = TTF_RenderUTF8_Blended(font.medium, line1, col_header_title);
+	SDL_Surface* s1 = GFX_renderText(font.medium, line1, col_header_title);
 	if (s1) {
 		SDL_BlitSurface(s1, NULL, screen, &(SDL_Rect){x, y});
 		SDL_FreeSurface(s1);
@@ -389,7 +389,7 @@ static int render_main_header(SDL_Surface* screen) {
 		}
 	}
 	if (line2) {
-		SDL_Surface* s2 = TTF_RenderUTF8_Blended(font.small, line2, col_header_gray);
+		SDL_Surface* s2 = GFX_renderText(font.small, line2, col_header_gray);
 		if (s2) {
 			SDL_BlitSurface(s2, NULL, screen, &(SDL_Rect){x, y});
 			SDL_FreeSurface(s2);
@@ -399,8 +399,8 @@ static int render_main_header(SDL_Surface* screen) {
 
 	// Line 3: pending unlocks, highlighted yellow when unlocks are waiting.
 	int n = RA_Offline_pendingCount();
-	SDL_Surface* s3 = TTF_RenderUTF8_Blended(font.small, get_pending_display(),
-											 n > 0 ? col_header_pending : col_header_gray);
+	SDL_Surface* s3 = GFX_renderText(font.small, get_pending_display(),
+									 n > 0 ? col_header_pending : col_header_gray);
 	if (s3) {
 		SDL_BlitSurface(s3, NULL, screen, &(SDL_Rect){x, y});
 		SDL_FreeSurface(s3);
@@ -410,7 +410,7 @@ static int render_main_header(SDL_Surface* screen) {
 	// Line 4: last sync time.
 	char line4_buf[96];
 	snprintf(line4_buf, sizeof(line4_buf), "Last sync: %s", get_lastsync_display());
-	SDL_Surface* s4 = TTF_RenderUTF8_Blended(font.small, line4_buf, col_header_gray);
+	SDL_Surface* s4 = GFX_renderText(font.small, line4_buf, col_header_gray);
 	if (s4) {
 		SDL_BlitSurface(s4, NULL, screen, &(SDL_Rect){x, y});
 		SDL_FreeSurface(s4);

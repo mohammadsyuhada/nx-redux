@@ -22,7 +22,7 @@ SDL?=SDL
 TARGET = gametime
 INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
 include ../common/ui/ui.mk
-SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/audio_manager.c ../common/config.c ../common/scaler.c $(UI_COMPONENT_SRCS) ../../$(PLATFORM)/platform/platform.c
+SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/config.c ../common/scaler.c $(UI_COMPONENT_SRCS) ../../$(PLATFORM)/platform/platform.c
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS  += $(OPT)

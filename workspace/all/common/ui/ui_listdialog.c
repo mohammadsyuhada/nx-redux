@@ -111,7 +111,7 @@ static void render_item(SDL_Surface* screen, ListLayout* layout,
 	if (has_append) {
 		suffix_w = calc_icons_width(item->append_icons);
 	} else if (item->detail[0]) {
-		TTF_SizeUTF8(font.small, item->detail, &suffix_w, NULL);
+		GFX_measureText(font.small, item->detail, &suffix_w, NULL);
 	}
 	int suffix_gap = suffix_w > 0 ? SCALE1(BUTTON_MARGIN) : 0;
 
@@ -141,7 +141,7 @@ static void render_item(SDL_Surface* screen, ListLayout* layout,
 	// Title text
 	SDL_Color text_color = UI_getListTextColor(selected);
 	int max_text_w = pill_width - SCALE1(BUTTON_PADDING * 2) - extra;
-	SDL_Surface* text_surf = TTF_RenderUTF8_Blended(font.small, truncated, text_color);
+	SDL_Surface* text_surf = GFX_renderText(font.small, truncated, text_color);
 	if (text_surf) {
 		SDL_Rect src = {0, 0, text_surf->w > max_text_w ? max_text_w : text_surf->w, text_surf->h};
 		SDL_BlitSurface(text_surf, &src, screen,
@@ -156,7 +156,7 @@ static void render_item(SDL_Surface* screen, ListLayout* layout,
 		render_icons(screen, item->append_icons, right_x, center_y_pos, icon_color);
 	} else if (item->detail[0]) {
 		SDL_Color detail_color = selected ? UI_getListTextColor(true) : COLOR_GRAY;
-		SDL_Surface* detail_surf = TTF_RenderUTF8_Blended(font.small, item->detail, detail_color);
+		SDL_Surface* detail_surf = GFX_renderText(font.small, item->detail, detail_color);
 		if (detail_surf) {
 			int dy = center_y_pos - detail_surf->h / 2;
 			SDL_BlitSurface(detail_surf, NULL, screen,
@@ -178,7 +178,7 @@ void ListDialog_render(SDL_Surface* screen) {
 	if (dialog_status[0] && dialog_count == 0) {
 		int status_h = TTF_FontHeight(font.small);
 		int status_y = (screen->h - status_h) / 2;
-		SDL_Surface* status_surf = TTF_RenderUTF8_Blended(font.small, dialog_status, COLOR_GRAY);
+		SDL_Surface* status_surf = GFX_renderText(font.small, dialog_status, COLOR_GRAY);
 		if (status_surf) {
 			int status_x = (hw - status_surf->w) / 2;
 			SDL_BlitSurface(status_surf, NULL, screen,

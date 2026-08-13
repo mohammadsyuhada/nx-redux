@@ -1276,7 +1276,7 @@ int PLAT_textShouldScroll(TTF_Font* font, const char* in_name, int max_width, SD
 	int text_width = 0;
 	if (fontMutex)
 		SDL_LockMutex(fontMutex);
-	TTF_SizeUTF8(font, in_name, &text_width, NULL);
+	GFX_measureText(font, in_name, &text_width, NULL);
 	if (fontMutex)
 		SDL_UnlockMutex(fontMutex);
 
@@ -1299,6 +1299,7 @@ void PLAT_scrollTextTexture(
 	int w, int h, // Clipping width and height
 	SDL_Color color,
 	float transparency,
+	bool rtl,			 // true: scroll right-to-left (Arabic), right-aligned start
 	SDL_mutex* fontMutex // Mutex for thread-safe font access (can be NULL)
 ) {
 	static int frame_counter = 0;
@@ -1313,7 +1314,7 @@ void PLAT_scrollTextTexture(
 	// Render the original text with mutex protection for thread safety
 	if (fontMutex)
 		SDL_LockMutex(fontMutex);
-	SDL_Surface* singleSur = TTF_RenderUTF8_Blended(font, in_name, color);
+	SDL_Surface* singleSur = GFX_renderText(font, in_name, color);
 	if (fontMutex)
 		SDL_UnlockMutex(fontMutex);
 	if (!singleSur)
@@ -1346,6 +1347,11 @@ void PLAT_scrollTextTexture(
 	SDL_SetRenderTarget(vid.renderer, vid.target_layer4);
 	layer_has_content[4] = true;
 
+	// RTL: start right-aligned (show the right edge = the beginning of the
+	// Arabic) instead of the left edge, so the first frame reads correctly.
+	if (rtl && scroll_initial_pause && text_offset == 0 && single_width > w)
+		text_offset = single_width - w;
+
 	SDL_Rect src_rect = {text_offset, 0, w, single_height};
 	SDL_Rect dst_rect = {x, y, w, single_height};
 
@@ -1362,9 +1368,15 @@ void PLAT_scrollTextTexture(
 			// Hold at start
 		} else {
 			scroll_initial_pause = false;
-			text_offset += 1;
-			if (text_offset >= single_width + padding) {
-				text_offset = 0;
+			if (rtl) {
+				// Move the window left -> the text scrolls right (RTL reading).
+				text_offset -= 1;
+				if (text_offset < 0)
+					text_offset += single_width + padding;
+			} else {
+				text_offset += 1;
+				if (text_offset >= single_width + padding)
+					text_offset = 0;
 			}
 			frame_counter = 0;
 		}

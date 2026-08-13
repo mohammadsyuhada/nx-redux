@@ -401,16 +401,14 @@ int CFG_getFontId(void) {
 }
 
 void CFG_setFontId(int id) {
-	settings.font = clamp(id, 0, 2);
-
-	char* fontPath;
-	if (settings.font == 1)
-		fontPath = RES_PATH "/font1.ttf";
-	else
-		fontPath = RES_PATH "/font2.ttf";
+	// Font selection was removed from Settings: the UI always uses the
+	// MiSans-based font (font1.ttf). Any stored/passed id is ignored so old
+	// configs that selected font2 still resolve to MiSans.
+	(void)id;
+	settings.font = 1;
 
 	if (settings.onFontChange)
-		settings.onFontChange(fontPath);
+		settings.onFontChange(RES_PATH "/font1.ttf");
 }
 
 uint32_t CFG_getColor(int color_id) {
@@ -1043,10 +1041,7 @@ void CFG_get(const char* key, char* value) {
 
 	// meta, not a real setting
 	else if (strcmp(key, "fontpath") == 0) {
-		if (CFG_getFontId() == 1)
-			sprintf(value, "\"%s\"", RES_PATH "/font1.ttf");
-		else
-			sprintf(value, "\"%s\"", RES_PATH "/font2.ttf");
+		sprintf(value, "\"%s\"", RES_PATH "/font1.ttf");
 	}
 
 	else {
@@ -1313,10 +1308,7 @@ void CFG_print(void) {
 	printf("\t\"sshOnBoot\": %i,\n", settings.sshOnBoot);
 
 	// meta, not a real setting
-	if (settings.font == 1)
-		printf("\t\"fontpath\": \"%s\"\n", RES_PATH "/font1.ttf");
-	else
-		printf("\t\"fontpath\": \"%s\"\n", RES_PATH "/font2.ttf");
+	printf("\t\"fontpath\": \"%s\"\n", RES_PATH "/font1.ttf");
 
 	printf("}\n");
 }

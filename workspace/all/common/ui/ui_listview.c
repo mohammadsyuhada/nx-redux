@@ -352,7 +352,7 @@ void UI_listViewRender(ListView* v, SDL_Surface* screen) {
 			sel_prefix += SCALE1(LISTVIEW_ICON_SIZE + LISTVIEW_ICON_SPACING);
 		if (sel_row.badge && sel_row.badge[0]) {
 			int btw = 0, bth = 0;
-			TTF_SizeUTF8(font.tiny, sel_row.badge, &btw, &bth);
+			GFX_measureText(font.tiny, sel_row.badge, &btw, &bth);
 			sel_prefix += btw + SCALE1(PADDING);
 		}
 		sel_pill_w = UI_calcListPillWidth(row_font(v), sel_row.label, sel_trunc,
@@ -390,7 +390,7 @@ void UI_listViewRender(ListView* v, SDL_Surface* screen) {
 		if (row.is_header) {
 			int h = layout.item_h / 2;
 			SDL_Surface* surf =
-				TTF_RenderUTF8_Blended(font.small, row.label, COLOR_GRAY);
+				GFX_renderText(font.small, row.label, COLOR_GRAY);
 			if (surf) {
 				int x = SCALE1(PADDING) + SCALE1(BUTTON_PADDING);
 				SDL_BlitSurface(surf, NULL, screen,
@@ -406,7 +406,7 @@ void UI_listViewRender(ListView* v, SDL_Surface* screen) {
 		int prefix = icon_offset;
 		int b_tw = 0, b_th = 0;
 		if (row.badge && row.badge[0]) {
-			TTF_SizeUTF8(font.tiny, row.badge, &b_tw, &b_th);
+			GFX_measureText(font.tiny, row.badge, &b_tw, &b_th);
 			prefix += b_tw + SCALE1(PADDING);
 		}
 
@@ -427,7 +427,7 @@ void UI_listViewRender(ListView* v, SDL_Surface* screen) {
 		// Keep the selected row's marquee band clear of the annotation.
 		if (row.annotation && row.annotation[0] && row_sel) {
 			int ann_w = 0;
-			TTF_SizeUTF8(font.tiny, row.annotation, &ann_w, NULL);
+			GFX_measureText(font.tiny, row.annotation, &ann_w, NULL);
 			int ann_x = screen->w - ann_w - SCALE1(PADDING * 2);
 			if (text_x + text_w > ann_x - SCALE1(BUTTON_PADDING))
 				text_w = ann_x - SCALE1(BUTTON_PADDING) - text_x;
@@ -445,7 +445,7 @@ void UI_listViewRender(ListView* v, SDL_Surface* screen) {
 		if (row.annotation && row.annotation[0]) {
 			SDL_Color ann_color = row_sel ? COLOR_GRAY : COLOR_DARK_TEXT;
 			SDL_Surface* ann =
-				TTF_RenderUTF8_Blended(font.tiny, row.annotation, ann_color);
+				GFX_renderText(font.tiny, row.annotation, ann_color);
 			if (ann) {
 				SDL_BlitSurface(
 					ann, NULL, screen,

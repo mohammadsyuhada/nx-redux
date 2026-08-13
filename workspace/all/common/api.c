@@ -16,6 +16,7 @@
 #include "utils.h"
 #include "config.h"
 #include "audio_manager.h"
+#include "text_shape.h"
 
 
 extern pthread_mutex_t audio_mutex;
@@ -87,6 +88,82 @@ static struct GFX_Context {
 static SDL_Rect asset_rects[ASSET_COUNT];
 static uint32_t asset_rgbs[ASSET_COLORS];
 GFX_Fonts font;
+GFX_Fonts font_ar; // secondary Arabic font (MiSans Arabic), same sizes as `font`
+
+// The Arabic-font counterpart of a primary size-font (NULL if the Arabic font
+// failed to load or `primary` isn't one of the size fonts).
+TTF_Font* GFX_fallbackFontFor(TTF_Font* primary) {
+	if (primary == font.xlarge)
+		return font_ar.xlarge;
+	if (primary == font.title)
+		return font_ar.title;
+	if (primary == font.large)
+		return font_ar.large;
+	if (primary == font.medium)
+		return font_ar.medium;
+	if (primary == font.small)
+		return font_ar.small;
+	if (primary == font.tiny)
+		return font_ar.tiny;
+	if (primary == font.micro)
+		return font_ar.micro;
+	return NULL;
+}
+
+// Render UTF-8 to a NEW surface (caller frees). Non-Arabic text takes the exact
+// legacy path. Arabic text is shaped + BiDi-reordered (TextShape_toVisual) and
+// drawn with the Arabic font, which also covers Latin/digits — so a mixed
+// Arabic+Latin string needs no per-run compositing. Falls back to `primary`
+// (tofu, as before) if the Arabic font is unavailable.
+static SDL_Surface* render_text_internal(TTF_Font* primary, const char* text, SDL_Color color) {
+	if (!primary || !text || !text[0])
+		return NULL;
+	if (!TextShape_hasArabic(text))
+		return TTF_RenderUTF8_Blended(primary, text, color);
+
+	char visual[1024];
+	if (TextShape_toVisual(text, visual, sizeof(visual)) <= 0)
+		return TTF_RenderUTF8_Blended(primary, text, color);
+	TTF_Font* fb = GFX_fallbackFontFor(primary);
+	return TTF_RenderUTF8_Blended(fb ? fb : primary, visual, color);
+}
+
+SDL_Surface* GFX_renderText(TTF_Font* primary, const char* utf8, SDL_Color color) {
+	return render_text_internal(primary, utf8, color);
+}
+
+void GFX_measureText(TTF_Font* primary, const char* utf8, int* w, int* h) {
+	if (w)
+		*w = 0;
+	if (h)
+		*h = 0;
+	if (!primary || !utf8 || !utf8[0])
+		return;
+	if (!TextShape_hasArabic(utf8)) {
+		TTF_SizeUTF8(primary, utf8, w, h);
+		return;
+	}
+	char visual[1024];
+	if (TextShape_toVisual(utf8, visual, sizeof(visual)) <= 0) {
+		TTF_SizeUTF8(primary, utf8, w, h);
+		return;
+	}
+	TTF_Font* fb = GFX_fallbackFontFor(primary);
+	TTF_SizeUTF8(fb ? fb : primary, visual, w, h);
+}
+
+SDL_Surface* GFX_renderTextWrapped(TTF_Font* primary, const char* utf8, SDL_Color color,
+								   uint32_t wrap_w) {
+	if (!primary || !utf8 || !utf8[0])
+		return NULL;
+	if (!TextShape_hasArabic(utf8))
+		return TTF_RenderUTF8_Blended_Wrapped(primary, utf8, color, wrap_w);
+	char visual[1024];
+	if (TextShape_toVisual(utf8, visual, sizeof(visual)) <= 0)
+		return TTF_RenderUTF8_Blended_Wrapped(primary, utf8, color, wrap_w);
+	TTF_Font* fb = GFX_fallbackFontFor(primary);
+	return TTF_RenderUTF8_Blended_Wrapped(fb ? fb : primary, visual, color, wrap_w);
+}
 
 ///////////////////////////////
 
@@ -253,7 +330,7 @@ SDL_Surface* GFX_getCachedText(TTF_Font* font, const char* text, SDL_Color color
 			lru_slot = i;
 	}
 
-	SDL_Surface* surf = TTF_RenderUTF8_Blended(font, text, color);
+	SDL_Surface* surf = render_text_internal(font, text, color);
 	if (!surf)
 		return NULL;
 
@@ -292,6 +369,24 @@ int GFX_loadSystemFont(const char* fontPath) {
 	font.small = TTF_OpenFont(fontPath, SCALE1(FONT_SMALL));
 	font.tiny = TTF_OpenFont(fontPath, SCALE1(FONT_TINY));
 	font.micro = TTF_OpenFont(fontPath, SCALE1(FONT_MICRO));
+
+	// Secondary Arabic font (fixed path — independent of the primary UI font).
+	// Missing file => NULL entries => Arabic falls back to primary (tofu), no crash.
+	const char* arPath = RES_PATH "/font1-arabic.ttf";
+	TTF_CloseFont(font_ar.xlarge);
+	TTF_CloseFont(font_ar.title);
+	TTF_CloseFont(font_ar.large);
+	TTF_CloseFont(font_ar.medium);
+	TTF_CloseFont(font_ar.small);
+	TTF_CloseFont(font_ar.tiny);
+	TTF_CloseFont(font_ar.micro);
+	font_ar.xlarge = TTF_OpenFont(arPath, SCALE1(FONT_XLARGE));
+	font_ar.title = TTF_OpenFont(arPath, SCALE1(FONT_TITLE));
+	font_ar.large = TTF_OpenFont(arPath, SCALE1(FONT_LARGE));
+	font_ar.medium = TTF_OpenFont(arPath, SCALE1(FONT_MEDIUM));
+	font_ar.small = TTF_OpenFont(arPath, SCALE1(FONT_SMALL));
+	font_ar.tiny = TTF_OpenFont(arPath, SCALE1(FONT_TINY));
+	font_ar.micro = TTF_OpenFont(arPath, SCALE1(FONT_MICRO));
 
 	return 0;
 }
@@ -794,7 +889,7 @@ FALLBACK_IMPLEMENTATION void PLAT_setEffectColor(int next_color) {}
 int GFX_truncateText(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding) {
 	int text_width;
 	strcpy(out_name, in_name);
-	TTF_SizeUTF8(font, out_name, &text_width, NULL);
+	GFX_measureText(font, out_name, &text_width, NULL);
 	text_width += padding;
 
 	while (text_width > max_width) {
@@ -802,7 +897,7 @@ int GFX_truncateText(TTF_Font* font, const char* in_name, char* out_name, int ma
 		if (len < 4) // can't append "..." without writing before out_name
 			break;
 		strcpy(&out_name[len - 4], "...\0");
-		TTF_SizeUTF8(font, out_name, &text_width, NULL);
+		GFX_measureText(font, out_name, &text_width, NULL);
 		text_width += padding;
 	}
 
@@ -811,7 +906,7 @@ int GFX_truncateText(TTF_Font* font, const char* in_name, char* out_name, int ma
 int GFX_getTextWidth(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding) {
 	int text_width;
 	strcpy(out_name, in_name);
-	TTF_SizeUTF8(font, out_name, &text_width, NULL);
+	GFX_measureText(font, out_name, &text_width, NULL);
 	text_width += padding;
 
 	return text_width;
@@ -826,7 +921,7 @@ int GFX_wrapText(TTF_Font* font, char* str, int max_width, int max_lines) {
 	char* line = str;
 	char buffer[MAX_PATH];
 
-	TTF_SizeUTF8(font, line, &line_width, NULL);
+	GFX_measureText(font, line, &line_width, NULL);
 	if (line_width <= max_width) {
 		line_width = GFX_truncateText(font, line, buffer, max_width, 0);
 		strcpy(line, buffer);
@@ -841,7 +936,7 @@ int GFX_wrapText(TTF_Font* font, char* str, int max_width, int max_lines) {
 		tmp = strchr(tmp, ' ');
 		if (!tmp) {
 			if (prev) {
-				TTF_SizeUTF8(font, line, &line_width, NULL);
+				GFX_measureText(font, line, &line_width, NULL);
 				if (line_width >= max_width) {
 					if (line_width > max_line_width)
 						max_line_width = line_width;
@@ -853,7 +948,7 @@ int GFX_wrapText(TTF_Font* font, char* str, int max_width, int max_lines) {
 		}
 		tmp[0] = '\0';
 
-		TTF_SizeUTF8(font, line, &line_width, NULL);
+		GFX_measureText(font, line, &line_width, NULL);
 
 		if (line_width >= max_width) { // wrap
 			if (line_width > max_line_width)
@@ -912,13 +1007,13 @@ int GFX_blitWrappedText(TTF_Font* font, const char* text, int max_width, int max
 		}
 
 		int test_width, test_height;
-		TTF_SizeUTF8(font, test_line, &test_width, &test_height);
+		GFX_measureText(font, test_line, &test_width, &test_height);
 
 		if (test_width > max_width && line[0] != '\0') {
 			// Current line is full
 			if (!max_lines || line_num < max_lines - 1) {
 				// Render line and continue to next
-				SDL_Surface* line_surface = TTF_RenderUTF8_Blended(font, line, color);
+				SDL_Surface* line_surface = GFX_renderText(font, line, color);
 				if (line_surface) {
 					SDL_BlitSurface(line_surface, NULL, surface, &(SDL_Rect){center_x - line_surface->w / 2, y});
 					y += line_surface->h;
@@ -930,7 +1025,7 @@ int GFX_blitWrappedText(TTF_Font* font, const char* text, int max_width, int max
 				// Last allowed line with more words remaining - add ellipsis
 				char truncated[512];
 				snprintf(truncated, sizeof(truncated), "%s...", line);
-				SDL_Surface* line_surface = TTF_RenderUTF8_Blended(font, truncated, color);
+				SDL_Surface* line_surface = GFX_renderText(font, truncated, color);
 				if (line_surface) {
 					SDL_BlitSurface(line_surface, NULL, surface, &(SDL_Rect){center_x - line_surface->w / 2, y});
 					y += line_surface->h;
@@ -946,7 +1041,7 @@ int GFX_blitWrappedText(TTF_Font* font, const char* text, int max_width, int max
 
 	// Render any remaining text
 	if (line[0] != '\0') {
-		SDL_Surface* line_surface = TTF_RenderUTF8_Blended(font, line, color);
+		SDL_Surface* line_surface = GFX_renderText(font, line, color);
 		if (line_surface) {
 			SDL_BlitSurface(line_surface, NULL, surface, &(SDL_Rect){center_x - line_surface->w / 2, y});
 			y += line_surface->h;
@@ -1332,12 +1427,12 @@ int GFX_getButtonWidth(char* hint, char* button) {
 		button_width += btn_sz;
 	} else {
 		button_width += btn_sz / 2;
-		TTF_SizeUTF8(font.tiny, button, &width, NULL);
+		GFX_measureText(font.tiny, button, &width, NULL);
 		button_width += width;
 	}
 	button_width += SCALE1(BUTTON_TEXT_GAP);
 
-	TTF_SizeUTF8(font.tiny, hint, &width, NULL);
+	GFX_measureText(font.tiny, hint, &width, NULL);
 	button_width += width;
 	return button_width;
 }
@@ -1508,7 +1603,7 @@ void GFX_blitMessage(TTF_Font* font, char* msg, SDL_Surface* dst, SDL_Rect* dst_
 		line[len] = '\0';
 
 		if (len) {
-			text = TTF_RenderUTF8_Blended_Wrapped(font, line, COLOR_WHITE, dst_rect->w);
+			text = GFX_renderTextWrapped(font, line, COLOR_WHITE, dst_rect->w);
 			if (text) {
 				int x = dst_rect->x;
 				x += (dst_rect->w - text->w) / 2;
@@ -1533,7 +1628,7 @@ void GFX_blitBatteryAtPosition(SDL_Surface* dst, int x, int y) {
 		if (CFG_getShowBatteryPercent()) {
 			char percentage[16];
 			sprintf(percentage, "%i", SDL_AtomicGet(&pwr.charge));
-			SDL_Surface* text = TTF_RenderUTF8_Blended(font.micro, percentage, uintToColour(THEME_COLOR6_255));
+			SDL_Surface* text = GFX_renderText(font.micro, percentage, uintToColour(THEME_COLOR6_255));
 			SDL_Rect target = {
 				x + (battery_rect.w - text->w) / 2 + 1,
 				y + (battery_rect.h - text->h) / 2 - 1};
@@ -1791,7 +1886,7 @@ void GFX_blitText(TTF_Font* font, const char* str, int leading, SDL_Color color,
 		line[len] = '\0';
 
 		if (len) {
-			text = TTF_RenderUTF8_Blended(font, line, color);
+			text = GFX_renderText(font, line, color);
 			if (text) {
 				SDL_BlitSurface(text, NULL, dst, &(SDL_Rect){x + ((dst_rect->w - text->w) / 2), y + (i * leading)});
 				SDL_FreeSurface(text);

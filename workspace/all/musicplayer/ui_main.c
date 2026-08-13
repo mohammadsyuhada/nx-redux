@@ -179,7 +179,7 @@ void render_screen_off_hint(SDL_Surface* screen) {
 
 	// Render hint message centered
 	const char* msg = "Press SELECT + A to wake screen";
-	SDL_Surface* msg_surf = TTF_RenderUTF8_Blended(font.medium, msg, COLOR_WHITE);
+	SDL_Surface* msg_surf = GFX_renderText(font.medium, msg, COLOR_WHITE);
 	if (msg_surf) {
 		SDL_BlitSurface(msg_surf, NULL, screen, &(SDL_Rect){(hw - msg_surf->w) / 2, (hh - msg_surf->h) / 2});
 		SDL_FreeSurface(msg_surf);

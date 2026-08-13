@@ -454,7 +454,7 @@ static void format_date(char* buf, uint32_t timestamp) {
 
 // --- Section header helper ---
 static void render_section_header(SDL_Surface* screen, const char* text, int y) {
-	SDL_Surface* surf = TTF_RenderUTF8_Blended(font.small, text, COLOR_GRAY);
+	SDL_Surface* surf = GFX_renderText(font.small, text, COLOR_GRAY);
 	if (surf) {
 		SDL_BlitSurface(surf, NULL, screen, &(SDL_Rect){SCALE1(PADDING + BUTTON_PADDING), y});
 		SDL_FreeSurface(surf);
@@ -490,7 +490,7 @@ static ListItemRichPos render_rich_list_item(SDL_Surface* screen, ListLayout* la
 
 	// Subtitle (row 2)
 	if (subtitle && subtitle[0]) {
-		SDL_Surface* s = TTF_RenderUTF8_Blended(font.small, subtitle, COLOR_GRAY);
+		SDL_Surface* s = GFX_renderText(font.small, subtitle, COLOR_GRAY);
 		if (s) {
 			SDL_Rect src = {0, 0, s->w > pos.text_max_width ? pos.text_max_width : s->w, s->h};
 			SDL_BlitSurface(s, &src, screen, &(SDL_Rect){pos.subtitle_x, pos.subtitle_y});
@@ -663,7 +663,7 @@ void render_podcast_main_page(SDL_Surface* screen, IndicatorType show_setting,
 				if (feeds[i].new_episode_count > 0) {
 					snprintf(new_label, sizeof(new_label), "%d New", feeds[i].new_episode_count);
 					int label_w = 0;
-					TTF_SizeUTF8(font.tiny, new_label, &label_w, NULL);
+					GFX_measureText(font.tiny, new_label, &label_w, NULL);
 					badge_extra = SCALE1(4) + label_w + SCALE1(6); // gap + text + pill padding
 				}
 
@@ -672,10 +672,10 @@ void render_podcast_main_page(SDL_Surface* screen, IndicatorType show_setting,
 				// Render "N New" badge after subtitle text
 				if (feeds[i].new_episode_count > 0) {
 					int sub_tw = 0;
-					TTF_SizeUTF8(font.small, ep_str, &sub_tw, NULL);
+					GFX_measureText(font.small, ep_str, &sub_tw, NULL);
 					int small_h = TTF_FontHeight(font.small);
 
-					SDL_Surface* new_surf = TTF_RenderUTF8_Blended(font.tiny, new_label, COLOR_WHITE);
+					SDL_Surface* new_surf = GFX_renderText(font.tiny, new_label, COLOR_WHITE);
 					if (new_surf) {
 						int badge_h = new_surf->h + SCALE1(2);
 						int badge_w = new_surf->w + SCALE1(6);
@@ -712,7 +712,7 @@ void render_podcast_main_page(SDL_Surface* screen, IndicatorType show_setting,
 								  "Downloads", font.medium,
 								  pos.text_x, pos.text_y, pos.text_max_width, dl_selected);
 
-			SDL_Surface* sub_surf = TTF_RenderUTF8_Blended(font.small, dl_subtitle, COLOR_GRAY);
+			SDL_Surface* sub_surf = GFX_renderText(font.small, dl_subtitle, COLOR_GRAY);
 			if (sub_surf) {
 				int avail_w = pos.text_max_width;
 				SDL_Rect src = {0, 0, sub_surf->w > avail_w ? avail_w : sub_surf->w, sub_surf->h};
@@ -786,7 +786,7 @@ void render_podcast_top_shows(SDL_Surface* screen, IndicatorType show_setting,
 	if (status->loading) {
 		int center_y = screen->h / 2;
 		const char* msg = "Loading...";
-		SDL_Surface* text = TTF_RenderUTF8_Blended(font.medium, msg, COLOR_WHITE);
+		SDL_Surface* text = GFX_renderText(font.medium, msg, COLOR_WHITE);
 		if (text) {
 			SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){(hw - text->w) / 2, center_y});
 			SDL_FreeSurface(text);
@@ -801,7 +801,7 @@ void render_podcast_top_shows(SDL_Surface* screen, IndicatorType show_setting,
 	if (count == 0) {
 		int center_y = screen->h / 2 - SCALE1(15);
 		const char* msg = status->error_message[0] ? status->error_message : "No shows available";
-		SDL_Surface* text = TTF_RenderUTF8_Blended(font.medium, msg, COLOR_WHITE);
+		SDL_Surface* text = GFX_renderText(font.medium, msg, COLOR_WHITE);
 		if (text) {
 			SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){(hw - text->w) / 2, center_y});
 			SDL_FreeSurface(text);
@@ -865,7 +865,7 @@ void render_podcast_search_results(SDL_Surface* screen, IndicatorType show_setti
 	if (status->searching) {
 		int center_y = screen->h / 2;
 		const char* msg = "Searching...";
-		SDL_Surface* text = TTF_RenderUTF8_Blended(font.medium, msg, COLOR_WHITE);
+		SDL_Surface* text = GFX_renderText(font.medium, msg, COLOR_WHITE);
 		if (text) {
 			SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){(hw - text->w) / 2, center_y});
 			SDL_FreeSurface(text);
@@ -880,7 +880,7 @@ void render_podcast_search_results(SDL_Surface* screen, IndicatorType show_setti
 	if (count == 0) {
 		int center_y = screen->h / 2 - SCALE1(15);
 		const char* msg = status->error_message[0] ? status->error_message : "No results found";
-		SDL_Surface* text = TTF_RenderUTF8_Blended(font.medium, msg, COLOR_WHITE);
+		SDL_Surface* text = GFX_renderText(font.medium, msg, COLOR_WHITE);
 		if (text) {
 			SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){(hw - text->w) / 2, center_y});
 			SDL_FreeSurface(text);
@@ -975,7 +975,7 @@ void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
 		int text_max_w = hw - text_x - pad;
 		int ty = base_y + img_pad;
 		GFX_truncateText(font.medium, feed->title, truncated, text_max_w, 0);
-		SDL_Surface* t = TTF_RenderUTF8_Blended(font.medium, truncated, COLOR_WHITE);
+		SDL_Surface* t = GFX_renderText(font.medium, truncated, COLOR_WHITE);
 		if (t) {
 			SDL_BlitSurface(t, NULL, screen, &(SDL_Rect){text_x, ty});
 			ty += t->h + SCALE1(1);
@@ -983,7 +983,7 @@ void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
 		}
 		if (feed->author[0]) {
 			GFX_truncateText(font.small, feed->author, truncated, text_max_w, 0);
-			SDL_Surface* a = TTF_RenderUTF8_Blended(font.small, truncated, COLOR_GRAY);
+			SDL_Surface* a = GFX_renderText(font.small, truncated, COLOR_GRAY);
 			if (a) {
 				SDL_BlitSurface(a, NULL, screen, &(SDL_Rect){text_x, ty});
 				SDL_FreeSurface(a);
@@ -991,7 +991,7 @@ void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
 		}
 		int center_y = base_y + info_area_h + (viewport_h - info_area_h) / 2;
 		const char* msg = "No episodes available";
-		SDL_Surface* text = TTF_RenderUTF8_Blended(font.medium, msg, COLOR_WHITE);
+		SDL_Surface* text = GFX_renderText(font.medium, msg, COLOR_WHITE);
 		if (text) {
 			SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){(hw - text->w) / 2, center_y});
 			SDL_FreeSurface(text);
@@ -1054,7 +1054,7 @@ void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
 			// Title (medium font, white)
 			{
 				GFX_truncateText(font.medium, feed->title, truncated, text_max_w, 0);
-				SDL_Surface* t = TTF_RenderUTF8_Blended(font.medium, truncated, COLOR_WHITE);
+				SDL_Surface* t = GFX_renderText(font.medium, truncated, COLOR_WHITE);
 				if (t) {
 					SDL_BlitSurface(t, NULL, screen, &(SDL_Rect){text_x, ty});
 					ty += t->h + SCALE1(1);
@@ -1065,7 +1065,7 @@ void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
 			// Author (small font, gray)
 			if (feed->author[0]) {
 				GFX_truncateText(font.small, feed->author, truncated, text_max_w, 0);
-				SDL_Surface* a = TTF_RenderUTF8_Blended(font.small, truncated, COLOR_GRAY);
+				SDL_Surface* a = GFX_renderText(font.small, truncated, COLOR_GRAY);
 				if (a) {
 					SDL_BlitSurface(a, NULL, screen, &(SDL_Rect){text_x, ty});
 					ty += a->h + SCALE1(2);
@@ -1091,11 +1091,11 @@ void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
 						break;
 
 					int tw;
-					TTF_SizeUTF8(desc_font, remaining, &tw, NULL);
+					GFX_measureText(desc_font, remaining, &tw, NULL);
 
 					if (tw <= text_max_w || line == max_lines - 1) {
 						GFX_truncateText(desc_font, remaining, truncated, text_max_w, 0);
-						SDL_Surface* d = TTF_RenderUTF8_Blended(desc_font, truncated, COLOR_GRAY);
+						SDL_Surface* d = GFX_renderText(desc_font, truncated, COLOR_GRAY);
 						if (d) {
 							SDL_BlitSurface(d, NULL, screen, &(SDL_Rect){text_x, ty});
 							ty += d->h;
@@ -1115,7 +1115,7 @@ void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
 							seg_len = 511;
 						memcpy(measure, remaining, seg_len);
 						measure[seg_len] = '\0';
-						TTF_SizeUTF8(desc_font, measure, &tw, NULL);
+						GFX_measureText(desc_font, measure, &tw, NULL);
 						if (tw > text_max_w)
 							break;
 						last_break = p;
@@ -1133,7 +1133,7 @@ void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
 					memcpy(line_buf, remaining, line_len);
 					line_buf[line_len] = '\0';
 
-					SDL_Surface* d = TTF_RenderUTF8_Blended(desc_font, line_buf, COLOR_GRAY);
+					SDL_Surface* d = GFX_renderText(desc_font, line_buf, COLOR_GRAY);
 					if (d) {
 						SDL_BlitSurface(d, NULL, screen, &(SDL_Rect){text_x, ty});
 						ty += d->h;
@@ -1237,7 +1237,7 @@ void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
 
 		// Render "New" badge pill if episode is new
 		if (ep.is_new) {
-			SDL_Surface* new_surf = TTF_RenderUTF8_Blended(font.tiny, "New", COLOR_WHITE);
+			SDL_Surface* new_surf = GFX_renderText(font.tiny, "New", COLOR_WHITE);
 			if (new_surf) {
 				int badge_h = new_surf->h + SCALE1(2);
 				int badge_w = new_surf->w + SCALE1(6);
@@ -1266,7 +1266,7 @@ void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
 				SDL_FillRect(screen, &bar_fill, THEME_COLOR2);
 			}
 		} else if (dl_status == PODCAST_DOWNLOAD_PENDING) {
-			SDL_Surface* queued_surf = TTF_RenderUTF8_Blended(font.small, "Queued", COLOR_GRAY);
+			SDL_Surface* queued_surf = GFX_renderText(font.small, "Queued", COLOR_GRAY);
 			if (queued_surf) {
 				int avail_w = pos.text_max_width - subtitle_x_offset;
 				SDL_Rect src = {0, 0, queued_surf->w > avail_w ? avail_w : queued_surf->w, queued_surf->h};
@@ -1284,7 +1284,7 @@ void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
 				snprintf(combined, sizeof(combined), "%s | %s", progress_str, date_str);
 				strcpy(progress_str, combined);
 			}
-			SDL_Surface* s = TTF_RenderUTF8_Blended(font.small, progress_str, COLOR_GRAY);
+			SDL_Surface* s = GFX_renderText(font.small, progress_str, COLOR_GRAY);
 			if (s) {
 				int avail_w = pos.text_max_width - subtitle_x_offset;
 				SDL_Rect src = {0, 0, s->w > avail_w ? avail_w : s->w, s->h};
@@ -1309,7 +1309,7 @@ void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
 				}
 			}
 			if (subtitle_str[0]) {
-				SDL_Surface* sub_surf = TTF_RenderUTF8_Blended(font.small, subtitle_str, COLOR_GRAY);
+				SDL_Surface* sub_surf = GFX_renderText(font.small, subtitle_str, COLOR_GRAY);
 				if (sub_surf) {
 					int avail_w = pos.text_max_width - subtitle_x_offset;
 					SDL_Rect src = {0, 0, sub_surf->w > avail_w ? avail_w : sub_surf->w, sub_surf->h};
@@ -1391,7 +1391,7 @@ void render_podcast_download_queue(SDL_Surface* screen, IndicatorType show_setti
 	if (queue_count == 0) {
 		int center_y = screen->h / 2;
 		const char* msg = "No downloads";
-		SDL_Surface* text = TTF_RenderUTF8_Blended(font.medium, msg, COLOR_WHITE);
+		SDL_Surface* text = GFX_renderText(font.medium, msg, COLOR_WHITE);
 		if (text) {
 			SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){(hw - text->w) / 2, center_y - text->h / 2});
 			SDL_FreeSurface(text);
@@ -1470,7 +1470,7 @@ void render_podcast_download_queue(SDL_Surface* screen, IndicatorType show_setti
 						 item_pct, speed_str);
 			}
 
-			SDL_Surface* info_surf = TTF_RenderUTF8_Blended(font.small, info_str, COLOR_GRAY);
+			SDL_Surface* info_surf = GFX_renderText(font.small, info_str, COLOR_GRAY);
 			if (info_surf) {
 				int info_x = bar_x + bar_w + SCALE1(6);
 				int avail_w = pos.text_max_width - bar_w - SCALE1(6);
@@ -1481,7 +1481,7 @@ void render_podcast_download_queue(SDL_Surface* screen, IndicatorType show_setti
 			}
 		} else if (item->status == PODCAST_DOWNLOAD_PENDING) {
 			const char* label = "Queued";
-			SDL_Surface* s = TTF_RenderUTF8_Blended(font.small, label, COLOR_GRAY);
+			SDL_Surface* s = GFX_renderText(font.small, label, COLOR_GRAY);
 			if (s) {
 				SDL_BlitSurface(s, NULL, screen, &(SDL_Rect){pos.subtitle_x, pos.subtitle_y});
 				SDL_FreeSurface(s);
@@ -1491,7 +1491,7 @@ void render_podcast_download_queue(SDL_Surface* screen, IndicatorType show_setti
 			if (item->retry_count > 0) {
 				char fail_str[64];
 				snprintf(fail_str, sizeof(fail_str), "[Failed after %d retries]", item->retry_count);
-				SDL_Surface* s = TTF_RenderUTF8_Blended(font.small, fail_str, (SDL_Color){200, 80, 80, 255});
+				SDL_Surface* s = GFX_renderText(font.small, fail_str, (SDL_Color){200, 80, 80, 255});
 				if (s) {
 					int avail_w = pos.text_max_width;
 					SDL_Rect src = {0, 0, s->w > avail_w ? avail_w : s->w, s->h};
@@ -1499,7 +1499,7 @@ void render_podcast_download_queue(SDL_Surface* screen, IndicatorType show_setti
 					SDL_FreeSurface(s);
 				}
 			} else {
-				SDL_Surface* s = TTF_RenderUTF8_Blended(font.small, label, (SDL_Color){200, 80, 80, 255});
+				SDL_Surface* s = GFX_renderText(font.small, label, (SDL_Color){200, 80, 80, 255});
 				if (s) {
 					SDL_BlitSurface(s, NULL, screen, &(SDL_Rect){pos.subtitle_x, pos.subtitle_y});
 					SDL_FreeSurface(s);
@@ -1507,7 +1507,7 @@ void render_podcast_download_queue(SDL_Surface* screen, IndicatorType show_setti
 			}
 		} else if (item->status == PODCAST_DOWNLOAD_COMPLETE) {
 			const char* label = "Complete";
-			SDL_Surface* s = TTF_RenderUTF8_Blended(font.small, label, (SDL_Color){80, 200, 80, 255});
+			SDL_Surface* s = GFX_renderText(font.small, label, (SDL_Color){80, 200, 80, 255});
 			if (s) {
 				SDL_BlitSurface(s, NULL, screen, &(SDL_Rect){pos.subtitle_x, pos.subtitle_y});
 				SDL_FreeSurface(s);
@@ -1567,7 +1567,7 @@ void render_podcast_playing(SDL_Surface* screen, IndicatorType show_setting,
 
 	// Badge
 	const char* badge_text = "PODCAST";
-	SDL_Surface* badge_surf = TTF_RenderUTF8_Blended(font.tiny, badge_text, COLOR_GRAY);
+	SDL_Surface* badge_surf = GFX_renderText(font.tiny, badge_text, COLOR_GRAY);
 	int badge_h = badge_surf ? badge_surf->h + SCALE1(4) : SCALE1(16);
 	int badge_x = SCALE1(PADDING);
 	int badge_w = 0;
@@ -1590,7 +1590,7 @@ void render_podcast_playing(SDL_Surface* screen, IndicatorType show_setting,
 	if (pspeed != 1.0f) {
 		char speed_label[16];
 		snprintf(speed_label, sizeof(speed_label), "%.2gx", pspeed);
-		SDL_Surface* speed_surf = TTF_RenderUTF8_Blended(font.tiny, speed_label, COLOR_GRAY);
+		SDL_Surface* speed_surf = GFX_renderText(font.tiny, speed_label, COLOR_GRAY);
 		if (speed_surf) {
 			int sx = next_badge_x + SCALE1(4);
 			int speed_badge_w = speed_surf->w + SCALE1(10);
@@ -1616,7 +1616,7 @@ void render_podcast_playing(SDL_Surface* screen, IndicatorType show_setting,
 		// Fallback if episode is not downloaded (shouldn't happen in playing state)
 		snprintf(ep_counter, sizeof(ep_counter), "%02d / %02d", episode_index + 1, feed->episode_count);
 	}
-	SDL_Surface* counter_surf = TTF_RenderUTF8_Blended(font.tiny, ep_counter, COLOR_GRAY);
+	SDL_Surface* counter_surf = GFX_renderText(font.tiny, ep_counter, COLOR_GRAY);
 	if (counter_surf) {
 		int counter_x = next_badge_x + SCALE1(8);
 		int counter_y = top_y + (badge_h - counter_surf->h) / 2;
@@ -1633,7 +1633,7 @@ void render_podcast_playing(SDL_Surface* screen, IndicatorType show_setting,
 
 	// Podcast name (like Artist in music player) - gray, artist font
 	GFX_truncateText(font.medium, feed->title, truncated, max_w_text, 0);
-	SDL_Surface* podcast_surf = TTF_RenderUTF8_Blended(font.medium, truncated, COLOR_GRAY);
+	SDL_Surface* podcast_surf = GFX_renderText(font.medium, truncated, COLOR_GRAY);
 	if (podcast_surf) {
 		SDL_BlitSurface(podcast_surf, NULL, screen, &(SDL_Rect){SCALE1(PADDING), info_y});
 		info_y += podcast_surf->h + SCALE1(2);
@@ -1660,7 +1660,7 @@ void render_podcast_playing(SDL_Surface* screen, IndicatorType show_setting,
 	} else {
 		// Static text - render to screen surface
 		PLAT_clearLayers(LAYER_SCROLLTEXT);
-		SDL_Surface* title_surf = TTF_RenderUTF8_Blended(font.title, title, COLOR_WHITE);
+		SDL_Surface* title_surf = GFX_renderText(font.title, title, COLOR_WHITE);
 		if (title_surf) {
 			SDL_BlitSurface(title_surf, NULL, screen, &(SDL_Rect){SCALE1(PADDING), title_y, 0, 0});
 			SDL_FreeSurface(title_surf);
@@ -1726,11 +1726,11 @@ void render_podcast_playing(SDL_Surface* screen, IndicatorType show_setting,
 		const char* remaining = desc_buf;
 		for (int line = 0; line < max_lines && *remaining; line++) {
 			int tw;
-			TTF_SizeUTF8(desc_font, remaining, &tw, NULL);
+			GFX_measureText(desc_font, remaining, &tw, NULL);
 
 			if (tw <= max_w_text || line == max_lines - 1) {
 				GFX_truncateText(desc_font, remaining, truncated, max_w_text, 0);
-				SDL_Surface* d = TTF_RenderUTF8_Blended(desc_font, truncated, COLOR_GRAY);
+				SDL_Surface* d = GFX_renderText(desc_font, truncated, COLOR_GRAY);
 				if (d) {
 					SDL_BlitSurface(d, NULL, screen, &(SDL_Rect){SCALE1(PADDING), info_y});
 					info_y += d->h;
@@ -1750,7 +1750,7 @@ void render_podcast_playing(SDL_Surface* screen, IndicatorType show_setting,
 					seg_len = 511;
 				memcpy(measure, remaining, seg_len);
 				measure[seg_len] = '\0';
-				TTF_SizeUTF8(desc_font, measure, &tw, NULL);
+				GFX_measureText(desc_font, measure, &tw, NULL);
 				if (tw > max_w_text)
 					break;
 				last_break = p;
@@ -1768,7 +1768,7 @@ void render_podcast_playing(SDL_Surface* screen, IndicatorType show_setting,
 			memcpy(line_buf, remaining, line_len);
 			line_buf[line_len] = '\0';
 
-			SDL_Surface* d = TTF_RenderUTF8_Blended(desc_font, line_buf, COLOR_GRAY);
+			SDL_Surface* d = GFX_renderText(desc_font, line_buf, COLOR_GRAY);
 			if (d) {
 				SDL_BlitSurface(d, NULL, screen, &(SDL_Rect){SCALE1(PADDING), info_y});
 				info_y += d->h;
@@ -1803,7 +1803,7 @@ void render_podcast_loading(SDL_Surface* screen, const char* message) {
 	int hh = screen->h;
 
 	const char* msg = message ? message : "Loading...";
-	SDL_Surface* text = TTF_RenderUTF8_Blended(font.medium, msg, COLOR_WHITE);
+	SDL_Surface* text = GFX_renderText(font.medium, msg, COLOR_WHITE);
 	if (text) {
 		SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){(hw - text->w) / 2, hh / 2});
 		SDL_FreeSurface(text);
@@ -1940,13 +1940,13 @@ void PodcastProgress_renderGPU(void) {
 	format_duration(time_cur, position_sec);
 	format_duration(time_dur, duration_ms / 1000);
 
-	SDL_Surface* cur_surf = TTF_RenderUTF8_Blended(font.tiny, time_cur, COLOR_GRAY);
+	SDL_Surface* cur_surf = GFX_renderText(font.tiny, time_cur, COLOR_GRAY);
 	if (cur_surf) {
 		SDL_BlitSurface(cur_surf, NULL, combined, &(SDL_Rect){bar_margin, progress_bar_h + time_gap});
 		SDL_FreeSurface(cur_surf);
 	}
 
-	SDL_Surface* dur_surf = TTF_RenderUTF8_Blended(font.tiny, time_dur, COLOR_GRAY);
+	SDL_Surface* dur_surf = GFX_renderText(font.tiny, time_dur, COLOR_GRAY);
 	if (dur_surf) {
 		SDL_BlitSurface(dur_surf, NULL, combined, &(SDL_Rect){progress_screen_w - bar_margin - dur_surf->w, progress_bar_h + time_gap});
 		SDL_FreeSurface(dur_surf);

@@ -24,7 +24,7 @@ INCDIR = -I. -I../common/ -I../netplay/ -I../../$(PLATFORM)/platform/
 include ../common/ui/ui.mk
 SOURCE = wizard.c wizard_wifi.c wizard_net.c wizard_sync.c \
          ../netplay/wifi_direct.c ../netplay/network_common.c $(UI_DIR)/ui_keyboard.c \
-         ../common/utils.c ../common/api.c ../common/audio_manager.c ../common/config.c ../common/scaler.c \
+         ../common/utils.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/config.c ../common/scaler.c \
          $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c $(UI_LISTVIEW_SRCS) \
          ../../$(PLATFORM)/platform/platform.c
 

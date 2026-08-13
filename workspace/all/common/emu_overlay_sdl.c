@@ -508,7 +508,7 @@ static void ovl_sdl_draw_text(const char* text, int x, int y, uint32_t color, in
 	sdl_color.b = (uint8_t)((color) & 0xFF);
 	sdl_color.a = (uint8_t)((color >> 24) & 0xFF);
 
-	SDL_Surface* text_surf = TTF_RenderUTF8_Blended(font, text, sdl_color);
+	SDL_Surface* text_surf = GFX_renderText(font, text, sdl_color);
 	if (!text_surf)
 		return;
 
@@ -531,7 +531,7 @@ static int ovl_sdl_text_width(const char* text, int font_id) {
 		return 0;
 
 	int w = 0;
-	TTF_SizeUTF8(font, text, &w, NULL);
+	GFX_measureText(font, text, &w, NULL);
 	return w;
 }
 

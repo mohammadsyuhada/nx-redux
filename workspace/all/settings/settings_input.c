@@ -39,7 +39,7 @@ static int getButtonWidth(char* label) {
 	if (strlen(label) <= 2) {
 		w = SCALE1(BUTTON_SPRITE_SIZE);
 	} else {
-		SDL_Surface* text = TTF_RenderUTF8_Blended(font.tiny, label, COLOR_BUTTON_TEXT);
+		SDL_Surface* text = GFX_renderText(font.tiny, label, COLOR_BUTTON_TEXT);
 		if (text) {
 			w = text->w + SCALE1(BUTTON_INSET) * 2;
 			SDL_FreeSurface(text);
@@ -54,12 +54,12 @@ static void blitButton(char* label, SDL_Surface* dst, int pressed, int x, int y,
 
 	int len = strlen(label);
 	if (len <= 2) {
-		text = TTF_RenderUTF8_Blended(len == 2 ? font.small : font.medium, label, COLOR_BUTTON_TEXT);
+		text = GFX_renderText(len == 2 ? font.small : font.medium, label, COLOR_BUTTON_TEXT);
 		GFX_blitAsset(pressed ? ASSET_BUTTON : ASSET_HOLE, NULL, dst, &point);
 		if (text)
 			SDL_BlitSurface(text, NULL, dst, &(SDL_Rect){point.x + (SCALE1(BUTTON_SPRITE_SIZE) - text->w) / 2, point.y + (SCALE1(BUTTON_SPRITE_SIZE) - text->h) / 2});
 	} else {
-		text = TTF_RenderUTF8_Blended(font.tiny, label, COLOR_BUTTON_TEXT);
+		text = GFX_renderText(font.tiny, label, COLOR_BUTTON_TEXT);
 		w = w ? w : (text ? text->w + SCALE1(BUTTON_INSET) * 2 : SCALE1(BUTTON_INSET) * 2);
 		GFX_blitPill(pressed ? ASSET_BUTTON : ASSET_HOLE, dst, &(SDL_Rect){point.x, point.y, w, SCALE1(BUTTON_SPRITE_SIZE)});
 		if (text)
@@ -227,7 +227,7 @@ static void cal_render_msg(SDL_Surface* screen, const char* title, const char* s
 
 	int cy = FIXED_HEIGHT / 2 - SCALE1(FONT_LARGE + PADDING);
 
-	SDL_Surface* t = TTF_RenderUTF8_Blended(font.large, title, COLOR_WHITE);
+	SDL_Surface* t = GFX_renderText(font.large, title, COLOR_WHITE);
 	if (t) {
 		SDL_BlitSurface(t, NULL, screen, &(SDL_Rect){(FIXED_WIDTH - t->w) / 2, cy});
 		SDL_FreeSurface(t);
@@ -235,7 +235,7 @@ static void cal_render_msg(SDL_Surface* screen, const char* title, const char* s
 	cy += SCALE1(FONT_LARGE + PADDING);
 
 	if (subtitle[0]) {
-		SDL_Surface* s = TTF_RenderUTF8_Blended(font.small, subtitle, COLOR_GRAY);
+		SDL_Surface* s = GFX_renderText(font.small, subtitle, COLOR_GRAY);
 		if (s) {
 			SDL_BlitSurface(s, NULL, screen, &(SDL_Rect){(FIXED_WIDTH - s->w) / 2, cy});
 			SDL_FreeSurface(s);
@@ -246,7 +246,7 @@ static void cal_render_msg(SDL_Surface* screen, const char* title, const char* s
 	if (countdown > 0) {
 		char buf[8];
 		snprintf(buf, sizeof(buf), "%d", countdown);
-		SDL_Surface* c = TTF_RenderUTF8_Blended(font.xlarge, buf, COLOR_WHITE);
+		SDL_Surface* c = GFX_renderText(font.xlarge, buf, COLOR_WHITE);
 		if (c) {
 			SDL_BlitSurface(c, NULL, screen, &(SDL_Rect){(FIXED_WIDTH - c->w) / 2, cy + SCALE1(PADDING)});
 			SDL_FreeSurface(c);

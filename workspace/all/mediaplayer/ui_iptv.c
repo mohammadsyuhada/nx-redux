@@ -153,7 +153,7 @@ void render_iptv_curated_channels(SDL_Surface* screen, IndicatorType show_settin
 		int prefix_width = 0;
 		if (added) {
 			int pw, ph;
-			TTF_SizeUTF8(font.small, "[+]", &pw, &ph);
+			GFX_measureText(font.small, "[+]", &pw, &ph);
 			prefix_width = pw + SCALE1(6);
 		}
 
@@ -171,7 +171,7 @@ void render_iptv_curated_channels(SDL_Surface* screen, IndicatorType show_settin
 		// Added indicator prefix
 		if (added) {
 			SDL_Color prefix_color = Fonts_getListTextColor(is_selected);
-			SDL_Surface* prefix_text = TTF_RenderUTF8_Blended(font.small, "[+]", prefix_color);
+			SDL_Surface* prefix_text = GFX_renderText(font.small, "[+]", prefix_color);
 			if (prefix_text) {
 				SDL_BlitSurface(prefix_text, NULL, screen, &(SDL_Rect){text_x, y + (layout.item_h - prefix_text->h) / 2});
 				SDL_FreeSurface(prefix_text);
@@ -185,7 +185,7 @@ void render_iptv_curated_channels(SDL_Surface* screen, IndicatorType show_settin
 		// Category on right
 		if (channel->category[0]) {
 			SDL_Color cat_color = is_selected ? COLOR_GRAY : COLOR_DARK_TEXT;
-			SDL_Surface* cat_text = TTF_RenderUTF8_Blended(font.tiny, channel->category, cat_color);
+			SDL_Surface* cat_text = GFX_renderText(font.tiny, channel->category, cat_color);
 			if (cat_text) {
 				SDL_BlitSurface(cat_text, NULL, screen, &(SDL_Rect){hw - cat_text->w - SCALE1(PADDING * 2), y + (layout.item_h - cat_text->h) / 2});
 				SDL_FreeSurface(cat_text);

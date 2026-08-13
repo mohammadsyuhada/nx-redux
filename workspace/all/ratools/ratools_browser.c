@@ -64,7 +64,7 @@ static void rat_render_desc_wrapped(SDL_Surface* screen, const char* text,
 		char cand[256];
 		snprintf(cand, sizeof(cand), "%s%s%s", cur, cur[0] ? " " : "", tok);
 		int w = 0;
-		TTF_SizeUTF8(font.tiny, cand, &w, NULL);
+		GFX_measureText(font.tiny, cand, &w, NULL);
 		if (w <= wrap_w || !cur[0]) {
 			memcpy(cur, cand, strlen(cand) + 1);
 		} else if (cur == line1) {
@@ -82,7 +82,7 @@ static void rat_render_desc_wrapped(SDL_Surface* screen, const char* text,
 			char cand[264];
 			snprintf(cand, sizeof(cand), "%s...", line2);
 			int w = 0;
-			TTF_SizeUTF8(font.tiny, cand, &w, NULL);
+			GFX_measureText(font.tiny, cand, &w, NULL);
 			if (w <= wrap_w)
 				break;
 			size_t len = strlen(line2);
@@ -102,7 +102,7 @@ static void rat_render_desc_wrapped(SDL_Surface* screen, const char* text,
 	for (int i = 0; i < 2; i++) {
 		if (!lines[i][0])
 			break;
-		SDL_Surface* s = TTF_RenderUTF8_Blended(font.tiny, lines[i], color);
+		SDL_Surface* s = GFX_renderText(font.tiny, lines[i], color);
 		if (s) {
 			SDL_BlitSurface(s, NULL, screen,
 							&(SDL_Rect){(screen->w - s->w) / 2, y + i * lh, 0, 0});
@@ -115,7 +115,7 @@ static void rat_render_desc_wrapped(SDL_Surface* screen, const char* text,
 
 // tiny centered metadata line on the detail canvas
 static void rat_detail_meta_line(SDL_Surface* canvas, const char* text, int* content_y) {
-	SDL_Surface* s = TTF_RenderUTF8_Blended(font.tiny, text, COLOR_LIGHT_TEXT);
+	SDL_Surface* s = GFX_renderText(font.tiny, text, COLOR_LIGHT_TEXT);
 	if (!s)
 		return;
 	SDL_BlitSurface(s, NULL, canvas, &(SDL_Rect){(canvas->w - s->w) / 2, *content_y});
@@ -246,7 +246,7 @@ static void rat_show_achievement_detail(SDL_Surface* screen, RAT_Achievement* ac
 // Shared by the achievements list and the games list.
 static void rat_render_subtitle(SDL_Surface* screen, const char* sub,
 								SDL_Color color, ListItemRichPos pos) {
-	SDL_Surface* s = TTF_RenderUTF8_Blended(font.small, sub, color);
+	SDL_Surface* s = GFX_renderText(font.small, sub, color);
 	if (s) {
 		SDL_Rect src = {0, 0, s->w > pos.text_max_width ? pos.text_max_width : s->w, s->h};
 		SDL_BlitSurface(s, &src, screen, &(SDL_Rect){pos.subtitle_x, pos.subtitle_y});

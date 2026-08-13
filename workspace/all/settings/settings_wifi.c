@@ -283,7 +283,7 @@ static void wifi_network_draw(SDL_Surface* screen, SettingItem* item,
 
 		// Layer 2: label-width pill on top
 		int text_w_px, text_h_px;
-		TTF_SizeUTF8(f, truncated, &text_w_px, &text_h_px);
+		GFX_measureText(f, truncated, &text_w_px, &text_h_px);
 		int label_pill_w = text_w_px + SCALE1(BUTTON_PADDING * 2);
 		SDL_Rect label_rect = {x, y, label_pill_w, h};
 		GFX_blitRectColor(ASSET_BUTTON, screen, &label_rect, THEME_COLOR1);
@@ -292,7 +292,7 @@ static void wifi_network_draw(SDL_Surface* screen, SettingItem* item,
 	int text_x = x + SCALE1(BUTTON_PADDING);
 	int text_y = y + (h - TTF_FontHeight(f)) / 2;
 
-	SDL_Surface* text_surf = TTF_RenderUTF8_Blended(f, truncated, text_color);
+	SDL_Surface* text_surf = GFX_renderText(f, truncated, text_color);
 	if (text_surf) {
 		SDL_BlitSurface(text_surf, NULL, screen, &(SDL_Rect){text_x, text_y, 0, 0});
 		SDL_FreeSurface(text_surf);

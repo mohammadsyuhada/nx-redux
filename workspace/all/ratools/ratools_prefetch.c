@@ -228,14 +228,14 @@ static void rat_pf_message(SDL_Surface* screen, const char* line1, const char* l
 		if (dirty) {
 			GFX_clear(screen);
 			SDL_Color white = {255, 255, 255, 255};
-			SDL_Surface* s = TTF_RenderUTF8_Blended(font.medium, line1, white);
+			SDL_Surface* s = GFX_renderText(font.medium, line1, white);
 			if (s) {
 				SDL_BlitSurface(s, NULL, screen,
 								&(SDL_Rect){(screen->w - s->w) / 2, screen->h / 2 - SCALE1(30), s->w, s->h});
 				SDL_FreeSurface(s);
 			}
 			if (line2) {
-				s = TTF_RenderUTF8_Blended(font.small, line2, (SDL_Color){180, 180, 180, 255});
+				s = GFX_renderText(font.small, line2, (SDL_Color){180, 180, 180, 255});
 				if (s) {
 					SDL_BlitSurface(s, NULL, screen,
 									&(SDL_Rect){(screen->w - s->w) / 2, screen->h / 2, s->w, s->h});

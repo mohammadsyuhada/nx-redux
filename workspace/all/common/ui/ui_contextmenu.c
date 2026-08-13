@@ -112,7 +112,7 @@ void ContextMenu_render(SDL_Surface* screen) {
 
 		// Item text (themed colors matching list items)
 		SDL_Color text_color = UI_getListTextColor(selected);
-		SDL_Surface* text_surf = TTF_RenderUTF8_Blended(font.small, cm_items[i].label, text_color);
+		SDL_Surface* text_surf = GFX_renderText(font.small, cm_items[i].label, text_color);
 		if (text_surf) {
 			SDL_SetSurfaceBlendMode(text_surf, SDL_BLENDMODE_BLEND);
 			int text_x = panel_x + pad + SCALE1(BUTTON_PADDING);

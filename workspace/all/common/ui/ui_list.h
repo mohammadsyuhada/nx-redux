@@ -19,6 +19,7 @@ typedef struct {
 	SDL_Color last_color;				// Last color used (for animate-only mode)
 	SDL_Surface* cached_scroll_surface; // Cached surface for GPU scroll (no bg)
 	bool scroll_active;					// True once GPU scroll has actually started (after delay)
+	bool rtl;							// True if the text's base direction is RTL (Arabic) — reverses scroll
 } ScrollTextState;
 
 void ScrollText_reset(ScrollTextState* state, const char* text,

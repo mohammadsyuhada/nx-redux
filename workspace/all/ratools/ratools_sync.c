@@ -15,8 +15,8 @@ typedef struct {
 } RATSyncUI;
 
 static void rat_sync_render_line(SDL_Surface* screen, const char* text, int y) {
-	SDL_Surface* s = TTF_RenderUTF8_Blended(font.medium, text,
-											(SDL_Color){255, 255, 255, 255});
+	SDL_Surface* s = GFX_renderText(font.medium, text,
+									(SDL_Color){255, 255, 255, 255});
 	if (!s)
 		return;
 	SDL_BlitSurface(s, NULL, screen,

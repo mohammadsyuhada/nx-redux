@@ -40,7 +40,7 @@ void UI_renderControlsHelp(SDL_Surface* screen, const char* title,
 	SDL_FillRect(screen, &(SDL_Rect){box_x + box_w - SCALE1(2), box_y, SCALE1(2), box_h}, RGB_WHITE);
 
 	// Title
-	SDL_Surface* title_surf = TTF_RenderUTF8_Blended(font.medium, title, COLOR_WHITE);
+	SDL_Surface* title_surf = GFX_renderText(font.medium, title, COLOR_WHITE);
 	if (title_surf) {
 		SDL_BlitSurface(title_surf, NULL, screen, &(SDL_Rect){content_x, box_y + SCALE1(10)});
 		SDL_FreeSurface(title_surf);
@@ -50,12 +50,12 @@ void UI_renderControlsHelp(SDL_Surface* screen, const char* title,
 	int y_offset = box_y + SCALE1(35);
 	int right_col = box_x + SCALE1(90);
 	for (int i = 0; i < control_count; i++) {
-		SDL_Surface* btn_surf = TTF_RenderUTF8_Blended(font.small, controls[i].button, COLOR_GRAY);
+		SDL_Surface* btn_surf = GFX_renderText(font.small, controls[i].button, COLOR_GRAY);
 		if (btn_surf) {
 			SDL_BlitSurface(btn_surf, NULL, screen, &(SDL_Rect){content_x, y_offset});
 			SDL_FreeSurface(btn_surf);
 		}
-		SDL_Surface* action_surf = TTF_RenderUTF8_Blended(font.small, controls[i].action, COLOR_WHITE);
+		SDL_Surface* action_surf = GFX_renderText(font.small, controls[i].action, COLOR_WHITE);
 		if (action_surf) {
 			SDL_BlitSurface(action_surf, NULL, screen, &(SDL_Rect){right_col, y_offset});
 			SDL_FreeSurface(action_surf);
@@ -65,7 +65,7 @@ void UI_renderControlsHelp(SDL_Surface* screen, const char* title,
 
 	// Hint at bottom
 	const char* hint = "Press any button to close";
-	SDL_Surface* hint_surf = TTF_RenderUTF8_Blended(font.small, hint, COLOR_GRAY);
+	SDL_Surface* hint_surf = GFX_renderText(font.small, hint, COLOR_GRAY);
 	if (hint_surf) {
 		int hint_y = box_y + box_h - SCALE1(10) - hint_surf->h;
 		SDL_BlitSurface(hint_surf, NULL, screen, &(SDL_Rect){content_x, hint_y});

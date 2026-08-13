@@ -36,7 +36,7 @@ void UI_renderEmptyStateButtons(SDL_Surface* screen, const char* message,
 	}
 
 	// Message
-	SDL_Surface* text1 = TTF_RenderUTF8_Blended(font.medium, message, COLOR_WHITE);
+	SDL_Surface* text1 = GFX_renderText(font.medium, message, COLOR_WHITE);
 	if (text1) {
 		SDL_BlitSurface(text1, NULL, screen, &(SDL_Rect){(hw - text1->w) / 2, y});
 		SDL_FreeSurface(text1);
@@ -46,7 +46,7 @@ void UI_renderEmptyStateButtons(SDL_Surface* screen, const char* message,
 	// Subtitle
 	if (subtitle) {
 		y += SCALE1(BUTTON_MARGIN);
-		SDL_Surface* text2 = TTF_RenderUTF8_Blended(font.small, subtitle, COLOR_GRAY);
+		SDL_Surface* text2 = GFX_renderText(font.small, subtitle, COLOR_GRAY);
 		if (text2) {
 			SDL_BlitSurface(text2, NULL, screen, &(SDL_Rect){(hw - text2->w) / 2, y});
 			SDL_FreeSurface(text2);

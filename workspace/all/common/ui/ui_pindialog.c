@@ -76,7 +76,7 @@ void PinDialog_render(SDL_Surface* screen) {
 
 		if (focused) {
 			char glyph[2] = {(char)('0' + pin_digits[i]), '\0'};
-			SDL_Surface* text = TTF_RenderUTF8_Blended(font.large, glyph, ALT_BUTTON_TEXT_COLOR);
+			SDL_Surface* text = GFX_renderText(font.large, glyph, ALT_BUTTON_TEXT_COLOR);
 			if (text) {
 				SDL_BlitSurface(text, NULL, screen,
 								&(SDL_Rect){x + (slot_w - text->w) / 2,
@@ -102,7 +102,7 @@ void PinDialog_render(SDL_Surface* screen) {
 	}
 
 	if (pin_error[0]) {
-		SDL_Surface* err = TTF_RenderUTF8_Blended(font.small, pin_error, COLOR_GRAY);
+		SDL_Surface* err = GFX_renderText(font.small, pin_error, COLOR_GRAY);
 		if (err) {
 			SDL_BlitSurface(err, NULL, screen,
 							&(SDL_Rect){(screen->w - err->w) / 2,

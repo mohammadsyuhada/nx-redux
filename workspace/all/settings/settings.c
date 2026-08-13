@@ -172,7 +172,6 @@ const char* color_labels[COLOR_COUNT] = {
 // Static label/value arrays
 // ============================================
 
-static const char* font_labels[] = {"Next", "Redux"};
 static const char* on_off_labels[] = {"Off", "On"};
 
 static int screen_timeout_values[] = {0, 5, 10, 15, 30, 45, 60, 90, 120, 240, 360, 600};
@@ -428,16 +427,6 @@ static void free_dynamic_labels(void) {
 // ============================================
 // Appearance callbacks
 // ============================================
-
-static int get_font(void) {
-	return CFG_getFontId();
-}
-static void set_font(int v) {
-	CFG_setFontId(v);
-}
-static void reset_font(void) {
-	CFG_setFontId(CFG_DEFAULT_FONT_ID);
-}
 
 /* Color 1 - Main Color */
 static int get_color1(void) {
@@ -1387,9 +1376,7 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	// Appearance page
 	// ============================
 	idx = 0;
-	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Font", "The font to render all UI text.",
-		font_labels, 2, NULL, get_font, set_font, reset_font);
+	// Font selection removed — the UI always uses the MiSans-based font.
 	appearance_items[idx++] = (SettingItem)ITEM_COLOR_INIT(
 		"Main color", "The color used to render main UI elements.",
 		color_labels, COLOR_COUNT, (int*)color_values, get_color1, set_color1, reset_color1);

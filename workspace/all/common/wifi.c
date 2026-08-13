@@ -31,7 +31,7 @@ static void render_connecting_screen(SDL_Surface* scr, IndicatorType show_settin
 
 	// Center the message
 	const char* msg = "Connecting to WiFi...";
-	SDL_Surface* text = TTF_RenderUTF8_Blended(font.medium, msg, COLOR_WHITE);
+	SDL_Surface* text = GFX_renderText(font.medium, msg, COLOR_WHITE);
 	if (text) {
 		SDL_BlitSurface(text, NULL, scr, &(SDL_Rect){(hw - text->w) / 2, (hh - text->h) / 2});
 		SDL_FreeSurface(text);

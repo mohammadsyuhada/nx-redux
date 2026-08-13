@@ -5,6 +5,7 @@
 #include "defines.h"
 #include "config.h"
 #include "ui_draw.h"
+#include "text_shape.h"
 
 // Scroll gap for software scrolling
 #define SCROLL_GAP 30
@@ -26,11 +27,15 @@ void ScrollText_reset(ScrollTextState* state, const char* text, TTF_Font* font, 
 
 	strncpy(state->text, text, sizeof(state->text) - 1);
 	state->text[sizeof(state->text) - 1] = '\0';
+	state->rtl = TextShape_baseIsRTL(state->text);
 	int text_h = 0;
-	TTF_SizeUTF8(font, state->text, &state->text_width, &text_h);
+	GFX_measureText(font, state->text, &state->text_width, &text_h);
 	state->max_width = max_width;
 	state->start_time = SDL_GetTicks();
-	state->scroll_offset = 0;
+	// RTL starts right-aligned (window at the text's right edge); LTR at 0.
+	state->scroll_offset = (state->rtl && state->text_width > max_width)
+							   ? state->text_width - max_width
+							   : 0;
 	state->use_gpu_scroll = use_gpu;
 	state->scroll_active = false;
 	state->needs_scroll = false;
@@ -47,7 +52,7 @@ void ScrollText_reset(ScrollTextState* state, const char* text, TTF_Font* font, 
 			SDL_FillRect(state->cached_scroll_surface, NULL, 0);
 
 			SDL_Color white = {255, 255, 255, 255};
-			SDL_Surface* text_surf = TTF_RenderUTF8_Blended(font, state->text, white);
+			SDL_Surface* text_surf = GFX_renderText(font, state->text, white);
 			if (text_surf) {
 				SDL_SetSurfaceBlendMode(text_surf, SDL_BLENDMODE_NONE);
 				SDL_BlitSurface(text_surf, NULL, state->cached_scroll_surface, &(SDL_Rect){0, 0, 0, 0});
@@ -98,6 +103,7 @@ void ScrollText_animateOnly(ScrollTextState* state) {
 		TTF_FontHeight(state->last_font),
 		state->last_color,
 		1.0f,
+		state->rtl,
 		NULL);
 }
 
@@ -123,9 +129,12 @@ void ScrollText_render(ScrollTextState* state, TTF_Font* font, SDL_Color color,
 
 	if (!state->needs_scroll) {
 		GFX_clearLayers(LAYER_SCROLLTEXT);
-		SDL_Surface* surf = TTF_RenderUTF8_Blended(font, state->text, color);
+		SDL_Surface* surf = GFX_renderText(font, state->text, color);
 		if (surf) {
-			SDL_Rect src = {0, 0, surf->w > state->max_width ? state->max_width : surf->w, surf->h};
+			// RTL overflow (pre-scroll hold): show the right edge (the start of
+			// the Arabic) rather than the left edge.
+			int src_x = (state->rtl && surf->w > state->max_width) ? surf->w - state->max_width : 0;
+			SDL_Rect src = {src_x, 0, surf->w > state->max_width ? state->max_width : surf->w, surf->h};
 			SDL_BlitSurface(surf, &src, screen, &(SDL_Rect){x, y, 0, 0});
 			SDL_FreeSurface(surf);
 		}
@@ -142,11 +151,12 @@ void ScrollText_render(ScrollTextState* state, TTF_Font* font, SDL_Color color,
 			TTF_FontHeight(font),
 			color,
 			1.0f,
+			state->rtl,
 			NULL);
 	} else {
 		GFX_clearLayers(LAYER_SCROLLTEXT);
 
-		SDL_Surface* single_surf = TTF_RenderUTF8_Blended(font, state->text, color);
+		SDL_Surface* single_surf = GFX_renderText(font, state->text, color);
 		if (!single_surf)
 			return;
 
@@ -163,9 +173,14 @@ void ScrollText_render(ScrollTextState* state, TTF_Font* font, SDL_Color color,
 		SDL_BlitSurface(single_surf, NULL, full_surf, &(SDL_Rect){state->text_width + SCROLL_GAP, 0, 0, 0});
 		SDL_FreeSurface(single_surf);
 
-		state->scroll_offset += 2;
-		if (state->scroll_offset >= state->text_width + SCROLL_GAP) {
-			state->scroll_offset = 0;
+		if (state->rtl) {
+			state->scroll_offset -= 2; // window moves left -> text scrolls right
+			if (state->scroll_offset < 0)
+				state->scroll_offset += state->text_width + SCROLL_GAP;
+		} else {
+			state->scroll_offset += 2;
+			if (state->scroll_offset >= state->text_width + SCROLL_GAP)
+				state->scroll_offset = 0;
 		}
 
 		SDL_SetSurfaceBlendMode(full_surf, SDL_BLENDMODE_BLEND);
@@ -215,7 +230,7 @@ int UI_calcListPillWidth(TTF_Font* font, const char* text, char* truncated, int 
 	int padding = SCALE1(BUTTON_PADDING * 2);
 
 	int raw_text_w, raw_text_h;
-	TTF_SizeUTF8(font, text, &raw_text_w, &raw_text_h);
+	GFX_measureText(font, text, &raw_text_w, &raw_text_h);
 
 	if (raw_text_w + padding > available_width) {
 		GFX_truncateText(font, text, truncated, available_width, padding);
@@ -277,6 +292,9 @@ void UI_renderListItemText(SDL_Surface* screen, ScrollTextState* scroll_state,
 	SDL_SetClipRect(screen, &clip);
 
 	if (selected && scroll_state) {
+		// Logical text + primary font: the marquee's own renders go through the
+		// Arabic-aware GFX_renderText/measureText (single shaping point), and
+		// ScrollText picks the RTL scroll direction from the text itself.
 		ScrollText_update(scroll_state, text, font, max_text_width,
 						  text_color, screen, text_x, text_y, true);
 	} else {
@@ -285,7 +303,7 @@ void UI_renderListItemText(SDL_Surface* screen, ScrollTextState* scroll_state,
 		SDL_Surface* text_surf = GFX_getCachedText(font, text, text_color);
 		bool owned = false;
 		if (!text_surf) {
-			text_surf = TTF_RenderUTF8_Blended(font, text, text_color);
+			text_surf = GFX_renderText(font, text, text_color);
 			owned = true;
 		}
 		if (text_surf) {
@@ -324,7 +342,7 @@ ListItemBadgedPos UI_renderListItemPillBadged(
 	// Expand pill if subtitle is wider than title
 	if (subtitle && subtitle[0]) {
 		int sub_w;
-		TTF_SizeUTF8(subtitle_font, subtitle, &sub_w, NULL);
+		GFX_measureText(subtitle_font, subtitle, &sub_w, NULL);
 		sub_w += extra_subtitle_width;
 		int sub_pill_w = MIN(title_max_width, sub_w + SCALE1(BUTTON_PADDING * 2));
 		if (sub_pill_w > pos.pill_width)
@@ -430,7 +448,7 @@ void UI_renderSettingsPage(SDL_Surface* screen, ListLayout* layout,
 		int msg_row_y = layout->list_y + y_offset + count * layout->item_h;
 		int empty_h = (layout->items_per_page - count) * layout->item_h;
 		int msg_y = msg_row_y + (empty_h - TTF_FontHeight(font.small)) / 2;
-		SDL_Surface* msg_surf = TTF_RenderUTF8_Blended(font.small, status_msg, COLOR_GRAY);
+		SDL_Surface* msg_surf = GFX_renderText(font.small, status_msg, COLOR_GRAY);
 		if (msg_surf) {
 			int msg_x = (hw - msg_surf->w) / 2;
 			SDL_BlitSurface(msg_surf, NULL, screen, &(SDL_Rect){msg_x, msg_y, 0, 0});
@@ -448,7 +466,7 @@ void UI_renderSettingsPage(SDL_Surface* screen, ListLayout* layout,
 		char truncated_desc[256];
 		GFX_truncateText(font.tiny, items[selected].desc, truncated_desc, desc_max_w, 0);
 
-		SDL_Surface* desc_surf = TTF_RenderUTF8_Blended(font.tiny, truncated_desc, COLOR_GRAY);
+		SDL_Surface* desc_surf = GFX_renderText(font.tiny, truncated_desc, COLOR_GRAY);
 		if (desc_surf) {
 			int desc_x = (hw - desc_surf->w) / 2;
 			SDL_BlitSurface(desc_surf, NULL, screen, &(SDL_Rect){desc_x, desc_y, 0, 0});
@@ -471,7 +489,7 @@ int UI_renderSettingsRow(SDL_Surface* screen, ListLayout* layout,
 
 	// Measure label
 	int text_w, text_h;
-	TTF_SizeUTF8(f, label, &text_w, &text_h);
+	GFX_measureText(f, label, &text_w, &text_h);
 	int label_pill_width = text_w + SCALE1(SETTINGS_ROW_PADDING * 2);
 
 	int pill_h = layout->item_h;
@@ -491,7 +509,7 @@ int UI_renderSettingsRow(SDL_Surface* screen, ListLayout* layout,
 			GFX_blitRectColor(ASSET_BUTTON, screen, &label_pill_rect, THEME_COLOR1);
 
 			// Label text
-			SDL_Surface* label_surf = TTF_RenderUTF8_Blended(f, label, selected_text_color);
+			SDL_Surface* label_surf = GFX_renderText(f, label, selected_text_color);
 			if (label_surf) {
 				SDL_BlitSurface(label_surf, NULL, screen, &(SDL_Rect){text_x, text_y, 0, 0});
 				SDL_FreeSurface(label_surf);
@@ -515,7 +533,7 @@ int UI_renderSettingsRow(SDL_Surface* screen, ListLayout* layout,
 				value_x -= swatch_size + SCALE1(4);
 			}
 
-			SDL_Surface* val_surf = TTF_RenderUTF8_Blended(font.tiny, value, COLOR_WHITE);
+			SDL_Surface* val_surf = GFX_renderText(font.tiny, value, COLOR_WHITE);
 			if (val_surf) {
 				value_x -= val_surf->w;
 				SDL_BlitSurface(val_surf, NULL, screen, &(SDL_Rect){value_x, val_text_y, 0, 0});
@@ -527,7 +545,7 @@ int UI_renderSettingsRow(SDL_Surface* screen, ListLayout* layout,
 			SDL_Rect label_pill_rect = {SCALE1(PADDING), y, label_pill_width, pill_h};
 			GFX_blitRectColor(ASSET_BUTTON, screen, &label_pill_rect, THEME_COLOR1);
 
-			SDL_Surface* label_surf = TTF_RenderUTF8_Blended(f, label, selected_text_color);
+			SDL_Surface* label_surf = GFX_renderText(f, label, selected_text_color);
 			if (label_surf) {
 				SDL_BlitSurface(label_surf, NULL, screen, &(SDL_Rect){text_x, text_y, 0, 0});
 				SDL_FreeSurface(label_surf);
@@ -538,7 +556,7 @@ int UI_renderSettingsRow(SDL_Surface* screen, ListLayout* layout,
 		// Unselected: no background
 		SDL_Color text_color = UI_getListTextColor(0);
 
-		SDL_Surface* label_surf = TTF_RenderUTF8_Blended(f, label, text_color);
+		SDL_Surface* label_surf = GFX_renderText(f, label, text_color);
 		if (label_surf) {
 			SDL_BlitSurface(label_surf, NULL, screen, &(SDL_Rect){text_x, text_y, 0, 0});
 			SDL_FreeSurface(label_surf);
@@ -562,7 +580,7 @@ int UI_renderSettingsRow(SDL_Surface* screen, ListLayout* layout,
 				value_x -= swatch_size + SCALE1(4);
 			}
 
-			SDL_Surface* val_surf = TTF_RenderUTF8_Blended(font.tiny, value, text_color);
+			SDL_Surface* val_surf = GFX_renderText(font.tiny, value, text_color);
 			if (val_surf) {
 				value_x -= val_surf->w;
 				SDL_BlitSurface(val_surf, NULL, screen, &(SDL_Rect){value_x, val_text_y, 0, 0});
@@ -607,9 +625,14 @@ void ScrollText_renderGPU_NoBg(ScrollTextState* state, TTF_Font* font,
 	PLAT_drawOnLayer(clipped, x, y, state->max_width, height, 1.0f, false, LAYER_SCROLLTEXT);
 	SDL_FreeSurface(clipped);
 
-	state->scroll_offset += 1;
-	if (state->scroll_offset >= state->text_width + padding) {
-		state->scroll_offset = 0;
+	if (state->rtl) {
+		state->scroll_offset -= 1; // window moves left -> text scrolls right
+		if (state->scroll_offset < 0)
+			state->scroll_offset = state->text_width + padding - 1;
+	} else {
+		state->scroll_offset += 1;
+		if (state->scroll_offset >= state->text_width + padding)
+			state->scroll_offset = 0;
 	}
 
 	PLAT_GPU_Flip();
@@ -812,7 +835,7 @@ ListItemRichPos UI_renderListItemPillRich(SDL_Surface* screen, ListLayout* layou
 	pos.pill_width = UI_calcListPillWidth(font.medium, title, truncated, layout->max_width, image_area_w);
 	if (subtitle && subtitle[0]) {
 		int sub_w;
-		TTF_SizeUTF8(font.small, subtitle, &sub_w, NULL);
+		GFX_measureText(font.small, subtitle, &sub_w, NULL);
 		int sub_pill_w = MIN(layout->max_width, image_area_w + sub_w + extra_subtitle_width + SCALE1(BUTTON_PADDING * 2));
 		if (sub_pill_w > pos.pill_width)
 			pos.pill_width = sub_pill_w;

@@ -55,7 +55,7 @@ static inline SDL_Color colorFromUint(uint32_t colour) {
 
 int _renderText(const char* text, TTF_Font* font, SDL_Color color, SDL_Rect* rect, bool right_align) {
 	int text_width = 0;
-	SDL_Surface* textSurface = TTF_RenderUTF8_Blended(font, text, color);
+	SDL_Surface* textSurface = GFX_renderText(font, text, color);
 	if (textSurface != NULL) {
 		text_width = textSurface->w;
 		if (right_align)

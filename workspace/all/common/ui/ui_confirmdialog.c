@@ -25,7 +25,7 @@ static int confirm_wrap_lines(TTF_Font* font, const char* text, int max_w,
 		char cand[256];
 		snprintf(cand, sizeof(cand), "%s%s%s", lines[n], lines[n][0] ? " " : "", tok);
 		int w = 0;
-		TTF_SizeUTF8(font, cand, &w, NULL);
+		GFX_measureText(font, cand, &w, NULL);
 		if (w <= max_w || !lines[n][0]) {
 			snprintf(lines[n], sizeof(lines[n]), "%s", cand);
 		} else if (n + 1 < CONFIRM_MAX_SUB_LINES) {
@@ -74,7 +74,7 @@ void UI_renderConfirmDialog(SDL_Surface* dst, const char* title,
 	if (sub_line_count) {
 		y += SCALE1(BUTTON_MARGIN);
 		for (int i = 0; i < sub_line_count; i++) {
-			SDL_Surface* s = TTF_RenderUTF8_Blended(font.small, sub_lines[i], COLOR_WHITE);
+			SDL_Surface* s = GFX_renderText(font.small, sub_lines[i], COLOR_WHITE);
 			if (s) {
 				SDL_BlitSurface(s, NULL, dst, &(SDL_Rect){(dst->w - s->w) / 2, y});
 				SDL_FreeSurface(s);

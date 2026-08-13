@@ -20,7 +20,7 @@ void UI_renderToast(SDL_Surface* screen, const char* message, uint32_t toast_tim
 	int hw = screen->w;
 	int hh = screen->h;
 
-	SDL_Surface* toast_text = TTF_RenderUTF8_Blended(font.medium, message, COLOR_WHITE);
+	SDL_Surface* toast_text = GFX_renderText(font.medium, message, COLOR_WHITE);
 	if (toast_text) {
 		int border = SCALE1(2);
 		int toast_w = toast_text->w + SCALE1(PADDING * 3);

@@ -9,7 +9,7 @@ void UI_renderDownloadProgress(SDL_Surface* screen, const UIDownloadProgress* in
 
 	// Status message (centered, above bar)
 	if (info->status) {
-		SDL_Surface* status_text = TTF_RenderUTF8_Blended(font.medium, info->status, COLOR_WHITE);
+		SDL_Surface* status_text = GFX_renderText(font.medium, info->status, COLOR_WHITE);
 		if (status_text) {
 			SDL_BlitSurface(status_text, NULL, screen,
 							&(SDL_Rect){(hw - status_text->w) / 2, hh / 2 - SCALE1(20)});
@@ -38,7 +38,7 @@ void UI_renderDownloadProgress(SDL_Surface* screen, const UIDownloadProgress* in
 		// Percentage text inside bar
 		char pct_str[16];
 		snprintf(pct_str, sizeof(pct_str), "%d%%", info->progress);
-		SDL_Surface* pct_text = TTF_RenderUTF8_Blended(font.tiny, pct_str, COLOR_WHITE);
+		SDL_Surface* pct_text = GFX_renderText(font.tiny, pct_str, COLOR_WHITE);
 		if (pct_text) {
 			int pct_x = bar_x + (bar_w - pct_text->w) / 2;
 			int pct_y = bar_y + (bar_h - pct_text->h) / 2;
@@ -48,7 +48,7 @@ void UI_renderDownloadProgress(SDL_Surface* screen, const UIDownloadProgress* in
 
 		// Detail text below bar
 		if (info->detail && info->detail[0]) {
-			SDL_Surface* detail_text = TTF_RenderUTF8_Blended(font.small, info->detail, COLOR_GRAY);
+			SDL_Surface* detail_text = GFX_renderText(font.small, info->detail, COLOR_GRAY);
 			if (detail_text) {
 				SDL_BlitSurface(detail_text, NULL, screen,
 								&(SDL_Rect){(hw - detail_text->w) / 2, bar_y + bar_h + SCALE1(6)});

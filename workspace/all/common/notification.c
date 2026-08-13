@@ -291,7 +291,7 @@ static void render_progress_indicator(void) {
 	}
 
 	int text_w = 0, text_h = 0;
-	TTF_SizeUTF8(font.tiny, progress_text, &text_w, &text_h);
+	GFX_measureText(font.tiny, progress_text, &text_w, &text_h);
 
 	// Calculate icon dimensions if present
 	int icon_w = 0, icon_h = 0, icon_total_w = 0;
@@ -326,7 +326,7 @@ static void render_progress_indicator(void) {
 		content_x += icon_total_w;
 	}
 
-	SDL_Surface* text_surf = TTF_RenderUTF8_Blended(font.tiny, progress_text, text_color);
+	SDL_Surface* text_surf = GFX_renderText(font.tiny, progress_text, text_color);
 	if (text_surf) {
 		SDL_SetSurfaceBlendMode(text_surf, SDL_BLENDMODE_BLEND);
 		SDL_Rect text_dst = {content_x, notif_padding_y, text_surf->w, text_surf->h};
@@ -343,7 +343,7 @@ static void render_progress_indicator(void) {
 // Render a single notification pill
 static void render_notification_pill(Notification* n, int x, int y, SDL_Color text_color, SDL_Color bg_color_sdl) {
 	int text_w = 0, text_h = 0;
-	TTF_SizeUTF8(font.tiny, n->message, &text_w, &text_h);
+	GFX_measureText(font.tiny, n->message, &text_w, &text_h);
 
 	int icon_w = 0, icon_h = 0, icon_total_w = 0;
 	if (n->icon) {
@@ -374,7 +374,7 @@ static void render_notification_pill(Notification* n, int x, int y, SDL_Color te
 		content_x += icon_total_w;
 	}
 
-	SDL_Surface* text_surf = TTF_RenderUTF8_Blended(font.tiny, n->message, text_color);
+	SDL_Surface* text_surf = GFX_renderText(font.tiny, n->message, text_color);
 	if (text_surf) {
 		SDL_SetSurfaceBlendMode(text_surf, SDL_BLENDMODE_BLEND);
 		SDL_Rect text_dst = {content_x, notif_padding_y, text_surf->w, text_surf->h};
@@ -400,14 +400,14 @@ static void render_notification_stack(void) {
 		Notification* n = &notifications[i];
 
 		int text_h = 0;
-		TTF_SizeUTF8(font.tiny, n->message, NULL, &text_h);
+		GFX_measureText(font.tiny, n->message, NULL, &text_h);
 		int pill_h = text_h + (notif_padding_y * 2);
 
 		// Calculate stack offset (how far up from base)
 		int stack_offset = 0;
 		for (int j = i + 1; j < notification_count; j++) {
 			int other_text_h = 0;
-			TTF_SizeUTF8(font.tiny, notifications[j].message, NULL, &other_text_h);
+			GFX_measureText(font.tiny, notifications[j].message, NULL, &other_text_h);
 			int other_pill_h = other_text_h + (notif_padding_y * 2);
 			stack_offset += other_pill_h + notif_stack_gap;
 		}

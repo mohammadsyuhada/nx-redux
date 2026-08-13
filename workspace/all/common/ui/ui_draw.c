@@ -123,7 +123,7 @@ void UI_renderCenteredButtons(SDL_Surface* dst, int y, char** pairs) {
 	int total_w = 0;
 	for (int i = 0; pairs[i * 2] && pairs[i * 2 + 1] && count < 8; i++) {
 		int text_w, th;
-		TTF_SizeUTF8(font.tiny, pairs[i * 2 + 1], &text_w, &th);
+		GFX_measureText(font.tiny, pairs[i * 2 + 1], &text_w, &th);
 		widths[count] = btn_sz + btn_gap + text_w;
 		total_w += (count > 0 ? btn_margin : 0) + widths[count];
 		count++;
