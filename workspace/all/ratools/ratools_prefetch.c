@@ -18,6 +18,7 @@
 #include "http.h"
 #include "ra_badges.h" // RA_BADGE_CACHE_DIR
 #include "ra_consoles.h"
+#include "wifi.h"
 #include "ra_hash_cdreader.h"
 #include "ra_offline.h"
 #include "ui_buttonhintbar.h"
@@ -292,7 +293,7 @@ void RATPrefetch_run(SDL_Surface* screen) {
 					   "Set credentials in Settings and authenticate first.");
 		return;
 	}
-	if (!PLAT_wifiConnected()) {
+	if (!Wifi_isConnected()) {
 		rat_pf_message(screen, "No network connection", "Connect to WiFi and try again.");
 		return;
 	}

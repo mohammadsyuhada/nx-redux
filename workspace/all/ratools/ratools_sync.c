@@ -8,6 +8,7 @@
 #include "defines.h"
 #include "ra_offline.h"
 #include "ra_offline_net.h"
+#include "wifi.h"
 #include "ui_emptystate.h"
 
 typedef struct {
@@ -67,7 +68,7 @@ void RATSync_run(SDL_Surface* screen) {
 								"Set credentials in Settings and authenticate first.");
 		return;
 	}
-	if (!PLAT_wifiConnected()) {
+	if (!Wifi_isConnected()) {
 		rat_sync_message_screen(screen, "No network connection",
 								"Connect to WiFi and try again.");
 		return;

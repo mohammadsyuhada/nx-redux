@@ -7,14 +7,15 @@
 #include "defines.h"
 #include "utils.h"
 
-// Live radio state, provided by api.c/platform.c when linked (see CFG_sync).
-// Declared weak so binaries that only link config.c still build.
-extern bool PLAT_wifiEnabled(void) __attribute__((weak));
-extern bool PLAT_bluetoothEnabled(void) __attribute__((weak));
-
 // True while CFG_init is parsing the settings file; CFG_sync no-ops then,
 // because init loads values through the public setters and every setter syncs.
 static bool cfg_loading = false;
+
+// Set when THIS process toggles a radio via CFG_setWifi/CFG_setBluetooth
+// (outside of load); consumed by the next CFG_sync, where it makes our value
+// win over the on-disk one. See the radio-key handling in CFG_sync.
+static bool cfg_wifi_explicit = false;
+static bool cfg_bt_explicit = false;
 
 NextUISettings settings = {0};
 
@@ -694,6 +695,8 @@ bool CFG_getWifi(void) {
 
 void CFG_setWifi(bool on) {
 	settings.wifi = on;
+	if (!cfg_loading)
+		cfg_wifi_explicit = true;
 	CFG_sync();
 }
 
@@ -725,6 +728,8 @@ bool CFG_getBluetooth(void) {
 
 void CFG_setBluetooth(bool on) {
 	settings.bluetooth = on;
+	if (!cfg_loading)
+		cfg_bt_explicit = true;
 	CFG_sync();
 }
 
@@ -1123,6 +1128,21 @@ static int CFG_serialize(char* buf, size_t cap) {
 	return (int)off;
 }
 
+// Find "key=<int>" at the start of a line in a settings-file buffer and parse
+// the value. `key` must include the '='. Returns false if the key is absent.
+static bool CFG_fileKeyInt(const char* buf, const char* key, int* out) {
+	size_t klen = strlen(key);
+	const char* p = buf;
+	while (p && *p) {
+		if (strncmp(p, key, klen) == 0)
+			return sscanf(p + klen, "%d", out) == 1;
+		p = strchr(p, '\n');
+		if (p)
+			p++;
+	}
+	return false;
+}
+
 // Length of the key portion ("key=...") of a line, or -1 if it has none.
 static int CFG_lineKeyLen(const char* line, size_t len) {
 	for (size_t i = 0; i < len; i++) {
@@ -1153,22 +1173,8 @@ void CFG_sync(void) {
 	}
 	snprintf(settingsPath, sizeof(settingsPath), "%s/minuisettings.txt", shared_userdata);
 
-	// WiFi/BT can be toggled outside this process (e.g. the OSD overlay), so
-	// re-capture the live radio state — otherwise a sync for an unrelated
-	// setting would write back stale values and clobber the external toggle.
-	// Weak references: some binaries link config.c without api.c/platform.c.
-	if (PLAT_wifiEnabled)
-		settings.wifi = PLAT_wifiEnabled();
-	if (PLAT_bluetoothEnabled)
-		settings.bluetooth = PLAT_bluetoothEnabled();
-
-	static char ours[CFG_FILE_MAX];
-	if (CFG_serialize(ours, sizeof(ours)) < 0) {
-		printf("[CFG] settings serialization overflow, not writing\n");
-		return;
-	}
-
-	// Read what's on disk so we can merge and detect no-op syncs.
+	// Read what's on disk: needed for the merge, for no-op detection, and as
+	// the authority for the radio keys below.
 	static char old_buf[CFG_FILE_MAX];
 	size_t old_len = 0;
 	FILE* rf = fopen(settingsPath, "r");
@@ -1177,6 +1183,32 @@ void CFG_sync(void) {
 		fclose(rf);
 	}
 	old_buf[old_len] = '\0';
+
+	// WiFi/BT can be toggled outside this process (the OSD overlay widgets),
+	// but those widgets sed their wifi=/bluetooth= lines into this file
+	// themselves — so the on-disk value is authoritative unless THIS process
+	// explicitly toggled the radio (CFG_setWifi/CFG_setBluetooth set the
+	// explicit flag, consumed here). Re-sampling the live radio state instead
+	// (the previous approach) persisted wifi=0 whenever a sync landed while
+	// the interface was transiently down — the suspend script's stop/start
+	// window, early boot before wifi_init.sh finished — and the next boot's
+	// launch.sh then honored the poisoned value and kept wifi off entirely
+	// (reported as "wifi keeps turning itself off").
+	int disk_val;
+	if (cfg_wifi_explicit)
+		cfg_wifi_explicit = false; // consumed: our value wins this sync
+	else if (CFG_fileKeyInt(old_buf, "wifi=", &disk_val))
+		settings.wifi = disk_val != 0;
+	if (cfg_bt_explicit)
+		cfg_bt_explicit = false;
+	else if (CFG_fileKeyInt(old_buf, "bluetooth=", &disk_val))
+		settings.bluetooth = disk_val != 0;
+
+	static char ours[CFG_FILE_MAX];
+	if (CFG_serialize(ours, sizeof(ours)) < 0) {
+		printf("[CFG] settings serialization overflow, not writing\n");
+		return;
+	}
 
 	// Merge: known keys take our current value (kept in their on-disk order),
 	// unknown keys and non-key lines are preserved verbatim, known keys the

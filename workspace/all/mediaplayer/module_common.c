@@ -3,6 +3,7 @@
 #include "api.h"
 #include "audio_manager.h"
 #include "module_common.h"
+#include "ui_menubar.h"
 #include "ui_quitrequest.h"
 #include "ui_toast.h"
 #include "ui_contextmenu.h"
@@ -156,6 +157,11 @@ void ModuleCommon_PWR_update(bool* dirty, IndicatorType* show_setting) {
 
 	// Call platform PWR_update
 	PWR_update(dirty, show_setting, NULL, NULL);
+
+	// Redraw when the menu-bar wifi/bt status changes (the pages only render
+	// on input, so without this the wifi icon stays stale until a keypress)
+	if (UI_statusBarChanged())
+		*dirty = 1;
 
 	// After visible period, force hide overlay
 	if (overlay_release_time > 0) {

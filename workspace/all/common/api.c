@@ -3142,13 +3142,18 @@ void PWR_updateFrequency(int secs, int updateWifi) {
 
 static void* PWR_monitorBattery(void* arg) {
 	while (1) {
+		// Poll BEFORE the first sleep: the network status feeds the menu-bar
+		// wifi icon and PWR_isOnline(), which every process starts with a
+		// stale "offline" — sleeping first left each freshly launched app
+		// claiming no wifi for a full interval (reported as "wifi turns off
+		// when entering/exiting apps").
+		PWR_updateBatteryStatus();
+		PWR_updateNetworkStatus();
 		struct PWR_Context* pwr_ctx = (struct PWR_Context*)arg;
 		int interval = SDL_AtomicGet(&pwr_ctx->update_secs);
 		if (interval <= 0)
 			interval = 1;
 		sleep(interval);
-		PWR_updateBatteryStatus();
-		PWR_updateNetworkStatus();
 	}
 	return NULL;
 }

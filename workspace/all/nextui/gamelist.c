@@ -19,6 +19,7 @@
 #include "ui_listdialog.h"
 #include "ui_pindialog.h"
 #include "utils.h"
+#include "wifi.h"
 
 #include "content.h"
 #include "gameswitcher.h"
@@ -1293,7 +1294,7 @@ void GameList_runContextAction(int id) {
 			char af_rom[MAX_PATH], af_out[MAX_PATH], af_tag[MAX_PATH];
 			if (!entryArtInfo(entry, af_rom, af_out, af_tag))
 				break;
-			if (!PLAT_wifiConnected()) {
+			if (!Wifi_isConnected()) {
 				artFetchNotice(entry->name, "Connect to WiFi to fetch art");
 				break;
 			}

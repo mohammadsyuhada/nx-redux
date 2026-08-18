@@ -3,6 +3,7 @@
 #include "cjson/cJSON.h"
 #include "utils.h"
 #include "api.h"
+#include "wifi.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -105,7 +106,10 @@ void ScraperAPI_rateLimit(void) {
 }
 
 bool ScraperAPI_isOnline(void) {
-	return PWR_isOnline();
+	// Live check (interface up + wpa_state), not PWR_isOnline(): the cached
+	// status is stale-false for the first poll interval of a fresh process,
+	// which made these gates report "No Network" right after launch.
+	return Wifi_isConnected();
 }
 
 // Region priority: us > wor > eu > any

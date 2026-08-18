@@ -22,6 +22,7 @@
 #include "settings_menu.h"
 #include "defines.h"
 #include "api.h"
+#include "wifi.h"
 #include "ui_buttonhintbar.h"
 #include "ui_downloadprogress.h"
 #include "ui_menubar.h"
@@ -744,7 +745,7 @@ void updater_about_on_show(SettingsPage* page) {
 		return;
 
 	// Check WiFi before attempting update check
-	if (!WIFI_connected()) {
+	if (!Wifi_isConnected()) {
 		auto_state = UPDATE_ERROR;
 		snprintf(item_label, sizeof(item_label), "Updater");
 		snprintf(item_desc, sizeof(item_desc), "No internet connection");
