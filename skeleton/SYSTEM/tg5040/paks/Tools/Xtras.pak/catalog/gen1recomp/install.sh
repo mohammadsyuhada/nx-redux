@@ -1,6 +1,9 @@
 #!/bin/sh
-# Xtras catalog: gen1recomp + bundled mods (Dramatic Shape Voxel, Running
-# Shoes, Wilds of Kanto).
+# Xtras catalog: gen1recomp + bundled mods (Dramaless Shape Voxel,
+# StadiumBattleFX, Running Shoes, Wilds of Kanto) + the default community
+# mod index seeded into the game's options.lua. Mods are bundled on FRESH
+# installs only; an update refreshes the game payload alone (IS_UPDATE
+# below).
 # Contract: idempotent; installs the LATEST upstream releases (resolved from
 # the GitHub API at install time, sha256-digest-verified - fail closed);
 # visible launcher registered LAST; progress on stdout; exit code is the verdict;
@@ -20,42 +23,46 @@
 # nothing here reduces what's recorded on disk vs. what's shown on screen.
 set -u
 
-# Latest-install model (2026-08-10 spec): the game and the shoes/wilds
-# mods resolve to their repos' latest GitHub release at install time -
+# Latest-install model (2026-08-10 spec): the game and every bundled mod
+# resolve to their repos' latest GitHub release at install time -
 # no pinned tags/URLs/shas. Integrity comes from the per-asset sha256 digest
 # the same API responses carry (settings_updater.c's posture: an integrity
 # check, not authentication). The yellow ROM manifest is fetched at the
 # resolved game tag (raw.githubusercontent, no digest available - TLS-only).
-# The Voxel Mod is the one exception - pinned, see below.
 GEN1_REPO="bryanthaboi/gen1recomp"
 GEN1_ASSET="*rg34xxsp-stockos64-mod.zip"
-# Voxel Mod: upstream DramaticShape/DramaticShapeVoxelMod - and the whole
-# DramaticShape account - vanished from GitHub ~2026-08 (API 404s; install
-# failure device-reproduced 2026-08-10). The live repo is still TRIED FIRST,
-# so if the author ever restores it, latest-release installs resume on their
-# own - but a resolve failure there falls back to the newest zip (1.7.2)
-# preserved in the community backup repo linkfy/DramaticShapeVoxelModBackup
-# (a plain repo file, fetched raw), verified against a sha256 computed from
-# that exact file on 2026-08-10 - fails closed if the backup file is ever
-# replaced. The fallback cannot mask a dead network: the game repo resolve
-# runs before it and fails the whole install first, so reaching the fallback
-# means the network works and the repo itself is gone. Overridable ONLY so
-# the host test can serve its fixtures.
-MOD_REPO="DramaticShape/DramaticShapeVoxelMod"
-MOD_ASSET="DRAMATIC_SHAPE*.zip"
-: "${NX_VOXEL_URL:=https://raw.githubusercontent.com/linkfy/DramaticShapeVoxelModBackup/main/DRAMATIC_SHAPE-1.7.2.zip}"
-: "${NX_VOXEL_SHA256:=fe8af5180e7f430dd9d9667f7370db4d886d25714209dc949413972d3bf82307}"
+# Dramaless Shape: voxel 3D overworld (manifest id "DRAMALESS_SHAPE").
+# Replaces the originally-bundled DramaticShape/DramaticShapeVoxelMod
+# (2026-08-18): that upstream - the whole DramaticShape account - vanished
+# from GitHub ~2026-08 and only survived as a pinned community backup zip;
+# Dramaless Shape is the live continuation, back on the normal latest-
+# release track. Its manifest declares DRAMATIC_SHAPE a conflict, so the
+# stale-dir removal in the install step below is required, not just tidy.
+DRAMALESS_REPO="artyrambles/DRAMALESS_SHAPE"
+DRAMALESS_ASSET="DRAMALESS_SHAPE-*.zip"
+# StadiumBattleFX: Stadium-style battle effects and trainer portraits
+# (manifest id "STADIUM_BATTLE_FX", an optional dependency of Dramaless
+# Shape >=2.0). Its full effect needs a Pokemon Stadium ROM the player
+# imports in-game (a manifest required_imports entry the game prompts for)
+# - without one the mod just idles, so bundling it disabled-by-default is
+# safe.
+STADIUM_REPO="anxiousintrovert/StadiumBattleFX"
+STADIUM_ASSET="STADIUM_BATTLE_FX-*.zip"
 # Running Shoes: hold-B run speed (extras all off by default; manifest id
 # "running_shoes", no deps/conflicts). Contents at the zip root, ~28 KB.
 SHOES_REPO="MadeinTaly/gen1recomp-running-shoes"
 SHOES_ASSET="running_shoes-*.zip"
 # Wilds of Kanto: visible/reactive overworld wild Pokemon (manifest id
-# "overworld_wild_spawns"). Its release asset is a source archive - contents
-# sit under a "<repo>-<branch>/" wrapper dir, not at the zip root - so the
-# install step below finds the manifest.json-bearing dir instead of assuming
-# either layout. ~18 MB download, the largest of the mods.
+# "overworld_wild_spawns"). Upstream renamed its release asset from
+# "Wilds.of.Kanto.v*.zip" to "wilds-of-kanto-v*.zip" at v2.1.7, which made
+# the old exact-case glob fail the whole install with "no matching
+# download" (device-reproduced 2026-08-18) - the glob below tolerates both
+# spellings. The zip contents moved in the same release: at the root now,
+# previously under a "<repo>-<branch>/" source-archive wrapper - the
+# install step below finds the manifest.json-bearing dir instead of
+# assuming either layout. ~15 MB download, the largest of the mods.
 WILDS_REPO="YoDrehDenSwagAuf/overworld-spawn-mod"
-WILDS_ASSET="Wilds.of.Kanto*.zip"
+WILDS_ASSET="[Ww]ilds[.-]of[.-][Kk]anto*.zip"
 
 # The SYSTEM-shipped 7zzs (same binary settings_updater.c extracts system
 # updates with), NOT PortMaster's vendored copy: since the runtime=native
@@ -89,6 +96,20 @@ LOVE="$TARGET/lovegame"
 # passes XTRAS_STATE_DIR; the fallback mirrors its device value for a bare
 # environment.
 : "${XTRAS_STATE_DIR:=$SDCARD_PATH/.userdata/shared/xtras}"
+
+# Update vs fresh install (2026-08-18): a version record from a previous
+# install marks this run an UPDATE, which refreshes the game payload (and
+# the Yellow manifest at the new tag) ONLY. The bundled mods are the
+# player's to manage once installed - the in-game mod manager updates,
+# adds and removes them (via the community index seeded below) - so an
+# update never downloads or touches anything under lovegame/mods. Both
+# records are checked: uninstall.sh clears both, so their joint absence is
+# what distinguishes a true fresh install from an update on an older card
+# that only has the legacy in-target marker.
+IS_UPDATE=0
+if [ -f "$XTRAS_STATE_DIR/gen1recomp.version" ] || [ -f "$TARGET/.nx_addon_version" ]; then
+    IS_UPDATE=1
+fi
 
 # Set true once we start writing into $TARGET (the overlay-copy below).
 # Before that point a failure leaves any prior successful install (and its
@@ -137,15 +158,21 @@ fetch() { # url dest sha256(""=skip) label
     fi
 }
 
-# resolve_latest <owner/repo> <asset-glob>: queries the GitHub latest-release
-# API and sets RL_TAG, RL_URL (the asset matching the glob) and RL_SHA (that
-# asset's sha256 digest, "" when the API ships none). The JSON is scanned as
-# a token stream - within each asset object the API emits "name" before
-# "digest" before "browser_download_url", so tracking the last-seen name/
-# digest pairs each URL with its own asset (same scraping approach
-# settings_updater.c uses). Returns non-zero with RL_ERR set when
-# unreachable or unparseable - each caller decides whether that is fatal
-# (`|| fail "$RL_ERR"`) or a fallback (the Voxel mod).
+# resolve_latest <owner/repo> <asset-glob> [fallback-glob]: queries the
+# GitHub latest-release API and sets RL_TAG, RL_URL (the asset matching the
+# glob) and RL_SHA (that asset's sha256 digest, "" when the API ships none).
+# The JSON is scanned as a token stream - within each asset object the API
+# emits "name" before "digest" before "browser_download_url", so tracking
+# the last-seen name/digest pairs each URL with its own asset (same
+# scraping approach settings_updater.c uses). When the primary glob matches
+# nothing, the FIRST asset matching the optional fallback glob is used
+# instead - the mods each ship exactly one zip per release, so "*.zip"
+# there survives upstream renaming its asset (the wilds rename at v2.1.7
+# turned exactly that into a whole-install "no matching download" failure).
+# The game keeps no fallback: its release carries a zip per platform, and
+# guessing among them would install the wrong build. Returns non-zero with
+# RL_ERR set when unreachable or unparseable - callers treat that as fatal
+# (`|| fail "$RL_ERR"`).
 # Same helper as psp/install.sh's - catalog entries are self-contained by
 # contract, so it is duplicated rather than shared.
 resolve_latest() {
@@ -158,6 +185,8 @@ resolve_latest() {
     [ -n "$RL_TAG" ] || { RL_ERR="could not read the latest version info"; return 1; }
     RL_URL=""
     RL_SHA=""
+    _rl_fb_url=""
+    _rl_fb_sha=""
     _rl_name=""
     _rl_digest=""
     while IFS= read -r _rl_tok; do
@@ -165,14 +194,24 @@ resolve_latest() {
             '"name":'*)   _rl_name="$(printf '%s' "$_rl_tok" | cut -d'"' -f4)"; _rl_digest="" ;;
             '"digest":'*) _rl_digest="$(printf '%s' "$_rl_tok" | cut -d'"' -f4 | sed 's/^sha256://')" ;;
             '"browser_download_url":'*)
-                # shellcheck disable=SC2254  # $2 is deliberately an unquoted glob
+                # shellcheck disable=SC2254  # $2/$3 are deliberately unquoted globs
                 case "$_rl_name" in
                     $2) RL_URL="$(printf '%s' "$_rl_tok" | cut -d'"' -f4)"; RL_SHA="$_rl_digest"; break ;;
-                esac ;;
+                esac
+                if [ -z "$_rl_fb_url" ] && [ -n "${3:-}" ]; then
+                    # shellcheck disable=SC2254
+                    case "$_rl_name" in
+                        $3) _rl_fb_url="$(printf '%s' "$_rl_tok" | cut -d'"' -f4)"; _rl_fb_sha="$_rl_digest" ;;
+                    esac
+                fi ;;
         esac
     done <<EOF
 $(grep -o '"name": *"[^"]*"\|"digest": *"[^"]*"\|"browser_download_url": *"[^"]*"' "$_rl_json")
 EOF
+    if [ -z "$RL_URL" ] && [ -n "$_rl_fb_url" ]; then
+        RL_URL="$_rl_fb_url"
+        RL_SHA="$_rl_fb_sha"
+    fi
     [ -n "$RL_URL" ] || { RL_ERR="latest release has no matching download"; return 1; }
     return 0
 }
@@ -198,45 +237,49 @@ GAME_URL="$RL_URL"
 GAME_SHA="$RL_SHA"
 echo "Latest game release: $GAME_TAG"
 
-# Voxel: live repo first, archived backup on any resolve failure (see the
-# constants block above - the network is already proven good by this point).
-if resolve_latest "$MOD_REPO" "$MOD_ASSET"; then
-    MOD_TAG="$RL_TAG"
-    MOD_URL="$RL_URL"
-    MOD_SHA="$RL_SHA"
-    echo "Latest mod release: $MOD_TAG"
-else
-    MOD_TAG="1.7.2-backup"
-    MOD_URL="$NX_VOXEL_URL"
-    MOD_SHA="$NX_VOXEL_SHA256"
-    echo "Voxel Mod upstream unavailable - using archived $MOD_TAG"
+if [ "$IS_UPDATE" = "0" ]; then
+    resolve_latest "$DRAMALESS_REPO" "$DRAMALESS_ASSET" "*.zip" || fail "$RL_ERR"
+    DRAMALESS_TAG="$RL_TAG"
+    DRAMALESS_URL="$RL_URL"
+    DRAMALESS_SHA="$RL_SHA"
+    echo "Latest dramaless shape release: $DRAMALESS_TAG"
+
+    resolve_latest "$STADIUM_REPO" "$STADIUM_ASSET" "*.zip" || fail "$RL_ERR"
+    STADIUM_TAG="$RL_TAG"
+    STADIUM_URL="$RL_URL"
+    STADIUM_SHA="$RL_SHA"
+    echo "Latest stadium battle fx release: $STADIUM_TAG"
+
+    resolve_latest "$SHOES_REPO" "$SHOES_ASSET" "*.zip" || fail "$RL_ERR"
+    SHOES_TAG="$RL_TAG"
+    SHOES_URL="$RL_URL"
+    SHOES_SHA="$RL_SHA"
+    echo "Latest running shoes release: $SHOES_TAG"
+
+    resolve_latest "$WILDS_REPO" "$WILDS_ASSET" "*.zip" || fail "$RL_ERR"
+    WILDS_TAG="$RL_TAG"
+    WILDS_URL="$RL_URL"
+    WILDS_SHA="$RL_SHA"
+    echo "Latest wilds of kanto release: $WILDS_TAG"
 fi
-
-resolve_latest "$SHOES_REPO" "$SHOES_ASSET" || fail "$RL_ERR"
-SHOES_TAG="$RL_TAG"
-SHOES_URL="$RL_URL"
-SHOES_SHA="$RL_SHA"
-echo "Latest running shoes release: $SHOES_TAG"
-
-resolve_latest "$WILDS_REPO" "$WILDS_ASSET" || fail "$RL_ERR"
-WILDS_TAG="$RL_TAG"
-WILDS_URL="$RL_URL"
-WILDS_SHA="$RL_SHA"
-echo "Latest wilds of kanto release: $WILDS_TAG"
 
 GEN1_YELLOW_URL="https://raw.githubusercontent.com/$GEN1_REPO/$GAME_TAG/tools/rom_manifest_yellow.json"
 echo "@10 Starting install..."
 
-fetch "$GAME_URL"        "$TMPDIR_NX/game.zip"    "$GAME_SHA" "gen1recomp $GAME_TAG (~5 MB)"
+fetch "$GAME_URL"        "$TMPDIR_NX/game.zip"    "$GAME_SHA" "gen1recomp $GAME_TAG (~10 MB)"
 echo "@20 Downloaded gen1recomp"
 fetch "$GEN1_YELLOW_URL" "$TMPDIR_NX/yellow.json" ""          "Yellow ROM manifest (~1 MB)"
 echo "@25 Downloaded Yellow manifest"
-fetch "$MOD_URL"         "$TMPDIR_NX/mod.zip"     "$MOD_SHA"  "Voxel Mod $MOD_TAG (~8 MB)"
-echo "@40 Downloaded Voxel Mod"
-fetch "$SHOES_URL"       "$TMPDIR_NX/shoes.zip"   "$SHOES_SHA" "Running Shoes Mod $SHOES_TAG (<1 MB)"
-echo "@45 Downloaded Running Shoes Mod"
-fetch "$WILDS_URL"       "$TMPDIR_NX/wilds.zip"   "$WILDS_SHA" "Wilds of Kanto $WILDS_TAG (~18 MB)"
-echo "@65 Downloaded Wilds of Kanto"
+if [ "$IS_UPDATE" = "0" ]; then
+    fetch "$DRAMALESS_URL"   "$TMPDIR_NX/dramaless.zip" "$DRAMALESS_SHA" "Dramaless Shape Mod $DRAMALESS_TAG (<1 MB)"
+    echo "@30 Downloaded Dramaless Shape Mod"
+    fetch "$STADIUM_URL"     "$TMPDIR_NX/stadium.zip" "$STADIUM_SHA" "StadiumBattleFX $STADIUM_TAG (<1 MB)"
+    echo "@35 Downloaded StadiumBattleFX"
+    fetch "$SHOES_URL"       "$TMPDIR_NX/shoes.zip"   "$SHOES_SHA" "Running Shoes Mod $SHOES_TAG (<1 MB)"
+    echo "@45 Downloaded Running Shoes Mod"
+    fetch "$WILDS_URL"       "$TMPDIR_NX/wilds.zip"   "$WILDS_SHA" "Wilds of Kanto $WILDS_TAG (~15 MB)"
+    echo "@65 Downloaded Wilds of Kanto"
+fi
 
 echo "@70 Extracting..."
 echo "Extracting game..."
@@ -255,35 +298,274 @@ echo "Adding Yellow support..."
 mkdir -p "$LOVE/tools"
 cp "$TMPDIR_NX/yellow.json" "$LOVE/tools/rom_manifest_yellow.json" || fail "yellow manifest copy failed"
 
-echo "Installing Voxel Mod..."
-mkdir -p "$LOVE/mods/DRAMATIC_SHAPE"
-extract "$TMPDIR_NX/mod.zip" "$LOVE/mods/DRAMATIC_SHAPE" || fail "could not extract voxel mod"
+# D-pad cursor tuning (2026-08-18, user-reported): the launcher UI is a
+# virtual mouse pointer. A stick scales speed with deflection, but a d-pad
+# is on/off, so the stock flat 420 px/s makes every frame jump ~7px and a
+# short tap travel 15-40px - small buttons are nearly untargetable on a
+# stickless handheld (Brick). The patch below injects an acceleration ramp
+# for the d-pad path only (taps start at 130 px/s, full speed after 0.4s
+# held; a >0.25s input gap restarts the ramp) into the game's plain-Lua
+# source after every payload extraction. Fail-open by design: it anchors on
+# the exact upstream lines and SKIPS with a log line when they ever change,
+# leaving stock behavior rather than a broken launcher. Runs on updates too
+# (each install rewrites RomImporter.lua from the zip, so re-patching is
+# what keeps the tune). Sticks and real mice are untouched.
+patch_pad_cursor() {
+    _rc="$LOVE/src/import/RomImporter.lua"
+    [ -f "$_rc" ] || { echo "d-pad cursor tuning skipped (no RomImporter.lua)"; return 0; }
+    grep -q 'nxDpadSpeed' "$_rc" && return 0   # already patched
+    if ! grep -q '^local PAD_DPAD_SPEED = 420$' "$_rc" \
+        || ! grep -q 'and PAD_SPEED or PAD_DPAD_SPEED' "$_rc"; then
+        echo "d-pad cursor tuning skipped (upstream layout changed)"
+        return 0
+    fi
+    cat > "$TMPDIR_NX/nx_dpad_helper.lua" <<'EOF'
+-- NX Redux install-time patch (Xtras.pak gen1recomp install.sh): d-pad
+-- cursor acceleration ramp. A d-pad has no analog deflection, so the flat
+-- PAD_DPAD_SPEED above makes short taps overshoot small buttons on
+-- stickless handhelds. Taps start slow and ramp to full speed while held;
+-- a gap in d-pad input restarts the ramp. Stick and mouse paths untouched.
+local function nxDpadSpeed(self, dt)
+  local now = (love.timer and love.timer.getTime) and love.timer.getTime() or 0
+  if now - (self._nxDpadLast or 0) > 0.25 then self._nxDpadRamp = 0 end
+  self._nxDpadLast = now
+  local ramp = math.min((self._nxDpadRamp or 0) + (dt or 0), 0.4)
+  self._nxDpadRamp = ramp
+  local t = ramp / 0.4
+  return 130 + (420 - 130) * t * t
+end
+EOF
+    sed -e '/^local PAD_DPAD_SPEED = 420$/r '"$TMPDIR_NX/nx_dpad_helper.lua" \
+        -e 's/and PAD_SPEED or PAD_DPAD_SPEED/and PAD_SPEED or nxDpadSpeed(self, dt)/' \
+        "$_rc" > "$_rc.nxtmp" && mv "$_rc.nxtmp" "$_rc" \
+        || { rm -f "$_rc.nxtmp"; echo "d-pad cursor tuning skipped (patch failed)"; return 0; }
+    echo "Tuned d-pad cursor for handheld precision"
+}
+patch_pad_cursor
 
-# PokePC Followers was bundled briefly on 2026-08-10 and then dropped the
-# same day (user-confirmed: Wilds of Kanto ships its own follower system and
-# the two overlap) - remove it from any install that picked it up.
-rm -rf "$LOVE/mods/pokepcfollowers"
+# X/Y wheel scrolling (2026-08-18, user-reported): the launcher scrolls
+# only via mouse wheel or the right stick - the Brick has neither, so a
+# list taller than the screen (the installed-mods list, the Find-mods
+# index) is simply unreachable past the fold. Same install-time patch
+# posture as patch_pad_cursor above (exact-line anchors, fail-open skip,
+# re-applied on every payload extraction): X scrolls up, Y scrolls down,
+# hold to keep scrolling, routed through LauncherView.wheelmoved - the
+# exact path a mouse wheel feeds - so it scrolls whatever the pad pointer
+# sits over. X/Y are otherwise unused in the launcher (A=click, B=close,
+# L1/R1=tabs, Start/Select=play).
+patch_pad_scroll() {
+    _rc="$LOVE/src/import/RomImporter.lua"
+    [ -f "$_rc" ] || { echo "X/Y scroll patch skipped (no RomImporter.lua)"; return 0; }
+    grep -q '_nxWheelHold' "$_rc" && return 0   # already patched
+    if ! grep -q '^    self:_cycleTab(1)$' "$_rc" \
+        || ! grep -q '^  local ry = self._padAxis.righty or 0$' "$_rc" \
+        || ! grep -q '^function RomImporter:gamepadreleased(_, button)$' "$_rc"; then
+        echo "X/Y scroll patch skipped (upstream layout changed)"
+        return 0
+    fi
+    cat > "$TMPDIR_NX/nx_scroll_press.lua" <<'EOF'
+  elseif button == "x" or button == "y" then
+    -- NX Redux install-time patch (Xtras.pak gen1recomp install.sh):
+    -- wheel scrolling for stickless handhelds - X scrolls up, Y scrolls
+    -- down, hold to keep scrolling. Routed through the same wheel path a
+    -- mouse wheel / right stick feeds, so it scrolls whatever the pad
+    -- pointer sits over (mod lists included).
+    self._nxWheelHold = (button == "x") and 1 or -1
+    if self._flex then
+      require("src.import.LauncherView").wheelmoved(self, 0, self._nxWheelHold)
+    end
+EOF
+    cat > "$TMPDIR_NX/nx_scroll_release.lua" <<'EOF'
+  -- NX Redux patch: stop the X/Y held-scroll (see gamepadpressed).
+  if button == "x" or button == "y" then self._nxWheelHold = nil end
+EOF
+    cat > "$TMPDIR_NX/nx_scroll_update.lua" <<'EOF'
+  -- NX Redux patch: X/Y held-scroll - continuous wheel notches while held.
+  if self._nxWheelHold and self._flex then
+    self:_activatePadCursor()
+    require("src.import.LauncherView").wheelmoved(self, 0, self._nxWheelHold * 6 * dt)
+  end
+EOF
+    sed -e '/^    self:_cycleTab(1)$/r '"$TMPDIR_NX/nx_scroll_press.lua" \
+        -e '/^function RomImporter:gamepadreleased(_, button)$/r '"$TMPDIR_NX/nx_scroll_release.lua" \
+        -e '/^  local ry = self._padAxis.righty or 0$/r '"$TMPDIR_NX/nx_scroll_update.lua" \
+        "$_rc" > "$_rc.nxtmp" && mv "$_rc.nxtmp" "$_rc" \
+        || { rm -f "$_rc.nxtmp"; echo "X/Y scroll patch skipped (patch failed)"; return 0; }
+    echo "Mapped X/Y to list scrolling"
+}
+patch_pad_scroll
 
-echo "Installing Running Shoes Mod..."
-mkdir -p "$LOVE/mods/running_shoes"
-extract "$TMPDIR_NX/shoes.zip" "$LOVE/mods/running_shoes" || fail "could not extract running shoes mod"
+if [ "$IS_UPDATE" = "0" ]; then
+    echo "Installing Dramaless Shape Mod..."
+    mkdir -p "$LOVE/mods/DRAMALESS_SHAPE"
+    extract "$TMPDIR_NX/dramaless.zip" "$LOVE/mods/DRAMALESS_SHAPE" || fail "could not extract dramaless shape mod"
 
-echo "Installing Wilds of Kanto..."
-# Source-archive layout: find the dir holding manifest.json (the zip root
-# itself, or a single "<repo>-<branch>/" wrapper) rather than assuming one.
-mkdir -p "$TMPDIR_NX/wilds"
-extract "$TMPDIR_NX/wilds.zip" "$TMPDIR_NX/wilds" || fail "could not extract wilds of kanto mod"
-rm -f "$TMPDIR_NX/wilds.zip" # free ~18 MB before the copy below doubles the payload
-WILDS_SRC="$TMPDIR_NX/wilds"
-if [ ! -f "$WILDS_SRC/manifest.json" ]; then
-    for _wd in "$TMPDIR_NX/wilds"/*/; do
-        [ -f "${_wd}manifest.json" ] && WILDS_SRC="${_wd%/}" && break
-    done
+    echo "Installing StadiumBattleFX..."
+    mkdir -p "$LOVE/mods/STADIUM_BATTLE_FX"
+    extract "$TMPDIR_NX/stadium.zip" "$LOVE/mods/STADIUM_BATTLE_FX" || fail "could not extract stadium battle fx mod"
+
+    # The originally-bundled DramaticShapeVoxelMod (dead upstream, see the
+    # constants block) is superseded by Dramaless Shape, whose manifest
+    # declares DRAMATIC_SHAPE a conflict - remove it from a target that
+    # carried it (a fresh install over manually-deleted version records).
+    rm -rf "$LOVE/mods/DRAMATIC_SHAPE"
+
+    # PokePC Followers was bundled briefly on 2026-08-10 and then dropped the
+    # same day (user-confirmed: Wilds of Kanto ships its own follower system
+    # and the two overlap) - remove it from any install that picked it up.
+    rm -rf "$LOVE/mods/pokepcfollowers"
+
+    echo "Installing Running Shoes Mod..."
+    mkdir -p "$LOVE/mods/running_shoes"
+    extract "$TMPDIR_NX/shoes.zip" "$LOVE/mods/running_shoes" || fail "could not extract running shoes mod"
+
+    echo "Installing Wilds of Kanto..."
+    # Source-archive layout: find the dir holding manifest.json (the zip root
+    # itself, or a single "<repo>-<branch>/" wrapper) rather than assuming one.
+    mkdir -p "$TMPDIR_NX/wilds"
+    extract "$TMPDIR_NX/wilds.zip" "$TMPDIR_NX/wilds" || fail "could not extract wilds of kanto mod"
+    rm -f "$TMPDIR_NX/wilds.zip" # free ~15 MB before the copy below doubles the payload
+    WILDS_SRC="$TMPDIR_NX/wilds"
+    if [ ! -f "$WILDS_SRC/manifest.json" ]; then
+        for _wd in "$TMPDIR_NX/wilds"/*/; do
+            [ -f "${_wd}manifest.json" ] && WILDS_SRC="${_wd%/}" && break
+        done
+    fi
+    [ -f "$WILDS_SRC/manifest.json" ] || fail "unexpected wilds of kanto zip layout"
+    mkdir -p "$LOVE/mods/overworld_wild_spawns"
+    cp -R "$WILDS_SRC/." "$LOVE/mods/overworld_wild_spawns/" || fail "could not install wilds of kanto mod"
+    echo "@80 Yellow support and mods installed"
+else
+    # UPDATE: lovegame/mods is deliberately untouched - the player updates,
+    # adds and removes mods from the in-game manager (see IS_UPDATE above).
+    echo "Update: bundled mods left as-is (manage them in-game)"
+    echo "@80 Yellow support updated"
 fi
-[ -f "$WILDS_SRC/manifest.json" ] || fail "unexpected wilds of kanto zip layout"
-mkdir -p "$LOVE/mods/overworld_wild_spawns"
-cp -R "$WILDS_SRC/." "$LOVE/mods/overworld_wild_spawns/" || fail "could not install wilds of kanto mod"
-echo "@80 Yellow support and mods installed"
+
+# Default community mod index (2026-08-18): seed bryanthaboi's index into
+# options.modIndexes so the launcher's "Find mods" tab lists mods out of the
+# box (upstream deliberately ships with no index and asks). options.lua is
+# the game's own SaveSerializer output - deterministic "return {" first
+# line, two-space indent, sorted keys, arrays as [1]-keyed tables - and its
+# reader accepts only that restricted grammar, so the seed below mirrors the
+# exact row SaveData would write for ModIndex.addSource("owner/repo"): feed
+# (Pages URL), base, the raw.githubusercontent fallback, label, url. Rules:
+# a missing file gets a minimal one (the game merges loaded keys over its
+# defaults, so a modIndexes-only file is complete); a file whose
+# "modIndexes = {}," line is (still) empty gets the seed spliced in; a file
+# already naming this index, one holding player-added indexes (their list,
+# not ours to edit), or one not starting with "return {" (a truncated write
+# the game recovers from its own .bak) is left alone.
+OPTS_LUA="$LOVE/options.lua"
+IDX_SEED="$TMPDIR_NX/modindex_seed"
+cat > "$IDX_SEED" <<'EOF'
+  modIndexes = {
+    [1] = {
+      base = "https://bryanthaboi.github.io/gen1recomp-mod-index/",
+      fallback = "https://raw.githubusercontent.com/bryanthaboi/gen1recomp-mod-index/main/site/data/index.json",
+      feed = "https://bryanthaboi.github.io/gen1recomp-mod-index/data/index.json",
+      label = "bryanthaboi/gen1recomp-mod-index",
+      url = "bryanthaboi/gen1recomp-mod-index",
+    },
+  },
+EOF
+if [ ! -f "$OPTS_LUA" ]; then
+    echo "Adding default mod index..."
+    { echo "return {"; cat "$IDX_SEED"; echo "}"; } > "$OPTS_LUA" \
+        || fail "could not write options.lua"
+elif grep -q "gen1recomp-mod-index" "$OPTS_LUA"; then
+    : # already seeded
+elif grep -q '^  modIndexes = {$' "$OPTS_LUA"; then
+    : # player-built index list (non-empty serializes with an open brace)
+elif [ "$(head -1 "$OPTS_LUA")" = "return {" ]; then
+    echo "Adding default mod index..."
+    # Splice after line 1 ("return {"); a top-level key's position in the
+    # file carries no meaning. Drop the empty "modIndexes = {}," line if
+    # one is present (a file from before the key existed has none).
+    sed -e "1r $IDX_SEED" -e '/^  modIndexes = {},$/d' "$OPTS_LUA" > "$OPTS_LUA.nxtmp" \
+        && mv "$OPTS_LUA.nxtmp" "$OPTS_LUA" || fail "could not update options.lua"
+fi
+
+# Voxel mod disabled by default (2026-08-18, user decision, BOTH
+# platforms): the 3D voxel overworld is the single heaviest thing in the
+# bundle (99% GPU on a Brick before tuning), so players opt IN from the
+# in-game mod manager instead of opting out. Seeded as the shared
+# mods.DRAMALESS_SHAPE = false enablement answer - the game's per-game
+# toggles (modsByVersion) always win over it, so a player who has enabled
+# the mod keeps it, and an existing install whose enablement migration
+# already materialized per-game answers is unaffected in practice. Same
+# never-clobber rules as above: a non-empty mods table (the player has
+# toggled something) is left alone entirely.
+if [ -f "$OPTS_LUA" ] && [ "$(head -1 "$OPTS_LUA")" = "return {" ] \
+    && ! grep -q 'DRAMALESS_SHAPE = false' "$OPTS_LUA"; then
+    MODS_SEED="$TMPDIR_NX/mods_seed"
+    cat > "$MODS_SEED" <<'EOF'
+  mods = {
+    DRAMALESS_SHAPE = false,
+  },
+EOF
+    if grep -q '^  mods = {$' "$OPTS_LUA"; then
+        : # player-toggled enablement list - theirs, not ours to edit
+    elif grep -q '^  mods = {},$' "$OPTS_LUA"; then
+        sed -e '1r '"$MODS_SEED" -e '/^  mods = {},$/d' "$OPTS_LUA" > "$OPTS_LUA.nxtmp" \
+            && mv "$OPTS_LUA.nxtmp" "$OPTS_LUA" || fail "could not seed mod enablement"
+        echo "Voxel mod ships OFF - enable it in-game under MODS"
+    else
+        sed -e '1r '"$MODS_SEED" "$OPTS_LUA" > "$OPTS_LUA.nxtmp" \
+            && mv "$OPTS_LUA.nxtmp" "$OPTS_LUA" || fail "could not seed mod enablement"
+        echo "Voxel mod ships OFF - enable it in-game under MODS"
+    fi
+fi
+
+# Handheld performance defaults (2026-08-18, tuned on a Brick): the voxel
+# mod ships shadows ON and FULL water reflections, and the game a 60 FPS
+# cap - on the Brick's GPU (PowerVR GE8300, fixed 700 MHz, no DVFS) that
+# measured 99% GPU utilisation plus eMMC swap pressure = visible lag.
+# Seeded defaults: render scale 1/2, render distance SHORT, shadows off,
+# AA off, water SKY, fpsCap 40. tg5040 ONLY - the Smart Pro S (tg5050)
+# carries a stronger GPU and keeps the game's stock defaults. Same posture
+# as the mod-index seed above - player choices are never overwritten: the
+# whole mod-options seed is skipped when a DRAMALESS_SHAPE options bucket
+# already exists (the exact-indent match can also hit a modsGen2 bucket of
+# the same name - a rare false positive that errs toward skipping, never
+# corrupting), and fpsCap is only rewritten while it still holds the
+# stock 60.
+if [ "${PLATFORM:-}" = "tg5040" ] && [ -f "$OPTS_LUA" ] && [ "$(head -1 "$OPTS_LUA")" = "return {" ]; then
+    _po_bucket="$TMPDIR_NX/perf_bucket"
+    cat > "$_po_bucket" <<'EOF'
+    DRAMALESS_SHAPE = {
+      aa = 0,
+      renderDistanceSetting = 16,
+      renderScale = 2,
+      shadowQuality = "off",
+      water = "sky",
+    },
+EOF
+    if ! grep -q '^    DRAMALESS_SHAPE = {$' "$OPTS_LUA"; then
+        echo "Seeding handheld performance defaults..."
+        if grep -q '^  modOptions = {$' "$OPTS_LUA"; then
+            # Non-empty modOptions without our bucket: insert just the
+            # bucket inside the existing table (key order is free-form -
+            # the game re-sorts on its next save).
+            sed -e '/^  modOptions = {$/r '"$_po_bucket" "$OPTS_LUA" > "$OPTS_LUA.nxtmp"
+        elif grep -q '^  modOptions = {},$' "$OPTS_LUA"; then
+            { echo "  modOptions = {"; cat "$_po_bucket"; echo "  },"; } > "$TMPDIR_NX/perf_block"
+            sed -e '1r '"$TMPDIR_NX/perf_block" -e '/^  modOptions = {},$/d' "$OPTS_LUA" > "$OPTS_LUA.nxtmp"
+        else
+            { echo "  modOptions = {"; cat "$_po_bucket"; echo "  },"; } > "$TMPDIR_NX/perf_block"
+            sed -e '1r '"$TMPDIR_NX/perf_block" "$OPTS_LUA" > "$OPTS_LUA.nxtmp"
+        fi
+        mv "$OPTS_LUA.nxtmp" "$OPTS_LUA" || fail "could not seed performance defaults"
+    fi
+    if grep -q '^  fpsCap = ' "$OPTS_LUA"; then
+        sed 's/^  fpsCap = 60,$/  fpsCap = 40,/' "$OPTS_LUA" > "$OPTS_LUA.nxtmp" \
+            && mv "$OPTS_LUA.nxtmp" "$OPTS_LUA" || fail "could not seed fps cap"
+    else
+        printf '  fpsCap = 40,\n' > "$TMPDIR_NX/fps_seed"
+        sed -e '1r '"$TMPDIR_NX/fps_seed" "$OPTS_LUA" > "$OPTS_LUA.nxtmp" \
+            && mv "$OPTS_LUA.nxtmp" "$OPTS_LUA" || fail "could not seed fps cap"
+    fi
+fi
 
 echo "@90 Scanning for ROMs..."
 echo "Looking for your Pokemon ROMs..."

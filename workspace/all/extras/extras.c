@@ -190,12 +190,21 @@ static void read_latest(AddonEntry* e) {
 	read_line_file(path, e->latest, sizeof(e->latest));
 }
 
+// Tag comparison ignores a leading v/V: upstream tagging drifts between
+// "v0.2.4" and "0.2.4" (the v is a convention some releases forget), and a
+// spelling-only difference must not read as an update. The guard on [1]
+// keeps a literal "v" tag intact.
+static const char* tag_norm(const char* tag) {
+	return (tag[0] == 'v' || tag[0] == 'V') && tag[1] ? tag + 1 : tag;
+}
+
 // The one predicate behind the "Update Available" group, the row badge and
 // the detail page's UPDATE action: a tracked entry is updatable once both
 // tags are known and differ (plain inequality - no semver parsing, matching
-// the spec).
+// the spec - but v-prefix-insensitive, see tag_norm).
 static bool entry_update_available(const AddonEntry* e) {
-	return e->installed[0] && e->latest[0] && strcmp(e->installed, e->latest) != 0;
+	return e->installed[0] && e->latest[0] &&
+		   strcmp(tag_norm(e->installed), tag_norm(e->latest)) != 0;
 }
 
 // --- background latest-release check --------------------------------------
@@ -518,8 +527,8 @@ static void render_extras_list(SDL_Surface* screen, AddonTab active_tab, const T
 	// Function-scope arrays: hint_pairs must outlive the UI_listViewRender
 	// call below, so a branch-scoped compound literal would be UB (see
 	// ui_listview.h).
-	char* hints_full[] = {"L1/R1", "TAB", "B", "EXIT", "A", "DETAILS", NULL};
-	char* hints_empty[] = {"L1/R1", "TAB", "B", "EXIT", NULL};
+	char* hints_full[] = {"LEFT/RIGHT", "TAB", "B", "EXIT", "A", "DETAILS", NULL};
+	char* hints_empty[] = {"LEFT/RIGHT", "TAB", "B", "EXIT", NULL};
 
 	extras_ctx.rows = rows;
 	extras_view.title = NULL;
@@ -564,17 +573,21 @@ static int run_detail(AddonEntry* e); // Task 4; returns 1 if install state chan
 // (checked gametime/scraper/musicplayer - their L1/R1 uses are alpha-jump
 // and value-step, not tab switching), so plain "either shoulder button
 // flips the tab" is used here - exactly two tabs makes wrap and clamp the
-// same thing anyway. L1/R1 stays app-polled: the widget has no shoulder-
-// button vocabulary. Task 13 added the "L1/R1"/"TAB" hint (user feedback:
-// the switch wasn't discoverable) - one combined button-pill hint ("L1/R1"
-// as the button label, GFX_blitButton renders any >1-char button string as
-// a text pill rather than two separate circular buttons) rather than two
-// separate {L1,"..."}/{R1,"..."} pairs, since UI_renderButtonHintBar caps
-// at 4 total pairs and doesn't clip pixel overflow past dst->w on its own -
-// measured against the real theme font (both device point sizes) before
-// picking this: three pairs (B EXIT / A DETAILS / L1/R1 TAB) sum to ~577px
-// on the Brick's 1024px-wide bar and ~387px on tg5050's 1280px -
-// comfortable margin on both, see the Task 13 report.
+// same thing anyway. The switch moved shoulder buttons -> d-pad LEFT/RIGHT
+// (user request 2026-08-18: first added alongside L1/R1, then L1/R1
+// retired the same day) - the ListView's LEFT/RIGHT page-jump is opted out
+// via no_lr_paging so one press never both flips the tab and pages the
+// fresh list; both tabs are short and UP/DOWN wraps, so page-jump loses
+// nothing. Task 13 added the tab hint (user feedback: the switch wasn't
+// discoverable) - one combined button-pill hint ("LEFT/RIGHT" as the
+// button label, GFX_blitButton renders any >1-char button string as a text
+// pill rather than two separate circular buttons; same label the bootlogo/
+// musicplayer settings bars use for d-pad hints), since
+// UI_renderButtonHintBar caps at 4 total pairs and doesn't clip pixel
+// overflow past dst->w on its own. The Task 13 width math measured the
+// three-pair bar at ~577px on the Brick's 1024px bar / ~387px on tg5050's
+// 1280px with the "L1/R1" label; "LEFT/RIGHT" adds ~5 glyphs' width -
+// still comfortable margin on both.
 static void run_list(void) {
 	AddonTab active_tab = TAB_GAMES;
 	TabRows rows;
@@ -584,13 +597,18 @@ static void run_list(void) {
 	extras_ctx.rows = &rows;
 	extras_view.get_row = extras_get_row;
 	extras_view.ctx = &extras_ctx;
+	// D-pad LEFT/RIGHT is claimed for the tab switch below (user request
+	// 2026-08-18: shoulder buttons and d-pad both flip the tab), so the
+	// widget's LEFT/RIGHT page-jump must not also fire on the same press.
+	// Both tabs are short lists; UP/DOWN wrap covers traversal.
+	extras_view.no_lr_paging = true;
 	UI_listViewReset(&extras_view, extras_widget_count(&rows), TAB_LABEL[active_tab]);
 	bool dirty = true;
 	IndicatorType show_setting = INDICATOR_NONE;
 	while (1) {
 		GFX_startFrame();
 		PAD_poll();
-		if (PAD_justPressed(BTN_L1) || PAD_justPressed(BTN_R1)) {
+		if (PAD_justPressed(BTN_LEFT) || PAD_justPressed(BTN_RIGHT)) {
 			active_tab = (active_tab == TAB_GAMES) ? TAB_TOOLS : TAB_GAMES;
 			build_tab_rows(active_tab, &rows);
 			UI_listViewReset(&extras_view, extras_widget_count(&rows), TAB_LABEL[active_tab]);

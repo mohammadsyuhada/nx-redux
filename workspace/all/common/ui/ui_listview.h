@@ -55,6 +55,9 @@ typedef struct {
 								// (function-scope or static; an if/else-branch-scoped
 								// compound literal is dead by render time — UB).
 	bool no_wrap;				// zero-init = wrapping ON
+	bool no_lr_paging;			// zero-init = LEFT/RIGHT page-jump ON; set when the
+								// caller claims LEFT/RIGHT for its own action (extras'
+								// d-pad tab switch) so the widget doesn't also page
 	int list_y_override;		// 0 = layout default; else band origin
 	int max_width_override;		// 0 = layout default; else thumb-adjusted row width
 	// -- state (widget-owned; zero-init valid) --

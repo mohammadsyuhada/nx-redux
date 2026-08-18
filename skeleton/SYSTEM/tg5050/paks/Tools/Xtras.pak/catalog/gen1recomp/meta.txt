@@ -1,7 +1,7 @@
 name=Gen1Recomp (Pokemon R/B/Y)
 category=GAME
 runtime=native
-desc=Native LOVE2D recreation of Pokemon Red, Blue and Yellow with three mods bundled: Dramatic Shape Voxel (3D overworld, off by default), Running Shoes (hold B to run) and Wilds of Kanto (visible overworld wild Pokemon, with followers). Needs your own US cartridge ROM: put it in Roms/Game Boy first and the installer copies it over, or drop it in the game's lovegame folder later. Download ~32 MB.
+desc=Native LOVE2D recreation of Pokemon Red, Blue and Yellow. Bundles four mods (3D voxel overworld - off by default, enable it in-game - Stadium battle FX, Running Shoes, Wilds of Kanto) plus an in-game mod browser for more. Needs your own US cartridge ROM in Roms/Game Boy. Download ~27 MB.
 size_mb=60
 repo=bryanthaboi/gen1recomp
 asset=*rg34xxsp-stockos64-mod.zip

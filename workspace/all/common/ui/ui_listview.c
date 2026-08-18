@@ -102,9 +102,9 @@ ListViewAction UI_listViewHandleInput(ListView* v) {
 			v->selected = step_selectable(v, v->selected, -1);
 		} else if (PAD_justRepeated(BTN_DOWN)) {
 			v->selected = step_selectable(v, v->selected, +1);
-		} else if (PAD_justRepeated(BTN_LEFT)) {
+		} else if (!v->no_lr_paging && PAD_justRepeated(BTN_LEFT)) {
 			v->selected = nearest_selectable(v, v->selected - page, -1);
-		} else if (PAD_justRepeated(BTN_RIGHT)) {
+		} else if (!v->no_lr_paging && PAD_justRepeated(BTN_RIGHT)) {
 			v->selected = nearest_selectable(v, v->selected + page, +1);
 		}
 		if (v->selected != prev) {
