@@ -1287,9 +1287,11 @@ int PLAT_textShouldScroll(TTF_Font* font, const char* in_name, int max_width, SD
 	}
 }
 static int text_offset = 0;
+static int scroll_frame_counter = 0;
 static bool scroll_initial_pause = true;
 void PLAT_resetScrollText() {
 	text_offset = 0;
+	scroll_frame_counter = 0;
 	scroll_initial_pause = true;
 }
 void PLAT_scrollTextTexture(
@@ -1302,7 +1304,6 @@ void PLAT_scrollTextTexture(
 	bool rtl,			 // true: scroll right-to-left (Arabic), right-aligned start
 	SDL_mutex* fontMutex // Mutex for thread-safe font access (can be NULL)
 ) {
-	static int frame_counter = 0;
 	int padding = 30;
 
 	if (transparency < 0.0f)
@@ -1362,9 +1363,9 @@ void PLAT_scrollTextTexture(
 
 	// Scroll only if text is wider than clip width
 	if (single_width > w) {
-		frame_counter++;
+		scroll_frame_counter++;
 		// Initial pause: wait 0.5s before first scroll
-		if (scroll_initial_pause && frame_counter < 30) {
+		if (scroll_initial_pause && scroll_frame_counter < 30) {
 			// Hold at start
 		} else {
 			scroll_initial_pause = false;
@@ -1378,11 +1379,11 @@ void PLAT_scrollTextTexture(
 				if (text_offset >= single_width + padding)
 					text_offset = 0;
 			}
-			frame_counter = 0;
+			scroll_frame_counter = 0;
 		}
 	} else {
 		text_offset = 0;
-		frame_counter = 0;
+		scroll_frame_counter = 0;
 	}
 
 	PLAT_GPU_Flip();

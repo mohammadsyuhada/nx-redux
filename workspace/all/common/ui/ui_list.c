@@ -19,6 +19,12 @@
 
 void ScrollText_reset(ScrollTextState* state, const char* text, TTF_Font* font, int max_width, bool use_gpu) {
 	GFX_clearLayers(LAYER_SCROLLTEXT);
+	// The GPU marquee keeps its offset in platform statics that outlive this
+	// state struct. Reset them here, not just in ScrollText_render's
+	// activation branch: idle-driven hosts activate via
+	// ScrollText_activateAfterDelay and never take that branch, so a stale
+	// offset from the previous item would make the new marquee start mid-text.
+	GFX_resetScrollText();
 
 	if (state->cached_scroll_surface) {
 		SDL_FreeSurface(state->cached_scroll_surface);
