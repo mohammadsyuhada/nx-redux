@@ -299,8 +299,12 @@ int main(int argc, char* argv[]) {
 				menu_title = GameSwitcher_getSelectedName();
 			else if (currentScreen == SCREEN_SEARCH)
 				menu_title = "Search";
-			else
-				menu_title = stack->count > 1 ? top->name : "NX Redux";
+			else if (stack->count > 1) {
+				char* dir_title = top->name;
+				trimSortingMeta(&dir_title);
+				menu_title = dir_title;
+			} else
+				menu_title = "NX Redux";
 			int ow = UI_renderMenuBar(screen, menu_title);
 
 			// capture menu bar for fixed overlay during animation
