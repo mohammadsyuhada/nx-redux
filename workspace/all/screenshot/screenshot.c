@@ -16,6 +16,18 @@
 #include <linux/input.h>
 #include <linux/fb.h>
 
+#if defined(__has_include)
+#if __has_include(<drm/drm.h>) && __has_include(<drm/drm_mode.h>)
+#define HAVE_DRM 1
+#include <drm/drm.h>
+#include <drm/drm_mode.h>
+// Toolchain UAPI headers predate kernel 5.7; the tg5050 kernel (5.15) has it.
+#ifndef DRM_IOCTL_MODE_GETFB2
+#define DRM_IOCTL_MODE_GETFB2 DRM_IOWR(0xCE, struct drm_mode_fb_cmd2)
+#endif
+#endif
+#endif
+
 #define PID_FILE "/tmp/screenshot.pid"
 #define SCREENSHOT_DIR "/mnt/SDCARD/Images/Screenshots"
 #define FFMPEG_PATH "/usr/bin/ffmpeg"
@@ -185,34 +197,155 @@ static int fb0_has_content(void) {
 	return result;
 }
 
+#define DRM_RAW_PATH "/tmp/screenshot_drm.raw"
+
+// Read the framebuffer currently scanned out by the display engine straight
+// from DRM/KMS: GETFB2 + PRIME export + mmap. Needs only root
+// (CAP_SYS_ADMIN), not DRM master, so it captures ANY app — including
+// third-party paks that don't publish the GPU mirror. This is the primary
+// tg5050 source; on tg5040 the DRM node is just the Mali render device with
+// no KMS planes, so it fails fast and the fbdev path takes over.
+// On success writes packed rows to DRM_RAW_PATH and fills video_size
+// ("WxH") + pixfmt (ffmpeg rawvideo pixel_format name).
+#ifdef HAVE_DRM
+static int drm_ioctl(int fd, unsigned long req, void* arg) {
+	int ret;
+	do {
+		ret = ioctl(fd, req, arg);
+	} while (ret < 0 && (errno == EINTR || errno == EAGAIN));
+	return ret;
+}
+
+static int drm_capture_raw(char* video_size, size_t vn, char* pixfmt, size_t pn) {
+	int ok = 0;
+	int fd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
+	if (fd < 0)
+		return 0;
+
+	struct drm_set_client_cap cap = {DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1};
+	drm_ioctl(fd, DRM_IOCTL_SET_CLIENT_CAP, &cap);
+
+	uint32_t plane_ids[64];
+	struct drm_mode_get_plane_res pres = {0};
+	pres.plane_id_ptr = (uintptr_t)plane_ids;
+	pres.count_planes = 64;
+	if (drm_ioctl(fd, DRM_IOCTL_MODE_GETPLANERESOURCES, &pres) ||
+		pres.count_planes == 0 || pres.count_planes > 64) {
+		close(fd);
+		return 0;
+	}
+
+	for (uint32_t i = 0; i < pres.count_planes && !ok; i++) {
+		struct drm_mode_get_plane pl = {0};
+		pl.plane_id = plane_ids[i];
+		if (drm_ioctl(fd, DRM_IOCTL_MODE_GETPLANE, &pl) || !pl.fb_id)
+			continue;
+
+		struct drm_mode_fb_cmd2 fb = {0};
+		fb.fb_id = pl.fb_id;
+		if (drm_ioctl(fd, DRM_IOCTL_MODE_GETFB2, &fb))
+			continue;
+		if (fb.modifier[0] != 0) // tiled/compressed (e.g. AFBC): can't read raw
+			continue;
+
+		// Single-plane 32bpp RGB only; video overlays (NV12 etc.) are skipped
+		// and the loop falls through to the UI plane.
+		const char* fmt = NULL;
+		switch (fb.pixel_format) {
+		case 0x34325258: // XR24 XRGB8888: B G R X in memory
+		case 0x34325241:
+			fmt = "bgr0";
+			break;		 // AR24 ARGB8888
+		case 0x34325842: // XB24 XBGR8888: R G B X in memory
+		case 0x34324241:
+			fmt = "rgb0";
+			break; // AB24 ABGR8888
+		default:
+			continue;
+		}
+
+		struct drm_prime_handle prime = {0};
+		prime.handle = fb.handles[0];
+		prime.flags = O_CLOEXEC;
+		if (drm_ioctl(fd, DRM_IOCTL_PRIME_HANDLE_TO_FD, &prime))
+			continue;
+
+		size_t len = (size_t)fb.offsets[0] + (size_t)fb.pitches[0] * fb.height;
+		uint8_t* map = mmap(NULL, len, PROT_READ, MAP_SHARED, prime.fd, 0);
+		if (map != MAP_FAILED) {
+			FILE* out = fopen(DRM_RAW_PATH, "w");
+			if (out) {
+				// Pack rows in case pitch > width*4
+				size_t row = (size_t)fb.width * 4;
+				const uint8_t* src = map + fb.offsets[0];
+				size_t written = 0;
+				for (uint32_t y = 0; y < fb.height; y++)
+					written += fwrite(src + (size_t)y * fb.pitches[0], 1, row, out);
+				fclose(out);
+				if (written == row * fb.height) {
+					snprintf(video_size, vn, "%ux%u", fb.width, fb.height);
+					snprintf(pixfmt, pn, "%s", fmt);
+					ok = 1;
+				}
+			}
+			munmap(map, len);
+		}
+		close(prime.fd);
+	}
+	close(fd); // releases the GEM handle references from GETFB2
+	return ok;
+}
+#else
+static int drm_capture_raw(char* video_size, size_t vn, char* pixfmt, size_t pn) {
+	(void)video_size;
+	(void)vn;
+	(void)pixfmt;
+	(void)pn;
+	return 0;
+}
+#endif
+
 static void capture_screenshot(void) {
 	mkdir_p(SCREENSHOT_DIR);
 
-	// Pick a source: prefer a live GPU mirror, else a non-black fb0. Retry
-	// briefly: enabling capture wakes idle apps via PLAT_pokeCapture (fires
-	// once the app has been idle ~1s, ≤500ms poll cadence) and app
+	// Pick a source, in order of preference:
+	//   1. live GPU mirror (app-published, vsync'd frame)
+	//   2. DRM plane readback (composited scanout — works for ANY app on
+	//      tg5050, including third-party paks; fails fast where the DRM node
+	//      has no KMS planes)
+	//   3. non-black fb0 via fbdev (tg5040, where GL renders through fb0)
+	// Retry briefly: enabling capture wakes idle apps via PLAT_pokeCapture
+	// (fires once the app has been idle ~1s, ≤500ms poll cadence) and app
 	// transitions repaint fb0 within a frame or two.
-	int use_rawvideo = 0;
-	int have_source = 0;
-	for (int i = 0; i < 20; i++) {
+	enum { SRC_NONE,
+		   SRC_MIRROR,
+		   SRC_DRM,
+		   SRC_FBDEV } src = SRC_NONE;
+	char video_size[32];
+	char pixfmt[8];
+	for (int i = 0; i < 20 && src == SRC_NONE; i++) {
 		if (mirror_live()) {
-			use_rawvideo = 1;
-			have_source = 1;
+			src = SRC_MIRROR;
+			break;
+		}
+		if (drm_capture_raw(video_size, sizeof(video_size), pixfmt, sizeof(pixfmt))) {
+			src = SRC_DRM;
 			break;
 		}
 		if (fbdev_usable() && fb0_has_content()) {
-			have_source = 1;
+			src = SRC_FBDEV;
 			break;
 		}
 		usleep(100000);
 	}
-	if (!have_source) {
-		// Nothing can supply pixels here (e.g. a third-party pak on tg5050
-		// whose frames never reach fb0): fail honestly instead of writing an
-		// all-black JPEG and claiming success.
+	if (src == SRC_NONE) {
+		// Nothing can supply pixels here: fail honestly instead of writing
+		// an all-black JPEG and claiming success.
 		osd_toast("Capture not available here", 2000);
 		return;
 	}
+	if (src == SRC_MIRROR)
+		mirror_video_size(video_size, sizeof(video_size));
 
 	time_t now = time(NULL);
 	struct tm* t = localtime(&now);
@@ -221,9 +354,6 @@ static void capture_screenshot(void) {
 			 SCREENSHOT_DIR "/SCR_%04d%02d%02d_%02d%02d%02d.jpg",
 			 t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
 			 t->tm_hour, t->tm_min, t->tm_sec);
-
-	char video_size[32];
-	mirror_video_size(video_size, sizeof(video_size));
 
 	pid_t pid = fork();
 	if (pid < 0)
@@ -234,12 +364,22 @@ static void capture_screenshot(void) {
 		freopen("/dev/null", "r", stdin);
 		freopen("/dev/null", "w", stdout);
 		freopen("/dev/null", "w", stderr);
-		if (use_rawvideo) {
+		if (src == SRC_MIRROR) {
+			// glReadPixels frames are bottom-to-top RGBA: vflip at encode
 			execl(FFMPEG_PATH, "ffmpeg", "-nostdin",
 				  "-f", "rawvideo", "-pixel_format", "rgba",
 				  "-video_size", video_size,
 				  "-i", FB_MIRROR_PATH,
 				  "-vf", "vflip",
+				  "-frames:v", "1", "-c:v", "mjpeg", "-q:v", "2",
+				  "-y", output,
+				  (char*)NULL);
+		} else if (src == SRC_DRM) {
+			// scanout buffer is top-down: no flip
+			execl(FFMPEG_PATH, "ffmpeg", "-nostdin",
+				  "-f", "rawvideo", "-pixel_format", pixfmt,
+				  "-video_size", video_size,
+				  "-i", DRM_RAW_PATH,
 				  "-frames:v", "1", "-c:v", "mjpeg", "-q:v", "2",
 				  "-y", output,
 				  (char*)NULL);
@@ -256,6 +396,8 @@ static void capture_screenshot(void) {
 	// Wait for ffmpeg to finish (single frame capture is fast)
 	int status = 0;
 	waitpid(pid, &status, 0);
+	if (src == SRC_DRM)
+		remove(DRM_RAW_PATH);
 	if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
 		osd_toast("Screenshot saved", 1500);
 	else
