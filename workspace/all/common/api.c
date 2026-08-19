@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <math.h>
+#include <signal.h>
 #include <msettings.h>
 #include <pthread.h>
 #include <samplerate.h>
@@ -485,6 +486,8 @@ SDL_Surface* GFX_init(int mode) {
 	asset_rects[ASSET_POWEROFF] = (SDL_Rect){SCALE4(43, 117, 10, 10)};
 	asset_rects[ASSET_SUSPEND] = (SDL_Rect){SCALE4(32, 117, 10, 10)};
 	asset_rects[ASSET_RESTART] = (SDL_Rect){SCALE4(54, 119, 11, 8)};
+	asset_rects[ASSET_SCREENSHOT] = (SDL_Rect){SCALE4(105, 104, 12, 12)};
+	asset_rects[ASSET_RECORD] = (SDL_Rect){SCALE4(78, 117, 10, 10)};
 	asset_rects[ASSET_BLUETOOTH] = (SDL_Rect){SCALE4(53, 104, 12, 12)};
 	asset_rects[ASSET_BLUETOOTH_OFF] = (SDL_Rect){SCALE4(66, 104, 12, 12)};
 	asset_rects[ASSET_AUDIO] = (SDL_Rect){SCALE4(79, 104, 12, 12)};
@@ -1737,9 +1740,12 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, IndicatorType show_setting) {
 		int show_ext_audio = GetAudioSink() != AUDIO_SINK_DEFAULT;
 		int show_bt_controller = access("/dev/input/js1", F_OK) == 0;
 		bool show_clock = CFG_getShowClock();
+		int show_cap = 0;
+		int show_rec = 0;
+		PWR_captureStatus(&show_cap, &show_rec);
 		SDL_Rect battery_rect = asset_rects[ASSET_BATTERY];
 
-		if (!show_ext_audio && !show_bt_controller && !show_wifi && !show_clock) {
+		if (!show_ext_audio && !show_bt_controller && !show_wifi && !show_clock && !show_cap && !show_rec) {
 			ow = battery_rect.w + SCALE1(BUTTON_MARGIN * 2);
 			ox = dst->w - SCALE1(PADDING) - ow;
 
@@ -1749,6 +1755,16 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, IndicatorType show_setting) {
 			GFX_blitBatteryAtPosition(dst, battery_x, battery_y);
 		} else {
 			ow = SCALE1(BUTTON_MARGIN);
+
+			if (show_rec) {
+				SDL_Rect rec_rect = asset_rects[ASSET_RECORD];
+				ow += rec_rect.w + SCALE1(BUTTON_MARGIN);
+			}
+
+			if (show_cap) {
+				SDL_Rect cap_rect = asset_rects[ASSET_SCREENSHOT];
+				ow += cap_rect.w + SCALE1(BUTTON_MARGIN);
+			}
 
 			if (show_ext_audio) {
 				SDL_Rect audio_rect = asset_rects[ASSET_AUDIO];
@@ -1788,6 +1804,24 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, IndicatorType show_setting) {
 			ox = dst->w - SCALE1(PADDING) - ow;
 
 			ox += SCALE1(BUTTON_MARGIN);
+
+			if (show_rec) {
+				// classic "recording" red dot
+				SDL_Rect rec_rect = asset_rects[ASSET_RECORD];
+				int y = (bar_h - rec_rect.h) / 2;
+
+				GFX_blitAssetColor(ASSET_RECORD, NULL, dst, &(SDL_Rect){ox, y}, 0xFF453A);
+				ox += rec_rect.w + SCALE1(BUTTON_MARGIN);
+			}
+
+			if (show_cap) {
+				// camera: screenshot daemon armed (L2+R2 captures)
+				SDL_Rect cap_rect = asset_rects[ASSET_SCREENSHOT];
+				int y = (bar_h - cap_rect.h) / 2;
+
+				GFX_blitAssetColor(ASSET_SCREENSHOT, NULL, dst, &(SDL_Rect){ox, y}, THEME_COLOR6);
+				ox += cap_rect.w + SCALE1(BUTTON_MARGIN);
+			}
 
 			if (show_ext_audio) {
 				SDL_Rect audio_rect = asset_rects[ASSET_AUDIO];
@@ -3122,6 +3156,37 @@ void VIB_triplePulse(int strength, int duration_ms, int gap_ms) {
 
 ///////////////////////////////
 
+// --- capture-daemon indicators ----------------------------------------------
+// The OSD screenshot/recorder daemons advertise themselves through PID files;
+// the menu bar shows a camera/record icon while they're alive so the user
+// knows a background capture service is armed. Cached briefly: this is read
+// on every rendered frame via GFX_blitHardwareGroup.
+static int capture_pidfile_alive(const char* path) {
+	FILE* f = fopen(path, "r");
+	if (!f)
+		return 0;
+	int pid = 0;
+	int ok = fscanf(f, "%d", &pid) == 1;
+	fclose(f);
+	return ok && pid > 0 && kill(pid, 0) == 0;
+}
+
+void PWR_captureStatus(int* screenshot_armed, int* recording) {
+	static uint32_t checked_at = 0;
+	static int cap = 0;
+	static int rec = 0;
+	uint32_t now = SDL_GetTicks();
+	if (!checked_at || now - checked_at >= 500) {
+		checked_at = now ? now : 1;
+		cap = capture_pidfile_alive("/tmp/screenshot.pid");
+		rec = capture_pidfile_alive("/tmp/screenrecorder.pid");
+	}
+	if (screenshot_armed)
+		*screenshot_armed = cap;
+	if (recording)
+		*recording = rec;
+}
+
 static void PWR_updateBatteryStatus(void) {
 	int is_charging, charge;
 	PLAT_getBatteryStatusFine(&is_charging, &charge);
@@ -3235,6 +3300,21 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 			dirty = true;
 		}
 		checked_charge_at = now;
+	}
+
+	// Capture daemons (screenshot/recorder): redraw the menu bar when their
+	// state flips so the indicator appears/disappears promptly.
+	{
+		static int was_cap = -1;
+		static int was_rec = -1;
+		int cap, rec;
+		PWR_captureStatus(&cap, &rec);
+		if (cap != was_cap || rec != was_rec) {
+			if (was_cap != -1)
+				dirty = true;
+			was_cap = cap;
+			was_rec = rec;
+		}
 	}
 
 	if (PAD_justReleased(BTN_POWEROFF) || (power_pressed_at && now - power_pressed_at >= 1000)) {

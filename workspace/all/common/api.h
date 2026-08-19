@@ -149,6 +149,8 @@ enum {
 
 	ASSET_CHECKCIRCLE,
 	ASSET_LOCK,
+	ASSET_SCREENSHOT,
+	ASSET_RECORD,
 	ASSET_SETTINGS,
 	ASSET_STORE,
 	ASSET_GAMEPAD,
@@ -534,6 +536,9 @@ void PWR_quit(void);
 int PWR_ignoreSettingInput(int btn, IndicatorType show_setting);
 IndicatorType PWR_getShowSetting(void);
 void PWR_update(bool* dirty, IndicatorType* show_setting, PWR_callback_t before_sleep, PWR_callback_t after_sleep);
+// whether the OSD screenshot daemon (armed) / screen recorder (recording) are
+// alive, for the menu-bar indicators; cached ~500ms internally
+void PWR_captureStatus(int* screenshot_armed, int* recording);
 void PWR_updateFrequency(int secs, int updateWifi);
 
 void PWR_disablePowerOff(void);
