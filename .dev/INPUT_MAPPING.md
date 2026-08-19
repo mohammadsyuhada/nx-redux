@@ -152,10 +152,10 @@ Trimui: analog sticks *and* the Brick's FN keys *and* a Home button.
 The FN keys moving from 9/10 to 11/12 is the reason `BTN_ID_L4` / `BTN_ID_R4`
 exist at all — on the Brick they could ride on L3/R3 because it has no sticks.
 
-Because Home enumerates as a gamepad button (index 15) rather than
-`KEY_HOMEPAGE`, keymon's instant-OSD-on-Home path (tg5050 only, evdev code 172)
-does not apply here: the Brick Pro opens the OSD by long-pressing `MENU`, like
-the Brick and Smart Pro.
+Home enumerates as a gamepad button (index 15) for SDL, and the tg5040 keymon
+also watches `KEY_HOMEPAGE` (evdev 172): on the Brick Pro a short Home press
+toggles the OSD (`workspace/tg5040/keymon/keymon.c`). The other tg5040 devices
+never emit that code; Menu long-press opens the OSD on all of them.
 
 ## Notes
 

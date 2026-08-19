@@ -66,6 +66,7 @@ workspace/hash.txt
 workspace/readmes
 compile_commands.json
 BUILD.md
+!.dev/BUILD.md
 skeleton/BASE/Emus/shared/PortMaster/files/.DS_Store
 docs/
 docs/plans/

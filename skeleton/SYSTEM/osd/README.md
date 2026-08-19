@@ -19,7 +19,7 @@ Later layers win.
 | `device/<dev>/` | `trimui_osdd` (closed-source, per-firmware, not interchangeable), `osdlayout.json`, plus any file that device overrides |
 
 `device/smartpros/` is the only layer that overrides `common/`, down to
-**three** widgets. Each is genuine platform divergence, not incidental drift —
+**two** widgets. Each is genuine platform divergence, not incidental drift —
 if you are tempted to merge one into `common/` behind a platform conditional,
 read this first:
 
@@ -28,13 +28,13 @@ read this first:
   chip a live `bluetoothd` collapses WiFi throughput from ~330 KB/s to ~2 KB/s.
   tg5050 must *not*: it powers the adapter down and leaves `bluetoothd` running,
   because killing the daemon mid-call wedges whatever was talking to it.
-- **`toggle_screenrecord/set.sh`** — different capture mechanisms entirely.
-  tg5040 pipes `/dev/fb0` straight into `ffmpeg`; tg5050 runs
-  `screenrecorder.elf`, which the foreground app feeds via the
-  `/tmp/fb_mirror.raw` shm mirror.
 - **`toggle_rumble/set.sh`** — the rumble motor sits on a different GPIO per
   platform (gpio227 on tg5040, gpio236 on tg5050). The two copies are identical
   but for that one path; keep them in sync.
+
+(`toggle_screenrecord` used to be a third override; the recorder is now
+unified — one common `set.sh` runs `screenrecorder.elf` everywhere and the
+daemon picks its capture source per platform. See `.dev/CAPTURE.md`.)
 
 Plus `stepper_fan_level/` — tg5050 is the only device with a fan, so that widget
 has no `common/` counterpart to override.

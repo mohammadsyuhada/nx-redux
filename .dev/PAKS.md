@@ -105,3 +105,76 @@ But if a binary takes more than one second to initialize you might need to just 
 # Caveats
 
 NextUI currently only supports the RGB565 pixel format and does not implement the OpenGL libretro APIs. It may be possible to use the stock firmware's retroarch instead of NextUI's minarch to run certain cores but that is left as an exercise for the reader.
+
+---
+
+# NX-Redux specifics
+
+The sections above are the general (upstream-inherited) pak model. NX-Redux
+adds the following.
+
+## Flattened `.system` layout and pak resolution
+
+Bundled paks ship inside `.system` with a platform-less layout:
+`.system/paks/Tools/<Name>.pak` and `.system/paks/Emus/<TAG>.pak` (the
+launcher's binary PATH is `.system/bin`). User pak resolution falls back
+through: SD flat (`Emus/<TAG>.pak`) → SD platform subfolder
+(`Emus/<PLATFORM>/<TAG>.pak`) → system paks (`getEmuPath` in
+`common/utils.c`; `hasEmu`/`entryFromPakName`/`getTools` in nextui's
+`content.c` use the same chain). The platform-subfolder fallback exists
+because community paks (e.g. minui-psp) hardcode the MinUI
+`Emus/$PLATFORM/$PAK_NAME.pak` path internally — flat placement launches but
+then points at the wrong directory.
+
+- Same-tag paks in the user layers override system paks (SD wins).
+- `PORTS.pak` lives flat at `Emus/PORTS.pak` by design — it's installed there
+  by the Xtras `portmaster` catalog entry (which also removes legacy
+  platform-subdir copies on uninstall); never move it under a platform folder.
+- Platform-named dirs (tg5040/tg5050/desktop/shared) are hidden from the
+  Tools list.
+- `migrate-paks.sh` (`skeleton/SYSTEM/shared/bin/`, run from the updater) is
+  a transition-period cleanup with a planned sunset — see `DEV_TODO.md`.
+
+## Xtras catalog entries (on-device add-on store)
+
+`Tools/Xtras.pak` runs `extras.elf` (`workspace/all/extras`); its catalog is
+`catalog/<id>/{meta.txt,install.sh,uninstall.sh,files/}` inside the pak, with
+GAME entries installing into `Roms/Xtra Games (EXTRAS)` and payload under
+`.data/<id>/`. The catalog dirs are duplicated identically between the
+tg5040 and tg5050 pak trees — edit one, copy to the other, keep `diff -rq`
+clean.
+
+Contract for new entries (the existing `gen1recomp` entry is the reference):
+
+- Pin a sha256 for every download, or resolve latest-release via the GitHub
+  API with per-asset digests — **fail closed**.
+- Every network command carries a timeout (vendored GNU wget:
+  `--timeout=30 --tries=2`) — the C runner's popen/fgets loop has no
+  watchdog, so a hung command hangs the UI.
+- `install.sh` must be idempotent; register the Roms launcher LAST and
+  de-register it on failure after the target dir is dirty.
+- `uninstall.sh` keeps saves.
+- `@NN status` lines on stdout drive the download-progress bar.
+- Installed-version marker is `.nx_addon_version` in the target dir.
+- No bare tool names beyond busybox — the device PATH is minimal.
+- Add a host test in `scripts/tests/` (PATH-shimmed; see
+  `test-extras-gen1recomp-install.sh`).
+- The Xtras list view has no scroll windowing yet — see `DEV_TODO.md` before
+  growing a tab past one screen.
+
+## Standalone-emulator pak lessons
+
+- Some binaries reset brightness/volume on launch — `syncsettings.elf` (see
+  above) is the fix; it reads NX settings, so it must run with the launch
+  chain's env.
+- Emulators that render via SDL audio on these devices need the 48 kHz
+  treatment described in [AUDIO.md](AUDIO.md).
+- CPU pinning uses the in-repo `workspace/all/taskset` (the old prebuilt
+  static taskset silently crashed on tg5040's 4.9 kernel, making historical
+  pinning a no-op).
+- LÖVE/native ports: launcher scripts must be POSIX sh (`/bin/bash` on cards
+  is a PortMaster-created symlink, not guaranteed); LÖVE/PhysFS won't see
+  files added to a mounted game dir after mount — restart the port.
+- The firmware ships **no CA store**; verified TLS needs
+  `.system/shared/ssl/ca-certificates.crt` (exported as
+  `CURL_CA_BUNDLE`/`SSL_CERT_FILE` by launchers that fetch over https).

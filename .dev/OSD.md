@@ -61,7 +61,11 @@ since on tg5040 the staging copy lands in tmpfs (RAM), not on disk. Stock-only
 files not shipped on the SD card (notably `regular.ttf`, the 16MB CJK font)
 show through from the rootfs layer beneath the mount, on both platforms. SD
 edits take effect on the next boot — via re-staging on tg5040, immediately on
-tg5050 — and there is no hash stamp on either platform. If the mount fails,
+tg5050 — and there is no hash stamp on either platform. **Deploy trap:**
+pushing OSD files over adb into the live mount's lowerdir serves stale content
+(tg5040) or ESTALE errors (tg5050) until the next boot — always reboot after
+pushing OSD files. The fast OSD-only deploy recipe (assemble + push + reboot,
+no toolchain build) is in [TESTING.md](TESTING.md). If the mount fails,
 `/tmp/nx_osd_mount_failed` is created and the daemon starts from whatever the
 rootfs already holds; on tg5040 the same marker also covers a failed staging
 copy. A model that ships no `osd-$DEVICE` overlay at all is a different case:
@@ -116,8 +120,8 @@ the image holds three 540 MB ext4 filesystems; only the first has a populated
 `/usr/trimui`). Only two files actually differ between the two 1024×768
 models: `trimui_osdd` and `osdlayout.json`; the block tiles and every toast
 script are byte-identical, and Brick Pro now ships the Brick's `bg.png` from
-`res/1024x768/` (its stock background differed only by a small teal accent —
-see `DEV_CHECKLIST.md`). Brick Pro's stock
+`res/1024x768/` (its stock background differed only by a small teal
+accent). Brick Pro's stock
 layout includes the battery widget, so `device/brickpro/osdlayout.json` keeps it
 (the widget itself lives in the shared `common/widgets/static_battery`, and is
 simply not referenced by the Brick or Smart Pro layouts). Extraction recipe,
@@ -217,6 +221,15 @@ Write JSON to `/tmp/trimui_osd/osd_toast_msg` to show temporary notifications:
 
 See `/usr/trimui/osd/show_*.sh` scripts for examples.
 
+Toast geometry gotchas (hardware-observed): the `size` field picks a fixed
+background image (0→300px, 1→400, 2→600, 3→1000) and the `w` field is
+ignored. The *stock* toast scripts hardcode x-coordinates that are off-center
+on some panels — compute the center at runtime instead:
+`x=(fbw−bgw)/2`, with `fbw` from `/sys/class/graphics/fb0/virtual_size`
+(reads "width,doubled-height"; take field 1). The daemon consumes the toast
+file within ~2s of the write (consumption = rendered — grepping for the file
+afterwards is a race).
+
 ### Widget IPC Directories
 
 Each widget has a directory under `/tmp/trimui_osd/`:
@@ -313,15 +326,16 @@ runs. The apps tolerate losing bluetoothd mid-call via command timeouts in
 Capture toggles: both are PID-file driven. `toggle_screenshot` starts/stops
 `screenshot.elf` (daemon owns `/tmp/screenshot.pid`; L2+R2 together captures a
 frame — the widget shows a hint toast on enable, and the daemon toasts
-"Screenshot saved" after each capture).
-`toggle_screenrecord` on tg5050 brings cpu2 online and starts
-`screenrecorder.elf <output> 1280 720` (owns `/tmp/screenrecorder.pid`); on
-tg5040 it records `/dev/fb0` directly with ffmpeg and the script owns the PID
-file. The foreground app (`capture_check()` in `generic_video.c`, tg5050 only)
-notices the PID files on rendered frames and publishes RGBA frames to the
-`/tmp/fb_mirror.raw` shm. Because dirty-flag apps like nxredux only render on
-activity, capture starts once the user interacts after toggling; the recorder
-waits up to 60s for the mirror before giving up.
+"Screenshot saved" after each capture). `toggle_screenrecord` runs one shared
+`set.sh` on all devices that starts/stops `screenrecorder.elf` (owns
+`/tmp/screenrecorder.pid`; on tg5050 it also onlines cpu2 for encoding
+headroom, tracked so it never offlines a core it didn't bring up). The
+recorder and the screenshot daemon pick their own capture source per platform
+(DRM scanout / fbdev / app-published GPU mirror); the foreground app's
+`capture_check()` in `generic_video.c` (both platforms) notices the PID files
+on rendered frames and publishes RGBA frames to the `/tmp/fb_mirror.raw` shm,
+guarded by a flock liveness protocol. Full architecture, source ladder, and
+the dirty-flag-rendering interactions: [CAPTURE.md](CAPTURE.md).
 
 ### Available Widgets
 
@@ -396,7 +410,9 @@ Both platforms use the same approach: `keymon` detects the trigger → toggles O
 
 ### TG5040
 
-- **keymon** detects Menu long-press (`CODE_MENU2=316`, 500ms threshold) — no Home button on this device
+- **keymon** detects Menu long-press (`CODE_MENU2=316`, 500ms threshold) on all
+  tg5040 devices, and additionally a short Home press (`KEY_HOMEPAGE` 172) on
+  the Brick Pro — the only tg5040 device with a Home button
 - On trigger: same toggle logic via `/tmp/trimui_osd/osdd_show_up`
 - Menu tap opens the context menu in nxredux
 
