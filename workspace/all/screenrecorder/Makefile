@@ -10,10 +10,10 @@ TARGET = screenrecorder
 PRODUCT = build/$(PLATFORM)/$(TARGET).elf
 
 CC = $(CROSS_COMPILE)gcc
-CFLAGS = -Os -s -Wl,--gc-sections
+CFLAGS = -Os -s -Wl,--gc-sections -DPLATFORM=\"$(PLATFORM)\"
 
 all:
 	mkdir -p build/$(PLATFORM)
-	$(CC) $(TARGET).c -o $(PRODUCT) $(CFLAGS)
+	$(CC) $(TARGET).c ../common/drm_scanout.c -o $(PRODUCT) $(CFLAGS)
 clean:
 	rm -f $(PRODUCT)

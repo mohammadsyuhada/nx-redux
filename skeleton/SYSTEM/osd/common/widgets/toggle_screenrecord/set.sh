@@ -1,17 +1,16 @@
 #!/bin/sh
-# tg5050 OVERRIDES this file entirely — see
-# device/smartpros/widgets/toggle_screenrecord/set.sh, and edit both if you
-# change shared logic here. The two use different capture mechanisms, so they
-# cannot be merged: tg5050 runs screenrecorder.elf against an shm mirror.
-#
-# Screen recording toggle (tg5040). No shm capture mirror on this platform,
-# so record the framebuffer directly with ffmpeg (fbdev probes the resolution
-# itself, which also covers the Brick's 1024x768). ffmpeg doesn't manage a
-# PID file, so this script owns /tmp/screenrecorder.pid.
+# Screen recording toggle (all platforms). screenrecorder.elf picks its own
+# capture source — DRM scanout on tg5050, fbdev on tg5040, GPU mirror as a
+# last resort — so it records ANY app, follows the display across app
+# switches, and writes wallclock-stamped VFR mp4 (correct speed at whatever
+# frame rate the device sustains). It writes its own PID to
+# /tmp/screenrecorder.pid; frames are captured at the panel's native size
+# (the width/height args are only a fallback for the mirror source).
 PID_FILE=/tmp/screenrecorder.pid
-FFMPEG=/usr/bin/ffmpeg
+RECORDER=/mnt/SDCARD/.system/bin/screenrecorder.elf
 OUTPUT_DIR=/mnt/SDCARD/Videos/Recordings
 STATUS_DIR=/tmp/trimui_osd/toggle_screenrecord
+CPU2=/sys/devices/system/cpu/cpu2/online
 
 recording() {
     pid=$(cat $PID_FILE 2>/dev/null)
@@ -28,27 +27,38 @@ if [ $# -eq 0 ]; then
     fi
 elif recording; then
     pid=$(cat $PID_FILE)
-    # SIGINT lets ffmpeg finalize the container; wait and clean up in the
-    # background so the OSD isn't blocked meanwhile
-    kill -INT "$pid" 2>/dev/null
+    # SIGTERM lets the recorder flush the encoder; wait for it and undo the
+    # cpu2 boost in the background so the OSD isn't blocked meanwhile
+    kill "$pid" 2>/dev/null
     (
         i=0
         while [ $i -lt 20 ] && kill -0 "$pid" 2>/dev/null; do
             usleep 500000
             i=$((i + 1))
         done
-        kill -9 "$pid" 2>/dev/null
-        rm -f $PID_FILE
+        if kill -0 "$pid" 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null
+            rm -f $PID_FILE
+        fi
+        # only take cpu2 back offline if the start path brought it up
+        # (tg5050 parks it when idle; tg5040 keeps all cores online)
+        if [ -f $STATUS_DIR/cpu2_onlined ]; then
+            echo 0 > $CPU2 2>/dev/null
+            rm -f $STATUS_DIR/cpu2_onlined
+        fi
     ) &
     echo 0 > $STATUS_DIR/status
 else
-    [ -x $FFMPEG ] || exit 0
+    # Give the encoder a dedicated core where one is parked (tg5050)
+    if [ "$(cat $CPU2 2>/dev/null)" = "0" ]; then
+        echo 1 > $CPU2 2>/dev/null
+        touch $STATUS_DIR/cpu2_onlined
+    fi
     mkdir -p $OUTPUT_DIR
-    output=$OUTPUT_DIR/REC_$(date +%Y%m%d_%H%M%S).avi
-    # plain & (no setsid — the Brick's busybox lacks it); survives fine under trimui_osdd
-    $FFMPEG -nostdin -f fbdev -framerate 15 -i /dev/fb0 \
-        -c:v mjpeg -q:v 10 -y "$output" >/dev/null 2>&1 &
-    echo $! > $PID_FILE
+    # mp4: the recorder writes variable-frame-rate (wallclock-stamped) video
+    output=$OUTPUT_DIR/REC_$(date +%Y%m%d_%H%M%S).mp4
+    # plain & (no setsid — tg5040's busybox lacks it); survives fine under trimui_osdd
+    "$RECORDER" "$output" 1280 720 >/dev/null 2>&1 &
     echo 1 > $STATUS_DIR/status
     # close the OSD so it doesn't sit in the recording
     touch /tmp/hide_osdd
