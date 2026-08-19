@@ -87,7 +87,7 @@ Available when you want it (Tools, pause menu and OSD):
 - Bundled `Flycast Sega Dreamcast` emulator.
     - Runs out of the box without a BIOS (HLE boot); drop `dc_boot.bin` into `Bios/DC/` on the SD card to boot through the real BIOS instead.
     - GGPO netplay for Dreamcast games, up to 2 players.
-- Bundled `Portmaster` in the Tools.
+- `PortMaster` installable on-device from the Xtras store (Tools tab).
     - Configured by default with Nintendo input layout (configurable)
 - All standalone emulators now support USB-C and Bluetooth audio. 
 - All standalone emulators now include a custom in-game menu with UI styling consistent with the system.

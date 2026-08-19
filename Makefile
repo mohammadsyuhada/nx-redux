@@ -139,7 +139,10 @@ endif
 	cp ./workspace/all/settings/build/$(PLATFORM)/settings.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Settings.pak/
 	cp ./workspace/all/musicplayer/build/$(PLATFORM)/musicplayer.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Music\ Player.pak/
 	cp ./workspace/all/mediaplayer/build/$(PLATFORM)/mediaplayer.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Media\ Player.pak/
-	cp ./workspace/all/portmaster/build/$(PLATFORM)/portmaster.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/PortMaster.pak/
+	# PortMaster ships as an Xtras catalog entry, not a default Tools pak;
+	# its elf rides inside the catalog's pak payload (installed to
+	# Tools/$(PLATFORM)/PortMaster.pak by catalog/portmaster/install.sh)
+	cp ./workspace/all/portmaster/build/$(PLATFORM)/portmaster.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Xtras.pak/catalog/portmaster/pak/
 	cp ./workspace/all/sync/build/$(PLATFORM)/sync.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Device\ Sync.pak/
 	cp ./workspace/all/scraper/build/$(PLATFORM)/scraper.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Artwork\ Manager.pak/
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050))

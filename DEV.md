@@ -150,8 +150,8 @@ docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-too
 # sync
 docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/sync && make PLATFORM=tg5040' && adb push workspace/all/sync/build/tg5040/sync.elf "/mnt/SDCARD/.system/paks/Tools/Device Sync.pak/"
 
-# portmaster
-docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/portmaster && make PLATFORM=tg5040' && adb push workspace/all/portmaster/build/tg5040/portmaster.elf "/mnt/SDCARD/.system/paks/Tools/PortMaster.pak/"
+# portmaster (installed by the Xtras portmaster entry to Tools/PortMaster.pak on the SD card)
+docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/portmaster && make PLATFORM=tg5040' && adb push workspace/all/portmaster/build/tg5040/portmaster.elf "/mnt/SDCARD/Tools/PortMaster.pak/"
 
 # artwork manager (scraper)
 docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c 'source ~/.bashrc && cd /root/workspace/all/scraper && make PLATFORM=tg5040' && adb push workspace/all/scraper/build/tg5040/scraper.elf "/mnt/SDCARD/.system/paks/Tools/Artwork Manager.pak/"

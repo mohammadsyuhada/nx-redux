@@ -5,21 +5,17 @@
 #include <stdbool.h>
 #include <sys/stat.h>
 #include <dirent.h>
-#include <pthread.h>
 #include <msettings.h>
 
 #include "defines.h"
 #include "api.h"
 #include "ui_buttonhintbar.h"
-#include "ui_confirmdialog.h"
-#include "ui_downloadprogress.h"
 #include "ui_menubar.h"
 #include "ui_message.h"
 #include "ui_splash.h"
 #include "ui_quitrequest.h"
 #include "ui_list.h"
 #include "utils.h"
-#include "wget_fetch.h"
 
 // Copy a file without invoking a shell. Used for paths derived from port
 // metadata / directory names, where a `cp '%s'` command would let a crafted
@@ -48,56 +44,30 @@ static int copy_file(const char* src, const char* dst) {
 	return rc;
 }
 
-// PortMaster paths
-#define PORTS_PAK_DIR SDCARD_PATH "/Emus/PORTS.pak"
-#define LEGACY_PORTS_PAK_DIR SDCARD_PATH "/Emus/" PLATFORM "/PORTS.pak" // pre-flattening installs (platform-subdir layout)
+// PortMaster paths. Install/uninstall live in the Xtras catalog entry
+// (skeleton Xtras.pak/catalog/portmaster/{install,uninstall}.sh) - this pak
+// only launches an already-installed runtime and keeps the NxRedux patches
+// applied around every pugwash run.
 #define PORTMASTER_DIR SDCARD_PATH "/Emus/shared/PortMaster"
 #define PUGWASH_PATH PORTMASTER_DIR "/pugwash"
 #define PORTS_ROM_DIR ROMS_PATH "/Ports (PORTS)"
-#define PORTS_LAUNCH_SRC PAKS_PATH "/Tools/PortMaster.pak/ports_launch.sh"
-
-// PortMaster release URL
-#define PM_RELEASE_URL "https://github.com/PortsMaster/PortMaster-GUI/releases/latest/download/PortMaster.zip"
-#define PM_ZIP_PATH "/tmp/PortMaster.zip"
 
 // PortMaster runtime dependencies (bundled in skeleton/files/)
 #define PM_FILES_DIR PORTMASTER_DIR "/files"
-#define PM_BUNDLED_BIN PM_FILES_DIR "/bin.zip"
-#define PM_BUNDLED_LIB PM_FILES_DIR "/lib.zip"
-#define PM_BUNDLED_LIBS PM_FILES_DIR "/libs.zip"
-#define PM_BUNDLED_PYLIBS PM_FILES_DIR "/pylibs.zip"
-#define PM_BUNDLED_CERT PM_FILES_DIR "/ca-certificates.crt"
-#define PM_BUNDLED_DISABLE_PY PM_FILES_DIR "/disable_python_function.py"
 
 enum PMState {
-	PM_STATE_CHECK,
 	PM_STATE_NOT_INSTALLED,
-	PM_STATE_DOWNLOADING,
-	PM_STATE_EXTRACTING,
-	PM_STATE_PATCHING,
-	PM_STATE_INSTALL_DONE,
-	PM_STATE_INSTALL_FAILED,
 	PM_STATE_LAUNCHING,
 	PM_STATE_MENU,
-	PM_STATE_CONFIRM_UNINSTALL,
 };
 
 static SDL_Surface* screen;
-static enum PMState state = PM_STATE_CHECK;
-static volatile int download_progress = 0;
-static volatile bool download_cancel = false;
-static volatile int download_speed = 0;
-static volatile int download_eta = 0;
-static volatile bool download_done = false;
-static int download_result = 0;
-static pthread_t download_thread;
-static bool download_thread_active = false;
+static enum PMState state = PM_STATE_MENU;
 
 // Menu state
 static int menu_selected = 0;
 static int menu_scroll = 0;
 static bool is_nintendo = true;
-static const char* extract_status = "Extracting PortMaster...";
 
 // Layout marker
 #define LAYOUT_MARKER SHARED_USERDATA_PATH "/PORTS-portmaster/xbox_layout"
@@ -109,27 +79,42 @@ static bool is_nintendo_layout(void) {
 static void toggle_layout(void);
 
 // Menu items
-#define MENU_COUNT 3
+#define MENU_COUNT 2
 #define MENU_OPEN 0
 #define MENU_LAYOUT 1
-#define MENU_UNINSTALL 2
-
-// Download label for UI display
-
-
-static void* download_thread_func(void* arg) {
-	(void)arg;
-	download_result = wget_download_file(
-		PM_RELEASE_URL, PM_ZIP_PATH,
-		&download_progress, &download_cancel,
-		&download_speed, &download_eta);
-	download_done = true;
-	return NULL;
-}
-
 
 static bool portmaster_installed(void) {
 	return access(PUGWASH_PATH, F_OK) == 0;
+}
+
+// Xtras tracks the installed release in .userdata/shared/xtras/
+// portmaster.version (written by the catalog entry's install.sh) and flags
+// "Update Available" when it differs from the latest GitHub tag. Pugwash's
+// self-update replaces the runtime - including its own version file, whose
+// content matches the GitHub release tag exactly - without touching that
+// marker, which would leave Xtras claiming an update the user already has.
+// Re-sync the marker from the runtime's version file after every pugwash
+// run (the only moment a self-update can have happened). A missing/empty
+// version file leaves the marker alone.
+static void sync_xtras_version_marker(void) {
+	FILE* in = fopen(PORTMASTER_DIR "/version", "r");
+	if (!in)
+		return;
+	char tag[64] = {0};
+	if (!fgets(tag, sizeof(tag), in)) {
+		fclose(in);
+		return;
+	}
+	fclose(in);
+	tag[strcspn(tag, " \r\n")] = '\0';
+	if (!tag[0])
+		return;
+	mkdir_p(SHARED_USERDATA_PATH "/xtras");
+	FILE* out = fopen(SHARED_USERDATA_PATH "/xtras/portmaster.version", "w");
+	if (!out)
+		return;
+	fprintf(out, "%s\n", tag);
+	fclose(out);
 }
 
 static void invalidate_emulist_cache(void) {
@@ -218,134 +203,6 @@ static void sync_port_artwork(void) {
 	}
 
 	closedir(dir);
-}
-
-static void cleanup_portmaster(void) {
-	char cmd[1024];
-	// Remove all PortMaster files except the bundled files/ directory from skeleton
-	snprintf(cmd, sizeof(cmd),
-			 "find '%s' -mindepth 1 -maxdepth 1 "
-			 "! -name 'files' "
-			 "! -name 'patchedScripts' "
-			 "-exec rm -rf {} +",
-			 PORTMASTER_DIR);
-	system(cmd);
-	snprintf(cmd, sizeof(cmd), "rm -rf '%s'", PORTS_PAK_DIR);
-	system(cmd);
-	// Legacy pre-flattening installs placed PORTS.pak under Emus/<platform>/
-	// instead of the flat Emus/ - remove that too, then rmdir (not rm -rf)
-	// the now-possibly-empty platform dir so any other unrelated content
-	// there survives; ignore failure (dir not empty, or never existed).
-	snprintf(cmd, sizeof(cmd), "rm -rf '%s'", LEGACY_PORTS_PAK_DIR);
-	system(cmd);
-	(void)rmdir(SDCARD_PATH "/Emus/" PLATFORM);
-	invalidate_emulist_cache();
-}
-
-static void create_ports_pak(void) {
-	char cmd[512];
-	mkdir_p(PORTS_PAK_DIR);
-	snprintf(cmd, sizeof(cmd), "cp -f '%s' '%s/launch.sh'", PORTS_LAUNCH_SRC, PORTS_PAK_DIR);
-	system(cmd);
-	invalidate_emulist_cache();
-}
-
-static int extract_portmaster(void) {
-	char cmd[1024];
-	mkdir_p(PORTMASTER_DIR);
-	snprintf(cmd, sizeof(cmd), SHARED_BIN_PATH "/7zzs.aarch64 x '%s' -o'%s' -aoa >/dev/null 2>&1", PM_ZIP_PATH, SDCARD_PATH "/Emus/shared/");
-	int ret = system(cmd);
-	unlink(PM_ZIP_PATH);
-	if (ret != 0) {
-		cleanup_portmaster();
-	}
-	return ret;
-}
-
-static void render_screen(void); // forward declaration
-
-static int extract_deps(void) {
-	char cmd[1024];
-	int ret;
-
-	// Extract bundled bin.zip to PortMaster/bin/
-	extract_status = "Extracting binaries...";
-	render_screen();
-	mkdir_p(PORTMASTER_DIR "/bin");
-	snprintf(cmd, sizeof(cmd), SHARED_BIN_PATH "/7zzs.aarch64 x '%s' -o'" PORTMASTER_DIR "/bin' -aoa >/dev/null 2>&1", PM_BUNDLED_BIN);
-	ret = system(cmd);
-	if (ret != 0)
-		return ret;
-
-	// Extract bundled lib.zip to PortMaster/lib/
-	extract_status = "Extracting libraries...";
-	render_screen();
-	mkdir_p(PORTMASTER_DIR "/lib");
-	snprintf(cmd, sizeof(cmd), SHARED_BIN_PATH "/7zzs.aarch64 x '%s' -o'" PORTMASTER_DIR "/lib' -aoa >/dev/null 2>&1", PM_BUNDLED_LIB);
-	ret = system(cmd);
-	if (ret != 0)
-		return ret;
-
-	// Extract bundled libs.zip to PortMaster/libs/
-	extract_status = "Extracting additional libraries...";
-	render_screen();
-	mkdir_p(PORTMASTER_DIR "/libs");
-	snprintf(cmd, sizeof(cmd), SHARED_BIN_PATH "/7zzs.aarch64 x '%s' -o'" PORTMASTER_DIR "/libs' -aoa >/dev/null 2>&1", PM_BUNDLED_LIBS);
-	ret = system(cmd);
-	if (ret != 0)
-		return ret;
-
-	// Extract bundled pylibs.zip to PortMaster/ root (contains exlibs/ and pylibs/ folders)
-	extract_status = "Extracting Python libraries...";
-	render_screen();
-	snprintf(cmd, sizeof(cmd), SHARED_BIN_PATH "/7zzs.aarch64 x '%s' -o'" PORTMASTER_DIR "' -aoa >/dev/null 2>&1", PM_BUNDLED_PYLIBS);
-	ret = system(cmd);
-	if (ret != 0)
-		return ret;
-
-	// Copy bundled SSL certificates
-	mkdir_p(PORTMASTER_DIR "/ssl/certs");
-	snprintf(cmd, sizeof(cmd), "cp -f '%s' '%s/ssl/certs/ca-certificates.crt'", PM_BUNDLED_CERT, PORTMASTER_DIR);
-	system(cmd);
-
-	// Copy disable_python_function.py to PortMaster root for patching
-	snprintf(cmd, sizeof(cmd), "cp -f '%s' '%s/disable_python_function.py'", PM_BUNDLED_DISABLE_PY, PORTMASTER_DIR);
-	system(cmd);
-
-	// Move compat libs (newer glib, fontconfig, freetype, brotli) to lib/compat/
-	// These override system libs and break pugwash's SDL2 stack, so they must only
-	// be in the LD_LIBRARY_PATH for port launches (set in ports_launch.sh), not pugwash.
-	mkdir_p(PORTMASTER_DIR "/lib/compat");
-	snprintf(cmd, sizeof(cmd),
-			 "cd '%s/lib' && "
-			 "for f in libglib-2.0.so* libfontconfig.so* libfreetype.so* libbrotlidec.so* libbrotlicommon.so*; do "
-			 "[ -f \"$f\" ] && mv -f \"$f\" compat/; "
-			 "done 2>/dev/null",
-			 PORTMASTER_DIR);
-	system(cmd);
-
-	// Create unversioned .so copies for libs that only have versioned names
-	// (FAT32 doesn't support symlinks, and some ports link against unversioned .so names)
-	// In lib/: skip GL/EGL/DRM libs — unversioned copies override system GPU drivers and crash gl4es
-	// In lib/compat/: create all unversioned copies (ports need them and compat isn't in pugwash's path)
-	snprintf(cmd, sizeof(cmd),
-			 "cd '%s/lib' && for f in *.so.*; do "
-			 "case \"$f\" in libEGL*|libGL*|libGLU*|libGLX*|libGLd*|libdrm*|libOpenGL*) continue ;; esac; "
-			 "base=$(echo \"$f\" | sed 's/\\.so\\..*/\\.so/'); "
-			 "[ ! -e \"$base\" ] && cp -f \"$f\" \"$base\"; "
-			 "done 2>/dev/null; "
-			 "cd '%s/lib/compat' && for f in *.so.*; do "
-			 "base=$(echo \"$f\" | sed 's/\\.so\\..*/\\.so/'); "
-			 "[ ! -e \"$base\" ] && cp -f \"$f\" \"$base\"; "
-			 "done 2>/dev/null",
-			 PORTMASTER_DIR, PORTMASTER_DIR);
-	system(cmd);
-
-	// Make binaries executable
-	snprintf(cmd, sizeof(cmd), "chmod -R +x '%s/bin/' 2>/dev/null", PORTMASTER_DIR);
-	system(cmd);
-
-	return 0;
 }
 
 static void patch_platform_py(void) {
@@ -724,93 +581,20 @@ static void launch_pugwash(void) {
 	apply_patched_scripts();
 }
 
-static void format_speed(int bps, char* buf, int buf_size) {
-	if (bps >= 1048576)
-		snprintf(buf, buf_size, "%.1f MB/s", bps / 1048576.0);
-	else if (bps >= 1024)
-		snprintf(buf, buf_size, "%d KB/s", bps / 1024);
-	else
-		snprintf(buf, buf_size, "%d B/s", bps);
-}
-
-static void start_download(void) {
-	PWR_disableSleep();
-	state = PM_STATE_DOWNLOADING;
-	download_progress = 0;
-	download_cancel = false;
-	download_speed = 0;
-	download_eta = 0;
-	download_result = 0;
-	download_done = false;
-	pthread_create(&download_thread, NULL, download_thread_func, NULL);
-	download_thread_active = true;
-}
-
 static void render_screen(void) {
 	GFX_clear(screen);
 
 	switch (state) {
-	case PM_STATE_CHECK:
-		UI_renderMenuBar(screen, "PortMaster");
-		UI_renderCenteredMessage(screen, "Checking installation...");
-		break;
-
 	case PM_STATE_NOT_INSTALLED:
 		UI_renderMenuBar(screen, "PortMaster");
 		{
-			char* lines = "PortMaster is not installed.\nPress A to download and install.";
+			char* lines = "PortMaster is not installed.\nInstall it from the Xtras app in Tools.";
 			int line_h = SCALE1(FONT_LARGE + 4);
 			int y = screen->h / 2 - line_h;
 			GFX_blitText(font.large, lines, line_h, COLOR_WHITE, screen,
 						 &(SDL_Rect){SCALE1(PADDING), y, screen->w - SCALE1(PADDING * 2), screen->h});
 		}
-		UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "INSTALL", NULL});
-		break;
-
-	case PM_STATE_DOWNLOADING:
-		UI_renderMenuBar(screen, "PortMaster");
-		{
-			char status_msg[128];
-			snprintf(status_msg, sizeof(status_msg), "Downloading PortMaster...");
-
-			char detail[128];
-			char speed_str[64];
-			format_speed(download_speed, speed_str, sizeof(speed_str));
-			if (download_eta > 0)
-				snprintf(detail, sizeof(detail), "%s, %ds left", speed_str, download_eta);
-			else
-				snprintf(detail, sizeof(detail), "%s", speed_str);
-
-			UI_renderDownloadProgress(screen, &(UIDownloadProgress){
-												  .status = status_msg,
-												  .detail = detail,
-												  .progress = download_progress,
-												  .show_bar = true,
-											  });
-		}
-		UI_renderButtonHintBar(screen, (char*[]){"B", "CANCEL", NULL});
-		break;
-
-	case PM_STATE_EXTRACTING:
-		UI_renderMenuBar(screen, "PortMaster");
-		UI_renderCenteredMessage(screen, extract_status);
-		break;
-
-	case PM_STATE_PATCHING:
-		UI_renderMenuBar(screen, "PortMaster");
-		UI_renderCenteredMessage(screen, "Configuring PortMaster...");
-		break;
-
-	case PM_STATE_INSTALL_DONE:
-		UI_renderMenuBar(screen, "PortMaster");
-		UI_renderCenteredMessage(screen, "Installation complete!");
-		UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "LAUNCH", NULL});
-		break;
-
-	case PM_STATE_INSTALL_FAILED:
-		UI_renderMenuBar(screen, "PortMaster");
-		UI_renderCenteredMessage(screen, "Installation failed. Check WiFi and try again.");
-		UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "RETRY", NULL});
+		UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", NULL});
 		break;
 
 	case PM_STATE_LAUNCHING:
@@ -825,7 +609,6 @@ static void render_screen(void) {
 		UISettingsItem items[] = {
 			{.label = "Open PortMaster", .swatch = -1, .desc = "Launch the PortMaster GUI"},
 			{.label = "Button Layout", .value = is_nintendo ? "Nintendo" : "Xbox", .swatch = -1, .cycleable = 1, .desc = "Button layout for in-game port controls"},
-			{.label = "Uninstall PortMaster", .swatch = -1, .desc = "Remove PortMaster from your device"},
 		};
 
 		UI_renderSettingsPage(screen, &layout, items, MENU_COUNT,
@@ -839,10 +622,6 @@ static void render_screen(void) {
 										   NULL});
 		break;
 	}
-
-	case PM_STATE_CONFIRM_UNINSTALL:
-		UI_renderConfirmDialog(screen, "Uninstall PortMaster?", "This cannot be undone.");
-		break;
 	}
 
 	GFX_flip(screen);
@@ -860,7 +639,8 @@ int main(int argc, char* argv[]) {
 	PWR_init();
 	setup_signal_handlers();
 
-	// Start in menu if installed, otherwise show install screen
+	// Start in menu if installed, otherwise point at the Xtras installer
+	// (install/uninstall both live there now)
 	if (portmaster_installed()) {
 		ensure_default_config();
 		is_nintendo = is_nintendo_layout();
@@ -904,124 +684,15 @@ int main(int argc, char* argv[]) {
 					toggle_layout();
 					dirty = true;
 					break;
-				case MENU_UNINSTALL:
-					state = PM_STATE_CONFIRM_UNINSTALL;
-					dirty = true;
-					break;
 				}
 			}
 			if (PAD_justPressed(BTN_B))
 				app_quit = true;
 			break;
 
-		case PM_STATE_CONFIRM_UNINSTALL:
-			if (PAD_justPressed(BTN_A)) {
-				cleanup_portmaster();
-				state = PM_STATE_NOT_INSTALLED;
-				dirty = true;
-			} else if (PAD_justPressed(BTN_B)) {
-				state = PM_STATE_MENU;
-				dirty = true;
-			}
-			break;
-
 		case PM_STATE_NOT_INSTALLED:
-			if (PAD_justPressed(BTN_A)) {
-				start_download();
-				dirty = true;
-			} else if (PAD_justPressed(BTN_B)) {
+			if (PAD_justPressed(BTN_B))
 				app_quit = true;
-			}
-			break;
-
-		case PM_STATE_DOWNLOADING:
-			dirty = true; // always redraw for progress
-			if (PAD_justPressed(BTN_B)) {
-				download_cancel = true;
-				if (download_thread_active) {
-					pthread_join(download_thread, NULL);
-					download_thread_active = false;
-				}
-				download_done = false;
-				unlink(PM_ZIP_PATH);
-				PWR_enableSleep();
-				state = PM_STATE_NOT_INSTALLED;
-			}
-			// Check if download thread finished (success or failure)
-			if (download_thread_active && download_done) {
-				pthread_join(download_thread, NULL);
-				download_thread_active = false;
-				download_done = false;
-				if (download_result > 0) {
-					state = PM_STATE_EXTRACTING;
-				} else {
-					PWR_enableSleep();
-					state = PM_STATE_INSTALL_FAILED;
-				}
-			}
-			break;
-
-		case PM_STATE_EXTRACTING:
-			extract_status = "Extracting PortMaster...";
-			render_screen();
-			{
-				int ret = extract_portmaster();
-				if (ret == 0 && portmaster_installed()) {
-					render_screen();
-					ret = extract_deps();
-					if (ret == 0) {
-						state = PM_STATE_PATCHING;
-					} else {
-						cleanup_portmaster();
-						PWR_enableSleep();
-						state = PM_STATE_INSTALL_FAILED;
-					}
-				} else {
-					cleanup_portmaster();
-					PWR_enableSleep();
-					state = PM_STATE_INSTALL_FAILED;
-				}
-			}
-			dirty = true;
-			break;
-
-		case PM_STATE_PATCHING:
-			render_screen();
-			ensure_bash_symlink();
-			patch_control_txt();
-			patch_platform_py();
-			patch_device_info();
-			patch_mod_trimui();
-			ensure_default_config();
-			invalidate_emulist_cache();
-			{
-				char cmd[512];
-				snprintf(cmd, sizeof(cmd), "chmod -R +x '%s' 2>/dev/null", PORTMASTER_DIR);
-				system(cmd);
-			}
-			create_busybox_wrappers();
-			create_ports_pak();
-			PWR_enableSleep();
-			state = PM_STATE_INSTALL_DONE;
-			dirty = true;
-			break;
-
-		case PM_STATE_INSTALL_DONE:
-			if (PAD_justPressed(BTN_A)) {
-				state = PM_STATE_LAUNCHING;
-				dirty = true;
-			} else if (PAD_justPressed(BTN_B)) {
-				app_quit = true;
-			}
-			break;
-
-		case PM_STATE_INSTALL_FAILED:
-			if (PAD_justPressed(BTN_A)) {
-				start_download();
-				dirty = true;
-			} else if (PAD_justPressed(BTN_B)) {
-				app_quit = true;
-			}
 			break;
 
 		case PM_STATE_LAUNCHING:
@@ -1032,7 +703,8 @@ int main(int argc, char* argv[]) {
 			GFX_quit();
 
 			launch_pugwash();
-			create_busybox_wrappers(); // Re-create if pugwash update wiped them
+			create_busybox_wrappers();	 // Re-create if pugwash update wiped them
+			sync_xtras_version_marker(); // Reflect a pugwash self-update in Xtras
 			sync_port_artwork();
 			invalidate_emulist_cache();
 
@@ -1062,11 +734,6 @@ int main(int argc, char* argv[]) {
 		} else {
 			GFX_sync();
 		}
-	}
-
-	if (download_thread_active) {
-		download_cancel = true;
-		pthread_join(download_thread, NULL);
 	}
 
 	QuitSettings();
