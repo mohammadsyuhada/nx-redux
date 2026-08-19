@@ -498,7 +498,8 @@ void openDirectory(char* path, int auto_launch) {
 		int start = 0;
 		int end = 0;
 		if (top && top->entries->count > 0) {
-			if (restore.depth == stack->count && top->selected == restore.relative) {
+			if (restore.depth == stack->count && top->selected == restore.relative &&
+				exactMatch(restore.path, path)) {
 				selected = restore.selected;
 				start = restore.start;
 				end = restore.end;
@@ -506,9 +507,19 @@ void openDirectory(char* path, int auto_launch) {
 		}
 
 		top = Directory_new(path, selected);
-		top->start = start;
 		int rc = MAIN_ROW_COUNT - 1;
-		top->end = end ? end : ((top->entries->count < rc) ? top->entries->count : rc);
+		int count = top->entries->count;
+		if (selected >= count || end > count) {
+			// saved state can outlive the listing it described (entries
+			// deleted, or map.txt re-filtering) — a stale window here means
+			// the render indexes past entries: fall back to the top
+			top->selected = 0;
+			top->start = 0;
+			top->end = (count < rc) ? count : rc;
+		} else {
+			top->start = start;
+			top->end = end ? end : ((count < rc) ? count : rc);
+		}
 
 		Array_push(stack, top);
 	} else {
@@ -538,6 +549,7 @@ void openDirectory(char* path, int auto_launch) {
 void closeDirectory(void) {
 	if (!top || stack->count <= 1)
 		return; // never pop root
+	snprintf(restore.path, sizeof(restore.path), "%s", top->path);
 	restore.selected = top->selected;
 	restore.start = top->start;
 	restore.end = top->end;

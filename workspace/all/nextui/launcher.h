@@ -28,6 +28,10 @@ typedef struct {
 	int selected;
 	int start;
 	int end;
+	// path of the directory this state was saved from: depth+relative alone
+	// can't tell "re-entered the same folder" from "opened a different one
+	// without moving the parent cursor" (context-menu Tools does the latter)
+	char path[MAX_PATH];
 } RestoreState;
 
 extern ResumeState resume;
