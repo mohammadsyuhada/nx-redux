@@ -2537,7 +2537,14 @@ void PAD_reset(void) {
 // flag keymon toggles). See the gate in PLAT_pollInput below.
 #define OSD_SHOW_FLAG "/tmp/trimui_osd/osdd_show_up"
 
+FALLBACK_IMPLEMENTATION void PLAT_pokeCapture(void) {}
+
 FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
+	// Dirty-flag apps can idle for minutes without a flip; this is the one
+	// spot every main loop passes through, so let the capture system publish
+	// a frame when the OSD screenshot/recorder toggles turn on mid-idle.
+	PLAT_pokeCapture();
+
 	// reset transient state
 	pad.just_pressed = BTN_NONE;
 	pad.just_released = BTN_NONE;

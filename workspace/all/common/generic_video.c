@@ -26,6 +26,7 @@
 #include <time.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <sys/file.h>
 
 
 #if defined(__has_feature)
@@ -124,9 +125,11 @@ static uint8_t* capture_shm_ptr = NULL;
 static uint8_t* capture_buf_a = NULL; // double-buffer A (render thread fills)
 static uint8_t* capture_buf_b = NULL; // double-buffer B (worker processes)
 static size_t capture_frame_size = 0;
-static int capture_counter = 0;
+static uint32_t capture_check_ms = 0;
+static uint32_t capture_flip_ms = 0;
 static uint32_t capture_last_ms = 0;
 static bool capture_active = false;
+static bool capture_lock_held = false;
 
 // Worker thread state (all fields protected by capture_worker_mutex)
 static pthread_t capture_worker_thread;
@@ -142,6 +145,7 @@ static bool capture_rec_close_requested = false;
 static void capture_write(void);
 static void capture_check(void);
 static void* capture_worker_func(void* arg);
+static uint32_t capture_mono_ms(void);
 
 #define OVERLAYS_FOLDER SDCARD_PATH "/Overlays"
 
@@ -790,8 +794,14 @@ void PLAT_quitVideo(void) {
 		capture_shm_ptr = NULL;
 	}
 	if (capture_shm_fd >= 0) {
+		// This process owned the mirror: remove it so the screenshot daemon
+		// can't capture a stale frame after we're gone (e.g. inside a
+		// third-party pak launched from here).
 		close(capture_shm_fd);
 		capture_shm_fd = -1;
+		capture_lock_held = false;
+		unlink("/tmp/fb_mirror.raw");
+		unlink("/tmp/fb_mirror.info");
 	}
 	if (capture_rec_fd >= 0) {
 		close(capture_rec_fd);
@@ -1757,12 +1767,14 @@ static void* capture_worker_func(void* arg) {
 static void capture_check(void) {
 	if (strcmp(PLATFORM, "tg5050") != 0)
 		return;
-	// Checked every 15 rendered frames (not wall time): dirty-flag apps like
-	// nextui only flip on activity, so a large gate would make capture take
-	// ages to notice a PID file from the OSD toggles on an idle screen.
-	if (++capture_counter < 15)
+	// Time-gated (was: every 15 rendered frames): dirty-flag apps like nextui
+	// only flip on activity, so a frame-count gate could take many separate
+	// interactions to notice a PID file from the OSD toggles.
+	uint32_t check_now = capture_mono_ms();
+	capture_flip_ms = check_now; // PLAT_pokeCapture only steps in when flips stop
+	if (check_now - capture_check_ms < 250)
 		return;
-	capture_counter = 0;
+	capture_check_ms = check_now;
 
 	bool rec_active = (access("/tmp/screenrecorder.pid", F_OK) == 0);
 	bool needed = (access("/tmp/screenshot.pid", F_OK) == 0 || rec_active);
@@ -1780,12 +1792,23 @@ static void capture_check(void) {
 		if (capture_shm_fd < 0) {
 			capture_shm_fd = open("/tmp/fb_mirror.raw", O_CREAT | O_RDWR | O_TRUNC, 0666);
 			if (capture_shm_fd >= 0) {
+				// Advisory lock marks the mirror as live: the screenshot daemon
+				// treats an unlocked mirror as a leftover from a dead process.
+				// The kernel releases it on any exit, including SIGKILL.
+				capture_lock_held = (flock(capture_shm_fd, LOCK_EX | LOCK_NB) == 0);
 				if (ftruncate(capture_shm_fd, capture_frame_size) == 0) {
 					capture_shm_ptr = mmap(NULL, capture_frame_size,
 										   PROT_READ | PROT_WRITE, MAP_SHARED,
 										   capture_shm_fd, 0);
 					if (capture_shm_ptr == MAP_FAILED)
 						capture_shm_ptr = NULL;
+				}
+				if (capture_shm_ptr) {
+					FILE* inf = fopen("/tmp/fb_mirror.info", "w");
+					if (inf) {
+						fprintf(inf, "%dx%d\n", device_width, device_height);
+						fclose(inf);
+					}
 				}
 			}
 		}
@@ -1815,6 +1838,7 @@ static void capture_check(void) {
 		if (capture_shm_fd >= 0) {
 			close(capture_shm_fd);
 			capture_shm_fd = -1;
+			capture_lock_held = false;
 		}
 		if (capture_buf_a) {
 			free(capture_buf_a);
@@ -1825,6 +1849,7 @@ static void capture_check(void) {
 			capture_buf_b = NULL;
 		}
 		unlink("/tmp/fb_mirror.raw");
+		unlink("/tmp/fb_mirror.info");
 		capture_active = false;
 	}
 }
@@ -1835,9 +1860,39 @@ static uint32_t capture_mono_ms(void) {
 	return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
 
+// Called from the shared input poll (PAD_poll): lets an idle dirty-flag app
+// notice the OSD screenshot/recorder toggles without waiting for a
+// user-driven redraw. Re-presents the current layer stack once so
+// capture_check()/capture_write() run and publish a frame even when nothing
+// else would flip.
+void PLAT_pokeCapture(void) {
+	if (strcmp(PLATFORM, "tg5050") != 0)
+		return;
+	if (capture_active || !vid.renderer)
+		return;
+	static uint32_t poke_last_ms = 0;
+	uint32_t now_ms = capture_mono_ms();
+	if (now_ms - poke_last_ms < 500)
+		return;
+	// An app that is flipping on its own will activate capture through the
+	// normal flip path; only step in when the screen has genuinely gone idle,
+	// so we never inject an out-of-band present mid-render.
+	if (capture_flip_ms && now_ms - capture_flip_ms < 1000)
+		return;
+	poke_last_ms = now_ms;
+	if (access("/tmp/screenshot.pid", F_OK) == 0 ||
+		access("/tmp/screenrecorder.pid", F_OK) == 0)
+		PLAT_GPU_Flip();
+}
+
 static void capture_write(void) {
 	if (!capture_active || !capture_buf_a)
 		return;
+
+	// The activation-time flock can lose a race against the daemon's brief
+	// liveness probe; retry until held so the mirror reads as live.
+	if (!capture_lock_held && capture_shm_fd >= 0)
+		capture_lock_held = (flock(capture_shm_fd, LOCK_EX | LOCK_NB) == 0);
 
 	// Time-based rate limiting at ~30fps
 	uint32_t now_ms = capture_mono_ms();

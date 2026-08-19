@@ -10,7 +10,7 @@ TARGET = screenshot
 PRODUCT = build/$(PLATFORM)/$(TARGET).elf
 
 CC = $(CROSS_COMPILE)gcc
-CFLAGS = -Os -s -Wl,--gc-sections
+CFLAGS = -Os -s -Wl,--gc-sections -DPLATFORM=\"$(PLATFORM)\"
 
 all:
 	mkdir -p build/$(PLATFORM)

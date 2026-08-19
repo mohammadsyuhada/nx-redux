@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <string.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <time.h>
@@ -9,7 +10,11 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/wait.h>
+#include <sys/file.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <linux/input.h>
+#include <linux/fb.h>
 
 #define PID_FILE "/tmp/screenshot.pid"
 #define SCREENSHOT_DIR "/mnt/SDCARD/Images/Screenshots"
@@ -52,9 +57,8 @@ static void mkdir_p(const char* path) {
 }
 
 #define FB_MIRROR_PATH "/tmp/fb_mirror.raw"
-#define FB_MIRROR_WIDTH "1280"
-#define FB_MIRROR_HEIGHT "720"
-#define FB_MIRROR_VIDEO_SIZE FB_MIRROR_WIDTH "x" FB_MIRROR_HEIGHT
+#define FB_MIRROR_INFO_PATH "/tmp/fb_mirror.info"
+#define FB_MIRROR_VIDEO_SIZE_FALLBACK "1280x720"
 
 // Toast size:1 draws the 400px-wide bg_msg_w2.png background
 #define TOAST_BG_WIDTH 400
@@ -97,8 +101,118 @@ static void osd_toast(const char* msg, int duration_ms) {
 	fclose(f);
 }
 
+// A live mirror is one whose writer still holds the advisory flock taken at
+// creation (generic_video.c capture_check). A leftover file from a dead or
+// exec'd-away process carries no lock: encoding it would produce a stale
+// frame from the previous app, so treat it as garbage.
+static int mirror_live(void) {
+	int fd = open(FB_MIRROR_PATH, O_RDONLY);
+	if (fd < 0)
+		return 0;
+	int live = 0;
+	if (flock(fd, LOCK_EX | LOCK_NB) == 0)
+		flock(fd, LOCK_UN);
+	else if (errno == EWOULDBLOCK)
+		live = 1;
+	close(fd);
+	return live;
+}
+
+// Geometry published by the mirror's writer alongside the raw frames
+static void mirror_video_size(char* out, size_t n) {
+	snprintf(out, n, "%s", FB_MIRROR_VIDEO_SIZE_FALLBACK);
+	FILE* f = fopen(FB_MIRROR_INFO_PATH, "r");
+	if (f) {
+		int w = 0, h = 0;
+		if (fscanf(f, "%dx%d", &w, &h) == 2 && w > 0 && h > 0)
+			snprintf(out, n, "%dx%d", w, h);
+		fclose(f);
+	}
+}
+
+// On tg5050 the display engine never scans out of fb0 — apps render through
+// GL/DRM and fb0 stays black (its only writer is the zeroing in
+// PLAT_quitVideo) — so an fbdev grab is guaranteed to produce an empty JPEG.
+static int fbdev_usable(void) {
+	return strcmp(PLATFORM, "tg5050") != 0;
+}
+
+// Returns 1 if the visible fb0 pane holds any non-black RGB pixel. On tg5040
+// fb0 is the real scanout but goes black briefly around app transitions
+// (apps zero it on quit). Geometry or read failures assume content so a
+// sampler gap can never block a capture that might have worked.
+static int fb0_has_content(void) {
+	int fd = open("/dev/fb0", O_RDONLY);
+	if (fd < 0)
+		return 0;
+	int result = 1;
+	struct fb_var_screeninfo var;
+	struct fb_fix_screeninfo fix;
+	if (ioctl(fd, FBIOGET_VSCREENINFO, &var) == 0 &&
+		ioctl(fd, FBIOGET_FSCREENINFO, &fix) == 0 &&
+		var.bits_per_pixel == 32 && var.xres > 0 && var.yres > 0 &&
+		fix.line_length >= var.xres * 4) {
+		// Only the framebuffer's own channel bits decide blackness: an
+		// opaque-black fill (alpha 0xFF) or garbage in unused bits must not
+		// read as content.
+		uint32_t rgb_mask = (((var.red.length ? (1u << var.red.length) - 1 : 0)) << var.red.offset) |
+							(((var.green.length ? (1u << var.green.length) - 1 : 0)) << var.green.offset) |
+							(((var.blue.length ? (1u << var.blue.length) - 1 : 0)) << var.blue.offset);
+		if (!rgb_mask)
+			rgb_mask = 0x00FFFFFF;
+		static uint32_t line[4096];
+		size_t line_bytes = (size_t)var.xres * 4;
+		if (line_bytes > sizeof(line))
+			line_bytes = sizeof(line);
+		result = 0;
+		for (unsigned y = 0; y < var.yres && !result; y += 8) {
+			off_t off = ((off_t)var.yoffset + y) * fix.line_length +
+						(off_t)var.xoffset * 4;
+			ssize_t n = pread(fd, line, line_bytes, off);
+			if (n < (ssize_t)line_bytes) {
+				result = 1; // can't sample: assume content
+				break;
+			}
+			for (size_t x = 0; x < line_bytes / 4; x += 4) {
+				if (line[x] & rgb_mask) {
+					result = 1;
+					break;
+				}
+			}
+		}
+	}
+	close(fd);
+	return result;
+}
+
 static void capture_screenshot(void) {
 	mkdir_p(SCREENSHOT_DIR);
+
+	// Pick a source: prefer a live GPU mirror, else a non-black fb0. Retry
+	// briefly: enabling capture wakes idle apps via PLAT_pokeCapture (fires
+	// once the app has been idle ~1s, ≤500ms poll cadence) and app
+	// transitions repaint fb0 within a frame or two.
+	int use_rawvideo = 0;
+	int have_source = 0;
+	for (int i = 0; i < 20; i++) {
+		if (mirror_live()) {
+			use_rawvideo = 1;
+			have_source = 1;
+			break;
+		}
+		if (fbdev_usable() && fb0_has_content()) {
+			have_source = 1;
+			break;
+		}
+		usleep(100000);
+	}
+	if (!have_source) {
+		// Nothing can supply pixels here (e.g. a third-party pak on tg5050
+		// whose frames never reach fb0): fail honestly instead of writing an
+		// all-black JPEG and claiming success.
+		osd_toast("Capture not available here", 2000);
+		return;
+	}
 
 	time_t now = time(NULL);
 	struct tm* t = localtime(&now);
@@ -108,7 +222,8 @@ static void capture_screenshot(void) {
 			 t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
 			 t->tm_hour, t->tm_min, t->tm_sec);
 
-	int use_rawvideo = (access(FB_MIRROR_PATH, F_OK) == 0);
+	char video_size[32];
+	mirror_video_size(video_size, sizeof(video_size));
 
 	pid_t pid = fork();
 	if (pid < 0)
@@ -122,7 +237,7 @@ static void capture_screenshot(void) {
 		if (use_rawvideo) {
 			execl(FFMPEG_PATH, "ffmpeg", "-nostdin",
 				  "-f", "rawvideo", "-pixel_format", "rgba",
-				  "-video_size", FB_MIRROR_VIDEO_SIZE,
+				  "-video_size", video_size,
 				  "-i", FB_MIRROR_PATH,
 				  "-vf", "vflip",
 				  "-frames:v", "1", "-c:v", "mjpeg", "-q:v", "2",
@@ -152,6 +267,14 @@ int main(int argc, char* argv[]) {
 	sa.sa_handler = on_term;
 	sigaction(SIGTERM, &sa, NULL);
 	sigaction(SIGINT, &sa, NULL);
+	// The OSD toggle launches us with a plain `&`; a controlling-terminal HUP
+	// (e.g. an adb shell exiting) must run cleanup, not kill us mid-flight
+	// leaving a stale PID file that keeps every app mirroring forever.
+	// Respect an inherited SIG_IGN (nohup) instead of overriding it.
+	struct sigaction old_hup;
+	sigaction(SIGHUP, NULL, &old_hup);
+	if (old_hup.sa_handler != SIG_IGN)
+		sigaction(SIGHUP, &sa, NULL);
 
 	// Write PID file
 	FILE* f = fopen(PID_FILE, "w");
