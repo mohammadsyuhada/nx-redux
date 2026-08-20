@@ -205,7 +205,11 @@ void InitSettings(void) {
 			   "amixer sset 'HPOUT' on;"
 			   "amixer sset 'LINEOUTL' on;"
 			   "amixer sset 'LINEOUTR' on;"
-			   "amixer sset 'DACL DACR Swap' On");
+			   "amixer sset 'DACL DACR Swap' On;"
+			   // driver default is 19 (-18dB) and our boot path skips stock's
+			   // runtrimui-original.sh which raises it; the speaker amp is fed
+			   // from LINEOUT, so anything below max leaves it audibly quiet
+			   "amixer cset name='LINEOUT Gain' 31");
 	}
 
 	// This will implicitly update all other settings based on FN switch state
@@ -1020,10 +1024,24 @@ void SetRawVolume(int val) { // in: 0-100
 			return;
 		}
 
+		// 'DAC Volume' raw steps are 1.16dB each from -74.24dB, so a linear
+		// percent mapping parks 50% at ~-38dB — inaudible on the speaker.
+		// Taper: dB = 36.4*log10(val/100) - 4.6, i.e. 50% ≈ -15dB; the top is
+		// held 4.6dB under full scale — the speaker amp audibly distorts when
+		// the DAC runs at 0dB.
+		static const unsigned char DAC_TAPER[101] = {
+			0, 1, 7, 12, 16, 19, 22, 24, 26, 27, 29, 30, 31, 32, 33, 34,
+			35, 36, 37, 37, 38, 39, 39, 40, 41, 41, 42, 42, 43, 43, 44, 44,
+			45, 45, 45, 46, 46, 46, 47, 47, 48, 48, 48, 49, 49, 49, 49, 50,
+			50, 50, 51, 51, 51, 51, 52, 52, 52, 52, 53, 53, 53, 53, 54, 54,
+			54, 54, 54, 55, 55, 55, 55, 55, 56, 56, 56, 56, 56, 56, 57, 57,
+			57, 57, 57, 57, 58, 58, 58, 58, 58, 58, 59, 59, 59, 59, 59, 59,
+			59, 60, 60, 60, 60};
 		struct mixer_ctl* digital = mixer_get_ctl_by_name(mixer, "DAC Volume");
 		if (digital) {
-			mixer_ctl_set_percent(digital, 0, val);
-			//printf("Set 'digital volume' to %d%%\n", val); fflush(stdout);
+			int v = val < 0 ? 0 : (val > 100 ? 100 : val);
+			mixer_ctl_set_value(digital, 0, DAC_TAPER[v]);
+			//printf("Set 'DAC Volume' to %d\n", DAC_TAPER[v]); fflush(stdout);
 		}
 
 		mixer_close(mixer);

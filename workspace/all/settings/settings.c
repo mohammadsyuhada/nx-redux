@@ -182,12 +182,11 @@ static int sleep_timeout_values[] = {5, 10, 15, 30, 45, 60, 90, 120, 240, 360, 6
 static const char* sleep_timeout_labels[] = {"5s", "10s", "15s", "30s", "45s", "60s", "90s", "2m", "4m", "6m", "10m"};
 #define SLEEP_TIMEOUT_COUNT 11
 
-/* Volume: 21 labels (Muted, 5%, 10%, ... 100%) */
-static int volume_values[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20};
+/* Volume labels (Muted, 5%, 10%, ... 100%) — the Volume item itself lives on
+   the Audio page (settings_audio.c); these are reused for the FN-switch page */
 static const char* volume_labels[] = {
 	"Muted", "5%", "10%", "15%", "20%", "25%", "30%", "35%", "40%", "45%", "50%",
 	"55%", "60%", "65%", "70%", "75%", "80%", "85%", "90%", "95%", "100%"};
-#define VOLUME_LABEL_COUNT 21
 
 /* Notification duration */
 static int notify_duration_values[] = {1, 2, 3, 4, 5};
@@ -684,15 +683,6 @@ static void reset_exposure(void) {
 // System callbacks
 // ============================================
 
-static int get_volume(void) {
-	return GetVolume();
-}
-static void set_volume(int val) {
-	SetVolume(val);
-}
-static void reset_volume(void) {
-	SetVolume(SETTINGS_DEFAULT_VOLUME);
-}
 
 static int get_screen_timeout(void) {
 	return (int)CFG_getScreenTimeoutSecs();
@@ -1477,9 +1467,6 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	// System page
 	// ============================
 	idx = 0;
-	system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Volume", "Speaker volume",
-		volume_labels, VOLUME_LABEL_COUNT, volume_values, get_volume, set_volume, reset_volume);
 	system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Screen timeout", "Period of inactivity before screen turns off (0-600s)",
 		screen_timeout_labels, SCREEN_TIMEOUT_COUNT, screen_timeout_values, get_screen_timeout, set_screen_timeout, reset_screen_timeout);

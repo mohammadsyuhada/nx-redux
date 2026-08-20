@@ -1382,10 +1382,25 @@ void SetRawVolume(int val) { // in: 0-100
 			return;
 		}
 
+		// 'digital volume' counts attenuation at 1.16dB per raw step (opposite
+		// of its TLV metadata — hence the historical reversed mapping), so a
+		// linear percent mapping parks 50% at ~-37dB — inaudible on the speaker.
+		// Taper: dB = 36.4*log10(val/100) - 4.6, i.e. 50% ≈ -15dB; the top is
+		// held 4.6dB under full scale — the speaker amp audibly distorts when
+		// the DAC runs at 0dB.
+		static const unsigned char DIGITAL_ATT_TAPER[101] = {
+			63, 63, 57, 52, 48, 45, 42, 40, 38, 37, 35, 34, 33, 32, 31, 30,
+			29, 28, 27, 27, 26, 25, 25, 24, 23, 23, 22, 22, 21, 21, 20, 20,
+			19, 19, 19, 18, 18, 18, 17, 17, 16, 16, 16, 15, 15, 15, 15, 14,
+			14, 14, 13, 13, 13, 13, 12, 12, 12, 12, 11, 11, 11, 11, 10, 10,
+			10, 10, 10, 9, 9, 9, 9, 9, 8, 8, 8, 8, 8, 8, 7, 7,
+			7, 7, 7, 7, 6, 6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5,
+			5, 4, 4, 4, 4};
 		struct mixer_ctl* digital = mixer_get_ctl_by_name(mixer, "digital volume");
 		if (digital) {
-			mixer_ctl_set_percent(digital, 0, 100 - val); // reversed mapping
-														  //printf("Set 'digital volume' to %d%%\n", val); fflush(stdout);
+			int v = val < 0 ? 0 : (val > 100 ? 100 : val);
+			mixer_ctl_set_value(digital, 0, DIGITAL_ATT_TAPER[v]);
+			//printf("Set 'digital volume' to %d\n", DIGITAL_ATT_TAPER[v]); fflush(stdout);
 		}
 
 		// Digital volume does not quite go to 0, so also mute the DAC volume

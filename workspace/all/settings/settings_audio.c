@@ -4,16 +4,24 @@
 #include "settings_audio.h"
 #include "config.h"
 #include "audio_manager.h"
+#include "msettings.h"
 
 #define AUDIO_IDX_OUTPUT 0
-#define AUDIO_IDX_NEGOTIATION 1
-#define AUDIO_IDX_BTRATE 2
-#define AUDIO_ITEM_COUNT 3
+#define AUDIO_IDX_VOLUME 1
+#define AUDIO_IDX_NEGOTIATION 2
+#define AUDIO_IDX_BTRATE 3
+#define AUDIO_ITEM_COUNT 4
 
 static const char* neg_labels[] = {"Auto", "Force 48000 Hz"};
 static int neg_values[] = {1, 0};
 static const char* rate_labels[] = {"44100 Hz", "48000 Hz"};
 static int rate_values[] = {44100, 48000};
+
+static int volume_values[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20};
+static const char* volume_labels[] = {
+	"Muted", "5%", "10%", "15%", "20%", "25%", "30%", "35%", "40%", "45%", "50%",
+	"55%", "60%", "65%", "70%", "75%", "80%", "85%", "90%", "95%", "100%"};
+#define VOLUME_LABEL_COUNT 21
 
 // Ask audiomon to re-probe and republish /tmp/nx_audio_sink with the new
 // policy immediately, instead of waiting for the next hotplug event.
@@ -51,7 +59,20 @@ static const char* audio_get_output(void) {
 	return AudioMgr_getSinkDescription();
 }
 
+static int audio_get_volume(void) {
+	return GetVolume();
+}
+
+static void audio_set_volume(int val) {
+	SetVolume(val);
+}
+
+static void audio_reset_volume(void) {
+	SetVolume(SETTINGS_DEFAULT_VOLUME);
+}
+
 static void audio_on_show(SettingsPage* page) {
+	settings_item_sync(&page->items[AUDIO_IDX_VOLUME]);
 	settings_item_sync(&page->items[AUDIO_IDX_NEGOTIATION]);
 	settings_item_sync(&page->items[AUDIO_IDX_BTRATE]);
 }
@@ -72,6 +93,19 @@ SettingsPage* audio_page_create(void) {
 
 	page->items[AUDIO_IDX_OUTPUT] = (SettingItem)ITEM_STATIC_INIT(
 		"Output", "Current audio sink and sample rate", audio_get_output);
+
+	page->items[AUDIO_IDX_VOLUME] = (SettingItem){
+		.name = "Volume",
+		.desc = "Speaker volume",
+		.type = ITEM_CYCLE,
+		.visible = 1,
+		.labels = volume_labels,
+		.label_count = VOLUME_LABEL_COUNT,
+		.get_value = audio_get_volume,
+		.set_value = audio_set_volume,
+		.on_reset = audio_reset_volume,
+		.values = volume_values,
+	};
 
 	page->items[AUDIO_IDX_NEGOTIATION] = (SettingItem){
 		.name = "Rate negotiation",

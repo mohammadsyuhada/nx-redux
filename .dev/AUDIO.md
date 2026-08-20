@@ -42,7 +42,8 @@ Policy facts:
   entirely — probe results are authoritative, don't assume.
 - BT routing is driven by BlueZ `MediaTransport1` add/remove, not device
   Connected state (LE-first earbuds connect long before audio is available).
-- The Settings → Audio page pokes audiomon with SIGUSR1 to republish.
+- The Settings → Audio page pokes audiomon with SIGUSR1 to republish. It
+  also hosts the Volume item (moved there from the System section).
 - **Never hot-restart audiomon manually** — it cannot reconcile pre-existing
   routing; reboot instead.
 - mediaplayer's external `ffplay` gets `-af aresample=<pickRate>`; the engine
@@ -85,12 +86,38 @@ guard on the other. Known deliberate difference: tg5050's display setters
 apply no mute overrides.
 
 Mixer paths differ too: tg5050's speaker path is `amixer -c 0 cget
-name='DAC Volume'`; tg5040 uses a reversed-mapping `'digital volume'`.
+name='DAC Volume'`; tg5040 uses a reversed-mapping `'digital volume'`. The
+reversal is **not** a bug: both codecs expose the same 0–63, 1.16 dB/step
+control, but tg5040's register counts attenuation (opposite of its TLV
+metadata) while tg5050's counts the normal direction — the two mappings land
+on the same effective curve.
+
+tg5050 speaker loudness (found + fixed 2026-08-20): the speaker amp is fed
+from LINEOUT, and the driver defaults `LINEOUT Gain` to 19 (−18 dB). Stock
+raises it at boot (`tinymix set 18 23` in `runtrimui-original.sh`) but our
+boot path skips that script, leaving the speaker ~10.5 dB quieter than
+tg5040 (whose `LINEOUT volume` defaults to 26 ≈ −7.5 dB). tg5050's
+`InitSettings` now sets `LINEOUT Gain` 31 (0 dB), and `SetRawVolume` on
+**both platforms** maps percent → digital raw through a perceptual-taper
+table (`dB = 36.4·log10(val/100) − 4.6`): 50% ≈ −15 dB instead of −38 dB,
+and the top is held 4.6 dB under full scale because both speaker amps
+audibly distort with the DAC at 0 dB. tg5040's table is mirrored into
+attenuation steps for its reversed register. The Brick's analog stage stays
+at its default 26, so it sits ~7.5 dB quieter than the TSPS at the same
+dial position.
+
+Deploy note: the **live** library on device is
+`/mnt/SDCARD/.system/lib/libmsettings.so` — the layout is flat; a
+`.system/<plat>/lib` path is stale and pushes there silently do nothing.
+Verify with `grep msettings /proc/$(pidof nextui.elf)/maps`.
 
 On-device lib test recipe: cross-compile a small C harness against the lib in
 the toolchain docker image, run with
-`LD_LIBRARY_PATH=/mnt/SDCARD/.system/<plat>/lib`. Reboot after replacing the
-`.so` — a cross-filesystem `mv` from /tmp overwrites the mmap'd file in place.
+`LD_LIBRARY_PATH=/mnt/SDCARD/.system/lib`. To replace the `.so` while
+processes have it mapped, `adb push` to `<name>.so.new` and `mv` into place —
+a same-filesystem rename keeps the old inode alive (a direct push, or a
+cross-filesystem `mv` from /tmp, overwrites the mmap'd file in place and can
+crash the mapper). Reboot afterwards so everything picks up the new copy.
 
 ## Misc facts
 
