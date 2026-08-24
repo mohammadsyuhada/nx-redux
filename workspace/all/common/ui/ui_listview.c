@@ -31,10 +31,18 @@ static bool row_is_header(ListView* v, int i) {
 	return row.is_header;
 }
 
-// Header rows: label in the top half of the slot, a quarter-row breathing
-// gap below (generalizes the extras catalog layout).
+// Header rows: a quarter-row breathing gap above (separating the header
+// from the previous group's last row - dropped when the header is the
+// list's first row, where there is nothing to separate from), label in a
+// half-row band, and a quarter-row gap below (generalizes the extras
+// catalog layout).
+static int header_top_gap(int i, int item_h) {
+	return i > 0 ? item_h / 4 : 0;
+}
 static int row_height(ListView* v, int i, int item_h) {
-	return row_is_header(v, i) ? item_h / 2 + item_h / 4 : item_h;
+	return row_is_header(v, i)
+			   ? header_top_gap(i, item_h) + item_h / 2 + item_h / 4
+			   : item_h;
 }
 
 static TTF_Font* row_font(ListView* v) {
@@ -334,7 +342,7 @@ void UI_listViewRender(ListView* v, SDL_Surface* screen) {
 			band_y = yy; // pill band starts at the first entry row
 		if (i == v->selected)
 			sel_y = yy;
-		yy += hdr ? layout.item_h / 2 + layout.item_h / 4 : layout.item_h;
+		yy += row_height(v, i, layout.item_h);
 		if (!hdr)
 			band_end = yy; // ...and ends after the last entry row
 	}
@@ -388,13 +396,14 @@ void UI_listViewRender(ListView* v, SDL_Surface* screen) {
 		get_row_safe(v, i, row_sel, &row);
 
 		if (row.is_header) {
+			int label_y = y + header_top_gap(i, layout.item_h);
 			int h = layout.item_h / 2;
 			SDL_Surface* surf =
 				GFX_renderText(font.small, row.label, COLOR_GRAY);
 			if (surf) {
 				int x = SCALE1(PADDING) + SCALE1(BUTTON_PADDING);
 				SDL_BlitSurface(surf, NULL, screen,
-								&(SDL_Rect){x, y + (h - surf->h) / 2, 0, 0});
+								&(SDL_Rect){x, label_y + (h - surf->h) / 2, 0, 0});
 				SDL_FreeSurface(surf);
 			}
 			continue;

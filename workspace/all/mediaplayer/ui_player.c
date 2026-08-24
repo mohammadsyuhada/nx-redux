@@ -11,6 +11,7 @@
 #include "ui_list.h"
 #include "ui_listview.h"
 #include "video_browser.h"
+#include "positions.h"
 
 // Full-mode ListView for the file browser (the widget owns selection,
 // scroll, glide and marquee; module_player drives input through the
@@ -78,8 +79,16 @@ void render_video_browser(SDL_Surface* screen, IndicatorType show_setting,
 	v->list_id = (const void*)ctx->entries;
 	v->empty_title = "No videos found";
 	v->empty_subtitle = "Add videos to /Videos on your SD card";
-	// Resume (for videos with a saved position) lives in the MENU context menu.
-	v->hint_pairs = (char*[]){"B", "BACK", "A", "OPEN", NULL};
+	// A resumes a video with a saved position (play-from-start moves to the
+	// MENU context menu); surface that on the hint bar for the selected row.
+	static char* hints_open[] = {"B", "BACK", "A", "OPEN", NULL};
+	static char* hints_resume[] = {"B", "BACK", "A", "RESUME", NULL};
+	VideoFileEntry* sel =
+		(ctx->entry_count > 0 && v->selected >= 0 && v->selected < ctx->entry_count)
+			? &ctx->entries[v->selected]
+			: NULL;
+	bool sel_can_resume = sel && !sel->is_dir && Positions_get(sel->path) > 0;
+	v->hint_pairs = sel_can_resume ? hints_resume : hints_open;
 
 	UI_listViewRender(v, screen);
 }

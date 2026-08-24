@@ -29,18 +29,7 @@ static void load_video_directory(VideoBrowserContext* browser, const char* path)
 #define RESUME_END_WINDOW_SEC 60
 
 // Context-menu item ids
-#define PLAYER_CTX_RESUME 1 // resume the selected video from its saved position
-
-// Format a resume position as "Resume H:MM:SS" / "Resume M:SS" for the menu.
-static void format_resume_label(int sec, char* out, size_t out_sz) {
-	int h = sec / 3600;
-	int m = (sec % 3600) / 60;
-	int s = sec % 60;
-	if (h > 0)
-		snprintf(out, out_sz, "Resume %d:%02d:%02d", h, m, s);
-	else
-		snprintf(out, out_sz, "Resume %d:%02d", m, s);
-}
+#define PLAYER_CTX_PLAY_START 1 // play the selected video from 0:00 (A resumes)
 
 // Launch ffplay for a file entry at start_sec, then record where playback
 // ended. Returns the (possibly re-created) screen surface.
@@ -130,8 +119,8 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 
 		ListView* v = VideoBrowser_view();
 
-		// Context menu for this page (MENU tap): offer Resume when the selected
-		// video has a saved position, always offer Quit.
+		// Context menu for this page (MENU tap): A resumes a video with a saved
+		// position, so offer "Play from Start" for those; always offer Quit.
 		VideoFileEntry* sel_entry =
 			(browser.entry_count > 0 && v->selected >= 0 && v->selected < browser.entry_count)
 				? &browser.entries[v->selected]
@@ -140,11 +129,8 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 
 		ContextMenuItem ctx_items[2];
 		int ctx_count = 0;
-		char resume_menu_label[40];
-		if (sel_resume_sec > 0) {
-			format_resume_label(sel_resume_sec, resume_menu_label, sizeof(resume_menu_label));
-			ModuleCommon_ctxAdd(ctx_items, &ctx_count, resume_menu_label, PLAYER_CTX_RESUME);
-		}
+		if (sel_resume_sec > 0)
+			ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Play from Start", PLAYER_CTX_PLAY_START);
 		ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
 
 		// Handle global input (START dialogs, volume, etc.)
@@ -153,8 +139,8 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 			VideoBrowser_freeEntries(&browser);
 			return MODULE_EXIT_QUIT;
 		}
-		if (global.context_id == PLAYER_CTX_RESUME && sel_entry && sel_resume_sec > 0) {
-			screen = play_video_file(screen, sel_entry, sel_resume_sec);
+		if (global.context_id == PLAYER_CTX_PLAY_START && sel_entry) {
+			screen = play_video_file(screen, sel_entry, 0);
 			GFX_clearLayers(LAYER_SCROLLTEXT);
 			dirty = 1;
 		}
@@ -200,8 +186,9 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 					GFX_clearLayers(LAYER_SCROLLTEXT);
 					dirty = 1;
 				} else {
-					// A: play from the start
-					screen = play_video_file(screen, entry, 0);
+					// A: resume from the saved position when one exists,
+					// otherwise play from the start
+					screen = play_video_file(screen, entry, Positions_get(entry->path));
 					// Force full redraw and clear the stale marquee layer
 					GFX_clearLayers(LAYER_SCROLLTEXT);
 					dirty = 1;
@@ -209,7 +196,6 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 			}
 			break;
 		default:
-			// Resume moved to the context menu (MENU tap).
 			break;
 		}
 
