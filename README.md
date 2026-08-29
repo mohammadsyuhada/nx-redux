@@ -8,6 +8,8 @@ menus (and hidden entirely in simple mode).
 
 NX Redux is a fork of [NextUI](https://github.com/LoveRetro/NextUI) by LoveRetro, which itself descends from [MinUI](https://github.com/shauninman/MinUI).
 
+📖 **User documentation: [nxredux.com](https://nxredux.com)** — installation, guides for every feature and a full settings reference, illustrated with screenshots from the device.
+
 Refer to the Youtube Video below for demonstration of the features:
 
 [![nx-redux-youtube](https://github.com/user-attachments/assets/e4cf9c86-604b-49a4-b888-4b569ba592a9)](https://www.youtube.com/watch?v=l4iJBRgUe4U)
@@ -156,18 +158,18 @@ Ongoing focus areas:
 
 ## Additional Emulators
 
-Some emulators are not bundled with NX Redux. If you want to run PPSSPP — or any other system that isn't included — you can install a community pak instead:
+Some emulators are not bundled with NX Redux but can be added:
 
-- **PPSSPP** (PlayStation Portable) — [ben16w/minui-psp](https://github.com/ben16w/minui-psp)
+- **PPSSPP** (PlayStation Portable) — easiest via the on-device `Xtras` store (Tools tab), which downloads and installs [ben16w/minui-psp](https://github.com/ben16w/minui-psp) directly on the device — no computer needed.
+- Any other system — install a community pak by hand: copy it into the `/Emus` folder on the SD card, following the pak's own installation steps.
 
-> ⚠️ These paks are built for **NextUI** (which NX Redux is based on), **not** for NX Redux. They will generally work, but they are not developed, maintained, or supported for NX Redux. Please **do not** report issues you hit while using them on NX Redux to their developers — those developers build for NextUI and cannot help with NX Redux-specific behavior.
+> ⚠️ Community paks (including the PSP pak above) are built for **NextUI** (which NX Redux is based on), **not** for NX Redux. They will generally work, but they are not developed, maintained, or supported for NX Redux. Please **do not** report issues you hit while using them on NX Redux to their developers — those developers build for NextUI and cannot help with NX Redux-specific behavior.
 
 ## Upstream
 
-This project is a derivative of [LoveRetro/NextUI](https://github.com/LoveRetro/NextUI).
+This project is a derivative of [LoveRetro/NextUI](https://github.com/LoveRetro/NextUI), forked while NextUI was licensed under GPL-3.0.
 
-Upstream changes may be merged selectively.
-Architectural decisions here prioritize clarity and maintainability over strict parity.
+NX Redux now develops independently. NextUI has since moved to the PolyForm Noncommercial 1.0.0 license, which is not compatible with this project's GPL-3.0 — so newer upstream changes are no longer merged, and NX Redux continues from the GPL-3.0 codebase it forked.
 
 ## Credits
 
@@ -182,7 +184,7 @@ Architectural decisions here prioritize clarity and maintainability over strict 
 
 ## License
 
-Licensed under **GNU GPL v3.0**, the same license as the original project.
+Licensed under **GNU GPL v3.0**, the license NextUI was under at the time of the fork.
 
 All original copyrights are retained.
 Modifications in this repository are also distributed under GPL-3.0.
