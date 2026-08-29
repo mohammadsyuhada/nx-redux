@@ -62,8 +62,8 @@ static int confirm_return_state = 0; // 0 = menu, 1 = top_shows, 2 = search_resu
 static bool screen_off = false;
 
 // Context-menu item ids
-#define PODCAST_CTX_UNSUBSCRIBE 1	   // menu: unsubscribe selected podcast (same as X)
-#define PODCAST_CTX_MANAGE 2		   // menu: manage podcasts (same as Y)
+#define PODCAST_CTX_UNSUBSCRIBE 1	   // menu: unsubscribe selected podcast
+#define PODCAST_CTX_MANAGE 2		   // menu: manage podcasts
 #define PODCAST_CTX_REFRESH_LIST 3	   // top shows: refresh charts (same as X)
 #define PODCAST_CTX_REFRESH_EPISODES 4 // episodes: refresh feed (same as Y)
 #define PODCAST_CTX_MARK_PLAYED 5	   // episodes: toggle played (same as X)

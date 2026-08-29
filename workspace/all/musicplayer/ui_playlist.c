@@ -91,6 +91,10 @@ void render_playlist_detail(SDL_Surface* screen, IndicatorType show_setting,
 	v->empty_title = "No tracks in playlist";
 	v->empty_subtitle = "Add tracks from the music browser";
 	v->empty_y_label = NULL;
-	v->hint_pairs = NULL; // parity: today's detail screen draws no hint bar
+	// Empty state carries all hints; the bottom bar only appears with content
+	v->empty_btn_pairs = (char*[]){"B", "BACK", NULL};
+	v->hint_pairs = (count > 0)
+						? (char*[]){"B", "BACK", "A", "PLAY", NULL}
+						: NULL;
 	UI_listViewRender(v, screen);
 }
