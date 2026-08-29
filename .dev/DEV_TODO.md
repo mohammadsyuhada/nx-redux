@@ -187,3 +187,61 @@ using yet:
       `catalog/<id>/meta.txt` stubs so a tab overflows both the Brick 1024×768 and
       Smart Pro S 1280×720 layouts): scroll both directions, cross the Installed
       header mid-scroll, and confirm the selection stays on-screen at both list ends.
+
+---
+
+## Screenshot daemon: adopt the tg5040 composite write-back source (capture_dump)
+
+**Recorded:** 2026-08-29, found while capturing docs-site screenshots. The
+tg5040 capture ladder (mirror → fbdev, [CAPTURE.md](CAPTURE.md)) structurally
+cannot see the OSD panel or toasts — `trimui_osdd` draws on its own disp
+layer, fb0 only holds the app's layer, and DRM readback self-disables on
+tg5040. The kernel has a way out: the sunxi display engine's write-back
+channel, exposed as the debug attr
+`/sys/class/disp/disp/attr/capture_dump`, returns the **final composited
+panel output** — every layer, exactly what the panel shows.
+
+**Verified on Brick fw 1.1.1 (kernel 4.9.191):**
+`rm -f /tmp/x.bmp; echo /tmp/x.bmp > .../capture_dump` → ~1 s later the file
+holds a 54-byte BMP header + 1024×768×4 BGRA top-down. Byte-identical to fb0
+for plain frames; captured the live OSD over the main menu (the docs site's
+`osd.png` is this capture). Semantics confirmed against
+`disp_capture_dump_store` in the lichee linux-4.9 disp2 `dev_disp.c` (same
+BSP line, e.g. CrealityTech/sonic_pad_os): filename written to the attr is
+the output path, extension picks the format (`.bmp` → ARGB8888 + header,
+`.rgb888`/`.yuv420_p`/… raw), `O_CREAT|O_EXCL` so a pre-existing target is a
+silent no-op, `disp_delay_ms(1000)` blocks the writer ~1 s, attr is 0660
+root. Kernel-context `vfs_write` — point it at `/tmp` (tmpfs), never the
+vfat SD card. Full recipe in
+[TESTING.md](TESTING.md#screenshots-for-verification).
+
+**Scope — screenshots only.** The 1 s blocking capture makes it useless for
+the recorder (fbdev stays the tg5040 recording source); and per-frame it is
+strictly slower than fbdev pread. The win is correctness/coverage for
+`screenshot.elf` (`workspace/all/screenshot`): composite capture sees video
+layers, OSD, toasts — anything fb0 misses.
+
+- [x] Probed tg5050 2026-08-29: the attr is **absent** — kernel 5.15.147 has
+      no sunxi disp2 at all (no `/sys/class/disp`, no `/dev/disp`; pure DRM).
+      Gate the new source per-platform the same compile-time way
+      `fbdev_usable()` is. HOWEVER: tg5050's DRM exposes a **writeback
+      connector** (`/sys/class/drm/card0-Writeback-1`) — the DRM-native
+      composite capture (full CRTC output, all planes incl. the OSD's).
+      Driving it needs DRM master + an atomic commit with `WRITEBACK_FB_ID`,
+      and the foreground app holds master — so a daemon would need a DRM
+      lease or to capture via the app's flip path. Scope separately if
+      OSD-inclusive capture is ever wanted on tg5050; today's per-plane
+      readback (`drm_scanout.c`) stays the tg5050 screenshot source.
+- [ ] Wire into `screenshot.elf`'s tg5040 ladder. Suggested position: below
+      the live GPU mirror (vsync'd, exact) but above fbdev, or as the fbdev
+      black-frame-reject fallback — decide against real captures. Handle the
+      `O_EXCL` pre-delete, the ~1 s block (capture timing vs the L2+R2 toast),
+      and strip/convert the BMP header before the JPEG encode.
+- [ ] Decide what OSD auto-hide-on-activate means now: today `set.sh` hides
+      the panel *because* captures couldn't include it cleanly; with a
+      composite source, capturing the OSD deliberately becomes possible —
+      keep the auto-hide for L2+R2 user shots, but don't bake it into the
+      source itself.
+- [ ] Sanity-check interactions while a game runs (minarch 60 fps flips):
+      write-back competes with scanout for DE bandwidth — confirm no visible
+      hitch during the 1 s capture window.

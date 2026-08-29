@@ -50,6 +50,16 @@ framebuffers with a non-zero modifier (AFBC-compressed) and NV12 overlays —
 falling through lands on the UI plane. Scanout rows are top-down (no vflip).
 Measured on the Smart Pro S: primary plane XR24 1280×720 pitch 5120, linear.
 
+**A fourth source exists on tg5040 but is not wired in yet**: the sunxi
+display engine's write-back channel, exposed as the debug attr
+`/sys/class/disp/disp/attr/capture_dump` (discovered 2026-08-29). Unlike every
+source above, it returns the **final composited panel output** — all disp
+layers, including `trimui_osdd`'s OSD panel and toasts, which fb0 structurally
+cannot see. One-second blocking capture, so it is a screenshot source only,
+never a recorder source. Recipe and gotchas in
+[TESTING.md](TESTING.md#screenshots-for-verification); adoption by
+`screenshot.elf` is scoped in [DEV_TODO.md](DEV_TODO.md).
+
 ## The mirror liveness protocol (flock, not mtime)
 
 The mirror file caused two classes of bug before the current protocol: stale

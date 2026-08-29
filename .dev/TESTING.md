@@ -113,6 +113,20 @@ sleep; poke a key every ~15 s during long waits.
   `ffmpeg -f fbdev -i /dev/fb0 -frames:v 1 -c:v mjpeg` (no PNG encoder on
   device). fb0 shows a **stale frame** until an input-driven redraw — inject
   one d-pad down/up first.
+- **tg5040 composite (includes the OSD)**: fb0 can never show the OSD panel or
+  toasts — `trimui_osdd` draws on a separate disp layer. The kernel's sunxi
+  write-back debug hook captures the **full composited panel output** instead:
+  `rm -f /tmp/x.bmp; echo /tmp/x.bmp > /sys/class/disp/disp/attr/capture_dump`
+  → after ~1 s the file holds a 54-byte BMP header + W×H×4 BGRA, top-down
+  (strip the header and reuse the fb0 BGRA→PNG converter). Gotchas: the target
+  must **not** already exist (`O_CREAT|O_EXCL`, silent no-op otherwise), the
+  store blocks ~1 s (`disp_delay_ms(1000)`), root-only (0660), and it writes
+  from kernel context — target tmpfs (`/tmp`), not the SD card. Verified on
+  Brick fw 1.1.1 (4.9.191), byte-identical to fb0 for plain frames; semantics
+  match `disp_capture_dump_store` in any lichee linux-4.9 disp2 `dev_disp.c`
+  (e.g. CrealityTech/sonic_pad_os). Not present on tg5050 (DRM stack — use
+  [CAPTURE.md](CAPTURE.md) readback there). Adoption by `screenshot.elf` is
+  scoped in [DEV_TODO.md](DEV_TODO.md).
 - **tg5050**: fb0 reads black (DRM scanout — see [DEVICES.md](DEVICES.md)).
   Use the screenshot daemon / DRM readback ([CAPTURE.md](CAPTURE.md)), or the
   GPU mirror `/tmp/fb_mirror.raw` (1280×720 RGBA, vflipped) while a capture
