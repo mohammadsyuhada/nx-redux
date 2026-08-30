@@ -11,6 +11,48 @@ Move an entry from there to here once it compiles and needs hardware time.
 
 ---
 
+## Rename standardized to map.txt aliases only (built + deployed 2026-08-30)
+
+Context-menu **Rename Rom** no longer renames files for any core — it always edits the
+`map.txt` display alias (home dir + Collections maps, created on first rename), exactly
+like the old arcade path. `renameRomFiles` and its sweep helpers are deleted; new
+`Recents_updateAlias` re-points the recent.txt alias snapshot so Recently Played / the
+game switcher show the new name immediately; names with `/` or a leading `.` are
+rejected (the dot would `hide()` the entry). Both platforms built clean, deployed to
+Brick + Smart Pro S (md5-verified, rebooted, nextui running). Docs updated in
+nx-redux-docs (`guide/context-menu.md`, `guide/main-menu.md`) — uncommitted there too.
+
+- [ ] Rename a regular (e.g. GBA) game: list shows the new name; the rom file, save,
+      states and box art on disk keep their OLD filenames; `<console>/map.txt` gains a
+      `file<TAB>name` line; save/states still load in-game under the new name.
+- [ ] Rename the same game again: the map line is updated (no duplicate lines).
+- [ ] Rename an arcade zip: unchanged behavior (alias edit, zip untouched, still boots).
+- [ ] Recently Played / game switcher show the new name right after the rename
+      (no relaunch needed).
+- [ ] Rename a game that's in a collection: the collection list shows the new name
+      (Collections/map.txt updated), the game still launches from the collection.
+- [ ] Folder game (multi-disc) renamed from the console list: folder entry shows the
+      new name; folder/cue/m3u untouched on disk; still launches.
+- [ ] Delete a rom that has an alias: map line dropped, collection lines dropped
+      (regression check for the `removeCollectionLines` simplification).
+
+Follow-up fix (same day): the standalone-emu overlay menu (DC.pak flycast,
+N64.pak mupen64plus) titled itself with the raw filename — launch.sh set
+`EMU_OVERLAY_GAME` from `basename "$ROM"` and never consulted map.txt (minarch
+already aliases via `getAlias`). All four launch.sh (2 paks × 2 platforms) now
+look the alias up from `<rom dir>/map.txt` for the title, while the netplay
+`--game` handshake keeps the filename-derived `GAME_ID` (the wizard's HELLO
+game gate must be identical across devices — wizard_net.c). Deployed to both
+devices; verified live on Brick: flycast env shows
+`EMU_OVERLAY_GAME=Metal Slug 6` / `EMU_OVERLAY_ROMFILE=mslug6.zip`.
+
+- [ ] Open the DC overlay menu on an aliased game: title shows the alias
+      (e.g. "Metal Slug 6"), save/load state still uses the old slots.
+- [ ] Same check for an aliased N64 game.
+- [ ] DC netplay between the two devices still pairs (game gate unchanged).
+
+---
+
 ## Boot: failed MinUI.zip extraction must not brick the boot loop (built 2026-08-01)
 
 Found live on Smart Pro S (fresh install, 2026-08-01): a truncated MinUI.zip
