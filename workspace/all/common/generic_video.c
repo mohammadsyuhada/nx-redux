@@ -63,6 +63,8 @@ typedef struct Shader {
 	GLint u_TextureSize;
 	GLint u_InputSize;
 	GLint OrigInputSize;
+	GLint u_OrigTextureSize;
+	GLint u_OrigTexture;
 	GLint texLocation;
 	GLint texelSizeLocation;
 	ShaderParam* pragmas; // Dynamic array of parsed pragma parameters
@@ -81,6 +83,16 @@ Shader* shaders[MAXSHADERS] = {
 };
 
 static int nrofshaders = 0; // choose between 1 and 3 pipelines, > pipelines = more cpu usage, but more shader options and shader upscaling stuff
+
+// The untouched pass-0 input frame, exposed to shaders as OrigTexture (unit 1)
+// / OrigTextureSize. Shaders written for current NextUI (upstream PR #720)
+// declare these; an unset sampler falls back to unit 0 but an unset
+// OrigTextureSize reads as vec2(0) and any coordinate math dividing by it goes
+// NaN — undefined per-frame sampling that shows up as screen flicker
+// (e.g. PT_SkyWalker541). Our source texture is allocated at exactly the frame
+// size, so OrigTextureSize == the frame dimensions.
+static GLuint orig_texture_gl = 0;
+static int orig_frame_w = 0, orig_frame_h = 0;
 
 ///////////////////////////////
 
@@ -707,6 +719,8 @@ void PLAT_updateShader(int i, const char* filename, int* scale, int* filter, int
 		shader->u_TextureSize = glGetUniformLocation(shader->shader_p, "TextureSize");
 		shader->u_InputSize = glGetUniformLocation(shader->shader_p, "InputSize");
 		shader->OrigInputSize = glGetUniformLocation(shader->shader_p, "OrigInputSize");
+		shader->u_OrigTextureSize = glGetUniformLocation(shader->shader_p, "OrigTextureSize");
+		shader->u_OrigTexture = glGetUniformLocation(shader->shader_p, "OrigTexture");
 		shader->texLocation = glGetUniformLocation(shader->shader_p, "Texture");
 		shader->texelSizeLocation = glGetUniformLocation(shader->shader_p, "texelSize");
 		for (int i = 0; i < shader->num_pragmas; ++i) {
@@ -2086,6 +2100,12 @@ void runShaderPass(GLuint src_texture, GLuint shader_program, GLuint* target_tex
 			glUniform2f(shader->u_TextureSize, shader->texw, shader->texh);
 		if (shader->OrigInputSize >= 0)
 			glUniform2f(shader->OrigInputSize, shader->srcw, shader->srch);
+		// shader_p gate: the chrome passes (final scale/effect/overlay/notif) and
+		// never-loaded stock entries carry zero-initialized location fields, and
+		// location 0 in the system shaders is their Texture sampler — an ungated
+		// upload here would clobber it.
+		if (shader->shader_p && shader->u_OrigTextureSize >= 0)
+			glUniform2f(shader->u_OrigTextureSize, orig_frame_w, orig_frame_h);
 		if (shader->u_InputSize >= 0)
 			glUniform2f(shader->u_InputSize, shader->srcw, shader->srch);
 		for (int i = 0; i < shader->num_pragmas; ++i) {
@@ -2164,6 +2184,18 @@ void runShaderPass(GLuint src_texture, GLuint shader_program, GLuint* target_tex
 
 	if (shader->texLocation >= 0)
 		glUniform1i(shader->texLocation, 0);
+
+	// Per-draw (not only on program change): the frame texture is recreated on
+	// shader resets, so the unit-1 binding must follow the current id. Same
+	// shader_p gate as OrigTextureSize above — pointing an unresolved location 0
+	// (the system shaders' Texture sampler) at unit 1 would break every
+	// chrome pass.
+	if (shader->shader_p && shader->u_OrigTexture >= 0) {
+		glUniform1i(shader->u_OrigTexture, 1);
+		glActiveTexture(GL_TEXTURE0 + 1);
+		glBindTexture(GL_TEXTURE_2D, orig_texture_gl);
+		glActiveTexture(GL_TEXTURE0);
+	}
 
 	if (shader->texelSizeLocation >= 0) {
 		glUniform2fv(shader->texelSizeLocation, 1, texelSize);
@@ -2423,6 +2455,10 @@ void PLAT_GL_Swap() {
 
 	last_w = vid.blit->src_w;
 	last_h = vid.blit->src_h;
+
+	orig_texture_gl = src_texture;
+	orig_frame_w = vid.blit->src_w;
+	orig_frame_h = vid.blit->src_h;
 
 	for (int i = 0; i < nrofshaders; i++) {
 		int src_w = last_w;
