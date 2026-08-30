@@ -958,6 +958,7 @@ void GameList_runContextAction(int id) {
 			reloadDirectoryAt(stack->count - 1, sel);
 		}
 		break;
+	case 3:	 // Unpin (root pinned row)
 	case 21: // Unpin Tool
 	case 31: // Unpin Item
 		if (entry) {
@@ -1099,6 +1100,14 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 
 		if (stack->count == 1) {
 			// Root menu (main console list)
+			// Pinned rows unpin in place; hidden in simple mode so kids can't
+			// remove the curated shortcuts.
+			if (!gl_simple_mode && entry &&
+				Shortcuts_exists(entry->path + strlen(SDCARD_PATH))) {
+				snprintf(items[idx].label, CONTEXTMENU_MAX_TEXT, "%s", "Unpin");
+				items[idx].id = 3;
+				idx++;
+			}
 			snprintf(items[idx].label, CONTEXTMENU_MAX_TEXT, "%s", "Refresh Roms");
 			items[idx].id = 1;
 			idx++;
