@@ -185,6 +185,12 @@ char* UIKeyboard_open(const char* prompt) {
 	int shift = 0;
 	bool dirty = true;
 
+	// The keyboard takes over the whole screen, but hardware overlay layers
+	// (game-list thumbnail art, marquee scroll text) composite ABOVE the
+	// surface kb_draw paints — left uncleared they float over the keys.
+	// Callers repaint from scratch after the keyboard closes anyway.
+	GFX_clearLayers(LAYER_ALL);
+
 	// Don't let the button press that opened the keyboard leak in.
 	PAD_reset();
 
