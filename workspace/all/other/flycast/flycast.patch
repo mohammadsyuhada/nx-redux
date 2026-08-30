@@ -1,8 +1,8 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 8340288fe..e2b512404 100644
+index 8340288fe..40186ca17 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -312,6 +312,67 @@ if(NINTENDO_SWITCH)
+@@ -312,6 +312,68 @@ if(NINTENDO_SWITCH)
  	target_include_directories(${PROJECT_NAME} PRIVATE shell/switch)
  endif()
  
@@ -16,6 +16,7 @@ index 8340288fe..e2b512404 100644
 +		${NX_OVERLAY_DIR}/emu_overlay.c
 +		${NX_OVERLAY_DIR}/emu_overlay_cfg.c
 +		${NX_OVERLAY_DIR}/emu_overlay_sdl.c
++		${NX_OVERLAY_DIR}/text_shape.c
 +		${NX_OVERLAY_DIR}/cjson/cJSON.c
 +	)
 +	target_sources(${PROJECT_NAME} PRIVATE ${NX_OVERLAY_SOURCES})
@@ -71,7 +72,7 @@ index 8340288fe..e2b512404 100644
  	target_link_options(${PROJECT_NAME} PRIVATE "-Wl,--no-execute-only")
  endif()
 diff --git a/core/audio/audiobackend_sdl2.cpp b/core/audio/audiobackend_sdl2.cpp
-index 99d932677..15dbdbdf6 100644
+index 99d932677..88954d9e5 100644
 --- a/core/audio/audiobackend_sdl2.cpp
 +++ b/core/audio/audiobackend_sdl2.cpp
 @@ -7,6 +7,7 @@
@@ -159,6 +160,37 @@ index 99d932677..15dbdbdf6 100644
  		}
  
  		return audiodev != 0;
+diff --git a/core/hw/naomi/naomi_cart.cpp b/core/hw/naomi/naomi_cart.cpp
+index 3b90f0e5c..410d96be3 100644
+--- a/core/hw/naomi/naomi_cart.cpp
++++ b/core/hw/naomi/naomi_cart.cpp
+@@ -129,6 +129,12 @@ static bool loadBios(const char *filename, Archive *child_archive, Archive *pare
+ 			{
+ 				verify(bios->blobs[romid].offset + bios->blobs[romid].length <= BIOS_SIZE);
+ 				u32 read = file->Read(biosData + bios->blobs[romid].offset, bios->blobs[romid].length);
++				// Atomiswave BIOS from the modern MAME set (bios.ic23_l) is a
++				// 64KB image in a 128KB window: mirror it the way the
++				// hardware's address decoding does.
++				if (!strcmp(bios->name, "awbios") && bios->blobs[romid].length == 0x10000
++						&& bios->blobs[romid].offset == 0)
++					memcpy(biosData + 0x10000, biosData, 0x10000);
+ 				if (config::GGPOEnable)
+ 					md5.add(biosData + bios->blobs[romid].offset, bios->blobs[romid].length);
+ 				DEBUG_LOG(NAOMI, "Mapped %s: %x bytes at %07x", bios->blobs[romid].filename, read, bios->blobs[romid].offset);
+diff --git a/core/hw/naomi/naomi_roms.cpp b/core/hw/naomi/naomi_roms.cpp
+index 7b12c1bbb..f875c42c1 100644
+--- a/core/hw/naomi/naomi_roms.cpp
++++ b/core/hw/naomi/naomi_roms.cpp
+@@ -40,6 +40,9 @@ const BIOS_t BIOS[] =
+ 		{
+ 			// Sammy version
+ 			{ 0, "bios0.ic23", 0x000000, 0x020000, 0x719b2b0b },
++			// Modern MAME re-dump: 64KB image, mirrored into the 128KB
++			// window by loadBios (naomi_cart.cpp)
++			{ 0, "bios.ic23_l", 0x000000, 0x010000, 0xe5693ce3 },
+ 			//or
+ 			//{ 0, "bios1.ic23", 0x000000, 0x020000, 0xd3e80a9f },
+ 			// Sega version
 diff --git a/core/hw/sh4/sh4_interrupts.cpp b/core/hw/sh4/sh4_interrupts.cpp
 index 49a3be455..40eacc928 100644
 --- a/core/hw/sh4/sh4_interrupts.cpp
@@ -244,7 +276,7 @@ index 9babc2bd6..9d807b816 100644
  			if (pressed && !gui_is_open())
 diff --git a/core/nx_overlay.cpp b/core/nx_overlay.cpp
 new file mode 100644
-index 000000000..09d45049f
+index 000000000..98e58ba11
 --- /dev/null
 +++ b/core/nx_overlay.cpp
 @@ -0,0 +1,312 @@
@@ -562,7 +594,7 @@ index 000000000..09d45049f
 +}
 diff --git a/core/nx_overlay.h b/core/nx_overlay.h
 new file mode 100644
-index 000000000..350dfe13b
+index 000000000..d3cf4525c
 --- /dev/null
 +++ b/core/nx_overlay.h
 @@ -0,0 +1,11 @@
