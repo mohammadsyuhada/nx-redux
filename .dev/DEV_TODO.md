@@ -143,30 +143,6 @@ the way in, matching a normal launch).
 
 ---
 
-## DC.pak: accept the modern MAME awbios dump in flycast
-
-**Recorded:** 2026-08-30, found while verifying the Atomiswave coin fix. Our
-pinned flycast v2.6 only accepts the OLD MAME awbios set — `bios0.ic23`,
-128KB, crc 0x719b2b0b (`core/hw/naomi/naomi_roms.cpp:42`; the bios1/fpr
-alternates are commented out). The CURRENT MAME re-dump ships
-`bios.ic23_l` (64KB, crc 0xe5693ce3), which fails with the misleading
-"awbios: Cannot open bios0.ic23" → "cannot load BIOS awbios". Verified
-workaround: repack the 64KB image doubled (hardware mirroring) as
-`bios0.ic23` — boots and plays Metal Slug 6 fine on both devices.
-
-- [ ] Add the modern dump to flycast's awbios blob list via `flycast.patch`
-      (either `{ 0, "bios.ic23_l", 0x000000, 0x010000, 0xe5693ce3 }` +
-      mirror-on-load, or accept-by-crc with the doubled image). The loader
-      already prefers OpenFileByCrc, so a crc entry alone may suffice —
-      check whether a 64KB short-read into the 128KB bios window needs the
-      explicit mirror (our doubled-repack test suggests the upper half IS
-      read).
-- [ ] Needs a flycast rebuild for both platforms (the long Docker cmake
-      build — see `workspace/all/other/flycast/README.md`), so batch it
-      with the next flycast-touching change rather than shipping alone.
-
----
-
 ## Screenshot daemon: adopt the tg5040 composite write-back source (capture_dump)
 
 **Recorded:** 2026-08-29, found while capturing docs-site screenshots. The
