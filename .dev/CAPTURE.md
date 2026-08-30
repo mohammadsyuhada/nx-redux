@@ -29,19 +29,32 @@ mode this replaced).
 1. **Live GPU mirror** — `/tmp/fb_mirror.raw` (RGBA), published by the
    foreground app's flip path in `generic_video.c` when a capture PID file
    exists. Vsync'd, exact, but only exists for apps that link the common video
-   layer (not third-party paks).
+   layer (not third-party paks) — and **only on tg5050**: `capture_check`
+   early-returns on every other platform, so no tg5040 app ever publishes a
+   mirror.
 2. **DRM scanout readback** (`drm_scanout.c`) — opens `/dev/dri/card0` as a
    non-master client (root suffices), enables universal planes, walks planes
    to the active framebuffer, `GETFB2` → `PRIME_HANDLE_TO_FD` → mmap, packs
    rows. Captures *any* app on tg5050, including third-party paks and across
    app switches. On tg5040 `card0` is Mali-only and `GETPLANERESOURCES` fails
    fast, so this source cleanly self-disables there.
-3. **fbdev** (`/dev/fb0`) — tg5040 only (`fbdev_usable()` is compile-time
+3. **disp write-back dump** — tg5040 only, **screenshot daemon only** (the
+   ~1s blocking capture disqualifies it as a recorder source). The sunxi
+   display engine's write-back channel (`/sys/class/disp/disp/attr/
+   capture_dump`) returns the **final composited panel output** — all disp
+   layers, including video layers and `trimui_osdd`'s OSD panel and toasts,
+   which fb0 structurally cannot see. Since tg5040 has no mirror and no DRM
+   readback, this is effectively the primary tg5040 screenshot source; a
+   failed attempt latches off for the rest of the retry loop and falls
+   through to fbdev. Recipe and kernel gotchas in
+   [TESTING.md](TESTING.md#screenshots-for-verification).
+4. **fbdev** (`/dev/fb0`) — tg5040 only (`fbdev_usable()` is compile-time
    gated on `-DPLATFORM`, so a tg5050 build can never fall back to fbdev and
-   produce guaranteed-black output). The screenshot daemon additionally
-   samples fb0 content (pread, RGB channel masks from `fb_bitfields`) to
-   reject an all-black frame; the recorder re-reads `yoffset` per frame to
-   follow panning.
+   produce guaranteed-black output). The recorder's tg5040 source, and the
+   screenshot daemon's fallback when the write-back attr is missing or fails.
+   The screenshot daemon additionally samples fb0 content (pread, RGB channel
+   masks from `fb_bitfields`) to reject an all-black frame; the recorder
+   re-reads `yoffset` per frame to follow panning.
 
 DRM readback details worth keeping: `GETFB2` is ioctl `0xCE` and the
 toolchain's UAPI headers predate kernel 5.7, so the struct is `#ifndef`-defined
@@ -49,16 +62,6 @@ by hand. Format map: XR24/AR24 → ffmpeg `bgr0`, XB24/AB24 → `rgb0`; skip
 framebuffers with a non-zero modifier (AFBC-compressed) and NV12 overlays —
 falling through lands on the UI plane. Scanout rows are top-down (no vflip).
 Measured on the Smart Pro S: primary plane XR24 1280×720 pitch 5120, linear.
-
-**A fourth source exists on tg5040 but is not wired in yet**: the sunxi
-display engine's write-back channel, exposed as the debug attr
-`/sys/class/disp/disp/attr/capture_dump` (discovered 2026-08-29). Unlike every
-source above, it returns the **final composited panel output** — all disp
-layers, including `trimui_osdd`'s OSD panel and toasts, which fb0 structurally
-cannot see. One-second blocking capture, so it is a screenshot source only,
-never a recorder source. Recipe and gotchas in
-[TESTING.md](TESTING.md#screenshots-for-verification); adoption by
-`screenshot.elf` is scoped in [DEV_TODO.md](DEV_TODO.md).
 
 ## The mirror liveness protocol (flock, not mtime)
 

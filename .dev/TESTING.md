@@ -120,13 +120,16 @@ sleep; poke a key every ~15 s during long waits.
   → after ~1 s the file holds a 54-byte BMP header + W×H×4 BGRA, top-down
   (strip the header and reuse the fb0 BGRA→PNG converter). Gotchas: the target
   must **not** already exist (`O_CREAT|O_EXCL`, silent no-op otherwise), the
-  store blocks ~1 s (`disp_delay_ms(1000)`), root-only (0660), and it writes
-  from kernel context — target tmpfs (`/tmp`), not the SD card. Verified on
+  store blocks ~1 s (`disp_delay_ms(1000)`), root-only (0660), it writes
+  from kernel context — target tmpfs (`/tmp`), not the SD card — and the
+  store **eats the final byte** of the written string (it assumes echo's
+  trailing newline; a bare `write()` of the path creates a `.bm` file and the
+  wrong format — verified live 2026-08-30). Verified on
   Brick fw 1.1.1 (4.9.191), byte-identical to fb0 for plain frames; semantics
   match `disp_capture_dump_store` in any lichee linux-4.9 disp2 `dev_disp.c`
   (e.g. CrealityTech/sonic_pad_os). Not present on tg5050 (DRM stack — use
-  [CAPTURE.md](CAPTURE.md) readback there). Adoption by `screenshot.elf` is
-  scoped in [DEV_TODO.md](DEV_TODO.md).
+  [CAPTURE.md](CAPTURE.md) readback there). Adopted by `screenshot.elf` as
+  its tg5040 composite source 2026-08-30 (see [CAPTURE.md](CAPTURE.md)).
 - **tg5050**: fb0 reads black (DRM scanout — see [DEVICES.md](DEVICES.md)).
   Use the screenshot daemon / DRM readback ([CAPTURE.md](CAPTURE.md)), or the
   GPU mirror `/tmp/fb_mirror.raw` (1280×720 RGBA, vflipped) while a capture

@@ -190,6 +190,81 @@ static int fb0_has_content(void) {
 
 #define DRM_RAW_PATH "/tmp/screenshot_drm.raw"
 
+// tg5040 composite source: the sunxi display engine's write-back channel,
+// exposed as the disp2 debug attr below, returns the final composited panel
+// output — every layer (app, video, OSD panel, toasts), exactly what the
+// panel shows. fb0 only ever holds the app's own layer, so this is the only
+// tg5040 source that can see the rest. Kernel semantics (disp_capture_dump_store,
+// lichee linux-4.9 dev_disp.c): the filename written to the attr is the output
+// path, `.bmp` selects ARGB8888 + 54-byte header, the target is opened
+// O_CREAT|O_EXCL so a pre-existing file is a silent no-op (always unlink
+// first), and the writer is blocked ~1s (disp_delay_ms) until the dump lands.
+// Kernel-context vfs_write: the target must live on tmpfs, never the vfat card.
+#define DISP_CAPTURE_ATTR "/sys/class/disp/disp/attr/capture_dump"
+#define DISP_BMP_PATH "/tmp/screenshot_disp.bmp"
+#define DISP_RAW_PATH "/tmp/screenshot_disp.raw"
+#define DISP_BMP_HEADER 54
+
+// Compile-time tg5040-only (a sunxi-disp2 hack; tg5050's 5.15 kernel has no
+// /sys/class/disp at all) + runtime attr probe for older firmware.
+static int disp_capture_usable(void) {
+	return strcmp(PLATFORM, "tg5040") == 0 &&
+		   access(DISP_CAPTURE_ATTR, W_OK) == 0;
+}
+
+// Trigger a write-back dump and strip the BMP header into DISP_RAW_PATH for
+// the rawvideo encode (dump data is top-down BGRA: no flip). Fills video_size
+// from the dump's own header rather than assuming panel geometry.
+static int disp_capture_raw(char* video_size, size_t vn, char* pixfmt, size_t pn) {
+	unlink(DISP_BMP_PATH);
+	int fd = open(DISP_CAPTURE_ATTR, O_WRONLY);
+	if (fd < 0)
+		return 0;
+	// The kernel store drops the final byte of the written string (it assumes
+	// echo's trailing newline; verified live: a bare path came out truncated
+	// to ".bm"), so send one for it to eat. The write blocks ~1s.
+	ssize_t wr = write(fd, DISP_BMP_PATH "\n", strlen(DISP_BMP_PATH) + 1);
+	close(fd);
+	if (wr < 0)
+		return 0;
+
+	int ok = 0;
+	FILE* in = fopen(DISP_BMP_PATH, "r");
+	if (!in)
+		return 0;
+	uint8_t hdr[DISP_BMP_HEADER];
+	if (fread(hdr, 1, sizeof(hdr), in) == sizeof(hdr) &&
+		hdr[0] == 'B' && hdr[1] == 'M') {
+		int32_t w, h;
+		memcpy(&w, hdr + 18, sizeof(w));
+		memcpy(&h, hdr + 22, sizeof(h));
+		if (h < 0) // negative height is the BMP top-down convention
+			h = -h;
+		struct stat st;
+		size_t frame = (size_t)w * h * 4;
+		if (w > 0 && w <= 4096 && h > 0 && h <= 4096 &&
+			fstat(fileno(in), &st) == 0 &&
+			(size_t)st.st_size >= DISP_BMP_HEADER + frame) {
+			uint8_t* buf = malloc(frame);
+			if (buf && fread(buf, 1, frame, in) == frame) {
+				FILE* out = fopen(DISP_RAW_PATH, "w");
+				if (out) {
+					ok = fwrite(buf, 1, frame, out) == frame;
+					fclose(out);
+				}
+			}
+			free(buf);
+			if (ok) {
+				snprintf(video_size, vn, "%dx%d", w, h);
+				snprintf(pixfmt, pn, "%s", "bgra");
+			}
+		}
+	}
+	fclose(in);
+	unlink(DISP_BMP_PATH);
+	return ok;
+}
+
 // Capture the current DRM scanout (see common/drm_scanout.c) to DRM_RAW_PATH
 // and fill video_size ("WxH") + pixfmt for the ffmpeg rawvideo encode. This
 // is the primary tg5050 source — it captures ANY app, including third-party
@@ -227,16 +302,21 @@ static void capture_screenshot(void) {
 	//   2. DRM plane readback (composited scanout — works for ANY app on
 	//      tg5050, including third-party paks; fails fast where the DRM node
 	//      has no KMS planes)
-	//   3. non-black fb0 via fbdev (tg5040, where GL renders through fb0)
+	//   3. disp write-back dump (tg5040 composite: sees video layers, the
+	//      OSD panel and toasts — everything fb0 misses — at the cost of a
+	//      ~1s in-kernel block per shot)
+	//   4. non-black fb0 via fbdev (tg5040, where GL renders through fb0)
 	// Retry briefly: enabling capture wakes idle apps via PLAT_pokeCapture
 	// (fires once the app has been idle ~1s, ≤500ms poll cadence) and app
 	// transitions repaint fb0 within a frame or two.
 	enum { SRC_NONE,
 		   SRC_MIRROR,
 		   SRC_DRM,
+		   SRC_DISP,
 		   SRC_FBDEV } src = SRC_NONE;
 	char video_size[32];
 	char pixfmt[8];
+	int disp_failed = 0;
 	for (int i = 0; i < 20 && src == SRC_NONE; i++) {
 		if (mirror_live()) {
 			src = SRC_MIRROR;
@@ -245,6 +325,15 @@ static void capture_screenshot(void) {
 		if (drm_capture_raw(video_size, sizeof(video_size), pixfmt, sizeof(pixfmt))) {
 			src = SRC_DRM;
 			break;
+		}
+		if (!disp_failed && disp_capture_usable()) {
+			if (disp_capture_raw(video_size, sizeof(video_size), pixfmt, sizeof(pixfmt))) {
+				src = SRC_DISP;
+				break;
+			}
+			// one attempt only: a broken dump path must fall through to
+			// fbdev now, not burn 20 blocking retries first
+			disp_failed = 1;
 		}
 		if (fbdev_usable() && fb0_has_content()) {
 			src = SRC_FBDEV;
@@ -288,12 +377,12 @@ static void capture_screenshot(void) {
 				  "-frames:v", "1", "-c:v", "mjpeg", "-q:v", "2",
 				  "-y", output,
 				  (char*)NULL);
-		} else if (src == SRC_DRM) {
-			// scanout buffer is top-down: no flip
+		} else if (src == SRC_DRM || src == SRC_DISP) {
+			// scanout / write-back buffers are top-down: no flip
 			execl(FFMPEG_PATH, "ffmpeg", "-nostdin",
 				  "-f", "rawvideo", "-pixel_format", pixfmt,
 				  "-video_size", video_size,
-				  "-i", DRM_RAW_PATH,
+				  "-i", src == SRC_DRM ? DRM_RAW_PATH : DISP_RAW_PATH,
 				  "-frames:v", "1", "-c:v", "mjpeg", "-q:v", "2",
 				  "-y", output,
 				  (char*)NULL);
@@ -312,6 +401,8 @@ static void capture_screenshot(void) {
 	waitpid(pid, &status, 0);
 	if (src == SRC_DRM)
 		remove(DRM_RAW_PATH);
+	if (src == SRC_DISP)
+		remove(DISP_RAW_PATH);
 	if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
 		osd_toast("Screenshot saved", 1500);
 	else
