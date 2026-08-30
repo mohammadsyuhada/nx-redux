@@ -67,7 +67,13 @@ fi
 # Overlay menu config
 export EMU_OVERLAY_JSON="$EMU_DIR/overlay_settings.json"
 export EMU_OVERLAY_INI="$EMU_CFG"
-export EMU_OVERLAY_GAME="$(basename "$ROM" | sed 's/\.[^.]*$//')"
+# Netplay peers match on the filename-derived name (the wizard's HELLO game
+# gate), so GAME_ID must stay identical on every device. The overlay menu
+# title prefers the map.txt display alias (what Rename Rom writes) -- the
+# same lookup minarch's getAlias() does for its own in-game menu.
+GAME_ID="$(basename "$ROM" | sed 's/\.[^.]*$//')"
+GAME_ALIAS="$(awk -F'\t' -v key="$(basename "$ROM")" '$1 == key { print $2; exit }' "$(dirname "$ROM")/map.txt" 2>/dev/null | tr -d '\r')"
+export EMU_OVERLAY_GAME="${GAME_ALIAS:-$GAME_ID}"
 FONT_FILE=$(ls "$SDCARD_PATH/.system/res/"*.ttf 2>/dev/null | head -1)
 export EMU_OVERLAY_FONT="${FONT_FILE:-$SDCARD_PATH/.system/res/font.ttf}"
 export EMU_OVERLAY_RES="$SDCARD_PATH/.system/res"
@@ -170,7 +176,7 @@ nx_netplay_bail() {
 NETPLAY_ARGS=""
 if [ -f /tmp/netplay_launch ]; then
     rm -f /tmp/netplay_launch
-    netplay.elf --game "$EMU_OVERLAY_GAME" \
+    netplay.elf --game "$GAME_ID" \
         --serve-dir "$USERDATA_DIR/data/flycast" \
         --fetch-to "$USERDATA_DIR/netplay-data/flycast" \
         --fetch-files "vmu_save_*.bin,dc_nvmem.bin" \

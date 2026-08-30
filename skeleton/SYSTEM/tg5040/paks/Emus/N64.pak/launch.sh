@@ -59,7 +59,13 @@ export LD_PRELOAD="libEGL.so"
 # Overlay menu config
 export EMU_OVERLAY_JSON="$EMU_DIR/overlay_settings.json"
 export EMU_OVERLAY_INI="$DEVICE_CONFIG_DIR/mupen64plus.cfg"
-export EMU_OVERLAY_GAME="$(basename "$ROM" | sed 's/\.[^.]*$//')"
+# Netplay peers match on the filename-derived name (the wizard's HELLO game
+# gate), so GAME_ID must stay identical on every device. The overlay menu
+# title prefers the map.txt display alias (what Rename Rom writes) -- the
+# same lookup minarch's getAlias() does for its own in-game menu.
+GAME_ID="$(basename "$ROM" | sed 's/\.[^.]*$//')"
+GAME_ALIAS="$(awk -F'\t' -v key="$(basename "$ROM")" '$1 == key { print $2; exit }' "$(dirname "$ROM")/map.txt" 2>/dev/null | tr -d '\r')"
+export EMU_OVERLAY_GAME="${GAME_ALIAS:-$GAME_ID}"
 # Font and icon resources for overlay menu (from NextUI system resources)
 FONT_FILE=$(ls "$SDCARD_PATH/.system/res/"*.ttf 2>/dev/null | head -1)
 export EMU_OVERLAY_FONT="${FONT_FILE:-$SDCARD_PATH/.system/res/font.ttf}"
@@ -148,7 +154,7 @@ if [ -f /tmp/netplay_launch ]; then
     # the wizard is rendezvous-only here. --max-players 4: N64 supports up
     # to 4 players, so the host runs the multi-join lobby (X/N + press-A-to
     # -start); DC/minarch omit it and stay 2-player (shared wizard).
-    netplay.elf --game "$EMU_OVERLAY_GAME" --max-players 4 &> "$LOGS_PATH/netplay-wizard.txt"
+    netplay.elf --game "$GAME_ID" --max-players 4 &> "$LOGS_PATH/netplay-wizard.txt"
     if [ $? -ne 0 ]; then
         # cancelled or failed: back to the game list, never a peerless
         # netplay launch (single-player is one A press away)
