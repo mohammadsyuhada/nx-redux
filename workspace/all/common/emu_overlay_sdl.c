@@ -10,6 +10,7 @@
  */
 
 #include "emu_overlay_sdl.h"
+#include "text_shape.h"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
@@ -493,6 +494,18 @@ static TTF_Font* get_font(int font_id) {
 	return s_fonts[EMU_OVL_FONT_SMALL];
 }
 
+// Arabic-aware shaping, local to this file. This backend links into foreign
+// emulator builds (flycast, GLideN64) that cannot pull in api.c, so it must
+// not call GFX_renderText/GFX_measureText — it shapes RTL text itself via
+// the dependency-free text_shape.c and renders with plain SDL_ttf (no
+// fallback-font stack; overlay strings are ASCII, shaping only matters for
+// Arabic ROM names shown in the menu title).
+static const char* ovl_sdl_visual_text(const char* text, char* buf, int bufsz) {
+	if (TextShape_hasArabic(text) && TextShape_toVisual(text, buf, bufsz) > 0)
+		return buf;
+	return text;
+}
+
 static void ovl_sdl_draw_text(const char* text, int x, int y, uint32_t color, int font_id) {
 	if (!text || !*text || !s_renderSurface)
 		return;
@@ -508,7 +521,9 @@ static void ovl_sdl_draw_text(const char* text, int x, int y, uint32_t color, in
 	sdl_color.b = (uint8_t)((color) & 0xFF);
 	sdl_color.a = (uint8_t)((color >> 24) & 0xFF);
 
-	SDL_Surface* text_surf = GFX_renderText(font, text, sdl_color);
+	char visual[1024];
+	SDL_Surface* text_surf =
+		TTF_RenderUTF8_Blended(font, ovl_sdl_visual_text(text, visual, sizeof(visual)), sdl_color);
 	if (!text_surf)
 		return;
 
@@ -531,7 +546,8 @@ static int ovl_sdl_text_width(const char* text, int font_id) {
 		return 0;
 
 	int w = 0;
-	GFX_measureText(font, text, &w, NULL);
+	char visual[1024];
+	TTF_SizeUTF8(font, ovl_sdl_visual_text(text, visual, sizeof(visual)), &w, NULL);
 	return w;
 }
 

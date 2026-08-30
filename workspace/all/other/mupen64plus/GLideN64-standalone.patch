@@ -225,10 +225,10 @@ index 00000000..82791025
 +- `UseNativeResolutionFactor = 2` (640x480) works well
 +- Can try `anisotropy = 4` or `UseNativeResolutionFactor = 3` on less demanding games
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index ff7e8a52..69838f8f 100644
+index ff7e8a52..fbc50a8b 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -145,6 +145,18 @@ set(GLideN64_SOURCES
+@@ -145,6 +145,19 @@ set(GLideN64_SOURCES
    uCodes/Turbo3D.cpp
    uCodes/ZSort.cpp
    uCodes/ZSortBOSS.cpp
@@ -243,11 +243,12 @@ index ff7e8a52..69838f8f 100644
 +  ${OVERLAY_COMMON_DIR}/emu_overlay.c
 +  ${OVERLAY_COMMON_DIR}/emu_overlay_cfg.c
 +  ${OVERLAY_COMMON_DIR}/emu_overlay_sdl.c
++  ${OVERLAY_COMMON_DIR}/text_shape.c
 +  ${OVERLAY_COMMON_DIR}/cjson/cJSON.c
  )
  
  set(GLideNUI_SOURCES
-@@ -235,7 +247,7 @@ if(EXISTS "${CMAKE_FIND_ROOT_PATH}/opt/vc/include/bcm_host.h" AND NOT MESA)
+@@ -235,7 +248,7 @@ if(EXISTS "${CMAKE_FIND_ROOT_PATH}/opt/vc/include/bcm_host.h" AND NOT MESA)
      "${CMAKE_FIND_ROOT_PATH}/opt/vc/lib/GL"
    )
  else(EXISTS "${CMAKE_FIND_ROOT_PATH}/opt/vc/include/bcm_host.h" AND NOT MESA)
@@ -256,7 +257,7 @@ index ff7e8a52..69838f8f 100644
  endif(EXISTS "${CMAKE_FIND_ROOT_PATH}/opt/vc/include/bcm_host.h" AND NOT MESA)
  
  if(MUPENPLUSAPI)
-@@ -244,6 +256,9 @@ if(MUPENPLUSAPI)
+@@ -244,6 +257,9 @@ if(MUPENPLUSAPI)
  		-DTXFILTER_LIB
    )
    include_directories( . inc )
@@ -266,7 +267,7 @@ index ff7e8a52..69838f8f 100644
    set(GLideN64_SOURCES_UNIX
  	MupenPlusPluginAPI.cpp
  	mupenplus/CommonAPIImpl_mupenplus.cpp
-@@ -405,42 +420,45 @@ if(ANDROID)
+@@ -405,42 +421,45 @@ if(ANDROID)
  endif(ANDROID)
  
  if(NOT NO_OSD)
@@ -348,7 +349,7 @@ index ff7e8a52..69838f8f 100644
  
    include_directories( ${FREETYPE_INCLUDE_DIRS} )
  else()
-@@ -559,6 +577,10 @@ if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR "${CMAKE_CXX_COMPILER_ID}" MATCH
+@@ -559,6 +578,10 @@ if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR "${CMAKE_CXX_COMPILER_ID}" MATCH
    set( CMAKE_SHARED_LINKER_FLAGS  "${CMAKE_SHARED_LINKER_FLAGS} ${GCC_STATIC_LINK_FLAGS}" )
  endif()
  
@@ -359,7 +360,7 @@ index ff7e8a52..69838f8f 100644
  set(CMAKE_CXX_STANDARD 17)
  set(CMAKE_CXX_STANDARD_REQUIRED YES)
  
-@@ -628,6 +650,9 @@ else(GLIDEN64_BUILD_TYPE STREQUAL "Debug")
+@@ -628,6 +651,9 @@ else(GLIDEN64_BUILD_TYPE STREQUAL "Debug")
    endif(SDL)
  endif(GLIDEN64_BUILD_TYPE STREQUAL "Debug")
  
@@ -479,7 +480,7 @@ index 701d27d2..e6ad4c80 100644
  
  #endif // DISPLAYLOADPROGRESS_H
 diff --git a/src/DisplayWindow.cpp b/src/DisplayWindow.cpp
-index 59725f62..a718179f 100644
+index 59725f62..592222f6 100644
 --- a/src/DisplayWindow.cpp
 +++ b/src/DisplayWindow.cpp
 @@ -1,5 +1,7 @@
