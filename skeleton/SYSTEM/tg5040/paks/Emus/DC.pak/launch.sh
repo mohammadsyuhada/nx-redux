@@ -21,10 +21,20 @@ echo 1608000 >/sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq
 # NOT gated by .initialized: that marker only tracks the emu.cfg seed, so an
 # existing install upgraded from an older pak version (already .initialized,
 # but never had a mapping shipped) would otherwise never receive it. Install
-# unconditionally-if-absent instead, every launch, and never overwrite a
-# mapping the user has since customized via flycast's own Controls UI.
-if [ ! -f "$DEVICE_CONFIG_DIR/flycast/mappings/SDL_Xbox 360 Controller.cfg" ]; then
-    cp "$PAK_DIR/SDL_Xbox 360 Controller.cfg" "$DEVICE_CONFIG_DIR/flycast/mappings/" 2>/dev/null || true
+# unconditionally-if-absent instead, every launch.
+# The elif upgrades a PRISTINE older shipped mapping in place:
+# 0791cba4f099c861a58c9a0473a16361 is the pre-coin-bind shipped file (no
+# SELECT->btn_d bind, so Atomiswave/Naomi games had no way to insert a coin).
+# Nothing on-device rewrites this file — flycast saves it only from its own
+# GUI's controls page, and our patch reroutes EMU_BTN_MENU to the NxRedux
+# overlay instead of gui_open_settings() — so every real install stays
+# byte-identical and gets the upgrade; the hash gate only spares a mapping
+# someone hand-edited over adb/the SD card.
+NX_MAPPING="$DEVICE_CONFIG_DIR/flycast/mappings/SDL_Xbox 360 Controller.cfg"
+if [ ! -f "$NX_MAPPING" ]; then
+    cp "$PAK_DIR/SDL_Xbox 360 Controller.cfg" "$NX_MAPPING" 2>/dev/null || true
+elif md5sum "$NX_MAPPING" 2>/dev/null | grep -q "^0791cba4f099c861a58c9a0473a16361 "; then
+    cp "$PAK_DIR/SDL_Xbox 360 Controller.cfg" "$NX_MAPPING" 2>/dev/null || true
 fi
 
 # Flycast resolves config to $XDG_CONFIG_HOME/flycast/ and data (BIOS search,
