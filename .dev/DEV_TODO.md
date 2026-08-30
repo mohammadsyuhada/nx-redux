@@ -143,50 +143,27 @@ the way in, matching a normal launch).
 
 ---
 
-## Xtras catalog list: scroll-windowing before the catalog outgrows one screen
+## DC.pak: accept the modern MAME awbios dump in flycast
 
-**Recorded:** 2026-08-09, from the Xtras pak release-build verification. Not a bug
-today — the shipping catalog has a single entry (gen1recomp), so both tabs fit one
-screen. It becomes a real defect the moment the GAMES or TOOLS tab holds more rows
-than fit between the tab bar and the hint bar, so it MUST land before the second
-catalog entry ships.
+**Recorded:** 2026-08-30, found while verifying the Atomiswave coin fix. Our
+pinned flycast v2.6 only accepts the OLD MAME awbios set — `bios0.ic23`,
+128KB, crc 0x719b2b0b (`core/hw/naomi/naomi_roms.cpp:42`; the bios1/fpr
+alternates are commented out). The CURRENT MAME re-dump ships
+`bios.ic23_l` (64KB, crc 0xe5693ce3), which fails with the misleading
+"awbios: Cannot open bios0.ic23" → "cannot load BIOS awbios". Verified
+workaround: repack the 64KB image doubled (hardware mirroring) as
+`bios0.ic23` — boots and plays Metal Slug 6 fine on both devices.
 
-`render_extras_list()` (`workspace/all/extras/extras.c:352-371`) renders the active
-tab's rows with a flat `for (i = 0; i < rows->count; i++)` loop from
-`y = layout.list_y`, drawing every row at an ever-increasing `y`. There is no
-visible window: nothing clamps rendering to the list area and nothing follows the
-selection. `run_list()`'s `PAD_navigateMenu(&selected, rows.count)`
-(`extras.c:420`) already moves/wraps `selected` correctly, but once `selected`
-passes the last on-screen row the highlighted entry draws off the bottom (into/past
-the hint bar) — still selectable and actionable, just invisible — and rows below it
-can't be reached visually at all.
-
-**The fix is a drop-in** — the shared UI already has the primitives extras.c isn't
-using yet:
-- `UI_calcListLayout()` (already called at `extras.c:354`) fills
-  `ListLayout.items_per_page` (`ui_list.h:52`).
-- `UI_adjustListScroll(selected, &scroll, items_per_page)` (`ui_list.h:145`) —
-  follows the selection, updates a `scroll` offset.
-- `UI_renderScrollIndicators(screen, scroll, items_per_page, total_count)`
-  (`ui_list.h:146`) — draws the up/down arrows.
-
-- [ ] Give `run_list()` a persistent `int scroll` (reset to 0 on tab switch and on
-      the post-install re-select at `extras.c:434`), call
-      `UI_adjustListScroll(selected, &scroll, layout.items_per_page)` whenever
-      `selected` changes, and pass `scroll` into `render_extras_list()`.
-- [ ] In `render_extras_list()`, render only rows `[scroll, scroll+items_per_page)`
-      instead of `0..count`, and add `UI_renderScrollIndicators`.
-- [ ] **Constraint — the "Installed" section header breaks uniform-row math.**
-      `render_extras_list` injects a header row + `item_h/4` gap mid-list
-      (`extras.c:364-368`), so a tab is NOT N identical `item_h` rows the way
-      `items_per_page` assumes. The header has to count as a consumed slot when it
-      falls inside the visible window, or the bottom row collides with the hint
-      bar. Decide whether to fold the header into the row model for windowing, or
-      reserve a slot when `scroll <= installed_start < scroll+items_per_page`.
-- [ ] Verify on device with a padded catalog (temporarily drop throwaway
-      `catalog/<id>/meta.txt` stubs so a tab overflows both the Brick 1024×768 and
-      Smart Pro S 1280×720 layouts): scroll both directions, cross the Installed
-      header mid-scroll, and confirm the selection stays on-screen at both list ends.
+- [ ] Add the modern dump to flycast's awbios blob list via `flycast.patch`
+      (either `{ 0, "bios.ic23_l", 0x000000, 0x010000, 0xe5693ce3 }` +
+      mirror-on-load, or accept-by-crc with the doubled image). The loader
+      already prefers OpenFileByCrc, so a crc entry alone may suffice —
+      check whether a 64KB short-read into the 128KB bios window needs the
+      explicit mirror (our doubled-repack test suggests the upper half IS
+      read).
+- [ ] Needs a flycast rebuild for both platforms (the long Docker cmake
+      build — see `workspace/all/other/flycast/README.md`), so batch it
+      with the next flycast-touching change rather than shipping alone.
 
 ---
 
