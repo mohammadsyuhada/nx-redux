@@ -1192,6 +1192,23 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 		GFX_clearLayers(LAYER_SCROLLTEXT);
 		ScrollText_clear(&list_scroll);
 		return result;
+	} else if (HAS_FN_KEYS && !gl_simple_mode &&
+			   (PAD_justPressed(BTN_FN1) || PAD_justPressed(BTN_FN2))) {
+		// F1/F2 tool shortcuts (Brick family): launch the assigned tool pak
+		// from anywhere in normal browsing. Unassigned key or a tool that got
+		// uninstalled since it was assigned = no-op.
+		const char* rel = PAD_justPressed(BTN_FN1) ? CFG_getFn1Tool() : CFG_getFn2Tool();
+		if (rel[0]) {
+			char pak_path[MAX_PATH];
+			char launch_path[MAX_PATH];
+			snprintf(pak_path, sizeof(pak_path), "%s%s", SDCARD_PATH, rel);
+			snprintf(launch_path, sizeof(launch_path), "%s/launch.sh", pak_path);
+			if (exists(launch_path)) {
+				startgame = true;
+				openPakInPlace(pak_path);
+			}
+		}
+		return result;
 	} else if (total > 0) {
 		if (PAD_justRepeated(BTN_UP)) {
 			if (selected == 0 && !PAD_justPressed(BTN_UP)) {

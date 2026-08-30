@@ -107,6 +107,11 @@ typedef struct
 	int defaultView;
 	bool gameSwitcherResumableOnly;
 
+	// F1/F2 tool shortcuts (Brick family): SD-relative path of the tool pak
+	// the key launches from the menus ("" = disabled), e.g. "/Tools/Files.pak"
+	char fn1Tool[256];
+	char fn2Tool[256];
+
 	// Mute switch
 	bool muteLeds;
 
@@ -196,6 +201,8 @@ typedef struct
 #define CFG_DEFAULT_VIEW SCREEN_GAMELIST
 #define CFG_DEFAULT_WIFI_DIAG false
 #define CFG_DEFAULT_SHOWTOOLS true
+#define CFG_DEFAULT_FN1_TOOL ""
+#define CFG_DEFAULT_FN2_TOOL ""
 #define CFG_DEFAULT_BLUETOOTH false
 #define CFG_DEFAULT_BLUETOOTH_DIAG false
 #define CFG_DEFAULT_BLUETOOTH_MAXRATE 48000
@@ -295,6 +302,12 @@ void CFG_setGameSwitcherScaling(int enumValue);
 // Whether the game switcher lists only games with a resumable save state.
 bool CFG_getGameSwitcherResumableOnly(void);
 void CFG_setGameSwitcherResumableOnly(bool resumableOnly);
+// SD-relative path of the tool pak launched by the F1/F2 key in the menus
+// (Brick family only), "" = disabled.
+const char* CFG_getFn1Tool(void);
+void CFG_setFn1Tool(const char* path);
+const char* CFG_getFn2Tool(void);
+void CFG_setFn2Tool(const char* path);
 // Enable/disable haptics.
 bool CFG_getHaptics(void);
 void CFG_setHaptics(bool enable);

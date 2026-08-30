@@ -120,6 +120,9 @@ extern int is_brickpro;
 // (the underlying index differs, L3/R3 vs L4/R4, but the label the user sees does not).
 #define BTN_FN1_NAME "F1"
 #define BTN_FN2_NAME "F2"
+// The Smart Pro shares this platform but has no F keys (BTN_FN1/2 would be its stick
+// clicks), so menu-level FN features must check this at runtime, not compile time.
+#define HAS_FN_KEYS (is_brick || is_brickpro)
 
 #define JOY_MENU 8
 #define JOY_HOME (is_brickpro ? 15 : JOY_NA)

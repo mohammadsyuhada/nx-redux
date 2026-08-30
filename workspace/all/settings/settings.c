@@ -28,6 +28,7 @@
 #include "ui_buttonhintbar.h"
 #include "display_helper.h"
 
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -109,6 +110,12 @@ static int has_mute_toggle(const DeviceInfo* dev) {
 
 static int has_analog_sticks(const DeviceInfo* dev) {
 	return dev->model == MODEL_SMARTPRO || dev->model == MODEL_SMARTPROS || dev->model == MODEL_BRICKPRO;
+}
+
+// Dedicated physical F1/F2 keys, usable as menu-level shortcuts (the Smart
+// Pro/S map BTN_FN1/2 onto their stick clicks instead).
+static int has_fn_keys(const DeviceInfo* dev) {
+	return dev->model == MODEL_BRICK || dev->model == MODEL_BRICKPRO;
 }
 
 static int has_wifi(const DeviceInfo* dev) {
@@ -1156,6 +1163,7 @@ static void init_about_info(void) {
 #define MAX_DISPLAY_ITEMS 8
 #define MAX_SYSTEM_ITEMS 21
 #define MAX_MUTE_ITEMS 20
+#define MAX_FNKEY_ITEMS 3
 #define MAX_NOTIFY_ITEMS 8
 #define MAX_ABOUT_ITEMS 8
 #define MAX_SIMPLE_MODE_ITEMS 2
@@ -1165,6 +1173,7 @@ static SettingItem appearance_items[MAX_APPEARANCE_ITEMS];
 static SettingItem display_items[MAX_DISPLAY_ITEMS];
 static SettingItem system_items[MAX_SYSTEM_ITEMS];
 static SettingItem mute_items[MAX_MUTE_ITEMS];
+static SettingItem fnkey_items[MAX_FNKEY_ITEMS];
 static SettingItem notify_items[MAX_NOTIFY_ITEMS];
 static SettingItem about_items[MAX_ABOUT_ITEMS];
 static SettingItem simple_mode_items[MAX_SIMPLE_MODE_ITEMS];
@@ -1175,6 +1184,7 @@ static SettingsPage display_page;
 static SettingsPage system_page;
 static SettingsPage mute_page;
 static SettingsPage fn_switch_page; /* wraps mute_items into "FN Switch" titled page */
+static SettingsPage fn_keys_page;
 static SettingsPage notify_page;
 static SettingsPage about_page;
 static SettingsPage simple_mode_page;
@@ -1268,6 +1278,120 @@ static void set_simple_mode(int v) {
 }
 static void reset_simple_mode(void) {
 	unlink(SIMPLE_MODE_PATH);
+}
+
+// ============================================
+// F1/F2 key tool shortcuts (Brick family)
+// ============================================
+
+#define MAX_FN_TOOLS 64
+
+typedef struct {
+	char path[256]; // SD-relative, matches what CFG_setFn1Tool stores
+	char name[128]; // pak basename without ".pak"
+} FnTool;
+
+// Slot 0 is "Off" (empty path); the rest are the launchable tool paks.
+static FnTool fn_tools[MAX_FN_TOOLS + 1];
+static const char* fn_tool_labels[MAX_FN_TOOLS + 1];
+static int fn_tool_count = 0;
+
+static int fn_tool_cmp(const void* a, const void* b) {
+	return strcasecmp(((const FnTool*)a)->name, ((const FnTool*)b)->name);
+}
+
+static void fn_tools_add(const char* dir, const char* pak_name) {
+	if (fn_tool_count > MAX_FN_TOOLS)
+		return;
+
+	char full[MAX_PATH];
+	snprintf(full, sizeof(full), "%s/%s", dir, pak_name);
+	char launch[MAX_PATH];
+	snprintf(launch, sizeof(launch), "%s/launch.sh", full);
+	if (!exists(launch))
+		return; // only launchable paks are assignable
+
+	FnTool* tool = &fn_tools[fn_tool_count];
+	snprintf(tool->name, sizeof(tool->name), "%s", pak_name);
+	char* dot = strrchr(tool->name, '.');
+	if (dot)
+		*dot = '\0';
+
+	// earlier layers shadow later ones (same rule as nextui's Tools menu)
+	for (int i = 1; i < fn_tool_count; i++) {
+		if (strcmp(fn_tools[i].name, tool->name) == 0)
+			return;
+	}
+
+	snprintf(tool->path, sizeof(tool->path), "%s", full + strlen(SDCARD_PATH));
+	fn_tool_count++;
+}
+
+// Collect the same merged set of tool paks nextui's Tools menu lists: SD
+// /Tools first, then the /Tools/<platform> community-pak subfolder, then the
+// system paks — a name in an earlier layer shadows the later ones.
+static void fn_tools_scan(void) {
+	fn_tools[0].path[0] = '\0';
+	snprintf(fn_tools[0].name, sizeof(fn_tools[0].name), "%s", "Off");
+	fn_tool_count = 1;
+
+	char plat_path[MAX_PATH];
+	snprintf(plat_path, sizeof(plat_path), "%s/" PLATFORM, TOOLS_PATH);
+	char sys_path[MAX_PATH];
+	snprintf(sys_path, sizeof(sys_path), "%s/Tools", PAKS_PATH);
+	const char* dirs[] = {TOOLS_PATH, plat_path, sys_path};
+
+	for (size_t d = 0; d < sizeof(dirs) / sizeof(dirs[0]); d++) {
+		DIR* dh = opendir(dirs[d]);
+		if (!dh)
+			continue;
+		struct dirent* dp;
+		while ((dp = readdir(dh)) != NULL) {
+			if (dp->d_name[0] == '.' || !suffixMatch(".pak", dp->d_name))
+				continue;
+			fn_tools_add(dirs[d], dp->d_name);
+		}
+		closedir(dh);
+	}
+
+	qsort(&fn_tools[1], fn_tool_count - 1, sizeof(FnTool), fn_tool_cmp);
+	for (int i = 0; i < fn_tool_count; i++)
+		fn_tool_labels[i] = fn_tools[i].name;
+}
+
+// Stored path not in the list anymore (tool uninstalled) reads as "Off".
+static int fn_tool_index_of(const char* path) {
+	if (path[0]) {
+		for (int i = 1; i < fn_tool_count; i++) {
+			if (strcmp(fn_tools[i].path, path) == 0)
+				return i;
+		}
+	}
+	return 0;
+}
+
+static int get_fn1_tool(void) {
+	return fn_tool_index_of(CFG_getFn1Tool());
+}
+static void set_fn1_tool(int idx) {
+	CFG_setFn1Tool(idx > 0 && idx < fn_tool_count ? fn_tools[idx].path : "");
+}
+static void reset_fn1_tool(void) {
+	CFG_setFn1Tool("");
+}
+
+static int get_fn2_tool(void) {
+	return fn_tool_index_of(CFG_getFn2Tool());
+}
+static void set_fn2_tool(int idx) {
+	CFG_setFn2Tool(idx > 0 && idx < fn_tool_count ? fn_tools[idx].path : "");
+}
+static void reset_fn2_tool(void) {
+	CFG_setFn2Tool("");
+}
+
+static void reset_fn_keys_page(void) {
+	settings_page_reset_all(&fn_keys_page);
 }
 
 // ============================================
@@ -1612,6 +1736,22 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	init_page(&fn_switch_page, "Settings | FN Switch", mute_items, idx, 0);
 
 	// ============================
+	// F1/F2 keys page (Brick family only)
+	// ============================
+	idx = 0;
+	fn_tools_scan();
+	fnkey_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"F1 launches", "Tool the F1 key opens from the main menu.",
+		fn_tool_labels, fn_tool_count, NULL, get_fn1_tool, set_fn1_tool, reset_fn1_tool);
+	fnkey_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"F2 launches", "Tool the F2 key opens from the main menu.",
+		fn_tool_labels, fn_tool_count, NULL, get_fn2_tool, set_fn2_tool, reset_fn2_tool);
+	fnkey_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
+		"Reset to defaults", "Resets all options in this menu to their default values.",
+		reset_fn_keys_page);
+	init_page(&fn_keys_page, "Settings | F1 / F2 Keys", fnkey_items, idx, 0);
+
+	// ============================
 	// Notifications page
 	// ============================
 	idx = 0;
@@ -1710,6 +1850,13 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	if (has_mute_toggle(dev)) {
 		main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
 			"FN switch", "FN switch settings", &fn_switch_page);
+	}
+
+	// Hidden in simple mode along with the shortcuts themselves (they launch
+	// tools, which simple mode hides from the main menu).
+	if (has_fn_keys(dev) && !get_simple_mode()) {
+		main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
+			"F1 / F2 keys", "Launch a tool with the F1/F2 keys", &fn_keys_page);
 	}
 
 	main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(

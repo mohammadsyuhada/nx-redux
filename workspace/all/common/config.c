@@ -64,6 +64,8 @@ void CFG_defaults(NextUISettings* cfg) {
 		.gameSwitcherScaling = CFG_DEFAULT_GAMESWITCHERSCALING,
 		.gameSwitcherResumableOnly = CFG_DEFAULT_GAMESWITCHERRESUMABLEONLY,
 		.defaultView = CFG_DEFAULT_VIEW,
+		.fn1Tool = CFG_DEFAULT_FN1_TOOL,
+		.fn2Tool = CFG_DEFAULT_FN2_TOOL,
 
 		.muteLeds = CFG_DEFAULT_MUTELEDS,
 
@@ -229,6 +231,18 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 			}
 			if (sscanf(line, "switcherresumableonly=%i", &temp_value) == 1) {
 				CFG_setGameSwitcherResumableOnly((bool)temp_value);
+				continue;
+			}
+			if (strncmp(line, "fn1Tool=", 8) == 0) {
+				char* value = line + 8;
+				value[strcspn(value, "\n")] = 0;
+				CFG_setFn1Tool(value);
+				continue;
+			}
+			if (strncmp(line, "fn2Tool=", 8) == 0) {
+				char* value = line + 8;
+				value[strcspn(value, "\n")] = 0;
+				CFG_setFn2Tool(value);
 				continue;
 			}
 			if (sscanf(line, "haptics=%i", &temp_value) == 1) {
@@ -632,6 +646,34 @@ bool CFG_getGameSwitcherResumableOnly(void) {
 
 void CFG_setGameSwitcherResumableOnly(bool resumableOnly) {
 	settings.gameSwitcherResumableOnly = resumableOnly;
+	CFG_sync();
+}
+
+const char* CFG_getFn1Tool(void) {
+	return settings.fn1Tool;
+}
+
+void CFG_setFn1Tool(const char* path) {
+	if (path) {
+		strncpy(settings.fn1Tool, path, sizeof(settings.fn1Tool) - 1);
+		settings.fn1Tool[sizeof(settings.fn1Tool) - 1] = '\0';
+	} else {
+		settings.fn1Tool[0] = '\0';
+	}
+	CFG_sync();
+}
+
+const char* CFG_getFn2Tool(void) {
+	return settings.fn2Tool;
+}
+
+void CFG_setFn2Tool(const char* path) {
+	if (path) {
+		strncpy(settings.fn2Tool, path, sizeof(settings.fn2Tool) - 1);
+		settings.fn2Tool[sizeof(settings.fn2Tool) - 1] = '\0';
+	} else {
+		settings.fn2Tool[0] = '\0';
+	}
 	CFG_sync();
 }
 
@@ -1090,6 +1132,8 @@ static int CFG_serialize(char* buf, size_t cap) {
 	EMIT("powerOffProtection=%i\n", settings.powerOffProtection);
 	EMIT("switcherscale=%i\n", settings.gameSwitcherScaling);
 	EMIT("switcherresumableonly=%i\n", settings.gameSwitcherResumableOnly);
+	EMIT("fn1Tool=%s\n", settings.fn1Tool);
+	EMIT("fn2Tool=%s\n", settings.fn2Tool);
 	EMIT("haptics=%i\n", settings.haptics);
 	EMIT("romfolderbg=%i\n", settings.romsUseFolderBackground);
 	EMIT("saveFormat=%i\n", settings.saveFormat);

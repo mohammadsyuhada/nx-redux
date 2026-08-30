@@ -208,6 +208,12 @@ enum {
 #define BTN_FN1_NAME "L3"
 #define BTN_FN2_NAME "R3"
 #endif
+// True only where BTN_FN1/BTN_FN2 are dedicated physical F1/F2 keys (Brick family).
+// Features that hijack the FN buttons outside a game must key off this — on other
+// devices BTN_FN1/2 alias the stick-click (or nonexistent) L3/R3.
+#ifndef HAS_FN_KEYS
+#define HAS_FN_KEYS 0
+#endif
 
 #ifndef AXIS_L2
 #define AXIS_L2 AXIS_NA

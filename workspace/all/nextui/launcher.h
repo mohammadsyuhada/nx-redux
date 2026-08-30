@@ -47,6 +47,9 @@ int autoResume(void);
 
 // Game launching
 void openPak(char* path);
+// Launch a pak but return the user to the directory they were browsing
+// (F1/F2 tool shortcuts fire from anywhere in the list).
+void openPakInPlace(char* path);
 void openScript(char* script_path, char* arg, char* last_path);
 void openRom(char* path, char* last);
 void Entry_open(Entry* self);

@@ -174,6 +174,24 @@ int autoResume(void) {
 	return 1;
 }
 
+// Queue "<path>/launch.sh" as the next command. Returns false (and stays on
+// the menu) if the escaped command doesn't fit.
+static bool queuePakLaunch(char* path) {
+	char escaped_path[MAX_PATH * 4]; // 4x so worst-case escaping can't overflow
+	strncpy(escaped_path, path, sizeof(escaped_path) - 1);
+	escaped_path[sizeof(escaped_path) - 1] = '\0';
+
+	char cmd[MAX_PATH * 5]; // worst-case escaped path + quotes + "/launch.sh"
+	int n = snprintf(cmd, sizeof(cmd), "'%s/launch.sh'", escapeSingleQuotes(escaped_path, sizeof(escaped_path)));
+	if (n < 0 || (size_t)n >= sizeof(cmd)) {
+		LOG_error("queuePakLaunch: launch command too long, aborting\n");
+		startgame = false; // keep the launcher on the menu instead of blanking
+		return false;
+	}
+	queueNext(cmd);
+	return true;
+}
+
 void openPak(char* path) {
 	// If launched from root and the pak is a shortcut, save root path
 	// so the user returns to main menu instead of the tools folder.
@@ -192,19 +210,32 @@ void openPak(char* path) {
 		save_path = virt_path;
 	}
 	saveLast(save_path);
+	queuePakLaunch(path);
+}
 
-	char escaped_path[MAX_PATH * 4]; // 4x so worst-case escaping can't overflow
-	strncpy(escaped_path, path, sizeof(escaped_path) - 1);
-	escaped_path[sizeof(escaped_path) - 1] = '\0';
-
-	char cmd[MAX_PATH * 5]; // worst-case escaped path + quotes + "/launch.sh"
-	int n = snprintf(cmd, sizeof(cmd), "'%s/launch.sh'", escapeSingleQuotes(escaped_path, sizeof(escaped_path)));
-	if (n < 0 || (size_t)n >= sizeof(cmd)) {
-		LOG_error("openPak: launch command too long, aborting\n");
-		startgame = false; // keep the launcher on the menu instead of blanking
-		return;
+void openPakInPlace(char* path) {
+	// F1/F2 tool shortcut: the pak wasn't picked from the list it lives in, so
+	// restore wherever the user was browsing instead — the selected entry,
+	// saved the same way Entry_open would (loadLast reopens its directory and
+	// reselects it), or the bare directory when the list is empty.
+	char* save_path = top->path;
+	char virt_path[MAX_PATH];
+	if (top->selected >= 0 && top->selected < top->entries->count) {
+		Entry* entry = top->entries->items[top->selected];
+		save_path = entry->path;
+		if (prefixMatch(COLLECTIONS_PATH, top->path)) {
+			// collections list ROMs under their real path; save the
+			// collection-shaped path (as Entry_open does) so loadLast walks
+			// back into the collection rather than the ROM's console folder
+			char* tmp = strrchr(entry->path, '/');
+			if (tmp) {
+				snprintf(virt_path, sizeof(virt_path), "%s%s", top->path, tmp);
+				save_path = virt_path;
+			}
+		}
 	}
-	queueNext(cmd);
+	saveLast(save_path);
+	queuePakLaunch(path);
 }
 void openScript(char* script_path, char* arg, char* last_path) {
 	// Tools-style round trip: run a pak script and come back to this list
