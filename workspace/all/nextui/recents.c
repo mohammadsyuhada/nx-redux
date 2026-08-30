@@ -270,20 +270,18 @@ void Recents_removeByPath(char* path) {
 // A real file rename: keep the Recently Played entry pointing at the new path.
 // The stored alias came from the old filename (only non-aliased renames get
 // here), so drop it and let the new filename supply the display name.
-void Recents_renamePath(char* old_path, char* new_path) {
+void Recents_updateAlias(char* path, char* alias) {
 	if (!recents)
 		return;
-	int index = RecentArray_indexOf(recents, old_path);
+	int index = RecentArray_indexOf(recents, path);
 	if (index < 0)
 		return;
 	Recent* recent = recents->items[index];
-	char* dup = strdup(new_path);
+	char* dup = strdup(alias);
 	if (!dup)
 		return;
-	free(recent->path);
-	recent->path = dup;
 	free(recent->alias);
-	recent->alias = NULL;
+	recent->alias = dup;
 	Recents_save();
 }
 

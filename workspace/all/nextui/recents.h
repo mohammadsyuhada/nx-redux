@@ -37,7 +37,7 @@ Recent* Recents_at(int index);
 void Recents_removeAt(int index);
 // Both take SDCARD-relative paths (the stored Recent form).
 void Recents_removeByPath(char* path);
-void Recents_renamePath(char* old_path, char* new_path);
+void Recents_updateAlias(char* path, char* alias);
 
 // Entry conversion
 Entry* Recents_entryFromRecent(Recent* recent);

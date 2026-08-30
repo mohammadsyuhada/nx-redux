@@ -44,7 +44,7 @@ Core experience:
 - Added a game-list context menu (press `MENU` on a highlighted game):
     - Built-in ROMs collection management — add a game to an existing collection or create a new one on the spot.
     - Pin or unpin a game to the main menu.
-    - Rename a game — its box art, saves and save states are renamed along with it.
+    - Rename a game.
     - Delete a game.
     - Remove a game from `Recently Played`.
     - Refresh the ROMs list.

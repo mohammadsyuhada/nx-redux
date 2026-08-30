@@ -331,45 +331,13 @@ static void removeRecursive(const char* path) {
 	rmdir(path);
 }
 
-// A file "belongs" to base if it is exactly <base> or starts with "<base>.".
-// The trailing-dot boundary is what makes this safe: it renames Game.gba /
-// Game.png / Game.srm / Game.gba.sav / Game.state without ever touching
-// Game2.gba or its saves.
-static bool nameMatchesBase(const char* name, const char* base, size_t baselen) {
-	if (strncmp(name, base, baselen) != 0)
-		return false;
-	return name[baselen] == '\0' || name[baselen] == '.';
-}
-
-// Rename every file in `dir` that belongs to oldbase so its leading oldbase
-// becomes newbase (suffix preserved). No-ops if `dir` isn't a directory.
-static void renameSweepDir(const char* dir, const char* oldbase, const char* newbase) {
-	DIR* dh = opendir(dir);
-	if (!dh)
-		return;
-	size_t oldlen = strlen(oldbase);
-	struct dirent* dp;
-	while ((dp = readdir(dh)) != NULL) {
-		if (dp->d_name[0] == '.' && (dp->d_name[1] == '\0' ||
-									 (dp->d_name[1] == '.' && dp->d_name[2] == '\0')))
-			continue; // "." / ".."
-		if (!nameMatchesBase(dp->d_name, oldbase, oldlen))
-			continue;
-		char from[MAX_PATH];
-		char to[MAX_PATH];
-		snprintf(from, sizeof(from), "%s/%s", dir, dp->d_name);
-		snprintf(to, sizeof(to), "%s/%s%s", dir, newbase, dp->d_name + oldlen);
-		rename(from, to);
-	}
-	closedir(dh);
-}
-
-// Rewrite or prune one line across every Collections/*.txt. Lines that exactly
-// match old_rel (an SD-relative path in the on-disk format addRomToCollectionFile
-// writes: leading '/', no SDCARD_PATH prefix) are replaced with new_rel, or
-// dropped when new_rel is NULL. Only files that actually change are rewritten,
-// via a .tmp + rename so a crash mid-write can't truncate a collection.
-static void updateCollectionLines(const char* old_rel, const char* new_rel) {
+// Prune one line across every Collections/*.txt. Lines that exactly match
+// old_rel (an SD-relative path in the on-disk format addRomToCollectionFile
+// writes: leading '/', no SDCARD_PATH prefix) are dropped. Only files that
+// actually change are rewritten, via a .tmp + rename so a crash mid-write
+// can't truncate a collection. Used on delete — a missing path would make
+// the game silently drop out (getCollection filters missing paths).
+static void removeCollectionLines(const char* old_rel) {
 	DIR* d = opendir(COLLECTIONS_PATH);
 	if (!d)
 		return;
@@ -400,10 +368,7 @@ static void updateCollectionLines(const char* old_rel, const char* new_rel) {
 			normalizeNewline(trimmed);
 			trimTrailingNewlines(trimmed);
 			if (exactMatch(trimmed, old_rel)) {
-				changed = true;
-				if (new_rel)
-					fprintf(out, "%s\n", new_rel);
-				// new_rel == NULL: drop the line (delete)
+				changed = true; // drop the line
 			} else {
 				fputs(line, out); // preserve the original line verbatim
 			}
@@ -417,33 +382,6 @@ static void updateCollectionLines(const char* old_rel, const char* new_rel) {
 			unlink(tmp_path);
 	}
 	closedir(d);
-}
-
-// Whether a map.txt (key<TAB>alias) has a display alias for `key` (a filename;
-// map.txt is keyed by filename, not path — see content.c Directory_index).
-static bool mapHasKey(const char* map_path, const char* key) {
-	FILE* f = fopen(map_path, "r");
-	if (!f)
-		return false;
-	bool found = false;
-	char line[MAX_PATH];
-	while (fgets(line, sizeof(line), f) != NULL) {
-		char work[MAX_PATH];
-		strncpy(work, line, sizeof(work) - 1);
-		work[sizeof(work) - 1] = '\0';
-		normalizeNewline(work);
-		trimTrailingNewlines(work);
-		char* tab = strchr(work, '\t');
-		if (tab) {
-			*tab = '\0';
-			if (exactMatch(work, key)) {
-				found = true;
-				break;
-			}
-		}
-	}
-	fclose(f);
-	return found;
 }
 
 // Upsert a display alias into a map.txt: rewrite `key`'s value to `value`, or
@@ -526,185 +464,6 @@ static void dropMapKey(const char* map_path, const char* key) {
 		rename(tmp_path, map_path);
 	else
 		unlink(tmp_path);
-}
-
-// Arcade cores resolve the romset from the zip's filename (including
-// parent/clone lookups), so physically renaming the file breaks loading.
-// Rename must always edit the map.txt display alias for these emu tags —
-// FBN ships with us; the rest are common community arcade paks.
-static bool entryUsesRomsetNames(Entry* entry) {
-	if (!prefixMatch(ROMS_PATH, entry->path))
-		return false;
-	char emu_name[MAX_PATH];
-	getEmuName(entry->path, emu_name);
-	return exactMatch(emu_name, "FBN") || exactMatch(emu_name, "FBNEO") ||
-		   exactMatch(emu_name, "FBA") || exactMatch(emu_name, "NEOGEO") ||
-		   prefixMatch("MAME", emu_name) || prefixMatch("CPS", emu_name);
-}
-
-// Real file rename of a ROM plus its art, saves and states, all keyed by the
-// ROM's base name (filename minus final extension). Returns the new full ROM
-// path in new_path (>= MAX_PATH), or false if the rename was rejected.
-// Single-line persist files written at minarch quit (game-switcher resume,
-// sleep auto-resume) hold the SDCARD-relative rom path; re-point them when
-// that rom is renamed so a pending resume doesn't dead-end.
-static void renamePersistLine(const char* file, const char* old_rel, const char* new_rel) {
-	if (!exists((char*)file))
-		return;
-	char line[MAX_PATH] = "";
-	getFile((char*)file, line, sizeof(line));
-	size_t len = strlen(line);
-	while (len && (line[len - 1] == '\n' || line[len - 1] == '\r'))
-		line[--len] = '\0';
-	if (exactMatch(line, (char*)old_rel))
-		putFile((char*)file, (char*)new_rel);
-}
-
-static bool renameRomFiles(Entry* entry, const char* newbase, char* new_path) {
-	// A folder-named cue/m3u picked from a collection IS its folder game
-	// (delete has the same special case): rename the whole folder layout,
-	// not just the inner file, or dirGameFile stops resolving the folder.
-	bool is_dir_game = entry->type == ENTRY_DIR;
-	char folder_parent[MAX_PATH];
-	const char* rom_path = entry->path;
-	if (!is_dir_game && isFolderGameFile(entry->path, folder_parent)) {
-		rom_path = folder_parent;
-		is_dir_game = true;
-	}
-
-	// split path into <dir>/<filename>
-	char dir[MAX_PATH];
-	strncpy(dir, rom_path, sizeof(dir) - 1);
-	dir[sizeof(dir) - 1] = '\0';
-	char* slash = strrchr(dir, '/');
-	if (!slash)
-		return false;
-	*slash = '\0';
-	const char* filename = slash + 1;
-
-	// oldbase = filename minus final extension; ext keeps the leading dot.
-	// Folder games are directories, so the whole name is the base — a dotted
-	// folder like "Game v1.1" must not be split on its last dot.
-	char oldbase[MAX_PATH];
-	strncpy(oldbase, filename, sizeof(oldbase) - 1);
-	oldbase[sizeof(oldbase) - 1] = '\0';
-	const char* fdot = is_dir_game ? NULL : strrchr(filename, '.');
-	char ext[MAX_PATH];
-	if (fdot) {
-		oldbase[fdot - filename] = '\0';
-		strncpy(ext, fdot, sizeof(ext) - 1);
-		ext[sizeof(ext) - 1] = '\0';
-	} else {
-		ext[0] = '\0';
-	}
-
-	if (strcmp(oldbase, newbase) == 0)
-		return false; // no change
-
-	// refuse to clobber an existing ROM of the new name
-	snprintf(new_path, MAX_PATH, "%s/%s%s", dir, newbase, ext);
-	if (exists(new_path))
-		return false;
-
-	char emu[MAX_PATH];
-	getEmuName((char*)rom_path, emu);
-
-	// 0) folder games: rename the inner folder-named .cue/.m3u (and matching
-	// art in the folder's own .media) BEFORE the folder itself moves — the
-	// old folder path must still be valid. Discs keep their names, so
-	// cue/m3u contents that reference them stay correct.
-	if (is_dir_game) {
-		const char* game_exts[] = {".cue", ".m3u"};
-		for (int i = 0; i < 2; i++) {
-			char from[MAX_PATH];
-			snprintf(from, sizeof(from), "%s/%s%s", rom_path, oldbase, game_exts[i]);
-			if (exists(from)) {
-				char to[MAX_PATH];
-				snprintf(to, sizeof(to), "%s/%s%s", rom_path, newbase, game_exts[i]);
-				rename(from, to);
-			}
-		}
-		char inner_media[MAX_PATH];
-		snprintf(inner_media, sizeof(inner_media), "%s/.media", rom_path);
-		renameSweepDir(inner_media, oldbase, newbase);
-	}
-
-	// 1) the ROM folder itself (renames Game.gba + any Game.cue / Game.m3u,
-	// or the game folder for a folder game)
-	renameSweepDir(dir, oldbase, newbase);
-
-	// 2) box/thumbnail art
-	char media[MAX_PATH];
-	snprintf(media, sizeof(media), "%s/.media", dir);
-	renameSweepDir(media, oldbase, newbase);
-
-	// 3) SRAM / RTC saves
-	char saves[MAX_PATH];
-	snprintf(saves, sizeof(saves), "%s/Saves/%s", SDCARD_PATH, emu);
-	renameSweepDir(saves, oldbase, newbase);
-
-	// 4) resume slot + save-state preview bitmaps
-	char minui[MAX_PATH];
-	snprintf(minui, sizeof(minui), "%s/.minui/%s", SHARED_USERDATA_PATH, emu);
-	renameSweepDir(minui, oldbase, newbase);
-
-	// 5) save-state binaries live under one dir per core: <emu>-<corename>
-	char emu_prefix[MAX_PATH];
-	snprintf(emu_prefix, sizeof(emu_prefix), "%s-", emu);
-	size_t plen = strlen(emu_prefix);
-	DIR* ud = opendir(SHARED_USERDATA_PATH);
-	if (ud) {
-		struct dirent* dp;
-		while ((dp = readdir(ud)) != NULL) {
-			if (strncmp(dp->d_name, emu_prefix, plen) != 0)
-				continue;
-			char states[MAX_PATH];
-			snprintf(states, sizeof(states), "%s/%s", SHARED_USERDATA_PATH, dp->d_name);
-			renameSweepDir(states, oldbase, newbase);
-		}
-		closedir(ud);
-	}
-
-	// 6) collections store this ROM by path; a file rename must rewrite those
-	// lines or the game silently drops out (getCollection filters missing paths).
-	// Only reached for non-aliased entries (doRename routes aliased renames to
-	// the alias, leaving the file — and these paths — untouched), so there is no
-	// display alias to fix up here.
-	{
-		char old_line[MAX_PATH] = "";
-		char new_line[MAX_PATH] = "";
-
-		if (is_dir_game) {
-			// Collections store the resolved folder-named cue/m3u, not the
-			// folder itself; find which extension this game uses (post-rename).
-			const char* game_exts[] = {".cue", ".m3u"};
-			for (int i = 0; i < 2; i++) {
-				char cand[MAX_PATH];
-				snprintf(cand, sizeof(cand), "%s/%s/%s%s", dir, newbase, newbase, game_exts[i]);
-				if (exists(cand)) {
-					// both the folder segment and the basename change
-					snprintf(old_line, sizeof(old_line), "%s/%s/%s%s", dir, oldbase, oldbase, game_exts[i]);
-					snprintf(new_line, sizeof(new_line), "%s/%s/%s%s", dir, newbase, newbase, game_exts[i]);
-					break;
-				}
-			}
-		} else {
-			snprintf(old_line, sizeof(old_line), "%s/%s%s", dir, oldbase, ext);
-			snprintf(new_line, sizeof(new_line), "%s/%s%s", dir, newbase, ext);
-		}
-
-		if (old_line[0] && prefixMatch(SDCARD_PATH, old_line) && prefixMatch(SDCARD_PATH, new_line)) {
-			char* old_rel = old_line + strlen(SDCARD_PATH);
-			char* new_rel = new_line + strlen(SDCARD_PATH);
-			updateCollectionLines(old_rel, new_rel);
-			// keep Recently Played and the quit-time resume pointers current
-			Recents_renamePath(old_rel, new_rel);
-			renamePersistLine(GAME_SWITCHER_PERSIST_PATH, old_rel, new_rel);
-			renamePersistLine(AUTO_RESUME_PATH, old_rel, new_rel);
-		}
-	}
-
-	return true;
 }
 
 // Full-screen blocking confirm dialog. Returns true on A, false on B.
@@ -865,10 +624,21 @@ static void doAddToCollection(const char* rom_path) {
 	EntryArray_free(collections);
 }
 
-// Returns true when something was actually renamed (alias or file), so the
-// caller knows to refresh other views (eg. a pinned copy at root).
+// Returns true when the display name was renamed, so the caller knows to
+// refresh other views (eg. a pinned copy at root).
+//
+// A rename NEVER touches the ROM file: it edits the map.txt display alias
+// (created on first rename; keyed by filename, not path — see content.c
+// Directory_index). Filenames stay stable, so nothing keyed by them — saves,
+// states, art, cheat lookups (ma_cheats.c), play-time records, collection
+// paths, netplay peer matching — can be broken or orphaned by a rename.
+// Arcade cores REQUIRE this (the zip filename is the romset id the core
+// loads by); every other core just shares the same behavior.
+// Aliases are keyed by basename:
+//   list view  -> <rom dir>/map.txt keyed by the entry's own basename
+//   collection -> Collections/map.txt keyed by the collection line's basename
+//                 (the resolved cue/m3u for folder games)
 static bool doRename(Entry* entry, int sel) {
-	bool renamed = false;
 	char prompt[MAX_PATH];
 	snprintf(prompt, sizeof(prompt), "Rename: %s", entry->name);
 	char* newname = UIKeyboard_open(prompt);
@@ -876,15 +646,13 @@ static bool doRename(Entry* entry, int sel) {
 		free(newname);
 		return false;
 	}
+	// aliases feed cheat-file paths ('/' would escape the Cheats dir) and a
+	// leading '.' would hide() the entry from every list
+	if (strchr(newname, '/') || newname[0] == '.') {
+		free(newname);
+		return false;
+	}
 
-	// The shown name may come from a map.txt display alias rather than the
-	// filename. If so, the user is renaming what they SEE — the alias — so edit
-	// the alias (map.txt is keyed by filename; see content.c Directory_index) and
-	// leave the file, its saves/states/art and collection paths untouched.
-	// Aliases are keyed by basename:
-	//   list view  -> <rom dir>/map.txt keyed by the entry's own basename
-	//   collection -> Collections/map.txt keyed by the collection line's basename
-	//                 (the resolved cue/m3u for folder games)
 	char parent_dir[MAX_PATH];
 	strncpy(parent_dir, entry->path, sizeof(parent_dir) - 1);
 	parent_dir[sizeof(parent_dir) - 1] = '\0';
@@ -901,7 +669,8 @@ static bool doRename(Entry* entry, int sel) {
 
 	char coll_key[MAX_PATH];
 	char game_file[MAX_PATH];
-	if (entryFolderGame(entry, game_file)) {
+	bool folder_game = entryFolderGame(entry, game_file);
+	if (folder_game) {
 		char* gslash = strrchr(game_file, '/');
 		strncpy(coll_key, gslash ? gslash + 1 : game_file, sizeof(coll_key) - 1);
 	} else {
@@ -909,26 +678,28 @@ static bool doRename(Entry* entry, int sel) {
 	}
 	coll_key[sizeof(coll_key) - 1] = '\0';
 
-	if (entryUsesRomsetNames(entry) || mapHasKey(home_map, home_key) || mapHasKey(coll_map, coll_key)) {
-		// aliased (or arcade, where the filename IS the romset id and must not
-		// change): rename the display name in both maps; the file stays put, so
-		// saves/states/art/collection paths need no changes. setMapAlias creates
-		// the map.txt on first use.
-		setMapAlias(home_map, home_key, newname);
-		setMapAlias(coll_map, coll_key, newname);
-		reloadDirectoryAt(stack->count - 1, sel);
-		renamed = true;
-	} else if (!strchr(newname, '/')) {
-		// no alias: rename the real file (+ sweep collection paths / saves / states)
-		char new_path[MAX_PATH];
-		if (renameRomFiles(entry, newname, new_path)) {
-			reloadDirectoryAt(stack->count - 1, sel);
-			renamed = true;
-		}
-	}
+	setMapAlias(home_map, home_key, newname);
+	setMapAlias(coll_map, coll_key, newname);
 
+	// Recently Played and the game switcher render an alias snapshot taken at
+	// launch (recent.txt: path<TAB>alias); re-point it so the new name shows
+	// there before the game's next launch. The stored path is the launched
+	// file — the resolved cue/m3u for a folder game, redirected to a sibling
+	// .m3u when one exists (see openRom's recent_path).
+	char launched[MAX_PATH];
+	strncpy(launched, folder_game ? game_file : entry->path, sizeof(launched) - 1);
+	launched[sizeof(launched) - 1] = '\0';
+	char m3u_path[MAX_PATH];
+	if (hasM3u(launched, m3u_path)) {
+		strncpy(launched, m3u_path, sizeof(launched) - 1);
+		launched[sizeof(launched) - 1] = '\0';
+	}
+	if (prefixMatch(SDCARD_PATH, launched))
+		Recents_updateAlias(launched + strlen(SDCARD_PATH), newname);
+
+	reloadDirectoryAt(stack->count - 1, sel);
 	free(newname);
-	return renamed;
+	return true;
 }
 
 // Resolve <emu-pak-dir>/<marker> for `entry` — the marker file an emu pak ships
@@ -1215,7 +986,7 @@ void GameList_runContextAction(int id) {
 				// (folder games are stored as their resolved cue/m3u path)
 				const char* del_line = folder_game ? game_file : entry->path;
 				if (prefixMatch(SDCARD_PATH, del_line))
-					updateCollectionLines(del_line + strlen(SDCARD_PATH), NULL);
+					removeCollectionLines(del_line + strlen(SDCARD_PATH));
 				// drop its display alias too, so a future file that reuses the
 				// name doesn't inherit the dead entry's alias (mirrors rename)
 				{
