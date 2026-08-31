@@ -88,6 +88,10 @@ Inject 24-byte `input_event` structs into the gamepad event node:
   `.bin` files, and `cat evt_down.bin > /dev/input/eventN; usleep 150000;
   cat evt_up.bin > ...`. **~150 ms between press and release** or the press is
   swallowed.
+- **Every event needs a trailing `SYN_REPORT`** (`EV_SYN` type 0, code 0,
+  value 0) in the same write — a bare `EV_KEY`/`EV_ABS` event without it is
+  not treated as a completed input frame and gets dropped. Bundle
+  `key + SYN` into one 48-byte `.bin` per press/release.
 - Keep each adb shell command short (>~4 injected events per call hits
   "shell command too long"); wrap the sequence in a small on-device script.
 - adbd kills its session's process group on disconnect and backgrounded
