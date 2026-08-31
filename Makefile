@@ -139,6 +139,7 @@ endif
 	cp ./workspace/all/settings/build/$(PLATFORM)/settings.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Settings.pak/
 	cp ./workspace/all/musicplayer/build/$(PLATFORM)/musicplayer.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Music\ Player.pak/
 	cp ./workspace/all/mediaplayer/build/$(PLATFORM)/mediaplayer.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Media\ Player.pak/
+	cp ./workspace/all/imageviewer/build/$(PLATFORM)/imageviewer.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Image\ Viewer.pak/
 	# PortMaster ships as an Xtras catalog entry, not a default Tools pak;
 	# its elf rides inside the catalog's pak payload (installed to
 	# Tools/$(PLATFORM)/PortMaster.pak by catalog/portmaster/install.sh)
