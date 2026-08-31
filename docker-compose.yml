@@ -1,0 +1,8 @@
+services:
+  appimage:
+    build: workspace/desktop/docker
+    platform: linux/amd64
+    volumes:
+      - .:/work
+    working_dir: /work
+    command: scripts/desktop/package-appimage.sh
