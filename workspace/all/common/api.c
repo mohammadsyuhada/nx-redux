@@ -373,7 +373,8 @@ int GFX_loadSystemFont(const char* fontPath) {
 
 	// Secondary Arabic font (fixed path — independent of the primary UI font).
 	// Missing file => NULL entries => Arabic falls back to primary (tofu), no crash.
-	const char* arPath = RES_PATH "/font1-arabic.ttf";
+	char arPath[MAX_PATH];
+	snprintf(arPath, sizeof(arPath), "%s/font1-arabic.ttf", RES_PATH);
 	TTF_CloseFont(font_ar.xlarge);
 	TTF_CloseFont(font_ar.title);
 	TTF_CloseFont(font_ar.large);
@@ -494,7 +495,7 @@ SDL_Surface* GFX_init(int mode) {
 	asset_rects[ASSET_CONTROLLER] = (SDL_Rect){SCALE4(92, 104, 12, 12)};
 
 	char asset_path[MAX_PATH];
-	sprintf(asset_path, RES_PATH "/assets@%ix.png", FIXED_SCALE);
+	sprintf(asset_path, "%s/assets@%ix.png", RES_PATH, FIXED_SCALE);
 	if (!exists(asset_path))
 		LOG_info("missing assets, you're about to segfault dummy!\n");
 	gfx.assets = IMG_Load(asset_path);
@@ -1407,7 +1408,7 @@ static struct NavGlyph* GFX_getNavGlyph(const char* button) {
 			return NULL; // asset absent on device — use the drawn fallback
 		g->tried = 1;
 		char path[MAX_PATH];
-		sprintf(path, RES_PATH "/%s@%ix.png", g->file, FIXED_SCALE);
+		sprintf(path, "%s/%s@%ix.png", RES_PATH, g->file, FIXED_SCALE);
 		SDL_Surface* s = IMG_Load(path);
 		if (s) {
 			SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
@@ -3582,7 +3583,8 @@ int PWR_deepSleep(void) {
 	//
 	// We assume the suspend executable exits after a full
 	// suspend/resume cycle.
-	char* suspend_path = BIN_PATH "/suspend";
+	char suspend_path[MAX_PATH];
+	snprintf(suspend_path, sizeof(suspend_path), "%s/suspend", BIN_PATH);
 	if (exists(suspend_path)) {
 		LOG_info("suspending using platform suspend executable\n");
 
@@ -3866,7 +3868,7 @@ FALLBACK_IMPLEMENTATION void PLAT_updateInput(const SDL_Event* event) {}
 
 FALLBACK_IMPLEMENTATION FILE* PLAT_OpenSettings(const char* filename) {
 	char diskfilename[256];
-	snprintf(diskfilename, sizeof(diskfilename), SHARED_USERDATA_PATH "/%s", filename);
+	snprintf(diskfilename, sizeof(diskfilename), "%s/%s", SHARED_USERDATA_PATH, filename);
 
 	FILE* file = fopen(diskfilename, "r");
 	if (file == NULL) {
@@ -3877,7 +3879,7 @@ FALLBACK_IMPLEMENTATION FILE* PLAT_OpenSettings(const char* filename) {
 
 FALLBACK_IMPLEMENTATION FILE* PLAT_WriteSettings(const char* filename) {
 	char diskfilename[256];
-	snprintf(diskfilename, sizeof(diskfilename), SHARED_USERDATA_PATH "/%s", filename);
+	snprintf(diskfilename, sizeof(diskfilename), "%s/%s", SHARED_USERDATA_PATH, filename);
 
 	FILE* file = fopen(diskfilename, "w");
 	if (file == NULL) {

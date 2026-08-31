@@ -232,7 +232,7 @@ int extractPragmaParameters(const char* shaderSource, ShaderParam* params, int m
 
 GLuint link_program(GLuint vertex_shader, GLuint fragment_shader, const char* cache_key) {
 	char cache_path[512];
-	snprintf(cache_path, sizeof(cache_path), SDCARD_PATH "/.shadercache/%s.bin", cache_key);
+	snprintf(cache_path, sizeof(cache_path), "%s/.shadercache/%s.bin", SDCARD_PATH, cache_key);
 
 	GLuint program = glCreateProgram();
 	GLint success;
@@ -301,7 +301,9 @@ GLuint link_program(GLuint vertex_shader, GLuint fragment_shader, const char* ca
 	void* binary = malloc(binaryLength);
 	glGetProgramBinary(program, binaryLength, NULL, &binaryFormat, binary);
 
-	mkdir(SDCARD_PATH "/.shadercache", 0755);
+	char shadercache_dir[MAX_PATH];
+	snprintf(shadercache_dir, sizeof(shadercache_dir), "%s/.shadercache", SDCARD_PATH);
+	mkdir(shadercache_dir, 0755);
 	f = fopen(cache_path, "wb");
 	if (f) {
 		fwrite(&binaryFormat, sizeof(GLenum), 1, f);
@@ -512,19 +514,22 @@ void PLAT_initShaders() {
 	GLuint vertex;
 	GLuint fragment;
 
+	char sysshaders_folder[MAX_PATH];
+	snprintf(sysshaders_folder, sizeof(sysshaders_folder), "%s/shaders", SYSTEM_PATH);
+
 	// Final  display shader (simple texture blit)
-	vertex = load_shader_from_file(GL_VERTEX_SHADER, "default.glsl", SYSSHADERS_FOLDER);
-	fragment = load_shader_from_file(GL_FRAGMENT_SHADER, "default.glsl", SYSSHADERS_FOLDER);
+	vertex = load_shader_from_file(GL_VERTEX_SHADER, "default.glsl", sysshaders_folder);
+	fragment = load_shader_from_file(GL_FRAGMENT_SHADER, "default.glsl", sysshaders_folder);
 	g_shader_default = link_program(vertex, fragment, "default.glsl");
 
 	// Overlay shader, for png overlays and static line/grid overlays
-	vertex = load_shader_from_file(GL_VERTEX_SHADER, "overlay.glsl", SYSSHADERS_FOLDER);
-	fragment = load_shader_from_file(GL_FRAGMENT_SHADER, "overlay.glsl", SYSSHADERS_FOLDER);
+	vertex = load_shader_from_file(GL_VERTEX_SHADER, "overlay.glsl", sysshaders_folder);
+	fragment = load_shader_from_file(GL_FRAGMENT_SHADER, "overlay.glsl", sysshaders_folder);
 	g_shader_overlay = link_program(vertex, fragment, "overlay.glsl");
 
 	// Stand-In if a shader is supposed to be applied, but wasnt compiled properly (shaper_p == NULL)
-	vertex = load_shader_from_file(GL_VERTEX_SHADER, "noshader.glsl", SYSSHADERS_FOLDER);
-	fragment = load_shader_from_file(GL_FRAGMENT_SHADER, "noshader.glsl", SYSSHADERS_FOLDER);
+	vertex = load_shader_from_file(GL_VERTEX_SHADER, "noshader.glsl", sysshaders_folder);
+	fragment = load_shader_from_file(GL_FRAGMENT_SHADER, "noshader.glsl", sysshaders_folder);
 	g_noshader = link_program(vertex, fragment, "noshader.glsl");
 
 	LOG_info("default shaders loaded, %i\n\n", g_shader_default);
@@ -695,7 +700,7 @@ void PLAT_updateShader(int i, const char* filename, int* scale, int* filter, int
 		LOG_info("loading shader \n");
 
 		char filepath[512];
-		snprintf(filepath, sizeof(filepath), SHADERS_FOLDER "/glsl/%s", filename);
+		snprintf(filepath, sizeof(filepath), "%s/Shaders/glsl/%s", SDCARD_PATH, filename);
 		// load_shader_source returns a malloc'd buffer or NULL (open/OOM failure).
 		// Pass "" instead of NULL so extractPragmaParameters doesn't deref NULL,
 		// and free the buffer afterwards — it was previously leaked on every load.
@@ -703,8 +708,10 @@ void PLAT_updateShader(int i, const char* filename, int* scale, int* filter, int
 		loadShaderPragmas(shader, shaderSource ? shaderSource : "");
 		free(shaderSource);
 
-		GLuint vertex_shader1 = load_shader_from_file(GL_VERTEX_SHADER, filename, SHADERS_FOLDER "/glsl");
-		GLuint fragment_shader1 = load_shader_from_file(GL_FRAGMENT_SHADER, filename, SHADERS_FOLDER "/glsl");
+		char shaders_glsl_dir[MAX_PATH];
+		snprintf(shaders_glsl_dir, sizeof(shaders_glsl_dir), "%s/Shaders/glsl", SDCARD_PATH);
+		GLuint vertex_shader1 = load_shader_from_file(GL_VERTEX_SHADER, filename, shaders_glsl_dir);
+		GLuint fragment_shader1 = load_shader_from_file(GL_FRAGMENT_SHADER, filename, shaders_glsl_dir);
 
 		// Link the shader program
 		if (shader->shader_p != 0) {
@@ -986,6 +993,7 @@ static struct FX_Context {
 	.next_color = 0,
 };
 static char* effect_path;
+static char effect_path_buf[MAX_PATH];
 static int effectUpdated = 0;
 static pthread_mutex_t video_prep_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -1024,40 +1032,53 @@ static void updateEffect(void) {
 	int opacity = 128; // 1 - 1/2 = 50%
 	if (effect_type == EFFECT_LINE) {
 		if (effect_scale < 3) {
-			effect_path = RES_PATH "/line-2.png";
+			snprintf(effect_path_buf, sizeof(effect_path_buf), "%s/line-2.png", RES_PATH);
+			effect_path = effect_path_buf;
 		} else if (effect_scale < 4) {
-			effect_path = RES_PATH "/line-3.png";
+			snprintf(effect_path_buf, sizeof(effect_path_buf), "%s/line-3.png", RES_PATH);
+			effect_path = effect_path_buf;
 		} else if (effect_scale < 5) {
-			effect_path = RES_PATH "/line-4.png";
+			snprintf(effect_path_buf, sizeof(effect_path_buf), "%s/line-4.png", RES_PATH);
+			effect_path = effect_path_buf;
 		} else if (effect_scale < 6) {
-			effect_path = RES_PATH "/line-5.png";
+			snprintf(effect_path_buf, sizeof(effect_path_buf), "%s/line-5.png", RES_PATH);
+			effect_path = effect_path_buf;
 		} else if (effect_scale < 8) {
-			effect_path = RES_PATH "/line-6.png";
+			snprintf(effect_path_buf, sizeof(effect_path_buf), "%s/line-6.png", RES_PATH);
+			effect_path = effect_path_buf;
 		} else {
-			effect_path = RES_PATH "/line-8.png";
+			snprintf(effect_path_buf, sizeof(effect_path_buf), "%s/line-8.png", RES_PATH);
+			effect_path = effect_path_buf;
 		}
 	} else if (effect_type == EFFECT_GRID) {
 		if (effect_scale < 3) {
-			effect_path = RES_PATH "/grid-2.png";
+			snprintf(effect_path_buf, sizeof(effect_path_buf), "%s/grid-2.png", RES_PATH);
+			effect_path = effect_path_buf;
 			opacity = 64; // 1 - 3/4 = 25%
 		} else if (effect_scale < 4) {
-			effect_path = RES_PATH "/grid-3.png";
+			snprintf(effect_path_buf, sizeof(effect_path_buf), "%s/grid-3.png", RES_PATH);
+			effect_path = effect_path_buf;
 			opacity = 112; // 1 - 5/9 = ~44%
 		} else if (effect_scale < 5) {
-			effect_path = RES_PATH "/grid-4.png";
+			snprintf(effect_path_buf, sizeof(effect_path_buf), "%s/grid-4.png", RES_PATH);
+			effect_path = effect_path_buf;
 			opacity = 144; // 1 - 7/16 = ~56%
 		} else if (effect_scale < 6) {
-			effect_path = RES_PATH "/grid-5.png";
+			snprintf(effect_path_buf, sizeof(effect_path_buf), "%s/grid-5.png", RES_PATH);
+			effect_path = effect_path_buf;
 			opacity = 160; // 1 - 9/25 = ~64%
 						   // opacity = 96; // TODO: tmp, for white grid
 		} else if (effect_scale < 8) {
-			effect_path = RES_PATH "/grid-6.png";
+			snprintf(effect_path_buf, sizeof(effect_path_buf), "%s/grid-6.png", RES_PATH);
+			effect_path = effect_path_buf;
 			opacity = 112; // 1 - 5/9 = ~44%
 		} else if (effect_scale < 11) {
-			effect_path = RES_PATH "/grid-8.png";
+			snprintf(effect_path_buf, sizeof(effect_path_buf), "%s/grid-8.png", RES_PATH);
+			effect_path = effect_path_buf;
 			opacity = 144; // 1 - 7/16 = ~56%
 		} else {
-			effect_path = RES_PATH "/grid-11.png";
+			snprintf(effect_path_buf, sizeof(effect_path_buf), "%s/grid-11.png", RES_PATH);
+			effect_path = effect_path_buf;
 			opacity = 136; // 1 - 57/121 = ~52%
 		}
 	}
@@ -1098,7 +1119,10 @@ void PLAT_setOverlay(const char* filename, const char* tag) {
 		return;
 	}
 
-	size_t path_len = strlen(OVERLAYS_FOLDER) + strlen(tag) + strlen(filename) + 4; // +3 for slashes and null-terminator
+	char overlays_folder[MAX_PATH];
+	snprintf(overlays_folder, sizeof(overlays_folder), "%s/Overlays", SDCARD_PATH);
+
+	size_t path_len = strlen(overlays_folder) + strlen(tag) + strlen(filename) + 4; // +3 for slashes and null-terminator
 	overlay_path = malloc(path_len);
 
 	if (!overlay_path) {
@@ -1106,7 +1130,7 @@ void PLAT_setOverlay(const char* filename, const char* tag) {
 		return;
 	}
 
-	snprintf(overlay_path, path_len, "%s/%s/%s", OVERLAYS_FOLDER, tag, filename);
+	snprintf(overlay_path, path_len, "%s/%s/%s", overlays_folder, tag, filename);
 	LOG_info("Overlay path set to: %s\n", overlay_path);
 }
 

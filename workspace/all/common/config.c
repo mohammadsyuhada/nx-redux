@@ -422,8 +422,11 @@ void CFG_setFontId(int id) {
 	(void)id;
 	settings.font = 1;
 
-	if (settings.onFontChange)
-		settings.onFontChange(RES_PATH "/font1.ttf");
+	if (settings.onFontChange) {
+		char font_path[MAX_PATH];
+		snprintf(font_path, sizeof(font_path), "%s/font1.ttf", RES_PATH);
+		settings.onFontChange(font_path);
+	}
 }
 
 uint32_t CFG_getColor(int color_id) {
@@ -1088,7 +1091,7 @@ void CFG_get(const char* key, char* value) {
 
 	// meta, not a real setting
 	else if (strcmp(key, "fontpath") == 0) {
-		sprintf(value, "\"%s\"", RES_PATH "/font1.ttf");
+		sprintf(value, "\"%s/font1.ttf\"", RES_PATH);
 	}
 
 	else {
@@ -1384,7 +1387,7 @@ void CFG_print(void) {
 	printf("\t\"sshOnBoot\": %i,\n", settings.sshOnBoot);
 
 	// meta, not a real setting
-	printf("\t\"fontpath\": \"%s\"\n", RES_PATH "/font1.ttf");
+	printf("\t\"fontpath\": \"%s/font1.ttf\"\n", RES_PATH);
 
 	printf("}\n");
 }

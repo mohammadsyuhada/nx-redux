@@ -110,11 +110,13 @@ static void ensure_cache_dir(void) {
 	char path[MAX_PATH];
 
 	// Create .ra directory
-	snprintf(path, sizeof(path), SHARED_USERDATA_PATH "/.ra");
+	snprintf(path, sizeof(path), "%s/.ra", SHARED_USERDATA_PATH);
 	mkdir(path, 0755);
 
 	// Create .ra/badges directory
-	mkdir(RA_BADGE_CACHE_DIR, 0755);
+	char badges_dir[MAX_PATH];
+	snprintf(badges_dir, sizeof(badges_dir), "%s/.ra/badges", SHARED_USERDATA_PATH);
+	mkdir(badges_dir, 0755);
 }
 
 // Check if cache file exists
@@ -519,12 +521,14 @@ SDL_Surface* RA_Badges_getNotificationSize(const char* badge_name, bool locked) 
 
 
 void RA_Badges_getCachePath(const char* badge_name, bool locked, char* buffer, size_t buffer_size) {
+	char cache_dir[MAX_PATH];
+	snprintf(cache_dir, sizeof(cache_dir), "%s/.ra/badges", SHARED_USERDATA_PATH);
 	if (locked) {
 		snprintf(buffer, buffer_size, "%s/%s_lock.png",
-				 RA_BADGE_CACHE_DIR, badge_name);
+				 cache_dir, badge_name);
 	} else {
 		snprintf(buffer, buffer_size, "%s/%s.png",
-				 RA_BADGE_CACHE_DIR, badge_name);
+				 cache_dir, badge_name);
 	}
 }
 
