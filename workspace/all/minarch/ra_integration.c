@@ -310,7 +310,7 @@ static void ra_process_queued_responses(void) {
  * Helper: Muted achievements file path
  *****************************************************************************/
 static void ra_get_mute_file_path(char* path, size_t path_size) {
-	snprintf(path, path_size, SHARED_USERDATA_PATH "/.ra/muted/%s.txt", ra_game_hash);
+	snprintf(path, path_size, "%s/.ra/muted/%s.txt", SHARED_USERDATA_PATH, ra_game_hash);
 }
 
 /*****************************************************************************
@@ -318,9 +318,9 @@ static void ra_get_mute_file_path(char* path, size_t path_size) {
  *****************************************************************************/
 static void ra_ensure_mute_dir(void) {
 	char dir_path[512];
-	snprintf(dir_path, sizeof(dir_path), SHARED_USERDATA_PATH "/.ra");
+	snprintf(dir_path, sizeof(dir_path), "%s/.ra", SHARED_USERDATA_PATH);
 	mkdir(dir_path, 0755);
-	snprintf(dir_path, sizeof(dir_path), SHARED_USERDATA_PATH "/.ra/muted");
+	snprintf(dir_path, sizeof(dir_path), "%s/.ra/muted", SHARED_USERDATA_PATH);
 	mkdir(dir_path, 0755);
 }
 
@@ -944,7 +944,9 @@ void RA_init(void) {
 		return;
 	}
 
-	RA_Offline_init(SHARED_USERDATA_PATH "/.ra");
+	char ra_offline_dir[MAX_PATH];
+	snprintf(ra_offline_dir, sizeof(ra_offline_dir), "%s/.ra", SHARED_USERDATA_PATH);
+	RA_Offline_init(ra_offline_dir);
 
 	// Determine connectivity. Unlike before, no WiFi no longer disables RA -
 	// if a login was ever cached we run in offline mode instead.

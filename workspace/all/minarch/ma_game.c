@@ -12,8 +12,6 @@
 #include <sys/wait.h>
 #include <SDL2/SDL_image.h>
 
-#define SEVENZIP_PATH SDCARD_PATH "/.system/shared/bin/7zzs.aarch64"
-
 void Game_open(char* path) {
 	int skipzip = 0;
 	memset(&game, 0, sizeof(game));
@@ -313,7 +311,8 @@ int extract_7z(char** extensions) {
 
 	char out_arg[300];
 	snprintf(out_arg, sizeof(out_arg), "-o%s", staging);
-	static char sevenzip_bin[] = SEVENZIP_PATH;
+	static char sevenzip_bin[MAX_PATH];
+	snprintf(sevenzip_bin, sizeof(sevenzip_bin), "%s/.system/shared/bin/7zzs.aarch64", SDCARD_PATH);
 	char* argv[] = {sevenzip_bin, "e", (char*)game.path, out_arg, "-y", NULL};
 
 	int ok = 0;

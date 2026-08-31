@@ -351,12 +351,20 @@ static int cacheIsStale(const char* cache_path) {
 		return 1;
 	time_t cache_mtime = st.st_mtime;
 
-	static const char* const source_paths[] = {
+	char roms_map_path[MAX_PATH];
+	snprintf(roms_map_path, sizeof(roms_map_path), "%s/map.txt", ROMS_PATH);
+	char paks_emus_path[MAX_PATH];
+	snprintf(paks_emus_path, sizeof(paks_emus_path), "%s/Emus", PAKS_PATH);
+	char sdcard_emus_path[MAX_PATH];
+	snprintf(sdcard_emus_path, sizeof(sdcard_emus_path), "%s/Emus", SDCARD_PATH);
+	char sdcard_emus_plat_path[MAX_PATH];
+	snprintf(sdcard_emus_plat_path, sizeof(sdcard_emus_plat_path), "%s/Emus/%s", SDCARD_PATH, PLATFORM);
+	const char* const source_paths[] = {
 		ROMS_PATH,
-		ROMS_PATH "/map.txt",
-		PAKS_PATH "/Emus",
-		SDCARD_PATH "/Emus",
-		SDCARD_PATH "/Emus/" PLATFORM,
+		roms_map_path,
+		paks_emus_path,
+		sdcard_emus_path,
+		sdcard_emus_plat_path,
 	};
 	for (size_t i = 0; i < sizeof(source_paths) / sizeof(source_paths[0]); i++) {
 		if (stat(source_paths[i], &st) == 0 && st.st_mtime > cache_mtime)

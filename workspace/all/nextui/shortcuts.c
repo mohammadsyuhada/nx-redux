@@ -190,7 +190,9 @@ void Shortcuts_remove(Entry* entry) {
 }
 
 int Shortcuts_isInToolsFolder(const char* path) {
-	return prefixMatch(TOOLS_PATH, path) || prefixMatch(PAKS_PATH "/Tools", path);
+	char paks_tools_path[MAX_PATH];
+	snprintf(paks_tools_path, sizeof(paks_tools_path), "%s/Tools", PAKS_PATH);
+	return prefixMatch(TOOLS_PATH, path) || prefixMatch(paks_tools_path, path);
 }
 
 int Shortcuts_getCount(void) {

@@ -5,7 +5,7 @@
 
 void readShadersPreset(int i) {
 	char shaderspath[MAX_PATH] = {0};
-	sprintf(shaderspath, SHADERS_FOLDER "/%s", config.shaders.options[SH_SHADERS_PRESET].values[i]);
+	sprintf(shaderspath, "%s/Shaders/%s", SDCARD_PATH, config.shaders.options[SH_SHADERS_PRESET].values[i]);
 	// free the previous preset buffer before replacing it
 	if (config.shaders_preset) {
 		free(config.shaders_preset);

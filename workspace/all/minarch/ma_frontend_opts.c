@@ -708,7 +708,9 @@ static MenuList ShaderOptions_menu = {
 
 int OptionShaders_openMenu(MenuList* list, int i) {
 	int filecount;
-	char** filelist = list_files_in_folder(SHADERS_FOLDER "/glsl", &filecount, NULL, NULL);
+	char shaders_glsl_dir[MAX_PATH];
+	snprintf(shaders_glsl_dir, sizeof(shaders_glsl_dir), "%s/Shaders/glsl", SDCARD_PATH);
+	char** filelist = list_files_in_folder(shaders_glsl_dir, &filecount, NULL, NULL);
 
 	// Check if folder read failed or no files found
 	if (!filelist || filecount == 0) {
