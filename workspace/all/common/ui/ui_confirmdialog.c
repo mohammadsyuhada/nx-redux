@@ -65,9 +65,13 @@ void UI_renderConfirmDialog(SDL_Surface* dst, const char* title,
 
 	int y = (dst->h - total_h) / 2;
 
-	// Title
+	// Title - single-line row (unlike the subtitle, which wraps): truncate
+	// with an ellipsis so a long title can't overflow into the subtitle/hint
+	// row below.
+	char title_buf[256];
+	GFX_truncateText(font.large, title, title_buf, content_w, 0);
 	SDL_Rect title_rect = {padding_x, y, content_w, title_h};
-	GFX_blitMessage(font.large, (char*)title, dst, &title_rect);
+	GFX_blitMessage(font.large, title_buf, dst, &title_rect);
 	y += title_h;
 
 	// Subtitle (optional) - each line rendered horizontally centered
