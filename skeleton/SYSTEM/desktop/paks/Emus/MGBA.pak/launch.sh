@@ -1,6 +1,6 @@
 #!/bin/sh
 
-EMU_EXE=pcsx_rearmed
+EMU_EXE=mgba
 
 ###############################
 

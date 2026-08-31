@@ -8,7 +8,10 @@
 #CORES+= fbneo
 #CORES+= fceumm (clang)
 CORES= gambatte
-CORES+= gpsp
+# gpsp: disabled on macOS — Mach-O assembler rejects the ARM64 JIT's
+# mid-line asm labels (see 2026-09 packaging notes); Linux revival is
+# a follow-up
+#CORES+= gpsp
 #CORES+= libretro-cap32
 #CORES+= libretro-uae
 #CORES+= mednafen_pce_fast

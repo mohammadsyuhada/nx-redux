@@ -1,6 +1,6 @@
 #!/bin/sh
 
-EMU_EXE=gpsp
+EMU_EXE=mgba
 
 ###############################
 
