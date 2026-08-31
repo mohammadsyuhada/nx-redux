@@ -82,6 +82,49 @@ int wget_fetch(const char* url, uint8_t* buffer, int buffer_size) {
 	return total;
 }
 
+int wget_fetch_headers_noredirect(const char* url, char* buffer, int buffer_size) {
+	if (!url || !buffer || buffer_size <= 0) {
+		LOG_error("[WgetFetch] Invalid parameters\n");
+		return -1;
+	}
+
+	char tmpfile[128];
+	snprintf(tmpfile, sizeof(tmpfile), "/tmp/wget_hdr_%d.tmp", getpid());
+
+	char safe_url[4096];
+	shell_escape_single(url, safe_url, sizeof(safe_url));
+
+	// -S writes server headers to stderr; with --max-redirect=0 wget exits
+	// non-zero on a redirect, so success is judged by the captured headers,
+	// not the exit code.
+	char cmd[8192];
+	snprintf(cmd, sizeof(cmd),
+			 WGET_BIN " --no-check-certificate -S --max-redirect=0 -T 15 -t 2"
+					  " -O /dev/null '%s' 2>'%s'",
+			 safe_url, tmpfile);
+
+	system(cmd);
+
+	FILE* fp = fopen(tmpfile, "rb");
+	if (!fp) {
+		LOG_error("[WgetFetch] Failed to open header dump for: %s\n", url);
+		unlink(tmpfile);
+		return -1;
+	}
+
+	int total = fread(buffer, 1, buffer_size - 1, fp);
+	fclose(fp);
+	unlink(tmpfile);
+
+	if (total <= 0) {
+		LOG_error("[WgetFetch] Empty header dump for: %s\n", url);
+		return -1;
+	}
+
+	buffer[total] = '\0';
+	return total;
+}
+
 int wget_download_file(const char* url, const char* filepath,
 					   volatile int* progress_pct, volatile bool* should_stop,
 					   volatile int* speed_bps_out, volatile int* eta_sec_out) {

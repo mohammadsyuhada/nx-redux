@@ -27,6 +27,7 @@
 #include "ui_downloadprogress.h"
 #include "ui_menubar.h"
 #include "wget_fetch.h"
+#include "updater_url.h"
 #include <ctype.h>
 #include <strings.h>
 
@@ -36,6 +37,10 @@
 
 #define UPDATER_REPO_OWNER "mohammadsyuhada"
 #define UPDATER_REPO_NAME "nx-redux"
+// Web endpoint that 302-redirects to /releases/tag/<TAG>; unlike
+// api.github.com it is not subject to the 60 req/hour per-IP rate limit.
+#define UPDATER_WEB_LATEST_URL \
+	"https://github.com/" UPDATER_REPO_OWNER "/" UPDATER_REPO_NAME "/releases/latest"
 #define VERSION_FILE_PATH "/mnt/SDCARD/.system/version.txt"
 #define DOWNLOAD_PATH "/mnt/SDCARD/.tmp_update.zip"
 #define EXTRACT_DEST "/mnt/SDCARD/"
@@ -88,7 +93,7 @@ static char current_tag_cache[128] = "";
 static pthread_t auto_tid;
 static volatile int auto_done = 0;
 static volatile int auto_success = 0;
-static char* auto_response_data = NULL;
+static char auto_tag[128] = "";
 static char auto_error[256] = "";
 
 // ============================================
@@ -272,79 +277,47 @@ static int run_command(char* const argv[]) {
 // Buffer size for GitHub API response (releases/latest JSON)
 #define API_RESPONSE_SIZE (64 * 1024)
 
+// Buffer size for the wget -S header dump of the releases/latest redirect
+#define HEADERS_BUF_SIZE 8192
+
 static void* auto_check_thread(void* arg) {
 	(void)arg;
 
-	char url[256];
-	snprintf(url, sizeof(url),
-			 "https://api.github.com/repos/%s/%s/releases/latest",
-			 UPDATER_REPO_OWNER, UPDATER_REPO_NAME);
+	char headers[HEADERS_BUF_SIZE];
+	char location[512];
 
-	uint8_t* buf = malloc(API_RESPONSE_SIZE);
-	if (!buf) {
-		snprintf(auto_error, sizeof(auto_error), "Memory allocation failed");
-		auto_success = 0;
-		__sync_synchronize();
-		auto_done = 1;
-		return NULL;
-	}
-
-	int ret = wget_fetch(url, buf, API_RESPONSE_SIZE);
-	if (ret < 0) {
+	if (wget_fetch_headers_noredirect(UPDATER_WEB_LATEST_URL,
+									  headers, sizeof(headers)) < 0 ||
+		updater_parse_location_header(headers, location, sizeof(location)) != 0 ||
+		updater_parse_tag_from_location(location, auto_tag, sizeof(auto_tag)) != 0) {
 		snprintf(auto_error, sizeof(auto_error), "Failed to check for updates");
-		free(buf);
 		auto_success = 0;
 		__sync_synchronize();
 		auto_done = 1;
 		return NULL;
 	}
 
-	buf[ret] = '\0';
-	auto_response_data = (char*)buf;
 	auto_success = 1;
 	__sync_synchronize();
 	auto_done = 1;
 	return NULL;
 }
 
-// Parse the response and update state. Called from main thread.
+// Compare the fetched tag and update state. Called from main thread.
 static void process_auto_check_result(void) {
 	pthread_join(auto_tid, NULL);
 
 	if (!auto_success) {
-		free(auto_response_data);
-		auto_response_data = NULL;
 		auto_state = UPDATE_ERROR;
 		snprintf(item_label, sizeof(item_label), "Updater");
 		snprintf(item_desc, sizeof(item_desc), "%s", auto_error);
 		return;
 	}
 
-	char* data = auto_response_data;
-	auto_response_data = NULL;
-	ReleaseInfo release = {0};
-
-	if (!json_extract_string(data, "tag_name", release.tag_name,
-							 sizeof(release.tag_name)) ||
-		!find_zip_asset_url(data, get_device_name(), release.download_url,
-							sizeof(release.download_url),
-							release.expected_sha256, sizeof(release.expected_sha256))) {
-		free(data);
-		auto_state = UPDATE_ERROR;
-		snprintf(item_label, sizeof(item_label), "Updater");
-		snprintf(item_desc, sizeof(item_desc), "Could not parse release info");
-		return;
-	}
-
-	char body[4096] = "";
-	json_extract_string(data, "body", body, sizeof(body));
-	extract_first_paragraph(body, release.release_notes, sizeof(release.release_notes));
-	free(data);
-
 	// Compare tag names
 	int is_same = 0;
-	if (current_tag_cache[0] && release.tag_name[0]) {
-		if (strcmp(current_tag_cache, release.tag_name) == 0)
+	if (current_tag_cache[0] && auto_tag[0]) {
+		if (strcmp(current_tag_cache, auto_tag) == 0)
 			is_same = 1;
 	}
 
@@ -353,10 +326,14 @@ static void process_auto_check_result(void) {
 		snprintf(item_label, sizeof(item_label), "You already have latest version");
 		item_desc[0] = '\0';
 	} else {
-		cached_release = release;
+		// Only the tag is known from the redirect; download URL, release
+		// notes and sha256 are filled in at install time (fetch_release_details).
+		memset(&cached_release, 0, sizeof(cached_release));
+		snprintf(cached_release.tag_name, sizeof(cached_release.tag_name),
+				 "%s", auto_tag);
 		auto_state = UPDATE_AVAILABLE;
 		snprintf(item_label, sizeof(item_label), "Install Update");
-		snprintf(item_desc, sizeof(item_desc), "%s", release.tag_name);
+		snprintf(item_desc, sizeof(item_desc), "%s", cached_release.tag_name);
 	}
 }
 
@@ -492,6 +469,127 @@ static void show_message_page(SDL_Surface* screen, const char* title, const char
 	}
 }
 
+// ============================================
+// On-demand release details (notes + asset URL + digest)
+// ============================================
+
+// Fetched from api.github.com only when the user actually installs — the
+// frequent automatic check never touches the rate-limited API. When this
+// fails (e.g. the 60 req/hour per-IP limit), the updater falls back to the
+// tag-derived asset URL with no release notes and no sha256 digest.
+
+enum { DETAILS_RUNNING = 0,
+	   DETAILS_DONE = 1,
+	   DETAILS_ABANDONED = 2 };
+
+typedef struct {
+	volatile int state; // DETAILS_* handoff: whoever loses the CAS cleans up
+	char* data;			// malloc'd JSON on success, else NULL
+} DetailsFetchContext;
+
+static void* details_fetch_thread(void* arg) {
+	DetailsFetchContext* ctx = (DetailsFetchContext*)arg;
+
+	char url[256];
+	snprintf(url, sizeof(url),
+			 "https://api.github.com/repos/%s/%s/releases/latest",
+			 UPDATER_REPO_OWNER, UPDATER_REPO_NAME);
+
+	uint8_t* buf = malloc(API_RESPONSE_SIZE);
+	if (buf) {
+		int ret = wget_fetch(url, buf, API_RESPONSE_SIZE);
+		if (ret > 0) {
+			buf[ret] = '\0';
+			ctx->data = (char*)buf;
+		} else {
+			free(buf);
+		}
+	}
+
+	if (!__sync_bool_compare_and_swap(&ctx->state, DETAILS_RUNNING, DETAILS_DONE)) {
+		// User cancelled while we were fetching; nobody will read this.
+		free(ctx->data);
+		free(ctx);
+	}
+	return NULL;
+}
+
+// Fill `release` (already carrying the tag from the redirect check) with the
+// download URL, notes and digest. Returns 1 to proceed, 0 if the user
+// cancelled, -1 if no download URL could be determined.
+static int fetch_release_details(SDL_Surface* screen, ReleaseInfo* release) {
+	DetailsFetchContext* ctx = calloc(1, sizeof(*ctx));
+	char* data = NULL;
+
+	if (ctx) {
+		pthread_t tid;
+		if (pthread_create(&tid, NULL, details_fetch_thread, ctx) != 0) {
+			free(ctx);
+			ctx = NULL; // fall through to the tag-derived URL
+		} else {
+			pthread_detach(tid);
+		}
+	}
+
+	while (ctx) {
+		GFX_startFrame();
+		PAD_poll();
+
+		if (PAD_justPressed(BTN_B)) {
+			if (!__sync_bool_compare_and_swap(&ctx->state, DETAILS_RUNNING,
+											  DETAILS_ABANDONED)) {
+				// Thread finished between frames; the context is ours.
+				__sync_synchronize();
+				free(ctx->data);
+				free(ctx);
+			}
+			return 0;
+		}
+
+		if (ctx->state == DETAILS_DONE) {
+			__sync_synchronize();
+			data = ctx->data;
+			free(ctx);
+			ctx = NULL;
+			break;
+		}
+
+		render_update_page(screen, "Update Available",
+						   "Fetching release info...", -1, NULL, NULL, 1);
+	}
+
+	if (data) {
+		// Full release info from the API: exact asset URL, notes, sha256.
+		ReleaseInfo api = {0};
+		if (json_extract_string(data, "tag_name", api.tag_name,
+								sizeof(api.tag_name)) &&
+			find_zip_asset_url(data, get_device_name(), api.download_url,
+							   sizeof(api.download_url),
+							   api.expected_sha256, sizeof(api.expected_sha256))) {
+			char body[4096] = "";
+			json_extract_string(data, "body", body, sizeof(body));
+			extract_first_paragraph(body, api.release_notes,
+									sizeof(api.release_notes));
+			*release = api;
+			free(data);
+			return 1;
+		}
+		free(data);
+	}
+
+	// API unavailable (rate limited) or unparsable: derive the asset URL
+	// from the tag. Assets are named NXRedux-<tag>-<device>.zip from the
+	// first release that ships this updater.
+	release->release_notes[0] = '\0';
+	release->expected_sha256[0] = '\0';
+	if (updater_build_fallback_url(UPDATER_REPO_OWNER, UPDATER_REPO_NAME,
+								   release->tag_name, get_device_name(),
+								   release->download_url,
+								   sizeof(release->download_url)) != 0)
+		return -1;
+	return 1;
+}
+
 // Show update info (version + release notes) with A to confirm, B to cancel.
 static int show_update_info(SDL_Surface* screen, ReleaseInfo* release) {
 	while (1) {
@@ -518,10 +616,15 @@ static int show_update_info(SDL_Surface* screen, ReleaseInfo* release) {
 			SDL_FreeSurface(tag_surf);
 		}
 
-		if (release->release_notes[0]) {
+		{
 			int max_w = screen->w - SCALE1(PADDING * 4);
 			char notes_copy[2048];
-			strncpy(notes_copy, release->release_notes, sizeof(notes_copy) - 1);
+			strncpy(notes_copy,
+					release->release_notes[0]
+						? release->release_notes
+						: "Release notes are unavailable right now, but you "
+						  "can still update to the latest version. Press A to install.",
+					sizeof(notes_copy) - 1);
 			notes_copy[sizeof(notes_copy) - 1] = '\0';
 
 			int max_lines = 8;
@@ -759,7 +862,7 @@ void updater_about_on_show(SettingsPage* page) {
 
 	auto_done = 0;
 	auto_success = 0;
-	auto_response_data = NULL;
+	auto_tag[0] = '\0';
 	auto_error[0] = '\0';
 	auto_state = UPDATE_CHECKING;
 	snprintf(item_label, sizeof(item_label), "Checking for update..");
@@ -820,6 +923,14 @@ void updater_check_for_updates(void) {
 			return;
 
 		SDL_Surface* screen = page->screen;
+
+		int dr = fetch_release_details(screen, &cached_release);
+		if (dr < 0) {
+			show_message_page(screen, "Update Error", "Could not determine download URL");
+			return;
+		}
+		if (dr == 0)
+			return;
 
 		if (!show_update_info(screen, &cached_release))
 			return;

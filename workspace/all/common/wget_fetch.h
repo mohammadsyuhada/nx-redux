@@ -16,6 +16,19 @@
 int wget_fetch(const char* url, uint8_t* buffer, int buffer_size);
 
 /**
+ * Fetch only the response headers of a URL WITHOUT following redirects
+ * (wget -S --max-redirect=0). Used to read a redirect's Location target,
+ * e.g. GitHub's /releases/latest -> /releases/tag/<TAG>, without touching
+ * the rate-limited api.github.com.
+ *
+ * @param url         The URL to probe
+ * @param buffer      Buffer to store the raw header dump (NUL-terminated)
+ * @param buffer_size Size of buffer
+ * @return            Bytes read on success, -1 on failure
+ */
+int wget_fetch_headers_noredirect(const char* url, char* buffer, int buffer_size);
+
+/**
  * Download URL to file with progress reporting and cancellation.
  * Drop-in replacement for http_download_file() using wget.
  * Supports resume via -c flag. Partial files are kept on failure for resume.

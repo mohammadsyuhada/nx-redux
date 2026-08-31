@@ -173,7 +173,11 @@ jobs:
         run: make special
 
       - name: Package
-        run: make package BUILD_TAG=${{ needs.prepare.outputs.next-tag }}
+        # Tag-based RELEASE_NAME makes asset names predictable
+        # (NXRedux-<tag>-<device>.zip) so the on-device updater can derive
+        # the download URL from the tag alone when api.github.com is
+        # rate-limited (see settings_updater.c / updater_url.c).
+        run: make package BUILD_TAG=${{ needs.prepare.outputs.next-tag }} RELEASE_NAME=NXRedux-${{ needs.prepare.outputs.next-tag }}
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v6.0.0
