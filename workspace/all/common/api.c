@@ -2473,11 +2473,16 @@ void SND_quit(void) {
 }
 
 // Weak reference: resolves to NULL if -lasound is not linked.
+// (No ALSA on macOS, and Mach-O rejects undefined weak refs at link time.)
+#ifndef __APPLE__
 extern int snd_config_update_free_global(void) __attribute__((weak));
+#endif
 
 void SND_flushALSAConfig(void) {
+#ifndef __APPLE__
 	if (snd_config_update_free_global)
 		snd_config_update_free_global();
+#endif
 }
 
 void SND_resetAudio(double sample_rate, double frame_rate) {
