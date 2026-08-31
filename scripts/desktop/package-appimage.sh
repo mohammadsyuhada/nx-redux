@@ -3,7 +3,14 @@
 # invoked via `docker compose run --rm appimage` (make package-linux).
 set -eu
 ROOT="$(pwd)"
-TAG="$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null || echo untagged)"
+# Prefer the tag the host Makefile already computed (BUILD_TAG, passed in as
+# TAG via `docker compose run -e TAG=$(BUILD_TAG)`): this worktree's `.git`
+# is a pointer file at an absolute *host* path (`gitdir: /Users/.../nx-redux/
+# .git/worktrees/...`), which isn't reachable from inside the container (only
+# this worktree's own directory is bind-mounted), so `git describe` run here
+# always fails and falls back to "untagged". Keep that fallback for a
+# standalone `docker compose run --rm appimage` invocation (no TAG set).
+TAG="${TAG:-$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null || echo untagged)}"
 ARCH="${ARCH:-x86_64}"
 
 # The bind-mounted repo keeps host ownership on its existing files; capture

@@ -1,8 +1,8 @@
 diff --git forkSrcPrefix/Makefile.libretro forkDstPrefix/Makefile.libretro
-index 24e5dce..516704a 100644
+index 24e5dce..796ae40 100644
 --- forkSrcPrefix/Makefile.libretro
 +++ forkDstPrefix/Makefile.libretro
-@@ -421,6 +421,42 @@ else ifeq ($(platform), miyoo)
+@@ -421,6 +421,41 @@ else ifeq ($(platform), miyoo)
     CFLAGS += -fno-common -ftree-vectorize -funswitch-loops
     DEFINES += -std=c99
  
@@ -14,7 +14,6 @@ index 24e5dce..516704a 100644
 +   AR = $(CROSS_COMPILE)ar
 +   fpic := -fPIC
 +   CFLAGS += -fomit-frame-pointer -ffast-math
-+   CFLAGS += -march=native
 +   CFLAGS += -fno-common -ftree-vectorize -funswitch-loops
 +   DEFINES += -std=c99
 +   ifeq ($(shell uname -s), Darwin)
