@@ -84,7 +84,14 @@ static bool menuDiscCb(const char* disc_path, int index, void* ctx) {
 	return true;
 }
 
+static void initFrontendVersionDesc(void);
+
 void Menu_init(void) {
+	initFrontendVersionDesc();
+	// A crash during bind capture can leave the OSD suppress flag behind;
+	// /tmp survives until reboot, so clear it on every launch
+	unlink(OSD_SUPPRESS_PATH);
+
 	menu.overlay = SDL_CreateRGBSurfaceWithFormat(SDL_SWSURFACE,
 												  DEVICE_WIDTH, DEVICE_HEIGHT,
 												  screen->format->BitsPerPixel, screen->format->format);
@@ -788,10 +795,35 @@ static int OptionAchievements_openMenu(MenuList* list, int i) {
 	return MENU_CALLBACK_NOP;
 }
 
+// Frontend hint: the release tag ("NX Redux (v1.8.0)") when version.txt has
+// one, otherwise the compiled-in date+hash that identifies dev builds.
+static char frontend_version_desc[64] = "NX Redux (" BUILD_DATE " " BUILD_HASH ")";
+static void initFrontendVersionDesc(void) {
+	FILE* f = fopen(ROOT_SYSTEM_PATH "version.txt", "r");
+	if (!f)
+		return;
+	char line[64];
+	char tag[64] = {0};
+	int line_num = 0;
+	while (fgets(line, sizeof(line), f) && line_num < 3) {
+		line_num++;
+		if (line_num == 3) {
+			int len = (int)strlen(line);
+			while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+				line[--len] = '\0';
+			strncpy(tag, line, sizeof(tag) - 1);
+		}
+	}
+	fclose(f);
+	if (tag[0] && strcmp(tag, "untagged") != 0)
+		snprintf(frontend_version_desc, sizeof(frontend_version_desc), "NX Redux (%s)", tag);
+}
+
 static MenuList options_menu = {
 	.type = MENU_LIST,
+	.title = "Options",
 	.items = (MenuItem[]){
-		{"Frontend", "NX Redux (" BUILD_DATE " " BUILD_HASH ")", .on_confirm = OptionFrontend_openMenu},
+		{"Frontend", frontend_version_desc, .on_confirm = OptionFrontend_openMenu},
 		// Core options that apply without a core restart; the full set (incl.
 		// restart-only options) lives in the pre-launch editor (options.elf)
 		{"Core Options", (char*)core.version, .on_confirm = OptionEmulator_openMenu},
@@ -1042,8 +1074,9 @@ int Menu_options(MenuList* list) {
 			if (menu.bitmap)
 				GFX_drawOnLayer(menu.bitmap, 0, 0, DEVICE_WIDTH, DEVICE_HEIGHT, 0.15f, 1, 0);
 
-			// Top bar with category/list name
-			UI_renderMenuBar(screen, list->desc ? list->desc : "");
+			// Top bar with category/list name (legacy lists without a title
+			// keep showing their desc there)
+			UI_renderMenuBar(screen, list->title ? list->title : (list->desc ? list->desc : ""));
 
 			// Build UISettingsItem array from MenuItems
 			UISettingsItem settings_items[count];
@@ -1054,7 +1087,9 @@ int Menu_options(MenuList* list) {
 					.value = NULL,
 					.swatch = -1,
 					.cycleable = 0,
-					.desc = mi->desc,
+					// Titled lists show their section-wide desc as the bottom
+					// hint for items without one of their own
+					.desc = mi->desc ? mi->desc : (list->title ? list->desc : NULL),
 					.custom_draw = NULL,
 					.custom_draw_ctx = NULL,
 				};

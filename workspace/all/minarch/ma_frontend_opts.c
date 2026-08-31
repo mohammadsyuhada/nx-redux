@@ -52,6 +52,7 @@ int OptionFrontend_optionChanged(MenuList* list, int i) {
 }
 static MenuList OptionFrontend_menu = {
 	.type = MENU_VAR,
+	.title = "Frontend",
 	.on_change = OptionFrontend_optionChanged,
 	.items = NULL,
 };
@@ -136,6 +137,7 @@ static int OptionEmulator_optionDetail(MenuList* list, int i);
 
 static MenuList OptionEmulator_menu = {
 	.type = MENU_FIXED,
+	.title = "Core Options",
 	.on_confirm = OptionEmulator_optionDetail, // TODO: this needs pagination to be truly useful
 	.on_change = OptionEmulator_optionChanged,
 	.items = NULL,
@@ -152,6 +154,8 @@ static int OptionEmulator_optionDetail(MenuList* list, int i) {
 		int prev_enabled_count = config.core.enabled_count;
 		Option** prev_enabled = config.core.enabled_options;
 		MenuItem* prev_items = OptionEmulator_menu.items;
+		char* prev_title = OptionEmulator_menu.title;
+		OptionEmulator_menu.title = item->name; // category display name
 
 		OptionEmulator_openMenu(list, 0);
 		list->category = NULL;
@@ -159,6 +163,7 @@ static int OptionEmulator_optionDetail(MenuList* list, int i) {
 		config.core.enabled_count = prev_enabled_count;
 		config.core.enabled_options = prev_enabled;
 		OptionEmulator_menu.items = prev_items;
+		OptionEmulator_menu.title = prev_title;
 		return MENU_CALLBACK_NOP;
 	} else {
 		Option* option = OptionList_getOption(&config.core, item->key);
@@ -266,6 +271,9 @@ int OptionEmulator_openMenu(MenuList* list, int index) {
 // Block until the user presses a button, then record it (plus MENU as a
 // modifier) into item/button. Shared by the controls and shortcuts binders.
 static int OptionBind_pollLoop(MenuItem* item, ButtonMapping* button) {
+	// Binding a MENU+button combo means holding MENU well past keymon's
+	// long-press threshold; the flag tells keymon not to pop the OSD.
+	touch(OSD_SUPPRESS_PATH);
 	int bound = 0;
 	while (!bound) {
 		GFX_startFrame();
@@ -290,6 +298,7 @@ static int OptionBind_pollLoop(MenuItem* item, ButtonMapping* button) {
 		GFX_delay();
 		hdmimon();
 	}
+	unlink(OSD_SUPPRESS_PATH);
 	return MENU_CALLBACK_NEXT_ITEM;
 }
 
@@ -326,6 +335,7 @@ int OptionControls_optionChanged(MenuList* list, int i) {
 }
 static MenuList OptionControls_menu = {
 	.type = MENU_INPUT,
+	.title = "Controls",
 	.desc = "Press A to set and X to clear."
 			"\nSupports single button and MENU+button." // TODO: not supported on nano because POWER doubles as MENU
 	,
@@ -400,6 +410,7 @@ int OptionShortcuts_unbind(MenuList* list, int i) {
 }
 static MenuList OptionShortcuts_menu = {
 	.type = MENU_INPUT,
+	.title = "Shortcuts",
 	.desc = "Press A to set and X to clear."
 			"\nSupports single button and MENU+button." // TODO: not supported on nano because POWER doubles as MENU
 	,
@@ -474,6 +485,7 @@ int OptionSaveChanges_onConfirm(MenuList* list, int i) {
 }
 static MenuList OptionSaveChanges_menu = {
 	.type = MENU_LIST,
+	.title = "Save Changes",
 	.on_confirm = OptionSaveChanges_onConfirm,
 	.items = (MenuItem[]){
 		{"Save for console"},
@@ -515,6 +527,7 @@ int OptionCheats_optionDetail(MenuList* list, int i) {
 
 static MenuList OptionCheats_menu = {
 	.type = MENU_FIXED,
+	.title = "Cheats",
 	.on_confirm = OptionCheats_optionDetail, // TODO: this needs pagination to be truly useful
 	.on_change = OptionCheats_optionChanged,
 	.items = NULL,
@@ -630,6 +643,7 @@ int OptionPragmas_optionChanged(MenuList* list, int i) {
 
 static MenuList PragmasOptions_menu = {
 	.type = MENU_FIXED,
+	.title = "Shader Settings",
 	.on_confirm = NULL,
 	.on_change = OptionPragmas_optionChanged,
 	.items = NULL};
@@ -687,6 +701,7 @@ int OptionShaders_optionChanged(MenuList* list, int i) {
 
 static MenuList ShaderOptions_menu = {
 	.type = MENU_FIXED,
+	.title = "Shaders",
 	.on_confirm = NULL,
 	.on_change = OptionShaders_optionChanged,
 	.items = NULL};

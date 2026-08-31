@@ -50,6 +50,10 @@
 // exists, LEDS_setProfile forces LIGHT_PROFILE_OFF so app startup and profile
 // changes (charging, sleep, ambient) don't relight LEDs the user switched off.
 #define LEDS_DISABLED_PATH "/tmp/leds_disabled" // transient
+// While this file exists keymon swallows the MENU long-press instead of
+// popping the OSD; minarch holds it during button-bind capture. keymon
+// doesn't include this header — its copy of the literal must match.
+#define OSD_SUPPRESS_PATH "/tmp/osd_suppress" // transient
 
 #define TRIAD_WHITE 0xff, 0xff, 0xff
 #define TRIAD_BLACK 0x00, 0x00, 0x00

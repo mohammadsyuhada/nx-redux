@@ -45,6 +45,7 @@ enum {
 struct MenuList {
 	int type;
 	int max_width; // cached on first draw
+	char* title; // menu bar text; desc becomes the section-wide bottom hint
 	char* desc;
 	char* category; // currently displayed category
 	MenuItem* items;

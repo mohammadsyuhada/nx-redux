@@ -410,7 +410,9 @@ void UI_renderSettingsPage(SDL_Surface* screen, ListLayout* layout,
 	int total_rows = SETTINGS_ROW_COUNT;
 	layout->item_h = layout->list_h / total_rows;
 	layout->items_per_page = total_rows - 2;
-	int y_offset = layout->item_h / 2;
+	// Quarter-row top inset (was half): the reclaimed space goes to the
+	// description area below the list, which fits two lines instead of one.
+	int y_offset = layout->item_h / 4;
 
 	UI_adjustListScroll(selected, scroll, layout->items_per_page);
 
@@ -462,21 +464,49 @@ void UI_renderSettingsPage(SDL_Surface* screen, ListLayout* layout,
 		}
 	}
 
-	// Description text in the last row (row 9)
+	// Description text below the list — up to two centered lines
 	if (selected >= 0 && selected < count &&
 		items[selected].desc && items[selected].desc[0]) {
-		int desc_row_y = layout->list_y + y_offset + layout->items_per_page * layout->item_h;
-		int desc_y = desc_row_y + (layout->item_h - TTF_FontHeight(font.tiny)) / 2;
+		int area_y = layout->list_y + y_offset + layout->items_per_page * layout->item_h;
+		int area_b = layout->list_y + layout->list_h - SCALE1(8); // keep clear of the bottom scroll arrow
 		int desc_max_w = hw - SCALE1(PADDING * 2);
+		int line_h = TTF_FontHeight(font.tiny);
 
-		char truncated_desc[256];
-		GFX_truncateText(font.tiny, items[selected].desc, truncated_desc, desc_max_w, 0);
+		char wrapped[256];
+		strncpy(wrapped, items[selected].desc, sizeof(wrapped) - 1);
+		wrapped[sizeof(wrapped) - 1] = '\0';
+		// A desc with explicit newlines keeps its own line split
+		if (!strchr(wrapped, '\n'))
+			GFX_wrapText(font.tiny, wrapped, desc_max_w, 2);
 
-		SDL_Surface* desc_surf = GFX_renderText(font.tiny, truncated_desc, COLOR_GRAY);
-		if (desc_surf) {
-			int desc_x = (hw - desc_surf->w) / 2;
-			SDL_BlitSurface(desc_surf, NULL, screen, &(SDL_Rect){desc_x, desc_y, 0, 0});
-			SDL_FreeSurface(desc_surf);
+		char* lines[2];
+		int nlines = 0;
+		char* cursor = wrapped;
+		while (cursor && nlines < 2) {
+			lines[nlines++] = cursor;
+			char* nl = strchr(cursor, '\n');
+			if (nl) {
+				*nl = '\0';
+				cursor = nl + 1;
+			} else {
+				cursor = NULL;
+			}
+		}
+
+		int desc_y = area_y + (area_b - area_y - nlines * line_h) / 2;
+		if (desc_y < area_y)
+			desc_y = area_y;
+
+		for (int l = 0; l < nlines; l++) {
+			char truncated_desc[256];
+			GFX_truncateText(font.tiny, lines[l], truncated_desc, desc_max_w, 0);
+
+			SDL_Surface* desc_surf = GFX_renderText(font.tiny, truncated_desc, COLOR_GRAY);
+			if (desc_surf) {
+				int desc_x = (hw - desc_surf->w) / 2;
+				SDL_BlitSurface(desc_surf, NULL, screen, &(SDL_Rect){desc_x, desc_y + l * line_h, 0, 0});
+				SDL_FreeSurface(desc_surf);
+			}
 		}
 	}
 }
