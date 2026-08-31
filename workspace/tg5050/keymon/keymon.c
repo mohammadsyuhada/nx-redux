@@ -31,10 +31,13 @@
 #define CODE_MUTE 1
 #define CODE_JACK 2
 
-#define LONG_PRESS_MS 500
+#define LONG_PRESS_MS 1000
 #define OSD_SHOW_PATH "/tmp/show_osdd"
 #define OSD_HIDE_PATH "/tmp/hide_osdd"
 #define OSD_STATE_PATH "/tmp/trimui_osd/osdd_show_up"
+// Must match OSD_SUPPRESS_PATH in workspace/all/common/defines.h: while it
+// exists (minarch capturing a button bind) the MENU long-press is swallowed.
+#define OSD_SUPPRESS_PATH "/tmp/osd_suppress"
 
 #define RELEASED 0
 #define PRESSED 1
@@ -225,7 +228,10 @@ int main(int argc, char* argv[]) {
 		if (menu_pressed && !menu_long_fired) {
 			// Polling for menu long-press detection
 			uint32_t remaining_lp = (menu_press_start + LONG_PRESS_MS > now) ? (menu_press_start + LONG_PRESS_MS - now) : 1;
-			timeout_ms = (int)remaining_lp;
+			// Cap the wait below the stale-input guard's 1000ms window — a
+			// single sleep spanning the full LONG_PRESS_MS would trip it and
+			// reset menu_pressed mid-hold, so the OSD would never trigger
+			timeout_ms = (int)(remaining_lp < 500 ? remaining_lp : 500);
 		} else if (up_pressed || down_pressed) {
 			uint32_t next_repeat = up_pressed ? up_repeat_at : down_repeat_at;
 			if (up_pressed && down_pressed)
@@ -290,6 +296,11 @@ int main(int argc, char* argv[]) {
 				val = input_ev.value;
 				if (input_ev.type != EV_KEY || val > REPEAT)
 					continue;
+				// Any other key pressed while MENU is held is a combo
+				// (MENU+button game shortcut or binding, MENU+SELECT quit,
+				// volume/brightness chords) — never pop the OSD on those.
+				if (val == PRESSED && menu_pressed && input_ev.code != CODE_MENU2)
+					menu_long_fired = 1;
 				switch (input_ev.code) {
 				case CODE_PLUS:
 					up_pressed = up_just_pressed = val;
@@ -324,15 +335,12 @@ int main(int argc, char* argv[]) {
 			}
 		}
 
-		// Cancel menu long-press if Plus/Minus pressed (brightness/volume combo)
-		if (menu_pressed && !menu_long_fired && (up_just_pressed || down_just_pressed)) {
-			menu_long_fired = 1;
-		}
-
-		// Check menu long-press threshold — trigger OSD
+		// Check menu long-press threshold — trigger OSD (swallowed while a
+		// frontend holds the suppress flag during button-bind capture)
 		if (menu_pressed && !menu_long_fired && now - menu_press_start >= LONG_PRESS_MS) {
 			menu_long_fired = 1;
-			toggle_osd();
+			if (access(OSD_SUPPRESS_PATH, F_OK) != 0)
+				toggle_osd();
 		}
 
 		// Handle key repeat for volume/brightness
