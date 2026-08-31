@@ -94,6 +94,13 @@ Inject 24-byte `input_event` structs into the gamepad event node:
   `key + SYN` into one 48-byte `.bin` per press/release.
 - Keep each adb shell command short (>~4 injected events per call hits
   "shell command too long"); wrap the sequence in a small on-device script.
+- **An OSD left showing eats all further gamepad injection** (it grabs the
+  pad node, so the foreground app sees nothing and every scripted press goes
+  to the OSD). An injected B press is not a reliable dismissal — `touch
+  /tmp/hide_osdd` is. Check `/tmp/trimui_osd/osdd_show_up` before driving UI,
+  and remember a MENU hold ≥1s (keymon `LONG_PRESS_MS`) pops the OSD
+  mid-test; a MENU release with no other key also opens minarch's in-game
+  menu, leaving it open for the next command's presses to land in.
 - adbd kills its session's process group on disconnect and backgrounded
   children die with it (even setsid'd ones on session exit) — run
   start/verify/stop inside one adb shell. For a process that must survive a
