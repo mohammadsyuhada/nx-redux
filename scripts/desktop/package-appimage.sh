@@ -86,6 +86,7 @@ cp -R skeleton/SYSTEM/res/.    "$APPDIR/usr/system/res"
 cp -R skeleton/BASE            "$APPDIR/usr/base-skeleton"
 cp workspace/all/nextui/build/desktop/nextui.elf   "$APPDIR/usr/system/bin/"
 cp workspace/all/minarch/build/desktop/minarch.elf "$APPDIR/usr/system/bin/"
+install -m 0755 scripts/desktop/check-update.sh "$APPDIR/usr/system/bin/"
 for c in gambatte mgba; do cp "workspace/desktop/cores/output/${c}_libretro.so" "$APPDIR/usr/system/cores/"; done
 cp scripts/desktop/entry-common.sh "$APPDIR/usr/"
 install -m 0755 scripts/desktop/AppRun.sh "$APPDIR/AppRun"
