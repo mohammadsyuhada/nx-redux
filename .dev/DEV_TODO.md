@@ -76,55 +76,6 @@ not part of the transition teardown; none of the removals above touch it.
 
 ---
 
-## Updater: drop api.github.com to escape the 60/hr rate limit
-
-**Recorded:** 2026-08-03, after a live "Failed to check for updates" on Brick Pro
-(v1.4.1) turned out to be **HTTP 403 rate limit exceeded**, not a code fault.
-
-`auto_check_thread` (`workspace/all/settings/settings_updater.c:276-309`) fetches
-`https://api.github.com/repos/mohammadsyuhada/nx-redux/releases/latest`. The
-**unauthenticated** GitHub API is capped at **60 requests/hour per public IP**, and
-that budget is shared across every device behind the same NAT — so a household or
-office of Redux devices (plus any dev machine hitting the same repo) exhausts it
-network-wide, and every device then shows the generic failure until the hourly
-window resets. Confirmed on device: wget got `403 rate limit exceeded`,
-`X-RateLimit-Remaining: 0`, exits 8, `wget_fetch` returns -1 →
-`settings_updater.c:295` "Failed to check for updates".
-
-**The fix:** get the latest tag from the web endpoint
-`https://github.com/mohammadsyuhada/nx-redux/releases/latest`, which 302-redirects
-to `/releases/tag/vX.Y.Z` and is **not** subject to the api.github.com 60/hr limit.
-Read the tag from the redirect `Location:` (`wget -S --max-redirect=0`, parse the
-`Location:` header — the same `-S` header-parsing path `wget_download_file` already
-uses at `wget_fetch.c:152-174`), then build the asset download URL from the
-predictable pattern
-`https://github.com/<owner>/<repo>/releases/download/<TAG>/…-<device>.zip`, where
-`<device>` is today's `get_device_name()` mapping (`settings_updater.c:43-52`) — the
-same suffix `find_zip_asset_url` matches now.
-
-- [ ] Replace the api.github.com JSON fetch with the github.com redirect + tag parse;
-      derive the asset URL from the tag instead of scanning the `assets` JSON.
-- [ ] Decide the exact download asset filename convention and hardcode it (the JSON
-      `browser_download_url` scan goes away, so the name has to be reconstructed —
-      confirm it against what the release workflow actually uploads per device).
-
-**Tradeoffs / what's lost.** The web redirect returns only the tag, so the release
-**notes body** (`find_json_string(... "body" ...)`, shown by `show_update_info`) and
-the JSON asset list disappear. Either drop the notes UI or fetch the body separately
-(a second call that *would* re-touch the rate-limited API — defeats the point). The
-`target_commitish` SHA (`settings_updater.c:330`) is likewise unavailable from the
-redirect; the tag-only comparison at `settings_updater.c:347-351` still works, so
-this is fine as long as nothing downstream needs the SHA.
-
-**Consider while here (option 1, not this task):** even keeping the API, the error
-message is identical for no-internet / DNS-fail / 404 / rate-limit because
-`wget_fetch` runs with `-q` and discards the HTTP status. Surfacing the status (drop
-`-q`, parse `-S`) so the updater can say "GitHub rate limit — try again shortly" is a
-smaller, independent win. This entry is the larger structural fix that removes the
-limit entirely.
-
----
-
 ## DC pre-launch options: no launch transition into the editor (cosmetic)
 
 **Recorded:** 2026-07-30, noted while moving the pre-launch options gotchas into
