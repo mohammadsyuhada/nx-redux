@@ -16,16 +16,22 @@ export LD_LIBRARY_PATH="$APPDIR/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 # loop that reads /tmp/next and relaunches nextui.elf once the pak returns;
 # without that loop here the whole app would quit after opening one ROM.
 # Mirror it. A clean quit (no /tmp/next written) ends the loop normally.
-# `|| true` on both calls: under `set -e`, a pak/core that exits (or
-# crashes) non-zero would otherwise kill this whole loop -- i.e. the entire
-# desktop app -- instead of just falling back to the nextui.elf menu the way
-# a real device does.
+# nextui.elf's own exit status is captured and only surfaced when the loop
+# is about to end (no /tmp/next left behind): a clean quit still exits 0,
+# but a crash on the very first launch (no ROM opened yet, so nothing ever
+# wrote /tmp/next) now propagates as a non-zero AppImage exit instead of
+# silently reading as success -- `set -e` would otherwise abort the whole
+# loop on that same non-zero status, so both calls are explicitly guarded.
+# A pak/core that exits (or crashes) non-zero is logged and then falls back
+# to the nextui.elf menu, the way a real device does, instead of also
+# taking the whole app down with it.
 NEXT_PATH=/tmp/next
 rm -f "$NEXT_PATH"
 while :; do
-	"$SYS/bin/nextui.elf" >> "$LOGS_PATH/nextui.txt" 2>&1 || true
-	[ -f "$NEXT_PATH" ] || break
+	STATUS=0
+	"$SYS/bin/nextui.elf" >> "$LOGS_PATH/nextui.txt" 2>&1 || STATUS=$?
+	[ -f "$NEXT_PATH" ] || exit "$STATUS"
 	CMD="$(cat "$NEXT_PATH")"
 	rm -f "$NEXT_PATH"
-	eval "$CMD" || true
+	eval "$CMD" || echo "launch command failed ($?): $CMD" >> "$LOGS_PATH/nextui.txt"
 done
