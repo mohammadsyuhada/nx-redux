@@ -1,8 +1,8 @@
 diff --git forkSrcPrefix/Makefile.libretro forkDstPrefix/Makefile.libretro
-index 24e5dce..81de9fa 100644
+index 24e5dce..516704a 100644
 --- forkSrcPrefix/Makefile.libretro
 +++ forkDstPrefix/Makefile.libretro
-@@ -421,6 +421,33 @@ else ifeq ($(platform), miyoo)
+@@ -421,6 +421,42 @@ else ifeq ($(platform), miyoo)
     CFLAGS += -fno-common -ftree-vectorize -funswitch-loops
     DEFINES += -std=c99
  
@@ -12,26 +12,35 @@ index 24e5dce..81de9fa 100644
 +   CC = $(CROSS_COMPILE)gcc
 +   CXX = $(CROSS_COMPILE)g++
 +   AR = $(CROSS_COMPILE)ar
-+   # macOS ld does not support GNU --version-script
-+   SHARED := -shared -W
 +   fpic := -fPIC
-+   # macOS libc already provides these natively; mgba's own declarations
-+   # (missing restrict-qualified matches to macOS's fortified prototypes)
-+   # would otherwise conflict.
-+   PLATFORM_DEFINES += -D_GNU_SOURCE -DHAVE_STRTOF_L -DHAVE_LOCALE -DHAVE_STRLCPY -DHAVE_STRDUP -DHAVE_STRNDUP
-+   # macOS declares strtof_l()/locale_t in xlocale.h, not pulled in by
-+   # <stdlib.h> the way glibc does; force it in everywhere.
-+   CFLAGS += -include xlocale.h
 +   CFLAGS += -fomit-frame-pointer -ffast-math
 +   CFLAGS += -march=native
 +   CFLAGS += -fno-common -ftree-vectorize -funswitch-loops
-+   HAVE_NEON = 1
-+   ARCH = arm64
-+   BUILTIN_GPU = neon
-+   CPU_ARCH := arm
-+   MMAP_JIT_CACHE = 1
-+   HAVE_DYNAREC = 1
 +   DEFINES += -std=c99
++   ifeq ($(shell uname -s), Darwin)
++      # macOS ld does not support GNU --version-script
++      SHARED := -shared -W
++      # macOS libc already provides these natively; mgba's own declarations
++      # (missing restrict-qualified matches to macOS's fortified prototypes)
++      # would otherwise conflict.
++      PLATFORM_DEFINES += -D_GNU_SOURCE -DHAVE_STRTOF_L -DHAVE_LOCALE -DHAVE_STRLCPY -DHAVE_STRDUP -DHAVE_STRNDUP
++      # macOS declares strtof_l()/locale_t in xlocale.h, not pulled in by
++      # <stdlib.h> the way glibc does; force it in everywhere.
++      CFLAGS += -include xlocale.h
++      HAVE_NEON = 1
++      ARCH = arm64
++      BUILTIN_GPU = neon
++      CPU_ARCH := arm
++      MMAP_JIT_CACHE = 1
++      HAVE_DYNAREC = 1
++   else
++      # Linux (glibc): strtof_l()/locale_t come from <stdlib.h>/<locale.h>
++      # directly under _GNU_SOURCE, no xlocale.h needed; glibc has no
++      # strlcpy, so leave HAVE_STRLCPY unset and let mgba provide its own
++      # fallback (src/util/string.c guards it with #ifndef HAVE_STRLCPY).
++      SHARED := -shared -W
++      PLATFORM_DEFINES += -D_GNU_SOURCE -DHAVE_STRTOF_L -DHAVE_LOCALE -DHAVE_STRDUP -DHAVE_STRNDUP
++   endif
 +
  # Windows
  else

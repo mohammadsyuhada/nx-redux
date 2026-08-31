@@ -104,6 +104,9 @@ package-macos: # macOS desktop bundle (arm64, unsigned); needs brew deps + gmake
 	cd workspace/desktop/cores && gmake gambatte mgba PLATFORM=desktop
 	./scripts/desktop/package-macos.sh
 
+package-linux: # Linux AppImage (x86_64) via in-repo docker compose env
+	docker compose run --rm appimage
+
 build-cores:
 	make build-cores -f $(TOOLCHAIN_FILE) PLATFORM=$(PLATFORM) COMPILE_CORES=true
 	# ----------------------------------------------------
