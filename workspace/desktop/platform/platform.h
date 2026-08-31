@@ -144,7 +144,7 @@
 
 ///////////////////////////////
 
-#define SDCARD_PATH "/var/tmp/nxredux/sdcard"
+#define HAS_RUNTIME_PATHS 1
 #define MUTE_VOLUME_RAW 63 // 0 unintuitively is 100% volume
 
 #define MAX_LIGHTS 4

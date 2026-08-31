@@ -106,6 +106,7 @@ static SDL_Surface* cropBelowMenuBar(SDL_Surface* src, int bar_h) {
 }
 
 int main(int argc, char* argv[]) {
+	PATHS_init(PLATFORM);
 	// Must precede autoResume(): that path returns before the rest of init, so
 	// a stale flag would ride into the auto-resumed game as a silent netplay
 	// launch. Stale = a previous launch never consumed it.
