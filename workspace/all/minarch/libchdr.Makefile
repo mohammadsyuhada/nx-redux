@@ -41,6 +41,7 @@ $(BUILD_DIR):
 install: $(BUILD_DIR)/libchdr.so
 	mkdir -p "$(PREFIX_LOCAL)/lib"
 	cp $(BUILD_DIR)/libchdr.so "$(PREFIX_LOCAL)/lib/"
+	cp build/$(PLATFORM)/libchdr.so "$(PREFIX_LOCAL)/lib/libchdr.0.so" 2>/dev/null || true
 	mkdir -p "$(PREFIX_LOCAL)/include/libchdr"
 	cp -r include/libchdr/* "$(PREFIX_LOCAL)/include/libchdr/"
 

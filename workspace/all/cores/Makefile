@@ -10,6 +10,14 @@ endif
 
 ###############################
 
+# Apple's make 3.81 parses "define TEMPLATE=" as a variable named "TEMPLATE="
+# and silently generates no per-core rules. Fail loudly instead.
+ifneq (3.82,$(firstword $(sort $(MAKE_VERSION) 3.82)))
+$(error GNU make >= 3.82 required for core builds; on macOS run gmake (brew install make))
+endif
+
+###############################
+
 # overrides shared by all cores
 
 # commits after this one break save states (as of 20231025)

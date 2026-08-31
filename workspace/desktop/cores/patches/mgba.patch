@@ -1,8 +1,8 @@
 diff --git forkSrcPrefix/Makefile.libretro forkDstPrefix/Makefile.libretro
-index 108148f4579f4727146e5b8c1e05ef7382654208..35e6399147a4ef75947ecb2ad4a94f0820ef24d0 100644
+index 24e5dce..81de9fa 100644
 --- forkSrcPrefix/Makefile.libretro
 +++ forkDstPrefix/Makefile.libretro
-@@ -417,6 +417,26 @@ else ifeq ($(platform), miyoo)
+@@ -421,6 +421,33 @@ else ifeq ($(platform), miyoo)
     CFLAGS += -fno-common -ftree-vectorize -funswitch-loops
     DEFINES += -std=c99
  
@@ -12,9 +12,16 @@ index 108148f4579f4727146e5b8c1e05ef7382654208..35e6399147a4ef75947ecb2ad4a94f08
 +   CC = $(CROSS_COMPILE)gcc
 +   CXX = $(CROSS_COMPILE)g++
 +   AR = $(CROSS_COMPILE)ar
-+   SHARED := -shared -Wl,--version-script=link.T
++   # macOS ld does not support GNU --version-script
++   SHARED := -shared -W
 +   fpic := -fPIC
-+   PLATFORM_DEFINES += -D_GNU_SOURCE -DHAVE_STRTOF_L -DHAVE_LOCALE
++   # macOS libc already provides these natively; mgba's own declarations
++   # (missing restrict-qualified matches to macOS's fortified prototypes)
++   # would otherwise conflict.
++   PLATFORM_DEFINES += -D_GNU_SOURCE -DHAVE_STRTOF_L -DHAVE_LOCALE -DHAVE_STRLCPY -DHAVE_STRDUP -DHAVE_STRNDUP
++   # macOS declares strtof_l()/locale_t in xlocale.h, not pulled in by
++   # <stdlib.h> the way glibc does; force it in everywhere.
++   CFLAGS += -include xlocale.h
 +   CFLAGS += -fomit-frame-pointer -ffast-math
 +   CFLAGS += -march=native
 +   CFLAGS += -fno-common -ftree-vectorize -funswitch-loops

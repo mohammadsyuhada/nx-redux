@@ -62,6 +62,11 @@ fceumm_REPO = https://github.com/libretro/libretro-fceumm
 
 gambatte_REPO = https://github.com/libretro/gambatte-libretro
 
+# Upstream dropped Makefile.libretro for a CMake-only build 2026-08-03
+# (89404771); pin to the last commit with the make-based libretro build,
+# matching tg5040/tg5050.
+mgba_HASH = c758314a639aa0066e7b65a8341448181b73c804
+
 mednafen_supafaust_REPO = https://github.com/libretro/supafaust
 
 pcsx_rearmed_MAKEFILE = Makefile.libretro
