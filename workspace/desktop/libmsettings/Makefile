@@ -21,6 +21,14 @@ endif
 #LDFLAGS = -ldl -lrt -s
 LDFLAGS = -ldl
 
+# macOS (desktop PLATFORM, built directly on the host, not cross-compiled in
+# the Linux docker toolchain): reserve header room so package-macos.sh
+# (dylibbundler + install_name_tool) can rewrite this dylib's id post-link
+# without a full relink.
+ifeq ($(shell uname -s),Darwin)
+LDFLAGS += -Wl,-headerpad_max_install_names
+endif
+
 OPTM=-Ofast
 
 build: 

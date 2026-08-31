@@ -123,7 +123,7 @@ Component source lives in `workspace/all/<component>` (shared) and
 Prerequisites:
 
 ```bash
-brew install gcc sdl2 sdl2_image sdl2_ttf sqlite libsamplerate clang-format
+brew install gcc sdl2 sdl2_image sdl2_ttf sqlite libsamplerate clang-format dylibbundler make
 ```
 
 One-time setup:
