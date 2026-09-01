@@ -33,7 +33,14 @@ SOURCE = settings.c settings_menu.c settings_wifi.c settings_bt.c settings_led.c
          $(UI_DIR)/ui_keyboard.c \
          $(COMMON_PATH)/wget_fetch.c $(COMMON_PATH)/wifi.c \
          $(COMMON_PATH)/display_helper.c \
+         $(COMMON_PATH)/paths.c \
          $(PLATFORM_PATH)/platform/platform.c
+
+# Desktop's platform.c backs PLAT_wifiConnected with a real reachability probe
+# (device platform.c doesn't; it uses generic_wifi.c) -- desktop-only source.
+ifeq ($(PLATFORM), desktop)
+SOURCE += ../common/desktop_probe.c
+endif
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS += $(OPT)

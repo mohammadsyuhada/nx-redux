@@ -14,8 +14,10 @@
 #include <termios.h>
 #include <stdint.h>
 #include <sys/ioctl.h>
+#ifdef __linux__
 #include <linux/i2c.h>
 #include <linux/i2c-dev.h>
+#endif
 
 // ============================================
 // Rendering helpers
@@ -167,6 +169,7 @@ typedef struct {
 	int addr;
 } I2cSampleCtx;
 
+#ifdef __linux__
 static int cal_sample_i2c(void* ctx, int* x, int* y) {
 	I2cSampleCtx* s = (I2cSampleCtx*)ctx;
 	uint8_t reg = JOYPAD_I2C_REG;
@@ -182,6 +185,7 @@ static int cal_sample_i2c(void* ctx, int* x, int* y) {
 	*y = (buf[2] << 8) | buf[3];
 	return 0;
 }
+#endif
 
 static int cal_read_config(const char* path, JoypadCal* cal) {
 	FILE* f = fopen(path, "r");
@@ -372,6 +376,7 @@ static void cal_run_serial(SDL_Surface* screen) {
 	SDL_Delay(1500);
 }
 
+#ifdef __linux__
 static void cal_run_i2c(SDL_Surface* screen) {
 	JoypadCal left = {0}, right = {0};
 
@@ -433,6 +438,12 @@ static void cal_run_i2c(SDL_Surface* screen) {
 cleanup:
 	remove(JOYPAD_TESTMODE_FLAG); // mandatory: resume inputd on every exit
 }
+#else
+static void cal_run_i2c(SDL_Surface* screen) {
+	cal_render_msg(screen, "Error", "Joystick I2C calibration is not supported on this platform", 0);
+	SDL_Delay(2000);
+}
+#endif
 
 static void cal_run(SDL_Surface* screen) {
 	// Detect Brick Pro at runtime via the device string, matching settings_led.c.
@@ -467,7 +478,9 @@ void input_tester_run(SDL_Surface* screen) {
 	if (!has_L3 && !has_R3)
 		oy += SCALE1(PILL_SIZE);
 
-	SDL_Surface* joy_dot = IMG_Load(RES_PATH "/joystick-dot.png");
+	char joy_dot_path[MAX_PATH];
+	snprintf(joy_dot_path, sizeof(joy_dot_path), "%s/joystick-dot.png", RES_PATH);
+	SDL_Surface* joy_dot = IMG_Load(joy_dot_path);
 
 	PAD_Axis prev_laxis = {0, 0};
 	PAD_Axis prev_raxis = {0, 0};

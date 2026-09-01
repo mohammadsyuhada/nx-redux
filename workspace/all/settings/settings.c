@@ -54,6 +54,12 @@ typedef struct {
 
 static DeviceInfo device_detect(void) {
 	DeviceInfo dev = {PLAT_UNKNOWN, MODEL_UNKNOWN};
+
+	if (strcmp(PLATFORM, "desktop") == 0) {
+		dev.platform = PLAT_DESKTOP;
+		return dev;
+	}
+
 	const char* device = getenv("DEVICE");
 	if (!device)
 		return dev;
@@ -100,7 +106,7 @@ static int has_stock_osd_restore(const DeviceInfo* dev) {
 	if (!device)
 		return 0;
 	char path[MAX_PATH];
-	snprintf(path, sizeof(path), SYSTEM_PATH "/osd-stock/%s.zip", device);
+	snprintf(path, sizeof(path), "%s/osd-stock/%s.zip", SYSTEM_PATH, device);
 	return access(path, F_OK) == 0;
 }
 
@@ -127,8 +133,15 @@ static int has_bluetooth(const DeviceInfo* dev) {
 }
 
 static int has_leds(const DeviceInfo* dev) {
-	(void)dev;
-	return MAX_LIGHTS > 0;
+	return dev->platform != PLAT_DESKTOP && MAX_LIGHTS > 0;
+}
+
+static int has_display_hw(const DeviceInfo* dev) {
+	return dev->platform != PLAT_DESKTOP; // no brightness/color on desktop
+}
+
+static int has_power_mgmt(const DeviceInfo* dev) {
+	return dev->platform != PLAT_DESKTOP; // no battery/sleep/power on desktop
 }
 
 static void extract_busybox_version(const char* output, char* version_out, int max_len) {
@@ -1097,7 +1110,9 @@ static const char* get_about_busybox(void) {
 
 static void init_about_info(void) {
 	/* NxRedux version: read from version.txt and format as "tag (name-hash)" */
-	FILE* vf = fopen(ROOT_SYSTEM_PATH "/version.txt", "r");
+	char version_path[MAX_PATH];
+	snprintf(version_path, sizeof(version_path), "%s/version.txt", ROOT_SYSTEM_PATH);
+	FILE* vf = fopen(version_path, "r");
 	if (vf) {
 		char line_buf[256];
 		char release_name[256] = {0};
@@ -1434,7 +1449,7 @@ static void restore_stock_osd(void) {
 		return;
 	char cmd[MAX_PATH];
 	snprintf(cmd, sizeof(cmd),
-			 "sh \"" SYSTEM_PATH "/paks/MinUI.pak/restore-stock-osd.sh\" %s", device);
+			 "sh \"%s/paks/MinUI.pak/restore-stock-osd.sh\" %s", SYSTEM_PATH, device);
 	int rc = system(cmd);
 	if (restore_osd_item)
 		restore_osd_item->desc = (rc == 0)
@@ -1557,14 +1572,16 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	// Display page
 	// ============================
 	idx = 0;
-	display_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Brightness", "Display brightness (0 to 10)",
-		brightness_labels, BRIGHTNESS_LABEL_COUNT, NULL, get_brightness, set_brightness, reset_brightness);
-
-	if (has_color_temp(dev)) {
+	if (has_display_hw(dev)) {
 		display_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-			"Color temperature", "Color temperature (0 to 40)",
-			colortemp_labels, COLORTEMP_LABEL_COUNT, NULL, get_colortemp, set_colortemp, reset_colortemp);
+			"Brightness", "Display brightness (0 to 10)",
+			brightness_labels, BRIGHTNESS_LABEL_COUNT, NULL, get_brightness, set_brightness, reset_brightness);
+
+		if (has_color_temp(dev)) {
+			display_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+				"Color temperature", "Color temperature (0 to 40)",
+				colortemp_labels, COLORTEMP_LABEL_COUNT, NULL, get_colortemp, set_colortemp, reset_colortemp);
+		}
 	}
 
 	if (has_contrast_sat(dev)) {
@@ -1591,12 +1608,14 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	// System page
 	// ============================
 	idx = 0;
-	system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Screen timeout", "Period of inactivity before screen turns off (0-600s)",
-		screen_timeout_labels, SCREEN_TIMEOUT_COUNT, screen_timeout_values, get_screen_timeout, set_screen_timeout, reset_screen_timeout);
-	system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Suspend timeout", "Time before device goes to sleep after screen is off (5-600s)",
-		sleep_timeout_labels, SLEEP_TIMEOUT_COUNT, sleep_timeout_values, get_suspend_timeout, set_suspend_timeout, reset_suspend_timeout);
+	if (has_power_mgmt(dev)) {
+		system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+			"Screen timeout", "Period of inactivity before screen turns off (0-600s)",
+			screen_timeout_labels, SCREEN_TIMEOUT_COUNT, screen_timeout_values, get_screen_timeout, set_screen_timeout, reset_screen_timeout);
+		system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+			"Suspend timeout", "Time before device goes to sleep after screen is off (5-600s)",
+			sleep_timeout_labels, SLEEP_TIMEOUT_COUNT, sleep_timeout_values, get_suspend_timeout, set_suspend_timeout, reset_suspend_timeout);
+	}
 	system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Haptic feedback", "Enable or disable haptic feedback on certain actions in the OS",
 		on_off_labels, 2, on_off_values, get_haptics, set_haptics, reset_haptics);
@@ -1635,7 +1654,7 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		"Use extracted file name", "Use the extracted file name instead of the archive name.",
 		on_off_labels, 2, on_off_values, get_use_extracted_filename, set_use_extracted_filename, reset_use_extracted_filename);
 
-	if (dev->platform == PLAT_TG5040 || dev->platform == PLAT_TG5050) {
+	if (has_power_mgmt(dev) && (dev->platform == PLAT_TG5040 || dev->platform == PLAT_TG5050)) {
 		system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 			"Safe poweroff", "Bypasses the stock shutdown procedure to avoid the \"limbo bug\".",
 			on_off_labels, 2, on_off_values, get_power_off_protection, set_power_off_protection, reset_power_off_protection);
@@ -1865,10 +1884,12 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
 		"System", "", &system_page);
 
-	dev_page_ptr = developer_page_create(dev->platform);
-	if (dev_page_ptr) {
-		main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
-			"Developer", "Developer & debugging tools", dev_page_ptr);
+	if (dev->platform != PLAT_DESKTOP) {
+		dev_page_ptr = developer_page_create(dev->platform);
+		if (dev_page_ptr) {
+			main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
+				"Developer", "Developer & debugging tools", dev_page_ptr);
+		}
 	}
 
 	main_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
@@ -1902,6 +1923,7 @@ static void build_menu_tree(const DeviceInfo* dev) {
 int main(int argc, char* argv[]) {
 	(void)argc;
 	(void)argv;
+	PATHS_init(PLATFORM);
 
 	SDL_Surface* screen = GFX_init(MODE_MAIN);
 	g_screen = screen;

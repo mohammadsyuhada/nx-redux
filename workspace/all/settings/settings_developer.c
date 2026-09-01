@@ -173,16 +173,18 @@ static void* dotclean_thread(void* arg) {
 	// Build and run a shell command that finds and deletes macOS dot files
 	// Matches: .Spotlight-V100, .apDisk, .fseventsd, .TemporaryItems,
 	//          .Trash, .Trashes, ._*, .DS_Store, *_cache[0-9].db, __MACOSX
-	const char* cmd =
-		"cd " SDCARD_PATH " && "
-		"{"
-		" find . -maxdepth 1 \\( -name '.Spotlight-V100' -o -name '.apDisk'"
-		" -o -name '.fseventsd' -o -name '.TemporaryItems'"
-		" -o -name '.Trash' -o -name '.Trashes' \\);"
-		" find . -depth -type f \\( -name '._*' -o -name '.DS_Store'"
-		" -o -name '*_cache[0-9].db' \\);"
-		" find . -depth -type d -name '__MACOSX';"
-		"} 2>/dev/null";
+	char cmd[1024];
+	snprintf(cmd, sizeof(cmd),
+			 "cd %s && "
+			 "{"
+			 " find . -maxdepth 1 \\( -name '.Spotlight-V100' -o -name '.apDisk'"
+			 " -o -name '.fseventsd' -o -name '.TemporaryItems'"
+			 " -o -name '.Trash' -o -name '.Trashes' \\);"
+			 " find . -depth -type f \\( -name '._*' -o -name '.DS_Store'"
+			 " -o -name '*_cache[0-9].db' \\);"
+			 " find . -depth -type d -name '__MACOSX';"
+			 "} 2>/dev/null",
+			 SDCARD_PATH);
 
 	FILE* fp = popen(cmd, "r");
 	if (fp) {
@@ -197,7 +199,7 @@ static void* dotclean_thread(void* arg) {
 
 			// Build full path and remove
 			char fullpath[1280];
-			snprintf(fullpath, sizeof(fullpath), SDCARD_PATH "/%s", line + 2); // skip "./"
+			snprintf(fullpath, sizeof(fullpath), "%s/%s", SDCARD_PATH, line + 2); // skip "./"
 			// Use rm -rf for both files and directories
 			char rm_cmd[1400];
 			snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf \"%s\"", fullpath);

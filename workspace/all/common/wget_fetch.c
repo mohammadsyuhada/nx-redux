@@ -9,8 +9,14 @@
 #include "defines.h"
 #include "api.h"
 
-// Path to wget binary in shared system bin
-#define WGET_BIN SHARED_BIN_PATH "/wget"
+// Path to wget binary in shared system bin. SHARED_BIN_PATH is a compile-time
+// literal on device builds but a runtime-resolved buffer on desktop
+// (HAS_RUNTIME_PATHS), so it can't be adjacent-string-literal-concatenated.
+static const char* wget_bin_path(void) {
+	static char path[MAX_PATH];
+	snprintf(path, sizeof(path), "%s/wget", SHARED_BIN_PATH);
+	return path;
+}
 
 // Escape a string for use inside single quotes in shell commands.
 // Caller must provide a buffer at least 4x the length of src.
@@ -46,9 +52,9 @@ int wget_fetch(const char* url, uint8_t* buffer, int buffer_size) {
 
 	char cmd[8192];
 	snprintf(cmd, sizeof(cmd),
-			 WGET_BIN " --no-check-certificate -q -T 15 -t 2"
-					  " -O '%s' '%s' 2>/dev/null",
-			 tmpfile, safe_url);
+			 "%s --no-check-certificate -q -T 15 -t 2"
+			 " -O '%s' '%s' 2>/dev/null",
+			 wget_bin_path(), tmpfile, safe_url);
 
 	int ret = system(cmd);
 
@@ -99,9 +105,9 @@ int wget_fetch_headers_noredirect(const char* url, char* buffer, int buffer_size
 	// not the exit code.
 	char cmd[8192];
 	snprintf(cmd, sizeof(cmd),
-			 WGET_BIN " --no-check-certificate -S --max-redirect=0 -T 15 -t 2"
-					  " -O /dev/null '%s' 2>'%s'",
-			 safe_url, tmpfile);
+			 "%s --no-check-certificate -S --max-redirect=0 -T 15 -t 2"
+			 " -O /dev/null '%s' 2>'%s'",
+			 wget_bin_path(), safe_url, tmpfile);
 
 	system(cmd);
 
@@ -163,9 +169,9 @@ int wget_download_file(const char* url, const char* filepath,
 
 	// Download with -S to capture response headers (Content-Length) via stderr
 	snprintf(cmd, sizeof(cmd),
-			 "(" WGET_BIN " --no-check-certificate -S -T 30 -t 2"
+			 "(%s --no-check-certificate -S -T 30 -t 2"
 			 " -O '%s' '%s' 2>'%s'; touch '%s') &",
-			 safe_filepath, safe_url, safe_headers_file, safe_done_marker);
+			 wget_bin_path(), safe_filepath, safe_url, safe_headers_file, safe_done_marker);
 	system(cmd);
 
 	// Step 2: Poll file size for progress with speed/stall tracking
