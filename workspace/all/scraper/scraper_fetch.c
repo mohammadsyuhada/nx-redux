@@ -39,8 +39,8 @@ int run_headless_fetch(int argc, char* argv[]) {
 
 	// Credentials (anonymous if the files are absent) — same source as the GUI.
 	char user[64] = "", pass[128] = "";
-	getFile((char*)CREDS_USER, user, sizeof(user));
-	getFile((char*)CREDS_PASS, pass, sizeof(pass));
+	getFile(creds_user_path(), user, sizeof(user));
+	getFile(creds_pass_path(), pass, sizeof(pass));
 	char* nl;
 	if ((nl = strchr(user, '\n')))
 		*nl = '\0';
