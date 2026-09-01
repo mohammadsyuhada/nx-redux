@@ -9,6 +9,8 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <assert.h>
+#include <pthread.h>
+#include <stdatomic.h>
 
 #include <msettings.h>
 
@@ -253,20 +255,41 @@ int PLAT_wifiScan(struct WIFI_network* networks, int max) {
 	}
 	return 5;
 }
-bool PLAT_wifiConnected() {
-	// Cached reachability probe — the menu bar polls this every frame, so an
-	// un-cached probe would open a socket per frame.
-	static uint32_t checked_at = 0;
-	static bool cached = false;
-	uint32_t now = SDL_GetTicks();
-	if (checked_at == 0 || now - checked_at > 3000) {
+// Background-refresh reachability state. The menu bar polls PLAT_wifiConnected()
+// every frame, so probing synchronously there would block the render thread for
+// up to the probe's timeout on every cache miss (a real periodic UI hitch while
+// offline, since a dropped SYN doesn't return quickly). Instead a single detached
+// thread refreshes this value every 3s in the background, and the poll just reads
+// the latest result -- instant, never blocks.
+static _Atomic int g_wifi_reachable = 0;
+static pthread_once_t g_wifi_probe_once = PTHREAD_ONCE_INIT;
+
+static void* wifi_probe_thread(void* arg) {
+	(void)arg;
+	for (;;) {
 		const char* host = getenv("NXREDUX_PROBE_HOST");
 		const char* ports = getenv("NXREDUX_PROBE_PORT");
-		cached = desktop_probe_reachable(host && *host ? host : "1.1.1.1",
-										 ports && *ports ? atoi(ports) : 53, 1000);
-		checked_at = now;
+		int reachable = desktop_probe_reachable(host && *host ? host : "1.1.1.1",
+												ports && *ports ? atoi(ports) : 53, 1000);
+		atomic_store(&g_wifi_reachable, reachable);
+		sleep(3);
 	}
-	return cached;
+	return NULL;
+}
+
+static void wifi_probe_start(void) {
+	pthread_t tid;
+	if (pthread_create(&tid, NULL, wifi_probe_thread, NULL) == 0) {
+		pthread_detach(tid);
+	}
+}
+
+bool PLAT_wifiConnected() {
+	// Ensure the background probe thread is running, then return its latest
+	// result. First ~3s after startup may read offline until the thread's
+	// first probe lands -- acceptable, bounded staleness.
+	pthread_once(&g_wifi_probe_once, wifi_probe_start);
+	return atomic_load(&g_wifi_reachable) != 0;
 }
 int PLAT_wifiConnection(struct WIFI_connection* connection_info) {
 	connection_info->freq = 2400;
