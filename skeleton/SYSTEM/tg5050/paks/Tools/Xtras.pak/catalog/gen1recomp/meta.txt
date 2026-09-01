@@ -1,5 +1,6 @@
 name=Gen1Recomp (Pokemon R/B/Y)
 category=GAME
+platforms=tg5040 tg5050
 runtime=native
 desc=Native LOVE2D recreation of Pokemon Red, Blue and Yellow. Bundles four mods (3D voxel overworld - off by default, enable it in-game - Stadium battle FX, Running Shoes, Wilds of Kanto) plus an in-game mod browser for more. Needs your own US cartridge ROM in Roms/Game Boy. Download ~27 MB.
 size_mb=60
