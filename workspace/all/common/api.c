@@ -3025,6 +3025,14 @@ FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 			if (gamecontroller && event.cdevice.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(gamecontroller))) {
 				SDL_GameControllerClose(gamecontroller);
 				gamecontroller = NULL;
+				// Release everything the now-gone controller was holding.
+				// pad.laxis/raxis are written ONLY by the controller axis path
+				// on desktop, so without this an off-center stick at unplug
+				// stays latched with no way to clear it; held buttons/dpad bits
+				// would likewise stick until a matching keyboard event.
+				pad.laxis.x = pad.laxis.y = 0;
+				pad.raxis.x = pad.raxis.y = 0;
+				PAD_reset();
 			}
 		}
 #endif

@@ -27,6 +27,9 @@ time, so all controller behavior below is UNVERIFIED on real hardware.
       stick; right face button confirms, bottom face backs out (Nintendo-position mapping).
 - [ ] Hot-plug: launch with no pad, connect one → it starts working without relaunch;
       disconnect → app stays alive, keyboard still works.
+- [ ] Disconnect while holding a direction/button or with a stick off-center →
+      no stuck input afterwards (CONTROLLERDEVICEREMOVED zeroes analog axes +
+      PAD_reset()).
 - [ ] In-game: face/d-pad/shoulders drive the emulated pad; keyboard still works at the
       same time (both input sources live).
 - [ ] Analog passthrough: a core that reads analog (e.g. an N64/PSX core if present on
