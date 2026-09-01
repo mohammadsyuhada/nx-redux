@@ -1,0 +1,46 @@
+diff --git a/Makefile.libretro b/Makefile.libretro
+index 578b10e..c931902 100644
+--- a/Makefile.libretro
++++ b/Makefile.libretro
+@@ -108,6 +108,27 @@ else ifeq ($(platform), osx)
+    endif
+    CFLAGS += -DUINT8=uint8_t -DUINT16=uint16_t -DUINT32=uint32_t -DINT8=int8_t -DINT16=int16_t -DINT32=int32_t
+ 
++# NxRedux desktop (macOS/Linux host build)
++else ifeq ($(platform), desktop)
++	EXT ?= so
++	TARGET := $(TARGET_NAME)_libretro.$(EXT)
++	fpic := -fPIC
++	SHARED := -shared
++	CC = $(CROSS_COMPILE)gcc
++	CXX = $(CROSS_COMPILE)g++
++	AR = $(CROSS_COMPILE)ar
++	CFLAGS += -DFAMEC_NO_GOTOS
++	# cyclone/drz80 are hand-written 32-bit ARM assembly CPU cores
++	# (cpu/DrZ80/drz80.S, cpu/cyclone's generated .S); neither an x86_64
++	# nor an arm64 (AArch64) host assembler accepts AArch32 opcodes.
++	# NO_ARM_ASM swaps them for the portable C cores (fame/cz80) -- the
++	# same knob this Makefile already defines for non-ARM hosts.
++	NO_ARM_ASM := 1
++	ifeq ($(shell uname -s), Darwin)
++		APPLE := 1
++		CFLAGS += -DUINT8=uint8_t -DUINT16=uint16_t -DUINT32=uint32_t -DINT8=int8_t -DINT16=int16_t -DINT32=int32_t
++	endif
++
+ else ifeq ($(platform), staticios)
+ 	TARGET := $(TARGET_NAME)_libretro_ios.a
+ 	APPLE := 1
+@@ -646,7 +667,12 @@ LDFLAGS += $(SHARED) $(fpic)
+ ifeq ($(ARCH),)
+ ARCH = $(shell $(CC) -dumpmachine | awk -F '-' '{print $$1}')
+ endif
+-PLATFORM = libretro
++# `override` because our build harness's own uppercase $(PLATFORM) (e.g.
++# "desktop") is command-line-origin and auto-propagates into this recursive
++# make invocation via MAKEFLAGS, which would otherwise silently defeat this
++# plain assignment and skip the "PLATFORM=libretro" OBJS block below (no
++# platform/libretro/libretro.o -> undefined lprintf/plat_mmap/etc at link).
++override PLATFORM := libretro
+ NO_CONFIG_MAK = yes
+ 
+ OBJOUT   = -o

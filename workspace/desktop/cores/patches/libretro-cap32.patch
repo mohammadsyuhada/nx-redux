@@ -1,0 +1,34 @@
+diff --git a/Makefile b/Makefile
+index 1aa1720..c1c1e15 100644
+--- a/Makefile
++++ b/Makefile
+@@ -48,6 +48,29 @@ ifneq (,$(findstring unix,$(platform)))
+ 	fpic := -fPIC
+ 	SHARED := -shared -Wl,-version-script=link.T -Wl,-no-undefined
+ 
++# NxRedux desktop (macOS/Linux host build)
++else ifeq ($(platform), desktop)
++	TARGET := $(TARGET_NAME)_libretro.so
++	CC = $(CROSS_COMPILE)gcc
++	CXX = $(CROSS_COMPILE)g++
++	AR = $(CROSS_COMPILE)ar
++	CC_AS = $(CC)
++	fpic := -fPIC
++	ifeq ($(shell uname -s), Darwin)
++		# macOS ld rejects GNU --version-script; plain -shared yields a
++		# dlopen-able Mach-O .so.
++		SHARED := -shared
++		# Apple clang always predefines TARGET_OS_MAC=1, which trips the
++		# vendored zlib's ancient classic-MacOS CodeWarrior block
++		# (`#define fdopen(fd,mode) NULL`) and corrupts the real fdopen()
++		# prototype pulled in from <stdio.h>. Undefine it so that block
++		# never triggers (see vice's desktop patch for the same issue).
++		CFLAGS += -UTARGET_OS_MAC
++		CXXFLAGS += -UTARGET_OS_MAC
++	else
++		SHARED := -shared -Wl,-version-script=link.T -Wl,-no-undefined
++	endif
++
+ else ifneq (,$(findstring linux-portable,$(platform)))
+ 	TARGET := $(TARGET_NAME)_libretro.so
+ 	fpic := -fPIC -nostdlib

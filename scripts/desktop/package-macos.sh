@@ -23,8 +23,13 @@ cp "$ROOT/workspace/all/nextui/build/desktop/nextui.elf" "$SYS/bin/"
 cp "$ROOT/workspace/all/minarch/build/desktop/minarch.elf" "$SYS/bin/"
 install -m 0755 "$ROOT/scripts/desktop/check-update.sh" "$SYS/bin/"
 install -m 0755 "$ROOT/scripts/desktop/self-update.sh" "$SYS/bin/"
-for c in gambatte mgba; do
-	cp "$ROOT/workspace/desktop/cores/output/${c}_libretro.so" "$SYS/cores/"
+# Copy every built core. Glob (not a fixed list) so odd output names —
+# vice_x64_libretro.so, stella2014_libretro.so, puae2021_libretro.so — come
+# along automatically; the desktop cores Makefile's CORES list is what the
+# build step just produced in output/. Each Emus/<TAG>.pak/launch.sh loads its
+# core from $CORES_PATH by name.
+for so in "$ROOT/workspace/desktop/cores/output/"*_libretro.so; do
+	[ -f "$so" ] && cp "$so" "$SYS/cores/"
 done
 
 # Tools paks: each pak's launch.sh cd's into its own dir and runs

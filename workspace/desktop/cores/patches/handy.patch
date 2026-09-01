@@ -1,0 +1,26 @@
+diff --git a/Makefile b/Makefile
+index 088c344..bfdb2f0 100644
+--- a/Makefile
++++ b/Makefile
+@@ -81,6 +81,21 @@ endif
+ 		LDFLAGS += $(TARGET_RULE)
+ 	endif
+ 	fpic += $(MINVERSION)
++
++# NxRedux desktop (macOS/Linux host build)
++else ifeq ($(platform), desktop)
++	TARGET := $(TARGET_NAME)_libretro.so
++	CC = $(CROSS_COMPILE)gcc
++	CXX = $(CROSS_COMPILE)g++
++	AR = $(CROSS_COMPILE)ar
++	fpic := -fPIC
++	FRONTEND_SUPPORTS_XRGB8888 = 1
++	ifeq ($(shell uname -s), Darwin)
++		SHARED := -shared
++	else
++		SHARED := -shared -Wl,-version-script=$(LIBRETRO_DIR)/link.T -Wl,-no-undefined
++	endif
++
+ # iOS
+ else ifneq (,$(findstring ios,$(platform)))
+ 

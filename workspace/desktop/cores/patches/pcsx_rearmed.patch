@@ -1,0 +1,33 @@
+diff --git a/Makefile.libretro b/Makefile.libretro
+index 97813da..29da82a 100644
+--- a/Makefile.libretro
++++ b/Makefile.libretro
+@@ -160,6 +160,28 @@ ifeq ($(shell uname),Linux)
+ 	LIGHTREC_CUSTOM_MAP := 1
+ endif
+ 
++# NxRedux desktop (macOS/Linux host build)
++else ifeq ($(platform), desktop)
++	TARGET := $(TARGET_NAME)_libretro.so
++	fpic := -fPIC
++	# The top-level `make PLATFORM=desktop` leaks PLATFORM=desktop as a
++	# command-line override into this sub-make, clobbering the `PLATFORM =
++	# libretro` set later in this file and breaking the main Makefile's
++	# libretro frontend selection (frontend/libretro.o). Force it back.
++	override PLATFORM := libretro
++	ifeq ($(shell uname -s), Darwin)
++		# macOS: the ARM new_dynarec (ari64) does not assemble under the
++		# Mach-O assembler, so force the interpreter. Apple ld is not GNU, so
++		# the version-script/-no-undefined path is skipped and plain -shared
++		# yields a dlopen-able Mach-O .so (mirrors the osx branch).
++		DYNAREC := 0
++		HAVE_PHYSICAL_CDROM = 0
++		FSECTIONS_LDFLAGS = -Wl,-dead_strip
++		GNU_LINKER = 0
++	else ifeq ($(shell uname),Linux)
++		LIGHTREC_CUSTOM_MAP := 1
++	endif
++
+ # ODROIDN2
+ else ifneq (,$(findstring CortexA73_G12B,$(platform)))
+ 	TARGET := $(TARGET_NAME)_libretro.so

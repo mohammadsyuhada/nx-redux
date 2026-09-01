@@ -1,0 +1,33 @@
+diff --git a/Makefile.libretro b/Makefile.libretro
+index 6f412c7..eb8a351 100644
+--- a/Makefile.libretro
++++ b/Makefile.libretro
+@@ -66,6 +66,28 @@ ifneq (,$(findstring unix,$(platform)))
+ 	fpic := -fPIC
+ 	SHARED := -shared -Wl,-version-script=link.T -Wl,-no-undefined
+ 
++# NxRedux desktop (macOS/Linux host build)
++else ifeq ($(platform), desktop)
++	TARGET := $(TARGET_NAME)_libretro.so
++	fpic := -fPIC
++	ifeq ($(shell uname -s), Darwin)
++		# macOS ld rejects GNU -version-script; plain -shared yields a
++		# dlopen-able Mach-O .so.
++		SHARED := -shared
++		# Modern Apple clang promotes several legacy-C diagnostics to hard
++		# errors that blueMSX's old K&R-style callback casts trip; the build's
++		# -w cannot silence promoted errors, so demote them here.
++		CFLAGS += -Wno-incompatible-function-pointer-types -Wno-error=incompatible-pointer-types -Wno-error=implicit-function-declaration -Wno-error=int-conversion
++		CXXFLAGS += -Wno-incompatible-function-pointer-types
++		# The vendored deps/zlib/zutil.h takes its ancient classic-Mac OS
++		# branch because modern macOS defines TARGET_OS_MAC, redefining
++		# fdopen() to NULL and colliding with the SDK prototype. Pre-defining
++		# fdopen as an identity macro skips that redefinition harmlessly.
++		CFLAGS += -Dfdopen=fdopen
++	else
++		SHARED := -shared -Wl,-version-script=link.T -Wl,-no-undefined
++	endif
++
+ # Raspberry Pi
+ else ifeq ($(platform), rpi1)
+ 	TARGET := $(TARGET_NAME)_libretro.so

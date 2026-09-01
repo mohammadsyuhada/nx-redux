@@ -1,0 +1,27 @@
+diff --git a/Makefile.libretro b/Makefile.libretro
+index 5b90d40..cc092e3 100644
+--- a/Makefile.libretro
++++ b/Makefile.libretro
+@@ -105,6 +105,22 @@ else ifeq ($(platform), osx)
+ 		LDFLAGS += $(ARCHFLAGS)
+ 	endif
+ 
++# NxRedux desktop (macOS/Linux host build)
++else ifeq ($(platform), desktop)
++	TARGET := $(TARGET_NAME)_libretro.so
++	CC = $(CROSS_COMPILE)gcc
++	CXX = $(CROSS_COMPILE)g++
++	AR = $(CROSS_COMPILE)ar
++	fpic := -fPIC
++	WANT_32BPP := 1
++	ifeq ($(shell uname -s), Darwin)
++		# macOS ld rejects GNU --version-script; plain -shared yields a
++		# dlopen-able Mach-O .so.
++		SHARED := -shared
++	else
++		SHARED := -shared -Wl,--version-script=src/drivers/libretro/link.T -Wl,-no-undefined
++	endif
++
+ # iOS
+ else ifneq (,$(findstring ios,$(platform)))
+ 

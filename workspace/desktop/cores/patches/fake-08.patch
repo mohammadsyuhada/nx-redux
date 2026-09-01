@@ -1,0 +1,23 @@
+diff --git a/platform/libretro/Makefile b/platform/libretro/Makefile
+index 1033395..499216a 100644
+--- a/platform/libretro/Makefile
++++ b/platform/libretro/Makefile
+@@ -73,6 +73,18 @@ ifeq ($(platform), unix)
+    TARGET := $(TARGET_NAME)_libretro.$(EXT)
+    fpic := -fPIC
+    SHARED := -shared -Wl,--version-script=link.T -Wl,--no-undefined
++# NxRedux desktop (macOS/Linux host build)
++else ifeq ($(platform), desktop)
++   EXT ?= so
++   TARGET := $(TARGET_NAME)_libretro.$(EXT)
++   fpic := -fPIC
++   ifeq ($(shell uname -s), Darwin)
++      # macOS ld rejects GNU --version-script; plain -shared yields a
++      # dlopen-able Mach-O .so (clang links libc++ automatically).
++      SHARED := -shared
++   else
++      SHARED := -shared -Wl,--version-script=link.T -Wl,--no-undefined
++   endif
+ else ifeq ($(platform), linux-portable)
+    TARGET := $(TARGET_NAME)_libretro.$(EXT)
+    fpic := -fPIC -nostdlib

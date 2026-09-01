@@ -119,8 +119,13 @@ package-macos: # macOS desktop bundle (arm64, unsigned); needs brew deps + gmake
 	for t in settings emu-options ratools scraper sync extras gametime gametimectl; do \
 		(cd workspace/all/$$t && $(MAKE) PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin) || exit 1; \
 	done
-	cd workspace/desktop/cores && gmake clean-gambatte clean-mgba PLATFORM=desktop 2>/dev/null || true
-	cd workspace/desktop/cores && gmake gambatte mgba PLATFORM=desktop
+	# Build every core in the desktop cores Makefile's CORES list. Incremental:
+	# make skips a core whose output/<name>_libretro.so is already up to date, so
+	# repeat packages are fast. Caveat: if you interleave `make package-linux`
+	# (docker, x86) without letting package-appimage.sh's stash/restore finish,
+	# output/ can hold wrong-arch .so that this step would treat as up to date —
+	# run `gmake -C workspace/desktop/cores nuke` to force a clean rebuild.
+	cd workspace/desktop/cores && gmake cores PLATFORM=desktop
 	TAG=$(BUILD_TAG) ./scripts/desktop/package-macos.sh
 
 package-linux: # Linux AppImage (x86_64) via in-repo docker compose env

@@ -1,0 +1,32 @@
+diff --git a/libretro/Makefile b/libretro/Makefile
+index 466fa6b..df1072f 100644
+--- a/libretro/Makefile
++++ b/libretro/Makefile
+@@ -130,6 +130,27 @@ else ifeq ($(platform), osx)
+ 
+    fpic += $(MINVERSION)
+ 
++# NxRedux desktop (macOS/Linux host build)
++else ifeq ($(platform), desktop)
++	TARGET := $(TARGET_NAME)_libretro.so
++	CC = $(CROSS_COMPILE)gcc
++	CXX = $(CROSS_COMPILE)g++
++	AR = $(CROSS_COMPILE)ar
++	fpic := -fPIC
++	CXXFLAGS += -std=c++14
++	ifeq ($(shell uname -s), Darwin)
++		# macOS ld rejects GNU --version-script; plain -shared yields a
++		# dlopen-able Mach-O .so. Like the `osx` branch above (and unlike
++		# `unix`), skip UNZIP_SUPPORT: Makefile.common only adds unzip/ to
++		# the include path (and compiles unzip.c) when "unix" or "win"
++		# appear in $(platform), which "desktop" doesn't match, so
++		# UNZIP_SUPPORT would reference a header never added to the build.
++		SHARED := -shared
++	else
++		LIBS += -lz
++		SHARED := -shared -Wl,--version-script=link.T -Wl,-z,defs
++	endif
++
+ # CTR (3DS)
+ else ifeq ($(platform), ctr)
+ 	EXT=a

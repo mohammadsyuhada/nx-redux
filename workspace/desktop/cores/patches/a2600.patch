@@ -1,0 +1,24 @@
+diff --git a/Makefile b/Makefile
+index a22eb5d..1947e25 100644
+--- a/Makefile
++++ b/Makefile
+@@ -83,6 +83,19 @@ endif
+ 	        fpic     += -mmacosx-version-min=10.7
+    endif
+ 
++# NxRedux desktop (macOS/Linux host build)
++else ifeq ($(platform), desktop)
++	TARGET := $(TARGET_NAME)_libretro.so
++	CC = $(CROSS_COMPILE)gcc
++	CXX = $(CROSS_COMPILE)g++
++	AR = $(CROSS_COMPILE)ar
++	fpic := -fPIC
++	ifeq ($(shell uname -s), Darwin)
++		SHARED := -shared
++	else
++		SHARED := -shared -Wl,--no-undefined -Wl,--version-script=link.T
++	endif
++
+ # iOS
+ else ifneq (,$(findstring ios,$(platform)))
+    TARGET := $(TARGET_NAME)_libretro_ios.dylib

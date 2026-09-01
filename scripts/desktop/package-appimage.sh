@@ -39,9 +39,9 @@ MACOS_STASH="$ROOT/workspace/desktop/cores/.output-macos-stash"
 # an already-packaged build/desktop-macos/NXRedux.app instead). Idempotent
 # by construction: only ever moves a *currently-Mach-O* output/ file here.
 mkdir -p "$MACOS_STASH"
-for c in gambatte mgba; do
-	f="$CORES_OUT/${c}_libretro.so"
-	if [ -f "$f" ] && file "$f" | grep -q 'Mach-O'; then
+for f in "$CORES_OUT"/*_libretro.so; do
+	[ -f "$f" ] || continue
+	if file "$f" | grep -q 'Mach-O'; then
 		mv "$f" "$MACOS_STASH/"
 	fi
 done
@@ -84,8 +84,11 @@ done
 # fails at link time ("file not recognized: file format not recognized").
 # `make clean-<core>` runs the core's own clean target without touching
 # the clone itself, forcing a fresh Linux compile.
-make -C workspace/desktop/cores clean-gambatte clean-mgba PLATFORM=desktop
-make -C workspace/desktop/cores gambatte mgba PLATFORM=desktop
+# Build the full CORES set (same set as package-macos.sh). `clean` first: the
+# shared src/ trees may hold macOS (Mach-O) .o from a prior `make package-macos`
+# that a Linux `make` would treat as up to date and hard-link into a broken .so.
+make -C workspace/desktop/cores clean PLATFORM=desktop
+make -C workspace/desktop/cores cores PLATFORM=desktop
 
 # 2. AppDir
 STAGE="$ROOT/build/desktop-linux"; APPDIR="$STAGE/AppDir"
@@ -102,7 +105,9 @@ cp workspace/all/nextui/build/desktop/nextui.elf   "$APPDIR/usr/system/bin/"
 cp workspace/all/minarch/build/desktop/minarch.elf "$APPDIR/usr/system/bin/"
 install -m 0755 scripts/desktop/check-update.sh "$APPDIR/usr/system/bin/"
 install -m 0755 scripts/desktop/self-update.sh "$APPDIR/usr/system/bin/"
-for c in gambatte mgba; do cp "workspace/desktop/cores/output/${c}_libretro.so" "$APPDIR/usr/system/cores/"; done
+# glob (not a fixed list) so odd output names — vice_x64_libretro.so,
+# stella2014_libretro.so, puae2021_libretro.so — come along automatically.
+for so in workspace/desktop/cores/output/*_libretro.so; do cp "$so" "$APPDIR/usr/system/cores/"; done
 
 # Tools paks: each pak's launch.sh cd's into its own dir and runs
 # ./<binary>.elf (matches device layout, skeleton/SYSTEM/*/paks/Tools/*), so
@@ -156,9 +161,7 @@ cp workspace/all/libgametimedb/build/desktop/libgametimedb.so "$APPDIR/usr/lib/"
 # .so files this AppImage needs are already staged in the AppDir; output/
 # itself goes back to whatever it held before this script ran (untouched
 # if it was empty, i.e. no prior macOS build).
-for c in gambatte mgba; do
-	rm -f "$CORES_OUT/${c}_libretro.so"
-done
+rm -f "$CORES_OUT"/*_libretro.so
 mv "$MACOS_STASH"/*.so "$CORES_OUT/" 2>/dev/null || true
 rm -rf "$MACOS_STASH"
 

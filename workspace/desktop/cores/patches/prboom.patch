@@ -1,0 +1,35 @@
+diff --git a/Makefile b/Makefile
+index 27af27b..9cadfad 100644
+--- a/Makefile
++++ b/Makefile
+@@ -100,6 +100,30 @@ endif
+ 	LDFLAGS  += $(TARGET_RULE)
+    endif
+ 
++# NxRedux desktop (macOS/Linux host build)
++else ifeq ($(platform), desktop)
++	EXT    ?= so
++	TARGET := $(TARGET_NAME)_libretro.$(EXT)
++	CC = $(CROSS_COMPILE)gcc
++	CXX = $(CROSS_COMPILE)g++
++	AR = $(CROSS_COMPILE)ar
++	fpic := -fPIC
++	ifeq ($(shell uname -s), Darwin)
++		# macOS ld rejects GNU --version-script; plain -shared yields a
++		# dlopen-able Mach-O .so. Unlike unix/Linux, skip -std=c99 and
++		# -D_POSIX_C_SOURCE: on Darwin's headers that combination hides
++		# the BSD strlcpy() (and, via strict-ANSI interactions, even
++		# vsnprintf()) declarations that libretro/libretro.c calls,
++		# producing "call to undeclared function" errors. The real `osx`
++		# branch above doesn't set either flag either.
++		SHARED := -shared
++		LDFLAGS += -framework CoreFoundation
++	else
++		CFLAGS += -std=c99
++		CFLAGS += -D_POSIX_C_SOURCE=199309L
++		SHARED := -shared -Wl,--version-script=libretro/link.T -Wl,--no-undefined -Wl,--as-needed
++	endif
++
+ # iOS
+ else ifneq (,$(findstring ios,$(platform)))
+ 	EXT    ?= dylib
