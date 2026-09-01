@@ -6,7 +6,6 @@ CONTENTS="$(cd "$(dirname "$0")/.." && pwd)"
 entry_resolve_roots "$CONTENTS/Resources/system" "$CONTENTS/Resources/base-skeleton"
 entry_seed_card
 entry_export_env
-entry_start_daemons
 export NXREDUX_BUNDLE="$(dirname "$CONTENTS")" # the .app path, for OTA self-swap
 
 # nextui.elf never execs a pak in place: opening a ROM/tool writes a shell

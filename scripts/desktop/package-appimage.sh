@@ -63,6 +63,17 @@ make -C workspace/desktop/libmsettings build CROSS_COMPILE=/usr/bin/ PREFIX=/usr
 make -C workspace/all/nextui PLATFORM=desktop CROSS_COMPILE=/usr/bin/ PREFIX=/usr PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Linux BUILD_TAG="$TAG"
 make -C workspace/all/minarch PLATFORM=desktop CROSS_COMPILE=/usr/bin/ PREFIX=/usr PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Linux
 
+# The 7 Tools paks' binaries (+ gametimectl's daemon). Same recipe as
+# nextui/minarch above; ratools pulls in minarch's already-built libchdr/
+# rcheevos via its own Makefile's $(PREFIX_LOCAL) deps, and gametime/
+# gametimectl's libgametimedb.h dep triggers a `cd ../libgametimedb && make`
+# that inherits PLATFORM/CROSS_COMPILE/PREFIX/PREFIX_LOCAL/UNAME_S via
+# MAKEFLAGS (GNU make re-parses command-line var assignments from MAKEFLAGS
+# in any child `make`, not just ones invoked through $(MAKE)).
+for t in settings emu-options ratools scraper sync extras gametime gametimectl; do
+	make -C "workspace/all/$t" PLATFORM=desktop CROSS_COMPILE=/usr/bin/ PREFIX=/usr PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Linux
+done
+
 # Core src/ dirs (workspace/desktop/cores/src/<core>) are shared with the
 # macOS build the same way output/ is: cloned once, reused by both OSes
 # (see the output/ collision guard above). Reuse of the *clone* is fine
@@ -89,6 +100,24 @@ cp workspace/all/minarch/build/desktop/minarch.elf "$APPDIR/usr/system/bin/"
 install -m 0755 scripts/desktop/check-update.sh "$APPDIR/usr/system/bin/"
 install -m 0755 scripts/desktop/self-update.sh "$APPDIR/usr/system/bin/"
 for c in gambatte mgba; do cp "workspace/desktop/cores/output/${c}_libretro.so" "$APPDIR/usr/system/cores/"; done
+
+# Tools paks: each pak's launch.sh cd's into its own dir and runs
+# ./<binary>.elf (matches device layout, skeleton/SYSTEM/*/paks/Tools/*), so
+# every tool binary lives pak-local, not in usr/system/bin. gametimectl.elf
+# is the one exception: it's a stateless per-invocation CLI (list/start/
+# resume/stop/stop_all against the play-time DB, no daemon/serve mode) that
+# nextui.c/launcher.c invoke bare via PATH at ROM start/stop, matching
+# device behavior exactly — so it needs to resolve off usr/system/bin
+# (already on PATH, entry_export_env). A copy goes to both places.
+cp workspace/all/settings/build/desktop/settings.elf       "$APPDIR/usr/system/paks/Tools/Settings.pak/"
+cp workspace/all/emu-options/build/desktop/options.elf     "$APPDIR/usr/system/paks/Tools/Emulator Settings.pak/"
+cp workspace/all/ratools/build/desktop/ratools.elf         "$APPDIR/usr/system/paks/Tools/RetroAchievements.pak/"
+cp workspace/all/scraper/build/desktop/scraper.elf         "$APPDIR/usr/system/paks/Tools/Artwork Manager.pak/"
+cp workspace/all/sync/build/desktop/sync.elf               "$APPDIR/usr/system/paks/Tools/Device Sync.pak/"
+cp workspace/all/extras/build/desktop/extras.elf           "$APPDIR/usr/system/paks/Tools/Xtras.pak/"
+cp workspace/all/gametime/build/desktop/gametime.elf       "$APPDIR/usr/system/paks/Tools/Game Tracker.pak/"
+cp workspace/all/gametimectl/build/desktop/gametimectl.elf "$APPDIR/usr/system/paks/Tools/Game Tracker.pak/"
+cp workspace/all/gametimectl/build/desktop/gametimectl.elf "$APPDIR/usr/system/bin/"
 cp scripts/desktop/entry-common.sh "$APPDIR/usr/"
 install -m 0755 scripts/desktop/AppRun.sh "$APPDIR/AppRun"
 cp scripts/desktop/nxredux.desktop "$APPDIR/"
@@ -96,24 +125,28 @@ convert skeleton/SYSTEM/res/logo.png -resize 256x256 "$APPDIR/nxredux.png"
 
 # 3. shared-lib closure (transparent ldd sweep; glibc family excluded)
 EXCL='ld-linux|libc\.so|libm\.so|libpthread|libdl\.so|librt\.so|libresolv|libnsl'
-for bin in "$APPDIR"/usr/system/bin/*.elf "$APPDIR"/usr/system/cores/*.so; do
+for bin in "$APPDIR"/usr/system/bin/*.elf "$APPDIR"/usr/system/cores/*.so "$APPDIR"/usr/system/paks/Tools/*/*.elf; do
 	ldd "$bin" 2>/dev/null | awk '/=> \//{print $3}' | grep -Ev "$EXCL" | while read -r lib; do
 		cp -n "$lib" "$APPDIR/usr/lib/" || true
 	done
 done
 
-# libmsettings.so and libchdr.so.0 are our own in-tree libs, linked with a
-# bare (path-less) name and no ldconfig/system entry, so a plain `ldd` on
-# the just-built elfs reports them as "not found" (it can only resolve
-# what the *current* environment's linker would find; usr/lib doesn't
-# exist as a search path until this script populates it). The awk filter
-# above only matches resolved ("=> /...") lines, so these two are silently
-# skipped by the sweep — copy them in explicitly. libchdr's built filename
-# (libchdr.so) doesn't match the SONAME minarch actually links against
-# (libchdr.so.0, confirmed via readelf -d); install it under that name so
-# the AppRun-set LD_LIBRARY_PATH resolves it like every other bundled lib.
+# libmsettings.so, libchdr.so.0, and libgametimedb.so are our own in-tree
+# libs, linked with a bare (path-less) name and no ldconfig/system entry, so
+# a plain `ldd` on the just-built elfs reports them as "not found" (it can
+# only resolve what the *current* environment's linker would find; usr/lib
+# doesn't exist as a search path until this script populates it). The awk
+# filter above only matches resolved ("=> /...") lines, so these are
+# silently skipped by the sweep — copy them in explicitly. libchdr's built
+# filename (libchdr.so) doesn't match the SONAME minarch actually links
+# against (libchdr.so.0, confirmed via readelf -d); install it under that
+# name so the AppRun-set LD_LIBRARY_PATH resolves it like every other
+# bundled lib. libgametimedb.so (gametime.elf/gametimectl.elf) has no such
+# SONAME mismatch (readelf -d confirms the DT_NEEDED entry is the plain
+# built filename), so it needs no rename.
 cp workspace/desktop/libmsettings/libmsettings.so "$APPDIR/usr/lib/"
 cp workspace/all/minarch/libchdr/build/desktop/libchdr.so "$APPDIR/usr/lib/libchdr.so.0"
+cp workspace/all/libgametimedb/build/desktop/libgametimedb.so "$APPDIR/usr/lib/"
 
 # 4. restore macOS core artifacts (see output/ collision guard above) so the
 # working tree stays coherent for a later `make package-macos`. The Linux

@@ -27,6 +27,35 @@ for c in gambatte mgba; do
 	cp "$ROOT/workspace/desktop/cores/output/${c}_libretro.so" "$SYS/cores/"
 done
 
+# Tools paks: each pak's launch.sh cd's into its own dir and runs
+# ./<binary>.elf (matches device layout, skeleton/SYSTEM/*/paks/Tools/*), so
+# every tool binary lives pak-local, not in $SYS/bin. gametimectl.elf is the
+# one exception: it's a stateless per-invocation CLI (list/start/resume/
+# stop/stop_all against the play-time DB, no daemon/serve mode — confirmed
+# via gametimectl.c's main(): argc<=1 just prints usage and exits 0) that
+# nextui.c/launcher.c invoke bare via PATH at ROM start/stop (eg.
+# system("gametimectl.elf stop_all &")), matching device behavior exactly —
+# so it needs to resolve off $SYS/bin (already on PATH, entry_export_env),
+# same as on device. A copy goes to both places.
+SETTINGS_ELF="$SYS/paks/Tools/Settings.pak/settings.elf"
+OPTIONS_ELF="$SYS/paks/Tools/Emulator Settings.pak/options.elf"
+RATOOLS_ELF="$SYS/paks/Tools/RetroAchievements.pak/ratools.elf"
+SCRAPER_ELF="$SYS/paks/Tools/Artwork Manager.pak/scraper.elf"
+SYNC_ELF="$SYS/paks/Tools/Device Sync.pak/sync.elf"
+EXTRAS_ELF="$SYS/paks/Tools/Xtras.pak/extras.elf"
+GAMETIME_ELF="$SYS/paks/Tools/Game Tracker.pak/gametime.elf"
+GAMETIMECTL_PAK_ELF="$SYS/paks/Tools/Game Tracker.pak/gametimectl.elf"
+GAMETIMECTL_BIN_ELF="$SYS/bin/gametimectl.elf"
+cp "$ROOT/workspace/all/settings/build/desktop/settings.elf" "$SETTINGS_ELF"
+cp "$ROOT/workspace/all/emu-options/build/desktop/options.elf" "$OPTIONS_ELF"
+cp "$ROOT/workspace/all/ratools/build/desktop/ratools.elf" "$RATOOLS_ELF"
+cp "$ROOT/workspace/all/scraper/build/desktop/scraper.elf" "$SCRAPER_ELF"
+cp "$ROOT/workspace/all/sync/build/desktop/sync.elf" "$SYNC_ELF"
+cp "$ROOT/workspace/all/extras/build/desktop/extras.elf" "$EXTRAS_ELF"
+cp "$ROOT/workspace/all/gametime/build/desktop/gametime.elf" "$GAMETIME_ELF"
+cp "$ROOT/workspace/all/gametimectl/build/desktop/gametimectl.elf" "$GAMETIMECTL_PAK_ELF"
+cp "$ROOT/workspace/all/gametimectl/build/desktop/gametimectl.elf" "$GAMETIMECTL_BIN_ELF"
+
 # libmsettings.so is linked in with a bare (path-less) install name — dylibbundler
 # can locate it via -s but chokes rewriting its rpath, so give the reference an
 # absolute path before bundling. Work on a disposable copy, not the build
@@ -35,8 +64,23 @@ done
 mkdir -p "$STAGE/tmp"
 LIBMSETTINGS="$STAGE/tmp/libmsettings.so"
 cp "$ROOT/workspace/desktop/libmsettings/libmsettings.so" "$LIBMSETTINGS"
-for exe in "$SYS/bin/nextui.elf" "$SYS/bin/minarch.elf"; do
+for exe in "$SYS/bin/nextui.elf" "$SYS/bin/minarch.elf" \
+	"$SETTINGS_ELF" "$OPTIONS_ELF" "$RATOOLS_ELF" "$SCRAPER_ELF" "$SYNC_ELF" "$EXTRAS_ELF" \
+	"$GAMETIME_ELF" "$GAMETIMECTL_PAK_ELF" "$GAMETIMECTL_BIN_ELF"; do
 	install_name_tool -change libmsettings.so "$LIBMSETTINGS" "$exe"
+done
+
+# gametime.elf/gametimectl.elf also link libgametimedb.so, with an even
+# odder install name than libmsettings.so's bare one: the *relative build
+# path* used at link time ("build/desktop/libgametimedb.so" — see
+# workspace/all/libgametimedb/Makefile's PRODUCT, no -install_name passed).
+# Same dylibbundler failure mode (it locates the file fine via -s by
+# basename, then chokes trying to otool -L the literal unresolved path
+# string when it recurses into that dependency's own rpaths) — same fix.
+LIBGAMETIMEDB="$STAGE/tmp/libgametimedb.so"
+cp "$ROOT/workspace/all/libgametimedb/build/desktop/libgametimedb.so" "$LIBGAMETIMEDB"
+for exe in "$GAMETIME_ELF" "$GAMETIMECTL_PAK_ELF" "$GAMETIMECTL_BIN_ELF"; do
+	install_name_tool -change build/desktop/libgametimedb.so "$LIBGAMETIMEDB" "$exe"
 done
 
 # gcc auto-embeds several LC_RPATH entries (its own toolchain lib dirs, plus a
@@ -45,8 +89,10 @@ done
 # each to the same bundled path below, producing duplicate LC_RPATH commands
 # dyld refuses to load ("duplicate LC_RPATH ... in <binary>"). Strip them
 # first; dylibbundler adds back exactly one bundled rpath for whichever
-# binary actually needs it (minarch, for @rpath/libchdr.0.so).
-for bin in "$SYS/bin/nextui.elf" "$SYS/bin/minarch.elf" "$LIBMSETTINGS"; do
+# binary actually needs it (minarch/ratools, for @rpath/libchdr.0.so).
+for bin in "$SYS/bin/nextui.elf" "$SYS/bin/minarch.elf" "$LIBMSETTINGS" \
+	"$SETTINGS_ELF" "$OPTIONS_ELF" "$RATOOLS_ELF" "$SCRAPER_ELF" "$SYNC_ELF" "$EXTRAS_ELF" \
+	"$GAMETIME_ELF" "$GAMETIMECTL_PAK_ELF" "$GAMETIMECTL_BIN_ELF" "$LIBGAMETIMEDB"; do
 	otool -l "$bin" | awk '
 		/LC_RPATH/ { f=1; next }
 		f && /path/ { sub(/^ *path /, ""); sub(/ \(offset.*/, ""); print; f=0 }
@@ -72,9 +118,35 @@ done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/icon.icns"
 
 # bundle dylib closure; bin/ is 3 levels below Contents/
-for exe in "$SYS/bin/nextui.elf" "$SYS/bin/minarch.elf"; do
+for exe in "$SYS/bin/nextui.elf" "$SYS/bin/minarch.elf" "$GAMETIMECTL_BIN_ELF"; do
 	dylibbundler -of -cd -b -x "$exe" \
 		-d "$APP/Contents/Frameworks" -p '@executable_path/../../../Frameworks/' \
+		-s /opt/homebrew/lib -s /var/tmp/nxredux/lib \
+		-s "$STAGE/tmp"
+done
+
+# Tools paks get their OWN Frameworks pool, sibling to the *.pak dirs
+# (paks/Tools/Frameworks/) — NOT a second -p depth into Contents/Frameworks.
+# dylibbundler bakes -p's prefix into a bundled library's *own* internal
+# references too (eg. libSDL2_ttf's ref to libfreetween), not just the exe
+# being fixed, and @executable_path always resolves against the process's
+# *main* executable regardless of which file is doing the referencing. A
+# first pass shared Contents/Frameworks between bin/ (3 levels, processed
+# first) and pak dirs (5 levels, processed after with -of overwriting the
+# same files): nextui.elf's own load commands stayed correct, but the
+# shared libSDL2_ttf-2.0.0.dylib's *internal* freetype reference got
+# overwritten to the 5-level prefix, so nextui.elf aborted at launch
+# (dyld: "Library not loaded: @executable_path/../../../../../Frameworks/
+# libfreetype...", 5 dots resolved from bin/'s 3-level base = outside the
+# app entirely). A separate pool sidesteps the sharing conflict rather than
+# fighting dylibbundler's single global -p. paks/Tools/Frameworks/ isn't
+# named *.pak, so nextui's Tools listing (content.c: suffixMatch(".pak", ...))
+# skips over it like any other non-pak entry.
+PAK_FRAMEWORKS="$SYS/paks/Tools/Frameworks"
+for exe in "$SETTINGS_ELF" "$OPTIONS_ELF" "$RATOOLS_ELF" "$SCRAPER_ELF" "$SYNC_ELF" "$EXTRAS_ELF" \
+	"$GAMETIME_ELF" "$GAMETIMECTL_PAK_ELF"; do
+	dylibbundler -of -cd -b -x "$exe" \
+		-d "$PAK_FRAMEWORKS" -p '@executable_path/../Frameworks/' \
 		-s /opt/homebrew/lib -s /var/tmp/nxredux/lib \
 		-s "$STAGE/tmp"
 done
@@ -87,10 +159,14 @@ done
 # only system frameworks, so a plain copy into Frameworks/ — the shim's
 # @loader_path — is a complete fix. Keep its valid signature; re-sign ad-hoc as
 # a backstop so an arm64 sig check can never reject it.
+# Two Frameworks pools (bin/'s and the Tools paks' — see above), so the
+# shim needs a libSDL3.dylib next to *each* bundled libSDL2-2.0.0.dylib.
 SDL3_SRC="$(brew --prefix sdl3 2>/dev/null)/lib/libSDL3.0.dylib"
 [ -f "$SDL3_SRC" ] || { echo "error: SDL3 not found ($SDL3_SRC); run: brew install sdl3" >&2; exit 1; }
-cp "$SDL3_SRC" "$APP/Contents/Frameworks/libSDL3.dylib"
-codesign --force --sign - "$APP/Contents/Frameworks/libSDL3.dylib" 2>/dev/null || true
+for fw in "$APP/Contents/Frameworks" "$PAK_FRAMEWORKS"; do
+	cp "$SDL3_SRC" "$fw/libSDL3.dylib"
+	codesign --force --sign - "$fw/libSDL3.dylib" 2>/dev/null || true
+done
 
 mkdir -p "$ROOT/releases"
 OUT="$ROOT/releases/NXRedux-$TAG-macos-arm64.zip"

@@ -49,7 +49,7 @@ void PLAT_quitInput(void) {
 ///////////////////////////////
 
 void PLAT_getNetworkStatus(int* is_online) {
-	*is_online = 0;
+	*is_online = PLAT_wifiConnected();
 }
 
 void PLAT_getBatteryStatus(int* is_charging, int* charge) {

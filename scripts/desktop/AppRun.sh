@@ -6,7 +6,6 @@ APPDIR="${APPDIR:-$(cd "$(dirname "$0")" && pwd)}"
 entry_resolve_roots "$APPDIR/usr/system" "$APPDIR/usr/base-skeleton"
 entry_seed_card
 entry_export_env
-entry_start_daemons
 export LD_LIBRARY_PATH="$APPDIR/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 # $APPIMAGE (own file path) is exported by the AppImage runtime; OTA uses it.
 

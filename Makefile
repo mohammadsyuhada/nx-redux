@@ -99,15 +99,26 @@ build:
 package-macos: # macOS desktop bundle (arm64, unsigned); needs brew deps + gmake
 	./scripts/desktop/setup-macos-toolchain.sh
 	cd workspace/desktop/libmsettings && $(MAKE) build CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux
-	# workspace/all/minarch/libchdr/build/desktop and workspace/desktop/cores/src/{gambatte,mgba}
-	# are shared, bind-mount-visible paths a local `make package-linux` (docker) run may have
-	# left populated with ELF objects; libchdr's build rule keys off an order-only directory
-	# prereq (see package-appimage.sh), so a stale .so there is silently reused instead of
-	# rebuilt. Clean both before building so a local macOS build is coherent regardless of
-	# what ran here before it; harmless no-op on a fresh tree.
-	rm -rf workspace/all/minarch/libchdr/build/desktop
+	# workspace/all/minarch/libchdr/build/desktop, workspace/all/libgametimedb/build/desktop,
+	# and workspace/desktop/cores/src/{gambatte,mgba} are shared, bind-mount-visible paths a
+	# local `make package-linux` (docker) run may have left populated with ELF objects; each
+	# one's build rule keys off an order-only directory prereq or a $(PREFIX_LOCAL) header
+	# whose mere *existence* (not architecture) satisfies it (see package-appimage.sh), so a
+	# stale .so there is silently reused instead of rebuilt. Clean all three before building
+	# so a local macOS build is coherent regardless of what ran here before it; harmless no-op
+	# on a fresh tree. libgametimedb's own $(PREFIX_LOCAL)/include/gametimedb.h dependency
+	# (gametime/gametimectl's Makefiles) has the exact same "header exists -> skip" gap, so it
+	# must be rebuilt explicitly here too, not left to that dependency to trigger.
+	rm -rf workspace/all/minarch/libchdr/build/desktop workspace/all/libgametimedb/build/desktop
 	cd workspace/all/nextui && $(MAKE) PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin BUILD_TAG=$(BUILD_TAG)
 	cd workspace/all/minarch && $(MAKE) PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin
+	cd workspace/all/libgametimedb && $(MAKE) build PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin
+	# The 7 Tools paks' binaries (+ gametimectl's daemon copy). Same recipe as
+	# nextui/minarch above; gametime/gametimectl's libgametimedb.h dep is already
+	# satisfied by the explicit rebuild just above (their Makefiles no-op it).
+	for t in settings emu-options ratools scraper sync extras gametime gametimectl; do \
+		(cd workspace/all/$$t && $(MAKE) PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin) || exit 1; \
+	done
 	cd workspace/desktop/cores && gmake clean-gambatte clean-mgba PLATFORM=desktop 2>/dev/null || true
 	cd workspace/desktop/cores && gmake gambatte mgba PLATFORM=desktop
 	TAG=$(BUILD_TAG) ./scripts/desktop/package-macos.sh

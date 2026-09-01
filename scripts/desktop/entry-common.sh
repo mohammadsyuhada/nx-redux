@@ -1,7 +1,8 @@
 # Shared desktop entry logic, sourced by Contents/MacOS/NXRedux (macOS) and
 # AppRun (AppImage). Callers pass the bundle's system tree + base skeleton.
-# Contract consumers: pak launch.sh needs PATH/CORES_PATH/USERDATA_PATH/
-# LOGS_PATH; binaries read DEVICE, SHARED_USERDATA_PATH, NXREDUX_*.
+# Contract consumers: pak launch.sh needs PATH/SDCARD_PATH/SYSTEM_PATH/
+# CORES_PATH/USERDATA_PATH/LOGS_PATH; binaries read DEVICE,
+# SHARED_USERDATA_PATH, NXREDUX_*.
 
 entry_resolve_roots() { # $1 = system dir in bundle, $2 = base skeleton dir
 	SYS="$1"; BASE_SKELETON="$2"
@@ -21,15 +22,15 @@ entry_export_env() {
 	export NXREDUX_SYSTEM_ROOT="$SYS"
 	export DEVICE=desktop
 	export PATH="$SYS/bin:$PATH"
+	# SDCARD_PATH/SYSTEM_PATH mirror the device boot chain's exports (eg.
+	# skeleton/SYSTEM/tg5040/paks/MinUI.pak/launch.sh): pak launch.sh scripts
+	# ported from device (eg. Emulator Settings.pak) reference them directly
+	# in shell glob/path logic, distinct from the C-side PATHS_* globals that
+	# binaries resolve from NXREDUX_SDCARD/NXREDUX_SYSTEM_ROOT via paths.c.
+	export SDCARD_PATH="$CARD"
+	export SYSTEM_PATH="$SYS"
 	export CORES_PATH="$SYS/cores"
 	export USERDATA_PATH="$CARD/.userdata/desktop"
 	export SHARED_USERDATA_PATH="$CARD/.userdata/shared"
 	export LOGS_PATH="$CARD/.userdata/desktop/logs"
-}
-
-# Play-time tracking daemon (Game Tracker's gametimectl). Guarded so the
-# entry still works if the binary isn't in the bundle (Task 11 copies it to
-# $SYS/bin); backgrounded so it never blocks nextui.elf from starting.
-entry_start_daemons() {
-	[ -x "$SYS/bin/gametimectl.elf" ] && "$SYS/bin/gametimectl.elf" >> "$LOGS_PATH/gametimectl.txt" 2>&1 &
 }
