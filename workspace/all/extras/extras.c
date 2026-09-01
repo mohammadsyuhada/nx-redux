@@ -69,10 +69,19 @@
 
 // Per-entry version state lives OUTSIDE the catalog (update-tracking spec,
 // 2026-08-10): install.sh records the release tag it actually installed in
-// XTRAS_STATE_DIR/<id>.version, and the background check thread below caches
-// each repo's latest release tag in <id>.latest. "Update available" is
-// simply installed != latest - the catalog itself no longer pins versions.
-#define XTRAS_STATE_DIR SHARED_USERDATA_PATH "/xtras"
+// the xtras state dir's <id>.version, and the background check thread below
+// caches each repo's latest release tag in <id>.latest. "Update available"
+// is simply installed != latest - the catalog itself no longer pins
+// versions.
+//
+// The state dir is SHARED_USERDATA_PATH "/xtras", but SHARED_USERDATA_PATH
+// is a runtime array (not a string literal) on desktop builds, so it's no
+// longer adjacent-string-literal-concatenable -- resolved via snprintf
+// instead (byte-identical to the device value; same technique as ratools'
+// rat_badge_path()).
+static void xtras_state_dir(char* buf, size_t n) {
+	snprintf(buf, n, "%s/xtras", SHARED_USERDATA_PATH);
+}
 // Latest-release cache freshness window: within it the check thread skips
 // the GitHub API entirely (rate limit is 60/hr/IP unauthenticated - ample,
 // but re-hitting it on every app open is still pointless).
@@ -161,8 +170,10 @@ static bool read_line_file(const char* path, char* out, int out_size) {
 // left for uninstall.sh to clear (and for an older Xtras.pak to read, if
 // the system is ever downgraded).
 static void read_installed(AddonEntry* e) {
+	char state_dir[MAX_PATH];
+	xtras_state_dir(state_dir, sizeof(state_dir));
 	char path[MAX_PATH];
-	snprintf(path, sizeof(path), XTRAS_STATE_DIR "/%s.version", e->id);
+	snprintf(path, sizeof(path), "%s/%s.version", state_dir, e->id);
 	if (read_line_file(path, e->installed, sizeof(e->installed)))
 		return;
 
@@ -175,7 +186,7 @@ static void read_installed(AddonEntry* e) {
 
 	// One-time forward migration; best-effort (a read-only card just retries
 	// next launch). SHARED_USERDATA_PATH itself always exists on a booted card.
-	mkdir(XTRAS_STATE_DIR, 0755);
+	mkdir(state_dir, 0755);
 	FILE* out = fopen(path, "w");
 	if (out) {
 		fprintf(out, "%s\n", e->installed);
@@ -185,8 +196,10 @@ static void read_installed(AddonEntry* e) {
 
 // Latest upstream release tag, cached by the background check thread.
 static void read_latest(AddonEntry* e) {
+	char state_dir[MAX_PATH];
+	xtras_state_dir(state_dir, sizeof(state_dir));
 	char path[MAX_PATH];
-	snprintf(path, sizeof(path), XTRAS_STATE_DIR "/%s.latest", e->id);
+	snprintf(path, sizeof(path), "%s/%s.latest", state_dir, e->id);
 	read_line_file(path, e->latest, sizeof(e->latest));
 }
 
@@ -244,12 +257,14 @@ static void* latest_check_thread(void* arg) {
 	}
 	freeaddrinfo(res);
 
-	mkdir(XTRAS_STATE_DIR, 0755); // best-effort; parent always exists on a booted card
+	char state_dir[MAX_PATH];
+	xtras_state_dir(state_dir, sizeof(state_dir));
+	mkdir(state_dir, 0755); // best-effort; parent always exists on a booted card
 
 	time_t now = time(NULL);
 	for (int i = 0; i < check_count; i++) {
 		char cache[MAX_PATH];
-		snprintf(cache, sizeof(cache), XTRAS_STATE_DIR "/%s.latest", check_items[i].id);
+		snprintf(cache, sizeof(cache), "%s/%s.latest", state_dir, check_items[i].id);
 		struct stat st;
 		if (stat(cache, &st) == 0 && now - st.st_mtime < LATEST_CACHE_TTL_S)
 			continue;
@@ -929,8 +944,18 @@ static bool parse_hint(const char* line, int* pct, const char** status_text,
 // this only bites install.sh.
 static int run_entry_script(AddonEntry* e, const char* script_name, const char* title) {
 	const char* logs_path = getenv("LOGS_PATH");
-	if (!logs_path)
-		logs_path = USERDATA_PATH "/logs";
+	// USERDATA_PATH is a runtime array (not a string literal) on desktop
+	// builds, so appending "/logs" via adjacent string-literal concatenation
+	// no longer compiles -- resolved into a local buffer via snprintf
+	// instead (byte-identical to the device value).
+	char logs_path_buf[MAX_PATH];
+	if (!logs_path) {
+		snprintf(logs_path_buf, sizeof(logs_path_buf), "%s/logs", USERDATA_PATH);
+		logs_path = logs_path_buf;
+	}
+
+	char state_dir[MAX_PATH];
+	xtras_state_dir(state_dir, sizeof(state_dir));
 
 	// Escape the catalog id before it goes into the single-quoted CATALOG_DIR
 	// and sh-path arguments below (worst case each quote expands to 4 chars).
@@ -949,11 +974,11 @@ static int run_entry_script(AddonEntry* e, const char* script_name, const char* 
 			 "PLATFORM='%s' SDCARD_PATH='%s' LOGS_PATH='%s' "
 			 "EXTRAS_ROMS_DIR='%s/Roms/" EXTRAS_ROMS_DIRNAME "' "
 			 "EXTRAS_DATA_DIR='%s/Roms/" EXTRAS_ROMS_DIRNAME "/.data' "
-			 "XTRAS_STATE_DIR='" XTRAS_STATE_DIR "' "
+			 "XTRAS_STATE_DIR='%s' "
 			 "CATALOG_DIR='%s/catalog/%s' "
 			 "sh '%s/catalog/%s/%s' 2>&1",
 			 PLATFORM, SDCARD_PATH, logs_path,
-			 SDCARD_PATH, SDCARD_PATH, pak_dir, id_esc, pak_dir, id_esc, script_name);
+			 SDCARD_PATH, SDCARD_PATH, state_dir, pak_dir, id_esc, pak_dir, id_esc, script_name);
 
 	FILE* p = popen(cmd, "r");
 	if (!p)
@@ -1128,7 +1153,9 @@ static int uninstall_generic(AddonEntry* e) {
 	// The update-tracking installed-version record (the legacy marker above
 	// is its pre-migration location; both must go or the entry reads as
 	// still installed).
-	snprintf(marker, sizeof(marker), XTRAS_STATE_DIR "/%s.version", e->id);
+	char state_dir[MAX_PATH];
+	xtras_state_dir(state_dir, sizeof(state_dir));
+	snprintf(marker, sizeof(marker), "%s/%s.version", state_dir, e->id);
 	remove(marker);
 
 	UI_showMessage(screen, "Saves and ROMs kept.", EXTRAS_MESSAGE_MS);
@@ -1437,6 +1464,7 @@ static int run_detail(AddonEntry* e) {
 }
 
 int main(int argc, char* argv[]) {
+	PATHS_init(PLATFORM); // no-op on device; resolves SDCARD_PATH et al on desktop
 	(void)argc;
 	char* slash = strrchr(argv[0], '/');
 	if (slash) {
