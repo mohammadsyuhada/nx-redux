@@ -26,3 +26,10 @@ entry_export_env() {
 	export SHARED_USERDATA_PATH="$CARD/.userdata/shared"
 	export LOGS_PATH="$CARD/.userdata/desktop/logs"
 }
+
+# Play-time tracking daemon (Game Tracker's gametimectl). Guarded so the
+# entry still works if the binary isn't in the bundle (Task 11 copies it to
+# $SYS/bin); backgrounded so it never blocks nextui.elf from starting.
+entry_start_daemons() {
+	[ -x "$SYS/bin/gametimectl.elf" ] && "$SYS/bin/gametimectl.elf" >> "$LOGS_PATH/gametimectl.txt" 2>&1 &
+}

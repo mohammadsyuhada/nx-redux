@@ -22,7 +22,16 @@ SDL?=SDL
 TARGET = gametime
 INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
 include ../common/ui/ui.mk
-SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/config.c ../common/scaler.c $(UI_COMPONENT_SRCS) ../../$(PLATFORM)/platform/platform.c
+# ui_fonts.c's Fonts_drawListItemBg/Fonts_getListTextColor now delegate to
+# ui_list.c (UI_drawListItemBg/UI_getListTextColor) -- not in UI_COMPONENT_SRCS,
+# so any app compiling ui_fonts.c must also compile ui_list.c (mirrors ratools).
+SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/config.c ../common/scaler.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c ../common/paths.c ../../$(PLATFORM)/platform/platform.c
+
+# Desktop's platform.c backs PLAT_wifiConnected with a real reachability probe
+# (device platform.c doesn't; it uses generic_wifi.c) -- desktop-only source.
+ifeq ($(PLATFORM), desktop)
+SOURCE += ../common/desktop_probe.c
+endif
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS  += $(OPT)

@@ -33,7 +33,12 @@ CC = $(CROSS_COMPILE)gcc
 SYSROOT     := $(shell $(CC) --print-sysroot)
 
 INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
-SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/text_shape.c ../../$(PLATFORM)/platform/platform.c
+# ../common/paths.c is unconditional (mirrors ratools/Makefile): it's
+# SDL-free/defines.h-free so it compiles on every platform, and utils.c +
+# gametimedb.c both reference the PATHS_* globals it defines whenever
+# HAS_RUNTIME_PATHS is on (desktop) -- those symbols must be resolvable
+# inside this .so itself, not just in the executables that link it.
+SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/text_shape.c ../common/paths.c ../../$(PLATFORM)/platform/platform.c
 
 CFLAGS  += $(OPT)
 CFLAGS  += $(INCDIR) -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
@@ -41,10 +46,10 @@ LDFLAGS += -s -lsqlite3
 
 PRODUCT= build/$(PLATFORM)/lib$(TARGET).so
 
-build: 
+build:
 	mkdir -p build/$(PLATFORM)
 	$(CC) -c -Werror -fpic $(SOURCE) -Wl,--no-as-needed $(LDFLAGS) $(CFLAGS)
-	$(CC) -shared -o $(PRODUCT) "$(TARGET).o" "utils.o" $(LDFLAGS)
+	$(CC) -shared -o $(PRODUCT) "$(TARGET).o" "utils.o" "paths.o" $(LDFLAGS)
 	cp "$(TARGET).h" "$(PREFIX_LOCAL)/include"
 	cp $(PRODUCT) "$(PREFIX_LOCAL)/lib"
 

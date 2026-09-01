@@ -21,7 +21,13 @@ SDL?=SDL
 
 TARGET = gametimectl
 INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
-SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/scaler.c ../common/config.c ../../$(PLATFORM)/platform/platform.c
+SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/scaler.c ../common/config.c ../common/paths.c ../../$(PLATFORM)/platform/platform.c
+
+# Desktop's platform.c backs PLAT_wifiConnected with a real reachability probe
+# (device platform.c doesn't; it uses generic_wifi.c) -- desktop-only source.
+ifeq ($(PLATFORM), desktop)
+SOURCE += ../common/desktop_probe.c
+endif
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS  += $(OPT)
