@@ -1979,6 +1979,18 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 	capture_check();
 	// dont think we need this here tbh
 	// SDL_RenderClear(vid.renderer);
+#if defined(HAS_RUNTIME_PATHS)
+	// Desktop's SDL_Renderer double-buffers, and the UI (nextui + every tool) is
+	// uploaded with a TRANSPARENT background (GFX_clear -> SDL_transparentBlack)
+	// and composited with BLEND (compositeLayers below). Without clearing the
+	// backbuffer each present, this frame's UI blends over the OTHER buffer's
+	// stale content, so a gliding selection pill smears into a trail of stacked
+	// pills. Clear the backbuffer to OPAQUE black first. Device presents
+	// single-buffered and kept the original no-clear path, so this compiles out
+	// there.
+	SDL_SetRenderDrawColor(vid.renderer, 0, 0, 0, 255);
+	SDL_RenderClear(vid.renderer);
+#endif
 	if (!vid.blit) {
 		resizeVideo(device_width, device_height, FIXED_PITCH); // !!!???
 		SDL_UpdateTexture(vid.stream_layer1, NULL, vid.screen->pixels, vid.screen->pitch);
