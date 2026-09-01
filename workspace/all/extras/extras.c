@@ -37,6 +37,7 @@
 #include "ui_message.h"
 #include "ui_splash.h"
 #include "utils.h" // escapeSingleQuotes
+#include "xtras_compat.h"
 
 #define MAX_ENTRIES 32
 #define META_STR 256
@@ -100,12 +101,26 @@ typedef struct {
 						// entries whose payload doesn't land in the default
 						// category folder (e.g. psp installs to Emus/, not
 						// Tools/, so "Find it in Tools." would mislead)
+	char platforms[64]; // meta.txt "platforms=" verbatim ("" = compatible everywhere)
+	bool compatible;	// computed in catalog_load via xtras_platform_compatible
 } AddonEntry;
 
 static AddonEntry entries[MAX_ENTRIES];
 static int entry_count = 0;
 static SDL_Surface* screen = NULL;
 static char pak_dir[MAX_PATH];
+
+// The desktop-OS token this build advertises to the compatibility gate.
+// PLATFORM is one "desktop" for both macOS and Linux, but extras.c is
+// compiled once per desktop OS, so __APPLE__ is a compile-time fact. Returns
+// "" on device builds (they match only their PLATFORM: tg5040 / tg5050).
+static const char* build_os_token(void) {
+#ifdef __APPLE__
+	return strcmp(PLATFORM, "desktop") == 0 ? "macos" : "";
+#else
+	return strcmp(PLATFORM, "desktop") == 0 ? "linux" : "";
+#endif
+}
 
 // --- meta.txt: flat key=value, unknown keys ignored ---------------------
 static void meta_set(AddonEntry* e, const char* key, const char* val) {
@@ -121,6 +136,8 @@ static void meta_set(AddonEntry* e, const char* key, const char* val) {
 		e->size_mb = atoi(val);
 	else if (!strcmp(key, "done_msg"))
 		snprintf(e->done_msg, sizeof(e->done_msg), "%s", val);
+	else if (!strcmp(key, "platforms"))
+		snprintf(e->platforms, sizeof(e->platforms), "%s", val);
 	// "version" (pre-update-tracking pin) and "asset" (consumed only by the
 	// entry's own install.sh) fall through to the unknown-key ignore.
 }
@@ -326,6 +343,7 @@ static void catalog_load(void) {
 		snprintf(e->id, sizeof(e->id), "%s", de->d_name);
 		if (!meta_parse(meta, e))
 			continue;
+		e->compatible = xtras_platform_compatible(e->platforms, PLATFORM, build_os_token());
 		read_installed(e);
 		read_latest(e);
 		entry_count++;
@@ -525,7 +543,10 @@ static void extras_get_row(void* ctx, int i, bool selected, ListViewRow* out) {
 		out->label = "Installed";
 		return;
 	}
-	out->label = entries[r->indices[extras_widget_to_entry(r, i)]].name;
+	AddonEntry* e = &entries[r->indices[extras_widget_to_entry(r, i)]];
+	out->label = e->name;
+	if (!e->compatible)
+		out->annotation = "Not available";
 }
 
 // Tab bar/menu bar chrome stays app-drawn (title=NULL keeps the widget out
@@ -1326,19 +1347,25 @@ static int run_detail(AddonEntry* e) {
 		if (PAD_justPressed(BTN_B))
 			break;
 		if (PAD_justPressed(BTN_A)) {
-			const char* err = preflight(e);
-			if (err) {
-				UI_showMessage(screen, err, EXTRAS_MESSAGE_MS);
+			if (!e->compatible) {
+				char msg[128];
+				snprintf(msg, sizeof(msg), "Not available on %s", PLAT_getModel());
+				UI_showMessage(screen, msg, EXTRAS_MESSAGE_MS);
 			} else {
-				if (run_install(e) == 0) {
-					changed = true;
-					// Refresh e->installed from the marker install.sh just
-					// wrote so this still-open detail page's next redraw
-					// (metadata line + hint bar) reflects the new state
-					// immediately, rather than only after catalog_load()
-					// re-scans on return to the list.
-					e->installed[0] = '\0';
-					read_installed(e);
+				const char* err = preflight(e);
+				if (err) {
+					UI_showMessage(screen, err, EXTRAS_MESSAGE_MS);
+				} else {
+					if (run_install(e) == 0) {
+						changed = true;
+						// Refresh e->installed from the marker install.sh just
+						// wrote so this still-open detail page's next redraw
+						// (metadata line + hint bar) reflects the new state
+						// immediately, rather than only after catalog_load()
+						// re-scans on return to the list.
+						e->installed[0] = '\0';
+						read_installed(e);
+					}
 				}
 			}
 			dirty = true;
@@ -1394,13 +1421,16 @@ static int run_detail(AddonEntry* e) {
 			snprintf(meta_lines[0], sizeof(meta_lines[0]), "%s  \xC2\xB7  ~%d MB",
 					 e->category, e->size_mb);
 			int voff;
-			if (e->installed[0])
+			if (!e->compatible)
+				voff = snprintf(meta_lines[1], sizeof(meta_lines[1]),
+								"Not available on %s", PLAT_getModel());
+			else if (e->installed[0])
 				voff = snprintf(meta_lines[1], sizeof(meta_lines[1]),
 								"Installed %s", e->installed);
 			else
 				voff = snprintf(meta_lines[1], sizeof(meta_lines[1]),
 								"Not installed");
-			if (e->latest[0] && voff < (int)sizeof(meta_lines[1]))
+			if (e->compatible && e->latest[0] && voff < (int)sizeof(meta_lines[1]))
 				snprintf(meta_lines[1] + voff, sizeof(meta_lines[1]) - voff,
 						 "  \xC2\xB7  Latest %s", e->latest);
 			for (int i = 0; i < 2; i++) {
@@ -1447,7 +1477,9 @@ static int run_detail(AddonEntry* e) {
 			// the update state - UPDATE, REINSTALL and INSTALL all run the
 			// same install.sh (it always installs the latest release); only
 			// the wording differs.
-			if (e->installed[0])
+			if (!e->compatible)
+				UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", NULL});
+			else if (e->installed[0])
 				UI_renderButtonHintBar(screen, (char*[]){"B", "BACK",
 														 "X", "UNINSTALL", "A",
 														 entry_update_available(e) ? "UPDATE" : "REINSTALL", NULL});
