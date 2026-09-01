@@ -80,8 +80,8 @@ if PATH="$BIN_OPEN:$PATH" NXREDUX_BUNDLE="$OLD" "$SELFUPDATE" "$BASE/new.zip" >"
 	else
 		bad "successful swap: bundle prints '$AFTER', expected 'new'"
 	fi
-	if find "$STAGE/success" -maxdepth 1 -name '.nxredux-update.*' | grep -q .; then
-		bad "successful swap: leftover .nxredux-update.* tmp dir not cleaned up"
+	if find "$STAGE/success" -maxdepth 1 -name 'NXRedux.update-in-progress.*' | grep -q .; then
+		bad "successful swap: leftover NXRedux.update-in-progress.* tmp dir not cleaned up"
 	else
 		ok "successful swap cleans up its tmp dir"
 	fi
@@ -92,8 +92,8 @@ fi
 # --- generic failure-case runner -------------------------------------------
 # Asserts: non-zero exit, stderr contains $4, the bundle's marker is
 # unchanged from before the call (proving no partial/failed swap survives),
-# and no .nxredux-update.* tmp dir (partial-download hygiene) is left behind
-# next to the bundle.
+# and no NXRedux.update-in-progress.* tmp dir (partial-download hygiene) is
+# left behind next to the bundle.
 run_fail_case() { # run_fail_case <label> <bundle-dir> <url> <expect-in-stderr> [path-dir]
 	label="$1"; bundle="$2"; url="$3"; expect="$4"; pathdir="${5:-$BIN_OPEN}"
 	before="$(app_marker "$bundle")"
@@ -114,8 +114,8 @@ run_fail_case() { # run_fail_case <label> <bundle-dir> <url> <expect-in-stderr> 
 		bad "$label: bundle content changed ($before -> $after)"
 		return
 	fi
-	if find "$(dirname "$bundle")" -maxdepth 1 -name '.nxredux-update.*' | grep -q .; then
-		bad "$label: leftover .nxredux-update.* tmp dir (partial download not cleaned up)"
+	if find "$(dirname "$bundle")" -maxdepth 1 -name 'NXRedux.update-in-progress.*' | grep -q .; then
+		bad "$label: leftover NXRedux.update-in-progress.* tmp dir (partial download not cleaned up)"
 		return
 	fi
 	ok "$label"

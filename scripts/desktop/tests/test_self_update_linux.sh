@@ -19,11 +19,21 @@ trap cleanup EXIT
 
 STAGE="$WORK/stage" # per-case "installed" AppImage files ($APPIMAGE targets)
 WEB="$WORK/web"     # served over http
-mkdir -p "$STAGE" "$WEB"
+BIN_CHMODFAIL="$WORK/bin-chmodfail" # PATH override: chmod always fails
+mkdir -p "$STAGE" "$WEB" "$BIN_CHMODFAIL"
 
 fails=0
 ok() { echo "ok - $1"; }
 bad() { echo "FAIL - $1"; fails=$((fails + 1)); }
+
+# Fakes a chmod failure (e.g. a filesystem that rejects the mode change)
+# without touching the filesystem for real; used to exercise self-update.sh's
+# guarded `chmod +x "$TARGET.part" || { rm -f ...; fail ...; }` line.
+cat > "$BIN_CHMODFAIL/chmod" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+chmod +x "$BIN_CHMODFAIL/chmod"
 
 make_appimage() { # make_appimage <path> <marker>
 	printf '#!/bin/sh\necho "%s"\n' "$2" > "$1"
@@ -72,11 +82,11 @@ fi
 unset APPIMAGE
 
 # --- generic failure-case runner ------------------------------------------
-run_fail_case() { # run_fail_case <label> <target-file> <url> <expect-in-stderr>
-	label="$1"; target="$2"; url="$3"; expect="$4"
+run_fail_case() { # run_fail_case <label> <target-file> <url> <expect-in-stderr> [path-dir]
+	label="$1"; target="$2"; url="$3"; expect="$4"; pathdir="${5:-}"
 	before="$(cat "$target")"
 	set +e
-	err="$(APPIMAGE="$target" "$SELFUPDATE" "$url" 2>&1 1>/dev/null)"
+	err="$(PATH="${pathdir:+$pathdir:}$PATH" APPIMAGE="$target" "$SELFUPDATE" "$url" 2>&1 1>/dev/null)"
 	rc=$?
 	set -e
 	if [ "$rc" -eq 0 ]; then
@@ -108,6 +118,11 @@ BADPAYLOAD="$STAGE/NXRedux-bad-payload.AppImage"
 printf '#!/bin/sh\necho old\n' > "$BADPAYLOAD"; chmod +x "$BADPAYLOAD"
 run_fail_case "non-AppImage payload leaves target untouched" \
 	"$BADPAYLOAD" "$BASE/notanappimage.AppImage" "not an AppImage"
+
+CHMODFAIL="$STAGE/NXRedux-chmod-fail.AppImage"
+printf '#!/bin/sh\necho old\n' > "$CHMODFAIL"; chmod +x "$CHMODFAIL"
+run_fail_case "chmod failure cleans up .part and leaves target untouched" \
+	"$CHMODFAIL" "$BASE/new.AppImage" "chmod failed" "$BIN_CHMODFAIL"
 
 if [ "$fails" -eq 0 ]; then
 	echo "test_self_update_linux: OK"
