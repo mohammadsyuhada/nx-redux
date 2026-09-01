@@ -35,7 +35,14 @@ SOURCE = ratools.c ratools_data.c ratools_browser.c ratools_sync.c ratools_prefe
          $(COMMON_PATH)/display_helper.c \
          $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c $(UI_LISTVIEW_SRCS) \
          $(UI_DIR)/ui_keyboard.c \
+         $(COMMON_PATH)/paths.c \
          ../../$(PLATFORM)/platform/platform.c
+
+# Desktop's platform.c backs PLAT_wifiConnected with a real reachability probe
+# (device platform.c doesn't; it uses generic_wifi.c) -- desktop-only source.
+ifeq ($(PLATFORM), desktop)
+SOURCE += ../common/desktop_probe.c
+endif
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS += $(OPT)

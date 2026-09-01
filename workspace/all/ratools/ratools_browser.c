@@ -10,7 +10,6 @@
 
 #include "api.h"
 #include "defines.h"
-#include "ra_badges.h"	// RA_BADGE_CACHE_DIR only (no ra_badges.c linked)
 #include "ra_offline.h" // RA_Offline_getGameRomPath
 #include "ratools_data.h"
 #include "ui_buttonhintbar.h"
@@ -26,10 +25,15 @@
 
 static void rat_badge_path(const char* badge_name, bool locked, char* buf, size_t n) {
 	// naming matches ra_badges.c: <name>.png / <name>_lock.png
+	// RA_BADGE_CACHE_DIR (ra_badges.h) is SHARED_USERDATA_PATH "/.ra/badges",
+	// which is no longer adjacent-string-literal-concatenable now that
+	// SHARED_USERDATA_PATH is a runtime array on desktop builds -- spell the
+	// same path out with snprintf instead (byte-identical to the macro on
+	// device, mirroring how ra_badges.c itself builds this same directory).
 	if (locked)
-		snprintf(buf, n, RA_BADGE_CACHE_DIR "/%s_lock.png", badge_name);
+		snprintf(buf, n, "%s/.ra/badges/%s_lock.png", SHARED_USERDATA_PATH, badge_name);
 	else
-		snprintf(buf, n, RA_BADGE_CACHE_DIR "/%s.png", badge_name);
+		snprintf(buf, n, "%s/.ra/badges/%s.png", SHARED_USERDATA_PATH, badge_name);
 }
 
 // Resolve a game's box art from its recorded rom path, mirroring nxredux's

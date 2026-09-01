@@ -8,7 +8,17 @@
 
 #include "defines.h"
 
-#define RA_ROOT SHARED_USERDATA_PATH "/.ra"
+// SHARED_USERDATA_PATH is a runtime array (not a string literal) on desktop
+// builds (see paths.h), so it can no longer be adjacent-string-literal
+// concatenated at compile time like the old RA_ROOT macro did; build the
+// same "<SHARED_USERDATA_PATH>/.ra" path with snprintf instead (byte-
+// identical to the old macro on device, where SHARED_USERDATA_PATH is still
+// a compile-time literal).
+static const char* ra_root(void) {
+	static char buf[MAX_PATH];
+	snprintf(buf, sizeof(buf), "%s/.ra", SHARED_USERDATA_PATH);
+	return buf;
+}
 
 // Recursively delete a directory's contents and the directory itself.
 static void rat_rm_rf(const char* path) {
@@ -36,15 +46,19 @@ static void rat_rm_rf(const char* path) {
 }
 
 void RATReset_clearAccountData(void) {
+	char path[MAX_PATH];
 	// offline journals (pending + confirmed + last-sync)
-	rat_rm_rf(RA_ROOT "/pending");
+	snprintf(path, sizeof(path), "%s/pending", ra_root());
+	rat_rm_rf(path);
 	// per-game server unlock state
-	rat_rm_rf(RA_ROOT "/cache/sessions");
+	snprintf(path, sizeof(path), "%s/cache/sessions", ra_root());
+	rat_rm_rf(path);
 	// cached login (points, token validation)
-	unlink(RA_ROOT "/cache/login.json");
+	snprintf(path, sizeof(path), "%s/cache/login.json", ra_root());
+	unlink(path);
 }
 
 void RATReset_clearAll(void) {
 	// nuke the whole tree; a later online play / prefetch rebuilds it
-	rat_rm_rf(RA_ROOT);
+	rat_rm_rf(ra_root());
 }

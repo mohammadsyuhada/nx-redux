@@ -16,7 +16,6 @@
 #include "config.h"
 #include "defines.h"
 #include "http.h"
-#include "ra_badges.h" // RA_BADGE_CACHE_DIR
 #include "ra_consoles.h"
 #include "wifi.h"
 #include "ra_hash_cdreader.h"
@@ -175,10 +174,15 @@ static void rat_download_badge(const char* url, const char* badge_name, bool loc
 	if (!url || !*url || !badge_name || !*badge_name)
 		return;
 	char path[512];
+	// RA_BADGE_CACHE_DIR (ra_badges.h) is SHARED_USERDATA_PATH "/.ra/badges",
+	// no longer adjacent-string-literal-concatenable now that
+	// SHARED_USERDATA_PATH is a runtime array on desktop builds -- spell the
+	// same path out with snprintf instead (byte-identical to the macro on
+	// device, mirroring how ra_badges.c itself builds this same directory).
 	if (locked)
-		snprintf(path, sizeof(path), RA_BADGE_CACHE_DIR "/%s_lock.png", badge_name);
+		snprintf(path, sizeof(path), "%s/.ra/badges/%s_lock.png", SHARED_USERDATA_PATH, badge_name);
 	else
-		snprintf(path, sizeof(path), RA_BADGE_CACHE_DIR "/%s.png", badge_name);
+		snprintf(path, sizeof(path), "%s/.ra/badges/%s.png", SHARED_USERDATA_PATH, badge_name);
 	struct stat st;
 	if (stat(path, &st) == 0 && st.st_size > 0)
 		return; // already cached
@@ -300,7 +304,9 @@ void RATPrefetch_run(SDL_Surface* screen) {
 
 	// badges directory may not exist on a fresh card (RA_offline's ".ra"
 	// parent was already created by RA_Offline_init() in main())
-	mkdir(RA_BADGE_CACHE_DIR, 0755);
+	char badges_dir[512];
+	snprintf(badges_dir, sizeof(badges_dir), "%s/.ra/badges", SHARED_USERDATA_PATH);
+	mkdir(badges_dir, 0755);
 
 	// CHD-aware hashing for disc images
 	rc_hash_cdreader_t cdreader;
@@ -456,7 +462,7 @@ void RATPrefetch_run(SDL_Surface* screen) {
 			// prefetch run refetches this game instead of skipping it
 			char sets_path[512];
 			snprintf(sets_path, sizeof(sets_path),
-					 SHARED_USERDATA_PATH "/.ra/cache/games/%s/sets.json", hash);
+					 "%s/.ra/cache/games/%s/sets.json", SHARED_USERDATA_PATH, hash);
 			remove(sets_path);
 		}
 		rc_api_destroy_fetch_game_sets_response(&sets);
