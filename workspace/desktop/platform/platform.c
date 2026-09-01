@@ -21,14 +21,16 @@
 
 #include <dirent.h>
 
-static SDL_Joystick* joystick;
 void PLAT_initInput(void) {
-	SDL_InitSubSystem(SDL_INIT_JOYSTICK);
-	joystick = SDL_JoystickOpen(0);
+	// SDL_INIT_GAMECONTROLLER implies SDL_INIT_JOYSTICK. Each controller
+	// present now arrives as SDL_CONTROLLERDEVICEADDED on the first event pump
+	// and is opened in the shared poll loop (api.c, PAD_poll). We deliberately
+	// do NOT also open the raw SDL_Joystick — a controller opened as both would
+	// double-fire button/axis events.
+	SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
 }
 void PLAT_quitInput(void) {
-	SDL_JoystickClose(joystick);
-	SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
+	SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER); // closes any open controller
 }
 
 ///////////////////////////////

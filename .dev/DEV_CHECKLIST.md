@@ -11,6 +11,33 @@ Move an entry from there to here once it compiles and needs hardware time.
 
 ---
 
+## Desktop: external game-controller support (built 2026-09-01)
+
+Desktop build gained `SDL_GameController` support (macOS `.app` / Linux AppImage),
+behind a `HAS_GAMECONTROLLER` macro defined only in `workspace/desktop/platform/platform.h`
+— device builds compile the path out entirely (verified: tg5040 + tg5050 build green).
+Keyboard stays active simultaneously. Face buttons map by physical position (Nintendo
+layout: right face = A/confirm, bottom = B/back). Left stick = analog passthrough to
+cores (`RETRO_DEVICE_ANALOG`) **and** digital d-pad (deadzone) for menus / non-analog
+cores; right stick = analog only. Triggers (L2/R2) are digital past a threshold. Hot-plug
+handled via `SDL_CONTROLLERDEVICEADDED/REMOVED`. No controller was available at build
+time, so all controller behavior below is UNVERIFIED on real hardware.
+
+- [ ] Plug an Xbox-style pad in **before** launch → launcher navigates with d-pad + left
+      stick; right face button confirms, bottom face backs out (Nintendo-position mapping).
+- [ ] Hot-plug: launch with no pad, connect one → it starts working without relaunch;
+      disconnect → app stays alive, keyboard still works.
+- [ ] In-game: face/d-pad/shoulders drive the emulated pad; keyboard still works at the
+      same time (both input sources live).
+- [ ] Analog passthrough: a core that reads analog (e.g. an N64/PSX core if present on
+      desktop, else any `RETRO_DEVICE_ANALOG` core) responds to the right stick; left stick
+      also moves the character AND navigates menus as a d-pad.
+- [ ] Try a second controller type if available (PS4/5, Switch Pro, 8BitDo) — SDL's
+      built-in DB should map it with no per-device config; note any pad that isn't recognized
+      (would need a bundled `gamecontrollerdb.txt`, deferred).
+
+---
+
 ## Boot: failed MinUI.zip extraction must not brick the boot loop (built 2026-08-01)
 
 Found live on Smart Pro S (fresh install, 2026-08-01): a truncated MinUI.zip

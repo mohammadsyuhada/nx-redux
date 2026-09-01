@@ -2521,6 +2521,14 @@ FALLBACK_IMPLEMENTATION int PLAT_lidChanged(int* state) {
 
 PAD_Context pad;
 
+#ifdef HAS_GAMECONTROLLER
+// Desktop external-controller support. The handle is opened/closed in PAD_poll
+// on SDL_CONTROLLERDEVICEADDED/REMOVED. Triggers are analog (0..32767); treat
+// one past the half-way point as a digital L2/R2 press.
+static SDL_GameController* gamecontroller = NULL;
+#define GAMECONTROLLER_TRIGGER_THRESHOLD 16384
+#endif
+
 #define AXIS_DEADZONE 0x4000
 void PAD_setAnalog(int neg_id, int pos_id, int value, int repeat_at) {
 	// LOG_info("neg %i pos %i value %i\n", neg_id, pos_id, value);
@@ -2900,7 +2908,127 @@ FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 				// LOG_info("cancel: %i\n", axis);
 				btn = BTN_NONE;
 			}
-		} else if (event.type == SDL_QUIT) {
+		}
+#ifdef HAS_GAMECONTROLLER
+		// Desktop external controller (SDL_GameController). Face buttons map by
+		// physical position to the Nintendo/device layout: right face =
+		// A/confirm, bottom = B/back. Keyboard (CODE_*) stays live alongside.
+		else if (event.type == SDL_CONTROLLERBUTTONDOWN || event.type == SDL_CONTROLLERBUTTONUP) {
+			pressed = event.type == SDL_CONTROLLERBUTTONDOWN;
+			switch (event.cbutton.button) {
+			case SDL_CONTROLLER_BUTTON_A:
+				btn = BTN_B;
+				id = BTN_ID_B;
+				break; // bottom
+			case SDL_CONTROLLER_BUTTON_B:
+				btn = BTN_A;
+				id = BTN_ID_A;
+				break; // right (confirm)
+			case SDL_CONTROLLER_BUTTON_X:
+				btn = BTN_Y;
+				id = BTN_ID_Y;
+				break; // left
+			case SDL_CONTROLLER_BUTTON_Y:
+				btn = BTN_X;
+				id = BTN_ID_X;
+				break; // top
+			case SDL_CONTROLLER_BUTTON_DPAD_UP:
+				btn = BTN_DPAD_UP;
+				id = BTN_ID_DPAD_UP;
+				break;
+			case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
+				btn = BTN_DPAD_DOWN;
+				id = BTN_ID_DPAD_DOWN;
+				break;
+			case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
+				btn = BTN_DPAD_LEFT;
+				id = BTN_ID_DPAD_LEFT;
+				break;
+			case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
+				btn = BTN_DPAD_RIGHT;
+				id = BTN_ID_DPAD_RIGHT;
+				break;
+			case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
+				btn = BTN_L1;
+				id = BTN_ID_L1;
+				break;
+			case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:
+				btn = BTN_R1;
+				id = BTN_ID_R1;
+				break;
+			case SDL_CONTROLLER_BUTTON_LEFTSTICK:
+				btn = BTN_L3;
+				id = BTN_ID_L3;
+				break;
+			case SDL_CONTROLLER_BUTTON_RIGHTSTICK:
+				btn = BTN_R3;
+				id = BTN_ID_R3;
+				break;
+			case SDL_CONTROLLER_BUTTON_BACK:
+				btn = BTN_SELECT;
+				id = BTN_ID_SELECT;
+				break;
+			case SDL_CONTROLLER_BUTTON_START:
+				btn = BTN_START;
+				id = BTN_ID_START;
+				break;
+			case SDL_CONTROLLER_BUTTON_GUIDE:
+				btn = BTN_MENU;
+				id = BTN_ID_MENU;
+				break; // Home/Guide opens the menu
+			default:
+				break;
+			}
+		} else if (event.type == SDL_CONTROLLERAXISMOTION) {
+			int val = event.caxis.value;
+			// Left stick: analog passthrough to cores (pad.laxis, read by
+			// minarch for RETRO_DEVICE_ANALOG) AND digital d-pad via
+			// PAD_setAnalog so menus and non-analog cores stay usable. Right
+			// stick: analog passthrough only. Triggers: digital past a threshold.
+			switch (event.caxis.axis) {
+			case SDL_CONTROLLER_AXIS_LEFTX:
+				pad.laxis.x = val;
+				PAD_setAnalog(BTN_ID_ANALOG_LEFT, BTN_ID_ANALOG_RIGHT, val, tick + PAD_REPEAT_DELAY);
+				break;
+			case SDL_CONTROLLER_AXIS_LEFTY:
+				pad.laxis.y = val;
+				PAD_setAnalog(BTN_ID_ANALOG_UP, BTN_ID_ANALOG_DOWN, val, tick + PAD_REPEAT_DELAY);
+				break;
+			case SDL_CONTROLLER_AXIS_RIGHTX:
+				pad.raxis.x = val;
+				break;
+			case SDL_CONTROLLER_AXIS_RIGHTY:
+				pad.raxis.y = val;
+				break;
+			case SDL_CONTROLLER_AXIS_TRIGGERLEFT:
+				btn = BTN_L2;
+				id = BTN_ID_L2;
+				pressed = val > GAMECONTROLLER_TRIGGER_THRESHOLD;
+				break;
+			case SDL_CONTROLLER_AXIS_TRIGGERRIGHT:
+				btn = BTN_R2;
+				id = BTN_ID_R2;
+				pressed = val > GAMECONTROLLER_TRIGGER_THRESHOLD;
+				break;
+			default:
+				break;
+			}
+			// same guard as the joystick axis path: a sub-threshold reading
+			// isn't a release unless the button was actually held
+			if (!pressed && btn != BTN_NONE && !(pad.is_pressed & btn))
+				btn = BTN_NONE;
+		} else if (event.type == SDL_CONTROLLERDEVICEADDED) {
+			// covers controllers present at startup and hot-plugged later
+			if (!gamecontroller && SDL_IsGameController(event.cdevice.which))
+				gamecontroller = SDL_GameControllerOpen(event.cdevice.which);
+		} else if (event.type == SDL_CONTROLLERDEVICEREMOVED) {
+			if (gamecontroller && event.cdevice.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(gamecontroller))) {
+				SDL_GameControllerClose(gamecontroller);
+				gamecontroller = NULL;
+			}
+		}
+#endif
+		else if (event.type == SDL_QUIT) {
 			PWR_powerOff(0);
 		} else if (event.type == SDL_JOYDEVICEADDED || event.type == SDL_JOYDEVICEREMOVED) {
 			PAD_update(&event);

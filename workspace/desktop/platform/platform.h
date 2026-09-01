@@ -9,6 +9,14 @@
 
 ///////////////////////////////
 
+// Desktop-only: use SDL's normalized SDL_GameController API for external
+// controllers (Xbox/PS/Switch/8BitDo). Gates the game-controller poll path in
+// the shared api.c so device platforms (which have their own platform.h and
+// drive their built-in pad through raw SDL_Joystick) compile it out entirely.
+#define HAS_GAMECONTROLLER 1
+
+///////////////////////////////
+
 #define BUTTON_UP BUTTON_NA
 #define BUTTON_DOWN BUTTON_NA
 #define BUTTON_LEFT BUTTON_NA
