@@ -22,6 +22,7 @@ cp -R "$ROOT/skeleton/SYSTEM/res/." "$SYS/res"
 cp "$ROOT/workspace/all/nextui/build/desktop/nextui.elf" "$SYS/bin/"
 cp "$ROOT/workspace/all/minarch/build/desktop/minarch.elf" "$SYS/bin/"
 install -m 0755 "$ROOT/scripts/desktop/check-update.sh" "$SYS/bin/"
+install -m 0755 "$ROOT/scripts/desktop/self-update.sh" "$SYS/bin/"
 for c in gambatte mgba; do
 	cp "$ROOT/workspace/desktop/cores/output/${c}_libretro.so" "$SYS/cores/"
 done
