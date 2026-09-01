@@ -2,7 +2,7 @@
 # Assemble NXRedux.app from built desktop artifacts. Run via: make package-macos
 set -eu
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-TAG="$(cd "$ROOT" && git describe --tags --abbrev=0 2>/dev/null || echo untagged)"
+TAG="${TAG:-$(cd "$ROOT" && git describe --tags --abbrev=0 2>/dev/null || echo untagged)}"
 HASH="$(cd "$ROOT" && git rev-parse --short HEAD)"
 STAGE="$ROOT/build/desktop-macos"
 APP="$STAGE/NXRedux.app"
