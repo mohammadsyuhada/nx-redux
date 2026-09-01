@@ -2353,6 +2353,21 @@ void PLAT_GL_Swap() {
 
 	SDL_GL_MakeCurrent(vid.window, vid.gl_context);
 
+#if defined(HAS_RUNTIME_PATHS)
+	// Desktop runs this game GL context on the SAME window as the SDL_Renderer
+	// that draws the menu/UI. The clear cadence far above runs BEFORE this
+	// MakeCurrent, so on desktop it lands on whatever context was current (the
+	// menu's SDL_Renderer GL context) and never touches the game framebuffer --
+	// which is why the last menu frame (top bar + hint bar) stays composited
+	// around the letterboxed game after the menu closes. Now that the game
+	// context is current, clear ITS default framebuffer to OPAQUE black every
+	// frame so the border is solid and nothing ghosts. Device has a single
+	// surface plus a bezel overlay, so this is desktop-only.
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+#endif
+
 	static GLuint effect_tex = 0;
 	static int effect_w = 0, effect_h = 0;
 	static GLuint overlay_tex = 0;
