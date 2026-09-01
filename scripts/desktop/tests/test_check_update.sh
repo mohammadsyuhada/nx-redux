@@ -20,6 +20,7 @@ EOF
 python3 "$TMP/srv.py" & SRV=$!
 sleep 1
 export NXREDUX_UPDATE_BASE=http://127.0.0.1:8901
+export NXREDUX_ALLOW_INSECURE_UPDATE=1 # dummy server is http; opt into the debug escape hatch
 
 OUT="$("$HERE/../check-update.sh" v1.0.0)" || { echo "FAIL: expected update"; exit 1; }
 TAG="$(printf '%s' "$OUT" | cut -f1)"; URL="$(printf '%s' "$OUT" | cut -f2)"
@@ -32,4 +33,10 @@ set +e
 "$HERE/../check-update.sh" v9.9.9; rc=$?
 set -e
 [ "$rc" -eq 1 ] || { echo "FAIL: same tag must exit 1 (got $rc)"; exit 1; }
+
+set +e
+env -u NXREDUX_ALLOW_INSECURE_UPDATE "$HERE/../check-update.sh" v1.0.0; rc=$?
+set -e
+[ "$rc" -eq 2 ] || { echo "FAIL: http base without escape hatch must exit 2 (got $rc)"; exit 1; }
+
 echo "test_check_update: OK"
