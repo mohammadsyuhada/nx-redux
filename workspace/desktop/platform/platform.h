@@ -39,23 +39,28 @@
 
 // see https://wiki.libsdl.org/SDL2/SDL_Scancode
 
+// Values are SDL2 scancodes. Layout mirrors RetroArch's default keyboard
+// binds so it's familiar to emulator users: arrows = d-pad, face buttons on
+// the Z/X/A/S cluster, shoulders on Q/W/E/R, Enter = Start, Right Shift =
+// Select. MENU (Space) opens the in-game menu; the handheld's POWER maps to
+// Backspace (little effect on desktop).
 #define CODE_UP 82	  // Up Arrow
 #define CODE_DOWN 81  // Down Arrow
 #define CODE_LEFT 80  // Left Arrow
 #define CODE_RIGHT 79 // Right Arrow
 
-#define CODE_SELECT 53 // ^
-#define CODE_START 40  // Return
+#define CODE_SELECT 229 // Right Shift
+#define CODE_START 40	// Return
 
-#define CODE_A 22 // S
-#define CODE_B 4  // A
-#define CODE_X 26 // W
-#define CODE_Y 20 // Q
+#define CODE_A 27 // X
+#define CODE_B 29 // Z
+#define CODE_X 22 // S
+#define CODE_Y 4  // A
 
-#define CODE_L1 43 // Tab
-#define CODE_R1 CODE_NA
-#define CODE_L2 CODE_NA
-#define CODE_R2 CODE_NA
+#define CODE_L1 20 // Q
+#define CODE_R1 26 // W
+#define CODE_L2 8  // E
+#define CODE_R2 21 // R
 #define CODE_L3 CODE_NA
 #define CODE_R3 CODE_NA
 
