@@ -206,7 +206,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install dependencies
-        run: brew install gcc make sdl2 sdl2_image sdl2_ttf sqlite libsamplerate dylibbundler cmake
+        run: brew install gcc make sdl2 sdl3 sdl2_image sdl2_ttf sqlite libsamplerate dylibbundler cmake
 
       - name: Package
         run: make package-macos BUILD_TAG=${{ needs.prepare.outputs.next-tag }}

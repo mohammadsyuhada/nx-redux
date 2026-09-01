@@ -79,6 +79,19 @@ for exe in "$SYS/bin/nextui.elf" "$SYS/bin/minarch.elf"; do
 		-s "$STAGE/tmp"
 done
 
+# Homebrew's "sdl2" is sdl2-compat: a shim with NO SDL3 in its load commands —
+# it dlopen()s "@loader_path/libSDL3.dylib" at runtime. dylibbundler only walks
+# load-command dependencies (otool -L), so it never sees or copies SDL3, and the
+# bundled app dies at SDL_Init with "Failed loading SDL3 library." (The dev-tree
+# binary is unaffected: its shim finds SDL3 via /opt/homebrew/lib.) SDL3 links
+# only system frameworks, so a plain copy into Frameworks/ — the shim's
+# @loader_path — is a complete fix. Keep its valid signature; re-sign ad-hoc as
+# a backstop so an arm64 sig check can never reject it.
+SDL3_SRC="$(brew --prefix sdl3 2>/dev/null)/lib/libSDL3.0.dylib"
+[ -f "$SDL3_SRC" ] || { echo "error: SDL3 not found ($SDL3_SRC); run: brew install sdl3" >&2; exit 1; }
+cp "$SDL3_SRC" "$APP/Contents/Frameworks/libSDL3.dylib"
+codesign --force --sign - "$APP/Contents/Frameworks/libSDL3.dylib" 2>/dev/null || true
+
 mkdir -p "$ROOT/releases"
 OUT="$ROOT/releases/NXRedux-$TAG-macos-arm64.zip"
 rm -f "$OUT"
