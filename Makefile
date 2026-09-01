@@ -99,8 +99,16 @@ build:
 package-macos: # macOS desktop bundle (arm64, unsigned); needs brew deps + gmake
 	./scripts/desktop/setup-macos-toolchain.sh
 	cd workspace/desktop/libmsettings && $(MAKE) build CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux
+	# workspace/all/minarch/libchdr/build/desktop and workspace/desktop/cores/src/{gambatte,mgba}
+	# are shared, bind-mount-visible paths a local `make package-linux` (docker) run may have
+	# left populated with ELF objects; libchdr's build rule keys off an order-only directory
+	# prereq (see package-appimage.sh), so a stale .so there is silently reused instead of
+	# rebuilt. Clean both before building so a local macOS build is coherent regardless of
+	# what ran here before it; harmless no-op on a fresh tree.
+	rm -rf workspace/all/minarch/libchdr/build/desktop
 	cd workspace/all/nextui && $(MAKE) PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin BUILD_TAG=$(BUILD_TAG)
 	cd workspace/all/minarch && $(MAKE) PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin
+	cd workspace/desktop/cores && gmake clean-gambatte clean-mgba PLATFORM=desktop 2>/dev/null || true
 	cd workspace/desktop/cores && gmake gambatte mgba PLATFORM=desktop
 	TAG=$(BUILD_TAG) ./scripts/desktop/package-macos.sh
 

@@ -194,6 +194,9 @@ jobs:
     needs:
       - prepare
     runs-on: macos-14 # arm64
+    # Desktop artifacts are additive to the primary (device) release; a flaky
+    # macOS runner must never block the tag push / hardware release.
+    continue-on-error: true
     env:
       BUILD_TAG: ${{ needs.prepare.outputs.next-tag }}
     steps:
@@ -223,6 +226,9 @@ jobs:
     needs:
       - prepare
     runs-on: ubuntu-24.04 # amd64: compose runs without emulation
+    # Desktop artifacts are additive to the primary (device) release; a flaky
+    # Docker/AppImage step must never block the tag push / hardware release.
+    continue-on-error: true
     env:
       BUILD_TAG: ${{ needs.prepare.outputs.next-tag }}
     steps:
