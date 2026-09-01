@@ -1370,6 +1370,12 @@ static int run_detail(AddonEntry* e) {
 			}
 			dirty = true;
 		}
+		// X/UNINSTALL is guarded on installed[0] only (not compatible): in
+		// SP1 no incompatible entry can ever reach the installed state, so
+		// this branch is unreachable for them. SP2 (desktop-installable
+		// entries) must decide what happens to an entry whose tag flips to
+		// incompatible while installed — keep uninstall available, or block
+		// it to match the hidden hint — before this assumption is relied on.
 		if (PAD_justPressed(BTN_X) && e->installed[0]) {
 			if (run_confirm_dialog("Uninstall?",
 								   "Saves and ROMs are kept - reinstall to play again.")) {

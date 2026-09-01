@@ -28,6 +28,14 @@ int main(void) {
 	assert(xtras_platform_compatible("tg5040 tg5050 macos linux", "desktop", "macos"));
 	// whitespace tolerance
 	assert(xtras_platform_compatible("  tg5040   tg5050  ", "tg5050", ""));
+	// exact-match guard (span_eq strlen==n): a token that is a prefix or a
+	// proper superstring of plat must NOT match.
+	assert(!xtras_platform_compatible("tg50", "tg5040", ""));
+	assert(!xtras_platform_compatible("tg5040", "tg5", ""));
+	// a tab is tolerated as a token separator (not just a space)
+	assert(xtras_platform_compatible("tg5040\ttg5050", "tg5050", ""));
+	// matching is case-sensitive
+	assert(!xtras_platform_compatible("DESKTOP", "desktop", "macos"));
 	printf("test_xtras_compat: OK\n");
 	return 0;
 }
