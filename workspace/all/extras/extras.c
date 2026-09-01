@@ -163,8 +163,8 @@ static bool read_line_file(const char* path, char* out, int out_size) {
 	return out[0] != '\0';
 }
 
-// Installed-version record, written by install.sh to XTRAS_STATE_DIR. Falls
-// back to the legacy pre-update-tracking marker (.nx_addon_version inside
+// Installed-version record, written by install.sh to the xtras state dir.
+// Falls back to the legacy pre-update-tracking marker (.nx_addon_version inside
 // the entry's data dir) and migrates the value forward so cards installed
 // before the switch keep reading as installed; the legacy file itself is
 // left for uninstall.sh to clear (and for an older Xtras.pak to read, if
