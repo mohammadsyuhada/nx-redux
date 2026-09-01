@@ -34,12 +34,25 @@
 #define RSYNC_PID_PATH "/tmp/rsyncd.pid"
 
 // Paths to sync
-#define SAVES_PATH SDCARD_PATH "/Saves"
+// SDCARD_PATH is a runtime array (not a string literal) on desktop builds
+// (see paths.h), so it can no longer be adjacent-string-literal concatenated
+// at compile time; build the same "<SDCARD_PATH>/Saves" path with snprintf
+// instead (byte-identical to the old macro on device).
+static const char* saves_path(void) {
+	static char buf[MAX_PATH];
+	snprintf(buf, sizeof(buf), "%s/Saves", SDCARD_PATH);
+	return buf;
+}
 #define SHARED_DATA_PATH SHARED_USERDATA_PATH
 // ROMS_PATH already defined in defines.h
 
 // rsync binary path (shared across platforms)
-#define RSYNC_BIN SHARED_BIN_PATH "/rsync"
+// SHARED_BIN_PATH is likewise a runtime array on desktop -- same fix as above.
+static const char* rsync_bin_path(void) {
+	static char buf[MAX_PATH];
+	snprintf(buf, sizeof(buf), "%s/rsync", SHARED_BIN_PATH);
+	return buf;
+}
 
 // Log buffer for terminal-like display
 #define LOG_MAX_LINES 20
@@ -409,7 +422,7 @@ static void write_rsync_config(void) {
 	fprintf(fp, "  path = %s\n", SHARED_DATA_PATH);
 	fprintf(fp, "  read only = no\n\n");
 	fprintf(fp, "[saves]\n");
-	fprintf(fp, "  path = %s\n", SAVES_PATH);
+	fprintf(fp, "  path = %s\n", saves_path());
 	fprintf(fp, "  read only = no\n\n");
 	fprintf(fp, "[roms]\n");
 	fprintf(fp, "  path = %s\n", ROMS_PATH);
@@ -419,13 +432,13 @@ static void write_rsync_config(void) {
 }
 
 static int start_rsync_daemon(void) {
-	if (access(RSYNC_BIN, X_OK) != 0)
+	if (access(rsync_bin_path(), X_OK) != 0)
 		return -1;
 
 	write_rsync_config();
 
 	char cmd[512];
-	snprintf(cmd, sizeof(cmd), "%s --daemon --config=%s", RSYNC_BIN, RSYNC_CONF_PATH);
+	snprintf(cmd, sizeof(cmd), "%s --daemon --config=%s", rsync_bin_path(), RSYNC_CONF_PATH);
 	int ret = system(cmd);
 	if (ret != 0)
 		return -1;
@@ -527,27 +540,27 @@ static int run_rsync_phase(int phase) {
 	switch (phase) {
 	case 1:
 		snprintf(cmd, sizeof(cmd), "%s %s %s %s/ rsync://%s:%d/shared/ 2>&1",
-				 RSYNC_BIN, rsync_opts, shared_excludes, SHARED_DATA_PATH, peer_ip, SYNC_RSYNC_PORT);
+				 rsync_bin_path(), rsync_opts, shared_excludes, SHARED_DATA_PATH, peer_ip, SYNC_RSYNC_PORT);
 		break;
 	case 2:
 		snprintf(cmd, sizeof(cmd), "%s %s %s/ rsync://%s:%d/saves/ 2>&1",
-				 RSYNC_BIN, rsync_opts, SAVES_PATH, peer_ip, SYNC_RSYNC_PORT);
+				 rsync_bin_path(), rsync_opts, saves_path(), peer_ip, SYNC_RSYNC_PORT);
 		break;
 	case 3:
 		snprintf(cmd, sizeof(cmd), "%s %s %s rsync://%s:%d/shared/ %s/ 2>&1",
-				 RSYNC_BIN, rsync_opts, shared_excludes, peer_ip, SYNC_RSYNC_PORT, SHARED_DATA_PATH);
+				 rsync_bin_path(), rsync_opts, shared_excludes, peer_ip, SYNC_RSYNC_PORT, SHARED_DATA_PATH);
 		break;
 	case 4:
 		snprintf(cmd, sizeof(cmd), "%s %s rsync://%s:%d/saves/ %s/ 2>&1",
-				 RSYNC_BIN, rsync_opts, peer_ip, SYNC_RSYNC_PORT, SAVES_PATH);
+				 rsync_bin_path(), rsync_opts, peer_ip, SYNC_RSYNC_PORT, saves_path());
 		break;
 	case 5:
 		snprintf(cmd, sizeof(cmd), "%s %s %s/ rsync://%s:%d/roms/ 2>&1",
-				 RSYNC_BIN, rsync_opts, ROMS_PATH, peer_ip, SYNC_RSYNC_PORT);
+				 rsync_bin_path(), rsync_opts, ROMS_PATH, peer_ip, SYNC_RSYNC_PORT);
 		break;
 	case 6:
 		snprintf(cmd, sizeof(cmd), "%s %s rsync://%s:%d/roms/ %s/ 2>&1",
-				 RSYNC_BIN, rsync_opts, peer_ip, SYNC_RSYNC_PORT, ROMS_PATH);
+				 rsync_bin_path(), rsync_opts, peer_ip, SYNC_RSYNC_PORT, ROMS_PATH);
 		break;
 	default:
 		return -1;
@@ -595,7 +608,7 @@ static void* sync_thread_func(void* arg) {
 	(void)arg;
 
 	mkdir_p(SHARED_DATA_PATH);
-	mkdir_p(SAVES_PATH);
+	mkdir_p(saves_path());
 	if (sync_roms)
 		mkdir_p(ROMS_PATH);
 
@@ -1020,6 +1033,7 @@ static void render_screen(void) {
 int main(int argc, char* argv[]) {
 	(void)argc;
 	(void)argv;
+	PATHS_init(PLATFORM);
 
 	screen = GFX_init(MODE_MAIN);
 	UI_showSplashScreen(screen, "Device Sync");
