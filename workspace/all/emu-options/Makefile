@@ -26,7 +26,14 @@ SOURCE = options.c opts_override.c opts_minarch.c \
          ../common/emu_overlay_cfg.c ../common/cjson/cJSON.c \
          ../common/utils.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/config.c ../common/scaler.c \
          $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c \
+         ../common/paths.c \
          ../../$(PLATFORM)/platform/platform.c
+
+# Desktop's platform.c backs PLAT_wifiConnected with a real reachability probe
+# (device platform.c doesn't; it uses generic_wifi.c) -- desktop-only source.
+ifeq ($(PLATFORM), desktop)
+SOURCE += ../common/desktop_probe.c
+endif
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS  += $(OPT)

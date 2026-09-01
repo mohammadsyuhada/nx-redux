@@ -607,6 +607,8 @@ static void save_edits(bool per_game, const char* ini_path, const char* override
 //////////////////////////////////
 
 int main(int argc, char* argv[]) {
+	PATHS_init(PLATFORM);
+
 	const char* json_path = NULL;
 	const char* ini_path = NULL;
 	const char* override_path = NULL;
