@@ -95,6 +95,9 @@ mkdir -p "$APPDIR/usr/system/shared" "$APPDIR/usr/system/res"
 cp -R skeleton/SYSTEM/shared/. "$APPDIR/usr/system/shared"
 cp -R skeleton/SYSTEM/res/.    "$APPDIR/usr/system/res"
 cp -R skeleton/BASE            "$APPDIR/usr/base-skeleton"
+# Flatten resolution-variant assets (overlays -> 768p, bg -> 1024) to match
+# what the device build ships for Brick; desktop renders at 1024x768.
+sh scripts/desktop/flatten-base.sh "$APPDIR/usr/base-skeleton"
 cp workspace/all/nextui/build/desktop/nextui.elf   "$APPDIR/usr/system/bin/"
 cp workspace/all/minarch/build/desktop/minarch.elf "$APPDIR/usr/system/bin/"
 install -m 0755 scripts/desktop/check-update.sh "$APPDIR/usr/system/bin/"

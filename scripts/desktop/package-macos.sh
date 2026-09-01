@@ -103,6 +103,9 @@ done
 
 # base skeleton + entry + metadata
 cp -R "$ROOT/skeleton/BASE" "$APP/Contents/Resources/base-skeleton"
+# Flatten resolution-variant assets (overlays -> 768p, bg -> 1024) to match
+# what the device build ships for Brick; desktop renders at 1024x768.
+sh "$ROOT/scripts/desktop/flatten-base.sh" "$APP/Contents/Resources/base-skeleton"
 cp "$ROOT/scripts/desktop/entry-common.sh" "$APP/Contents/Resources/"
 install -m 0755 "$ROOT/scripts/desktop/macos-entry.sh" "$APP/Contents/MacOS/NXRedux"
 sed -e "s/@VERSION@/$TAG/" -e "s/@HASH@/$HASH/" \
