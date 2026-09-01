@@ -28,5 +28,8 @@ case "$URL" in
 	*/releases/download/v9.9.9/NXRedux-v9.9.9-*) : ;;
 	*) echo "FAIL: url=$URL"; exit 1 ;;
 esac
-"$HERE/../check-update.sh" v9.9.9 && { echo "FAIL: same tag must exit 1"; exit 1; }
+set +e
+"$HERE/../check-update.sh" v9.9.9; rc=$?
+set -e
+[ "$rc" -eq 1 ] || { echo "FAIL: same tag must exit 1 (got $rc)"; exit 1; }
 echo "test_check_update: OK"
