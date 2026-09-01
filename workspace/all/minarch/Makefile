@@ -28,6 +28,12 @@ SOURCE = $(TARGET).c ma_game.c ma_cheats.c ma_saves.c ma_rewind.c ma_config.c ma
          ma_opts_schema.c ma_opts_dump.c ../common/cjson/cJSON.c \
          ../common/scaler.c ../common/utils.c ../common/config.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/notification.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c ../../$(PLATFORM)/platform/platform.c ../netplay/netplay.c ../netplay/gbalink.c ../netplay/gblink.c ../netplay/network_common.c ../netplay/netplay_helper.c ../netplay/netplay_boot.c ../common/paths.c
 
+# Desktop's platform.c backs PLAT_wifiConnected with a real reachability probe
+# (device platform.c doesn't; it uses generic_wifi.c) -- desktop-only source.
+ifeq ($(PLATFORM), desktop)
+SOURCE += ../common/desktop_probe.c
+endif
+
 # RA support
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050 my355 desktop))
 # RA source files

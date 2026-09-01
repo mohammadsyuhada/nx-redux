@@ -19,6 +19,8 @@
 
 #include "scaler.h"
 
+#include "desktop_probe.h"
+
 #include <dirent.h>
 
 void PLAT_initInput(void) {
@@ -96,7 +98,11 @@ void PLAT_getOsVersionInfo(char* output_str, size_t max_len) {
 }
 
 ConnectionStrength PLAT_connectionStrength(void) {
-	return SIGNAL_STRENGTH_HIGH;
+	// Desktop has no RSSI to report -- reuse the cached reachability probe
+	// (below) to at least make the menu-bar icon track real connectivity
+	// instead of always reading "connected". PLAT_wifiEnabled() is always
+	// true here, so there's no OFF case to represent.
+	return PLAT_wifiConnected() ? SIGNAL_STRENGTH_HIGH : SIGNAL_STRENGTH_DISCONNECTED;
 }
 
 /////////////////////////////////
@@ -231,7 +237,7 @@ bool PLAT_hasWifi() {
 	return true;
 }
 bool PLAT_wifiEnabled() {
-	return true;
+	return true; // host always has a network stack
 }
 void PLAT_wifiEnable(bool on) {}
 
@@ -248,7 +254,19 @@ int PLAT_wifiScan(struct WIFI_network* networks, int max) {
 	return 5;
 }
 bool PLAT_wifiConnected() {
-	return true;
+	// Cached reachability probe — the menu bar polls this every frame, so an
+	// un-cached probe would open a socket per frame.
+	static uint32_t checked_at = 0;
+	static bool cached = false;
+	uint32_t now = SDL_GetTicks();
+	if (checked_at == 0 || now - checked_at > 3000) {
+		const char* host = getenv("NXREDUX_PROBE_HOST");
+		const char* ports = getenv("NXREDUX_PROBE_PORT");
+		cached = desktop_probe_reachable(host && *host ? host : "1.1.1.1",
+										 ports && *ports ? atoi(ports) : 53, 1000);
+		checked_at = now;
+	}
+	return cached;
 }
 int PLAT_wifiConnection(struct WIFI_connection* connection_info) {
 	connection_info->freq = 2400;
