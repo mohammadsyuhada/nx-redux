@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "content.h"
+#include "desktop_update.h"
 #include "display_helper.h"
 #include "gamelist.h"
 #include "gameswitcher.h"
@@ -120,6 +121,7 @@ int main(int argc, char* argv[]) {
 
 	bootStamp("start");
 	InitSettings();
+	DesktopUpdate_startCheck();
 
 	screen = GFX_init(MODE_MAIN);
 	bootStamp("after gfx init");
@@ -198,6 +200,7 @@ int main(int argc, char* argv[]) {
 		}
 
 		PWR_update(&dirty, &show_setting, NULL, NULL);
+		DesktopUpdate_offerIfReady(screen);
 
 		if (UI_statusBarChanged())
 			dirty = true;

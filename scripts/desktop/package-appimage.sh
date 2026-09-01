@@ -60,7 +60,7 @@ rm -rf "$ROOT/workspace/all/minarch/libchdr/build/desktop"
 
 # 1. build (native Linux: CROSS_COMPILE=/usr/bin/, PREFIX=/usr as Makefile.native's Linux branch does)
 make -C workspace/desktop/libmsettings build CROSS_COMPILE=/usr/bin/ PREFIX=/usr PREFIX_LOCAL=/var/tmp/nxredux
-make -C workspace/all/nextui PLATFORM=desktop CROSS_COMPILE=/usr/bin/ PREFIX=/usr PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Linux
+make -C workspace/all/nextui PLATFORM=desktop CROSS_COMPILE=/usr/bin/ PREFIX=/usr PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Linux BUILD_TAG="$TAG"
 make -C workspace/all/minarch PLATFORM=desktop CROSS_COMPILE=/usr/bin/ PREFIX=/usr PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Linux
 
 # Core src/ dirs (workspace/desktop/cores/src/<core>) are shared with the
