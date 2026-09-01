@@ -190,9 +190,66 @@ jobs:
         with:
           subject-path: releases/*.zip
 
+  desktop-macos:
+    needs:
+      - prepare
+    runs-on: macos-14 # arm64
+    env:
+      BUILD_TAG: ${{ needs.prepare.outputs.next-tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: brew install gcc make sdl2 sdl2_image sdl2_ttf sqlite libsamplerate dylibbundler cmake
+
+      - name: Package
+        run: make package-macos BUILD_TAG=${{ needs.prepare.outputs.next-tag }}
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: release-artifacts-macos
+          path: releases/*.zip
+
+      - name: Attest Build Provenance
+        uses: actions/attest-build-provenance@v3.2.0
+        with:
+          subject-path: releases/*.zip
+
+  desktop-linux:
+    needs:
+      - prepare
+    runs-on: ubuntu-24.04 # amd64: compose runs without emulation
+    env:
+      BUILD_TAG: ${{ needs.prepare.outputs.next-tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Package
+        run: make package-linux BUILD_TAG=${{ needs.prepare.outputs.next-tag }}
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: release-artifacts-linux
+          path: releases/*.AppImage
+
+      - name: Attest Build Provenance
+        uses: actions/attest-build-provenance@v3.2.0
+        with:
+          subject-path: releases/*.AppImage
+
   release:
     needs:
       - build
+      - desktop-macos
+      - desktop-linux
       - prepare
     runs-on: ubuntu-24.04-arm
     steps:
@@ -205,7 +262,7 @@ jobs:
         uses: actions/download-artifact@v7.0.0
         with:
           path: releases/
-          pattern: release-artifacts
+          pattern: release-artifacts*
           merge-multiple: true
 
       - name: Create and Push Tag
