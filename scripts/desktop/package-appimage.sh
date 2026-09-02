@@ -56,6 +56,16 @@ rm -rf "$STAGE"; mkdir -p "$APPDIR/usr/system/bin" "$APPDIR/usr/system/cores" "$
 cp -R skeleton/SYSTEM/desktop/. "$APPDIR/usr/system"
 mkdir -p "$APPDIR/usr/system/shared" "$APPDIR/usr/system/res"
 cp -R skeleton/SYSTEM/shared/. "$APPDIR/usr/system/shared"
+# The shared skeleton vendors DEVICE (aarch64) binaries: dead weight on
+# x86_64, and their presence defeats vendored-tool existence checks
+# (access(X_OK) passes, exec fails — this is how Device Sync hung on
+# 'waiting'). Strip them and ship the distro's rsync instead (Device Sync
+# hosts an rsync daemon on both ends; its libs ride the ldd sweep below).
+for dead in 7zzs.aarch64 ffplay rsync wget taskset yt-dlp yt-dlp.old yt-dlp_version.txt; do
+	rm -f "$APPDIR/usr/system/shared/bin/$dead"
+done
+command -v rsync >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq rsync; }
+cp "$(command -v rsync)" "$APPDIR/usr/system/shared/bin/rsync"
 cp -R skeleton/SYSTEM/res/.    "$APPDIR/usr/system/res"
 # version.txt: same 3-line format the device Makefile ships (release name /
 # hash / tag) — the Settings About page derives its version + release date
@@ -97,7 +107,7 @@ convert skeleton/SYSTEM/res/logo.png -resize 256x256 "$APPDIR/nxredux.png"
 
 # 3. shared-lib closure (transparent ldd sweep; glibc family excluded)
 EXCL='ld-linux|libc\.so|libm\.so|libpthread|libdl\.so|librt\.so|libresolv|libnsl'
-for bin in "$APPDIR"/usr/system/bin/*.elf "$APPDIR"/usr/system/cores/*.so "$APPDIR"/usr/system/paks/Tools/*/*.elf; do
+for bin in "$APPDIR"/usr/system/bin/*.elf "$APPDIR"/usr/system/cores/*.so "$APPDIR"/usr/system/paks/Tools/*/*.elf "$APPDIR"/usr/system/shared/bin/rsync; do
 	ldd "$bin" 2>/dev/null | awk '/=> \//{print $3}' | grep -Ev "$EXCL" | while read -r lib; do
 		cp -n "$lib" "$APPDIR/usr/lib/" || true
 	done

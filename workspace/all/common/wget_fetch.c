@@ -18,10 +18,15 @@ static const char* wget_bin_path(void) {
 	return path;
 }
 
-// Device zips vendor a wget there; desktop packages ship none (an ARM build
-// couldn't run anyway), so fall back to the host's curl — present on macOS
-// out of the box and on virtually every desktop distro.
+// Device zips vendor a wget there; desktop uses the host's curl — present on
+// macOS out of the box and on virtually every desktop distro. Desktop must
+// NEVER trust an existence check here: the skeleton copied into desktop
+// packages (and the dev fake SD card) can carry the DEVICE'S aarch64 wget,
+// which passes access(X_OK) but cannot exec on the host.
 static int have_vendored_wget(void) {
+#if defined(HAS_RUNTIME_PATHS)
+	return 0;
+#else
 	static int checked = 0;
 	static int have = 0;
 	if (!checked) {
@@ -29,6 +34,7 @@ static int have_vendored_wget(void) {
 		have = access(wget_bin_path(), X_OK) == 0;
 	}
 	return have;
+#endif
 }
 
 // Escape a string for use inside single quotes in shell commands.

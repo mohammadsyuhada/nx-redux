@@ -19,6 +19,19 @@ mkdir -p "$SYS/shared" "$SYS/res" "$SYS/bin" "$SYS/cores"
 cp -R "$ROOT/skeleton/SYSTEM/shared/." "$SYS/shared"
 cp -R "$ROOT/skeleton/SYSTEM/res/." "$SYS/res"
 
+# The shared skeleton vendors DEVICE (aarch64 Linux) binaries. They can't run
+# here, and worse, their mere presence defeats "is the vendored tool there?"
+# checks (access(X_OK) passes, exec fails silently — this is how Device Sync
+# hung on 'waiting'). Strip them; shell scripts stay. A native rsync is put
+# back below (Device Sync hosts an rsync daemon; macOS's own openrsync has no
+# --daemon mode).
+for dead in 7zzs.aarch64 ffplay rsync wget taskset yt-dlp yt-dlp.old yt-dlp_version.txt; do
+	rm -f "$SYS/shared/bin/$dead"
+done
+RSYNC_SRC="$(brew --prefix rsync 2>/dev/null)/bin/rsync"
+[ -x "$RSYNC_SRC" ] || { echo "error: brew rsync not found; run: brew install rsync" >&2; exit 1; }
+cp "$RSYNC_SRC" "$SYS/shared/bin/rsync"
+
 # version.txt: same 3-line format the device Makefile ships (release name /
 # hash / tag) — the Settings About page derives its version + release date
 # from it and shows blanks when it's missing.
@@ -139,6 +152,14 @@ for exe in "$SYS/bin/nextui.elf" "$SYS/bin/minarch.elf" "$GAMETIMECTL_BIN_ELF"; 
 		-s /opt/homebrew/lib -s /var/tmp/nxredux/lib \
 		-s "$STAGE/tmp"
 done
+
+# rsync (Device Sync's daemon+client, copied into shared/bin above) links its
+# own brew dylibs (popt, lz4, zstd, xxhash, openssl). Give it an ISOLATED
+# pool: reusing Contents/Frameworks would make dylibbundler rewrite install
+# names already baked in for the bin/ pool at a different path depth.
+dylibbundler -of -cd -b -x "$SYS/shared/bin/rsync" \
+	-d "$SYS/shared/Frameworks" -p '@executable_path/../Frameworks/' \
+	-s /opt/homebrew/lib
 
 # Tools paks get their OWN Frameworks pool, sibling to the *.pak dirs
 # (paks/Tools/Frameworks/) — NOT a second -p depth into Contents/Frameworks.

@@ -138,6 +138,16 @@ static int get_own_ip(void) {
 	if (getifaddrs(&ifaddr) == -1)
 		return -1;
 
+	// Virtual interfaces a desktop host may carry (VPN tunnels, VM/container
+	// bridges, Apple's peer-to-peer links). Advertising one of their
+	// addresses in the discovery payload sends the peer's READY/rsync
+	// traffic somewhere unreachable — the peer then waits forever. The old
+	// loop kept the LAST interface unless it hit "wlan0" (a device name), so
+	// on a Mac with OrbStack it advertised the NAT bridge.
+	static const char* virtual_prefixes[] = {
+		"utun", "bridge", "awdl", "llw", "vmnet", "docker",
+		"veth", "tap", "tun", "zt", "p2p", NULL};
+
 	int found = 0;
 	for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
 		if (ifa->ifa_addr == NULL)
@@ -147,6 +157,17 @@ static int get_own_ip(void) {
 		if (!(ifa->ifa_flags & IFF_UP))
 			continue;
 		if (ifa->ifa_flags & IFF_LOOPBACK)
+			continue;
+
+		int is_virtual = 0;
+		for (int v = 0; virtual_prefixes[v]; v++) {
+			if (strncmp(ifa->ifa_name, virtual_prefixes[v],
+						strlen(virtual_prefixes[v])) == 0) {
+				is_virtual = 1;
+				break;
+			}
+		}
+		if (is_virtual)
 			continue;
 
 		struct sockaddr_in* sa = (struct sockaddr_in*)ifa->ifa_addr;
@@ -164,8 +185,8 @@ static int get_own_ip(void) {
 
 		found = 1;
 
-		if (strcmp(ifa->ifa_name, "wlan0") == 0)
-			break;
+		// First real interface wins (wlan0 on devices, en0/eth0 on desktops).
+		break;
 	}
 
 	freeifaddrs(ifaddr);
