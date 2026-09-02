@@ -10,11 +10,14 @@ SYSTEM_PATH="$SDCARD_PATH/.system"
 export LD_LIBRARY_PATH=/usr/trimui/lib:$LD_LIBRARY_PATH
 export PATH=/usr/trimui/bin:$PATH
 
-TRIMUI_MODEL=`strings /usr/trimui/bin/MainUI | grep ^Trimui`
-if [ "$TRIMUI_MODEL" = "Trimui Brick" ]; then
-	DEVICE="brick"
-elif [ "$TRIMUI_MODEL" = "Trimui Brick Pro" ]; then
+if [ -f "$SDCARD_PATH/tg5040-brickpro" ]; then
 	DEVICE="brickpro"
+elif [ -f "$SDCARD_PATH/tg5040-brick" ]; then
+	DEVICE="brick"
+else
+	TRIMUI_MODEL=$(strings /usr/trimui/bin/MainUI | grep '^Trimui')
+	[ "$TRIMUI_MODEL" = "Trimui Brick" ] && DEVICE="brick"
+	[ "$TRIMUI_MODEL" = "Trimui Brick Pro" ] && DEVICE="brickpro"
 fi
 
 # only show splash if either UPDATE_PATH or pakz files exist

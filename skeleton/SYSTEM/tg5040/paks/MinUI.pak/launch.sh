@@ -47,12 +47,15 @@ mkdir -p "$USERDATA_PATH"
 mkdir -p "$LOGS_PATH"
 mkdir -p "$SHARED_USERDATA_PATH/.minui"
 
-export TRIMUI_MODEL=`strings /usr/trimui/bin/MainUI | grep ^Trimui`
-if [ "$TRIMUI_MODEL" = "Trimui Brick" ]; then
-	export DEVICE="brick"
-elif [ "$TRIMUI_MODEL" = "Trimui Brick Pro" ]; then
+if [ -f "$SDCARD_PATH/tg5040-brickpro" ]; then
+	export TRIMUI_MODEL="Trimui Brick Pro"
 	export DEVICE="brickpro"
+elif [ -f "$SDCARD_PATH/tg5040-brick" ]; then
+	export TRIMUI_MODEL="Trimui Brick"
+	export DEVICE="brick"
 else
+	TRIMUI_MODEL=$(strings /usr/trimui/bin/MainUI | grep '^Trimui')
+	export TRIMUI_MODEL
 	export DEVICE="smartpro"
 fi
 
@@ -128,6 +131,20 @@ echo 1008000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
 
 keymon.elf & # &> $SDCARD_PATH/keymon.txt &
 
+# /etc writes below still need a writable rootfs. Do this before spawning the
+# delayed OSD and service workers so neither can race the remount.
+mount -o remount,rw /
+
+AUTO_PATH=$USERDATA_PATH/auto.sh
+AUTO_RESUME_PATH="$SHARED_USERDATA_PATH/.minui/auto_resume.txt"
+DEFER_BOOT_WORK="yes"
+if [ -f "$AUTO_PATH" ] || [ -f "$AUTO_RESUME_PATH" ]; then
+	# Preserve the historical ordering guarantees for boot hooks and auto-resume.
+	DEFER_BOOT_WORK="no"
+fi
+
+stage_osd() {
+
 # Overlay-mount the SD card's OSD tree onto /usr/trimui/osd — the SD card is
 # the source of truth for the OSD (daemon binary, assets, toast scripts,
 # every widget). trimui_osdd has /usr/trimui/osd hardcoded in the
@@ -142,10 +159,6 @@ keymon.elf & # &> $SDCARD_PATH/keymon.txt &
 # effect next boot via re-staging. Stock-only files the SD tree doesn't ship
 # (regular.ttf, the 16MB CJK font) show through from the rootfs layer
 # underneath.
-
-# /etc writes below (bt/wifi init scripts) still need a writable rootfs
-mount -o remount,rw /
-
 OSD_DST="/usr/trimui/osd"
 OSD_SRC="$SYSTEM_PATH/osd"
 # The daemon binary and its resolution-locked assets (bg.png, block*.png:
@@ -175,10 +188,26 @@ fi # end osd overlay mount
 
 # Start OSD overlay daemon (system-wide quick menu)
 if [ -x "$OSD_DST/trimui_osdd" ]; then
-	cd "$OSD_DST" && ./trimui_osdd &
+	(
+		cd "$OSD_DST" || exit 1
+		./trimui_osdd
+	) &
 fi
-cd "$SYSTEM_PATH/bin"
+}
 
+if [ "$DEFER_BOOT_WORK" = "yes" ]; then
+	(
+		sleep 2
+		if [ ! -f /tmp/poweroff ] && [ ! -f /tmp/reboot ]; then
+			stage_osd
+		fi
+	) &
+else
+	stage_osd
+fi
+cd "$SYSTEM_PATH/bin" || exit 1
+
+start_services() {
 # Ensure .asoundrc is clean at boot — /etc/asound.conf handles speaker routing.
 # audiomon will write .asoundrc when USB/BT devices connect.
 rm -f $USERDATA_PATH/.asoundrc /tmp/nx_audio_sink
@@ -212,10 +241,21 @@ sshonboot=$(nextval.elf sshOnBoot | sed -n 's/.*"sshOnBoot": \([0-9]*\).*/\1/p')
 if [ "$sshonboot" -eq 1 ]; then
 	/etc/init.d/sshd start > /dev/null 2>&1 &
 fi
+}
+
+if [ "$DEFER_BOOT_WORK" = "yes" ]; then
+	(
+		sleep 1
+		if [ ! -f /tmp/poweroff ] && [ ! -f /tmp/reboot ]; then
+			start_services
+		fi
+	) &
+else
+	start_services
+fi
 
 #######################################
 
-AUTO_PATH=$USERDATA_PATH/auto.sh
 if [ -f "$AUTO_PATH" ]; then
 	"$AUTO_PATH"
 fi
@@ -229,7 +269,9 @@ killall -9 show2.elf > /dev/null 2>&1
 
 EXEC_PATH="/tmp/nextui_exec"
 NEXT_PATH="/tmp/next"
-touch "$EXEC_PATH"  && sync
+# /tmp is volatile; a global sync cannot make this marker survive a reboot and
+# only stalls the first frame when unrelated writes are pending.
+touch "$EXEC_PATH"
 while [ -f $EXEC_PATH ]; do
 	nextui.elf &> $LOGS_PATH/nextui.txt
 
