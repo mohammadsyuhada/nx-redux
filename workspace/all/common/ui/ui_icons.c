@@ -2,8 +2,6 @@
 #include "defines.h"
 #include <SDL2/SDL_image.h>
 
-#define ICON_EMPTY_PATH RES_PATH "/icon-empty.png"
-
 static SDL_Surface* empty_icon = NULL;
 static SDL_Surface* empty_icon_inv = NULL;
 static bool empty_icon_loaded = false;
@@ -62,7 +60,9 @@ void UI_freeIconPair(SDL_Surface** original, SDL_Surface** inverted) {
 void UI_initEmptyIcon(void) {
 	if (empty_icon_loaded)
 		return;
-	UI_loadIconPair(ICON_EMPTY_PATH, &empty_icon, &empty_icon_inv);
+	char icon_empty_path[MAX_PATH];
+	snprintf(icon_empty_path, sizeof(icon_empty_path), "%s/icon-empty.png", RES_PATH);
+	UI_loadIconPair(icon_empty_path, &empty_icon, &empty_icon_inv);
 	empty_icon_loaded = true;
 }
 

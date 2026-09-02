@@ -16,7 +16,16 @@
 #define ROM_NOT_FOUND -1
 
 #define GAMETIME_LOG_PATH SHARED_USERDATA_PATH
-#define GAMETIME_LOG_FILE GAMETIME_LOG_PATH "/game_logs.sqlite"
+
+// SHARED_USERDATA_PATH is a runtime array (not a string literal) on desktop
+// builds (see paths.h), so it can no longer be adjacent-string-literal
+// concatenated at compile time; build the same path with snprintf instead
+// (byte-identical to the old macro on device).
+static char* gametime_log_file(void) {
+	static char buf[MAX_PATH];
+	snprintf(buf, sizeof(buf), "%s/game_logs.sqlite", GAMETIME_LOG_PATH);
+	return buf;
+}
 
 // A tracked stint is one contiguous awake session — sleep and returning to the UI
 // both end it via stop_all, and resume opens a fresh row — so a legitimate one never
@@ -29,14 +38,21 @@
 #define MAX_PLAUSIBLE_PLAY_TIME (24 * 60 * 60) // 86400 s = 24 h
 
 sqlite3* play_activity_db_open(void) {
+	// no-op on device; this library is its own shared object on desktop, so
+	// its copy of the PATHS_* globals (paths.c) needs its own init call --
+	// the caller's PATHS_init(PLATFORM) in main() does not reach across the
+	// dylib boundary. Idempotent: safe to call on every open.
+	PATHS_init(PLATFORM);
+
 	mkdir(GAMETIME_LOG_PATH, 0777);
-	bool db_exists = exists(GAMETIME_LOG_FILE);
+	char* log_file = gametime_log_file();
+	bool db_exists = exists(log_file);
 	if (!db_exists)
-		touch(GAMETIME_LOG_FILE);
+		touch(log_file);
 
 	sqlite3* game_log_db = NULL;
 
-	if (sqlite3_open(GAMETIME_LOG_FILE, &game_log_db) != SQLITE_OK) {
+	if (sqlite3_open(log_file, &game_log_db) != SQLITE_OK) {
 		printf("%s\n", sqlite3_errmsg(game_log_db));
 		play_activity_db_close(game_log_db);
 		return NULL;
@@ -80,7 +96,7 @@ void free_play_activities(PlayActivities* pa_ptr) {
 
 void get_rom_image_path(char* rom_file, char* out_image_path) {
 	char rom_abs[MAX_PATH];
-	snprintf(rom_abs, sizeof(rom_abs), ROMS_PATH "/%s", rom_file);
+	snprintf(rom_abs, sizeof(rom_abs), "%s/%s", ROMS_PATH, rom_file);
 	ROM_mediaArtPath(rom_abs, out_image_path, STR_MAX - 1);
 }
 
@@ -213,7 +229,9 @@ void __ensure_rel_path(char* rel_path, const char* rom_path) {
 			free(dup);
 		} else {
 			char* dup = strdup((const char*)rom_path);
-			char* replaced = replaceString2(dup, ROMS_PATH "/", "");
+			char roms_path_slash[MAX_PATH];
+			snprintf(roms_path_slash, sizeof(roms_path_slash), "%s/", ROMS_PATH);
+			char* replaced = replaceString2(dup, roms_path_slash, "");
 			strcpy(rel_path, replaced);
 			free(replaced);
 			free(dup);

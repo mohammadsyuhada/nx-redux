@@ -93,3 +93,61 @@ the way in, matching a normal launch).
       decide whether to set `startgame` in `gamelist.c` case 36.
 
 ---
+
+## Desktop: one shared window for the whole frontend (single-process rewrite)
+
+**Recorded:** 2026-09-02 (user request), after the desktop overlays / frame-pacing /
+menu-ghost work landed.
+
+On desktop, launching a game or a tool opens a **new** OS window, and exiting it
+closes that window and returns to the nextui window. Cause: the desktop frontend is
+a **loop of separate processes**, each creating its own SDL window.
+`scripts/desktop/macos-entry.sh` (and the AppImage `AppRun`, via
+`scripts/desktop/entry-common.sh`) run `nextui.elf`; opening a ROM/tool makes nextui
+write the launch command to `/tmp/next` and **exit** (nextui.c:513-515, "shell
+script reads /tmp/next only after nextui.elf exits"); the loop `eval`s that command
+(minarch or a tool pak), and when it returns runs `nextui.elf` again. Each iteration
+is a fresh process → a fresh `SDL_CreateWindow` (`workspace/all/common/generic_video.c`
+~:619, at `SDL_WINDOWPOS_UNDEFINED`). On real hardware there is one framebuffer and
+no window manager, so this is invisible — it is purely a desktop artifact of
+mirroring the device boot chain.
+
+**Goal:** nextui / minarch / every tool share ONE persistent window for a session.
+
+**Hard constraint (why this is a rewrite, not a tweak):** a window cannot be shared
+across processes on macOS — the native handle (`NSWindow*`) is a pointer into one
+process's address space and can't be handed to another process.
+`SDL_CreateWindowFrom(nativeHandle)` only works cross-process on X11 (window IDs are
+X-server resources), so even that trick is Linux-only. The only portable path to a
+literal single window is to make the frontend **one process** that loads libretro
+cores in-process (dlopen the core + run `retro_run` in the same process/window, the
+way standalone RetroArch does) instead of exec'ing a separate `minarch.elf`.
+
+**Shape of the work (large):**
+- [ ] A single desktop host process owns the SDL window (created once) and the main
+      loop; the nextui menu runs inside it, and "open ROM" loads the core as a
+      library and runs the emulation loop in the same window instead of writing
+      `/tmp/next` + exiting.
+- [ ] Decide minarch's fate on desktop: compile its core-run/UI as a library the
+      host calls in-process, or fold its loop into the host. This is the bulk of the
+      effort — minarch and nextui are separate binaries with separate main loops,
+      config systems (ma_config.c vs nextui), input, and audio setup.
+- [ ] Tools (settings/scraper/ratools/extras/... — separate pak binaries): either
+      (a) accept that tools still open their own window (partial win; games are the
+      common case), or (b) also convert tools to in-process modules (much larger).
+      Recommend (a) first.
+- [ ] Retire the `/tmp/next` handoff + the `macos-entry.sh` / `AppRun` process loop
+      for the in-process paths; keep it only for anything still spawned.
+- [ ] Weigh the cost: this forks the desktop frontend structurally from the
+      device codebase (device stays multi-process, and must).
+
+**Cheaper alternative (do this if the rewrite isn't pursued):** persist window
+position so every process opens its window at the same spot (size is already fixed
+1024x768). Today it's created at `SDL_WINDOWPOS_UNDEFINED` (generic_video.c ~:619)
+so the OS places/cascades it; reading a saved position and saving on
+`SDL_WINDOWEVENT_MOVED` (desktop-gated) makes the window stay put across
+transitions. Still a brief close->open flash at each handoff, but no jumping — reads
+as one window in place. Low risk, desktop-only, covers nextui/minarch/all tools at
+once (all go through generic_video.c). ~90% of the feel for a fraction of the effort.
+
+---

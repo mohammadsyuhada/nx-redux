@@ -1,0 +1,16 @@
+diff --git a/src/burner/libretro/Makefile b/src/burner/libretro/Makefile
+index 0f097af..fcd5dc7 100644
+--- a/src/burner/libretro/Makefile
++++ b/src/burner/libretro/Makefile
+@@ -129,9 +129,9 @@ else ifeq ($(platform), webos)
+ 
+ # OS X
+ else ifeq ($(platform), osx)
+-	TARGET := $(TARGET_NAME)_libretro.dylib
++	TARGET := $(TARGET_NAME)_libretro.so
+ 	fpic := -fPIC
+-	SHARED := -dynamiclib
++	SHARED := -shared
+ 	ifeq ($(shell uname -p),powerpc)
+ 		ENDIANNESS_DEFINES =  -DWORDS_BIGENDIAN
+ 	else

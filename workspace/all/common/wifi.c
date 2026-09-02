@@ -5,9 +5,6 @@
 #include "api.h"
 #include "wifi.h"
 
-// WiFi connection timeout (in 500ms intervals)
-#define WIFI_CONNECT_TIMEOUT_INTERVALS 10 // 5 seconds total
-
 // Optional app hook run before each "Connecting..." render, replacing the
 // default scroll-layer clear (apps may need to reset their own scroll state)
 static void (*pre_render_hook)(void) = NULL;
@@ -16,27 +13,20 @@ void Wifi_setConnectScreenHook(void (*hook)(void)) {
 	pre_render_hook = hook;
 }
 
-// Render a simple "Connecting..." screen
-static void render_connecting_screen(SDL_Surface* scr, IndicatorType show_setting) {
-	// Clear GPU scroll text layer to prevent bleeding through
+static void render_wifi_message_screen(SDL_Surface* scr, IndicatorType show_setting, const char* msg) {
 	if (pre_render_hook) {
 		pre_render_hook();
 	} else {
 		GFX_clearLayers(LAYER_SCROLLTEXT);
 	}
 	GFX_clear(scr);
-
 	int hw = scr->w;
 	int hh = scr->h;
-
-	// Center the message
-	const char* msg = "Connecting to WiFi...";
 	SDL_Surface* text = GFX_renderText(font.medium, msg, COLOR_WHITE);
 	if (text) {
 		SDL_BlitSurface(text, NULL, scr, &(SDL_Rect){(hw - text->w) / 2, (hh - text->h) / 2});
 		SDL_FreeSurface(text);
 	}
-
 	GFX_blitHardwareGroup(scr, show_setting);
 	GFX_flip(scr);
 }
@@ -46,58 +36,17 @@ bool Wifi_isConnected(void) {
 	return PLAT_wifiEnabled() && PLAT_wifiConnected();
 }
 
-// Ensure WiFi is connected, enabling if necessary
-// Returns true if connected, false otherwise
-// Shows "Connecting..." screen while waiting (if scr is not NULL)
-// Can be called from background threads with scr=NULL to skip UI rendering
 bool Wifi_ensureConnected(SDL_Surface* scr, IndicatorType show_setting) {
-	// Already connected?
-	if (Wifi_isConnected()) {
+	if (Wifi_isConnected())
 		return true;
-	}
-
-	// Only render if screen is provided (not from background thread)
+	// Never auto-enable or auto-connect networking. Inform the user and bail.
+	// Message distinguishes radio-off from on-but-not-connected so it's accurate.
 	if (scr) {
-		render_connecting_screen(scr, show_setting);
-	}
-
-	// If WiFi is disabled, enable it
-	if (!PLAT_wifiEnabled()) {
-		PLAT_wifiEnable(true);
-		// Give wpa_supplicant time to start
-		usleep(1000000); // 1 second
-	}
-
-	// Enable all saved networks (they may be disabled by select_network)
-	system("wpa_cli -p /etc/wifi/sockets -i wlan0 enable_network all > /dev/null 2>&1");
-
-	// Trigger reconnect to saved networks
-	system("wpa_cli -p /etc/wifi/sockets -i wlan0 reconnect > /dev/null 2>&1");
-
-	// Wait for connection to a known network
-	for (int i = 0; i < WIFI_CONNECT_TIMEOUT_INTERVALS; i++) {
-		if (PLAT_wifiConnected()) {
-			// Request IP via DHCP
-			system("pgrep -f udhcpc >/dev/null 2>&1 || udhcpc -i wlan0 -b 2>/dev/null &");
-			// Wait briefly for DHCP to complete
-			usleep(1500000); // 1.5 seconds
-			return true;
-		}
-		usleep(500000); // 500ms
-
-		// Keep rendering and processing events while waiting (only if screen provided)
-		if (scr) {
-			PAD_poll();
-			render_connecting_screen(scr, show_setting);
-		}
-	}
-
-	// Final check
-	if (PLAT_wifiConnected()) {
-		// Request IP via DHCP
-		system("pgrep -f udhcpc >/dev/null 2>&1 || udhcpc -i wlan0 -b 2>/dev/null &");
-		usleep(1500000); // 1.5 seconds
-		return true;
+		const char* msg = PLAT_wifiEnabled()
+							  ? "WiFi is not connected. Connect in Settings."
+							  : "WiFi is off. Enable it in Settings.";
+		render_wifi_message_screen(scr, show_setting, msg);
+		SDL_Delay(1200); // give the user a beat to read it
 	}
 	return false;
 }

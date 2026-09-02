@@ -1180,7 +1180,9 @@ void Config_init(void) {
 	// populate shader presets
 	// TODO: None option?
 	int preset_filecount;
-	char** preset_filelist = list_files_in_folder(SHADERS_FOLDER, &preset_filecount, NULL, ".cfg");
+	char shaders_folder[MAX_PATH];
+	snprintf(shaders_folder, sizeof(shaders_folder), "%s/Shaders", SDCARD_PATH);
+	char** preset_filelist = list_files_in_folder(shaders_folder, &preset_filecount, NULL, ".cfg");
 	config.shaders.options[SH_SHADERS_PRESET].values = preset_filelist;
 	config.shaders.options[SH_SHADERS_PRESET].labels = preset_filelist;
 	config.shaders.options[SH_SHADERS_PRESET].count = preset_filecount;
@@ -1189,7 +1191,9 @@ void Config_init(void) {
 	// TODO: None option?
 	// TODO: Why do we do this twice? (see OptionShaders_openMenu)
 	int filecount;
-	char** filelist = list_files_in_folder(SHADERS_FOLDER "/glsl", &filecount, NULL, NULL);
+	char shaders_glsl_dir[MAX_PATH];
+	snprintf(shaders_glsl_dir, sizeof(shaders_glsl_dir), "%s/Shaders/glsl", SDCARD_PATH);
+	char** filelist = list_files_in_folder(shaders_glsl_dir, &filecount, NULL, NULL);
 
 	config.shaders.options[SH_SHADER1].values = filelist;
 	config.shaders.options[SH_SHADER1].labels = filelist;
@@ -1204,7 +1208,7 @@ void Config_init(void) {
 	config.shaders.options[SH_SHADER3].count = filecount;
 
 	char overlaypath[MAX_PATH];
-	snprintf(overlaypath, sizeof(overlaypath), "%s/%s", OVERLAYS_FOLDER, core.tag);
+	snprintf(overlaypath, sizeof(overlaypath), "%s/Overlays/%s", SDCARD_PATH, core.tag);
 	char** overlaylist = list_files_in_folder(overlaypath, &filecount, "None", NULL);
 
 	if (overlaylist) {
@@ -1335,11 +1339,12 @@ void Config_load(void) {
 		scaling_labels[4] = NULL;
 	}
 
-	char* system_path = SYSTEM_PATH "/system.cfg";
+	char system_path[MAX_PATH];
+	snprintf(system_path, sizeof(system_path), "%s/system.cfg", SYSTEM_PATH);
 
 	char device_system_path[MAX_PATH] = {0};
 	if (config.device_tag)
-		snprintf(device_system_path, sizeof(device_system_path), SYSTEM_PATH "/system-%s.cfg", config.device_tag);
+		snprintf(device_system_path, sizeof(device_system_path), "%s/system-%s.cfg", SYSTEM_PATH, config.device_tag);
 
 	if (config.device_tag && exists(device_system_path)) {
 		config.system_cfg = allocFile(device_system_path);

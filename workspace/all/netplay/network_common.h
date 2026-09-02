@@ -71,6 +71,15 @@ typedef struct {
 void NET_getLocalIP(char* ip_out, size_t ip_size);
 
 /**
+ * Pick the LAN interface a peer can actually reach (loopback, down, and
+ * virtual VPN/VM interfaces skipped; wlan preferred, else first real one).
+ * @param ip_out Optional buffer for the interface's IPv4 (>= 16 bytes)
+ * @param bcast_out Optional buffer for its subnet-directed broadcast (>= 16)
+ * @return 0 when a usable interface was found, -1 otherwise
+ */
+int NET_getLanInfo(char* ip_out, size_t ip_size, char* bcast_out, size_t bcast_size);
+
+/**
  * Check if device has a valid network connection
  * @return true if connected (has non-0.0.0.0 IP), false otherwise
  */

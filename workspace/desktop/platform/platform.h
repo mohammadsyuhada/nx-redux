@@ -9,6 +9,14 @@
 
 ///////////////////////////////
 
+// Desktop-only: use SDL's normalized SDL_GameController API for external
+// controllers (Xbox/PS/Switch/8BitDo). Gates the game-controller poll path in
+// the shared api.c so device platforms (which have their own platform.h and
+// drive their built-in pad through raw SDL_Joystick) compile it out entirely.
+#define HAS_GAMECONTROLLER 1
+
+///////////////////////////////
+
 #define BUTTON_UP BUTTON_NA
 #define BUTTON_DOWN BUTTON_NA
 #define BUTTON_LEFT BUTTON_NA
@@ -39,23 +47,28 @@
 
 // see https://wiki.libsdl.org/SDL2/SDL_Scancode
 
+// Values are SDL2 scancodes. Layout mirrors RetroArch's default keyboard
+// binds so it's familiar to emulator users: arrows = d-pad, face buttons on
+// the Z/X/A/S cluster, shoulders on Q/W/E/R, Enter = Start, Right Shift =
+// Select. MENU (Space) opens the in-game menu; the handheld's POWER maps to
+// Backspace (little effect on desktop).
 #define CODE_UP 82	  // Up Arrow
 #define CODE_DOWN 81  // Down Arrow
 #define CODE_LEFT 80  // Left Arrow
 #define CODE_RIGHT 79 // Right Arrow
 
-#define CODE_SELECT 53 // ^
-#define CODE_START 40  // Return
+#define CODE_SELECT 229 // Right Shift
+#define CODE_START 40	// Return
 
-#define CODE_A 22 // S
-#define CODE_B 4  // A
-#define CODE_X 26 // W
-#define CODE_Y 20 // Q
+#define CODE_A 27 // X
+#define CODE_B 29 // Z
+#define CODE_X 22 // S
+#define CODE_Y 4  // A
 
-#define CODE_L1 43 // Tab
-#define CODE_R1 CODE_NA
-#define CODE_L2 CODE_NA
-#define CODE_R2 CODE_NA
+#define CODE_L1 20 // Q
+#define CODE_R1 26 // W
+#define CODE_L2 8  // E
+#define CODE_R2 21 // R
 #define CODE_L3 CODE_NA
 #define CODE_R3 CODE_NA
 
@@ -100,9 +113,15 @@
 #define BTN_WAKE BTN_POWER
 #define BTN_MOD_VOLUME BTN_NONE
 #define BTN_MOD_COLORTEMP BTN_NONE
-#define BTN_MOD_BRIGHTNESS BTN_MENU
+// No brightness modifier on desktop: the host OS owns the display, and mapping
+// it to MENU (Space) made a long-press show a useless brightness indicator.
+#define BTN_MOD_BRIGHTNESS BTN_NONE
 #define BTN_MOD_PLUS BTN_PLUS
 #define BTN_MOD_MINUS BTN_MINUS
+
+// Never sleep: a desktop window has no screen to power down, and the shared
+// wait-for-wake loop would eat all input including SDL_QUIT (see defines.h).
+#define HAS_SLEEP 0
 
 ///////////////////////////////
 
@@ -113,13 +132,16 @@
 //#define MAIN_ROW_COUNT 6
 //#define PADDING 10
 
-// emulate Brick
-#define FIXED_SCALE 3
+// Brick Pro layout: same 1024x768 as the Brick, but the Brick's 3x UI scale
+// is sized for a tiny handheld panel and renders oversized on a monitor —
+// the same reason the physically-larger Brick Pro runs the 2x layout (see
+// workspace/tg5040/platform/platform.h's panel note).
+#define FIXED_SCALE 2
 #define FIXED_WIDTH 1024
 #define FIXED_HEIGHT 768
-#define MAIN_ROW_COUNT 7
-#define SETTINGS_ROW_COUNT 9
-#define PADDING 5
+#define MAIN_ROW_COUNT 11
+#define SETTINGS_ROW_COUNT 11
+#define PADDING 10
 
 // emulate TSP
 //#define FIXED_SCALE 	2
@@ -144,7 +166,7 @@
 
 ///////////////////////////////
 
-#define SDCARD_PATH "/var/tmp/nextui/sdcard"
+#define HAS_RUNTIME_PATHS 1
 #define MUTE_VOLUME_RAW 63 // 0 unintuitively is 100% volume
 
 #define MAX_LIGHTS 4

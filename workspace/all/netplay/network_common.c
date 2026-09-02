@@ -15,6 +15,9 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <ifaddrs.h>
+#include <net/if.h> // IFF_UP / IFF_LOOPBACK for NET_getLanInfo
+
+#include "defines.h" // IWYU pragma: keep — HAS_RUNTIME_PATHS (desktop) gates the directed broadcast
 
 // Default TCP configuration
 static const NET_TCPConfig DEFAULT_TCP_CONFIG = {
@@ -30,6 +33,71 @@ static const int SSID_CHARSET_LEN = 32;
 // IP Address Utilities
 //////////////////////////////////////////////////////////////////////////////
 
+// Interface-selection core behind NET_getLocalIP and the desktop arm of
+// NET_sendDiscoveryBroadcast. Skips loopback by FLAG, not name — macOS calls
+// it lo0, which the old strcmp("lo") let straight through — plus interfaces
+// that are down and the virtual links a desktop host carries (VPN tunnels,
+// VM/container bridges, Apple peer-to-peer). Advertising one of those
+// addresses sends the peer's connect somewhere unreachable; same ruling and
+// same prefix list as Device Sync's get_own_ip (sync.c). wlan* still wins
+// outright so a device with a second link keeps advertising the radio;
+// otherwise the FIRST real interface is kept (the old loop kept the LAST,
+// which on a Mac with a VM bridge was the NAT bridge).
+//
+// ip_out and bcast_out are each optional; bcast_out gets the subnet-directed
+// broadcast (ip | ~mask) of the selected interface. Returns 0 when a usable
+// interface was found, -1 otherwise (outputs untouched).
+int NET_getLanInfo(char* ip_out, size_t ip_size, char* bcast_out, size_t bcast_size) {
+	static const char* virtual_prefixes[] = {
+		"utun", "bridge", "awdl", "llw", "vmnet", "docker",
+		"veth", "tap", "tun", "zt", "p2p", NULL};
+
+	struct ifaddrs* ifaddr;
+	if (getifaddrs(&ifaddr) == -1)
+		return -1;
+
+	int found = -1;
+	for (struct ifaddrs* ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+		if (ifa->ifa_addr == NULL || ifa->ifa_addr->sa_family != AF_INET)
+			continue;
+		if (!(ifa->ifa_flags & IFF_UP) || (ifa->ifa_flags & IFF_LOOPBACK))
+			continue;
+
+		bool is_virtual = false;
+		for (int v = 0; virtual_prefixes[v]; v++) {
+			if (strncmp(ifa->ifa_name, virtual_prefixes[v],
+						strlen(virtual_prefixes[v])) == 0) {
+				is_virtual = true;
+				break;
+			}
+		}
+		if (is_virtual)
+			continue;
+
+		bool is_wlan = (strncmp(ifa->ifa_name, "wlan", 4) == 0);
+		if (found == 0 && !is_wlan)
+			continue; // already holding the first real interface
+
+		struct sockaddr_in* addr = (struct sockaddr_in*)ifa->ifa_addr;
+		if (ip_out && ip_size >= 16)
+			inet_ntop(AF_INET, &addr->sin_addr, ip_out, ip_size);
+
+		if (bcast_out && bcast_size >= 16 && ifa->ifa_netmask) {
+			struct sockaddr_in* mask = (struct sockaddr_in*)ifa->ifa_netmask;
+			struct in_addr bcast_addr;
+			bcast_addr.s_addr = addr->sin_addr.s_addr | ~mask->sin_addr.s_addr;
+			inet_ntop(AF_INET, &bcast_addr, bcast_out, bcast_size);
+		}
+
+		found = 0;
+		if (is_wlan)
+			break;
+	}
+
+	freeifaddrs(ifaddr);
+	return found;
+}
+
 void NET_getLocalIP(char* ip_out, size_t ip_size) {
 	if (!ip_out || ip_size < 16)
 		return;
@@ -37,25 +105,7 @@ void NET_getLocalIP(char* ip_out, size_t ip_size) {
 	strncpy(ip_out, "0.0.0.0", ip_size - 1);
 	ip_out[ip_size - 1] = '\0';
 
-	struct ifaddrs* ifaddr;
-	if (getifaddrs(&ifaddr) == -1)
-		return;
-
-	for (struct ifaddrs* ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
-		if (ifa->ifa_addr == NULL || ifa->ifa_addr->sa_family != AF_INET)
-			continue;
-		if (strcmp(ifa->ifa_name, "lo") == 0)
-			continue;
-
-		struct sockaddr_in* addr = (struct sockaddr_in*)ifa->ifa_addr;
-		inet_ntop(AF_INET, &addr->sin_addr, ip_out, ip_size);
-
-		// Prefer wlan interfaces
-		if (strncmp(ifa->ifa_name, "wlan", 4) == 0)
-			break;
-	}
-
-	freeifaddrs(ifaddr);
+	NET_getLanInfo(ip_out, ip_size, NULL, 0);
 }
 
 bool NET_hasConnection(void) {
@@ -261,6 +311,18 @@ void NET_sendDiscoveryBroadcast(int udp_fd, uint32_t magic, uint32_t protocol_ve
 	bcast.sin_family = AF_INET;
 	bcast.sin_addr.s_addr = INADDR_BROADCAST;
 	bcast.sin_port = htons(discovery_port);
+
+#if defined(HAS_RUNTIME_PATHS)
+	// Desktop: 255.255.255.255 leaves on whichever interface holds the
+	// default route — with a VPN up that is the tunnel, and the LAN never
+	// hears the packet. The subnet-directed address of the interface whose
+	// IP the host advertises reaches the same peers over the right link.
+	// Devices keep the limited broadcast: single radio, and the hotspot path
+	// sends before the AP subnet is even settled.
+	char bcast_ip[16];
+	if (NET_getLanInfo(NULL, 0, bcast_ip, sizeof(bcast_ip)) == 0)
+		inet_pton(AF_INET, bcast_ip, &bcast.sin_addr);
+#endif
 
 	sendto(udp_fd, &pkt, sizeof(pkt), 0,
 		   (struct sockaddr*)&bcast, sizeof(bcast));

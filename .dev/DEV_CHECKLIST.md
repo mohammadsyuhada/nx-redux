@@ -11,6 +11,86 @@ Move an entry from there to here once it compiles and needs hardware time.
 
 ---
 
+## Desktop: Tools paks bundled into packages; Wifi_ensureConnected behavior change (built 2026-09-01)
+
+Task 11 of the desktop-tools-and-networking SDD: all 7 Tools paks (Settings,
+Emulator Settings, RetroAchievements, Artwork Manager, Device Sync, Xtras,
+Game Tracker) now ship inside both the macOS `.app` and the Linux AppImage,
+pak-local (`paks/Tools/<Name>.pak/<binary>.elf`, matching device layout) with
+`gametimectl.elf` also at `$SYS/bin` (nextui.c/launcher.c invoke it bare via
+PATH at ROM start/stop — it's a stateless CLI, not a daemon, despite the
+name). `PLAT_getNetworkStatus` on desktop now delegates to the already-live
+`PLAT_wifiConnected()` reachability probe instead of hardcoding offline —
+this feeds both the shared menu-bar wifi icon (`pwr.is_online`, `api.c`
+`PWR_updateNetworkStatus`) and Device Sync's `STATE_NO_WIFI` gate (`sync.c`).
+Verified live (macOS process/dylib-load + a Linux Xvfb/xdotool E2E,
+`scripts/desktop/test-appimage-tools-e2e.sh`): Tools menu lists all 7 paks,
+Settings shows only the desktop-retained sections, a pak (Artwork Manager)
+opens cleanly, and the menu-bar wifi icon tracks real reachability. Desktop
+build/packaging itself needs no further hardware verification — the items
+below are about a *separate*, already-shipped device-side behavior change
+this task's investigation surfaced (`Wifi_ensureConnected`, `wifi.c`) that
+had no existing DEV_CHECKLIST coverage, plus desktop tools whose *content*
+(network calls, real accounts) can't be exercised on desktop hardware.
+
+**`Wifi_ensureConnected` — never auto-enables/auto-connects (both devices):**
+- [ ] Wifi OFF, open Music Player → Podcasts (or Radio) → attempting to load
+      a feed/stream shows "WiFi is off. Enable it in Settings." and wifi
+      stays OFF (check Settings — it must not have flipped itself on).
+- [ ] Wifi OFF, open Media Player → IPTV → same message, same
+      does-not-auto-enable check.
+- [ ] Wifi ON but not yet associated (no AP in range / wrong password):
+      same screens instead show "WiFi is not connected. Connect in
+      Settings." (`wifi.c` `Wifi_ensureConnected` picks the message off
+      `PLAT_wifiEnabled()` — confirm it doesn't say "WiFi is off" once the
+      radio is actually on).
+- [ ] Wifi ON + connected: podcast/radio streaming and IPTV both work as
+      before (no regression from the message-only change).
+
+**Desktop tools needing real hardware/network verification** (all built +
+packaged; none of this is testable from a desktop dev machine):
+- [ ] Device Sync: an actual sync target (a real device or PC on the LAN)
+      — Device Sync.pak's transfer paths are unexercised beyond the
+      STATE_NO_WIFI gate fix above.
+- [ ] RetroAchievements: real login + a live achievement unlock through
+      ratools.elf on desktop (network calls only smoke-tested for
+      reachability, not for actual RA account auth/session flow).
+- [ ] Xtras: catalog installs will fail on desktop today (packages are
+      device-arch binaries) — expected, not a bug; note this if anyone
+      files it. Revisit if/when Xtras gains a desktop-arch catalog.
+
+---
+
+## Desktop: external game-controller support (built 2026-09-01)
+
+Desktop build gained `SDL_GameController` support (macOS `.app` / Linux AppImage),
+behind a `HAS_GAMECONTROLLER` macro defined only in `workspace/desktop/platform/platform.h`
+— device builds compile the path out entirely (verified: tg5040 + tg5050 build green).
+Keyboard stays active simultaneously. Face buttons map by physical position (Nintendo
+layout: right face = A/confirm, bottom = B/back). Left stick = analog passthrough to
+cores (`RETRO_DEVICE_ANALOG`) **and** digital d-pad (deadzone) for menus / non-analog
+cores; right stick = analog only. Triggers (L2/R2) are digital past a threshold. Hot-plug
+handled via `SDL_CONTROLLERDEVICEADDED/REMOVED`. No controller was available at build
+time, so all controller behavior below is UNVERIFIED on real hardware.
+
+- [ ] Plug an Xbox-style pad in **before** launch → launcher navigates with d-pad + left
+      stick; right face button confirms, bottom face backs out (Nintendo-position mapping).
+- [ ] Hot-plug: launch with no pad, connect one → it starts working without relaunch;
+      disconnect → app stays alive, keyboard still works.
+- [ ] Disconnect while holding a direction/button or with a stick off-center →
+      no stuck input afterwards (CONTROLLERDEVICEREMOVED zeroes analog axes +
+      PAD_reset()).
+- [ ] In-game: face/d-pad/shoulders drive the emulated pad; keyboard still works at the
+      same time (both input sources live).
+- [ ] Analog passthrough: a core that reads analog (e.g. an N64/PSX core if present on
+      desktop, else any `RETRO_DEVICE_ANALOG` core) responds to the right stick; left stick
+      also moves the character AND navigates menus as a d-pad.
+- [ ] Try a second controller type if available (PS4/5, Switch Pro, 8BitDo) — SDL's
+      built-in DB should map it with no per-device config; note any pad that isn't recognized
+      (would need a bundled `gamecontrollerdb.txt`, deferred).
+
+---
+
 ## Boot: failed MinUI.zip extraction must not brick the boot loop (built 2026-08-01)
 
 Found live on Smart Pro S (fresh install, 2026-08-01): a truncated MinUI.zip

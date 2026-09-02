@@ -34,12 +34,25 @@
 #define RSYNC_PID_PATH "/tmp/rsyncd.pid"
 
 // Paths to sync
-#define SAVES_PATH SDCARD_PATH "/Saves"
+// SDCARD_PATH is a runtime array (not a string literal) on desktop builds
+// (see paths.h), so it can no longer be adjacent-string-literal concatenated
+// at compile time; build the same "<SDCARD_PATH>/Saves" path with snprintf
+// instead (byte-identical to the old macro on device).
+static const char* saves_path(void) {
+	static char buf[MAX_PATH];
+	snprintf(buf, sizeof(buf), "%s/Saves", SDCARD_PATH);
+	return buf;
+}
 #define SHARED_DATA_PATH SHARED_USERDATA_PATH
 // ROMS_PATH already defined in defines.h
 
 // rsync binary path (shared across platforms)
-#define RSYNC_BIN SHARED_BIN_PATH "/rsync"
+// SHARED_BIN_PATH is likewise a runtime array on desktop -- same fix as above.
+static const char* rsync_bin_path(void) {
+	static char buf[MAX_PATH];
+	snprintf(buf, sizeof(buf), "%s/rsync", SHARED_BIN_PATH);
+	return buf;
+}
 
 // Log buffer for terminal-like display
 #define LOG_MAX_LINES 20
@@ -125,6 +138,16 @@ static int get_own_ip(void) {
 	if (getifaddrs(&ifaddr) == -1)
 		return -1;
 
+	// Virtual interfaces a desktop host may carry (VPN tunnels, VM/container
+	// bridges, Apple's peer-to-peer links). Advertising one of their
+	// addresses in the discovery payload sends the peer's READY/rsync
+	// traffic somewhere unreachable — the peer then waits forever. The old
+	// loop kept the LAST interface unless it hit "wlan0" (a device name), so
+	// on a Mac with OrbStack it advertised the NAT bridge.
+	static const char* virtual_prefixes[] = {
+		"utun", "bridge", "awdl", "llw", "vmnet", "docker",
+		"veth", "tap", "tun", "zt", "p2p", NULL};
+
 	int found = 0;
 	for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
 		if (ifa->ifa_addr == NULL)
@@ -134,6 +157,17 @@ static int get_own_ip(void) {
 		if (!(ifa->ifa_flags & IFF_UP))
 			continue;
 		if (ifa->ifa_flags & IFF_LOOPBACK)
+			continue;
+
+		int is_virtual = 0;
+		for (int v = 0; virtual_prefixes[v]; v++) {
+			if (strncmp(ifa->ifa_name, virtual_prefixes[v],
+						strlen(virtual_prefixes[v])) == 0) {
+				is_virtual = 1;
+				break;
+			}
+		}
+		if (is_virtual)
 			continue;
 
 		struct sockaddr_in* sa = (struct sockaddr_in*)ifa->ifa_addr;
@@ -151,8 +185,8 @@ static int get_own_ip(void) {
 
 		found = 1;
 
-		if (strcmp(ifa->ifa_name, "wlan0") == 0)
-			break;
+		// First real interface wins (wlan0 on devices, en0/eth0 on desktops).
+		break;
 	}
 
 	freeifaddrs(ifaddr);
@@ -409,7 +443,7 @@ static void write_rsync_config(void) {
 	fprintf(fp, "  path = %s\n", SHARED_DATA_PATH);
 	fprintf(fp, "  read only = no\n\n");
 	fprintf(fp, "[saves]\n");
-	fprintf(fp, "  path = %s\n", SAVES_PATH);
+	fprintf(fp, "  path = %s\n", saves_path());
 	fprintf(fp, "  read only = no\n\n");
 	fprintf(fp, "[roms]\n");
 	fprintf(fp, "  path = %s\n", ROMS_PATH);
@@ -419,13 +453,13 @@ static void write_rsync_config(void) {
 }
 
 static int start_rsync_daemon(void) {
-	if (access(RSYNC_BIN, X_OK) != 0)
+	if (access(rsync_bin_path(), X_OK) != 0)
 		return -1;
 
 	write_rsync_config();
 
 	char cmd[512];
-	snprintf(cmd, sizeof(cmd), "%s --daemon --config=%s", RSYNC_BIN, RSYNC_CONF_PATH);
+	snprintf(cmd, sizeof(cmd), "%s --daemon --config=%s", rsync_bin_path(), RSYNC_CONF_PATH);
 	int ret = system(cmd);
 	if (ret != 0)
 		return -1;
@@ -527,27 +561,27 @@ static int run_rsync_phase(int phase) {
 	switch (phase) {
 	case 1:
 		snprintf(cmd, sizeof(cmd), "%s %s %s %s/ rsync://%s:%d/shared/ 2>&1",
-				 RSYNC_BIN, rsync_opts, shared_excludes, SHARED_DATA_PATH, peer_ip, SYNC_RSYNC_PORT);
+				 rsync_bin_path(), rsync_opts, shared_excludes, SHARED_DATA_PATH, peer_ip, SYNC_RSYNC_PORT);
 		break;
 	case 2:
 		snprintf(cmd, sizeof(cmd), "%s %s %s/ rsync://%s:%d/saves/ 2>&1",
-				 RSYNC_BIN, rsync_opts, SAVES_PATH, peer_ip, SYNC_RSYNC_PORT);
+				 rsync_bin_path(), rsync_opts, saves_path(), peer_ip, SYNC_RSYNC_PORT);
 		break;
 	case 3:
 		snprintf(cmd, sizeof(cmd), "%s %s %s rsync://%s:%d/shared/ %s/ 2>&1",
-				 RSYNC_BIN, rsync_opts, shared_excludes, peer_ip, SYNC_RSYNC_PORT, SHARED_DATA_PATH);
+				 rsync_bin_path(), rsync_opts, shared_excludes, peer_ip, SYNC_RSYNC_PORT, SHARED_DATA_PATH);
 		break;
 	case 4:
 		snprintf(cmd, sizeof(cmd), "%s %s rsync://%s:%d/saves/ %s/ 2>&1",
-				 RSYNC_BIN, rsync_opts, peer_ip, SYNC_RSYNC_PORT, SAVES_PATH);
+				 rsync_bin_path(), rsync_opts, peer_ip, SYNC_RSYNC_PORT, saves_path());
 		break;
 	case 5:
 		snprintf(cmd, sizeof(cmd), "%s %s %s/ rsync://%s:%d/roms/ 2>&1",
-				 RSYNC_BIN, rsync_opts, ROMS_PATH, peer_ip, SYNC_RSYNC_PORT);
+				 rsync_bin_path(), rsync_opts, ROMS_PATH, peer_ip, SYNC_RSYNC_PORT);
 		break;
 	case 6:
 		snprintf(cmd, sizeof(cmd), "%s %s rsync://%s:%d/roms/ %s/ 2>&1",
-				 RSYNC_BIN, rsync_opts, peer_ip, SYNC_RSYNC_PORT, ROMS_PATH);
+				 rsync_bin_path(), rsync_opts, peer_ip, SYNC_RSYNC_PORT, ROMS_PATH);
 		break;
 	default:
 		return -1;
@@ -595,7 +629,7 @@ static void* sync_thread_func(void* arg) {
 	(void)arg;
 
 	mkdir_p(SHARED_DATA_PATH);
-	mkdir_p(SAVES_PATH);
+	mkdir_p(saves_path());
 	if (sync_roms)
 		mkdir_p(ROMS_PATH);
 
@@ -871,11 +905,13 @@ static void render_screen(void) {
 
 	switch (state) {
 	case STATE_INIT:
-		UI_renderCenteredMessage(screen, "Checking WiFi...");
+		UI_renderCenteredMessage(screen, "Checking network...");
 		break;
 
 	case STATE_NO_WIFI:
-		UI_renderCenteredMessage(screen, "WiFi not connected.\nPlease enable WiFi and try again.");
+		// "Network", not "WiFi": desktop may be on ethernet, and the phrasing
+		// stays correct on wifi-only handhelds too.
+		UI_renderCenteredMessage(screen, "Network not connected.\nPlease check your connection and try again.");
 		UI_renderButtonHintBar(screen, (char*[]){"B", "EXIT", NULL});
 		break;
 
@@ -1020,6 +1056,7 @@ static void render_screen(void) {
 int main(int argc, char* argv[]) {
 	(void)argc;
 	(void)argv;
+	PATHS_init(PLATFORM);
 
 	screen = GFX_init(MODE_MAIN);
 	UI_showSplashScreen(screen, "Device Sync");
@@ -1033,13 +1070,12 @@ int main(int argc, char* argv[]) {
 	bool dirty = true;
 	IndicatorType show_setting = INDICATOR_NONE;
 
-	int is_online = 0;
-	PLAT_getNetworkStatus(&is_online);
-	if (!is_online || get_own_ip() != 0) {
-		state = STATE_NO_WIFI;
-	} else {
-		state = STATE_READY;
-	}
+	// Resolve connectivity from the main loop's INIT state instead of one
+	// shot here: desktop's reachability check is a background probe whose
+	// first result lands a few seconds after the first poll, so a one-shot
+	// check always read "offline" there. Devices resolve on the first poll.
+	uint32_t connectivity_check_start = SDL_GetTicks();
+	state = STATE_INIT;
 
 	while (!app_quit) {
 		GFX_startFrame();
@@ -1055,9 +1091,17 @@ int main(int argc, char* argv[]) {
 			dirty = true;
 
 		switch (state) {
-		case STATE_INIT:
+		case STATE_INIT: {
+			int is_online = 0;
+			PLAT_getNetworkStatus(&is_online);
+			if (is_online && get_own_ip() == 0) {
+				state = STATE_READY;
+			} else if (SDL_GetTicks() - connectivity_check_start > 5000) {
+				state = STATE_NO_WIFI;
+			}
 			dirty = true;
 			break;
+		}
 
 		case STATE_NO_WIFI:
 			if (PAD_justPressed(BTN_B))

@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "content.h"
+#include "desktop_update.h"
 #include "display_helper.h"
 #include "gamelist.h"
 #include "gameswitcher.h"
@@ -106,6 +107,7 @@ static SDL_Surface* cropBelowMenuBar(SDL_Surface* src, int bar_h) {
 }
 
 int main(int argc, char* argv[]) {
+	PATHS_init(PLATFORM);
 	// Must precede autoResume(): that path returns before the rest of init, so
 	// a stale flag would ride into the auto-resumed game as a silent netplay
 	// launch. Stale = a previous launch never consumed it.
@@ -119,6 +121,7 @@ int main(int argc, char* argv[]) {
 
 	bootStamp("start");
 	InitSettings();
+	DesktopUpdate_startCheck();
 
 	screen = GFX_init(MODE_MAIN);
 	bootStamp("after gfx init");
@@ -197,6 +200,7 @@ int main(int argc, char* argv[]) {
 		}
 
 		PWR_update(&dirty, &show_setting, NULL, NULL);
+		DesktopUpdate_offerIfReady(screen);
 
 		if (UI_statusBarChanged())
 			dirty = true;

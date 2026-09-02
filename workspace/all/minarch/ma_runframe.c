@@ -5,6 +5,14 @@
 #include "ma_rewind.h"
 
 void chooseSyncRef(void) {
+#if defined(HAS_RUNTIME_PATHS)
+	// Desktop always paces video to the core's own fps in software (see
+	// screen_flip in ma_video.c): there is no display clock for audio to sync
+	// to, and the measured loop fps is too jittery to drive the dynamic
+	// resample ratio (it warbles pitch ~1% peak-to-peak). Always take the
+	// fixed-rate audio path; its buffer-occupancy modes absorb clock drift.
+	use_core_fps = 1;
+#else
 	switch (sync_ref) {
 	case SYNC_SRC_AUTO:
 		use_core_fps = (core.get_region() == RETRO_REGION_PAL);
@@ -16,6 +24,7 @@ void chooseSyncRef(void) {
 		use_core_fps = 1;
 		break;
 	}
+#endif
 }
 
 static void limitFF(void) {

@@ -15,6 +15,8 @@ void printUsage() {
 }
 
 int main(int argc, char* argv[]) {
+	PATHS_init(PLATFORM); // no-op on device; resolves SDCARD_PATH et al on desktop
+
 	if (argc <= 1) {
 		printUsage();
 		return EXIT_SUCCESS;

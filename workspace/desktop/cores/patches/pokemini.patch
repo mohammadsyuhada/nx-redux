@@ -1,0 +1,25 @@
+diff --git a/Makefile.libretro b/Makefile.libretro
+index 9660e99..2052a0f 100644
+--- a/Makefile.libretro
++++ b/Makefile.libretro
+@@ -147,6 +147,20 @@ endif
+ 		LDFLAGS  += $(TARGET_RULE)
+    endif
+ 
++# NxRedux desktop (macOS/Linux host build)
++else ifeq ($(platform), desktop)
++	EXT    ?= so
++	TARGET := $(TARGET_NAME)_libretro.$(EXT)
++	CC = $(CROSS_COMPILE)gcc
++	CXX = $(CROSS_COMPILE)g++
++	AR = $(CROSS_COMPILE)ar
++	fpic := -fPIC
++	ifeq ($(shell uname -s), Darwin)
++		SHARED := -shared
++	else
++		SHARED := -shared -Wl,--version-script=libretro/link.T
++	endif
++
+ # iOS
+ else ifneq (,$(findstring ios,$(platform)))
+ 	EXT    ?= dylib

@@ -163,7 +163,9 @@ void clock_adjustment_run(SDL_Surface* screen) {
 
 	int save_changes = 0;
 	int select_cursor = 0;
-	int show_24hour = exists(USERDATA_PATH "/show_24hour");
+	char show_24hour_path[MAX_PATH];
+	snprintf(show_24hour_path, sizeof(show_24hour_path), "%s/show_24hour", USERDATA_PATH);
+	int show_24hour = exists(show_24hour_path);
 
 	time_t t = time(NULL);
 	struct tm tm = *localtime(&t);
@@ -263,9 +265,13 @@ void clock_adjustment_run(SDL_Surface* screen) {
 				select_cursor -= option_count;
 
 			if (show_24hour) {
-				system("touch " USERDATA_PATH "/show_24hour");
+				char cmd[MAX_PATH + 8];
+				snprintf(cmd, sizeof(cmd), "touch %s", show_24hour_path);
+				system(cmd);
 			} else {
-				system("rm " USERDATA_PATH "/show_24hour");
+				char cmd[MAX_PATH + 8];
+				snprintf(cmd, sizeof(cmd), "rm %s", show_24hour_path);
+				system(cmd);
 			}
 		}
 

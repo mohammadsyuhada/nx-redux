@@ -1,0 +1,35 @@
+diff --git a/Makefile b/Makefile
+index 3e03b56..adaacaf 100644
+--- a/Makefile
++++ b/Makefile
+@@ -181,6 +181,30 @@ endif
+    
+    fpic += $(MINVERSION)
+ 
++# NxRedux desktop (macOS/Linux host build)
++else ifeq ($(platform), desktop)
++	TARGET := $(TARGET_NAME)_libretro.so
++	CC = $(CROSS_COMPILE)gcc
++	CXX = $(CROSS_COMPILE)g++
++	AR = $(CROSS_COMPILE)ar
++	fpic := -fPIC
++	ifeq ($(shell uname -s), Darwin)
++		# macOS ld rejects GNU --version-script; plain -shared yields a
++		# dlopen-able Mach-O .so.
++		SHARED := -shared
++		# Bundled deps/zlib-1.2.11's zutil.h treats TARGET_OS_MAC (true on
++		# any modern Apple OS, not just classic Mac OS) as "no fdopen()"
++		# and #defines fdopen to NULL; that macro then mangles the real
++		# fdopen() prototype when <stdio.h> is (re)processed later in the
++		# translation unit ("expected identifier or '('" in _stdio.h).
++		# Pre-defining fdopen to itself satisfies zutil.h's `#ifndef
++		# fdopen` guard so it never installs the broken macro.
++		CFLAGS += -Dfdopen=fdopen
++	else
++		LDFLAGS += -lrt
++		SHARED := -shared -Wl,--no-undefined -Wl,--version-script=link.T
++	endif
++
+ # iOS
+ else ifneq (,$(findstring ios,$(platform)))
+    TARGET := $(TARGET_NAME)_libretro_ios.dylib

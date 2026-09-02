@@ -71,12 +71,12 @@ void Core_open(const char* core_path, const char* tag_name) {
 
 	core.need_fullpath = info.need_fullpath;
 
-	sprintf((char*)core.config_dir, USERDATA_PATH "/%s-%s", core.tag, core.name);
-	sprintf((char*)core.states_dir, SHARED_USERDATA_PATH "/%s-%s", core.tag, core.name);
-	sprintf((char*)core.saves_dir, SDCARD_PATH "/Saves/%s", core.tag);
-	sprintf((char*)core.bios_dir, SDCARD_PATH "/Bios/%s", core.tag);
-	sprintf((char*)core.cheats_dir, SDCARD_PATH "/Cheats/%s", core.tag);
-	sprintf((char*)core.overlays_dir, SDCARD_PATH "/Overlays/%s", core.tag);
+	sprintf((char*)core.config_dir, "%s/%s-%s", USERDATA_PATH, core.tag, core.name);
+	sprintf((char*)core.states_dir, "%s/%s-%s", SHARED_USERDATA_PATH, core.tag, core.name);
+	sprintf((char*)core.saves_dir, "%s/Saves/%s", SDCARD_PATH, core.tag);
+	sprintf((char*)core.bios_dir, "%s/Bios/%s", SDCARD_PATH, core.tag);
+	sprintf((char*)core.cheats_dir, "%s/Cheats/%s", SDCARD_PATH, core.tag);
+	sprintf((char*)core.overlays_dir, "%s/Overlays/%s", SDCARD_PATH, core.tag);
 
 	mkdir_p(core.config_dir);
 	mkdir_p(core.states_dir);

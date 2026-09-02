@@ -13,6 +13,34 @@
 #define STR_MAX 256
 #define MAX_PATH 512
 
+#ifdef HAS_RUNTIME_PATHS
+// Desktop: roots resolved at runtime (env/HOME) by PATHS_init(PLATFORM),
+// which every main() calls first. Values byte-match the device macros.
+#include "paths.h"
+#define SDCARD_PATH PATHS_SDCARD
+#define ROMS_PATH PATHS_ROMS
+#define ROOT_SYSTEM_PATH PATHS_ROOT_SYSTEM
+#define SYSTEM_PATH PATHS_SYSTEM
+#define RES_PATH PATHS_RES
+#define SHARED_SYSTEM_PATH PATHS_SHARED_SYSTEM
+#define SHARED_BIN_PATH PATHS_SHARED_BIN
+#define USERDATA_PATH PATHS_USERDATA
+#define SHARED_USERDATA_PATH PATHS_SHARED_USERDATA
+#define PAKS_PATH PATHS_PAKS
+#define BIN_PATH PATHS_BIN
+#define TOOLS_PATH PATHS_TOOLS
+#define RECENT_PATH PATHS_RECENT
+#define SHORTCUTS_PATH PATHS_SHORTCUTS
+#define SIMPLE_MODE_PATH PATHS_SIMPLE_MODE
+#define AUTO_RESUME_PATH PATHS_AUTO_RESUME
+#define GAME_SWITCHER_PERSIST_PATH PATHS_GAME_SWITCHER_PERSIST
+#define FAUX_RECENT_PATH PATHS_FAUX_RECENT
+#define COLLECTIONS_PATH PATHS_COLLECTIONS
+#define EMULIST_CACHE_PATH PATHS_EMULIST_CACHE
+#define ROMINDEX_CACHE_PATH PATHS_ROMINDEX_CACHE
+#else
+// Device: compile-time literals, unchanged.
+#define PATHS_init(p) // no-op on device
 #define ROMS_PATH SDCARD_PATH "/Roms"
 #define ROOT_SYSTEM_PATH SDCARD_PATH "/.system/"
 #define SYSTEM_PATH SDCARD_PATH "/.system"
@@ -28,12 +56,15 @@
 #define SHORTCUTS_PATH SHARED_USERDATA_PATH "/.minui/shortcuts.txt"
 #define SIMPLE_MODE_PATH SHARED_USERDATA_PATH "/enable-simple-mode"
 #define AUTO_RESUME_PATH SHARED_USERDATA_PATH "/.minui/auto_resume.txt"
-#define RESUME_SLOT_DEFAULT 8
-#define AUTO_RESUME_SLOT 9
 #define GAME_SWITCHER_PERSIST_PATH SHARED_USERDATA_PATH "/.minui/game_switcher.txt"
-
 #define FAUX_RECENT_PATH SDCARD_PATH "/Recently Played"
 #define COLLECTIONS_PATH SDCARD_PATH "/Collections"
+#define EMULIST_CACHE_PATH USERDATA_PATH "/emulist_cache.txt"
+#define ROMINDEX_CACHE_PATH USERDATA_PATH "/romindex_cache.txt"
+#endif
+
+#define RESUME_SLOT_DEFAULT 8
+#define AUTO_RESUME_SLOT 9
 
 #define LAST_PATH "/tmp/last.txt" // transient
 #define CHANGE_DISC_PATH "/tmp/change_disc.txt"
@@ -44,8 +75,6 @@
 // Roms; content.c revalidates against source mtimes before trusting them.
 // Per-platform because the console list depends on which emu paks this
 // platform ships (hasRoms → hasEmu).
-#define EMULIST_CACHE_PATH USERDATA_PATH "/emulist_cache.txt"
-#define ROMINDEX_CACHE_PATH USERDATA_PATH "/romindex_cache.txt"
 // Owned by the OSD LED toggle (osd/widgets/toggle_led/set.sh): while this file
 // exists, LEDS_setProfile forces LIGHT_PROFILE_OFF so app startup and profile
 // changes (charging, sleep, ambient) don't relight LEDs the user switched off.
@@ -148,6 +177,14 @@ enum {
 #define HAS_MENU_BUTTON (BUTTON_MENU != BUTTON_NA || CODE_MENU != CODE_NA || JOY_MENU != JOY_NA)
 #define HAS_HOME_BUTTON (BUTTON_HOME != BUTTON_NA || CODE_HOME != CODE_NA || JOY_HOME != JOY_NA)
 #define HAS_SKINNY_SCREEN (FIXED_WIDTH < 320)
+
+// Whether the platform can enter hybrid sleep (screen-off wait-for-wake loop).
+// Handhelds sleep; desktop opts out in its platform.h — its "sleep" would just
+// blank the window while PWR_waitForWake eats every event (including SDL_QUIT,
+// so the app can't even be closed) and, reporting AC power, never times out.
+#ifndef HAS_SLEEP
+#define HAS_SLEEP 1
+#endif
 
 ///////////////////////////////
 

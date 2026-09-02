@@ -1,0 +1,47 @@
+diff --git a/Makefile b/Makefile
+index f34a015..d1b31f8 100644
+--- a/Makefile
++++ b/Makefile
+@@ -108,6 +108,23 @@ else
+    fpic += -stdlib=libc++
+ endif
+ 
++# NxRedux desktop (macOS/Linux host build)
++else ifeq ($(platform), desktop)
++	TARGET := $(TARGET_NAME)_libretro.so
++	CC = $(CROSS_COMPILE)gcc
++	CXX = $(CROSS_COMPILE)g++
++	AR = $(CROSS_COMPILE)ar
++	fpic := -fPIC
++	LDFLAGS += -pthread
++	FLAGS += -pthread
++	ifeq ($(shell uname -s), Darwin)
++		# macOS ld rejects GNU --version-script; plain -shared yields a
++		# dlopen-able Mach-O .so.
++		SHARED := -shared
++	else
++		SHARED := -shared -Wl,--no-undefined -Wl,--version-script=link.T
++	endif
++
+ # iOS
+ else ifneq (,$(findstring ios,$(platform)))
+ 
+diff --git a/mednafen/config.h b/mednafen/config.h
+index 8897bb3..775d1b6 100644
+--- a/mednafen/config.h
++++ b/mednafen/config.h
+@@ -3,7 +3,14 @@
+ #define MDFN_SNES_FAUST_SPC700_IPL_HLE 1
+ #define MDFN_SNES_FAUST_SKETCHYSPC700OPT 1
+ //#define MDFN_SNES_FAUST_SKETCHYPPUOPT 1
++/* Darwin's <semaphore.h> has no sem_timedwait() at all (unnamed POSIX
++ * semaphores are only partially implemented on macOS); without this guard
++ * mthreading/MThreading_POSIX.cpp fails with "use of undeclared identifier
++ * 'sem_timedwait'". The condvar-based Sem fallback (MDFN_USE_CONDVAR_
++ * SEMAPHORES) is used instead when this is unset. */
++#if !defined(__APPLE__)
+ #define HAVE_SEM_TIMEDWAIT 1
++#endif
+ 
+ #if !defined(ANDROID) && !defined(__APPLE__)
+ #define PTHREAD_AFFINITY_NP cpu_set_t

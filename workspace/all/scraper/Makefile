@@ -15,6 +15,13 @@ endif
 ###########################################################
 
 include ../../$(PLATFORM)/platform/Makefile.env
+
+# Per-OS build outputs for desktop: macOS (host) and Linux (docker) share
+# this checkout, so packaging passes BUILD_SUBDIR=desktop-<os>-<arch> to keep
+# their artifacts apart. Devices never pass it: the default keeps their
+# build/<platform> paths byte-identical.
+BUILD_SUBDIR ?= $(PLATFORM)
+
 SDL?=SDL
 
 ###########################################################
@@ -35,17 +42,24 @@ SOURCE = scraper.c scraper_api.c scraper_compositor.c scraper_systems.c scraper_
          $(UI_DIR)/ui_keyboard.c \
          $(COMMON_PATH)/display_helper.c \
          $(COMMON_PATH)/cjson/cJSON.c \
+         $(COMMON_PATH)/paths.c \
          $(PLATFORM_PATH)/platform/platform.c
+
+# Desktop's platform.c backs PLAT_wifiConnected with a real reachability probe
+# (device platform.c doesn't; it uses generic_wifi.c) -- desktop-only source.
+ifeq ($(PLATFORM), desktop)
+SOURCE += ../common/desktop_probe.c
+endif
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS += $(OPT)
 CFLAGS += $(INCDIR) -I../../$(PLATFORM)/libmsettings -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
 LDFLAGS += -L../../$(PLATFORM)/libmsettings -lmsettings -lpthread
 
-PRODUCT= build/$(PLATFORM)/$(TARGET).elf
+PRODUCT= build/$(BUILD_SUBDIR)/$(TARGET).elf
 
 all: $(PREFIX_LOCAL)/include/msettings.h
-	mkdir -p build/$(PLATFORM)
+	mkdir -p build/$(BUILD_SUBDIR)
 	$(CC) $(SOURCE) -o $(PRODUCT) $(CFLAGS) $(LDFLAGS)
 clean:
 	rm -f $(PRODUCT)

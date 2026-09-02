@@ -959,13 +959,25 @@ int wiz_host_rendezvous(const WizArgs* a, WizSession* s) {
 		snprintf(big, sizeof(big), "%s", wiz_hotspot_code[0] ? wiz_hotspot_code : "????");
 	} else {
 		char ip[16] = {0};
+#if defined(HAS_WIFIMG)
 		if (WIFI_direct_getIP(ip, sizeof(ip)) != 0 || !ip[0])
 			NET_getLocalIP(ip, sizeof(ip));
+#else
+		// Desktop: no wpa_cli to ask; the reachable-interface pick is the
+		// same one the discovery broadcast advertises (network_common.c).
+		NET_getLocalIP(ip, sizeof(ip));
+#endif
 		snprintf(big, sizeof(big), "%s", ip[0] ? ip : "0.0.0.0");
 	}
 
+	// "network", not "WiFi", on desktop — the machine may well be on ethernet
+	// (same wording call as Device Sync's gate, sync.c:912).
 	const char* instruction = hotspot ? "Select this code on the other device"
+#if defined(HAS_WIFIMG)
 									  : "Other device must be on the same WiFi";
+#else
+									  : "Other device must be on the same network";
+#endif
 
 	// No wall-clock ceiling: this screen exists to wait for a person, and B is
 	// live every frame. wizard.c holds sleep/power-off off for the whole run,

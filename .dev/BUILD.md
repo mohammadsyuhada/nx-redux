@@ -123,15 +123,16 @@ Component source lives in `workspace/all/<component>` (shared) and
 Prerequisites:
 
 ```bash
-brew install gcc sdl2 sdl2_image sdl2_ttf sqlite libsamplerate clang-format
+brew install gcc sdl2 sdl2_image sdl2_ttf sqlite libsamplerate clang-format dylibbundler make
 ```
 
 One-time setup:
 
 ```bash
-# 1. The build expects `gcc` to be Homebrew GCC, not Apple Clang:
-sudo ./workspace/desktop/macos_create_gcc_symlinks.sh
-gcc --version   # must say "Homebrew GCC"
+# 1. The build expects `gcc` to be Homebrew GCC, not Apple Clang. No sudo —
+#    this shims a symlink under /var/tmp/nxredux/bin, not /usr/local/bin:
+scripts/desktop/setup-macos-toolchain.sh
+/var/tmp/nxredux/bin/gcc --version   # must say "Homebrew GCC"
 
 # 2. Fake SD card root at /var/tmp/nxredux/sdcard:
 ./workspace/desktop/prepare_fake_sd_root.sh
@@ -144,12 +145,20 @@ Build and run:
 
 ```bash
 cd workspace/desktop/libmsettings
-make build CROSS_COMPILE=/usr/local/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/opt/homebrew
+make build CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux
 
 cd workspace/all/nextui
-make PLATFORM=desktop CROSS_COMPILE=/usr/local/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/opt/homebrew UNAME_S=Darwin
-DYLD_LIBRARY_PATH=/opt/homebrew/lib ./build/desktop/nextui.elf
+make PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin
+NXREDUX_SDCARD=/var/tmp/nxredux/sdcard DYLD_LIBRARY_PATH=/opt/homebrew/lib:/var/tmp/nxredux/lib ./build/desktop/nextui.elf
 ```
+
+Runtime path roots (desktop only — device builds keep compile-time literals):
+`NXREDUX_SDCARD` picks the "SD card" root directory; if unset it defaults to
+`~/NXRedux`. `NXREDUX_SYSTEM_ROOT` independently overrides just the
+`.system` root (defaults to `<sdcard>/.system`). Use the fake-SD workflow's
+`/var/tmp/nxredux/sdcard` (from `prepare_fake_sd_root.sh` above) for a
+populated dev card, or leave both unset to exercise the real default-root
+path under `$HOME/NXRedux`.
 
 ## IDE setup (clangd)
 

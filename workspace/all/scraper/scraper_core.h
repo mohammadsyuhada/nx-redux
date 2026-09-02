@@ -1,12 +1,34 @@
 #ifndef SCRAPER_CORE_H
 #define SCRAPER_CORE_H
 
-#include "defines.h" // SHARED_USERDATA_PATH
+#include <stdio.h>
+
+#include "defines.h" // SHARED_USERDATA_PATH, MAX_PATH
 
 #define TMP_DIR "/tmp/scraper"
-#define CREDS_DIR SHARED_USERDATA_PATH "/.scraper"
-#define CREDS_USER CREDS_DIR "/ss_user.txt"
-#define CREDS_PASS CREDS_DIR "/ss_pass.txt"
+
+// SHARED_USERDATA_PATH is a runtime array (not a string literal) on desktop
+// builds (see paths.h), so it can no longer be adjacent-string-literal
+// concatenated at compile time like the old CREDS_DIR/CREDS_USER/CREDS_PASS
+// macros did; build the same paths with snprintf instead (byte-identical to
+// the old macros on device, where SHARED_USERDATA_PATH is still a
+// compile-time literal). static inline so each TU that doesn't call one
+// doesn't warn about an unused static function.
+static inline char* creds_dir(void) {
+	static char buf[MAX_PATH];
+	snprintf(buf, sizeof(buf), "%s/.scraper", SHARED_USERDATA_PATH);
+	return buf;
+}
+static inline char* creds_user_path(void) {
+	static char buf[MAX_PATH];
+	snprintf(buf, sizeof(buf), "%s/.scraper/ss_user.txt", SHARED_USERDATA_PATH);
+	return buf;
+}
+static inline char* creds_pass_path(void) {
+	static char buf[MAX_PATH];
+	snprintf(buf, sizeof(buf), "%s/.scraper/ss_pass.txt", SHARED_USERDATA_PATH);
+	return buf;
+}
 
 typedef enum {
 	SCRAPE_RESULT_OK = 0,

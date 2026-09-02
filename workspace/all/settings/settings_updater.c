@@ -29,6 +29,7 @@
 #include "wget_fetch.h"
 #include "updater_url.h"
 #include <ctype.h>
+#include <signal.h>
 #include <strings.h>
 
 // ============================================
@@ -42,7 +43,13 @@
 #define UPDATER_WEB_LATEST_URL \
 	"https://github.com/" UPDATER_REPO_OWNER "/" UPDATER_REPO_NAME "/releases/latest"
 #define VERSION_FILE_PATH "/mnt/SDCARD/.system/version.txt"
+#if defined(HAS_RUNTIME_PATHS)
+// Desktop downloads to /tmp; self-update.sh sniffs the container format, so
+// the extension is cosmetic. There is no extract phase on desktop.
+#define DOWNLOAD_PATH "/tmp/nxredux-update.bin"
+#else
 #define DOWNLOAD_PATH "/mnt/SDCARD/.tmp_update.zip"
+#endif
 #define EXTRACT_DEST "/mnt/SDCARD/"
 
 // ============================================
@@ -58,6 +65,23 @@ static const char* get_device_name(void) {
 	if (device && strcmp(device, "brickpro") == 0)
 		return "brickpro";
 	return "smartpro";
+}
+
+// Release-asset filename suffix after "NXRedux-<tag>-". Devices get
+// per-device zips; desktop artifacts carry the OS/arch and, on Linux, a
+// different container format entirely (see scripts/desktop/package-*.sh).
+static const char* get_asset_suffix(void) {
+#if defined(HAS_RUNTIME_PATHS)
+#if defined(__APPLE__)
+	return "macos-arm64.zip";
+#else
+	return "x86_64.AppImage";
+#endif
+#else
+	static char suffix[80];
+	snprintf(suffix, sizeof(suffix), "%s.zip", get_device_name());
+	return suffix;
+#endif
 }
 
 // ============================================
@@ -101,15 +125,15 @@ static char auto_error[256] = "";
 // ============================================
 
 
-static const char* find_zip_asset_url(const char* json, const char* platform, char* out, size_t out_size,
+static const char* find_zip_asset_url(const char* json, const char* asset_suffix, char* out, size_t out_size,
 									  char* digest_out, size_t digest_size) {
 	if (digest_out && digest_size > 0)
 		digest_out[0] = '\0';
-	if (!json || !platform || !out || out_size == 0)
+	if (!json || !asset_suffix || !out || out_size == 0)
 		return NULL;
 
-	char suffix[64];
-	snprintf(suffix, sizeof(suffix), "-%s.zip", platform);
+	char suffix[96];
+	snprintf(suffix, sizeof(suffix), "-%s", asset_suffix);
 
 	const char* assets = strstr(json, "\"assets\"");
 	if (!assets)
@@ -224,7 +248,16 @@ static void read_current_version(char* version, size_t ver_size,
 	sha[0] = '\0';
 	tag[0] = '\0';
 
-	FILE* f = fopen(VERSION_FILE_PATH, "r");
+	// Desktop version.txt lives in the app bundle's system tree, not the
+	// device's fixed SD-card path.
+	char version_path[MAX_PATH];
+#if defined(HAS_RUNTIME_PATHS)
+	snprintf(version_path, sizeof(version_path), "%s/version.txt", SYSTEM_PATH);
+#else
+	snprintf(version_path, sizeof(version_path), "%s", VERSION_FILE_PATH);
+#endif
+
+	FILE* f = fopen(version_path, "r");
 	if (!f) {
 		snprintf(version, ver_size, "Unknown");
 		return;
@@ -563,7 +596,7 @@ static int fetch_release_details(SDL_Surface* screen, ReleaseInfo* release) {
 		ReleaseInfo api = {0};
 		if (json_extract_string(data, "tag_name", api.tag_name,
 								sizeof(api.tag_name)) &&
-			find_zip_asset_url(data, get_device_name(), api.download_url,
+			find_zip_asset_url(data, get_asset_suffix(), api.download_url,
 							   sizeof(api.download_url),
 							   api.expected_sha256, sizeof(api.expected_sha256))) {
 			char body[4096] = "";
@@ -578,15 +611,28 @@ static int fetch_release_details(SDL_Surface* screen, ReleaseInfo* release) {
 	}
 
 	// API unavailable (rate limited) or unparsable: derive the asset URL
-	// from the tag. Assets are named NXRedux-<tag>-<device>.zip from the
+	// from the tag. Assets are named NXRedux-<tag>-<suffix> from the
 	// first release that ships this updater.
 	release->release_notes[0] = '\0';
 	release->expected_sha256[0] = '\0';
+#if defined(HAS_RUNTIME_PATHS)
+	// Desktop assets aren't all .zip (Linux ships an .AppImage), so build the
+	// URL directly from the full suffix.
+	{
+		int n = snprintf(release->download_url, sizeof(release->download_url),
+						 "https://github.com/%s/%s/releases/download/%s/NXRedux-%s-%s",
+						 UPDATER_REPO_OWNER, UPDATER_REPO_NAME,
+						 release->tag_name, release->tag_name, get_asset_suffix());
+		if (n < 0 || (size_t)n >= sizeof(release->download_url))
+			return -1;
+	}
+#else
 	if (updater_build_fallback_url(UPDATER_REPO_OWNER, UPDATER_REPO_NAME,
 								   release->tag_name, get_device_name(),
 								   release->download_url,
 								   sizeof(release->download_url)) != 0)
 		return -1;
+#endif
 	return 1;
 }
 
@@ -642,7 +688,12 @@ static int show_update_info(SDL_Surface* screen, ReleaseInfo* release) {
 // there is no shell-injection surface. Returns 0 on success, -1 otherwise.
 static int sha256_file_hex(const char* path, char out_hex[65]) {
 	char cmd[300];
+#if defined(HAS_RUNTIME_PATHS) && defined(__APPLE__)
+	// macOS has no sha256sum; shasum -a 256 prints the same "hex  name" line.
+	snprintf(cmd, sizeof(cmd), "shasum -a 256 '%s' 2>/dev/null", path);
+#else
 	snprintf(cmd, sizeof(cmd), "sha256sum '%s' 2>/dev/null", path);
+#endif
 	FILE* p = popen(cmd, "r");
 	if (!p)
 		return -1;
@@ -781,6 +832,35 @@ static void do_install(SDL_Surface* screen, ReleaseInfo* release) {
 		}
 	}
 
+#if defined(HAS_RUNTIME_PATHS)
+	// --- Desktop install: hand the verified file to self-update.sh, which
+	// swaps the .app/AppImage in place and relaunches the new build. On
+	// success this process must take the WHOLE app down (nextui's relaunch
+	// loop included) so the fresh instance doesn't race a stale one: kill
+	// the entry-script shell (exported by entry-common.sh), then exit.
+	render_update_page(screen, "Installing Update",
+					   "Swapping in the new version...", -1, NULL, NULL, 0);
+	{
+		char script[MAX_PATH];
+		snprintf(script, sizeof(script), "%s/self-update.sh", BIN_PATH);
+		int rc = run_command((char* const[]){script, DOWNLOAD_PATH, NULL});
+		unlink(DOWNLOAD_PATH);
+		PWR_enableSleep();
+		PWR_enableAutosleep();
+		if (rc != 0) {
+			show_message_page(screen, "Update Error",
+							  "Install failed; current version untouched");
+			return;
+		}
+		render_update_page(screen, "Update Complete",
+						   "Restarting...", -1, NULL, NULL, 0);
+		sleep(1);
+		const char* entry_pid = getenv("NXREDUX_ENTRY_PID");
+		if (entry_pid && atoi(entry_pid) > 1)
+			kill((pid_t)atoi(entry_pid), SIGTERM);
+		exit(0);
+	}
+#else
 	// --- Extract phase ---
 	ExtractContext ex = {0};
 
@@ -815,6 +895,7 @@ static void do_install(SDL_Surface* screen, ReleaseInfo* release) {
 					   "Rebooting...", -1, NULL, NULL, 0);
 	sleep(2);
 	system("reboot");
+#endif
 }
 
 // ============================================

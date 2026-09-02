@@ -7,8 +7,11 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/utsname.h>
 #include <errno.h>
 #include <assert.h>
+#include <pthread.h>
+#include <stdatomic.h>
 
 #include <msettings.h>
 
@@ -19,22 +22,41 @@
 
 #include "scaler.h"
 
+#include "desktop_probe.h"
+
 #include <dirent.h>
 
-static SDL_Joystick* joystick;
 void PLAT_initInput(void) {
-	SDL_InitSubSystem(SDL_INIT_JOYSTICK);
-	joystick = SDL_JoystickOpen(0);
+	// SDL_INIT_GAMECONTROLLER implies SDL_INIT_JOYSTICK. Controllers present now
+	// arrive as SDL_CONTROLLERDEVICEADDED on the first event pump and are opened
+	// in the shared poll loop (api.c, PAD_poll).
+	//
+	// Note: SDL_GameControllerOpen opens the underlying joystick regardless, and
+	// SDL always emits BOTH the raw SDL_JOY* events and the translated
+	// SDL_CONTROLLER* events for an opened controller — so NOT opening a second
+	// raw SDL_Joystick here does not by itself prevent double input. It's
+	// harmless only because desktop's JOY_*/AXIS_* are all -1 (CODE_NA), making
+	// the shared SDL_JOYBUTTON/JOYAXIS branches inert — EXCEPT SDL_JOYHATMOTION,
+	// which is ungated: a pad whose d-pad is reported as a hat raises both a
+	// JOYHAT and a CONTROLLERBUTTON for the same BTN_DPAD_* bit. Today both paths
+	// only do idempotent bitmask set/unset behind an "already pressed" guard, so
+	// the overlap is a no-op; preserve that if the hat handler ever changes.
+	SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
+
+	// Warm the background reachability probe now (see wifi_probe_thread):
+	// its first result lands ~1-3s after the thread starts, so kicking it
+	// off at app init instead of on the first connectivity read keeps early
+	// checks (Device Sync's gate, the updater's) from reading offline.
+	PLAT_wifiConnected();
 }
 void PLAT_quitInput(void) {
-	SDL_JoystickClose(joystick);
-	SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
+	SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER); // closes any open controller
 }
 
 ///////////////////////////////
 
 void PLAT_getNetworkStatus(int* is_online) {
-	*is_online = 0;
+	*is_online = PLAT_wifiConnected();
 }
 
 void PLAT_getBatteryStatus(int* is_charging, int* charge) {
@@ -80,12 +102,59 @@ char* PLAT_getModel(void) {
 	return "Desktop";
 }
 
+// Shown as "OS version" on the Settings About page: the host OS release, not a
+// device firmware string (desktop has no firmware).
 void PLAT_getOsVersionInfo(char* output_str, size_t max_len) {
-	sprintf(output_str, "%s", "1.2.3");
+#ifdef __APPLE__
+	FILE* p = popen("sw_vers -productVersion 2>/dev/null", "r");
+	if (p) {
+		char ver[64] = {0};
+		char* got = fgets(ver, sizeof(ver), p);
+		pclose(p);
+		if (got) {
+			trimTrailingNewlines(ver);
+			if (ver[0]) {
+				snprintf(output_str, max_len, "macOS %s", ver);
+				return;
+			}
+		}
+	}
+#else
+	FILE* f = fopen("/etc/os-release", "r");
+	if (f) {
+		char line[256];
+		while (fgets(line, sizeof(line), f)) {
+			if (strncmp(line, "PRETTY_NAME=", 12) != 0)
+				continue;
+			char* v = line + 12;
+			trimTrailingNewlines(v);
+			size_t len = strlen(v);
+			if (len >= 2 && v[0] == '"' && v[len - 1] == '"') {
+				v[len - 1] = '\0';
+				v++;
+			}
+			if (v[0]) {
+				snprintf(output_str, max_len, "%s", v);
+				fclose(f);
+				return;
+			}
+		}
+		fclose(f);
+	}
+#endif
+	struct utsname u;
+	if (uname(&u) == 0)
+		snprintf(output_str, max_len, "%s %s", u.sysname, u.release);
+	else
+		snprintf(output_str, max_len, "unknown");
 }
 
 ConnectionStrength PLAT_connectionStrength(void) {
-	return SIGNAL_STRENGTH_HIGH;
+	// Desktop has no RSSI to report -- reuse the cached reachability probe
+	// (below) to at least make the menu-bar icon track real connectivity
+	// instead of always reading "connected". PLAT_wifiEnabled() is always
+	// true here, so there's no OFF case to represent.
+	return PLAT_wifiConnected() ? SIGNAL_STRENGTH_HIGH : SIGNAL_STRENGTH_DISCONNECTED;
 }
 
 /////////////////////////////////
@@ -220,7 +289,7 @@ bool PLAT_hasWifi() {
 	return true;
 }
 bool PLAT_wifiEnabled() {
-	return true;
+	return true; // host always has a network stack
 }
 void PLAT_wifiEnable(bool on) {}
 
@@ -236,8 +305,41 @@ int PLAT_wifiScan(struct WIFI_network* networks, int max) {
 	}
 	return 5;
 }
+// Background-refresh reachability state. The menu bar polls PLAT_wifiConnected()
+// every frame, so probing synchronously there would block the render thread for
+// up to the probe's timeout on every cache miss (a real periodic UI hitch while
+// offline, since a dropped SYN doesn't return quickly). Instead a single detached
+// thread refreshes this value every 3s in the background, and the poll just reads
+// the latest result -- instant, never blocks.
+static _Atomic int g_wifi_reachable = 0;
+static pthread_once_t g_wifi_probe_once = PTHREAD_ONCE_INIT;
+
+static void* wifi_probe_thread(void* arg) {
+	(void)arg;
+	for (;;) {
+		const char* host = getenv("NXREDUX_PROBE_HOST");
+		const char* ports = getenv("NXREDUX_PROBE_PORT");
+		int reachable = desktop_probe_reachable(host && *host ? host : "1.1.1.1",
+												ports && *ports ? atoi(ports) : 53, 1000);
+		atomic_store(&g_wifi_reachable, reachable);
+		sleep(3);
+	}
+	return NULL;
+}
+
+static void wifi_probe_start(void) {
+	pthread_t tid;
+	if (pthread_create(&tid, NULL, wifi_probe_thread, NULL) == 0) {
+		pthread_detach(tid);
+	}
+}
+
 bool PLAT_wifiConnected() {
-	return true;
+	// Ensure the background probe thread is running, then return its latest
+	// result. First ~3s after startup may read offline until the thread's
+	// first probe lands -- acceptable, bounded staleness.
+	pthread_once(&g_wifi_probe_once, wifi_probe_start);
+	return atomic_load(&g_wifi_reachable) != 0;
 }
 int PLAT_wifiConnection(struct WIFI_connection* connection_info) {
 	connection_info->freq = 2400;

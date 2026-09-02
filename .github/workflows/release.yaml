@@ -190,9 +190,102 @@ jobs:
         with:
           subject-path: releases/*.zip
 
+  desktop-macos:
+    needs:
+      - prepare
+    runs-on: macos-14 # arm64
+    # Desktop artifacts are additive to the primary (device) release; a flaky
+    # macOS runner must never block the tag push / hardware release.
+    continue-on-error: true
+    env:
+      BUILD_TAG: ${{ needs.prepare.outputs.next-tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        # rsync: bundled into the app for Device Sync (package-macos.sh copies
+        # the brew binary + dylibbundles its libs; macOS's own openrsync has
+        # no --daemon mode).
+        run: brew install gcc make sdl2 sdl3 sdl2_image sdl2_ttf sqlite libsamplerate dylibbundler cmake rsync sevenzip
+
+      # Unlike the device jobs (output-only cache + skipped build step), the
+      # package target always runs `gmake cores`, whose up-to-date check needs
+      # the .patched markers inside src/ — so cache src+output together: on a
+      # hit the cores step is a sub-second no-op, on a miss it rebuilds and
+      # re-caches. Exact-key only (no restore-keys): a stale src tree would
+      # skip re-applying changed patches, so any build-input change must start
+      # from a clean clone, same semantics as the device per-core cache.
+      - name: Restore cached cores
+        uses: actions/cache@v5
+        with:
+          path: |
+            workspace/desktop/cores/src/macos-arm64/
+            workspace/desktop/cores/output/macos-arm64/
+          key: cores-desktop-macos-arm64-${{ hashFiles('workspace/desktop/cores/Makefile', 'workspace/all/cores/Makefile', 'workspace/desktop/cores/patches/**', 'workspace/all/cores/patches/**') }}
+
+      - name: Package
+        run: make package-macos BUILD_TAG=${{ needs.prepare.outputs.next-tag }}
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: release-artifacts-macos
+          path: releases/*.zip
+
+      - name: Attest Build Provenance
+        uses: actions/attest-build-provenance@v3.2.0
+        with:
+          subject-path: releases/*.zip
+
+  desktop-linux:
+    needs:
+      - prepare
+    runs-on: ubuntu-24.04 # amd64: compose runs without emulation
+    # Desktop artifacts are additive to the primary (device) release; a flaky
+    # Docker/AppImage step must never block the tag push / hardware release.
+    continue-on-error: true
+    env:
+      BUILD_TAG: ${{ needs.prepare.outputs.next-tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5.0.0
+        with:
+          fetch-depth: 0
+
+      # Same src+output caching rationale as desktop-macos (see comment there);
+      # the container sees the restored trees through the bind mount, and
+      # package-appimage.sh chowns the cores dir back to the runner user so the
+      # post-job cache save can read what the root container wrote.
+      - name: Restore cached cores
+        uses: actions/cache@v5
+        with:
+          path: |
+            workspace/desktop/cores/src/linux-x86_64/
+            workspace/desktop/cores/output/linux-x86_64/
+          key: cores-desktop-linux-x86_64-${{ hashFiles('workspace/desktop/cores/Makefile', 'workspace/all/cores/Makefile', 'workspace/desktop/cores/patches/**', 'workspace/all/cores/patches/**') }}
+
+      - name: Package
+        run: make package-linux BUILD_TAG=${{ needs.prepare.outputs.next-tag }}
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: release-artifacts-linux
+          path: releases/*.AppImage
+
+      - name: Attest Build Provenance
+        uses: actions/attest-build-provenance@v3.2.0
+        with:
+          subject-path: releases/*.AppImage
+
   release:
     needs:
       - build
+      - desktop-macos
+      - desktop-linux
       - prepare
     runs-on: ubuntu-24.04-arm
     steps:
@@ -205,7 +298,7 @@ jobs:
         uses: actions/download-artifact@v7.0.0
         with:
           path: releases/
-          pattern: release-artifacts
+          pattern: release-artifacts*
           merge-multiple: true
 
       - name: Create and Push Tag

@@ -1,5 +1,6 @@
 name=PSP (PPSSPP)
 category=TOOL
+platforms=tg5040 tg5050
 desc=Standalone PPSSPP emulator (ben16w's community PSP.pak) for PlayStation Portable games. Put games in Roms/Sony Playstation Portable (PSP). Download ~31 MB.
 size_mb=72
 done_msg=Put PSP games in Roms/Sony Playstation Portable (PSP).

@@ -96,6 +96,39 @@ build:
 	make build -f $(TOOLCHAIN_FILE) PLATFORM=$(PLATFORM) COMPILE_CORES=$(COMPILE_CORES)
 	# ----------------------------------------------------
 
+# Per-OS desktop build subdir (see workspace/all/*/Makefile BUILD_SUBDIR):
+# macOS host builds land in build/desktop-macos-<arch>; the Linux docker flow
+# sets its own (desktop-linux-<arch>) in package-appimage.sh, so the two
+# flows never touch each other's app-binary artifacts and can run
+# concurrently. Only meaningful on macOS (package-macos is mac-only).
+DESKTOP_BUILD_SUBDIR := desktop-macos-$(shell uname -m)
+
+package-macos: # macOS desktop bundle (arm64, unsigned); needs brew deps + gmake
+	./scripts/desktop/setup-macos-toolchain.sh
+	cd workspace/desktop/libmsettings && $(MAKE) build CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux BUILD_SUBDIR=$(DESKTOP_BUILD_SUBDIR)
+	cd workspace/all/nextui && $(MAKE) PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin BUILD_TAG=$(BUILD_TAG) BUILD_SUBDIR=$(DESKTOP_BUILD_SUBDIR)
+	cd workspace/all/minarch && $(MAKE) PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin BUILD_SUBDIR=$(DESKTOP_BUILD_SUBDIR)
+	cd workspace/all/libgametimedb && $(MAKE) build PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin BUILD_SUBDIR=$(DESKTOP_BUILD_SUBDIR)
+	# The 7 Tools paks' binaries (+ gametimectl's daemon copy) and the netplay
+	# pre-launch wizard (netplay.elf, run bare off PATH by the Emus paks'
+	# launch.sh). Same recipe as nextui/minarch above; gametime/gametimectl's
+	# libgametimedb.h dep is already satisfied by the explicit rebuild just
+	# above (their Makefiles no-op it).
+	for t in settings emu-options ratools scraper sync extras gametime gametimectl netplay-wizard; do \
+		(cd workspace/all/$$t && $(MAKE) PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin BUILD_SUBDIR=$(DESKTOP_BUILD_SUBDIR)) || exit 1; \
+	done
+	# Build every core in the desktop cores Makefile's CORES list. Incremental:
+	# make skips a core whose output .so is already up to date, so repeat
+	# packages are fast. macOS and Linux (docker) builds are fully separated
+	# per host triple (src/macos-arm64 + output/macos-arm64 here vs
+	# linux-x86_64 in the container), so interleaving `make package-linux`
+	# can't poison this step.
+	cd workspace/desktop/cores && gmake cores PLATFORM=desktop
+	TAG=$(BUILD_TAG) ./scripts/desktop/package-macos.sh
+
+package-linux: # Linux AppImage (x86_64) via in-repo docker compose env
+	docker compose run --rm -e TAG=$(BUILD_TAG) -e HASH=$(BUILD_HASH) appimage
+
 build-cores:
 	make build-cores -f $(TOOLCHAIN_FILE) PLATFORM=$(PLATFORM) COMPILE_CORES=true
 	# ----------------------------------------------------

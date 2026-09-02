@@ -127,7 +127,7 @@ static void resolveAndLoadBackground(Entry* entry, const char* rompath,
 	bgResolveForcedNames = false;
 
 	char defaultBgPath[512];
-	snprintf(defaultBgPath, sizeof(defaultBgPath), SDCARD_PATH "/bg.png");
+	snprintf(defaultBgPath, sizeof(defaultBgPath), "%s/bg.png", SDCARD_PATH);
 
 	// Resolve: what path to compare for changes, and what bg image to load
 	const char* cmpPath = NULL;
@@ -145,7 +145,7 @@ static void resolveAndLoadBackground(Entry* entry, const char* rompath,
 			strncpy(bgPath, defaultBgPath, sizeof(bgPath) - 1);
 	} else if (entry && entry->type == ENTRY_PAK && suffixMatch(".pak", entry->path)) {
 		cmpPath = entry->path;
-		snprintf(bgPath, sizeof(bgPath), TOOLS_PATH "/.media/%s/bg.png",
+		snprintf(bgPath, sizeof(bgPath), "%s/.media/%s/bg.png", TOOLS_PATH,
 				 Shortcuts_getPakBasename(entry->path));
 	} else if (exists(defaultBgPath)) {
 		// default background is entry-independent: the change-skip below must

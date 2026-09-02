@@ -202,7 +202,9 @@ void openPak(char* path) {
 		}
 	}
 	char virt_path[MAX_PATH];
-	if (save_path == path && prefixMatch(PAKS_PATH "/Tools/", save_path)) {
+	char paks_tools_path[MAX_PATH];
+	snprintf(paks_tools_path, sizeof(paks_tools_path), "%s/Tools/", PAKS_PATH);
+	if (save_path == path && prefixMatch(paks_tools_path, save_path)) {
 		// system tool pak: save the SD-shaped path so loadLast walks
 		// root -> Tools (the merged view lists this pak there)
 		char* name = strrchr(save_path, '/');
@@ -657,6 +659,9 @@ void loadLast(void) { // call after loading root directory
 	char slash_name[MAX_PATH];
 	snprintf(slash_name, sizeof(slash_name), "/%s", filename);
 
+	char paks_tools_path[MAX_PATH];
+	snprintf(paks_tools_path, sizeof(paks_tools_path), "%s/Tools/", PAKS_PATH);
+
 	Array* last = Array_new();
 	while (!exactMatch(last_path, SDCARD_PATH)) {
 		Array_push(last, strdup(last_path));
@@ -683,7 +688,7 @@ void loadLast(void) { // call after loading root directory
 				Entry* entry = top->entries->items[i];
 
 				// NOTE: strlen() is required for collated_path, '\0' wasn't reading as NULL for some reason
-				if (exactMatch(entry->path, path) || (strlen(collated_path) && prefixMatch(collated_path, entry->path) && isConsoleDir(entry->path)) || (prefixMatch(COLLECTIONS_PATH, full_path) && suffixMatch(filename, entry->path)) || (prefixMatch(PAKS_PATH "/Tools/", entry->path) && suffixMatch(slash_name, entry->path))) {
+				if (exactMatch(entry->path, path) || (strlen(collated_path) && prefixMatch(collated_path, entry->path) && isConsoleDir(entry->path)) || (prefixMatch(COLLECTIONS_PATH, full_path) && suffixMatch(filename, entry->path)) || (prefixMatch(paks_tools_path, entry->path) && suffixMatch(slash_name, entry->path))) {
 					top->selected = i;
 					if (i >= top->end) {
 						int lrc = MAIN_ROW_COUNT - 1;

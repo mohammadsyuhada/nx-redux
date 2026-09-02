@@ -1,5 +1,6 @@
 name=PortMaster
 category=TOOL
+platforms=tg5040 tg5050
 desc=Ports store: browse and install hundreds of pre-configured PC game ports on-device. Installed ports appear under the Ports console. Download ~24 MB.
 size_mb=420
 repo=PortsMaster/PortMaster-GUI

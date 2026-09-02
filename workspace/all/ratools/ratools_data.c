@@ -158,7 +158,9 @@ static int rat_game_cmp(const void* a, const void* b) {
 
 int RAT_listGames(RAT_Game** out_games) {
 	*out_games = NULL;
-	DIR* d = opendir(SHARED_USERDATA_PATH "/.ra/cache/games");
+	char games_dir[512];
+	snprintf(games_dir, sizeof(games_dir), "%s/.ra/cache/games", SHARED_USERDATA_PATH);
+	DIR* d = opendir(games_dir);
 	if (!d)
 		return 0;
 

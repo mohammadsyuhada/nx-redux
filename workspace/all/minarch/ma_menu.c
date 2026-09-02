@@ -101,7 +101,7 @@ void Menu_init(void) {
 
 	char emu_name[MAX_PATH]; // getEmuName requires MAX_PATH buffers
 	getEmuName(game.path, emu_name);
-	snprintf(menu.minui_dir, sizeof(menu.minui_dir), SHARED_USERDATA_PATH "/.minui/%s", emu_name);
+	snprintf(menu.minui_dir, sizeof(menu.minui_dir), "%s/.minui/%s", SHARED_USERDATA_PATH, emu_name);
 	mkdir(menu.minui_dir, 0755);
 
 	// always sanitized/outer name, to keep main UI from having to inspect archives
@@ -799,7 +799,9 @@ static int OptionAchievements_openMenu(MenuList* list, int i) {
 // one, otherwise the compiled-in date+hash that identifies dev builds.
 static char frontend_version_desc[64] = "NX Redux (" BUILD_DATE " " BUILD_HASH ")";
 static void initFrontendVersionDesc(void) {
-	FILE* f = fopen(ROOT_SYSTEM_PATH "version.txt", "r");
+	char version_path[MAX_PATH];
+	snprintf(version_path, sizeof(version_path), "%sversion.txt", ROOT_SYSTEM_PATH);
+	FILE* f = fopen(version_path, "r");
 	if (!f)
 		return;
 	char line[64];
@@ -1256,10 +1258,12 @@ void Menu_screenshot(void) {
 	strftime(buffer, sizeof(buffer), "%Y-%m-%d-%H-%M-%S", t);
 
 	// make sure this actually exists
-	mkdir(SDCARD_PATH "/Screenshots", 0755);
+	char screenshots_dir[MAX_PATH];
+	snprintf(screenshots_dir, sizeof(screenshots_dir), "%s/Screenshots", SDCARD_PATH);
+	mkdir(screenshots_dir, 0755);
 
 	char png_path[MAX_PATH];
-	snprintf(png_path, sizeof(png_path), SDCARD_PATH "/Screenshots/%s.%s.png", rom_name, buffer);
+	snprintf(png_path, sizeof(png_path), "%s/Screenshots/%s.%s.png", SDCARD_PATH, rom_name, buffer);
 	Menu_queueScreenshotSave(png_path);
 
 	// Show notification if enabled

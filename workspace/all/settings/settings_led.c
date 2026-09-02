@@ -134,11 +134,11 @@ static void led_init_labels(void) {
 static void led_save_settings(void) {
 	char diskfilename[256];
 	if (led_is_brickpro) {
-		snprintf(diskfilename, sizeof(diskfilename), SHARED_USERDATA_PATH "/ledsettings_brickpro.txt");
+		snprintf(diskfilename, sizeof(diskfilename), "%s/ledsettings_brickpro.txt", SHARED_USERDATA_PATH);
 	} else if (led_is_brick) {
-		snprintf(diskfilename, sizeof(diskfilename), SHARED_USERDATA_PATH "/ledsettings_brick.txt");
+		snprintf(diskfilename, sizeof(diskfilename), "%s/ledsettings_brick.txt", SHARED_USERDATA_PATH);
 	} else {
-		snprintf(diskfilename, sizeof(diskfilename), SHARED_USERDATA_PATH "/ledsettings.txt");
+		snprintf(diskfilename, sizeof(diskfilename), "%s/ledsettings.txt", SHARED_USERDATA_PATH);
 	}
 
 	FILE* file = fopen(diskfilename, "w");

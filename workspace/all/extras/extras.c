@@ -37,6 +37,7 @@
 #include "ui_message.h"
 #include "ui_splash.h"
 #include "utils.h" // escapeSingleQuotes
+#include "xtras_compat.h"
 
 #define MAX_ENTRIES 32
 #define META_STR 256
@@ -69,10 +70,19 @@
 
 // Per-entry version state lives OUTSIDE the catalog (update-tracking spec,
 // 2026-08-10): install.sh records the release tag it actually installed in
-// XTRAS_STATE_DIR/<id>.version, and the background check thread below caches
-// each repo's latest release tag in <id>.latest. "Update available" is
-// simply installed != latest - the catalog itself no longer pins versions.
-#define XTRAS_STATE_DIR SHARED_USERDATA_PATH "/xtras"
+// the xtras state dir's <id>.version, and the background check thread below
+// caches each repo's latest release tag in <id>.latest. "Update available"
+// is simply installed != latest - the catalog itself no longer pins
+// versions.
+//
+// The state dir is SHARED_USERDATA_PATH "/xtras", but SHARED_USERDATA_PATH
+// is a runtime array (not a string literal) on desktop builds, so it's no
+// longer adjacent-string-literal-concatenable -- resolved via snprintf
+// instead (byte-identical to the device value; same technique as ratools'
+// rat_badge_path()).
+static void xtras_state_dir(char* buf, size_t n) {
+	snprintf(buf, n, "%s/xtras", SHARED_USERDATA_PATH);
+}
 // Latest-release cache freshness window: within it the check thread skips
 // the GitHub API entirely (rate limit is 60/hr/IP unauthenticated - ample,
 // but re-hitting it on every app open is still pointless).
@@ -91,12 +101,26 @@ typedef struct {
 						// entries whose payload doesn't land in the default
 						// category folder (e.g. psp installs to Emus/, not
 						// Tools/, so "Find it in Tools." would mislead)
+	char platforms[64]; // meta.txt "platforms=" verbatim ("" = compatible everywhere)
+	bool compatible;	// computed in catalog_load via xtras_platform_compatible
 } AddonEntry;
 
 static AddonEntry entries[MAX_ENTRIES];
 static int entry_count = 0;
 static SDL_Surface* screen = NULL;
 static char pak_dir[MAX_PATH];
+
+// The desktop-OS token this build advertises to the compatibility gate.
+// PLATFORM is one "desktop" for both macOS and Linux, but extras.c is
+// compiled once per desktop OS, so __APPLE__ is a compile-time fact. Returns
+// "" on device builds (they match only their PLATFORM: tg5040 / tg5050).
+static const char* build_os_token(void) {
+#ifdef __APPLE__
+	return strcmp(PLATFORM, "desktop") == 0 ? "macos" : "";
+#else
+	return strcmp(PLATFORM, "desktop") == 0 ? "linux" : "";
+#endif
+}
 
 // --- meta.txt: flat key=value, unknown keys ignored ---------------------
 static void meta_set(AddonEntry* e, const char* key, const char* val) {
@@ -112,6 +136,8 @@ static void meta_set(AddonEntry* e, const char* key, const char* val) {
 		e->size_mb = atoi(val);
 	else if (!strcmp(key, "done_msg"))
 		snprintf(e->done_msg, sizeof(e->done_msg), "%s", val);
+	else if (!strcmp(key, "platforms"))
+		snprintf(e->platforms, sizeof(e->platforms), "%s", val);
 	// "version" (pre-update-tracking pin) and "asset" (consumed only by the
 	// entry's own install.sh) fall through to the unknown-key ignore.
 }
@@ -154,15 +180,17 @@ static bool read_line_file(const char* path, char* out, int out_size) {
 	return out[0] != '\0';
 }
 
-// Installed-version record, written by install.sh to XTRAS_STATE_DIR. Falls
-// back to the legacy pre-update-tracking marker (.nx_addon_version inside
+// Installed-version record, written by install.sh to the xtras state dir.
+// Falls back to the legacy pre-update-tracking marker (.nx_addon_version inside
 // the entry's data dir) and migrates the value forward so cards installed
 // before the switch keep reading as installed; the legacy file itself is
 // left for uninstall.sh to clear (and for an older Xtras.pak to read, if
 // the system is ever downgraded).
 static void read_installed(AddonEntry* e) {
+	char state_dir[MAX_PATH];
+	xtras_state_dir(state_dir, sizeof(state_dir));
 	char path[MAX_PATH];
-	snprintf(path, sizeof(path), XTRAS_STATE_DIR "/%s.version", e->id);
+	snprintf(path, sizeof(path), "%s/%s.version", state_dir, e->id);
 	if (read_line_file(path, e->installed, sizeof(e->installed)))
 		return;
 
@@ -175,7 +203,7 @@ static void read_installed(AddonEntry* e) {
 
 	// One-time forward migration; best-effort (a read-only card just retries
 	// next launch). SHARED_USERDATA_PATH itself always exists on a booted card.
-	mkdir(XTRAS_STATE_DIR, 0755);
+	mkdir(state_dir, 0755);
 	FILE* out = fopen(path, "w");
 	if (out) {
 		fprintf(out, "%s\n", e->installed);
@@ -185,8 +213,10 @@ static void read_installed(AddonEntry* e) {
 
 // Latest upstream release tag, cached by the background check thread.
 static void read_latest(AddonEntry* e) {
+	char state_dir[MAX_PATH];
+	xtras_state_dir(state_dir, sizeof(state_dir));
 	char path[MAX_PATH];
-	snprintf(path, sizeof(path), XTRAS_STATE_DIR "/%s.latest", e->id);
+	snprintf(path, sizeof(path), "%s/%s.latest", state_dir, e->id);
 	read_line_file(path, e->latest, sizeof(e->latest));
 }
 
@@ -244,12 +274,14 @@ static void* latest_check_thread(void* arg) {
 	}
 	freeaddrinfo(res);
 
-	mkdir(XTRAS_STATE_DIR, 0755); // best-effort; parent always exists on a booted card
+	char state_dir[MAX_PATH];
+	xtras_state_dir(state_dir, sizeof(state_dir));
+	mkdir(state_dir, 0755); // best-effort; parent always exists on a booted card
 
 	time_t now = time(NULL);
 	for (int i = 0; i < check_count; i++) {
 		char cache[MAX_PATH];
-		snprintf(cache, sizeof(cache), XTRAS_STATE_DIR "/%s.latest", check_items[i].id);
+		snprintf(cache, sizeof(cache), "%s/%s.latest", state_dir, check_items[i].id);
 		struct stat st;
 		if (stat(cache, &st) == 0 && now - st.st_mtime < LATEST_CACHE_TTL_S)
 			continue;
@@ -311,6 +343,7 @@ static void catalog_load(void) {
 		snprintf(e->id, sizeof(e->id), "%s", de->d_name);
 		if (!meta_parse(meta, e))
 			continue;
+		e->compatible = xtras_platform_compatible(e->platforms, PLATFORM, build_os_token());
 		read_installed(e);
 		read_latest(e);
 		entry_count++;
@@ -510,7 +543,10 @@ static void extras_get_row(void* ctx, int i, bool selected, ListViewRow* out) {
 		out->label = "Installed";
 		return;
 	}
-	out->label = entries[r->indices[extras_widget_to_entry(r, i)]].name;
+	AddonEntry* e = &entries[r->indices[extras_widget_to_entry(r, i)]];
+	out->label = e->name;
+	if (!e->compatible)
+		out->annotation = "Not available";
 }
 
 // Tab bar/menu bar chrome stays app-drawn (title=NULL keeps the widget out
@@ -929,8 +965,18 @@ static bool parse_hint(const char* line, int* pct, const char** status_text,
 // this only bites install.sh.
 static int run_entry_script(AddonEntry* e, const char* script_name, const char* title) {
 	const char* logs_path = getenv("LOGS_PATH");
-	if (!logs_path)
-		logs_path = USERDATA_PATH "/logs";
+	// USERDATA_PATH is a runtime array (not a string literal) on desktop
+	// builds, so appending "/logs" via adjacent string-literal concatenation
+	// no longer compiles -- resolved into a local buffer via snprintf
+	// instead (byte-identical to the device value).
+	char logs_path_buf[MAX_PATH];
+	if (!logs_path) {
+		snprintf(logs_path_buf, sizeof(logs_path_buf), "%s/logs", USERDATA_PATH);
+		logs_path = logs_path_buf;
+	}
+
+	char state_dir[MAX_PATH];
+	xtras_state_dir(state_dir, sizeof(state_dir));
 
 	// Escape the catalog id before it goes into the single-quoted CATALOG_DIR
 	// and sh-path arguments below (worst case each quote expands to 4 chars).
@@ -949,11 +995,11 @@ static int run_entry_script(AddonEntry* e, const char* script_name, const char* 
 			 "PLATFORM='%s' SDCARD_PATH='%s' LOGS_PATH='%s' "
 			 "EXTRAS_ROMS_DIR='%s/Roms/" EXTRAS_ROMS_DIRNAME "' "
 			 "EXTRAS_DATA_DIR='%s/Roms/" EXTRAS_ROMS_DIRNAME "/.data' "
-			 "XTRAS_STATE_DIR='" XTRAS_STATE_DIR "' "
+			 "XTRAS_STATE_DIR='%s' "
 			 "CATALOG_DIR='%s/catalog/%s' "
 			 "sh '%s/catalog/%s/%s' 2>&1",
 			 PLATFORM, SDCARD_PATH, logs_path,
-			 SDCARD_PATH, SDCARD_PATH, pak_dir, id_esc, pak_dir, id_esc, script_name);
+			 SDCARD_PATH, SDCARD_PATH, state_dir, pak_dir, id_esc, pak_dir, id_esc, script_name);
 
 	FILE* p = popen(cmd, "r");
 	if (!p)
@@ -1128,7 +1174,9 @@ static int uninstall_generic(AddonEntry* e) {
 	// The update-tracking installed-version record (the legacy marker above
 	// is its pre-migration location; both must go or the entry reads as
 	// still installed).
-	snprintf(marker, sizeof(marker), XTRAS_STATE_DIR "/%s.version", e->id);
+	char state_dir[MAX_PATH];
+	xtras_state_dir(state_dir, sizeof(state_dir));
+	snprintf(marker, sizeof(marker), "%s/%s.version", state_dir, e->id);
 	remove(marker);
 
 	UI_showMessage(screen, "Saves and ROMs kept.", EXTRAS_MESSAGE_MS);
@@ -1299,23 +1347,35 @@ static int run_detail(AddonEntry* e) {
 		if (PAD_justPressed(BTN_B))
 			break;
 		if (PAD_justPressed(BTN_A)) {
-			const char* err = preflight(e);
-			if (err) {
-				UI_showMessage(screen, err, EXTRAS_MESSAGE_MS);
+			if (!e->compatible) {
+				char msg[128];
+				snprintf(msg, sizeof(msg), "Not available on %s", PLAT_getModel());
+				UI_showMessage(screen, msg, EXTRAS_MESSAGE_MS);
 			} else {
-				if (run_install(e) == 0) {
-					changed = true;
-					// Refresh e->installed from the marker install.sh just
-					// wrote so this still-open detail page's next redraw
-					// (metadata line + hint bar) reflects the new state
-					// immediately, rather than only after catalog_load()
-					// re-scans on return to the list.
-					e->installed[0] = '\0';
-					read_installed(e);
+				const char* err = preflight(e);
+				if (err) {
+					UI_showMessage(screen, err, EXTRAS_MESSAGE_MS);
+				} else {
+					if (run_install(e) == 0) {
+						changed = true;
+						// Refresh e->installed from the marker install.sh just
+						// wrote so this still-open detail page's next redraw
+						// (metadata line + hint bar) reflects the new state
+						// immediately, rather than only after catalog_load()
+						// re-scans on return to the list.
+						e->installed[0] = '\0';
+						read_installed(e);
+					}
 				}
 			}
 			dirty = true;
 		}
+		// X/UNINSTALL is guarded on installed[0] only (not compatible): in
+		// SP1 no incompatible entry can ever reach the installed state, so
+		// this branch is unreachable for them. SP2 (desktop-installable
+		// entries) must decide what happens to an entry whose tag flips to
+		// incompatible while installed — keep uninstall available, or block
+		// it to match the hidden hint — before this assumption is relied on.
 		if (PAD_justPressed(BTN_X) && e->installed[0]) {
 			if (run_confirm_dialog("Uninstall?",
 								   "Saves and ROMs are kept - reinstall to play again.")) {
@@ -1367,13 +1427,16 @@ static int run_detail(AddonEntry* e) {
 			snprintf(meta_lines[0], sizeof(meta_lines[0]), "%s  \xC2\xB7  ~%d MB",
 					 e->category, e->size_mb);
 			int voff;
-			if (e->installed[0])
+			if (!e->compatible)
+				voff = snprintf(meta_lines[1], sizeof(meta_lines[1]),
+								"Not available on %s", PLAT_getModel());
+			else if (e->installed[0])
 				voff = snprintf(meta_lines[1], sizeof(meta_lines[1]),
 								"Installed %s", e->installed);
 			else
 				voff = snprintf(meta_lines[1], sizeof(meta_lines[1]),
 								"Not installed");
-			if (e->latest[0] && voff < (int)sizeof(meta_lines[1]))
+			if (e->compatible && e->latest[0] && voff < (int)sizeof(meta_lines[1]))
 				snprintf(meta_lines[1] + voff, sizeof(meta_lines[1]) - voff,
 						 "  \xC2\xB7  Latest %s", e->latest);
 			for (int i = 0; i < 2; i++) {
@@ -1420,7 +1483,9 @@ static int run_detail(AddonEntry* e) {
 			// the update state - UPDATE, REINSTALL and INSTALL all run the
 			// same install.sh (it always installs the latest release); only
 			// the wording differs.
-			if (e->installed[0])
+			if (!e->compatible)
+				UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", NULL});
+			else if (e->installed[0])
 				UI_renderButtonHintBar(screen, (char*[]){"B", "BACK",
 														 "X", "UNINSTALL", "A",
 														 entry_update_available(e) ? "UPDATE" : "REINSTALL", NULL});
@@ -1437,6 +1502,7 @@ static int run_detail(AddonEntry* e) {
 }
 
 int main(int argc, char* argv[]) {
+	PATHS_init(PLATFORM); // no-op on device; resolves SDCARD_PATH et al on desktop
 	(void)argc;
 	char* slash = strrchr(argv[0], '/');
 	if (slash) {

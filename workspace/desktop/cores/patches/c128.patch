@@ -1,0 +1,35 @@
+diff --git a/Makefile b/Makefile
+index 62cb321..3718357 100644
+--- a/Makefile
++++ b/Makefile
+@@ -49,6 +49,30 @@ ifeq ($(platform), unix)
+    LDFLAGS += -shared -Wl,--version-script=$(CORE_DIR)/libretro/link.T -Wl,--gc-sections
+    fpic = -fPIC
+ 
++# NxRedux desktop (macOS/Linux host build)
++else ifeq ($(platform), desktop)
++   TARGET := $(TARGET_NAME)_libretro.so
++   CC = $(CROSS_COMPILE)gcc
++   CXX = $(CROSS_COMPILE)g++
++   AR = $(CROSS_COMPILE)ar
++   fpic := -fPIC
++   ifeq ($(shell uname -s), Darwin)
++      # macOS ld rejects GNU --version-script; plain -shared yields a
++      # dlopen-able Mach-O .so.
++      LDFLAGS += -shared
++      # Apple clang always predefines TARGET_OS_MAC=1 (from
++      # TargetConditionals.h semantics baked into the compiler), which
++      # trips the vendored deps/libz/zutil.h's ancient classic-MacOS
++      # CodeWarrior block (`#define fdopen(fd,mode) NULL`) and corrupts
++      # the real fdopen() prototype pulled in from <stdio.h>. That block
++      # only exists for pre-OSX Mac builds; undefine the macro so it
++      # never triggers.
++      CFLAGS += -UTARGET_OS_MAC
++      CXXFLAGS += -UTARGET_OS_MAC
++   else
++      LDFLAGS += -shared -Wl,--version-script=$(CORE_DIR)/libretro/link.T -Wl,--gc-sections
++   endif
++
+ # Raspberry Pi 4
+ else ifneq (,$(findstring rpi4,$(platform)))
+    TARGET := $(TARGET_NAME)_libretro.so

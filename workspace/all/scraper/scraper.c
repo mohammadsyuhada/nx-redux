@@ -57,8 +57,8 @@ static char cred_password[128] = "";
 static void loadCredentials(void) {
 	cred_username[0] = '\0';
 	cred_password[0] = '\0';
-	getFile(CREDS_USER, cred_username, sizeof(cred_username));
-	getFile(CREDS_PASS, cred_password, sizeof(cred_password));
+	getFile(creds_user_path(), cred_username, sizeof(cred_username));
+	getFile(creds_pass_path(), cred_password, sizeof(cred_password));
 	// Trim newlines
 	char* nl;
 	if ((nl = strchr(cred_username, '\n')))
@@ -69,9 +69,9 @@ static void loadCredentials(void) {
 }
 
 static void saveCredentials(void) {
-	mkdir_p(CREDS_DIR);
-	putFile(CREDS_USER, cred_username);
-	putFile(CREDS_PASS, cred_password);
+	mkdir_p(creds_dir());
+	putFile(creds_user_path(), cred_username);
+	putFile(creds_pass_path(), cred_password);
 	ScraperAPI_setUserCredentials(cred_username, cred_password);
 }
 
@@ -894,6 +894,8 @@ static void reportQueued(int added) {
 // ============================================
 
 int main(int argc, char* argv[]) {
+	PATHS_init(PLATFORM);
+
 	for (int i = 1; i < argc; i++)
 		if (strcmp(argv[i], "--fetch") == 0)
 			return run_headless_fetch(argc, argv);

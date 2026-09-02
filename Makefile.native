@@ -14,11 +14,11 @@ ifeq ($(UNAME_S),Linux)
 	PREFIX=/usr
 endif
 ifeq ($(UNAME_S),Darwin)
-	# TODO: brew installs gcc to e.g. /opt/homebrew/bin/gcc-14, but none of our makefiles support the suffix. 
-	#       For now, just manually symlink all the build tools to a suffix-less path: sudo ./workspace/desktop/macos_create_gcc_symlinks.sh
-	#       and make with: make setup common PLATFORM=desktop
+	# brew installs gcc to e.g. /opt/homebrew/bin/gcc-16, but none of our makefiles
+	# support the suffix. Run scripts/desktop/setup-macos-toolchain.sh first to shim
+	# a suffix-less gcc into /var/tmp/nxredux/bin (no sudo, no /usr/local/bin writes).
 	#       From brew we need at least: brew install sdl2_image sdl2_ttf gcc make libsamplerate sqlite
-	CROSS_COMPILE=/usr/local/bin/
+	CROSS_COMPILE=/var/tmp/nxredux/bin/
 	PREFIX=/opt/homebrew
 endif
 PREFIX_LOCAL=/var/tmp/nxredux

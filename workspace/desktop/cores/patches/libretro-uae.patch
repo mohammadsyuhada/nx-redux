@@ -1,0 +1,32 @@
+diff --git a/Makefile b/Makefile
+index 7e5ff62..2882693 100644
+--- a/Makefile
++++ b/Makefile
+@@ -37,6 +37,27 @@ ifneq (,$(findstring unix,$(platform)))
+       endif
+    endif
+ 
++# NxRedux desktop (macOS/Linux host build)
++else ifeq ($(platform), desktop)
++   TARGET := $(TARGET_NAME)_libretro.so
++   fpic := -fPIC
++   LDFLAGS += -lpthread
++   CFLAGS += -Wno-unused-result
++   ifeq ($(shell uname -s), Darwin)
++      # macOS ld rejects GNU --version-script/--gc-sections; plain -shared
++      # yields a dlopen-able Mach-O .so. macOS has no unnamed POSIX
++      # semaphores, so use named ones like the osx branch does.
++      SHARED := -shared
++      PLATFLAGS += -DUSE_NAMED_SEMAPHORES
++      # The vendored deps/libz/zutil.h takes its ancient classic-Mac OS
++      # branch because modern macOS defines TARGET_OS_MAC, redefining
++      # fdopen() to NULL and colliding with the SDK prototype. Pre-defining
++      # fdopen as an identity macro skips that redefinition harmlessly.
++      CFLAGS += -Dfdopen=fdopen
++   else
++      SHARED := -shared -Wl,--version-script=$(CORE_DIR)/libretro/link.T -Wl,--gc-sections
++   endif
++
+ # Raspberry Pi 4
+ else ifneq (,$(findstring rpi4,$(platform)))
+    TARGET := $(TARGET_NAME)_libretro.so
