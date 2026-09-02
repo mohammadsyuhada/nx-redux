@@ -31,6 +31,11 @@ done
 RSYNC_SRC="$(brew --prefix rsync 2>/dev/null)/bin/rsync"
 [ -x "$RSYNC_SRC" ] || { echo "error: brew rsync not found; run: brew install rsync" >&2; exit 1; }
 cp "$RSYNC_SRC" "$SYS/shared/bin/rsync"
+# 7zz: minarch's .7z ROM extraction (ma_game.c). Links only system libs, so a
+# plain copy is complete — no dylibbundler pass needed.
+SEVENZIP_SRC="$(brew --prefix sevenzip 2>/dev/null)/bin/7zz"
+[ -x "$SEVENZIP_SRC" ] || { echo "error: brew sevenzip not found; run: brew install sevenzip" >&2; exit 1; }
+cp "$SEVENZIP_SRC" "$SYS/shared/bin/7zz"
 
 # version.txt: same 3-line format the device Makefile ships (release name /
 # hash / tag) — the Settings About page derives its version + release date

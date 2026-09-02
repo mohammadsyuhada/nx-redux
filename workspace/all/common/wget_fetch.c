@@ -18,23 +18,49 @@ static const char* wget_bin_path(void) {
 	return path;
 }
 
-// Device zips vendor a wget there; desktop uses the host's curl — present on
-// macOS out of the box and on virtually every desktop distro. Desktop must
-// NEVER trust an existence check here: the skeleton copied into desktop
-// packages (and the dev fake SD card) can carry the DEVICE'S aarch64 wget,
-// which passes access(X_OK) but cannot exec on the host.
-static int have_vendored_wget(void) {
+// Fetch tool selection. Devices use their vendored wget. Desktop prefers the
+// host's curl (part of macOS itself; near-universal on distros) and falls
+// back to a PATH wget (GNU-compatible with the same flags) on minimal Linux
+// installs that ship wget but not curl. Desktop must NEVER trust the
+// vendored path: the skeleton copied into desktop packages (and the dev fake
+// SD card) can carry the DEVICE'S aarch64 wget, which passes access(X_OK)
+// but cannot exec on the host.
+typedef enum {
+	FETCH_TOOL_UNKNOWN = 0,
+	FETCH_TOOL_VENDORED_WGET,
+	FETCH_TOOL_CURL,
+	FETCH_TOOL_PATH_WGET,
+	FETCH_TOOL_NONE,
+} FetchTool;
+
+static FetchTool fetch_tool(void) {
+	static FetchTool tool = FETCH_TOOL_UNKNOWN;
+	if (tool != FETCH_TOOL_UNKNOWN)
+		return tool;
 #if defined(HAS_RUNTIME_PATHS)
-	return 0;
-#else
-	static int checked = 0;
-	static int have = 0;
-	if (!checked) {
-		checked = 1;
-		have = access(wget_bin_path(), X_OK) == 0;
+	if (system("command -v curl >/dev/null 2>&1") == 0)
+		tool = FETCH_TOOL_CURL;
+	else if (system("command -v wget >/dev/null 2>&1") == 0)
+		tool = FETCH_TOOL_PATH_WGET;
+	else {
+		LOG_error("[WgetFetch] neither curl nor wget on PATH; downloads unavailable\n");
+		tool = FETCH_TOOL_NONE;
 	}
-	return have;
+#else
+	tool = access(wget_bin_path(), X_OK) == 0 ? FETCH_TOOL_VENDORED_WGET
+											  : FETCH_TOOL_NONE;
 #endif
+	return tool;
+}
+
+static int use_wget(void) {
+	FetchTool t = fetch_tool();
+	return t == FETCH_TOOL_VENDORED_WGET || t == FETCH_TOOL_PATH_WGET;
+}
+
+// The wget command lines below fit both the vendored binary and GNU wget.
+static const char* wget_cmd_name(void) {
+	return fetch_tool() == FETCH_TOOL_VENDORED_WGET ? wget_bin_path() : "wget";
 }
 
 // Escape a string for use inside single quotes in shell commands.
@@ -69,12 +95,15 @@ int wget_fetch(const char* url, uint8_t* buffer, int buffer_size) {
 	char safe_url[4096];
 	shell_escape_single(url, safe_url, sizeof(safe_url));
 
+	if (fetch_tool() == FETCH_TOOL_NONE)
+		return -1;
+
 	char cmd[8192];
-	if (have_vendored_wget())
+	if (use_wget())
 		snprintf(cmd, sizeof(cmd),
 				 "%s --no-check-certificate -q -T 15 -t 2"
 				 " -O '%s' '%s' 2>/dev/null",
-				 wget_bin_path(), tmpfile, safe_url);
+				 wget_cmd_name(), tmpfile, safe_url);
 	else
 		snprintf(cmd, sizeof(cmd),
 				 "curl -k -s -L --max-time 15 --retry 1"
@@ -129,12 +158,15 @@ int wget_fetch_headers_noredirect(const char* url, char* buffer, int buffer_size
 	// non-zero on a redirect, so success is judged by the captured headers,
 	// not the exit code. curl without -L never follows redirects and -D dumps
 	// the first response's headers to a file — same contract, same parse.
+	if (fetch_tool() == FETCH_TOOL_NONE)
+		return -1;
+
 	char cmd[8192];
-	if (have_vendored_wget())
+	if (use_wget())
 		snprintf(cmd, sizeof(cmd),
 				 "%s --no-check-certificate -S --max-redirect=0 -T 15 -t 2"
 				 " -O /dev/null '%s' 2>'%s'",
-				 wget_bin_path(), safe_url, tmpfile);
+				 wget_cmd_name(), safe_url, tmpfile);
 	else
 		snprintf(cmd, sizeof(cmd),
 				 "curl -k -s --max-time 15 -D '%s' -o /dev/null '%s'",
@@ -201,11 +233,13 @@ int wget_download_file(const char* url, const char* filepath,
 	// Download with -S to capture response headers (Content-Length) via stderr.
 	// curl -L -D appends each hop's headers to the file; the poll loop below
 	// takes the LAST Content-Length, so redirects parse identically.
-	if (have_vendored_wget())
+	if (fetch_tool() == FETCH_TOOL_NONE)
+		return -1;
+	if (use_wget())
 		snprintf(cmd, sizeof(cmd),
 				 "(%s --no-check-certificate -S -T 30 -t 2"
 				 " -O '%s' '%s' 2>'%s'; touch '%s') &",
-				 wget_bin_path(), safe_filepath, safe_url, safe_headers_file, safe_done_marker);
+				 wget_cmd_name(), safe_filepath, safe_url, safe_headers_file, safe_done_marker);
 	else
 		snprintf(cmd, sizeof(cmd),
 				 "(curl -k -s -L --connect-timeout 30"
@@ -307,7 +341,7 @@ int wget_download_file(const char* url, const char* filepath,
 								   (now.tv_nsec - stall_start.tv_nsec) / 1e9;
 			if (stall_elapsed >= 60.0) {
 				LOG_error("[WgetFetch] download stalled for 60s, killing: %s\n", url);
-				snprintf(cmd, sizeof(cmd), "kill $(pgrep -f '%s.*%s') 2>/dev/null", have_vendored_wget() ? "wget" : "curl", safe_filepath);
+				snprintf(cmd, sizeof(cmd), "kill $(pgrep -f '%s.*%s') 2>/dev/null", use_wget() ? "wget" : "curl", safe_filepath);
 				system(cmd);
 				unlink(done_marker);
 				unlink(headers_file);
@@ -326,7 +360,7 @@ int wget_download_file(const char* url, const char* filepath,
 	// Step 4: Handle cancellation
 	if (should_stop && *should_stop) {
 		// Kill wget and clean up — remove file on cancel
-		snprintf(cmd, sizeof(cmd), "kill $(pgrep -f '%s.*%s') 2>/dev/null", have_vendored_wget() ? "wget" : "curl", safe_filepath);
+		snprintf(cmd, sizeof(cmd), "kill $(pgrep -f '%s.*%s') 2>/dev/null", use_wget() ? "wget" : "curl", safe_filepath);
 		system(cmd);
 		unlink(done_marker);
 		unlink(headers_file);

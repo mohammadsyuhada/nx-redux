@@ -209,7 +209,7 @@ jobs:
         # rsync: bundled into the app for Device Sync (package-macos.sh copies
         # the brew binary + dylibbundles its libs; macOS's own openrsync has
         # no --daemon mode).
-        run: brew install gcc make sdl2 sdl3 sdl2_image sdl2_ttf sqlite libsamplerate dylibbundler cmake rsync
+        run: brew install gcc make sdl2 sdl3 sdl2_image sdl2_ttf sqlite libsamplerate dylibbundler cmake rsync sevenzip
 
       # Unlike the device jobs (output-only cache + skipped build step), the
       # package target always runs `gmake cores`, whose up-to-date check needs

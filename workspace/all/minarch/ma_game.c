@@ -312,7 +312,14 @@ int extract_7z(char** extensions) {
 	char out_arg[300];
 	snprintf(out_arg, sizeof(out_arg), "-o%s", staging);
 	static char sevenzip_bin[MAX_PATH];
-	snprintf(sevenzip_bin, sizeof(sevenzip_bin), "%s/.system/shared/bin/7zzs.aarch64", SDCARD_PATH);
+#if defined(HAS_RUNTIME_PATHS)
+	// Desktop packages bundle a native 7zz (see scripts/desktop/package-*.sh);
+	// the device's 7zzs.aarch64 can't exec here. SHARED_BIN_PATH also resolves
+	// the bundle-relative bin dir — SDCARD_PATH has no .system on desktop.
+	snprintf(sevenzip_bin, sizeof(sevenzip_bin), "%s/7zz", SHARED_BIN_PATH);
+#else
+	snprintf(sevenzip_bin, sizeof(sevenzip_bin), "%s/7zzs.aarch64", SHARED_BIN_PATH);
+#endif
 	char* argv[] = {sevenzip_bin, "e", (char*)game.path, out_arg, "-y", NULL};
 
 	int ok = 0;
