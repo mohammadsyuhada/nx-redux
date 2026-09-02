@@ -20,34 +20,6 @@ ARCH="${ARCH:-x86_64}"
 # the host user at the end (see step 6).
 OWNER="$(stat -c '%u:%g' "$ROOT")"
 
-# --- output/ collision guard ------------------------------------------
-# workspace/desktop/cores/output/*.so is a *file-based* make target
-# (output/$(1)_libretro.so: src/$(1)/.patched ...) shared with the macOS
-# build (package-macos.sh): both OSes build PLATFORM=desktop into the same
-# in-repo path. If we build here without moving the macOS-built (Mach-O)
-# .so files out of the way first, our Linux .so overwrites them; then a
-# *later* `make package-macos` on the host sees output/<core>_libretro.so
-# already exists and (per the rule's file-timestamp semantics) skips
-# rebuilding it, silently shipping a Linux ELF inside the next macOS zip.
-# Stash any Mach-O artifacts aside before building, restore them after
-# staging (step 4) copies what *this* build needs into the AppDir.
-CORES_OUT="$ROOT/workspace/desktop/cores/output"
-MACOS_STASH="$ROOT/workspace/desktop/cores/.output-macos-stash"
-# NOTE: never `rm -rf` this dir unconditionally on entry — a prior run of
-# this script that stashed the macOS .so files and then failed *before*
-# reaching the restore step (step 4) leaves them sitting here; wiping the
-# dir on the next attempt would destroy the only copy (learned the hard
-# way: a first pass did exactly this and had to recover the originals from
-# an already-packaged build/desktop-macos/NXRedux.app instead). Idempotent
-# by construction: only ever moves a *currently-Mach-O* output/ file here.
-mkdir -p "$MACOS_STASH"
-for f in "$CORES_OUT"/*_libretro.so; do
-	[ -f "$f" ] || continue
-	if file "$f" | grep -q 'Mach-O'; then
-		mv "$f" "$MACOS_STASH/"
-	fi
-done
-
 # libchdr's own build dir (workspace/all/minarch/libchdr/build/desktop) has
 # the same problem one level down: its make rule keys off an *order-only*
 # directory prerequisite, so an existing (macOS, Mach-O) libchdr.so there
@@ -76,20 +48,10 @@ for t in settings emu-options ratools scraper sync extras gametime gametimectl; 
 	make -C "workspace/all/$t" PLATFORM=desktop CROSS_COMPILE=/usr/bin/ PREFIX=/usr PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Linux
 done
 
-# Core src/ dirs (workspace/desktop/cores/src/<core>) are shared with the
-# macOS build the same way output/ is: cloned once, reused by both OSes
-# (see the output/ collision guard above). Reuse of the *clone* is fine
-# (same pin), but each core's own build leaves compiled .o/.so objects
-# inside that same src/ tree, and its upstream Makefile keys off file
-# mtimes, not architecture — a macOS-built (Mach-O) object looks "up to
-# date" to a Linux `make` and gets hard-linked into a Linux .so, which
-# fails at link time ("file not recognized: file format not recognized").
-# `make clean-<core>` runs the core's own clean target without touching
-# the clone itself, forcing a fresh Linux compile.
-# Build the full CORES set (same set as package-macos.sh). `clean` first: the
-# shared src/ trees may hold macOS (Mach-O) .o from a prior `make package-macos`
-# that a Linux `make` would treat as up to date and hard-link into a broken .so.
-make -C workspace/desktop/cores clean PLATFORM=desktop
+# Build the full CORES set (same set as package-macos.sh). The cores Makefile
+# derives a host triple (linux-x86_64 here) and keeps this OS's clones,
+# objects, and output under src/<triple> and output/<triple>, fully separate
+# from the host's macOS trees — no cleaning or stashing needed.
 make -C workspace/desktop/cores cores PLATFORM=desktop
 
 # 2. AppDir
@@ -113,7 +75,7 @@ install -m 0755 scripts/desktop/check-update.sh "$APPDIR/usr/system/bin/"
 install -m 0755 scripts/desktop/self-update.sh "$APPDIR/usr/system/bin/"
 # glob (not a fixed list) so odd output names — vice_x64_libretro.so,
 # stella2014_libretro.so, puae2021_libretro.so — come along automatically.
-for so in workspace/desktop/cores/output/*_libretro.so; do cp "$so" "$APPDIR/usr/system/cores/"; done
+for so in workspace/desktop/cores/output/linux-x86_64/*_libretro.so; do cp "$so" "$APPDIR/usr/system/cores/"; done
 
 # Tools paks: each pak's launch.sh cd's into its own dir and runs
 # ./<binary>.elf (matches device layout, skeleton/SYSTEM/*/paks/Tools/*), so
@@ -162,23 +124,14 @@ cp workspace/desktop/libmsettings/libmsettings.so "$APPDIR/usr/lib/"
 cp workspace/all/minarch/libchdr/build/desktop/libchdr.so "$APPDIR/usr/lib/libchdr.so.0"
 cp workspace/all/libgametimedb/build/desktop/libgametimedb.so "$APPDIR/usr/lib/"
 
-# 4. restore macOS core artifacts (see output/ collision guard above) so the
-# working tree stays coherent for a later `make package-macos`. The Linux
-# .so files this AppImage needs are already staged in the AppDir; output/
-# itself goes back to whatever it held before this script ran (untouched
-# if it was empty, i.e. no prior macOS build).
-rm -f "$CORES_OUT"/*_libretro.so
-mv "$MACOS_STASH"/*.so "$CORES_OUT/" 2>/dev/null || true
-rm -rf "$MACOS_STASH"
-
-# 5. pack (no FUSE inside docker)
+# 4. pack (no FUSE inside docker)
 mkdir -p releases
 OUT="releases/NXRedux-$TAG-$ARCH.AppImage"
 rm -f "$OUT"
 ARCH="$ARCH" appimagetool --appimage-extract-and-run "$APPDIR" "$OUT"
 echo "packaged: $OUT"
 
-# 6. hand root-owned build/releases output back to the host user (bind
+# 5. hand root-owned build/releases output back to the host user (bind
 # mount has no uid mapping, so anything created above is root:root on the
 # host otherwise)
 chown -R "$OWNER" "$ROOT/build" "$ROOT/releases"

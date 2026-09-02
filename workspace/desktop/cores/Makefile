@@ -3,6 +3,16 @@
 # upstream cores don't know platform=desktop. Hashes below match tg5040 so the
 # desktop and device builds compile the same known-good source.
 #
+# macOS (host) and Linux (docker, bind-mounted) builds share this directory, so
+# each OS gets its own clone/object tree and output dir — upstream core
+# makefiles compile in-tree and key off mtimes, not architecture, so a shared
+# tree hard-links wrong-arch objects into broken .so files. The host triple is
+# derived here (not passed in) so `gmake <core> PLATFORM=desktop` lands in the
+# right tree from either OS with no extra flags.
+HOST_TRIPLE := $(if $(filter Darwin,$(shell uname -s)),macos,linux)-$(shell uname -m)
+SRC_ROOT := src/$(HOST_TRIPLE)
+OUTPUT_ROOT := output/$(HOST_TRIPLE)
+#
 # CORES lists what `make package-macos` / `package-appimage` build by default.
 # A core can be built in isolation without editing this line via a command-line
 # override, e.g. `gmake snes9x PLATFORM=desktop CORES=snes9x`.

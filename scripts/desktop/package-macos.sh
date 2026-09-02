@@ -31,9 +31,10 @@ install -m 0755 "$ROOT/scripts/desktop/self-update.sh" "$SYS/bin/"
 # Copy every built core. Glob (not a fixed list) so odd output names —
 # vice_x64_libretro.so, stella2014_libretro.so, puae2021_libretro.so — come
 # along automatically; the desktop cores Makefile's CORES list is what the
-# build step just produced in output/. Each Emus/<TAG>.pak/launch.sh loads its
-# core from $CORES_PATH by name.
-for so in "$ROOT/workspace/desktop/cores/output/"*_libretro.so; do
+# build step just produced in output/macos-arm64/ (per-OS tree; the docker
+# Linux build keeps its own under output/linux-x86_64/). Each
+# Emus/<TAG>.pak/launch.sh loads its core from $CORES_PATH by name.
+for so in "$ROOT/workspace/desktop/cores/output/macos-arm64/"*_libretro.so; do
 	[ -f "$so" ] && cp "$so" "$SYS/cores/"
 done
 

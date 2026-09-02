@@ -120,11 +120,11 @@ package-macos: # macOS desktop bundle (arm64, unsigned); needs brew deps + gmake
 		(cd workspace/all/$$t && $(MAKE) PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin) || exit 1; \
 	done
 	# Build every core in the desktop cores Makefile's CORES list. Incremental:
-	# make skips a core whose output/<name>_libretro.so is already up to date, so
-	# repeat packages are fast. Caveat: if you interleave `make package-linux`
-	# (docker, x86) without letting package-appimage.sh's stash/restore finish,
-	# output/ can hold wrong-arch .so that this step would treat as up to date —
-	# run `gmake -C workspace/desktop/cores nuke` to force a clean rebuild.
+	# make skips a core whose output .so is already up to date, so repeat
+	# packages are fast. macOS and Linux (docker) builds are fully separated
+	# per host triple (src/macos-arm64 + output/macos-arm64 here vs
+	# linux-x86_64 in the container), so interleaving `make package-linux`
+	# can't poison this step.
 	cd workspace/desktop/cores && gmake cores PLATFORM=desktop
 	TAG=$(BUILD_TAG) ./scripts/desktop/package-macos.sh
 
