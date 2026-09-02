@@ -18,6 +18,19 @@ static const char* wget_bin_path(void) {
 	return path;
 }
 
+// Device zips vendor a wget there; desktop packages ship none (an ARM build
+// couldn't run anyway), so fall back to the host's curl — present on macOS
+// out of the box and on virtually every desktop distro.
+static int have_vendored_wget(void) {
+	static int checked = 0;
+	static int have = 0;
+	if (!checked) {
+		checked = 1;
+		have = access(wget_bin_path(), X_OK) == 0;
+	}
+	return have;
+}
+
 // Escape a string for use inside single quotes in shell commands.
 // Caller must provide a buffer at least 4x the length of src.
 static void shell_escape_single(const char* src, char* dst, int dst_size) {
@@ -51,10 +64,16 @@ int wget_fetch(const char* url, uint8_t* buffer, int buffer_size) {
 	shell_escape_single(url, safe_url, sizeof(safe_url));
 
 	char cmd[8192];
-	snprintf(cmd, sizeof(cmd),
-			 "%s --no-check-certificate -q -T 15 -t 2"
-			 " -O '%s' '%s' 2>/dev/null",
-			 wget_bin_path(), tmpfile, safe_url);
+	if (have_vendored_wget())
+		snprintf(cmd, sizeof(cmd),
+				 "%s --no-check-certificate -q -T 15 -t 2"
+				 " -O '%s' '%s' 2>/dev/null",
+				 wget_bin_path(), tmpfile, safe_url);
+	else
+		snprintf(cmd, sizeof(cmd),
+				 "curl -k -s -L --max-time 15 --retry 1"
+				 " -o '%s' '%s' 2>/dev/null",
+				 tmpfile, safe_url);
 
 	int ret = system(cmd);
 
@@ -102,12 +121,18 @@ int wget_fetch_headers_noredirect(const char* url, char* buffer, int buffer_size
 
 	// -S writes server headers to stderr; with --max-redirect=0 wget exits
 	// non-zero on a redirect, so success is judged by the captured headers,
-	// not the exit code.
+	// not the exit code. curl without -L never follows redirects and -D dumps
+	// the first response's headers to a file — same contract, same parse.
 	char cmd[8192];
-	snprintf(cmd, sizeof(cmd),
-			 "%s --no-check-certificate -S --max-redirect=0 -T 15 -t 2"
-			 " -O /dev/null '%s' 2>'%s'",
-			 wget_bin_path(), safe_url, tmpfile);
+	if (have_vendored_wget())
+		snprintf(cmd, sizeof(cmd),
+				 "%s --no-check-certificate -S --max-redirect=0 -T 15 -t 2"
+				 " -O /dev/null '%s' 2>'%s'",
+				 wget_bin_path(), safe_url, tmpfile);
+	else
+		snprintf(cmd, sizeof(cmd),
+				 "curl -k -s --max-time 15 -D '%s' -o /dev/null '%s'",
+				 tmpfile, safe_url);
 
 	system(cmd);
 
@@ -167,11 +192,19 @@ int wget_download_file(const char* url, const char* filepath,
 	unlink(done_marker);
 	unlink(headers_file);
 
-	// Download with -S to capture response headers (Content-Length) via stderr
-	snprintf(cmd, sizeof(cmd),
-			 "(%s --no-check-certificate -S -T 30 -t 2"
-			 " -O '%s' '%s' 2>'%s'; touch '%s') &",
-			 wget_bin_path(), safe_filepath, safe_url, safe_headers_file, safe_done_marker);
+	// Download with -S to capture response headers (Content-Length) via stderr.
+	// curl -L -D appends each hop's headers to the file; the poll loop below
+	// takes the LAST Content-Length, so redirects parse identically.
+	if (have_vendored_wget())
+		snprintf(cmd, sizeof(cmd),
+				 "(%s --no-check-certificate -S -T 30 -t 2"
+				 " -O '%s' '%s' 2>'%s'; touch '%s') &",
+				 wget_bin_path(), safe_filepath, safe_url, safe_headers_file, safe_done_marker);
+	else
+		snprintf(cmd, sizeof(cmd),
+				 "(curl -k -s -L --connect-timeout 30"
+				 " -D '%s' -o '%s' '%s'; touch '%s') &",
+				 safe_headers_file, safe_filepath, safe_url, safe_done_marker);
 	system(cmd);
 
 	// Step 2: Poll file size for progress with speed/stall tracking
@@ -268,7 +301,7 @@ int wget_download_file(const char* url, const char* filepath,
 								   (now.tv_nsec - stall_start.tv_nsec) / 1e9;
 			if (stall_elapsed >= 60.0) {
 				LOG_error("[WgetFetch] download stalled for 60s, killing: %s\n", url);
-				snprintf(cmd, sizeof(cmd), "kill $(pgrep -f 'wget.*%s') 2>/dev/null", safe_filepath);
+				snprintf(cmd, sizeof(cmd), "kill $(pgrep -f '%s.*%s') 2>/dev/null", have_vendored_wget() ? "wget" : "curl", safe_filepath);
 				system(cmd);
 				unlink(done_marker);
 				unlink(headers_file);
@@ -287,7 +320,7 @@ int wget_download_file(const char* url, const char* filepath,
 	// Step 4: Handle cancellation
 	if (should_stop && *should_stop) {
 		// Kill wget and clean up — remove file on cancel
-		snprintf(cmd, sizeof(cmd), "kill $(pgrep -f 'wget.*%s') 2>/dev/null", safe_filepath);
+		snprintf(cmd, sizeof(cmd), "kill $(pgrep -f '%s.*%s') 2>/dev/null", have_vendored_wget() ? "wget" : "curl", safe_filepath);
 		system(cmd);
 		unlink(done_marker);
 		unlink(headers_file);

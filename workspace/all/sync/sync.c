@@ -884,11 +884,13 @@ static void render_screen(void) {
 
 	switch (state) {
 	case STATE_INIT:
-		UI_renderCenteredMessage(screen, "Checking WiFi...");
+		UI_renderCenteredMessage(screen, "Checking network...");
 		break;
 
 	case STATE_NO_WIFI:
-		UI_renderCenteredMessage(screen, "WiFi not connected.\nPlease enable WiFi and try again.");
+		// "Network", not "WiFi": desktop may be on ethernet, and the phrasing
+		// stays correct on wifi-only handhelds too.
+		UI_renderCenteredMessage(screen, "Network not connected.\nPlease check your connection and try again.");
 		UI_renderButtonHintBar(screen, (char*[]){"B", "EXIT", NULL});
 		break;
 
@@ -1047,13 +1049,12 @@ int main(int argc, char* argv[]) {
 	bool dirty = true;
 	IndicatorType show_setting = INDICATOR_NONE;
 
-	int is_online = 0;
-	PLAT_getNetworkStatus(&is_online);
-	if (!is_online || get_own_ip() != 0) {
-		state = STATE_NO_WIFI;
-	} else {
-		state = STATE_READY;
-	}
+	// Resolve connectivity from the main loop's INIT state instead of one
+	// shot here: desktop's reachability check is a background probe whose
+	// first result lands a few seconds after the first poll, so a one-shot
+	// check always read "offline" there. Devices resolve on the first poll.
+	uint32_t connectivity_check_start = SDL_GetTicks();
+	state = STATE_INIT;
 
 	while (!app_quit) {
 		GFX_startFrame();
@@ -1069,9 +1070,17 @@ int main(int argc, char* argv[]) {
 			dirty = true;
 
 		switch (state) {
-		case STATE_INIT:
+		case STATE_INIT: {
+			int is_online = 0;
+			PLAT_getNetworkStatus(&is_online);
+			if (is_online && get_own_ip() == 0) {
+				state = STATE_READY;
+			} else if (SDL_GetTicks() - connectivity_check_start > 5000) {
+				state = STATE_NO_WIFI;
+			}
 			dirty = true;
 			break;
+		}
 
 		case STATE_NO_WIFI:
 			if (PAD_justPressed(BTN_B))

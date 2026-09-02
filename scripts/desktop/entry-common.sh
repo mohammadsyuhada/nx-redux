@@ -25,6 +25,10 @@ entry_seed_card() {
 entry_export_env() {
 	export NXREDUX_SDCARD="$CARD"
 	export NXREDUX_SYSTEM_ROOT="$SYS"
+	# PID of the entry script (the relaunch loop): the in-app updater kills it
+	# after a successful self-update so the swapped-in build's relaunch never
+	# races a stale instance. $$ is the sourcing script's shell here.
+	export NXREDUX_ENTRY_PID="$$"
 	export DEVICE=desktop
 	export PATH="$SYS/bin:$PATH"
 	# SDCARD_PATH/SYSTEM_PATH mirror the device boot chain's exports (eg.

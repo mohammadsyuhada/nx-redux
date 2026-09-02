@@ -42,6 +42,12 @@ void PLAT_initInput(void) {
 	// only do idempotent bitmask set/unset behind an "already pressed" guard, so
 	// the overlap is a no-op; preserve that if the hat handler ever changes.
 	SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
+
+	// Warm the background reachability probe now (see wifi_probe_thread):
+	// its first result lands ~1-3s after the thread starts, so kicking it
+	// off at app init instead of on the first connectivity read keeps early
+	// checks (Device Sync's gate, the updater's) from reading offline.
+	PLAT_wifiConnected();
 }
 void PLAT_quitInput(void) {
 	SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER); // closes any open controller
