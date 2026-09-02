@@ -158,7 +158,6 @@ int main(int argc, char* argv[]) {
 	GFX_clear(screen);
 
 	IndicatorType show_setting = INDICATOR_NONE;
-	PWR_setCPUSpeed(CPU_SPEED_MENU);
 
 	folderbgbmp = NULL;
 
@@ -435,6 +434,7 @@ int main(int argc, char* argv[]) {
 				if (!first_frame_stamped) {
 					first_frame_stamped = true;
 					bootStamp("first frame");
+					PWR_setCPUSpeed(CPU_SPEED_MENU);
 				}
 			}
 
@@ -510,10 +510,9 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	// Fast exit when launching a game — skip full cleanup to minimize
-	// delay. The OS reclaims all memory/FDs on process exit. The parent
-	// shell script reads /tmp/next only after nextui.elf exits.
-	if (startgame) {
+	// External launches replace this process, so the OS can reclaim its memory,
+	// descriptors, and worker threads. The parent reads /tmp/next only after exit.
+	if (startgame || exists("/tmp/next")) {
 		GFX_quit();
 		_exit(0);
 	}
