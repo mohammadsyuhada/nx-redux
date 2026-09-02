@@ -47,17 +47,10 @@ mkdir -p "$USERDATA_PATH"
 mkdir -p "$LOGS_PATH"
 mkdir -p "$SHARED_USERDATA_PATH/.minui"
 
-if [ -f "$SDCARD_PATH/tg5040-brickpro" ]; then
-	export TRIMUI_MODEL="Trimui Brick Pro"
-	export DEVICE="brickpro"
-elif [ -f "$SDCARD_PATH/tg5040-brick" ]; then
-	export TRIMUI_MODEL="Trimui Brick"
-	export DEVICE="brick"
-else
-	TRIMUI_MODEL=$(strings /usr/trimui/bin/MainUI | grep '^Trimui')
-	export TRIMUI_MODEL
-	export DEVICE="smartpro"
-fi
+# shellcheck disable=SC1091
+. "$SHARED_SYSTEM_PATH/bin/device-info.sh"
+# shellcheck disable=SC1091
+. "$SHARED_SYSTEM_PATH/bin/boot-work.sh"
 
 export IS_NEXT="yes"
 
@@ -135,14 +128,6 @@ keymon.elf & # &> $SDCARD_PATH/keymon.txt &
 # delayed OSD and service workers so neither can race the remount.
 mount -o remount,rw /
 
-AUTO_PATH=$USERDATA_PATH/auto.sh
-AUTO_RESUME_PATH="$SHARED_USERDATA_PATH/.minui/auto_resume.txt"
-DEFER_BOOT_WORK="yes"
-if [ -f "$AUTO_PATH" ] || [ -f "$AUTO_RESUME_PATH" ]; then
-	# Preserve the historical ordering guarantees for boot hooks and auto-resume.
-	DEFER_BOOT_WORK="no"
-fi
-
 stage_osd() {
 
 # Overlay-mount the SD card's OSD tree onto /usr/trimui/osd — the SD card is
@@ -195,16 +180,7 @@ if [ -x "$OSD_DST/trimui_osdd" ]; then
 fi
 }
 
-if [ "$DEFER_BOOT_WORK" = "yes" ]; then
-	(
-		sleep 2
-		if [ ! -f /tmp/poweroff ] && [ ! -f /tmp/reboot ]; then
-			stage_osd
-		fi
-	) &
-else
-	stage_osd
-fi
+nx_run_boot_work 2 stage_osd
 cd "$SYSTEM_PATH/bin" || exit 1
 
 start_services() {
@@ -243,21 +219,12 @@ if [ "$sshonboot" -eq 1 ]; then
 fi
 }
 
-if [ "$DEFER_BOOT_WORK" = "yes" ]; then
-	(
-		sleep 1
-		if [ ! -f /tmp/poweroff ] && [ ! -f /tmp/reboot ]; then
-			start_services
-		fi
-	) &
-else
-	start_services
-fi
+nx_run_boot_work 1 start_services
 
 #######################################
 
-if [ -f "$AUTO_PATH" ]; then
-	"$AUTO_PATH"
+if [ -f "$NX_AUTO_PATH" ]; then
+	"$NX_AUTO_PATH"
 fi
 
 cd $(dirname "$0")

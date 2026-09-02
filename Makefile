@@ -439,11 +439,11 @@ package: tidy
 		mkdir -p ./build/PAYLOAD-$$dev/Tools/.media; \
 		cp ./build/BASE/Tools/.media/bg-$$bg_res.png ./build/PAYLOAD-$$dev/Tools/.media/bg.png; \
 		\
-		echo "  creating device marker $$plat-$$dev"; \
-		touch ./build/PAYLOAD-$$dev/$$plat-$$dev; \
+		echo "  recording device identity $$plat-$$dev"; \
+		printf '%s\n' "$$plat-$$dev" > ./build/PAYLOAD-$$dev/.nx-device; \
 		\
 		echo "  creating MinUI.zip"; \
-		cd ./build/PAYLOAD-$$dev && zip -r MinUI.zip .system .tmp_update Emus Tools $$plat-$$dev && cd ../..; \
+		cd ./build/PAYLOAD-$$dev && zip -r MinUI.zip .system .tmp_update Emus Tools .nx-device && cd ../..; \
 		cp ./build/PAYLOAD-$$dev/MinUI.zip ./build/BASE/MinUI-$$dev.zip; \
 		\
 		echo "  resolving overlays for $$dev ($$overlay_res)"; \

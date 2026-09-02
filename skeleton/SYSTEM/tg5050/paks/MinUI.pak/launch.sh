@@ -47,10 +47,10 @@ mkdir -p "$USERDATA_PATH"
 mkdir -p "$LOGS_PATH"
 mkdir -p "$SHARED_USERDATA_PATH/.minui"
 
-export TRIMUI_MODEL=`strings /usr/trimui/bin/MainUI | grep ^Trimui`
-if [ "$TRIMUI_MODEL" = "Trimui Smart Pro S" ]; then
-	export DEVICE="smartpros"
-fi
+# shellcheck disable=SC1091
+. "$SHARED_SYSTEM_PATH/bin/device-info.sh"
+# shellcheck disable=SC1091
+. "$SHARED_SYSTEM_PATH/bin/boot-work.sh"
 
 export IS_NEXT="yes"
 
@@ -157,6 +157,7 @@ if ! grep -q nx_skip_stock_sshd /etc/init.d/rcS; then
      [ "${i##*/}" = "S50sshd" ] && continue' /etc/init.d/rcS
 fi
 
+stage_osd() {
 OSD_DST="/usr/trimui/osd"
 OSD_SRC="$SYSTEM_PATH/osd"
 if ! grep -q " $OSD_DST " /proc/mounts; then
@@ -166,9 +167,18 @@ if ! grep -q " $OSD_DST " /proc/mounts; then
 fi # end osd overlay mount
 
 # Start OSD overlay daemon (system-wide quick menu)
-cd "$OSD_DST" && ./trimui_osdd &
-cd "$SYSTEM_PATH/bin"
+if [ -x "$OSD_DST/trimui_osdd" ]; then
+	(
+		cd "$OSD_DST" || exit 1
+		./trimui_osdd
+	) &
+fi
+}
 
+nx_run_boot_work 2 stage_osd
+cd "$SYSTEM_PATH/bin" || exit 1
+
+start_services() {
 # Ensure .asoundrc is clean at boot — /etc/asound.conf handles speaker routing.
 # audiomon will write .asoundrc when USB/BT devices connect.
 rm -f $USERDATA_PATH/.asoundrc /tmp/nx_audio_sink
@@ -201,13 +211,15 @@ else
 	# Stop SSH started by stock init system (S50sshd)
 	/etc/init.d/S50sshd stop > /dev/null 2>&1
 fi
+}
+
+nx_run_boot_work 1 start_services
 
 #######################################
 
-AUTO_PATH=$USERDATA_PATH/auto.sh
-if [ -f "$AUTO_PATH" ]; then
+if [ -f "$NX_AUTO_PATH" ]; then
 	echo before auto.sh `cat /proc/uptime` >> /tmp/nextui_boottime
-	"$AUTO_PATH"
+	"$NX_AUTO_PATH"
 	echo after auto.sh `cat /proc/uptime` >> /tmp/nextui_boottime
 fi
 
@@ -220,7 +232,8 @@ killall -9 show2.elf > /dev/null 2>&1
 
 EXEC_PATH="/tmp/nextui_exec"
 NEXT_PATH="/tmp/next"
-touch "$EXEC_PATH"  && sync
+# /tmp is volatile; syncing unrelated files cannot preserve this marker.
+touch "$EXEC_PATH"
 while [ -f $EXEC_PATH ]; do
 	nextui.elf &> $LOGS_PATH/nextui.txt
 
