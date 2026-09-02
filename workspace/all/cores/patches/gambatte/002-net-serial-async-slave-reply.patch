@@ -1,0 +1,465 @@
+diff --git a/Makefile.common b/Makefile.common
+index 060acb9..c982cad 100644
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -51,6 +51,10 @@ SOURCES_CXX := \
+ ifeq ($(HAVE_NETWORK),1)
+ 	SOURCES_CXX += \
+ 		$(CORE_DIR)/../libretro/net_serial.cpp
++	# net_serial's async-reply service thread (POSIX; glibc < 2.34 keeps
++	# pthreads in a separate library, and the .so must not carry undefined
++	# pthread symbols into dlopen).
++	LDFLAGS += -lpthread
+ endif
+ 
+ ifneq ($(STATIC_LINKING), 1)
+diff --git a/libgambatte/libretro/net_serial.cpp b/libgambatte/libretro/net_serial.cpp
+index 713cc44..2b5aa62 100644
+--- a/libgambatte/libretro/net_serial.cpp
++++ b/libgambatte/libretro/net_serial.cpp
+@@ -6,15 +6,51 @@
+ #include <unistd.h>
+ #include <errno.h>
+ #include <sys/types.h>
+-#ifdef _WIN32
+-#include <winsock2.h>
+-#include <ws2tcpip.h>
+-#else
+ #include <sys/socket.h>
+ #include <sys/ioctl.h>
++#include <sys/select.h>
+ #include <netinet/in.h>
++#include <netinet/tcp.h>
+ #include <netdb.h>
+-#endif
++
++/*
++ * NXRedux async slave reply (POSIX-only; this fork's build matrix has no
++ * Windows target, so the upstream _WIN32 arms are gone).
++ *
++ * Upstream protocol: the master's send() writes {SB, fastCgb} and BLOCKS
++ * reading the reply; the slave only answers when its own emulation happens to
++ * poll check(). The frontend paces cores to ~60fps and a GB frame emulates in
++ * ~1ms on modern hardware, so the slave is deaf ~94% of wall time and every
++ * master transfer stalls, on average, half a frame — link-heavy games (Tetris
++ * VS trades bytes every frame) visibly stutter on BOTH sides.
++ *
++ * Fix: a per-link service thread answers incoming transfers immediately with
++ * the latest SB byte check() cached. This matches the hardware: an external
++ * clock shifts out whatever is in the slave's SB whenever the master clocks,
++ * and SB cannot change while the slave's emulation isn't running, so the
++ * cached byte IS the live register during the deaf window. The received byte
++ * is queued and handed to the emulation at its next check() poll — exactly
++ * when the old code would have delivered it. Only the master's wait changes:
++ * a full slave-frame stall becomes one network round trip.
++ *
++ * Locking: every socket read/write/close and all queue/cache state lives
++ * under sock_mutex_. send() holds it across its write+timed-read so the
++ * thread can never steal a solicited reply; the thread's own IO is
++ * non-blocking (FIONREAD probe), so it never holds the lock long.
++ *
++ * Mixed versions interoperate: an unpatched peer just answers slowly (old
++ * behaviour); a patched peer answers from its thread even while the frontend
++ * has it paused.
++ */
++
++// A solicited reply normally lands in ~1 RTT (patched peer) or within a frame
++// or two (unpatched peer). 10s only fires on a dead/half-open connection —
++// where the old code blocked the emulation thread forever.
++static const int REPLY_TIMEOUT_SECS = 10;
++
++// Service thread poll cadence: bounds the extra reply latency this side adds
++// to a peer's transfer.
++static const int SERVICE_POLL_US = 1000;
+ 
+ NetSerial::NetSerial()
+ : is_stopped_(true)
+@@ -24,12 +60,20 @@ NetSerial::NetSerial()
+ , server_fd_(-1)
+ , sockfd_(-1)
+ , lastConnectAttempt_(0)
++, service_stop_(false)
++, service_running_(false)
++, cached_out_(0xFF)
++, expect_stale_reply_(false)
++, rx_head_(0)
++, rx_count_(0)
+ {
++	pthread_mutex_init(&sock_mutex_, NULL);
+ }
+ 
+ NetSerial::~NetSerial()
+ {
+ 	stop();
++	pthread_mutex_destroy(&sock_mutex_);
+ }
+ 
+ bool NetSerial::start(bool is_server, int port, const std::string& hostname)
+@@ -42,13 +86,25 @@ bool NetSerial::start(bool is_server, int port, const std::string& hostname)
+ 	port_ = port;
+ 	hostname_ = hostname;
+ 	is_stopped_ = false;
++	cached_out_ = 0xFF;
++	expect_stale_reply_ = false;
++	rx_head_ = 0;
++	rx_count_ = 0;
++
++	bool connected = checkAndRestoreConnection(false);
+ 
+-	return checkAndRestoreConnection(false);
++	// Even when the first attempt failed: the thread idles on sockfd_ < 0 and
++	// picks the link up once a later check()/send() reconnects.
++	startServiceThread();
++
++	return connected;
+ }
+ void NetSerial::stop()
+ {
+ 	if (!is_stopped_) {
+ 		gambatte_log(RETRO_LOG_INFO, "Stopping GameLink network\n");
++		stopServiceThread();
++		pthread_mutex_lock(&sock_mutex_);
+ 		is_stopped_ = true;
+ 		if (sockfd_ >= 0) {
+ 			close(sockfd_);
+@@ -58,9 +114,20 @@ void NetSerial::stop()
+ 			close(server_fd_);
+ 			server_fd_ = -1;
+ 		}
++		pthread_mutex_unlock(&sock_mutex_);
+ 	}
+ }
+ 
++// The wire carries 2-byte messages both ways; Nagle would happily sit on one
++// waiting for more. Harmless in strict request/reply alternation, harmful the
++// moment the cadence slips — and free to turn off.
++void NetSerial::configureSocket(int fd)
++{
++	int nodelay = 1;
++	setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
++}
++
++// Callers hold sock_mutex_ (send()/check() take it before coming here).
+ bool NetSerial::checkAndRestoreConnection(bool throttle)
+ {
+ 	if (is_stopped_) {
+@@ -131,8 +198,6 @@ bool NetSerial::acceptClient()
+ 		return false;
+ 	}
+ 	if (sockfd_ < 0) {
+-		int retval;
+-
+ 		FD_ZERO(&rfds);
+ 		FD_SET(server_fd_, &rfds);
+ 		tv.tv_sec = 0;
+@@ -148,6 +213,7 @@ bool NetSerial::acceptClient()
+ 			gambatte_log(RETRO_LOG_ERROR, "Error on accept: %s\n", strerror(errno));
+ 			return false;
+ 		}
++		configureSocket(sockfd_);
+ 		gambatte_log(RETRO_LOG_INFO, "GameLink network server connected to client!\n");
+ 	}
+ 	return true;
+@@ -180,12 +246,111 @@ bool NetSerial::startClientSocket()
+ 			close(fd);
+ 			return false;
+ 		}
++		configureSocket(fd);
+ 		sockfd_ = fd;
+ 		gambatte_log(RETRO_LOG_INFO, "GameLink network client connected to server!\n");
+ 	}
+ 	return true;
+ }
+ 
++void NetSerial::startServiceThread()
++{
++	if (service_running_) {
++		return;
++	}
++	service_stop_ = false;
++	if (pthread_create(&service_thread_, NULL, serviceThreadEntry, this) == 0) {
++		service_running_ = true;
++	} else {
++		gambatte_log(RETRO_LOG_ERROR, "GameLink: could not start link service thread: %s\n",
++				strerror(errno));
++	}
++}
++
++void NetSerial::stopServiceThread()
++{
++	if (!service_running_) {
++		return;
++	}
++	service_stop_ = true;
++	pthread_join(service_thread_, NULL);
++	service_running_ = false;
++}
++
++void* NetSerial::serviceThreadEntry(void* self)
++{
++	((NetSerial*)self)->serviceLoop();
++	return NULL;
++}
++
++void NetSerial::serviceLoop()
++{
++	while (!service_stop_) {
++		pthread_mutex_lock(&sock_mutex_);
++
++		// A waiting client gets accepted here, not on the emulation's
++		// schedule: the old path only accepted from check()'s serial polls,
++		// throttled by a clock() (CPU-time!) 5s gate, so a joining peer
++		// could sit unanswered for many wall-clock seconds.
++		if (!is_stopped_ && is_server_ && server_fd_ >= 0 && sockfd_ < 0) {
++			acceptClient();
++		}
++
++		// Drain every complete request waiting on the socket. Non-blocking
++		// throughout: FIONREAD says how much is really there.
++		while (!is_stopped_ && sockfd_ >= 0) {
++			int bytes_avail = 0;
++			if (ioctl(sockfd_, FIONREAD, &bytes_avail) < 0) {
++				gambatte_log(RETRO_LOG_ERROR, "IOCTL Failed: %s\n", strerror(errno));
++				break;
++			}
++			if (bytes_avail < 2) {
++				break;
++			}
++
++			unsigned char buffer[2];
++			if (read(sockfd_, buffer, 2) <= 0) {
++				gambatte_log(RETRO_LOG_ERROR, "Error reading from socket: %s\n", strerror(errno));
++				close(sockfd_);
++				sockfd_ = -1;
++				break;
++			}
++
++			// A reply that arrived after its send() gave up: consume it
++			// silently or the two service threads would ping-pong forever.
++			if (expect_stale_reply_) {
++				expect_stale_reply_ = false;
++				continue;
++			}
++
++			// Queue the master's byte for the emulation's next check() poll —
++			// the same moment the old code would have delivered it. Latest
++			// data wins on overflow, like a hardware SB overwrite.
++			if (rx_count_ == RX_QUEUE_MAX) {
++				rx_head_ = (rx_head_ + 1) % RX_QUEUE_MAX;
++				rx_count_--;
++			}
++			int slot = (rx_head_ + rx_count_) % RX_QUEUE_MAX;
++			rx_data_[slot] = buffer[0];
++			rx_fast_[slot] = buffer[1];
++			rx_count_++;
++
++			// Answer NOW with the cached SB byte — the whole point.
++			buffer[0] = cached_out_;
++			buffer[1] = 128;
++			if (write(sockfd_, buffer, 2) <= 0) {
++				gambatte_log(RETRO_LOG_ERROR, "Error writing to socket: %s\n", strerror(errno));
++				close(sockfd_);
++				sockfd_ = -1;
++				break;
++			}
++		}
++
++		pthread_mutex_unlock(&sock_mutex_);
++		usleep(SERVICE_POLL_US);
++	}
++}
++
+ unsigned char NetSerial::send(unsigned char data, bool fastCgb)
+ {
+ 	unsigned char buffer[2];
+@@ -193,102 +358,82 @@ unsigned char NetSerial::send(unsigned char data, bool fastCgb)
+ 	if (is_stopped_) {
+ 		return 0xFF;
+ 	}
++
++	pthread_mutex_lock(&sock_mutex_);
+ 	if (sockfd_ < 0) {
+ 		if (!checkAndRestoreConnection(true)) {
++			pthread_mutex_unlock(&sock_mutex_);
+ 			return 0xFF;
+ 		}
+ 	}
+ 
+ 	buffer[0] = data;
+ 	buffer[1] = fastCgb;
+-#ifdef _WIN32
+-   if (::send(sockfd_, (char*) buffer, 2, 0) <= 0)
+-#else
+-	if (write(sockfd_, buffer, 2) <= 0)
+-#endif
+-   {
++	if (write(sockfd_, buffer, 2) <= 0) {
+ 		gambatte_log(RETRO_LOG_ERROR, "Error writing to socket: %s\n", strerror(errno));
+ 		close(sockfd_);
+ 		sockfd_ = -1;
++		pthread_mutex_unlock(&sock_mutex_);
+ 		return 0xFF;
+ 	}
+ 
+-#ifdef _WIN32
+-	if (recv(sockfd_, (char*) buffer, 2, 0) <= 0) 
+-#else
+-   if (read(sockfd_, buffer, 2) <= 0) 
+-#endif
+-   {
++	// Timed, not unbounded: the old blocking read could freeze the emulation
++	// thread for as long as the peer stayed gone.
++	fd_set rfds;
++	struct timeval tv;
++	FD_ZERO(&rfds);
++	FD_SET(sockfd_, &rfds);
++	tv.tv_sec = REPLY_TIMEOUT_SECS;
++	tv.tv_usec = 0;
++	if (select(sockfd_ + 1, &rfds, NULL, NULL, &tv) <= 0) {
++		gambatte_log(RETRO_LOG_ERROR, "Timed out waiting for link reply\n");
++		expect_stale_reply_ = true;
++		pthread_mutex_unlock(&sock_mutex_);
++		return 0xFF;
++	}
++
++	if (read(sockfd_, buffer, 2) <= 0) {
+ 		gambatte_log(RETRO_LOG_ERROR, "Error reading from socket: %s\n", strerror(errno));
+ 		close(sockfd_);
+ 		sockfd_ = -1;
++		pthread_mutex_unlock(&sock_mutex_);
+ 		return 0xFF;
+ 	}
+ 
++	pthread_mutex_unlock(&sock_mutex_);
+ 	return buffer[0];
+ }
+ 
+ bool NetSerial::check(unsigned char out, unsigned char& in, bool& fastCgb)
+ {
+-	unsigned char buffer[2];
+-#ifdef _WIN32
+-	u_long bytes_avail = 0;
+-#else
+-	int bytes_avail = 0;
+-#endif
+ 	if (is_stopped_) {
+ 		return false;
+ 	}
++
++	pthread_mutex_lock(&sock_mutex_);
++
++	// Every poll refreshes the byte the service thread answers with, so the
++	// cache tracks the live SB register for as long as the emulation runs —
++	// and holds its final (correct) value across the inter-frame sleep.
++	cached_out_ = out;
++
+ 	if (sockfd_ < 0) {
+ 		if (!checkAndRestoreConnection(true)) {
++			pthread_mutex_unlock(&sock_mutex_);
+ 			return false;
+ 		}
+ 	}
+-#ifdef _WIN32
+-   if (ioctlsocket(sockfd_, FIONREAD, &bytes_avail) < 0)
+-#else
+-	if (ioctl(sockfd_, FIONREAD, &bytes_avail) < 0)
+-#endif
+-   {
+-		gambatte_log(RETRO_LOG_ERROR, "IOCTL Failed: %s\n", strerror(errno));
+-		return false;
+-	}
+-
+-	// No data available yet
+-	if (bytes_avail < 2) {
+-		return false;
+-	}
+ 
+-#ifdef _WIN32
+-	if (recv(sockfd_, (char*) buffer, 2, 0) <= 0) 
+-#else
+-   if (read(sockfd_, buffer, 2) <= 0) 
+-#endif
+-   {
+-		gambatte_log(RETRO_LOG_ERROR, "Error reading from socket: %s\n", strerror(errno));
+-		close(sockfd_);
+-		sockfd_ = -1;
++	if (rx_count_ == 0) {
++		pthread_mutex_unlock(&sock_mutex_);
+ 		return false;
+ 	}
+ 
+-//	slave_txn_cnt++;
+-
+-	in = buffer[0];
+-	fastCgb = buffer[1];
+-
+-	buffer[0] = out;
+-	buffer[1] = 128;
+-   #ifdef _WIN32
+-      if (::send(sockfd_, (char*) buffer, 2, 0) <= 0)
+-   #else
+-   	if (write(sockfd_, buffer, 2) <= 0)
+-   #endif
+-   {
+-		gambatte_log(RETRO_LOG_ERROR, "Error writing to socket: %s\n", strerror(errno));
+-		close(sockfd_);
+-		sockfd_ = -1;
+-		return false;
+-	}
++	in = rx_data_[rx_head_];
++	fastCgb = rx_fast_[rx_head_];
++	rx_head_ = (rx_head_ + 1) % RX_QUEUE_MAX;
++	rx_count_--;
+ 
++	pthread_mutex_unlock(&sock_mutex_);
+ 	return true;
+ }
+diff --git a/libgambatte/libretro/net_serial.h b/libgambatte/libretro/net_serial.h
+index fb0edeb..4015f67 100644
+--- a/libgambatte/libretro/net_serial.h
++++ b/libgambatte/libretro/net_serial.h
+@@ -8,6 +8,7 @@
+ 
+ #include <gambatte.h>
+ #include <time.h>
++#include <pthread.h>
+ 
+ class NetSerial : public gambatte::SerialIO
+ {
+@@ -27,6 +28,15 @@ class NetSerial : public gambatte::SerialIO
+ 		bool acceptClient();
+ 		bool checkAndRestoreConnection(bool throttle);
+ 
++		// NXRedux async slave reply: a service thread answers the peer's
++		// transfers immediately with the cached SB byte instead of making the
++		// peer wait for this side's next emulation slice (see net_serial.cpp).
++		void configureSocket(int fd);
++		void startServiceThread();
++		void stopServiceThread();
++		void serviceLoop();
++		static void* serviceThreadEntry(void* self);
++
+ 		bool is_stopped_;
+ 		bool is_server_;
+ 		int  port_;
+@@ -36,6 +46,20 @@ class NetSerial : public gambatte::SerialIO
+ 		int sockfd_;
+ 
+ 		clock_t lastConnectAttempt_;
++
++		pthread_t service_thread_;
++		pthread_mutex_t sock_mutex_; // guards sockfd_ IO, rx queue, cached_out_
++		volatile bool service_stop_;
++		bool service_running_;
++
++		unsigned char cached_out_; // latest SB byte seen by check(); 0xFF = "no partner yet"
++		bool expect_stale_reply_;  // a send() timed out; drop the next unsolicited 2 bytes
++
++		enum { RX_QUEUE_MAX = 4 };
++		unsigned char rx_data_[RX_QUEUE_MAX];
++		unsigned char rx_fast_[RX_QUEUE_MAX];
++		int rx_head_;
++		int rx_count_;
+ };
+ 
+ #endif
