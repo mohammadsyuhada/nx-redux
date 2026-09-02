@@ -217,9 +217,13 @@ int PLAT_wifiScan(struct WIFI_network* networks, int max) {
 			continue;
 		}
 
-		// Trim trailing whitespace from SSID
+		// Trim only a trailing CR (defensive against CRLF output). Do NOT
+		// trim spaces/tabs: 802.11 SSIDs are byte strings where trailing
+		// whitespace is significant — trimming it here made the connect
+		// path save a profile that can never match the AP's real SSID, so
+		// the supplicant scans forever ("cannot connect" with no error).
 		size_t ssid_len = strlen(network->ssid);
-		while (ssid_len > 0 && (network->ssid[ssid_len - 1] == ' ' || network->ssid[ssid_len - 1] == '\t')) {
+		while (ssid_len > 0 && network->ssid[ssid_len - 1] == '\r') {
 			network->ssid[ssid_len - 1] = '\0';
 			ssid_len--;
 		}
