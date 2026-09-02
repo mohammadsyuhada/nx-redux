@@ -14,7 +14,12 @@ entry_seed_card() {
 		mkdir -p "$CARD"
 		cp -R "$BASE_SKELETON"/. "$CARD"/
 	fi
-	mkdir -p "$CARD/.userdata/desktop/logs" "$CARD/.userdata/shared" "$CARD/.shadercache"
+	# .minui mirrors the device boot chain (MinUI.pak/launch.sh mkdir -p's it):
+	# minarch/nextui write resume-slot markers, save-state screenshots, and
+	# recent.txt under it with a single-level mkdir that can't create the
+	# parent — without this the Game Switcher stays empty and save states
+	# have no thumbnails.
+	mkdir -p "$CARD/.userdata/desktop/logs" "$CARD/.userdata/shared/.minui" "$CARD/.shadercache"
 }
 
 entry_export_env() {

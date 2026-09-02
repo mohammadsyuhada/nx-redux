@@ -24,8 +24,10 @@ if [ ! -d "$SKELETON_DIR" ]; then
     exit 1
 fi
 
-# Create target
-mkdir -p "$TARGET"
+# Create target. .minui mirrors the device boot chain (MinUI.pak/launch.sh):
+# minarch/nextui write resume markers, save-state screenshots, and recent.txt
+# under it with a single-level mkdir that can't create the parent.
+mkdir -p "$TARGET" "$TARGET/.userdata/shared/.minui"
 
 PLATFORM="desktop"
 
