@@ -51,4 +51,11 @@ copy_tree "$SKELETON_DIR/SYSTEM/$PLATFORM" "$TARGET/.system"
 copy_tree "$SKELETON_DIR/SYSTEM/shared"    "$TARGET/.system/shared"
 copy_tree "$SKELETON_DIR/SYSTEM/res"       "$TARGET/.system/res"
 
+# version.txt so the Settings About page has something to show in dev runs
+# (same 3-line format as the release packages: release name / hash / tag)
+printf "%s\n%s\n%s\n" "NXRedux-$(TZ=GMT date +%Y%m%d)" \
+    "$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo dev)" \
+    "$(git -C "$SCRIPT_DIR" describe --tags --abbrev=0 2>/dev/null || echo untagged)" \
+    > "$TARGET/.system/version.txt"
+
 echo "Prepared faux SD root at: $TARGET"

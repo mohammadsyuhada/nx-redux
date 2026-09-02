@@ -18,6 +18,11 @@ mkdir -p "$SYS/shared" "$SYS/res" "$SYS/bin" "$SYS/cores"
 cp -R "$ROOT/skeleton/SYSTEM/shared/." "$SYS/shared"
 cp -R "$ROOT/skeleton/SYSTEM/res/." "$SYS/res"
 
+# version.txt: same 3-line format the device Makefile ships (release name /
+# hash / tag) — the Settings About page derives its version + release date
+# from it and shows blanks when it's missing.
+printf "%s\n%s\n%s\n" "NXRedux-$(TZ=GMT date +%Y%m%d)" "$HASH" "$TAG" > "$SYS/version.txt"
+
 # binaries + cores
 cp "$ROOT/workspace/all/nextui/build/desktop/nextui.elf" "$SYS/bin/"
 cp "$ROOT/workspace/all/minarch/build/desktop/minarch.elf" "$SYS/bin/"

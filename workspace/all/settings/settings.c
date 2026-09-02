@@ -1560,9 +1560,11 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Use folder background for ROMs", "If enabled, used the emulator background image.",
 		on_off_labels, 2, on_off_values, get_roms_use_folder_bg, set_roms_use_folder_bg, reset_roms_use_folder_bg);
-	appearance_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
-		"Bootlogo", "Change the device boot logo.",
-		launch_bootlogo);
+	if (dev->platform != PLAT_DESKTOP) { // desktop has no device boot logo
+		appearance_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
+			"Bootlogo", "Change the device boot logo.",
+			launch_bootlogo);
+	}
 	appearance_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
 		"Reset to defaults", "Resets all options in this menu to their default values.",
 		reset_appearance_page);
@@ -1816,10 +1818,14 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		"Release date", "", get_about_release_date);
 	about_items[idx++] = (SettingItem)ITEM_STATIC_INIT(
 		"Platform", "", get_about_platform);
+	// Desktop reports the host OS release (macOS/Linux), not device firmware
 	about_items[idx++] = (SettingItem)ITEM_STATIC_INIT(
-		"Firmware version", "", get_about_os_version);
-	about_items[idx++] = (SettingItem)ITEM_STATIC_INIT(
-		"Busybox version", "", get_about_busybox);
+		dev->platform == PLAT_DESKTOP ? "OS version" : "Firmware version",
+		"", get_about_os_version);
+	if (dev->platform != PLAT_DESKTOP) { // no busybox on desktop hosts
+		about_items[idx++] = (SettingItem)ITEM_STATIC_INIT(
+			"Busybox version", "", get_about_busybox);
+	}
 	about_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
 		"Updater", "",
 		updater_check_for_updates);
@@ -1831,8 +1837,12 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	// Main page (category list)
 	// ============================
 	idx = 0;
-	main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
-		"Display", "", &display_page);
+	// Desktop has no display hardware to adjust (host OS owns the panel), which
+	// would leave the page holding only its Reset button — hide it entirely.
+	if (has_display_hw(dev) || has_contrast_sat(dev) || has_exposure(dev)) {
+		main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
+			"Display", "", &display_page);
+	}
 	main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
 		"Appearance", "UI customization", &appearance_page);
 	main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
@@ -1860,10 +1870,12 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		}
 	}
 
-	audio_page_ptr = audio_page_create();
-	if (audio_page_ptr) {
-		main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
-			"Audio", "Output device and sample-rate policy", audio_page_ptr);
+	if (dev->platform != PLAT_DESKTOP) { // desktop audio is routed by the host OS
+		audio_page_ptr = audio_page_create();
+		if (audio_page_ptr) {
+			main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
+				"Audio", "Output device and sample-rate policy", audio_page_ptr);
+		}
 	}
 
 	if (has_mute_toggle(dev)) {

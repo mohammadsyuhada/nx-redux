@@ -113,9 +113,15 @@
 #define BTN_WAKE BTN_POWER
 #define BTN_MOD_VOLUME BTN_NONE
 #define BTN_MOD_COLORTEMP BTN_NONE
-#define BTN_MOD_BRIGHTNESS BTN_MENU
+// No brightness modifier on desktop: the host OS owns the display, and mapping
+// it to MENU (Space) made a long-press show a useless brightness indicator.
+#define BTN_MOD_BRIGHTNESS BTN_NONE
 #define BTN_MOD_PLUS BTN_PLUS
 #define BTN_MOD_MINUS BTN_MINUS
+
+// Never sleep: a desktop window has no screen to power down, and the shared
+// wait-for-wake loop would eat all input including SDL_QUIT (see defines.h).
+#define HAS_SLEEP 0
 
 ///////////////////////////////
 

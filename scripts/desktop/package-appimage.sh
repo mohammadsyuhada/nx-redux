@@ -11,6 +11,8 @@ ROOT="$(pwd)"
 # always fails and falls back to "untagged". Keep that fallback for a
 # standalone `docker compose run --rm appimage` invocation (no TAG set).
 TAG="${TAG:-$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null || echo untagged)}"
+# Same container caveat as TAG: the host Makefile passes HASH=$(BUILD_HASH).
+HASH="${HASH:-$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)}"
 ARCH="${ARCH:-x86_64}"
 
 # The bind-mounted repo keeps host ownership on its existing files; capture
@@ -97,6 +99,10 @@ cp -R skeleton/SYSTEM/desktop/. "$APPDIR/usr/system"
 mkdir -p "$APPDIR/usr/system/shared" "$APPDIR/usr/system/res"
 cp -R skeleton/SYSTEM/shared/. "$APPDIR/usr/system/shared"
 cp -R skeleton/SYSTEM/res/.    "$APPDIR/usr/system/res"
+# version.txt: same 3-line format the device Makefile ships (release name /
+# hash / tag) — the Settings About page derives its version + release date
+# from it and shows blanks when it's missing.
+printf "%s\n%s\n%s\n" "NXRedux-$(TZ=GMT date +%Y%m%d)" "$HASH" "$TAG" > "$APPDIR/usr/system/version.txt"
 cp -R skeleton/BASE            "$APPDIR/usr/base-skeleton"
 # Flatten resolution-variant assets (overlays -> 768p, bg -> 1024) to match
 # what the device build ships for Brick; desktop renders at 1024x768.

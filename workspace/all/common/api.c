@@ -3475,14 +3475,15 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 		}
 	}
 
-	const int screenOffDelay = CFG_getScreenTimeoutSecs() * 1000;
+	const int screenOffDelay = HAS_SLEEP ? CFG_getScreenTimeoutSecs() * 1000 : 0;
 	if (screenOffDelay == 0 || (now - last_input_at >= screenOffDelay && PWR_preventAutosleep()))
 		last_input_at = now;
 
 	if (
-		pwr.requested_sleep ||											   // hardware requested sleep
-		(screenOffDelay > 0 && now - last_input_at >= screenOffDelay) ||   // autosleep
-		(pwr.can_sleep && PAD_justReleased(BTN_SLEEP) && power_pressed_at) // manual sleep
+		HAS_SLEEP &&
+		(pwr.requested_sleep ||												 // hardware requested sleep
+		 (screenOffDelay > 0 && now - last_input_at >= screenOffDelay) ||	 // autosleep
+		 (pwr.can_sleep && PAD_justReleased(BTN_SLEEP) && power_pressed_at)) // manual sleep
 	) {
 		pwr.requested_sleep = 0;
 		if (before_sleep)

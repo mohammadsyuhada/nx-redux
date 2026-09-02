@@ -178,6 +178,14 @@ enum {
 #define HAS_HOME_BUTTON (BUTTON_HOME != BUTTON_NA || CODE_HOME != CODE_NA || JOY_HOME != JOY_NA)
 #define HAS_SKINNY_SCREEN (FIXED_WIDTH < 320)
 
+// Whether the platform can enter hybrid sleep (screen-off wait-for-wake loop).
+// Handhelds sleep; desktop opts out in its platform.h — its "sleep" would just
+// blank the window while PWR_waitForWake eats every event (including SDL_QUIT,
+// so the app can't even be closed) and, reporting AC power, never times out.
+#ifndef HAS_SLEEP
+#define HAS_SLEEP 1
+#endif
+
 ///////////////////////////////
 
 #define BUTTON_NA -1

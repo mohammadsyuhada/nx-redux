@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/utsname.h>
 #include <errno.h>
 #include <assert.h>
 #include <pthread.h>
@@ -95,8 +96,51 @@ char* PLAT_getModel(void) {
 	return "Desktop";
 }
 
+// Shown as "OS version" on the Settings About page: the host OS release, not a
+// device firmware string (desktop has no firmware).
 void PLAT_getOsVersionInfo(char* output_str, size_t max_len) {
-	sprintf(output_str, "%s", "1.2.3");
+#ifdef __APPLE__
+	FILE* p = popen("sw_vers -productVersion 2>/dev/null", "r");
+	if (p) {
+		char ver[64] = {0};
+		char* got = fgets(ver, sizeof(ver), p);
+		pclose(p);
+		if (got) {
+			trimTrailingNewlines(ver);
+			if (ver[0]) {
+				snprintf(output_str, max_len, "macOS %s", ver);
+				return;
+			}
+		}
+	}
+#else
+	FILE* f = fopen("/etc/os-release", "r");
+	if (f) {
+		char line[256];
+		while (fgets(line, sizeof(line), f)) {
+			if (strncmp(line, "PRETTY_NAME=", 12) != 0)
+				continue;
+			char* v = line + 12;
+			trimTrailingNewlines(v);
+			size_t len = strlen(v);
+			if (len >= 2 && v[0] == '"' && v[len - 1] == '"') {
+				v[len - 1] = '\0';
+				v++;
+			}
+			if (v[0]) {
+				snprintf(output_str, max_len, "%s", v);
+				fclose(f);
+				return;
+			}
+		}
+		fclose(f);
+	}
+#endif
+	struct utsname u;
+	if (uname(&u) == 0)
+		snprintf(output_str, max_len, "%s %s", u.sysname, u.release);
+	else
+		snprintf(output_str, max_len, "unknown");
 }
 
 ConnectionStrength PLAT_connectionStrength(void) {

@@ -1160,6 +1160,13 @@ static void compositeLayers(void) {
 }
 
 void PLAT_clearLayers(int layer) {
+	// Layers composite with per-pixel alpha ABOVE the UI stream (layers 3-5),
+	// so they must be cleared to TRANSPARENT black. RenderClear uses the
+	// renderer's current draw color, which on desktop is opaque black after
+	// every PLAT_flip (its backbuffer clear) — inheriting that here turned a
+	// cleared thumbnail/transition layer into an opaque black sheet that
+	// blacked out the whole UI the moment anything was drawn onto that layer.
+	SDL_SetRenderDrawColor(vid.renderer, 0, 0, 0, 0);
 	if (layer == 0 || layer == 1) {
 		SDL_SetRenderTarget(vid.renderer, vid.target_layer1);
 		SDL_RenderClear(vid.renderer);
