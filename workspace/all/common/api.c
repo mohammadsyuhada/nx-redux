@@ -2527,6 +2527,14 @@ PAD_Context pad;
 // one past the half-way point as a digital L2/R2 press.
 static SDL_GameController* gamecontroller = NULL;
 #define GAMECONTROLLER_TRIGGER_THRESHOLD 16384
+// Select+Start pressed together act as MENU: modern macOS reserves the
+// Guide/Home button system-wide (opens the Games app) and offers no way to
+// remap it, so pads need a menu chord that never leaves the app. Tracks the
+// raw held state of both halves; while the chord is latched the raw
+// Select/Start events are swallowed so cores don't see them held.
+static int gc_select_down = 0;
+static int gc_start_down = 0;
+static int gc_menu_chord = 0;
 #endif
 
 #define AXIS_DEADZONE 0x4000
@@ -2979,6 +2987,37 @@ FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 			default:
 				break;
 			}
+
+			// Select+Start chord -> MENU (see gc_menu_chord above).
+			if (btn == BTN_SELECT)
+				gc_select_down = pressed;
+			else if (btn == BTN_START)
+				gc_start_down = pressed;
+			if (btn == BTN_SELECT || btn == BTN_START) {
+				if (pressed && gc_select_down && gc_start_down && !gc_menu_chord) {
+					// second half just went down: latch the chord, retract the
+					// first half from pad state (it was delivered when pressed
+					// alone), and deliver this event as a MENU press instead
+					gc_menu_chord = 1;
+					int other = (btn == BTN_SELECT) ? BTN_START : BTN_SELECT;
+					pad.is_pressed &= ~other;
+					pad.just_pressed &= ~other;
+					pad.just_repeated &= ~other;
+					btn = BTN_MENU;
+					id = BTN_ID_MENU;
+				} else if (gc_menu_chord) {
+					if (pressed) {
+						btn = BTN_NONE; // half re-pressed while latched: swallow
+					} else if (pad.is_pressed & BTN_MENU) {
+						btn = BTN_MENU; // first half released: release MENU
+						id = BTN_ID_MENU;
+					} else {
+						btn = BTN_NONE; // second half released: already done
+					}
+					if (!gc_select_down && !gc_start_down)
+						gc_menu_chord = 0;
+				}
+			}
 		} else if (event.type == SDL_CONTROLLERAXISMOTION) {
 			int val = event.caxis.value;
 			// Left stick: analog passthrough to cores (pad.laxis, read by
@@ -3032,6 +3071,7 @@ FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 				// would likewise stick until a matching keyboard event.
 				pad.laxis.x = pad.laxis.y = 0;
 				pad.raxis.x = pad.raxis.y = 0;
+				gc_select_down = gc_start_down = gc_menu_chord = 0;
 				PAD_reset();
 			}
 		}
