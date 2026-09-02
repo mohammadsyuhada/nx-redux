@@ -2,7 +2,7 @@ diff --git forkSrcPrefix/Makefile.libretro forkDstPrefix/Makefile.libretro
 index 1842538..ef2b1f5 100644
 --- forkSrcPrefix/Makefile.libretro
 +++ forkDstPrefix/Makefile.libretro
-@@ -386,6 +386,18 @@ else ifeq ($(platform), gcw0)
+@@ -386,6 +386,19 @@ else ifeq ($(platform), gcw0)
     CFLAGS += -fomit-frame-pointer -ffast-math -march=mips32 -mtune=mips32r2 -mhard-float
     CXXFLAGS += $(CFLAGS)
  
