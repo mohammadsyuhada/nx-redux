@@ -19,12 +19,19 @@ endif
 
 include ../../../$(PLATFORM)/platform/Makefile.env
 
+# Per-OS build outputs for desktop: macOS (host) and Linux (docker) share
+# this checkout, so packaging passes BUILD_SUBDIR=desktop-<os>-<arch> to keep
+# their artifacts apart. Devices never pass it: the default keeps their
+# build/<platform> paths byte-identical.
+BUILD_SUBDIR ?= $(PLATFORM)
+
+
 ###########################################################
 
 TARGET = rcheevos
 SRCDIR = src/src
 INCDIR = src/include
-OBJDIR = build/$(PLATFORM)/obj
+OBJDIR = build/$(BUILD_SUBDIR)/obj
 
 # rcheevos source files
 SOURCES = \
@@ -72,7 +79,7 @@ CFLAGS += -DRC_DISABLE_LUA
 CFLAGS += -DRC_CLIENT_SUPPORTS_HASH
 CFLAGS += -fPIC
 
-PRODUCT = build/$(PLATFORM)/lib$(TARGET).a
+PRODUCT = build/$(BUILD_SUBDIR)/lib$(TARGET).a
 
 # rcheevos version to use (can be overridden)
 RCHEEVOS_VERSION ?= 40d916de00fe757bab40fb4db41a7912193a48e3
@@ -93,7 +100,7 @@ build: clone
 	$(MAKE) $(PRODUCT) PLATFORM=$(PLATFORM)
 
 $(PRODUCT): $(OBJECTS)
-	mkdir -p build/$(PLATFORM)
+	mkdir -p build/$(BUILD_SUBDIR)
 	$(AR) rcs $@ $(OBJECTS)
 
 $(OBJDIR)/%.o: $(SRCDIR)/%.c

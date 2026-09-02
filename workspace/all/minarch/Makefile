@@ -15,12 +15,19 @@ endif
 ###########################################################
 
 include ../../$(PLATFORM)/platform/Makefile.env
+
+# Per-OS build outputs for desktop: macOS (host) and Linux (docker) share
+# this checkout, so packaging passes BUILD_SUBDIR=desktop-<os>-<arch> to keep
+# their artifacts apart. Devices never pass it: the default keeps their
+# build/<platform> paths byte-identical.
+BUILD_SUBDIR ?= $(PLATFORM)
+
 SDL?=SDL
 
 ###########################################################
 
 TARGET = minarch
-PRODUCT= build/$(PLATFORM)/$(TARGET).elf
+PRODUCT= build/$(BUILD_SUBDIR)/$(TARGET).elf
 INCDIR = -I. -I./libretro-common/include/ -I../common/ -I../../$(PLATFORM)/platform/ -I../netplay/
 include ../common/ui/ui.mk
 SOURCE = $(TARGET).c ma_game.c ma_cheats.c ma_saves.c ma_rewind.c ma_config.c ma_shaders.c ma_options.c \
@@ -112,27 +119,27 @@ CFLAGS += -DBUILD_DATE=\"${BUILD_DATE}\" -DBUILD_HASH=\"${BUILD_HASH}\"
 
 ifeq ($(PLATFORM), desktop)
 all: clean libretro-common rcheevos libchdr $(PREFIX_LOCAL)/include/msettings.h
-	mkdir -p build/$(PLATFORM)
+	mkdir -p build/$(BUILD_SUBDIR)
 	$(CC) $(SOURCE) -o $(PRODUCT) $(CFLAGS) $(LDFLAGS)
 else ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
 # Platforms with RA support
 all: clean libretro-common libsrm.a rcheevos libchdr $(PREFIX_LOCAL)/include/msettings.h
-	mkdir -p build/$(PLATFORM)
-	cp -L $(PREFIX)/lib/libsamplerate.so.* build/$(PLATFORM)
+	mkdir -p build/$(BUILD_SUBDIR)
+	cp -L $(PREFIX)/lib/libsamplerate.so.* build/$(BUILD_SUBDIR)
 	# This is a bandaid fix, needs to be cleaned up if/when we expand to other platforms.
 ifeq ($(PLATFORM), my355)
-	cp -L $(PREFIX)/lib/libcrypto.so.3 build/$(PLATFORM)
-	cp -L $(PREFIX)/lib/libsqlite3.so build/$(PLATFORM)
-	cp -L $(PREFIX)/lib/libffi.so.7 build/$(PLATFORM)
-	cp -L $(PREFIX)/lib/libtinyalsa.so.2 build/$(PLATFORM)
+	cp -L $(PREFIX)/lib/libcrypto.so.3 build/$(BUILD_SUBDIR)
+	cp -L $(PREFIX)/lib/libsqlite3.so build/$(BUILD_SUBDIR)
+	cp -L $(PREFIX)/lib/libffi.so.7 build/$(BUILD_SUBDIR)
+	cp -L $(PREFIX)/lib/libtinyalsa.so.2 build/$(BUILD_SUBDIR)
 endif
-	cp -L $(PREFIX)/lib/libsamplerate.so.0 build/$(PLATFORM)
-	cp -L $(PREFIX)/lib/libzip.so.5 build/$(PLATFORM)
-	cp -L $(PREFIX)/lib/libbz2.so.1.0 build/$(PLATFORM)
-	cp -L $(PREFIX)/lib/liblzma.so.5 build/$(PLATFORM)
-	cp -L $(PREFIX)/lib/libzstd.so.1 build/$(PLATFORM)
-	cp -L $(PREFIX)/lib/liblz4.so.1 build/$(PLATFORM)
-	cp -L libchdr/build/$(PLATFORM)/libchdr.so.0 build/$(PLATFORM)
+	cp -L $(PREFIX)/lib/libsamplerate.so.0 build/$(BUILD_SUBDIR)
+	cp -L $(PREFIX)/lib/libzip.so.5 build/$(BUILD_SUBDIR)
+	cp -L $(PREFIX)/lib/libbz2.so.1.0 build/$(BUILD_SUBDIR)
+	cp -L $(PREFIX)/lib/liblzma.so.5 build/$(BUILD_SUBDIR)
+	cp -L $(PREFIX)/lib/libzstd.so.1 build/$(BUILD_SUBDIR)
+	cp -L $(PREFIX)/lib/liblz4.so.1 build/$(BUILD_SUBDIR)
+	cp -L libchdr/build/$(BUILD_SUBDIR)/libchdr.so.0 build/$(BUILD_SUBDIR)
 	$(CC) $(SOURCE) -o $(PRODUCT) $(CFLAGS) $(LDFLAGS)
 endif
 
@@ -155,6 +162,7 @@ rcheevos/Makefile:
 	cp rcheevos.Makefile rcheevos/Makefile
 
 $(PREFIX_LOCAL)/lib/librcheevos.a:
+	cp rcheevos.Makefile rcheevos/Makefile
 	cd rcheevos && make build install PLATFORM=$(PLATFORM)
 
 libchdr/CMakeLists.txt:
@@ -163,6 +171,7 @@ libchdr/CMakeLists.txt:
 	cp libchdr.Makefile libchdr/Makefile
 
 $(PREFIX_LOCAL)/lib/libchdr.so:
+	cp libchdr.Makefile libchdr/Makefile
 	cd libchdr && make build install PLATFORM=$(PLATFORM)
   
 $(PREFIX_LOCAL)/include/msettings.h:

@@ -4,6 +4,7 @@ set -eu
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TAG="${TAG:-$(cd "$ROOT" && git describe --tags --abbrev=0 2>/dev/null || echo untagged)}"
 HASH="$(cd "$ROOT" && git rev-parse --short HEAD)"
+SUBDIR="desktop-macos-$(uname -m)"
 STAGE="$ROOT/build/desktop-macos"
 APP="$STAGE/NXRedux.app"
 SYS="$APP/Contents/Resources/system"
@@ -24,8 +25,8 @@ cp -R "$ROOT/skeleton/SYSTEM/res/." "$SYS/res"
 printf "%s\n%s\n%s\n" "NXRedux-$(TZ=GMT date +%Y%m%d)" "$HASH" "$TAG" > "$SYS/version.txt"
 
 # binaries + cores
-cp "$ROOT/workspace/all/nextui/build/desktop/nextui.elf" "$SYS/bin/"
-cp "$ROOT/workspace/all/minarch/build/desktop/minarch.elf" "$SYS/bin/"
+cp "$ROOT/workspace/all/nextui/build/$SUBDIR/nextui.elf" "$SYS/bin/"
+cp "$ROOT/workspace/all/minarch/build/$SUBDIR/minarch.elf" "$SYS/bin/"
 install -m 0755 "$ROOT/scripts/desktop/check-update.sh" "$SYS/bin/"
 install -m 0755 "$ROOT/scripts/desktop/self-update.sh" "$SYS/bin/"
 # Copy every built core. Glob (not a fixed list) so odd output names —
@@ -57,15 +58,15 @@ EXTRAS_ELF="$SYS/paks/Tools/Xtras.pak/extras.elf"
 GAMETIME_ELF="$SYS/paks/Tools/Game Tracker.pak/gametime.elf"
 GAMETIMECTL_PAK_ELF="$SYS/paks/Tools/Game Tracker.pak/gametimectl.elf"
 GAMETIMECTL_BIN_ELF="$SYS/bin/gametimectl.elf"
-cp "$ROOT/workspace/all/settings/build/desktop/settings.elf" "$SETTINGS_ELF"
-cp "$ROOT/workspace/all/emu-options/build/desktop/options.elf" "$OPTIONS_ELF"
-cp "$ROOT/workspace/all/ratools/build/desktop/ratools.elf" "$RATOOLS_ELF"
-cp "$ROOT/workspace/all/scraper/build/desktop/scraper.elf" "$SCRAPER_ELF"
-cp "$ROOT/workspace/all/sync/build/desktop/sync.elf" "$SYNC_ELF"
-cp "$ROOT/workspace/all/extras/build/desktop/extras.elf" "$EXTRAS_ELF"
-cp "$ROOT/workspace/all/gametime/build/desktop/gametime.elf" "$GAMETIME_ELF"
-cp "$ROOT/workspace/all/gametimectl/build/desktop/gametimectl.elf" "$GAMETIMECTL_PAK_ELF"
-cp "$ROOT/workspace/all/gametimectl/build/desktop/gametimectl.elf" "$GAMETIMECTL_BIN_ELF"
+cp "$ROOT/workspace/all/settings/build/$SUBDIR/settings.elf" "$SETTINGS_ELF"
+cp "$ROOT/workspace/all/emu-options/build/$SUBDIR/options.elf" "$OPTIONS_ELF"
+cp "$ROOT/workspace/all/ratools/build/$SUBDIR/ratools.elf" "$RATOOLS_ELF"
+cp "$ROOT/workspace/all/scraper/build/$SUBDIR/scraper.elf" "$SCRAPER_ELF"
+cp "$ROOT/workspace/all/sync/build/$SUBDIR/sync.elf" "$SYNC_ELF"
+cp "$ROOT/workspace/all/extras/build/$SUBDIR/extras.elf" "$EXTRAS_ELF"
+cp "$ROOT/workspace/all/gametime/build/$SUBDIR/gametime.elf" "$GAMETIME_ELF"
+cp "$ROOT/workspace/all/gametimectl/build/$SUBDIR/gametimectl.elf" "$GAMETIMECTL_PAK_ELF"
+cp "$ROOT/workspace/all/gametimectl/build/$SUBDIR/gametimectl.elf" "$GAMETIMECTL_BIN_ELF"
 
 # libmsettings.so is linked in with a bare (path-less) install name — dylibbundler
 # can locate it via -s but chokes rewriting its rpath, so give the reference an
@@ -74,24 +75,24 @@ cp "$ROOT/workspace/all/gametimectl/build/desktop/gametimectl.elf" "$GAMETIMECTL
 # own re-sign) never touch a file other dev workflows might load directly.
 mkdir -p "$STAGE/tmp"
 LIBMSETTINGS="$STAGE/tmp/libmsettings.so"
-cp "$ROOT/workspace/desktop/libmsettings/libmsettings.so" "$LIBMSETTINGS"
+cp "$ROOT/workspace/desktop/libmsettings/build/$SUBDIR/libmsettings.so" "$LIBMSETTINGS"
 for exe in "$SYS/bin/nextui.elf" "$SYS/bin/minarch.elf" \
 	"$SETTINGS_ELF" "$OPTIONS_ELF" "$RATOOLS_ELF" "$SCRAPER_ELF" "$SYNC_ELF" "$EXTRAS_ELF" \
 	"$GAMETIME_ELF" "$GAMETIMECTL_PAK_ELF" "$GAMETIMECTL_BIN_ELF"; do
-	install_name_tool -change libmsettings.so "$LIBMSETTINGS" "$exe"
+	install_name_tool -change "build/$SUBDIR/libmsettings.so" "$LIBMSETTINGS" "$exe"
 done
 
 # gametime.elf/gametimectl.elf also link libgametimedb.so, with an even
 # odder install name than libmsettings.so's bare one: the *relative build
-# path* used at link time ("build/desktop/libgametimedb.so" — see
+# path* used at link time ("build/$SUBDIR/libgametimedb.so" — see
 # workspace/all/libgametimedb/Makefile's PRODUCT, no -install_name passed).
 # Same dylibbundler failure mode (it locates the file fine via -s by
 # basename, then chokes trying to otool -L the literal unresolved path
 # string when it recurses into that dependency's own rpaths) — same fix.
 LIBGAMETIMEDB="$STAGE/tmp/libgametimedb.so"
-cp "$ROOT/workspace/all/libgametimedb/build/desktop/libgametimedb.so" "$LIBGAMETIMEDB"
+cp "$ROOT/workspace/all/libgametimedb/build/$SUBDIR/libgametimedb.so" "$LIBGAMETIMEDB"
 for exe in "$GAMETIME_ELF" "$GAMETIMECTL_PAK_ELF" "$GAMETIMECTL_BIN_ELF"; do
-	install_name_tool -change build/desktop/libgametimedb.so "$LIBGAMETIMEDB" "$exe"
+	install_name_tool -change build/$SUBDIR/libgametimedb.so "$LIBGAMETIMEDB" "$exe"
 done
 
 # gcc auto-embeds several LC_RPATH entries (its own toolchain lib dirs, plus a

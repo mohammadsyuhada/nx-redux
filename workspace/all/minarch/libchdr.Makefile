@@ -5,7 +5,10 @@ ifeq (,$(PLATFORM))
 	$(error please specify PLATFORM, eg. PLATFORM=tg5040 make)
 endif
 
-BUILD_DIR = build/$(PLATFORM)
+# Per-OS build outputs for desktop (see workspace/all/minarch/Makefile);
+# devices keep the default.
+BUILD_SUBDIR ?= $(PLATFORM)
+BUILD_DIR = build/$(BUILD_SUBDIR)
 
 # Cross-compilation settings (only for non-desktop platforms)
 # Uses the toolchain file provided by the build container

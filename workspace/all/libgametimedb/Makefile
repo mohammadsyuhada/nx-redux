@@ -19,6 +19,13 @@ endif
 ###########################################################
 
 include ../../$(PLATFORM)/platform/Makefile.env
+
+# Per-OS build outputs for desktop: macOS (host) and Linux (docker) share
+# this checkout, so packaging passes BUILD_SUBDIR=desktop-<os>-<arch> to keep
+# their artifacts apart. Devices never pass it: the default keeps their
+# build/<platform> paths byte-identical.
+BUILD_SUBDIR ?= $(PLATFORM)
+
 SDL?=SDL
 
 ###########################################################
@@ -44,17 +51,24 @@ CFLAGS  += $(OPT)
 CFLAGS  += $(INCDIR) -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
 LDFLAGS += -s -lsqlite3
 
-PRODUCT= build/$(PLATFORM)/lib$(TARGET).so
+PRODUCT= build/$(BUILD_SUBDIR)/lib$(TARGET).so
+OBJDIR = build/$(BUILD_SUBDIR)
 
+# Objects go under $(OBJDIR), not the source dir: the desktop macOS and Linux
+# (docker) flows build here concurrently, and cwd .o files would race. Only
+# the three objects the .so actually links are compiled (the other SOURCE
+# entries were compiled-and-ignored before; the link list is unchanged).
 build:
-	mkdir -p build/$(PLATFORM)
-	$(CC) -c -Werror -fpic $(SOURCE) -Wl,--no-as-needed $(LDFLAGS) $(CFLAGS)
-	$(CC) -shared -o $(PRODUCT) "$(TARGET).o" "utils.o" "paths.o" $(LDFLAGS)
+	mkdir -p $(OBJDIR)
+	$(CC) -c -Werror -fpic $(TARGET).c -o $(OBJDIR)/$(TARGET).o -Wl,--no-as-needed $(LDFLAGS) $(CFLAGS)
+	$(CC) -c -Werror -fpic ../common/utils.c -o $(OBJDIR)/utils.o -Wl,--no-as-needed $(LDFLAGS) $(CFLAGS)
+	$(CC) -c -Werror -fpic ../common/paths.c -o $(OBJDIR)/paths.o -Wl,--no-as-needed $(LDFLAGS) $(CFLAGS)
+	$(CC) -shared -o $(PRODUCT) $(OBJDIR)/$(TARGET).o $(OBJDIR)/utils.o $(OBJDIR)/paths.o $(LDFLAGS)
 	cp "$(TARGET).h" "$(PREFIX_LOCAL)/include"
 	cp $(PRODUCT) "$(PREFIX_LOCAL)/lib"
 
 clean:
 	rm -f *.o
-	rm -f $(PRODUCT)
+	rm -rf build
 	rm -f $(PREFIX_LOCAL)/include/$(TARGET).h
 	rm -f $(PREFIX_LOCAL)/lib/lib$(TARGET).so

@@ -20,22 +20,18 @@ ARCH="${ARCH:-x86_64}"
 # the host user at the end (see step 6).
 OWNER="$(stat -c '%u:%g' "$ROOT")"
 
-# libchdr's own build dir (workspace/all/minarch/libchdr/build/desktop) has
-# the same problem one level down: its make rule keys off an *order-only*
-# directory prerequisite, so an existing (macOS, Mach-O) libchdr.so there
-# reads as "up to date" and the recipe is skipped entirely — install then
-# copies that Mach-O .so into this container's PREFIX_LOCAL, and the Linux
-# minarch link fails on a wrong-format libchdr. minarch's actual consumed
-# artifact for macOS lives in the *host's* /var/tmp/nxredux (not in this
-# bind mount), so wiping this in-repo scratch dir doesn't touch anything a
-# future `make package-macos` depends on — it just forces a clean rebuild
-# here, same as it would on a fresh checkout.
-rm -rf "$ROOT/workspace/all/minarch/libchdr/build/desktop"
+# Per-OS build subdir (see workspace/all/*/Makefile BUILD_SUBDIR): this
+# container's app binaries land in build/desktop-linux-<arch>, fully apart
+# from the host's build/desktop-macos-<arch> — the two packaging flows can
+# run concurrently. PREFIX_LOCAL artifacts (librcheevos.a, libchdr.so,
+# libmsettings.so, gametimedb.h) are per-OS by nature: /var/tmp here is
+# container-local, not the bind mount.
+SUBDIR="desktop-linux-$(uname -m)"
 
 # 1. build (native Linux: CROSS_COMPILE=/usr/bin/, PREFIX=/usr as Makefile.native's Linux branch does)
-make -C workspace/desktop/libmsettings build CROSS_COMPILE=/usr/bin/ PREFIX=/usr PREFIX_LOCAL=/var/tmp/nxredux
-make -C workspace/all/nextui PLATFORM=desktop CROSS_COMPILE=/usr/bin/ PREFIX=/usr PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Linux BUILD_TAG="$TAG"
-make -C workspace/all/minarch PLATFORM=desktop CROSS_COMPILE=/usr/bin/ PREFIX=/usr PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Linux
+make -C workspace/desktop/libmsettings build CROSS_COMPILE=/usr/bin/ PREFIX=/usr PREFIX_LOCAL=/var/tmp/nxredux BUILD_SUBDIR="$SUBDIR"
+make -C workspace/all/nextui PLATFORM=desktop CROSS_COMPILE=/usr/bin/ PREFIX=/usr PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Linux BUILD_TAG="$TAG" BUILD_SUBDIR="$SUBDIR"
+make -C workspace/all/minarch PLATFORM=desktop CROSS_COMPILE=/usr/bin/ PREFIX=/usr PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Linux BUILD_SUBDIR="$SUBDIR"
 
 # The 7 Tools paks' binaries (+ gametimectl's daemon). Same recipe as
 # nextui/minarch above; ratools pulls in minarch's already-built libchdr/
@@ -45,7 +41,7 @@ make -C workspace/all/minarch PLATFORM=desktop CROSS_COMPILE=/usr/bin/ PREFIX=/u
 # MAKEFLAGS (GNU make re-parses command-line var assignments from MAKEFLAGS
 # in any child `make`, not just ones invoked through $(MAKE)).
 for t in settings emu-options ratools scraper sync extras gametime gametimectl; do
-	make -C "workspace/all/$t" PLATFORM=desktop CROSS_COMPILE=/usr/bin/ PREFIX=/usr PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Linux
+	make -C "workspace/all/$t" PLATFORM=desktop CROSS_COMPILE=/usr/bin/ PREFIX=/usr PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Linux BUILD_SUBDIR="$SUBDIR"
 done
 
 # Build the full CORES set (same set as package-macos.sh). The cores Makefile
@@ -69,8 +65,8 @@ cp -R skeleton/BASE            "$APPDIR/usr/base-skeleton"
 # Flatten resolution-variant assets (overlays -> 768p, bg -> 1024) to match
 # what the device build ships for Brick; desktop renders at 1024x768.
 sh scripts/desktop/flatten-base.sh "$APPDIR/usr/base-skeleton"
-cp workspace/all/nextui/build/desktop/nextui.elf   "$APPDIR/usr/system/bin/"
-cp workspace/all/minarch/build/desktop/minarch.elf "$APPDIR/usr/system/bin/"
+cp workspace/all/nextui/build/$SUBDIR/nextui.elf   "$APPDIR/usr/system/bin/"
+cp workspace/all/minarch/build/$SUBDIR/minarch.elf "$APPDIR/usr/system/bin/"
 install -m 0755 scripts/desktop/check-update.sh "$APPDIR/usr/system/bin/"
 install -m 0755 scripts/desktop/self-update.sh "$APPDIR/usr/system/bin/"
 # glob (not a fixed list) so odd output names — vice_x64_libretro.so,
@@ -85,15 +81,15 @@ for so in workspace/desktop/cores/output/linux-x86_64/*_libretro.so; do cp "$so"
 # nextui.c/launcher.c invoke bare via PATH at ROM start/stop, matching
 # device behavior exactly — so it needs to resolve off usr/system/bin
 # (already on PATH, entry_export_env). A copy goes to both places.
-cp workspace/all/settings/build/desktop/settings.elf       "$APPDIR/usr/system/paks/Tools/Settings.pak/"
-cp workspace/all/emu-options/build/desktop/options.elf     "$APPDIR/usr/system/paks/Tools/Emulator Settings.pak/"
-cp workspace/all/ratools/build/desktop/ratools.elf         "$APPDIR/usr/system/paks/Tools/RetroAchievements.pak/"
-cp workspace/all/scraper/build/desktop/scraper.elf         "$APPDIR/usr/system/paks/Tools/Artwork Manager.pak/"
-cp workspace/all/sync/build/desktop/sync.elf               "$APPDIR/usr/system/paks/Tools/Device Sync.pak/"
-cp workspace/all/extras/build/desktop/extras.elf           "$APPDIR/usr/system/paks/Tools/Xtras.pak/"
-cp workspace/all/gametime/build/desktop/gametime.elf       "$APPDIR/usr/system/paks/Tools/Game Tracker.pak/"
-cp workspace/all/gametimectl/build/desktop/gametimectl.elf "$APPDIR/usr/system/paks/Tools/Game Tracker.pak/"
-cp workspace/all/gametimectl/build/desktop/gametimectl.elf "$APPDIR/usr/system/bin/"
+cp workspace/all/settings/build/$SUBDIR/settings.elf       "$APPDIR/usr/system/paks/Tools/Settings.pak/"
+cp workspace/all/emu-options/build/$SUBDIR/options.elf     "$APPDIR/usr/system/paks/Tools/Emulator Settings.pak/"
+cp workspace/all/ratools/build/$SUBDIR/ratools.elf         "$APPDIR/usr/system/paks/Tools/RetroAchievements.pak/"
+cp workspace/all/scraper/build/$SUBDIR/scraper.elf         "$APPDIR/usr/system/paks/Tools/Artwork Manager.pak/"
+cp workspace/all/sync/build/$SUBDIR/sync.elf               "$APPDIR/usr/system/paks/Tools/Device Sync.pak/"
+cp workspace/all/extras/build/$SUBDIR/extras.elf           "$APPDIR/usr/system/paks/Tools/Xtras.pak/"
+cp workspace/all/gametime/build/$SUBDIR/gametime.elf       "$APPDIR/usr/system/paks/Tools/Game Tracker.pak/"
+cp workspace/all/gametimectl/build/$SUBDIR/gametimectl.elf "$APPDIR/usr/system/paks/Tools/Game Tracker.pak/"
+cp workspace/all/gametimectl/build/$SUBDIR/gametimectl.elf "$APPDIR/usr/system/bin/"
 cp scripts/desktop/entry-common.sh "$APPDIR/usr/"
 install -m 0755 scripts/desktop/AppRun.sh "$APPDIR/AppRun"
 cp scripts/desktop/nxredux.desktop "$APPDIR/"
@@ -120,9 +116,9 @@ done
 # bundled lib. libgametimedb.so (gametime.elf/gametimectl.elf) has no such
 # SONAME mismatch (readelf -d confirms the DT_NEEDED entry is the plain
 # built filename), so it needs no rename.
-cp workspace/desktop/libmsettings/libmsettings.so "$APPDIR/usr/lib/"
-cp workspace/all/minarch/libchdr/build/desktop/libchdr.so "$APPDIR/usr/lib/libchdr.so.0"
-cp workspace/all/libgametimedb/build/desktop/libgametimedb.so "$APPDIR/usr/lib/"
+cp workspace/desktop/libmsettings/build/$SUBDIR/libmsettings.so "$APPDIR/usr/lib/"
+cp workspace/all/minarch/libchdr/build/$SUBDIR/libchdr.so "$APPDIR/usr/lib/libchdr.so.0"
+cp workspace/all/libgametimedb/build/$SUBDIR/libgametimedb.so "$APPDIR/usr/lib/"
 
 # 4. pack (no FUSE inside docker)
 mkdir -p releases
