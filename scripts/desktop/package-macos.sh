@@ -45,6 +45,9 @@ printf "%s\n%s\n%s\n" "NXRedux-$(TZ=GMT date +%Y%m%d)" "$HASH" "$TAG" > "$SYS/ve
 # binaries + cores
 cp "$ROOT/workspace/all/nextui/build/$SUBDIR/nextui.elf" "$SYS/bin/"
 cp "$ROOT/workspace/all/minarch/build/$SUBDIR/minarch.elf" "$SYS/bin/"
+# netplay pre-launch wizard: the netplay-capable Emus paks' launch.sh runs it
+# bare off PATH ($SYS/bin), same contract as the device build.
+cp "$ROOT/workspace/all/netplay-wizard/build/$SUBDIR/netplay.elf" "$SYS/bin/"
 install -m 0755 "$ROOT/scripts/desktop/check-update.sh" "$SYS/bin/"
 install -m 0755 "$ROOT/scripts/desktop/self-update.sh" "$SYS/bin/"
 # Copy every built core. Glob (not a fixed list) so odd output names —
@@ -94,7 +97,7 @@ cp "$ROOT/workspace/all/gametimectl/build/$SUBDIR/gametimectl.elf" "$GAMETIMECTL
 mkdir -p "$STAGE/tmp"
 LIBMSETTINGS="$STAGE/tmp/libmsettings.so"
 cp "$ROOT/workspace/desktop/libmsettings/build/$SUBDIR/libmsettings.so" "$LIBMSETTINGS"
-for exe in "$SYS/bin/nextui.elf" "$SYS/bin/minarch.elf" \
+for exe in "$SYS/bin/nextui.elf" "$SYS/bin/minarch.elf" "$SYS/bin/netplay.elf" \
 	"$SETTINGS_ELF" "$OPTIONS_ELF" "$RATOOLS_ELF" "$SCRAPER_ELF" "$SYNC_ELF" "$EXTRAS_ELF" \
 	"$GAMETIME_ELF" "$GAMETIMECTL_PAK_ELF" "$GAMETIMECTL_BIN_ELF"; do
 	install_name_tool -change "build/$SUBDIR/libmsettings.so" "$LIBMSETTINGS" "$exe"
@@ -120,7 +123,7 @@ done
 # dyld refuses to load ("duplicate LC_RPATH ... in <binary>"). Strip them
 # first; dylibbundler adds back exactly one bundled rpath for whichever
 # binary actually needs it (minarch/ratools, for @rpath/libchdr.0.so).
-for bin in "$SYS/bin/nextui.elf" "$SYS/bin/minarch.elf" "$LIBMSETTINGS" \
+for bin in "$SYS/bin/nextui.elf" "$SYS/bin/minarch.elf" "$SYS/bin/netplay.elf" "$LIBMSETTINGS" \
 	"$SETTINGS_ELF" "$OPTIONS_ELF" "$RATOOLS_ELF" "$SCRAPER_ELF" "$SYNC_ELF" "$EXTRAS_ELF" \
 	"$GAMETIME_ELF" "$GAMETIMECTL_PAK_ELF" "$GAMETIMECTL_BIN_ELF" "$LIBGAMETIMEDB"; do
 	otool -l "$bin" | awk '
@@ -151,7 +154,7 @@ done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/icon.icns"
 
 # bundle dylib closure; bin/ is 3 levels below Contents/
-for exe in "$SYS/bin/nextui.elf" "$SYS/bin/minarch.elf" "$GAMETIMECTL_BIN_ELF"; do
+for exe in "$SYS/bin/nextui.elf" "$SYS/bin/minarch.elf" "$SYS/bin/netplay.elf" "$GAMETIMECTL_BIN_ELF"; do
 	dylibbundler -of -cd -b -x "$exe" \
 		-d "$APP/Contents/Frameworks" -p '@executable_path/../../../Frameworks/' \
 		-s /opt/homebrew/lib -s /var/tmp/nxredux/lib \

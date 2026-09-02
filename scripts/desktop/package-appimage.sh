@@ -40,7 +40,7 @@ make -C workspace/all/minarch PLATFORM=desktop CROSS_COMPILE=/usr/bin/ PREFIX=/u
 # that inherits PLATFORM/CROSS_COMPILE/PREFIX/PREFIX_LOCAL/UNAME_S via
 # MAKEFLAGS (GNU make re-parses command-line var assignments from MAKEFLAGS
 # in any child `make`, not just ones invoked through $(MAKE)).
-for t in settings emu-options ratools scraper sync extras gametime gametimectl; do
+for t in settings emu-options ratools scraper sync extras gametime gametimectl netplay-wizard; do
 	make -C "workspace/all/$t" PLATFORM=desktop CROSS_COMPILE=/usr/bin/ PREFIX=/usr PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Linux BUILD_SUBDIR="$SUBDIR"
 done
 
@@ -79,6 +79,9 @@ cp -R skeleton/BASE            "$APPDIR/usr/base-skeleton"
 sh scripts/desktop/flatten-base.sh "$APPDIR/usr/base-skeleton"
 cp workspace/all/nextui/build/$SUBDIR/nextui.elf   "$APPDIR/usr/system/bin/"
 cp workspace/all/minarch/build/$SUBDIR/minarch.elf "$APPDIR/usr/system/bin/"
+# netplay pre-launch wizard: the netplay-capable Emus paks' launch.sh runs it
+# bare off PATH (usr/system/bin); its libs ride the ldd sweep below.
+cp workspace/all/netplay-wizard/build/$SUBDIR/netplay.elf "$APPDIR/usr/system/bin/"
 install -m 0755 scripts/desktop/check-update.sh "$APPDIR/usr/system/bin/"
 install -m 0755 scripts/desktop/self-update.sh "$APPDIR/usr/system/bin/"
 # glob (not a fixed list) so odd output names — vice_x64_libretro.so,

@@ -52,9 +52,13 @@ int wizard_read_session(const char* path, WizSession* s);
 // and rendered on the host's waiting screen. Empty until then.
 extern char wiz_hotspot_code[8];
 
-int wiz_wifi_ensure_connected(WizSession* s);			// WiFi mode, both roles
+int wiz_wifi_ensure_connected(WizSession* s); // WiFi mode, both roles; on
+											  // desktop the only mode (a bare
+											  // "is there a LAN address" gate)
+#if defined(HAS_WIFIMG)
 int wiz_hotspot_start(WizSession* s, const char* game); // hotspot host
 int wiz_hotspot_join(WizSession* s);					// hotspot client
+#endif
 // wizard_net.c (Task 4)
 int wiz_host_rendezvous(const WizArgs* a, WizSession* s); // wait+handshake(+sync serve)
 int wiz_client_rendezvous(const WizArgs* a, WizSession* s);

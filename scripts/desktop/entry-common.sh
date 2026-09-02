@@ -1,7 +1,7 @@
 # Shared desktop entry logic, sourced by Contents/MacOS/NXRedux (macOS) and
 # AppRun (AppImage). Callers pass the bundle's system tree + base skeleton.
 # Contract consumers: pak launch.sh needs PATH/SDCARD_PATH/SYSTEM_PATH/
-# CORES_PATH/USERDATA_PATH/LOGS_PATH; binaries read DEVICE,
+# SHARED_SYSTEM_PATH/CORES_PATH/USERDATA_PATH/LOGS_PATH; binaries read DEVICE,
 # SHARED_USERDATA_PATH, NXREDUX_*.
 
 entry_resolve_roots() { # $1 = system dir in bundle, $2 = base skeleton dir
@@ -38,6 +38,10 @@ entry_export_env() {
 	# binaries resolve from NXREDUX_SDCARD/NXREDUX_SYSTEM_ROOT via paths.c.
 	export SDCARD_PATH="$CARD"
 	export SYSTEM_PATH="$SYS"
+	# Device launch.sh scripts source shared helpers off this (eg.
+	# netplay-prelaunch.sh); on desktop the shared skeleton lives inside the
+	# bundle's system tree rather than on the card.
+	export SHARED_SYSTEM_PATH="$SYS/shared"
 	export CORES_PATH="$SYS/cores"
 	export USERDATA_PATH="$CARD/.userdata/desktop"
 	export SHARED_USERDATA_PATH="$CARD/.userdata/shared"

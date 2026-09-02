@@ -123,6 +123,13 @@ static void wiz_render_empty(const char* title, const char* message) {
 	GFX_flip(wiz_screen);
 }
 
+// Everything below is the managed-WiFi flow — pickers, association, hotspot
+// host/join — and it only exists on the HAS_WIFIMG platforms (tg5040/tg5050),
+// whose builds ship wifi_direct.c. Desktop has no managed WiFi stack: its
+// wiz_wifi_ensure_connected() (the #else arm at the bottom of this file)
+// reduces to "does this machine have a LAN address a peer could reach".
+#if defined(HAS_WIFIMG)
+
 //////////////////////////////////
 // WiFi helpers
 //////////////////////////////////
@@ -640,3 +647,23 @@ int wiz_hotspot_join(WizSession* s) {
 
 	return 0;
 }
+
+#else // !HAS_WIFIMG — desktop
+
+// Desktop cannot (and must not) manage the machine's networks: no picker, no
+// association, nothing to record or restore. The only question the network
+// set-up step can answer here is whether this machine holds a LAN address a
+// peer could reach — Ethernet or WiFi, the rendezvous does not care. The
+// same real-interface test backs the host's advertised IP (wizard_net.c) and
+// Device Sync's discovery payload.
+int wiz_wifi_ensure_connected(WizSession* s) {
+	(void)s; // prev_ssid stays "" — cleanup has no association to restore
+
+	if (NET_getLanInfo(NULL, 0, NULL, 0) == 0)
+		return 0;
+
+	wiz_error("No network connection.\n\nConnect this computer to the\nsame network as the other player.");
+	return -1;
+}
+
+#endif // HAS_WIFIMG

@@ -17,6 +17,7 @@ index 1842538..ef2b1f5 100644
 +	PLATFORM_DEFINES := -DCC_RESAMPLER -DCC_RESAMPLER_NO_HIGHPASS
 +	CFLAGS += -fomit-frame-pointer -ffast-math -fPIC -flto
 +	CXXFLAGS += $(CFLAGS)
++	HAVE_NETWORK = 1
 +
  # RETROFW
  else ifeq ($(platform), retrofw)

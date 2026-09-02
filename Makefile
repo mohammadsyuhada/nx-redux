@@ -109,10 +109,12 @@ package-macos: # macOS desktop bundle (arm64, unsigned); needs brew deps + gmake
 	cd workspace/all/nextui && $(MAKE) PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin BUILD_TAG=$(BUILD_TAG) BUILD_SUBDIR=$(DESKTOP_BUILD_SUBDIR)
 	cd workspace/all/minarch && $(MAKE) PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin BUILD_SUBDIR=$(DESKTOP_BUILD_SUBDIR)
 	cd workspace/all/libgametimedb && $(MAKE) build PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin BUILD_SUBDIR=$(DESKTOP_BUILD_SUBDIR)
-	# The 7 Tools paks' binaries (+ gametimectl's daemon copy). Same recipe as
-	# nextui/minarch above; gametime/gametimectl's libgametimedb.h dep is already
-	# satisfied by the explicit rebuild just above (their Makefiles no-op it).
-	for t in settings emu-options ratools scraper sync extras gametime gametimectl; do \
+	# The 7 Tools paks' binaries (+ gametimectl's daemon copy) and the netplay
+	# pre-launch wizard (netplay.elf, run bare off PATH by the Emus paks'
+	# launch.sh). Same recipe as nextui/minarch above; gametime/gametimectl's
+	# libgametimedb.h dep is already satisfied by the explicit rebuild just
+	# above (their Makefiles no-op it).
+	for t in settings emu-options ratools scraper sync extras gametime gametimectl netplay-wizard; do \
 		(cd workspace/all/$$t && $(MAKE) PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin BUILD_SUBDIR=$(DESKTOP_BUILD_SUBDIR)) || exit 1; \
 	done
 	# Build every core in the desktop cores Makefile's CORES list. Incremental:
