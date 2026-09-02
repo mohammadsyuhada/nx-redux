@@ -132,13 +132,16 @@
 //#define MAIN_ROW_COUNT 6
 //#define PADDING 10
 
-// emulate Brick
-#define FIXED_SCALE 3
+// Brick Pro layout: same 1024x768 as the Brick, but the Brick's 3x UI scale
+// is sized for a tiny handheld panel and renders oversized on a monitor —
+// the same reason the physically-larger Brick Pro runs the 2x layout (see
+// workspace/tg5040/platform/platform.h's panel note).
+#define FIXED_SCALE 2
 #define FIXED_WIDTH 1024
 #define FIXED_HEIGHT 768
-#define MAIN_ROW_COUNT 7
-#define SETTINGS_ROW_COUNT 9
-#define PADDING 5
+#define MAIN_ROW_COUNT 11
+#define SETTINGS_ROW_COUNT 11
+#define PADDING 10
 
 // emulate TSP
 //#define FIXED_SCALE 	2
