@@ -133,5 +133,7 @@ echo "packaged: $OUT"
 
 # 5. hand root-owned build/releases output back to the host user (bind
 # mount has no uid mapping, so anything created above is root:root on the
-# host otherwise)
-chown -R "$OWNER" "$ROOT/build" "$ROOT/releases"
+# host otherwise). The cores trees too: CI caches src/output between runs
+# (actions/cache in release.yaml) and its post-job save runs as the runner
+# user, which can't archive root-owned files it can't read.
+chown -R "$OWNER" "$ROOT/build" "$ROOT/releases" "$ROOT/workspace/desktop/cores"

@@ -208,6 +208,21 @@ jobs:
       - name: Install dependencies
         run: brew install gcc make sdl2 sdl3 sdl2_image sdl2_ttf sqlite libsamplerate dylibbundler cmake
 
+      # Unlike the device jobs (output-only cache + skipped build step), the
+      # package target always runs `gmake cores`, whose up-to-date check needs
+      # the .patched markers inside src/ — so cache src+output together: on a
+      # hit the cores step is a sub-second no-op, on a miss it rebuilds and
+      # re-caches. Exact-key only (no restore-keys): a stale src tree would
+      # skip re-applying changed patches, so any build-input change must start
+      # from a clean clone, same semantics as the device per-core cache.
+      - name: Restore cached cores
+        uses: actions/cache@v5
+        with:
+          path: |
+            workspace/desktop/cores/src/macos-arm64/
+            workspace/desktop/cores/output/macos-arm64/
+          key: cores-desktop-macos-arm64-${{ hashFiles('workspace/desktop/cores/Makefile', 'workspace/all/cores/Makefile', 'workspace/desktop/cores/patches/**', 'workspace/all/cores/patches/**') }}
+
       - name: Package
         run: make package-macos BUILD_TAG=${{ needs.prepare.outputs.next-tag }}
 
@@ -236,6 +251,18 @@ jobs:
         uses: actions/checkout@v5.0.0
         with:
           fetch-depth: 0
+
+      # Same src+output caching rationale as desktop-macos (see comment there);
+      # the container sees the restored trees through the bind mount, and
+      # package-appimage.sh chowns the cores dir back to the runner user so the
+      # post-job cache save can read what the root container wrote.
+      - name: Restore cached cores
+        uses: actions/cache@v5
+        with:
+          path: |
+            workspace/desktop/cores/src/linux-x86_64/
+            workspace/desktop/cores/output/linux-x86_64/
+          key: cores-desktop-linux-x86_64-${{ hashFiles('workspace/desktop/cores/Makefile', 'workspace/all/cores/Makefile', 'workspace/desktop/cores/patches/**', 'workspace/all/cores/patches/**') }}
 
       - name: Package
         run: make package-linux BUILD_TAG=${{ needs.prepare.outputs.next-tag }}
