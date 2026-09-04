@@ -617,7 +617,33 @@ SDL_Surface* PLAT_initVideo(void) {
 	SDL_SetHint(SDL_HINT_FRAMEBUFFER_ACCELERATION, "1");
 
 	vid.window = SDL_CreateWindow("", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, w, h, SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN);
-	vid.renderer = SDL_CreateRenderer(vid.window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+	if (vid.window) {
+		vid.renderer = SDL_CreateRenderer(vid.window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+	}
+	if (!vid.renderer) {
+		// v1.9.0's AppImage died right here on every Mesa >= 25 host: the
+		// bundled libstdc++ shadowed the driver's, no GLX visual/context could
+		// be had, and the NULL window/renderer got used regardless (issue #86).
+		// Say why, then bring the UI up on a plain window + software renderer
+		// (what that issue's SDL_VIDEO_X11_VISUALID= / SDL_RENDER_DRIVER=software
+		// workaround did by hand), so a broken GL stack is a logged fact rather
+		// than a silent crash: the menu and the non-shader game path still work.
+		LOG_error("%s failed: %s -- falling back to software rendering\n", vid.window ? "SDL_CreateRenderer" : "SDL_CreateWindow", SDL_GetError());
+		if (vid.window) {
+			SDL_DestroyWindow(vid.window);
+		}
+		// OVERRIDE priority so this beats a stray SDL_RENDER_DRIVER in the
+		// environment; FRAMEBUFFER_ACCELERATION off keeps SDL from retrying the
+		// (already failed) GL renderers for the software renderer's surface.
+		SDL_SetHintWithPriority(SDL_HINT_RENDER_DRIVER, "software", SDL_HINT_OVERRIDE);
+		SDL_SetHintWithPriority(SDL_HINT_FRAMEBUFFER_ACCELERATION, "0", SDL_HINT_OVERRIDE);
+		vid.window = SDL_CreateWindow("", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, w, h, SDL_WINDOW_SHOWN);
+		vid.renderer = vid.window ? SDL_CreateRenderer(vid.window, -1, SDL_RENDERER_SOFTWARE) : NULL;
+		if (!vid.renderer) {
+			LOG_error("software fallback failed too: %s\n", SDL_GetError());
+			exit(EXIT_FAILURE);
+		}
+	}
 	SDL_SetRenderDrawBlendMode(vid.renderer, SDL_BLENDMODE_BLEND);
 	SDL_RendererInfo info;
 	SDL_GetRendererInfo(vid.renderer, &info);
@@ -639,8 +665,14 @@ SDL_Surface* PLAT_initVideo(void) {
 	}
 
 	vid.gl_context = SDL_GL_CreateContext(vid.window);
-	SDL_GL_MakeCurrent(vid.window, vid.gl_context);
-	glViewport(0, 0, w, h);
+	if (!vid.gl_context) {
+		// Same failure mode as above, one layer down: the menu renders fine on
+		// the software renderer, only the shader (game) path needs this.
+		LOG_error("SDL_GL_CreateContext failed: %s (shaders unavailable)\n", SDL_GetError());
+	} else {
+		SDL_GL_MakeCurrent(vid.window, vid.gl_context);
+		glViewport(0, 0, w, h);
+	}
 
 	vid.stream_layer1 = SDL_CreateTexture(vid.renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
 	vid.target_layer1 = SDL_CreateTexture(vid.renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, w, h);
