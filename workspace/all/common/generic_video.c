@@ -814,9 +814,12 @@ void PLAT_setShaders(int nr) {
 }
 
 static void clearVideo(void) {
+	SDL_FillRect(vid.screen, NULL, SDL_transparentBlack);
+	SDL_UpdateTexture(vid.stream_layer1, NULL, vid.screen->pixels, vid.screen->pitch);
+	SDL_SetRenderTarget(vid.renderer, NULL);
+	SDL_SetRenderDrawColor(vid.renderer, 0, 0, 0, 255);
 	for (int i = 0; i < 3; i++) {
 		SDL_RenderClear(vid.renderer);
-		SDL_FillRect(vid.screen, NULL, SDL_transparentBlack);
 		SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
 		SDL_RenderPresent(vid.renderer);
 	}
@@ -912,7 +915,6 @@ void PLAT_quitVideo(void) {
 		free(overlay_path);
 
 	SDL_QuitSubSystem(SDL_INIT_VIDEO);
-	system("cat /dev/zero > /dev/fb0 2>/dev/null");
 }
 
 void PLAT_clearVideo(SDL_Surface* screen) {

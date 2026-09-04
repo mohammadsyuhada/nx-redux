@@ -408,10 +408,104 @@ int GFX_updateColors(void) {
 	return 0;
 }
 
+// SDL/GL setup and first-frame construction are short, CPU-heavy bursts. Let UI
+// apps use the device's available headroom, then restore the launcher's cap.
+
+#define STARTUP_CPU_MAX_PATH "/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq"
+#define STARTUP_CPU_PEAK_PATH "/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq"
+#define STARTUP_CPU_BOOST_US 1000000
+
+typedef struct {
+	int restore_max;
+	int peak_max;
+	unsigned int generation;
+	bool active;
+} StartupBoost;
+
+static pthread_mutex_t startup_boost_mutex = PTHREAD_MUTEX_INITIALIZER;
+static StartupBoost startup_boost = {0};
+
+static void GFX_finishStartupBoostLocked(void) {
+	if (!startup_boost.active)
+		return;
+	if (getInt(STARTUP_CPU_MAX_PATH) == startup_boost.peak_max)
+		putInt(STARTUP_CPU_MAX_PATH, startup_boost.restore_max);
+	startup_boost.active = false;
+	startup_boost.generation++;
+}
+
+static void GFX_finishStartupBoost(void) {
+	pthread_mutex_lock(&startup_boost_mutex);
+	GFX_finishStartupBoostLocked();
+	pthread_mutex_unlock(&startup_boost_mutex);
+}
+
+static void* GFX_restoreStartupCPUMax(void* arg) {
+	unsigned int generation = (unsigned int)(uintptr_t)arg;
+	usleep(STARTUP_CPU_BOOST_US);
+	pthread_mutex_lock(&startup_boost_mutex);
+	if (startup_boost.active && startup_boost.generation == generation) {
+		if (getInt(STARTUP_CPU_MAX_PATH) == startup_boost.peak_max)
+			putInt(STARTUP_CPU_MAX_PATH, startup_boost.restore_max);
+		startup_boost.active = false;
+	}
+	pthread_mutex_unlock(&startup_boost_mutex);
+	return NULL;
+}
+
+static void GFX_startStartupBoost(int mode) {
+	if (mode != MODE_MAIN || getenv("NEXTUI_DISABLE_STARTUP_BOOST") ||
+		access(STARTUP_CPU_MAX_PATH, W_OK) != 0 || access(STARTUP_CPU_PEAK_PATH, R_OK) != 0)
+		return;
+
+	pthread_mutex_lock(&startup_boost_mutex);
+	GFX_finishStartupBoostLocked();
+
+	int restore_max = getInt(STARTUP_CPU_MAX_PATH);
+	int peak_max = getInt(STARTUP_CPU_PEAK_PATH);
+	if (restore_max <= 0 || peak_max <= restore_max) {
+		pthread_mutex_unlock(&startup_boost_mutex);
+		return;
+	}
+
+	startup_boost.restore_max = restore_max;
+	startup_boost.peak_max = peak_max;
+	startup_boost.generation++;
+	startup_boost.active = true;
+	putInt(STARTUP_CPU_MAX_PATH, peak_max);
+
+	pthread_t thread;
+	int err = pthread_create(&thread, NULL, GFX_restoreStartupCPUMax,
+		(void*)(uintptr_t)startup_boost.generation);
+	if (err != 0)
+		GFX_finishStartupBoostLocked();
+	pthread_mutex_unlock(&startup_boost_mutex);
+	if (err == 0)
+		pthread_detach(thread);
+}
+
+static bool GFX_timezoneIsApplied(const char* timezone) {
+	if (!timezone || !timezone[0])
+		return false;
+
+	char current_path[512];
+	ssize_t current_len = readlink("/tmp/localtime", current_path, sizeof(current_path) - 1);
+	if (current_len < 0)
+		return false;
+	current_path[current_len] = '\0';
+
+	size_t timezone_len = strlen(timezone);
+	return (size_t)current_len > timezone_len &&
+		current_path[current_len - timezone_len - 1] == '/' &&
+		strcmp(current_path + current_len - timezone_len, timezone) == 0;
+}
+
+
 SDL_Surface* GFX_init(int mode) {
 	// Platform-specific init
 	// This might affect FIXED_SCALE, so do it first
 	PLAT_initPlatform();
+	GFX_startStartupBoost(mode);
 
 	gfx.screen = PLAT_initVideo();
 	gfx.vsync = VSYNC_STRICT;
@@ -422,9 +516,16 @@ SDL_Surface* GFX_init(int mode) {
 
 	CFG_init(GFX_loadSystemFont, GFX_updateColors);
 
-	// We always have to symlink, does not depend on NTP being enabled
+	// Reapply only when the volatile symlink is missing or stale. Persisting an
+	// unchanged timezone on every app launch needlessly commits config and syncs
+	// the hardware clock on the transition path.
 	PLAT_initTimezones();
-	PLAT_setCurrentTimezone(PLAT_getCurrentTimezone());
+	char* timezone = PLAT_getCurrentTimezone();
+	if (timezone) {
+		if (!GFX_timezoneIsApplied(timezone))
+			PLAT_setCurrentTimezone(timezone);
+		free(timezone);
+	}
 
 	PLAT_initLid();
 	LEDS_initLeds();
@@ -513,6 +614,8 @@ void GFX_setScreen(SDL_Surface* s) {
 		gfx.screen = s;
 }
 void GFX_quit(void) {
+	GFX_finishStartupBoost();
+
 	TTF_CloseFont(font.large);
 	TTF_CloseFont(font.medium);
 	TTF_CloseFont(font.small);
@@ -4075,7 +4178,7 @@ FALLBACK_IMPLEMENTATION void PLAT_getTimezones(char timezones[MAX_TIMEZONES][MAX
 	tz_count = 0;
 }
 FALLBACK_IMPLEMENTATION char* PLAT_getCurrentTimezone() {
-	return "Foo/Bar";
+	return strdup("Foo/Bar");
 }
 FALLBACK_IMPLEMENTATION void PLAT_setCurrentTimezone(const char* tz) {}
 FALLBACK_IMPLEMENTATION bool PLAT_getNetworkTimeSync(void) {
