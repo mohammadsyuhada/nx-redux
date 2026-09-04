@@ -292,16 +292,15 @@ static void patch_device_info(void) {
 	// Patch the Brick Pro (tg5040) into PortMaster. It shares the plain Brick's
 	// resolution (1024x768) AND SoC (sun50iw10), so both PortMaster detection paths
 	// collapse it into "trimui-brick" (analogsticks=0) — wrong: the Brick Pro has 2
-	// analog sticks. Nothing in stock PortMaster can tell them apart, so distinguish
-	// via the redux SD marker /mnt/SDCARD/tg5040-brickpro and give it its own device.
+	// analog sticks. Read NX Redux's canonical device identity to distinguish it.
 	//
 	// device_info.txt (shell): after the FIXES case has demoted a 1024x768 unit to
-	// "TrimUI Brick" with ANALOG_STICKS=0, upgrade it to Brick Pro when the marker
-	// is present. Inserted just before the "# GLIBC" section (after the case).
+	// "TrimUI Brick" with ANALOG_STICKS=0, upgrade it to Brick Pro when .nx-device
+	// identifies one. Inserted just before the "# GLIBC" section (after the case).
 	snprintf(cmd, sizeof(cmd),
 			 "if ! grep -q 'TrimUI Brick Pro' '%s' 2>/dev/null; then "
 			 "sed -i '/^# GLIBC$/i\\"
-			 "if [ -e \"/mnt/SDCARD/tg5040-brickpro\" ] && [ \"$DEVICE_NAME\" = \"TrimUI Brick\" ]; then DEVICE_NAME=\"TrimUI Brick Pro\"; ANALOG_STICKS=2; fi' '%s';"
+			 "if grep -qx 'tg5040-brickpro' /mnt/SDCARD/.nx-device 2>/dev/null && [ \"$DEVICE_NAME\" = \"TrimUI Brick\" ]; then DEVICE_NAME=\"TrimUI Brick Pro\"; ANALOG_STICKS=2; fi' '%s';"
 			 "fi",
 			 device_info, device_info);
 	system(cmd);
@@ -317,9 +316,9 @@ static void patch_device_info(void) {
 			 // HW_INFO: add trimui-brick-pro after trimui-brick
 			 "sed -i '/\"trimui-brick\": .*\"analogsticks\": 0/a\\"
 			 "    \"trimui-brick-pro\": {\"resolution\": (1024, 768), \"analogsticks\": 2, \"cpu\": \"a133plus\", \"capabilities\": [\"power\"], \"ram\": 1024},' '%s';"
-			 // device_info(): correct trimui-brick -> trimui-brick-pro via the marker
+			 // device_info(): correct trimui-brick -> trimui-brick-pro via .nx-device
 			 "sed -i '/    expand_info(info, override_resolution, override_ram)/i\\"
-			 "    if info[\"device\"] == \"trimui-brick\" and Path(\"/mnt/SDCARD/tg5040-brickpro\").exists(): info[\"device\"] = \"trimui-brick-pro\"' '%s';"
+			 "    if info[\"device\"] == \"trimui-brick\" and Path(\"/mnt/SDCARD/.nx-device\").is_file() and Path(\"/mnt/SDCARD/.nx-device\").read_text().strip() == \"tg5040-brickpro\": info[\"device\"] = \"trimui-brick-pro\"' '%s';"
 			 // Clear Python cache so patched .py files take effect
 			 "rm -rf '%s/pylibs/harbourmaster/__pycache__';"
 			 "fi",
