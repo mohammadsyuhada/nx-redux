@@ -11,6 +11,38 @@ Move an entry from there to here once it compiles and needs hardware time.
 
 ---
 
+## Desktop: AppImage no longer bundles the host GL/driver stack (issue #86; built 2026-09-04)
+
+v1.9.0's AppImage died before opening a window on every Mesa >= 25 host
+(Ubuntu 24.04.4 HWE, Mint 22, 25.10): the ldd sweep bundled Ubuntu 22.04's
+libstdc++/libGL/libGLX/libGLdispatch, AppRun puts usr/lib first on
+LD_LIBRARY_PATH, and the host driver's libLLVM.so.20 then failed with
+`GLIBCXX_3.4.32 not found` -> no GLX visual -> NULL window/renderer used
+anyway -> segfault. Fix: `scripts/desktop/appimage-bundle-libs.sh` (vendored
+`appimage-excludelist` + driver-adjacent families; freetype/harfbuzz kept),
+and `PLAT_initVideo` now logs the SDL error and falls back to a plain window
++ software renderer instead of crashing.
+
+Verified in amd64 containers under Xvfb/llvmpipe only (Ubuntu 24.04.4 +
+25.10 with Mesa 25.2.8, and the 22.04 floor): trimmed bundle opens on the
+`opengl` driver with libGL/libLLVM/libstdc++ all host-side, the old bundle +
+new binary comes up on the software fallback. Not yet seen on a real GPU or
+in a CI-built artifact (no local cores tree; the release workflow rebuilds
+from scratch).
+
+- [ ] Next release's AppImage on a real Ubuntu 24.04 / Mint 22 host with a
+      GPU driver: `nextui.txt` shows `Current render driver: opengl`, no
+      `[ERROR]` lines, no env vars needed (ask the #86 reporter to confirm).
+- [ ] Same artifact on the oldest supported host (glibc 2.35 / Ubuntu 22.04):
+      still opens (only host-provided libs were removed; a host missing one
+      now fails with a clear "cannot open shared object file" line).
+- [ ] `scripts/desktop/test-appimage-e2e.sh` in the 22.04 compose image still
+      passes end to end (menu -> ROM launch) against the rebuilt AppImage.
+- [ ] Optional: force the fallback (`SDL_VIDEO_X11_VISUALID= ` no longer
+      needed; e.g. run on a GL-less VM) and confirm the menu + a non-shader
+      game render on `software`, with `SDL_GL_CreateContext failed ...
+      (shaders unavailable)` logged rather than a crash.
+
 ## Desktop: Tools paks bundled into packages; Wifi_ensureConnected behavior change (built 2026-09-01)
 
 Task 11 of the desktop-tools-and-networking SDD: all 7 Tools paks (Settings,

@@ -110,30 +110,27 @@ install -m 0755 scripts/desktop/AppRun.sh "$APPDIR/AppRun"
 cp scripts/desktop/nxredux.desktop "$APPDIR/"
 convert skeleton/SYSTEM/res/logo.png -resize 256x256 "$APPDIR/nxredux.png"
 
-# 3. shared-lib closure (transparent ldd sweep; glibc family excluded)
-EXCL='ld-linux|libc\.so|libm\.so|libpthread|libdl\.so|librt\.so|libresolv|libnsl'
-for bin in "$APPDIR"/usr/system/bin/*.elf "$APPDIR"/usr/system/cores/*.so "$APPDIR"/usr/system/paks/Tools/*/*.elf "$APPDIR"/usr/system/shared/bin/rsync "$APPDIR"/usr/system/shared/bin/7zz; do
-	ldd "$bin" 2>/dev/null | awk '/=> \//{print $3}' | grep -Ev "$EXCL" | while read -r lib; do
-		cp -n "$lib" "$APPDIR/usr/lib/" || true
-	done
-done
-
-# libmsettings.so, libchdr.so.0, and libgametimedb.so are our own in-tree
-# libs, linked with a bare (path-less) name and no ldconfig/system entry, so
-# a plain `ldd` on the just-built elfs reports them as "not found" (it can
-# only resolve what the *current* environment's linker would find; usr/lib
-# doesn't exist as a search path until this script populates it). The awk
-# filter above only matches resolved ("=> /...") lines, so these are
-# silently skipped by the sweep — copy them in explicitly. libchdr's built
-# filename (libchdr.so) doesn't match the SONAME minarch actually links
-# against (libchdr.so.0, confirmed via readelf -d); install it under that
-# name so the AppRun-set LD_LIBRARY_PATH resolves it like every other
-# bundled lib. libgametimedb.so (gametime.elf/gametimectl.elf) has no such
-# SONAME mismatch (readelf -d confirms the DT_NEEDED entry is the plain
+# 3. shared-lib closure. First our own in-tree libs -- libmsettings.so,
+# libchdr.so.0, libgametimedb.so are linked with a bare (path-less) name and
+# have no ldconfig/system entry, so a plain `ldd` on the just-built elfs
+# reports them as "not found" and (worse) never lists what THEY need: v1.9.0
+# shipped without libgametimedb's libsqlite3.so.0 that way, and only worked
+# where the host happened to have it. Copy them in explicitly, then the
+# helper's ldd sweep covers usr/lib too, so their closure comes along.
+# libchdr's built filename (libchdr.so) doesn't match the SONAME minarch
+# actually links against (libchdr.so.0, confirmed via readelf -d); install it
+# under that name so the AppRun-set LD_LIBRARY_PATH resolves it like every
+# other bundled lib. libgametimedb.so (gametime.elf/gametimectl.elf) has no
+# such SONAME mismatch (readelf -d confirms the DT_NEEDED entry is the plain
 # built filename), so it needs no rename.
 cp workspace/desktop/libmsettings/build/$SUBDIR/libmsettings.so "$APPDIR/usr/lib/"
 cp workspace/all/minarch/libchdr/build/$SUBDIR/libchdr.so "$APPDIR/usr/lib/libchdr.so.0"
 cp workspace/all/libgametimedb/build/$SUBDIR/libgametimedb.so "$APPDIR/usr/lib/"
+# Then the ldd sweep minus everything the HOST must provide (glibc,
+# libstdc++, the GL/Mesa/DRM/X11/wayland stack -- see the helper and
+# scripts/desktop/appimage-excludelist). Bundling those shadowed the host's
+# graphics driver and broke every Mesa >= 25 host (issue #86).
+sh scripts/desktop/appimage-bundle-libs.sh "$APPDIR"
 
 # 4. pack (no FUSE inside docker)
 mkdir -p releases
