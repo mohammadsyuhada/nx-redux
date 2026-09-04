@@ -213,6 +213,54 @@ static int shm_fd = -1;
 static int is_host = 0;
 static int shm_size = sizeof(Settings);
 
+// Internal codec card ("audiocodec" in /proc/asound/cards; the number moves
+// when a USB or BT card enumerates first).
+static int codecCardNumber(void) {
+	int codec_card = -1;
+	FILE* cards = fopen("/proc/asound/cards", "r");
+	if (cards) {
+		char line[128];
+		while (fgets(line, sizeof(line), cards)) {
+			int card_num;
+			if (sscanf(line, " %d ", &card_num) == 1 && strstr(line, "audiocodec")) {
+				codec_card = card_num;
+				break;
+			}
+		}
+		fclose(cards);
+	}
+	return codec_card < 0 ? 0 : codec_card;
+}
+
+// Routing defaults asserted on every app start. This used to be a
+// system("amixer ...; amixer ...") chain: three process spawns via a shell, ~0.1s
+// per InitSettings, most of its wall time on the app-switch path. Same controls
+// and values as before -- amixer's simple names resolved to these raw controls.
+static void setMixerDefaults(void) {
+	struct mixer* mixer = mixer_open(codecCardNumber());
+	if (!mixer)
+		return;
+	static const struct {
+		const char* name;
+		int value;
+	} values[] = {
+		{"Headphone Volume", 0},
+		{"digital volume", 0},
+	};
+	for (unsigned int i = 0; i < sizeof(values) / sizeof(values[0]); i++) {
+		struct mixer_ctl* ctl = mixer_get_ctl_by_name(mixer, values[i].name);
+		if (!ctl)
+			continue;
+		unsigned int n = mixer_ctl_get_num_values(ctl);
+		for (unsigned int j = 0; j < n; j++)
+			mixer_ctl_set_value(ctl, j, values[i].value);
+	}
+	struct mixer_ctl* swap = mixer_get_ctl_by_name(mixer, "DAC Swap");
+	if (swap)
+		mixer_ctl_set_enum_by_string(swap, "Off");
+	mixer_close(mixer);
+}
+
 int scaleBrightness(int);
 int scaleColortemp(int);
 int scaleContrast(int);
@@ -464,9 +512,7 @@ void InitSettings(void) {
 	// printf("brightness: %i\nspeaker: %i \n", settings->brightness, settings->speaker);
 	// make sure all these volume-influencing controls are set to defaults, we will set volume with 'digital volume'
 	if (GetAudioSink() == AUDIO_SINK_DEFAULT) {
-		system("amixer sset 'Headphone' 0;"
-			   "amixer sset 'digital volume' 0;"
-			   "amixer sset 'DAC Swap' Off");
+		setMixerDefaults();
 	}
 
 	// This will implicitly update all other settings based on FN switch state
@@ -1360,22 +1406,7 @@ void SetRawVolume(int val) { // in: 0-100
 		mixer_close(mixer);
 	} else {
 		// Speaker path: find internal codec card dynamically (card number varies)
-		int codec_card = -1;
-		FILE* cards = fopen("/proc/asound/cards", "r");
-		if (cards) {
-			char line[128];
-			while (fgets(line, sizeof(line), cards)) {
-				int card_num;
-				if (sscanf(line, " %d ", &card_num) == 1 && strstr(line, "audiocodec")) {
-					codec_card = card_num;
-					break;
-				}
-			}
-			fclose(cards);
-		}
-		if (codec_card < 0)
-			codec_card = 0; // fallback
-		struct mixer* mixer = mixer_open(codec_card);
+		struct mixer* mixer = mixer_open(codecCardNumber());
 		if (!mixer) {
 			printf("Failed to open mixer\n");
 			fflush(stdout);

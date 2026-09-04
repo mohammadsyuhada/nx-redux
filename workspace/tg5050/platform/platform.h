@@ -137,6 +137,10 @@
 ///////////////////////////////
 
 #define SDCARD_PATH "/mnt/SDCARD"
+// cpufreq policy that PLAT_setCPUSpeed caps and GFX_init's startup boost lifts.
+// cpu4 = the big cluster (policy4): the little cluster (cpu0-3) already runs
+// at its ceiling, so capping/boosting cpu0 would do nothing on this SoC.
+#define CPU_FREQ_BASE "/sys/devices/system/cpu/cpu4/cpufreq"
 #define MUTE_VOLUME_RAW 0
 
 // modetest -v -s 147@100:1280x720

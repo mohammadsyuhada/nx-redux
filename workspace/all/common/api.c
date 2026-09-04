@@ -411,8 +411,15 @@ int GFX_updateColors(void) {
 // SDL/GL setup and first-frame construction are short, CPU-heavy bursts. Let UI
 // apps use the device's available headroom, then restore the launcher's cap.
 
-#define STARTUP_CPU_MAX_PATH "/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq"
-#define STARTUP_CPU_PEAK_PATH "/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq"
+// Boost the cpufreq policy the platform actually caps (platform.h CPU_FREQ_BASE):
+// on tg5050 that is the big cluster's cpu4, and cpu0's little cluster already sits
+// at its ceiling, so a hardcoded cpu0 path was a silent no-op there. Platforms
+// without a define (desktop) fall back to cpu0, where the W_OK check bails anyway.
+#ifndef CPU_FREQ_BASE
+#define CPU_FREQ_BASE "/sys/devices/system/cpu/cpu0/cpufreq"
+#endif
+#define STARTUP_CPU_MAX_PATH CPU_FREQ_BASE "/scaling_max_freq"
+#define STARTUP_CPU_PEAK_PATH CPU_FREQ_BASE "/cpuinfo_max_freq"
 #define STARTUP_CPU_BOOST_US 1000000
 
 typedef struct {
@@ -453,13 +460,19 @@ static void* GFX_restoreStartupCPUMax(void* arg) {
 	return NULL;
 }
 
-static void GFX_startStartupBoost(int mode) {
+void GFX_startStartupBoost(int mode) {
 	if (mode != MODE_MAIN || getenv("NEXTUI_DISABLE_STARTUP_BOOST") ||
 		access(STARTUP_CPU_MAX_PATH, W_OK) != 0 || access(STARTUP_CPU_PEAK_PATH, R_OK) != 0)
 		return;
 
 	pthread_mutex_lock(&startup_boost_mutex);
-	GFX_finishStartupBoostLocked();
+	// An app may have boosted before its pre-video work (nextui: InitSettings is
+	// ~0.45s on tg5050); GFX_init's own call then keeps that window instead of
+	// dipping to the old cap and restarting the timer.
+	if (startup_boost.active) {
+		pthread_mutex_unlock(&startup_boost_mutex);
+		return;
+	}
 
 	int restore_max = getInt(STARTUP_CPU_MAX_PATH);
 	int peak_max = getInt(STARTUP_CPU_PEAK_PATH);
@@ -476,7 +489,7 @@ static void GFX_startStartupBoost(int mode) {
 
 	pthread_t thread;
 	int err = pthread_create(&thread, NULL, GFX_restoreStartupCPUMax,
-		(void*)(uintptr_t)startup_boost.generation);
+							 (void*)(uintptr_t)startup_boost.generation);
 	if (err != 0)
 		GFX_finishStartupBoostLocked();
 	pthread_mutex_unlock(&startup_boost_mutex);
@@ -496,8 +509,8 @@ static bool GFX_timezoneIsApplied(const char* timezone) {
 
 	size_t timezone_len = strlen(timezone);
 	return (size_t)current_len > timezone_len &&
-		current_path[current_len - timezone_len - 1] == '/' &&
-		strcmp(current_path + current_len - timezone_len, timezone) == 0;
+		   current_path[current_len - timezone_len - 1] == '/' &&
+		   strcmp(current_path + current_len - timezone_len, timezone) == 0;
 }
 
 

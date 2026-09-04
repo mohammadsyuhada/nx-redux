@@ -260,6 +260,10 @@ enum {
 };
 
 SDL_Surface* GFX_init(int mode);
+// Optional, before any pre-GFX_init work (InitSettings, config reads): starts the
+// 1s startup CPU boost early so that work runs uncapped too. GFX_init() calls it
+// itself for MODE_MAIN and is a no-op if a boost is already active.
+void GFX_startStartupBoost(int mode);
 SDL_Surface* GFX_getScreen(void);								   // current screen surface (owned by GFX; do not free)
 void GFX_setScreen(SDL_Surface* s);								   // refresh the cached screen after an external display re-init
 #define GFX_resize PLAT_resizeVideo								   // (int w, int h, int pitch);

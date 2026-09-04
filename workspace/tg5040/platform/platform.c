@@ -314,7 +314,6 @@ void* PLAT_cpu_monitor(void* arg) {
 	}
 }
 
-#define CPU_FREQ_BASE "/sys/devices/system/cpu/cpu0/cpufreq"
 #define GOVERNOR_PATH CPU_FREQ_BASE "/scaling_governor"
 #define MIN_FREQ_PATH CPU_FREQ_BASE "/scaling_min_freq"
 #define MAX_FREQ_PATH CPU_FREQ_BASE "/scaling_max_freq"

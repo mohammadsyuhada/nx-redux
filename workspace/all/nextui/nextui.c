@@ -116,6 +116,10 @@ int main(int argc, char* argv[]) {
 	if (autoResume())
 		return 0; // nothing to do
 
+	// Lift the CPU cap before InitSettings, not just inside GFX_init: on tg5050
+	// the settings library alone is ~0.45s of the ~1s start-to-first-frame.
+	GFX_startStartupBoost(MODE_MAIN);
+
 	simple_mode = exists(SIMPLE_MODE_PATH);
 	Content_setSimpleMode(simple_mode);
 

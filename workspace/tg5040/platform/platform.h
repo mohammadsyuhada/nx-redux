@@ -174,6 +174,9 @@ extern int is_brickpro;
 ///////////////////////////////
 
 #define SDCARD_PATH "/mnt/SDCARD"
+// cpufreq policy that PLAT_setCPUSpeed caps and GFX_init's startup boost lifts.
+// Shared here so api.c targets the same policy the platform actually throttles.
+#define CPU_FREQ_BASE "/sys/devices/system/cpu/cpu0/cpufreq"
 #define MUTE_VOLUME_RAW 0
 
 // this should be set to the devices native screen refresh rate
