@@ -564,14 +564,78 @@ void PLAT_wifiEnableAll(void) {
 	system(WPA_CLI_CMD " enable_network all 2>/dev/null");
 }
 
-void PLAT_wifiConnect(char* ssid, WifiSecurityType sec) {
-	PLAT_wifiConnectPass(ssid, sec, NULL);
+// True when wpa_supplicant reports wpa_state=COMPLETED on exactly `network_id`.
+// PLAT_wifiConnected() alone is not enough here: right after select_network
+// the supplicant can still be COMPLETED on the previous network for a moment,
+// which would read as instant success when switching networks.
+static bool wifi_connected_to(int network_id) {
+	char status[2048];
+	char cmd[128];
+	snprintf(cmd, sizeof(cmd), "%s status 2>/dev/null", WPA_CLI_CMD);
+	if (wifi_run_cmd(cmd, status, sizeof(status)) != 0)
+		return false;
+	if (!strstr(status, "wpa_state=COMPLETED"))
+		return false;
+	char id_line[32];
+	snprintf(id_line, sizeof(id_line), "\nid=%d\n", network_id);
+	return strstr(status, id_line) != NULL;
 }
 
-void PLAT_wifiConnectPass(const char* ssid, WifiSecurityType sec, const char* pass) {
+// True when wpa_supplicant has temporarily disabled `network_id`. The
+// supplicant does that itself after a failed 4-way handshake (its
+// CTRL-EVENT-SSID-TEMP-DISABLED reason=WRONG_KEY), so the flag in
+// list_networks is the reliable "wrong password" signal -- wpa_state alone
+// just drops back to SCANNING with no hint why.
+static bool wifi_network_temp_disabled(int network_id) {
+	char list_results[4096];
+	char cmd[128];
+	snprintf(cmd, sizeof(cmd), "%s list_networks 2>/dev/null", WPA_CLI_CMD);
+	if (wifi_run_cmd(cmd, list_results, sizeof(list_results)) != 0)
+		return false;
+
+	// Skip the header line ("network id / ssid / bssid / flags").
+	const char* current = strchr(list_results, '\n');
+	current = current ? current + 1 : NULL;
+
+	char line[256];
+	while (current && *current) {
+		const char* next = strchr(current, '\n');
+		size_t len = next ? (size_t)(next - current) : strlen(current);
+		if (len >= sizeof(line))
+			len = sizeof(line) - 1;
+		memcpy(line, current, len);
+		line[len] = '\0';
+
+		// id <tab> ssid <tab> bssid <tab> flags. Flags is the last field (may
+		// be empty); the SSID cannot contain a tab (rejected on connect).
+		char* tab = strchr(line, '\t');
+		if (tab) {
+			*tab = '\0';
+			if (atoi(line) == network_id) {
+				const char* flags = strrchr(tab + 1, '\t');
+				return flags && strstr(flags, "[TEMP-DISABLED]") != NULL;
+			}
+		}
+		current = next ? next + 1 : NULL;
+	}
+	return false;
+}
+
+int PLAT_wifiConnect(char* ssid, WifiSecurityType sec) {
+	return PLAT_wifiConnectPass(ssid, sec, NULL);
+}
+
+// How long to wait for the association. A wrong key is reported by the
+// supplicant well inside this window (measured 3-4s on tg5040: 4WAY_HANDSHAKE
+// then TEMP-DISABLED), so the full wait is only spent on an AP that never
+// answers.
+#define WIFI_CONNECT_WAIT_MS 10000
+#define WIFI_CONNECT_POLL_MS 500
+
+int PLAT_wifiConnectPass(const char* ssid, WifiSecurityType sec, const char* pass) {
 	if (!PLAT_wifiEnabled()) {
 		wifilog("PLAT_wifiConnectPass: wifi is currently disabled.\n");
-		return;
+		return WIFI_CONNECT_ERROR;
 	}
 
 	if (ssid == NULL) {
@@ -579,21 +643,21 @@ void PLAT_wifiConnectPass(const char* ssid, WifiSecurityType sec, const char* pa
 		wifilog("PLAT_wifiConnectPass: Disconnecting from WiFi...\n");
 		system(WPA_CLI_CMD " disconnect 2>/dev/null");
 		wifilog("PLAT_wifiConnectPass: disconnected\n");
-		return;
+		return WIFI_CONNECT_OK;
 	}
 
 	// Validation
 	for (int i = 0; ssid[i]; i++) {
 		if (ssid[i] == '\t' || ssid[i] == '\n' || ssid[i] == '\r') {
 			LOG_error("PLAT_wifiConnectPass: SSID contains invalid characters\n");
-			return;
+			return WIFI_CONNECT_ERROR;
 		}
 	}
 	if (pass) {
 		for (int i = 0; pass[i]; i++) {
 			if (pass[i] == '\n' || pass[i] == '\r') {
 				LOG_error("PLAT_wifiConnectPass: Password contains invalid characters\n");
-				return;
+				return WIFI_CONNECT_ERROR;
 			}
 		}
 	}
@@ -608,6 +672,7 @@ void PLAT_wifiConnectPass(const char* ssid, WifiSecurityType sec, const char* pa
 
 	// Check if network already exists
 	int network_id = wifi_find_network_id(ssid);
+	bool added = false; // profile created by this attempt; rolled back on failure
 	char cmd[1024];
 	char output[128];
 
@@ -616,9 +681,10 @@ void PLAT_wifiConnectPass(const char* ssid, WifiSecurityType sec, const char* pa
 		snprintf(cmd, sizeof(cmd), "%s add_network 2>/dev/null", WPA_CLI_CMD);
 		if (wifi_run_cmd(cmd, output, sizeof(output)) != 0) {
 			LOG_error("PLAT_wifiConnectPass: failed to add network\n");
-			return;
+			return WIFI_CONNECT_ERROR;
 		}
 		network_id = atoi(output);
+		added = true;
 		wifilog("Added new network with id %d\n", network_id);
 
 		// Set SSID (needs quotes for wpa_cli)
@@ -645,43 +711,75 @@ void PLAT_wifiConnectPass(const char* ssid, WifiSecurityType sec, const char* pa
 		wifilog("Using existing network configuration...\n");
 	}
 
-	// Enable and select network
+	// Enable and select network (select_network also disables every other
+	// saved network for this session; undone below whatever the outcome)
 	wifilog("Enabling and selecting network %d...\n", network_id);
 	snprintf(cmd, sizeof(cmd), "%s enable_network %d 2>/dev/null", WPA_CLI_CMD, network_id);
 	system(cmd);
 	snprintf(cmd, sizeof(cmd), "%s select_network %d 2>/dev/null", WPA_CLI_CMD, network_id);
 	system(cmd);
 
-	// Save configuration
-	wifilog("Saving network configuration...\n");
-	system(WPA_CLI_CMD " save_config 2>/dev/null");
-
-	// Wait for connection
-	wifilog("Waiting for connection (up to 5 seconds)...\n");
-	for (int i = 0; i < 10; i++) {
-		usleep(500000);
-		if (PLAT_wifiConnected()) {
-			wifilog("PLAT_wifiConnectPass: connected successfully after %d attempts\n", i + 1);
-
-			// Re-enable all saved networks so wpa_supplicant can auto-reconnect
-			// to any known network if the current connection drops (e.g. during
-			// pak transitions). select_network disables all other networks, which
-			// prevents auto-reconnection.
-			wifilog("Re-enabling all saved networks for auto-reconnect...\n");
-			system(WPA_CLI_CMD " enable_network all 2>/dev/null");
-
-			// Request IP via DHCP (persistent so lease renewals keep working)
-			// Kill existing instance first to force a fresh lease on the new network
-			wifilog("Requesting IP address via DHCP...\n");
-			system("kill $(pgrep -f udhcpc) 2>/dev/null; sleep 0.1");
-			char dhcp_cmd[128];
-			snprintf(dhcp_cmd, sizeof(dhcp_cmd), "udhcpc -i %s -b 2>/dev/null &", WIFI_INTERFACE);
-			system(dhcp_cmd);
-			return;
+	// Wait for the association. Nothing is saved yet: save_config runs only
+	// once the supplicant accepted the key, so a rejected password never
+	// reaches the config file (and never makes the network look "known").
+	wifilog("Waiting for connection (up to %d ms)...\n", WIFI_CONNECT_WAIT_MS);
+	int result = WIFI_CONNECT_TIMEOUT;
+	for (int waited = 0; waited < WIFI_CONNECT_WAIT_MS; waited += WIFI_CONNECT_POLL_MS) {
+		usleep(WIFI_CONNECT_POLL_MS * 1000);
+		if (wifi_connected_to(network_id)) {
+			result = WIFI_CONNECT_OK;
+			break;
+		}
+		if (wifi_network_temp_disabled(network_id)) {
+			result = WIFI_CONNECT_WRONG_KEY;
+			break;
 		}
 	}
 
-	LOG_error("PLAT_wifiConnectPass: connection timeout after 5 seconds\n");
+	if (result == WIFI_CONNECT_OK) {
+		wifilog("PLAT_wifiConnectPass: connected successfully to '%s'\n", ssid);
+
+		// Re-enable all saved networks so wpa_supplicant can auto-reconnect
+		// to any known network if the current connection drops (e.g. during
+		// pak transitions). select_network disables all other networks, which
+		// prevents auto-reconnection. Done BEFORE save_config: saving first
+		// persisted disabled=1 for every other network, so after a reboot
+		// only the last-joined one could ever auto-connect.
+		wifilog("Re-enabling all saved networks for auto-reconnect...\n");
+		system(WPA_CLI_CMD " enable_network all 2>/dev/null");
+
+		// Save configuration
+		wifilog("Saving network configuration...\n");
+		system(WPA_CLI_CMD " save_config 2>/dev/null");
+
+		// Request IP via DHCP (persistent so lease renewals keep working)
+		// Kill existing instance first to force a fresh lease on the new network
+		wifilog("Requesting IP address via DHCP...\n");
+		system("kill $(pgrep -f udhcpc) 2>/dev/null; sleep 0.1");
+		char dhcp_cmd[128];
+		snprintf(dhcp_cmd, sizeof(dhcp_cmd), "udhcpc -i %s -b 2>/dev/null &", WIFI_INTERFACE);
+		system(dhcp_cmd);
+		return WIFI_CONNECT_OK;
+	}
+
+	if (result == WIFI_CONNECT_WRONG_KEY)
+		LOG_error("PLAT_wifiConnectPass: wrong key for '%s' (supplicant temp-disabled the network)\n", ssid);
+	else
+		LOG_error("PLAT_wifiConnectPass: connection timeout after %d ms for '%s'\n", WIFI_CONNECT_WAIT_MS, ssid);
+
+	if (added) {
+		// Drop the profile this attempt created: nothing was saved, and leaving
+		// it would make the UI treat the network as known and silently reuse
+		// the bad key on the next Connect.
+		snprintf(cmd, sizeof(cmd), "%s remove_network %d 2>/dev/null", WPA_CLI_CMD, network_id);
+		system(cmd);
+		wifilog("PLAT_wifiConnectPass: removed network %d added by this attempt\n", network_id);
+	}
+	// A pre-existing profile keeps its (possibly stale) key; the caller sees
+	// WRONG_KEY and can ask for a new one. Either way undo select_network's
+	// exclusivity so the other saved networks can reconnect.
+	system(WPA_CLI_CMD " enable_network all 2>/dev/null");
+	return result;
 }
 
 void PLAT_wifiSelectOnly(const char* ssid) {

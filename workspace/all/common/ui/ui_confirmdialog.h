@@ -9,6 +9,11 @@
 // CANCEL (B) / CONFIRM (A) button hints.
 void UI_renderConfirmDialog(SDL_Surface* dst, const char* title,
 							const char* subtitle);
+// Same dialog with caller-supplied button hints: NULL-terminated
+// "button","label" pairs, e.g. (char*[]){"B", "BACK", "A", "RETRY", NULL}.
+// NULL hints = the default CANCEL/CONFIRM pair.
+void UI_renderConfirmDialogHints(SDL_Surface* dst, const char* title,
+								 const char* subtitle, char** hints);
 
 // Canonical power-aware blocking modal loop, factored out of the several
 // GFX_startFrame/PAD_poll/PWR_update/dirty-flip loops duplicated across
@@ -35,6 +40,11 @@ int UI_modalLoop(const UI_ModalOpts* o);
 // (confirm), false on B (cancel) or on quit_flag/timeout abort.
 bool UI_confirmModal(SDL_Surface* screen, const char* title, const char* subtitle,
 					 const volatile bool* quit_flag, bool clear_layers, bool reset_pad);
+// UI_confirmModal with caller-supplied button hints (see
+// UI_renderConfirmDialogHints). A still confirms (true), B still cancels.
+bool UI_confirmModalHints(SDL_Surface* screen, const char* title, const char* subtitle,
+						  char** hints, const volatile bool* quit_flag, bool clear_layers,
+						  bool reset_pad);
 
 // Full-screen PIN-entry modal built on UI_modalLoop. Owns PinDialog_init/
 // PinDialog_quit for the call. Returns true and fills pin_out (at least

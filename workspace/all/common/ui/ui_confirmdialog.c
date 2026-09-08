@@ -40,6 +40,17 @@ static int confirm_wrap_lines(TTF_Font* font, const char* text, int max_w,
 
 void UI_renderConfirmDialog(SDL_Surface* dst, const char* title,
 							const char* subtitle) {
+	UI_renderConfirmDialogHints(dst, title, subtitle, NULL);
+}
+
+// Default button hints (file scope: a compound literal inside the function
+// would not outlive the block it is declared in).
+static char* confirm_default_hints[] = {"B", "CANCEL", "A", "CONFIRM", NULL};
+
+void UI_renderConfirmDialogHints(SDL_Surface* dst, const char* title,
+								 const char* subtitle, char** hints) {
+	if (!hints)
+		hints = confirm_default_hints;
 	int padding_x = SCALE1(PADDING * 4);
 	int content_w = dst->w - padding_x * 2;
 
@@ -89,7 +100,7 @@ void UI_renderConfirmDialog(SDL_Surface* dst, const char* title,
 
 	// Buttons
 	y += SCALE1(BUTTON_MARGIN);
-	UI_renderCenteredButtons(dst, y, (char*[]){"B", "CANCEL", "A", "CONFIRM", NULL});
+	UI_renderCenteredButtons(dst, y, hints);
 }
 
 int UI_modalLoop(const UI_ModalOpts* o) {
@@ -134,11 +145,12 @@ int UI_modalLoop(const UI_ModalOpts* o) {
 typedef struct {
 	const char* title;
 	const char* subtitle;
+	char** hints;
 } UI_ConfirmModalCtx;
 
 static void confirmModal_render(SDL_Surface* screen, void* vctx) {
 	UI_ConfirmModalCtx* ctx = vctx;
-	UI_renderConfirmDialog(screen, ctx->title, ctx->subtitle);
+	UI_renderConfirmDialogHints(screen, ctx->title, ctx->subtitle, ctx->hints);
 }
 
 static int confirmModal_handle(void* vctx) {
@@ -152,7 +164,13 @@ static int confirmModal_handle(void* vctx) {
 
 bool UI_confirmModal(SDL_Surface* screen, const char* title, const char* subtitle,
 					 const volatile bool* quit_flag, bool clear_layers, bool reset_pad) {
-	UI_ConfirmModalCtx ctx = {title, subtitle};
+	return UI_confirmModalHints(screen, title, subtitle, NULL, quit_flag, clear_layers, reset_pad);
+}
+
+bool UI_confirmModalHints(SDL_Surface* screen, const char* title, const char* subtitle,
+						  char** hints, const volatile bool* quit_flag, bool clear_layers,
+						  bool reset_pad) {
+	UI_ConfirmModalCtx ctx = {title, subtitle, hints};
 	UI_ModalOpts opts = {
 		.screen = screen,
 		.render = confirmModal_render,

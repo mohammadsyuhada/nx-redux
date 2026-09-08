@@ -351,8 +351,12 @@ bool PLAT_wifiHasCredentials(char* ssid, WifiSecurityType sec) {
 	return false;
 }
 void PLAT_wifiForget(char* ssid, WifiSecurityType sec) {}
-void PLAT_wifiConnect(char* ssid, WifiSecurityType sec) {}
-void PLAT_wifiConnectPass(const char* ssid, WifiSecurityType sec, const char* pass) {}
+int PLAT_wifiConnect(char* ssid, WifiSecurityType sec) {
+	return WIFI_CONNECT_ERROR;
+}
+int PLAT_wifiConnectPass(const char* ssid, WifiSecurityType sec, const char* pass) {
+	return WIFI_CONNECT_ERROR;
+}
 void PLAT_wifiDisconnect() {}
 
 /////////////////////////

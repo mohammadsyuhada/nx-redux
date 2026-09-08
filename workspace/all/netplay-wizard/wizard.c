@@ -268,10 +268,11 @@ int wizard_read_session(const char* path, WizSession* s) {
 // already, when the first version of that comment priced wifi_init.sh at zero.
 #define WIZ_TEARDOWN_BUDGET_MS 19000
 
-// WIFI_connectPass()'s own ceiling. It cannot be interrupted once entered, so
-// it is not started unless this much budget remains — otherwise the deadline
-// would be a suggestion rather than a bound.
-#define WIZ_CONNECT_WORST_MS 6000
+// WIFI_connectPass()'s own ceiling: its 10 s association wait (generic_wifi.c,
+// WIFI_CONNECT_WAIT_MS) plus the wpa_cli round trips around it. It cannot be
+// interrupted once entered, so it is not started unless this much budget
+// remains — otherwise the deadline would be a suggestion rather than a bound.
+#define WIZ_CONNECT_WORST_MS 12000
 
 // wpa_supplicant does not answer the instant wifi_init.sh returns, and every
 // wpa_cli call in the reconnect would quietly fail until it does. Short,
@@ -441,9 +442,9 @@ static void wiz_stop_hotspot(void) {
  * screen at all, where it would read as a minute-long hang after the game quits.
  *
  * WIFI_connectPass() is the same association without the blocking DHCP: it
- * polls at most 10 x 500 ms for the link (generic_wifi.c:664-685) and hands the
- * lease to a BACKGROUNDED udhcpc (:681), which keeps working after this process
- * exits. `interactive` then buys a bounded wait for that lease, and only where
+ * polls at most 20 x 500 ms for the link (generic_wifi.c, WIFI_CONNECT_WAIT_MS;
+ * a rejected key ends the wait early) and hands the lease to a BACKGROUNDED
+ * udhcpc, which keeps working after this process exits. `interactive` then buys a bounded wait for that lease, and only where
  * there is a screen to justify it.
  */
 static void wiz_restore_prev_ssid(const char* ssid, bool interactive, uint32_t deadline) {
@@ -473,7 +474,7 @@ static void wiz_restore_prev_ssid(const char* ssid, bool interactive, uint32_t d
 		strcmp(current, ssid) != 0) {
 		// Only with room for the whole call: WIFI_connectPass() cannot be
 		// interrupted once entered, so starting it with less than its own worst
-		// case left would let the episode overrun the deadline by up to 6 s.
+		// case left would let the episode overrun the deadline by up to 12 s.
 		// Skipping it is a graceful degradation rather than a failure — the
 		// supplicant this teardown restarted has every saved network enabled
 		// (select_network's disable is runtime-only and unsaved,
@@ -509,11 +510,11 @@ static void wiz_restore_prev_ssid(const char* ssid, bool interactive, uint32_t d
 		}
 	}
 
-	// WIFI_connectPass() runs select_network (generic_wifi.c:655), which
-	// disables every OTHER saved network for as long as the supplicant lives,
-	// and only undoes that on its success path (:674). An attempt that failed
-	// would otherwise leave the device unable to roam to any of its networks
-	// after the wizard is gone.
+	// WIFI_connectPass() runs select_network, which disables every OTHER saved
+	// network for as long as the supplicant lives. It re-enables them itself on
+	// both its success and failure paths, but not when the call was skipped
+	// above after this session's own hotspot select_network. Cheap, so
+	// unconditional.
 	WIFI_enableAll();
 
 	// Interactive, and only when the call above actually ran. That gate is the
@@ -579,20 +580,21 @@ static void wiz_restore_prev_ssid(const char* ssid, bool interactive, uint32_t d
  *                                           that retries.
  *     OR forgetAllHotspots (client)  ~0.5 s  4 wpa_cli round trips, no script
  *   supplicant poll                 <=2.0 s  ~1 fork in practice; see the macro
- *   WIFI_connectPass                <=6.0 s  10 x 500 ms assoc poll plus its
- *                                           wpa_cli calls. DHCP is handed to a
+ *   WIFI_connectPass               <=12.0 s  20 x 500 ms assoc poll plus its
+ *                                           wpa_cli calls (a rejected key ends
+ *                                           it early). DHCP is handed to a
  *                                           BACKGROUNDED udhcpc, not waited on.
- *                                           Skipped entirely with < 6 s left,
+ *                                           Skipped entirely with < 12 s left,
  *                                           and skipped on the common host path
  *                                           anyway (the supplicant reassociates
  *                                           during that 9 s above).
  *   WIFI_enableAll                  ~0.1 s
  *   + IP settle                     <=2.3 s  interactive AND connectPass ran
  *   -----------------------------------------------------------------------
- *   headless client                 <=8.7 s
+ *   headless client                 <=14.7 s
  *   headless host, short-circuited  <=12.8 s
- *   headless host, reconnecting     <=18.3 s
- *   interactive host, reconnecting  <=20.6 s  -> CLAMPED to 19 s by `deadline`
+ *   headless host, reconnecting     <=24.3 s  -> CLAMPED to 19 s by `deadline`
+ *   interactive host, reconnecting  <=26.6 s  -> CLAMPED to 19 s by `deadline`
  *
  * That last row is why the deadline exists rather than the arithmetic alone:
  * the estimate above is the third one written for this function and the first

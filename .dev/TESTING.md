@@ -209,3 +209,9 @@ during menu rendering — useless as a first-frame/boot proxy.
 - Host-side script tests live in `scripts/tests/` (installer/catalog logic,
   PATH-shimmed) — run these before shipping shell changes; there is no C unit
   harness apart from per-feature host tests (e.g. `common/tests/`).
+- On-device E2E for the Settings > Network connect flow (wrong password →
+  error dialog + retry, no profile left behind; stale saved key → same):
+  `scripts/tests/test-wifi-connect-e2e.sh <ssid>`. Drives the real Settings
+  UI on a Brick over adb with the input-injection recipe above; needs a WPA
+  network in range whose password you do not enter. Preconditions are in the
+  script header.

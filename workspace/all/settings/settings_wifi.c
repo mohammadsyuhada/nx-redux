@@ -9,6 +9,7 @@
 #include "api.h"
 #include "ui_list.h"
 #include "ui_keyboard.h"
+#include "ui_confirmdialog.h"
 #include "display_helper.h"
 
 // ============================================
@@ -114,29 +115,105 @@ static void wifi_set_diag(int val) {
 // ============================================
 
 static WifiNetworkOptions* active_net_options = NULL;
+// Screen of the Network page, captured when a network is opened: the options
+// submenu has no screen of its own, and the connect overlay + failure dialogs
+// need one.
+static SDL_Surface* wifi_screen = NULL;
+
+// File-scope for the same reason as wifi_toggle_ctx: the worker is detached
+// and outlives the wait when the user presses B, so it must not write into a
+// stack frame that is already gone.
+static struct {
+	char ssid[SSID_MAX];
+	WifiSecurityType security;
+	char pass[128];
+	int has_pass;
+	volatile int done;
+	volatile int busy;
+	int result;
+} wifi_connect_ctx;
+
+static void* wifi_connect_thread(void* arg) {
+	(void)arg;
+	wifi_connect_ctx.result = wifi_connect_ctx.has_pass
+								  ? WIFI_connectPass(wifi_connect_ctx.ssid, wifi_connect_ctx.security, wifi_connect_ctx.pass)
+								  : WIFI_connect(wifi_connect_ctx.ssid, wifi_connect_ctx.security);
+	memset(wifi_connect_ctx.pass, 0, sizeof(wifi_connect_ctx.pass));
+	wifi_connect_ctx.done = 1;
+	wifi_connect_ctx.busy = 0;
+	return NULL;
+}
+
+// One connect attempt behind the cancellable "Connecting..." overlay. Returns
+// true with *result set when the attempt completed; false when it did not
+// finish on this call, i.e. a previous attempt is still running or the user
+// stopped waiting (the worker finishes in the background and cleans up after
+// itself).
+static bool wifi_run_connect(const WifiNetworkInfo* info, const char* password, int* result) {
+	if (wifi_connect_ctx.busy)
+		return false;
+	snprintf(wifi_connect_ctx.ssid, sizeof(wifi_connect_ctx.ssid), "%s", info->ssid);
+	wifi_connect_ctx.security = info->security;
+	wifi_connect_ctx.has_pass = (password != NULL);
+	snprintf(wifi_connect_ctx.pass, sizeof(wifi_connect_ctx.pass), "%s", password ? password : "");
+	wifi_connect_ctx.result = WIFI_CONNECT_ERROR;
+
+	char title[SSID_MAX + 32];
+	snprintf(title, sizeof(title), "Connecting to %s...", info->ssid);
+	settings_run_async(wifi_screen, title, wifi_connect_thread, NULL,
+					   &wifi_connect_ctx.done, &wifi_connect_ctx.busy);
+	if (!wifi_connect_ctx.done)
+		return false;
+	*result = wifi_connect_ctx.result;
+	return true;
+}
 
 static void wifi_action_connect(void) {
-	if (!active_net_options)
+	if (!active_net_options || !wifi_screen)
 		return;
-	WifiNetworkInfo* info = &active_net_options->net_info;
+	WifiNetworkInfo info = active_net_options->net_info;
+	bool need_pass = !(info.known || info.security == SECURITY_NONE);
+	char msg[SSID_MAX + 96];
 
-	if (info->known || info->security == SECURITY_NONE) {
-		WIFI_connect(info->ssid, info->security);
-	} else {
-		// Need password
-		char* password = UIKeyboard_open("Enter WiFi Password");
-		PAD_poll();
-		PAD_reset();
+	for (;;) {
+		char* password = NULL;
+		if (need_pass) {
+			password = UIKeyboard_open("Enter WiFi Password");
+			PAD_poll();
+			PAD_reset();
+			if (!password)
+				break; // cancelled
+		}
+
+		int result = WIFI_CONNECT_ERROR;
+		bool completed = wifi_run_connect(&info, password, &result);
 		if (password) {
-			WIFI_connectPass(info->ssid, info->security, password);
+			memset(password, 0, strlen(password));
 			free(password);
 		}
+
+		if (!completed || result == WIFI_CONNECT_OK)
+			break;
+
+		if (result != WIFI_CONNECT_WRONG_KEY) {
+			snprintf(msg, sizeof(msg), "Could not join \"%s\". Check that the network is in range and try again.", info.ssid);
+			UI_confirmModalHints(wifi_screen, "Connection failed", msg,
+								 (char*[]){"A", "OK", NULL}, NULL, false, true);
+			break;
+		}
+
+		// The supplicant rejected the key: offer to type it again. This is also
+		// the way out of a saved profile whose password has changed, without
+		// having to Forget the network first.
+		snprintf(msg, sizeof(msg), "Could not join \"%s\". Check the password and try again.", info.ssid);
+		if (!UI_confirmModalHints(wifi_screen, "Incorrect password", msg,
+								  (char*[]){"B", "BACK", "A", "RETRY", NULL}, NULL, false, true))
+			break;
+		need_pass = true;
 	}
 
-	PAD_reset(); // clear input state so A press doesn't re-trigger on main wifi page
-	// Go back from options submenu
-	settings_menu_pop();
-	settings_menu_pop();
+	PAD_reset();		 // clear input state so A press doesn't re-trigger on the network list
+	settings_menu_pop(); // back from the options submenu to the network list
 }
 
 static void wifi_action_disconnect(void) {
@@ -246,6 +323,7 @@ static void wifi_network_press(void) {
 	pthread_rwlock_unlock(&page->lock);
 	if (!have_info)
 		return;
+	wifi_screen = page->screen;
 
 	// Reuse options pool
 	if (net_options_used >= MAX_NET_OPTIONS)

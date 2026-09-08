@@ -830,12 +830,22 @@ void PLAT_wifiForget(char* ssid, WifiSecurityType sec);
 int PLAT_wifiForgetPrefix(const char* prefix);
 // re-enables all configured networks (undoes a prior select_network exclusivity)
 void PLAT_wifiEnableAll(void);
-// attempt to connect to this SSID, using, stored credentials.
+// Outcome of a connect attempt (PLAT_wifiConnect / PLAT_wifiConnectPass).
+typedef enum {
+	WIFI_CONNECT_OK = 0,
+	WIFI_CONNECT_ERROR = -1,	 // wifi off, invalid input, or wpa_cli failure
+	WIFI_CONNECT_WRONG_KEY = -2, // the supplicant rejected the key (4-way handshake failed)
+	WIFI_CONNECT_TIMEOUT = -3,	 // no association within the wait window
+} WifiConnectResult;
+// attempt to connect to this SSID, using, stored credentials. Blocks for the
+// attempt; returns a WifiConnectResult.
 // \sa PLAT_wifiHasCredentials
-void PLAT_wifiConnect(char* ssid, WifiSecurityType sec);
-// attempt to connect to this SSID with password given.
-// If successful, stores credentials with wpa_supplicant.
-void PLAT_wifiConnectPass(const char* ssid, WifiSecurityType sec, const char* pass);
+int PLAT_wifiConnect(char* ssid, WifiSecurityType sec);
+// attempt to connect to this SSID with password given. Blocks for the attempt.
+// Credentials are saved with wpa_supplicant only once the supplicant accepted
+// them; a profile this attempt created is removed again on failure, so a
+// rejected password is never persisted. Returns a WifiConnectResult.
+int PLAT_wifiConnectPass(const char* ssid, WifiSecurityType sec, const char* pass);
 // exclusively select an already-configured SSID (select_network: enables it and
 // disables all other configured networks for this session, so a higher-priority
 // saved network can't win the association). Used by netplay hotspot join.

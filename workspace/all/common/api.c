@@ -4223,8 +4223,12 @@ FALLBACK_IMPLEMENTATION bool PLAT_wifiHasCredentials(char* ssid, WifiSecurityTyp
 	return false;
 }
 FALLBACK_IMPLEMENTATION void PLAT_wifiForget(char* ssid, WifiSecurityType sec) {}
-FALLBACK_IMPLEMENTATION void PLAT_wifiConnect(char* ssid, WifiSecurityType sec) {}
-FALLBACK_IMPLEMENTATION void PLAT_wifiConnectPass(const char* ssid, WifiSecurityType sec, const char* pass) {}
+FALLBACK_IMPLEMENTATION int PLAT_wifiConnect(char* ssid, WifiSecurityType sec) {
+	return WIFI_CONNECT_ERROR;
+}
+FALLBACK_IMPLEMENTATION int PLAT_wifiConnectPass(const char* ssid, WifiSecurityType sec, const char* pass) {
+	return WIFI_CONNECT_ERROR;
+}
 FALLBACK_IMPLEMENTATION void PLAT_wifiDisconnect() {}
 FALLBACK_IMPLEMENTATION bool PLAT_wifiDiagnosticsEnabled() {
 	return false;
