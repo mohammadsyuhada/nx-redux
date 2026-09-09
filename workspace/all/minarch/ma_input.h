@@ -5,6 +5,8 @@
 
 int setFastForward(int enable);
 void input_poll_callback(void);
+// Called before each core frame (ma_core.c run wrapper); see input_state_callback.
+void Input_beginFrame(void);
 int16_t input_state_callback(unsigned port, unsigned device, unsigned index, unsigned id);
 void Input_init(const struct retro_input_descriptor* vars);
 

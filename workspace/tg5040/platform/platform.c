@@ -675,6 +675,31 @@ int toggle_file(const char* path) {
 	}
 }
 
+// The flag files are the shared source of truth for turbo: the FN switch
+// (libmsettings) and the in-game shortcuts (PLAT_toggleTurbo) both write
+// them, and trimui_inputd pulses the flagged buttons. minarch reads the
+// mask here and shapes the cadence itself (ma_turbo.c), because the
+// daemon's pulses are too short to survive per-frame sampling.
+// Re-checked at most every 250ms so a frame never pays 8 access() calls.
+static uint32_t turbo_mask_cache = 0;
+static uint32_t turbo_mask_checked_at = 0;
+static int turbo_mask_dirty = 1;
+
+uint32_t PLAT_getTurboButtons(void) {
+	uint32_t now = SDL_GetTicks();
+	if (!turbo_mask_dirty && now - turbo_mask_checked_at < 250)
+		return turbo_mask_cache;
+	uint32_t mask = 0;
+	for (int i = 0; turbo_mapping[i].path; i++) {
+		if (access(turbo_mapping[i].path, F_OK) == 0)
+			mask |= 1u << turbo_mapping[i].brn_id;
+	}
+	turbo_mask_cache = mask;
+	turbo_mask_checked_at = now;
+	turbo_mask_dirty = 0;
+	return mask;
+}
+
 int PLAT_toggleTurbo(int btn_id) {
 	// avoid extra file IO on each call
 	static int initialized = 0;
@@ -682,6 +707,7 @@ int PLAT_toggleTurbo(int btn_id) {
 		mkdir(INPUTD_PATH, 0755);
 		initialized = 1;
 	}
+	turbo_mask_dirty = 1;
 
 	for (int i = 0; turbo_mapping[i].path; i++) {
 		if (turbo_mapping[i].brn_id == btn_id) {
@@ -692,6 +718,7 @@ int PLAT_toggleTurbo(int btn_id) {
 }
 
 void PLAT_clearTurbo() {
+	turbo_mask_dirty = 1;
 	for (int i = 0; turbo_mapping[i].path; i++) {
 		unlink(turbo_mapping[i].path);
 	}

@@ -17,6 +17,18 @@ static void Core_getName(char* in_name, char* out_name, size_t out_size) {
 	if (tmp)
 		tmp[0] = '\0';
 }
+
+// Every core frame goes through here so the input layer can tell whether the
+// core polled input this frame. Some code paths never call the poll callback
+// (FBNeo's romset error screen calls input_state_callback every frame but
+// never input_poll_callback), which froze the pad -- including MENU -- and
+// left the device stuck until a power cycle. input_state_callback polls
+// lazily when this frame has not been polled yet.
+static void (*core_run_real)(void);
+static void core_run_wrapped(void) {
+	Input_beginFrame();
+	core_run_real();
+}
 void Core_open(const char* core_path, const char* tag_name) {
 	core.handle = dlopen(core_path, RTLD_LAZY);
 
@@ -33,7 +45,8 @@ void Core_open(const char* core_path, const char* tag_name) {
 	core.get_system_av_info = dlsym(core.handle, "retro_get_system_av_info");
 	core.set_controller_port_device = dlsym(core.handle, "retro_set_controller_port_device");
 	core.reset = dlsym(core.handle, "retro_reset");
-	core.run = dlsym(core.handle, "retro_run");
+	core_run_real = dlsym(core.handle, "retro_run");
+	core.run = core_run_wrapped;
 	core.serialize_size = dlsym(core.handle, "retro_serialize_size");
 	core.serialize = dlsym(core.handle, "retro_serialize");
 	core.unserialize = dlsym(core.handle, "retro_unserialize");

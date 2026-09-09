@@ -7,6 +7,7 @@
 #include "ma_rewind.h"
 #include "ma_config.h"
 #include "netplay_helper.h"
+#include "ma_turbo.h"
 
 int setFastForward(int enable) {
 	int val = enable ? 1 : 0;
@@ -15,8 +16,16 @@ int setFastForward(int enable) {
 }
 
 static uint32_t buttons = 0; // RETRO_DEVICE_ID_JOYPAD_* buttons
+static TurboState turbo;
 static int ignore_menu = 0;
+static int polled_this_frame = 0;
+
+void Input_beginFrame(void) {
+	polled_this_frame = 0;
+}
+
 void input_poll_callback(void) {
+	polled_this_frame = 1;
 	PAD_poll();
 
 	IndicatorType show_setting = INDICATOR_NONE;
@@ -213,6 +222,9 @@ void input_poll_callback(void) {
 	// TODO: only modify if absent from array
 	// TODO: the shortcuts loop above should also contribute to the array
 
+	// Buttons with a turbo flag get their cadence from ma_turbo.c: the stock
+	// daemon's own pulses are too short to sample per frame (upstream #780).
+	uint32_t turbo_mask = PLAT_getTurboButtons();
 	buttons = 0;
 	for (int i = 0; config.controls[i].name; i++) {
 		ButtonMapping* mapping = &config.controls[i];
@@ -235,6 +247,12 @@ void input_poll_callback(void) {
 				break;
 			}
 		}
+		if ((turbo_mask & btn) && !mapping->mod) {
+			int activity = PAD_isPressed(btn) || PAD_justPressed(btn) || PAD_justReleased(btn);
+			if (Turbo_step(&turbo, __builtin_ctz(btn), activity))
+				buttons |= 1 << mapping->retro;
+			continue;
+		}
 		if (PAD_isPressed(btn) && (!mapping->mod || PAD_isPressed(BTN_MENU))) {
 			buttons |= 1 << mapping->retro;
 			if (mapping->mod)
@@ -243,6 +261,11 @@ void input_poll_callback(void) {
 	}
 }
 int16_t input_state_callback(unsigned port, unsigned device, unsigned index, unsigned id) {
+	// libretro requires cores to poll before reading, but not all paths do
+	// (FBNeo's error screen). Poll on the core's behalf so the pad -- and the
+	// MENU button -- keep working; RetroArch does the same.
+	if (!polled_this_frame)
+		input_poll_callback();
 	uint32_t player_buttons = Netplay_getPlayerButtons(port, buttons);
 
 	// Digital joypad inputs

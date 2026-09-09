@@ -744,6 +744,9 @@ void PLAT_setLedEffectCycles(LightSettings* led);
 bool PLAT_canTurbo(void);
 int PLAT_toggleTurbo(int btn_id);
 void PLAT_clearTurbo();
+// BTN_* mask of buttons whose turbo flag is currently on (0 where unsupported).
+// minarch shapes the turbo cadence itself from this (see minarch/ma_turbo.h).
+uint32_t PLAT_getTurboButtons(void);
 
 ///////////////////
 

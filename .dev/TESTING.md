@@ -209,6 +209,10 @@ during menu rendering — useless as a first-frame/boot proxy.
 - Host-side script tests live in `scripts/tests/` (installer/catalog logic,
   PATH-shimmed) — run these before shipping shell changes; there is no C unit
   harness apart from per-feature host tests (e.g. `common/tests/`).
+- Turbo fire cadence: `scripts/tests/test-turbo-shaper.sh` compiles
+  `minarch/ma_turbo.c` on the host against a model of both TrimUI input
+  daemons' pulse trains; `scripts/tests/turbo/inject.c` documents the Brick
+  on-device replay recipe (1942, FBN).
 - On-device E2E for the Settings > Network connect flow (wrong password →
   error dialog + retry, no profile left behind; stale saved key → same):
   `scripts/tests/test-wifi-connect-e2e.sh <ssid>`. Drives the real Settings

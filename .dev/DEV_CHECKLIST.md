@@ -11,45 +11,6 @@ Move an entry from there to here once it compiles and needs hardware time.
 
 ---
 
-## Brick Pro: deep sleep never wakes (issue #90; built 2026-09-09)
-
-Root-caused offline from the stock tg4040 recovery rootfs (stock `keymon` +
-`trimui_inputd` disassembled): stock keymon touches `/tmp/system_suspend` at
-screen-off and unlinks it on wake, and the stock `trimui_inputd` we run
-unchanged pauses its poll threads while the flag exists -- on the Brick Pro
-that is the `trimui_poll_thread_joy_i2c` thread reading the hall sticks on
-`/dev/i2c-3` every 16 ms. nx-redux never set the flag, so I2C traffic ran
-straight through suspend/resume; the Brick has no I2C thread and the Smart
-Pros read sticks over serial, which is why only the Brick Pro hangs. Upstream
-NextUI shares the gap (their #797). Not a 1.9.0 regression: the sleep path
-is unchanged since v1.8.0 and Brick Pro deep sleep was never verified.
-
-Fix: `skeleton/SYSTEM/tg5040/bin/suspend` raises the flag in `before()` and
-removes it right after `echo mem` returns. Probe/E2E:
-`scripts/tests/test-deep-sleep-e2e.sh` (Phase A: flag pauses inputd -- on
-the Brick Pro the stick bus's IRQ count in /proc/interrupts must go flat;
-Phase B: real RTC-alarm suspend/resume round trip with the log on the card).
-
-Verified on the Brick 2026-09-09: Phase B 6/6 with the patched script
-(kernel suspended 14 s, script rc=0, flag cleared, nextui/inputd/wpa back).
-A first `EBUSY` from `/sys/power/state` is normal with USB/adb attached; the
-script's retry loop covers it.
-
-### On-device verification (Brick Pro, ETA ~2026-09-11)
-
-- [ ] Baseline first: `scripts/tests/test-deep-sleep-e2e.sh --installed` on a
-      v1.9.0 card reproduces the hang (device never comes back; hard reset,
-      then `--collect` shows the log ending at "invoking suspend script").
-- [ ] Phase A with the patched script: the twi line for `/dev/i2c-3` drops
-      to ~0 IRQs while the flag exists and recovers after `rm`.
-- [ ] Phase B with the patched script passes 6/6.
-- [ ] Real path on battery: screen-off -> 30 s -> deep sleep from nextui
-      (main menu AND in-game), wake with POWER, sticks still work after wake.
-- [ ] If the A/B does not flip the result, the kernel-vs-userspace split from
-      the probe log decides the next step (LED driver / audio reinit are the
-      remaining suspects); do not ship the flag alone in that case.
-- [ ] Reply on #90 with the outcome.
-
 ## Desktop: AppImage no longer bundles the host GL/driver stack (issue #86; built 2026-09-04)
 
 v1.9.0's AppImage died before opening a window on every Mesa >= 25 host
@@ -201,15 +162,6 @@ for nextui/minarch pushes — see Gotchas at the bottom of this file).
       the in-game save must be intact, and after the next in-game save the `.srm` should be
       raw (`head -c8` no longer `#RZIPv1#`). Regression: raw `.srm` still loads, and a
       RetroArch-imported compressed `.srm` loads under the default setting.
-- [ ] **Resampler leak fix** (`api.c`, upstream #697) — play any PAL game (or set
-      Core Sync = Native) for ~10 min; `VmRSS` in `/proc/<minarch pid>/status` must stay
-      flat (before the fix it grew ~11 MB/min).
-- [ ] **RETRO_ENVIRONMENT_SHUTDOWN** (`ma_environment.c`, upstream #699) — Doom
-      (PRBOOM.pak): in-game menu → Quit must exit cleanly back to nextui. FBNeo: launch a
-      known-bad ROM, any button on the error screen must exit. Check the switcher isn't
-      left pointing at garbage for the PRBOOM quit (core dies before the menu's autosave —
-      quit here goes through the env callback, not ITEM_QUIT, so no slot-9 autosave fires;
-      confirm RESUME behaves sanely, i.e. falls back to previous state or START).
 - [ ] **Rewind re-init fix** (upstream #728 + early-out) — enable rewind, play: rewind
       works; changing a rewind option mid-game still takes effect (buffer size change →
       re-init happens); in-game "Restore Defaults" no longer hitches for seconds with a
@@ -226,5 +178,7 @@ for nextui/minarch pushes — see Gotchas at the bottom of this file).
   never a write).
 - Core-requested SHUTDOWN (env cmd 7) deliberately does NOT trigger the slot-9 autosave —
   it fires mid-`retro_run` where a state save is unsafe, and the quitting core (Doom quit
-  menu / failed init) rarely has a moment worth resuming. Revisit only if PRBOOM quit
-  verification above shows a bad switcher experience.
+  menu / failed init) rarely has a moment worth resuming. FBNeo's error screen verified
+  on both devices 2026-09-10 (needed the lazy input poll in `ma_input.c`, since that
+  screen never calls `input_poll_callback`); the PRBOOM quit check and the resampler
+  PAL soak were closed without hardware verification (user decision, 2026-09-10).
