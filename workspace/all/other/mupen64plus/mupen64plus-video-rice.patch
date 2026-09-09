@@ -99,7 +99,7 @@ index e3b8d3e..a77ac0b 100644
      CRender::g_pRender->ApplyScissorWithClipRatio();
  
 diff --git a/src/OGLGraphicsContext.cpp b/src/OGLGraphicsContext.cpp
-index e4e57ba..e2b46c6 100644
+index e4e57ba..18f7886 100644
 --- a/src/OGLGraphicsContext.cpp
 +++ b/src/OGLGraphicsContext.cpp
 @@ -35,6 +35,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
@@ -127,7 +127,7 @@ index e4e57ba..e2b46c6 100644
      /* set opengl attributes */
      CoreVideo_GL_SetAttribute(M64P_GL_DOUBLEBUFFER, iDOUBLEBUFFER);
      CoreVideo_GL_SetAttribute(M64P_GL_SWAP_CONTROL, bVerticalSync);
-@@ -413,8 +424,25 @@ void COGLGraphicsContext::UpdateFrame(bool swaponly)
+@@ -413,8 +424,35 @@ void COGLGraphicsContext::UpdateFrame(bool swaponly)
         glUseProgram(program);
     }
  
@@ -142,12 +142,22 @@ index e4e57ba..e2b46c6 100644
 +   // stay black. Runs AFTER the swap (and after the nx-redux overlay hook
 +   // above, which is deliberately pre-swap). Scissor is disabled around the
 +   // clear and restored, so the game's own scissor state is untouched.
-+   if (options.aspectRatio != 0) {
++   // Only when the aspect ratio actually produces bars (a non-zero centering
++   // offset). A panel that already matches the target ratio (4:3 on 1024x768)
++   // or Stretch has vpBaseX/Y == 0 and no bars, so skip the per-frame clear.
++   if (windowSetting.vpBaseX != 0 || windowSetting.vpBaseY != 0) {
++       // Save and restore the viewport around the full-window clear: the raw
++       // glViewport below bypasses OGLRender::glViewportWrapper, whose static
++       // cache would otherwise still hold the offset viewport and skip
++       // re-issuing it on the next frame's first draw (viewport desync).
++       GLint savedViewport[4];
++       glGetIntegerv(GL_VIEWPORT, savedViewport);
 +       GLboolean scissorWasEnabled = glIsEnabled(GL_SCISSOR_TEST);
 +       glDisable(GL_SCISSOR_TEST);
 +       glViewport(0, 0, windowSetting.uDisplayWidth, windowSetting.uDisplayHeight);
 +       glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 +       glClear(GL_COLOR_BUFFER_BIT);
++       glViewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3]);
 +       if (scissorWasEnabled) glEnable(GL_SCISSOR_TEST);
 +   }
 +

@@ -444,37 +444,53 @@ static void render_slot_select(EmuOvl* ovl) {
 	draw_menu_bar(ovl, is_save ? "Save State" : "Load State");
 
 	int bar_h = S(BUTTON_SIZE) + S(BUTTON_MARGIN) * 2;
-	int center_y = ovl->screen_h / 2;
+	int top = bar_h;
+	int bottom = ovl->screen_h - bar_h;
 
-	// Slot screenshot (centered above slot text)
+	int gap = S(BUTTON_MARGIN) * 2;
+	int slot_h = r->text_height(EMU_OVL_FONT_LARGE);
+	int dot_size = S(4);
+
+	// Preview element: the slot screenshot when present, otherwise the "Empty"
+	// label. Its height drives the block layout either way.
 	int icon_id = ovl->slot_icons[ovl->save_slot];
-	if (icon_id >= 0 && r->draw_icon) {
-		int iw = r->icon_width(icon_id);
-		int ih = r->icon_height(icon_id);
-		int ix = (ovl->screen_w - iw) / 2;
-		int iy = bar_h + (center_y - bar_h - ih) / 2;
-		if (iy < bar_h)
-			iy = bar_h;
-		r->draw_icon(icon_id, ix, iy);
+	bool has_icon = (icon_id >= 0 && r->draw_icon);
+	int iw = 0, ih = 0;
+	if (has_icon) {
+		iw = r->icon_width(icon_id);
+		ih = r->icon_height(icon_id);
 	} else {
-		// No screenshot: show "Empty" text
-		draw_centered_text(r, "Empty", ovl->screen_w / 2,
-						   bar_h + (center_y - bar_h) / 2,
+		ih = r->text_height(EMU_OVL_FONT_SMALL);
+	}
+
+	// Vertically center the whole block (preview + slot label + dots) in the
+	// area between the top menu bar and the bottom hint bar, matching the main
+	// menu's calc_centered_list_y. Clamp to the top bar if it would overflow.
+	int block_h = ih + gap + slot_h + gap + dot_size;
+	int block_top = top + (bottom - top - block_h) / 2;
+	if (block_top < top)
+		block_top = top;
+
+	// Preview (screenshot or "Empty"), horizontally centered
+	if (has_icon) {
+		r->draw_icon(icon_id, (ovl->screen_w - iw) / 2, block_top);
+	} else {
+		draw_centered_text(r, "Empty", ovl->screen_w / 2, block_top + ih / 2,
 						   EMU_OVL_COLOR_GRAY, EMU_OVL_FONT_SMALL);
 	}
 
-	// Slot text below center
+	// Slot label
 	char slot_text[32];
 	snprintf(slot_text, sizeof(slot_text), "<  Slot %d  >", ovl->save_slot);
-	draw_centered_text(r, slot_text, ovl->screen_w / 2, center_y + S(PILL_SIZE) / 2,
+	int slot_cy = block_top + ih + gap + slot_h / 2;
+	draw_centered_text(r, slot_text, ovl->screen_w / 2, slot_cy,
 					   EMU_OVL_COLOR_WHITE, EMU_OVL_FONT_LARGE);
 
 	// Pagination dots
-	int dot_size = S(4);
 	int dot_gap = S(6);
 	int dots_w = EMU_OVL_MAX_SLOTS * dot_size + (EMU_OVL_MAX_SLOTS - 1) * dot_gap;
 	int dots_x = (ovl->screen_w - dots_w) / 2;
-	int dots_y = center_y + S(PILL_SIZE) + S(PILL_SIZE) / 2;
+	int dots_y = block_top + ih + gap + slot_h + gap;
 
 	for (int i = 0; i < EMU_OVL_MAX_SLOTS; i++) {
 		uint32_t color = (i == ovl->save_slot) ? EMU_OVL_COLOR_ACCENT : EMU_OVL_COLOR_GRAY;
