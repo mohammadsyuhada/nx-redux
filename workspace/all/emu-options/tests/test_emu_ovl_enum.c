@@ -121,10 +121,79 @@ static void test_read_ini_enum(void) {
 	emu_ovl_cfg_free(&cfg);
 }
 
+// mupen64plus re-serializes mupen64plus.cfg after a play session (a video
+// plugin's ConfigSaveSection rewrites the whole file even under
+// --nosaveoptions) and wraps string values in double quotes, e.g.
+// VideoPlugin = "rice". launch.sh's awk resolver already strips those quotes;
+// the INI reader must agree, or the editor would show the schema default while
+// the launcher runs the stored plugin. parse_item_value strips ONE surrounding
+// pair of quotes before dispatch, so read_ini and the parse wrapper both cope.
+static void test_read_ini_quoted(void) {
+	// A quoted enum value resolves to the same index as the unquoted form.
+	reset_root();
+	write_file(ROOT "/schema.json", SCHEMA);
+	write_file(ROOT "/emu.cfg",
+			   "[config]\n"
+			   "tc_ratio = \"16:9\"\n");
+	EmuOvlConfig cfg;
+	assert(emu_ovl_cfg_load(&cfg, ROOT "/schema.json") == 0);
+	assert(emu_ovl_cfg_read_ini(&cfg, ROOT "/emu.cfg") == 0);
+	assert(cfg.sections[0].items[0].current_value == 2); // "16:9" -> index 2
+	emu_ovl_cfg_free(&cfg);
+
+	// The unquoted form still works (regression guard alongside the quoted one).
+	reset_root();
+	write_file(ROOT "/schema.json", SCHEMA);
+	write_file(ROOT "/emu.cfg",
+			   "[config]\n"
+			   "tc_ratio = 16:9\n");
+	assert(emu_ovl_cfg_load(&cfg, ROOT "/schema.json") == 0);
+	assert(emu_ovl_cfg_read_ini(&cfg, ROOT "/emu.cfg") == 0);
+	assert(cfg.sections[0].items[0].current_value == 2);
+	emu_ovl_cfg_free(&cfg);
+
+	// Empty quotes "" must not crash and must leave the schema default (index 1
+	// = "4:3") in place: after stripping, "" matches no enum entry.
+	reset_root();
+	write_file(ROOT "/schema.json", SCHEMA);
+	write_file(ROOT "/emu.cfg",
+			   "[config]\n"
+			   "tc_ratio = \"\"\n");
+	assert(emu_ovl_cfg_load(&cfg, ROOT "/schema.json") == 0);
+	assert(emu_ovl_cfg_read_ini(&cfg, ROOT "/emu.cfg") == 0);
+	assert(cfg.sections[0].items[0].current_value == 1); // default kept
+	emu_ovl_cfg_free(&cfg);
+
+	// A lone, unpaired quote is not stripped (needs a surrounding pair), must
+	// not crash, and matches no enum entry -> default kept.
+	reset_root();
+	write_file(ROOT "/schema.json", SCHEMA);
+	write_file(ROOT "/emu.cfg",
+			   "[config]\n"
+			   "tc_ratio = \"\n");
+	assert(emu_ovl_cfg_load(&cfg, ROOT "/schema.json") == 0);
+	assert(emu_ovl_cfg_read_ini(&cfg, ROOT "/emu.cfg") == 0);
+	assert(cfg.sections[0].items[0].current_value == 1); // default kept
+	emu_ovl_cfg_free(&cfg);
+
+	// The public parse wrapper agrees: a quoted enum value resolves, and a
+	// garbage/empty-quote value fails (no intern, no crash).
+	assert(emu_ovl_cfg_load(&cfg, ROOT "/schema.json") == 0);
+	{
+		EmuOvlItem* it = &cfg.sections[0].items[0];
+		int v = -1;
+		assert(emu_ovl_cfg_parse_value(it, "\"16:9\"", &v) && v == 2);
+		assert(!emu_ovl_cfg_parse_value(it, "\"\"", &v));
+		assert(!emu_ovl_cfg_parse_value(it, "\"", &v));
+	}
+	emu_ovl_cfg_free(&cfg);
+}
+
 int main(void) {
 	test_load_and_defaults();
 	test_parse_format_intern();
 	test_read_ini_enum();
+	test_read_ini_quoted();
 	printf("test_emu_ovl_enum: all tests passed\n");
 	return 0;
 }

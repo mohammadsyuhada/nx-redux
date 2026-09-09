@@ -27,6 +27,8 @@ MUPEN64PLUS_UI_REPO=https://github.com/mupen64plus/mupen64plus-ui-console.git
 MUPEN64PLUS_UI_COMMIT=927abd08a390325ee3712a99a5e11d94855ddaee  # 2026-02-19
 MUPEN64PLUS_AUDIO_REPO=https://github.com/mupen64plus/mupen64plus-audio-sdl.git
 MUPEN64PLUS_AUDIO_COMMIT=2ed23eda04f10f1285fdc1d26807b5c34f9f3faa  # 2026-02-19
+MUPEN64PLUS_RICE_REPO=https://github.com/mupen64plus/mupen64plus-video-rice.git
+MUPEN64PLUS_RICE_COMMIT=038882dd2e7cb660fd7512c0745032f17edd0bfa  # master, 2026-06-23
 GLIDEN64_REPO=https://github.com/gonetz/GLideN64.git
 GLIDEN64_COMMIT=c8ef81c7d9aede9f67f6ed3d3426c90541f9f13e  # 2026-01-25
 FLYCAST_REPO=https://github.com/flyinghead/flycast.git
@@ -70,6 +72,9 @@ $(REQUIRES_MUPEN64PLUS)/mupen64plus-core:
 	git clone $(MUPEN64PLUS_AUDIO_REPO) $(REQUIRES_MUPEN64PLUS)/mupen64plus-audio-sdl
 	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-audio-sdl && git checkout $(MUPEN64PLUS_AUDIO_COMMIT)
 	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-audio-sdl && git apply ../../../../all/other/mupen64plus/mupen64plus-audio-sdl.patch
+	git clone $(MUPEN64PLUS_RICE_REPO) $(REQUIRES_MUPEN64PLUS)/mupen64plus-video-rice
+	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-video-rice && git checkout $(MUPEN64PLUS_RICE_COMMIT)
+	cd $(REQUIRES_MUPEN64PLUS)/mupen64plus-video-rice && git apply ../../../../all/other/mupen64plus/mupen64plus-video-rice.patch
 	[ -d ../all/other/mupen64plus/GLideN64-standalone ] || ( \
 		git clone $(GLIDEN64_REPO) ../all/other/mupen64plus/GLideN64-standalone && \
 		cd ../all/other/mupen64plus/GLideN64-standalone && \

@@ -7,6 +7,21 @@
   "load_state": true,
   "sections": [
     {
+      "name": "Video Plugin",
+      "ini_section": "NxRedux",
+      "items": [
+        {
+          "key": "VideoPlugin",
+          "label": "Video Plugin",
+          "description": "Restart to apply. Rice: fast, best on Brick. GLideN64: accurate, hi-res texture packs; sections below are GLideN64-only",
+          "type": "enum",
+          "values": ["gliden64", "rice"],
+          "labels": ["GLideN64", "Rice"],
+          "default": "gliden64"
+        }
+      ]
+    },
+    {
       "name": "Rendering",
       "items": [
         {

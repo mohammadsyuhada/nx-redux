@@ -81,6 +81,7 @@ Available when you want it (Tools, pause menu and OSD):
     - Hold `SELECT` + `Left` / `Right` to cycle the screen layout.
     - Hold `SELECT` + `Y` to cycle the theme.
 - Bundled `Mupen64Plus Nintendo 64` emulator.
+    - Two video plugins, selectable per system or per game from the emulator options: **Rice** (default on Brick, Brick Pro and Smart Pro — much lighter; on the Brick it used less CPU and produced far fewer audio underruns in testing) and **GLideN64** (default on Smart Pro S — more accurate). High-resolution texture packs, and the other N64 option sections, require GLideN64.
     - Support for high resolution textures (with limitations due to 1GB RAM)
         - Place Rice-format texture packs in `Roms/Nintendo 64 (N64)/.hires_texture/<ROM NAME>/`, where `<ROM NAME>` is the ROM's **internal header name** (e.g. `MARIOKART64`), not its filename. To find it, run the game once and look for the `Core: Name:` line in `.userdata/<platform>/logs/N64.txt`.
         - On the game's first launch the pack is converted into a cache in `Roms/Nintendo 64 (N64)/.cache/` with an on-screen progress display — large packs take several minutes and need extra free space on the SD card (e.g. a 2.6 GB pack produces a ~450 MB cache). Later launches load straight from the cache and start fast.

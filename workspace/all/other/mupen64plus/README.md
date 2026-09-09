@@ -16,6 +16,7 @@ lives in this directory (cloned by the tg5040 Makefile rule).
 | `mupen64plus-ui-console/` | Console frontend binary (`mupen64plus`) |
 | `mupen64plus-audio-sdl/` | Audio plugin (`mupen64plus-audio-sdl.so`) — patched for 48 kHz output |
 | `GLideN64-standalone/` | Video plugin (`mupen64plus-video-GLideN64.so`) — **built once, shared across platforms**; checkout lives HERE (`workspace/all/other/mupen64plus/`), built with the tg5040 toolchain image |
+| `mupen64plus-video-rice/` | Alternative lighter video plugin (`mupen64plus-video-rice.so`) — upstream Rice with the same overlay menu compiled in; **built per platform** (checkout under `workspace/<platform>/other/mupen64plus/`, links each device's own libpng) |
 
 Pinned upstream commits live in `workspace/<platform>/Makefile` (`MUPEN64PLUS_*_COMMIT`,
 `GLIDEN64_COMMIT`) — keep the two platforms' pins in sync.
@@ -138,6 +139,108 @@ check it with the lib dir excluded (a plain `-R` check would fail on the placeho
 ```sh
 git apply --check -R --exclude='src/GLideNHQ/lib/*' GLideN64-standalone.patch
 ```
+
+### mupen64plus-video-rice (`mupen64plus-video-rice.patch`)
+
+Upstream Rice with the same in-game overlay menu compiled in — a lighter
+alternative to GLideN64 for the weaker devices (GitHub issue #88). Rice is
+single-threaded, so the overlay is the **non-threaded** branch of the GLideN64
+hook (no GL command dispatch to a video thread). The patch is a plain `git diff`
+(no `--binary`); regenerate it from the tg5040 checkout with
+
+```sh
+cd workspace/tg5040/other/mupen64plus/mupen64plus-video-rice
+git add -N src/nx_overlay.h src/nx_overlay.cpp
+git diff > ../../../../all/other/mupen64plus/mupen64plus-video-rice.patch
+```
+
+and confirm it still applies to a fresh clone at the pin (`git apply --check`).
+
+**`projects/unix/Makefile`** — adds the shared overlay C sources from
+`workspace/all/common/` (`emu_overlay.c`, `emu_overlay_cfg.c`, `emu_overlay_sdl.c`,
+`text_shape.c`, `cjson/cJSON.c`) via a dedicated out-of-tree `$(OBJDIR)/overlay/%.o`
+pattern rule, compiles the in-tree `src/nx_overlay.cpp` on the normal `.cpp` rule,
+and links `-lSDL2_ttf -lSDL2_image`. `-lGLESv2` comes from Rice's own `USE_GLES`
+block. `OVERLAY_DIR` resolves to `workspace/all/common` from either platform
+checkout.
+
+**`src/Video.cpp`** — resolves `CoreDoCommand` at `PluginStartup` into the global
+`g_nxCoreDoCommand` (used by the overlay for save/load-state and stop). NULL is
+tolerated: the overlay then skips those state commands.
+
+**`src/OGLGraphicsContext.cpp`** — two hunks: (1) in `Initialize`, before the other
+GL attributes, request an **OpenGL ES 3.0** context under `#ifdef USE_GLES`
+(`M64P_GL_CONTEXT_PROFILE_MASK` = `M64P_GL_CONTEXT_PROFILE_ES`, major 3, minor 0) —
+the shared overlay backend renders with `#version 300 es` shaders and vertex array
+objects, so a default ES 2 context would fail (mirrors what the GLideN64 patch does
+in `mupen64plus_DisplayWindow.cpp::_setAttributes`); (2) in `UpdateFrame`, call
+`nx_overlay_before_swap(windowSetting.uDisplayWidth, windowSetting.uDisplayHeight)`
+immediately before `CoreVideo_GL_SwapBuffers()`.
+
+**`src/nx_overlay.{h,cpp}`** — the overlay hook itself: config load from the
+`EMU_OVERLAY_*` env vars, menu-button detection (SDL joystick 0 button 8),
+d-pad-merged-with-stick navigation (the Brick FN switch reroutes the d-pad to the
+stick), the blocking overlay menu loop, and the NxRedux resume + quit-autosave
+handshake via `g_nxCoreDoCommand`. A straight port of the GLideN64
+`src/DisplayWindow.cpp` hunk, driven off the shared SDL overlay backend
+(`overlay_sdl_get_backend()`); keep the two in sync. Rice has no hi-res
+load-progress phase, so (unlike GLideN64) there is no `isLoadProgressActive()` gate.
+
+#### Aspect-ratio pillarboxing
+
+Stock Rice has no aspect handling: it stretches the N64 image to fill the whole
+window. On the 16:9 1280x720 panels (Smart Pro, Smart Pro S) that stretches a
+4:3 game horizontally; GLideN64 pillarboxes it. Since Rice is the Smart Pro
+default, the patch adds aspect handling so a 4:3 game is pillarboxed instead of
+stretched. On the 1024x768 (4:3) Brick / Brick Pro panels the arithmetic is a
+no-op — the effective size equals the window, so there are no bars and no
+rendering offset.
+
+Config key **`[Video-Rice] AspectRatio`** (int, default `1`), registered by the
+plugin itself via `ConfigSetDefaultInt` (no schema item, no in-game cycling, no
+entry in the shipped `default-*.cfg` — a hand-edited value overrides the
+default):
+
+| Value | Behaviour |
+|---|---|
+| `0` | Stretch (stock Rice behaviour) |
+| `1` | Force 4:3 (default) |
+| `2` | Force 16:9 |
+| `3` | Auto (treated as 4:3) |
+
+How it works:
+
+- **`src/Config.{cpp,h}`** — register `AspectRatio` (default 1) and read it into
+  `options.aspectRatio` in `ReadConfiguration`.
+- **`src/Video.h`** — `windowSetting` gains `uEffDisplayWidth/uEffDisplayHeight`
+  (the aspect-constrained effective render area) and `vpBaseX/vpBaseY` (the
+  centring offset that produces the bars).
+- **`src/Video.cpp`** — `SetVIScales` computes the effective dims and centring
+  offsets from the window size and `options.aspectRatio`, then calls
+  `SetScreenMult` on the **effective** dims. Integer-only arithmetic: e.g.
+  1280x720 with 4:3 → effW `720*4/3 = 960`, vpBaseX `(1280-960)/2 = 160` (160-px
+  bars each side); 1024x768 with 4:3 → effW/effH unchanged, vpBaseX/Y `0`.
+- **`src/OGLRender.{cpp,h}`, `src/OGLRenderExt.cpp`, `src/FrameBuffer.cpp`** —
+  every 2-D screen-space path that used `uDisplayWidth/uDisplayHeight` now uses
+  the effective dims (viewport calls and the `w`/`h` half-extents used to
+  normalise vertex coordinates; `CloseRenderTexture`'s `SetScreenMult`).
+  `glViewportWrapper` adds `vpBaseX/vpBaseY` to the origin unless a render-to-
+  texture pass is active (`status.bHandleN64RenderTexture`); a new
+  `glScissorWrapper` applies the same offset, and every `glScissor` in those
+  screen-space paths goes through it so scissor rectangles track the shifted
+  viewport. (The RDRAM framebuffer readback dims in `FrameBuffer.cpp` stay on the
+  true window size — they are not screen-space rendering.)
+- **`src/OGLGraphicsContext.cpp`** — `UpdateFrame` clears the full framebuffer to
+  opaque black when `aspectRatio != 0`, so the pillar/letterbox bars stay black.
+  The clear runs **after** `CoreVideo_GL_SwapBuffers()` (and therefore after the
+  pre-swap `nx_overlay_before_swap` hook), with `GL_SCISSOR_TEST` disabled around
+  it and its prior state restored.
+
+Attribution: the aspect handling is adapted from
+josegonzalez/minui-n64-pak (MIT) `patches/shared/mupen64plus-video-rice.patch`.
+Only the aspect-ratio logic was adapted; the nx-redux overlay integration
+(Makefile/`nx_overlay`/`Video.cpp` `CoreDoCommand`/ES 3.0 context) is ours from
+the initial Rice port.
 
 ## Build (TG5040)
 
@@ -296,12 +399,61 @@ make -j$(nproc) mupen64plus-video-GLideN64
 
 Output: `GLideN64-standalone/src/build/plugin/Release/mupen64plus-video-GLideN64.so`
 
+### 5. mupen64plus-video-rice (video plugin)
+
+Built per platform (the overlay links `libpng` for its screenshots, and that
+differs per device). Same SDL discovery / `OPTFLAGS` as the audio plugin, plus
+`USE_GLES=1 PIC=1`. `USE_GLES=1` requests the `-lGLESv2` link and the ES 3.0
+overlay context; the overlay's `-lSDL2_ttf -lSDL2_image` come from the patch.
+
+```sh
+docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c '
+source ~/.bashrc
+export PKG_CONFIG_PATH=/opt/aarch64-nextui-linux-gnu/aarch64-nextui-linux-gnu/libc/usr/lib/pkgconfig
+export PKG_CONFIG_SYSROOT_DIR=/opt/aarch64-nextui-linux-gnu/aarch64-nextui-linux-gnu/libc
+SDL_C="$(pkg-config --cflags sdl2)"
+SDL_L="$(pkg-config --libs sdl2)"
+cd /root/workspace/tg5040/other/mupen64plus/mupen64plus-video-rice/projects/unix
+make -j$(nproc) all \
+  CROSS_COMPILE=aarch64-nextui-linux-gnu- HOST_CPU=aarch64 \
+  USE_GLES=1 PIC=1 \
+  PKG_CONFIG=pkg-config \
+  SDL_CFLAGS="$SDL_C" SDL_LDLIBS="$SDL_L" \
+  APIDIR=/root/workspace/tg5040/other/mupen64plus/mupen64plus-core/src/api \
+  OPTFLAGS="-O3"
+'
+```
+
+Output: `mupen64plus-video-rice/projects/unix/mupen64plus-video-rice.so` — copy to
+`skeleton/SYSTEM/tg5040/paks/Emus/N64.pak/mupen64plus-video-rice.so` (the binary
+name is load-bearing: `launch.sh` passes it as `--gfx`).
+
+Rice loads its per-ROM hacks database `RiceVideoLinux.ini` from the `--datadir` via
+`ConfigGetSharedDataFilepath`. Ship it once from the checkout's
+`data/RiceVideoLinux.ini` to `skeleton/BASE/Emus/shared/mupen64plus/` (that dir is
+passed as `--datadir`).
+
+**Verify** (inside the toolchain container):
+
+```sh
+file mupen64plus-video-rice.so   # aarch64 ELF shared object
+aarch64-nextui-linux-gnu-readelf -d mupen64plus-video-rice.so | grep NEEDED
+# expect libSDL2_ttf, libSDL2_image, libGLESv2, libpng12.so.0 (tg5040),
+# libstdc++, libc family; NO libGLESv3, NO libGL.so
+aarch64-nextui-linux-gnu-nm -D --undefined-only mupen64plus-video-rice.so \
+  | grep -E 'emu_ovl|nx_overlay|overlay_sdl|text_shape|cJSON'   # prints nothing
+```
+
 ## TG5050 build differences
 
 Everything above applies with `tg5050` substituted for `tg5040` (toolchain image and
 checkout paths), except:
 
 - **GLideN64 is not built on tg5050** — the .so is shared; deploy the tg5040 build.
+- **mupen64plus-video-rice IS built on tg5050** (unlike GLideN64) — the overlay
+  links `libpng` for its screenshots, which differs per device, so Rice is built
+  once per platform. Its tg5050 build needs the libpng headers workaround below
+  **and** the GLES headers workaround (KHR/GLES3, further down).
 - **libpng headers workaround** — the tg5050 toolchain has broken libpng header
   symlinks (`png.h -> libpng16/png.h` where `libpng16/` doesn't exist). Provide them
   once:
@@ -338,6 +490,53 @@ SDL_L="${SDL_L/-lSDL2_net/${PREFIX}/lib/libSDL2_net.a}"   # PREFIX = pkg-config 
   set matches the previously shipped tg5050 core (which keeps `libpng16.so.16`, not
   `libpng12.so.0`, from the LIBPNG override above).
 
+- **GLES headers workaround (mupen64plus-video-rice only)** — the tg5050 toolchain
+  sysroot ships neither `KHR/khrplatform.h` nor the `GLES3/` headers that the overlay
+  backend (`emu_overlay_sdl.c`, `#include <GLES3/gl3.h>`) and Rice's own
+  `GLES2/gl2platform.h` need. GLideN64 never hit this because it is not built on
+  tg5050. Provide them once, copied from the tg5040 toolchain image (which has them)
+  for version-consistency:
+
+```sh
+docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5040-toolchain:latest /bin/bash -c '
+SYSROOT=/opt/aarch64-nextui-linux-gnu/aarch64-nextui-linux-gnu/libc
+DEST=/root/workspace/tg5050/other/mupen64plus/gles-headers
+mkdir -p "$DEST/KHR" "$DEST/GLES3"
+cp "$SYSROOT/usr/include/KHR/khrplatform.h" "$DEST/KHR/"
+cp "$SYSROOT/usr/include/GLES3/gl3.h" "$SYSROOT/usr/include/GLES3/gl32.h" "$SYSROOT/usr/include/GLES3/gl3platform.h" "$DEST/GLES3/"
+'
+```
+
+Then build video-rice with the tg5050 toolchain image, adding both workarounds.
+`CPPFLAGS` injects the vendored headers without clobbering the Makefile's own
+`CFLAGS` (a command-line `CFLAGS=` would override every `CFLAGS +=` in the Makefile):
+
+```sh
+docker run --rm -v $(pwd)/workspace:/root/workspace ghcr.io/loveretro/tg5050-toolchain:latest /bin/bash -c '
+source ~/.bashrc
+export PKG_CONFIG_PATH=/opt/aarch64-nextui-linux-gnu/aarch64-nextui-linux-gnu/libc/usr/lib/pkgconfig
+export PKG_CONFIG_SYSROOT_DIR=/opt/aarch64-nextui-linux-gnu/aarch64-nextui-linux-gnu/libc
+SDL_C="$(pkg-config --cflags sdl2)"
+SDL_L="$(pkg-config --libs sdl2)"
+PNG_HEADERS=/root/workspace/tg5050/other/mupen64plus/libpng-headers/libpng-1.6.37
+GLES_HEADERS=/root/workspace/tg5050/other/mupen64plus/gles-headers
+cd /root/workspace/tg5050/other/mupen64plus/mupen64plus-video-rice/projects/unix
+make -j$(nproc) all \
+  CROSS_COMPILE=aarch64-nextui-linux-gnu- HOST_CPU=aarch64 \
+  USE_GLES=1 PIC=1 \
+  PKG_CONFIG=pkg-config \
+  SDL_CFLAGS="$SDL_C" SDL_LDLIBS="$SDL_L" \
+  LIBPNG_CFLAGS="-I${PNG_HEADERS}" LIBPNG_LDLIBS="-lpng16 -lz" \
+  CPPFLAGS="-I${GLES_HEADERS}" \
+  APIDIR=/root/workspace/tg5050/other/mupen64plus/mupen64plus-core/src/api \
+  OPTFLAGS="-O3"
+'
+```
+
+  Copy to `skeleton/SYSTEM/tg5050/paks/Emus/N64.pak/mupen64plus-video-rice.so`.
+  Verify with `readelf -d ... | grep NEEDED`: `libpng16.so.16` + `libz.so.1` (not
+  `libpng12`), `libGLESv2`, `libSDL2_ttf`, `libSDL2_image`; no `libGL.so`/`libGLESv3`.
+
 ## Deployment
 
 Copy built binaries to the pak/shared directories (per platform for the pak, once for
@@ -348,6 +547,7 @@ skeleton/SYSTEM/<tg5040|tg5050>/paks/Emus/N64.pak/
 ├── mupen64plus                    ← ui-console binary (per-platform build)
 ├── libmupen64plus.so.2            ← core library (per-platform build)
 ├── mupen64plus-audio-sdl.so       ← audio plugin (built from source, libsamplerate)
+├── mupen64plus-video-rice.so      ← Rice video plugin (per-platform build, overlay compiled in)
 ├── mupen64plus-input-sdl.so       ← stock input plugin
 ├── mupen64plus-rsp-hle.so         ← stock RSP plugin
 ├── launch.sh
@@ -355,6 +555,7 @@ skeleton/SYSTEM/<tg5040|tg5050>/paks/Emus/N64.pak/
 
 skeleton/BASE/Emus/shared/mupen64plus/
 ├── mupen64plus-video-GLideN64.so  ← video plugin (single shared build)
+├── RiceVideoLinux.ini             ← Rice per-ROM hacks database (--datadir)
 ├── overlay_settings.json          ← overlay menu config
 ├── mupen64plus.ini                ← ROM database
 ├── InputAutoCfg.ini               ← input auto-config

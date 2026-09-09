@@ -31,6 +31,14 @@ if [ ! -f "$DEVICE_CONFIG_DIR/.initialized" ]; then
 fi
 EMU_CFG="$DEVICE_CONFIG_DIR/mupen64plus.cfg"
 
+# Older seeds predate [NxRedux]; give existing installs the platform default
+# without re-seeding, so the editor and launcher then read the same value.
+if ! grep -q '^\[NxRedux\]' "$EMU_CFG"; then
+    printf '\n' >> "$EMU_CFG"
+    awk '/^\[NxRedux\]/{f=1;print;next} f&&/^\[/{exit} f{print}' \
+        "$DEVICE_DEFAULT_CFG" >> "$EMU_CFG"
+fi
+
 # Per-game override key. Multi-disc games live in a folder with a
 # folder-named .m3u (see BASE README); every disc of such a game maps to
 # ONE key -- the m3u/folder name -- mirroring how minarch normalizes
@@ -47,4 +55,41 @@ nx_rom_base() {
         _b="${1##*/}"
         printf '%s' "${_b%.*}"
     fi
+}
+
+
+# Selected video plugin: per-game cfg ($1) wins over the global cfg ($2),
+# both read from [NxRedux] VideoPlugin (spaces around =, surrounding quotes
+# and a trailing CR tolerated). Anything else -- missing file, absent key,
+# unknown value -- falls through to gliden64, the safe default the launcher
+# passes to --gfx. Kept awk simple for busybox (no gensub/-v regex tricks).
+nx_video_plugin() {
+    for _vpcfg in "$1" "$2"; do
+        [ -f "$_vpcfg" ] || continue
+        _vp=$(awk '
+            { line = $0; sub(/\r$/, "", line) }
+            line ~ /^[ \t]*\[/ {
+                hdr = line; gsub(/[ \t]/, "", hdr)
+                insec = (hdr == "[NxRedux]")
+                next
+            }
+            insec {
+                eq = index(line, "=")
+                if (eq > 0) {
+                    key = substr(line, 1, eq - 1); gsub(/[ \t]/, "", key)
+                    if (key == "VideoPlugin") {
+                        val = substr(line, eq + 1)
+                        gsub(/^[ \t]+/, "", val); gsub(/[ \t]+$/, "", val)
+                        gsub(/^"/, "", val); gsub(/"$/, "", val)
+                        if (val == "rice" || val == "gliden64") { print val; exit }
+                    }
+                }
+            }
+        ' "$_vpcfg")
+        if [ "$_vp" = "rice" ] || [ "$_vp" = "gliden64" ]; then
+            printf '%s' "$_vp"
+            return
+        fi
+    done
+    printf '%s' gliden64
 }

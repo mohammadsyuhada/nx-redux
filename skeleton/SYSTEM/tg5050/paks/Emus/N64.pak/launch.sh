@@ -130,6 +130,22 @@ if [ -f "$NX_GAME_CFG" ]; then
 fi
 # --- end per-game overrides ---------------------------------------------
 
+# --- video plugin ---------------------------------------------------------
+# GLideN64 is the accurate renderer; Rice is far lighter on the Brick-class
+# GPU. The choice lives in [NxRedux] VideoPlugin (written by options.elf,
+# per-game override wins, see nx_video_plugin). The per-game awk above also
+# emits --set NxRedux[VideoPlugin]=..., which is harmless: a string param
+# set in memory, and --gfx below takes precedence.
+GFX_PLUGIN="$EMU_DIR/mupen64plus-video-GLideN64.so"
+if [ "$(nx_video_plugin "$NX_GAME_CFG" "$EMU_CFG")" = "rice" ]; then
+    if [ -f "$PAK_DIR/mupen64plus-video-rice.so" ]; then
+        GFX_PLUGIN="$PAK_DIR/mupen64plus-video-rice.so"
+    else
+        echo "N64: rice selected but mupen64plus-video-rice.so is missing, using GLideN64" >&2
+    fi
+fi
+# --- end video plugin -----------------------------------------------------
+
 # --- netplay pre-launch wizard -------------------------------------------
 # sleepmon + the unmute timer + swap are already running/active here, so an
 # early exit MUST undo them itself (same rationale as DC.pak's bail helper).
@@ -223,14 +239,17 @@ cd "$PAK_DIR"
 # config rewriting this design forbids. With it, every --set is
 # session-virtual and the cfg is owned solely by options.elf + the
 # nx_paths.sh seeder. $GAME_ARGS before $AUDIO_OVERRIDE so the negotiated
-# audio rate wins any future conflict (--set applies left-to-right).
+# audio rate wins any future conflict (--set applies left-to-right). The core
+# still re-serializes this file (sections sorted, string values quoted)
+# whenever a video plugin saves its section, so every reader of the cfg must
+# tolerate quoted values.
 ./mupen64plus --fullscreen --resolution 1280x720 \
     --configdir "${NX_SESSION_CFG:-$DEVICE_CONFIG_DIR}" \
     --datadir "$EMU_DIR" \
     --plugindir "$PAK_DIR" \
     --nosaveoptions \
     $GAME_ARGS $AUDIO_OVERRIDE $NETPLAY_ARGS \
-    --gfx "$EMU_DIR/mupen64plus-video-GLideN64.so" \
+    --gfx "$GFX_PLUGIN" \
     --audio mupen64plus-audio-sdl.so \
     --input mupen64plus-input-sdl.so \
     --rsp mupen64plus-rsp-hle.so \
@@ -242,6 +261,8 @@ sleep 4
 #   main thread (cpu emu + dynarec) → BIG cpu4
 #   video thread (GLideN64)         → BIG cpu5
 #   audio/mali/helpers              → LITTLE cpu0-1
+# With Rice (single-threaded) there is no video thread, so the worker loop
+# below simply finds nothing extra to pin.
 taskset -p 0x10 "$EMU_PID" 2>/dev/null   # mask 0x10 = cpu4
 
 # Move audio/mali/helpers to LITTLE cores

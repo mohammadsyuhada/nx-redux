@@ -1,0 +1,748 @@
+diff --git a/projects/unix/Makefile b/projects/unix/Makefile
+index da26ff1..b1e8d39 100644
+--- a/projects/unix/Makefile
++++ b/projects/unix/Makefile
+@@ -370,7 +370,8 @@ SOURCE = \
+ 	$(SRCDIR)/TextureFilters_hq4x.cpp \
+ 	$(SRCDIR)/TextureManager.cpp \
+ 	$(SRCDIR)/VectorMath.cpp \
+-	$(SRCDIR)/Video.cpp
++	$(SRCDIR)/Video.cpp \
++	$(SRCDIR)/nx_overlay.cpp
+ 
+ ifeq ($(OS),MINGW)
+ SOURCE += \
+@@ -382,9 +383,29 @@ SOURCE += \
+ 	$(SRCDIR)/osal_files_unix.c
+ endif
+ 
++# --- nx-redux in-game overlay menu (shared sources) ----------------------
++# The overlay is compiled INTO the plugin, the same way it is into GLideN64
++# (see workspace/all/other/mupen64plus/README.md). nx_overlay.cpp lives in
++# $(SRCDIR) and rides the normal .cpp rule above; the shared C sources live
++# out-of-tree in workspace/all/common and get their own object subdir +
++# pattern rule below. OVERLAY_DIR resolves to workspace/all/common from either
++# platform checkout ($(SRCDIR) = <rice>/src, five levels under workspace/).
++OVERLAY_DIR = $(SRCDIR)/../../../../../all/common
++CFLAGS += -I$(OVERLAY_DIR)
++LDLIBS += -lSDL2_ttf -lSDL2_image
++
++OVERLAY_SOURCE = \
++	$(OVERLAY_DIR)/emu_overlay.c \
++	$(OVERLAY_DIR)/emu_overlay_cfg.c \
++	$(OVERLAY_DIR)/emu_overlay_sdl.c \
++	$(OVERLAY_DIR)/text_shape.c \
++	$(OVERLAY_DIR)/cjson/cJSON.c
++
+ # generate a list of object files build, make a temporary directory for them
+ OBJECTS := $(patsubst $(SRCDIR)/%.c, $(OBJDIR)/%.o, $(filter %.c, $(SOURCE)))
+ OBJECTS += $(patsubst $(SRCDIR)/%.cpp, $(OBJDIR)/%.o, $(filter %.cpp, $(SOURCE)))
++# out-of-tree overlay .c sources compile into $(OBJDIR)/overlay/ (own rule below)
++OBJECTS += $(patsubst $(OVERLAY_DIR)/%.c, $(OBJDIR)/overlay/%.o, $(OVERLAY_SOURCE))
+ OBJDIRS = $(dir $(OBJECTS))
+ $(shell $(MKDIR) $(OBJDIRS))
+ 
+@@ -449,6 +470,10 @@ $(OBJDIR)/%.o: $(SRCDIR)/%.c
+ $(OBJDIR)/%.o: $(SRCDIR)/%.cpp
+ 	$(COMPILE.cc) -o $@ $<
+ 
++# out-of-tree nx-redux overlay C sources (workspace/all/common)
++$(OBJDIR)/overlay/%.o: $(OVERLAY_DIR)/%.c
++	$(COMPILE.c) -o $@ $<
++
+ $(TARGET): $(OBJECTS)
+ 	$(LINK.o) $^ $(LOADLIBES) $(LDLIBS) -o $@
+ 
+diff --git a/src/Config.cpp b/src/Config.cpp
+index 961a1c7..2093939 100644
+--- a/src/Config.cpp
++++ b/src/Config.cpp
+@@ -342,6 +342,7 @@ BOOL InitConfiguration(void)
+     ConfigSetDefaultInt(l_ConfigVideoRice, "TextureEnhancementControl", 0, "Secondary texture enhancement filter (0 = none, 1-4 = filtered)");
+     ConfigSetDefaultInt(l_ConfigVideoRice, "TextureQuality", TXT_QUALITY_DEFAULT, "Color bit depth to use for textures (0=default, 1=32 bits, 2=16 bits)");
+     ConfigSetDefaultInt(l_ConfigVideoRice, "OpenGLDepthBufferSetting", 16, "Z-buffer depth (only 16 or 32)");
++    ConfigSetDefaultInt(l_ConfigVideoRice, "AspectRatio", 1, "Screen aspect ratio (0=stretch, 1=force 4:3, 2=force 16:9, 3=auto)");
+     ConfigSetDefaultInt(l_ConfigVideoRice, "MultiSampling", 0, "Enable/Disable MultiSampling (0=off, 2,4,8,16=quality)");
+     ConfigSetDefaultInt(l_ConfigVideoRice, "ColorQuality", TEXTURE_FMT_A8R8G8B8, "Color bit depth for rendering window (0=32 bits, 1=16 bits)");
+     ConfigSetDefaultInt(l_ConfigVideoRice, "OpenGLRenderSetting", OGL_DEVICE, "OpenGL level to support (0=auto, 1=OGL_FRAGMENT_PROGRAM)");
+@@ -463,6 +464,7 @@ static void ReadConfiguration(void)
+     options.colorQuality = ConfigGetParamInt(l_ConfigVideoRice, "ColorQuality");
+     options.OpenglRenderSetting = ConfigGetParamInt(l_ConfigVideoRice, "OpenGLRenderSetting");
+     options.anisotropicFiltering = ConfigGetParamInt(l_ConfigVideoRice, "AnisotropicFiltering");
++    options.aspectRatio = ConfigGetParamInt(l_ConfigVideoRice, "AspectRatio");
+ 
+     options.bForcePolygonOffset = ConfigGetParamBool(l_ConfigVideoRice, "ForcePolygonOffset");
+     options.polygonOffsetFactor = ConfigGetParamFloat(l_ConfigVideoRice, "PolygonOffsetFactor");
+diff --git a/src/Config.h b/src/Config.h
+index 4476434..32f9e96 100644
+--- a/src/Config.h
++++ b/src/Config.h
+@@ -201,6 +201,7 @@ typedef struct {
+     int     OpenglDepthBufferSetting;
+     int     OpenglRenderSetting;
+     uint32  colorQuality;
++    uint32  aspectRatio;
+ 
+     // Polygon Offset Settings
+     // These can be used to eliminate stitching artifacts in textures and shadows, which are typically only a problem
+diff --git a/src/FrameBuffer.cpp b/src/FrameBuffer.cpp
+index e3b8d3e..a77ac0b 100644
+--- a/src/FrameBuffer.cpp
++++ b/src/FrameBuffer.cpp
+@@ -1403,7 +1403,7 @@ void FrameBufferManager::CloseRenderTexture(bool toSave)
+         }
+     }
+ 
+-    SetScreenMult(windowSetting.uDisplayWidth/windowSetting.fViWidth, windowSetting.uDisplayHeight/windowSetting.fViHeight);
++    SetScreenMult(windowSetting.uEffDisplayWidth/windowSetting.fViWidth, windowSetting.uEffDisplayHeight/windowSetting.fViHeight);
+     CRender::g_pRender->UpdateClipRectangle();
+     CRender::g_pRender->ApplyScissorWithClipRatio();
+ 
+diff --git a/src/OGLGraphicsContext.cpp b/src/OGLGraphicsContext.cpp
+index e4e57ba..e2b46c6 100644
+--- a/src/OGLGraphicsContext.cpp
++++ b/src/OGLGraphicsContext.cpp
+@@ -35,6 +35,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ #include "TextureManager.h"
+ #include "Video.h"
+ #include "version.h"
++#include "nx_overlay.h" // nx-redux in-game overlay hook
+ 
+ COGLGraphicsContext::COGLGraphicsContext() :
+     m_pExtensionStr(NULL)
+@@ -77,6 +78,16 @@ bool COGLGraphicsContext::Initialize(uint32 dwWidth, uint32 dwHeight, BOOL bWind
+     /* hard-coded attribute values */
+     const int iDOUBLEBUFFER = 1;
+ 
++#ifdef USE_GLES
++    /* nx-redux overlay hook: the shared SDL overlay backend renders with
++       "#version 300 es" shaders and vertex array objects, so request an
++       OpenGL ES 3.0 context. Must be set before SetVideoMode below (mirrors
++       GLideN64's mupen64plus_DisplayWindow.cpp::_setAttributes). */
++    CoreVideo_GL_SetAttribute(M64P_GL_CONTEXT_PROFILE_MASK, M64P_GL_CONTEXT_PROFILE_ES);
++    CoreVideo_GL_SetAttribute(M64P_GL_CONTEXT_MAJOR_VERSION, 3);
++    CoreVideo_GL_SetAttribute(M64P_GL_CONTEXT_MINOR_VERSION, 0);
++#endif
++
+     /* set opengl attributes */
+     CoreVideo_GL_SetAttribute(M64P_GL_DOUBLEBUFFER, iDOUBLEBUFFER);
+     CoreVideo_GL_SetAttribute(M64P_GL_SWAP_CONTROL, bVerticalSync);
+@@ -413,8 +424,25 @@ void COGLGraphicsContext::UpdateFrame(bool swaponly)
+        glUseProgram(program);
+    }
+ 
++   // nx-redux overlay hook: init/resume handshake + (when the menu button is
++   // pressed) run the blocking overlay menu, right before the buffer swap.
++   nx_overlay_before_swap(windowSetting.uDisplayWidth, windowSetting.uDisplayHeight);
++
+    CoreVideo_GL_SwapBuffers();
+-   
++
++   // Clear the full framebuffer to black so the letterbox/pillarbox bars
++   // stay black. Runs AFTER the swap (and after the nx-redux overlay hook
++   // above, which is deliberately pre-swap). Scissor is disabled around the
++   // clear and restored, so the game's own scissor state is untouched.
++   if (options.aspectRatio != 0) {
++       GLboolean scissorWasEnabled = glIsEnabled(GL_SCISSOR_TEST);
++       glDisable(GL_SCISSOR_TEST);
++       glViewport(0, 0, windowSetting.uDisplayWidth, windowSetting.uDisplayHeight);
++       glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
++       glClear(GL_COLOR_BUFFER_BIT);
++       if (scissorWasEnabled) glEnable(GL_SCISSOR_TEST);
++   }
++
+    /*if(options.bShowFPS)
+      {
+     static unsigned int lastTick=0;
+diff --git a/src/OGLRender.cpp b/src/OGLRender.cpp
+index 6f9d0e2..aef8c18 100644
+--- a/src/OGLRender.cpp
++++ b/src/OGLRender.cpp
+@@ -71,7 +71,7 @@ bool OGLRender::ClearDeviceObjects()
+ void OGLRender::Initialize(void)
+ {
+ 
+-    glViewportWrapper(0, windowSetting.statusBarHeightToUse, windowSetting.uDisplayWidth, windowSetting.uDisplayHeight);
++    glViewportWrapper(0, windowSetting.statusBarHeightToUse, windowSetting.uEffDisplayWidth, windowSetting.uEffDisplayHeight);
+     OPENGL_CHECK_ERRORS;
+     
+     OGLXUVFlagMaps[TEXTURE_UV_FLAG_MIRROR].realFlag = GL_MIRRORED_REPEAT;
+@@ -563,7 +563,7 @@ void OGLRender::SetTextureVFlag(TextureUVFlag dwFlag, uint32 dwTile)
+ // Basic render drawing functions
+ bool OGLRender::RenderTexRect()
+ {
+-    glViewportWrapper(0, windowSetting.statusBarHeightToUse, windowSetting.uDisplayWidth, windowSetting.uDisplayHeight);
++    glViewportWrapper(0, windowSetting.statusBarHeightToUse, windowSetting.uEffDisplayWidth, windowSetting.uEffDisplayHeight);
+     OPENGL_CHECK_ERRORS;
+ 
+     GLboolean cullface = glIsEnabled(GL_CULL_FACE);
+@@ -591,7 +591,7 @@ bool OGLRender::RenderTexRect()
+             g_texRectTVtx[0].tcord[1].u,g_texRectTVtx[0].tcord[1].v
+     };
+ 
+-    float w = windowSetting.uDisplayWidth / 2.0f, h = windowSetting.uDisplayHeight / 2.0f, inv = 1.0f;
++    float w = windowSetting.uEffDisplayWidth / 2.0f, h = windowSetting.uEffDisplayHeight / 2.0f, inv = 1.0f;
+ 
+     GLfloat vertices[] = {
+             -inv + g_texRectTVtx[3].x / w, inv - g_texRectTVtx[3].y / h, g_texRectTVtx[3].z, 1, 
+@@ -626,7 +626,7 @@ bool OGLRender::RenderFillRect(uint32 dwColor, float depth)
+     uint8 r = ((dwColor>>16)&0xFF);
+     uint8 g = ((dwColor>>8)&0xFF);
+     uint8 b = (dwColor&0xFF);
+-    glViewportWrapper(0, windowSetting.statusBarHeightToUse, windowSetting.uDisplayWidth, windowSetting.uDisplayHeight);
++    glViewportWrapper(0, windowSetting.statusBarHeightToUse, windowSetting.uEffDisplayWidth, windowSetting.uEffDisplayHeight);
+     OPENGL_CHECK_ERRORS;
+ 
+     GLboolean cullface = glIsEnabled(GL_CULL_FACE);
+@@ -639,7 +639,7 @@ bool OGLRender::RenderFillRect(uint32 dwColor, float depth)
+             r,g,b,a,
+             r,g,b,a};
+ 
+-    float w = windowSetting.uDisplayWidth / 2.0f, h = windowSetting.uDisplayHeight / 2.0f, inv = 1.0f;
++    float w = windowSetting.uEffDisplayWidth / 2.0f, h = windowSetting.uEffDisplayHeight / 2.0f, inv = 1.0f;
+ 
+     GLfloat vertices[] = {
+             -inv + m_fillRectVtx[0].x / w, inv - m_fillRectVtx[1].y / h, depth, 1,
+@@ -700,7 +700,7 @@ bool OGLRender::RenderFlushTris()
+ {
+     ApplyZBias(m_dwZBias);  // set the bias factors
+ 
+-    glViewportWrapper(windowSetting.vpLeftW, windowSetting.uDisplayHeight-windowSetting.vpTopW-windowSetting.vpHeightW+windowSetting.statusBarHeightToUse, windowSetting.vpWidthW, windowSetting.vpHeightW, false);
++    glViewportWrapper(windowSetting.vpLeftW, windowSetting.uEffDisplayHeight-windowSetting.vpTopW-windowSetting.vpHeightW+windowSetting.statusBarHeightToUse, windowSetting.vpWidthW, windowSetting.vpHeightW, false);
+     OPENGL_CHECK_ERRORS;
+ 
+     //if options.bOGLVertexClipper == FALSE )
+@@ -757,7 +757,7 @@ void OGLRender::DrawSimple2DTexture(float x0, float y0, float x1, float y1, floa
+     glDisable(GL_CULL_FACE);
+     OPENGL_CHECK_ERRORS;
+ 
+-    glViewportWrapper(0, windowSetting.statusBarHeightToUse, windowSetting.uDisplayWidth, windowSetting.uDisplayHeight);
++    glViewportWrapper(0, windowSetting.statusBarHeightToUse, windowSetting.uEffDisplayWidth, windowSetting.uEffDisplayHeight);
+     OPENGL_CHECK_ERRORS;
+ 
+     GLubyte colour[] = {
+@@ -790,7 +790,7 @@ void OGLRender::DrawSimple2DTexture(float x0, float y0, float x1, float y1, floa
+             g_texRectTVtx[3].tcord[1].u,g_texRectTVtx[3].tcord[1].v,
+     };
+ 
+-     float w = windowSetting.uDisplayWidth / 2.0f, h = windowSetting.uDisplayHeight / 2.0f, inv = 1.0f;
++     float w = windowSetting.uEffDisplayWidth / 2.0f, h = windowSetting.uEffDisplayHeight / 2.0f, inv = 1.0f;
+ 
+     GLfloat vertices[] = {
+             -inv + g_texRectTVtx[0].x/ w, inv - g_texRectTVtx[0].y/ h, -g_texRectTVtx[0].z,1,
+@@ -838,7 +838,7 @@ void OGLRender::DrawSimpleRect(int nX0, int nY0, int nX1, int nY1, uint32 dwColo
+             r,g,b,a,
+             r,g,b,a,
+             r,g,b,a};
+-    float w = windowSetting.uDisplayWidth / 2.0f, h = windowSetting.uDisplayHeight / 2.0f, inv = 1.0f;
++    float w = windowSetting.uEffDisplayWidth / 2.0f, h = windowSetting.uEffDisplayHeight / 2.0f, inv = 1.0f;
+ 
+     GLfloat vertices[] = {
+             -inv + m_simpleRectVtx[1].x / w, inv - m_simpleRectVtx[0].y / h, -depth, 1,
+@@ -867,7 +867,7 @@ void OGLRender::DrawSimpleRect(int nX0, int nY0, int nX1, int nY1, uint32 dwColo
+ 
+ void OGLRender::SetViewportRender()
+ {
+-    glViewportWrapper(windowSetting.vpLeftW, windowSetting.uDisplayHeight-windowSetting.vpTopW-windowSetting.vpHeightW+windowSetting.statusBarHeightToUse, windowSetting.vpWidthW, windowSetting.vpHeightW);
++    glViewportWrapper(windowSetting.vpLeftW, windowSetting.uEffDisplayHeight-windowSetting.vpTopW-windowSetting.vpHeightW+windowSetting.statusBarHeightToUse, windowSetting.vpWidthW, windowSetting.vpHeightW);
+     OPENGL_CHECK_ERRORS;
+ }
+ 
+@@ -935,7 +935,7 @@ void OGLRender::UpdateScissor()
+         uint32 height = (gRDP.scissor.right*gRDP.scissor.bottom)/width;
+         glEnable(GL_SCISSOR_TEST);
+         OPENGL_CHECK_ERRORS;
+-        glScissor(0, int(height*windowSetting.fMultY+windowSetting.statusBarHeightToUse),
++        glScissorWrapper(0, int(height*windowSetting.fMultY+windowSetting.statusBarHeightToUse),
+             int(width*windowSetting.fMultX), int(height*windowSetting.fMultY) );
+         OPENGL_CHECK_ERRORS;
+     }
+@@ -956,13 +956,13 @@ void OGLRender::ApplyRDPScissor(bool force)
+         uint32 height = (gRDP.scissor.right*gRDP.scissor.bottom)/width;
+         glEnable(GL_SCISSOR_TEST);
+         OPENGL_CHECK_ERRORS;
+-        glScissor(0, int(height*windowSetting.fMultY+windowSetting.statusBarHeightToUse),
++        glScissorWrapper(0, int(height*windowSetting.fMultY+windowSetting.statusBarHeightToUse),
+             int(width*windowSetting.fMultX), int(height*windowSetting.fMultY) );
+         OPENGL_CHECK_ERRORS;
+     }
+     else
+     {
+-        glScissor(int(gRDP.scissor.left*windowSetting.fMultX), int((windowSetting.uViHeight-gRDP.scissor.bottom)*windowSetting.fMultY+windowSetting.statusBarHeightToUse),
++        glScissorWrapper(int(gRDP.scissor.left*windowSetting.fMultX), int((windowSetting.uViHeight-gRDP.scissor.bottom)*windowSetting.fMultY+windowSetting.statusBarHeightToUse),
+             int((gRDP.scissor.right-gRDP.scissor.left)*windowSetting.fMultX), int((gRDP.scissor.bottom-gRDP.scissor.top)*windowSetting.fMultY ));
+         OPENGL_CHECK_ERRORS;
+     }
+@@ -976,7 +976,7 @@ void OGLRender::ApplyScissorWithClipRatio(bool force)
+ 
+     glEnable(GL_SCISSOR_TEST);
+     OPENGL_CHECK_ERRORS;
+-    glScissor(windowSetting.clipping.left, int((windowSetting.uViHeight-gRSP.real_clip_scissor_bottom)*windowSetting.fMultY)+windowSetting.statusBarHeightToUse,
++    glScissorWrapper(windowSetting.clipping.left, int((windowSetting.uViHeight-gRSP.real_clip_scissor_bottom)*windowSetting.fMultY)+windowSetting.statusBarHeightToUse,
+         windowSetting.clipping.width, windowSetting.clipping.height);
+     OPENGL_CHECK_ERRORS;
+ 
+@@ -1005,7 +1005,12 @@ void OGLRender::EndRendering(void)
+ // TODO: Seems to be useless now.
+ void OGLRender::glViewportWrapper(GLint x, GLint y, GLsizei width, GLsizei height, bool flag)
+ {
+-    
++    // Apply aspect ratio centering offset (skip during render-to-texture)
++    if (!status.bHandleN64RenderTexture) {
++        x += windowSetting.vpBaseX;
++        y += windowSetting.vpBaseY;
++    }
++
+     static GLint mx=0,my=0;
+     static GLsizei m_width=0, m_height=0;
+     static bool mflag=true;
+@@ -1024,3 +1029,13 @@ void OGLRender::glViewportWrapper(GLint x, GLint y, GLsizei width, GLsizei heigh
+     }
+ }
+ 
++void OGLRender::glScissorWrapper(GLint x, GLint y, GLsizei width, GLsizei height)
++{
++    // Apply aspect ratio centering offset (skip during render-to-texture)
++    if (!status.bHandleN64RenderTexture) {
++        x += windowSetting.vpBaseX;
++        y += windowSetting.vpBaseY;
++    }
++    glScissor(x, y, width, height);
++}
++
+diff --git a/src/OGLRender.h b/src/OGLRender.h
+index 3b5382f..6c33c7b 100644
+--- a/src/OGLRender.h
++++ b/src/OGLRender.h
+@@ -87,6 +87,7 @@ public:
+     void EndRendering(void);
+ 
+     void glViewportWrapper(GLint x, GLint y, GLsizei width, GLsizei height, bool flag=true);
++    void glScissorWrapper(GLint x, GLint y, GLsizei width, GLsizei height);
+     virtual void EnableTexUnit(int unitno, BOOL flag);
+     virtual void SetTexWrapS(int unitno,GLuint flag);
+     virtual void SetTexWrapT(int unitno,GLuint flag);
+diff --git a/src/OGLRenderExt.cpp b/src/OGLRenderExt.cpp
+index 26e38df..52193d1 100644
+--- a/src/OGLRenderExt.cpp
++++ b/src/OGLRenderExt.cpp
+@@ -41,7 +41,7 @@ void OGLRender::DrawText(const char* str, RECT *rect)
+ 
+ void OGLRender::DrawSpriteR_Render()    // With Rotation
+ {
+-    glViewportWrapper(0, windowSetting.statusBarHeightToUse, windowSetting.uDisplayWidth, windowSetting.uDisplayHeight);
++    glViewportWrapper(0, windowSetting.statusBarHeightToUse, windowSetting.uEffDisplayWidth, windowSetting.uEffDisplayHeight);
+ 
+     GLboolean cullface = glIsEnabled(GL_CULL_FACE);
+     glDisable(GL_CULL_FACE);
+@@ -76,7 +76,7 @@ void OGLRender::DrawSpriteR_Render()    // With Rotation
+             g_texRectTVtx[3].tcord[1].u,g_texRectTVtx[3].tcord[1].v,
+     };
+ 
+-     float w = windowSetting.uDisplayWidth / 2.0f, h = windowSetting.uDisplayHeight / 2.0f, inv = 1.0f;
++     float w = windowSetting.uEffDisplayWidth / 2.0f, h = windowSetting.uEffDisplayHeight / 2.0f, inv = 1.0f;
+ 
+     GLfloat vertices[] = {
+             -inv + g_texRectTVtx[0].x/ w, inv - g_texRectTVtx[0].y/ h, -g_texRectTVtx[0].z,1,
+diff --git a/src/Video.cpp b/src/Video.cpp
+index c32e1ce..2e3a298 100644
+--- a/src/Video.cpp
++++ b/src/Video.cpp
+@@ -40,6 +40,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ #include "TextureManager.h"
+ #include "Video.h"
+ #include "m64p_common.h"
++#include "m64p_frontend.h" // ptr_CoreDoCommand, for the nx-redux overlay hook
+ #include "m64p_plugin.h"
+ #include "m64p_types.h"
+ #include "osal_dynamiclib.h"
+@@ -72,6 +73,11 @@ std::vector<uint32> frameWriteRecord;
+ 
+ void (*renderCallback)(int) = NULL;
+ 
++/* nx-redux overlay hook: CoreDoCommand, resolved from the core in
++   PluginStartup and used by nx_overlay.cpp for save/load-state and stop.
++   NULL is tolerated (the overlay then skips those state commands). */
++ptr_CoreDoCommand g_nxCoreDoCommand = NULL;
++
+ /* definitions of pointers to Core config functions */
+ ptr_ConfigOpenSection      ConfigOpenSection = NULL;
+ ptr_ConfigSetParameter     ConfigSetParameter = NULL;
+@@ -532,7 +538,40 @@ void SetVIScales()
+             }
+         }
+     }
+-    SetScreenMult(windowSetting.uDisplayWidth/windowSetting.fViWidth, windowSetting.uDisplayHeight/windowSetting.fViHeight);
++    // Compute effective display dimensions based on the configured aspect
++    // ratio, adding centering offsets so the N64 image is pillar/letterboxed
++    // instead of stretched. On a window that already matches the target ratio
++    // (e.g. 1024x768 with 4:3) the effective size equals the window, giving no
++    // bars and a zero offset — a no-op that matches upstream behaviour.
++    unsigned short dispW = windowSetting.uDisplayWidth;
++    unsigned short dispH = windowSetting.uDisplayHeight;
++    unsigned short effW = dispW;
++    unsigned short effH = dispH;
++
++    int ar = options.aspectRatio;
++    if (ar == 3) ar = 1;  // Auto = 4:3
++
++    if (ar == 1) {  // Force 4:3
++        if (dispW * 3 > dispH * 4) {
++            effW = dispH * 4 / 3;
++        } else if (dispH * 4 > dispW * 3) {
++            effH = dispW * 3 / 4;
++        }
++    } else if (ar == 2) {  // Force 16:9
++        if (dispW * 9 > dispH * 16) {
++            effW = dispH * 16 / 9;
++        } else if (dispH * 16 > dispW * 9) {
++            effH = dispW * 9 / 16;
++        }
++    }
++    // ar == 0 (Stretch): use full display dims (already set)
++
++    windowSetting.uEffDisplayWidth = effW;
++    windowSetting.uEffDisplayHeight = effH;
++    windowSetting.vpBaseX = (dispW - effW) / 2;
++    windowSetting.vpBaseY = (dispH - effH) / 2;
++
++    SetScreenMult(effW / windowSetting.fViWidth, effH / windowSetting.fViHeight);
+ }
+ 
+ void TriggerDPInterrupt(void)
+@@ -666,6 +705,10 @@ EXPORT m64p_error CALL PluginStartup(m64p_dynlib_handle CoreLibHandle, void *Con
+         return M64ERR_INCOMPATIBLE;
+     }
+ 
++    /* nx-redux overlay hook: resolve CoreDoCommand for save/load-state + stop.
++       NULL is tolerated — the overlay simply skips those commands. */
++    g_nxCoreDoCommand = (ptr_CoreDoCommand) osal_dynlib_getproc(CoreLibHandle, "CoreDoCommand");
++
+     /* open config section handles and set parameter default values */
+     if (!InitConfiguration())
+         return M64ERR_INTERNAL;
+diff --git a/src/Video.h b/src/Video.h
+index 7fbbcaa..17e1b43 100644
+--- a/src/Video.h
++++ b/src/Video.h
+@@ -44,6 +44,10 @@ typedef struct {
+     float   fMultX, fMultY;
+     int     vpLeftW, vpTopW, vpRightW, vpBottomW, vpWidthW, vpHeightW;
+ 
++    // Aspect-ratio constrained effective display area and centering offset
++    unsigned short uEffDisplayWidth, uEffDisplayHeight;
++    int vpBaseX, vpBaseY;
++
+     int     statusBarHeight, statusBarHeightToUse, toolbarHeight, toolbarHeightToUse;
+     BOOL    screenSaverStatus;
+ 
+diff --git a/src/nx_overlay.cpp b/src/nx_overlay.cpp
+new file mode 100644
+index 0000000..52e3b05
+--- /dev/null
++++ b/src/nx_overlay.cpp
+@@ -0,0 +1,279 @@
++// nx_overlay.cpp — nx-redux in-game overlay hook, Rice port.
++//
++// This is a straight port of GLideN64's overlay integration
++// (GLideN64-standalone.patch, src/DisplayWindow.cpp) with two adaptations:
++//   * Rice is single-threaded, so only GLideN64's NON-threaded branch is kept
++//     (no OpenGlCommand dispatch to a video thread — every call runs here, on
++//     the emu thread that also drives the plugin).
++//   * The GL work goes through the shared SDL overlay backend
++//     (overlay_sdl_get_backend(), the same one flycast/desktop use) instead of
++//     GLideN64's own OverlayGL backend.
++// State commands go through g_nxCoreDoCommand (resolved in PluginStartup, may
++// be NULL — then state actions are skipped). Behaviour is otherwise identical
++// to the GLideN64 hook; keep the two in sync.
++
++#include "nx_overlay.h"
++
++#include <SDL2/SDL.h>
++#include <cstdio>
++#include <cstring>
++#include <cstdlib>
++#include <initializer_list> // range-for over {0,1,4,5,8} below
++
++// ptr_CoreDoCommand + the M64CMD_* command enum.
++#include "m64p_frontend.h"
++// CoreVideo_GL_SwapBuffers (core video-extension function pointer).
++#include "Video.h"
++
++extern "C" {
++#include "emu_overlay.h"
++#include "emu_overlay_cfg.h"
++#include "emu_overlay_sdl.h"
++}
++
++// Resolved in Video.cpp::PluginStartup via osal_dynlib_getproc(...,
++// "CoreDoCommand"). NULL-tolerant: state save/load/stop are skipped when unset.
++extern ptr_CoreDoCommand g_nxCoreDoCommand;
++
++// ---------------------------------------------------------------------------
++// Overlay state
++// ---------------------------------------------------------------------------
++
++static EmuOvl s_overlay;
++static EmuOvlConfig s_overlayConfig;
++static bool s_overlayInitialized = false;
++static bool s_overlayConfigLoaded = false;
++static bool s_overlayConfigFailed = false;
++static char s_overlayJsonPath[512] = "";
++static char s_overlayIniPath[512] = "";
++static bool s_menuBtnPrev = false;
++static SDL_Joystick* s_joy = nullptr;
++static Uint8 s_prevHat = 0;
++static Uint32 s_prevButtons = 0;
++static bool s_resumeChecked = false;
++// Quit-with-autosave sequencing: M64CMD_STATE_SAVE is queued and serviced at
++// the next interrupt on the emu thread, so after requesting the auto-slot save
++// we let emulation run a few more frames before issuing M64CMD_STOP — stopping
++// in the same breath could tear the loop down before the save job runs.
++static bool s_quitPending = false;
++static int s_quitDelayFrames = 0;
++
++// ---------------------------------------------------------------------------
++// Overlay helpers
++// ---------------------------------------------------------------------------
++
++static void overlay_init_paths()
++{
++	const char* json = getenv("EMU_OVERLAY_JSON");
++	const char* ini  = getenv("EMU_OVERLAY_INI");
++	if (json) strncpy(s_overlayJsonPath, json, sizeof(s_overlayJsonPath) - 1);
++	if (ini)  strncpy(s_overlayIniPath,  ini,  sizeof(s_overlayIniPath) - 1);
++}
++
++static void overlay_ensure_init(int w, int h)
++{
++	if (s_overlayInitialized || s_overlayConfigFailed)
++		return;
++
++	// Load config once (permanent failure if config file is bad)
++	if (!s_overlayConfigLoaded) {
++		overlay_init_paths();
++
++		if (s_overlayJsonPath[0] == '\0')
++			return; // no overlay config provided — no-op, retry next frame
++
++		memset(&s_overlayConfig, 0, sizeof(s_overlayConfig));
++		if (emu_ovl_cfg_load(&s_overlayConfig, s_overlayJsonPath) != 0) {
++			fprintf(stderr, "[Overlay] Failed to load config: %s\n", s_overlayJsonPath);
++			s_overlayConfigFailed = true;
++			return;
++		}
++
++		if (s_overlayIniPath[0] != '\0') {
++			emu_ovl_cfg_read_ini(&s_overlayConfig, s_overlayIniPath);
++		}
++
++		s_overlayConfigLoaded = true;
++	}
++
++	// Try GL init on this (the plugin/emu) thread — retries each frame until
++	// the GL context is available.
++	EmuOvlRenderBackend* render = overlay_sdl_get_backend();
++	if (render->init(w, h) != 0)
++		return; // GL not ready yet, will retry next frame
++
++	const char* gameName = getenv("EMU_OVERLAY_GAME");
++	emu_ovl_init(&s_overlay, &s_overlayConfig, render,
++	             gameName ? gameName : "N64", w, h);
++
++	s_overlayInitialized = true;
++	fprintf(stderr, "[Overlay] Initialized successfully (%dx%d)\n", w, h);
++}
++
++static bool check_menu_button()
++{
++	SDL_JoystickUpdate();
++
++	if (!s_joy) {
++		if (SDL_NumJoysticks() > 0)
++			s_joy = SDL_JoystickOpen(0);
++		if (!s_joy)
++			return false;
++	}
++
++	bool pressed = SDL_JoystickGetButton(s_joy, 8) != 0;
++	bool justPressed = pressed && !s_menuBtnPrev;
++	s_menuBtnPrev = pressed;
++	return justPressed;
++}
++
++static Uint8 read_dpad_state()
++{
++	// Merge the d-pad hat with the analog stick (axes 0/1): on the Brick the FN
++	// switch reroutes the d-pad to the stick axes (for analog steering), which
++	// would otherwise leave the menu unnavigable.
++	Uint8 dir = SDL_JoystickGetHat(s_joy, 0);
++	const Sint16 T = 16384;
++	Sint16 ax = SDL_JoystickGetAxis(s_joy, 0);
++	Sint16 ay = SDL_JoystickGetAxis(s_joy, 1);
++	if (ay < -T) dir |= SDL_HAT_UP;
++	if (ay >  T) dir |= SDL_HAT_DOWN;
++	if (ax < -T) dir |= SDL_HAT_LEFT;
++	if (ax >  T) dir |= SDL_HAT_RIGHT;
++	return dir;
++}
++
++static EmuOvlInput poll_overlay_input()
++{
++	EmuOvlInput input;
++	memset(&input, 0, sizeof(input));
++
++	// Direct state polling instead of SDL events — SDL_PollEvent() may not
++	// deliver joystick events reliably from the plugin context.
++	SDL_JoystickUpdate();
++	if (!s_joy) return input;
++
++	// D-pad (hat) or analog stick — edge detect: only trigger on newly-pressed directions
++	Uint8 hat = read_dpad_state();
++	Uint8 hatPressed = hat & ~s_prevHat;
++	s_prevHat = hat;
++
++	if (hatPressed & SDL_HAT_UP)    input.up    = true;
++	if (hatPressed & SDL_HAT_DOWN)  input.down  = true;
++	if (hatPressed & SDL_HAT_LEFT)  input.left  = true;
++	if (hatPressed & SDL_HAT_RIGHT) input.right = true;
++
++	// Buttons — edge detect: only trigger on newly-pressed buttons
++	// SDL button indices: 0=A(hw), 1=B(hw), 4=L1, 5=R1, 8=Menu
++	static const int btnMap[] = {0, 1, 4, 5, 8};
++	Uint32 curButtons = 0;
++	for (int i = 0; i < 5; i++) {
++		if (SDL_JoystickGetButton(s_joy, btnMap[i]))
++			curButtons |= (1u << btnMap[i]);
++	}
++	Uint32 btnPressed = curButtons & ~s_prevButtons;
++	s_prevButtons = curButtons;
++
++	if (btnPressed & (1u << 0)) input.b    = true;
++	if (btnPressed & (1u << 1)) input.a    = true;
++	if (btnPressed & (1u << 4)) input.l1   = true;
++	if (btnPressed & (1u << 5)) input.r1   = true;
++	if (btnPressed & (1u << 8)) input.menu = true;
++
++	return input;
++}
++
++// Blocking overlay loop (non-threaded): everything runs here on the emu thread.
++static EmuOvlAction run_overlay_loop()
++{
++	// Pause audio while the menu is up.
++	SDL_PauseAudio(1);
++
++	emu_ovl_open(&s_overlay);
++
++	// Reset input edge detection state and drain pending SDL events.
++	s_prevHat = read_dpad_state();
++	s_prevButtons = 0;
++	for (int i : {0, 1, 4, 5, 8}) {
++		if (SDL_JoystickGetButton(s_joy, i))
++			s_prevButtons |= (1u << i);
++	}
++	SDL_Event ev;
++	while (SDL_PollEvent(&ev)) {}
++	s_menuBtnPrev = true; // prevent re-trigger
++
++	while (emu_ovl_is_active(&s_overlay)) {
++		EmuOvlInput input = poll_overlay_input();
++		emu_ovl_update(&s_overlay, &input);
++		emu_ovl_render(&s_overlay);
++		CoreVideo_GL_SwapBuffers();
++		SDL_Delay(16);
++	}
++
++	SDL_PauseAudio(0);
++
++	return emu_ovl_get_action(&s_overlay);
++}
++
++// ---------------------------------------------------------------------------
++// Public hook — called from COGLGraphicsContext::UpdateFrame() before the swap
++// ---------------------------------------------------------------------------
++
++void nx_overlay_before_swap(int w, int h)
++{
++	// Rice has no hi-res load-progress phase, so (unlike GLideN64) there is no
++	// isLoadProgressActive() gate to skip here.
++	overlay_ensure_init(w, h);
++
++	// One-shot: if NxRedux launched us with a resume request (game switcher
++	// A-press writes the slot to /tmp/resume_slot.txt), auto-load that save
++	// state once emulation is rendering frames — mirrors minarch's
++	// State_resume side of the handshake.
++	if (s_overlayInitialized && !s_resumeChecked) {
++		s_resumeChecked = true;
++		int resumeSlot = emu_ovl_consume_resume_slot();
++		if (resumeSlot >= 0 && g_nxCoreDoCommand) {
++			g_nxCoreDoCommand(M64CMD_STATE_SET_SLOT, resumeSlot, nullptr);
++			g_nxCoreDoCommand(M64CMD_STATE_LOAD, 0, nullptr);
++		}
++	}
++
++	if (s_quitPending) {
++		// Auto-save requested by QUIT below: give the queued save job a few
++		// frames to be serviced, then stop for real.
++		if (--s_quitDelayFrames <= 0) {
++			s_quitPending = false;
++			if (g_nxCoreDoCommand)
++				g_nxCoreDoCommand(M64CMD_STOP, 0, nullptr);
++		}
++	} else if (s_overlayInitialized && check_menu_button()) {
++		EmuOvlAction action = run_overlay_loop();
++		if (action == EMU_OVL_ACTION_QUIT) {
++			if (g_nxCoreDoCommand) {
++				// Auto-save to the hidden auto-resume slot so the game switcher
++				// always resumes at the exact quit moment — parity with
++				// DC.pak's quit and minarch's Menu_autosaveQuit. Screenshot +
++				// .minui slot-file repoint happen here; the state itself is
++				// written by the queued job a frame or two later, before the
++				// delayed M64CMD_STOP above.
++				g_nxCoreDoCommand(M64CMD_STATE_SET_SLOT, EMU_OVL_AUTO_SLOT, nullptr);
++				g_nxCoreDoCommand(M64CMD_STATE_SAVE, 1, nullptr);
++				emu_ovl_save_slot_screenshot(&s_overlay, EMU_OVL_AUTO_SLOT);
++				s_quitPending = true;
++				s_quitDelayFrames = 3;
++			}
++		} else if (action == EMU_OVL_ACTION_SAVE_STATE) {
++			int slot = emu_ovl_get_action_param(&s_overlay);
++			if (g_nxCoreDoCommand) {
++				g_nxCoreDoCommand(M64CMD_STATE_SET_SLOT, slot, nullptr);
++				g_nxCoreDoCommand(M64CMD_STATE_SAVE, 1, nullptr);
++			}
++			emu_ovl_save_slot_screenshot(&s_overlay, slot);
++		} else if (action == EMU_OVL_ACTION_LOAD_STATE) {
++			if (g_nxCoreDoCommand) {
++				g_nxCoreDoCommand(M64CMD_STATE_SET_SLOT, emu_ovl_get_action_param(&s_overlay), nullptr);
++				g_nxCoreDoCommand(M64CMD_STATE_LOAD, 0, nullptr);
++			}
++		}
++	}
++}
+diff --git a/src/nx_overlay.h b/src/nx_overlay.h
+new file mode 100644
+index 0000000..88176f8
+--- /dev/null
++++ b/src/nx_overlay.h
+@@ -0,0 +1,19 @@
++// nx_overlay.h — nx-redux in-game overlay hook for the Rice video plugin.
++//
++// The overlay menu (Continue / Save State / Load State / Quit, plus the game
++// switcher resume + quit-autosave handshake) is compiled INTO the video
++// plugin, exactly as it is into GLideN64 (see src/DisplayWindow.cpp in
++// GLideN64-standalone.patch, the reference implementation). Rice is
++// single-threaded, so this is the non-threaded branch of that hook driven off
++// the shared SDL overlay backend (overlay_sdl_get_backend()).
++//
++// Declared with plain C++ linkage: the sole caller is
++// COGLGraphicsContext::UpdateFrame(), which is C++ in this plugin.
++#ifndef NX_OVERLAY_H
++#define NX_OVERLAY_H
++
++// Called from COGLGraphicsContext::UpdateFrame() immediately before the buffer
++// swap. w/h are the current display dimensions (windowSetting.uDisplay*).
++void nx_overlay_before_swap(int w, int h);
++
++#endif // NX_OVERLAY_H

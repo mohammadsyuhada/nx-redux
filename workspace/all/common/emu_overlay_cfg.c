@@ -356,6 +356,24 @@ static int parse_ini_int(const char* val) {
 // pre-launch options editor and launch.sh can never disagree about what a
 // stored value means.
 static int parse_item_value(const EmuOvlItem* item, const char* val) {
+	// mupen64plus re-serializes mupen64plus.cfg after a play session -- a video
+	// plugin's ConfigSaveSection rewrites the whole file even under
+	// --nosaveoptions -- and wraps string values in double quotes, so a stored
+	// value can arrive here as "rice" rather than rice. Strip ONE surrounding
+	// pair of double quotes before the per-type dispatch so this reader agrees
+	// with launch.sh's awk resolver (which already unquotes). Applied to every
+	// type: in practice only strings are quoted, but the tolerance is free and
+	// keeps this function's contract ("what a stored value means") honest.
+	char unquoted[EMU_OVL_MAX_STR];
+	if (val) {
+		size_t len = strlen(val);
+		if (len >= 2 && val[0] == '"' && val[len - 1] == '"' &&
+			len - 2 < sizeof(unquoted)) {
+			memcpy(unquoted, val + 1, len - 2);
+			unquoted[len - 2] = '\0';
+			val = unquoted;
+		}
+	}
 	switch (item->type) {
 	case EMU_OVL_TYPE_BOOL:
 		return parse_ini_bool(val);
