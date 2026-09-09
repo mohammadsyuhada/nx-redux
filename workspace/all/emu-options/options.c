@@ -88,6 +88,11 @@ static OptsMinarchState mst;
 static char row_text[MAX_ROWS][ROW_TEXT_MAX];
 // Section screen only: the pill list takes an array of label pointers.
 static const char* row_ptr[MAX_ROWS];
+// Section screen only: real cfg.sections[] index behind each visible row (a
+// row is skipped when emu_ovl_cfg_section_visible() hides it), so the editor
+// never indexes the schema by on-screen row. -1 marks the trailing per-game
+// "Clear All Overrides" row. Rebuilt by build_section_rows.
+static int row_section[MAX_ROWS];
 /*
  * Item screen only. UI_renderSettingsPage borrows every string by pointer, and
  * the rows are built once per state change but rendered on many later frames,
@@ -414,13 +419,24 @@ static void row_value_text(const EmuOvlItem* item, char* out, int out_size) {
 
 static int build_section_rows(bool per_game) {
 	int n = 0;
-	for (int s = 0; s < cfg.section_count && n < MAX_ROWS; s++)
-		snprintf(row_text[n++], ROW_TEXT_MAX, "%s", cfg.sections[s].name);
+	for (int s = 0; s < cfg.section_count && n < MAX_ROWS; s++) {
+		// A section gated off by the current staged plugin choice is hidden as
+		// a row but kept in the array — per-game bookkeeping still indexes it
+		// by real section index (st.global_value[s][i], reset, save all).
+		if (!emu_ovl_cfg_section_visible(&cfg, s))
+			continue;
+		row_section[n] = s;
+		snprintf(row_text[n], ROW_TEXT_MAX, "%s", cfg.sections[s].name);
+		n++;
+	}
 	// The count is this row's only feedback: clearing overrides changes nothing
 	// on this screen (section rows carry no values), so without it a press of A
-	// here looks like it did nothing at all.
-	if (per_game && n < MAX_ROWS)
-		snprintf(row_text[n++], ROW_TEXT_MAX, "Clear All Overrides (%d)", count_overrides());
+	// here looks like it did nothing at all. row_section -1 flags it below.
+	if (per_game && n < MAX_ROWS) {
+		row_section[n] = -1;
+		snprintf(row_text[n], ROW_TEXT_MAX, "Clear All Overrides (%d)", count_overrides());
+		n++;
+	}
 	for (int i = 0; i < n; i++)
 		row_ptr[i] = row_text[i];
 	return n;
@@ -501,11 +517,17 @@ static void run_editor(const char* title, bool per_game) {
 			if (PAD_navigateMenu(&section_selected, row_count)) {
 				dirty = true;
 			} else if (PAD_justPressed(BTN_A)) {
-				if (section_selected >= cfg.section_count) {
+				if (row_section[section_selected] < 0) {
 					clear_all_overrides(); // the trailing per-game row
 					row_count = build_section_rows(per_game);
+					// Clearing can revert the staged VideoPlugin gate and hide
+					// sections, so the row count may shrink below the trailing
+					// row the cursor sat on — reclamp so the highlight stays valid.
+					if (section_selected >= row_count)
+						section_selected = row_count ? row_count - 1 : 0;
+					section_scroll = 0;
 				} else {
-					current_section = section_selected;
+					current_section = row_section[section_selected];
 					item_selected = 0;
 					item_scroll = 0;
 					row_count = build_item_rows(current_section, per_game);
@@ -521,8 +543,19 @@ static void run_editor(const char* title, bool per_game) {
 			if (PAD_navigateMenu(&item_selected, row_count)) {
 				dirty = true;
 			} else if (PAD_justPressed(BTN_B)) {
-				section_selected = current_section;
+				// Editing the plugin gate in its own item page can hide or show
+				// other sections, so rebuild the rows and re-find the one for
+				// the section we just left rather than trusting its old
+				// on-screen index; clamp to the top if it hid itself.
 				row_count = build_section_rows(per_game);
+				section_selected = 0;
+				for (int i = 0; i < row_count; i++) {
+					if (row_section[i] == current_section) {
+						section_selected = i;
+						break;
+					}
+				}
+				section_scroll = 0;
 				state = ED_SECTIONS;
 				dirty = true;
 			} else if (item_selected >= sec->item_count) {

@@ -53,6 +53,13 @@ typedef struct {
 typedef struct {
 	char name[EMU_OVL_MAX_STR];
 	char ini_section[EMU_OVL_MAX_STR]; // INI section for this group (optional, falls back to global config_section)
+	// Optional visibility condition (schema "visible_when": {"ini_section","key","value"}):
+	// the editor lists this section only while the referenced item's STAGED
+	// value equals `value`. All three empty = unconditional. ini_section may be
+	// empty → resolves to the global config_section, like items do.
+	char vis_ini_section[EMU_OVL_MAX_STR];
+	char vis_key[EMU_OVL_MAX_STR];
+	char vis_value[EMU_OVL_MAX_STR];
 	EmuOvlItem items[EMU_OVL_MAX_ITEMS];
 	int item_count;
 } EmuOvlSection;
@@ -89,6 +96,12 @@ EmuOvlItem* emu_ovl_cfg_find_item(EmuOvlConfig* cfg, const char* ini_section, co
 // emu_ovl_cfg_read_ini applies. False (and *out_value untouched) when the
 // string cannot be parsed as this item's type.
 bool emu_ovl_cfg_parse_value(const EmuOvlItem* item, const char* str, int* out_value);
+
+// True when sections[sec_idx] should be listed: no visible_when, OR the
+// referenced item's staged_value equals the parsed condition value. Fails
+// OPEN (visible) when the reference cannot be resolved or the value cannot be
+// parsed as that item's type — a schema typo must never hide settings.
+bool emu_ovl_cfg_section_visible(EmuOvlConfig* cfg, int sec_idx);
 
 // Internal int -> INI string, the single formatter emu_ovl_cfg_write_ini also
 // goes through. `value` is explicit so callers can format either the staged

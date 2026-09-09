@@ -13,7 +13,7 @@
         {
           "key": "VideoPlugin",
           "label": "Video Plugin",
-          "description": "Restart to apply. Rice: fast, best on Brick. GLideN64: accurate, hi-res texture packs; sections below are GLideN64-only",
+          "description": "Restart to apply. Rice: fast, best on Brick. GLideN64: accurate, hi-res texture packs. Sections below follow the selected plugin",
           "type": "enum",
           "values": ["gliden64", "rice"],
           "labels": ["GLideN64", "Rice"],
@@ -23,6 +23,7 @@
     },
     {
       "name": "Rendering",
+      "visible_when": {"ini_section": "NxRedux", "key": "VideoPlugin", "value": "gliden64"},
       "items": [
         {
           "key": "UseNativeResolutionFactor",
@@ -117,6 +118,7 @@
     },
     {
       "name": "Texture Enhancement",
+      "visible_when": {"ini_section": "NxRedux", "key": "VideoPlugin", "value": "gliden64"},
       "items": [
         {
           "key": "txFilterMode",
@@ -154,6 +156,7 @@
     },
     {
       "name": "Hi-Res Textures",
+      "visible_when": {"ini_section": "NxRedux", "key": "VideoPlugin", "value": "gliden64"},
       "items": [
         {
           "key": "txHiresEnable",
@@ -187,6 +190,7 @@
     },
     {
       "name": "Dithering",
+      "visible_when": {"ini_section": "NxRedux", "key": "VideoPlugin", "value": "gliden64"},
       "items": [
         {
           "key": "EnableDitheringPattern",
@@ -222,6 +226,7 @@
     },
     {
       "name": "Frame Buffer",
+      "visible_when": {"ini_section": "NxRedux", "key": "VideoPlugin", "value": "gliden64"},
       "items": [
         {
           "key": "EnableFBEmulation",
@@ -275,6 +280,7 @@
     },
     {
       "name": "Performance",
+      "visible_when": {"ini_section": "NxRedux", "key": "VideoPlugin", "value": "gliden64"},
       "items": [
         {
           "key": "EnableInaccurateTextureCoordinates",
@@ -317,6 +323,7 @@
     },
     {
       "name": "Gamma",
+      "visible_when": {"ini_section": "NxRedux", "key": "VideoPlugin", "value": "gliden64"},
       "items": [
         {
           "key": "ForceGammaCorrection",
@@ -334,6 +341,177 @@
           "labels": ["1.0", "1.5", "2.0", "2.5", "3.0", "3.5", "4.0", "4.5", "5.0"],
           "float_scale": 10,
           "default": 20
+        }
+      ]
+    },
+    {
+      "name": "Rendering",
+      "ini_section": "Video-Rice",
+      "visible_when": {"ini_section": "NxRedux", "key": "VideoPlugin", "value": "rice"},
+      "items": [
+        {
+          "key": "AspectRatio",
+          "label": "Aspect Ratio",
+          "description": "Keep on 4:3 for correct geometry. 16:9 and Stretch distort the picture -- Rice has no true widescreen; use GLideN64 for that",
+          "type": "cycle",
+          "values": [1, 2, 0],
+          "labels": ["4:3", "16:9", "Stretch"],
+          "default": 1
+        },
+        {
+          "key": "MultiSampling",
+          "label": "Multi-Sampling",
+          "description": "Multi-sample anti-aliasing level (costs GPU time)",
+          "type": "cycle",
+          "values": [0, 2, 4, 8],
+          "labels": ["Off", "2x", "4x", "8x"],
+          "default": 0
+        },
+        {
+          "key": "Mipmapping",
+          "label": "Mipmapping",
+          "description": "Texture mipmapping quality",
+          "type": "cycle",
+          "values": [0, 1, 2, 3],
+          "labels": ["Off", "Nearest", "Bilinear", "Trilinear"],
+          "default": 2
+        },
+        {
+          "key": "AnisotropicFiltering",
+          "label": "Anisotropic Filtering",
+          "description": "Anisotropic filtering for mipmapped textures (no effect when Mipmapping is Off)",
+          "type": "cycle",
+          "values": [0, 2, 4, 8, 16],
+          "labels": ["Off", "2x", "4x", "8x", "16x"],
+          "default": 0
+        },
+        {
+          "key": "ForceTextureFilter",
+          "label": "Texture Filter",
+          "description": "Auto lets the game choose; or force texture filtering off or on",
+          "type": "cycle",
+          "values": [0, 1, 2],
+          "labels": ["Auto", "Force Off", "Force On"],
+          "default": 0
+        },
+        {
+          "key": "FogMethod",
+          "label": "Fog",
+          "description": "Fog generation",
+          "type": "cycle",
+          "values": [0, 1],
+          "labels": ["Off", "On"],
+          "default": 1
+        },
+        {
+          "key": "AccurateTextureMapping",
+          "label": "Accurate Texture Mapping",
+          "description": "Alternative texture coordinate clamping (more accurate)",
+          "type": "bool",
+          "default": true
+        }
+      ]
+    },
+    {
+      "name": "Texture Enhancement",
+      "ini_section": "Video-Rice",
+      "visible_when": {"ini_section": "NxRedux", "key": "VideoPlugin", "value": "rice"},
+      "items": [
+        {
+          "key": "TextureEnhancement",
+          "label": "Enhancement",
+          "description": "Texture upscaling filter (CPU intensive)",
+          "type": "cycle",
+          "values": [0, 1, 2, 3, 4, 5, 6, 7],
+          "labels": ["None", "2X", "2xSaI", "HQ2X", "LQ2X", "HQ4X", "Sharpen", "Sharpen More"],
+          "default": 0
+        },
+        {
+          "key": "TextureEnhancementControl",
+          "label": "Enhancement Control",
+          "description": "Secondary smoothing pass for the enhancement filter",
+          "type": "cycle",
+          "values": [0, 1, 2, 3, 4],
+          "labels": ["None", "1", "2", "3", "4"],
+          "default": 0
+        },
+        {
+          "key": "TextureQuality",
+          "label": "Texture Quality",
+          "description": "Color depth used for textures",
+          "type": "cycle",
+          "values": [0, 1, 2],
+          "labels": ["Default", "32-bit", "16-bit"],
+          "default": 0
+        }
+      ]
+    },
+    {
+      "name": "Frame Buffer",
+      "ini_section": "Video-Rice",
+      "visible_when": {"ini_section": "NxRedux", "key": "VideoPlugin", "value": "rice"},
+      "items": [
+        {
+          "key": "FrameBufferSetting",
+          "label": "FB Emulation",
+          "description": "Frame buffer emulation; ROM default uses the per-game setting",
+          "type": "cycle",
+          "values": [0, 1],
+          "labels": ["ROM default", "Disabled"],
+          "default": 0
+        },
+        {
+          "key": "RenderToTexture",
+          "label": "Render to Texture",
+          "description": "Render-to-texture emulation",
+          "type": "cycle",
+          "values": [0, 1, 2, 3, 4],
+          "labels": ["None", "Ignore", "Normal", "Write Back", "Write Back + Reload"],
+          "default": 0
+        },
+        {
+          "key": "ScreenUpdateSetting",
+          "label": "Screen Update",
+          "description": "When the screen is updated; try other values if a game flickers",
+          "type": "cycle",
+          "values": [0, 1, 2, 3, 4, 5, 6, 7],
+          "labels": ["ROM default", "VI origin update", "VI origin change", "CI change", "First CI change", "First primitive", "Before screen clear", "After screen drawn"],
+          "default": 4
+        },
+        {
+          "key": "InN64Resolution",
+          "label": "N64-Res Frame Buffers",
+          "description": "Emulated frame buffers at native N64 resolution",
+          "type": "bool",
+          "default": false
+        }
+      ]
+    },
+    {
+      "name": "Performance",
+      "ini_section": "Video-Rice",
+      "visible_when": {"ini_section": "NxRedux", "key": "VideoPlugin", "value": "rice"},
+      "items": [
+        {
+          "key": "FastTextureLoading",
+          "label": "Fast Texture Loading",
+          "description": "Faster texture loading and CRC (may glitch some games)",
+          "type": "bool",
+          "default": false
+        },
+        {
+          "key": "SkipFrame",
+          "label": "Skip Frame",
+          "description": "Render every other frame",
+          "type": "bool",
+          "default": false
+        },
+        {
+          "key": "FullTMEMEmulation",
+          "label": "Full TMEM Emulation",
+          "description": "Full texture memory emulation (fixes some games, breaks others, slower)",
+          "type": "bool",
+          "default": false
         }
       ]
     }

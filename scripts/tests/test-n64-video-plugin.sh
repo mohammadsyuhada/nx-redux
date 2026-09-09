@@ -225,4 +225,58 @@ check_default "$PAK_5040/default-smartpro.cfg" rice
 check_default "$PAK_5050/default.cfg"          gliden64
 echo "PASS: l default cfgs end with [NxRedux] carrying the platform default"
 
+# ---------------------------------------------------------------------------
+# m. launch.sh --gfx fallback branch. Eval the extracted video-plugin block in
+#    a /bin/sh child that has sourced the platform's nx_paths.sh (for
+#    nx_video_plugin), with PAK_DIR/EMU_DIR pointed at temp dirs and a per-game
+#    cfg that selects rice. (1) no rice .so in PAK_DIR -> GFX_PLUGIN is the
+#    GLideN64 .so and a "rice selected but" warning hits stderr; (2) touch the
+#    .so -> GFX_PLUGIN is the rice .so and stderr is empty.
+# ---------------------------------------------------------------------------
+case_m() { # $1 platform
+    _p="$1"
+    if [ "$_p" = tg5040 ]; then _pak="$PAK_5040"; _dev=brick
+    else _pak="$PAK_5050"; _dev=tg5050; fi
+    _blk=$(extract_launch_vp "$_pak/launch.sh")
+    [ -n "$_blk" ] || fail "m/$_p: launch.sh video-plugin block empty (markers wrong)"
+    _fakepak="$TMP/m-$_p-pak"; _emudir="$TMP/m-$_p-emu"; _su="$TMP/m-$_p-su"
+    _game="$TMP/m-$_p-game.cfg"
+    mkdir -p "$_fakepak" "$_emudir"
+    mk_nx "$_game" rice
+
+    # The block is passed to the child verbatim (M_BLOCK) and eval'd, so the
+    # parent shell never expands its $EMU_DIR/$PAK_DIR references. nx_paths.sh
+    # is sourced with the real PAK_DIR (to define nx_video_plugin); PAK_DIR and
+    # EMU_DIR are then repointed at the temp dirs before the block runs.
+    _run='. "$PAK_DIR/nx_paths.sh"
+          PAK_DIR="$M_PAK"; EMU_DIR="$M_EMU"
+          NX_GAME_CFG="$M_GAME"; EMU_CFG="/no/global.cfg"
+          eval "$M_BLOCK"
+          printf %s "$GFX_PLUGIN"'
+
+    # (1) rice.so absent -> GLideN64 + warning.
+    _out=$(SHARED_USERDATA_PATH="$_su" PAK_DIR="$_pak" DEVICE="$_dev" \
+           M_PAK="$_fakepak" M_EMU="$_emudir" M_GAME="$_game" M_BLOCK="$_blk" \
+           sh -c "$_run" 2>"$TMP/m-$_p-err1")
+    case "$_out" in
+        */mupen64plus-video-GLideN64.so) ;;
+        *) fail "m/$_p(1): GFX_PLUGIN='$_out', expected .../mupen64plus-video-GLideN64.so" ;;
+    esac
+    grep -q 'rice selected but' "$TMP/m-$_p-err1" || fail "m/$_p(1): missing 'rice selected but' warning"
+
+    # (2) rice.so present -> the rice .so, empty stderr.
+    touch "$_fakepak/mupen64plus-video-rice.so"
+    _out=$(SHARED_USERDATA_PATH="$_su" PAK_DIR="$_pak" DEVICE="$_dev" \
+           M_PAK="$_fakepak" M_EMU="$_emudir" M_GAME="$_game" M_BLOCK="$_blk" \
+           sh -c "$_run" 2>"$TMP/m-$_p-err2")
+    [ "$_out" = "$_fakepak/mupen64plus-video-rice.so" ] \
+        || fail "m/$_p(2): GFX_PLUGIN='$_out', expected $_fakepak/mupen64plus-video-rice.so"
+    if [ -s "$TMP/m-$_p-err2" ]; then
+        fail "m/$_p(2): expected empty stderr, got: $(cat "$TMP/m-$_p-err2")"
+    fi
+}
+case_m tg5040
+case_m tg5050
+echo "PASS: m launch.sh --gfx falls back to GLideN64+warns without rice.so, uses rice.so when present"
+
 echo "PASS: test-n64-video-plugin.sh"

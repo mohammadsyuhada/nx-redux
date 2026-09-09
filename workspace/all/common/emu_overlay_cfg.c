@@ -231,6 +231,29 @@ static void parse_section(const cJSON* json_sec, EmuOvlSection* sec) {
 	const char* ini_sec = json_get_string(json_sec, "ini_section");
 	safe_strcpy(sec->ini_section, sizeof(sec->ini_section), ini_sec);
 
+	// Optional visibility condition. The memset above leaves all three fields
+	// empty (= unconditional) when "visible_when" is missing or not an object.
+	// `value` may be a JSON string, an integral number ("%d") or a bool
+	// ("true"/"false"); it is stored as a string and parsed against the
+	// referenced item's type at query time (emu_ovl_cfg_section_visible).
+	const cJSON* vis = cJSON_GetObjectItemCaseSensitive(json_sec, "visible_when");
+	if (cJSON_IsObject(vis)) {
+		safe_strcpy(sec->vis_ini_section, sizeof(sec->vis_ini_section),
+					json_get_string(vis, "ini_section"));
+		safe_strcpy(sec->vis_key, sizeof(sec->vis_key), json_get_string(vis, "key"));
+		const cJSON* vval = cJSON_GetObjectItemCaseSensitive(vis, "value");
+		if (cJSON_IsString(vval) && vval->valuestring) {
+			safe_strcpy(sec->vis_value, sizeof(sec->vis_value), vval->valuestring);
+		} else if (cJSON_IsBool(vval)) {
+			safe_strcpy(sec->vis_value, sizeof(sec->vis_value),
+						cJSON_IsTrue(vval) ? "true" : "false");
+		} else if (cJSON_IsNumber(vval)) {
+			char nbuf[32];
+			snprintf(nbuf, sizeof(nbuf), "%d", vval->valueint);
+			safe_strcpy(sec->vis_value, sizeof(sec->vis_value), nbuf);
+		}
+	}
+
 	sec->item_count = 0;
 	const cJSON* items_arr = cJSON_GetObjectItemCaseSensitive(json_sec, "items");
 	if (!cJSON_IsArray(items_arr))
@@ -367,6 +390,9 @@ static int parse_item_value(const EmuOvlItem* item, const char* val) {
 	char unquoted[EMU_OVL_MAX_STR];
 	if (val) {
 		size_t len = strlen(val);
+		// The len-2 < sizeof(unquoted) bound is deliberate: a quoted value too
+		// long for the scratch buffer is left un-stripped and falls through to
+		// the untouched string rather than being truncated.
 		if (len >= 2 && val[0] == '"' && val[len - 1] == '"' &&
 			len - 2 < sizeof(unquoted)) {
 			memcpy(unquoted, val + 1, len - 2);
@@ -457,6 +483,25 @@ bool emu_ovl_cfg_parse_value(const EmuOvlItem* item, const char* str, int* out_v
 	if (out_value)
 		*out_value = val;
 	return true;
+}
+
+bool emu_ovl_cfg_section_visible(EmuOvlConfig* cfg, int sec_idx) {
+	if (!cfg || sec_idx < 0 || sec_idx >= cfg->section_count)
+		return true;
+	const EmuOvlSection* sec = &cfg->sections[sec_idx];
+	if (sec->vis_key[0] == '\0')
+		return true; // unconditional
+	// Empty vis_ini_section resolves to the global config_section, like items.
+	const char* ini = sec->vis_ini_section[0] ? sec->vis_ini_section : cfg->config_section;
+	EmuOvlItem* item = emu_ovl_cfg_find_item(cfg, ini, sec->vis_key, NULL, NULL);
+	if (!item)
+		return true; // dangling reference -> fail open
+	int want;
+	if (!emu_ovl_cfg_parse_value(item, sec->vis_value, &want))
+		return true; // unparsable condition value -> fail open
+	// Compare STAGED, not current: flipping the gate item and pressing B must
+	// re-list sections before anything is saved.
+	return item->staged_value == want;
 }
 
 int emu_ovl_cfg_read_ini(EmuOvlConfig* cfg, const char* ini_path) {

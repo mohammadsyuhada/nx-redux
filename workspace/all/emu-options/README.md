@@ -9,6 +9,29 @@ A pak opts in by shipping an `options.sh` next to its `launch.sh` — that
 file's existence is the capability marker nxredux probes; nothing else is
 wired per-emulator.
 
+## Conditional sections (`visible_when`)
+
+A schema section may carry a `visible_when` object so the editor lists it only
+in a particular state:
+
+```json
+"visible_when": {"ini_section": "NxRedux", "key": "VideoPlugin", "value": "rice"}
+```
+
+The section is listed only while the referenced item's **staged** value equals
+`value` — staged, not saved, so flipping the referenced item and paging back
+(**B**) re-lists sections before anything is written. `ini_section` is optional
+and falls back to the global `config_section`, exactly like an item's own.
+`value` may be a JSON string, integer or bool in the schema; it is compared
+using the referenced item's type. It **fails open**: an unresolvable reference
+(missing key) or an unparsable `value` leaves the section visible, so a schema
+typo can never hide settings. A section with no `visible_when` is always listed.
+Hidden sections are dropped only as on-screen rows — they stay in the config and
+are still read, reset and saved by real section index.
+
+The N64 pak is the adopter: its `[NxRedux] VideoPlugin` enum gates the GLideN64
+sections on `gliden64` and the Rice sections on `rice`.
+
 ## minarch schema cache
 
 minarch core options are registered by the core at runtime, so their editor

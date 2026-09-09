@@ -189,11 +189,200 @@ static void test_read_ini_quoted(void) {
 	emu_ovl_cfg_free(&cfg);
 }
 
+// Section visibility gate (schema "visible_when"). A gate item (enum) plus a
+// numeric gate (cycle item), an ungated section, a section referencing a
+// missing key, and a section with an unparsable gate value. Visibility must
+// track the referenced item's STAGED value, and every unresolvable reference
+// must fail OPEN (visible) so a schema typo can never hide settings.
+static const char* VIS_SCHEMA =
+	"{\n"
+	"  \"config_section\": \"Main\",\n"
+	"  \"sections\": [\n"
+	"    { \"name\": \"Gate\", \"ini_section\": \"Ctl\", \"items\": [\n"
+	"      { \"key\": \"plugin\", \"label\": \"Plugin\", \"type\": \"enum\",\n"
+	"        \"values\": [\"alpha\", \"beta\"], \"labels\": [\"Alpha\", \"Beta\"],\n"
+	"        \"default\": \"alpha\" },\n"
+	"      { \"key\": \"level\", \"label\": \"Level\", \"type\": \"cycle\",\n"
+	"        \"values\": [0, 1, 2], \"labels\": [\"Lo\", \"Mid\", \"Hi\"],\n"
+	"        \"default\": 1 }\n"
+	"    ]},\n"
+	"    { \"name\": \"AlphaOnly\", \"ini_section\": \"SecA\",\n"
+	"      \"visible_when\": {\"ini_section\": \"Ctl\", \"key\": \"plugin\", \"value\": \"alpha\"},\n"
+	"      \"items\": [ { \"key\": \"a1\", \"label\": \"A1\", \"type\": \"bool\", \"default\": false } ] },\n"
+	"    { \"name\": \"LevelTwo\", \"ini_section\": \"SecB\",\n"
+	"      \"visible_when\": {\"ini_section\": \"Ctl\", \"key\": \"level\", \"value\": 2},\n"
+	"      \"items\": [ { \"key\": \"b1\", \"label\": \"B1\", \"type\": \"bool\", \"default\": false } ] },\n"
+	"    { \"name\": \"Always\", \"ini_section\": \"SecC\",\n"
+	"      \"items\": [ { \"key\": \"c1\", \"label\": \"C1\", \"type\": \"bool\", \"default\": false } ] },\n"
+	"    { \"name\": \"MissingRef\", \"ini_section\": \"SecD\",\n"
+	"      \"visible_when\": {\"ini_section\": \"Ctl\", \"key\": \"nope\", \"value\": \"x\"},\n"
+	"      \"items\": [ { \"key\": \"d1\", \"label\": \"D1\", \"type\": \"bool\", \"default\": false } ] },\n"
+	"    { \"name\": \"BadValue\", \"ini_section\": \"SecE\",\n"
+	"      \"visible_when\": {\"ini_section\": \"Ctl\", \"key\": \"level\", \"value\": \"not-a-number\"},\n"
+	"      \"items\": [ { \"key\": \"e1\", \"label\": \"E1\", \"type\": \"bool\", \"default\": false } ] }\n"
+	"  ]\n"
+	"}\n";
+
+static void test_visible_when(void) {
+	reset_root();
+	write_file(ROOT "/schema.json", VIS_SCHEMA);
+	EmuOvlConfig cfg;
+	assert(emu_ovl_cfg_load(&cfg, ROOT "/schema.json") == 0);
+	assert(cfg.section_count == 6);
+
+	// Parsed fields: string gate, numeric gate stored as "%d", ungated empty.
+	assert(strcmp(cfg.sections[1].vis_ini_section, "Ctl") == 0);
+	assert(strcmp(cfg.sections[1].vis_key, "plugin") == 0);
+	assert(strcmp(cfg.sections[1].vis_value, "alpha") == 0);
+	assert(strcmp(cfg.sections[2].vis_value, "2") == 0); // JSON number -> "%d"
+	assert(cfg.sections[3].vis_key[0] == '\0');			 // no visible_when
+
+	EmuOvlItem* plugin = emu_ovl_cfg_find_item(&cfg, "Ctl", "plugin", NULL, NULL);
+	EmuOvlItem* level = emu_ovl_cfg_find_item(&cfg, "Ctl", "level", NULL, NULL);
+	assert(plugin && level);
+	assert(plugin->staged_value == 0); // "alpha"
+	assert(level->staged_value == 1);
+
+	// Ungated sections and unresolvable references are always visible.
+	assert(emu_ovl_cfg_section_visible(&cfg, 0) == true); // ungated Gate
+	assert(emu_ovl_cfg_section_visible(&cfg, 3) == true); // ungated Always
+	assert(emu_ovl_cfg_section_visible(&cfg, 4) == true); // missing key -> open
+	assert(emu_ovl_cfg_section_visible(&cfg, 5) == true); // unparsable -> open
+
+	// String gate follows the STAGED value both ways.
+	assert(emu_ovl_cfg_section_visible(&cfg, 1) == true); // plugin==alpha
+	plugin->staged_value = 1;							  // "beta"
+	assert(emu_ovl_cfg_section_visible(&cfg, 1) == false);
+	plugin->staged_value = 0; // back to "alpha"
+	assert(emu_ovl_cfg_section_visible(&cfg, 1) == true);
+
+	// Numeric gate on a cycle item.
+	assert(emu_ovl_cfg_section_visible(&cfg, 2) == false); // level==1, gate==2
+	level->staged_value = 2;
+	assert(emu_ovl_cfg_section_visible(&cfg, 2) == true);
+
+	// Out-of-range index is treated as visible, never a crash.
+	assert(emu_ovl_cfg_section_visible(&cfg, 99) == true);
+	assert(emu_ovl_cfg_section_visible(&cfg, -1) == true);
+
+	emu_ovl_cfg_free(&cfg);
+}
+
+#define N64_SCHEMA "../../../../skeleton/BASE/Emus/shared/mupen64plus/overlay_settings.json"
+
+// Regression net for the shipped N64 schema: 12 sections, plugin-conditional
+// visibility resolves to exactly the GLideN64 or Rice set, and every cycle/enum
+// item carries a usable value list and a valid default.
+static void test_shipped_n64_schema(void) {
+	FILE* exists = fopen(N64_SCHEMA, "r");
+	assert(exists && "shipped N64 overlay_settings.json not found");
+	fclose(exists);
+
+	EmuOvlConfig cfg;
+	assert(emu_ovl_cfg_load(&cfg, N64_SCHEMA) == 0);
+	assert(cfg.section_count == 12);
+	assert(cfg.sections[0].vis_key[0] == '\0'); // Video Plugin ungated
+	assert(emu_ovl_cfg_section_visible(&cfg, 0) == true);
+
+	EmuOvlItem* vp = emu_ovl_cfg_find_item(&cfg, "NxRedux", "VideoPlugin", NULL, NULL);
+	assert(vp && vp->type == EMU_OVL_TYPE_ENUM);
+
+	int glide_idx = -1, rice_idx = -1;
+	assert(emu_ovl_cfg_parse_value(vp, "gliden64", &glide_idx));
+	assert(emu_ovl_cfg_parse_value(vp, "rice", &rice_idx));
+
+	// GLideN64 selected: section 0 + the 7 GLideN64 sections = 8 visible.
+	vp->staged_value = glide_idx;
+	int visible = 0;
+	for (int s = 0; s < cfg.section_count; s++)
+		if (emu_ovl_cfg_section_visible(&cfg, s))
+			visible++;
+	assert(visible == 8);
+
+	// Rice selected: section 0 + the 4 Rice sections = 5 visible, and every
+	// visible non-zero section is a [Video-Rice] group.
+	vp->staged_value = rice_idx;
+	visible = 0;
+	for (int s = 0; s < cfg.section_count; s++) {
+		if (!emu_ovl_cfg_section_visible(&cfg, s))
+			continue;
+		visible++;
+		if (s != 0)
+			assert(strcmp(emu_ovl_cfg_section_name(&cfg, s), "Video-Rice") == 0);
+	}
+	assert(visible == 5);
+
+	// Every cycle/enum item pairs a non-empty value list with a valid default.
+	for (int s = 0; s < cfg.section_count; s++) {
+		EmuOvlSection* sec = &cfg.sections[s];
+		for (int i = 0; i < sec->item_count; i++) {
+			EmuOvlItem* it = &sec->items[i];
+			if (it->type != EMU_OVL_TYPE_CYCLE && it->type != EMU_OVL_TYPE_ENUM)
+				continue;
+			assert(it->value_count > 0);
+			if (it->type == EMU_OVL_TYPE_ENUM) {
+				// enum default_value is an index into the value list
+				assert(it->default_value >= 0 && it->default_value < it->value_count);
+			} else {
+				// cycle default_value is one of the listed values
+				bool found = false;
+				for (int v = 0; v < it->value_count; v++)
+					if (it->values[v] == it->default_value)
+						found = true;
+				assert(found);
+			}
+		}
+	}
+
+	emu_ovl_cfg_free(&cfg);
+}
+
+// Slurp a whole file into a caller buffer (NUL-terminated); asserts it fit.
+static void slurp(const char* path, char* buf, size_t size) {
+	FILE* f = fopen(path, "r");
+	assert(f);
+	size_t n = fread(buf, 1, size - 1, f);
+	assert(!ferror(f) && feof(f)); // whole file fit in the buffer
+	buf[n] = '\0';
+	fclose(f);
+}
+
+// emu_ovl_cfg_write_ini must append a [section] the file never had. Rice does
+// not call ConfigSaveSection, so [Video-Rice] is absent from mupen64plus.cfg
+// until the editor stages a Rice item and writes it. No existing test drives
+// emu_ovl_cfg_write_ini directly, so this closes that gap on the shipped schema.
+static void test_write_ini_appends_missing_section(void) {
+	reset_root();
+	write_file(ROOT "/mupen64plus.cfg",
+			   "[NxRedux]\n"
+			   "VideoPlugin = rice\n");
+	EmuOvlConfig cfg;
+	assert(emu_ovl_cfg_load(&cfg, N64_SCHEMA) == 0);
+	assert(emu_ovl_cfg_read_ini(&cfg, ROOT "/mupen64plus.cfg") == 0);
+
+	EmuOvlItem* ar = emu_ovl_cfg_find_item(&cfg, "Video-Rice", "AspectRatio", NULL, NULL);
+	assert(ar);
+	ar->staged_value = 0; // stretch; differs from default (1)
+	ar->dirty = true;
+	assert(emu_ovl_cfg_write_ini(&cfg, ROOT "/mupen64plus.cfg") == 0);
+
+	char buf[4096];
+	slurp(ROOT "/mupen64plus.cfg", buf, sizeof(buf));
+	assert(strstr(buf, "[NxRedux]"));		   // original section intact
+	assert(strstr(buf, "VideoPlugin = rice")); // original key intact
+	assert(strstr(buf, "[Video-Rice]"));	   // section appended
+	assert(strstr(buf, "AspectRatio = 0"));	   // with the staged key
+	emu_ovl_cfg_free(&cfg);
+}
+
 int main(void) {
 	test_load_and_defaults();
 	test_parse_format_intern();
 	test_read_ini_enum();
 	test_read_ini_quoted();
+	test_visible_when();
+	test_shipped_n64_schema();
+	test_write_ini_appends_missing_section();
 	printf("test_emu_ovl_enum: all tests passed\n");
 	return 0;
 }

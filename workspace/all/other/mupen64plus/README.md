@@ -197,9 +197,10 @@ no-op — the effective size equals the window, so there are no bars and no
 rendering offset.
 
 Config key **`[Video-Rice] AspectRatio`** (int, default `1`), registered by the
-plugin itself via `ConfigSetDefaultInt` (no schema item, no in-game cycling, no
-entry in the shipped `default-*.cfg` — a hand-edited value overrides the
-default):
+plugin itself via `ConfigSetDefaultInt`. It is exposed in the pre-launch options
+editor as **Rendering → Aspect Ratio** (shown when Rice is the selected video
+plugin); there is still no in-game cycling and no entry in the shipped
+`default-*.cfg`, and a hand-edited value still overrides the default:
 
 | Value | Behaviour |
 |---|---|
@@ -207,6 +208,13 @@ default):
 | `1` | Force 4:3 (default) |
 | `2` | Force 16:9 |
 | `3` | Auto (treated as 4:3) |
+
+`SetScreenMult` scales the 4:3 N64 image to the effective rectangle on each
+axis independently, so `16:9` and `Stretch` distort the picture rather than
+widening the view — Rice has no field-of-view / projection widescreen (unlike
+GLideN64). `4:3` is the only geometrically correct mode; the shipped default is
+`1`, and the option description in `overlay_settings.json` steers users to
+GLideN64 for real widescreen.
 
 How it works:
 
