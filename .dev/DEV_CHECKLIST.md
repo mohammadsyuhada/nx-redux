@@ -11,6 +11,47 @@ Move an entry from there to here once it compiles and needs hardware time.
 
 ---
 
+## Brick Pro: deep sleep never wakes (issue #90; built 2026-09-09)
+
+Root-caused offline from the stock tg4040 recovery rootfs (stock `keymon` +
+`trimui_inputd` disassembled): stock keymon touches `/tmp/system_suspend` at
+screen-off and unlinks it on wake, and the stock `trimui_inputd` we run
+unchanged pauses its poll threads while the flag exists -- on the Brick Pro
+that is the `trimui_poll_thread_joy_i2c` thread reading the hall sticks on
+`/dev/i2c-3` every 16 ms. nx-redux never set the flag, so I2C traffic ran
+straight through suspend/resume; the Brick has no I2C thread and the Smart
+Pros read sticks over serial, which is why only the Brick Pro hangs. Upstream
+NextUI shares the gap (their #797). Not a 1.9.0 regression: the sleep path
+is unchanged since v1.8.0 and Brick Pro deep sleep was never verified.
+
+Fix: `skeleton/SYSTEM/tg5040/bin/suspend` raises the flag in `before()` and
+removes it right after `echo mem` returns. Probe/E2E:
+`scripts/tests/test-deep-sleep-e2e.sh` (Phase A: flag pauses inputd -- on
+the Brick Pro the stick bus's IRQ count in /proc/interrupts must go flat;
+Phase B: real RTC-alarm suspend/resume round trip with the log on the card).
+
+Verified on the Brick 2026-09-09: Phase B 6/6 with the patched script
+(kernel suspended 14 s, script rc=0, flag cleared, nextui/inputd/wpa back).
+A first `EBUSY` from `/sys/power/state` is normal with USB/adb attached; the
+script's retry loop covers it.
+
+### On-device verification (Brick Pro, ETA ~2026-09-11)
+
+- [ ] Baseline first: `scripts/tests/test-deep-sleep-e2e.sh --installed` on a
+      v1.9.0 card reproduces the hang (device never comes back; hard reset,
+      then `--collect` shows the log ending at "invoking suspend script").
+- [ ] Phase A with the patched script: the twi line for `/dev/i2c-3` drops
+      to ~0 IRQs while the flag exists and recovers after `rm`.
+- [ ] Phase B with the patched script passes 6/6.
+- [ ] Real path on battery: screen-off -> 30 s -> deep sleep from nextui
+      (main menu AND in-game), wake with POWER, sticks still work after wake.
+- [ ] If the A/B does not flip the result, the kernel-vs-userspace split from
+      the probe log decides the next step (LED driver / audio reinit are the
+      remaining suspects); do not ship the flag alone in that case.
+- [ ] Reply on #90 with the outcome.
+
+---
+
 ## Desktop: AppImage no longer bundles the host GL/driver stack (issue #86; built 2026-09-04)
 
 v1.9.0's AppImage died before opening a window on every Mesa >= 25 host
