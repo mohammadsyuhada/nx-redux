@@ -8,6 +8,9 @@
 
 // Initialize settings (loads from file if exists)
 void Settings_init(void);
+void Settings_setOwnerMode(bool owner);
+void Settings_setAudioValues(int bass_filter_hz, float soft_limiter_threshold,
+							 int rate_mode_follow, int resampler_quality, int buffer_frames);
 
 // Cleanup settings (saves and frees resources)
 void Settings_quit(void);

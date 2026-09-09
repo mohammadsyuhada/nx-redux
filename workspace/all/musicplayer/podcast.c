@@ -1,7 +1,17 @@
 #define _GNU_SOURCE
+#ifndef USE_SDL2
+#define USE_SDL2
+#endif
+#if defined(PLATFORM_TG5050)
+#include "../../tg5050/platform/platform.h"
+#else
+#include "../../tg5040/platform/platform.h"
+#endif
 #include "podcast.h"
-#include "wget_fetch.h"
+#include "../common/wget_fetch.h"
+#ifndef MUSIC_UI_BUILD
 #include "player.h"
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,19 +23,19 @@
 #include <time.h>
 #include <ctype.h>
 
-#include "defines.h"
-#include "api.h"
-#include "wifi.h"
+#include "../common/defines.h"
+#include "../common/api.h"
+#include "../common/wifi.h"
 #include "ui_podcast.h"
-#include "ui_image.h"
+#include "../common/ui/ui_image.h"
 #include "module_common.h"
-#include "utils.h"
+#include "../common/utils.h"
 #include <sys/statvfs.h>
 
 // SDCARD_PATH is defined in platform.h via api.h
 
 // JSON library
-#include "parson/parson.h"
+#include "../include/parson/parson.h"
 
 // Timezone to country code mapping for Apple Podcast charts
 typedef struct {
@@ -248,6 +258,7 @@ static void save_continue_listening(void);
 static void load_continue_listening(void);
 static void validate_continue_listening(void);
 static void sanitize_for_filename(char* str);
+static void load_progress_file(void);
 
 
 // ============================================================================
@@ -623,7 +634,32 @@ static void download_feed_artwork(PodcastFeed* feed) {
 // Initialization
 // ============================================================================
 
-int Podcast_init(void) {
+static void load_progress_file(void) {
+	progress_entry_count = 0;
+	JSON_Value* root = json_parse_file(progress_file);
+	if (!root)
+		return;
+	JSON_Array* arr = json_value_get_array(root);
+	if (arr) {
+		int count = json_array_get_count(arr);
+		for (int i = 0; i < count && progress_entry_count < MAX_PROGRESS_ENTRIES; i++) {
+			JSON_Object* obj = json_array_get_object(arr, i);
+			if (!obj)
+				continue;
+			const char* feed = json_object_get_string(obj, "feed_url");
+			const char* guid = json_object_get_string(obj, "guid");
+			if (!feed || !guid)
+				continue;
+			strncpy(progress_entries[progress_entry_count].feed_url, feed, PODCAST_MAX_URL - 1);
+			strncpy(progress_entries[progress_entry_count].episode_guid, guid, PODCAST_MAX_GUID - 1);
+			progress_entries[progress_entry_count].position_sec = (int)json_object_get_number(obj, "position");
+			progress_entry_count++;
+		}
+	}
+	json_value_free(root);
+}
+
+static int podcast_init_internal(bool enable_catalog_and_downloads) {
 	if (podcast_initialized)
 		return 0; // Already initialized
 
@@ -635,11 +671,12 @@ int Podcast_init(void) {
 	snprintf(continue_listening_file, sizeof(continue_listening_file), "%s/continue_listening.json", podcast_data_dir);
 	snprintf(download_dir, sizeof(download_dir), "%s/Podcasts", SDCARD_PATH);
 
-	// Create podcast data directory
-	mkdir_p(podcast_data_dir);
-
-	// Create download directory
-	mkdir(download_dir, 0755);
+	if (enable_catalog_and_downloads) {
+		// The full UI owner creates its catalog and download directories. The
+		// playback owner remains read-only until it explicitly saves progress.
+		mkdir_p(podcast_data_dir);
+		mkdir(download_dir, 493);
+	}
 
 	// Detect country code from system timezone
 	// /etc/localtime symlinks to /tmp/localtime which resolves to the actual timezone
@@ -667,38 +704,16 @@ int Podcast_init(void) {
 		strcpy(charts_country_code, "us");
 	}
 
-	// Load saved data
+	// Load saved playback/catalog data. The playback owner deliberately does
+	// not load or start the UI-owned download queue.
 	Podcast_loadSubscriptions();
-	Podcast_loadDownloadQueue();
-
-	// Auto-resume pending downloads if WiFi is already connected
-	if (download_queue_count > 0 && Wifi_isConnected()) {
-		Podcast_startDownloads();
+	if (enable_catalog_and_downloads) {
+		Podcast_loadDownloadQueue();
+		if (download_queue_count > 0 && Wifi_isConnected())
+			Podcast_startDownloads();
 	}
 
-	// Load progress entries
-	JSON_Value* root = json_parse_file(progress_file);
-	if (root) {
-		JSON_Array* arr = json_value_get_array(root);
-		if (arr) {
-			int count = json_array_get_count(arr);
-			for (int i = 0; i < count && progress_entry_count < MAX_PROGRESS_ENTRIES; i++) {
-				JSON_Object* obj = json_array_get_object(arr, i);
-				if (obj) {
-					const char* feed = json_object_get_string(obj, "feed_url");
-					const char* guid = json_object_get_string(obj, "guid");
-					int pos = (int)json_object_get_number(obj, "position");
-					if (feed && guid) {
-						strncpy(progress_entries[progress_entry_count].feed_url, feed, PODCAST_MAX_URL - 1);
-						strncpy(progress_entries[progress_entry_count].episode_guid, guid, PODCAST_MAX_GUID - 1);
-						progress_entries[progress_entry_count].position_sec = pos;
-						progress_entry_count++;
-					}
-				}
-			}
-		}
-		json_value_free(root);
-	}
+	load_progress_file();
 
 	// Load and validate continue listening entries
 	load_continue_listening();
@@ -708,8 +723,81 @@ int Podcast_init(void) {
 	return 0;
 }
 
+int Podcast_init(void) {
+	return podcast_init_internal(true);
+}
+
+int Podcast_initPlayback(void) {
+	return podcast_init_internal(false);
+}
+
+void Podcast_reloadPlaybackData(void) {
+	char current_feed_url[PODCAST_MAX_URL] = "";
+	char current_episode_guid[PODCAST_MAX_GUID] = "";
+	if (current_feed && current_feed_index >= 0 && current_episode_index >= 0) {
+		strncpy(current_feed_url, current_feed->feed_url, sizeof(current_feed_url) - 1);
+		PodcastEpisode episode;
+		if (Podcast_getEpisode(current_feed_index, current_episode_index, &episode))
+			strncpy(current_episode_guid, episode.guid, sizeof(current_episode_guid) - 1);
+	}
+
+	Podcast_loadSubscriptions();
+	load_progress_file();
+	Podcast_invalidateEpisodeCache();
+
+	/* Reloading catalog files must not rebind an in-flight decoder to a new
+	 * array slot. Restore the owner identity by feed URL and episode GUID. */
+	current_feed_index = Podcast_findFeedIndex(current_feed_url);
+	current_feed = Podcast_getSubscription(current_feed_index);
+	current_episode_index = -1;
+	if (current_feed && current_episode_guid[0]) {
+		for (int i = 0; i < current_feed->episode_count; i++) {
+			PodcastEpisode episode;
+			if (Podcast_getEpisode(current_feed_index, i, &episode) &&
+				strcmp(episode.guid, current_episode_guid) == 0) {
+				current_episode_index = i;
+				break;
+			}
+		}
+	}
+}
+
+void Podcast_reloadProgress(void) {
+	load_progress_file();
+	Podcast_invalidateEpisodeCache();
+}
+
+#ifndef MUSIC_UI_BUILD
+void Podcast_cleanupPlayback(void) {
+	Podcast_stop();
+	Podcast_flushProgress();
+	podcast_initialized = false;
+}
+#else
+void Podcast_cleanupPlayback(void) {
+	podcast_initialized = false;
+}
+#endif
+
+void Podcast_cleanupCatalog(void) {
+	Podcast_cancelSearch();
+	Podcast_stopDownloads();
+
+	for (int i = 0; i < 20 && refresh_running; i++)
+		usleep(100000);
+	Podcast_saveSubscriptions();
+	Podcast_saveDownloadQueue();
+	/* Continue-listening entries are shared with the playback owner. Never
+	 * serialize this process's stale cache while the owner may have changed it. */
+	Podcast_reloadProgress();
+	Podcast_clearThumbnailCache();
+	podcast_initialized = false;
+}
+
 void Podcast_cleanup(void) {
 	// Stop any running operations
+	Podcast_cleanupCatalog();
+	return;
 	Podcast_cancelSearch();
 	Podcast_stopDownloads();
 	Podcast_stop();
@@ -1024,6 +1112,9 @@ bool Podcast_isSubscribedByItunesId(const char* itunes_id) {
 }
 
 int Podcast_refreshFeed(int index) {
+	/* The playback owner persists progress independently. Refresh must merge
+	 * the latest on-disk values instead of using this process's old cache. */
+	load_progress_file();
 	// Capture the feed's stable identity (feed_url) under the lock. During the
 	// blocking fetch below, unsubscribe can compact subscriptions[], so we must
 	// NOT keep a pointer or index into it — every write-back re-resolves by
@@ -1539,6 +1630,7 @@ PodcastChartItem* Podcast_getTopShows(int* count) {
 // Playback (local files only - streaming removed)
 // ============================================================================
 
+#ifndef MUSIC_UI_BUILD
 int Podcast_loadAndSeek(PodcastFeed* feed, int episode_index) {
 	if (!feed || episode_index < 0 || episode_index >= feed->episode_count) {
 		return -1;
@@ -1577,6 +1669,25 @@ int Podcast_loadAndSeek(PodcastFeed* feed, int episode_index) {
 	return -1;
 }
 
+int Podcast_loadDownloaded(const char* feed_url, const char* episode_guid) {
+	if (!feed_url || !feed_url[0] || !episode_guid || !episode_guid[0])
+		return -1;
+
+	for (int feed_index = 0; feed_index < subscription_count; feed_index++) {
+		PodcastFeed* feed = &subscriptions[feed_index];
+		if (strcmp(feed->feed_url, feed_url) != 0)
+			continue;
+		for (int episode_index = 0; episode_index < feed->episode_count; episode_index++) {
+			PodcastEpisode episode;
+			if (Podcast_getEpisode(feed_index, episode_index, &episode) &&
+				strcmp(episode.guid, episode_guid) == 0)
+				return Podcast_loadAndSeek(feed, episode_index);
+		}
+		return -1;
+	}
+	return -1;
+}
+
 void Podcast_stop(void) {
 	if (current_feed && current_feed_index >= 0 && current_episode_index >= 0) {
 		// Save progress
@@ -1612,6 +1723,7 @@ bool Podcast_isActive(void) {
 	// Podcast is active when playing a local file
 	return current_feed != NULL && Player_getState() != PLAYER_STATE_STOPPED;
 }
+#endif
 
 bool Podcast_isDownloading(void) {
 	return download_running;
@@ -2437,6 +2549,7 @@ void Podcast_updateContinueListening(const char* feed_url, const char* feed_id,
 									 const char* feed_title, const char* artwork_url) {
 	if (!feed_url || !episode_guid)
 		return;
+	load_continue_listening();
 
 	// Check if this entry already exists
 	for (int i = 0; i < continue_listening_count; i++) {
@@ -2486,6 +2599,7 @@ void Podcast_updateContinueListening(const char* feed_url, const char* feed_id,
 void Podcast_removeContinueListening(const char* feed_url, const char* episode_guid) {
 	if (!feed_url || !episode_guid)
 		return;
+	load_continue_listening();
 
 	for (int i = 0; i < continue_listening_count; i++) {
 		if (strcmp(continue_listening[i].feed_url, feed_url) == 0 &&
@@ -2498,6 +2612,10 @@ void Podcast_removeContinueListening(const char* feed_url, const char* episode_g
 			return;
 		}
 	}
+}
+
+void Podcast_reloadContinueListening(void) {
+	load_continue_listening();
 }
 
 static void save_continue_listening(void) {

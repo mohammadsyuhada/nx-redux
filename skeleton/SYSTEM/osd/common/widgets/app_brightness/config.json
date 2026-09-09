@@ -1,0 +1,22 @@
+{
+    "type":"app",
+    "package":"com.trimui.osd.app.brightness",
+    "label":"Brightness",
+    "label.ch.lang":"背光",
+    "gridwidth":2,
+    "gridheight":1,
+    "icon0":"icon0.png",
+    "icon1":"icon1.png",
+    "launch":"launch.sh",
+    "update":"",
+    "set":"",
+    "status":"",
+    "cmd":"/tmp/trimui_music/brightness_widget_cmd",
+    "canvasv":"/tmp/trimui_music/brightness_vfb_osd",
+    "canvasp":"",
+    "canvaswidth":260,
+    "canvasheight":120,
+    "canvasbpp":32,
+    "canvasfps":12,
+    "description":"Screen brightness"
+}

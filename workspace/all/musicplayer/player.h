@@ -4,20 +4,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <pthread.h>
-#include <SDL2/SDL.h>
-
-// Audio format types
-typedef enum {
-	AUDIO_FORMAT_UNKNOWN = 0,
-	AUDIO_FORMAT_WAV,
-	AUDIO_FORMAT_MP3,
-	AUDIO_FORMAT_OGG,
-	AUDIO_FORMAT_FLAC,
-	AUDIO_FORMAT_MOD,
-	AUDIO_FORMAT_M4A,
-	AUDIO_FORMAT_AAC,
-	AUDIO_FORMAT_OPUS
-} AudioFormat;
+#include "music_format.h"
+typedef struct SDL_Surface SDL_Surface;
 
 // Player states
 typedef enum {
@@ -44,6 +32,23 @@ typedef struct {
 	int bar_count;
 	bool valid;
 } WaveformData;
+
+// Coherent copied state for clients that may outlive the Music Player UI.
+// The snapshot contains no pointers into the decoder or SDL state.
+typedef struct {
+	PlayerState state;
+	AudioFormat format;
+	char current_file[512];
+	TrackInfo track_info;
+	int position_ms;
+	float volume;
+	bool repeat;
+	float playback_speed;
+	int source_sample_rate;
+	int output_sample_rate;
+	bool audio_open;
+	bool stream_eof;
+} PlayerSnapshot;
 
 // Streaming decoder state (holds any decoder type)
 typedef struct {
@@ -114,8 +119,21 @@ typedef struct {
 	pthread_mutex_t mutex;
 } PlayerContext;
 
-// Initialize the player
+// Initialize the player core and audio device. This wrapper is retained for
+// existing Music Player callers; staged owners should use the explicit
+// core/device lifetime functions below.
 int Player_init(void);
+
+// Initialize decoder/state ownership without opening an SDL audio device.
+int Player_coreInit(void);
+
+// Open, close, or reopen only Music's SDL audio device. These device and
+// transport operations have single-owner/control-thread semantics; concurrent
+// clients use Player_getSnapshot for read-only state. Closing preserves the
+// loaded core and transport intent for a later reopen.
+int Player_openAudioDevice(void);
+void Player_closeAudioDevice(void);
+int Player_reopenAudioDevice(void);
 
 // Cleanup the player
 void Player_quit(void);
@@ -143,6 +161,9 @@ bool Player_resume(void);
 
 // Set volume (0.0 to 1.0)
 void Player_setVolume(float volume);
+
+// Copy all client-visible playback state while holding the engine lock.
+int Player_getSnapshot(PlayerSnapshot* snapshot);
 
 // Get current state
 PlayerState Player_getState(void);
@@ -176,6 +197,9 @@ void Player_setPlaybackSpeed(float speed);
 
 // Get current playback speed
 float Player_getPlaybackSpeed(void);
+
+// Set whether the current track repeats at EOF
+void Player_setRepeat(bool repeat);
 
 // Check if a file format is supported
 AudioFormat Player_detectFormat(const char* filepath);

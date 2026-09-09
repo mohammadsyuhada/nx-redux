@@ -3,6 +3,7 @@
 #include "module_common.h"
 #include "module_settings.h"
 #include "settings.h"
+#include "music_client.h"
 #include "ui_confirmdialog.h"
 #include "ui_settings.h"
 #include "album_art.h"
@@ -38,6 +39,11 @@ ModuleExitReason SettingsModule_run(SDL_Surface* screen) {
 	IndicatorType show_setting = INDICATOR_NONE;
 
 	while (1) {
+		int old_bass = Settings_getBassFilterHz();
+		float old_limiter = Settings_getSoftLimiterThreshold();
+		int old_rate_mode = Settings_getRateModeFollowSource();
+		int old_quality = Settings_getResamplerQuality();
+		int old_buffer = Settings_getBufferFrames();
 		GFX_startFrame();
 		PAD_poll();
 
@@ -172,6 +178,16 @@ ModuleExitReason SettingsModule_run(SDL_Surface* screen) {
 				dirty = 1;
 			}
 			break;
+		}
+
+		if (old_bass != Settings_getBassFilterHz() ||
+			old_limiter != Settings_getSoftLimiterThreshold() ||
+			old_rate_mode != Settings_getRateModeFollowSource() ||
+			old_quality != Settings_getResamplerQuality() ||
+			old_buffer != Settings_getBufferFrames()) {
+			(void)MusicClient_setAudioSettings(Settings_getBassFilterHz(),
+											   Settings_getSoftLimiterThreshold(), Settings_getRateModeFollowSource(),
+											   Settings_getResamplerQuality(), Settings_getBufferFrames());
 		}
 
 		// Handle power management

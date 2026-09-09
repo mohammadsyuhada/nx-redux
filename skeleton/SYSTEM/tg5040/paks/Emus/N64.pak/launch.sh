@@ -86,38 +86,25 @@ mkdir -p "$MINUI_DIR"
 export EMU_OVERLAY_SCREENSHOT_DIR="$MINUI_DIR"
 export EMU_OVERLAY_ROMFILE="$(basename "$ROM")"
 
-# Mute speaker before launch to prevent audio pop, then unmute after init
-echo 1 > /sys/class/speaker/mute 2>/dev/null || true
-(sleep 5; echo 0 > /sys/class/speaker/mute 2>/dev/null; syncsettings.elf) &
-SYNC_PID=$!
-
 # Start power button sleep/poweroff handler
 sleepmon.elf &
 
-# Pick the device-open rate for the current audio sink (audiomon publishes
-# /tmp/nx_audio_sink). Exact match on the native rate wins; otherwise the
-# sink's preferred (first-listed) rate; 48000 when the file is absent.
+# Use audiomon's single active mixer rate so gameplay shares the rate used by
+# music. The first supported rate is only a compatibility fallback.
 nx_pick_audio_rate() {
-    NATIVE="$1"
-    RATE=48000
-    if [ -f /tmp/nx_audio_sink ]; then
-        RATES=$(sed -n 's/^rates=//p' /tmp/nx_audio_sink)
-        for R in $RATES; do
-            if [ "$R" = "$NATIVE" ]; then
-                echo "$NATIVE"
-                return
-            fi
-        done
-        FIRST=${RATES%% *}
-        [ -n "$FIRST" ] && RATE=$FIRST
+    RATE=$(sed -n 's/^rate=//p' /tmp/nx_audio_sink 2>/dev/null | head -1)
+    if [ -z "$RATE" ]; then
+        RATES=$(sed -n 's/^rates=//p' /tmp/nx_audio_sink 2>/dev/null)
+        RATE=${RATES%% *}
     fi
+    [ -n "$RATE" ] || RATE=48000
     echo "$RATE"
 }
 
 # audio-sdl resamples the game (32-44.1 kHz) to OUTPUT_FREQUENCY; keep the cfg
 # default of 48000 unless the active sink prefers a different rate (e.g. a
 # 44.1 kHz Bluetooth link), so ALSA plug stays a pass-through.
-NX_AUDIO_RATE=$(nx_pick_audio_rate 48000)
+NX_AUDIO_RATE=$(nx_pick_audio_rate)
 AUDIO_OVERRIDE=""
 [ "$NX_AUDIO_RATE" != "48000" ] && AUDIO_OVERRIDE="--set Audio-SDL[OUTPUT_FREQUENCY]=$NX_AUDIO_RATE"
 
@@ -162,8 +149,6 @@ fi
 # early exit MUST undo them itself (same rationale as DC.pak's bail helper).
 nx_netplay_bail() {
     killall sleepmon.elf 2>/dev/null || true
-    kill $SYNC_PID 2>/dev/null || true
-    echo 0 > /sys/class/speaker/mute 2>/dev/null || true
     swapoff "$SWAPFILE" 2>/dev/null
     echo 100 >/proc/sys/vm/vfs_cache_pressure 2>/dev/null
     exit 0
@@ -292,7 +277,9 @@ sleep 4
 taskset -p 1 "$EMU_PID" 2>/dev/null   # mask 0x1 = cpu0
 
 # Pin known helper threads to cpu2-3
-for TID in $(ls /proc/$EMU_PID/task/ 2>/dev/null); do
+for TASK_PATH in /proc/$EMU_PID/task/*; do
+    [ -d "$TASK_PATH" ] || continue
+    TID=${TASK_PATH##*/}
     [ "$TID" = "$EMU_PID" ] && continue
     TNAME=$(cat /proc/$EMU_PID/task/$TID/comm 2>/dev/null)
     case "$TNAME" in
@@ -312,7 +299,9 @@ done
 # threads (SDL helpers on cpu2-3 above, transient "Netplay key request"
 # threads) are intentionally left as they are.
 sleep 2
-for TID in $(ls /proc/$EMU_PID/task/ 2>/dev/null); do
+for TASK_PATH in /proc/$EMU_PID/task/*; do
+    [ -d "$TASK_PATH" ] || continue
+    TID=${TASK_PATH##*/}
     [ "$TID" = "$EMU_PID" ] && continue
     TNAME=$(cat /proc/$EMU_PID/task/$TID/comm 2>/dev/null)
     [ "$TNAME" = "mupen64plus" ] || continue
@@ -321,8 +310,6 @@ done
 
 wait $EMU_PID
 killall sleepmon.elf 2>/dev/null || true
-kill $SYNC_PID 2>/dev/null || true
-echo 0 > /sys/class/speaker/mute 2>/dev/null || true
 
 # Netplay teardown: stop the host's server, undo hotspot/WiFi state.
 [ -n "$NETPLAY_SERVER_PID" ] && kill $NETPLAY_SERVER_PID 2>/dev/null

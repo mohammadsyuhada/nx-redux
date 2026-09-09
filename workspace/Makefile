@@ -54,7 +54,7 @@ endif
 	cd ./all/show2/ && make
 	cd ./all/screenshot/ && make
 	cd ./all/screenrecorder/ && make
-	cd ./all/musicplayer/ && make
+	cd ./all/musicplayer/ && make all
 	cd ./all/mediaplayer/ && make
 	cd ./all/imageviewer/ && make
 	cd ./all/portmaster/ && make

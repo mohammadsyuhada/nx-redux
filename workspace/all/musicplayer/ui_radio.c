@@ -13,10 +13,22 @@
 #include "ui_album_art.h"
 #include "album_art.h"
 #include "radio.h"
+#include "music_client.h"
 
 // Full-mode ListViews (the widget owns selection, scroll, glide and marquee;
 // module_radio drives input through the accessors below).
 static ListView radio_list_view;
+
+static const RadioMetadata* service_radio_metadata(void) {
+	static RadioMetadata metadata;
+	const MusicSnapshotWire* snapshot = MusicClient_snapshot();
+	memset(&metadata, 0, sizeof(metadata));
+	strncpy(metadata.title, snapshot->title, sizeof(metadata.title) - 1);
+	strncpy(metadata.artist, snapshot->artist, sizeof(metadata.artist) - 1);
+	strncpy(metadata.station_name, snapshot->album, sizeof(metadata.station_name) - 1);
+	metadata.bitrate = snapshot->radio_bitrate;
+	return &metadata;
+}
 static ListView radio_countries_view;
 
 ListView* RadioList_view(void) {
@@ -115,7 +127,7 @@ void render_radio_playing(SDL_Surface* screen, IndicatorType show_setting, int r
 	// Render album art as triangular background (if available and not being fetched)
 	// Skip during fetch to avoid accessing potentially invalid surface
 	if (!album_art_is_fetching()) {
-		SDL_Surface* album_art = Radio_getAlbumArt();
+		SDL_Surface* album_art = album_art_get();
 		if (album_art && album_art->w > 0 && album_art->h > 0) {
 			render_album_art_background(screen, album_art);
 		}
@@ -125,8 +137,8 @@ void render_radio_playing(SDL_Surface* screen, IndicatorType show_setting, int r
 	int hh = screen->h;
 	char truncated[256];
 
-	RadioState state = Radio_getState();
-	const RadioMetadata* meta = Radio_getMetadata();
+	RadioState state = (RadioState)MusicClient_snapshot()->source_state;
+	const RadioMetadata* meta = service_radio_metadata();
 	RadioStation* current_station = get_station_by_index(radio_selected);
 	RadioStation* stations;
 	int station_count = Radio_getStations(&stations);
@@ -154,7 +166,10 @@ void render_radio_playing(SDL_Surface* screen, IndicatorType show_setting, int r
 
 	// Station counter "01 - 12" (like track counter in local player)
 	char station_str[32];
-	snprintf(station_str, sizeof(station_str), "%02d - %02d", radio_selected + 1, station_count);
+	if (radio_selected >= 0 && radio_selected < station_count)
+		snprintf(station_str, sizeof(station_str), "%02d - %02d", radio_selected + 1, station_count);
+	else
+		snprintf(station_str, sizeof(station_str), "-- - %02d", station_count);
 	SDL_Surface* station_surf = GFX_renderText(font.tiny, station_str, COLOR_GRAY);
 	if (station_surf) {
 		int station_x = badge_x + badge_w + SCALE1(8);
@@ -596,7 +611,7 @@ void RadioStatus_clear(void) {
 bool RadioStatus_needsRefresh(void) {
 	if (!status_position_set)
 		return false;
-	RadioState state = Radio_getState();
+	RadioState state = (RadioState)MusicClient_snapshot()->source_state;
 	// Also refresh once when transitioning to STOPPED, to clear the layer
 	static RadioState prev_state = RADIO_STATE_STOPPED;
 	if (state == RADIO_STATE_STOPPED) {
@@ -614,7 +629,7 @@ void RadioStatus_renderGPU(void) {
 	if (!status_position_set)
 		return;
 
-	RadioState state = Radio_getState();
+	RadioState state = (RadioState)MusicClient_snapshot()->source_state;
 
 	// When stopped, clear the status layer and reset cache
 	static RadioState last_state = RADIO_STATE_STOPPED;
@@ -632,10 +647,10 @@ void RadioStatus_renderGPU(void) {
 		return;
 	}
 
-	float buffer_level = Radio_getBufferLevel();
+	float buffer_level = MusicClient_snapshot()->radio_buffer_percent / 100.0f;
 
 	// Get bitrate from metadata
-	const RadioMetadata* meta = Radio_getMetadata();
+	const RadioMetadata* meta = service_radio_metadata();
 	int current_bitrate = meta ? meta->bitrate : 0;
 
 	// Skip expensive surface recreation if nothing changed

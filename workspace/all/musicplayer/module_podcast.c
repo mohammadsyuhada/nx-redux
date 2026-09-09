@@ -2,20 +2,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "defines.h"
-#include "api.h"
+#include "platform.h"
+#include "../common/defines.h"
 #include "module_common.h"
+#include "../common/sdl.h"
 #include "module_podcast.h"
 #include "podcast.h"
-#include "player.h"
-#include "ui_keyboard.h"
-#include "display_helper.h"
-#include "ui_confirmdialog.h"
+#include "music_client.h"
+#include "album_art.h"
+#include "../common/ui/ui_keyboard.h"
+#include "../common/display_helper.h"
+#include "../common/ui/ui_confirmdialog.h"
+#include "../common/ui/ui_contextmenu.h"
 #include "ui_podcast.h"
 #include "ui_radio.h"
 #include "ui_main.h"
-#include "ui_toast.h"
-#include "wifi.h"
+#include "../common/ui/ui_toast.h"
+#include "../common/wifi.h"
 #include "background.h"
 
 // Internal states
@@ -69,17 +72,34 @@ static bool screen_off = false;
 #define PODCAST_CTX_MARK_PLAYED 5	   // episodes: toggle played (same as X)
 #define PODCAST_CTX_REMOVE_DOWNLOAD 6  // queue: cancel/remove download (same as X)
 
-// Handle USB/Bluetooth media button events
-static void handle_hid_events(void) {
-	USBHIDEvent hid_event;
-	while ((hid_event = Player_pollUSBHID()) != USB_HID_EVENT_NONE) {
-		if (hid_event == USB_HID_EVENT_PLAY_PAUSE) {
-			if (Player_getState() == PLAYER_STATE_PAUSED)
-				Player_play();
-			else
-				Player_pause();
+static int load_podcast_episode(PodcastFeed* feed, int episode_index) {
+	PodcastEpisode episode;
+	if (!feed || !Podcast_getEpisode(podcast_current_feed_index, episode_index, &episode))
+		return -1;
+	return MusicClient_loadPodcast(feed->feed_url, episode.guid);
+}
+
+static bool restore_podcast_identity(void) {
+	const MusicSnapshotWire* snapshot = MusicClient_snapshot();
+	if (snapshot->source != MUSIC_SOURCE_PODCAST || !snapshot->podcast_feed_url[0] ||
+		!snapshot->podcast_episode_guid[0])
+		return false;
+
+	int feed_index = Podcast_findFeedIndex(snapshot->podcast_feed_url);
+	PodcastFeed* feed = Podcast_getSubscription(feed_index);
+	if (!feed)
+		return false;
+	for (int episode_index = 0; episode_index < feed->episode_count; episode_index++) {
+		PodcastEpisode episode;
+		if (Podcast_getEpisode(feed_index, episode_index, &episode) &&
+			strcmp(episode.guid, snapshot->podcast_episode_guid) == 0) {
+			podcast_current_feed_index = feed_index;
+			podcast_current_episode_index = episode_index;
+			podcast_episodes_selected = episode_index;
+			return true;
 		}
 	}
+	return false;
 }
 
 static void clear_and_show_screen_off_hint(SDL_Surface* screen) {
@@ -93,8 +113,8 @@ static void clear_and_show_screen_off_hint(SDL_Surface* screen) {
 }
 
 static void return_to_episodes(PodcastInternalState* state, bool* dirty) {
-	Podcast_flushProgress();
 	Podcast_clearArtwork();
+	Podcast_reloadContinueListening();
 	GFX_clearLayers(LAYER_SCROLLTEXT);
 	PLAT_clearLayers(LAYER_BUFFER);
 	PLAT_clearLayers(LAYER_PODCAST_PROGRESS);
@@ -128,8 +148,11 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 	podcast_menu_selected = 0;
 	podcast_menu_scroll = 0;
 
-	// Re-enter playing state if podcast is playing in background
-	if (Background_getActive() == BG_PODCAST && Podcast_isActive()) {
+	// Re-enter playing state by stable feed URL + episode GUID, never by the
+	// catalog indices from the previous UI process.
+	MusicClient_update();
+	if (Background_getActive() == BG_PODCAST && MusicClient_isPodcastActive() &&
+		restore_podcast_identity()) {
 		Background_setActive(BG_NONE);
 		ModuleCommon_setAutosleepDisabled(true);
 		state = PODCAST_INTERNAL_PLAYING;
@@ -252,7 +275,7 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 			GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, app_state_for_help,
 																	  ctx_items, ctx_count);
 			if (global.should_quit) {
-				Podcast_cleanup();
+				Podcast_cleanupCatalog();
 				return MODULE_EXIT_QUIT;
 			}
 			if (global.context_id > 0) {
@@ -312,18 +335,15 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 					PodcastFeed* feed = Podcast_getSubscription(podcast_current_feed_index);
 					PodcastEpisode ep;
 					if (feed && Podcast_getEpisode(podcast_current_feed_index, podcast_episodes_selected, &ep)) {
-						// Toggle played status
-						if (ep.progress_sec == -1) {
-							Podcast_setEpisodeProgress(podcast_current_feed_index, podcast_episodes_selected, 0);
-							Podcast_saveProgress(feed->feed_url, ep.guid, 0);
-							snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Marked as unplayed");
-						} else {
-							Podcast_setEpisodeProgress(podcast_current_feed_index, podcast_episodes_selected, -1);
-							Podcast_markAsPlayed(feed->feed_url, ep.guid);
-							Podcast_removeContinueListening(feed->feed_url, ep.guid);
-							snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Marked as played");
+						// Toggle played status through the playback owner. The UI only
+						// reloads its display cache after the owner persists the change.
+						bool played = ep.progress_sec != -1;
+						if (MusicClient_markPodcastPlayed(feed->feed_url, ep.guid, played) == 0) {
+							Podcast_reloadProgress();
+							Podcast_reloadContinueListening();
+							snprintf(podcast_toast_message, sizeof(podcast_toast_message),
+									 played ? "Marked as played" : "Marked as unplayed");
 						}
-						Podcast_flushProgress();
 						podcast_toast_time = SDL_GetTicks();
 					}
 					break;
@@ -433,10 +453,9 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 								}
 							}
 							if (feed && ep_idx >= 0 && Podcast_episodeFileExists(feed, ep_idx)) {
-								Background_stopAll();
 								podcast_current_feed_index = fi;
 								podcast_current_episode_index = ep_idx;
-								int load_result = Podcast_loadAndSeek(feed, ep_idx);
+								int load_result = load_podcast_episode(feed, ep_idx);
 								if (load_result >= 0) {
 									Podcast_clearTitleScroll();
 									ModuleCommon_recordInputTime();
@@ -444,7 +463,7 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 									if (load_result == 1) {
 										state = PODCAST_INTERNAL_SEEKING;
 									} else {
-										Player_play();
+										MusicClient_play();
 										state = PODCAST_INTERNAL_PLAYING;
 									}
 									// Update continue listening (move to top)
@@ -488,14 +507,13 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 				podcast_toast_message[0] = '\0';
 				Podcast_clearTitleScroll();
 				UI_clearToast();
-				if (Podcast_isActive() || Podcast_isDownloading()) {
+				if (MusicClient_isPodcastActive() || Podcast_isDownloading()) {
 					Podcast_saveSubscriptions();
-					Podcast_flushProgress();
-					if (Podcast_isActive()) {
+					if (MusicClient_isPodcastActive()) {
 						Background_setActive(BG_PODCAST);
 					}
 				} else {
-					Podcast_cleanup();
+					Podcast_cleanupCatalog();
 				}
 				return MODULE_EXIT_TO_MENU;
 			}
@@ -783,8 +801,7 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 						}
 						podcast_toast_time = SDL_GetTicks();
 					} else if (Podcast_episodeFileExists(feed, podcast_current_episode_index)) {
-						Background_stopAll();
-						int load_result = Podcast_loadAndSeek(feed, podcast_current_episode_index);
+						int load_result = load_podcast_episode(feed, podcast_current_episode_index);
 						if (load_result >= 0) {
 							// Clear new flag only when actually playing
 							Podcast_clearNewFlag(podcast_current_feed_index, podcast_current_episode_index);
@@ -799,7 +816,7 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 								state = PODCAST_INTERNAL_SEEKING;
 							} else {
 								// No saved progress — play immediately
-								Player_play();
+								MusicClient_play();
 								state = PODCAST_INTERNAL_PLAYING;
 							}
 						} else {
@@ -887,9 +904,8 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 		else if (state == PODCAST_INTERNAL_SEEKING) {
 			ModuleCommon_setAutosleepDisabled(true);
 
-			if (!Player_resume()) {
-				// Seek complete — start playback
-				Player_play();
+			if (MusicClient_play() == 0) {
+				// The owner applies any saved position before starting playback.
 				UI_renderToast(screen, "", 0); // Clear the "Resuming..." toast
 				ModuleCommon_recordInputTime();
 				last_progress_save_time = SDL_GetTicks();
@@ -897,7 +913,6 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 				dirty = 1;
 			} else if (PAD_justPressed(BTN_B)) {
 				// Cancel seeking — stop and go back
-				Podcast_stop();
 				return_to_episodes(&state, &dirty);
 				continue;
 			}
@@ -929,23 +944,20 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 					dirty = 1;
 				}
 				// Handle USB/Bluetooth media and volume buttons even with screen off
-				handle_hid_events();
-
 				Podcast_update();
 				GFX_sync();
 				continue;
 			} else {
 				if (PAD_justPressed(BTN_A)) {
-					if (Player_getState() == PLAYER_STATE_PAUSED)
-						Player_play();
+					if (MusicClient_snapshot()->state == MUSIC_STATE_PAUSED)
+						MusicClient_play();
 					else
-						Player_pause();
+						MusicClient_pause();
 					ModuleCommon_recordInputTime();
 					dirty = 1;
 				} else if (PAD_justPressed(BTN_B)) {
-					if (Player_getState() == PLAYER_STATE_PLAYING) {
+					if (MusicClient_snapshot()->state == MUSIC_STATE_PLAYING) {
 						// Playing — let audio continue in background
-						Podcast_flushProgress();
 						Podcast_clearArtwork();
 						GFX_clearLayers(LAYER_SCROLLTEXT);
 						PLAT_clearLayers(LAYER_BUFFER);
@@ -956,7 +968,6 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 						dirty = 1;
 					} else {
 						// Paused — stop and go back normally
-						Podcast_stop();
 						return_to_episodes(&state, &dirty);
 						continue;
 					}
@@ -965,33 +976,33 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 					clear_and_show_screen_off_hint(screen);
 					continue;
 				} else if (PAD_justRepeated(BTN_LEFT)) {
-					int pos_ms = Player_getPosition();
-					Player_seek(pos_ms - 10000 < 0 ? 0 : pos_ms - 10000);
+					int pos_ms = MusicClient_position();
+					MusicClient_seek(pos_ms - 10000 < 0 ? 0 : pos_ms - 10000);
 					ModuleCommon_recordInputTime();
 					dirty = 1;
 				} else if (PAD_justRepeated(BTN_RIGHT)) {
-					int pos_ms = Player_getPosition();
-					int dur_ms = Player_getDuration();
-					Player_seek(pos_ms + 30000 > dur_ms ? dur_ms : pos_ms + 30000);
+					int pos_ms = MusicClient_position();
+					int dur_ms = MusicClient_duration();
+					MusicClient_seek(pos_ms + 30000 > dur_ms ? dur_ms : pos_ms + 30000);
 					ModuleCommon_recordInputTime();
 					dirty = 1;
 				} else if (PAD_justPressed(BTN_UP)) {
-					float speed = Player_getPlaybackSpeed();
+					float speed = MusicClient_speed();
 					speed += 0.25f;
 					if (speed > 2.0f)
 						speed = 2.0f;
-					Player_setPlaybackSpeed(speed);
-					snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Speed: %.2gx", speed);
+					if (MusicClient_setSpeed(speed) == 0)
+						snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Speed: %.2gx", speed);
 					podcast_toast_time = SDL_GetTicks();
 					ModuleCommon_recordInputTime();
 					dirty = 1;
 				} else if (PAD_justPressed(BTN_DOWN)) {
-					float speed = Player_getPlaybackSpeed();
+					float speed = MusicClient_speed();
 					speed -= 0.25f;
 					if (speed < 0.5f)
 						speed = 0.5f;
-					Player_setPlaybackSpeed(speed);
-					snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Speed: %.2gx", speed);
+					if (MusicClient_setSpeed(speed) == 0)
+						snprintf(podcast_toast_message, sizeof(podcast_toast_message), "Speed: %.2gx", speed);
 					podcast_toast_time = SDL_GetTicks();
 					ModuleCommon_recordInputTime();
 					dirty = 1;
@@ -1007,50 +1018,10 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 				if (UIPodcast_artworkBusy())
 					dirty = 1;
 
-				// Periodic progress saving (every 30 seconds)
-				{
-					uint32_t now = SDL_GetTicks();
-					if (Podcast_isActive() && now - last_progress_save_time >= PROGRESS_SAVE_INTERVAL_MS) {
-						PodcastFeed* feed = Podcast_getSubscription(podcast_current_feed_index);
-						if (feed) {
-							PodcastEpisode ep;
-							if (Podcast_getEpisode(podcast_current_feed_index, podcast_current_episode_index, &ep)) {
-								int position = Player_getPosition();
-								if (position > 0) {
-									int progress_sec = position / 1000;
-									Podcast_setEpisodeProgress(podcast_current_feed_index, podcast_current_episode_index, progress_sec);
-									Podcast_saveProgress(feed->feed_url, ep.guid, progress_sec);
-									Podcast_flushProgress();
-								}
-							}
-						}
-						last_progress_save_time = now;
-					}
-				}
-
-				// Detect episode end (player stopped naturally)
-				if (Player_getState() == PLAYER_STATE_STOPPED) {
-					PodcastFeed* feed = Podcast_getSubscription(podcast_current_feed_index);
-					int ended_feed_index = podcast_current_feed_index;
-					int ended_episode_index = podcast_current_episode_index;
-					PodcastEpisode ep;
-					int have_ep = Podcast_getEpisode(ended_feed_index, ended_episode_index, &ep);
-					char saved_feed_url[PODCAST_MAX_URL] = "";
-					char saved_guid[PODCAST_MAX_GUID] = "";
-					if (feed && have_ep) {
-						strncpy(saved_feed_url, feed->feed_url, PODCAST_MAX_URL - 1);
-						strncpy(saved_guid, ep.guid, PODCAST_MAX_GUID - 1);
-					}
-
-					Podcast_stop();
-
-					if (saved_feed_url[0] && saved_guid[0]) {
-						Podcast_markAsPlayed(saved_feed_url, saved_guid);
-						Podcast_removeContinueListening(saved_feed_url, saved_guid);
-					}
-					if (have_ep)
-						Podcast_setEpisodeProgress(ended_feed_index, ended_episode_index, -1);
-
+				// Progress persistence and completion belong to the owner. The UI
+				// only follows its stopped snapshot and refreshes its catalog cache.
+				if (MusicClient_snapshot()->state == MUSIC_STATE_STOPPED) {
+					Podcast_reloadProgress();
 					return_to_episodes(&state, &dirty);
 					continue;
 				}
@@ -1061,7 +1032,7 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 				}
 
 				// Auto screen-off
-				if (Podcast_isActive() && ModuleCommon_checkAutoScreenOffTimeout()) {
+				if (MusicClient_isPodcastActive() && ModuleCommon_checkAutoScreenOffTimeout()) {
 					clear_and_show_screen_off_hint(screen);
 					continue;
 				}
@@ -1137,52 +1108,11 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 	}
 }
 
-// Background tick: detect episode end and save progress while in menu
+// Background tick only refreshes the catalog UI; playback persistence and EOF
+// handling belong to the long-lived owner.
 void PodcastModule_backgroundTick(void) {
 	Podcast_update();
-
-	// Periodic progress saving
-	uint32_t now = SDL_GetTicks();
-	if (Podcast_isActive() && now - last_progress_save_time >= PROGRESS_SAVE_INTERVAL_MS) {
-		PodcastFeed* feed = Podcast_getSubscription(podcast_current_feed_index);
-		if (feed) {
-			PodcastEpisode ep;
-			if (Podcast_getEpisode(podcast_current_feed_index, podcast_current_episode_index, &ep)) {
-				int position = Player_getPosition();
-				if (position > 0) {
-					int progress_sec = position / 1000;
-					Podcast_setEpisodeProgress(podcast_current_feed_index, podcast_current_episode_index, progress_sec);
-					Podcast_saveProgress(feed->feed_url, ep.guid, progress_sec);
-					Podcast_flushProgress();
-				}
-			}
-		}
-		last_progress_save_time = now;
-	}
-
-	// Detect episode end
-	if (Player_getState() == PLAYER_STATE_STOPPED) {
-		PodcastFeed* feed = Podcast_getSubscription(podcast_current_feed_index);
-		int ended_feed_index = podcast_current_feed_index;
-		int ended_episode_index = podcast_current_episode_index;
-		PodcastEpisode ep;
-		int have_ep = Podcast_getEpisode(ended_feed_index, ended_episode_index, &ep);
-		char saved_feed_url[PODCAST_MAX_URL] = "";
-		char saved_guid[PODCAST_MAX_GUID] = "";
-		if (feed && have_ep) {
-			strncpy(saved_feed_url, feed->feed_url, PODCAST_MAX_URL - 1);
-			strncpy(saved_guid, ep.guid, PODCAST_MAX_GUID - 1);
-		}
-
-		Podcast_stop();
-
-		if (saved_feed_url[0] && saved_guid[0]) {
-			Podcast_markAsPlayed(saved_feed_url, saved_guid);
-			Podcast_removeContinueListening(saved_feed_url, saved_guid);
-		}
-		if (have_ep)
-			Podcast_setEpisodeProgress(ended_feed_index, ended_episode_index, -1);
-
+	if (MusicClient_snapshot()->source != MUSIC_SOURCE_PODCAST) {
 		Background_setActive(BG_NONE);
 		ModuleCommon_setAutosleepDisabled(false);
 	}

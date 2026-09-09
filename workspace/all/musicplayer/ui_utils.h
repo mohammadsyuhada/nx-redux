@@ -3,9 +3,9 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "player.h"
+#include "music_service_protocol.h"
 
 // Get format name string
-const char* get_format_name(AudioFormat format);
+const char* get_format_name(int format);
 
 #endif

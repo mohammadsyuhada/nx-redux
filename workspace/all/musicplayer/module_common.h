@@ -81,6 +81,10 @@ bool ModuleCommon_checkAutoScreenOffTimeout(void);
 // Check toast state: if active and not expired, sets dirty=1; if expired, clears message and sets dirty=1.
 void ModuleCommon_tickToast(char* message, uint32_t toast_time, bool* dirty);
 
+// Confirm leaving the Music Player app. A loaded source can either remain
+// owned by musicplayerd, be stopped before detach, or cancel the exit.
+bool ModuleCommon_confirmAppExit(SDL_Surface* screen);
+
 // Clean up module common resources (call at app exit)
 void ModuleCommon_quit(void);
 

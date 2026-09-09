@@ -1,0 +1,22 @@
+{
+    "type":"app",
+    "package":"com.trimui.osd.app.balance",
+    "label":"Balance",
+    "label.ch.lang":"平衡",
+    "gridwidth":2,
+    "gridheight":1,
+    "icon0":"icon0.png",
+    "icon1":"icon1.png",
+    "launch":"launch.sh",
+    "update":"",
+    "set":"",
+    "status":"",
+    "cmd":"/tmp/trimui_music/balance_widget_cmd",
+    "canvasv":"/tmp/trimui_music/balance_vfb_osd",
+    "canvasp":"",
+    "canvaswidth":260,
+    "canvasheight":120,
+    "canvasbpp":32,
+    "canvasfps":12,
+    "description":"Game and music balance"
+}

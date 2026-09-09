@@ -3,9 +3,9 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
-#include "api.h"
+#include "../common/api.h"
 #include "playlist.h"
-#include "player.h"
+#include "music_format.h"
 
 // Forward declarations for internal helpers
 static int scan_directory_recursive(PlaylistContext* ctx, const char* path, int depth);
@@ -44,7 +44,7 @@ void Playlist_clear(PlaylistContext* ctx) {
 
 // Check if file is a supported audio format
 static bool is_audio_file(const char* filename) {
-	AudioFormat fmt = Player_detectFormat(filename);
+	AudioFormat fmt = MusicFormat_detect(filename);
 	return fmt != AUDIO_FORMAT_UNKNOWN;
 }
 
@@ -151,7 +151,7 @@ static int add_track(PlaylistContext* ctx, const char* path, const char* name) {
 	track->path[sizeof(track->path) - 1] = '\0';
 	strncpy(track->name, name, sizeof(track->name) - 1);
 	track->name[sizeof(track->name) - 1] = '\0';
-	track->format = Player_detectFormat(name);
+	track->format = MusicFormat_detect(name);
 
 	ctx->track_count++;
 	return 0;

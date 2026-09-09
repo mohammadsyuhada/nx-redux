@@ -38,6 +38,8 @@ typedef struct {
 	int turbo_r2;
 	int rumble_off;		 // OSD motor switch; inverted so old files read as on
 	int rumble_strength; // 0 Normal (default), 1 Light, 2 Strong (vib_levels.h)
+	int game_volume;
+	int music_volume;
 	int jack;
 	int audiosink;
 #ifdef HAS_FAN

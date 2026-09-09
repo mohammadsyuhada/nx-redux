@@ -34,8 +34,8 @@ CONFDIR="$GAMEDIR/conf"
 mkdir -p "$CONFDIR"
 
 cd "$GAMEDIR" || exit 1
-: > "$GAMEDIR/log.txt"
-exec > "$GAMEDIR/log.txt" 2>&1
+: >"$GAMEDIR/log.txt"
+exec >"$GAMEDIR/log.txt" 2>&1
 
 export HOME="$CONFDIR"
 export XDG_DATA_HOME="$CONFDIR"
@@ -75,7 +75,7 @@ export POKEPORT_GBCFX="${POKEPORT_GBCFX:-0}"
 # copy is the fallback for a card running an older system build. curl reads
 # CURL_CA_BUNDLE directly; SSL_CERT_FILE covers OpenSSL-level consumers.
 for _ca in "${SDCARD_PATH:-/mnt/SDCARD}/.system/shared/ssl/ca-certificates.crt" \
-           "${SDCARD_PATH:-/mnt/SDCARD}/Emus/shared/PortMaster/ssl/certs/ca-certificates.crt"; do
+    "${SDCARD_PATH:-/mnt/SDCARD}/Emus/shared/PortMaster/ssl/certs/ca-certificates.crt"; do
     if [ -f "$_ca" ]; then
         export CURL_CA_BUNDLE="$_ca"
         export SSL_CERT_FILE="$_ca"
@@ -85,21 +85,14 @@ done
 
 chmod a+x ./bin/love.aarch64 2>/dev/null
 
-echo "1" > /tmp/stay_awake
+echo "1" >/tmp/stay_awake
 
 NX_SLEEPMON_PID=""
 cleanup() {
     [ -n "$NX_SLEEPMON_PID" ] && kill "$NX_SLEEPMON_PID" 2>/dev/null
-    echo 0 > /sys/class/speaker/mute 2>/dev/null
     rm -f "$HOME/.asoundrc"
 }
 trap cleanup EXIT INT TERM HUP QUIT
-
-# Anti-pop: mute the speaker over LOVE/OpenAL init, then unmute and let
-# syncsettings.elf restore the user's saved volume (same dance
-# ports_launch.sh does for every port).
-echo 1 > /sys/class/speaker/mute 2>/dev/null
-( sleep 5; echo 0 > /sys/class/speaker/mute 2>/dev/null; syncsettings.elf 2>/dev/null ) &
 
 # Power-button sleep/poweroff handler for the duration of the game - run
 # with the ORIGINAL library path (it links libmsettings.so from
@@ -123,7 +116,7 @@ NX_TASKSET=""
 # it leaves all but one big core offline), which would otherwise trap the
 # big-core taskset below - and LOVE's audio thread - on a single core.
 for oc in /sys/devices/system/cpu/cpu[0-9]*/online; do
-    echo 1 > "$oc" 2>/dev/null
+    echo 1 >"$oc" 2>/dev/null
 done
 # Raise each cluster to its full frequency range under schedutil. Write the max
 # ceiling before the min floor so a min value can't momentarily exceed the old
@@ -132,9 +125,9 @@ for pol in /sys/devices/system/cpu/cpufreq/policy*; do
     [ -d "$pol" ] || continue
     hwmax="$(cat "$pol/cpuinfo_max_freq" 2>/dev/null)"
     hwmin="$(cat "$pol/cpuinfo_min_freq" 2>/dev/null)"
-    echo schedutil > "$pol/scaling_governor" 2>/dev/null
-    [ -n "$hwmax" ] && echo "$hwmax" > "$pol/scaling_max_freq" 2>/dev/null
-    [ -n "$hwmin" ] && echo "$hwmin" > "$pol/scaling_min_freq" 2>/dev/null
+    echo schedutil >"$pol/scaling_governor" 2>/dev/null
+    [ -n "$hwmax" ] && echo "$hwmax" >"$pol/scaling_max_freq" 2>/dev/null
+    [ -n "$hwmin" ] && echo "$hwmin" >"$pol/scaling_min_freq" 2>/dev/null
 done
 # eMMC swapfile OOM guard for BOTH 1GB devices (brick and tg5050). Either peaks
 # ~750MB with the Dramatic Shape voxel mod enabled; exFAT SD can't host swap, so
@@ -156,9 +149,9 @@ done
         # shellcheck disable=SC2015
         # (deliberate, not an if/then/else stand-in: `|| rm -f` here means "clean
         # up on ANY failure in the chain", not just when dd fails.)
-        dd if=/dev/zero of=/swapfile bs=1M count=512 2>/dev/null \
-            && chmod 600 /swapfile && mkswap /swapfile >/dev/null 2>&1 \
-            || rm -f /swapfile
+        dd if=/dev/zero of=/swapfile bs=1M count=512 2>/dev/null &&
+            chmod 600 /swapfile && mkswap /swapfile >/dev/null 2>&1 ||
+            rm -f /swapfile
     fi
     swapon /swapfile 2>/dev/null
 ) &
@@ -166,7 +159,7 @@ done
 # Big-core affinity is tg5050-only: the brick has a single CPU cluster, so
 # there are no performance cores to pin LOVE onto.
 case "${PLATFORM:-}" in
-  tg5050)
+tg5050)
     command -v taskset >/dev/null 2>&1 && NX_TASKSET="taskset -c 4-7"
     ;;
 esac

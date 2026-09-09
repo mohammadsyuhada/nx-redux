@@ -27,6 +27,9 @@ endif
 include ../../$(PLATFORM)/platform/Makefile.env
 
 TARGET = musicplayer
+SERVICE_TARGET = musicplayerd
+CTL_TARGET = musicplayerctl
+OSD_TARGET = music_osd_adapter
 include ../common/ui/ui.mk
 INCDIR = -I. -I./audio -I../common/ -I../../$(PLATFORM)/platform/ -I../minarch/libretro-common/include
 INCDIR += $(UI_INCDIR)
@@ -54,7 +57,7 @@ OPUS_INCDIR = -I./include/libogg -I./include/libopus/include -I./include/opusfil
 OPUS_CFLAGS = -O2 -fomit-frame-pointer -DOPUS_BUILD -DVAR_ARRAYS -DHAVE_LRINTF \
               -DOP_DISABLE_HTTP -DOP_DISABLE_FLOAT_API -std=gnu99
 
-SOURCE = $(TARGET).c player.c playlist.c playlist_m3u.c radio.c radio_catalog_parse.c radio_catalog.c radio_net.c album_art.c lyrics.c radio_hls.c \
+SOURCE = $(TARGET).c music_client.c music_service_client.c music_format.c playlist.c playlist_m3u.c radio.c radio_catalog_parse.c radio_catalog.c radio_net.c album_art.c lyrics.c radio_hls.c \
          podcast.c podcast_rss.c podcast_search.c http_download.c settings.c resume.c add_to_playlist.c background.c \
          module_common.c module_menu.c module_library.c module_player.c module_playlist.c module_radio.c module_podcast.c module_settings.c \
          ui_icons.c ui_utils.c browser.c ui_album_art.c ui_main.c ui_music.c ui_radio.c ui_podcast.c ui_playlist.c ui_settings.c \
@@ -73,7 +76,7 @@ MY_CFLAGS = -O2 -fomit-frame-pointer
 # mbedTLS config
 MY_CFLAGS += -DMBEDTLS_CONFIG_FILE='<mbedtls_config.h>'
 MY_CFLAGS += -DOPUS_BUILD -DHAVE_LRINTF -DOP_DISABLE_HTTP -DOP_DISABLE_FLOAT_API
-MY_CFLAGS += $(INCDIR) -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
+MY_CFLAGS += $(INCDIR) -DPLATFORM=\"$(PLATFORM)\" -DPLATFORM_$(shell echo $(PLATFORM) | tr a-z A-Z) -ffunction-sections -fdata-sections -std=gnu99
 MY_CFLAGS += -DUSE_SDL2 -DUSE_GLES -DGL_GLEXT_PROTOTYPES
 MY_CFLAGS += -I$(PREFIX)/include -I$(PREFIX_LOCAL)/include -I./include/fdk_aac
 MY_CFLAGS += -I../../$(PLATFORM)/libmsettings
@@ -93,15 +96,50 @@ MY_LDFLAGS += -ltinyalsa
 endif
 
 PRODUCT = build/$(PLATFORM)/$(TARGET).elf
+SERVICE_PRODUCT = build/$(PLATFORM)/$(SERVICE_TARGET).elf
+CTL_PRODUCT = build/$(PLATFORM)/$(CTL_TARGET).elf
+OSD_PRODUCT = build/$(PLATFORM)/$(OSD_TARGET).elf
+TEST_PRODUCT = build/$(PLATFORM)/test_player_snapshot.elf
+TEST_SERVICE_PRODUCT = build/$(PLATFORM)/test_music_service.elf
+TEST_CLIENT_PRODUCT = build/$(PLATFORM)/test_music_client.elf
+DAEMON_SOURCE = musicplayerd.c music_format.c player.c playlist.c playlist_m3u.c radio.c radio_catalog_parse.c radio_catalog.c radio_net.c radio_hls.c album_art.c resume.c podcast.c podcast_rss.c podcast_search.c http_download.c settings.c \
+                ../common/utils.c ../common/api.c ../common/text_shape.c ../common/scaler.c ../common/audio_manager.c ../common/config.c ../common/wifi.c ../common/stream_probe.c \
+                ../common/wget_fetch.c ../common/net_cache.c ../common/tz_country.c ../../$(PLATFORM)/platform/platform.c \
+                ../include/parson/parson.c include/yxml/yxml.c ../include/mbedtls_entropy_alt.c ../common/ui/ui_image.c $(MBEDTLS_SRC)
 OPUS_OBJ_DIR = opus_obj
+TEST_SOURCE = player.c $(filter-out $(TARGET).c,$(SOURCE)) tests/test_player_snapshot.c
 
 all:
 	@mkdir -p build/$(PLATFORM) $(OPUS_OBJ_DIR)
 	$(CC) -c $(OPUS_ALL_SRC) $(OPUS_CFLAGS) $(OPUS_INCDIR)
 	@mv *.o $(OPUS_OBJ_DIR)/
-	$(CC) $(SOURCE) $(OPUS_OBJ_DIR)/*.o -o $(PRODUCT) $(MY_CFLAGS) $(MY_LDFLAGS)
+	$(CC) $(SOURCE) $(OPUS_OBJ_DIR)/*.o -o $(PRODUCT) $(MY_CFLAGS) $(MY_LDFLAGS) -Wl,--gc-sections
+	$(CC) $(DAEMON_SOURCE) $(OPUS_OBJ_DIR)/*.o -o $(SERVICE_PRODUCT) $(MY_CFLAGS) $(MY_LDFLAGS)
+	$(CC) musicplayerctl.c music_service_client.c -o $(CTL_PRODUCT) $(MY_CFLAGS)
+	$(CC) music_osd_adapter.c music_client.c music_service_client.c -o $(OSD_PRODUCT) $(MY_CFLAGS) $(MY_LDFLAGS)
+	@rm -rf $(OPUS_OBJ_DIR)
+
+test_service:
+	@mkdir -p build/$(PLATFORM)
+	$(CC) tests/test_music_service.c music_service_client.c -o $(TEST_SERVICE_PRODUCT) $(MY_CFLAGS)
+
+test_client:
+	@mkdir -p build/$(PLATFORM)
+	$(CC) tests/test_music_client.c music_client.c music_service_client.c -o $(TEST_CLIENT_PRODUCT) $(MY_CFLAGS) -lpthread
+
+test_snapshot:
+	@mkdir -p build/$(PLATFORM) $(OPUS_OBJ_DIR)
+	$(CC) -c $(OPUS_ALL_SRC) $(OPUS_CFLAGS) $(OPUS_INCDIR)
+	@mv *.o $(OPUS_OBJ_DIR)/
+	$(CC) $(TEST_SOURCE) $(OPUS_OBJ_DIR)/*.o -o $(TEST_PRODUCT) $(MY_CFLAGS) $(MY_LDFLAGS) -Wl,--gc-sections
 	@rm -rf $(OPUS_OBJ_DIR)
 
 clean:
-	rm -f build/tg5040/$(TARGET).elf build/tg5050/$(TARGET).elf
+	rm -f build/tg5040/$(TARGET).elf build/tg5050/$(TARGET).elf \
+		build/tg5040/$(SERVICE_TARGET).elf build/tg5050/$(SERVICE_TARGET).elf \
+		build/tg5040/$(CTL_TARGET).elf build/tg5050/$(CTL_TARGET).elf \
+		build/tg5040/$(OSD_TARGET).elf build/tg5050/$(OSD_TARGET).elf \
+		build/tg5040/test_player_snapshot.elf build/tg5050/test_player_snapshot.elf \
+		build/tg5040/test_music_service.elf build/tg5050/test_music_service.elf \
+		build/tg5040/test_music_client.elf build/tg5050/test_music_client.elf
 	rm -rf $(OPUS_OBJ_DIR)

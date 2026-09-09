@@ -71,6 +71,9 @@ void Radio_saveStations(void);
 // Load stations from file
 void Radio_loadStations(void);
 
+// Select a station without connecting; used to restore stopped/paused identity.
+int Radio_prepare(const char* url);
+
 // Connect and start streaming
 int Radio_play(const char* url);
 

@@ -42,6 +42,8 @@ typedef struct SettingsV1 {
 	int turbo_r2;
 	int rumble_off;		 // OSD motor switch, stored inverted so pre-existing files read as ON
 	int rumble_strength; // Settings "Vibration strength": 0 Normal (default), 1 Light, 2 Strong
+	int game_volume;
+	int music_volume;
 	// NOTE: doesn't really need to be persisted but still needs to be shared
 	int jack;
 	int audiosink; // was bluetooth true/false before
@@ -80,6 +82,8 @@ static Settings DefaultSettings = {
 	.jack = 0,
 	.audiosink = AUDIO_SINK_DEFAULT,
 	.fanSpeed = SETTINGS_DEFAULT_FAN_SPEED,
+	.game_volume = SETTINGS_DEFAULT_SOFTWARE_VOLUME + 1,
+	.music_volume = SETTINGS_DEFAULT_SOFTWARE_VOLUME + 1,
 };
 static Settings* settings;
 
@@ -254,6 +258,10 @@ void InitSettings(void) {
 		// settings->jack = 0;
 		settings->mute = 0;
 	}
+	if (settings->game_volume < 1 || settings->game_volume > 21)
+		settings->game_volume = SETTINGS_DEFAULT_SOFTWARE_VOLUME + 1;
+	if (settings->music_volume < 1 || settings->music_volume > 21)
+		settings->music_volume = SETTINGS_DEFAULT_SOFTWARE_VOLUME + 1;
 	// printf("brightness: %i\nspeaker: %i \n", settings->brightness, settings->speaker);
 	// make sure all these volume-influencing controls are set to defaults, we will set volume with 'DAC Volume'
 	if (GetAudioSink() == AUDIO_SINK_DEFAULT) {
@@ -299,6 +307,32 @@ int GetVolume(void) { // 0-20
 
 	return settings->speaker;
 }
+int GetGameVolume(void) {
+	return settings->game_volume - 1;
+}
+
+int GetMusicVolume(void) {
+	return settings->music_volume - 1;
+}
+
+void SetGameVolume(int value) {
+	if (value < 0)
+		value = 0;
+	if (value > 20)
+		value = 20;
+	settings->game_volume = value + 1;
+	SaveSettings();
+}
+
+void SetMusicVolume(int value) {
+	if (value < 0)
+		value = 0;
+	if (value > 20)
+		value = 20;
+	settings->music_volume = value + 1;
+	SaveSettings();
+}
+
 // monitored and set by thread in keymon
 int GetJack(void) {
 	return settings->jack;

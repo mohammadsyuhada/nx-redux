@@ -1,4 +1,5 @@
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,29 +7,36 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <sys/stat.h>
-#include "defines.h"
-#include "api.h"
+#if defined(PLATFORM_TG5050)
+#include "../../tg5050/platform/platform.h"
+#else
+#include "../../tg5040/platform/platform.h"
+#endif
+#include "../common/api.h"
+#include "../common/display_helper.h"
+#include "../common/ui/ui_contextmenu.h"
+
+extern uint32_t SDL_GetTicks(void);
 #include "module_common.h"
 #include "module_player.h"
-#include "player.h"
+#include "music_client.h"
 #include "spectrum.h"
 #include "browser.h"
 #include "playlist.h"
 #include "ui_music.h"
-#include "ui_listview.h"
+#include "../common/ui/ui_listview.h"
 #include "ui_album_art.h"
 #include "ui_main.h"
-#include "ui_confirmdialog.h"
+#include "../common/ui/ui_confirmdialog.h"
 #include "lyrics.h"
 #include "settings.h"
 #include "add_to_playlist.h"
-#include "display_helper.h"
-#include "ui_toast.h"
+#include "../common/ui/ui_toast.h"
 #include "resume.h"
 #include "playlist_m3u.h"
 #include "background.h"
 #include "album_art.h"
-#include "ui_keyboard.h"
+#include "../common/ui/ui_keyboard.h"
 
 // Music folder path
 #define MUSIC_PATH SDCARD_PATH "/Music"
@@ -78,6 +86,7 @@ static char track_history[TRACK_HISTORY_MAX][512];
 static int track_history_count = 0;
 static bool history_retracing = false; // prev in progress: don't re-push
 static char now_playing_path[512] = "";
+static char loaded_artwork_path[MUSIC_SERVICE_MAX_PATH] = "";
 
 static void history_push(const char* path) {
 	if (!path || !path[0])
@@ -92,10 +101,6 @@ static void history_push(const char* path) {
 
 // Resume: M3U playlist path (set by PlaylistModule before runWithPlaylist)
 static char resume_playlist_path[512] = "";
-
-// Resume: last save timestamp for periodic updates
-static uint32_t last_resume_save = 0;
-
 
 // Clear all player GPU overlay layers
 static void clear_gpu_layers(void) {
@@ -118,14 +123,17 @@ static void load_directory(const char* path) {
 static void init_player(void) {
 	if (initialized)
 		return;
-	mkdir(MUSIC_PATH, 0755);
+	mkdir(MUSIC_PATH, 493);
 	load_directory(MUSIC_PATH);
 	initialized = true;
 }
 
 // Try to load and play a track, returns true on success
 static bool try_load_and_play(const char* path) {
-	if (Player_load(path) == 0) {
+	int load_status = (playlist_active && resume_playlist_path[0])
+						  ? MusicClient_loadPlaylist(resume_playlist_path, Playlist_getCurrentIndex(&playlist))
+						  : MusicClient_load(path);
+	if (load_status == 0) {
 		// Record the outgoing track (skip when retracing via prev, and on
 		// repeat-replays of the same file)
 		if (!history_retracing && now_playing_path[0] &&
@@ -134,35 +142,25 @@ static bool try_load_and_play(const char* path) {
 		}
 		snprintf(now_playing_path, sizeof(now_playing_path), "%s", path);
 
-		Player_play();
-		const TrackInfo* info = Player_getTrackInfo();
+		(void)MusicClient_setRepeat(repeat_enabled);
+		(void)MusicClient_setShuffle(shuffle_enabled);
+		(void)MusicClient_play();
+		const MusicSnapshotWire* snapshot = MusicClient_snapshot();
 
-		// Fetch album art (async) and lyrics after playback starts
-		if (info && !Player_getAlbumArt()) {
-			const char* artist = info->artist[0] ? info->artist : "";
-			const char* title = info->title[0] ? info->title : "";
-			if (artist[0] || title[0]) {
+		// Album art and lyrics remain UI presentation concerns, keyed by the
+		// daemon's copied metadata rather than a remote SDL/decoder pointer.
+		if (snapshot->artwork_path[0] && strcmp(loaded_artwork_path, snapshot->artwork_path) != 0) {
+			album_art_load_path(snapshot->artwork_path);
+			snprintf(loaded_artwork_path, sizeof(loaded_artwork_path), "%s", snapshot->artwork_path);
+		}
+		if (!album_art_get()) {
+			const char* artist = snapshot->artist[0] ? snapshot->artist : "";
+			const char* title = snapshot->title[0] ? snapshot->title : "";
+			if (artist[0] || title[0])
 				album_art_fetch(artist, title);
-			}
 		}
-		if (Settings_getLyricsEnabled() && info) {
-			Lyrics_fetch(info->artist, info->title, info->duration_ms / 1000);
-		}
-
-		// Save resume state on every track change
-		const char* name = (info && info->title[0]) ? info->title : NULL;
-		if (!name) {
-			const char* slash = strrchr(path, '/');
-			name = slash ? slash + 1 : path;
-		}
-		if (resume_playlist_path[0] && playlist_active) {
-			Resume_savePlaylist(resume_playlist_path, path, name,
-								Playlist_getCurrentIndex(&playlist), 0);
-		} else {
-			int idx = playlist_active ? Playlist_getCurrentIndex(&playlist) : MusicBrowser_view()->selected;
-			Resume_saveFiles(browser.current_path, path, name, idx, 0);
-		}
-		last_resume_save = SDL_GetTicks();
+		if (Settings_getLyricsEnabled())
+			Lyrics_fetch(snapshot->artist, snapshot->title, snapshot->duration_ms / 1000);
 
 		return true;
 	}
@@ -178,6 +176,70 @@ static bool playlist_try_play(int idx) {
 }
 
 // Pick a random audio file from the browser (excluding current). Returns true on success.
+static void sync_ui_to_owner(void) {
+	const MusicSnapshotWire* snapshot = MusicClient_snapshot();
+	if (snapshot->artwork_path[0] && strcmp(loaded_artwork_path, snapshot->artwork_path) != 0) {
+		album_art_load_path(snapshot->artwork_path);
+		snprintf(loaded_artwork_path, sizeof(loaded_artwork_path), "%s", snapshot->artwork_path);
+	}
+	if (!album_art_get()) {
+		const char* artist = snapshot->artist[0] ? snapshot->artist : "";
+		const char* title = snapshot->title[0] ? snapshot->title : "";
+		if (artist[0] || title[0])
+			album_art_fetch(artist, title);
+	}
+	if (Settings_getLyricsEnabled() && (snapshot->artist[0] || snapshot->title[0]))
+		Lyrics_fetch(snapshot->artist, snapshot->title, snapshot->duration_ms / 1000);
+	if (snapshot->source != MUSIC_SOURCE_LOCAL || !snapshot->current_file[0])
+		return;
+
+	/* Reconstruct only the queue identity owned by the daemon. A folder and an
+	 * M3U need different loaders; treating a folder as an M3U would make resume
+	 * persistence and next/previous diverge after a UI reattach. */
+	if (snapshot->queue_kind == MUSIC_QUEUE_M3U && snapshot->queue_path[0] &&
+		strcmp(resume_playlist_path, snapshot->queue_path) != 0) {
+		PlaylistTrack tracks[PLAYLIST_MAX_TRACKS];
+		int count = 0;
+		if (M3U_loadTracks(snapshot->queue_path, tracks, PLAYLIST_MAX_TRACKS, &count) == 0 && count > 0) {
+			Playlist_free(&playlist);
+			Playlist_init(&playlist);
+			for (int i = 0; i < count; i++)
+				playlist.tracks[i] = tracks[i];
+			playlist.track_count = count;
+			playlist.current_index = 0;
+			playlist_active = true;
+			snprintf(resume_playlist_path, sizeof(resume_playlist_path), "%s", snapshot->queue_path);
+		}
+	} else if (snapshot->queue_kind == MUSIC_QUEUE_FOLDER && snapshot->queue_path[0] &&
+			   (strcmp(resume_playlist_path, snapshot->queue_path) != 0 || !playlist_active)) {
+		Playlist_free(&playlist);
+		int count = Playlist_buildFromDirectory(&playlist, snapshot->queue_path, snapshot->current_file);
+		if (count > 0) {
+			playlist_active = true;
+			resume_playlist_path[0] = '\0';
+		}
+	} else if (snapshot->queue_kind == MUSIC_QUEUE_NONE) {
+		Playlist_free(&playlist);
+		playlist_active = false;
+		resume_playlist_path[0] = '\0';
+	}
+
+	if (playlist_active) {
+		for (int i = 0; i < playlist.track_count; i++) {
+			if (strcmp(playlist.tracks[i].path, snapshot->current_file) == 0) {
+				playlist.current_index = i;
+				break;
+			}
+		}
+	}
+	for (int i = 0; i < browser.entry_count; i++) {
+		if (!browser.entries[i].is_dir && strcmp(browser.entries[i].path, snapshot->current_file) == 0) {
+			MusicBrowser_view()->selected = i;
+			break;
+		}
+	}
+}
+
 static bool browser_pick_random(void) {
 	int audio_count = Browser_countAudioFiles(&browser);
 	if (audio_count <= 1)
@@ -206,29 +268,6 @@ static bool browser_pick_next(void) {
 		}
 	}
 	return false;
-}
-
-// Handle next track logic
-static bool handle_track_ended(void) {
-	if (repeat_enabled) {
-		if (playlist_active)
-			return playlist_try_play(-1);
-		return try_load_and_play(browser.entries[MusicBrowser_view()->selected].path);
-	}
-
-	if (shuffle_enabled) {
-		if (playlist_active)
-			return playlist_try_play(Playlist_shuffle(&playlist));
-		return browser_pick_random();
-	}
-
-	if (playlist_active) {
-		int next_idx = Playlist_next(&playlist);
-		if (next_idx < 0)
-			return false; // End of playlist
-		return playlist_try_play(next_idx);
-	}
-	return browser_pick_next();
 }
 
 // Start playback of a track (load + play + init spectrum)
@@ -374,22 +413,11 @@ static void rename_browser_entry(SDL_Surface** screen_p, FileEntry* entry) {
 	free(newname);
 }
 
-// Handle USB/Bluetooth media button events
-static void handle_hid_events(void) {
-	USBHIDEvent hid_event;
-	while ((hid_event = Player_pollUSBHID()) != USB_HID_EVENT_NONE) {
-		if (hid_event == USB_HID_EVENT_PLAY_PAUSE) {
-			Player_togglePause();
-		} else if (hid_event == USB_HID_EVENT_NEXT_TRACK) {
-			PlayerModule_nextTrack();
-		} else if (hid_event == USB_HID_EVENT_PREV_TRACK) {
-			PlayerModule_prevTrack();
-		}
-	}
-}
-
 // Try to start playback from a browser entry (play-all or single file). Returns true on success.
 static bool browser_play_entry(FileEntry* entry) {
+	/* A browser selection starts a directory-owned queue. Do not reuse an
+	 * earlier M3U identity merely because the detached owner is still local. */
+	resume_playlist_path[0] = '\0';
 	if (entry->is_play_all)
 		return build_and_start_playlist(entry->path, "");
 	if (build_and_start_playlist(browser.current_path, entry->path))
@@ -458,7 +486,7 @@ static bool handle_playing_input(SDL_Surface* screen, PlayerInternalState* state
 			GFX_clear(screen);
 			GFX_flip(screen);
 		}
-		Player_update();
+		MusicClient_update();
 		GFX_sync();
 		return true;
 	}
@@ -472,22 +500,8 @@ static bool handle_playing_input(SDL_Surface* screen, PlayerInternalState* state
 			ModuleCommon_recordInputTime();
 			*dirty = 1;
 		}
-		// Handle USB/Bluetooth media and volume buttons even with screen off
-		handle_hid_events();
+		MusicClient_update();
 
-		Player_update();
-
-		if (Player_getState() == PLAYER_STATE_STOPPED) {
-			if (!handle_track_ended() && Player_getState() == PLAYER_STATE_STOPPED) {
-				Resume_clear(); // All tracks finished naturally
-				screen_off = false;
-				PLAT_enableBacklight(1);
-				cleanup_playback(false);
-				load_directory(MUSIC_PATH);
-				*state = PLAYER_INTERNAL_BROWSER;
-				*dirty = 1;
-			}
-		}
 		GFX_sync();
 		return true;
 	}
@@ -498,25 +512,20 @@ static bool handle_playing_input(SDL_Surface* screen, PlayerInternalState* state
 	}
 
 	if (PAD_justPressed(BTN_A)) {
-		Player_togglePause();
+		MusicClient_toggle();
 		*dirty = 1;
 	} else if (PAD_justPressed(BTN_B)) {
 		cleanup_album_art_background();
-		if (Player_getState() == PLAYER_STATE_PLAYING) {
-			cleanup_playback_ui();
-			Background_setActive(BG_MUSIC);
-		} else {
-			Player_stop();
-			cleanup_playback(true);
-		}
+		cleanup_playback_ui();
+		Background_setActive(BG_MUSIC);
 		*state = PLAYER_INTERNAL_BROWSER;
 		*dirty = 1;
 		return true; // Skip track-ended check to prevent auto-advance
 	} else if (PAD_justRepeated(BTN_LEFT)) {
-		Player_seek(Player_getPosition() - 5000);
+		MusicClient_seek(MusicClient_position() - 5000);
 		*dirty = 1;
 	} else if (PAD_justRepeated(BTN_RIGHT)) {
-		Player_seek(Player_getPosition() + 5000);
+		MusicClient_seek(MusicClient_position() + 5000);
 		*dirty = 1;
 	} else if (PAD_justPressed(BTN_DOWN) || PAD_justPressed(BTN_L1)) {
 		PlayerModule_prevTrack();
@@ -526,9 +535,11 @@ static bool handle_playing_input(SDL_Surface* screen, PlayerInternalState* state
 		*dirty = 1;
 	} else if (PAD_justPressed(BTN_X)) {
 		shuffle_enabled = !shuffle_enabled;
+		(void)MusicClient_setShuffle(shuffle_enabled);
 		*dirty = 1;
 	} else if (PAD_justPressed(BTN_Y)) {
 		repeat_enabled = !repeat_enabled;
+		(void)MusicClient_setRepeat(repeat_enabled);
 		*dirty = 1;
 	} else if (PAD_justPressed(BTN_FN1) || PAD_justPressed(BTN_L2)) {
 		Spectrum_cycleNext();
@@ -538,11 +549,9 @@ static bool handle_playing_input(SDL_Surface* screen, PlayerInternalState* state
 		if (!Settings_getLyricsEnabled()) {
 			Lyrics_clear();
 		} else {
-			// Re-fetch lyrics for current track
-			const TrackInfo* info = Player_getTrackInfo();
-			if (info) {
-				Lyrics_fetch(info->artist, info->title, info->duration_ms / 1000);
-			}
+			// Re-fetch lyrics from copied daemon metadata.
+			const MusicSnapshotWire* snapshot = MusicClient_snapshot();
+			Lyrics_fetch(snapshot->artist, snapshot->title, snapshot->duration_ms / 1000);
 		}
 		*dirty = 1;
 	} else if (PAD_tappedSelect(SDL_GetTicks())) {
@@ -551,29 +560,13 @@ static bool handle_playing_input(SDL_Surface* screen, PlayerInternalState* state
 		*dirty = 1;
 	}
 
-	// Check if track ended
-	Player_update();
-	if (Player_getState() == PLAYER_STATE_STOPPED) {
-		if (!handle_track_ended() && Player_getState() == PLAYER_STATE_STOPPED) {
-			Resume_clear(); // All tracks finished naturally
-			cleanup_playback(false);
-			load_directory(MUSIC_PATH);
-			*state = PLAYER_INTERNAL_BROWSER;
-		}
-		*dirty = 1;
-	}
-
-	// Save resume position periodically
-	if (Player_getState() == PLAYER_STATE_PLAYING) {
-		uint32_t now = SDL_GetTicks();
-		if (now - last_resume_save > 5000) {
-			Resume_updatePosition(Player_getPosition());
-			last_resume_save = now;
-		}
-	}
+	// The owner advances EOF and persists resume position. Refresh only the
+	// copied state used by this detached presentation.
+	MusicClient_update();
+	sync_ui_to_owner();
 
 	// Auto screen-off after inactivity
-	if (Player_getState() == PLAYER_STATE_PLAYING && ModuleCommon_checkAutoScreenOffTimeout()) {
+	if (MusicClient_snapshot()->state == MUSIC_STATE_PLAYING && ModuleCommon_checkAutoScreenOffTimeout()) {
 		clear_gpu_layers();
 		*dirty = 1;
 	}
@@ -615,9 +608,15 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 	ModuleCommon_resetScreenOffHint();
 	ModuleCommon_recordInputTime();
 
-	// Reclaim background music — re-enter playing state
+	// Reclaim background music — re-enter playing state. The owner snapshot is
+	// authoritative; rebuild the local presentation queue when the UI was
+	// detached or the owner advanced it while no screen was open.
+	MusicClient_update();
+	sync_ui_to_owner();
 	if (Background_getActive() == BG_MUSIC && PlayerModule_isActive()) {
 		Background_setActive(BG_NONE);
+		repeat_enabled = MusicClient_snapshot()->repeat != 0;
+		shuffle_enabled = MusicClient_snapshot()->shuffle != 0;
 		Spectrum_init();
 		ModuleCommon_setAutosleepDisabled(true);
 		state = PLAYER_INTERNAL_PLAYING;
@@ -816,8 +815,8 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 
 // Check if music player module is active
 bool PlayerModule_isActive(void) {
-	PlayerState state = Player_getState();
-	return (state == PLAYER_STATE_PLAYING || state == PLAYER_STATE_PAUSED);
+	int state = MusicClient_snapshot()->state;
+	return (state == MUSIC_STATE_PLAYING || state == MUSIC_STATE_PAUSED);
 }
 
 // Play next track (for USB HID button support)
@@ -827,20 +826,20 @@ void PlayerModule_nextTrack(void) {
 		int new_idx = shuffle_enabled ? Playlist_shuffle(&playlist)
 									  : Playlist_next(&playlist);
 		if (new_idx >= 0) {
-			Player_stop();
+			MusicClient_stop();
 			playlist_try_play(new_idx);
 		}
 	} else if (initialized) {
 		if (shuffle_enabled) {
 			if (Browser_countAudioFiles(&browser) > 1) {
-				Player_stop();
+				MusicClient_stop();
 				browser_pick_random();
 			}
 			return;
 		}
 		for (int i = MusicBrowser_view()->selected + 1; i < browser.entry_count; i++) {
 			if (!browser.entries[i].is_dir) {
-				Player_stop();
+				MusicClient_stop();
 				MusicBrowser_view()->selected = i;
 				try_load_and_play(browser.entries[i].path);
 				break;
@@ -860,7 +859,7 @@ void PlayerModule_prevTrack(void) {
 				for (int i = 0; i < playlist.track_count; i++) {
 					if (strcmp(playlist.tracks[i].path, prev_path) == 0) {
 						playlist.current_index = i;
-						Player_stop();
+						MusicClient_stop();
 						history_retracing = true;
 						bool ok = playlist_try_play(i);
 						history_retracing = false;
@@ -873,7 +872,7 @@ void PlayerModule_prevTrack(void) {
 				for (int i = 0; i < browser.entry_count; i++) {
 					if (!browser.entries[i].is_dir &&
 						strcmp(browser.entries[i].path, prev_path) == 0) {
-						Player_stop();
+						MusicClient_stop();
 						MusicBrowser_view()->selected = i;
 						history_retracing = true;
 						bool ok = try_load_and_play(prev_path);
@@ -891,13 +890,13 @@ void PlayerModule_prevTrack(void) {
 	if (playlist_active) {
 		int new_idx = Playlist_prev(&playlist);
 		if (new_idx >= 0) {
-			Player_stop();
+			MusicClient_stop();
 			playlist_try_play(new_idx);
 		}
 	} else if (initialized) {
 		for (int i = MusicBrowser_view()->selected - 1; i >= 0; i--) {
 			if (!browser.entries[i].is_dir) {
-				Player_stop();
+				MusicClient_stop();
 				MusicBrowser_view()->selected = i;
 				try_load_and_play(browser.entries[i].path);
 				break;
@@ -973,7 +972,6 @@ ModuleExitReason PlayerModule_runWithPlaylist(SDL_Surface* screen,
 		if (!screen_off && !ModuleCommon_isScreenOffHintActive()) {
 			GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, 2, NULL, 0); // STATE_PLAYING=2
 			if (global.should_quit) {
-				Player_stop();
 				cleanup_album_art_background();
 				cleanup_playback(true);
 				return MODULE_EXIT_QUIT;
@@ -993,7 +991,7 @@ ModuleExitReason PlayerModule_runWithPlaylist(SDL_Surface* screen,
 				GFX_clear(screen);
 				GFX_flip(screen);
 			}
-			Player_update();
+			MusicClient_update();
 			GFX_sync();
 			continue;
 		}
@@ -1006,21 +1004,8 @@ ModuleExitReason PlayerModule_runWithPlaylist(SDL_Surface* screen,
 				ModuleCommon_recordInputTime();
 				dirty = 1;
 			}
-			handle_hid_events();
+			MusicClient_update();
 
-			Player_update();
-
-			if (Player_getState() == PLAYER_STATE_STOPPED) {
-				if (!handle_track_ended() && Player_getState() == PLAYER_STATE_STOPPED) {
-					Resume_clear(); // All tracks finished naturally
-					screen_off = false;
-					PLAT_enableBacklight(1);
-					Player_stop();
-					cleanup_album_art_background();
-					cleanup_playback(true);
-					return MODULE_EXIT_TO_MENU;
-				}
-			}
 			GFX_sync();
 			continue;
 		}
@@ -1031,23 +1016,18 @@ ModuleExitReason PlayerModule_runWithPlaylist(SDL_Surface* screen,
 		}
 
 		if (PAD_justPressed(BTN_A)) {
-			Player_togglePause();
+			MusicClient_toggle();
 			dirty = 1;
 		} else if (PAD_justPressed(BTN_B)) {
 			cleanup_album_art_background();
-			if (Player_getState() == PLAYER_STATE_PLAYING) {
-				cleanup_playback_ui();
-				Background_setActive(BG_MUSIC);
-			} else {
-				Player_stop();
-				cleanup_playback(true);
-			}
+			cleanup_playback_ui();
+			Background_setActive(BG_MUSIC);
 			return MODULE_EXIT_TO_MENU;
 		} else if (PAD_justRepeated(BTN_LEFT)) {
-			Player_seek(Player_getPosition() - 5000);
+			MusicClient_seek(MusicClient_position() - 5000);
 			dirty = 1;
 		} else if (PAD_justRepeated(BTN_RIGHT)) {
-			Player_seek(Player_getPosition() + 5000);
+			MusicClient_seek(MusicClient_position() + 5000);
 			dirty = 1;
 		} else if (PAD_justPressed(BTN_DOWN) || PAD_justPressed(BTN_L1)) {
 			PlayerModule_prevTrack();
@@ -1057,9 +1037,11 @@ ModuleExitReason PlayerModule_runWithPlaylist(SDL_Surface* screen,
 			dirty = 1;
 		} else if (PAD_justPressed(BTN_X)) {
 			shuffle_enabled = !shuffle_enabled;
+			(void)MusicClient_setShuffle(shuffle_enabled);
 			dirty = 1;
 		} else if (PAD_justPressed(BTN_Y)) {
 			repeat_enabled = !repeat_enabled;
+			(void)MusicClient_setRepeat(repeat_enabled);
 			dirty = 1;
 		} else if (PAD_justPressed(BTN_FN1) || PAD_justPressed(BTN_L2)) {
 			Spectrum_cycleNext();
@@ -1069,10 +1051,8 @@ ModuleExitReason PlayerModule_runWithPlaylist(SDL_Surface* screen,
 			if (!Settings_getLyricsEnabled()) {
 				Lyrics_clear();
 			} else {
-				const TrackInfo* info = Player_getTrackInfo();
-				if (info) {
-					Lyrics_fetch(info->artist, info->title, info->duration_ms / 1000);
-				}
+				const MusicSnapshotWire* snapshot = MusicClient_snapshot();
+				Lyrics_fetch(snapshot->artist, snapshot->title, snapshot->duration_ms / 1000);
 			}
 			dirty = 1;
 		} else if (PAD_tappedSelect(SDL_GetTicks())) {
@@ -1081,29 +1061,13 @@ ModuleExitReason PlayerModule_runWithPlaylist(SDL_Surface* screen,
 			dirty = 1;
 		}
 
-		// Check if track ended
-		Player_update();
-		if (Player_getState() == PLAYER_STATE_STOPPED) {
-			if (!handle_track_ended() && Player_getState() == PLAYER_STATE_STOPPED) {
-				Resume_clear(); // All tracks finished naturally
-				cleanup_album_art_background();
-				cleanup_playback(true);
-				return MODULE_EXIT_TO_MENU;
-			}
-			dirty = 1;
-		}
-
-		// Save resume position periodically
-		if (Player_getState() == PLAYER_STATE_PLAYING) {
-			uint32_t now = SDL_GetTicks();
-			if (now - last_resume_save > 5000) {
-				Resume_updatePosition(Player_getPosition());
-				last_resume_save = now;
-			}
-		}
+		// The owner advances EOF and persists resume position. Refresh its copied
+		// state without duplicating queue policy in this UI loop.
+		MusicClient_update();
+		sync_ui_to_owner();
 
 		// Auto screen-off after inactivity
-		if (Player_getState() == PLAYER_STATE_PLAYING && ModuleCommon_checkAutoScreenOffTimeout()) {
+		if (MusicClient_snapshot()->state == MUSIC_STATE_PLAYING && ModuleCommon_checkAutoScreenOffTimeout()) {
 			clear_gpu_layers();
 			dirty = 1;
 		}
@@ -1176,7 +1140,17 @@ ModuleExitReason PlayerModule_runResume(SDL_Surface* screen, const ResumeState* 
 	if (!resume)
 		return MODULE_EXIT_TO_MENU;
 
+	/* A daemon restart may finish restoring between the menu snapshot and this
+	 * action. Attach to that owner instead of loading/playing/seeking a second
+	 * decoder instance. */
+	MusicClient_update();
+	const MusicSnapshotWire* owner = MusicClient_snapshot();
+	if (owner->source == MUSIC_SOURCE_LOCAL && owner->current_file[0] &&
+		strcmp(owner->current_file, resume->track_path) == 0)
+		return PlayerModule_run(screen);
+
 	if (resume->type == RESUME_TYPE_FILES) {
+		resume_playlist_path[0] = '\0';
 		// Initialize browser with saved folder
 		init_player();
 		load_directory(resume->folder_path);
@@ -1197,7 +1171,7 @@ ModuleExitReason PlayerModule_runResume(SDL_Surface* screen, const ResumeState* 
 
 		// Seek to saved position
 		if (resume->position_ms > 0) {
-			Player_seek(resume->position_ms);
+			MusicClient_seek(resume->position_ms);
 		}
 
 		// Relocate the browser view's cursor to the current track for display
@@ -1243,7 +1217,6 @@ ModuleExitReason PlayerModule_runResume(SDL_Surface* screen, const ResumeState* 
 			if (!screen_off && !ModuleCommon_isScreenOffHintActive()) {
 				GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, 2, NULL, 0);
 				if (global.should_quit) {
-					Player_stop();
 					cleanup_album_art_background();
 					cleanup_playback(true);
 					return MODULE_EXIT_QUIT;
@@ -1339,28 +1312,7 @@ ModuleExitReason PlayerModule_runResume(SDL_Surface* screen, const ResumeState* 
 	return MODULE_EXIT_TO_MENU;
 }
 
-// Background tick: handle track advancement and resume saving while in menu
+// Background playback belongs to musicplayerd; the UI only refreshes its copy.
 void PlayerModule_backgroundTick(void) {
-	Player_update();
-
-	// Handle track ended (auto-advance)
-	if (Player_getState() == PLAYER_STATE_STOPPED) {
-		if (!handle_track_ended() && Player_getState() == PLAYER_STATE_STOPPED) {
-			// All tracks finished
-			Resume_clear();
-			cleanup_playback(false);
-			Background_setActive(BG_NONE);
-			ModuleCommon_setAutosleepDisabled(false);
-		}
-		return;
-	}
-
-	// Save resume position periodically
-	if (Player_getState() == PLAYER_STATE_PLAYING) {
-		uint32_t now = SDL_GetTicks();
-		if (now - last_resume_save > 5000) {
-			Resume_updatePosition(Player_getPosition());
-			last_resume_save = now;
-		}
-	}
+	MusicClient_update();
 }

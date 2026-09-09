@@ -185,6 +185,49 @@ bool UI_confirmModalHints(SDL_Surface* screen, const char* title, const char* su
 }
 
 typedef struct {
+	const char* title;
+	const char* subtitle;
+	char* buttons[7];
+} UI_ChoiceModalCtx;
+
+static void choiceModal_render(SDL_Surface* screen, void* vctx) {
+	UI_ChoiceModalCtx* ctx = vctx;
+	UI_renderConfirmDialogHints(screen, ctx->title, ctx->subtitle, ctx->buttons);
+}
+
+static int choiceModal_handle(void* vctx) {
+	(void)vctx;
+	if (PAD_justPressed(BTN_A))
+		return UI_CHOICE_YES;
+	if (PAD_justPressed(BTN_X))
+		return UI_CHOICE_NO;
+	if (PAD_justPressed(BTN_B))
+		return UI_CHOICE_CANCEL;
+	return UI_MODAL_CONTINUE;
+}
+
+int UI_choiceModal(SDL_Surface* screen, const char* title, const char* subtitle,
+				   const volatile bool* quit_flag, bool clear_layers, bool reset_pad) {
+	UI_ChoiceModalCtx ctx = {
+		.title = title,
+		.subtitle = subtitle,
+		.buttons = {"B", "CANCEL", "X", "NO", "A", "YES", NULL},
+	};
+	UI_ModalOpts opts = {
+		.screen = screen,
+		.render = choiceModal_render,
+		.handle = choiceModal_handle,
+		.ctx = &ctx,
+		.quit_flag = quit_flag,
+		.timeout_ms = 0,
+		.clear_layers = clear_layers,
+		.reset_pad = reset_pad,
+	};
+	int result = UI_modalLoop(&opts);
+	return result >= 0 ? result : UI_CHOICE_CANCEL;
+}
+
+typedef struct {
 	char* pin_out;
 } UI_PinModalCtx;
 

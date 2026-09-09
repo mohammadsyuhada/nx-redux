@@ -4,24 +4,23 @@
 #include <sys/stat.h>
 #include <pthread.h>
 
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_image.h>
-
-#include "defines.h"
-#include "utils.h"
-#include "api.h"
-#include "ui_buttonhintbar.h"
-#include "ui_emptystate.h"
-#include "ui_menubar.h"
+#include "platform.h"
+#include "../common/defines.h"
+#include "../common/utils.h"
+#include "../common/api.h"
+#include "../common/sdl.h"
+#include "../common/ui/ui_buttonhintbar.h"
+#include "../common/ui/ui_emptystate.h"
+#include "../common/ui/ui_menubar.h"
 #include "podcast.h"
-#include "player.h"
+#include "music_client.h"
 #include "ui_podcast.h"
-#include "ui_list.h"
-#include "ui_toast.h"
+#include "../common/ui/ui_list.h"
+#include "../common/ui/ui_toast.h"
 #include "ui_icons.h"
 #include "ui_album_art.h"
-#include "ui_image.h"
-#include "wget_fetch.h"
+#include "../common/ui/ui_image.h"
+#include "../common/wget_fetch.h"
 
 // Max artwork size (1MB to match radio album art buffer)
 #define PODCAST_ARTWORK_MAX_SIZE (1024 * 1024)
@@ -108,7 +107,7 @@ static void* artwork_fetch_thread(void* arg) {
 		char* slash = strrchr(path, '/');
 		if (slash) {
 			*slash = '\0';
-			mkdir(path, 0755);
+			mkdir(path, 493);
 			*slash = '/';
 		}
 		FILE* f = fopen(path, "wb");
@@ -327,8 +326,8 @@ static bool artwork_fetch_one(const char* itunes_id, const char* artwork_url, in
 
 	// Not cached — download in the background (off the render thread). A later
 	// frame's disk load above picks it up. Returns false (nothing loaded now).
-	mkdir(PODCAST_CACHE_PARENT, 0755);
-	mkdir(PODCAST_CACHE_DIR, 0755);
+	mkdir(PODCAST_CACHE_PARENT, 493);
+	mkdir(PODCAST_CACHE_DIR, 493);
 	artwork_request_async(artwork_url, cache_path);
 	return false;
 }
@@ -502,7 +501,7 @@ static ListItemRichPos render_rich_list_item(SDL_Surface* screen, ListLayout* la
 }
 
 // Render redesigned podcast main page (continue listening + subscriptions with artwork)
-void render_podcast_main_page(SDL_Surface* screen, IndicatorType show_setting,
+void render_podcast_main_page(SDL_Surface* screen, MusicIndicatorType show_setting,
 							  int selected, int* scroll,
 							  const char* toast_message, uint32_t toast_time) {
 	GFX_clear(screen);
@@ -742,7 +741,7 @@ void render_podcast_main_page(SDL_Surface* screen, IndicatorType show_setting,
 }
 
 // Render the podcast management menu (Y button opens this)
-void render_podcast_manage(SDL_Surface* screen, IndicatorType show_setting,
+void render_podcast_manage(SDL_Surface* screen, MusicIndicatorType show_setting,
 						   int menu_selected, int subscription_count) {
 	GFX_clear(screen);
 
@@ -771,7 +770,7 @@ void render_podcast_manage(SDL_Surface* screen, IndicatorType show_setting,
 }
 
 // Render Top Shows list
-void render_podcast_top_shows(SDL_Surface* screen, IndicatorType show_setting,
+void render_podcast_top_shows(SDL_Surface* screen, MusicIndicatorType show_setting,
 							  int selected, int* scroll,
 							  const char* toast_message, uint32_t toast_time) {
 	GFX_clear(screen);
@@ -850,7 +849,7 @@ void render_podcast_top_shows(SDL_Surface* screen, IndicatorType show_setting,
 }
 
 // Render search results
-void render_podcast_search_results(SDL_Surface* screen, IndicatorType show_setting,
+void render_podcast_search_results(SDL_Surface* screen, MusicIndicatorType show_setting,
 								   int selected, int* scroll,
 								   const char* toast_message, uint32_t toast_time) {
 	GFX_clear(screen);
@@ -929,7 +928,7 @@ void render_podcast_search_results(SDL_Surface* screen, IndicatorType show_setti
 }
 
 // Render episode list for a feed
-void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
+void render_podcast_episodes(SDL_Surface* screen, MusicIndicatorType show_setting,
 							 int feed_index, int selected, int* scroll,
 							 const char* toast_message, uint32_t toast_time) {
 	GFX_clear(screen);
@@ -1362,7 +1361,7 @@ static void format_eta(char* buf, int buf_size, int seconds) {
 }
 
 // Render download queue view
-void render_podcast_download_queue(SDL_Surface* screen, IndicatorType show_setting,
+void render_podcast_download_queue(SDL_Surface* screen, MusicIndicatorType show_setting,
 								   int selected, int* scroll,
 								   const char* toast_message, uint32_t toast_time) {
 	GFX_clear(screen);
@@ -1536,7 +1535,7 @@ void render_podcast_download_queue(SDL_Surface* screen, IndicatorType show_setti
 }
 
 // Render now playing screen for podcast (matches radio/music player style)
-void render_podcast_playing(SDL_Surface* screen, IndicatorType show_setting,
+void render_podcast_playing(SDL_Surface* screen, MusicIndicatorType show_setting,
 							int feed_index, int episode_index) {
 	GFX_clear(screen);
 
@@ -1586,7 +1585,7 @@ void render_podcast_playing(SDL_Surface* screen, IndicatorType show_setting,
 	int next_badge_x = badge_x + badge_w;
 
 	// Playback speed badge (show when not 1x, right after PODCAST badge)
-	float pspeed = Player_getPlaybackSpeed();
+	float pspeed = MusicClient_speed();
 	if (pspeed != 1.0f) {
 		char speed_label[16];
 		snprintf(speed_label, sizeof(speed_label), "%.2gx", pspeed);
@@ -1789,7 +1788,7 @@ void render_podcast_playing(SDL_Surface* screen, IndicatorType show_setting,
 	int time_y = bar_y + SCALE1(8);
 
 	// Get duration for GPU rendering
-	int duration = Podcast_getDuration(); // Uses episode metadata duration
+	int duration = MusicClient_duration();
 
 	// Set position for GPU rendering (actual rendering happens in main loop)
 	PodcastProgress_setPosition(bar_margin, bar_y, bar_w, bar_h, time_y, hw, duration);
@@ -1815,7 +1814,7 @@ bool Podcast_isTitleScrolling(void) {
 	if (ScrollText_isScrolling(&podcast_title_scroll))
 		return true;
 	// Only scroll playing title when playing, not when paused
-	if (Player_getState() != PLAYER_STATE_PLAYING)
+	if (MusicClient_snapshot()->state != MUSIC_STATE_PLAYING)
 		return false;
 	return ScrollText_isScrolling(&podcast_playing_title_scroll);
 }
@@ -1836,7 +1835,7 @@ void Podcast_animateTitleScroll(void) {
 		ScrollText_animateOnly(&podcast_title_scroll);
 	}
 	// Only scroll playing title when playing, not when paused
-	if (Player_getState() != PLAYER_STATE_PLAYING)
+	if (MusicClient_snapshot()->state != MUSIC_STATE_PLAYING)
 		return;
 	if (ScrollText_isScrolling(&podcast_playing_title_scroll)) {
 		ScrollText_renderGPU_NoBg(&podcast_playing_title_scroll,
@@ -1879,10 +1878,10 @@ bool PodcastProgress_needsRefresh(void) {
 	if (!progress_position_set)
 		return false;
 	// Only update when playing, not when paused
-	if (Player_getState() != PLAYER_STATE_PLAYING)
+	if (MusicClient_snapshot()->state != MUSIC_STATE_PLAYING)
 		return false;
 
-	int position_ms = Player_getPosition();
+	int position_ms = MusicClient_position();
 	int position_sec = position_ms / 1000;
 
 	// Only refresh if second changed
@@ -1893,7 +1892,7 @@ void PodcastProgress_renderGPU(void) {
 	if (!progress_position_set)
 		return;
 
-	int position_ms = Player_getPosition();
+	int position_ms = MusicClient_position();
 	int position_sec = position_ms / 1000;
 
 	// Skip if nothing changed
@@ -1902,7 +1901,7 @@ void PodcastProgress_renderGPU(void) {
 
 	progress_last_position_sec = position_sec;
 
-	int duration_ms = progress_duration_ms > 0 ? progress_duration_ms : Podcast_getDuration();
+	int duration_ms = progress_duration_ms > 0 ? progress_duration_ms : MusicClient_duration();
 	int bar_margin = progress_bar_x;
 
 	// Calculate progress bar fill width

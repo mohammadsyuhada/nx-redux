@@ -153,11 +153,25 @@ typedef struct {
 // Core API
 // ============================================================================
 
-// Initialize podcast module
+// Initialize the full UI/catalog/download module.
 int Podcast_init(void);
+
+// Initialize only subscriptions, episode metadata, and progress needed by the
+// long-lived playback owner. This does not load or start the UI download queue.
+int Podcast_initPlayback(void);
+
+// Reload subscription/progress files without rebinding an in-flight episode.
+void Podcast_reloadPlaybackData(void);
+void Podcast_reloadProgress(void);
 
 // Cleanup resources
 void Podcast_cleanup(void);
+// Detach the catalog/download UI without stopping playback or writing owner progress.
+void Podcast_cleanupCatalog(void);
+
+// Stop playback and release playback-owner state without touching the
+// UI-owned catalog/download queue.
+void Podcast_cleanupPlayback(void);
 
 // Get last error message
 const char* Podcast_getError(void);
@@ -242,6 +256,11 @@ PodcastChartItem* Podcast_getTopShows(int* count);
 // Load episode and seek to saved position without starting playback
 // Returns 0 on success. Caller should poll Player_resume() then call Player_play().
 int Podcast_loadAndSeek(PodcastFeed* feed, int episode_index);
+
+// Load a downloaded episode by its stable feed URL and episode GUID. This is
+// the owner-facing form of Podcast_loadAndSeek; callers do not retain feed
+// pointers across a source switch.
+int Podcast_loadDownloaded(const char* feed_url, const char* episode_guid);
 
 // Stop playback
 void Podcast_stop(void);
@@ -354,6 +373,7 @@ void Podcast_updateContinueListening(const char* feed_url, const char* feed_id,
 									 const char* episode_guid, const char* episode_title,
 									 const char* feed_title, const char* artwork_url);
 void Podcast_removeContinueListening(const char* feed_url, const char* episode_guid);
+void Podcast_reloadContinueListening(void);
 int Podcast_findFeedIndex(const char* feed_url);
 
 // ============================================================================

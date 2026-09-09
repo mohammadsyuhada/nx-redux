@@ -13,6 +13,8 @@
 #include "ui_listview.h"
 #include "ui_album_art.h"
 #include "spectrum.h"
+#include "music_client.h"
+#include "album_art.h"
 #include "lyrics.h"
 #include "settings.h"
 
@@ -124,7 +126,7 @@ void render_playing(SDL_Surface* screen, IndicatorType show_setting, BrowserCont
 	GFX_clear(screen);
 
 	// Render album art as triangular background (if available)
-	SDL_Surface* album_art = Player_getAlbumArt();
+	SDL_Surface* album_art = album_art_get();
 	if (album_art && album_art->w > 0 && album_art->h > 0) {
 		render_album_art_background(screen, album_art);
 	}
@@ -132,11 +134,11 @@ void render_playing(SDL_Surface* screen, IndicatorType show_setting, BrowserCont
 	int hw = screen->w;
 	int hh = screen->h;
 
-	const TrackInfo* info = Player_getTrackInfo();
-	PlayerState state = Player_getState();
-	AudioFormat format = Player_detectFormat(Player_getCurrentFile());
-	int duration = Player_getDuration();
-	int position = Player_getPosition();
+	const MusicSnapshotWire* info = MusicClient_snapshot();
+	int state = MusicClient_snapshot()->state;
+	int format = MusicClient_snapshot()->format;
+	int duration = MusicClient_duration();
+	int position = MusicClient_position();
 	float progress = (duration > 0) ? (float)position / duration : 0.0f;
 
 	// === TOP BAR ===
@@ -164,8 +166,8 @@ void render_playing(SDL_Surface* screen, IndicatorType show_setting, BrowserCont
 	// Sample-rate badge next to the format badge: "96kHz" when the device
 	// plays the file natively, "44.1→48kHz" when resampling to the sink rate
 	{
-		int src_rate = Player_getSourceSampleRate();
-		int out_rate = Player_getOutputSampleRate();
+		int src_rate = MusicClient_snapshot()->source_sample_rate;
+		int out_rate = MusicClient_snapshot()->output_sample_rate;
 		if (src_rate > 0 && out_rate > 0) {
 			char src_str[8], out_str[8], rate_str[24];
 			format_khz(src_rate, src_str, sizeof(src_str));
@@ -338,7 +340,7 @@ void render_playing(SDL_Surface* screen, IndicatorType show_setting, BrowserCont
 // Check if player title has active scrolling (for refresh optimization)
 bool player_needs_scroll_refresh(void) {
 	// Only scroll when playing, not when paused
-	if (Player_getState() != PLAYER_STATE_PLAYING)
+	if (MusicClient_snapshot()->state != MUSIC_STATE_PLAYING)
 		return false;
 	return ScrollText_isScrolling(&player_title_scroll);
 }
@@ -377,11 +379,11 @@ bool PlayTime_needsRefresh(void) {
 	if (!playtime_position_set)
 		return false;
 	// Only update when playing, not when paused
-	if (Player_getState() != PLAYER_STATE_PLAYING)
+	if (MusicClient_snapshot()->state != MUSIC_STATE_PLAYING)
 		return false;
 
-	int position = Player_getPosition();
-	int duration = Player_getDuration();
+	int position = MusicClient_position();
+	int duration = MusicClient_duration();
 
 	// Only refresh if position changed (updates once per second)
 	return (position != last_rendered_position || duration != last_rendered_duration);
@@ -391,8 +393,8 @@ void PlayTime_renderGPU(void) {
 	if (!playtime_position_set)
 		return;
 
-	int position = Player_getPosition();
-	int duration = Player_getDuration();
+	int position = MusicClient_position();
+	int duration = MusicClient_duration();
 
 	// Skip if nothing changed
 	if (position == last_rendered_position && duration == last_rendered_duration)
@@ -463,10 +465,10 @@ void Lyrics_clearGPU(void) {
 bool Lyrics_GPUneedsRefresh(void) {
 	if (!lyrics_gpu_position_set || !Settings_getLyricsEnabled())
 		return false;
-	if (Player_getState() != PLAYER_STATE_PLAYING)
+	if (MusicClient_snapshot()->state != MUSIC_STATE_PLAYING)
 		return false;
 
-	const char* current = Lyrics_getCurrentLine(Player_getPosition());
+	const char* current = Lyrics_getCurrentLine(MusicClient_position());
 	const char* next = Lyrics_getNextLine();
 	const char* cur_str = current ? current : "";
 	const char* next_str = next ? next : "";
@@ -478,7 +480,7 @@ void Lyrics_renderGPU(void) {
 	if (!lyrics_gpu_position_set || !Settings_getLyricsEnabled())
 		return;
 
-	const char* current = Lyrics_getCurrentLine(Player_getPosition());
+	const char* current = Lyrics_getCurrentLine(MusicClient_position());
 	const char* next = Lyrics_getNextLine();
 	const char* cur_str = current ? current : "";
 	const char* next_str = next ? next : "";

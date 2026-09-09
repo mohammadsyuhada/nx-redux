@@ -1,8 +1,9 @@
 #include "settings.h"
-#include "defines.h"
+#include "../common/defines.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include <sys/stat.h>
 
 // Settings file path (in shared userdata directory)
@@ -34,6 +35,8 @@ static const int buffer_frames_values[] = {1024, 2048, 4096};
 #define DEFAULT_RESAMPLER_QUALITY 0
 
 // Current settings
+static bool settings_owner_mode;
+
 static struct {
 	int screen_off_timeout; // seconds, 0 = off
 	bool lyrics_enabled;	// true = show lyrics
@@ -72,6 +75,29 @@ static int get_buffer_frames_index(void) {
 		}
 	}
 	return DEFAULT_BUFFER_FRAMES_INDEX;
+}
+
+void Settings_setOwnerMode(bool owner) {
+	settings_owner_mode = owner;
+}
+
+void Settings_setAudioValues(int bass_filter_hz, float soft_limiter_threshold,
+							 int rate_mode_follow, int resampler_quality, int buffer_frames) {
+	for (int i = 0; i < BASS_FILTER_VALUE_COUNT; i++)
+		if (bass_filter_values[i] == bass_filter_hz)
+			current_settings.bass_filter_hz = bass_filter_hz;
+	for (int i = 0; i < SOFT_LIMITER_VALUE_COUNT; i++)
+		if (current_settings.soft_limiter_index == i ||
+			fabsf(soft_limiter_threshold - soft_limiter_thresholds[i]) < 0.01f)
+			current_settings.soft_limiter_index = i;
+	if (rate_mode_follow == 0 || rate_mode_follow == 1)
+		current_settings.rate_mode_follow = rate_mode_follow;
+	if (resampler_quality >= 0 && resampler_quality < RESAMPLER_QUALITY_COUNT)
+		current_settings.resampler_quality = resampler_quality;
+	for (int i = 0; i < BUFFER_FRAMES_VALUE_COUNT; i++)
+		if (buffer_frames_values[i] == buffer_frames)
+			current_settings.buffer_frames = buffer_frames;
+	Settings_save();
 }
 
 void Settings_init(void) {
@@ -175,21 +201,42 @@ const char* Settings_getScreenOffDisplayStr(void) {
 }
 
 void Settings_save(void) {
-	// Ensure directory exists (mkdir(2) — not system("mkdir -p"), which forked a
-	// shell on every settings change). Parent .userdata/shared exists already.
+	char preserved_audio[5][256] = {{0}};
+	int preserved_count = 0;
+	if (!settings_owner_mode) {
+		FILE* old = fopen(SETTINGS_FILE, "r");
+		char line[256];
+		if (old) {
+			while (preserved_count < 5 && fgets(line, sizeof(line), old)) {
+				if (strncmp(line, "bass_filter_hz=", 15) == 0 ||
+					strncmp(line, "soft_limiter=", 13) == 0 ||
+					strncmp(line, "sample_rate_follow=", 19) == 0 ||
+					strncmp(line, "resampler_quality=", 18) == 0 ||
+					strncmp(line, "buffer_frames=", 14) == 0) {
+					strncpy(preserved_audio[preserved_count], line,
+							sizeof(preserved_audio[0]) - 1);
+					preserved_count++;
+				}
+			}
+			fclose(old);
+		}
+	}
 	mkdir(SETTINGS_DIR, 0755);
-
 	FILE* f = fopen(SETTINGS_FILE, "w");
 	if (!f)
 		return;
-
 	fprintf(f, "screen_off_timeout=%d\n", current_settings.screen_off_timeout);
 	fprintf(f, "lyrics_enabled=%d\n", current_settings.lyrics_enabled ? 1 : 0);
-	fprintf(f, "bass_filter_hz=%d\n", current_settings.bass_filter_hz);
-	fprintf(f, "soft_limiter=%d\n", current_settings.soft_limiter_index);
-	fprintf(f, "sample_rate_follow=%d\n", current_settings.rate_mode_follow);
-	fprintf(f, "resampler_quality=%d\n", current_settings.resampler_quality);
-	fprintf(f, "buffer_frames=%d\n", current_settings.buffer_frames);
+	if (settings_owner_mode) {
+		fprintf(f, "bass_filter_hz=%d\n", current_settings.bass_filter_hz);
+		fprintf(f, "soft_limiter=%d\n", current_settings.soft_limiter_index);
+		fprintf(f, "sample_rate_follow=%d\n", current_settings.rate_mode_follow);
+		fprintf(f, "resampler_quality=%d\n", current_settings.resampler_quality);
+		fprintf(f, "buffer_frames=%d\n", current_settings.buffer_frames);
+	} else {
+		for (int i = 0; i < preserved_count; i++)
+			fputs(preserved_audio[i], f);
+	}
 	fclose(f);
 }
 

@@ -88,19 +88,12 @@ main() {
     export SDL_AUDIODRIVER=alsa
     export SDL_AUDIO_BUFFER_SIZE=2048
 
-    # Mute speaker before launch to prevent audio pop, then unmute after init
-    echo 1 > /sys/class/speaker/mute 2>/dev/null || true
-    (sleep 5; echo 0 > /sys/class/speaker/mute 2>/dev/null; syncsettings.elf) &
-    SYNC_PID=$!
-
     # Start power button sleep/poweroff handler
     sleepmon.elf &
 
     "$EMU_DIR/drastic" "$*"
 
     killall sleepmon.elf 2>/dev/null || true
-    kill $SYNC_PID 2>/dev/null || true
-    echo 0 > /sys/class/speaker/mute 2>/dev/null || true
 }
 
 main "$@"

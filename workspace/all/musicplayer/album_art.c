@@ -305,6 +305,26 @@ void album_art_cleanup(void) {
 	pthread_mutex_unlock(&art_lock);
 }
 
+void album_art_load_path(const char* path) {
+	if (!path || !path[0])
+		return;
+	pthread_mutex_lock(&art_lock);
+	if (art_ctx.thread_active) {
+		pthread_join(art_ctx.fetch_thread, NULL);
+		art_ctx.thread_active = false;
+		art_ctx.art_fetch_in_progress = false;
+	}
+	SDL_Surface* art = IMG_Load(path);
+	if (art) {
+		if (art_ctx.album_art)
+			SDL_FreeSurface(art_ctx.album_art);
+		art_ctx.album_art = art;
+		art_ctx.result_ready = false;
+		art_ctx.pending_art = NULL;
+	}
+	pthread_mutex_unlock(&art_lock);
+}
+
 void album_art_clear(void) {
 	pthread_mutex_lock(&art_lock);
 	// Wait for any active thread to finish before clearing

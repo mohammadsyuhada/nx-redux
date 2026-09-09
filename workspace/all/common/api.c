@@ -10,6 +10,7 @@
 #include <pthread.h>
 #include <samplerate.h>
 #include <stdbool.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -2693,7 +2694,11 @@ void SND_flushALSAConfig(void) {
 }
 
 void SND_resetAudio(double sample_rate, double frame_rate) {
-	PLAT_overrideMute(1);
+	/* PLAT_overrideMute is a global codec mute used only for idle amplifier
+	 * pop protection. Never apply it while the music owner has an open PCM;
+	 * doing so silences the independent gameplay/music mix. */
+	if (!AudioMgr_isMusicAudioOpen())
+		PLAT_overrideMute(1);
 	SND_quit();
 	SND_flushALSAConfig();
 	SND_init(sample_rate, frame_rate);
@@ -3886,6 +3891,9 @@ void PWR_powerOff(int reboot) {
 		GFX_blitMessage(font.large, msg, gfx.screen, &(SDL_Rect){0, 0, gfx.screen->w, gfx.screen->h}); //, NULL);
 		GFX_flip(gfx.screen);
 
+		/* The music owner is independent of the foreground app; only an actual
+		 * poweroff ends it, and a missing/crashed owner is harmless. */
+		system("musicplayerctl.elf shutdown >/dev/null 2>&1");
 		system("killall -TERM keymon.elf");
 		system("killall -TERM audiomon.elf");
 
@@ -3896,6 +3904,8 @@ void PWR_powerOff(int reboot) {
 }
 
 static void PWR_enterSleep(void) {
+	/* Sleep is the only non-shutdown lifecycle boundary for Music. */
+	system("musicplayerctl.elf sleep >/dev/null 2>&1");
 	SND_pauseAudio(true);
 	LEDS_pushProfileOverride(LIGHT_PROFILE_SLEEP);
 	if (GetHDMI()) {
@@ -3939,6 +3949,9 @@ static void PWR_exitSleep(void) {
 	if (!GetHDMI()) {
 		SetVolume(GetVolume());
 	}
+	/* audiomon is running again and has republished routing before the owner
+	 * is asked to reopen its stream. */
+	system("musicplayerctl.elf wake >/dev/null 2>&1");
 
 	sync();
 }

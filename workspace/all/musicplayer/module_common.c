@@ -12,8 +12,7 @@
 #include "ui_confirmdialog.h"
 #include "ui_music.h"
 #include "ui_radio.h"
-#include "player.h"
-#include "radio.h"
+#include "music_client.h"
 #include "spectrum.h"
 #include "background.h"
 
@@ -33,6 +32,25 @@ static bool overlay_buttons_were_active = false;
 static uint32_t overlay_release_time = 0;
 #define OVERLAY_VISIBLE_AFTER_RELEASE_MS 800 // How long overlay stays visible after release
 #define OVERLAY_FORCE_HIDE_DURATION_MS 500	 // How long to keep forcing hide
+
+bool ModuleCommon_confirmAppExit(SDL_Surface* screen) {
+	MusicClient_update();
+	const MusicSnapshotWire* snapshot = MusicClient_snapshot();
+	if (snapshot->state != MUSIC_STATE_PLAYING)
+		return true;
+
+	int choice = UI_choiceModal(screen, "Continue playback in background?",
+								"Music will keep playing after the app exits.", NULL, true, true);
+	if (choice == UI_CHOICE_CANCEL)
+		return false;
+	if (choice == UI_CHOICE_NO) {
+		if (MusicClient_stop() != MUSIC_STATUS_OK) {
+			(void)UI_confirmModal(screen, "Unable to stop playback", "Playback was not stopped.", NULL, true, true);
+			return false;
+		}
+	}
+	return true;
+}
 
 void ModuleCommon_tickToast(char* message, uint32_t toast_time, bool* dirty) {
 	if (message[0] == '\0')
@@ -75,74 +93,6 @@ GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorT
 												 const ContextMenuItem* menu_items, int menu_count) {
 	GlobalInputResult result = {false, false, false, 0};
 
-	// Poll USB HID events (earphone buttons)
-	USBHIDEvent hid_event;
-	while ((hid_event = Player_pollUSBHID()) != USB_HID_EVENT_NONE) {
-		if (hid_event == USB_HID_EVENT_PLAY_PAUSE) {
-			// Check what's currently playing and handle accordingly
-			// Check radio first (takes priority when streaming)
-			RadioState radio_state = Radio_getState();
-			PlayerState player_state = Player_getState();
-
-			if (radio_state == RADIO_STATE_PLAYING || radio_state == RADIO_STATE_BUFFERING) {
-				// Radio is streaming - stop it
-				Radio_stop();
-				result.dirty = true;
-				result.input_consumed = true;
-			} else if (player_state == PLAYER_STATE_PLAYING || player_state == PLAYER_STATE_PAUSED) {
-				// Music player is active - toggle pause
-				Player_togglePause();
-				result.dirty = true;
-				result.input_consumed = true;
-			} else {
-				// Nothing playing - check if we can resume radio
-				const char* last_url = Radio_getCurrentUrl();
-				if (last_url && last_url[0] != '\0') {
-					// Resume last radio station
-					Radio_play(last_url);
-					result.dirty = true;
-					result.input_consumed = true;
-				}
-			}
-		} else if (hid_event == USB_HID_EVENT_NEXT_TRACK || hid_event == USB_HID_EVENT_PREV_TRACK) {
-			// Next/previous track - check what's currently active
-			RadioState radio_state = Radio_getState();
-
-			if (radio_state == RADIO_STATE_PLAYING || radio_state == RADIO_STATE_BUFFERING || radio_state == RADIO_STATE_CONNECTING) {
-				// Radio is active - switch stations
-				RadioStation* stations;
-				int station_count = Radio_getStations(&stations);
-				if (station_count > 1) {
-					// Find current station index
-					int current_idx = Radio_findCurrentStationIndex();
-					if (current_idx < 0)
-						continue;
-					// Calculate new index
-					int new_idx;
-					if (hid_event == USB_HID_EVENT_NEXT_TRACK) {
-						new_idx = (current_idx + 1) % station_count;
-					} else {
-						new_idx = (current_idx - 1 + station_count) % station_count;
-					}
-					// Switch to new station
-					Radio_stop();
-					Radio_play(stations[new_idx].url);
-					result.dirty = true;
-					result.input_consumed = true;
-				}
-			} else if (PlayerModule_isActive()) {
-				// Music player is active - next/previous song
-				if (hid_event == USB_HID_EVENT_NEXT_TRACK) {
-					PlayerModule_nextTrack();
-				} else {
-					PlayerModule_prevTrack();
-				}
-				result.dirty = true;
-				result.input_consumed = true;
-			}
-		}
-	}
-
 	// Volume/brightness/color-temp combos are handled globally by keymon and by
 	// PWR_update (Select + Vol = brightness, Start + Vol = color temp, Vol alone
 	// = volume). We don't consume input or return early here — let PWR_update
@@ -160,7 +110,7 @@ GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorT
 		ContextMenuResult cmr = ContextMenu_handleInput();
 		if (cmr.action == CONTEXTMENU_SELECTED) {
 			if (cmr.id == CTX_ID_QUIT) {
-				result.should_quit = true;
+				result.should_quit = ModuleCommon_confirmAppExit(screen);
 			} else if (cmr.id == CTX_ID_CONTROLS) {
 				show_controls_help = true;
 			} else {
@@ -361,12 +311,7 @@ void ModuleCommon_PWR_update(bool* dirty, IndicatorType* show_setting) {
 
 	overlay_buttons_were_active = overlay_buttons_active;
 
-	// Check for pending audio device changes (set from inotify thread)
-	Player_update();
-
-	// Advance whatever is playing in the background (track-ended auto-advance,
-	// periodic progress save). Every module's loop calls this, so background
-	// playback keeps progressing on any page — not just the main menu. It's a
-	// no-op when nothing is backgrounded (active_bg == BG_NONE).
-	Background_tick();
+	// Refresh copied daemon state. Decode, EOF, queue policy, HID, and progress
+	// persistence stay in the long-lived owner.
+	MusicClient_update();
 }

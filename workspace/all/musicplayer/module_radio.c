@@ -3,23 +3,25 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "defines.h"
-#include "api.h"
+#include "platform.h"
+#include "../common/defines.h"
 #include "module_common.h"
+#include "../common/sdl.h"
 #include "module_radio.h"
-#include "player.h"
+#include "music_client.h"
 #include "radio.h"
 #include "album_art.h"
-#include "ui_confirmdialog.h"
-#include "ui_listview.h"
-#include "ui_loadingoverlay.h"
+#include "../common/ui/ui_confirmdialog.h"
+#include "../common/ui/ui_contextmenu.h"
+#include "../common/ui/ui_listview.h"
+#include "../common/ui/ui_loadingoverlay.h"
 #include "ui_radio.h"
 #include "ui_album_art.h"
 #include "ui_main.h"
-#include "ui_toast.h"
-#include "wifi.h"
+#include "../common/ui/ui_toast.h"
+#include "../common/wifi.h"
 #include "background.h"
-#include "stream_probe.h"
+#include "../common/stream_probe.h"
 
 // Internal states
 typedef enum {
@@ -69,32 +71,17 @@ static char last_rendered_artist[256] = "";
 static char last_rendered_title[256] = "";
 static bool last_art_was_fetching = false;
 
-// Handle USB/Bluetooth media button events
-static void handle_hid_events(void) {
-	USBHIDEvent hid_event;
-	while ((hid_event = Player_pollUSBHID()) != USB_HID_EVENT_NONE) {
-		if (hid_event == USB_HID_EVENT_PLAY_PAUSE) {
-			if (Radio_isActive()) {
-				Radio_stop();
-			} else {
-				const char* url = Radio_getCurrentUrl();
-				if (url && url[0] != '\0') {
-					Radio_play(url);
-				}
-			}
-		} else if (hid_event == USB_HID_EVENT_NEXT_TRACK || hid_event == USB_HID_EVENT_PREV_TRACK) {
-			RadioStation* stations;
-			int station_count = Radio_getStations(&stations);
-			if (station_count > 1) {
-				int current_idx = Radio_findCurrentStationIndex();
-				if (current_idx < 0)
-					current_idx = 0;
-				int new_idx = (hid_event == USB_HID_EVENT_NEXT_TRACK)
-								  ? (current_idx + 1) % station_count
-								  : (current_idx - 1 + station_count) % station_count;
-				Radio_stop();
-				Radio_play(stations[new_idx].url);
-			}
+static void restore_radio_cursor(void) {
+	const MusicSnapshotWire* snapshot = MusicClient_snapshot();
+	RadioStation* stations;
+	int station_count = Radio_getStations(&stations);
+	RadioList_view()->selected = -1;
+	if (snapshot->source != MUSIC_SOURCE_RADIO || !snapshot->current_file[0])
+		return;
+	for (int i = 0; i < station_count; i++) {
+		if (strcmp(stations[i].url, snapshot->current_file) == 0) {
+			RadioList_view()->selected = i;
+			break;
 		}
 	}
 }
@@ -150,8 +137,6 @@ static void enter_country_browse(SDL_Surface* screen, IndicatorType show_setting
 }
 
 ModuleExitReason RadioModule_run(SDL_Surface* screen) {
-	Radio_init();
-
 	RadioInternalState state = RADIO_INTERNAL_LIST;
 	bool dirty = true;
 	IndicatorType show_setting = INDICATOR_NONE;
@@ -162,8 +147,12 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 	radio_toast_message[0] = '\0';
 	show_confirm = false;
 
-	// Re-enter playing state if radio is playing in background
-	if (Background_getActive() == BG_RADIO && Radio_isActive()) {
+	// Re-enter playing state using the owner's URL, not the previous UI cursor.
+	// A deleted/unknown station deliberately leaves the cursor at -1 so the UI
+	// does not claim that a different saved station is playing.
+	MusicClient_update();
+	if (Background_getActive() == BG_RADIO && MusicClient_isRadioActive()) {
+		restore_radio_cursor();
 		Background_setActive(BG_NONE);
 		ModuleCommon_setAutosleepDisabled(true);
 		last_rendered_artist[0] = '\0';
@@ -270,7 +259,6 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 			GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, app_state_for_help,
 																	  ctx_items, ctx_count);
 			if (global.should_quit) {
-				Radio_quit();
 				return MODULE_EXIT_QUIT;
 			}
 			if (global.context_id > 0) {
@@ -358,8 +346,7 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 							GFX_clearLayers(LAYER_SCROLLTEXT);
 							dirty = 1;
 						} else {
-							Background_stopAll();
-							if (Radio_play(stations[act.index].url) == 0) {
+							if (MusicClient_loadRadio(stations[act.index].url) == 0) {
 								GFX_clearLayers(LAYER_SCROLLTEXT);
 								ModuleCommon_recordInputTime();
 								last_rendered_artist[0] = '\0';
@@ -374,9 +361,6 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 				break;
 			case LISTVIEW_BACK:
 				GFX_clearLayers(LAYER_SCROLLTEXT);
-				if (!Radio_isActive()) {
-					Radio_quit();
-				}
 				return MODULE_EXIT_TO_MENU;
 			case LISTVIEW_BUTTON:
 				if (act.btn == BTN_A && station_count == 0) {
@@ -405,7 +389,7 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 					GFX_clear(screen);
 					GFX_flip(screen);
 				}
-				Radio_update();
+				MusicClient_update();
 				GFX_sync();
 				continue;
 			}
@@ -419,10 +403,7 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 					ModuleCommon_recordInputTime();
 					dirty = 1;
 				}
-				// Handle USB/Bluetooth media and volume buttons even with screen off
-				handle_hid_events();
-
-				Radio_update();
+				MusicClient_update();
 				GFX_sync();
 				continue;
 			}
@@ -441,21 +422,21 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 			if (PAD_justPressed(BTN_UP) || PAD_justPressed(BTN_R1)) {
 				if (station_count > 1) {
 					lv->selected = (lv->selected + 1) % station_count;
-					Radio_stop();
-					Radio_play(stations[lv->selected].url);
+					MusicClient_pause();
+					MusicClient_loadRadio(stations[lv->selected].url);
 					dirty = 1;
 				}
 			} else if (PAD_justPressed(BTN_DOWN) || PAD_justPressed(BTN_L1)) {
 				if (station_count > 1) {
 					lv->selected = (lv->selected - 1 + station_count) % station_count;
-					Radio_stop();
-					Radio_play(stations[lv->selected].url);
+					MusicClient_pause();
+					MusicClient_loadRadio(stations[lv->selected].url);
 					dirty = 1;
 				}
 			} else if (PAD_justPressed(BTN_B)) {
 				cleanup_album_art_background();
 				RadioStatus_clear();
-				if (Radio_isActive()) {
+				if (MusicClient_isRadioActive()) {
 					Background_setActive(BG_RADIO);
 				} else {
 					ModuleCommon_setAutosleepDisabled(false);
@@ -464,15 +445,15 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 				dirty = 1;
 			} else if (PAD_justPressed(BTN_A)) {
 				// A toggles play/pause
-				if (Radio_isActive()) {
+				if (MusicClient_isRadioActive()) {
 					// Playing - stop it
-					Radio_stop();
+					MusicClient_pause();
 					dirty = 1;
 				} else {
 					// Stopped - resume playing
-					const char* url = Radio_getCurrentUrl();
-					if (url && url[0] != '\0') {
-						Radio_play(url);
+					const char* url = MusicClient_snapshot()->current_file;
+					if (url[0] != '\0') {
+						MusicClient_loadRadio(url);
 						dirty = 1;
 					}
 				}
@@ -484,14 +465,14 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 				dirty = 1;
 			}
 
-			Radio_update();
+			MusicClient_update();
 
 			// Check if metadata or album art changed (updated by stream thread)
 			{
-				const RadioMetadata* meta = Radio_getMetadata();
+				const MusicSnapshotWire* snapshot = MusicClient_snapshot();
 				bool fetching = album_art_is_fetching();
-				if (strcmp(last_rendered_artist, meta->artist) != 0 ||
-					strcmp(last_rendered_title, meta->title) != 0 ||
+				if (strcmp(last_rendered_artist, snapshot->artist) != 0 ||
+					strcmp(last_rendered_title, snapshot->title) != 0 ||
 					(last_art_was_fetching && !fetching)) {
 					dirty = 1;
 				}
@@ -499,7 +480,7 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 			}
 
 			// Auto screen-off after inactivity
-			if (Radio_getState() == RADIO_STATE_PLAYING && ModuleCommon_checkAutoScreenOffTimeout()) {
+			if (MusicClient_snapshot()->source_state == MUSIC_RADIO_PLAYING && ModuleCommon_checkAutoScreenOffTimeout()) {
 				GFX_clearLayers(LAYER_SCROLLTEXT);
 				PLAT_clearLayers(LAYER_BUFFER);
 				PLAT_GPU_Flip();
@@ -652,10 +633,10 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 					break;
 				case RADIO_INTERNAL_PLAYING: {
 					render_radio_playing(screen, show_setting, RadioList_view()->selected);
-					const RadioMetadata* meta = Radio_getMetadata();
-					strncpy(last_rendered_artist, meta->artist, sizeof(last_rendered_artist) - 1);
+					const MusicSnapshotWire* snapshot = MusicClient_snapshot();
+					strncpy(last_rendered_artist, snapshot->artist, sizeof(last_rendered_artist) - 1);
 					last_rendered_artist[sizeof(last_rendered_artist) - 1] = '\0';
-					strncpy(last_rendered_title, meta->title, sizeof(last_rendered_title) - 1);
+					strncpy(last_rendered_title, snapshot->title, sizeof(last_rendered_title) - 1);
 					last_rendered_title[sizeof(last_rendered_title) - 1] = '\0';
 					break;
 				}

@@ -65,7 +65,7 @@ int main(int argc, char* argv[]) {
 	// TG5050: warm up audio codec while muted to prevent amplifier pop on first playback.
 	// After reboot the codec is powered off — mixer writes don't reach the analog output
 	// until the codec powers on, so the first PCM open would pop without this.
-	if (strcmp(PLATFORM, "tg5050") == 0) {
+	if (strcmp(PLATFORM, "tg5050") == 0 && !AudioMgr_isMusicAudioOpen()) {
 		SetRawVolume(0);
 		SDL_InitSubSystem(SDL_INIT_AUDIO);
 		SDL_AudioSpec want = {0};

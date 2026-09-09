@@ -19,12 +19,16 @@ int AudioMgr_getSinkType(void);
 bool AudioMgr_isBluetoothActive(void);
 bool AudioMgr_isUSBDACActive(void);
 
+// True only while the music owner has a live process and an open SDL audio
+// device. Global mixer mute paths use this to avoid silencing music.
+bool AudioMgr_isMusicAudioOpen(void);
+
 // Get the preferred SDL audio device name for the current sink.
 // Returns NULL — apps always use ALSA default, audiomon manages .asoundrc.
 
-// Pick the device-open rate for a desired rate, from the sink state published
-// by audiomon (/tmp/nx_audio_sink). Exact match wins; else nearest listed rate.
-// Missing/corrupt state file falls back to MIN(desired, 48000).
+// Pick the shared active mixer rate published by audiomon
+// (/tmp/nx_audio_sink). The desired rate is retained for API compatibility;
+// concurrent streams must consume the same active rate.
 int AudioMgr_pickRate(int desired);
 
 // Human-readable "sink - rate" line for the settings Output row. Static buffer.

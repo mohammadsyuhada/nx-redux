@@ -5,6 +5,7 @@
 
 // Forward declaration for SDL_Surface
 struct SDL_Surface;
+typedef struct SDL_Surface SDL_Surface;
 
 // Initialize album art module
 void album_art_init(void);
@@ -15,6 +16,7 @@ void album_art_cleanup(void);
 // Fetch album art for artist/title (async, non-blocking)
 // Call this when metadata changes
 void album_art_fetch(const char* artist, const char* title);
+void album_art_load_path(const char* path);
 
 // Get current album art surface (NULL if none or still fetching)
 struct SDL_Surface* album_art_get(void);
