@@ -16,6 +16,18 @@ asound_state_dir=/tmp/asound-suspend
 before() {
 	>&2 echo "Preparing for suspend..."
 
+	# Stock keymon raises this flag whenever the screen goes off and unlinks it
+	# on wake. The stock trimui_inputd (which we run unchanged) polls for it and
+	# pauses its input threads while it exists -- on the Brick Pro that includes
+	# the thread reading the I2C hall-effect sticks (/dev/i2c-3) every 16 ms.
+	# Without the flag those transfers keep running straight through suspend
+	# entry and resume, and the Brick Pro never wakes from deep sleep (#90).
+	# inputd also drops a stale flag by itself once it sees input with the
+	# LCD lit, so a missed cleanup can't leave the buttons dead for good.
+	touch /tmp/system_suspend
+	# inputd re-checks the flag every ~16 ms; let an in-flight read finish
+	sleep 0.2
+
 	>&2 echo "Saving mixer state..."
 	mkdir -p "$asound_state_dir"
 	alsactl --file "$asound_state_dir/asound.state.pre" store || true
@@ -87,6 +99,9 @@ for i in $(seq 1 $sleep_max_tries); do
 	>&2 echo "Deep sleep failed: retrying in 3 seconds"
 	sleep 3
 done
+
+# Let inputd resume its input threads (see before())
+rm -f /tmp/system_suspend
 
 # Resume services in background to reduce UI latency
 after &
