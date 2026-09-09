@@ -67,7 +67,17 @@ GAME_ID="$(basename "$ROM" | sed 's/\.[^.]*$//')"
 GAME_ALIAS="$(awk -F'\t' -v key="$(basename "$ROM")" '$1 == key { print $2; exit }' "$(dirname "$ROM")/map.txt" 2>/dev/null | tr -d '\r')"
 export EMU_OVERLAY_GAME="${GAME_ALIAS:-$GAME_ID}"
 # Font and icon resources for overlay menu (from NextUI system resources)
-FONT_FILE=$(ls "$SDCARD_PATH/.system/res/"*.ttf 2>/dev/null | head -1)
+# Prefer NextUI's primary UI font (font1.ttf = MiSans, full Latin
+# punctuation). A plain "ls | head -1" grabs font1-arabic.ttf
+# alphabetically, and the MiSans Arabic face lacks '<'/'>', so the
+# overlay slot-picker arrows render as tofu boxes.
+if [ -f "$SDCARD_PATH/.system/res/font1.ttf" ]; then
+    FONT_FILE="$SDCARD_PATH/.system/res/font1.ttf"
+elif [ -f "$SDCARD_PATH/.system/res/font2.ttf" ]; then
+    FONT_FILE="$SDCARD_PATH/.system/res/font2.ttf"
+else
+    FONT_FILE=$(ls "$SDCARD_PATH/.system/res/"*.ttf 2>/dev/null | head -1)
+fi
 export EMU_OVERLAY_FONT="${FONT_FILE:-$SDCARD_PATH/.system/res/font.ttf}"
 export EMU_OVERLAY_RES="$SDCARD_PATH/.system/res"
 # Screenshot directory (matches minarch's .minui path for game switcher)
