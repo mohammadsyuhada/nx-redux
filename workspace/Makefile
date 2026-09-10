@@ -63,6 +63,7 @@ ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
 	cd ./all/netplay-wizard/ && make
 	cd ./all/emu-options/ && make
 	cd ./all/extras/ && make
+	cd ./all/osdctl/ && make
 endif
 	cd ./all/scraper/ && make
 endif
@@ -119,5 +120,6 @@ endif
 	cd ./all/netplay-wizard/ && make clean
 	cd ./all/emu-options/ && make clean
 	cd ./all/extras/ && make clean
+	cd ./all/osdctl/ && make clean
 	cd ./all/scraper/ && make clean
 	cd ./$(PLATFORM) && make clean

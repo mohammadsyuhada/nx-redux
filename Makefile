@@ -212,6 +212,12 @@ ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
 	# the Emulator Settings tool)
 	cp ./workspace/all/emu-options/build/$(PLATFORM)/options.elf ./build/SYSTEM/$(PLATFORM)/bin/
 
+	# OSD widget helper (get/set volume, mute, brightness, fan via libmsettings);
+	# run by the trimui_osdd widget scripts under skeleton/SYSTEM/osd. Built
+	# from source here rather than shipped as a prebuilt in skeleton/ so a
+	# libmsettings struct change cannot leave a stale binary behind.
+	cp ./workspace/all/osdctl/build/$(PLATFORM)/osdctl.elf ./build/SYSTEM/$(PLATFORM)/bin/osdctl
+
 ifeq ($(PLATFORM), tg5040)
 	# liblz4 for Rewind support
 	cp -L ./workspace/all/minarch/build/$(PLATFORM)/liblz4.so.1 ./build/SYSTEM/$(PLATFORM)/lib/

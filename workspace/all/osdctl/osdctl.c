@@ -112,6 +112,20 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
+	// The SetRaw* setters below dereference libmsettings' own `settings`
+	// pointer, which is only set up by InitSettings(). Without it every
+	// `set` used to update the shm mirror and then segfault before touching
+	// the hardware (volume changed on screen, sound unchanged; mute widget
+	// never muted). Gets stay on the bare mirror: they run from update
+	// scripts every few seconds and must stay cheap.
+	int settings_initialized = 0;
+	if (strcmp(cmd, "set") == 0) {
+		if (!getenv("USERDATA_PATH"))
+			setenv("USERDATA_PATH", "/mnt/SDCARD/.userdata/" PLATFORM, 0);
+		InitSettings();
+		settings_initialized = 1;
+	}
+
 	if (strcmp(cmd, "get") == 0) {
 		if (strcmp(prop, "volume") == 0)
 			printf("%d\n", get_volume(s));
@@ -173,6 +187,8 @@ int main(int argc, char* argv[]) {
 	}
 
 done:
+	if (settings_initialized)
+		QuitSettings();
 	munmap(s, sizeof(SettingsShm));
 	return 0;
 }
