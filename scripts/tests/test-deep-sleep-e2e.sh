@@ -10,9 +10,15 @@
 # Phases:
 #   A  flag handshake. With /tmp/system_suspend present, inputd's I2C stick
 #      polling must stop: on the Brick Pro the stick bus's interrupt count in
-#      /proc/interrupts goes flat. Other models have no I2C stick traffic, so
-#      only inputd's poll-thread CPU time is sampled there (informational: the
-#      GPIO loop keeps waking to re-check the flag, so the drop is small).
+#      /proc/interrupts goes flat (measured 2026-09-10: ~1030 twi3 irqs/s
+#      without the flag, exactly 0 with it). Other models have no I2C stick
+#      traffic, so only inputd's poll-thread CPU time is sampled there
+#      (informational: the GPIO loop keeps waking to re-check the flag, so
+#      the drop is small). The sampling windows are short because the stock
+#      inputd deletes the flag by itself about 2 s after it appears while
+#      the LCD is lit (its "work around suspend for backlight" path); with
+#      the panel off -- which is how nextui always runs the real suspend --
+#      the flag persists indefinitely.
 #   B  round trip. Arms an RTC wake alarm and runs the candidate suspend
 #      script from the device itself (setsid/nohup) with its log on the SD
 #      card, synced before the suspend so it survives a hard reset. Then waits
@@ -28,9 +34,13 @@
 #     If the kernel refuses to suspend with the USB cable attached the log
 #     says so: unplug after "runner started" and wake it with POWER by hand.
 #   - the backlight is left as is. nextui switches it off before deep sleep;
-#     the stock inputd only drops a stale flag when it sees input activity
-#     with the LCD lit, and the script removes the flag itself right after
-#     resume, so an idle device with the screen on is a valid stand-in.
+#     with the LCD lit the stock inputd drops the flag on its own after
+#     ~2 s, and the suspend script removes it right after resume anyway, so
+#     an idle device with the screen on is a valid stand-in for the round
+#     trip (the kernel path is identical; only the flag's lifetime differs).
+#   - Phase B over USB cannot reproduce issue #90's report on its own: the
+#     Brick Pro tested 2026-09-10 slept and woke with the pre-patch script
+#     too, over USB (RTC wake) and on battery (POWER wake, menu and in-game).
 #
 # Usage: scripts/tests/test-deep-sleep-e2e.sh [options] [out_dir]
 #   --installed       run the suspend script already on the card (A/B baseline)
@@ -90,30 +100,34 @@ snap() {
 	echo "pollthread_ticks $t" >> $1
 }
 delta() { awk "NR==FNR{a[\$1]=\$2; next} {print \$1, \$2-a[\$1]}" $1 $2; }
+# 1 s windows: with the LCD lit inputd deletes the flag itself after ~2 s
+W=1
 rm -f /tmp/system_suspend
-snap /tmp/ds0; sleep 3; snap /tmp/ds1; echo "[noflag]"; delta /tmp/ds0 /tmp/ds1
+snap /tmp/ds0; sleep $W; snap /tmp/ds1; echo "[noflag]"; delta /tmp/ds0 /tmp/ds1
 touch /tmp/system_suspend; sleep 0.3
-snap /tmp/ds0; sleep 3; snap /tmp/ds1; echo "[flag]"; delta /tmp/ds0 /tmp/ds1
+snap /tmp/ds0; sleep $W; snap /tmp/ds1; echo "[flag]"; delta /tmp/ds0 /tmp/ds1
+echo "flag_held=$([ -e /tmp/system_suspend ] && echo yes || echo no)"
 rm -f /tmp/system_suspend; sleep 0.3
-snap /tmp/ds0; sleep 3; snap /tmp/ds1; echo "[after]"; delta /tmp/ds0 /tmp/ds1
+snap /tmp/ds0; sleep $W; snap /tmp/ds1; echo "[after]"; delta /tmp/ds0 /tmp/ds1
 echo "flag_left=$([ -e /tmp/system_suspend ] && echo yes || echo no)"
 rm -f /tmp/ds0 /tmp/ds1' | tee "$OUT/phase-a.txt" | sed 's/^/    /'
 	grep -q NO_INPUTD "$OUT/phase-a.txt" && { fail "trimui_inputd not running"; return; }
 	grep -q 'flag_left=no' "$OUT/phase-a.txt" || fail "flag left behind after rm"
+	grep -q 'flag_held=no' "$OUT/phase-a.txt" && info "inputd deleted the flag before the window ended (LCD lit); the flag window undercounts"
 	# per-window values: window name -> "irqname delta"
 	win() { awk -v w="[$1]" '$0==w{f=1; next} /^\[/{f=0} f && $1==key{print $2}' key="$2" "$OUT/phase-a.txt"; }
 	if [ "$DEVICE" = brickpro ]; then
 		# the stick bus is the twi line busiest without the flag
 		bus=$(awk '/^\[noflag\]/{f=1; next} /^\[/{f=0} f && $1!="pollthread_ticks"{print $2, $1}' "$OUT/phase-a.txt" | sort -n | tail -1 | awk '{print $2}')
 		n=$(win noflag "$bus"); w=$(win flag "$bus"); a=$(win after "$bus")
-		info "stick bus $bus irqs/3s: noflag=$n flag=$w after=$a"
+		info "stick bus $bus irqs/1s: noflag=$n flag=$w after=$a"
 		if [ "${n:-0}" -ge 100 ] && [ "${w:-0}" -le $((n / 10)) ] && [ "${a:-0}" -ge $((n / 2)) ]; then
 			ok "I2C stick polling stops under the flag and resumes after it"
 		else
 			fail "I2C stick polling did not pause/resume as expected"
 		fi
 	else
-		info "$DEVICE has no I2C sticks; poll-thread ticks/3s: noflag=$(win noflag pollthread_ticks) flag=$(win flag pollthread_ticks) after=$(win after pollthread_ticks) (informational)"
+		info "$DEVICE has no I2C sticks; poll-thread ticks/1s: noflag=$(win noflag pollthread_ticks) flag=$(win flag pollthread_ticks) after=$(win after pollthread_ticks) (informational)"
 	fi
 }
 
