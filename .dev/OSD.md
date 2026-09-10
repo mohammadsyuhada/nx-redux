@@ -28,9 +28,12 @@ The OSD renders to a separate DRM plane via `drmModeSetPlane()`. The GPU hardwar
 ```
 
 The binary is model-specific: the Brick, Brick Pro and Smart Pro firmwares each
-ship a different `trimui_osdd` build, and they are not interchangeable. The main
-OSD assets are also resolution-locked (`bg.png` and the `block*.png` tiles:
-1024×768/124px grid on Brick and Brick Pro vs 1280×720/120px grid on Smart Pro).
+ship a different `trimui_osdd` build. The Smart Pro / Smart Pro S builds are not
+interchangeable with the 1024×768 ones, but the Brick build also runs the Brick
+Pro (same SoC, kernel and panel) and is what `device/brickpro/` now ships — see
+the grid-pitch note further down. The main OSD assets are resolution-locked
+(`bg.png` and the `block*.png` tiles: 1024×768/124px grid on Brick and Brick
+Pro vs 1280×720/120px grid on Smart Pro).
 
 The skeleton therefore keeps one layered source tree at `skeleton/SYSTEM/osd/`
 rather than a copy per device:
@@ -118,10 +121,19 @@ sector 126478). The Brick Pro's came from
 `sd_recovery_tg4040_brickpro_ver1.1.1_20260717.img` (ext4 at sector 126432 —
 the image holds three 540 MB ext4 filesystems; only the first has a populated
 `/usr/trimui`). Only two files actually differ between the two 1024×768
-models: `trimui_osdd` and `osdlayout.json`; the block tiles and every toast
-script are byte-identical, and Brick Pro now ships the Brick's `bg.png` from
-`res/1024x768/` (its stock background differed only by a small teal
-accent). Brick Pro's stock
+models in stock: `trimui_osdd` and `osdlayout.json`; the block tiles and every
+toast script are byte-identical, and Brick Pro now ships the Brick's `bg.png`
+from `res/1024x768/` (its stock background differed only by a small teal
+accent). The stock Brick Pro daemon, however, lays its widget grid out on the
+Smart Pro's 140 px cell pitch (120 px tile + 20 px gap) with an origin of
+(80, 90) instead of the Brick's centred 144 px (124 + 20) grid, so with the
+shared 124 px tiles every multi-cell span overhangs into the gap (~4 px after
+a 4-wide slider) and the whole panel sits left of centre (stock firmware shows
+the same). `device/brickpro/trimui_osdd` is therefore a copy of the **Brick's**
+daemon (c3181362…), not the Brick Pro's stock one (62df0658…): both models are
+the same SoC, kernel and 1024×768 panel, and the Brick build renders the Brick
+Pro identically to the Brick (verified 2026-09-11: grid, focus, toggles,
+in-panel and standalone toasts). Brick Pro's stock
 layout includes the battery widget, so `device/brickpro/osdlayout.json` keeps it
 (the widget itself lives in the shared `common/widgets/static_battery`, and is
 simply not referenced by the Brick or Smart Pro layouts). Extraction recipe,
@@ -239,7 +251,6 @@ Each widget has a directory under `/tmp/trimui_osd/`:
 ├── hotkeyshow              # Contains hotkey name (e.g., "HOME")
 ├── osdd_show_up            # Exists when OSD is visible
 ├── slider_backlight/
-├── slider_volume/
 ├── stepper_fanlevel/
 ├── toggle_bt/
 ├── toggle_cpu/
@@ -263,7 +274,6 @@ Each widget has a directory under `/tmp/trimui_osd/`:
         {"package": "com.trimui.osd.static.pic1"},
         {"package": "com.trimui.osd.app.musicplayer"},
         {"package": "com.trimui.osd.slider.backlight"},
-        {"package": "com.trimui.osd.slider.volumeglobal"},
         {"package": "com.trimui.osd.toggle.btenable"},
         {"package": "com.trimui.osd.toggle.wifienable"},
         {"package": "com.trimui.osd.toggle.ledenable"},
@@ -342,13 +352,13 @@ the dirty-flag-rendering interactions: [CAPTURE.md](CAPTURE.md).
 | Widget | Type | Purpose |
 |--------|------|---------|
 | `slider_backlight` | slider | Screen brightness |
-| `slider_volume_global` | slider | System volume |
 | `stepper_fan_level` | stepper | Fan speed control |
 | `toggle_bt` | toggle | Bluetooth on/off |
 | `toggle_wifi` | toggle | WiFi on/off |
 | `toggle_led` | toggle | LED strip on/off |
 | `toggle_rumble` | toggle | Vibration on/off |
-| `toggle_mute` | toggle | Audio mute (osdctl-based) |
+| `toggle_mute` | toggle | Audio mute (osdctl-based; fixed 2026-09-11 — `osdctl set` used to segfault before touching the hardware). The stock volume slider widget was dropped the same day: hardware volume keys already cover it |
+| `app_music` | app | Music widget (3x2, 412×268 ARGB canvas). Drawn by the resident `osdmusic.elf` (`workspace/all/osdmusic`), which `launch.sh` starts and which owns the widget's command FIFO and canvas. It currently renders DUMMY content (cover, title/artist, prev / play-pause / next with a white focus disc) and reacts to the daemon's `enable` / `disable` / `key_a` / `key_b` / `left` / `right` lines. While no music owner is running (today: no `musicplayer.elf` process, probed once a second) it draws a "No music playing / Press A to open Music Player" placeholder, and A writes the Music Player pak path to `/tmp/nextui_open` (`OPEN_PAK_REQUEST_PATH`) plus `/tmp/hide_osdd`; nextui's main loop consumes that file and launches the pak in place exactly like the F1/F2 shortcuts, so nothing is killed. The request is ignored unless `nextui.elf` is the foreground app. A real music owner is expected to keep this contract and feed it live state. Its `config.json` lives in the `res/<WxH>/` layer, not `common/`, because the grid cell differs: 3x2 / 412×268 on 1024×768, 4x2 / 540×260 on 1280×720; `osdmusic.elf` reads the canvas size and tile name from that file at startup. In every device layout (2026-09-11) |
 | `toggle_power` | toggle | Power off — stock ships an empty `set.sh`; ours implements the launch.sh contract (`rm /tmp/nextui_exec` + `touch /tmp/poweroff` + kill foreground app → `poweroff_next`). In-game press exits minarch without quicksave. |
 | `toggle_screenshot` | toggle | Screenshot daemon on/off (custom; L2+R2 captures to `/mnt/SDCARD/Images/Screenshots`) |
 | `toggle_screenrecord` | toggle | Screen recording on/off (custom; records to `/mnt/SDCARD/Videos/Recordings`) |

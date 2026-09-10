@@ -64,6 +64,7 @@ ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
 	cd ./all/emu-options/ && make
 	cd ./all/extras/ && make
 	cd ./all/osdctl/ && make
+	cd ./all/osdmusic/ && make
 endif
 	cd ./all/scraper/ && make
 endif
@@ -121,5 +122,6 @@ endif
 	cd ./all/emu-options/ && make clean
 	cd ./all/extras/ && make clean
 	cd ./all/osdctl/ && make clean
+	cd ./all/osdmusic/ && make clean
 	cd ./all/scraper/ && make clean
 	cd ./$(PLATFORM) && make clean

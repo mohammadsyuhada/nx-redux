@@ -12,6 +12,10 @@
 
 #define STR_MAX 256
 #define MAX_PATH 512
+// Pak-launch request consumed by nextui's main loop: the file holds one pak
+// directory; nextui launches it in place (as the F1/F2 shortcuts do). Written
+// by the OSD Music widget (workspace/all/osdmusic) to open the Music Player.
+#define OPEN_PAK_REQUEST_PATH "/tmp/nextui_open"
 
 #ifdef HAS_RUNTIME_PATHS
 // Desktop: roots resolved at runtime (env/HOME) by PATHS_init(PLATFORM),

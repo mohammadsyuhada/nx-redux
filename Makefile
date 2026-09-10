@@ -217,6 +217,8 @@ ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
 	# from source here rather than shipped as a prebuilt in skeleton/ so a
 	# libmsettings struct change cannot leave a stale binary behind.
 	cp ./workspace/all/osdctl/build/$(PLATFORM)/osdctl.elf ./build/SYSTEM/$(PLATFORM)/bin/osdctl
+	# Resident renderer behind the OSD Music widget (widgets/app_music/launch.sh)
+	cp ./workspace/all/osdmusic/build/$(PLATFORM)/osdmusic.elf ./build/SYSTEM/$(PLATFORM)/bin/
 
 ifeq ($(PLATFORM), tg5040)
 	# liblz4 for Rewind support

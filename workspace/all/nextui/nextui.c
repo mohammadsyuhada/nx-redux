@@ -180,6 +180,26 @@ int main(int argc, char* argv[]) {
 		if (PAD_anyPressed())
 			last_active_input = SDL_GetTicks();
 
+		// External pak-launch request: a file naming a pak directory, written
+		// by something outside nextui (the OSD Music widget asks for the Music
+		// Player this way). Consumed here so the pak goes through the same
+		// in-place launch as the F1/F2 shortcuts and nextui exits cleanly
+		// instead of being killed around a hand-written /tmp/next.
+		if (exists(OPEN_PAK_REQUEST_PATH)) {
+			char pak_path[MAX_PATH] = {0};
+			FILE* request = fopen(OPEN_PAK_REQUEST_PATH, "r");
+			if (request) {
+				if (!fgets(pak_path, sizeof(pak_path), request))
+					pak_path[0] = '\0';
+				fclose(request);
+			}
+			unlink(OPEN_PAK_REQUEST_PATH);
+			pak_path[strcspn(pak_path, "\r\n")] = '\0';
+			char launch_path[MAX_PATH];
+			if (pak_path[0] == '/' && snprintf(launch_path, sizeof(launch_path), "%s/launch.sh", pak_path) < (int)sizeof(launch_path) && exists(launch_path))
+				openPakInPlace(pak_path);
+		}
+
 		// Handle context menu input (consumes input when open)
 		if (ContextMenu_isOpen()) {
 			// Keep long-press state machine ticking so it doesn't fire on stale state after close
