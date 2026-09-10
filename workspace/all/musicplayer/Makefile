@@ -57,7 +57,7 @@ OPUS_INCDIR = -I./include/libogg -I./include/libopus/include -I./include/opusfil
 OPUS_CFLAGS = -O2 -fomit-frame-pointer -DOPUS_BUILD -DVAR_ARRAYS -DHAVE_LRINTF \
               -DOP_DISABLE_HTTP -DOP_DISABLE_FLOAT_API -std=gnu99
 
-SOURCE = $(TARGET).c music_client.c music_service_client.c music_format.c playlist.c playlist_m3u.c radio.c radio_catalog_parse.c radio_catalog.c radio_net.c album_art.c lyrics.c radio_hls.c \
+SOURCE = $(TARGET).c music_client.c music_balance.c music_service_client.c music_format.c playlist.c playlist_m3u.c radio.c radio_catalog_parse.c radio_catalog.c radio_net.c album_art.c lyrics.c radio_hls.c \
          podcast.c podcast_rss.c podcast_search.c http_download.c settings.c resume.c add_to_playlist.c background.c \
          module_common.c module_menu.c module_library.c module_player.c module_playlist.c module_radio.c module_podcast.c module_settings.c \
          ui_icons.c ui_utils.c browser.c ui_album_art.c ui_main.c ui_music.c ui_radio.c ui_podcast.c ui_playlist.c ui_settings.c \
@@ -116,7 +116,7 @@ all:
 	$(CC) $(SOURCE) $(OPUS_OBJ_DIR)/*.o -o $(PRODUCT) $(MY_CFLAGS) $(MY_LDFLAGS) -Wl,--gc-sections
 	$(CC) $(DAEMON_SOURCE) $(OPUS_OBJ_DIR)/*.o -o $(SERVICE_PRODUCT) $(MY_CFLAGS) $(MY_LDFLAGS)
 	$(CC) musicplayerctl.c music_service_client.c -o $(CTL_PRODUCT) $(MY_CFLAGS)
-	$(CC) music_osd_adapter.c music_client.c music_service_client.c -o $(OSD_PRODUCT) $(MY_CFLAGS) $(MY_LDFLAGS)
+	$(CC) music_osd_adapter.c music_balance.c music_client.c music_service_client.c -o $(OSD_PRODUCT) $(MY_CFLAGS) $(MY_LDFLAGS)
 	@rm -rf $(OPUS_OBJ_DIR)
 
 test_service:

@@ -6,6 +6,6 @@
 
 // Render the settings menu
 // menu_selected: currently selected menu item
-void render_settings_menu(SDL_Surface* screen, IndicatorType show_setting, int menu_selected);
+void render_settings_menu(SDL_Surface* screen, IndicatorType show_setting, int menu_selected, const char* balance_error);
 
 #endif

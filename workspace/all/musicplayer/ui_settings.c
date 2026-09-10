@@ -7,19 +7,21 @@
 #include "ui_settings.h"
 #include "ui_list.h"
 #include "settings.h"
+#include "music_balance.h"
 #include "album_art.h"
 #include "lyrics.h"
 
 // Settings menu items
 #define SETTINGS_ITEM_SCREEN_OFF 0
-#define SETTINGS_ITEM_BASS_FILTER 1
-#define SETTINGS_ITEM_SOFT_LIMITER 2
-#define SETTINGS_ITEM_SAMPLE_RATE 3
-#define SETTINGS_ITEM_RESAMPLER 4
-#define SETTINGS_ITEM_BUFFER 5
-#define SETTINGS_ITEM_CLEAR_CACHE 6
-#define SETTINGS_ITEM_CLEAR_LYRICS 7
-#define SETTINGS_ITEM_COUNT 8
+#define SETTINGS_ITEM_BALANCE 1
+#define SETTINGS_ITEM_BASS_FILTER 2
+#define SETTINGS_ITEM_SOFT_LIMITER 3
+#define SETTINGS_ITEM_SAMPLE_RATE 4
+#define SETTINGS_ITEM_RESAMPLER 5
+#define SETTINGS_ITEM_BUFFER 6
+#define SETTINGS_ITEM_CLEAR_CACHE 7
+#define SETTINGS_ITEM_CLEAR_LYRICS 8
+#define SETTINGS_ITEM_COUNT 9
 
 // Format cache size as human-readable string
 static void format_cache_size(long bytes, char* buf, int buf_size) {
@@ -32,7 +34,7 @@ static void format_cache_size(long bytes, char* buf, int buf_size) {
 	}
 }
 
-void render_settings_menu(SDL_Surface* screen, IndicatorType show_setting, int menu_selected) {
+void render_settings_menu(SDL_Surface* screen, IndicatorType show_setting, int menu_selected, const char* balance_error) {
 	GFX_clear(screen);
 
 	UI_renderMenuBar(screen, "Settings");
@@ -51,8 +53,10 @@ void render_settings_menu(SDL_Surface* screen, IndicatorType show_setting, int m
 	format_cache_size(lyrics_size, lyrics_size_str, sizeof(lyrics_size_str));
 	snprintf(lyrics_label, sizeof(lyrics_label), "Clear Lyrics (%s)", lyrics_size_str);
 
+	const char* balance_desc = balance_error && balance_error[0] ? balance_error : "Adjust the Game and Music mix";
 	UISettingsItem items[] = {
 		{.label = "Auto Screen Off", .value = Settings_getScreenOffDisplayStr(), .swatch = -1, .cycleable = 1, .desc = "Turn off screen while music is playing"},
+		{.label = "Balance", .value = MusicBalance_getDisplayString(), .swatch = -1, .cycleable = 1, .desc = balance_desc},
 		{.label = "Bass Filter", .value = Settings_getBassFilterDisplayStr(), .swatch = -1, .cycleable = 1, .desc = "High-pass filter to reduce speaker distortion"},
 		{.label = "Soft Limiter", .value = Settings_getSoftLimiterDisplayStr(), .swatch = -1, .cycleable = 1, .desc = "Limit volume peaks to prevent clipping"},
 		{.label = "Sample Rate", .value = Settings_getRateModeDisplayStr(), .swatch = -1, .cycleable = 1, .desc = "Follow source avoids resampling on USB DACs; applies on next track"},
@@ -67,6 +71,7 @@ void render_settings_menu(SDL_Surface* screen, IndicatorType show_setting, int m
 						  menu_selected, &scroll, NULL);
 
 	bool is_cyclable = (menu_selected == SETTINGS_ITEM_SCREEN_OFF ||
+						menu_selected == SETTINGS_ITEM_BALANCE ||
 						menu_selected == SETTINGS_ITEM_BASS_FILTER ||
 						menu_selected == SETTINGS_ITEM_SOFT_LIMITER ||
 						menu_selected == SETTINGS_ITEM_SAMPLE_RATE ||
