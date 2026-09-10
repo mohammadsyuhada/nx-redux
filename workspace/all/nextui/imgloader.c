@@ -414,6 +414,12 @@ bool startLoadThumb(const char* thumbpath) {
 
 // Push the (black + folder background) surfaces to the background GPU layer
 // when the loader flagged a change. Safe to call every frame. (moved from nextui.c)
+void requestBackgroundReupload(void) {
+	SDL_LockMutex(bgMutex);
+	folderbgchanged = 1;
+	SDL_UnlockMutex(bgMutex);
+}
+
 void updateBackgroundLayer(SDL_Surface* blackBG) {
 	SDL_LockMutex(bgMutex);
 	if (folderbgchanged) {

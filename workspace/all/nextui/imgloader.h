@@ -52,6 +52,12 @@ int thumbCheckAsyncLoaded(void);
 
 // Layer render helpers shared by the main render loop (moved from nextui.c)
 void updateBackgroundLayer(SDL_Surface* blackBG);
+// Re-upload the folder background (loaded or none) to LAYER_BACKGROUND on the
+// next render pass. For callers that wiped the GPU layers but stay on the same
+// entry (UIKeyboard_open clears LAYER_ALL; a cancelled Search/Rename returns to
+// the same row) — resolveAndLoadBackground's change-detection sees nothing new
+// and would leave the layer empty until the selection moves.
+void requestBackgroundReupload(void);
 void renderThumbnail(int reset_changed, bool hide);
 
 #endif // IMGLOADER_H

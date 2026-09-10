@@ -608,6 +608,7 @@ static void doAddToCollection(const char* rom_path) {
 
 	if (pick == COLLECTION_PICK_NEW) {
 		char* name = UIKeyboard_open("New collection name");
+		requestBackgroundReupload(); // keyboard cleared the layers, same row stays
 		if (name && strlen(name) > 0 && !strchr(name, '/')) {
 			mkdir_p(COLLECTIONS_PATH);
 			char coll_path[MAX_PATH];
@@ -642,6 +643,7 @@ static bool doRename(Entry* entry, int sel) {
 	char prompt[MAX_PATH];
 	snprintf(prompt, sizeof(prompt), "Rename: %s", entry->name);
 	char* newname = UIKeyboard_open(prompt);
+	requestBackgroundReupload(); // keyboard cleared the layers, same row stays
 	if (!newname || strlen(newname) == 0) {
 		free(newname);
 		return false;
@@ -1402,8 +1404,9 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		char* right_pairs[16] = {NULL};
 		int p = 0;
 
-		// search hint at root
-		if (!(show_setting && !GetHDMI()) && !GetHDMI() &&
+		// search hint at root (hint only — START still opens search when the
+		// "Show search hint" Appearance setting hides it)
+		if (CFG_getShowSearchHint() && !(show_setting && !GetHDMI()) && !GetHDMI() &&
 			stack->count == 1 && total > 0) {
 			right_pairs[p++] = "START";
 			right_pairs[p++] = "SEARCH";

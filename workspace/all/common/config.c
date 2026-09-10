@@ -49,6 +49,7 @@ void CFG_defaults(NextUISettings* cfg) {
 		.showClock = CFG_DEFAULT_SHOWCLOCK,
 		.clock24h = CFG_DEFAULT_CLOCK24H,
 		.showBatteryPercent = CFG_DEFAULT_SHOWBATTERYPERCENT,
+		.showSearchHint = CFG_DEFAULT_SHOWSEARCHHINT,
 		.showMenuAnimations = CFG_DEFAULT_SHOWMENUANIMATIONS,
 		.showMenuTransitions = CFG_DEFAULT_SHOWMENUTRANSITIONS,
 		.showRecents = CFG_DEFAULT_SHOWRECENTS,
@@ -147,6 +148,10 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 			}
 			if (sscanf(line, "batteryperc=%i", &temp_value) == 1) {
 				CFG_setShowBatteryPercent((bool)temp_value);
+				continue;
+			}
+			if (sscanf(line, "searchhint=%i", &temp_value) == 1) {
+				CFG_setShowSearchHint((bool)temp_value);
 				continue;
 			}
 			if (sscanf(line, "menuanim=%i", &temp_value) == 1) {
@@ -518,6 +523,15 @@ bool CFG_getShowBatteryPercent(void) {
 
 void CFG_setShowBatteryPercent(bool show) {
 	settings.showBatteryPercent = show;
+	CFG_sync();
+}
+
+bool CFG_getShowSearchHint(void) {
+	return settings.showSearchHint;
+}
+
+void CFG_setShowSearchHint(bool show) {
+	settings.showSearchHint = show;
 	CFG_sync();
 }
 
@@ -993,6 +1007,8 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", CFG_getClock24H());
 	} else if (strcmp(key, "batteryperc") == 0) {
 		sprintf(value, "%i", CFG_getShowBatteryPercent());
+	} else if (strcmp(key, "searchhint") == 0) {
+		sprintf(value, "%i", CFG_getShowSearchHint());
 	} else if (strcmp(key, "menuanim") == 0) {
 		sprintf(value, "%i", CFG_getMenuAnimations());
 	} else if (strcmp(key, "menutransitions") == 0) {
@@ -1090,6 +1106,7 @@ static int CFG_serialize(char* buf, size_t cap) {
 	EMIT("showclock=%i\n", settings.showClock);
 	EMIT("clock24h=%i\n", settings.clock24h);
 	EMIT("batteryperc=%i\n", settings.showBatteryPercent);
+	EMIT("searchhint=%i\n", settings.showSearchHint);
 	EMIT("menuanim=%i\n", settings.showMenuAnimations);
 	EMIT("menutransitions=%i\n", settings.showMenuTransitions);
 	EMIT("recents=%i\n", settings.showRecents);
@@ -1322,6 +1339,7 @@ void CFG_print(void) {
 	printf("\t\"showclock\": %i,\n", settings.showClock);
 	printf("\t\"clock24h\": %i,\n", settings.clock24h);
 	printf("\t\"batteryperc\": %i,\n", settings.showBatteryPercent);
+	printf("\t\"searchhint\": %i,\n", settings.showSearchHint);
 	printf("\t\"menuanim\": %i,\n", settings.showMenuAnimations);
 	printf("\t\"menutransitions\": %i,\n", settings.showMenuTransitions);
 	printf("\t\"recents\": %i,\n", settings.showRecents);

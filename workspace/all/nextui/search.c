@@ -48,6 +48,9 @@ void Search_quit(void) {
 
 bool Search_open(void) {
 	char* query = UIKeyboard_open("Search");
+	// the keyboard cleared every GPU layer; if we end up staying on the game
+	// list (cancel / empty query) nothing else re-uploads its background
+	requestBackgroundReupload();
 	PAD_poll();
 	PAD_reset();
 

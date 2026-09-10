@@ -95,6 +95,7 @@ typedef struct
 	bool showClock;
 	bool clock24h;
 	bool showBatteryPercent;
+	bool showSearchHint;
 	bool showMenuAnimations;
 	bool showMenuTransitions;
 	bool showRecents;
@@ -178,6 +179,7 @@ typedef struct
 #define CFG_DEFAULT_SHOWCLOCK false
 #define CFG_DEFAULT_CLOCK24H true
 #define CFG_DEFAULT_SHOWBATTERYPERCENT false
+#define CFG_DEFAULT_SHOWSEARCHHINT true
 #define CFG_DEFAULT_SHOWMENUANIMATIONS true
 #define CFG_DEFAULT_SHOWMENUTRANSITIONS true
 #define CFG_DEFAULT_SHOWRECENTS true
@@ -270,6 +272,10 @@ void CFG_setClock24H(bool);
 // Show/hide battery percentage in the status pill.
 bool CFG_getShowBatteryPercent(void);
 void CFG_setShowBatteryPercent(bool show);
+// Show/hide the START search button hint on the main menu root (search
+// itself stays reachable either way).
+bool CFG_getShowSearchHint(void);
+void CFG_setShowSearchHint(bool show);
 // Show/hide menu animations in main menu.
 bool CFG_getMenuAnimations(void);
 void CFG_setMenuAnimations(bool show);

@@ -1,5 +1,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
+#include <stdint.h>
+#include <inttypes.h>
 #include "recents.h"
 #include "defines.h"
 #include "utils.h"
@@ -345,12 +347,29 @@ int isConsoleDir(char* path) {
 // add/remove bumps the dir mtime), Roms/map.txt (console aliases), and the
 // Emus pak roots consulted by hasEmu (pak add/remove). In-app mutations go
 // through Content_invalidateEmulist and don't rely on this check.
-static int cacheIsStale(const char* cache_path) {
-	struct stat st;
-	if (stat(cache_path, &st) != 0)
-		return 1;
-	time_t cache_mtime = st.st_mtime;
+//
+// Change detection is by EQUALITY of a fingerprint of the source mtimes that
+// is recorded in the cache file, not by "source newer than cache": a source
+// carrying a bogus future mtime (seen in the wild: an Emus dir dated 2098,
+// FAT keeps whatever a copy tool writes) is "newer" forever, which forced a
+// full rescan on every boot and left Search permanently empty. The sum is
+// order-independent so readdir order does not matter.
+static uint64_t fnv1a64(const char* str) {
+	uint64_t h = 0xCBF29CE484222325ULL;
+	for (; *str; str++)
+		h = (h ^ (unsigned char)*str) * 0x100000001B3ULL;
+	return h;
+}
 
+static void fingerprintMix(uint64_t* fp, const char* path) {
+	struct stat st;
+	// missing sources still contribute (a pak root appearing is a change)
+	uint64_t mtime = stat(path, &st) == 0 ? (uint64_t)st.st_mtime + 1 : 0;
+	*fp += fnv1a64(path) ^ (mtime * 0x9E3779B97F4A7C15ULL);
+}
+
+static uint64_t cacheSourcesFingerprint(void) {
+	uint64_t fp = 1;
 	char roms_map_path[MAX_PATH];
 	snprintf(roms_map_path, sizeof(roms_map_path), "%s/map.txt", ROMS_PATH);
 	char paks_emus_path[MAX_PATH];
@@ -366,40 +385,40 @@ static int cacheIsStale(const char* cache_path) {
 		sdcard_emus_path,
 		sdcard_emus_plat_path,
 	};
-	for (size_t i = 0; i < sizeof(source_paths) / sizeof(source_paths[0]); i++) {
-		if (stat(source_paths[i], &st) == 0 && st.st_mtime > cache_mtime)
-			return 1;
-	}
+	for (size_t i = 0; i < sizeof(source_paths) / sizeof(source_paths[0]); i++)
+		fingerprintMix(&fp, source_paths[i]);
 
 	DIR* dh = opendir(ROMS_PATH);
 	if (!dh)
-		return 1;
+		return 0; // no Roms dir: never matches a recorded fingerprint
 	struct dirent* dp;
 	char path[MAX_PATH];
+	struct stat st;
 	while ((dp = readdir(dh)) != NULL) {
 		if (hide(dp->d_name))
 			continue;
 		snprintf(path, sizeof(path), "%s/%s", ROMS_PATH, dp->d_name);
-		if (stat(path, &st) == 0 && S_ISDIR(st.st_mode) && st.st_mtime > cache_mtime) {
-			closedir(dh);
-			return 1;
-		}
+		if (stat(path, &st) == 0 && S_ISDIR(st.st_mode))
+			fingerprintMix(&fp, path);
 	}
 	closedir(dh);
-	return 0;
+	return fp;
 }
+
+#define CACHE_FP_PREFIX "#fp="
 
 // serialize entries as "path\tname\n" lines and stage via writeFileAtomic so a
 // power cut can never leave a truncated cache. Refuses empty lists — an empty
 // cache newer than its sources would read back as valid-and-fresh and blank
 // the UI on every boot until an mtime bump forced a rescan.
-static void writeEntryCache(const char* cache_path, Array* entries) {
+static void writeEntryCache(const char* cache_path, Array* entries, uint64_t fp) {
 	if (entries->count == 0)
 		return;
 	size_t cap = 16384, len = 0;
 	char* buf = malloc(cap);
 	if (!buf)
 		return;
+	len += snprintf(buf, cap, CACHE_FP_PREFIX "%016" PRIx64 "\n", fp);
 	for (int i = 0; i < entries->count; i++) {
 		Entry* entry = entries->items[i];
 		size_t need = strlen(entry->path) + strlen(entry->name) + 2;
@@ -419,12 +438,11 @@ static void writeEntryCache(const char* cache_path, Array* entries) {
 }
 
 // Shared reader for the "path\tname\n" caches writeEntryCache emits. Returns
-// NULL (forcing a rescan) when the cache is stale, missing, malformed, or empty;
-// otherwise an Array of Entry_newNamed(path, type, name).
-static Array* readEntryCache(const char* cache_path, int type) {
-	if (cacheIsStale(cache_path))
-		return NULL;
-
+// NULL when the cache is missing, malformed, or empty; otherwise an Array of
+// Entry_newNamed(path, type, name). With expect_fp set, the recorded source
+// fingerprint must match it (else NULL — stale, or a pre-fingerprint file);
+// NULL expect_fp skips the check, for callers that just (re)built the file.
+static Array* readEntryCacheFile(const char* cache_path, int type, const uint64_t* expect_fp) {
 	FILE* file = fopen(cache_path, "r");
 	if (!file)
 		return NULL;
@@ -432,9 +450,22 @@ static Array* readEntryCache(const char* cache_path, int type) {
 	Array* entries = Array_new();
 	// sized to what writeEntryCache can emit: two MAX_PATH strings + tab + newline
 	char line[MAX_PATH * 2 + 8];
+	bool first = true;
 	while (fgets(line, sizeof(line), file) != NULL) {
 		normalizeNewline(line);
 		trimTrailingNewlines(line);
+		if (first) {
+			first = false;
+			uint64_t fp = 0;
+			bool has_fp = sscanf(line, CACHE_FP_PREFIX "%" SCNx64, &fp) == 1;
+			if (expect_fp && (!has_fp || fp != *expect_fp)) {
+				EntryArray_free(entries);
+				fclose(file);
+				return NULL; // sources changed since this cache was written
+			}
+			if (has_fp)
+				continue;
+		}
 		if (strlen(line) == 0)
 			continue;
 
@@ -455,6 +486,13 @@ static Array* readEntryCache(const char* cache_path, int type) {
 		return NULL;
 	}
 	return entries;
+}
+
+// readEntryCacheFile plus the staleness gate: NULL (forcing a rescan) when any
+// cache source changed since the file was written.
+static Array* readEntryCache(const char* cache_path, int type) {
+	uint64_t fp = cacheSourcesFingerprint();
+	return readEntryCacheFile(cache_path, type, &fp);
 }
 
 static Array* readRomsCache(void) {
@@ -483,7 +521,13 @@ Array* Content_searchRoms(const char* query) {
 		// Force a build by calling getRoms() (which populates both caches)
 		Array* consoles = getRoms();
 		EntryArray_free(consoles);
-		all_roms = readRomIndexCache();
+		// Read the index we just wrote WITHOUT the staleness gate. The gate
+		// used to be "source mtime newer than cache", which a bogus future
+		// mtime (seen: an Emus dir dated 2098) kept true forever — the gated
+		// re-read returned NULL and every search came back "No results" while
+		// the index on disk was complete. The fingerprint gate cannot loop
+		// like that, but a just-written file needs no gate at all.
+		all_roms = readEntryCacheFile(ROMINDEX_CACHE_PATH, ENTRY_ROM, NULL);
 		if (!all_roms)
 			return Array_new();
 	}
@@ -510,7 +554,9 @@ static Array* getRoms(void) {
 	if (entries)
 		return entries;
 
-	// Cache miss: full filesystem scan
+	// Cache miss: full filesystem scan. Fingerprint the sources BEFORE
+	// scanning so anything that changes mid-scan mismatches on the next read.
+	uint64_t fp = cacheSourcesFingerprint();
 	entries = Array_new();
 	DIR* dh = opendir(ROMS_PATH);
 	if (dh) {
@@ -631,12 +677,12 @@ static Array* getRoms(void) {
 			closedir(rom_dh);
 		}
 		EntryArray_sort(rom_index);
-		writeEntryCache(ROMINDEX_CACHE_PATH, rom_index);
+		writeEntryCache(ROMINDEX_CACHE_PATH, rom_index, fp);
 		EntryArray_free(rom_index);
 	}
 
 	// Write cache for next launch (refused for an empty scan — see writeEntryCache)
-	writeEntryCache(EMULIST_CACHE_PATH, entries);
+	writeEntryCache(EMULIST_CACHE_PATH, entries, fp);
 
 	return entries;
 }

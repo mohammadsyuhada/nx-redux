@@ -573,6 +573,17 @@ static void reset_show_battery_percent(void) {
 	CFG_setShowBatteryPercent(CFG_DEFAULT_SHOWBATTERYPERCENT);
 }
 
+/* Show search hint */
+static int get_show_search_hint(void) {
+	return CFG_getShowSearchHint() ? 1 : 0;
+}
+static void set_show_search_hint(int v) {
+	CFG_setShowSearchHint(v != 0);
+}
+static void reset_show_search_hint(void) {
+	CFG_setShowSearchHint(CFG_DEFAULT_SHOWSEARCHHINT);
+}
+
 /* Show menu animations */
 static int get_menu_animations(void) {
 	return CFG_getMenuAnimations() ? 1 : 0;
@@ -1223,7 +1234,7 @@ static void init_about_info(void) {
 // Menu item arrays (static allocation)
 // ============================================
 
-#define MAX_APPEARANCE_ITEMS 24
+#define MAX_APPEARANCE_ITEMS 26
 #define MAX_DISPLAY_ITEMS 8
 #define MAX_SYSTEM_ITEMS 21
 #define MAX_MUTE_ITEMS 20
@@ -1585,6 +1596,9 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Show battery percentage", "Show battery level as percent in the status pill",
 		on_off_labels, 2, on_off_values, get_show_battery_percent, set_show_battery_percent, reset_show_battery_percent);
+	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Show search hint", "Show the START search button hint on the main menu",
+		on_off_labels, 2, on_off_values, get_show_search_hint, set_show_search_hint, reset_show_search_hint);
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Show menu animations", "Enable or disable menu animations",
 		on_off_labels, 2, on_off_values, get_menu_animations, set_menu_animations, reset_menu_animations);
