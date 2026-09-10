@@ -9,6 +9,7 @@
 #include "defines.h"
 #include "api.h"
 #include "config.h"
+#include "rgba.h"
 #include "utils.h"
 #include "settings_menu.h"
 #include "settings_wifi.h"
@@ -187,6 +188,11 @@ const char* color_labels[COLOR_COUNT] = {
 	"0x222200", "0x444400", "0x666600", "0x888800", "0xAAAA00", "0xCCCC00", "0xFFFF33", "0xFFFF4D", "0xFFFF66", "0xFFFF80", "0xFFFF99", "0xFFFFB3",
 	"0x221100", "0x442200", "0x663300", "0x884400", "0xAA5500", "0xCC6600", "0xFF8833", "0xFF994D", "0xFFAA66", "0xFFBB80", "0xFFCC99", "0xFFDDB3",
 	"0x000000", "0x141414", "0x282828", "0x3C3C3C", "0x505050", "0x646464", "0x8C8C8C", "0xA0A0A0", "0xB4B4B4", "0xC8C8C8", "0xDCDCDC", "0xFFFFFF"};
+
+/* Color opacity (percentage of the packed RGBA alpha byte) */
+#define OPACITY_COUNT 10
+static const char* opacity_labels[OPACITY_COUNT] = {"100%", "90%", "80%", "70%", "60%", "50%", "40%", "30%", "20%", "10%"};
+static const int opacity_values[OPACITY_COUNT] = {100, 90, 80, 70, 60, 50, 40, 30, 20, 10};
 
 // ============================================
 // Static label/value arrays
@@ -447,70 +453,113 @@ static void free_dynamic_labels(void) {
 // Appearance callbacks
 // ============================================
 
-/* Color 1 - Main Color */
+/* Color 1 - Main Color (presets are 0xRRGGBB; opacity is kept separately) */
 static int get_color1(void) {
-	return (int)CFG_getColor(1);
+	return (int)RGBA_toRGB(CFG_getColor(1));
 }
 static void set_color1(int val) {
-	CFG_setColor(1, (uint32_t)val);
+	CFG_setColor(1, RGBA_withAlpha(RGBA_fromRGB((uint32_t)val), RGBA_a(CFG_getColor(1))));
 }
 static void reset_color1(void) {
 	CFG_setColor(1, CFG_DEFAULT_COLOR1);
 }
 
-/* Color 2 - Primary Accent */
+/* Color 2 - Primary Accent (presets are 0xRRGGBB; opacity is kept separately) */
 static int get_color2(void) {
-	return (int)CFG_getColor(2);
+	return (int)RGBA_toRGB(CFG_getColor(2));
 }
 static void set_color2(int val) {
-	CFG_setColor(2, (uint32_t)val);
+	CFG_setColor(2, RGBA_withAlpha(RGBA_fromRGB((uint32_t)val), RGBA_a(CFG_getColor(2))));
 }
 static void reset_color2(void) {
 	CFG_setColor(2, CFG_DEFAULT_COLOR2);
 }
 
-/* Color 3 - Secondary Accent */
+/* Color 3 - Secondary Accent (presets are 0xRRGGBB; opacity is kept separately) */
 static int get_color3(void) {
-	return (int)CFG_getColor(3);
+	return (int)RGBA_toRGB(CFG_getColor(3));
 }
 static void set_color3(int val) {
-	CFG_setColor(3, (uint32_t)val);
+	CFG_setColor(3, RGBA_withAlpha(RGBA_fromRGB((uint32_t)val), RGBA_a(CFG_getColor(3))));
 }
 static void reset_color3(void) {
 	CFG_setColor(3, CFG_DEFAULT_COLOR3);
 }
 
-/* Color 6 - Hint Info */
+/* Color 6 - Hint Info (presets are 0xRRGGBB; opacity is kept separately) */
 static int get_color6(void) {
-	return (int)CFG_getColor(6);
+	return (int)RGBA_toRGB(CFG_getColor(6));
 }
 static void set_color6(int val) {
-	CFG_setColor(6, (uint32_t)val);
+	CFG_setColor(6, RGBA_withAlpha(RGBA_fromRGB((uint32_t)val), RGBA_a(CFG_getColor(6))));
 }
 static void reset_color6(void) {
 	CFG_setColor(6, CFG_DEFAULT_COLOR6);
 }
 
-/* Color 4 - List Text */
+/* Color 4 - List Text (presets are 0xRRGGBB; opacity is kept separately) */
 static int get_color4(void) {
-	return (int)CFG_getColor(4);
+	return (int)RGBA_toRGB(CFG_getColor(4));
 }
 static void set_color4(int val) {
-	CFG_setColor(4, (uint32_t)val);
+	CFG_setColor(4, RGBA_withAlpha(RGBA_fromRGB((uint32_t)val), RGBA_a(CFG_getColor(4))));
 }
 static void reset_color4(void) {
 	CFG_setColor(4, CFG_DEFAULT_COLOR4);
 }
 
-/* Color 5 - List Text Selected */
+/* Color 5 - List Text Selected (presets are 0xRRGGBB; opacity is kept separately) */
 static int get_color5(void) {
-	return (int)CFG_getColor(5);
+	return (int)RGBA_toRGB(CFG_getColor(5));
 }
 static void set_color5(int val) {
-	CFG_setColor(5, (uint32_t)val);
+	CFG_setColor(5, RGBA_withAlpha(RGBA_fromRGB((uint32_t)val), RGBA_a(CFG_getColor(5))));
 }
 static void reset_color5(void) {
 	CFG_setColor(5, CFG_DEFAULT_COLOR5);
+}
+
+/* Color opacity accessors — the RGB preset and the alpha are edited by
+   separate list items, so these touch only the packed alpha byte. */
+static int color_opacity_get(int id) {
+	int pct = RGBA_alphaToPercent(RGBA_a(CFG_getColor(id)));
+	pct = ((pct + 5) / 10) * 10; // snap to the 10% steps offered in the list
+	if (pct < 10)
+		pct = 10;
+	if (pct > 100)
+		pct = 100;
+	return pct;
+}
+static void color_opacity_set(int id, int pct) {
+	CFG_setColor(id, RGBA_withAlpha(CFG_getColor(id), RGBA_percentToAlpha(pct)));
+}
+
+static int get_color1_opacity(void) {
+	return color_opacity_get(1);
+}
+static void set_color1_opacity(int v) {
+	color_opacity_set(1, v);
+}
+static void reset_color1_opacity(void) {
+	color_opacity_set(1, 100);
+}
+static int get_color2_opacity(void) {
+	return color_opacity_get(2);
+}
+static void set_color2_opacity(int v) {
+	color_opacity_set(2, v);
+}
+static void reset_color2_opacity(void) {
+	color_opacity_set(2, 100);
+}
+static int get_color3_opacity(void) {
+	return color_opacity_get(3);
+}
+static void set_color3_opacity(int v) {
+	color_opacity_set(3, v);
+}
+static void reset_color3_opacity(void) {
+	color_opacity_set(3, 100);
 }
 
 /* Show battery percent */
@@ -1174,7 +1223,7 @@ static void init_about_info(void) {
 // Menu item arrays (static allocation)
 // ============================================
 
-#define MAX_APPEARANCE_ITEMS 21
+#define MAX_APPEARANCE_ITEMS 24
 #define MAX_DISPLAY_ITEMS 8
 #define MAX_SYSTEM_ITEMS 21
 #define MAX_MUTE_ITEMS 20
@@ -1509,12 +1558,21 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	appearance_items[idx++] = (SettingItem)ITEM_COLOR_INIT(
 		"Main color", "The color used to render main UI elements.",
 		color_labels, COLOR_COUNT, (int*)color_values, get_color1, set_color1, reset_color1);
+	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Main color opacity", "Lower values let the wallpaper show through main pills.",
+		opacity_labels, OPACITY_COUNT, (int*)opacity_values, get_color1_opacity, set_color1_opacity, reset_color1_opacity);
 	appearance_items[idx++] = (SettingItem)ITEM_COLOR_INIT(
 		"Primary accent color", "The color used to highlight important things in the UI.",
 		color_labels, COLOR_COUNT, (int*)color_values, get_color2, set_color2, reset_color2);
+	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Primary accent opacity", "Lower values let the wallpaper show through the selection.",
+		opacity_labels, OPACITY_COUNT, (int*)opacity_values, get_color2_opacity, set_color2_opacity, reset_color2_opacity);
 	appearance_items[idx++] = (SettingItem)ITEM_COLOR_INIT(
 		"Secondary accent color", "A secondary highlight color.",
 		color_labels, COLOR_COUNT, (int*)color_values, get_color3, set_color3, reset_color3);
+	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Secondary accent opacity", "Lower values let the wallpaper show through secondary elements.",
+		opacity_labels, OPACITY_COUNT, (int*)opacity_values, get_color3_opacity, set_color3_opacity, reset_color3_opacity);
 	appearance_items[idx++] = (SettingItem)ITEM_COLOR_INIT(
 		"Hint info color", "Color for button hints and info",
 		color_labels, COLOR_COUNT, (int*)color_values, get_color6, set_color6, reset_color6);

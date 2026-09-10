@@ -112,6 +112,11 @@ enum {
 	ASSET_DARK_GRAY_PILL,
 	ASSET_OPTION,
 	ASSET_BUTTON,
+	ASSET_WHITE_RECT, // 2px centre column of ASSET_WHITE_PILL (pill middles)
+	ASSET_BLACK_RECT,
+	ASSET_DARK_GRAY_RECT,
+	ASSET_OPTION_RECT,
+	ASSET_BUTTON_RECT,
 	ASSET_PAGE_BG,
 	ASSET_STATE_BG,
 	ASSET_PAGE,
@@ -286,7 +291,7 @@ void GFX_setScreen(SDL_Surface* s);								   // refresh the cached screen after
 #define GFX_GL_screenCapture PLAT_GL_screenCapture	 //(void)
 
 void GFX_setMode(int mode);
-SDL_Color /*GFX_*/ uintToColour(uint32_t colour);
+SDL_Color uintToColour(uint32_t rgba); // packed 0xRRGGBBAA
 
 #define GFX_clear PLAT_clearVideo  // (SDL_Surface* screen)
 #define GFX_clearAll PLAT_clearAll // (void)
@@ -361,6 +366,9 @@ void GFX_blitPillLight(int asset, SDL_Surface* dst, SDL_Rect* dst_rect);
 void GFX_blitPillDark(int asset, SDL_Surface* dst, SDL_Rect* dst_rect);
 void GFX_blitRect(int asset, SDL_Surface* dst, SDL_Rect* dst_rect);
 void GFX_blitRectColor(int asset, SDL_Surface* dst, SDL_Rect* dst_rect, uint32_t asset_color);
+// Fill `rect` on `dst` with a screen-mapped colour. Alpha 255 is a plain
+// SDL_FillRect; lower alpha is blended over the existing pixels.
+void GFX_fillRectColor(SDL_Surface* dst, const SDL_Rect* rect, uint32_t mapped_color);
 void GFX_blitBatteryAtPosition(SDL_Surface* dst, int x, int y);
 int GFX_getButtonWidth(char* hint, char* button);
 void GFX_blitButton(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_rect);

@@ -18,6 +18,7 @@
 #include "config.h"
 #include "audio_manager.h"
 #include "text_shape.h"
+#include "rgba.h"
 
 
 extern pthread_mutex_t audio_mutex;
@@ -116,17 +117,27 @@ TTF_Font* GFX_fallbackFontFor(TTF_Font* primary) {
 // drawn with the Arabic font, which also covers Latin/digits — so a mixed
 // Arabic+Latin string needs no per-run compositing. Falls back to `primary`
 // (tofu, as before) if the Arabic font is unavailable.
+static SDL_Surface* apply_text_alpha(SDL_Surface* surf, Uint8 a) {
+	if (surf && a < 255) {
+		SDL_SetSurfaceBlendMode(surf, SDL_BLENDMODE_BLEND);
+		SDL_SetSurfaceAlphaMod(surf, a);
+	}
+	return surf;
+}
+
 static SDL_Surface* render_text_internal(TTF_Font* primary, const char* text, SDL_Color color) {
 	if (!primary || !text || !text[0])
 		return NULL;
+	Uint8 alpha = color.a ? color.a : 255; // an alpha-less SDL_Color literal means opaque
+	color.a = 255;
 	if (!TextShape_hasArabic(text))
-		return TTF_RenderUTF8_Blended(primary, text, color);
+		return apply_text_alpha(TTF_RenderUTF8_Blended(primary, text, color), alpha);
 
 	char visual[1024];
 	if (TextShape_toVisual(text, visual, sizeof(visual)) <= 0)
-		return TTF_RenderUTF8_Blended(primary, text, color);
+		return apply_text_alpha(TTF_RenderUTF8_Blended(primary, text, color), alpha);
 	TTF_Font* fb = GFX_fallbackFontFor(primary);
-	return TTF_RenderUTF8_Blended(fb ? fb : primary, visual, color);
+	return apply_text_alpha(TTF_RenderUTF8_Blended(fb ? fb : primary, visual, color), alpha);
 }
 
 SDL_Surface* GFX_renderText(TTF_Font* primary, const char* utf8, SDL_Color color) {
@@ -157,13 +168,15 @@ SDL_Surface* GFX_renderTextWrapped(TTF_Font* primary, const char* utf8, SDL_Colo
 								   uint32_t wrap_w) {
 	if (!primary || !utf8 || !utf8[0])
 		return NULL;
+	Uint8 alpha = color.a ? color.a : 255; // an alpha-less SDL_Color literal means opaque
+	color.a = 255;
 	if (!TextShape_hasArabic(utf8))
-		return TTF_RenderUTF8_Blended_Wrapped(primary, utf8, color, wrap_w);
+		return apply_text_alpha(TTF_RenderUTF8_Blended_Wrapped(primary, utf8, color, wrap_w), alpha);
 	char visual[1024];
 	if (TextShape_toVisual(utf8, visual, sizeof(visual)) <= 0)
-		return TTF_RenderUTF8_Blended_Wrapped(primary, utf8, color, wrap_w);
+		return apply_text_alpha(TTF_RenderUTF8_Blended_Wrapped(primary, utf8, color, wrap_w), alpha);
 	TTF_Font* fb = GFX_fallbackFontFor(primary);
-	return TTF_RenderUTF8_Blended_Wrapped(fb ? fb : primary, visual, color, wrap_w);
+	return apply_text_alpha(TTF_RenderUTF8_Blended_Wrapped(fb ? fb : primary, visual, color, wrap_w), alpha);
 }
 
 ///////////////////////////////
@@ -179,16 +192,8 @@ SDL_Color ALT_BUTTON_TEXT_COLOR;
 
 // move to utils?
 
-static inline void rgb_unpack(uint32_t col, int* r, int* g, int* b) {
-	*r = (col >> 16) & 0xff;
-	*g = (col >> 8) & 0xff;
-	*b = col & 0xff;
-}
-
-static inline uint32_t mapUint(uint32_t col) {
-	int r, g, b;
-	rgb_unpack(col, &r, &g, &b);
-	return SDL_MapRGB(gfx.screen->format, r, g, b);
+static inline uint32_t mapUint(uint32_t rgba) {
+	return SDL_MapRGBA(gfx.screen->format, RGBA_r(rgba), RGBA_g(rgba), RGBA_b(rgba), RGBA_a(rgba));
 }
 
 ///////////////////////////////
@@ -554,6 +559,11 @@ SDL_Surface* GFX_init(int mode) {
 	asset_rgbs[ASSET_DARK_GRAY_PILL] = RGB_DARK_GRAY;
 	asset_rgbs[ASSET_OPTION] = RGB_DARK_GRAY;
 	asset_rgbs[ASSET_BUTTON] = RGB_WHITE;
+	asset_rgbs[ASSET_WHITE_RECT] = RGB_WHITE;
+	asset_rgbs[ASSET_BLACK_RECT] = RGB_BLACK;
+	asset_rgbs[ASSET_DARK_GRAY_RECT] = RGB_DARK_GRAY;
+	asset_rgbs[ASSET_OPTION_RECT] = RGB_DARK_GRAY;
+	asset_rgbs[ASSET_BUTTON_RECT] = RGB_WHITE;
 	asset_rgbs[ASSET_PAGE_BG] = RGB_WHITE;
 	asset_rgbs[ASSET_STATE_BG] = RGB_WHITE;
 	asset_rgbs[ASSET_PAGE] = RGB_BLACK;
@@ -569,6 +579,11 @@ SDL_Surface* GFX_init(int mode) {
 	asset_rects[ASSET_DARK_GRAY_PILL] = (SDL_Rect){SCALE4(65, 1, 30, 30)};
 	asset_rects[ASSET_OPTION] = (SDL_Rect){SCALE4(97, 1, 20, 20)};
 	asset_rects[ASSET_BUTTON] = (SDL_Rect){SCALE4(1, 33, 20, 20)};
+	asset_rects[ASSET_WHITE_RECT] = (SDL_Rect){SCALE4(1 + 14, 1, 2, 30)};
+	asset_rects[ASSET_BLACK_RECT] = (SDL_Rect){SCALE4(33 + 14, 1, 2, 30)};
+	asset_rects[ASSET_DARK_GRAY_RECT] = (SDL_Rect){SCALE4(65 + 14, 1, 2, 30)};
+	asset_rects[ASSET_OPTION_RECT] = (SDL_Rect){SCALE4(97 + 9, 1, 2, 20)};
+	asset_rects[ASSET_BUTTON_RECT] = (SDL_Rect){SCALE4(1 + 9, 33, 2, 20)};
 	asset_rects[ASSET_PAGE_BG] = (SDL_Rect){SCALE4(64, 33, 15, 15)};
 	asset_rects[ASSET_STATE_BG] = (SDL_Rect){SCALE4(23, 54, 8, 8)};
 	asset_rects[ASSET_PAGE] = (SDL_Rect){SCALE4(39, 54, 6, 6)};
@@ -1178,13 +1193,8 @@ int GFX_blitWrappedText(TTF_Font* font, const char* text, int max_width, int max
 
 ///////////////////////////////
 
-SDL_Color /*GFX_*/ uintToColour(uint32_t colour) {
-	SDL_Color tempcol;
-	tempcol.a = 255;
-	tempcol.r = (colour >> 16) & 0xFF;
-	tempcol.g = (colour >> 8) & 0xFF;
-	tempcol.b = colour & 0xFF;
-	return tempcol;
+SDL_Color /*GFX_*/ uintToColour(uint32_t rgba) {
+	return (SDL_Color){.r = RGBA_r(rgba), .g = RGBA_g(rgba), .b = RGBA_b(rgba), .a = RGBA_a(rgba)};
 }
 
 SDL_Rect GFX_blitScaled(int scale, SDL_Surface* src, SDL_Surface* dst) {
@@ -1358,37 +1368,76 @@ void GFX_ApplyRoundedCorners_8888(SDL_Surface* surface, SDL_Rect* rect, int radi
 	}
 }
 
-void GFX_blitSurfaceColor(SDL_Surface* src, SDL_Rect* src_rect, SDL_Surface* dst, SDL_Rect* dst_rect, uint32_t asset_color) {
-	// This could be a RAII
-	if (asset_color != RGB_WHITE) {
-		// TODO: Is there a neat way to get the opposite effect of SDL_MapRGB?
-		// This is kinda ugly and not very generic.
-		if (asset_color == THEME_COLOR1)
-			asset_color = THEME_COLOR1_255;
-		else if (asset_color == THEME_COLOR2)
-			asset_color = THEME_COLOR2_255;
-		else if (asset_color == THEME_COLOR3)
-			asset_color = THEME_COLOR3_255;
-		else if (asset_color == THEME_COLOR4)
-			asset_color = THEME_COLOR4_255;
-		else if (asset_color == THEME_COLOR5)
-			asset_color = THEME_COLOR5_255;
-		else if (asset_color == THEME_COLOR6)
-			asset_color = THEME_COLOR6_255;
-		else if (asset_color == THEME_COLOR7)
-			asset_color = THEME_COLOR7_255;
+// Callers MUST pass a screen-mapped colour (THEME_COLORn, RGB_*) or a literal
+// 0xRRGGBB tint here, NEVER a packed THEME_COLORn_255 (that swaps channels).
+static uint32_t asset_color_to_rgba(uint32_t asset_color) {
+	// Callers pass screen-mapped THEME_COLORn; recover the packed RGBA.
+	if (asset_color == THEME_COLOR1)
+		return THEME_COLOR1_255;
+	if (asset_color == THEME_COLOR2)
+		return THEME_COLOR2_255;
+	if (asset_color == THEME_COLOR3)
+		return THEME_COLOR3_255;
+	if (asset_color == THEME_COLOR4)
+		return THEME_COLOR4_255;
+	if (asset_color == THEME_COLOR5)
+		return THEME_COLOR5_255;
+	if (asset_color == THEME_COLOR6)
+		return THEME_COLOR6_255;
+	if (asset_color == THEME_COLOR7)
+		return THEME_COLOR7_255;
+	// Anything else is either a screen-mapped constant (RGB_BLACK, RGB_DARK_GRAY,
+	// ... = 0xAARRGGBB on the ARGB8888 screen) or a literal 0xRRGGBB tint such as
+	// the 0xFF453A REC dot in GFX_blitHardwareGroup. Both decode with the
+	// screen format; a literal has no alpha byte (reads as 0), so treat 0 as opaque
+	// exactly like the pre-RGBA code did.
+	Uint8 r, g, b, a;
+	SDL_GetRGBA(asset_color, gfx.screen->format, &r, &g, &b, &a);
+	if (a == 0)
+		a = 255;
+	return RGBA_pack(r, g, b, a);
+}
 
-		SDL_Color restore;
-		SDL_GetSurfaceColorMod(src, &restore.r, &restore.g, &restore.b);
-		SDL_SetSurfaceColorMod(src,
-							   (asset_color >> 16) & 0xFF,
-							   (asset_color >> 8) & 0xFF,
-							   asset_color & 0xFF);
+typedef struct {
+	Uint8 r, g, b, a;
+	SDL_BlendMode blend;
+} TintRestore;
+
+static TintRestore tint_begin(SDL_Surface* src, uint32_t rgba) {
+	TintRestore keep;
+	SDL_GetSurfaceColorMod(src, &keep.r, &keep.g, &keep.b);
+	SDL_GetSurfaceAlphaMod(src, &keep.a);
+	SDL_GetSurfaceBlendMode(src, &keep.blend);
+	SDL_SetSurfaceColorMod(src, RGBA_r(rgba), RGBA_g(rgba), RGBA_b(rgba));
+	SDL_SetSurfaceAlphaMod(src, RGBA_a(rgba));
+	SDL_SetSurfaceBlendMode(src, SDL_BLENDMODE_BLEND);
+	return keep;
+}
+
+static void tint_end(SDL_Surface* src, TintRestore keep) {
+	SDL_SetSurfaceColorMod(src, keep.r, keep.g, keep.b);
+	SDL_SetSurfaceAlphaMod(src, keep.a);
+	SDL_SetSurfaceBlendMode(src, keep.blend);
+}
+
+void GFX_blitSurfaceColor(SDL_Surface* src, SDL_Rect* src_rect, SDL_Surface* dst, SDL_Rect* dst_rect, uint32_t asset_color) {
+	if (asset_color == RGB_WHITE) {
 		SDL_BlitSurface(src, src_rect, dst, dst_rect);
-		SDL_SetSurfaceColorMod(src, restore.r, restore.g, restore.b);
-	} else {
-		SDL_BlitSurface(src, src_rect, dst, dst_rect);
+		return;
 	}
+	TintRestore keep = tint_begin(src, asset_color_to_rgba(asset_color));
+	SDL_BlitSurface(src, src_rect, dst, dst_rect);
+	tint_end(src, keep);
+}
+
+static void GFX_blitSurfaceColorScaled(SDL_Surface* src, SDL_Rect* src_rect, SDL_Surface* dst, SDL_Rect* dst_rect, uint32_t asset_color) {
+	if (asset_color == RGB_WHITE) {
+		SDL_BlitScaled(src, src_rect, dst, dst_rect);
+		return;
+	}
+	TintRestore keep = tint_begin(src, asset_color_to_rgba(asset_color));
+	SDL_BlitScaled(src, src_rect, dst, dst_rect);
+	tint_end(src, keep);
 }
 
 void GFX_blitAssetColor(int asset, SDL_Rect* src_rect, SDL_Surface* dst, SDL_Rect* dst_rect, uint32_t asset_color) {
@@ -1411,7 +1460,44 @@ void GFX_blitAssetColor(int asset, SDL_Rect* src_rect, SDL_Surface* dst, SDL_Rec
 void GFX_blitAsset(int asset, SDL_Rect* src_rect, SDL_Surface* dst, SDL_Rect* dst_rect) {
 	GFX_blitAssetColor(asset, src_rect, dst, dst_rect, RGB_WHITE);
 }
+void GFX_fillRectColor(SDL_Surface* dst, const SDL_Rect* rect, uint32_t mapped_color) {
+	if (!dst || !rect || rect->w <= 0 || rect->h <= 0)
+		return;
+	Uint8 r, g, b, a;
+	SDL_GetRGBA(mapped_color, dst->format, &r, &g, &b, &a);
+	SDL_Rect area = *rect;
+	if (a == 255) {
+		SDL_FillRect(dst, &area, mapped_color);
+		return;
+	}
+	SDL_Surface* tmp = SDL_CreateRGBSurfaceWithFormat(0, area.w, area.h, 32, SDL_PIXELFORMAT_ARGB8888);
+	if (!tmp)
+		return;
+	SDL_FillRect(tmp, NULL, SDL_MapRGBA(tmp->format, r, g, b, a));
+	SDL_SetSurfaceBlendMode(tmp, SDL_BLENDMODE_BLEND);
+	SDL_BlitSurface(tmp, NULL, dst, &area);
+	SDL_FreeSurface(tmp);
+}
+
+static int pill_rect_asset(int asset) {
+	switch (asset) {
+	case ASSET_WHITE_PILL:
+		return ASSET_WHITE_RECT;
+	case ASSET_BLACK_PILL:
+		return ASSET_BLACK_RECT;
+	case ASSET_DARK_GRAY_PILL:
+		return ASSET_DARK_GRAY_RECT;
+	case ASSET_OPTION:
+		return ASSET_OPTION_RECT;
+	case ASSET_BUTTON:
+		return ASSET_BUTTON_RECT;
+	default:
+		return -1;
+	}
+}
+
 void GFX_blitPillColor(int asset, SDL_Surface* dst, SDL_Rect* dst_rect, uint32_t asset_color, uint32_t fill_color) {
+	(void)fill_color; // kept for API compatibility; middles use asset_color
 	int x = dst_rect->x;
 	int y = dst_rect->y;
 	int w = dst_rect->w;
@@ -1428,8 +1514,11 @@ void GFX_blitPillColor(int asset, SDL_Surface* dst, SDL_Rect* dst_rect, uint32_t
 	GFX_blitAssetColor(asset, &(SDL_Rect){0, 0, r, h}, dst, &(SDL_Rect){x, y}, asset_color);
 	x += r;
 	if (w > 0) {
-		// SDL_FillRect(dst, &(SDL_Rect){x,y,w,h}, UintMult(fill_color, asset_color));
-		SDL_FillRect(dst, &(SDL_Rect){x, y, w, h}, asset_color);
+		int slice = pill_rect_asset(asset);
+		if (slice >= 0)
+			GFX_blitSurfaceColorScaled(gfx.assets, &asset_rects[slice], dst, &(SDL_Rect){x, y, w, h}, asset_color);
+		else
+			GFX_fillRectColor(dst, &(SDL_Rect){x, y, w, h}, asset_color);
 		x += w;
 	}
 	GFX_blitAssetColor(asset, &(SDL_Rect){r, 0, r, h}, dst, &(SDL_Rect){x, y}, asset_color);
@@ -1458,11 +1547,11 @@ void GFX_blitRectColor(int asset, SDL_Surface* dst, SDL_Rect* dst_rect, uint32_t
 	int r = d / 2;
 
 	GFX_blitAssetColor(asset, &(SDL_Rect){0, 0, r, r}, dst, &(SDL_Rect){x, y}, asset_color);
-	SDL_FillRect(dst, &(SDL_Rect){x + r, y, w - d, r}, asset_color);
+	GFX_fillRectColor(dst, &(SDL_Rect){x + r, y, w - d, r}, asset_color);
 	GFX_blitAssetColor(asset, &(SDL_Rect){r, 0, r, r}, dst, &(SDL_Rect){x + w - r, y}, asset_color);
-	SDL_FillRect(dst, &(SDL_Rect){x, y + r, w, h - d}, asset_color);
+	GFX_fillRectColor(dst, &(SDL_Rect){x, y + r, w, h - d}, asset_color);
 	GFX_blitAssetColor(asset, &(SDL_Rect){0, r, r, r}, dst, &(SDL_Rect){x, y + h - r}, asset_color);
-	SDL_FillRect(dst, &(SDL_Rect){x + r, y + h - r, w - d, r}, asset_color);
+	GFX_fillRectColor(dst, &(SDL_Rect){x + r, y + h - r, w - d, r}, asset_color);
 	GFX_blitAssetColor(asset, &(SDL_Rect){r, r, r, r}, dst, &(SDL_Rect){x + w - r, y + h - r}, asset_color);
 }
 
@@ -1811,7 +1900,7 @@ int GFX_blitHardwareIndicator(SDL_Surface* dst, int x, int y, IndicatorType indi
 	GFX_assetRect(asset, &asset_rect);
 	int ax = ox + (SCALE1(PILL_SIZE) - asset_rect.w) / 2;
 	int ay = oy + (SCALE1(PILL_SIZE) - asset_rect.h) / 2;
-	GFX_blitAssetColor(asset, NULL, dst, &(SDL_Rect){ax, ay}, THEME_COLOR6_255);
+	GFX_blitAssetColor(asset, NULL, dst, &(SDL_Rect){ax, ay}, THEME_COLOR6);
 
 	// Draw the progress bar background
 	ox += SCALE1(PILL_SIZE);

@@ -34,7 +34,7 @@ static void px_put(SDL_Surface* s, int x, int y, uint32_t pixel) {
 // centre sits inside the arc of radius r about (ccx,ccy); blend `color` into the
 // destination by that coverage so the curve fades smoothly instead of stepping.
 static void aa_corner(SDL_Surface* dst, int px0, int py0, float ccx, float ccy,
-					  int r, uint8_t cr, uint8_t cg, uint8_t cb) {
+					  int r, uint8_t cr, uint8_t cg, uint8_t cb, uint8_t ca) {
 	for (int py = py0; py < py0 + r; py++) {
 		if (py < 0 || py >= dst->h)
 			continue;
@@ -46,16 +46,31 @@ static void aa_corner(SDL_Surface* dst, int px0, int py0, float ccx, float ccy,
 			float cov = (float)r - sqrtf(dx * dx + dy * dy) + 0.5f;
 			if (cov <= 0.0f)
 				continue;
-			if (cov >= 1.0f) {
-				px_put(dst, px, py, SDL_MapRGB(dst->format, cr, cg, cb));
+			if (cov > 1.0f)
+				cov = 1.0f;
+			if (ca == 255) {
+				if (cov >= 1.0f) {
+					px_put(dst, px, py, SDL_MapRGB(dst->format, cr, cg, cb));
+					continue;
+				}
+				uint8_t dr, dg, db;
+				SDL_GetRGB(px_get(dst, px, py), dst->format, &dr, &dg, &db);
+				uint8_t br = (uint8_t)(cr * cov + dr * (1.0f - cov) + 0.5f);
+				uint8_t bg = (uint8_t)(cg * cov + dg * (1.0f - cov) + 0.5f);
+				uint8_t bb = (uint8_t)(cb * cov + db * (1.0f - cov) + 0.5f);
+				px_put(dst, px, py, SDL_MapRGB(dst->format, br, bg, bb));
 				continue;
 			}
-			uint8_t dr, dg, db;
-			SDL_GetRGB(px_get(dst, px, py), dst->format, &dr, &dg, &db);
-			uint8_t br = (uint8_t)(cr * cov + dr * (1.0f - cov) + 0.5f);
-			uint8_t bg = (uint8_t)(cg * cov + dg * (1.0f - cov) + 0.5f);
-			uint8_t bb = (uint8_t)(cb * cov + db * (1.0f - cov) + 0.5f);
-			px_put(dst, px, py, SDL_MapRGB(dst->format, br, bg, bb));
+			// Translucent colour: source-over with effective alpha = coverage * alpha.
+			float ea = cov * (float)ca / 255.0f;
+			uint8_t dr, dg, db, da;
+			SDL_GetRGBA(px_get(dst, px, py), dst->format, &dr, &dg, &db, &da);
+			float dA = (float)da / 255.0f;
+			float outA = ea + dA * (1.0f - ea);
+			uint8_t br = (uint8_t)(cr * ea + dr * (1.0f - ea) + 0.5f);
+			uint8_t bg = (uint8_t)(cg * ea + dg * (1.0f - ea) + 0.5f);
+			uint8_t bb = (uint8_t)(cb * ea + db * (1.0f - ea) + 0.5f);
+			px_put(dst, px, py, SDL_MapRGBA(dst->format, br, bg, bb, (uint8_t)(outA * 255.0f + 0.5f)));
 		}
 	}
 }
@@ -73,25 +88,25 @@ void UI_fillRoundedRect(SDL_Surface* dst, int x, int y, int w, int h,
 	// Solid interior + straight edges (axis-aligned, no AA needed): a middle band
 	// the full height between the corners, plus the top/bottom strips between them.
 	if (h - 2 * r > 0)
-		SDL_FillRect(dst, &(SDL_Rect){x, y + r, w, h - 2 * r}, color);
+		GFX_fillRectColor(dst, &(SDL_Rect){x, y + r, w, h - 2 * r}, color);
 	if (r > 0 && w - 2 * r > 0) {
-		SDL_FillRect(dst, &(SDL_Rect){x + r, y, w - 2 * r, r}, color);
-		SDL_FillRect(dst, &(SDL_Rect){x + r, y + h - r, w - 2 * r, r}, color);
+		GFX_fillRectColor(dst, &(SDL_Rect){x + r, y, w - 2 * r, r}, color);
+		GFX_fillRectColor(dst, &(SDL_Rect){x + r, y + h - r, w - 2 * r, r}, color);
 	}
 	if (r == 0) {
 		if (h - 2 * r <= 0)
-			SDL_FillRect(dst, &(SDL_Rect){x, y, w, h}, color);
+			GFX_fillRectColor(dst, &(SDL_Rect){x, y, w, h}, color);
 		return;
 	}
 
-	uint8_t cr, cg, cb;
-	SDL_GetRGB(color, dst->format, &cr, &cg, &cb);
+	uint8_t cr, cg, cb, ca;
+	SDL_GetRGBA(color, dst->format, &cr, &cg, &cb, &ca);
 	if (SDL_MUSTLOCK(dst))
 		SDL_LockSurface(dst);
-	aa_corner(dst, x, y, x + r, y + r, r, cr, cg, cb);						   // top-left
-	aa_corner(dst, x + w - r, y, x + w - r, y + r, r, cr, cg, cb);			   // top-right
-	aa_corner(dst, x, y + h - r, x + r, y + h - r, r, cr, cg, cb);			   // bottom-left
-	aa_corner(dst, x + w - r, y + h - r, x + w - r, y + h - r, r, cr, cg, cb); // bottom-right
+	aa_corner(dst, x, y, x + r, y + r, r, cr, cg, cb, ca);						   // top-left
+	aa_corner(dst, x + w - r, y, x + w - r, y + r, r, cr, cg, cb, ca);			   // top-right
+	aa_corner(dst, x, y + h - r, x + r, y + h - r, r, cr, cg, cb, ca);			   // bottom-left
+	aa_corner(dst, x + w - r, y + h - r, x + w - r, y + h - r, r, cr, cg, cb, ca); // bottom-right
 	if (SDL_MUSTLOCK(dst))
 		SDL_UnlockSurface(dst);
 }

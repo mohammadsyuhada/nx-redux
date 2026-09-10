@@ -42,15 +42,6 @@ static SDL_Surface** romImages;
 
 static PlayActivities* play_activities;
 
-static inline SDL_Color colorFromUint(uint32_t colour) {
-	SDL_Color tempcol;
-	tempcol.a = 255;
-	tempcol.r = (colour >> 16) & 0xFF;
-	tempcol.g = (colour >> 8) & 0xFF;
-	tempcol.b = colour & 0xFF;
-	return tempcol;
-}
-
 ///////
 
 int _renderText(const char* text, TTF_Font* font, SDL_Color color, SDL_Rect* rect, bool right_align) {
@@ -229,7 +220,7 @@ void renderList(int count, int start, int end, int selected) {
 			x += (SCALE1(IMG_MAX_WIDTH) - rect.w) / 2;
 			y += (SCALE1(IMG_MAX_HEIGHT) - rect.h) / 2;
 
-			GFX_blitAssetColor(ASSET_GAMEPAD, NULL, screen, &(SDL_Rect){x, y}, THEME_COLOR1_255);
+			GFX_blitAssetColor(ASSET_GAMEPAD, NULL, screen, &(SDL_Rect){x, y}, THEME_COLOR1);
 		}
 
 		cleanName(rom_name, rom->name);
@@ -252,7 +243,7 @@ void renderList(int count, int start, int end, int selected) {
 			layout.list_display_size_x,
 			textHeight};
 		// accent only reads well on the selected white pill; use light gray on dark rows
-		SDL_Color valueCol = isSelected ? colorFromUint(THEME_COLOR2_255) : COLOR_LIGHT_TEXT;
+		SDL_Color valueCol = isSelected ? uintToColour(THEME_COLOR2_255) : COLOR_LIGHT_TEXT;
 		for (int i = 0; i < 6; i++) {
 			SDL_Color detailCol = i % 2 == 0 ? valueCol : COLOR_DARK_TEXT;
 			detailsRect.x += renderText(details[i], font.small, detailCol, &detailsRect);

@@ -324,18 +324,12 @@ static void draw_vertical_gradient_bar(SDL_Surface* surface, int x, int y, int w
 	if (h <= 0 || w <= 0)
 		return;
 
-	// Get raw theme colors (format: 0xRRGGBB)
-	// THEME_COLOR1 = main, THEME_COLOR2 = primary accent, THEME_COLOR3 = secondary accent
-	uint32_t color1 = CFG_getColor(2); // Primary accent (top)
-	uint32_t color2 = CFG_getColor(3); // Secondary accent (bottom)
+	// Theme colours are packed 0xRRGGBBAA; the gradient ignores alpha.
+	SDL_Color top = uintToColour(CFG_getColor(2)); // Primary accent (top)
+	SDL_Color bot = uintToColour(CFG_getColor(3)); // Secondary accent (bottom)
 
-	uint8_t top_r = (color1 >> 16) & 0xFF;
-	uint8_t top_g = (color1 >> 8) & 0xFF;
-	uint8_t top_b = color1 & 0xFF;
-
-	uint8_t bot_r = (color2 >> 16) & 0xFF;
-	uint8_t bot_g = (color2 >> 8) & 0xFF;
-	uint8_t bot_b = color2 & 0xFF;
+	uint8_t top_r = top.r, top_g = top.g, top_b = top.b;
+	uint8_t bot_r = bot.r, bot_g = bot.g, bot_b = bot.b;
 
 	for (int row = 0; row < h; row++) {
 		// t goes from 0.0 (top) to 1.0 (bottom)

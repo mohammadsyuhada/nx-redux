@@ -682,7 +682,7 @@ void render_podcast_main_page(SDL_Surface* screen, IndicatorType show_setting,
 						int badge_x = rpos.subtitle_x + sub_tw + SCALE1(4);
 						int badge_y = rpos.subtitle_y + (small_h - badge_h) / 2;
 						SDL_Rect bg = {badge_x, badge_y, badge_w, badge_h};
-						SDL_FillRect(screen, &bg, THEME_COLOR2);
+						GFX_fillRectColor(screen, &bg, THEME_COLOR2);
 						SDL_BlitSurface(new_surf, NULL, screen,
 										&(SDL_Rect){badge_x + SCALE1(3), badge_y + SCALE1(1)});
 						SDL_FreeSurface(new_surf);
@@ -1244,7 +1244,7 @@ void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
 				int badge_y = pos.subtitle_y + (small_h - badge_h) / 2;
 				// Draw theme-colored pill background
 				SDL_Rect bg = {pos.subtitle_x, badge_y, badge_w, badge_h};
-				SDL_FillRect(screen, &bg, THEME_COLOR2);
+				GFX_fillRectColor(screen, &bg, THEME_COLOR2);
 				// Draw text centered in pill
 				SDL_BlitSurface(new_surf, NULL, screen,
 								&(SDL_Rect){pos.subtitle_x + SCALE1(3), badge_y + SCALE1(1)});
@@ -1263,7 +1263,7 @@ void render_podcast_episodes(SDL_Surface* screen, IndicatorType show_setting,
 			int fill_w = (bar_w * dl_progress) / 100;
 			if (fill_w > 0) {
 				SDL_Rect bar_fill = {bar_x, bar_y, fill_w, bar_h};
-				SDL_FillRect(screen, &bar_fill, THEME_COLOR2);
+				GFX_fillRectColor(screen, &bar_fill, THEME_COLOR2);
 			}
 		} else if (dl_status == PODCAST_DOWNLOAD_PENDING) {
 			SDL_Surface* queued_surf = GFX_renderText(font.small, "Queued", COLOR_GRAY);
@@ -1452,7 +1452,7 @@ void render_podcast_download_queue(SDL_Surface* screen, IndicatorType show_setti
 			int fill_w = (bar_w * item_pct) / 100;
 			if (fill_w > 0) {
 				SDL_Rect bar_fill = {bar_x, bar_y, fill_w, bar_h};
-				SDL_FillRect(screen, &bar_fill, THEME_COLOR2);
+				GFX_fillRectColor(screen, &bar_fill, THEME_COLOR2);
 			}
 
 			// Speed and ETA text after bar

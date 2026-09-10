@@ -167,13 +167,13 @@ typedef struct
 } NextUISettings;
 
 #define CFG_DEFAULT_FONT_ID 1 // Next
-#define CFG_DEFAULT_COLOR1 0xffffffU
-#define CFG_DEFAULT_COLOR2 0x002222U
-#define CFG_DEFAULT_COLOR3 0x1e2329U
-#define CFG_DEFAULT_COLOR4 0xffffffU
-#define CFG_DEFAULT_COLOR5 0x000000U
-#define CFG_DEFAULT_COLOR6 0xffffffU
-#define CFG_DEFAULT_COLOR7 0x000000U
+#define CFG_DEFAULT_COLOR1 0xffffffffU
+#define CFG_DEFAULT_COLOR2 0x002222ffU
+#define CFG_DEFAULT_COLOR3 0x1e2329ffU
+#define CFG_DEFAULT_COLOR4 0xffffffffU
+#define CFG_DEFAULT_COLOR5 0x000000ffU
+#define CFG_DEFAULT_COLOR6 0xffffffffU
+#define CFG_DEFAULT_COLOR7 0x000000ffU
 #define CFG_DEFAULT_THUMBRADIUS 0 // unscaled!
 #define CFG_DEFAULT_SHOWCLOCK false
 #define CFG_DEFAULT_CLOCK24H true
@@ -244,11 +244,12 @@ void CFG_get(const char* key, char* value);
 //  1 - Default NextUI font (default)
 int CFG_getFontId(void);
 void CFG_setFontId(int fontid);
-// The colors to use for the UI. These are 0xRRGGBB values.
-// 0 - Color1 (primary hint/asset colour)
-// 1 - Color2 (accent colour)
-// 2 - Color3 (secondary accent colour
-// 3 - Background Color (unused)
+// The colors to use for the UI. Packed 0xRRGGBBAA (alpha in the low byte,
+// 0xFF = opaque). See rgba.h for the helpers.
+// 1 - Color1 (main pill/asset colour)
+// 2 - Color2 (primary accent)
+// 3 - Color3 (secondary accent)
+// 4 - List text   5 - List text selected   6 - Hint/info   7 - Background
 uint32_t CFG_getColor(int id);
 void CFG_setColor(int id, uint32_t color);
 // Time in secs before the device enters screen-off mode.

@@ -32,7 +32,7 @@ void UI_renderDownloadProgress(SDL_Surface* screen, const UIDownloadProgress* in
 		int prog_w = (bar_w * info->progress) / 100;
 		if (prog_w > 0) {
 			SDL_Rect prog_rect = {bar_x, bar_y, prog_w, bar_h};
-			SDL_FillRect(screen, &prog_rect, THEME_COLOR2);
+			GFX_fillRectColor(screen, &prog_rect, THEME_COLOR2);
 		}
 
 		// Percentage text inside bar

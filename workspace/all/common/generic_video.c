@@ -686,7 +686,18 @@ SDL_Surface* PLAT_initVideo(void) {
 	vid.screen = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888);
 
 	SDL_SetSurfaceBlendMode(vid.screen, SDL_BLENDMODE_BLEND);
-	SDL_SetTextureBlendMode(vid.stream_layer1, SDL_BLENDMODE_BLEND);
+	// The UI surface is cleared to transparent black, and SDL's surface blend
+	// leaves premultiplied colour in it (rgb*a, alpha a). Composite it with a
+	// premultiplied blend so translucent pills and anti-aliased edges are not
+	// multiplied by alpha a second time on the GPU. Falls back to the plain
+	// blend on renderers without custom blend modes (e.g. the software one).
+	SDL_BlendMode premultiplied = SDL_ComposeCustomBlendMode(
+		SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_BLENDOPERATION_ADD,
+		SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_BLENDOPERATION_ADD);
+	if (SDL_SetTextureBlendMode(vid.stream_layer1, premultiplied) != 0) {
+		LOG_info("premultiplied UI blend unsupported (%s), using SDL_BLENDMODE_BLEND\n", SDL_GetError());
+		SDL_SetTextureBlendMode(vid.stream_layer1, SDL_BLENDMODE_BLEND);
+	}
 	SDL_SetTextureBlendMode(vid.target_layer2, SDL_BLENDMODE_BLEND);
 	SDL_SetTextureBlendMode(vid.target_layer3, SDL_BLENDMODE_BLEND);
 	SDL_SetTextureBlendMode(vid.target_layer4, SDL_BLENDMODE_BLEND);

@@ -102,10 +102,10 @@ void ContextMenu_render(SDL_Surface* screen) {
 
 		// Selection highlight (themed rounded pill)
 		if (selected) {
-			// Convert THEME_COLOR1 (RGB565/RGB888 mapped to screen format) to ARGB for our surface
-			uint8_t cr, cg, cb;
-			SDL_GetRGB(THEME_COLOR1, screen->format, &cr, &cg, &cb);
-			uint32_t pill_color = SDL_MapRGBA(surf->format, cr, cg, cb, 255);
+			// Convert THEME_COLOR1 (mapped to screen format) to ARGB for our surface, carrying the alpha through
+			uint8_t cr, cg, cb, ca;
+			SDL_GetRGBA(THEME_COLOR1, screen->format, &cr, &cg, &cb, &ca);
+			uint32_t pill_color = SDL_MapRGBA(surf->format, cr, cg, cb, ca);
 			UI_fillRoundedRect(surf, panel_x + pad, y, panel_w - pad * 2, item_h,
 							   item_h / 3, pill_color);
 		}

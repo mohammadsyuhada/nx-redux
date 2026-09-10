@@ -579,7 +579,7 @@ void input_tester_run(SDL_Surface* screen) {
 				int y = oy + SCALE1(PILL_SIZE * 2 + PILL_SIZE / 2);
 				int o = SCALE1(BUTTON_INSET);
 
-				SDL_FillRect(screen, &(SDL_Rect){x, y + SCALE1(PILL_SIZE / 2), SCALE1(PILL_SIZE), SCALE1(PILL_SIZE * 2)}, THEME_COLOR3);
+				GFX_fillRectColor(screen, &(SDL_Rect){x, y + SCALE1(PILL_SIZE / 2), SCALE1(PILL_SIZE), SCALE1(PILL_SIZE * 2)}, THEME_COLOR3);
 				GFX_blitPillColor(ASSET_WHITE_PILL, screen, &(SDL_Rect){x, y, 0}, THEME_COLOR3, RGB_WHITE);
 				blitButton("U", screen, PAD_isPressed(BTN_DPAD_UP), x + o, y + o, 0);
 
@@ -590,7 +590,7 @@ void input_tester_run(SDL_Surface* screen) {
 				x -= SCALE1(PILL_SIZE);
 				y -= SCALE1(PILL_SIZE);
 
-				SDL_FillRect(screen, &(SDL_Rect){x + SCALE1(PILL_SIZE / 2), y, SCALE1(PILL_SIZE * 2), SCALE1(PILL_SIZE)}, THEME_COLOR3);
+				GFX_fillRectColor(screen, &(SDL_Rect){x + SCALE1(PILL_SIZE / 2), y, SCALE1(PILL_SIZE * 2), SCALE1(PILL_SIZE)}, THEME_COLOR3);
 
 				GFX_blitPillColor(ASSET_WHITE_PILL, screen, &(SDL_Rect){x, y, 0}, THEME_COLOR3, RGB_WHITE);
 				blitButton("L", screen, PAD_isPressed(BTN_DPAD_LEFT), x + o, y + o, 0);

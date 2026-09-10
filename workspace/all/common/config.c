@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include "defines.h"
 #include "utils.h"
+#include "rgba.h"
 
 // True while CFG_init is parsing the settings file; CFG_sync no-ops then,
 // because init loads values through the public setters and every setter syncs.
@@ -27,12 +28,6 @@ uint32_t THEME_COLOR4_255;
 uint32_t THEME_COLOR5_255;
 uint32_t THEME_COLOR6_255;
 uint32_t THEME_COLOR7_255;
-
-static inline uint32_t HexToUint32_unmapped(const char* hexColor) {
-	// Convert the hex string to an unsigned long
-	uint32_t value = (uint32_t)strtoul(hexColor, NULL, 16);
-	return value;
-}
 
 void CFG_defaults(NextUISettings* cfg) {
 	if (!cfg)
@@ -129,40 +124,13 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 		char line[256];
 		while (fgets(line, sizeof(line), file)) {
 			int temp_value;
-			uint32_t temp_color;
 			if (sscanf(line, "font=%i", &temp_value) == 1) {
 				CFG_setFontId(temp_value);
 				fontLoaded = true;
 				continue;
 			}
-			if (sscanf(line, "color1=%x", &temp_color) == 1) {
-				char hexColor[7];
-				snprintf(hexColor, sizeof(hexColor), "%06x", temp_color);
-				CFG_setColor(1, HexToUint32_unmapped(hexColor));
-				continue;
-			}
-			if (sscanf(line, "color2=%x", &temp_color) == 1) {
-				CFG_setColor(2, temp_color);
-				continue;
-			}
-			if (sscanf(line, "color3=%x", &temp_color) == 1) {
-				CFG_setColor(3, temp_color);
-				continue;
-			}
-			if (sscanf(line, "color4=%x", &temp_color) == 1) {
-				CFG_setColor(4, temp_color);
-				continue;
-			}
-			if (sscanf(line, "color5=%x", &temp_color) == 1) {
-				CFG_setColor(5, temp_color);
-				continue;
-			}
-			if (sscanf(line, "color6=%x", &temp_color) == 1) {
-				CFG_setColor(6, temp_color);
-				continue;
-			}
-			if (sscanf(line, "color7=%x", &temp_color) == 1) {
-				CFG_setColor(7, temp_color);
+			if (strncmp(line, "color", 5) == 0 && line[5] >= '1' && line[5] <= '7' && line[6] == '=') {
+				CFG_setColor(line[5] - '0', RGBA_parseHex(line + 7));
 				continue;
 			}
 			if (sscanf(line, "radius=%i", &temp_value) == 1) {
@@ -1004,19 +972,19 @@ void CFG_get(const char* key, char* value) {
 	if (strcmp(key, "font") == 0) {
 		sprintf(value, "%i", CFG_getFontId());
 	} else if (strcmp(key, "color1") == 0) {
-		sprintf(value, "\"0x%06X\"", CFG_getColor(1));
+		sprintf(value, "\"0x%08X\"", CFG_getColor(1));
 	} else if (strcmp(key, "color2") == 0) {
-		sprintf(value, "\"0x%06X\"", CFG_getColor(2));
+		sprintf(value, "\"0x%08X\"", CFG_getColor(2));
 	} else if (strcmp(key, "color3") == 0) {
-		sprintf(value, "\"0x%06X\"", CFG_getColor(3));
+		sprintf(value, "\"0x%08X\"", CFG_getColor(3));
 	} else if (strcmp(key, "color4") == 0) {
-		sprintf(value, "\"0x%06X\"", CFG_getColor(4));
+		sprintf(value, "\"0x%08X\"", CFG_getColor(4));
 	} else if (strcmp(key, "color5") == 0) {
-		sprintf(value, "\"0x%06X\"", CFG_getColor(5));
+		sprintf(value, "\"0x%08X\"", CFG_getColor(5));
 	} else if (strcmp(key, "color6") == 0) {
-		sprintf(value, "\"0x%06X\"", CFG_getColor(6));
+		sprintf(value, "\"0x%08X\"", CFG_getColor(6));
 	} else if (strcmp(key, "color7") == 0) {
-		sprintf(value, "\"0x%06X\"", CFG_getColor(7));
+		sprintf(value, "\"0x%08X\"", CFG_getColor(7));
 	} else if (strcmp(key, "radius") == 0) {
 		sprintf(value, "%i", CFG_getThumbnailRadius());
 	} else if (strcmp(key, "showclock") == 0) {
@@ -1111,13 +1079,13 @@ static int CFG_serialize(char* buf, size_t cap) {
 		off += (size_t)n;                                    \
 	} while (0)
 	EMIT("font=%i\n", settings.font);
-	EMIT("color1=0x%06X\n", settings.color1_255);
-	EMIT("color2=0x%06X\n", settings.color2_255);
-	EMIT("color3=0x%06X\n", settings.color3_255);
-	EMIT("color4=0x%06X\n", settings.color4_255);
-	EMIT("color5=0x%06X\n", settings.color5_255);
-	EMIT("color6=0x%06X\n", settings.color6_255);
-	EMIT("color7=0x%06X\n", settings.color7_255);
+	EMIT("color1=0x%08X\n", settings.color1_255);
+	EMIT("color2=0x%08X\n", settings.color2_255);
+	EMIT("color3=0x%08X\n", settings.color3_255);
+	EMIT("color4=0x%08X\n", settings.color4_255);
+	EMIT("color5=0x%08X\n", settings.color5_255);
+	EMIT("color6=0x%08X\n", settings.color6_255);
+	EMIT("color7=0x%08X\n", settings.color7_255);
 	EMIT("radius=%i\n", settings.thumbRadius);
 	EMIT("showclock=%i\n", settings.showClock);
 	EMIT("clock24h=%i\n", settings.clock24h);
@@ -1343,13 +1311,13 @@ void CFG_sync(void) {
 void CFG_print(void) {
 	printf("{\n");
 	printf("\t\"font\": %i,\n", settings.font);
-	printf("\t\"color1\": \"0x%06X\",\n", settings.color1_255);
-	printf("\t\"color2\": \"0x%06X\",\n", settings.color2_255);
-	printf("\t\"color3\": \"0x%06X\",\n", settings.color3_255);
-	printf("\t\"color4\": \"0x%06X\",\n", settings.color4_255);
-	printf("\t\"color5\": \"0x%06X\",\n", settings.color5_255);
-	printf("\t\"color6\": \"0x%06X\",\n", settings.color6_255);
-	printf("\t\"color7\": \"0x%06X\",\n", settings.color7_255);
+	printf("\t\"color1\": \"0x%08X\",\n", settings.color1_255);
+	printf("\t\"color2\": \"0x%08X\",\n", settings.color2_255);
+	printf("\t\"color3\": \"0x%08X\",\n", settings.color3_255);
+	printf("\t\"color4\": \"0x%08X\",\n", settings.color4_255);
+	printf("\t\"color5\": \"0x%08X\",\n", settings.color5_255);
+	printf("\t\"color6\": \"0x%08X\",\n", settings.color6_255);
+	printf("\t\"color7\": \"0x%08X\",\n", settings.color7_255);
 	printf("\t\"radius\": %i,\n", settings.thumbRadius);
 	printf("\t\"showclock\": %i,\n", settings.showClock);
 	printf("\t\"clock24h\": %i,\n", settings.clock24h);
