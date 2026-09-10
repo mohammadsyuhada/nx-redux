@@ -723,7 +723,10 @@ void UI_pillAnimSetTarget(PillAnimState* state, int target_y, int target_w, bool
 	if (target_y == state->current_y && target_w == state->current_w && !state->active)
 		return;
 
-	if (!animate) {
+	// "Show menu animations" (Settings > Appearance) turns the glide off for
+	// every list at this single choke point: the game list, ListView screens
+	// and the search results all retarget through here.
+	if (!animate || !CFG_getMenuAnimations()) {
 		state->current_y = target_y;
 		state->target_y = target_y;
 		state->current_w = target_w;

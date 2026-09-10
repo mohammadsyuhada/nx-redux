@@ -213,6 +213,13 @@ during menu rendering — useless as a first-frame/boot proxy.
   `minarch/ma_turbo.c` on the host against a model of both TrimUI input
   daemons' pulse trains; `scripts/tests/turbo/inject.c` documents the Brick
   on-device replay recipe (1942, FBN).
+- Menu animations setting: `scripts/tests/test-menu-animations.sh` compiles
+  `common/ui/ui_list.c` on the host (SDL2 headers; unused symbols left
+  unresolved on purpose) and checks that the shared selection-pill glide
+  snaps when "Show menu animations" is off and still glides when it is on.
+  On-device proof: press d-pad down and `dd` the fb0 list band a few times
+  ~60 ms apart — with the setting off every sample's pill top must sit on a
+  row boundary; with it on at least one sample lands between rows.
 - On-device E2E for the Settings > Network connect flow (wrong password →
   error dialog + retry, no profile left behind; stale saved key → same):
   `scripts/tests/test-wifi-connect-e2e.sh <ssid>`. Drives the real Settings
