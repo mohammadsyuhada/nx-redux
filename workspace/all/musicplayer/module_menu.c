@@ -55,9 +55,8 @@ int MenuModule_run(SDL_Surface* screen) {
 
 		// Background playback (track advancement, progress save) is ticked
 		// centrally in ModuleCommon_PWR_update below.
-		if (Background_isPlaying()) {
-			ModuleCommon_setAutosleepDisabled(true);
-		}
+		MusicClient_update();
+		ModuleCommon_setAutosleepDisabled(Background_isPlaying());
 
 		// Determine first item: Now Playing (if BG active) > Resume > none
 		int first_item_mode = MENU_FIRST_NONE;

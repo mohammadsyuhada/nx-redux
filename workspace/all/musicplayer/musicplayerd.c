@@ -805,14 +805,21 @@ static int load_path(const MusicLoadRequest* request) {
 	struct stat st;
 	if (stat(path, &st) != 0)
 		return MUSIC_STATUS_NOT_FOUND;
-	shuffle_history_count = 0;
+	PlaylistContext loaded = {0};
+	Playlist_init(&loaded);
+	if (!loaded.tracks)
+		return MUSIC_STATUS_INTERNAL;
 	char file_path[MUSIC_SERVICE_MAX_PATH];
 	if (S_ISDIR(st.st_mode)) {
-		if (Playlist_buildFromDirectory(&queue, path, request->selected_path[0] ? request->selected_path : NULL) <= 0)
+		if (Playlist_buildFromDirectory(&loaded, path, request->selected_path[0] ? request->selected_path : NULL) <= 0) {
+			Playlist_free(&loaded);
 			return MUSIC_STATUS_NOT_FOUND;
-		const PlaylistTrack* first = Playlist_getCurrentTrack(&queue);
-		if (!first || (request->selected_path[0] && strcmp(first->path, request->selected_path) != 0))
+		}
+		const PlaylistTrack* first = Playlist_getCurrentTrack(&loaded);
+		if (!first || (request->selected_path[0] && strcmp(first->path, request->selected_path) != 0)) {
+			Playlist_free(&loaded);
 			return MUSIC_STATUS_NOT_FOUND;
+		}
 		strncpy(file_path, first->path, sizeof(file_path) - 1);
 	} else {
 		strncpy(file_path, path, sizeof(file_path) - 1);
@@ -824,18 +831,27 @@ static int load_path(const MusicLoadRequest* request) {
 			*slash = '\0';
 		else
 			strcpy(directory, ".");
-		(void)Playlist_buildFromDirectory(&queue, directory, path);
+		(void)Playlist_buildFromDirectory(&loaded, directory, path);
 	}
 	file_path[sizeof(file_path) - 1] = '\0';
+	if (Player_validate(file_path) != 0) {
+		Playlist_free(&loaded);
+		return MUSIC_STATUS_INTERNAL;
+	}
 	stop_active_source();
+	if (Player_load(file_path) != 0) {
+		Playlist_free(&loaded);
+		return MUSIC_STATUS_INTERNAL;
+	}
+	Playlist_free(&queue);
+	queue = loaded;
 	clear_queue_identity();
 	if (S_ISDIR(st.st_mode)) {
 		queue_kind = MUSIC_QUEUE_FOLDER;
 		strncpy(queue_path, path, sizeof(queue_path) - 1);
 		queue_path[sizeof(queue_path) - 1] = '\0';
 	}
-	if (Player_load(file_path) != 0)
-		return MUSIC_STATUS_INTERNAL;
+	shuffle_history_count = 0;
 	active_source = MUSIC_SOURCE_LOCAL;
 	eof_advanced = false;
 	return MUSIC_STATUS_OK;
@@ -847,7 +863,6 @@ static int load_playlist(const MusicPlaylistLoadRequest* request) {
 	if (!request || !request->path[0] || request->index < 0 ||
 		strlen(request->path) >= MUSIC_SERVICE_MAX_PATH)
 		return MUSIC_STATUS_BAD_REQUEST;
-	shuffle_history_count = 0;
 	PlaylistContext loaded = {0};
 	Playlist_init(&loaded);
 	int count = 0;
@@ -859,12 +874,26 @@ static int load_playlist(const MusicPlaylistLoadRequest* request) {
 	}
 	loaded.track_count = count;
 	loaded.current_index = request->index;
+	if (Player_validate(loaded.tracks[request->index].path) != 0) {
+		Playlist_free(&loaded);
+		return MUSIC_STATUS_INTERNAL;
+	}
+	stop_active_source();
+	if (Player_load(loaded.tracks[request->index].path) != 0) {
+		Playlist_free(&loaded);
+		return MUSIC_STATUS_INTERNAL;
+	}
 	Playlist_free(&queue);
 	queue = loaded;
 	queue_kind = MUSIC_QUEUE_M3U;
 	strncpy(queue_path, request->path, sizeof(queue_path) - 1);
 	queue_path[sizeof(queue_path) - 1] = '\0';
-	return select_index(request->index);
+	shuffle_history_count = 0;
+	active_source = MUSIC_SOURCE_LOCAL;
+	eof_advanced = false;
+	local_last_resume_ms = now_ms();
+	save_resume_state();
+	return MUSIC_STATUS_OK;
 }
 
 static int select_index(int index) {
@@ -1259,6 +1288,11 @@ static void service_tick(void) {
 		}
 	}
 	Radio_update();
+	if (active_source == MUSIC_SOURCE_RADIO && Radio_getState() == RADIO_STATE_ERROR) {
+		PlayerSnapshot snapshot;
+		if (Player_getSnapshot(&snapshot) == 0 && snapshot.audio_open)
+			Player_closeAudioDevice();
+	}
 	Podcast_update();
 	if (!sleeping)
 		Player_update();

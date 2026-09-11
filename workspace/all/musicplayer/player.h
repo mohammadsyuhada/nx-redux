@@ -140,6 +140,7 @@ void Player_quit(void);
 
 // Load a file (does not start playing)
 int Player_load(const char* filepath);
+int Player_validate(const char* filepath);
 
 // Start/resume playback
 int Player_play(void);

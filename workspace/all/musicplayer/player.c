@@ -357,7 +357,7 @@ static size_t circular_buffer_read(CircularBuffer* cb, int16_t* data, size_t fra
 // ============ STREAMING DECODER INTERFACE ============
 
 // Open decoder and read metadata (doesn't decode audio yet)
-static int stream_decoder_open(StreamDecoder* sd, const char* filepath) {
+static int stream_decoder_open(StreamDecoder* sd, const char* filepath, TrackInfo* metadata) {
 	memset(sd, 0, sizeof(StreamDecoder));
 
 	sd->format = Player_detectFormat(filepath);
@@ -394,7 +394,7 @@ static int stream_decoder_open(StreamDecoder* sd, const char* filepath) {
 		break;
 	}
 	case AUDIO_FORMAT_FLAC: {
-		drflac* flac = drflac_open_file_with_metadata(filepath, flac_metadata_callback, NULL, NULL);
+		drflac* flac = drflac_open_file_with_metadata(filepath, flac_metadata_callback, metadata, NULL);
 		if (!flac) {
 			LOG_error("Stream: Failed to open FLAC: %s\n", filepath);
 			return -1;
@@ -2219,7 +2219,7 @@ static void parse_vorbis_comment(const char* comment) {
 
 // FLAC metadata callback
 static void flac_metadata_callback(void* pUserData, drflac_metadata* pMetadata) {
-	(void)pUserData;
+	TrackInfo* track_info = pUserData;
 
 	if (pMetadata->type == DRFLAC_METADATA_BLOCK_TYPE_VORBIS_COMMENT) {
 		// Parse Vorbis comments
@@ -2240,7 +2240,16 @@ static void flac_metadata_callback(void* pUserData, drflac_metadata* pMetadata) 
 				if (comment) {
 					memcpy(comment, pComments, commentLength);
 					comment[commentLength] = '\0';
-					parse_vorbis_comment(comment);
+					const char* eq = strchr(comment, '=');
+					if (eq) {
+						size_t key_len = (size_t)(eq - comment);
+						if (key_len == 5 && strncasecmp(comment, "TITLE", key_len) == 0)
+							copy_metadata_string(track_info->title, eq + 1, sizeof(track_info->title));
+						else if (key_len == 6 && strncasecmp(comment, "ARTIST", key_len) == 0)
+							copy_metadata_string(track_info->artist, eq + 1, sizeof(track_info->artist));
+						else if (key_len == 5 && strncasecmp(comment, "ALBUM", key_len) == 0)
+							copy_metadata_string(track_info->album, eq + 1, sizeof(track_info->album));
+					}
 					free(comment);
 				}
 
@@ -2269,7 +2278,7 @@ void Player_setSampleRate(int sample_rate) {
 // Load file using streaming playback (decode on-the-fly)
 static int load_streaming(const char* filepath) {
 	// Open decoder
-	if (stream_decoder_open(&player.stream_decoder, filepath) != 0) {
+	if (stream_decoder_open(&player.stream_decoder, filepath, &player.track_info) != 0) {
 		return -1;
 	}
 
@@ -2305,6 +2314,16 @@ static int load_streaming(const char* filepath) {
 	// The decoder stays idle until playback opens the PCM. This avoids filling
 	// the queue at a stale route rate while the owner is paused or stopped.
 	return 0;
+}
+
+int Player_validate(const char* filepath) {
+	if (!filepath || !player_core_initialized)
+		return -1;
+	StreamDecoder decoder = {0};
+	TrackInfo metadata = {0};
+	int result = stream_decoder_open(&decoder, filepath, &metadata);
+	stream_decoder_close(&decoder);
+	return result;
 }
 
 int Player_load(const char* filepath) {

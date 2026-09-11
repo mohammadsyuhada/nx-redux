@@ -468,6 +468,7 @@ static void handle_bt_disconnected(DBusConnection* conn, const char* path) {
 		clear_audio_file();
 		write_default_audio_file();
 		current_bt_mac[0] = '\0';
+		current_route = ROUTED_DEFAULT;
 		publish_sink_state();
 		SetAudioSink(AUDIO_SINK_DEFAULT);
 	}
@@ -508,6 +509,7 @@ static void handle_interfaces_removed(DBusMessage* msg) {
 			clear_audio_file();
 			write_default_audio_file();
 			current_bt_mac[0] = '\0';
+			current_route = ROUTED_DEFAULT;
 			publish_sink_state();
 			SetAudioSink(AUDIO_SINK_DEFAULT);
 			return;

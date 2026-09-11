@@ -534,6 +534,7 @@ static bool handle_playing_input(SDL_Surface* screen, PlayerInternalState* state
 			*dirty = 1;
 		}
 		MusicClient_update();
+		ModuleCommon_setAutosleepDisabled(Background_isPlaying());
 
 		GFX_sync();
 		return true;
@@ -966,6 +967,7 @@ ModuleExitReason PlayerModule_runWithPlaylist(SDL_Surface* screen,
 				dirty = 1;
 			}
 			MusicClient_update();
+			ModuleCommon_setAutosleepDisabled(Background_isPlaying());
 
 			GFX_sync();
 			continue;

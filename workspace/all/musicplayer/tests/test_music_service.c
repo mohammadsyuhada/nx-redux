@@ -82,6 +82,17 @@ static int write_wav(const char* path, int seconds_tenths) {
 	fclose(f);
 	return 0;
 }
+static bool file_contains(const char* path, const char* text) {
+	char contents[4096] = {0};
+	FILE* file = fopen(path, "r");
+	if (!file)
+		return false;
+	size_t size = fread(contents, 1, sizeof(contents) - 1, file);
+	fclose(file);
+	contents[size] = '\0';
+	return strstr(contents, text) != NULL;
+}
+
 static int run_cli(const char* cli_path, const char* command, const char* argument) {
 	pid_t child = fork();
 	if (child == 0) {
@@ -195,6 +206,7 @@ int main(int argc, char** argv) {
 	snprintf(root, sizeof(root), "/tmp/nx_music_service_test_%ld", (long)getpid());
 	mkdir(root, 448);
 	char socket_path[160], first[200], second[200], playlist_path[200], resume_root[200];
+	char empty_folder[200], bad_track[200], bad_playlist[200];
 	char recursive_root[200], recursive_nested[200], recursive_first[200], recursive_selected[200];
 	snprintf(socket_path, sizeof(socket_path), "%s/control.sock", root);
 	snprintf(resume_root, sizeof(resume_root), "%s/resume", root);
@@ -202,12 +214,16 @@ int main(int argc, char** argv) {
 	snprintf(first, sizeof(first), "%s/01.wav", root);
 	snprintf(second, sizeof(second), "%s/02.wav", root);
 	snprintf(playlist_path, sizeof(playlist_path), "%s/list.m3u", root);
+	snprintf(empty_folder, sizeof(empty_folder), "%s/empty", root);
+	snprintf(bad_track, sizeof(bad_track), "%s/bad.wav", root);
+	snprintf(bad_playlist, sizeof(bad_playlist), "%s/bad.m3u", root);
 	snprintf(recursive_root, sizeof(recursive_root), "%s_recursive", root);
 	snprintf(recursive_nested, sizeof(recursive_nested), "%s/nested", recursive_root);
 	snprintf(recursive_first, sizeof(recursive_first), "%s/01.wav", recursive_root);
 	snprintf(recursive_selected, sizeof(recursive_selected), "%s/02.wav", recursive_nested);
 	mkdir(recursive_root, 448);
 	mkdir(recursive_nested, 448);
+	mkdir(empty_folder, 448);
 	check(write_wav(first, 4) == 0 && write_wav(second, 40) == 0 &&
 		  write_wav(recursive_first, 1) == 0 && write_wav(recursive_selected, 1) == 0,
 		  "create fixtures");
@@ -217,6 +233,17 @@ int main(int argc, char** argv) {
 		fclose(playlist_file);
 	}
 	check(playlist_file != NULL, "create playlist fixture");
+	FILE* bad_track_file = fopen(bad_track, "w");
+	if (bad_track_file) {
+		fputs("not audio", bad_track_file);
+		fclose(bad_track_file);
+	}
+	FILE* bad_playlist_file = fopen(bad_playlist, "w");
+	if (bad_playlist_file) {
+		fprintf(bad_playlist_file, "%s\n", bad_track);
+		fclose(bad_playlist_file);
+	}
+	check(bad_track_file != NULL && bad_playlist_file != NULL, "create invalid playlist fixtures");
 	setenv(MUSIC_SERVICE_SOCKET_ENV, socket_path, 1);
 	setenv("NX_MUSIC_RESUME_DIR", resume_root, 1);
 	setenv("USERDATA_PATH", root, 1);
@@ -577,6 +604,33 @@ int main(int argc, char** argv) {
 				  response.snapshot.queue_kind == MUSIC_QUEUE_FOLDER &&
 				  strcmp(response.snapshot.queue_path, root) == 0,
 			  "owner identifies directory queue after client reattach");
+		check(raw_request(fd, MUSIC_CMD_PLAY, NULL, 0, &response) == 0 &&
+				  response.snapshot.state == MUSIC_STATE_PLAYING,
+			  "atomic replacement starts valid folder playback");
+		char prior_file[MUSIC_SERVICE_MAX_PATH];
+		strncpy(prior_file, response.snapshot.current_file, sizeof(prior_file) - 1);
+		prior_file[sizeof(prior_file) - 1] = '\0';
+		char resume_file[220];
+		snprintf(resume_file, sizeof(resume_file), "%s/resume.cfg", resume_root);
+		MusicLoadRequest empty_load = {0};
+		strncpy(empty_load.path, empty_folder, sizeof(empty_load.path) - 1);
+		check(raw_request(fd, MUSIC_CMD_LOAD, &empty_load, sizeof(empty_load), &response) != MUSIC_STATUS_OK &&
+				  response.snapshot.state == MUSIC_STATE_PLAYING &&
+				  strcmp(response.snapshot.current_file, prior_file) == 0 &&
+				  response.snapshot.queue_kind == MUSIC_QUEUE_FOLDER &&
+				  strcmp(response.snapshot.queue_path, root) == 0 &&
+				  file_contains(resume_file, "folder_path=") && file_contains(resume_file, root),
+			  "empty folder leaves the active queue and resume identity intact");
+		MusicPlaylistLoadRequest bad_load = {0};
+		strncpy(bad_load.path, bad_playlist, sizeof(bad_load.path) - 1);
+		check(raw_request(fd, MUSIC_CMD_LOAD_PLAYLIST, &bad_load, sizeof(bad_load), &response) != MUSIC_STATUS_OK &&
+				  response.snapshot.state == MUSIC_STATE_PLAYING &&
+				  strcmp(response.snapshot.current_file, prior_file) == 0 &&
+				  response.snapshot.queue_kind == MUSIC_QUEUE_FOLDER &&
+				  strcmp(response.snapshot.queue_path, root) == 0 &&
+				  file_contains(resume_file, "folder_path=") && file_contains(resume_file, root) &&
+				  !file_contains(resume_file, bad_playlist),
+			  "undecodable M3U leaves the active queue and resume identity intact");
 		MusicPlaylistLoadRequest playlist_load;
 		memset(&playlist_load, 0, sizeof(playlist_load));
 		strncpy(playlist_load.path, playlist_path, sizeof(playlist_load.path) - 1);
@@ -605,7 +659,7 @@ int main(int argc, char** argv) {
 			wait_ms(20);
 		}
 		check(radio_error && response.snapshot.source_state == MUSIC_RADIO_ERROR &&
-				  response.snapshot.state == MUSIC_STATE_STOPPED &&
+				  response.snapshot.state == MUSIC_STATE_STOPPED && !response.snapshot.audio_open &&
 				  (response.snapshot.capabilities & (MUSIC_CAP_PLAY | MUSIC_CAP_PAUSE)) ==
 					  (MUSIC_CAP_PLAY | MUSIC_CAP_PAUSE),
 			  "radio snapshot reports refused connection and controls");
