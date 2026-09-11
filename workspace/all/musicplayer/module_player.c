@@ -117,7 +117,8 @@ static bool sync_owner_presentation(const MusicSnapshotWire* snapshot) {
 	if (snapshot->artwork_path[0] && strcmp(loaded_artwork_path, snapshot->artwork_path) != 0) {
 		album_art_load_path(snapshot->artwork_path);
 		snprintf(loaded_artwork_path, sizeof(loaded_artwork_path), "%s", snapshot->artwork_path);
-	}
+	} else if (!album_art_get() && (snapshot->artist[0] || snapshot->title[0]))
+		album_art_fetch(snapshot->artist, snapshot->title);
 	SDL_Surface* artwork = album_art_get();
 	if (artwork != presentation_artwork) {
 		cleanup_album_art_background();
@@ -308,10 +309,9 @@ static bool start_playback(const char* path) {
 
 // Clean up playback state
 static void cleanup_playback(bool quit_spectrum) {
+	clear_owner_presentation();
 	clear_gpu_layers();
 	PlayTime_clear();
-	Lyrics_clearGPU();
-	Lyrics_clear();
 	if (quit_spectrum) {
 		Spectrum_quit();
 	}
@@ -599,8 +599,7 @@ static bool handle_playing_input(SDL_Surface* screen, PlayerInternalState* state
 	if (sync_ui_to_owner())
 		*dirty = 1;
 	if (!PlayerModule_isActive()) {
-		cleanup_playback_ui();
-		ModuleCommon_setAutosleepDisabled(false);
+		cleanup_playback(true);
 		*state = PLAYER_INTERNAL_BROWSER;
 		return true;
 	}
@@ -1028,6 +1027,10 @@ ModuleExitReason PlayerModule_runWithPlaylist(SDL_Surface* screen,
 		MusicClient_update();
 		if (sync_ui_to_owner())
 			dirty = 1;
+		if (!PlayerModule_isActive()) {
+			cleanup_playback(true);
+			return MODULE_EXIT_TO_MENU;
+		}
 
 		// Auto screen-off after inactivity
 		if (MusicClient_snapshot()->state == MUSIC_STATE_PLAYING && ModuleCommon_checkAutoScreenOffTimeout()) {

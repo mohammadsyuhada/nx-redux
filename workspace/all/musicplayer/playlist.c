@@ -291,8 +291,13 @@ int Playlist_buildFromDirectory(PlaylistContext* ctx, const char* path, const ch
 	free(files);
 	free(dirs);
 
-	// Current index is always 0 (the selected track)
 	ctx->current_index = 0;
+	if (start_track_path && start_track_path[0])
+		for (int i = 0; i < ctx->track_count; i++)
+			if (strcmp(ctx->tracks[i].path, start_track_path) == 0) {
+				ctx->current_index = i;
+				break;
+			}
 
 	return ctx->track_count;
 }

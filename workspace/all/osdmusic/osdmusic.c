@@ -99,6 +99,8 @@ static void load_accent(void) {
 		while (fgets(line, sizeof(line), f)) {
 			unsigned value;
 			if (sscanf(line, "color2=0x%x", &value) == 1 || sscanf(line, "color2=0X%x", &value) == 1) {
+				if (value == 0x002222ffU)
+					value = 0x006666ffU;
 				Uint8 r = (value >> 24) & 0xff, g = (value >> 16) & 0xff, b = (value >> 8) & 0xff;
 				next = (SDL_Color){r, g, b, 255};
 				break;
@@ -345,7 +347,10 @@ static void draw_button(Widget* w, SDL_Surface* icon, int cx, int cy, int disc, 
 		return;
 	if (focused) {
 		fill_circle(w->frame, cx, cy, disc, accent.r, accent.g, accent.b);
-		blit_tinted(w->frame, icon, cx - icon->w / 2, cy - icon->h / 2, 32, 32, 32);
+		const int luminance = 299 * accent.r + 587 * accent.g + 114 * accent.b;
+		const Uint8 icon_color = luminance < 128000 ? 255 : 32;
+		blit_tinted(w->frame, icon, cx - icon->w / 2, cy - icon->h / 2,
+				icon_color, icon_color, icon_color);
 	} else {
 		blit_tinted(w->frame, icon, cx - icon->w / 2, cy - icon->h / 2, 255, 255, 255);
 	}
@@ -501,7 +506,7 @@ static void render(Widget* w) {
 		draw_text_centered(f, w->title_font, snapshot_title(), cx, y, white, CANVAS_W - 48);
 		y += title_h + 4;
 		draw_text_centered(f, w->artist_font, snapshot_artist(), cx, y, grey, CANVAS_W - 48);
-		y += artist_h + 8 + disc;
+		y += artist_h + 8 + disc - 10;
 		bool focus_visible = state.enabled && state.row == ROW_TRANSPORT;
 		draw_button(w, w->prev_icon, cx - 84, y, 36, focus_visible && state.focus == FOCUS_PREV);
 		draw_button(w, state.snapshot.state == MUSIC_STATE_PLAYING ? w->pause_icon : w->play_icon, cx, y, disc,

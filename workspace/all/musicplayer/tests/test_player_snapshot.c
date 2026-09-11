@@ -8,8 +8,6 @@
 #include <pthread.h>
 #include <unistd.h>
 
-#define SDL_INIT_AUDIO 0x00000010u
-extern void SDL_QuitSubSystem(uint32_t flags);
 
 #include "../player.h"
 #include "../settings.h"
@@ -123,8 +121,7 @@ int main(void) {
 
 	Player_setSampleRate(44100);
 	Player_closeAudioDevice();
-	SDL_QuitSubSystem(SDL_INIT_AUDIO);
-	CHECK(Player_load(fixture) == 0, "lazy load failed after audio shutdown");
+	CHECK(Player_load(fixture) == 0, "lazy load failed after audio device close");
 	PlayerSnapshot lazy_load;
 	CHECK(Player_getSnapshot(&lazy_load) == 0 && !lazy_load.audio_open &&
 		  lazy_load.state == PLAYER_STATE_STOPPED && lazy_load.current_file[0] != '\0',

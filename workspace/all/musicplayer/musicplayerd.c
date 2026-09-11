@@ -45,6 +45,9 @@ static char socket_path[sizeof(((struct sockaddr_un*)0)->sun_path)];
 static char lock_path[sizeof(socket_path) + 8];
 static bool eof_advanced;
 static bool shuffle_enabled;
+#define SHUFFLE_HISTORY_MAX 32
+static int shuffle_history[SHUFFLE_HISTORY_MAX];
+static int shuffle_history_count;
 static MusicSource active_source;
 static bool has_active_source(void);
 static int queue_kind;
@@ -334,9 +337,10 @@ static void fill_snapshot(MusicResponseWire* response) {
 		if (Radio_getStations(&stations) > 1)
 			response->snapshot.capabilities |= MUSIC_CAP_NEXT | MUSIC_CAP_PREVIOUS;
 	} else if (active_source == MUSIC_SOURCE_LOCAL) {
-		if (response->snapshot.queue_index + 1 < response->snapshot.queue_count)
+		if ((shuffle_enabled && response->snapshot.queue_count > 1) ||
+			response->snapshot.queue_index + 1 < response->snapshot.queue_count)
 			response->snapshot.capabilities |= MUSIC_CAP_NEXT;
-		if (response->snapshot.queue_index > 0)
+		if ((shuffle_enabled && shuffle_history_count > 0) || response->snapshot.queue_index > 0)
 			response->snapshot.capabilities |= MUSIC_CAP_PREVIOUS;
 	}
 	strncpy(response->snapshot.artwork_path, artwork_path, sizeof(response->snapshot.artwork_path) - 1);
@@ -684,6 +688,7 @@ static void restore_failed(const char* message) {
 }
 
 static int restore_local(const ResumeState* saved) {
+	shuffle_history_count = 0;
 	if (saved->type == RESUME_TYPE_FILES) {
 		if (!saved->folder_path[0] || access(saved->folder_path, R_OK) != 0)
 			return MUSIC_STATUS_NOT_FOUND;
@@ -800,6 +805,7 @@ static int load_path(const MusicLoadRequest* request) {
 	struct stat st;
 	if (stat(path, &st) != 0)
 		return MUSIC_STATUS_NOT_FOUND;
+	shuffle_history_count = 0;
 	char file_path[MUSIC_SERVICE_MAX_PATH];
 	if (S_ISDIR(st.st_mode)) {
 		if (Playlist_buildFromDirectory(&queue, path, request->selected_path[0] ? request->selected_path : NULL) <= 0)
@@ -841,6 +847,7 @@ static int load_playlist(const MusicPlaylistLoadRequest* request) {
 	if (!request || !request->path[0] || request->index < 0 ||
 		strlen(request->path) >= MUSIC_SERVICE_MAX_PATH)
 		return MUSIC_STATUS_BAD_REQUEST;
+	shuffle_history_count = 0;
 	PlaylistContext loaded = {0};
 	Playlist_init(&loaded);
 	int count = 0;
@@ -883,9 +890,24 @@ static bool has_active_source(void) {
 static int advance(int direction) {
 	PlayerSnapshot snapshot;
 	Player_getSnapshot(&snapshot);
-	int index = direction > 0 && shuffle_enabled
-					? Playlist_shuffle(&queue)
-					: (direction > 0 ? Playlist_next(&queue) : Playlist_prev(&queue));
+	int index;
+	if (shuffle_enabled && direction > 0) {
+		int previous = queue.current_index;
+		index = Playlist_shuffle(&queue);
+		if (index >= 0 && index != previous) {
+			if (shuffle_history_count == SHUFFLE_HISTORY_MAX) {
+				memmove(shuffle_history, shuffle_history + 1,
+						sizeof(shuffle_history[0]) * (SHUFFLE_HISTORY_MAX - 1));
+				shuffle_history_count--;
+			}
+			shuffle_history[shuffle_history_count++] = previous;
+		}
+	} else if (shuffle_enabled && direction < 0 && shuffle_history_count) {
+		index = shuffle_history[--shuffle_history_count];
+		queue.current_index = index;
+	} else {
+		index = direction > 0 ? Playlist_next(&queue) : Playlist_prev(&queue);
+	}
 	if (index < 0)
 		return MUSIC_STATUS_NOT_FOUND;
 	int status = select_index(index);
@@ -977,8 +999,11 @@ static int handle_command(uint16_t command, const unsigned char* payload, size_t
 	case MUSIC_CMD_SET_SHUFFLE:
 		if (length != sizeof(MusicIntRequest))
 			status = MUSIC_STATUS_BAD_REQUEST;
-		else
+		else {
 			shuffle_enabled = ((const MusicIntRequest*)payload)->value != 0;
+			if (!shuffle_enabled)
+				shuffle_history_count = 0;
+		}
 		break;
 	case MUSIC_CMD_PODCAST_PROGRESS:
 	case MUSIC_CMD_PODCAST_MARK_PLAYED:

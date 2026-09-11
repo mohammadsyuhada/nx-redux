@@ -303,17 +303,27 @@ int main(int argc, char** argv) {
 				  strcmp(response.snapshot.queue_path, recursive_root) == 0 &&
 				  strcmp(response.snapshot.current_file, recursive_selected) == 0 &&
 				  response.snapshot.queue_count == 2,
-			  "recursive folder request preserves selected root and track");
-		check(raw_request(fd, MUSIC_CMD_NEXT, NULL, 0, &response) == 0 &&
-			  strcmp(response.snapshot.queue_path, recursive_root) == 0 &&
-			  response.snapshot.queue_kind == MUSIC_QUEUE_FOLDER &&
-			  strstr(response.snapshot.current_file, "01.wav"),
-		  "next retains recursive queue root");
+			  "recursive folder preserves its nested selected track");
 		check(raw_request(fd, MUSIC_CMD_PREVIOUS, NULL, 0, &response) == 0 &&
-			  strcmp(response.snapshot.queue_path, recursive_root) == 0 &&
-			  response.snapshot.queue_kind == MUSIC_QUEUE_FOLDER &&
-			  strcmp(response.snapshot.current_file, recursive_selected) == 0,
-		  "previous retains recursive queue root");
+				  strcmp(response.snapshot.queue_path, recursive_root) == 0 &&
+				  response.snapshot.queue_kind == MUSIC_QUEUE_FOLDER &&
+				  strcmp(response.snapshot.current_file, recursive_first) == 0,
+			  "Previous retains recursive queue root");
+		check(raw_request(fd, MUSIC_CMD_NEXT, NULL, 0, &response) == 0 &&
+				  strcmp(response.snapshot.queue_path, recursive_root) == 0 &&
+				  response.snapshot.queue_kind == MUSIC_QUEUE_FOLDER &&
+				  strcmp(response.snapshot.current_file, recursive_selected) == 0,
+			  "Next retains recursive queue root");
+		check(raw_request(fd, MUSIC_CMD_SET_SHUFFLE, &(MusicIntRequest){.value = 1}, sizeof(MusicIntRequest), &response) == 0 &&
+				  (response.snapshot.capabilities & MUSIC_CAP_NEXT),
+			  "shuffle exposes Next at the end of a queue");
+		check(raw_request(fd, MUSIC_CMD_NEXT, NULL, 0, &response) == 0 &&
+				  strcmp(response.snapshot.current_file, recursive_first) == 0,
+			  "shuffle Next chooses the other queue track");
+		check(raw_request(fd, MUSIC_CMD_PREVIOUS, NULL, 0, &response) == 0 &&
+				  strcmp(response.snapshot.current_file, recursive_selected) == 0,
+			  "shuffle Previous retraces the selected track");
+		(void)raw_request(fd, MUSIC_CMD_SET_SHUFFLE, &(MusicIntRequest){.value = 0}, sizeof(MusicIntRequest), &response);
 		close(fd);
 	}
 
@@ -713,6 +723,7 @@ int main(int argc, char** argv) {
 		close(fd);
 	}
 	waitpid(daemon, NULL, 0);
+
 	check(run_cli(argv[2], "snapshot", NULL) != 0, "disconnected CLI returns safe error");
 	/* Dead owner metadata and a stale socket inode are cleaned before rebinding. */
 	char stale_lock_path[180];
