@@ -159,9 +159,17 @@ fi
 
 OSD_DST="/usr/trimui/osd"
 OSD_SRC="$SYSTEM_PATH/osd"
+# Theme-accent copies of the daemon's green focus ring / active slider / toast
+# frame images (no-op for the default theme) go into a tmpfs layer stacked
+# above the SD tree, so the card itself is never written. Must run before
+# trimui_osdd loads its images.
+OSD_TINT="/tmp/nx_osd_tint"
+rm -rf "$OSD_TINT"
+mkdir -p "$OSD_TINT"
+"$SYSTEM_PATH/bin/osdmusic.elf" --tint-osd "$OSD_SRC" "$OSD_TINT" 2> /dev/null
 if ! grep -q " $OSD_DST " /proc/mounts; then
 	mount -t overlay overlay \
-		-o ro,lowerdir="$OSD_SRC:$OSD_DST" "$OSD_DST" \
+		-o ro,lowerdir="$OSD_TINT:$OSD_SRC:$OSD_DST" "$OSD_DST" \
 		|| touch /tmp/nx_osd_mount_failed
 fi # end osd overlay mount
 

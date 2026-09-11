@@ -169,7 +169,7 @@ typedef struct
 
 #define CFG_DEFAULT_FONT_ID 1 // Next
 #define CFG_DEFAULT_COLOR1 0xffffffffU
-#define CFG_DEFAULT_COLOR2 0x002222ffU
+#define CFG_DEFAULT_COLOR2 0x006666ffU
 #define CFG_DEFAULT_COLOR3 0x1e2329ffU
 #define CFG_DEFAULT_COLOR4 0xffffffffU
 #define CFG_DEFAULT_COLOR5 0x000000ffU

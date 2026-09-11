@@ -8,7 +8,8 @@
 // loses it) and re-reads the canvas at "canvasfps".
 //
 // This process owns both endpoints and draws the widget: cover art, title,
-// artist and a prev / play-pause / next transport row. Everything it shows is
+// artist, a prev / play-pause / next transport row and a Game/Music balance row
+// (down/up switch rows; left/right on the balance row move it). Everything it shows is
 // DUMMY state kept in this file — there is no music owner behind it yet. A
 // real player (PR #92) is expected to keep this exact widget contract and
 // replace the `state` block with live data plus real transport actions.
@@ -16,6 +17,7 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL_ttf.h>
+#include <zlib.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -60,12 +62,27 @@ static int GRID_H = 2;
 #define LAUNCHER_PROCESS "nextui.elf"
 #define OPEN_PAK_REQUEST_PATH "/tmp/nextui_open"
 #define OSD_HIDE_PATH "/tmp/hide_osdd"
+// Debug aid: while /tmp/osdmusic_debug exists, every raw line the daemon
+// writes into the FIFO is appended to /tmp/osdmusic_cmd.log.
+#define DEBUG_FLAG_PATH "/tmp/osdmusic_debug"
+#define DEBUG_LOG_PATH "/tmp/osdmusic_cmd.log"
+// Focus colour: the theme's primary accent (color2 in minuisettings.txt,
+// 0xRRGGBBAA). Falls back to trimui_osdd's classic focus green only when the
+// settings file cannot be read.
+#define THEME_SETTINGS_PATH "/mnt/SDCARD/.userdata/shared/minuisettings.txt"
 #define INPUT_LIMIT 512
 
 enum { FOCUS_PREV = 0,
 	   FOCUS_PLAY = 1,
 	   FOCUS_NEXT = 2,
 	   FOCUS_COUNT = 3 };
+enum { ROW_TRANSPORT = 0,
+	   ROW_BALANCE = 1 };
+// Game <-> Music balance, 0 = all game, BALANCE_MAX = all music, centre = both
+// unattenuated. Dummy until a music owner exists (PR #92 keeps Game/Music
+// gains in libmsettings and applies them via audiomon / the player).
+#define BALANCE_MAX 10
+#define BALANCE_CENTRE (BALANCE_MAX / 2)
 
 // ---- dummy content -------------------------------------------------------
 // Replace with a snapshot from the real player. Nothing below this block
@@ -82,12 +99,39 @@ static struct {
 	int track;
 	bool playing;
 	int focus;		// which transport button the d-pad is on
+	int row;		// ROW_TRANSPORT or ROW_BALANCE (up/down switch rows)
+	int balance;	// 0..BALANCE_MAX, see BALANCE_CENTRE
 	bool enabled;	// true while trimui_osdd has this widget focused
 	bool has_music; // a music owner is running (see MUSIC_PROCESS)
-} state = {.track = 0, .playing = false, .focus = FOCUS_PLAY, .enabled = false, .has_music = false};
+} state = {.track = 0, .playing = false, .focus = FOCUS_PLAY, .row = ROW_TRANSPORT, .balance = BALANCE_CENTRE, .enabled = false, .has_music = false};
 // --------------------------------------------------------------------------
 
 static volatile sig_atomic_t quit;
+
+static SDL_Color accent = {54, 255, 160, 255}; // trimui_osdd focus green
+static time_t accent_mtime;
+
+static void load_accent(void) {
+	struct stat st;
+	if (stat(THEME_SETTINGS_PATH, &st) != 0 || st.st_mtime == accent_mtime)
+		return;
+	accent_mtime = st.st_mtime;
+	SDL_Color next = {54, 255, 160, 255};
+	FILE* f = fopen(THEME_SETTINGS_PATH, "r");
+	if (f) {
+		char line[128];
+		while (fgets(line, sizeof(line), f)) {
+			unsigned value;
+			if (sscanf(line, "color2=0x%x", &value) == 1 || sscanf(line, "color2=0X%x", &value) == 1) {
+				Uint8 r = (value >> 24) & 0xff, g = (value >> 16) & 0xff, b = (value >> 8) & 0xff;
+				next = (SDL_Color){r, g, b, 255};
+				break;
+			}
+		}
+		fclose(f);
+	}
+	accent = next;
+}
 static void on_signal(int sig) {
 	(void)sig;
 	quit = 1;
@@ -104,6 +148,7 @@ typedef struct {
 	SDL_Surface* next_icon;
 	TTF_Font* title_font;
 	TTF_Font* artist_font;
+	TTF_Font* label_font;
 	int cmd_fd;
 	char input[INPUT_LIMIT];
 	size_t input_len;
@@ -323,8 +368,8 @@ static void draw_button(Widget* w, SDL_Surface* icon, int cx, int cy, int disc, 
 	if (!icon)
 		return;
 	if (focused) {
-		fill_circle(w->frame, cx, cy, disc, 255, 255, 255);
-		blit_tinted(w->frame, icon, cx - icon->w / 2, cy - icon->h / 2, 48, 48, 48);
+		fill_circle(w->frame, cx, cy, disc, accent.r, accent.g, accent.b);
+		blit_tinted(w->frame, icon, cx - icon->w / 2, cy - icon->h / 2, 32, 32, 32);
 	} else {
 		blit_tinted(w->frame, icon, cx - icon->w / 2, cy - icon->h / 2, 255, 255, 255);
 	}
@@ -383,7 +428,49 @@ static void render_placeholder(Widget* w) {
 	y += title_h + 6;
 	// The hint brightens once the widget is entered, when A will act on it.
 	draw_text_centered(f, w->artist_font, "Press A to open Music Player", CANVAS_W / 2, y,
-					   state.enabled ? white : grey, CANVAS_W - 48);
+					   state.enabled ? accent : grey, CANVAS_W - 48);
+}
+
+// Game <-> Music balance row: bipolar slider with a centre tick, "Game" and
+// "Music" end labels and the current setting as text.
+static void draw_balance_row(Widget* w, int y) {
+	SDL_Surface* f = w->frame;
+	const bool focused = state.enabled && state.row == ROW_BALANCE;
+	const int bar_x = 48, bar_w = CANVAS_W - 96, bar_h = 6;
+	SDL_Color white = {255, 255, 255, 255};
+	SDL_Color grey = {170, 170, 170, 255};
+	Uint32 fg = focused ? SDL_MapRGBA(f->format, accent.r, accent.g, accent.b, 255)
+						: SDL_MapRGBA(f->format, 170, 170, 170, 255);
+	Uint32 track = SDL_MapRGBA(f->format, 90, 90, 90, 255);
+	// track, then the filled part between the centre and the knob
+	SDL_FillRect(f, &(SDL_Rect){bar_x, y - bar_h / 2, bar_w, bar_h}, track);
+	int centre_x = bar_x + bar_w / 2;
+	int knob_x = bar_x + bar_w * state.balance / BALANCE_MAX;
+	int from = knob_x < centre_x ? knob_x : centre_x;
+	int to = knob_x < centre_x ? centre_x : knob_x;
+	if (to > from)
+		SDL_FillRect(f, &(SDL_Rect){from, y - bar_h / 2, to - from, bar_h}, fg);
+	SDL_FillRect(f, &(SDL_Rect){centre_x - 1, y - 9, 2, 18}, fg); // centre tick
+	if (focused)
+		fill_circle(f, knob_x, y, 8, accent.r, accent.g, accent.b);
+	else
+		fill_circle(f, knob_x, y, 5, 255, 255, 255);
+	// labels under the bar
+	const int label_h = w->label_font ? TTF_FontHeight(w->label_font) : 16;
+	int ly = y + 10;
+	char value[24];
+	if (state.balance == BALANCE_CENTRE)
+		snprintf(value, sizeof(value), "50/50");
+	else if (state.balance > BALANCE_CENTRE)
+		snprintf(value, sizeof(value), "Music +%d", state.balance - BALANCE_CENTRE);
+	else
+		snprintf(value, sizeof(value), "Game +%d", BALANCE_CENTRE - state.balance);
+	int gw = text_width(w->label_font, "Game");
+	int mw = text_width(w->label_font, "Music");
+	draw_text_centered(f, w->label_font, "Game", bar_x + gw / 2, ly, focused ? white : grey, 80);
+	draw_text_centered(f, w->label_font, value, CANVAS_W / 2, ly, focused ? accent : grey, 120);
+	draw_text_centered(f, w->label_font, "Music", bar_x + bar_w - mw / 2, ly, focused ? white : grey, 80);
+	(void)label_h;
 }
 
 static void render(Widget* w) {
@@ -402,7 +489,8 @@ static void render(Widget* w) {
 	const int title_h = w->title_font ? TTF_FontHeight(w->title_font) : 30;
 	const int artist_h = w->artist_font ? TTF_FontHeight(w->artist_font) : 22;
 	const int disc = 42;
-	const int block_h = title_h + 4 + artist_h + 8 + disc * 2;
+	const int balance_gap = 18, balance_h = 30; // bar + labels
+	const int block_h = title_h + 4 + artist_h + 8 + disc * 2 + balance_gap + balance_h;
 	int y = (CANVAS_H - block_h) / 2;
 	const int cx = CANVAS_W / 2;
 
@@ -413,11 +501,13 @@ static void render(Widget* w) {
 	draw_text_centered(f, w->artist_font, tracks[state.track].artist, cx, y, grey, CANVAS_W - 48);
 	y += artist_h + 8 + disc;
 
-	bool focus_visible = state.enabled;
+	bool focus_visible = state.enabled && state.row == ROW_TRANSPORT;
 	draw_button(w, w->prev_icon, cx - 84, y, 36, focus_visible && state.focus == FOCUS_PREV);
 	draw_button(w, state.playing ? w->pause_icon : w->play_icon, cx, y, disc,
 				focus_visible && state.focus == FOCUS_PLAY);
 	draw_button(w, w->next_icon, cx + 84, y, 36, focus_visible && state.focus == FOCUS_NEXT);
+	y += disc + balance_gap + 4;
+	draw_balance_row(w, y);
 
 	// Publish only when something changed; the daemon re-reads at canvasfps.
 	if (memcmp(w->canvas, f->pixels, CANVAS_BYTES) != 0)
@@ -431,19 +521,48 @@ static void action_previous(void) {
 static void action_toggle(void) {
 	state.playing = !state.playing;
 }
+// Real owner: persist Game/Music gains (PR #92: SetGameVolume/SetMusicVolume,
+// centre = both at full, moving away attenuates only the opposite side).
+static void action_set_balance(int balance) {
+	state.balance = balance;
+}
 static void action_next(void) {
 	state.track = (state.track + 1) % (int)SDL_arraysize(tracks);
 }
 // --------------------------------------------------------------------------
 
+static void trace_command(const char* cmd) {
+	if (access(DEBUG_FLAG_PATH, F_OK) != 0)
+		return;
+	FILE* f = fopen(DEBUG_LOG_PATH, "a");
+	if (f) {
+		fprintf(f, "%s\n", cmd);
+		fclose(f);
+	}
+}
+
 static void handle_command(const char* cmd) {
+	trace_command(cmd);
 	if (!strcmp(cmd, "enable")) {
 		state.enabled = true;
 		state.focus = FOCUS_PLAY; // always land on play/pause, never on a stale button
+		state.row = ROW_TRANSPORT;
 	} else if (!strcmp(cmd, "disable") || !strcmp(cmd, "key_b")) {
 		state.enabled = false;
 	} else if (!state.enabled) {
 		return;
+	} else if (!strcmp(cmd, "down")) {
+		if (state.has_music)
+			state.row = ROW_BALANCE;
+	} else if (!strcmp(cmd, "up")) {
+		state.row = ROW_TRANSPORT;
+	} else if (state.row == ROW_BALANCE && (!strcmp(cmd, "left") || !strcmp(cmd, "right"))) {
+		int balance = state.balance + (cmd[0] == 'l' ? -1 : 1);
+		if (balance < 0)
+			balance = 0;
+		if (balance > BALANCE_MAX)
+			balance = BALANCE_MAX;
+		action_set_balance(balance);
 	} else if (!strcmp(cmd, "left")) {
 		state.focus = (state.focus + FOCUS_COUNT - 1) % FOCUS_COUNT;
 	} else if (!strcmp(cmd, "right")) {
@@ -525,7 +644,128 @@ static void write_ready(void) {
 	}
 }
 
-int main(void) {
+// ---- OSD focus-colour tint ---------------------------------------------
+// trimui_osdd paints its focus ring (block*_sel.png), the active slider
+// (progress_*_sel.png) and the toast frame (bg_msg_w*.png) from images. The
+// shipped ones are pure WHITE shapes (alpha carries the anti-aliasing). Run as
+// `osdmusic.elf --tint-osd <src> <dst>` from the launcher before the daemon
+// starts, this rewrites them with the theme accent: every white pixel becomes
+// the accent scaled by the pixel's brightness, alpha untouched, so the whole
+// OSD follows the theme (a white accent leaves them as shipped).
+static const char* const TINT_FILES[] = {
+	"block1x1_sel.png",
+	"block1x2_sel.png",
+	"block2x1_sel.png",
+	"block2x2_sel.png",
+	"block3x1_sel.png",
+	"block3x2_sel.png",
+	"block4x1_sel.png",
+	"block4x2_sel.png",
+	"progress_bg_sel.png",
+	"progress_fg_sel.png",
+	"bg_msg_w1.png",
+	"bg_msg_w2.png",
+	"bg_msg_w3.png",
+	"bg_msg_w4.png",
+};
+
+static void png_chunk(FILE* f, const char* type, const unsigned char* data, size_t len) {
+	unsigned char head[8] = {(unsigned char)(len >> 24), (unsigned char)(len >> 16), (unsigned char)(len >> 8),
+							 (unsigned char)len, type[0], type[1], type[2], type[3]};
+	fwrite(head, 1, 8, f);
+	if (len)
+		fwrite(data, 1, len, f);
+	uLong crc = crc32(0L, head + 4, 4);
+	if (len)
+		crc = crc32(crc, data, len);
+	unsigned char tail[4] = {(unsigned char)(crc >> 24), (unsigned char)(crc >> 16), (unsigned char)(crc >> 8),
+							 (unsigned char)crc};
+	fwrite(tail, 1, 4, f);
+}
+
+// Minimal RGBA8 PNG writer (this SDL_image predates IMG_SavePNG).
+static int png_write(const char* path, SDL_Surface* rgba) {
+	const int w = rgba->w, h = rgba->h;
+	size_t raw_len = (size_t)h * (1 + (size_t)w * 4);
+	unsigned char* raw = malloc(raw_len);
+	if (!raw)
+		return -1;
+	for (int y = 0; y < h; y++) {
+		unsigned char* row = raw + (size_t)y * (1 + (size_t)w * 4);
+		row[0] = 0; // filter: none
+		memcpy(row + 1, (const unsigned char*)rgba->pixels + y * rgba->pitch, (size_t)w * 4);
+	}
+	uLongf zlen = compressBound(raw_len);
+	unsigned char* z = malloc(zlen);
+	if (!z || compress2(z, &zlen, raw, raw_len, 6) != Z_OK) {
+		free(raw);
+		free(z);
+		return -1;
+	}
+	FILE* f = fopen(path, "wb");
+	if (!f) {
+		free(raw);
+		free(z);
+		return -1;
+	}
+	static const unsigned char sig[8] = {0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a};
+	fwrite(sig, 1, 8, f);
+	unsigned char ihdr[13] = {(unsigned char)(w >> 24), (unsigned char)(w >> 16), (unsigned char)(w >> 8), (unsigned char)w,
+							  (unsigned char)(h >> 24), (unsigned char)(h >> 16), (unsigned char)(h >> 8), (unsigned char)h,
+							  8, 6, 0, 0, 0};
+	png_chunk(f, "IHDR", ihdr, 13);
+	png_chunk(f, "IDAT", z, zlen);
+	png_chunk(f, "IEND", NULL, 0);
+	fclose(f);
+	free(raw);
+	free(z);
+	return 0;
+}
+
+static int tint_osd(const char* src_dir, const char* dst_dir) {
+	load_accent();
+	if ((IMG_Init(IMG_INIT_PNG) & IMG_INIT_PNG) != IMG_INIT_PNG)
+		return 1;
+	int failures = 0;
+	for (size_t i = 0; i < sizeof(TINT_FILES) / sizeof(TINT_FILES[0]); i++) {
+		char in[512], out[512];
+		snprintf(in, sizeof(in), "%s/%s", src_dir, TINT_FILES[i]);
+		snprintf(out, sizeof(out), "%s/%s", dst_dir, TINT_FILES[i]);
+		SDL_Surface* loaded = IMG_Load(in);
+		if (!loaded)
+			continue; // not every model ships every file
+		SDL_Surface* img = SDL_ConvertSurfaceFormat(loaded, SDL_PIXELFORMAT_RGBA32, 0);
+		SDL_FreeSurface(loaded);
+		if (!img) {
+			failures++;
+			continue;
+		}
+		for (int y = 0; y < img->h; y++) {
+			unsigned char* px = (unsigned char*)img->pixels + y * img->pitch;
+			for (int x = 0; x < img->w; x++, px += 4) {
+				int r = px[0], g = px[1], b = px[2];
+				int lo = r < g ? (r < b ? r : b) : (g < b ? g : b);
+				int hi = r > g ? (r > b ? r : b) : (g > b ? g : b);
+				if (px[3] && hi >= 96 && hi - lo <= 24) { // grey/white shape pixel
+					px[0] = (unsigned char)(accent.r * hi / 255);
+					px[1] = (unsigned char)(accent.g * hi / 255);
+					px[2] = (unsigned char)(accent.b * hi / 255);
+				}
+			}
+		}
+		if (png_write(out, img) != 0)
+			failures++;
+		SDL_FreeSurface(img);
+	}
+	IMG_Quit();
+	return failures ? 1 : 0;
+}
+// --------------------------------------------------------------------------
+
+int main(int argc, char** argv) {
+	if (argc == 4 && !strcmp(argv[1], "--tint-osd"))
+		return tint_osd(argv[2], argv[3]);
+
 	Widget w;
 	memset(&w, 0, sizeof(w));
 	w.cmd_fd = -1;
@@ -548,6 +788,9 @@ int main(void) {
 	w.artist_font = TTF_OpenFont(FONT_PATH, 19);
 	if (!w.artist_font)
 		w.artist_font = TTF_OpenFont(FONT_FALLBACK, 19);
+	w.label_font = TTF_OpenFont(FONT_PATH, 15);
+	if (!w.label_font)
+		w.label_font = TTF_OpenFont(FONT_FALLBACK, 15);
 	w.cover = load_png("widget-cover-default.png", 90);
 	w.backdrop = make_backdrop(w.cover);
 	w.prev_icon = load_png("btn-prev-n.png", 44);
@@ -560,6 +803,7 @@ int main(void) {
 	if (w.cmd_fd < 0)
 		goto cleanup;
 
+	load_accent();
 	state.has_music = process_running(MUSIC_PROCESS);
 	render(&w);
 	write_ready();
@@ -569,7 +813,9 @@ int main(void) {
 		if ((Sint32)(SDL_GetTicks() - next_probe) >= 0) {
 			next_probe = SDL_GetTicks() + MUSIC_PROBE_MS;
 			bool running = process_running(MUSIC_PROCESS);
-			if (running != state.has_music) {
+			SDL_Color before = accent;
+			load_accent();
+			if (running != state.has_music || memcmp(&before, &accent, sizeof(accent)) != 0) {
 				state.has_music = running;
 				render(&w);
 			}
@@ -600,6 +846,8 @@ cleanup:
 		TTF_CloseFont(w.title_font);
 	if (w.artist_font)
 		TTF_CloseFont(w.artist_font);
+	if (w.label_font)
+		TTF_CloseFont(w.label_font);
 	IMG_Quit();
 	if (TTF_WasInit())
 		TTF_Quit();
