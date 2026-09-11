@@ -140,6 +140,9 @@ test_settings:
 	@mkdir -p build/$(PLATFORM)
 	$(CC) tests/test_music_settings.c settings.c -o $(TEST_SETTINGS_PRODUCT) $(MY_CFLAGS) -DMUSIC_SETTINGS_TEST_DIR='"/tmp/nx_music_settings_test"' -lm
 
+test_resume_interval:
+	sh tests/test_resume_interval.sh
+
 clean:
 	rm -f build/tg5040/$(TARGET).elf build/tg5050/$(TARGET).elf \
 		build/tg5040/$(SERVICE_TARGET).elf build/tg5050/$(SERVICE_TARGET).elf \

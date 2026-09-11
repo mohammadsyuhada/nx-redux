@@ -245,6 +245,8 @@ static void flac_metadata_callback(void* pUserData, drflac_metadata* pMetadata);
 
 // Decode chunk size (~0.5 seconds at 48kHz)
 #define DECODE_CHUNK_FRAMES 24000
+#define MP3_SEEK_POINT_COUNT 100
+#define MP3_SEEK_TABLE_BREAK_EVEN_SECONDS 180
 
 // Circular buffer functions
 static int circular_buffer_init(CircularBuffer* cb, size_t capacity_frames) {
@@ -985,6 +987,32 @@ static size_t stream_decoder_read(StreamDecoder* sd, int16_t* buffer, size_t fra
 	return frames_read;
 }
 
+static bool stream_decoder_mp3_seek_table_needed(const StreamDecoder* sd, int64_t target_frame) {
+	int64_t work_frames = target_frame >= sd->current_frame
+		? target_frame - sd->current_frame
+		: target_frame;
+	int64_t sample_rate = sd->source_sample_rate;
+
+	if (sample_rate <= 0 || sample_rate > INT64_MAX / MP3_SEEK_TABLE_BREAK_EVEN_SECONDS)
+		return false;
+	return work_frames > sample_rate * MP3_SEEK_TABLE_BREAK_EVEN_SECONDS;
+}
+
+static void stream_decoder_prepare_mp3_seek_table(StreamDecoder* sd) {
+	drmp3* mp3 = (drmp3*)sd->decoder;
+	if (sd->mp3_seek_points || (mp3->pSeekPoints && mp3->seekPointCount))
+		return;
+
+	drmp3_seek_point* points = malloc(MP3_SEEK_POINT_COUNT * sizeof(*points));
+	drmp3_uint32 count = MP3_SEEK_POINT_COUNT;
+	if (!points || !drmp3_calculate_seek_points(mp3, &count, points) || !count ||
+		!drmp3_bind_seek_table(mp3, count, points)) {
+		free(points);
+		return;
+	}
+	sd->mp3_seek_points = points;
+}
+
 // Seek to frame position
 static int stream_decoder_seek(StreamDecoder* sd, int64_t frame) {
 	if (!sd->decoder)
@@ -998,6 +1026,8 @@ static int stream_decoder_seek(StreamDecoder* sd, int64_t frame) {
 	bool success = false;
 	switch (sd->format) {
 	case AUDIO_FORMAT_MP3:
+		if (stream_decoder_mp3_seek_table_needed(sd, frame))
+			stream_decoder_prepare_mp3_seek_table(sd);
 		success = drmp3_seek_to_pcm_frame((drmp3*)sd->decoder, frame);
 		break;
 	case AUDIO_FORMAT_WAV:
@@ -1068,6 +1098,8 @@ static void stream_decoder_close(StreamDecoder* sd) {
 
 	switch (sd->format) {
 	case AUDIO_FORMAT_MP3:
+		drmp3_bind_seek_table((drmp3*)sd->decoder, 0, NULL);
+		free(sd->mp3_seek_points);
 		drmp3_uninit((drmp3*)sd->decoder);
 		free(sd->decoder);
 		break;
@@ -1124,6 +1156,7 @@ static void stream_decoder_close(StreamDecoder* sd) {
 	}
 
 	sd->decoder = NULL;
+	sd->mp3_seek_points = NULL;
 	sd->format = AUDIO_FORMAT_UNKNOWN;
 }
 

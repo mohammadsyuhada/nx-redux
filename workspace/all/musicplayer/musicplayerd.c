@@ -1300,7 +1300,7 @@ static void service_tick(void) {
 
 	if ((active_source == MUSIC_SOURCE_LOCAL || active_source == MUSIC_SOURCE_RADIO ||
 		 active_source == MUSIC_SOURCE_PODCAST) &&
-		now - local_last_resume_ms >= 5000) {
+		now - local_last_resume_ms >= MUSIC_RESUME_SAVE_INTERVAL_MS) {
 		save_resume_state();
 		local_last_resume_ms = now;
 	}

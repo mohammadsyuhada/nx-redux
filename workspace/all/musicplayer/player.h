@@ -58,6 +58,7 @@ typedef struct {
 	int source_channels;
 	int64_t total_frames;
 	int64_t current_frame;
+	void* mp3_seek_points;
 } StreamDecoder;
 
 // Circular buffer for streaming playback
