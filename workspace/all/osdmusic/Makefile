@@ -1,5 +1,6 @@
 ###########################################################
 
+# pi-lens-ignore: SC1073, SC1065, SC1064, SC1072
 ifeq (,$(PLATFORM))
 PLATFORM=$(UNION_PLATFORM)
 endif
@@ -18,18 +19,21 @@ include ../../$(PLATFORM)/platform/Makefile.env
 
 ###########################################################
 
-# Resident renderer for the trimui_osdd Music widget (see osdmusic.c and
-# skeleton/SYSTEM/osd/common/widgets/app_music/launch.sh).
 TARGET = osdmusic
 PRODUCT = build/$(PLATFORM)/$(TARGET).elf
 
 CC = $(CROSS_COMPILE)gcc
-MY_CFLAGS = -Os -Wall -std=gnu99 $(CFLAGS) -DPLATFORM=\"$(PLATFORM)\"
-MY_LDFLAGS = $(LDFLAGS) -Wl,--gc-sections -s
+MY_CFLAGS = -Os -Wall -std=gnu99 $(CFLAGS) -DPLATFORM=\"$(PLATFORM)\" \
+	-DPLATFORM_$(shell echo $(PLATFORM) | tr a-z A-Z) \
+	-I../musicplayer -I../../$(PLATFORM)/libmsettings -DUSE_SDL2
+MY_LDFLAGS = $(LDFLAGS) -L../../$(PLATFORM)/libmsettings \
+	$(shell pkg-config --libs sdl2 2>/dev/null || echo "-lSDL2") \
+	-lSDL2_image -lSDL2_ttf -lmsettings -ldl -lrt -Wl,--gc-sections -s
+SOURCE = $(TARGET).c ../musicplayer/music_client.c ../musicplayer/music_service_client.c ../musicplayer/music_balance.c
 
 all:
 	mkdir -p build/$(PLATFORM)
-	$(CC) $(TARGET).c -o $(PRODUCT) $(MY_CFLAGS) $(MY_LDFLAGS)
+	$(CC) $(SOURCE) -o $(PRODUCT) $(MY_CFLAGS) $(MY_LDFLAGS)
 
 clean:
 	rm -f $(PRODUCT)

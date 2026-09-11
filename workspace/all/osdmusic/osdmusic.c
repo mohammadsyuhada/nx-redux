@@ -7,12 +7,16 @@
 // focus, "left"/"right"/"key_a" while focused, "disable"/"key_b" when it
 // loses it) and re-reads the canvas at "canvasfps".
 //
-// This process owns both endpoints and draws the widget: cover art, title,
-// artist, a prev / play-pause / next transport row and a Game/Music balance row
-// (down/up switch rows; left/right on the balance row move it). Everything it shows is
-// DUMMY state kept in this file — there is no music owner behind it yet. A
-// real player (PR #92) is expected to keep this exact widget contract and
-// replace the `state` block with live data plus real transport actions.
+// This process owns the endpoints and renders daemon snapshots without owning
+// playback. The background daemon remains the sole queue and audio owner.
+
+#include "../musicplayer/music_balance.h"
+#include "../musicplayer/music_client.h"
+#if defined(PLATFORM_TG5050)
+#include "../../tg5050/libmsettings/msettings.h"
+#else
+#include "../../tg5040/libmsettings/msettings.h"
+#endif
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
@@ -53,58 +57,30 @@ static int GRID_H = 2;
 #define BACKDROP_ALPHA 80 // 0-255: cover art opacity behind the text
 
 #define POLL_MS 100
-#define MUSIC_PROBE_MS 1000
-// What "music running" means for the placeholder until a real owner exists:
-// the Music Player tool is open. Pressing A on the placeholder asks nextui to
-// launch that pak through OPEN_PAK_REQUEST_PATH (see common/defines.h).
-#define MUSIC_PROCESS "musicplayer.elf"
+#define MUSIC_PROBE_MS 250
 #define MUSIC_PAK "/mnt/SDCARD/.system/paks/Tools/Music Player.pak"
 #define LAUNCHER_PROCESS "nextui.elf"
 #define OPEN_PAK_REQUEST_PATH "/tmp/nextui_open"
 #define OSD_HIDE_PATH "/tmp/hide_osdd"
-// Debug aid: while /tmp/osdmusic_debug exists, every raw line the daemon
-// writes into the FIFO is appended to /tmp/osdmusic_cmd.log.
 #define DEBUG_FLAG_PATH "/tmp/osdmusic_debug"
 #define DEBUG_LOG_PATH "/tmp/osdmusic_cmd.log"
-// Focus colour: the theme's primary accent (color2 in minuisettings.txt,
-// 0xRRGGBBAA). Falls back to trimui_osdd's classic focus green only when the
-// settings file cannot be read.
 #define THEME_SETTINGS_PATH "/mnt/SDCARD/.userdata/shared/minuisettings.txt"
 #define INPUT_LIMIT 512
-
-enum { FOCUS_PREV = 0,
-	   FOCUS_PLAY = 1,
-	   FOCUS_NEXT = 2,
-	   FOCUS_COUNT = 3 };
-enum { ROW_TRANSPORT = 0,
-	   ROW_BALANCE = 1 };
-// Game <-> Music balance, 0 = all game, BALANCE_MAX = all music, centre = both
-// unattenuated. Dummy until a music owner exists (PR #92 keeps Game/Music
-// gains in libmsettings and applies them via audiomon / the player).
 #define BALANCE_MAX 10
-#define BALANCE_CENTRE (BALANCE_MAX / 2)
 
-// ---- dummy content -------------------------------------------------------
-// Replace with a snapshot from the real player. Nothing below this block
-// knows where the values come from.
-static const struct {
-	const char* title;
-	const char* artist;
-} tracks[] = {
-	{"Song Title", "Artist Name"},
-	{"Another Song", "Another Artist"},
-	{"Third Track", "Some Band"},
-};
+enum { FOCUS_PREV = 0, FOCUS_PLAY = 1, FOCUS_NEXT = 2, FOCUS_COUNT = 3 };
+enum { ROW_TRANSPORT = 0, ROW_BALANCE = 1 };
+
 static struct {
-	int track;
-	bool playing;
-	int focus;		// which transport button the d-pad is on
-	int row;		// ROW_TRANSPORT or ROW_BALANCE (up/down switch rows)
-	int balance;	// 0..BALANCE_MAX, see BALANCE_CENTRE
-	bool enabled;	// true while trimui_osdd has this widget focused
-	bool has_music; // a music owner is running (see MUSIC_PROCESS)
-} state = {.track = 0, .playing = false, .focus = FOCUS_PLAY, .row = ROW_TRANSPORT, .balance = BALANCE_CENTRE, .enabled = false, .has_music = false};
-// --------------------------------------------------------------------------
+	MusicSnapshotWire snapshot;
+	bool connected;
+	bool enabled;
+	bool balance_active;
+	int focus;
+	int row;
+	char artwork_identity[MUSIC_SERVICE_MAX_PATH * 2 + 2];
+} state = {.focus = FOCUS_PLAY, .row = ROW_TRANSPORT};
+
 
 static volatile sig_atomic_t quit;
 
@@ -138,8 +114,8 @@ static void on_signal(int sig) {
 }
 
 typedef struct {
-	SDL_Surface* frame; // ARGB8888, same layout as the canvas
-	Uint8* canvas;		// mmap of CANVAS_PATH
+	SDL_Surface* frame;
+	Uint8* canvas;
 	SDL_Surface* cover;
 	SDL_Surface* backdrop;
 	SDL_Surface* prev_icon;
@@ -417,6 +393,55 @@ static void request_music_player(void) {
 		fclose(f);
 }
 
+static bool music_active(void) {
+	return state.connected && state.snapshot.loaded;
+}
+
+static const char* snapshot_title(void) {
+	if (state.snapshot.title[0])
+		return state.snapshot.title;
+	const char* name = strrchr(state.snapshot.current_file, '/');
+	return name ? name + 1 : state.snapshot.current_file;
+}
+
+static const char* snapshot_artist(void) {
+	if (state.snapshot.artist[0])
+		return state.snapshot.artist;
+	return state.snapshot.source == MUSIC_SOURCE_RADIO ? "Radio" :
+		state.snapshot.source == MUSIC_SOURCE_PODCAST ? "Podcast" : "";
+}
+
+static void clear_artwork(Widget* w) {
+	if (w->cover)
+		SDL_FreeSurface(w->cover);
+	if (w->backdrop)
+		SDL_FreeSurface(w->backdrop);
+	w->cover = NULL;
+	w->backdrop = NULL;
+}
+
+static void sync_music(Widget* w, bool poll_owner) {
+	if (poll_owner)
+		MusicClient_update();
+	state.snapshot = *MusicClient_snapshot();
+	state.connected = MusicClient_isConnected();
+	char identity[sizeof(state.artwork_identity)];
+	if (music_active())
+		snprintf(identity, sizeof(identity), "%s:%s", state.snapshot.current_file, state.snapshot.artwork_path);
+	else
+		identity[0] = '\0';
+	if (strcmp(identity, state.artwork_identity) == 0)
+		return;
+	clear_artwork(w);
+	snprintf(state.artwork_identity, sizeof(state.artwork_identity), "%s", identity);
+	if (music_active()) {
+		w->cover = state.snapshot.artwork_path[0] ? load_png_path(state.snapshot.artwork_path, 90, 90) : NULL;
+		if (!w->cover)
+			w->cover = load_png("widget-cover-default.png", 90);
+		w->backdrop = make_backdrop(w->cover);
+	}
+}
+
 static void render_placeholder(Widget* w) {
 	SDL_Surface* f = w->frame;
 	const int title_h = w->title_font ? TTF_FontHeight(w->title_font) : 30;
@@ -426,110 +451,83 @@ static void render_placeholder(Widget* w) {
 	SDL_Color grey = {170, 170, 170, 255};
 	draw_text_centered(f, w->title_font, "No music playing", CANVAS_W / 2, y, white, CANVAS_W - 48);
 	y += title_h + 6;
-	// The hint brightens once the widget is entered, when A will act on it.
 	draw_text_centered(f, w->artist_font, "Press A to open Music Player", CANVAS_W / 2, y,
 					   state.enabled ? accent : grey, CANVAS_W - 48);
 }
 
-// Game <-> Music balance row: bipolar slider with a centre tick, "Game" and
-// "Music" end labels and the current setting as text.
 static void draw_balance_row(Widget* w, int y) {
 	SDL_Surface* f = w->frame;
 	const bool focused = state.enabled && state.row == ROW_BALANCE;
 	const int bar_x = 48, bar_w = CANVAS_W - 96, bar_h = 6;
+	const int balance = MusicBalance_getValue();
 	SDL_Color white = {255, 255, 255, 255};
 	SDL_Color grey = {170, 170, 170, 255};
 	Uint32 fg = focused ? SDL_MapRGBA(f->format, accent.r, accent.g, accent.b, 255)
-						: SDL_MapRGBA(f->format, 170, 170, 170, 255);
+					: SDL_MapRGBA(f->format, 170, 170, 170, 255);
 	Uint32 track = SDL_MapRGBA(f->format, 90, 90, 90, 255);
-	// track, then the filled part between the centre and the knob
 	SDL_FillRect(f, &(SDL_Rect){bar_x, y - bar_h / 2, bar_w, bar_h}, track);
 	int centre_x = bar_x + bar_w / 2;
-	int knob_x = bar_x + bar_w * state.balance / BALANCE_MAX;
+	int knob_x = bar_x + bar_w * balance / BALANCE_MAX;
 	int from = knob_x < centre_x ? knob_x : centre_x;
 	int to = knob_x < centre_x ? centre_x : knob_x;
 	if (to > from)
 		SDL_FillRect(f, &(SDL_Rect){from, y - bar_h / 2, to - from, bar_h}, fg);
-	SDL_FillRect(f, &(SDL_Rect){centre_x - 1, y - 9, 2, 18}, fg); // centre tick
-	if (focused)
-		fill_circle(f, knob_x, y, 8, accent.r, accent.g, accent.b);
-	else
-		fill_circle(f, knob_x, y, 5, 255, 255, 255);
-	// labels under the bar
-	const int label_h = w->label_font ? TTF_FontHeight(w->label_font) : 16;
+	SDL_FillRect(f, &(SDL_Rect){centre_x - 1, y - 9, 2, 18}, fg);
+	fill_circle(f, knob_x, y, focused ? 8 : 5, focused ? accent.r : 255, focused ? accent.g : 255,
+			focused ? accent.b : 255);
 	int ly = y + 10;
-	char value[24];
-	if (state.balance == BALANCE_CENTRE)
-		snprintf(value, sizeof(value), "50/50");
-	else if (state.balance > BALANCE_CENTRE)
-		snprintf(value, sizeof(value), "Music +%d", state.balance - BALANCE_CENTRE);
-	else
-		snprintf(value, sizeof(value), "Game +%d", BALANCE_CENTRE - state.balance);
 	int gw = text_width(w->label_font, "Game");
 	int mw = text_width(w->label_font, "Music");
 	draw_text_centered(f, w->label_font, "Game", bar_x + gw / 2, ly, focused ? white : grey, 80);
-	draw_text_centered(f, w->label_font, value, CANVAS_W / 2, ly, focused ? accent : grey, 120);
+	draw_text_centered(f, w->label_font, MusicBalance_getDisplayString(), CANVAS_W / 2, ly,
+					   focused ? accent : grey, 120);
 	draw_text_centered(f, w->label_font, "Music", bar_x + bar_w - mw / 2, ly, focused ? white : grey, 80);
-	(void)label_h;
 }
 
 static void render(Widget* w) {
 	SDL_Surface* f = w->frame;
-	// Transparent: trimui_osdd composites the canvas over its own block tile.
 	SDL_FillRect(f, NULL, SDL_MapRGBA(f->format, 0, 0, 0, 0));
-	if (!state.has_music) {
+	if (!music_active()) {
 		render_placeholder(w);
-		if (memcmp(w->canvas, f->pixels, CANVAS_BYTES) != 0)
-			memcpy(w->canvas, f->pixels, CANVAS_BYTES);
-		return;
+	} else {
+		blit_at(f, w->backdrop, 0, 0);
+		const int title_h = w->title_font ? TTF_FontHeight(w->title_font) : 30;
+		const int artist_h = w->artist_font ? TTF_FontHeight(w->artist_font) : 22;
+		const int disc = 42, balance_gap = 18, balance_h = 30;
+		int y = (CANVAS_H - (title_h + 4 + artist_h + 8 + disc * 2 + balance_gap + balance_h)) / 2;
+		const int cx = CANVAS_W / 2;
+		SDL_Color white = {255, 255, 255, 255};
+		SDL_Color grey = {200, 200, 200, 255};
+		draw_text_centered(f, w->title_font, snapshot_title(), cx, y, white, CANVAS_W - 48);
+		y += title_h + 4;
+		draw_text_centered(f, w->artist_font, snapshot_artist(), cx, y, grey, CANVAS_W - 48);
+		y += artist_h + 8 + disc;
+		bool focus_visible = state.enabled && state.row == ROW_TRANSPORT;
+		draw_button(w, w->prev_icon, cx - 84, y, 36, focus_visible && state.focus == FOCUS_PREV);
+		draw_button(w, state.snapshot.state == MUSIC_STATE_PLAYING ? w->pause_icon : w->play_icon, cx, y, disc,
+					focus_visible && state.focus == FOCUS_PLAY);
+		draw_button(w, w->next_icon, cx + 84, y, 36, focus_visible && state.focus == FOCUS_NEXT);
+		draw_balance_row(w, y + disc + balance_gap + 4);
 	}
-	blit_at(f, w->backdrop, 0, 0);
-
-	// Title, artist and the transport row form one block, centred both ways.
-	const int title_h = w->title_font ? TTF_FontHeight(w->title_font) : 30;
-	const int artist_h = w->artist_font ? TTF_FontHeight(w->artist_font) : 22;
-	const int disc = 42;
-	const int balance_gap = 18, balance_h = 30; // bar + labels
-	const int block_h = title_h + 4 + artist_h + 8 + disc * 2 + balance_gap + balance_h;
-	int y = (CANVAS_H - block_h) / 2;
-	const int cx = CANVAS_W / 2;
-
-	SDL_Color white = {255, 255, 255, 255};
-	SDL_Color grey = {200, 200, 200, 255};
-	draw_text_centered(f, w->title_font, tracks[state.track].title, cx, y, white, CANVAS_W - 48);
-	y += title_h + 4;
-	draw_text_centered(f, w->artist_font, tracks[state.track].artist, cx, y, grey, CANVAS_W - 48);
-	y += artist_h + 8 + disc;
-
-	bool focus_visible = state.enabled && state.row == ROW_TRANSPORT;
-	draw_button(w, w->prev_icon, cx - 84, y, 36, focus_visible && state.focus == FOCUS_PREV);
-	draw_button(w, state.playing ? w->pause_icon : w->play_icon, cx, y, disc,
-				focus_visible && state.focus == FOCUS_PLAY);
-	draw_button(w, w->next_icon, cx + 84, y, 36, focus_visible && state.focus == FOCUS_NEXT);
-	y += disc + balance_gap + 4;
-	draw_balance_row(w, y);
-
-	// Publish only when something changed; the daemon re-reads at canvasfps.
 	if (memcmp(w->canvas, f->pixels, CANVAS_BYTES) != 0)
 		memcpy(w->canvas, f->pixels, CANVAS_BYTES);
 }
 
-// ---- dummy actions: swap these for real player commands ------------------
-static void action_previous(void) {
-	state.track = (state.track + (int)SDL_arraysize(tracks) - 1) % (int)SDL_arraysize(tracks);
+static bool can_control(uint32_t capability) {
+	return music_active() && (state.snapshot.capabilities & capability);
 }
-static void action_toggle(void) {
-	state.playing = !state.playing;
+
+static void action(Widget* w, int focus) {
+	if (focus == FOCUS_PREV && can_control(MUSIC_CAP_PREVIOUS))
+		(void)MusicClient_previous();
+	else if (focus == FOCUS_NEXT && can_control(MUSIC_CAP_NEXT))
+		(void)MusicClient_next();
+	else if (focus == FOCUS_PLAY && can_control(state.snapshot.state == MUSIC_STATE_PLAYING ? MUSIC_CAP_PAUSE : MUSIC_CAP_PLAY))
+		(void)MusicClient_toggle();
+	else
+		return;
+	sync_music(w, false);
 }
-// Real owner: persist Game/Music gains (PR #92: SetGameVolume/SetMusicVolume,
-// centre = both at full, moving away attenuates only the opposite side).
-static void action_set_balance(int balance) {
-	state.balance = balance;
-}
-static void action_next(void) {
-	state.track = (state.track + 1) % (int)SDL_arraysize(tracks);
-}
-// --------------------------------------------------------------------------
 
 static void trace_command(const char* cmd) {
 	if (access(DEBUG_FLAG_PATH, F_OK) != 0)
@@ -541,43 +539,42 @@ static void trace_command(const char* cmd) {
 	}
 }
 
-static void handle_command(const char* cmd) {
+static void handle_command(Widget* w, const char* cmd) {
 	trace_command(cmd);
 	if (!strcmp(cmd, "enable")) {
 		state.enabled = true;
-		state.focus = FOCUS_PLAY; // always land on play/pause, never on a stale button
+		state.focus = FOCUS_PLAY;
 		state.row = ROW_TRANSPORT;
+		state.balance_active = false;
 	} else if (!strcmp(cmd, "disable") || !strcmp(cmd, "key_b")) {
 		state.enabled = false;
+		state.balance_active = false;
 	} else if (!state.enabled) {
 		return;
-	} else if (!strcmp(cmd, "down")) {
-		if (state.has_music)
-			state.row = ROW_BALANCE;
+	} else if (!strcmp(cmd, "down") && music_active()) {
+		state.row = ROW_BALANCE;
 	} else if (!strcmp(cmd, "up")) {
 		state.row = ROW_TRANSPORT;
-	} else if (state.row == ROW_BALANCE && (!strcmp(cmd, "left") || !strcmp(cmd, "right"))) {
-		int balance = state.balance + (cmd[0] == 'l' ? -1 : 1);
-		if (balance < 0)
-			balance = 0;
-		if (balance > BALANCE_MAX)
-			balance = BALANCE_MAX;
-		action_set_balance(balance);
+		state.balance_active = false;
+	} else if (state.row == ROW_BALANCE) {
+		if (!strcmp(cmd, "key_a")) {
+			state.balance_active = true;
+			return;
+		}
+		if (!strcmp(cmd, "left") || !strcmp(cmd, "right")) {
+			int value = MusicBalance_getValue() + (cmd[0] == 'l' ? -1 : 1);
+			(void)MusicBalance_setValue(value);
+			return;
+		}
 	} else if (!strcmp(cmd, "left")) {
 		state.focus = (state.focus + FOCUS_COUNT - 1) % FOCUS_COUNT;
 	} else if (!strcmp(cmd, "right")) {
 		state.focus = (state.focus + 1) % FOCUS_COUNT;
 	} else if (!strcmp(cmd, "key_a")) {
-		if (!state.has_music) {
+		if (!music_active())
 			request_music_player();
-			return;
-		}
-		if (state.focus == FOCUS_PREV)
-			action_previous();
-		else if (state.focus == FOCUS_PLAY)
-			action_toggle();
 		else
-			action_next();
+			action(w, state.focus);
 	}
 }
 
@@ -601,7 +598,7 @@ static void read_commands(Widget* w) {
 			char* nl;
 			while ((nl = memchr(w->input, '\n', w->input_len))) {
 				*nl = '\0';
-				handle_command(w->input);
+				handle_command(w, w->input);
 				size_t used = (size_t)(nl - w->input) + 1;
 				memmove(w->input, w->input + used, w->input_len - used);
 				w->input_len -= used;
@@ -780,6 +777,7 @@ int main(int argc, char** argv) {
 	unlink(READY_PATH);
 
 	int rc = 1;
+	bool settings_initialized = false;
 	if (SDL_Init(0) != 0 || TTF_Init() != 0 || !(IMG_Init(IMG_INIT_PNG) & IMG_INIT_PNG))
 		goto cleanup;
 	w.title_font = TTF_OpenFont(FONT_PATH, 26);
@@ -791,8 +789,6 @@ int main(int argc, char** argv) {
 	w.label_font = TTF_OpenFont(FONT_PATH, 15);
 	if (!w.label_font)
 		w.label_font = TTF_OpenFont(FONT_FALLBACK, 15);
-	w.cover = load_png("widget-cover-default.png", 90);
-	w.backdrop = make_backdrop(w.cover);
 	w.prev_icon = load_png("btn-prev-n.png", 44);
 	w.play_icon = load_png("btn-play-n.png", 52);
 	w.pause_icon = load_png("btn-pause-n.png", 52);
@@ -803,8 +799,11 @@ int main(int argc, char** argv) {
 	if (w.cmd_fd < 0)
 		goto cleanup;
 
+	InitSettings();
+	settings_initialized = true;
+	(void)MusicClient_init(NULL);
 	load_accent();
-	state.has_music = process_running(MUSIC_PROCESS);
+	sync_music(&w, false);
 	render(&w);
 	write_ready();
 	rc = 0;
@@ -812,13 +811,11 @@ int main(int argc, char** argv) {
 	while (!quit) {
 		if ((Sint32)(SDL_GetTicks() - next_probe) >= 0) {
 			next_probe = SDL_GetTicks() + MUSIC_PROBE_MS;
-			bool running = process_running(MUSIC_PROCESS);
 			SDL_Color before = accent;
 			load_accent();
-			if (running != state.has_music || memcmp(&before, &accent, sizeof(accent)) != 0) {
-				state.has_music = running;
-				render(&w);
-			}
+			sync_music(&w, true);
+			(void)before;
+			render(&w);
 		}
 		if (w.cmd_fd < 0) {
 			w.cmd_fd = open_fifo();
@@ -852,6 +849,10 @@ cleanup:
 	if (TTF_WasInit())
 		TTF_Quit();
 	SDL_Quit();
+	MusicClient_quit();
+	if (settings_initialized)
+		QuitSettings();
+
 	close(lock_fd);
 	return rc;
 }

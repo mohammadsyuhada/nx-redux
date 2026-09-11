@@ -11,7 +11,7 @@
 #define MUSIC_SERVICE_MAX_ALBUM 256
 #define MUSIC_SERVICE_MAX_ERROR 128
 #define MUSIC_SERVICE_MAX_FRAME 8192
-#define MUSIC_SERVICE_PROTOCOL_VERSION 7u
+#define MUSIC_SERVICE_PROTOCOL_VERSION 8u
 #define MUSIC_VIS_BARS 64
 #define MUSIC_VIS_SAMPLE_COUNT 1024
 #define MUSIC_SERVICE_MAGIC 0x4e584d50u
@@ -104,6 +104,7 @@ typedef struct __attribute__((packed)) {
 	int32_t audio_open;
 	int32_t stream_eof;
 	int32_t source;
+	int32_t loaded;
 	int32_t source_state;
 	int32_t radio_bitrate;
 	int32_t radio_buffer_percent;

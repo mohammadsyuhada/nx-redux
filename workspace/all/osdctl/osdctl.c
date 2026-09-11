@@ -35,7 +35,7 @@ static void save_settings(SettingsShm* s) {
 		userdata = "/mnt/SDCARD/.userdata/" PLATFORM; // was hardcoded tg5050
 	char path[256];
 	snprintf(path, sizeof(path), "%s/msettings.bin", userdata);
-	int fd = open(path, O_CREAT | O_WRONLY, 0644);
+	int fd = open(path, O_CREAT | O_WRONLY, 420);
 	if (fd >= 0) {
 		write(fd, s, sizeof(SettingsShm));
 		close(fd);
@@ -71,8 +71,6 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
-	// SetRaw* uses libmsettings' process-global state, so initialize it for
-	// every setter before applying either hardware or persisted settings.
 	int settings_initialized = 0;
 	if (strcmp(cmd, "set") == 0) {
 		if (!getenv("USERDATA_PATH"))
@@ -116,14 +114,6 @@ int main(int argc, char* argv[]) {
 		if (argc < 4)
 			usage();
 		int value = atoi(argv[3]);
-		if (strcmp(prop, "volume") == 0 || strcmp(prop, "mute") == 0) {
-			if (!getenv("USERDATA_PATH"))
-				setenv("USERDATA_PATH", "/mnt/SDCARD/.userdata/" PLATFORM, 0);
-			InitSettings();
-			settings_initialized = 1;
-		}
-
-
 		if (strcmp(prop, "volume") == 0) {
 			// Update shm
 			if (s->mute)

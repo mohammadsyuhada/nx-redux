@@ -1,5 +1,4 @@
 # NXRedux
-
 # NOTE: this runs on the host system (eg. macOS) not in a docker image
 # it has to, otherwise we'd be running a docker in a docker and oof
 
@@ -7,6 +6,7 @@
 # DEVICE is included because `deploy` is the default goal: without it,
 # `make DEVICE=brick` with no target runs a full build and pushes to a
 # connected device.
+# pi-lens-ignore: SC1073, SC1065, SC1064, SC1072
 ifneq (,$(PLATFORM)$(DEVICE))
 ifeq (,$(MAKECMDGOALS))
 $(error found PLATFORM/DEVICE arg but no target, did you mean "make deploy DEVICE=$(DEVICE)" or "make PLATFORM=$(PLATFORM) shell"?)
@@ -173,7 +173,6 @@ endif
 	cp ./workspace/all/musicplayer/build/$(PLATFORM)/musicplayer.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Music\ Player.pak/
 	cp ./workspace/all/musicplayer/build/$(PLATFORM)/musicplayerd.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/musicplayer/build/$(PLATFORM)/musicplayerctl.elf ./build/SYSTEM/$(PLATFORM)/bin/
-	cp ./workspace/all/musicplayer/build/$(PLATFORM)/music_osd_adapter.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/mediaplayer/build/$(PLATFORM)/mediaplayer.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Media\ Player.pak/
 	cp ./workspace/all/imageviewer/build/$(PLATFORM)/imageviewer.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Image\ Viewer.pak/
 	# PortMaster ships as an Xtras catalog entry, not a default Tools pak;

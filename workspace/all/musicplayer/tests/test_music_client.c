@@ -2,6 +2,7 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -79,6 +80,7 @@ static void* server_main(void* argument) {
 				strncpy(response.error, "owner rejected", sizeof(response.error) - 1);
 			response.snapshot.state = MUSIC_STATE_PLAYING;
 			response.snapshot.source = MUSIC_SOURCE_LOCAL;
+			response.snapshot.loaded = 1;
 			strncpy(response.snapshot.current_file, "/Music/owner.wav", sizeof(response.snapshot.current_file) - 1);
 			if (request.command == MUSIC_CMD_SET_SPEED) {
 				response.snapshot.source = MUSIC_SOURCE_RADIO;
@@ -124,19 +126,23 @@ static void* server_main(void* argument) {
 
 int main(void) {
 	ServerState server;
+	char socket_dir[sizeof(server.path) - sizeof("/control.sock")];
 	memset(&server, 0, sizeof(server));
-	snprintf(server.path, sizeof(server.path), "%s", MUSIC_SERVICE_DEFAULT_SOCKET);
-	mkdir("/tmp/trimui_music", 448);
+	snprintf(socket_dir, sizeof(socket_dir), "/tmp/nx_music_client_test_%ld", (long)getpid());
+	mkdir(socket_dir, 448);
+	snprintf(server.path, sizeof(server.path), "%s/control.sock", socket_dir);
+	setenv(MUSIC_SERVICE_SOCKET_ENV, server.path, 1);
 	pthread_t thread;
 	check(pthread_create(&thread, NULL, server_main, &server) == 0, "fake owner starts");
 	usleep(50000);
 
-	check(MusicClient_init("/bin/false") == 0, "client attaches to existing owner");
+	check(MusicClient_init(NULL) == 0, "passive client attaches to existing owner");
 	check(MusicClient_isConnected(), "client remains attached after initial snapshot");
 	check(MusicClient_loadPlaylist("/Music/list.m3u", 7) == MUSIC_STATUS_NOT_FOUND,
 		  "application error is returned to caller");
 	check(MusicClient_isConnected(), "application error does not look like disconnect");
-	check(MusicClient_snapshot()->state == MUSIC_STATE_PLAYING, "application error keeps fresh snapshot");
+	check(MusicClient_snapshot()->state == MUSIC_STATE_PLAYING && MusicClient_snapshot()->loaded,
+		  "application error keeps fresh loaded snapshot");
 	check(strcmp(MusicClient_error(), "owner rejected") == 0, "application error is exposed by client");
 	check(server.received_command == MUSIC_CMD_LOAD_PLAYLIST && server.received_index == 7 &&
 			  strcmp(server.received_playlist, "/Music/list.m3u") == 0,
@@ -157,12 +163,13 @@ int main(void) {
 	check(!MusicClient_isRadioActive(), "radio error state is not active after reattach");
 
 	check(MusicClient_stop() == MUSIC_SERVICE_TRANSPORT_ERROR, "transport disconnect is reported distinctly");
-	check(!MusicClient_isConnected() && MusicClient_isStopped() && MusicClient_snapshot()->source == MUSIC_SOURCE_NONE,
-		  "transport disconnect clears cached playing state");
+	check(!MusicClient_isConnected() && MusicClient_isStopped() && !MusicClient_snapshot()->loaded &&
+			  MusicClient_snapshot()->source == MUSIC_SOURCE_NONE,
+		  "transport disconnect clears cached playback state");
 	MusicClient_quit();
 	pthread_join(thread, NULL);
 	unlink(server.path);
-	rmdir("/tmp/trimui_music");
+	rmdir(socket_dir);
 
 	/* A failed initial launch must be retried after the reconnect interval,
 	 * without allowing every poll to fork another owner. */
@@ -187,7 +194,18 @@ int main(void) {
 	}
 	check(launch_attempts >= 2, "failed owner launch is retried after reconnect interval");
 	MusicClient_quit();
+	check(MusicClient_init(NULL) != 0, "passive client stays unavailable without an owner");
+	usleep(100000);
+	count_file = fopen(launch_count, "r");
+	int passive_launch_attempts = 0;
+	if (count_file) {
+		fscanf(count_file, "%d", &passive_launch_attempts);
+		fclose(count_file);
+	}
+	check(passive_launch_attempts == launch_attempts, "passive client never launches an owner");
+	MusicClient_quit();
 	unlink(launch_script);
 	unlink(launch_count);
+	unsetenv(MUSIC_SERVICE_SOCKET_ENV);
 	return failures ? 1 : 0;
 }

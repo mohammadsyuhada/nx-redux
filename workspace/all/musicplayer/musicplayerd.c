@@ -47,6 +47,7 @@ static char lock_path[sizeof(socket_path) + 8];
 static bool eof_advanced;
 static bool shuffle_enabled;
 static MusicSource active_source;
+static bool has_active_source(void);
 static int queue_kind;
 static char queue_path[MUSIC_SERVICE_MAX_PATH];
 static int podcast_feed_index = -1;
@@ -70,6 +71,7 @@ static ResumeTransportState podcast_resume_transport = RESUME_TRANSPORT_PLAYING;
 static bool restore_pending;
 static int64_t restore_deadline_ms;
 static char service_error[MUSIC_SERVICE_MAX_ERROR];
+static int applied_music_volume = -1;
 
 static void save_resume_state(void);
 static void attempt_restore(void);
@@ -87,6 +89,18 @@ static int64_t now_ms(void) {
 	struct timespec ts;
 	clock_gettime(CLOCK_MONOTONIC, &ts);
 	return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+static void sync_music_volume(void) {
+	int volume = GetMusicVolume();
+	if (volume < 0)
+		volume = 0;
+	if (volume > 20)
+		volume = 20;
+	if (volume != applied_music_volume) {
+		Player_setVolume(volume / 20.0f);
+		applied_music_volume = volume;
+	}
 }
 
 static void on_signal(int sig) {
@@ -239,7 +253,8 @@ static void fill_snapshot(MusicResponseWire* response) {
 	if (wake_failed)
 		strncpy(response->error, "audio wake timed out", sizeof(response->error) - 1);
 	response->snapshot.source = active_source;
-	if (Player_getSnapshot(&snapshot) != 0)
+	response->snapshot.loaded = active_source != MUSIC_SOURCE_NONE;
+	if (!response->snapshot.loaded || Player_getSnapshot(&snapshot) != 0)
 		return;
 	update_artwork(&snapshot);
 	response->snapshot.state = snapshot.state;
@@ -391,6 +406,16 @@ static void stop_active_source(void) {
 		Player_stop();
 	}
 	active_source = MUSIC_SOURCE_NONE;
+}
+
+static void clear_sleep_resume_intent(void) {
+	wake_pending = false;
+	sleep_resume_intent = false;
+	sleep_audio_open = false;
+	sleep_source = MUSIC_SOURCE_NONE;
+	sleep_radio_url[0] = '\0';
+	wake_deadline_ms = 0;
+	wake_failed = false;
 }
 
 static int enter_sleep(void) {
@@ -783,6 +808,11 @@ static int select_index(int index) {
 	return MUSIC_STATUS_OK;
 }
 
+static bool has_active_source(void) {
+	return active_source != MUSIC_SOURCE_NONE;
+}
+
+
 static int advance(int direction) {
 	PlayerSnapshot snapshot;
 	Player_getSnapshot(&snapshot);
@@ -798,6 +828,9 @@ static int advance(int direction) {
 }
 
 static int toggle_active_source(void) {
+	if (!has_active_source())
+		return MUSIC_STATUS_NOT_FOUND;
+
 	if (active_source == MUSIC_SOURCE_RADIO) {
 		if (Radio_isActive()) {
 			Radio_stop();
@@ -863,6 +896,8 @@ static int handle_command(uint16_t command, const unsigned char* payload, size_t
 	case MUSIC_CMD_REPEAT:
 		if (length != sizeof(MusicIntRequest))
 			status = MUSIC_STATUS_BAD_REQUEST;
+		else if (command != MUSIC_CMD_REPEAT && !has_active_source())
+			status = MUSIC_STATUS_NOT_FOUND;
 		else if (command == MUSIC_CMD_SELECT)
 			status = select_index(((const MusicIntRequest*)payload)->value);
 		else if (command == MUSIC_CMD_SEEK)
@@ -871,7 +906,6 @@ static int handle_command(uint16_t command, const unsigned char* payload, size_t
 			bool repeat = ((const MusicIntRequest*)payload)->value != 0;
 			Player_setRepeat(repeat);
 		}
-
 		break;
 	case MUSIC_CMD_SET_SHUFFLE:
 		if (length != sizeof(MusicIntRequest))
@@ -944,34 +978,40 @@ static int handle_command(uint16_t command, const unsigned char* payload, size_t
 	case MUSIC_CMD_SHUFFLE:
 		if (length != 0)
 			status = MUSIC_STATUS_BAD_REQUEST;
+		else if (!has_active_source())
+			status = MUSIC_STATUS_NOT_FOUND;
 		else {
 			int index = Playlist_shuffle(&queue);
 			status = index < 0 ? MUSIC_STATUS_NOT_FOUND : select_index(index);
 		}
 		break;
 	case MUSIC_CMD_PLAY:
-		if (active_source == MUSIC_SOURCE_RADIO)
-			radio_paused = false;
-		if ((active_source == MUSIC_SOURCE_RADIO && !Radio_isActive()) ||
-			(active_source == MUSIC_SOURCE_NONE && Radio_getCurrentUrl()[0]))
-			status = load_radio(Radio_getCurrentUrl());
-		else if (active_source == MUSIC_SOURCE_PODCAST && podcast_waiting_for_seek)
-			status = MUSIC_STATUS_OK;
-		else if (Player_play() != 0)
-			status = MUSIC_STATUS_UNAVAILABLE;
+		if (!has_active_source())
+			status = MUSIC_STATUS_NOT_FOUND;
+		else {
+			if (active_source == MUSIC_SOURCE_RADIO)
+				radio_paused = false;
+			if (active_source == MUSIC_SOURCE_RADIO && !Radio_isActive())
+				status = load_radio(Radio_getCurrentUrl());
+			else if (active_source == MUSIC_SOURCE_PODCAST && podcast_waiting_for_seek)
+				status = MUSIC_STATUS_OK;
+			else if (Player_play() != 0)
+				status = MUSIC_STATUS_UNAVAILABLE;
+		}
 		break;
 	case MUSIC_CMD_PAUSE:
-		if (active_source == MUSIC_SOURCE_RADIO) {
+		if (!has_active_source())
+			status = MUSIC_STATUS_NOT_FOUND;
+		else if (active_source == MUSIC_SOURCE_RADIO) {
 			radio_paused = true;
 			Radio_stop();
-		} else if (active_source == MUSIC_SOURCE_PODCAST)
-			Player_pause();
-		else
+		} else
 			Player_pause();
 		break;
 	case MUSIC_CMD_STOP:
 		stop_active_source();
 		Resume_clear();
+		clear_sleep_resume_intent();
 		radio_paused = false;
 		break;
 	case MUSIC_CMD_TOGGLE:
@@ -986,10 +1026,10 @@ static int handle_command(uint16_t command, const unsigned char* payload, size_t
 				status = MUSIC_STATUS_NOT_FOUND;
 			else
 				status = load_radio(stations[(index + 1) % count].url);
-		} else if (active_source == MUSIC_SOURCE_PODCAST) {
-			status = MUSIC_STATUS_NOT_FOUND;
-		} else {
+		} else if (active_source == MUSIC_SOURCE_LOCAL) {
 			status = advance(1);
+		} else {
+			status = MUSIC_STATUS_NOT_FOUND;
 		}
 		break;
 	case MUSIC_CMD_PREVIOUS:
@@ -1001,10 +1041,10 @@ static int handle_command(uint16_t command, const unsigned char* payload, size_t
 				status = MUSIC_STATUS_NOT_FOUND;
 			else
 				status = load_radio(stations[(index - 1 + count) % count].url);
-		} else if (active_source == MUSIC_SOURCE_PODCAST) {
-			status = MUSIC_STATUS_NOT_FOUND;
-		} else {
+		} else if (active_source == MUSIC_SOURCE_LOCAL) {
 			status = advance(-1);
+		} else {
+			status = MUSIC_STATUS_NOT_FOUND;
 		}
 		break;
 	case MUSIC_CMD_SLEEP:
@@ -1109,6 +1149,7 @@ static void accept_clients(Client clients[MAX_CLIENTS]) {
 
 static void service_tick(void) {
 	attempt_restore();
+	sync_music_volume();
 	if (wake_pending) {
 		int wake_status = wake_from_sleep();
 		if (wake_status == MUSIC_STATUS_OK) {
@@ -1173,33 +1214,13 @@ static void service_tick(void) {
 static void poll_hid(void) {
 	USBHIDEvent event;
 	while ((event = Player_pollUSBHID()) != USB_HID_EVENT_NONE) {
-		if (event == USB_HID_EVENT_PLAY_PAUSE) {
-			if (active_source == MUSIC_SOURCE_RADIO) {
-				if (Radio_isActive()) {
-					Radio_stop();
-					radio_paused = true;
-				} else {
-					(void)load_radio(Radio_getCurrentUrl());
-				}
-			} else if (active_source == MUSIC_SOURCE_LOCAL || active_source == MUSIC_SOURCE_PODCAST) {
-				Player_togglePause();
-			} else if (Radio_getCurrentUrl()[0]) {
-				(void)load_radio(Radio_getCurrentUrl());
-			}
-		} else if (event == USB_HID_EVENT_NEXT_TRACK || event == USB_HID_EVENT_PREV_TRACK) {
-			if (active_source == MUSIC_SOURCE_RADIO) {
-				RadioStation* stations;
-				int count = Radio_getStations(&stations);
-				int index = Radio_findCurrentStationIndex();
-				if (count > 0 && index >= 0) {
-					int next = event == USB_HID_EVENT_NEXT_TRACK ? (index + 1) % count : (index + count - 1) % count;
-					(void)load_radio(stations[next].url);
-				}
-			} else if (active_source == MUSIC_SOURCE_LOCAL) {
-				(void)advance(event == USB_HID_EVENT_NEXT_TRACK ? 1 : -1);
-			}
-		}
-		save_resume_state();
+		MusicResponseWire response;
+		if (event == USB_HID_EVENT_PLAY_PAUSE)
+			(void)handle_command(MUSIC_CMD_TOGGLE, NULL, 0, &response);
+		else if (event == USB_HID_EVENT_NEXT_TRACK)
+			(void)handle_command(MUSIC_CMD_NEXT, NULL, 0, &response);
+		else if (event == USB_HID_EVENT_PREV_TRACK)
+			(void)handle_command(MUSIC_CMD_PREVIOUS, NULL, 0, &response);
 	}
 }
 
@@ -1218,7 +1239,7 @@ int main(void) {
 	int podcast_ready = radio_ready && Podcast_initPlayback() == 0;
 	int player_ready = podcast_ready && Player_coreInit() == 0;
 	if (player_ready)
-		Player_setVolume(GetMusicVolume() / 20.0f);
+		sync_music_volume();
 	if (!player_ready) {
 		if (podcast_ready)
 			Podcast_cleanupPlayback();

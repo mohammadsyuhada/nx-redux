@@ -48,11 +48,18 @@ int MusicBalance_setValue(int value) {
 
 	int music = value <= MUSIC_BALANCE_CENTER ? value * MUSIC_BALANCE_SIDE_STEP : MUSIC_GAIN_MAX;
 	int game = value <= MUSIC_BALANCE_CENTER ? MUSIC_GAIN_MAX : (MUSIC_BALANCE_MAX - value) * MUSIC_BALANCE_SIDE_STEP;
-	int status = MusicClient_setVolume(music);
-	if (status != MUSIC_STATUS_OK)
-		return status;
+	int old_music = GetMusicVolume();
+	int old_game = GetGameVolume();
+	SetMusicVolume(music);
 	SetGameVolume(game);
-	return MUSIC_STATUS_OK;
+	if (!MusicClient_isConnected())
+		return MUSIC_STATUS_OK;
+	int status = MusicClient_setVolume(music);
+	if (status == MUSIC_STATUS_OK)
+		return status;
+	SetGameVolume(old_game);
+	SetMusicVolume(old_music);
+	return status;
 }
 
 const char* MusicBalance_getDisplayString(void) {

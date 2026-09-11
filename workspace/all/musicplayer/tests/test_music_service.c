@@ -9,6 +9,11 @@
 #include <stdlib.h>
 #include <string.h>
 #if defined(PLATFORM_TG5040) || defined(PLATFORM_TG5050)
+#if defined(PLATFORM_TG5050)
+#include "../../tg5050/libmsettings/msettings.h"
+#else
+#include "../../tg5040/libmsettings/msettings.h"
+#endif
 #include <sys/inotify.h>
 #endif
 #include <sys/socket.h>
@@ -201,6 +206,7 @@ int main(int argc, char** argv) {
 	check(playlist_file != NULL, "create playlist fixture");
 	setenv(MUSIC_SERVICE_SOCKET_ENV, socket_path, 1);
 	setenv("NX_MUSIC_RESUME_DIR", resume_root, 1);
+	setenv("USERDATA_PATH", root, 1);
 	pid_t daemon = fork();
 	if (daemon == 0) {
 		execl(argv[1], argv[1], NULL);
@@ -528,15 +534,22 @@ int main(int argc, char** argv) {
 		check(raw_request(fd, MUSIC_CMD_RADIO_LOAD, &radio_request, sizeof(radio_request), &response) == 0 &&
 				  response.status == MUSIC_STATUS_OK && response.snapshot.source == MUSIC_SOURCE_RADIO,
 			  "radio source starts behind service");
-		check((response.snapshot.source_state == MUSIC_RADIO_CONNECTING ||
-			   response.snapshot.source_state == MUSIC_RADIO_BUFFERING ||
-			   response.snapshot.source_state == MUSIC_RADIO_PLAYING) &&
-				  (response.snapshot.source_state == MUSIC_RADIO_PLAYING
-					   ? response.snapshot.state == MUSIC_STATE_PLAYING
-					   : response.snapshot.state == MUSIC_STATE_PAUSED) &&
+		bool radio_error = false;
+		int64_t radio_deadline = clock_ms() + 5000;
+		while (clock_ms() < radio_deadline) {
+			if (raw_request(fd, MUSIC_CMD_SNAPSHOT, NULL, 0, &response) != 0)
+				break;
+			if (response.snapshot.source_state == MUSIC_RADIO_ERROR) {
+				radio_error = true;
+				break;
+			}
+			wait_ms(20);
+		}
+		check(radio_error && response.snapshot.source_state == MUSIC_RADIO_ERROR &&
+				  response.snapshot.state == MUSIC_STATE_STOPPED &&
 				  (response.snapshot.capabilities & (MUSIC_CAP_PLAY | MUSIC_CAP_PAUSE)) ==
 					  (MUSIC_CAP_PLAY | MUSIC_CAP_PAUSE),
-			  "radio snapshot publishes effective transport and controls");
+			  "radio snapshot reports refused connection and controls");
 		check(raw_request(fd, MUSIC_CMD_LOAD, &load, sizeof(load), &response) == 0 &&
 				  response.snapshot.source == MUSIC_SOURCE_LOCAL && !response.snapshot.audio_open,
 			  "local load switches source exclusively without opening audio");
@@ -553,6 +566,22 @@ int main(int argc, char** argv) {
 				  raw_request(fd, MUSIC_CMD_WAKE, NULL, 0, &response) == 0 &&
 				  response.snapshot.state == MUSIC_STATE_PAUSED && !response.snapshot.audio_open,
 			  "wake preserves paused intent with audio closed");
+		/* Balance can persist while its client is disconnected; the live owner
+		 * must observe the shared setting without a reconnect command. */
+		InitSettings();
+		SetMusicVolume(7);
+		bool persisted_volume_applied = false;
+		int64_t volume_deadline = clock_ms() + 500;
+		while (clock_ms() < volume_deadline) {
+			wait_ms(20);
+			if (raw_request(fd, MUSIC_CMD_SNAPSHOT, NULL, 0, &response) == 0 &&
+				response.snapshot.volume > 0.34f && response.snapshot.volume < 0.36f) {
+				persisted_volume_applied = true;
+				break;
+			}
+		}
+		check(persisted_volume_applied, "live daemon applies disconnected persisted music gain");
+		QuitSettings();
 		check(run_cli(argv[2], "shuffle", NULL) == 0, "shuffle CLI uses zero payload");
 		check(raw_request(fd, MUSIC_CMD_LOAD, &load, sizeof(load), &response) == 0, "reload first track after shuffle");
 		int play_status = raw_request(fd, MUSIC_CMD_PLAY, NULL, 0, &response);
@@ -576,7 +605,7 @@ int main(int argc, char** argv) {
 						second_position_advanced = true;
 				}
 			}
-			if (advanced && response.snapshot.stream_eof && response.snapshot.state == 0) {
+			if (advanced && response.snapshot.source == MUSIC_SOURCE_NONE && !response.snapshot.loaded) {
 				ended = true;
 				break;
 			}
@@ -584,7 +613,48 @@ int main(int argc, char** argv) {
 		check(advanced, "EOF advances local queue");
 		check(second_playing, "auto-advanced track reaches PLAYING");
 		check(second_position_advanced, "auto-advanced track position advances");
-		check(ended, "actual EOF reaches stopped state");
+		check(ended, "actual EOF clears loaded state");
+		check(raw_request(fd, MUSIC_CMD_LOAD, &load, sizeof(load), &response) == MUSIC_STATUS_OK &&
+				  response.snapshot.loaded,
+			  "local track is explicitly loaded before stop");
+		check(raw_request(fd, MUSIC_CMD_STOP, NULL, 0, &response) == MUSIC_STATUS_OK &&
+				  !response.snapshot.loaded && !response.snapshot.current_file[0],
+			  "stop clears loaded track identity");
+		check(raw_request(fd, MUSIC_CMD_PLAY, NULL, 0, &response) == MUSIC_STATUS_NOT_FOUND &&
+				  !response.snapshot.loaded && !response.snapshot.current_file[0],
+			  "play cannot resurrect playback after explicit stop");
+		check(raw_request(fd, MUSIC_CMD_TOGGLE, NULL, 0, &response) == MUSIC_STATUS_NOT_FOUND &&
+				  !response.snapshot.loaded && !response.snapshot.current_file[0],
+			  "HID play/pause transport cannot resurrect playback after explicit stop");
+		check(raw_request(fd, MUSIC_CMD_SHUFFLE, NULL, 0, &response) == MUSIC_STATUS_NOT_FOUND &&
+				  !response.snapshot.loaded && !response.snapshot.current_file[0],
+			  "shuffle cannot resurrect playback after explicit stop");
+		check(raw_request(fd, MUSIC_CMD_NEXT, NULL, 0, &response) == MUSIC_STATUS_NOT_FOUND &&
+				  !response.snapshot.loaded && !response.snapshot.current_file[0],
+			  "next cannot resurrect playback after explicit stop");
+		check(raw_request(fd, MUSIC_CMD_PREVIOUS, NULL, 0, &response) == MUSIC_STATUS_NOT_FOUND &&
+				  !response.snapshot.loaded && !response.snapshot.current_file[0],
+			  "previous cannot resurrect playback after stop");
+		check(raw_request(fd, MUSIC_CMD_LOAD, &load, sizeof(load), &response) == MUSIC_STATUS_OK &&
+				  raw_request(fd, MUSIC_CMD_PLAY, NULL, 0, &response) == MUSIC_STATUS_OK &&
+				  raw_request(fd, MUSIC_CMD_SLEEP, NULL, 0, &response) == MUSIC_STATUS_OK,
+			  "sleep fixture loads before explicit stop");
+		check(raw_request(fd, MUSIC_CMD_STOP, NULL, 0, &response) == MUSIC_STATUS_OK &&
+				  raw_request(fd, MUSIC_CMD_WAKE, NULL, 0, &response) == MUSIC_STATUS_OK &&
+				  !response.snapshot.loaded && !response.snapshot.audio_open,
+			  "sleep then stop clears wake resume intent");
+		MusicRadioLoadRequest stopped_radio = {0};
+		strncpy(stopped_radio.url, "http://127.0.0.1:1/music", sizeof(stopped_radio.url) - 1);
+		check(raw_request(fd, MUSIC_CMD_RADIO_LOAD, &stopped_radio, sizeof(stopped_radio), &response) == MUSIC_STATUS_OK,
+			  "radio is explicitly loaded before stop");
+		check(raw_request(fd, MUSIC_CMD_STOP, NULL, 0, &response) == MUSIC_STATUS_OK && !response.snapshot.loaded,
+			  "radio stop clears loaded source");
+		check(raw_request(fd, MUSIC_CMD_PLAY, NULL, 0, &response) == MUSIC_STATUS_NOT_FOUND && !response.snapshot.loaded,
+			  "play cannot revive retained radio URL after stop");
+		check(raw_request(fd, MUSIC_CMD_TOGGLE, NULL, 0, &response) == MUSIC_STATUS_NOT_FOUND && !response.snapshot.loaded,
+			  "toggle cannot revive retained radio URL after stop");
+		check(raw_request(fd, MUSIC_CMD_SHUFFLE, NULL, 0, &response) == MUSIC_STATUS_NOT_FOUND && !response.snapshot.loaded,
+			  "shuffle cannot revive retained radio URL after stop");
 		close(fd);
 	}
 

@@ -87,6 +87,48 @@ static int track_history_count = 0;
 static bool history_retracing = false; // prev in progress: don't re-push
 static char now_playing_path[512] = "";
 static char loaded_artwork_path[MUSIC_SERVICE_MAX_PATH] = "";
+static char presentation_identity[MUSIC_SERVICE_MAX_PATH * 3 + MUSIC_SERVICE_MAX_TITLE + MUSIC_SERVICE_MAX_ARTIST + 16] = "";
+static SDL_Surface* presentation_artwork;
+
+static void clear_owner_presentation(void) {
+	cleanup_album_art_background();
+	album_art_clear();
+	presentation_artwork = NULL;
+	loaded_artwork_path[0] = '\0';
+	Lyrics_clearGPU();
+	Lyrics_clear();
+}
+
+static bool sync_owner_presentation(const MusicSnapshotWire* snapshot) {
+	char identity[sizeof(presentation_identity)];
+	bool changed;
+	if (!snapshot->loaded)
+		identity[0] = '\0';
+	else
+		snprintf(identity, sizeof(identity), "%d:%s:%s:%s:%s", snapshot->source,
+				 snapshot->current_file, snapshot->artist, snapshot->title, snapshot->artwork_path);
+	changed = strcmp(presentation_identity, identity) != 0;
+	if (changed) {
+		clear_owner_presentation();
+		snprintf(presentation_identity, sizeof(presentation_identity), "%s", identity);
+	}
+	if (!snapshot->loaded)
+		return changed;
+	if (snapshot->artwork_path[0] && strcmp(loaded_artwork_path, snapshot->artwork_path) != 0) {
+		album_art_load_path(snapshot->artwork_path);
+		snprintf(loaded_artwork_path, sizeof(loaded_artwork_path), "%s", snapshot->artwork_path);
+	} else if (!album_art_get() && (snapshot->artist[0] || snapshot->title[0]))
+		album_art_fetch(snapshot->artist, snapshot->title);
+	SDL_Surface* artwork = album_art_get();
+	if (artwork != presentation_artwork) {
+		cleanup_album_art_background();
+		presentation_artwork = artwork;
+		changed = true;
+	}
+	if (Settings_getLyricsEnabled())
+		Lyrics_fetch(snapshot->artist, snapshot->title, snapshot->duration_ms / 1000);
+	return changed;
+}
 
 static void history_push(const char* path) {
 	if (!path || !path[0])
@@ -147,20 +189,7 @@ static bool try_load_and_play(const char* path) {
 		(void)MusicClient_play();
 		const MusicSnapshotWire* snapshot = MusicClient_snapshot();
 
-		// Album art and lyrics remain UI presentation concerns, keyed by the
-		// daemon's copied metadata rather than a remote SDL/decoder pointer.
-		if (snapshot->artwork_path[0] && strcmp(loaded_artwork_path, snapshot->artwork_path) != 0) {
-			album_art_load_path(snapshot->artwork_path);
-			snprintf(loaded_artwork_path, sizeof(loaded_artwork_path), "%s", snapshot->artwork_path);
-		}
-		if (!album_art_get()) {
-			const char* artist = snapshot->artist[0] ? snapshot->artist : "";
-			const char* title = snapshot->title[0] ? snapshot->title : "";
-			if (artist[0] || title[0])
-				album_art_fetch(artist, title);
-		}
-		if (Settings_getLyricsEnabled())
-			Lyrics_fetch(snapshot->artist, snapshot->title, snapshot->duration_ms / 1000);
+		sync_owner_presentation(snapshot);
 
 		return true;
 	}
@@ -176,22 +205,11 @@ static bool playlist_try_play(int idx) {
 }
 
 // Pick a random audio file from the browser (excluding current). Returns true on success.
-static void sync_ui_to_owner(void) {
+static bool sync_ui_to_owner(void) {
 	const MusicSnapshotWire* snapshot = MusicClient_snapshot();
-	if (snapshot->artwork_path[0] && strcmp(loaded_artwork_path, snapshot->artwork_path) != 0) {
-		album_art_load_path(snapshot->artwork_path);
-		snprintf(loaded_artwork_path, sizeof(loaded_artwork_path), "%s", snapshot->artwork_path);
-	}
-	if (!album_art_get()) {
-		const char* artist = snapshot->artist[0] ? snapshot->artist : "";
-		const char* title = snapshot->title[0] ? snapshot->title : "";
-		if (artist[0] || title[0])
-			album_art_fetch(artist, title);
-	}
-	if (Settings_getLyricsEnabled() && (snapshot->artist[0] || snapshot->title[0]))
-		Lyrics_fetch(snapshot->artist, snapshot->title, snapshot->duration_ms / 1000);
+	bool presentation_changed = sync_owner_presentation(snapshot);
 	if (snapshot->source != MUSIC_SOURCE_LOCAL || !snapshot->current_file[0])
-		return;
+		return presentation_changed;
 
 	/* Reconstruct only the queue identity owned by the daemon. A folder and an
 	 * M3U need different loaders; treating a folder as an M3U would make resume
@@ -238,6 +256,7 @@ static void sync_ui_to_owner(void) {
 			break;
 		}
 	}
+	return presentation_changed;
 }
 
 static bool browser_pick_random(void) {
@@ -563,7 +582,8 @@ static bool handle_playing_input(SDL_Surface* screen, PlayerInternalState* state
 	// The owner advances EOF and persists resume position. Refresh only the
 	// copied state used by this detached presentation.
 	MusicClient_update();
-	sync_ui_to_owner();
+	if (sync_ui_to_owner())
+		*dirty = 1;
 
 	// Auto screen-off after inactivity
 	if (MusicClient_snapshot()->state == MUSIC_STATE_PLAYING && ModuleCommon_checkAutoScreenOffTimeout()) {
@@ -1064,7 +1084,8 @@ ModuleExitReason PlayerModule_runWithPlaylist(SDL_Surface* screen,
 		// The owner advances EOF and persists resume position. Refresh its copied
 		// state without duplicating queue policy in this UI loop.
 		MusicClient_update();
-		sync_ui_to_owner();
+		if (sync_ui_to_owner())
+			dirty = 1;
 
 		// Auto screen-off after inactivity
 		if (MusicClient_snapshot()->state == MUSIC_STATE_PLAYING && ModuleCommon_checkAutoScreenOffTimeout()) {

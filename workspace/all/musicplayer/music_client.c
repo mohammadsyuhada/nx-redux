@@ -111,7 +111,7 @@ static bool attach(bool allow_start) {
 }
 
 static int request(uint16_t command, const void* payload, size_t length, int timeout_ms) {
-	if (!attach(true))
+	if (!attach(owner_path[0] != '\0'))
 		return MUSIC_SERVICE_TRANSPORT_ERROR;
 	MusicResponseWire response;
 	int status = MusicService_request(client_fd, command, payload, length, &response, timeout_ms);
@@ -133,9 +133,15 @@ int MusicClient_init(const char* daemon_path) {
 	clear_snapshot();
 	if (daemon_path && daemon_path[0])
 		strncpy(owner_path, daemon_path, sizeof(owner_path) - 1);
+	else
+		owner_path[0] = '\0';
 	owner_path[sizeof(owner_path) - 1] = '\0';
 	next_reconnect_ms = 0;
 	daemon_start_pending = false;
+	if (!owner_path[0]) {
+		(void)request(MUSIC_CMD_SNAPSHOT, NULL, 0, 100);
+		return client_fd >= 0 ? 0 : -1;
+	}
 	for (int attempt = 0; attempt < 20 && client_fd < 0; attempt++) {
 		if (request(MUSIC_CMD_SNAPSHOT, NULL, 0, 100) >= MUSIC_STATUS_OK)
 			return 0;
@@ -156,7 +162,7 @@ void MusicClient_quit(void) {
 void MusicClient_update(void) {
 	int64_t now = monotonic_ms();
 	if (client_fd < 0) {
-		if (!attach(true))
+		if (!attach(owner_path[0] != '\0'))
 			return;
 		next_poll_ms = 0;
 	}
