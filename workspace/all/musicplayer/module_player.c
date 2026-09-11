@@ -78,14 +78,6 @@ static void player_show_toast(const char* msg) {
 // Screen off state (module-local)
 static bool screen_off = false;
 
-// Play history: what actually played, in order, so prev retraces shuffled
-// playback instead of stepping current_index-1. Fed by try_load_and_play
-// (the single funnel every track transition goes through).
-#define TRACK_HISTORY_MAX 32
-static char track_history[TRACK_HISTORY_MAX][512];
-static int track_history_count = 0;
-static bool history_retracing = false; // prev in progress: don't re-push
-static char now_playing_path[512] = "";
 static char loaded_artwork_path[MUSIC_SERVICE_MAX_PATH] = "";
 static char presentation_identity[MUSIC_SERVICE_MAX_PATH * 3 + MUSIC_SERVICE_MAX_TITLE + MUSIC_SERVICE_MAX_ARTIST + 16] = "";
 static SDL_Surface* presentation_artwork;
@@ -130,16 +122,6 @@ static bool sync_owner_presentation(const MusicSnapshotWire* snapshot) {
 	return changed;
 }
 
-static void history_push(const char* path) {
-	if (!path || !path[0])
-		return;
-	if (track_history_count == TRACK_HISTORY_MAX) {
-		memmove(track_history[0], track_history[1],
-				sizeof(track_history[0]) * (TRACK_HISTORY_MAX - 1));
-		track_history_count--;
-	}
-	snprintf(track_history[track_history_count++], sizeof(track_history[0]), "%s", path);
-}
 
 // Queue identities are distinct: an M3U is not a recursively scanned folder.
 static char resume_playlist_path[512] = "";
@@ -177,14 +159,6 @@ static bool try_load_and_play(const char* path) {
 						  ? MusicClient_loadPlaylist(resume_playlist_path, Playlist_getCurrentIndex(&playlist))
 						  : MusicClient_load(path);
 	if (load_status == 0) {
-		// Record the outgoing track (skip when retracing via prev, and on
-		// repeat-replays of the same file)
-		if (!history_retracing && now_playing_path[0] &&
-			strcmp(now_playing_path, path) != 0) {
-			history_push(now_playing_path);
-		}
-		snprintf(now_playing_path, sizeof(now_playing_path), "%s", path);
-
 		(void)MusicClient_setRepeat(repeat_enabled);
 		(void)MusicClient_setShuffle(shuffle_enabled);
 		(void)MusicClient_play();
@@ -197,15 +171,6 @@ static bool try_load_and_play(const char* path) {
 	return false;
 }
 
-// Try to play a playlist track by index (-1 means current). Returns true on success.
-static bool playlist_try_play(int idx) {
-	const PlaylistTrack* track = (idx < 0)
-									 ? Playlist_getCurrentTrack(&playlist)
-									 : Playlist_getTrack(&playlist, idx);
-	return track && try_load_and_play(track->path);
-}
-
-// Pick a random audio file from the browser (excluding current). Returns true on success.
 static bool sync_ui_to_owner(void) {
 	const MusicSnapshotWire* snapshot = MusicClient_snapshot();
 	bool presentation_changed = sync_owner_presentation(snapshot);
@@ -262,35 +227,6 @@ static bool sync_ui_to_owner(void) {
 	return presentation_changed;
 }
 
-static bool browser_pick_random(void) {
-	int audio_count = Browser_countAudioFiles(&browser);
-	if (audio_count <= 1)
-		return false;
-
-	int random_idx = rand() % (audio_count - 1);
-	int count = 0;
-	for (int i = 0; i < browser.entry_count; i++) {
-		if (!browser.entries[i].is_dir && i != MusicBrowser_view()->selected) {
-			if (count == random_idx) {
-				MusicBrowser_view()->selected = i;
-				return try_load_and_play(browser.entries[i].path);
-			}
-			count++;
-		}
-	}
-	return false;
-}
-
-// Pick the next audio file in the browser after current. Returns true on success.
-static bool browser_pick_next(void) {
-	for (int i = MusicBrowser_view()->selected + 1; i < browser.entry_count; i++) {
-		if (!browser.entries[i].is_dir) {
-			MusicBrowser_view()->selected = i;
-			return try_load_and_play(browser.entries[i].path);
-		}
-	}
-	return false;
-}
 
 // Start playback of a track (load + play + init spectrum)
 static bool start_playback(const char* path) {
@@ -317,8 +253,6 @@ static void cleanup_playback(bool quit_spectrum) {
 	}
 	Playlist_free(&playlist);
 	playlist_active = false;
-	track_history_count = 0;
-	now_playing_path[0] = '\0';
 	ModuleCommon_setAutosleepDisabled(false);
 }
 
@@ -344,7 +278,6 @@ static bool build_and_start_playlist(const char* dir_path, const char* start_fil
 	if (MusicClient_loadFolder(dir_path, track->path) != MUSIC_STATUS_OK)
 		return false;
 	snprintf(resume_folder_path, sizeof(resume_folder_path), "%s", dir_path);
-	snprintf(now_playing_path, sizeof(now_playing_path), "%s", track->path);
 	(void)MusicClient_setRepeat(repeat_enabled);
 	(void)MusicClient_setShuffle(shuffle_enabled);
 	if (MusicClient_play() != MUSIC_STATUS_OK)

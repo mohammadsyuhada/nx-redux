@@ -102,7 +102,8 @@ TEST_SERVICE_PRODUCT = build/$(PLATFORM)/test_music_service.elf
 TEST_BALANCE_PRODUCT = build/$(PLATFORM)/test_music_balance.elf
 TEST_SNAPSHOT_PRODUCT = build/$(PLATFORM)/test_player_snapshot.elf
 TEST_SETTINGS_PRODUCT = build/$(PLATFORM)/test_music_settings.elf
-DAEMON_SOURCE = musicplayerd.c music_format.c player.c playlist.c playlist_m3u.c radio.c radio_catalog_parse.c radio_catalog.c radio_net.c radio_hls.c album_art.c resume.c podcast.c podcast_rss.c podcast_search.c http_download.c settings.c \
+TEST_REQUEST_VALIDATION_PRODUCT = build/$(PLATFORM)/test_music_request_validation.elf
+DAEMON_SOURCE = musicplayerd.c music_request_validation.c music_service_server.c music_format.c player.c playlist.c playlist_m3u.c radio.c radio_catalog_parse.c radio_catalog.c radio_net.c radio_hls.c album_art.c resume.c podcast.c podcast_rss.c podcast_search.c http_download.c settings.c \
                 ../common/utils.c ../common/api.c ../common/text_shape.c ../common/scaler.c ../common/audio_manager.c ../common/config.c ../common/wifi.c ../common/stream_probe.c \
                 ../common/wget_fetch.c ../common/net_cache.c ../common/tz_country.c ../../$(PLATFORM)/platform/platform.c \
                 ../include/parson/parson.c include/yxml/yxml.c ../include/mbedtls_entropy_alt.c ../common/ui/ui_image.c $(MBEDTLS_SRC)
@@ -143,6 +144,10 @@ test_settings:
 test_resume_interval:
 	sh tests/test_resume_interval.sh
 
+test_request_validation:
+	@mkdir -p build/$(PLATFORM)
+	$(CC) tests/test_music_request_validation.c music_request_validation.c -o $(TEST_REQUEST_VALIDATION_PRODUCT) $(MY_CFLAGS)
+
 clean:
 	rm -f build/tg5040/$(TARGET).elf build/tg5050/$(TARGET).elf \
 		build/tg5040/$(SERVICE_TARGET).elf build/tg5050/$(SERVICE_TARGET).elf \
@@ -151,5 +156,6 @@ clean:
 		build/tg5040/test_music_service.elf build/tg5050/test_music_service.elf \
 		build/tg5040/test_music_balance.elf build/tg5050/test_music_balance.elf \
 		build/tg5040/test_player_snapshot.elf build/tg5050/test_player_snapshot.elf \
-		build/tg5040/test_music_settings.elf build/tg5050/test_music_settings.elf
+		build/tg5040/test_music_settings.elf build/tg5050/test_music_settings.elf \
+		build/tg5040/test_music_request_validation.elf build/tg5050/test_music_request_validation.elf
 	rm -rf $(OPUS_OBJ_DIR)

@@ -75,7 +75,6 @@ static struct {
 	MusicSnapshotWire snapshot;
 	bool connected;
 	bool enabled;
-	bool balance_active;
 	int focus;
 	int row;
 	char artwork_identity[MUSIC_SERVICE_MAX_PATH * 2 + 2];
@@ -550,22 +549,15 @@ static void handle_command(Widget* w, const char* cmd) {
 		state.enabled = true;
 		state.focus = FOCUS_PLAY;
 		state.row = ROW_TRANSPORT;
-		state.balance_active = false;
 	} else if (!strcmp(cmd, "disable") || !strcmp(cmd, "key_b")) {
 		state.enabled = false;
-		state.balance_active = false;
 	} else if (!state.enabled) {
 		return;
 	} else if (!strcmp(cmd, "down") && music_active()) {
 		state.row = ROW_BALANCE;
 	} else if (!strcmp(cmd, "up")) {
 		state.row = ROW_TRANSPORT;
-		state.balance_active = false;
 	} else if (state.row == ROW_BALANCE) {
-		if (!strcmp(cmd, "key_a")) {
-			state.balance_active = true;
-			return;
-		}
 		if (!strcmp(cmd, "left") || !strcmp(cmd, "right")) {
 			int value = MusicBalance_getValue() + (cmd[0] == 'l' ? -1 : 1);
 			(void)MusicBalance_setValue(value);

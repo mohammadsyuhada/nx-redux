@@ -46,17 +46,17 @@ int main(void) {
 		  "balance persists both gains without a daemon");
 
 	client_connected = 1;
+	game_volume = music_volume = 20;
 	order_length = 0;
 	check(MusicBalance_setValue(7) == MUSIC_STATUS_OK && music_volume == 20 && game_volume == 12 &&
-			  client_volume == 20 && order_length == 3 && order[0] == 'M' && order[1] == 'G' && order[2] == 'C',
-		  "balance persists before synchronizing a connected daemon");
+			  client_volume == 20 && order_length == 2 && order[0] == 'G' && order[1] == 'C',
+		  "connected balance leaves music persistence to daemon command");
 
 	game_volume = music_volume = 20;
 	client_status = MUSIC_STATUS_UNAVAILABLE;
 	order_length = 0;
 	check(MusicBalance_setValue(0) == MUSIC_STATUS_UNAVAILABLE && music_volume == 20 && game_volume == 20 &&
-			  order_length == 5 && order[0] == 'M' && order[1] == 'G' && order[2] == 'C' &&
-			  order[3] == 'G' && order[4] == 'M',
-		  "daemon synchronization failure rolls back persisted gains");
+			  order_length == 4 && order[0] == 'G' && order[1] == 'C' && order[2] == 'G' && order[3] == 'M',
+		  "daemon command failure restores both persisted gains");
 	return failures ? 1 : 0;
 }

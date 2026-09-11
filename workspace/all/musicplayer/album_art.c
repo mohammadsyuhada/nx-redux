@@ -317,6 +317,10 @@ void album_art_load_path(const char* path) {
 		art_ctx.thread_active = false;
 		art_ctx.art_fetch_in_progress = false;
 	}
+	if (art_ctx.pending_art) {
+		SDL_FreeSurface(art_ctx.pending_art);
+		art_ctx.pending_art = NULL;
+	}
 	SDL_Surface* art = IMG_Load(path);
 	if (art) {
 		if (art_ctx.album_art)

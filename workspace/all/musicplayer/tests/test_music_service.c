@@ -24,6 +24,7 @@
 
 void InitSettings(void);
 void QuitSettings(void);
+int GetMusicVolume(void);
 void SetMusicVolume(int volume);
 
 static int failures;
@@ -317,6 +318,33 @@ int main(int argc, char** argv) {
 		check(raw_request(fd, MUSIC_CMD_PODCAST_LOAD, &podcast_request, sizeof(podcast_request) - 1, &response) == MUSIC_STATUS_BAD_REQUEST &&
 				  response.status == MUSIC_STATUS_BAD_REQUEST,
 			  "podcast request validates fixed payload");
+
+		MusicLoadRequest unterminated_load;
+		MusicRadioLoadRequest unterminated_radio;
+		MusicPlaylistLoadRequest unterminated_playlist;
+		MusicPodcastLoadRequest unterminated_podcast;
+		MusicPodcastProgressRequest unterminated_progress;
+		memset(&unterminated_load, 'x', sizeof(unterminated_load));
+		memset(&unterminated_radio, 'x', sizeof(unterminated_radio));
+		memset(&unterminated_playlist, 'x', sizeof(unterminated_playlist));
+		memset(&unterminated_podcast, 'x', sizeof(unterminated_podcast));
+		memset(&unterminated_progress, 'x', sizeof(unterminated_progress));
+		unterminated_playlist.index = 0;
+		unterminated_progress.position_sec = 0;
+		check(raw_request(fd, MUSIC_CMD_LOAD, &unterminated_load, sizeof(unterminated_load), &response) == MUSIC_STATUS_BAD_REQUEST,
+			  "load rejects correctly sized unterminated strings");
+		check(raw_request(fd, MUSIC_CMD_RADIO_LOAD, &unterminated_radio, sizeof(unterminated_radio), &response) == MUSIC_STATUS_BAD_REQUEST,
+			  "radio rejects correctly sized unterminated URL");
+		check(raw_request(fd, MUSIC_CMD_LOAD_PLAYLIST, &unterminated_playlist, sizeof(unterminated_playlist), &response) == MUSIC_STATUS_BAD_REQUEST,
+			  "playlist rejects correctly sized unterminated path");
+		check(raw_request(fd, MUSIC_CMD_PODCAST_LOAD, &unterminated_podcast, sizeof(unterminated_podcast), &response) == MUSIC_STATUS_BAD_REQUEST,
+			  "podcast rejects correctly sized unterminated identity");
+		check(raw_request(fd, MUSIC_CMD_PODCAST_PROGRESS, &unterminated_progress, sizeof(unterminated_progress), &response) == MUSIC_STATUS_BAD_REQUEST,
+			  "podcast progress rejects correctly sized unterminated identity");
+		check(raw_request(fd, MUSIC_CMD_PODCAST_MARK_PLAYED, &unterminated_progress, sizeof(unterminated_progress), &response) == MUSIC_STATUS_BAD_REQUEST,
+			  "podcast mark-played rejects correctly sized unterminated identity");
+		check(raw_request(fd, MUSIC_CMD_SNAPSHOT, NULL, 0, &response) == MUSIC_STATUS_OK && kill(daemon, 0) == 0,
+			  "daemon remains alive after unterminated fixed strings");
 		close(fd);
 	}
 
@@ -679,21 +707,23 @@ int main(int argc, char** argv) {
 				  raw_request(fd, MUSIC_CMD_WAKE, NULL, 0, &response) == 0 &&
 				  response.snapshot.state == MUSIC_STATE_PAUSED && !response.snapshot.audio_open,
 			  "wake preserves paused intent with audio closed");
-		/* Balance can persist while its client is disconnected; the live owner
-		 * must observe the shared setting without a reconnect command. */
+		check(raw_request(fd, MUSIC_CMD_SET_VOLUME, &(MusicIntRequest){.value = 7}, sizeof(MusicIntRequest), &response) == MUSIC_STATUS_OK &&
+				  response.snapshot.volume > 0.34f && response.snapshot.volume < 0.36f,
+			  "live daemon applies commanded music gain");
 		InitSettings();
-		SetMusicVolume(7);
+		check(GetMusicVolume() == 7, "live daemon persists commanded music gain");
+		SetMusicVolume(9);
 		bool persisted_volume_applied = false;
 		int64_t volume_deadline = clock_ms() + 500;
 		while (clock_ms() < volume_deadline) {
 			wait_ms(20);
 			if (raw_request(fd, MUSIC_CMD_SNAPSHOT, NULL, 0, &response) == 0 &&
-				response.snapshot.volume > 0.34f && response.snapshot.volume < 0.36f) {
+				response.snapshot.volume > 0.44f && response.snapshot.volume < 0.46f) {
 				persisted_volume_applied = true;
 				break;
 			}
 		}
-		check(persisted_volume_applied, "live daemon applies disconnected persisted music gain");
+		check(persisted_volume_applied, "live daemon reconciles disconnected persisted music gain");
 		QuitSettings();
 		check(run_cli(argv[2], "shuffle", NULL) == 0, "shuffle CLI uses zero payload");
 		check(raw_request(fd, MUSIC_CMD_LOAD, &load, sizeof(load), &response) == 0, "reload first track after shuffle");

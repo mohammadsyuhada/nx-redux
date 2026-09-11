@@ -12,8 +12,7 @@
 #define MUSIC_SERVICE_MAX_ERROR 128
 #define MUSIC_SERVICE_MAX_FRAME 8192
 #define MUSIC_RESUME_SAVE_INTERVAL_MS 60000
-#define MUSIC_SERVICE_PROTOCOL_VERSION 9u
-#define MUSIC_VIS_BARS 64
+#define MUSIC_SERVICE_PROTOCOL_VERSION 10u
 #define MUSIC_VIS_SAMPLE_COUNT 1024
 #define MUSIC_SERVICE_MAGIC 0x4e584d50u
 
@@ -114,7 +113,6 @@ typedef struct __attribute__((packed)) {
 	int32_t queue_index;
 	int32_t queue_kind;
 	uint32_t capabilities;
-	uint16_t visualization[MUSIC_VIS_BARS];
 	int16_t visualization_samples[MUSIC_VIS_SAMPLE_COUNT];
 	char artwork_path[MUSIC_SERVICE_MAX_PATH];
 	char current_file[MUSIC_SERVICE_MAX_PATH];

@@ -74,8 +74,7 @@ static RadioStation default_stations[] = {
 
 // Radio context
 typedef struct {
-	// State - volatile for cross-thread access
-	volatile RadioState state;
+	RadioState state;
 	char error_msg[256];
 
 	// Connection
@@ -197,12 +196,26 @@ static bool stations_file_seen;
 // thread via Radio_getMetadata()
 static pthread_mutex_t meta_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+static RadioState radio_state_load(void) {
+	return __atomic_load_n(&radio.state, __ATOMIC_ACQUIRE);
+}
+
+static void radio_state_store(RadioState state) {
+	__atomic_store_n(&radio.state, state, __ATOMIC_RELEASE);
+}
+
 // Append device-rate samples to the ring (shared by all decode paths)
 static int radio_ring_count_snapshot(void) {
 	pthread_mutex_lock(&radio.audio_mutex);
 	int count = radio.audio_ring_count;
 	pthread_mutex_unlock(&radio.audio_mutex);
 	return count;
+}
+
+static void radio_start_playing_if_buffered(void) {
+	if (radio_state_load() == RADIO_STATE_BUFFERING &&
+		radio_ring_count_snapshot() > AUDIO_RING_SIZE * 2 / 3)
+		radio_state_store(RADIO_STATE_PLAYING);
 }
 
 static void radio_ring_write(const int16_t* samples, int count) {
@@ -847,7 +860,7 @@ static void* hls_stream_thread_func(void* arg) {
 	uint8_t* aac_buf = radio.hls_aac_buf;
 
 	if (!segment_buf || !aac_buf) {
-		radio.state = RADIO_STATE_ERROR;
+		radio_state_store(RADIO_STATE_ERROR);
 		snprintf(radio.error_msg, sizeof(radio.error_msg), "HLS buffers not allocated");
 		return NULL;
 	}
@@ -855,7 +868,7 @@ static void* hls_stream_thread_func(void* arg) {
 	// Initialize FDK-AAC decoder (TT_MP4_ADTS for ADTS-framed AAC in HLS segments)
 	radio.aac_decoder = aacDecoder_Open(TT_MP4_ADTS, 1);
 	if (!radio.aac_decoder) {
-		radio.state = RADIO_STATE_ERROR;
+		radio_state_store(RADIO_STATE_ERROR);
 		snprintf(radio.error_msg, sizeof(radio.error_msg), "AAC decoder init failed");
 		return NULL;
 	}
@@ -863,7 +876,7 @@ static void* hls_stream_thread_func(void* arg) {
 	radio.aac_inbuf_size = 0;
 	radio.aac_sample_rate = 0; // Will be set on first frame
 
-	radio.state = RADIO_STATE_BUFFERING;
+	radio_state_store(RADIO_STATE_BUFFERING);
 
 	int loop_iteration = 0;
 	while (!radio.should_stop) {
@@ -1140,10 +1153,7 @@ static void* hls_stream_thread_func(void* arg) {
 		// (> AUDIO_RING_SIZE, i.e. the whole 10s ring) was unsatisfiable because
 		// radio_ring_write caps count at AUDIO_RING_SIZE, so HLS streams stayed
 		// in BUFFERING forever and auto screen-off never fired.
-		if (radio.state == RADIO_STATE_BUFFERING &&
-			radio_ring_count_snapshot() > AUDIO_RING_SIZE * 2 / 3) {
-			radio.state = RADIO_STATE_PLAYING;
-		}
+		radio_start_playing_if_buffered();
 
 		// Track the sequence number of the segment we just played (before incrementing)
 		radio.hls.last_played_sequence = radio.hls.media_sequence + radio.hls.current_segment;
@@ -1179,7 +1189,7 @@ static void* stream_thread_func(void* arg) {
 
 		// Verify SSL context is valid before use
 		if (radio.use_ssl && !radio.ssl_initialized) {
-			radio.state = RADIO_STATE_ERROR;
+			radio_state_store(RADIO_STATE_ERROR);
 			snprintf(radio.error_msg, sizeof(radio.error_msg), "SSL context invalid");
 			break;
 		}
@@ -1199,7 +1209,7 @@ static void* stream_thread_func(void* arg) {
 			int ret = select(radio.socket_fd + 1, &read_fds, NULL, NULL, &tv);
 
 			if (ret < 0) {
-				radio.state = RADIO_STATE_ERROR;
+				radio_state_store(RADIO_STATE_ERROR);
 				snprintf(radio.error_msg, sizeof(radio.error_msg), "Select error");
 				break;
 			}
@@ -1220,7 +1230,7 @@ static void* stream_thread_func(void* arg) {
 			}
 			// Transient network errors - could potentially implement reconnection here
 			// For now, set error state and let the user retry
-			radio.state = RADIO_STATE_ERROR;
+			radio_state_store(RADIO_STATE_ERROR);
 			if (bytes_read == 0) {
 				snprintf(radio.error_msg, sizeof(radio.error_msg), "Stream ended - server closed connection");
 			} else {
@@ -1295,7 +1305,7 @@ static void* stream_thread_func(void* arg) {
 					radio.aac_initialized = true;
 					radio.aac_inbuf_size = 0;
 					radio.aac_sample_rate = 0; // Will be set on first frame
-					radio.state = RADIO_STATE_BUFFERING;
+					radio_state_store(RADIO_STATE_BUFFERING);
 				} else {
 					LOG_error("AAC decoder init failed\n");
 				}
@@ -1317,7 +1327,7 @@ static void* stream_thread_func(void* arg) {
 					radio.mp3_initialized = true;
 					radio.mp3_sample_rate = 0; // Will be set on first frame
 					radio.mp3_channels = 0;
-					radio.state = RADIO_STATE_BUFFERING;
+					radio_state_store(RADIO_STATE_BUFFERING);
 				} else {
 					LOG_error("No MP3 sync found in buffer\n");
 				}
@@ -1400,10 +1410,7 @@ static void* stream_thread_func(void* arg) {
 			}
 
 			// Update state based on buffer level
-			if (radio.state == RADIO_STATE_BUFFERING &&
-				radio_ring_count_snapshot() > AUDIO_RING_SIZE * 2 / 3) {
-				radio.state = RADIO_STATE_PLAYING;
-			}
+			radio_start_playing_if_buffered();
 		} else if (radio.audio_format == RADIO_FORMAT_MP3 && radio.mp3_initialized && radio.stream_buffer_pos >= 1024) {
 			// MP3 decoding using low-level frame decoder
 			// DRMP3_MAX_SAMPLES_PER_FRAME = 1152*2 = 2304
@@ -1472,15 +1479,12 @@ static void* stream_thread_func(void* arg) {
 			}
 
 			// Update state based on buffer level
-			if (radio.state == RADIO_STATE_BUFFERING &&
-				radio_ring_count_snapshot() > AUDIO_RING_SIZE * 2 / 3) {
-				radio.state = RADIO_STATE_PLAYING;
-			}
+			radio_start_playing_if_buffered();
 		}
 
 		// If buffering and have enough data
-		if (radio.state == RADIO_STATE_CONNECTING && radio.stream_buffer_pos > 0) {
-			radio.state = RADIO_STATE_BUFFERING;
+		if (radio_state_load() == RADIO_STATE_CONNECTING && radio.stream_buffer_pos > 0) {
+			radio_state_store(RADIO_STATE_BUFFERING);
 		}
 	}
 
@@ -1496,7 +1500,7 @@ int Radio_init(void) {
 	memset(&radio, 0, sizeof(RadioContext));
 
 	radio.socket_fd = -1;
-	radio.state = RADIO_STATE_STOPPED;
+	radio_state_store(RADIO_STATE_STOPPED);
 
 	pthread_mutex_init(&radio.audio_mutex, NULL);
 	pthread_mutex_init(&radio.hls_mutex, NULL);
@@ -1838,12 +1842,12 @@ static void* radio_stream_thread_func(void* arg) {
 
 	if (radio.stream_type == STREAM_TYPE_HLS) {
 		if (hls_connect() != 0) {
-			radio.state = RADIO_STATE_ERROR;
+			radio_state_store(RADIO_STATE_ERROR);
 			return NULL;
 		}
 	} else {
 		if (direct_connect() != 0) {
-			radio.state = RADIO_STATE_ERROR;
+			radio_state_store(RADIO_STATE_ERROR);
 			return NULL;
 		}
 	}
@@ -1892,7 +1896,7 @@ int Radio_play(const char* url) {
 
 	strncpy(radio.current_url, url, RADIO_MAX_URL - 1);
 	radio.current_url[RADIO_MAX_URL - 1] = '\0';
-	radio.state = RADIO_STATE_CONNECTING;
+	radio_state_store(RADIO_STATE_CONNECTING);
 	radio.error_msg[0] = '\0';
 
 	// Reset buffers
@@ -1932,7 +1936,7 @@ int Radio_play(const char* url) {
 	if (pthread_create(&radio.stream_thread, &attr, radio_stream_thread_func, NULL) != 0) {
 		pthread_attr_destroy(&attr);
 		radio.thread_running = false;
-		radio.state = RADIO_STATE_ERROR;
+		radio_state_store(RADIO_STATE_ERROR);
 		snprintf(radio.error_msg, sizeof(radio.error_msg), "Thread creation failed");
 		return -1;
 	}
@@ -2013,17 +2017,14 @@ void Radio_stop(void) {
 	// Clear album art
 	album_art_clear();
 
-	radio.state = RADIO_STATE_STOPPED;
+	radio_state_store(RADIO_STATE_STOPPED);
 
 	// Pause audio device when radio stops
 	Player_pauseAudio();
 }
 
 RadioState Radio_getState(void) {
-	pthread_mutex_lock(&radio.audio_mutex);
-	RadioState state = radio.state;
-	pthread_mutex_unlock(&radio.audio_mutex);
-	return state;
+	return radio_state_load();
 }
 
 const char* Radio_getCurrentUrl(void) {
@@ -2089,8 +2090,8 @@ void Radio_update(void) {
 	// Check for buffer underrun while holding the same mutex used by the audio
 	// callback and decoder ring writer.
 	pthread_mutex_lock(&radio.audio_mutex);
-	if (radio.state == RADIO_STATE_PLAYING && radio.audio_ring_count < SAMPLE_RATE * 2 * 2)
-		radio.state = RADIO_STATE_BUFFERING;
+	if (radio_state_load() == RADIO_STATE_PLAYING && radio.audio_ring_count < SAMPLE_RATE * 2 * 2)
+		radio_state_store(RADIO_STATE_BUFFERING);
 	pthread_mutex_unlock(&radio.audio_mutex);
 }
 
@@ -2100,8 +2101,8 @@ int Radio_getAudioSamples(int16_t* buffer, int max_samples) {
 	// Check for underrun and transition to buffering if needed
 	// This provides faster response than waiting for Radio_update()
 	// But continue to provide remaining audio to avoid abrupt silence
-	if (radio.state == RADIO_STATE_PLAYING && radio.audio_ring_count < SAMPLE_RATE * 2 * 2) {
-		radio.state = RADIO_STATE_BUFFERING;
+	if (radio_state_load() == RADIO_STATE_PLAYING && radio.audio_ring_count < SAMPLE_RATE * 2 * 2) {
+		radio_state_store(RADIO_STATE_BUFFERING);
 		// Don't return early - continue to drain remaining buffer smoothly
 	}
 

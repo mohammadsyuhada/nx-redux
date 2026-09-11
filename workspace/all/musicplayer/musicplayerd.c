@@ -1,4 +1,6 @@
 #include "music_service_protocol.h"
+#include "music_request_validation.h"
+#include "music_service_server.h"
 #include "player.h"
 #include "playlist.h"
 #include "playlist_m3u.h"
@@ -8,17 +10,12 @@
 #include "resume.h"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_surface.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <poll.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 #include <sys/stat.h>
-#include <sys/un.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -27,22 +24,10 @@ void QuitSettings(void);
 int GetMusicVolume(void);
 void SetMusicVolume(int volume);
 
-#define MAX_CLIENTS 8
-#define CLIENT_FRAME_TIMEOUT_MS 2000
 #define WAKE_ROUTE_DEADLINE_MS 5000
-
-typedef struct {
-	int fd;
-	unsigned char input[MUSIC_SERVICE_MAX_FRAME];
-	size_t input_length;
-	int64_t frame_deadline_ms;
-} Client;
 
 static volatile sig_atomic_t quit;
 static PlaylistContext queue;
-static int listen_fd = -1;
-static char socket_path[sizeof(((struct sockaddr_un*)0)->sun_path)];
-static char lock_path[sizeof(socket_path) + 8];
 static bool eof_advanced;
 static bool shuffle_enabled;
 #define SHUFFLE_HISTORY_MAX 32
@@ -111,108 +96,6 @@ static void sync_music_volume(void) {
 static void on_signal(int sig) {
 	if (sig == SIGINT || sig == SIGTERM)
 		quit = 1;
-}
-
-static void close_client(Client* client) {
-	if (client->fd >= 0)
-		close(client->fd);
-	client->fd = -1;
-	client->input_length = 0;
-	client->frame_deadline_ms = 0;
-}
-
-static int acquire_lock(void) {
-	int fd = open(lock_path, O_WRONLY | O_CREAT | O_EXCL, 384);
-	if (fd >= 0) {
-		char pid[32];
-		int n = snprintf(pid, sizeof(pid), "%ld\n", (long)getpid());
-		(void)write(fd, pid, (size_t)n);
-		close(fd);
-		return 0;
-	}
-	if (errno != EEXIST)
-		return -1;
-	fd = open(lock_path, O_RDONLY);
-	char pid[32] = {0};
-	ssize_t n = fd >= 0 ? read(fd, pid, sizeof(pid) - 1) : -1;
-	if (fd >= 0)
-		close(fd);
-	if (n > 0) {
-		pid_t owner = (pid_t)strtol(pid, NULL, 10);
-		if (owner > 0 && kill(owner, 0) == 0)
-			return -1;
-	}
-	unlink(lock_path);
-	fd = open(lock_path, O_WRONLY | O_CREAT | O_EXCL, 384);
-	if (fd < 0)
-		return -1;
-	char own_pid[32];
-	n = snprintf(own_pid, sizeof(own_pid), "%ld\n", (long)getpid());
-	(void)write(fd, own_pid, (size_t)n);
-	close(fd);
-	return 0;
-}
-
-static int open_control_socket(void) {
-	const char* configured = getenv(MUSIC_SERVICE_SOCKET_ENV);
-	if (!configured || !configured[0])
-		configured = MUSIC_SERVICE_DEFAULT_SOCKET;
-	if (strlen(configured) >= sizeof(socket_path))
-		return -1;
-	strcpy(socket_path, configured);
-	snprintf(lock_path, sizeof(lock_path), "%s.lock", socket_path);
-	char parent[sizeof(socket_path)];
-	strcpy(parent, socket_path);
-	char* slash = strrchr(parent, '/');
-	if (slash) {
-		*slash = '\0';
-		if (parent[0])
-			mkdir(parent, 493);
-	}
-	if (acquire_lock() != 0)
-		return -1;
-	listen_fd = socket(AF_UNIX, SOCK_STREAM, 0);
-	if (listen_fd < 0)
-		return -1;
-	struct sockaddr_un address;
-	memset(&address, 0, sizeof(address));
-	address.sun_family = AF_UNIX;
-	strncpy(address.sun_path, socket_path, sizeof(address.sun_path) - 1);
-	if (bind(listen_fd, (struct sockaddr*)&address, sizeof(address)) != 0) {
-		/* The lock is authoritative. A socket left by an unclean old owner is stale. */
-		if (errno == EADDRINUSE) {
-			int probe = socket(AF_UNIX, SOCK_STREAM, 0);
-			int alive = probe >= 0 && connect(probe, (struct sockaddr*)&address, sizeof(address)) == 0;
-			if (probe >= 0)
-				close(probe);
-			if (alive) {
-				unlink(lock_path);
-				return -1;
-			}
-			unlink(socket_path);
-			if (bind(listen_fd, (struct sockaddr*)&address, sizeof(address)) != 0) {
-				unlink(lock_path);
-				return -1;
-			}
-		} else {
-			unlink(lock_path);
-			return -1;
-		}
-	}
-	if (listen(listen_fd, MAX_CLIENTS) != 0)
-		return -1;
-	fcntl(listen_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);
-	return 0;
-}
-
-static void close_control_socket(void) {
-	if (listen_fd >= 0)
-		close(listen_fd);
-	listen_fd = -1;
-	if (socket_path[0])
-		unlink(socket_path);
-	if (lock_path[0])
-		unlink(lock_path);
 }
 
 #define OWNED_ARTWORK_DIR "/tmp/trimui_music"
@@ -312,25 +195,11 @@ static void fill_snapshot(MusicResponseWire* response) {
 	if (snapshot.state == PLAYER_STATE_PLAYING) {
 		/* Copy a bounded stereo window. The UI owns the presentation FFT; the
 		 * service only exports decoder samples, never an engine or SDL pointer. */
-		int16_t samples[MUSIC_VIS_SAMPLE_COUNT];
+		int16_t samples[MUSIC_VIS_SAMPLE_COUNT] = {0};
 		int sample_count = Player_getVisBuffer(samples, MUSIC_VIS_SAMPLE_COUNT);
-		if (sample_count > 0) {
-			memcpy(response->snapshot.visualization_samples, samples, sizeof(samples));
-			for (int i = 0; i < MUSIC_VIS_BARS; i++) {
-				int start = i * sample_count / MUSIC_VIS_BARS;
-				int end = (i + 1) * sample_count / MUSIC_VIS_BARS;
-				int64_t total = 0;
-				int count = 0;
-				for (int j = start; j < end; j++) {
-					total += abs(samples[j]);
-					count++;
-				}
-				int level = count ? (int)(total / count) : 0;
-				if (level > 32767)
-					level = 32767;
-				response->snapshot.visualization[i] = (uint16_t)(level * 2);
-			}
-		}
+		if (sample_count > 0)
+			memcpy(response->snapshot.visualization_samples, samples,
+				   (size_t)sample_count * sizeof(samples[0]));
 	}
 	if (active_source == MUSIC_SOURCE_RADIO) {
 		RadioStation* stations;
@@ -974,47 +843,36 @@ static int toggle_active_source(void) {
 	return MUSIC_STATUS_INTERNAL;
 }
 
-static int handle_command(uint16_t command, const unsigned char* payload, size_t length,
-						  MusicResponseWire* response) {
+static void handle_command(uint16_t command, const unsigned char* payload, size_t length,
+						   MusicResponseWire* response) {
 	memset(response, 0, sizeof(*response));
-	int status = MUSIC_STATUS_OK;
 	if (command != MUSIC_CMD_SNAPSHOT)
 		restore_pending = false;
+	if (!MusicRequest_isValidPayload(command, payload, length)) {
+		response_error(response, MUSIC_STATUS_BAD_REQUEST, "command failed");
+		return;
+	}
+	int status = MUSIC_STATUS_OK;
 	switch (command) {
 	case MUSIC_CMD_SNAPSHOT:
 		break;
 	case MUSIC_CMD_LOAD:
-		if (length != sizeof(MusicLoadRequest))
-			status = MUSIC_STATUS_BAD_REQUEST;
-		else
-			status = load_path((const MusicLoadRequest*)payload);
+		status = load_path((const MusicLoadRequest*)payload);
 		break;
 	case MUSIC_CMD_LOAD_PLAYLIST:
-		if (length != sizeof(MusicPlaylistLoadRequest))
-			status = MUSIC_STATUS_BAD_REQUEST;
-		else
-			status = load_playlist((const MusicPlaylistLoadRequest*)payload);
+		status = load_playlist((const MusicPlaylistLoadRequest*)payload);
 		break;
 	case MUSIC_CMD_RADIO_LOAD:
-		if (length != sizeof(MusicRadioLoadRequest))
-			status = MUSIC_STATUS_BAD_REQUEST;
-		else
-			status = load_radio(((const MusicRadioLoadRequest*)payload)->url);
+		status = load_radio(((const MusicRadioLoadRequest*)payload)->url);
 		break;
 	case MUSIC_CMD_PODCAST_LOAD:
-		if (length != sizeof(MusicPodcastLoadRequest))
-			status = MUSIC_STATUS_BAD_REQUEST;
-		else {
-			podcast_resume_transport = RESUME_TRANSPORT_PLAYING;
-			status = load_podcast((const MusicPodcastLoadRequest*)payload, true);
-		}
+		podcast_resume_transport = RESUME_TRANSPORT_PLAYING;
+		status = load_podcast((const MusicPodcastLoadRequest*)payload, true);
 		break;
 	case MUSIC_CMD_SELECT:
 	case MUSIC_CMD_SEEK:
 	case MUSIC_CMD_REPEAT:
-		if (length != sizeof(MusicIntRequest))
-			status = MUSIC_STATUS_BAD_REQUEST;
-		else if (command != MUSIC_CMD_REPEAT && !has_active_source())
+		if (command != MUSIC_CMD_REPEAT && !has_active_source())
 			status = MUSIC_STATUS_NOT_FOUND;
 		else if (command == MUSIC_CMD_SELECT)
 			status = select_index(((const MusicIntRequest*)payload)->value);
@@ -1026,19 +884,13 @@ static int handle_command(uint16_t command, const unsigned char* payload, size_t
 		}
 		break;
 	case MUSIC_CMD_SET_SHUFFLE:
-		if (length != sizeof(MusicIntRequest))
-			status = MUSIC_STATUS_BAD_REQUEST;
-		else {
-			shuffle_enabled = ((const MusicIntRequest*)payload)->value != 0;
-			if (!shuffle_enabled)
-				shuffle_history_count = 0;
-		}
+		shuffle_enabled = ((const MusicIntRequest*)payload)->value != 0;
+		if (!shuffle_enabled)
+			shuffle_history_count = 0;
 		break;
 	case MUSIC_CMD_PODCAST_PROGRESS:
 	case MUSIC_CMD_PODCAST_MARK_PLAYED:
-		if (length != sizeof(MusicPodcastProgressRequest)) {
-			status = MUSIC_STATUS_BAD_REQUEST;
-		} else {
+		{
 			const MusicPodcastProgressRequest* progress = (const MusicPodcastProgressRequest*)payload;
 			Podcast_reloadPlaybackData();
 			if (active_source == MUSIC_SOURCE_PODCAST)
@@ -1063,19 +915,17 @@ static int handle_command(uint16_t command, const unsigned char* payload, size_t
 		}
 		break;
 	case MUSIC_CMD_SET_VOLUME:
-		if (length != sizeof(MusicIntRequest) || ((const MusicIntRequest*)payload)->value < 0 ||
+		if (((const MusicIntRequest*)payload)->value < 0 ||
 			((const MusicIntRequest*)payload)->value > 20)
 			status = MUSIC_STATUS_BAD_REQUEST;
 		else {
 			int volume = ((const MusicIntRequest*)payload)->value;
 			SetMusicVolume(volume);
-			Player_setVolume(volume / 20.0f);
+			sync_music_volume();
 		}
 		break;
 	case MUSIC_CMD_SET_SPEED:
-		if (length != sizeof(MusicSpeedRequest))
-			status = MUSIC_STATUS_BAD_REQUEST;
-		else if (((const MusicSpeedRequest*)payload)->speed < 0.5f ||
+		if (((const MusicSpeedRequest*)payload)->speed < 0.5f ||
 				 ((const MusicSpeedRequest*)payload)->speed > 2.0f)
 			status = MUSIC_STATUS_BAD_REQUEST;
 		else
@@ -1083,7 +933,7 @@ static int handle_command(uint16_t command, const unsigned char* payload, size_t
 		break;
 	case MUSIC_CMD_AUDIO_SETTINGS: {
 		const MusicAudioSettingsRequest* settings = (const MusicAudioSettingsRequest*)payload;
-		if (length != sizeof(*settings) || settings->bass_filter_hz < 0 ||
+		if (settings->bass_filter_hz < 0 ||
 			settings->soft_limiter_threshold < 0.0f || settings->soft_limiter_threshold > 1.0f ||
 			settings->resampler_quality < 0 || settings->resampler_quality > 2 ||
 			(settings->buffer_frames != 1024 && settings->buffer_frames != 2048 &&
@@ -1099,9 +949,7 @@ static int handle_command(uint16_t command, const unsigned char* payload, size_t
 		break;
 	}
 	case MUSIC_CMD_SHUFFLE:
-		if (length != 0)
-			status = MUSIC_STATUS_BAD_REQUEST;
-		else if (!has_active_source())
+		if (!has_active_source())
 			status = MUSIC_STATUS_NOT_FOUND;
 		else {
 			int index = Playlist_shuffle(&queue);
@@ -1203,76 +1051,6 @@ static int handle_command(uint16_t command, const unsigned char* payload, size_t
 			save_resume_state();
 	}
 	response_error(response, status, status == MUSIC_STATUS_OK ? NULL : "command failed");
-	return 0;
-}
-
-static void send_response(Client* client, uint16_t command, uint32_t request_id,
-						  MusicResponseWire* response) {
-	MusicFrameHeader header = {
-		.magic = MUSIC_SERVICE_MAGIC, .version = MUSIC_SERVICE_PROTOCOL_VERSION, .command = command, .request_id = request_id, .payload_length = sizeof(*response)};
-	unsigned char frame[sizeof(header) + sizeof(*response)];
-	memcpy(frame, &header, sizeof(header));
-	memcpy(frame + sizeof(header), response, sizeof(*response));
-	size_t total = sizeof(frame), sent = 0;
-	while (sent < total) {
-		ssize_t n = send(client->fd, frame + sent, total - sent, MSG_DONTWAIT | MSG_NOSIGNAL);
-		if (n <= 0) {
-			close_client(client);
-			return;
-		}
-		sent += (size_t)n;
-	}
-}
-
-static void process_client(Client* client) {
-	for (;;) {
-		if (client->input_length < sizeof(MusicFrameHeader))
-			return;
-		MusicFrameHeader header;
-		memcpy(&header, client->input, sizeof(header));
-		if (header.magic != MUSIC_SERVICE_MAGIC || header.version != MUSIC_SERVICE_PROTOCOL_VERSION ||
-			header.payload_length > MUSIC_SERVICE_MAX_FRAME - sizeof(MusicFrameHeader)) {
-			close_client(client);
-			return;
-		}
-		size_t frame_size = sizeof(header) + header.payload_length;
-		if (client->input_length < frame_size)
-			return;
-		MusicResponseWire response;
-		handle_command(header.command, client->input + sizeof(header), header.payload_length, &response);
-		size_t remaining = client->input_length - frame_size;
-		memmove(client->input, client->input + frame_size, remaining);
-		client->input_length = remaining;
-		client->frame_deadline_ms = remaining ? now_ms() + CLIENT_FRAME_TIMEOUT_MS : 0;
-		send_response(client, header.command, header.request_id, &response);
-		if (client->fd < 0)
-			return;
-	}
-}
-
-static void accept_clients(Client clients[MAX_CLIENTS]) {
-	for (;;) {
-		int fd = accept(listen_fd, NULL, NULL);
-		if (fd < 0) {
-			if (errno == EAGAIN || errno == EWOULDBLOCK)
-				return;
-			return;
-		}
-		fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
-		int slot = -1;
-		for (int i = 0; i < MAX_CLIENTS; i++)
-			if (clients[i].fd < 0) {
-				slot = i;
-				break;
-			}
-		if (slot < 0) {
-			close(fd);
-			continue;
-		}
-		clients[slot].fd = fd;
-		clients[slot].input_length = 0;
-		clients[slot].frame_deadline_ms = 0;
-	}
 }
 
 static void service_tick(void) {
@@ -1350,7 +1128,7 @@ int main(void) {
 	signal(SIGINT, on_signal);
 	signal(SIGTERM, on_signal);
 	signal(SIGPIPE, SIG_IGN);
-	if (open_control_socket() != 0)
+	if (MusicServiceServer_open() != 0)
 		return EXIT_FAILURE;
 	Playlist_init(&queue);
 	Resume_init();
@@ -1370,60 +1148,15 @@ int main(void) {
 		Settings_quit();
 		QuitSettings();
 		Playlist_free(&queue);
-		close_control_socket();
+		MusicServiceServer_close();
 		return EXIT_FAILURE;
 	}
 	restore_pending = Resume_isAvailable();
 	restore_deadline_ms = restore_pending ? now_ms() + 5000 : 0;
 
-	Client clients[MAX_CLIENTS];
-	for (int i = 0; i < MAX_CLIENTS; i++)
-		clients[i].fd = -1;
 	while (!quit) {
-		struct pollfd pfds[1 + MAX_CLIENTS];
-		int map[1 + MAX_CLIENTS];
-		int count = 1;
-		pfds[0] = (struct pollfd){.fd = listen_fd, .events = POLLIN};
-		map[0] = -1;
-		for (int i = 0; i < MAX_CLIENTS; i++)
-			if (clients[i].fd >= 0) {
-				pfds[count] = (struct pollfd){.fd = clients[i].fd, .events = POLLIN};
-				map[count++] = i;
-			}
-		(void)poll(pfds, count, 10);
 		attempt_restore();
-		if (pfds[0].revents & POLLIN)
-			accept_clients(clients);
-		int64_t now = now_ms();
-		for (int p = 1; p < count; p++) {
-			Client* client = &clients[map[p]];
-			if (client->fd < 0)
-				continue;
-			if (pfds[p].revents & (POLLERR | POLLHUP | POLLNVAL)) {
-				close_client(client);
-				continue;
-			}
-			if (pfds[p].revents & POLLIN) {
-				unsigned char buf[512];
-				ssize_t n = recv(client->fd, buf, sizeof(buf), MSG_DONTWAIT);
-				if (n <= 0) {
-					close_client(client);
-					continue;
-				}
-				if (client->input_length + (size_t)n > MUSIC_SERVICE_MAX_FRAME) {
-					close_client(client);
-					continue;
-				}
-				if (client->input_length == 0)
-					client->frame_deadline_ms = now + CLIENT_FRAME_TIMEOUT_MS;
-				memcpy(client->input + client->input_length, buf, (size_t)n);
-				client->input_length += (size_t)n;
-				process_client(client);
-			}
-			if (client->fd >= 0 && client->input_length && client->frame_deadline_ms > 0 &&
-				now >= client->frame_deadline_ms)
-				close_client(client);
-		}
+		MusicServiceServer_poll(handle_command, 10);
 		poll_hid();
 		service_tick();
 		PlayerSnapshot snapshot;
@@ -1456,6 +1189,6 @@ int main(void) {
 	QuitSettings();
 	Playlist_free(&queue);
 	cleanup_owned_artwork();
-	close_control_socket();
+	MusicServiceServer_close();
 	return EXIT_SUCCESS;
 }
