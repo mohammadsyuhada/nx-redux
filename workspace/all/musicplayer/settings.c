@@ -5,10 +5,16 @@
 #include <string.h>
 #include <math.h>
 #include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 // Settings file path (in shared userdata directory)
-#define SETTINGS_FILE SHARED_USERDATA_PATH "/music-player/settings.cfg"
+#ifdef MUSIC_SETTINGS_TEST_DIR
+#define SETTINGS_DIR MUSIC_SETTINGS_TEST_DIR
+#else
 #define SETTINGS_DIR SHARED_USERDATA_PATH "/music-player"
+#endif
+#define SETTINGS_FILE SETTINGS_DIR "/settings.cfg"
 
 // Valid screen off timeout values (in seconds)
 // 0 means off (no auto screen off)
@@ -201,6 +207,18 @@ const char* Settings_getScreenOffDisplayStr(void) {
 }
 
 void Settings_save(void) {
+	char lock_path[sizeof(SETTINGS_FILE) + 6];
+	snprintf(lock_path, sizeof(lock_path), "%s.lock", SETTINGS_FILE);
+	mkdir(SETTINGS_DIR, 493);
+	int lock_fd = open(lock_path, O_CREAT | O_RDWR, 420);
+	if (lock_fd < 0)
+		return;
+	struct flock lock = {.l_type = F_WRLCK, .l_whence = SEEK_SET};
+	if (fcntl(lock_fd, F_SETLKW, &lock) != 0) {
+		close(lock_fd);
+		return;
+	}
+
 	char preserved[5][256] = {{0}};
 	int preserved_count = 0;
 	FILE* old = fopen(SETTINGS_FILE, "r");
@@ -212,32 +230,50 @@ void Settings_save(void) {
 				: strncmp(line, "bass_filter_hz=", 15) == 0 || strncmp(line, "soft_limiter=", 13) == 0 ||
 					strncmp(line, "sample_rate_follow=", 19) == 0 || strncmp(line, "resampler_quality=", 18) == 0 ||
 					strncmp(line, "buffer_frames=", 14) == 0;
-			if (other_owner) {
-				strncpy(preserved[preserved_count], line, sizeof(preserved[0]) - 1);
-				preserved_count++;
-			}
+			if (other_owner)
+				strncpy(preserved[preserved_count++], line, sizeof(preserved[0]) - 1);
 		}
 		fclose(old);
 	}
-	mkdir(SETTINGS_DIR, 0755);
-	FILE* f = fopen(SETTINGS_FILE, "w");
-	if (!f)
-		return;
-	if (settings_owner_mode) {
-		for (int i = 0; i < preserved_count; i++)
-			fputs(preserved[i], f);
-		fprintf(f, "bass_filter_hz=%d\n", current_settings.bass_filter_hz);
-		fprintf(f, "soft_limiter=%d\n", current_settings.soft_limiter_index);
-		fprintf(f, "sample_rate_follow=%d\n", current_settings.rate_mode_follow);
-		fprintf(f, "resampler_quality=%d\n", current_settings.resampler_quality);
-		fprintf(f, "buffer_frames=%d\n", current_settings.buffer_frames);
-	} else {
-		fprintf(f, "screen_off_timeout=%d\n", current_settings.screen_off_timeout);
-		fprintf(f, "lyrics_enabled=%d\n", current_settings.lyrics_enabled ? 1 : 0);
-		for (int i = 0; i < preserved_count; i++)
-			fputs(preserved[i], f);
+
+	char temporary[sizeof(SETTINGS_FILE) + 12];
+	snprintf(temporary, sizeof(temporary), "%s.tmp.XXXXXX", SETTINGS_FILE);
+	int temporary_fd = mkstemp(temporary);
+	FILE* file = temporary_fd >= 0 ? fdopen(temporary_fd, "w") : NULL;
+	if (file) {
+		if (settings_owner_mode) {
+			for (int i = 0; i < preserved_count; i++)
+				fputs(preserved[i], file);
+			fprintf(file, "bass_filter_hz=%d\n", current_settings.bass_filter_hz);
+			fprintf(file, "soft_limiter=%d\n", current_settings.soft_limiter_index);
+			fprintf(file, "sample_rate_follow=%d\n", current_settings.rate_mode_follow);
+			fprintf(file, "resampler_quality=%d\n", current_settings.resampler_quality);
+			fprintf(file, "buffer_frames=%d\n", current_settings.buffer_frames);
+		} else {
+			fprintf(file, "screen_off_timeout=%d\n", current_settings.screen_off_timeout);
+			fprintf(file, "lyrics_enabled=%d\n", current_settings.lyrics_enabled ? 1 : 0);
+			for (int i = 0; i < preserved_count; i++)
+				fputs(preserved[i], file);
+		}
+		int ok = fflush(file) == 0 && fsync(temporary_fd) == 0;
+		if (fclose(file) != 0)
+			ok = 0;
+		if (ok && rename(temporary, SETTINGS_FILE) == 0) {
+			int dir_fd = open(SETTINGS_DIR, O_RDONLY | O_DIRECTORY);
+			if (dir_fd >= 0) {
+				(void)fsync(dir_fd);
+				close(dir_fd);
+			}
+		} else {
+			unlink(temporary);
+		}
+	} else if (temporary_fd >= 0) {
+		close(temporary_fd);
+		unlink(temporary);
 	}
-	fclose(f);
+	lock.l_type = F_UNLCK;
+	(void)fcntl(lock_fd, F_SETLK, &lock);
+	close(lock_fd);
 }
 
 bool Settings_getLyricsEnabled(void) {

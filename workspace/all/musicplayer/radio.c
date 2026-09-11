@@ -189,6 +189,9 @@ typedef struct {
 } RadioContext;
 
 static RadioContext radio = {0};
+static time_t stations_mtime;
+static off_t stations_size;
+static bool stations_file_seen;
 
 // Guards radio.metadata: written by the stream thread, read by the UI
 // thread via Radio_getMetadata()
@@ -1585,7 +1588,24 @@ void Radio_quit(void) {
 	radio_initialized = false;
 }
 
+static void note_stations_file(void) {
+	struct stat st;
+	if (stat(RADIO_STATIONS_FILE, &st) == 0) {
+		stations_mtime = st.st_mtime;
+		stations_size = st.st_size;
+		stations_file_seen = true;
+	}
+}
+
+static void reload_stations_if_changed(void) {
+	struct stat st;
+	if (stat(RADIO_STATIONS_FILE, &st) == 0 &&
+		(!stations_file_seen || st.st_mtime != stations_mtime || st.st_size != stations_size))
+		Radio_loadStations();
+}
+
 int Radio_getStations(RadioStation** stations) {
+	reload_stations_if_changed();
 	*stations = radio.stations;
 	return radio.station_count;
 }
@@ -1637,6 +1657,7 @@ void Radio_saveStations(void) {
 	}
 
 	fclose(f);
+	note_stations_file();
 
 	if (radio.station_count > 0) {
 		radio.has_user_stations = true;
@@ -1669,6 +1690,7 @@ void Radio_loadStations(void) {
 	}
 
 	fclose(f);
+	note_stations_file();
 
 	// Mark that user has custom stations if any were loaded
 	if (radio.station_count > 0) {
@@ -2155,6 +2177,15 @@ bool Radio_removeStationByUrl(const char* url) {
 
 SDL_Surface* Radio_getAlbumArt(void) {
 	return album_art_get();
+}
+
+SDL_Surface* Radio_getArtwork(const RadioMetadata* metadata, unsigned int* revision) {
+	SDL_Surface* artwork = album_art_get();
+	if (revision)
+		*revision = album_art_revision();
+	if (!metadata || !album_art_matches(metadata->artist, metadata->title))
+		return NULL;
+	return artwork;
 }
 
 bool Radio_hasUserStations(void) {

@@ -20,6 +20,8 @@ void album_art_load_path(const char* path);
 
 // Get current album art surface (NULL if none or still fetching)
 struct SDL_Surface* album_art_get(void);
+bool album_art_matches(const char* artist, const char* title);
+unsigned int album_art_revision(void);
 
 // Check if a fetch is in progress
 bool album_art_is_fetching(void);

@@ -22,6 +22,10 @@
 #include <time.h>
 #include <unistd.h>
 
+void InitSettings(void);
+void QuitSettings(void);
+void SetMusicVolume(int volume);
+
 static int failures;
 static void check(int condition, const char* message) {
 	if (!condition) {
@@ -300,8 +304,28 @@ int main(int argc, char** argv) {
 				  strcmp(response.snapshot.current_file, recursive_selected) == 0 &&
 				  response.snapshot.queue_count == 2,
 			  "recursive folder request preserves selected root and track");
+		check(raw_request(fd, MUSIC_CMD_NEXT, NULL, 0, &response) == 0 &&
+			  strcmp(response.snapshot.queue_path, recursive_root) == 0 &&
+			  response.snapshot.queue_kind == MUSIC_QUEUE_FOLDER &&
+			  strstr(response.snapshot.current_file, "01.wav"),
+		  "next retains recursive queue root");
+		check(raw_request(fd, MUSIC_CMD_PREVIOUS, NULL, 0, &response) == 0 &&
+			  strcmp(response.snapshot.queue_path, recursive_root) == 0 &&
+			  response.snapshot.queue_kind == MUSIC_QUEUE_FOLDER &&
+			  strcmp(response.snapshot.current_file, recursive_selected) == 0,
+		  "previous retains recursive queue root");
 		close(fd);
 	}
+
+	/* A rejected owner must not remove the live owner's published artwork. */
+	mkdir("/tmp/trimui_music", 493);
+	const char* live_art = "/tmp/trimui_music/owner-art-999.bmp";
+	FILE* live_art_file = fopen(live_art, "w");
+	if (live_art_file) {
+		fputs("live", live_art_file);
+		fclose(live_art_file);
+	}
+	check(live_art_file != NULL, "create live artwork fixture");
 
 	/* A second owner is rejected while the singleton is alive. */
 	pid_t second_owner = fork();
@@ -312,6 +336,8 @@ int main(int argc, char** argv) {
 	int second_status = 0;
 	waitpid(second_owner, &second_status, 0);
 	check(WIFEXITED(second_status) && WEXITSTATUS(second_status) != 0, "singleton owner rejection");
+	check(access(live_art, F_OK) == 0, "rejected singleton leaves live artwork intact");
+	unlink(live_art);
 
 	/* Resume persistence is exercised through real owner restarts. The private
 	 * directory keeps this test from touching a device user's saved playback. */

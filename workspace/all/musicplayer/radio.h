@@ -121,6 +121,7 @@ bool Radio_removeStationByUrl(const char* url);
 
 // Album art for current radio track (fetched from iTunes)
 struct SDL_Surface* Radio_getAlbumArt(void);
+struct SDL_Surface* Radio_getArtwork(const RadioMetadata* metadata, unsigned int* revision);
 
 // Check if user has custom stations (vs using defaults)
 bool Radio_hasUserStations(void);

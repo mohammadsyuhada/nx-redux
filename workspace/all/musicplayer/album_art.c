@@ -24,6 +24,9 @@ typedef struct {
 	SDL_Surface* album_art;
 	char last_art_artist[256];
 	char last_art_title[256];
+	char loaded_art_artist[256];
+	char loaded_art_title[256];
+	unsigned int revision;
 	bool art_fetch_in_progress;
 
 	// Thread state
@@ -319,6 +322,7 @@ void album_art_load_path(const char* path) {
 		if (art_ctx.album_art)
 			SDL_FreeSurface(art_ctx.album_art);
 		art_ctx.album_art = art;
+		art_ctx.revision++;
 		art_ctx.result_ready = false;
 		art_ctx.pending_art = NULL;
 	}
@@ -342,9 +346,26 @@ void album_art_clear(void) {
 	}
 	art_ctx.last_art_artist[0] = '\0';
 	art_ctx.last_art_title[0] = '\0';
+	art_ctx.revision++;
 	art_ctx.art_fetch_in_progress = false;
 	art_ctx.result_ready = false;
 	pthread_mutex_unlock(&art_lock);
+}
+
+unsigned int album_art_revision(void) {
+	pthread_mutex_lock(&art_lock);
+	unsigned int revision = art_ctx.revision;
+	pthread_mutex_unlock(&art_lock);
+	return revision;
+}
+
+bool album_art_matches(const char* artist, const char* title) {
+	bool matches;
+	pthread_mutex_lock(&art_lock);
+	matches = art_ctx.album_art && strcmp(art_ctx.loaded_art_artist, artist ? artist : "") == 0 &&
+		strcmp(art_ctx.loaded_art_title, title ? title : "") == 0;
+	pthread_mutex_unlock(&art_lock);
+	return matches;
 }
 
 SDL_Surface* album_art_get(void) {
@@ -362,6 +383,9 @@ SDL_Surface* album_art_get(void) {
 			}
 			art_ctx.album_art = art_ctx.pending_art;
 			art_ctx.pending_art = NULL;
+			strncpy(art_ctx.loaded_art_artist, art_ctx.req_artist, sizeof(art_ctx.loaded_art_artist) - 1);
+			strncpy(art_ctx.loaded_art_title, art_ctx.req_title, sizeof(art_ctx.loaded_art_title) - 1);
+			art_ctx.revision++;
 		}
 	}
 	SDL_Surface* result = art_ctx.album_art;

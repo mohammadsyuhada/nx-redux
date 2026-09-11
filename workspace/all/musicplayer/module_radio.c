@@ -69,7 +69,18 @@ static bool screen_off = false;
 // Last rendered metadata (for change detection)
 static char last_rendered_artist[256] = "";
 static char last_rendered_title[256] = "";
-static bool last_art_was_fetching = false;
+static char last_artwork_path[MUSIC_SERVICE_MAX_PATH] = "";
+
+static bool sync_radio_artwork(const MusicSnapshotWire* snapshot) {
+	if (strcmp(last_artwork_path, snapshot->artwork_path) == 0)
+		return false;
+	cleanup_album_art_background();
+	album_art_clear();
+	if (snapshot->artwork_path[0])
+		album_art_load_path(snapshot->artwork_path);
+	snprintf(last_artwork_path, sizeof(last_artwork_path), "%s", snapshot->artwork_path);
+	return true;
+}
 
 static void restore_radio_cursor(void) {
 	const MusicSnapshotWire* snapshot = MusicClient_snapshot();
@@ -159,7 +170,7 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 		ModuleCommon_setAutosleepDisabled(true);
 		last_rendered_artist[0] = '\0';
 		last_rendered_title[0] = '\0';
-		last_art_was_fetching = false;
+		last_artwork_path[0] = '\0';
 		state = RADIO_INTERNAL_PLAYING;
 	}
 
@@ -353,7 +364,6 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 								ModuleCommon_recordInputTime();
 								last_rendered_artist[0] = '\0';
 								last_rendered_title[0] = '\0';
-								last_art_was_fetching = false;
 								state = RADIO_INTERNAL_PLAYING;
 								dirty = 1;
 							}
@@ -468,18 +478,19 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 			}
 
 			MusicClient_update();
-
-			// Check if metadata or album art changed (updated by stream thread)
-			{
-				const MusicSnapshotWire* snapshot = MusicClient_snapshot();
-				bool fetching = album_art_is_fetching();
-				if (strcmp(last_rendered_artist, snapshot->artist) != 0 ||
-					strcmp(last_rendered_title, snapshot->title) != 0 ||
-					(last_art_was_fetching && !fetching)) {
-					dirty = 1;
-				}
-				last_art_was_fetching = fetching;
+			const MusicSnapshotWire* snapshot = MusicClient_snapshot();
+			if (snapshot->source != MUSIC_SOURCE_RADIO) {
+				cleanup_album_art_background();
+				RadioStatus_clear();
+				ModuleCommon_setAutosleepDisabled(false);
+				state = RADIO_INTERNAL_LIST;
+				dirty = 1;
+				continue;
 			}
+			if (sync_radio_artwork(snapshot) ||
+				strcmp(last_rendered_artist, snapshot->artist) != 0 ||
+				strcmp(last_rendered_title, snapshot->title) != 0)
+				dirty = 1;
 
 			// Auto screen-off after inactivity
 			if (MusicClient_snapshot()->source_state == MUSIC_RADIO_PLAYING && ModuleCommon_checkAutoScreenOffTimeout()) {

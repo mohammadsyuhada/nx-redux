@@ -124,14 +124,12 @@ int main(void) {
 	Player_setSampleRate(44100);
 	Player_closeAudioDevice();
 	SDL_QuitSubSystem(SDL_INIT_AUDIO);
-	CHECK(Player_load(fixture) != 0, "failed-open load unexpectedly succeeded");
-	PlayerSnapshot failed_load;
-	CHECK(Player_getSnapshot(&failed_load) == 0 && !failed_load.audio_open &&
-			  failed_load.state == PLAYER_STATE_STOPPED &&
-			  failed_load.current_file[0] == '\0' && failed_load.track_info.title[0] == '\0',
-		  "failed-open load published stale playback metadata");
-	CHECK(Player_play() != 0, "failed-open load published a decoder");
-	CHECK(Player_reopenAudioDevice() == 0, "device recovery after failed load failed");
+	CHECK(Player_load(fixture) == 0, "lazy load failed after audio shutdown");
+	PlayerSnapshot lazy_load;
+	CHECK(Player_getSnapshot(&lazy_load) == 0 && !lazy_load.audio_open &&
+		  lazy_load.state == PLAYER_STATE_STOPPED && lazy_load.current_file[0] != '\0',
+		  "lazy load opened audio or lost decoder identity");
+	CHECK(Player_reopenAudioDevice() == 0, "device recovery after lazy load failed");
 
 	CHECK(Player_load(fixture) == 0, "fixture load failed after recovery");
 	PlayerSnapshot loaded;

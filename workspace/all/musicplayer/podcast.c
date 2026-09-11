@@ -18,6 +18,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <dirent.h>
 #include <time.h>
@@ -260,6 +261,25 @@ static void validate_continue_listening(void);
 static void sanitize_for_filename(char* str);
 static void load_progress_file(void);
 
+static int lock_continue_listening(void) {
+	char lock_path[sizeof(continue_listening_file) + 6];
+	snprintf(lock_path, sizeof(lock_path), "%s.lock", continue_listening_file);
+	int fd = open(lock_path, O_CREAT | O_RDWR, 420);
+	if (fd < 0)
+		return -1;
+	struct flock lock = {.l_type = F_WRLCK, .l_whence = SEEK_SET};
+	if (fcntl(fd, F_SETLKW, &lock) != 0) {
+		close(fd);
+		return -1;
+	}
+	return fd;
+}
+
+static void unlock_continue_listening(int fd) {
+	struct flock lock = {.l_type = F_UNLCK, .l_whence = SEEK_SET};
+	(void)fcntl(fd, F_SETLK, &lock);
+	close(fd);
+}
 
 // ============================================================================
 // Feed ID and Path Helpers
@@ -1020,7 +1040,11 @@ int Podcast_unsubscribe(int index) {
 
 	const char* feed_url = subscriptions[index].feed_url;
 
-	// Remove continue listening entries for this feed
+	// Reload and publish this shared list under the same lock as the owner.
+	int continue_lock = lock_continue_listening();
+	if (continue_lock < 0)
+		return -1;
+	load_continue_listening();
 	for (int i = continue_listening_count - 1; i >= 0; i--) {
 		if (strcmp(continue_listening[i].feed_url, feed_url) == 0) {
 			for (int j = i; j < continue_listening_count - 1; j++) {
@@ -1030,6 +1054,7 @@ int Podcast_unsubscribe(int index) {
 		}
 	}
 	save_continue_listening();
+	unlock_continue_listening(continue_lock);
 
 	// Cancel/remove all download queue entries for this feed
 	pthread_mutex_lock(&download_mutex);
@@ -2067,7 +2092,7 @@ static void* download_thread_func(void* arg) {
 		sanitize_for_filename(safe_feed);
 		char dir_path[512];
 		snprintf(dir_path, sizeof(dir_path), "%s/%s", download_dir, safe_feed);
-		mkdir(dir_path, 0755);
+		mkdir(dir_path, 493);
 
 		// Check disk space before downloading
 		bool low_disk = false;
@@ -2549,6 +2574,9 @@ void Podcast_updateContinueListening(const char* feed_url, const char* feed_id,
 									 const char* feed_title, const char* artwork_url) {
 	if (!feed_url || !episode_guid)
 		return;
+	int lock_fd = lock_continue_listening();
+	if (lock_fd < 0)
+		return;
 	load_continue_listening();
 
 	// Check if this entry already exists
@@ -2565,6 +2593,7 @@ void Podcast_updateContinueListening(const char* feed_url, const char* feed_id,
 				memcpy(&continue_listening[0], &tmp, sizeof(ContinueListeningEntry));
 			}
 			save_continue_listening();
+			unlock_continue_listening(lock_fd);
 			return;
 		}
 	}
@@ -2594,10 +2623,14 @@ void Podcast_updateContinueListening(const char* feed_url, const char* feed_id,
 		strncpy(entry->artwork_url, artwork_url, PODCAST_MAX_URL - 1);
 
 	save_continue_listening();
+	unlock_continue_listening(lock_fd);
 }
 
 void Podcast_removeContinueListening(const char* feed_url, const char* episode_guid) {
 	if (!feed_url || !episode_guid)
+		return;
+	int lock_fd = lock_continue_listening();
+	if (lock_fd < 0)
 		return;
 	load_continue_listening();
 
@@ -2609,9 +2642,11 @@ void Podcast_removeContinueListening(const char* feed_url, const char* episode_g
 			}
 			continue_listening_count--;
 			save_continue_listening();
+			unlock_continue_listening(lock_fd);
 			return;
 		}
 	}
+	unlock_continue_listening(lock_fd);
 }
 
 void Podcast_reloadContinueListening(void) {

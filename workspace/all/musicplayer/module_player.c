@@ -117,8 +117,7 @@ static bool sync_owner_presentation(const MusicSnapshotWire* snapshot) {
 	if (snapshot->artwork_path[0] && strcmp(loaded_artwork_path, snapshot->artwork_path) != 0) {
 		album_art_load_path(snapshot->artwork_path);
 		snprintf(loaded_artwork_path, sizeof(loaded_artwork_path), "%s", snapshot->artwork_path);
-	} else if (!album_art_get() && (snapshot->artist[0] || snapshot->title[0]))
-		album_art_fetch(snapshot->artist, snapshot->title);
+	}
 	SDL_Surface* artwork = album_art_get();
 	if (artwork != presentation_artwork) {
 		cleanup_album_art_background();
@@ -599,6 +598,12 @@ static bool handle_playing_input(SDL_Surface* screen, PlayerInternalState* state
 	MusicClient_update();
 	if (sync_ui_to_owner())
 		*dirty = 1;
+	if (!PlayerModule_isActive()) {
+		cleanup_playback_ui();
+		ModuleCommon_setAutosleepDisabled(false);
+		*state = PLAYER_INTERNAL_BROWSER;
+		return true;
+	}
 
 	// Auto screen-off after inactivity
 	if (MusicClient_snapshot()->state == MUSIC_STATE_PLAYING && ModuleCommon_checkAutoScreenOffTimeout()) {
@@ -606,9 +611,6 @@ static bool handle_playing_input(SDL_Surface* screen, PlayerInternalState* state
 		*dirty = 1;
 	}
 
-	// Re-render when async album art fetch completes
-	if (album_art_is_fetching())
-		*dirty = 1;
 
 	// Animate player GPU layers (skip if screen-off hint just activated)
 	if (!ModuleCommon_isScreenOffHintActive()) {
@@ -854,90 +856,15 @@ bool PlayerModule_isActive(void) {
 	return (state == MUSIC_STATE_PLAYING || state == MUSIC_STATE_PAUSED);
 }
 
-// Play next track (for USB HID button support)
+// Playback navigation belongs to the daemon so recursive queue identity survives.
 void PlayerModule_nextTrack(void) {
-	if (playlist_active) {
-		// Shuffle applies to manual skips too, not just natural track end
-		int new_idx = shuffle_enabled ? Playlist_shuffle(&playlist)
-									  : Playlist_next(&playlist);
-		if (new_idx >= 0) {
-			MusicClient_stop();
-			playlist_try_play(new_idx);
-		}
-	} else if (initialized) {
-		if (shuffle_enabled) {
-			if (Browser_countAudioFiles(&browser) > 1) {
-				MusicClient_stop();
-				browser_pick_random();
-			}
-			return;
-		}
-		for (int i = MusicBrowser_view()->selected + 1; i < browser.entry_count; i++) {
-			if (!browser.entries[i].is_dir) {
-				MusicClient_stop();
-				MusicBrowser_view()->selected = i;
-				try_load_and_play(browser.entries[i].path);
-				break;
-			}
-		}
-	}
+	if (MusicClient_next() == MUSIC_STATUS_OK)
+		sync_ui_to_owner();
 }
 
-// Play previous track (for USB HID button support)
 void PlayerModule_prevTrack(void) {
-	// Shuffle: retrace the actually-played history instead of index-1.
-	// Entries whose file vanished (deleted, playlist changed) are skipped.
-	if (shuffle_enabled && track_history_count > 0) {
-		while (track_history_count > 0) {
-			const char* prev_path = track_history[--track_history_count];
-			if (playlist_active) {
-				for (int i = 0; i < playlist.track_count; i++) {
-					if (strcmp(playlist.tracks[i].path, prev_path) == 0) {
-						playlist.current_index = i;
-						MusicClient_stop();
-						history_retracing = true;
-						bool ok = playlist_try_play(i);
-						history_retracing = false;
-						if (ok)
-							return;
-						break;
-					}
-				}
-			} else if (initialized) {
-				for (int i = 0; i < browser.entry_count; i++) {
-					if (!browser.entries[i].is_dir &&
-						strcmp(browser.entries[i].path, prev_path) == 0) {
-						MusicClient_stop();
-						MusicBrowser_view()->selected = i;
-						history_retracing = true;
-						bool ok = try_load_and_play(prev_path);
-						history_retracing = false;
-						if (ok)
-							return;
-						break;
-					}
-				}
-			}
-		}
-		return; // history exhausted: don't also jump sequentially
-	}
-
-	if (playlist_active) {
-		int new_idx = Playlist_prev(&playlist);
-		if (new_idx >= 0) {
-			MusicClient_stop();
-			playlist_try_play(new_idx);
-		}
-	} else if (initialized) {
-		for (int i = MusicBrowser_view()->selected - 1; i >= 0; i--) {
-			if (!browser.entries[i].is_dir) {
-				MusicClient_stop();
-				MusicBrowser_view()->selected = i;
-				try_load_and_play(browser.entries[i].path);
-				break;
-			}
-		}
-	}
+	if (MusicClient_previous() == MUSIC_STATUS_OK)
+		sync_ui_to_owner();
 }
 
 // Run the player directly with a pre-built playlist (from PlaylistModule)
