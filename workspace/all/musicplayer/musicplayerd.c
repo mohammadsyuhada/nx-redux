@@ -57,6 +57,7 @@ static int64_t podcast_last_progress_ms;
 static int64_t local_last_resume_ms;
 static char artwork_source[MUSIC_SERVICE_MAX_PATH];
 static char artwork_path[MUSIC_SERVICE_MAX_PATH];
+static char retired_artwork_path[MUSIC_SERVICE_MAX_PATH];
 static unsigned int artwork_generation;
 static bool sleeping;
 static bool wake_pending;
@@ -210,36 +211,61 @@ static void close_control_socket(void) {
 		unlink(lock_path);
 }
 
-static void update_artwork(const PlayerSnapshot* snapshot) {
-	if (!snapshot->current_file[0]) {
-		artwork_source[0] = '\0';
-		artwork_path[0] = '\0';
+#define OWNED_ARTWORK_DIR "/tmp/trimui_music"
+
+static void cleanup_owned_artwork(void) {
+	DIR* dir = opendir(OWNED_ARTWORK_DIR);
+	if (!dir)
 		return;
+	struct dirent* entry;
+	while ((entry = readdir(dir))) {
+		unsigned int generation;
+		char suffix[5] = {0};
+		if (sscanf(entry->d_name, "owner-art-%u.%4s", &generation, suffix) == 2 &&
+			(!strcmp(suffix, "bmp") || !strcmp(suffix, "tmp"))) {
+			char path[MUSIC_SERVICE_MAX_PATH];
+			snprintf(path, sizeof(path), "%s/%s", OWNED_ARTWORK_DIR, entry->d_name);
+			unlink(path);
+		}
 	}
-	if (strcmp(artwork_source, snapshot->current_file) == 0)
+	closedir(dir);
+}
+
+static void update_artwork(const PlayerSnapshot* snapshot) {
+	char source[sizeof(artwork_source)];
+	SDL_Surface* art;
+	if (active_source == MUSIC_SOURCE_RADIO) {
+		const RadioMetadata* metadata = Radio_getMetadata();
+		snprintf(source, sizeof(source), "%s\x1f%s\x1f%s", Radio_getCurrentUrl(), metadata->artist, metadata->title);
+		art = Radio_getAlbumArt();
+	} else {
+		if (!snapshot->current_file[0]) {
+			artwork_source[0] = '\0';
+			artwork_path[0] = '\0';
+			return;
+		}
+		snprintf(source, sizeof(source), "%s", snapshot->current_file);
+		art = Player_getAlbumArt();
+	}
+	if (strcmp(artwork_source, source) == 0)
 		return;
 	artwork_source[0] = '\0';
 	artwork_path[0] = '\0';
-	SDL_Surface* art = Player_getAlbumArt();
 	if (!art)
 		return;
 
-	/* Artwork is transient owner output. Save beside the final path and rename
-	 * only after SDL has finished writing, so a detached UI never reads a
-	 * partially replaced bitmap. A generation-qualified path also prevents a
-	 * UI cache from treating a new track's artwork as the old surface. */
-	const char* artwork_dir = "/tmp/trimui_music";
-	mkdir(artwork_dir, 493);
+	mkdir(OWNED_ARTWORK_DIR, 493);
 	unsigned int generation = ++artwork_generation;
 	char temporary[MUSIC_SERVICE_MAX_PATH];
 	char final_path[MUSIC_SERVICE_MAX_PATH];
-	snprintf(temporary, sizeof(temporary), "%s/owner-art-%u.tmp", artwork_dir, generation);
-	snprintf(final_path, sizeof(final_path), "%s/owner-art-%u.bmp", artwork_dir, generation);
+	snprintf(temporary, sizeof(temporary), "%s/owner-art-%u.tmp", OWNED_ARTWORK_DIR, generation);
+	snprintf(final_path, sizeof(final_path), "%s/owner-art-%u.bmp", OWNED_ARTWORK_DIR, generation);
 	if (SDL_SaveBMP(art, temporary) == 0 && rename(temporary, final_path) == 0) {
-		strncpy(artwork_path, final_path, sizeof(artwork_path) - 1);
-		artwork_path[sizeof(artwork_path) - 1] = '\0';
-		strncpy(artwork_source, snapshot->current_file, sizeof(artwork_source) - 1);
-		artwork_source[sizeof(artwork_source) - 1] = '\0';
+		if (retired_artwork_path[0])
+			unlink(retired_artwork_path);
+		snprintf(retired_artwork_path, sizeof(retired_artwork_path), "%s", artwork_path);
+		snprintf(artwork_path, sizeof(artwork_path), "%s", final_path);
+		snprintf(artwork_source, sizeof(artwork_source), "%s", source);
 	} else {
 		unlink(temporary);
 	}
@@ -387,6 +413,23 @@ static int save_podcast_progress(void) {
 	Podcast_saveProgress(feed->feed_url, episode.guid, progress_sec);
 	Podcast_flushProgress();
 	return 0;
+}
+
+static void complete_active_podcast(void) {
+	PodcastFeed* feed = Podcast_getSubscription(podcast_feed_index);
+	PodcastEpisode episode;
+	bool known = feed && Podcast_getEpisode(podcast_feed_index, podcast_episode_index, &episode);
+	Podcast_stop();
+	if (known) {
+		Podcast_markAsPlayed(feed->feed_url, episode.guid);
+		Podcast_removeContinueListening(feed->feed_url, episode.guid);
+		Podcast_flushProgress();
+	}
+	podcast_feed_index = -1;
+	podcast_episode_index = -1;
+	podcast_waiting_for_seek = false;
+	active_source = MUSIC_SOURCE_NONE;
+	Resume_clear();
 }
 
 static void stop_active_source(void) {
@@ -726,19 +769,20 @@ static void attempt_restore(void) {
 	}
 }
 
-static int load_path(const char* path) {
-	if (!path || !path[0] || strlen(path) >= MUSIC_SERVICE_MAX_PATH)
+static int load_path(const MusicLoadRequest* request) {
+	if (!request || !request->path[0] || strlen(request->path) >= MUSIC_SERVICE_MAX_PATH ||
+		strlen(request->selected_path) >= MUSIC_SERVICE_MAX_PATH)
 		return MUSIC_STATUS_BAD_REQUEST;
+	const char* path = request->path;
 	struct stat st;
 	if (stat(path, &st) != 0)
 		return MUSIC_STATUS_NOT_FOUND;
 	char file_path[MUSIC_SERVICE_MAX_PATH];
 	if (S_ISDIR(st.st_mode)) {
-		snprintf(file_path, sizeof(file_path), "%s", path);
-		if (Playlist_buildFromDirectory(&queue, path, NULL) <= 0)
+		if (Playlist_buildFromDirectory(&queue, path, request->selected_path[0] ? request->selected_path : NULL) <= 0)
 			return MUSIC_STATUS_NOT_FOUND;
 		const PlaylistTrack* first = Playlist_getCurrentTrack(&queue);
-		if (!first)
+		if (!first || (request->selected_path[0] && strcmp(first->path, request->selected_path) != 0))
 			return MUSIC_STATUS_NOT_FOUND;
 		strncpy(file_path, first->path, sizeof(file_path) - 1);
 	} else {
@@ -869,7 +913,7 @@ static int handle_command(uint16_t command, const unsigned char* payload, size_t
 		if (length != sizeof(MusicLoadRequest))
 			status = MUSIC_STATUS_BAD_REQUEST;
 		else
-			status = load_path(((const MusicLoadRequest*)payload)->path);
+			status = load_path((const MusicLoadRequest*)payload);
 		break;
 	case MUSIC_CMD_LOAD_PLAYLIST:
 		if (length != sizeof(MusicPlaylistLoadRequest))
@@ -1187,14 +1231,7 @@ static void service_tick(void) {
 		if (active_source != MUSIC_SOURCE_PODCAST || Player_getSnapshot(&snapshot) != 0)
 			return;
 		if (snapshot.stream_eof && snapshot.state == PLAYER_STATE_STOPPED) {
-			PodcastFeed* feed = Podcast_getSubscription(podcast_feed_index);
-			PodcastEpisode episode;
-			if (feed && Podcast_getEpisode(podcast_feed_index, podcast_episode_index, &episode)) {
-				Podcast_setEpisodeProgress(podcast_feed_index, podcast_episode_index, -1);
-				Podcast_markAsPlayed(feed->feed_url, episode.guid);
-				Podcast_flushProgress();
-			}
-			stop_active_source();
+			complete_active_podcast();
 			return;
 		}
 		if (now - podcast_last_progress_ms >= 30000 && snapshot.position_ms > 0) {
@@ -1228,6 +1265,7 @@ int main(void) {
 	signal(SIGINT, on_signal);
 	signal(SIGTERM, on_signal);
 	signal(SIGPIPE, SIG_IGN);
+	cleanup_owned_artwork();
 	if (open_control_socket() != 0)
 		return EXIT_FAILURE;
 	Playlist_init(&queue);
@@ -1333,6 +1371,7 @@ int main(void) {
 	Settings_quit();
 	QuitSettings();
 	Playlist_free(&queue);
+	cleanup_owned_artwork();
 	close_control_socket();
 	return EXIT_SUCCESS;
 }

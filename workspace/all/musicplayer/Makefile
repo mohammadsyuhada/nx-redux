@@ -100,6 +100,7 @@ CTL_PRODUCT = build/$(PLATFORM)/$(CTL_TARGET).elf
 TEST_CLIENT_PRODUCT = build/$(PLATFORM)/test_music_client.elf
 TEST_SERVICE_PRODUCT = build/$(PLATFORM)/test_music_service.elf
 TEST_BALANCE_PRODUCT = build/$(PLATFORM)/test_music_balance.elf
+TEST_SNAPSHOT_PRODUCT = build/$(PLATFORM)/test_player_snapshot.elf
 DAEMON_SOURCE = musicplayerd.c music_format.c player.c playlist.c playlist_m3u.c radio.c radio_catalog_parse.c radio_catalog.c radio_net.c radio_hls.c album_art.c resume.c podcast.c podcast_rss.c podcast_search.c http_download.c settings.c \
                 ../common/utils.c ../common/api.c ../common/text_shape.c ../common/scaler.c ../common/audio_manager.c ../common/config.c ../common/wifi.c ../common/stream_probe.c \
                 ../common/wget_fetch.c ../common/net_cache.c ../common/tz_country.c ../../$(PLATFORM)/platform/platform.c \
@@ -127,11 +128,19 @@ test_balance:
 	@mkdir -p build/$(PLATFORM)
 	$(CC) tests/test_music_balance.c music_balance.c -o $(TEST_BALANCE_PRODUCT) $(MY_CFLAGS)
 
+test_snapshot:
+	@mkdir -p build/$(PLATFORM) $(OPUS_OBJ_DIR)
+	$(CC) -c $(OPUS_ALL_SRC) $(OPUS_CFLAGS) $(OPUS_INCDIR)
+	@mv *.o $(OPUS_OBJ_DIR)/
+	$(CC) tests/test_player_snapshot.c $(filter-out musicplayerd.c,$(DAEMON_SOURCE)) $(OPUS_OBJ_DIR)/*.o -o $(TEST_SNAPSHOT_PRODUCT) $(MY_CFLAGS) $(MY_LDFLAGS) -Wl,--gc-sections
+	@rm -rf $(OPUS_OBJ_DIR)
+
 clean:
 	rm -f build/tg5040/$(TARGET).elf build/tg5050/$(TARGET).elf \
 		build/tg5040/$(SERVICE_TARGET).elf build/tg5050/$(SERVICE_TARGET).elf \
 		build/tg5040/$(CTL_TARGET).elf build/tg5050/$(CTL_TARGET).elf \
 		build/tg5040/test_music_client.elf build/tg5050/test_music_client.elf \
 		build/tg5040/test_music_service.elf build/tg5050/test_music_service.elf \
-		build/tg5040/test_music_balance.elf build/tg5050/test_music_balance.elf
+		build/tg5040/test_music_balance.elf build/tg5050/test_music_balance.elf \
+		build/tg5040/test_player_snapshot.elf build/tg5050/test_player_snapshot.elf
 	rm -rf $(OPUS_OBJ_DIR)

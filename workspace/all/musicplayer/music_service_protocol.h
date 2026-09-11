@@ -11,7 +11,7 @@
 #define MUSIC_SERVICE_MAX_ALBUM 256
 #define MUSIC_SERVICE_MAX_ERROR 128
 #define MUSIC_SERVICE_MAX_FRAME 8192
-#define MUSIC_SERVICE_PROTOCOL_VERSION 8u
+#define MUSIC_SERVICE_PROTOCOL_VERSION 9u
 #define MUSIC_VIS_BARS 64
 #define MUSIC_VIS_SAMPLE_COUNT 1024
 #define MUSIC_SERVICE_MAGIC 0x4e584d50u
@@ -133,6 +133,7 @@ typedef struct __attribute__((packed)) {
 
 typedef struct __attribute__((packed)) {
 	char path[MUSIC_SERVICE_MAX_PATH];
+	char selected_path[MUSIC_SERVICE_MAX_PATH];
 } MusicLoadRequest;
 
 typedef struct __attribute__((packed)) {

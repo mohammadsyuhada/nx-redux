@@ -146,6 +146,11 @@ int main(void) {
 			  rejected_load.current_file[0] == '\0' && rejected_load.track_info.title[0] == '\0',
 		  "failed load retained stale metadata");
 	CHECK(Player_load(fixture) == 0, "fixture reload after failed load failed");
+	Player_seek(1000);
+	PlayerSnapshot idle_seek;
+	CHECK(!Player_resume() && Player_getSnapshot(&idle_seek) == 0 &&
+			  idle_seek.state == PLAYER_STATE_STOPPED && idle_seek.position_ms == 1000,
+		  "idle decoder seek completes before playback opens audio");
 
 	CHECK(Player_play() == 0, "play failed");
 	SnapshotReader readers[4] = {{0}, {0}, {0}, {0}};

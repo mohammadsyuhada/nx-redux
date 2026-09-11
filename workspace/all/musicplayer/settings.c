@@ -201,41 +201,41 @@ const char* Settings_getScreenOffDisplayStr(void) {
 }
 
 void Settings_save(void) {
-	char preserved_audio[5][256] = {{0}};
+	char preserved[5][256] = {{0}};
 	int preserved_count = 0;
-	if (!settings_owner_mode) {
-		FILE* old = fopen(SETTINGS_FILE, "r");
-		char line[256];
-		if (old) {
-			while (preserved_count < 5 && fgets(line, sizeof(line), old)) {
-				if (strncmp(line, "bass_filter_hz=", 15) == 0 ||
-					strncmp(line, "soft_limiter=", 13) == 0 ||
-					strncmp(line, "sample_rate_follow=", 19) == 0 ||
-					strncmp(line, "resampler_quality=", 18) == 0 ||
-					strncmp(line, "buffer_frames=", 14) == 0) {
-					strncpy(preserved_audio[preserved_count], line,
-							sizeof(preserved_audio[0]) - 1);
-					preserved_count++;
-				}
+	FILE* old = fopen(SETTINGS_FILE, "r");
+	char line[256];
+	if (old) {
+		while (preserved_count < 5 && fgets(line, sizeof(line), old)) {
+			bool other_owner = settings_owner_mode
+				? strncmp(line, "screen_off_timeout=", 19) == 0 || strncmp(line, "lyrics_enabled=", 15) == 0
+				: strncmp(line, "bass_filter_hz=", 15) == 0 || strncmp(line, "soft_limiter=", 13) == 0 ||
+					strncmp(line, "sample_rate_follow=", 19) == 0 || strncmp(line, "resampler_quality=", 18) == 0 ||
+					strncmp(line, "buffer_frames=", 14) == 0;
+			if (other_owner) {
+				strncpy(preserved[preserved_count], line, sizeof(preserved[0]) - 1);
+				preserved_count++;
 			}
-			fclose(old);
 		}
+		fclose(old);
 	}
 	mkdir(SETTINGS_DIR, 0755);
 	FILE* f = fopen(SETTINGS_FILE, "w");
 	if (!f)
 		return;
-	fprintf(f, "screen_off_timeout=%d\n", current_settings.screen_off_timeout);
-	fprintf(f, "lyrics_enabled=%d\n", current_settings.lyrics_enabled ? 1 : 0);
 	if (settings_owner_mode) {
+		for (int i = 0; i < preserved_count; i++)
+			fputs(preserved[i], f);
 		fprintf(f, "bass_filter_hz=%d\n", current_settings.bass_filter_hz);
 		fprintf(f, "soft_limiter=%d\n", current_settings.soft_limiter_index);
 		fprintf(f, "sample_rate_follow=%d\n", current_settings.rate_mode_follow);
 		fprintf(f, "resampler_quality=%d\n", current_settings.resampler_quality);
 		fprintf(f, "buffer_frames=%d\n", current_settings.buffer_frames);
 	} else {
+		fprintf(f, "screen_off_timeout=%d\n", current_settings.screen_off_timeout);
+		fprintf(f, "lyrics_enabled=%d\n", current_settings.lyrics_enabled ? 1 : 0);
 		for (int i = 0; i < preserved_count; i++)
-			fputs(preserved_audio[i], f);
+			fputs(preserved[i], f);
 	}
 	fclose(f);
 }

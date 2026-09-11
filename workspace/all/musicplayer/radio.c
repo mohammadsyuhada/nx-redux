@@ -1499,6 +1499,7 @@ int Radio_init(void) {
 	pthread_mutex_init(&radio.hls_mutex, NULL);
 	pthread_mutex_init(&radio.control_mutex, NULL);
 	pthread_cond_init(&radio.control_cond, NULL);
+	radio_initialized = true;
 
 	// Allocate buffers
 	radio.stream_buffer_size = RADIO_BUFFER_SIZE;
@@ -1515,7 +1516,16 @@ int Radio_init(void) {
 	if (!radio.stream_buffer || !radio.audio_ring ||
 		!radio.hls_segment_buf || !radio.hls_aac_buf || !radio.hls_prefetch_buf) {
 		LOG_error("Radio_init: Failed to allocate buffers\n");
-		Radio_quit();
+		free(radio.stream_buffer);
+		free(radio.audio_ring);
+		free(radio.hls_segment_buf);
+		free(radio.hls_aac_buf);
+		free(radio.hls_prefetch_buf);
+		pthread_mutex_destroy(&radio.audio_mutex);
+		pthread_mutex_destroy(&radio.hls_mutex);
+		pthread_mutex_destroy(&radio.control_mutex);
+		pthread_cond_destroy(&radio.control_cond);
+		radio_initialized = false;
 		return -1;
 	}
 
@@ -1532,11 +1542,12 @@ int Radio_init(void) {
 	// Initialize album art module
 	album_art_init();
 
-	radio_initialized = true;
 	return 0;
 }
 
 void Radio_quit(void) {
+	if (!radio_initialized)
+		return;
 	Radio_stop();
 
 	// Cleanup online catalog module
@@ -1909,8 +1920,14 @@ int Radio_play(const char* url) {
 }
 
 void Radio_stop(void) {
+	if (!radio_initialized)
+		return;
 	pthread_mutex_lock(&radio.control_mutex);
 	radio.should_stop = true;
+	radio.pending_sample_rate_change = false;
+	radio.pending_audio_resume = false;
+	radio.config_generation++;
+	radio.applied_generation = radio.config_generation;
 	pthread_cond_broadcast(&radio.control_cond);
 	pthread_mutex_unlock(&radio.control_mutex);
 
@@ -2036,19 +2053,16 @@ void Radio_update(void) {
 		radio.pending_sample_rate_change = false;
 		radio.pending_audio_resume = false;
 	}
-	pthread_mutex_unlock(&radio.control_mutex);
-
-	if (requested_rate > 0) {
+	if (requested_rate > 0 && !radio.should_stop && generation == radio.config_generation) {
 		Player_setSampleRate(requested_rate);
 		int actual_rate = Player_getOutputSampleRate();
 		if (resume_audio && actual_rate > 0)
 			Player_resumeAudio();
-		pthread_mutex_lock(&radio.control_mutex);
 		radio.applied_sample_rate = actual_rate;
 		radio.applied_generation = generation;
 		pthread_cond_broadcast(&radio.control_cond);
-		pthread_mutex_unlock(&radio.control_mutex);
 	}
+	pthread_mutex_unlock(&radio.control_mutex);
 
 	// Check for buffer underrun while holding the same mutex used by the audio
 	// callback and decoder ring writer.

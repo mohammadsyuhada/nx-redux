@@ -1729,6 +1729,8 @@ int Player_reopenAudioDevice(void) {
 		return -1;
 	pthread_mutex_lock(&player.mutex);
 	bool should_reopen = player.state == PLAYER_STATE_PLAYING || player.audio_device > 0;
+	bool resume_device = player.state == PLAYER_STATE_PLAYING ||
+		(player.audio_device > 0 && SDL_GetAudioDeviceStatus(player.audio_device) == SDL_AUDIO_PLAYING);
 	int source_rate = player.use_streaming ? player.stream_decoder.source_sample_rate : 0;
 	pthread_mutex_unlock(&player.mutex);
 	if (!should_reopen)
@@ -1737,6 +1739,9 @@ int Player_reopenAudioDevice(void) {
 
 	close_audio_device();
 	prepare_stream_for_device_close();
+	pthread_mutex_lock(&player.mutex);
+	device_resume_on_open = resume_device;
+	pthread_mutex_unlock(&player.mutex);
 	SDL_QuitSubSystem(SDL_INIT_AUDIO);
 	SND_flushALSAConfig();
 	int result = SDL_InitSubSystem(SDL_INIT_AUDIO) < 0 ? -1 : open_and_restart_audio_device(requested_rate);
@@ -1763,12 +1768,17 @@ static int reconfigure_audio_device(int new_sample_rate) {
 	pthread_mutex_lock(&player.mutex);
 	bool device_matches = new_sample_rate == current_sample_rate &&
 						  Settings_getBufferFrames() == current_buffer_frames && player.audio_device > 0;
+	bool resume_device = player.state == PLAYER_STATE_PLAYING ||
+		(player.audio_device > 0 && SDL_GetAudioDeviceStatus(player.audio_device) == SDL_AUDIO_PLAYING);
 	pthread_mutex_unlock(&player.mutex);
 	if (device_matches)
 		return 0; // No change needed
 
 	close_audio_device();
 	prepare_stream_for_device_close();
+	pthread_mutex_lock(&player.mutex);
+	device_resume_on_open = resume_device;
+	pthread_mutex_unlock(&player.mutex);
 	int result = open_and_restart_audio_device(new_sample_rate);
 	if (result != 0) {
 		pthread_mutex_lock(&player.mutex);
@@ -2492,22 +2502,29 @@ void Player_seek(int position_ms) {
 	pthread_mutex_lock(&player.mutex);
 	if (position_ms < 0)
 		position_ms = 0;
-	if (position_ms > player.track_info.duration_ms) {
+	if (position_ms > player.track_info.duration_ms)
 		position_ms = player.track_info.duration_ms;
-	}
-
+	bool seek_now = player.use_streaming && !player.stream_running;
+	int64_t target_frame = player.use_streaming
+		? (int64_t)position_ms * player.stream_decoder.source_sample_rate / 1000 : 0;
 	if (player.use_streaming) {
-		// Streaming mode: signal decode thread to seek
-		// Calculate target frame in source sample rate
-		int64_t target_frame = (int64_t)position_ms * player.stream_decoder.source_sample_rate / 1000;
 		player.seek_target_frame = target_frame;
-		// The target and request are published together under player.mutex.
-		player.stream_seeking = true;
+		player.stream_seeking = !seek_now;
 	}
-
 	player.position_ms = position_ms;
 	audio_position_samples = (int64_t)position_ms * current_sample_rate / 1000;
 	pthread_mutex_unlock(&player.mutex);
+
+	if (seek_now) {
+		stream_decoder_seek(&player.stream_decoder, target_frame);
+		circular_buffer_clear(&player.stream_buffer);
+		if (player.resampler)
+			src_reset((SRC_STATE*)player.resampler);
+		pthread_mutex_lock(&player.mutex);
+		player.resample_leftover_count = 0;
+		player.stream_eof = false;
+		pthread_mutex_unlock(&player.mutex);
+	}
 }
 
 bool Player_resume(void) {
@@ -2645,6 +2662,8 @@ void Player_update(void) {
 }
 
 void Player_resumeAudio(void) {
+	if (!player_core_initialized)
+		return;
 	pthread_mutex_lock(&player.mutex);
 	if (player.audio_device > 0) {
 		SDL_PauseAudioDevice(player.audio_device, 0);
@@ -2656,6 +2675,8 @@ void Player_resumeAudio(void) {
 }
 
 void Player_pauseAudio(void) {
+	if (!player_core_initialized)
+		return;
 	bool close_device = false;
 	pthread_mutex_lock(&player.mutex);
 	device_resume_on_open = false;

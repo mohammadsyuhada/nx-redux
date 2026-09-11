@@ -141,8 +141,9 @@ static void history_push(const char* path) {
 	snprintf(track_history[track_history_count++], sizeof(track_history[0]), "%s", path);
 }
 
-// Resume: M3U playlist path (set by PlaylistModule before runWithPlaylist)
+// Queue identities are distinct: an M3U is not a recursively scanned folder.
 static char resume_playlist_path[512] = "";
+static char resume_folder_path[512] = "";
 
 // Clear all player GPU overlay layers
 static void clear_gpu_layers(void) {
@@ -229,17 +230,19 @@ static bool sync_ui_to_owner(void) {
 			snprintf(resume_playlist_path, sizeof(resume_playlist_path), "%s", snapshot->queue_path);
 		}
 	} else if (snapshot->queue_kind == MUSIC_QUEUE_FOLDER && snapshot->queue_path[0] &&
-			   (strcmp(resume_playlist_path, snapshot->queue_path) != 0 || !playlist_active)) {
+			   (strcmp(resume_folder_path, snapshot->queue_path) != 0 || !playlist_active)) {
 		Playlist_free(&playlist);
 		int count = Playlist_buildFromDirectory(&playlist, snapshot->queue_path, snapshot->current_file);
 		if (count > 0) {
 			playlist_active = true;
 			resume_playlist_path[0] = '\0';
+			snprintf(resume_folder_path, sizeof(resume_folder_path), "%s", snapshot->queue_path);
 		}
 	} else if (snapshot->queue_kind == MUSIC_QUEUE_NONE) {
 		Playlist_free(&playlist);
 		playlist_active = false;
 		resume_playlist_path[0] = '\0';
+		resume_folder_path[0] = '\0';
 	}
 
 	if (playlist_active) {
@@ -329,18 +332,29 @@ static void cleanup_playback_ui(void) {
 	Spectrum_quit();
 }
 
-// Build a playlist from a directory and start playing the first track
+// Build a recursive directory queue in the owner, retaining the selected track.
 static bool build_and_start_playlist(const char* dir_path, const char* start_file) {
 	Playlist_free(&playlist);
 	int track_count = Playlist_buildFromDirectory(&playlist, dir_path, start_file);
-	if (track_count > 0) {
-		playlist_active = true;
-		const PlaylistTrack* track = Playlist_getCurrentTrack(&playlist);
-		if (track && start_playback(track->path)) {
-			return true;
-		}
-	}
-	return false;
+	const PlaylistTrack* track = Playlist_getCurrentTrack(&playlist);
+	if (!track)
+		return false;
+	playlist_active = true;
+	if (Background_getActive() != BG_MUSIC)
+		Background_stopAll();
+	if (MusicClient_loadFolder(dir_path, track->path) != MUSIC_STATUS_OK)
+		return false;
+	snprintf(resume_folder_path, sizeof(resume_folder_path), "%s", dir_path);
+	snprintf(now_playing_path, sizeof(now_playing_path), "%s", track->path);
+	(void)MusicClient_setRepeat(repeat_enabled);
+	(void)MusicClient_setShuffle(shuffle_enabled);
+	if (MusicClient_play() != MUSIC_STATUS_OK)
+		return false;
+	sync_owner_presentation(MusicClient_snapshot());
+	Spectrum_init();
+	ModuleCommon_recordInputTime();
+	ModuleCommon_setAutosleepDisabled(true);
+	return true;
 }
 
 // Render delete confirmation dialog
@@ -437,6 +451,7 @@ static bool browser_play_entry(FileEntry* entry) {
 	/* A browser selection starts a directory-owned queue. Do not reuse an
 	 * earlier M3U identity merely because the detached owner is still local. */
 	resume_playlist_path[0] = '\0';
+	resume_folder_path[0] = '\0';
 	if (entry->is_play_all)
 		return build_and_start_playlist(entry->path, "");
 	if (build_and_start_playlist(browser.current_path, entry->path))
@@ -1154,6 +1169,7 @@ ModuleExitReason PlayerModule_runWithPlaylist(SDL_Surface* screen,
 // Set the M3U playlist path for resume tracking (call before runWithPlaylist)
 void PlayerModule_setResumePlaylistPath(const char* m3u_path) {
 	snprintf(resume_playlist_path, sizeof(resume_playlist_path), "%s", m3u_path ? m3u_path : "");
+	resume_folder_path[0] = '\0';
 }
 
 // Run player restoring a saved resume state
@@ -1172,23 +1188,16 @@ ModuleExitReason PlayerModule_runResume(SDL_Surface* screen, const ResumeState* 
 
 	if (resume->type == RESUME_TYPE_FILES) {
 		resume_playlist_path[0] = '\0';
+		resume_folder_path[0] = '\0';
 		// Initialize browser with saved folder
 		init_player();
 		load_directory(resume->folder_path);
 
-		// Build playlist from directory starting at the saved track
-		Playlist_free(&playlist);
-		int count = Playlist_buildFromDirectory(&playlist, resume->folder_path, resume->track_path);
-		if (count <= 0)
-			return MODULE_EXIT_TO_MENU;
-		playlist_active = true;
-
-		// Start playback
-		const PlaylistTrack* track = Playlist_getCurrentTrack(&playlist);
-		if (!track || !start_playback(track->path)) {
+		if (!build_and_start_playlist(resume->folder_path, resume->track_path)) {
 			cleanup_playback(false);
 			return MODULE_EXIT_TO_MENU;
 		}
+		const PlaylistTrack* track = Playlist_getCurrentTrack(&playlist);
 
 		// Seek to saved position
 		if (resume->position_ms > 0) {
@@ -1327,6 +1336,7 @@ ModuleExitReason PlayerModule_runResume(SDL_Surface* screen, const ResumeState* 
 		ModuleExitReason reason = PlayerModule_runWithPlaylist(screen, m3u_tracks, m3u_count, start_idx);
 
 		resume_playlist_path[0] = '\0';
+		resume_folder_path[0] = '\0';
 		return reason;
 	}
 

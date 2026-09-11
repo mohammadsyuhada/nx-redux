@@ -137,6 +137,8 @@ static void enter_country_browse(SDL_Surface* screen, IndicatorType show_setting
 }
 
 ModuleExitReason RadioModule_run(SDL_Surface* screen) {
+	if (Radio_init() != 0)
+		return MODULE_EXIT_TO_MENU;
 	RadioInternalState state = RADIO_INTERNAL_LIST;
 	bool dirty = true;
 	IndicatorType show_setting = INDICATOR_NONE;

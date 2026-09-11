@@ -221,6 +221,15 @@ int MusicClient_load(const char* path) {
 	return request(MUSIC_CMD_LOAD, &request_payload, sizeof(request_payload), 1000);
 }
 
+int MusicClient_loadFolder(const char* path, const char* selected_path) {
+	MusicLoadRequest request_payload = {0};
+	if (!path || !selected_path)
+		return MUSIC_STATUS_BAD_REQUEST;
+	strncpy(request_payload.path, path, sizeof(request_payload.path) - 1);
+	strncpy(request_payload.selected_path, selected_path, sizeof(request_payload.selected_path) - 1);
+	return request(MUSIC_CMD_LOAD, &request_payload, sizeof(request_payload), 1000);
+}
+
 int MusicClient_loadPlaylist(const char* path, int index) {
 	MusicPlaylistLoadRequest request_payload = {0};
 	if (!path || index < 0)

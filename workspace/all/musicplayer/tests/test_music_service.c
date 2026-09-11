@@ -191,13 +191,22 @@ int main(int argc, char** argv) {
 	snprintf(root, sizeof(root), "/tmp/nx_music_service_test_%ld", (long)getpid());
 	mkdir(root, 448);
 	char socket_path[160], first[200], second[200], playlist_path[200], resume_root[200];
+	char recursive_root[200], recursive_nested[200], recursive_first[200], recursive_selected[200];
 	snprintf(socket_path, sizeof(socket_path), "%s/control.sock", root);
 	snprintf(resume_root, sizeof(resume_root), "%s/resume", root);
 	mkdir(resume_root, 448);
 	snprintf(first, sizeof(first), "%s/01.wav", root);
 	snprintf(second, sizeof(second), "%s/02.wav", root);
 	snprintf(playlist_path, sizeof(playlist_path), "%s/list.m3u", root);
-	check(write_wav(first, 4) == 0 && write_wav(second, 40) == 0, "create fixtures");
+	snprintf(recursive_root, sizeof(recursive_root), "%s_recursive", root);
+	snprintf(recursive_nested, sizeof(recursive_nested), "%s/nested", recursive_root);
+	snprintf(recursive_first, sizeof(recursive_first), "%s/01.wav", recursive_root);
+	snprintf(recursive_selected, sizeof(recursive_selected), "%s/02.wav", recursive_nested);
+	mkdir(recursive_root, 448);
+	mkdir(recursive_nested, 448);
+	check(write_wav(first, 4) == 0 && write_wav(second, 40) == 0 &&
+		  write_wav(recursive_first, 1) == 0 && write_wav(recursive_selected, 1) == 0,
+		  "create fixtures");
 	FILE* playlist_file = fopen(playlist_path, "w");
 	if (playlist_file) {
 		fprintf(playlist_file, "%s\n%s\n", first, second);
@@ -277,6 +286,20 @@ int main(int argc, char** argv) {
 		check(raw_request(fd, MUSIC_CMD_PODCAST_LOAD, &podcast_request, sizeof(podcast_request) - 1, &response) == MUSIC_STATUS_BAD_REQUEST &&
 				  response.status == MUSIC_STATUS_BAD_REQUEST,
 			  "podcast request validates fixed payload");
+		close(fd);
+	}
+
+	fd = raw_connect(socket_path);
+	if (fd >= 0) {
+		MusicLoadRequest recursive_load = {0};
+		strncpy(recursive_load.path, recursive_root, sizeof(recursive_load.path) - 1);
+		strncpy(recursive_load.selected_path, recursive_selected, sizeof(recursive_load.selected_path) - 1);
+		check(raw_request(fd, MUSIC_CMD_LOAD, &recursive_load, sizeof(recursive_load), &response) == 0 &&
+				  response.snapshot.queue_kind == MUSIC_QUEUE_FOLDER &&
+				  strcmp(response.snapshot.queue_path, recursive_root) == 0 &&
+				  strcmp(response.snapshot.current_file, recursive_selected) == 0 &&
+				  response.snapshot.queue_count == 2,
+			  "recursive folder request preserves selected root and track");
 		close(fd);
 	}
 
@@ -700,6 +723,10 @@ cleanup:
 	unlink(first);
 	unlink(second);
 	unlink(playlist_path);
+	unlink(recursive_selected);
+	unlink(recursive_first);
+	rmdir(recursive_nested);
+	rmdir(recursive_root);
 	rmdir(root);
 	return failures ? 1 : 0;
 }

@@ -42,6 +42,8 @@ typedef struct {
 	int received_command;
 	int received_index;
 	char received_playlist[MUSIC_SERVICE_MAX_PATH];
+	char received_folder[MUSIC_SERVICE_MAX_PATH];
+	char received_selected[MUSIC_SERVICE_MAX_PATH];
 	char received_feed[MUSIC_SERVICE_MAX_PATH];
 	char received_guid[128];
 	int received_progress_sec;
@@ -65,7 +67,7 @@ static void* server_main(void* argument) {
 		return NULL;
 	int client = accept(listener, NULL, NULL);
 	if (client >= 0) {
-		for (int request_number = 0; request_number < 6; request_number++) {
+		for (int request_number = 0; request_number < 7; request_number++) {
 			MusicFrameHeader request;
 			if (read_full(client, &request, sizeof(request)) != 0 || request.payload_length > MUSIC_SERVICE_MAX_FRAME - sizeof(request))
 				break;
@@ -87,7 +89,11 @@ static void* server_main(void* argument) {
 				response.snapshot.source_state = MUSIC_RADIO_ERROR;
 				strncpy(response.snapshot.current_file, "https://owner.invalid/station", sizeof(response.snapshot.current_file) - 1);
 			}
-			if (request.command == MUSIC_CMD_LOAD_PLAYLIST && request.payload_length == sizeof(MusicPlaylistLoadRequest)) {
+			if (request.command == MUSIC_CMD_LOAD && request.payload_length == sizeof(MusicLoadRequest)) {
+				const MusicLoadRequest* load = (const MusicLoadRequest*)payload;
+				strncpy(state->received_folder, load->path, sizeof(state->received_folder) - 1);
+				strncpy(state->received_selected, load->selected_path, sizeof(state->received_selected) - 1);
+			} else if (request.command == MUSIC_CMD_LOAD_PLAYLIST && request.payload_length == sizeof(MusicPlaylistLoadRequest)) {
 				const MusicPlaylistLoadRequest* playlist = (const MusicPlaylistLoadRequest*)payload;
 				state->received_index = playlist->index;
 				strncpy(state->received_playlist, playlist->path, sizeof(state->received_playlist) - 1);
@@ -138,6 +144,10 @@ int main(void) {
 
 	check(MusicClient_init(NULL) == 0, "passive client attaches to existing owner");
 	check(MusicClient_isConnected(), "client remains attached after initial snapshot");
+	check(MusicClient_loadFolder("/Music/root", "/Music/root/nested/song.ogg") == MUSIC_STATUS_NOT_FOUND &&
+			  strcmp(server.received_folder, "/Music/root") == 0 &&
+			  strcmp(server.received_selected, "/Music/root/nested/song.ogg") == 0,
+		  "folder selection sends recursive root and selected track to owner");
 	check(MusicClient_loadPlaylist("/Music/list.m3u", 7) == MUSIC_STATUS_NOT_FOUND,
 		  "application error is returned to caller");
 	check(MusicClient_isConnected(), "application error does not look like disconnect");

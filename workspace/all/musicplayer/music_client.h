@@ -11,6 +11,7 @@ const MusicSnapshotWire* MusicClient_snapshot(void);
 const char* MusicClient_error(void);
 
 int MusicClient_load(const char* path);
+int MusicClient_loadFolder(const char* path, const char* selected_path);
 int MusicClient_loadPlaylist(const char* path, int index);
 int MusicClient_loadRadio(const char* url);
 int MusicClient_loadPodcast(const char* feed_url, const char* episode_guid);
