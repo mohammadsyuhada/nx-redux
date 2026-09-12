@@ -819,6 +819,53 @@ void ROM_mediaArtPath(const char* rom_path, char* out, size_t out_size) {
 	snprintf(out, out_size, "%s/.media/%s.png", dir, base);
 }
 
+// ROM_mediaArtPath with the variant subfolder spliced in:
+// /Roms/GBA/Game.gba + "screenshot" -> /Roms/GBA/.media/screenshot/Game.png.
+// A NULL or empty variant yields the root mix path.
+void ROM_mediaArtVariantPath(const char* rom_path, const char* variant,
+							 char* out, size_t out_size) {
+	ROM_mediaArtPath(rom_path, out, out_size);
+	if (!variant || !variant[0])
+		return;
+
+	char base_path[MAX_PATH];
+	strncpy(base_path, out, sizeof(base_path) - 1);
+	base_path[sizeof(base_path) - 1] = '\0';
+	char* slash = strrchr(base_path, '/');
+	if (!slash)
+		return; // no .media component to splice into
+	*slash = '\0';
+	snprintf(out, out_size, "%s/%s/%s", base_path, variant, slash + 1);
+}
+
+// Maps an ArtType (config.h: 0 mix, 1 screenshot, 2 box art) to its variant
+// folder. Kept int-typed so utils.c stays free of config.h.
+static const char* artVariantFolder(int art_type) {
+	switch (art_type) {
+	case 1:
+		return "screenshot";
+	case 2:
+		return "boxart";
+	default:
+		return NULL;
+	}
+}
+
+void ROM_displayArtPath(const char* rom_path, int art_type, bool fallback_to_mix,
+						char* out, size_t out_size) {
+	const char* variant = artVariantFolder(art_type);
+	if (variant) {
+		ROM_mediaArtVariantPath(rom_path, variant, out, out_size);
+		// Caller asked for this variant only: leave the missing path in place
+		// so nothing is drawn, rather than substituting a different image.
+		if (!fallback_to_mix || exists(out))
+			return;
+	}
+	// No variant requested, or the scraper never wrote one for this game
+	// (older libraries only have the mix composite).
+	ROM_mediaArtPath(rom_path, out, out_size);
+}
+
 bool ROM_findArt(const char* rom_path, char* out, size_t out_size) {
 	ROM_mediaArtPath(rom_path, out, out_size);
 	if (exists(out))

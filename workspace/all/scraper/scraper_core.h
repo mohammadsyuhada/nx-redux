@@ -39,10 +39,19 @@ typedef enum {
 // stage is one of: "searching", "downloading", "compositing"
 typedef void (*ScrapeProgressCb)(const char* stage, void* userdata);
 
+// Variant art path: /Roms/GBA/.media/Game.png + "screenshot" ->
+// /Roms/GBA/.media/screenshot/Game.png. A NULL/empty variant copies out_png.
+void Scraper_variantPath(const char* out_png, const char* variant,
+						 char* out, size_t out_size);
+
 // Search ScreenScraper for `filename` (hashing `rom_path`) under `system_id`,
-// download available art, composite, and write `out_png` (creating its .media
-// dir). Reports each stage via `cb` (may be NULL). Pure worker: no GFX, no
-// globals — safe to call from the GUI queue thread or a headless process.
+// download the available art and write every variant from that one download
+// set: the mix composite to `out_png` (creating its .media dir), plus, when
+// the source image exists, screenshot-only and box-art-only PNGs under
+// .media/screenshot/ and .media/boxart/. Reports each stage via `cb` (may be
+// NULL). Pure worker: no GFX, no globals — safe to call from the GUI queue
+// thread or a headless process. A variant that fails to save does not fail
+// the scrape; only the mix composite decides the result.
 ScrapeResult scrapeOne(const char* filename, const char* rom_path, int system_id,
 					   const char* out_png, ScrapeProgressCb cb, void* userdata);
 

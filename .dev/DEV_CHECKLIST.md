@@ -11,6 +11,99 @@ Move an entry from there to here once it compiles and needs hardware time.
 
 ---
 
+## Game art style + type (Appearance) / Artwork Manager stores all variants (built 2026-09-12)
+
+Settings -> Appearance gained **Game art style** (`artStyle=0|1`, Thumbnail /
+Background) and **Game art type** (`artType=0|1|2`, Mix / Screenshot / Box
+art). Background's geometry is FIXED (Game art width sizes the thumbnail
+style only, including its title-column clamp): the fade runs from 40% in
+from the right edge at the top row to 60% in at the bottom on a 4:3 panel,
+20%/40% on a wide one (`ART_BG_WIDE_ASPECT` 1.5, i.e. the 16:9 Smart Pro S),
+the art is
+scaled to FIT the screen height (a source taller than wide — DS screenshot
+variants are 320x480 — is instead scaled to the DRAWN BOX WIDTH and cropped
+to the top band that fills the screen height, no fixed fraction:
+`band = H * art_w / box_w`, which lands at 233/480 source rows on the Brick
+(97% of the top screen) and 240/480 on the Smart Pro S (100%, clamped at the
+screen boundary so a seam of the second screen never shows)) and always pushed right by
+`ART_BG_OVERFLOW` 0.30 of its width; where that leaves the image starting
+later than the feathered boundary, the ramp starts at the image's own left
+edge instead (`ramp_start = max(draw_left, xb - feather)`), which is what
+keeps any aspect ratio free of a hard vertical cut without clamping the
+shift or cropping. The ramp is smootherstep SQUARED (the dark end then
+holds near zero far longer, so a bright screenshot blends instead of
+announcing its edge) over the whole span to the right edge, with a 0.25
+feather; titles are capped at `ART_BG_TEXT_WIDTH` 0.85 of the screen.
+Composited in software on the thumb-loader thread
+(`nextui/artbg.c`, tunables at the top) and painted onto `LAYER_BACKGROUND`
+with black + folder bg, because that layer composites without alpha (only
+layers 2-5 blend) and it must sit under the status bar / pills. The
+background style always resolves to the screenshot
+(`CFG_getEffectiveArtType`) and never falls back: `ROM_displayArtPath`'s
+`fallback_to_mix` is false there, so a game with no screenshot shows an
+empty background. The thumbnail style keeps the fallback to the root Mix
+file. The Artwork Manager writes all
+three PNGs per fetch (`.media/<g>.png`, `.media/screenshot/<g>.png`,
+`.media/boxart/<g>.png`) from one download set — GUI queue and headless
+`--fetch` alike — and its Settings page keeps **Reset artwork** (every png
+under `Roms/*/.media` incl. both variant subfolders, which are rmdir'd when
+empty; `bg.png`/`bglist.png` kept; confirm modal; refused while the queue
+runs); its page-level "Log in for higher rate limits" status line was
+dropped. Docs carry a "v1.9.0 or older: reset and re-fetch" note on both the
+Appearance and Artwork Manager pages, and the Artwork Manager screenshot was
+retaken (`docs/assets/screenshots/artwork-settings.png`, Brick capture).
+
+Device-verified headlessly on Brick (fb composite captures) and Smart Pro S
+(DRM shots), including the empty-background case (a game with no screenshot
+variant draws no art) and the fixed geometry on both aspect ratios (4:3
+Brick and 16:9 Smart Pro S, no hard image edge inside the fade) and art
+tracking the selection row by row: one
+headless fetch writes all three files on both devices;
+Background shows the screenshot variant edge-to-edge (no Mix inset strip);
+Thumbnail + Box art shows the box art; a game with only old Mix art falls
+back correctly; the Appearance row cycles; Reset took 192 mix + 2 variants
+-> 0 with the 30 folder backgrounds and both variant dirs gone, then the
+Brick backup was restored. Host tests: `scripts/tests/test-art-style.sh`
+(config + path resolution + compositor), `test-scraper-variants.sh`.
+Brick + Smart Pro S LEFT in Background style, type Mix. The Brick Pro got
+the full `make deploy DEVICE=brickpro` zip on 2026-09-12 (it was still on the
+2026-09-10 card, and loose elfs crash-looped it because libmsettings had
+gained the rumble symbols); it stays on its own Thumbnail setting and has no
+screenshot variants fetched yet.
+
+- [ ] Hands-on look at the fade on both panels. Tunables in
+      `nextui/artbg.c`: `ART_BG_TOP_FROM_RIGHT` 0.40 (0.20 wide) /
+      `ART_BG_BOTTOM_FROM_RIGHT` 0.60 (0.40 wide) / `ART_BG_FEATHER` 0.25 /
+      `ART_BG_FADE_SPAN` 1.00 / `ART_BG_MAX_ALPHA` 1.0 / `ART_BG_OVERFLOW`
+      0.30 / `ART_BG_EDGE_FADE` 0.06.
+- [x] Fade went vertical below ~1/3 height (user spotted it): `ramp_start`
+      was clamped to the image's left edge, and with the 0.25 feather that
+      clamp bound on every lower row, so they all shared one profile. The
+      ramp is geometric again and the image's own edge is hidden by a short
+      local fade (`ART_BG_EDGE_FADE`) instead. Device-measured onset now
+      936px at the top row to 768px at the bottom on the Smart Pro S.
+- [ ] The tall-source rule keys on aspect < 1.0, so a portrait arcade shot
+      (e.g. 3:4) is also top-cropped. Check that reads acceptably, or narrow
+      the rule to the DS 2:3 shape.
+- [ ] Wide panels now use a 666px strip (was 922px at 40/60): every game's
+      art area on the Smart Pro S is smaller, not just the DS ones. Check a
+      normal 4:3 screenshot still reads well there.
+- [ ] On 16:9 the shifted image starts right of the nominal bottom boundary,
+      so the bottom rows fade over a shorter run than the top rows. Check it
+      still reads as one diagonal on the Smart Pro S panel.
+- [ ] Background titles are capped at 85% of the screen width
+      (`ART_BG_TEXT_WIDTH` in `nextui/artbg.h`); check long names read well
+      over the image on both panels.
+- [ ] Selection-change cost in Background style: one full-screen layer
+      upload per change (black + folder bg + art) instead of a small thumb;
+      glide deferral still applies. Check it feels fine on the Brick.
+- [ ] Artwork Manager Library -> Queue All writes all three variants (only
+      the headless single-ROM path is exercised on hardware).
+- [ ] Search screen in Background style / with a non-Mix type (same loader
+      path, not captured).
+- [ ] Disk cost: three PNGs per game instead of one (~2-3x). No pruning
+      option exists; Reset artwork is the only bulk cleanup.
+
 ## Desktop: AppImage no longer bundles the host GL/driver stack (issue #86; built 2026-09-04)
 
 v1.9.0's AppImage died before opening a window on every Mesa >= 25 host

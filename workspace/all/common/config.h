@@ -54,6 +54,23 @@ enum {
 	SCREEN_OFF
 };
 
+// Game art presentation style: a thumbnail floating on the right, or a
+// full-height background image that fades diagonally into the list.
+typedef enum {
+	ART_STYLE_THUMBNAIL = 0,
+	ART_STYLE_BACKGROUND = 1
+} ArtStyle;
+
+// Which stored art variant the game lists display. The scraper writes a mix
+// composite to <console>/.media/<game>.png and, when available, screenshot-
+// and box-art-only variants to .media/screenshot/ and .media/boxart/. Older
+// libraries have only the mix file, which is the fallback for the others.
+typedef enum {
+	ART_TYPE_MIX = 0,
+	ART_TYPE_SCREENSHOT = 1,
+	ART_TYPE_BOXART = 2
+} ArtType;
+
 // Achievement sort order options
 enum {
 	RA_SORT_UNLOCKED_FIRST,
@@ -84,6 +101,8 @@ typedef struct
 	int thumbRadius;
 	int gameSwitcherScaling; // enum
 	double gameArtWidth;	 // [0,1] -> 0-100% of screen width
+	int gameArtStyle;		 // ArtStyle: thumbnail on the right, or faded background
+	int gameArtType;		 // ArtType: which stored art variant (mix/screenshot/boxart) to show
 
 	// font loading/unloading callback
 	FontLoad_callback_t onFontChange;
@@ -199,6 +218,8 @@ typedef struct
 #define CFG_DEFAULT_EXTRACTEDFILENAME false
 #define CFG_DEFAULT_MUTELEDS false
 #define CFG_DEFAULT_GAMEARTWIDTH 0.45
+#define CFG_DEFAULT_GAMEARTSTYLE ART_STYLE_THUMBNAIL
+#define CFG_DEFAULT_GAMEARTTYPE ART_TYPE_MIX
 #define CFG_DEFAULT_WIFI false
 #define CFG_DEFAULT_VIEW SCREEN_GAMELIST
 #define CFG_DEFAULT_WIFI_DIAG false
@@ -337,6 +358,18 @@ void CFG_setMuteLEDs(bool);
 // Set game art width percentage.
 double CFG_getGameArtWidth(void);
 void CFG_setGameArtWidth(double zeroToOne);
+// Game art presentation style (ArtStyle): 0 = thumbnail on the right,
+// 1 = full-height background that fades into the list.
+int CFG_getGameArtStyle(void);
+void CFG_setGameArtStyle(int style);
+// Which stored art variant (ArtType) the game lists display: 0 = mix
+// composite, 1 = screenshot only, 2 = box art only.
+int CFG_getGameArtType(void);
+void CFG_setGameArtType(int type);
+// The art variant actually shown: the background style always uses the
+// screenshot (a mix composite's floating box art and logo read as clutter
+// behind a game list), otherwise the user's CFG_getGameArtType choice.
+int CFG_getEffectiveArtType(void);
 // Show/hide folder names at root directory.
 bool CFG_getShowFolderNamesAtRoot(void);
 void CFG_setShowFolderNamesAtRoot(bool show);

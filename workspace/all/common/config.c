@@ -44,6 +44,8 @@ void CFG_defaults(NextUISettings* cfg) {
 		.color7_255 = CFG_DEFAULT_COLOR7,
 		.thumbRadius = CFG_DEFAULT_THUMBRADIUS,
 		.gameArtWidth = CFG_DEFAULT_GAMEARTWIDTH,
+		.gameArtStyle = CFG_DEFAULT_GAMEARTSTYLE,
+		.gameArtType = CFG_DEFAULT_GAMEARTTYPE,
 		.showFolderNamesAtRoot = CFG_DEFAULT_SHOWFOLDERNAMESATROOT,
 
 		.showClock = CFG_DEFAULT_SHOWCLOCK,
@@ -244,6 +246,14 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 			}
 			if (sscanf(line, "artWidth=%i", &temp_value) == 1) {
 				CFG_setGameArtWidth((double)temp_value / 100.0);
+				continue;
+			}
+			if (sscanf(line, "artStyle=%i", &temp_value) == 1) {
+				CFG_setGameArtStyle(temp_value);
+				continue;
+			}
+			if (sscanf(line, "artType=%i", &temp_value) == 1) {
+				CFG_setGameArtType(temp_value);
 				continue;
 			}
 			if (sscanf(line, "wifi=%i", &temp_value) == 1) {
@@ -716,6 +726,38 @@ void CFG_setGameArtWidth(double zeroToOne) {
 	CFG_sync();
 }
 
+int CFG_getGameArtStyle(void) {
+	return settings.gameArtStyle;
+}
+
+void CFG_setGameArtStyle(int style) {
+	if (style < ART_STYLE_THUMBNAIL)
+		style = ART_STYLE_THUMBNAIL;
+	else if (style > ART_STYLE_BACKGROUND)
+		style = ART_STYLE_BACKGROUND;
+	settings.gameArtStyle = style;
+	CFG_sync();
+}
+
+int CFG_getGameArtType(void) {
+	return settings.gameArtType;
+}
+
+void CFG_setGameArtType(int type) {
+	if (type < ART_TYPE_MIX)
+		type = ART_TYPE_MIX;
+	else if (type > ART_TYPE_BOXART)
+		type = ART_TYPE_BOXART;
+	settings.gameArtType = type;
+	CFG_sync();
+}
+
+int CFG_getEffectiveArtType(void) {
+	if (settings.gameArtStyle == ART_STYLE_BACKGROUND)
+		return ART_TYPE_SCREENSHOT;
+	return settings.gameArtType;
+}
+
 bool CFG_getWifi(void) {
 	return settings.wifi;
 }
@@ -1047,6 +1089,10 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", CFG_getMuteLEDs());
 	} else if (strcmp(key, "artWidth") == 0) {
 		sprintf(value, "%i", (int)(CFG_getGameArtWidth() * 100));
+	} else if (strcmp(key, "artStyle") == 0) {
+		sprintf(value, "%i", CFG_getGameArtStyle());
+	} else if (strcmp(key, "artType") == 0) {
+		sprintf(value, "%i", CFG_getGameArtType());
 	} else if (strcmp(key, "wifi") == 0) {
 		sprintf(value, "%i", (int)(CFG_getWifi()));
 	} else if (strcmp(key, "defaultView") == 0) {
@@ -1129,6 +1175,8 @@ static int CFG_serialize(char* buf, size_t cap) {
 	EMIT("useExtractedFileName=%i\n", settings.useExtractedFileName);
 	EMIT("muteLeds=%i\n", settings.muteLeds);
 	EMIT("artWidth=%i\n", (int)(settings.gameArtWidth * 100));
+	EMIT("artStyle=%i\n", settings.gameArtStyle);
+	EMIT("artType=%i\n", settings.gameArtType);
 	EMIT("wifi=%i\n", settings.wifi);
 	EMIT("defaultView=%i\n", settings.defaultView);
 	EMIT("wifiDiagnostics=%i\n", settings.wifiDiagnostics);
@@ -1359,6 +1407,8 @@ void CFG_print(void) {
 	printf("\t\"useExtractedFileName\": %i,\n", settings.useExtractedFileName);
 	printf("\t\"muteLeds\": %i,\n", settings.muteLeds);
 	printf("\t\"artWidth\": %i,\n", (int)(settings.gameArtWidth * 100));
+	printf("\t\"artStyle\": %i,\n", settings.gameArtStyle);
+	printf("\t\"artType\": %i,\n", settings.gameArtType);
 	printf("\t\"wifi\": %i,\n", settings.wifi);
 	printf("\t\"defaultView\": %i,\n", settings.defaultView);
 	printf("\t\"wifiDiagnostics\": %i,\n", settings.wifiDiagnostics);

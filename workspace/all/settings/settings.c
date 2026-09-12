@@ -287,6 +287,14 @@ static int game_art_width_values[GAME_ART_WIDTH_COUNT];
 
 /* On/off as int values 0,1 */
 static int on_off_values[] = {0, 1};
+
+/* Game art style: thumbnail on the right, or full-height faded background */
+static const char* art_style_labels[] = {"Thumbnail", "Background"};
+static int art_style_values[] = {ART_STYLE_THUMBNAIL, ART_STYLE_BACKGROUND};
+
+/* Game art type: which stored variant the game lists show */
+static const char* art_type_labels[] = {"Mix", "Screenshot", "Box art"};
+static int art_type_values[] = {ART_TYPE_MIX, ART_TYPE_SCREENSHOT, ART_TYPE_BOXART};
 // "Vibration strength": values are libmsettings rumble_strength levels
 // (vib_levels.h); 0 = Normal is the default and sits in the middle of the UI.
 static const char* rumble_strength_labels[] = {"Light", "Normal", "Strong"};
@@ -631,6 +639,28 @@ static void set_game_art_width(int val) {
 }
 static void reset_game_art_width(void) {
 	CFG_setGameArtWidth(CFG_DEFAULT_GAMEARTWIDTH);
+}
+
+/* Game art style */
+static int get_game_art_style(void) {
+	return CFG_getGameArtStyle();
+}
+static void set_game_art_style(int v) {
+	CFG_setGameArtStyle(v);
+}
+static void reset_game_art_style(void) {
+	CFG_setGameArtStyle(CFG_DEFAULT_GAMEARTSTYLE);
+}
+
+/* Game art type */
+static int get_game_art_type(void) {
+	return CFG_getGameArtType();
+}
+static void set_game_art_type(int v) {
+	CFG_setGameArtType(v);
+}
+static void reset_game_art_type(void) {
+	CFG_setGameArtType(CFG_DEFAULT_GAMEARTTYPE);
 }
 
 /* Show folder names at root */
@@ -1251,7 +1281,7 @@ static void init_about_info(void) {
 // Menu item arrays (static allocation)
 // ============================================
 
-#define MAX_APPEARANCE_ITEMS 26
+#define MAX_APPEARANCE_ITEMS 28
 #define MAX_DISPLAY_ITEMS 8
 #define MAX_SYSTEM_ITEMS 22
 #define MAX_MUTE_ITEMS 20
@@ -1628,6 +1658,12 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Game art width", "Set the percentage of screen width used for game art.",
 		game_art_width_labels, GAME_ART_WIDTH_COUNT, game_art_width_values, get_game_art_width, set_game_art_width, reset_game_art_width);
+	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Game art style", "Thumbnail on the right, or full-height background that fades into the list",
+		art_style_labels, 2, art_style_values, get_game_art_style, set_game_art_style, reset_game_art_style);
+	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Game art type", "Which fetched image to show. The background style always uses the screenshot.",
+		art_type_labels, 3, art_type_values, get_game_art_type, set_game_art_type, reset_game_art_type);
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Show folder names at root", "Show folder names at root directory",
 		on_off_labels, 2, on_off_values, get_show_folder_names, set_show_folder_names, reset_show_folder_names);

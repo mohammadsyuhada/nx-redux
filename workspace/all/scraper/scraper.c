@@ -12,6 +12,7 @@
 #include "defines.h"
 #include "api.h"
 #include "ui_buttonhintbar.h"
+#include "ui_confirmdialog.h"
 #include "ui_emptystate.h"
 #include "ui_loadingoverlay.h"
 #include "ui_menubar.h"
@@ -342,6 +343,63 @@ static void scanROMs(SystemEntry* sys) {
 	qsort(roms, rom_count, sizeof(ROMEntry), romCompare);
 }
 
+// Delete every fetched image under <ROMS_PATH>/<any folder>/.media/*.png,
+// across ALL Roms folders (not just systems the scraper recognises, so ports,
+// unknown tags, folder games and orphaned names go too). bg.png / bglist.png
+// are the folder backgrounds nextui draws, never scraper output: kept.
+// Returns the number of files deleted.
+static bool isFolderBackground(const char* name) {
+	return strcmp(name, "bg.png") == 0 || strcmp(name, "bglist.png") == 0;
+}
+
+// Delete every PNG in one .media directory, skipping the folder backgrounds
+// nextui draws (they are never scraper output). Returns the count deleted.
+static int deleteArtworkInDir(const char* media_path, bool keep_backgrounds) {
+	int deleted = 0;
+	DIR* dir = opendir(media_path);
+	if (!dir)
+		return 0;
+	struct dirent* entry;
+	while ((entry = readdir(dir)) != NULL) {
+		if (entry->d_name[0] == '.')
+			continue;
+		if (keep_backgrounds && isFolderBackground(entry->d_name))
+			continue;
+		if (!suffixMatch(".png", entry->d_name))
+			continue;
+		char png_path[600];
+		snprintf(png_path, sizeof(png_path), "%s/%s", media_path, entry->d_name);
+		if (remove(png_path) == 0)
+			deleted++;
+	}
+	closedir(dir);
+	return deleted;
+}
+
+static int deleteAllArtwork(void) {
+	static const char* variants[] = {"screenshot", "boxart"};
+	int deleted = 0;
+	DIR* roms = opendir(ROMS_PATH);
+	if (!roms)
+		return 0;
+	struct dirent* sys;
+	while ((sys = readdir(roms)) != NULL) {
+		if (sys->d_name[0] == '.' || sys->d_type != DT_DIR)
+			continue;
+		char media_path[512];
+		snprintf(media_path, sizeof(media_path), "%s/%s/.media", ROMS_PATH, sys->d_name);
+		deleted += deleteArtworkInDir(media_path, true);
+		for (size_t v = 0; v < sizeof(variants) / sizeof(variants[0]); v++) {
+			char variant_path[600];
+			snprintf(variant_path, sizeof(variant_path), "%s/%s", media_path, variants[v]);
+			deleted += deleteArtworkInDir(variant_path, false);
+			rmdir(variant_path); // no-op unless it is now empty
+		}
+	}
+	closedir(roms);
+	return deleted;
+}
+
 // ============================================
 // Queue Operations
 // ============================================
@@ -496,6 +554,21 @@ static void queueClearDone(void) {
 		progress_scroll = queue_count > 0 ? queue_count - 1 : 0;
 	queue_dirty = true;
 	pthread_mutex_unlock(&queue_mutex);
+}
+
+// True while any queue item is still idle or in progress (i.e. the scraper
+// thread has work). Used to refuse a destructive reset mid-scrape.
+static bool queueIsBusy(void) {
+	bool busy = false;
+	pthread_mutex_lock(&queue_mutex);
+	for (int i = 0; i < queue_count; i++) {
+		if (!isTerminalStatus(scrape_queue[i].status)) {
+			busy = true;
+			break;
+		}
+	}
+	pthread_mutex_unlock(&queue_mutex);
+	return busy;
 }
 
 // ============================================
@@ -800,6 +873,12 @@ static void renderSettings(void) {
 	const char* user_display = cred_username[0] ? cred_username : "Not set";
 	const char* pass_display = cred_password[0] ? "********" : "Not set";
 
+	// Row 0 (reset) is shared; the account rows below it only appear once
+	// logged in.
+	UISettingsItem reset_item = {.label = "Reset artwork", .value = NULL, .swatch = -1, .cycleable = 0, .desc = "Delete every fetched image (mix, screenshot, box art) from every Roms folder"};
+	UISettingsItem user_item = {.label = "Username", .value = user_display, .swatch = -1, .cycleable = 0, .desc = "ScreenScraper username"};
+	UISettingsItem pass_item = {.label = "Password", .value = pass_display, .swatch = -1, .cycleable = 0, .desc = "ScreenScraper password"};
+
 	if (logged_in) {
 		char quota_str[32] = "—";
 		char max_str[32] = "—";
@@ -809,8 +888,9 @@ static void renderSettings(void) {
 		}
 
 		UISettingsItem items[] = {
-			{.label = "Username", .value = user_display, .swatch = -1, .cycleable = 0, .desc = "ScreenScraper username"},
-			{.label = "Password", .value = pass_display, .swatch = -1, .cycleable = 0, .desc = "ScreenScraper password"},
+			reset_item,
+			user_item,
+			pass_item,
 			{.label = "Requests Today", .value = quota_str, .swatch = -1, .cycleable = 0, .desc = "API requests used today"},
 			{.label = "Max Requests", .value = max_str, .swatch = -1, .cycleable = 0, .desc = "Daily request limit"},
 			{.label = "Logout", .value = NULL, .swatch = -1, .cycleable = 0, .desc = "Clear saved credentials"},
@@ -821,14 +901,14 @@ static void renderSettings(void) {
 							  settings_selected, &settings_scroll, NULL);
 	} else {
 		UISettingsItem items[] = {
-			{.label = "Username", .value = user_display, .swatch = -1, .cycleable = 0, .desc = "ScreenScraper username"},
-			{.label = "Password", .value = pass_display, .swatch = -1, .cycleable = 0, .desc = "ScreenScraper password"},
+			reset_item,
+			user_item,
+			pass_item,
 		};
 
 		int count = sizeof(items) / sizeof(items[0]);
 		UI_renderSettingsPage(screen, &layout, items, count,
-							  settings_selected, &settings_scroll,
-							  "Log in for higher rate limits");
+							  settings_selected, &settings_scroll, NULL);
 	}
 
 	UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "SELECT", NULL});
@@ -885,6 +965,37 @@ static void reportQueued(int added) {
 		UI_renderLoadingOverlay(screen, "Nothing to queue",
 								"All ROMs already queued or scraped");
 	}
+	GFX_flip(screen);
+	SDL_Delay(1000);
+}
+
+// Confirm-and-delete all fetched artwork. Refuses while the scrape queue is
+// still working; on confirm, deletes the .media PNGs, drops stale "Done" rows,
+// and refreshes the cached system/ROM counts so the UI reflects the reset.
+static void resetArtworkFlow(void) {
+	if (queueIsBusy()) {
+		UI_renderLoadingOverlay(screen, "Scrape in progress",
+								"Wait for the queue to finish");
+		GFX_flip(screen);
+		SDL_Delay(1500);
+		return;
+	}
+
+	if (!UI_confirmModal(screen, "Reset artwork?",
+						 "Deletes mix, screenshot and box art",
+						 &app_quit, false, true))
+		return;
+
+	int deleted = deleteAllArtwork();
+	queueClearDone(); // stale "Done" rows now point at deleted files
+	scanSystems();	  // refresh scraped_count badges
+	// Reset the loaded ROM list's has_artwork flags too, if one is in memory.
+	if (rom_count > 0 && systems_view.selected < system_count)
+		scanROMs(&systems[systems_view.selected]);
+
+	char msg[64];
+	snprintf(msg, sizeof(msg), "Deleted %d files", deleted);
+	UI_renderLoadingOverlay(screen, "Reset complete", msg);
 	GFX_flip(screen);
 	SDL_Delay(1000);
 }
@@ -1072,7 +1183,7 @@ int main(int argc, char* argv[]) {
 		}
 		case SCREEN_SETTINGS: {
 			bool logged_in = cred_username[0] && cred_password[0];
-			int settings_count = logged_in ? 5 : 2;
+			int settings_count = logged_in ? 6 : 3;
 
 			if (PAD_justPressed(BTN_B)) {
 				current_screen = SCREEN_MAIN_MENU;
@@ -1085,19 +1196,24 @@ int main(int argc, char* argv[]) {
 
 			if (PAD_justPressed(BTN_A)) {
 				switch (settings_selected) {
-				case 0: { // Username
+				case 0: { // Reset artwork
+					resetArtworkFlow();
+					dirty = true;
+					break;
+				}
+				case 1: { // Username
 					editCredentialField("ScreenScraper Username",
 										cred_username, sizeof(cred_username));
 					dirty = true;
 					break;
 				}
-				case 1: { // Password
+				case 2: { // Password
 					editCredentialField("ScreenScraper Password",
 										cred_password, sizeof(cred_password));
 					dirty = true;
 					break;
 				}
-				case 4: { // Logout (only reachable when logged in)
+				case 5: { // Logout (only reachable when logged in)
 					cred_username[0] = '\0';
 					cred_password[0] = '\0';
 					saveCredentials();

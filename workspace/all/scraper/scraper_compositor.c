@@ -203,6 +203,28 @@ SDL_Surface* Compositor_create(const char* screenshot_path,
 	return canvas;
 }
 
+SDL_Surface* Compositor_createSingle(const char* image_path) {
+	if (!image_path)
+		return NULL;
+
+	SDL_Surface* raw = IMG_Load(image_path);
+	if (!raw)
+		return NULL;
+
+	// Convert to the same ARGB32 layout the mix canvas uses so scaling and PNG
+	// saving behave identically (paletted PNGs otherwise lose alpha).
+	SDL_Surface* img = SDL_ConvertSurfaceFormat(raw, SDL_PIXELFORMAT_ARGB8888, 0);
+	SDL_FreeSurface(raw);
+	if (!img)
+		return NULL;
+
+	// Fit within the 4:3 bound, keep aspect; the canvas is exactly the scaled
+	// size — no padding, shadow, or transparent bars.
+	SDL_Surface* canvas = scaleSurface(img, CANVAS_W, CANVAS_H);
+	SDL_FreeSurface(img);
+	return canvas;
+}
+
 bool Compositor_savePNG(SDL_Surface* surface, const char* path) {
 	if (!surface || !path)
 		return false;

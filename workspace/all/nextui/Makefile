@@ -29,7 +29,7 @@ SDL?=SDL
 TARGET = nextui
 INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
 include ../common/ui/ui.mk
-SOURCE = $(TARGET).c types.c recents.c content.c launcher.c imgloader.c shortcuts.c gamelist.c gameswitcher.c search.c desktop_update.c ../common/display_helper.c ../common/scaler.c ../common/utils.c ../common/config.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/wifi.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c $(UI_LISTVIEW_SRCS) $(UI_DIR)/ui_listdialog.c $(UI_DIR)/ui_keyboard.c $(UI_DIR)/ui_contextmenu.c ../../$(PLATFORM)/platform/platform.c ../common/paths.c
+SOURCE = $(TARGET).c types.c recents.c content.c launcher.c imgloader.c artbg.c shortcuts.c gamelist.c gameswitcher.c search.c desktop_update.c ../common/display_helper.c ../common/scaler.c ../common/utils.c ../common/config.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/wifi.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c $(UI_LISTVIEW_SRCS) $(UI_DIR)/ui_listdialog.c $(UI_DIR)/ui_keyboard.c $(UI_DIR)/ui_contextmenu.c ../../$(PLATFORM)/platform/platform.c ../common/paths.c
 
 # Desktop's platform.c backs PLAT_wifiConnected with a real reachability probe
 # (device platform.c doesn't; it uses generic_wifi.c) -- desktop-only source.

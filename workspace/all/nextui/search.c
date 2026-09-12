@@ -5,6 +5,7 @@
 #include "defines.h"
 #include "display_helper.h"
 #include "gamelist.h"
+#include "artbg.h"
 #include "imgloader.h"
 #include "launcher.h"
 #include "types.h"
@@ -162,11 +163,19 @@ void Search_render(SDL_Surface* screen, int lastScreen) {
 		Entry* selected_entry = search_results->items[search_view.selected];
 
 		char thumbpath[1024];
-		ROM_mediaArtPath(selected_entry->path, thumbpath, sizeof(thumbpath));
+		ROM_displayArtPath(selected_entry->path, CFG_getEffectiveArtType(),
+						   CFG_getGameArtStyle() != ART_STYLE_BACKGROUND,
+						   thumbpath, sizeof(thumbpath));
 		had_thumb = startLoadThumb(thumbpath);
+		// Same as the game list: only the thumbnail style reserves a column,
+		// the background style just caps the title width.
 		int max_w = (int)(screen->w - (screen->w * CFG_getGameArtWidth()));
-		if (had_thumb)
-			ox = (int)(max_w)-SCALE1(BUTTON_MARGIN * 5);
+		if (had_thumb) {
+			if (CFG_getGameArtStyle() == ART_STYLE_BACKGROUND)
+				ox = (int)(screen->w * ART_BG_TEXT_WIDTH);
+			else
+				ox = (int)(max_w)-SCALE1(BUTTON_MARGIN * 5);
+		}
 	}
 
 	search_view.count = total;

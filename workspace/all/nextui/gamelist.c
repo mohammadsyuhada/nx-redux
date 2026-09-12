@@ -23,6 +23,7 @@
 
 #include "content.h"
 #include "gameswitcher.h"
+#include "artbg.h"
 #include "imgloader.h"
 #include "launcher.h"
 #include "recents.h"
@@ -1389,13 +1390,23 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 	if (total > 0) {
 		if (CFG_getShowGameArt()) {
 			char thumbpath[1024];
-			ROM_mediaArtPath(entry->path, thumbpath, sizeof(thumbpath));
+			// The background style shows the screenshot or nothing: a mix
+			// composite behind the list is the look it exists to replace.
+			ROM_displayArtPath(entry->path, CFG_getEffectiveArtType(),
+							   CFG_getGameArtStyle() != ART_STYLE_BACKGROUND,
+							   thumbpath, sizeof(thumbpath));
 			had_thumb = startLoadThumb(thumbpath);
+			// "Game art width" reserves a column for the thumbnail style only.
+			// The background style has no column to reserve (the art is behind
+			// the list), just a cap so long titles stop short of the image's
+			// bright side.
 			int max_w = (int)(screen->w - (screen->w * CFG_getGameArtWidth()));
-			if (had_thumb)
-				ox = (int)(max_w)-SCALE1(BUTTON_MARGIN * 5);
-			else
+			if (!had_thumb)
 				ox = screen->w;
+			else if (CFG_getGameArtStyle() == ART_STYLE_BACKGROUND)
+				ox = (int)(screen->w * ART_BG_TEXT_WIDTH);
+			else
+				ox = (int)(max_w)-SCALE1(BUTTON_MARGIN * 5);
 		}
 	}
 
