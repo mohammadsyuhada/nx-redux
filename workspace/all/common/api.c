@@ -1891,10 +1891,11 @@ int GFX_blitHardwareIndicator(SDL_Surface* dst, int x, int y, IndicatorType indi
 		setting_value = GetVolume();
 		setting_min = VOLUME_MIN;
 		setting_max = VOLUME_MAX;
+		int show_muted = GetSpeakerMute() || setting_value == 0;
 		if (GetAudioSink() == AUDIO_SINK_BLUETOOTH)
-			asset = (setting_value > 0 ? ASSET_BLUETOOTH : ASSET_BLUETOOTH_OFF);
+			asset = (show_muted ? ASSET_BLUETOOTH_OFF : ASSET_BLUETOOTH);
 		else
-			asset = (setting_value > 0 ? ASSET_VOLUME : ASSET_VOLUME_MUTE);
+			asset = (show_muted ? ASSET_VOLUME_MUTE : ASSET_VOLUME);
 	}
 
 	// Draw the icon
@@ -3707,9 +3708,12 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 	static uint32_t power_pressed_at = 0;	  // timestamp when power button was just pressed
 	static uint32_t mod_unpressed_at = 0;	  // timestamp of last time brightness modifier was NOT held
 	static uint32_t colortemp_pressed_at = 0; // timestamp of the color-temperature modifier's press edge
-	static uint32_t was_muted = -1;
-	if (was_muted == -1 && InitializedSettings())
-		was_muted = GetFnMode();
+	static uint32_t was_fn_on = -1;
+	static int was_speaker_muted = -1;
+	if (was_fn_on == -1 && InitializedSettings()) {
+		was_fn_on = GetFnMode();
+		was_speaker_muted = GetSpeakerMute();
+	}
 
 	static int was_charging = -1;
 	if (was_charging == -1)
@@ -3831,9 +3835,11 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 	}
 
 	if (InitializedSettings()) {
-		int muted = GetFnMode();
-		if (muted != was_muted) {
-			was_muted = muted;
+		int fn_on = GetFnMode();
+		int speaker_muted = GetSpeakerMute();
+		if (fn_on != was_fn_on || speaker_muted != was_speaker_muted) {
+			was_fn_on = fn_on;
+			was_speaker_muted = speaker_muted;
 			show_setting = INDICATOR_VOLUME;
 			setting_shown_at = now;
 		}

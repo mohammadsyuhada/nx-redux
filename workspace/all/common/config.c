@@ -1086,7 +1086,7 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", CFG_getStateFormat());
 	} else if (strcmp(key, "useExtractedFileName") == 0) {
 		sprintf(value, "%i", CFG_getUseExtractedFileName());
-	} else if (strcmp(key, "muteLeds") == 0) {
+	} else if (strcmp(key, "fnLeds") == 0 || strcmp(key, "muteLeds") == 0) {
 		sprintf(value, "%i", CFG_getFnLEDs());
 	} else if (strcmp(key, "artWidth") == 0) {
 		sprintf(value, "%i", (int)(CFG_getGameArtWidth() * 100));
@@ -1406,7 +1406,7 @@ void CFG_print(void) {
 	printf("\t\"saveFormat\": %i,\n", settings.saveFormat);
 	printf("\t\"stateFormat\": %i,\n", settings.stateFormat);
 	printf("\t\"useExtractedFileName\": %i,\n", settings.useExtractedFileName);
-	printf("\t\"muteLeds\": %i,\n", settings.fnLeds);
+	printf("\t\"fnLeds\": %i,\n", settings.fnLeds);
 	printf("\t\"artWidth\": %i,\n", (int)(settings.gameArtWidth * 100));
 	printf("\t\"artStyle\": %i,\n", settings.gameArtStyle);
 	printf("\t\"artType\": %i,\n", settings.gameArtType);

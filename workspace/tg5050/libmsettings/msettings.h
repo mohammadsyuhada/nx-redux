@@ -67,7 +67,7 @@ void SetRumble(int on);
 int GetRumbleStrength(void); // 0 Normal (default), 1 Light, 2 Strong — see all/common/vib_levels.h
 void SetRumbleStrength(int level);
 
-// custom mute mode persistence layer
+// custom FN mode persistence layer
 
 int GetFnBrightness(void);
 int GetFnColortemp(void);

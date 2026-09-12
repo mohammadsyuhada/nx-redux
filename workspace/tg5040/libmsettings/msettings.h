@@ -72,7 +72,7 @@ inline void SetFanSpeed(int value) {
 	// do nothing
 }
 
-// custom mute mode persistence layer
+// custom FN mode persistence layer
 
 int GetFnBrightness(void);
 int GetFnColortemp(void);

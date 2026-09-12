@@ -55,6 +55,6 @@ typedef struct {
 #endif
 
 #define MSETTINGS_SHM_KEY "/SharedSettings"
-#define MSETTINGS_DEFAULT_MUTE_NO_CHANGE -69
+#define MSETTINGS_DEFAULT_FN_NO_CHANGE -69
 
 #endif

@@ -132,7 +132,7 @@ typedef struct
 	char fn1Tool[256];
 	char fn2Tool[256];
 
-	// Mute switch
+	// FN switch
 	bool fnLeds;
 
 	// Power
@@ -352,7 +352,7 @@ void CFG_setStateFormat(int);
 // use extracted file name instead of archive name (for cores that do not support archives natively)
 bool CFG_getUseExtractedFileName(void);
 void CFG_setUseExtractedFileName(bool);
-// Enable/disable mute also shutting off LEDs.
+// Enable/disable FN mode also shutting off LEDs.
 bool CFG_getFnLEDs(void);
 void CFG_setFnLEDs(bool);
 // Set game art width percentage.
