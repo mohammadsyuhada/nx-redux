@@ -2,6 +2,7 @@
 #include "../music_service_protocol.h"
 #include <stdbool.h>
 #include <stdio.h>
+#include <string.h>
 
 static int failures;
 static int game_volume;
@@ -64,5 +65,8 @@ int main(void) {
 	check(MusicBalance_setValue(0) == MUSIC_STATUS_UNAVAILABLE && music_volume == 20 && game_volume == 20 &&
 			  order_length == 4 && order[0] == 'G' && order[1] == 'C' && order[2] == 'G' && order[3] == 'M',
 		  "daemon command failure restores both persisted gains");
+
+	check(strcmp(MusicBalance_formatValue(5), "50/50") == 0, "formatValue centre reads 50/50");
+	check(strcmp(MusicBalance_formatValue(8), "Music +3") == 0, "formatValue above centre reads Music +3");
 	return failures ? 1 : 0;
 }

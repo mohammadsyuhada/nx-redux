@@ -68,6 +68,7 @@ static int GRID_H = 2;
 #define THEME_SETTINGS_PATH "/mnt/SDCARD/.userdata/shared/minuisettings.txt"
 #define INPUT_LIMIT 512
 #define BALANCE_MAX 10
+#define BALANCE_COMMIT_MS 200
 
 enum { FOCUS_PREV = 0,
 	   FOCUS_PLAY = 1,
@@ -82,8 +83,10 @@ static struct {
 	bool enabled;
 	int focus;
 	int row;
+	int balance_pending;
+	Uint32 balance_commit_at;
 	char artwork_identity[MUSIC_SERVICE_MAX_PATH * 2 + 2];
-} state = {.focus = FOCUS_PLAY, .row = ROW_TRANSPORT};
+} state = {.focus = FOCUS_PLAY, .row = ROW_TRANSPORT, .balance_pending = -1};
 
 
 static volatile sig_atomic_t quit;
@@ -476,7 +479,7 @@ static void draw_balance_row(Widget* w, int y) {
 	SDL_Surface* f = w->frame;
 	const bool focused = state.enabled && state.row == ROW_BALANCE;
 	const int bar_x = 48, bar_w = CANVAS_W - 96, bar_h = 6;
-	const int balance = MusicBalance_getValue();
+	const int balance = state.balance_pending >= 0 ? state.balance_pending : MusicBalance_getValue();
 	SDL_Color white = {255, 255, 255, 255};
 	SDL_Color grey = {170, 170, 170, 255};
 	Uint32 fg = focused ? SDL_MapRGBA(f->format, accent.r, accent.g, accent.b, 255)
@@ -496,7 +499,7 @@ static void draw_balance_row(Widget* w, int y) {
 	int gw = text_width(w->label_font, "Game");
 	int mw = text_width(w->label_font, "Music");
 	draw_text_centered(f, w->label_font, "Game", bar_x + gw / 2, ly, focused ? white : grey, 80);
-	draw_text_centered(f, w->label_font, MusicBalance_getDisplayString(), CANVAS_W / 2, ly,
+	draw_text_centered(f, w->label_font, MusicBalance_formatValue(balance), CANVAS_W / 2, ly,
 					   focused ? accent : grey, 120);
 	draw_text_centered(f, w->label_font, "Music", bar_x + bar_w - mw / 2, ly, focused ? white : grey, 80);
 }
@@ -556,13 +559,24 @@ static void trace_command(const char* cmd) {
 	}
 }
 
+// Balance keys only stage a value; commit_balance() persists it once the keys
+// go idle (or the panel closes) so a held d-pad does not sync per repeat.
+static void commit_balance(void) {
+	if (state.balance_pending >= 0) {
+		(void)MusicBalance_setValue(state.balance_pending);
+		state.balance_pending = -1;
+	}
+}
+
 static void handle_command(Widget* w, const char* cmd) {
 	trace_command(cmd);
 	if (!strcmp(cmd, "enable")) {
 		state.enabled = true;
 		state.focus = FOCUS_PLAY;
 		state.row = ROW_TRANSPORT;
+		state.balance_pending = -1;
 	} else if (!strcmp(cmd, "disable") || !strcmp(cmd, "key_b")) {
+		commit_balance();
 		state.enabled = false;
 	} else if (!state.enabled) {
 		return;
@@ -572,8 +586,14 @@ static void handle_command(Widget* w, const char* cmd) {
 		state.row = ROW_TRANSPORT;
 	} else if (state.row == ROW_BALANCE) {
 		if (!strcmp(cmd, "left") || !strcmp(cmd, "right")) {
-			int value = MusicBalance_getValue() + (cmd[0] == 'l' ? -1 : 1);
-			(void)MusicBalance_setValue(value);
+			int base = state.balance_pending >= 0 ? state.balance_pending : MusicBalance_getValue();
+			base += cmd[0] == 'l' ? -1 : 1;
+			if (base < 0)
+				base = 0;
+			if (base > BALANCE_MAX)
+				base = BALANCE_MAX;
+			state.balance_pending = base;
+			state.balance_commit_at = SDL_GetTicks() + BALANCE_COMMIT_MS;
 			return;
 		}
 	} else if (!strcmp(cmd, "left")) {
@@ -823,6 +843,10 @@ int main(int argc, char** argv) {
 		// Nothing composites the canvas while the OSD panel is hidden, so skip
 		// all render/sync/accent work then and only wait on the command FIFO.
 		bool visible = access(OSD_SHOW_FLAG, F_OK) == 0;
+		// Persist a staged balance change while the socket is still up, before the
+		// panel-hidden path below drops it.
+		if (!visible)
+			commit_balance();
 		// While hidden the widget must hold no socket, so an idle owner can exit.
 		// This one check also drops the socket the startup attach (MusicClient_init
 		// or the initial sync) may have opened, on the first hidden pass.
@@ -850,8 +874,20 @@ int main(int argc, char** argv) {
 			continue;
 		}
 		struct pollfd pfd = {.fd = w.cmd_fd, .events = POLLIN};
-		if (poll(&pfd, 1, POLL_MS) > 0 && (pfd.revents & (POLLIN | POLLHUP | POLLERR))) {
+		int timeout = POLL_MS;
+		if (state.balance_pending >= 0) {
+			Sint32 remaining = (Sint32)(state.balance_commit_at - SDL_GetTicks());
+			if (remaining < 0)
+				remaining = 0;
+			if (remaining < timeout)
+				timeout = remaining;
+		}
+		if (poll(&pfd, 1, timeout) > 0 && (pfd.revents & (POLLIN | POLLHUP | POLLERR))) {
 			read_commands(&w);
+			render(&w);
+		}
+		if (state.balance_pending >= 0 && (Sint32)(SDL_GetTicks() - state.balance_commit_at) >= 0) {
+			commit_balance();
 			render(&w);
 		}
 	}
