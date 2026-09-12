@@ -889,31 +889,29 @@ static void handle_command(uint16_t command, const unsigned char* payload, size_
 			shuffle_history_count = 0;
 		break;
 	case MUSIC_CMD_PODCAST_PROGRESS:
-	case MUSIC_CMD_PODCAST_MARK_PLAYED:
-		{
-			const MusicPodcastProgressRequest* progress = (const MusicPodcastProgressRequest*)payload;
-			Podcast_reloadPlaybackData();
-			if (active_source == MUSIC_SOURCE_PODCAST)
-				resolve_active_podcast();
-			if (progress->position_sec < -1) {
-				status = MUSIC_STATUS_BAD_REQUEST;
-				break;
-			}
-			if (!podcast_identity_exists(progress->feed_url, progress->episode_guid)) {
-				status = MUSIC_STATUS_NOT_FOUND;
-				break;
-			}
-			if (progress->position_sec == -1) {
-				Podcast_markAsPlayed(progress->feed_url, progress->episode_guid);
-				Podcast_removeContinueListening(progress->feed_url, progress->episode_guid);
-			} else {
-				Podcast_saveProgress(progress->feed_url, progress->episode_guid, progress->position_sec);
-				if (active_source == MUSIC_SOURCE_PODCAST)
-					podcast_last_progress_ms = now_ms();
-			}
-			Podcast_flushProgress();
+	case MUSIC_CMD_PODCAST_MARK_PLAYED: {
+		const MusicPodcastProgressRequest* progress = (const MusicPodcastProgressRequest*)payload;
+		Podcast_reloadPlaybackData();
+		if (active_source == MUSIC_SOURCE_PODCAST)
+			resolve_active_podcast();
+		if (progress->position_sec < -1) {
+			status = MUSIC_STATUS_BAD_REQUEST;
+			break;
 		}
-		break;
+		if (!podcast_identity_exists(progress->feed_url, progress->episode_guid)) {
+			status = MUSIC_STATUS_NOT_FOUND;
+			break;
+		}
+		if (progress->position_sec == -1) {
+			Podcast_markAsPlayed(progress->feed_url, progress->episode_guid);
+			Podcast_removeContinueListening(progress->feed_url, progress->episode_guid);
+		} else {
+			Podcast_saveProgress(progress->feed_url, progress->episode_guid, progress->position_sec);
+			if (active_source == MUSIC_SOURCE_PODCAST)
+				podcast_last_progress_ms = now_ms();
+		}
+		Podcast_flushProgress();
+	} break;
 	case MUSIC_CMD_SET_VOLUME:
 		if (((const MusicIntRequest*)payload)->value < 0 ||
 			((const MusicIntRequest*)payload)->value > 20)
@@ -926,7 +924,7 @@ static void handle_command(uint16_t command, const unsigned char* payload, size_
 		break;
 	case MUSIC_CMD_SET_SPEED:
 		if (((const MusicSpeedRequest*)payload)->speed < 0.5f ||
-				 ((const MusicSpeedRequest*)payload)->speed > 2.0f)
+			((const MusicSpeedRequest*)payload)->speed > 2.0f)
 			status = MUSIC_STATUS_BAD_REQUEST;
 		else
 			Player_setPlaybackSpeed(((const MusicSpeedRequest*)payload)->speed);

@@ -68,8 +68,12 @@ static int GRID_H = 2;
 #define INPUT_LIMIT 512
 #define BALANCE_MAX 10
 
-enum { FOCUS_PREV = 0, FOCUS_PLAY = 1, FOCUS_NEXT = 2, FOCUS_COUNT = 3 };
-enum { ROW_TRANSPORT = 0, ROW_BALANCE = 1 };
+enum { FOCUS_PREV = 0,
+	   FOCUS_PLAY = 1,
+	   FOCUS_NEXT = 2,
+	   FOCUS_COUNT = 3 };
+enum { ROW_TRANSPORT = 0,
+	   ROW_BALANCE = 1 };
 
 static struct {
 	MusicSnapshotWire snapshot;
@@ -349,7 +353,7 @@ static void draw_button(Widget* w, SDL_Surface* icon, int cx, int cy, int disc, 
 		const int luminance = 299 * accent.r + 587 * accent.g + 114 * accent.b;
 		const Uint8 icon_color = luminance < 128000 ? 255 : 32;
 		blit_tinted(w->frame, icon, cx - icon->w / 2, cy - icon->h / 2,
-				icon_color, icon_color, icon_color);
+					icon_color, icon_color, icon_color);
 	} else {
 		blit_tinted(w->frame, icon, cx - icon->w / 2, cy - icon->h / 2, 255, 255, 255);
 	}
@@ -411,8 +415,8 @@ static const char* snapshot_title(void) {
 static const char* snapshot_artist(void) {
 	if (state.snapshot.artist[0])
 		return state.snapshot.artist;
-	return state.snapshot.source == MUSIC_SOURCE_RADIO ? "Radio" :
-		state.snapshot.source == MUSIC_SOURCE_PODCAST ? "Podcast" : "";
+	return state.snapshot.source == MUSIC_SOURCE_RADIO ? "Radio" : state.snapshot.source == MUSIC_SOURCE_PODCAST ? "Podcast"
+																												 : "";
 }
 
 static void clear_artwork(Widget* w) {
@@ -467,7 +471,7 @@ static void draw_balance_row(Widget* w, int y) {
 	SDL_Color white = {255, 255, 255, 255};
 	SDL_Color grey = {170, 170, 170, 255};
 	Uint32 fg = focused ? SDL_MapRGBA(f->format, accent.r, accent.g, accent.b, 255)
-					: SDL_MapRGBA(f->format, 170, 170, 170, 255);
+						: SDL_MapRGBA(f->format, 170, 170, 170, 255);
 	Uint32 track = SDL_MapRGBA(f->format, 90, 90, 90, 255);
 	SDL_FillRect(f, &(SDL_Rect){bar_x, y - bar_h / 2, bar_w, bar_h}, track);
 	int centre_x = bar_x + bar_w / 2;
@@ -478,7 +482,7 @@ static void draw_balance_row(Widget* w, int y) {
 		SDL_FillRect(f, &(SDL_Rect){from, y - bar_h / 2, to - from, bar_h}, fg);
 	SDL_FillRect(f, &(SDL_Rect){centre_x - 1, y - 9, 2, 18}, fg);
 	fill_circle(f, knob_x, y, focused ? 8 : 5, focused ? accent.r : 255, focused ? accent.g : 255,
-			focused ? accent.b : 255);
+				focused ? accent.b : 255);
 	int ly = y + 10;
 	int gw = text_width(w->label_font, "Game");
 	int mw = text_width(w->label_font, "Music");
