@@ -91,7 +91,7 @@ copies that have drifted** — when touching mute/FN, volume, or display logic,
 diff the same function across both platform copies before concluding
 anything; a fix verified on one platform can silently miss a second missing
 guard on the other. Known deliberate difference: tg5050's display setters
-apply no mute overrides.
+apply no FN overrides.
 
 Mixer paths differ too: tg5050's speaker path is `amixer -c 0 cget
 name='DAC Volume'`; tg5040 uses a reversed-mapping `'digital volume'`. The
@@ -126,6 +126,35 @@ processes have it mapped, `adb push` to `<name>.so.new` and `mv` into place —
 a same-filesystem rename keeps the old inode alive (a direct push, or a
 cross-filesystem `mv` from /tmp, overwrites the mmap'd file in place and can
 crash the mapper). Reboot afterwards so everything picks up the new copy.
+
+## FN mode and speaker mute: two flags, one owner each
+
+The former single `settings->mute` flag is split into two independent flags,
+each written by exactly one owner:
+
+- `fn_mode` — keymon sets it from the FN switch GPIO only, via `SetFnMode`,
+  which applies (and reverts) the whole FN profile: `fn_volume`,
+  `fn_brightness`, `fn_colortemperature`, `fn_contrast`, `fn_saturation`,
+  `fn_exposure`, the D-pad mode and turbo-fire flags, and the LEDs.
+- `speaker_mute` — the OSD Mute widget sets it via `osdctl set mute`; keymon's
+  volume keys clear it via `SetSpeakerMute(0)` before they step the volume. It
+  only silences output; it touches no display or input setting.
+
+`SetRawVolume()` is the single hardware choke point where both flags meet:
+apply the FN volume override first, then `if (settings->speaker_mute) val = 0;`,
+then the sink-specific write. Every path that changes the hardware volume runs
+through it, so it is the one place to reason about "why is there no sound".
+
+Both flags are transient: the settings host resets `fn_mode` and `speaker_mute`
+to 0 at boot, and keymon re-derives `fn_mode` from the GPIO.
+
+Keep the layout in lockstep across **four** files: the two libmsettings copies
+above, `workspace/desktop/libmsettings/msettings.c`, and
+`workspace/all/common/msettings_shm.h`. Struct versions are tg5040
+`SETTINGS_VERSION 12`, tg5050 `3`, desktop `10`; `MSETTINGS_SHM_VERSION`
+mirrors 12/3 so a stale shm segment from an older binary is rejected. The LED
+config key is `fnLeds`; the loader still accepts the legacy `muteLeds=` on read
+so old `minuisettings.txt` files keep working.
 
 ## Misc facts
 
