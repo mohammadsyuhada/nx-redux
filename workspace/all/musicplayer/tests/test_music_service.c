@@ -449,13 +449,15 @@ int main(int argc, char** argv) {
 		daemon = start_owner(argv[1], socket_path, &fd);
 		check(fd >= 0, "playing owner restart");
 		if (fd >= 0) {
+			/* A fresh owner never starts sound on its own: a session saved while
+			 * playing comes back paused at the same position (review note D12). */
 			check(raw_request(fd, MUSIC_CMD_SNAPSHOT, NULL, 0, &response) == 0 &&
-					  response.snapshot.state == MUSIC_STATE_PLAYING &&
+					  response.snapshot.state == MUSIC_STATE_PAUSED &&
 					  strcmp(response.snapshot.current_file, second) == 0 &&
 					  response.snapshot.queue_index == 1 &&
 					  response.snapshot.queue_kind == MUSIC_QUEUE_FOLDER &&
 					  response.snapshot.position_ms >= playing_position - 250,
-				  "playing intent and position restore");
+				  "playing session restores paused at its position");
 			check(raw_request(fd, MUSIC_CMD_PAUSE, NULL, 0, &response) == 0 &&
 					  response.snapshot.state == MUSIC_STATE_PAUSED,
 				  "resume paused state before restart");
@@ -675,6 +677,9 @@ int main(int argc, char** argv) {
 		check(raw_request(fd, MUSIC_CMD_RADIO_LOAD, &radio_request, sizeof(radio_request), &response) == 0 &&
 				  response.status == MUSIC_STATUS_OK && response.snapshot.source == MUSIC_SOURCE_RADIO,
 			  "radio source starts behind service");
+		/* The radio thread reports the error first; the owner's main loop closes
+		 * the audio device on its next tick (up to one idle poll interval later),
+		 * so wait for both rather than sampling the first error snapshot. */
 		bool radio_error = false;
 		int64_t radio_deadline = clock_ms() + 5000;
 		while (clock_ms() < radio_deadline) {
@@ -682,10 +687,15 @@ int main(int argc, char** argv) {
 				break;
 			if (response.snapshot.source_state == MUSIC_RADIO_ERROR) {
 				radio_error = true;
-				break;
+				if (!response.snapshot.audio_open)
+					break;
 			}
 			wait_ms(20);
 		}
+		if (!radio_error || response.snapshot.state != MUSIC_STATE_STOPPED || response.snapshot.audio_open)
+			fprintf(stderr, "radio refused: error=%d source_state=%d state=%d audio_open=%d caps=%u\n",
+					radio_error, response.snapshot.source_state, response.snapshot.state,
+					response.snapshot.audio_open, response.snapshot.capabilities);
 		check(radio_error && response.snapshot.source_state == MUSIC_RADIO_ERROR &&
 				  response.snapshot.state == MUSIC_STATE_STOPPED && !response.snapshot.audio_open &&
 				  (response.snapshot.capabilities & (MUSIC_CAP_PLAY | MUSIC_CAP_PAUSE)) ==
