@@ -26,11 +26,13 @@ static void clear_first_item(int first_item_mode, bool* dirty) {
 		GFX_clearLayers(LAYER_SCROLLTEXT);
 		*dirty = 1;
 	} else if (first_item_mode == MENU_FIRST_RESUME) {
-		if (MusicClient_stop() != MUSIC_STATUS_OK) {
-			MenuModule_setToast("Unable to clear playback history");
-			*dirty = 1;
-			return;
-		}
+		// Clearing the Resume entry must not depend on the daemon. A reachable
+		// owner clears its own copy of the resume file via STOP so the two stay
+		// in step; an unreachable one just leaves us to clear it locally. This
+		// row is only shown when nothing is playing, so no live background
+		// playback is cut off.
+		if (MusicClient_isConnected())
+			(void)MusicClient_stop();
 		Resume_clear();
 		GFX_clearLayers(LAYER_SCROLLTEXT);
 		*dirty = 1;
