@@ -12,8 +12,12 @@ static int client_volume;
 static char order[16];
 static int order_length;
 
-int GetGameVolume(void) { return game_volume; }
-int GetMusicVolume(void) { return music_volume; }
+int GetGameVolume(void) {
+	return game_volume;
+}
+int GetMusicVolume(void) {
+	return music_volume;
+}
 void SetGameVolume(int value) {
 	game_volume = value;
 	order[order_length++] = 'G';
@@ -22,7 +26,9 @@ void SetMusicVolume(int value) {
 	music_volume = value;
 	order[order_length++] = 'M';
 }
-bool MusicClient_isConnected(void) { return client_connected; }
+bool MusicClient_isConnected(void) {
+	return client_connected;
+}
 int MusicClient_setVolume(int value) {
 	client_volume = value;
 	order[order_length++] = 'C';
