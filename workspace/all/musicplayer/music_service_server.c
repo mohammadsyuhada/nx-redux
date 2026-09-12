@@ -14,12 +14,17 @@
 
 #define MAX_CLIENTS 8
 #define CLIENT_FRAME_TIMEOUT_MS 2000
+#define CLIENT_SEND_TIMEOUT_MS 2000
 
 typedef struct {
 	int fd;
 	unsigned char input[MUSIC_SERVICE_MAX_FRAME];
 	size_t input_length;
 	int64_t frame_deadline_ms;
+	unsigned char output[sizeof(MusicFrameHeader) + sizeof(MusicResponseWire)];
+	size_t output_length; /* bytes in output[], 0 = nothing pending */
+	size_t output_sent;	  /* bytes of output[] already sent */
+	int64_t output_deadline_ms;
 } Client;
 
 static int listen_fd = -1;
@@ -39,6 +44,9 @@ static void close_client(Client* client) {
 	client->fd = -1;
 	client->input_length = 0;
 	client->frame_deadline_ms = 0;
+	client->output_length = 0;
+	client->output_sent = 0;
+	client->output_deadline_ms = 0;
 }
 
 static int acquire_lock(void) {
@@ -146,26 +154,49 @@ int MusicServiceServer_clientCount(void) {
 	return count;
 }
 
+static void flush_output(Client* client) {
+	while (client->output_sent < client->output_length) {
+		ssize_t n = send(client->fd, client->output + client->output_sent,
+						 client->output_length - client->output_sent, MSG_DONTWAIT | MSG_NOSIGNAL);
+		if (n > 0) {
+			client->output_sent += (size_t)n;
+			continue;
+		}
+		if (n < 0 && errno == EINTR)
+			continue;
+		if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+			/* Back pressure: keep the buffered frame and drain it on POLLOUT,
+			 * dropping the client only if it stays stalled past the deadline. */
+			if (client->output_deadline_ms == 0)
+				client->output_deadline_ms = now_ms() + CLIENT_SEND_TIMEOUT_MS;
+			return;
+		}
+		close_client(client);
+		return;
+	}
+	client->output_length = 0;
+	client->output_sent = 0;
+	client->output_deadline_ms = 0;
+}
+
 static void send_response(Client* client, uint16_t command, uint32_t request_id,
 						  MusicResponseWire* response) {
 	MusicFrameHeader header = {
 		.magic = MUSIC_SERVICE_MAGIC, .version = MUSIC_SERVICE_PROTOCOL_VERSION, .command = command, .request_id = request_id, .payload_length = sizeof(*response)};
-	unsigned char frame[sizeof(header) + sizeof(*response)];
-	memcpy(frame, &header, sizeof(header));
-	memcpy(frame + sizeof(header), response, sizeof(*response));
-	size_t total = sizeof(frame), sent = 0;
-	while (sent < total) {
-		ssize_t n = send(client->fd, frame + sent, total - sent, MSG_DONTWAIT | MSG_NOSIGNAL);
-		if (n <= 0) {
-			close_client(client);
-			return;
-		}
-		sent += (size_t)n;
-	}
+	memcpy(client->output, &header, sizeof(header));
+	memcpy(client->output + sizeof(header), response, sizeof(*response));
+	client->output_length = sizeof(header) + sizeof(*response);
+	client->output_sent = 0;
+	client->output_deadline_ms = 0;
+	flush_output(client);
 }
 
 static void process_client(Client* client, MusicServiceCommandHandler handler) {
 	for (;;) {
+		/* A pending response applies back pressure: leave pipelined requests in
+		 * input[] until the previous frame has fully drained. */
+		if (client->output_length)
+			return;
 		if (client->input_length < sizeof(MusicFrameHeader))
 			return;
 		MusicFrameHeader header;
@@ -210,6 +241,9 @@ static void accept_clients(void) {
 		clients[slot].fd = fd;
 		clients[slot].input_length = 0;
 		clients[slot].frame_deadline_ms = 0;
+		clients[slot].output_length = 0;
+		clients[slot].output_sent = 0;
+		clients[slot].output_deadline_ms = 0;
 	}
 }
 
@@ -221,7 +255,7 @@ void MusicServiceServer_poll(MusicServiceCommandHandler handler, int timeout_ms)
 	map[0] = -1;
 	for (int i = 0; i < MAX_CLIENTS; i++) {
 		if (clients[i].fd >= 0) {
-			pfds[count] = (struct pollfd){.fd = clients[i].fd, .events = POLLIN};
+			pfds[count] = (struct pollfd){.fd = clients[i].fd, .events = clients[i].output_length ? POLLOUT : POLLIN};
 			map[count++] = i;
 		}
 	}
@@ -237,7 +271,14 @@ void MusicServiceServer_poll(MusicServiceCommandHandler handler, int timeout_ms)
 			close_client(client);
 			continue;
 		}
-		if (pfds[p].revents & POLLIN) {
+		if (client->output_length && (pfds[p].revents & POLLOUT)) {
+			flush_output(client);
+			if (client->fd >= 0 && client->output_length == 0) {
+				client->frame_deadline_ms = client->input_length ? now + CLIENT_FRAME_TIMEOUT_MS : 0;
+				process_client(client, handler);
+			}
+		}
+		if (client->fd >= 0 && client->output_length == 0 && (pfds[p].revents & POLLIN)) {
 			unsigned char buf[512];
 			ssize_t n = recv(client->fd, buf, sizeof(buf), MSG_DONTWAIT);
 			if (n <= 0) {
@@ -254,8 +295,10 @@ void MusicServiceServer_poll(MusicServiceCommandHandler handler, int timeout_ms)
 			client->input_length += (size_t)n;
 			process_client(client, handler);
 		}
-		if (client->fd >= 0 && client->input_length && client->frame_deadline_ms > 0 &&
-			now >= client->frame_deadline_ms)
+		if (client->fd >= 0 && client->output_length && now >= client->output_deadline_ms)
+			close_client(client);
+		else if (client->fd >= 0 && client->output_length == 0 && client->input_length &&
+				 client->frame_deadline_ms > 0 && now >= client->frame_deadline_ms)
 			close_client(client);
 	}
 }

@@ -271,6 +271,36 @@ int main(int argc, char** argv) {
 	check(reply_header.payload_length == sizeof(response) && recv(fd, &response, sizeof(response), MSG_WAITALL) == sizeof(response), "partial request response payload");
 	close(fd);
 
+	/* Back pressure: 128 pipelined snapshot requests (~670 KB of responses, well
+	 * past the default AF_UNIX send buffer) are answered in order even though the
+	 * client stops reading long enough for the owner's send() to hit EAGAIN. */
+	const uint32_t pipelined_count = 128;
+	int backpressure_fd = raw_connect(socket_path);
+	check(backpressure_fd >= 0, "back-pressure client attach");
+	if (backpressure_fd >= 0) {
+		bool all_sent = true;
+		for (uint32_t i = 0; i < pipelined_count; i++) {
+			MusicFrameHeader pipelined = {.magic = MUSIC_SERVICE_MAGIC, .version = MUSIC_SERVICE_PROTOCOL_VERSION, .command = MUSIC_CMD_SNAPSHOT, .request_id = i, .payload_length = 0};
+			if (send(backpressure_fd, &pipelined, sizeof(pipelined), 0) != (ssize_t)sizeof(pipelined))
+				all_sent = false;
+		}
+		check(all_sent, "pipelined requests sent without reading");
+		wait_ms(500);
+		bool ordered = true;
+		for (uint32_t i = 0; i < pipelined_count; i++) {
+			MusicFrameHeader pipelined_reply;
+			MusicResponseWire pipelined_response;
+			if (recv(backpressure_fd, &pipelined_reply, sizeof(pipelined_reply), MSG_WAITALL) != (ssize_t)sizeof(pipelined_reply) ||
+				pipelined_reply.request_id != i || pipelined_reply.payload_length != sizeof(pipelined_response) ||
+				recv(backpressure_fd, &pipelined_response, sizeof(pipelined_response), MSG_WAITALL) != (ssize_t)sizeof(pipelined_response))
+				ordered = false;
+		}
+		check(ordered, "pipelined responses drain in order under back pressure");
+		check(raw_request(backpressure_fd, MUSIC_CMD_SNAPSHOT, NULL, 0, &response) == 0,
+			  "back-pressure client stays connected after draining");
+		close(backpressure_fd);
+	}
+
 	/* Two clients can remain attached and receive independent copied snapshots. */
 	int a = raw_connect(socket_path), b = raw_connect(socket_path);
 	check(a >= 0 && b >= 0, "two clients attach");
