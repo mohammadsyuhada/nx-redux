@@ -50,7 +50,7 @@ cd $(dirname "$0")
 
 EXEC_PATH="/tmp/nextui_exec"
 NEXT_PATH="/tmp/next"
-touch "$EXEC_PATH"  && sync
+touch "$EXEC_PATH"
 #while [ -f $EXEC_PATH ]; do
 	nextui.elf # &> $LOGS_PATH/nextui.txt
 	

@@ -125,8 +125,10 @@ install_update_with_progress() {
         rm -rf $SYSTEM_PATH/paks/MinUI.pak
         rm -rf $SYSTEM_PATH/paks/Emus
         rm -rf $SYSTEM_PATH/paks/Tools
-        # device marker files: remove the known set, the zip restores the right one
-        rm -f $SDCARD_PATH/tg5040-brick $SDCARD_PATH/tg5040-brickpro $SDCARD_PATH/tg5040-smartpro $SDCARD_PATH/tg5050-smartpros
+        # The zip restores the canonical device identity. Remove legacy markers too.
+        rm -f "$SDCARD_PATH/.nx-device" "$SDCARD_PATH/tg5040-brick" \
+            "$SDCARD_PATH/tg5040-brickpro" "$SDCARD_PATH/tg5040-smartpro" \
+            "$SDCARD_PATH/tg5050-smartpros"
         
         # Extract
         echo "TEXT:Extracting update..." > /tmp/show2.fifo
