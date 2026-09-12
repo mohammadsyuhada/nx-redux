@@ -1714,6 +1714,14 @@ static void close_audio_device(void) {
 }
 
 static int open_and_restart_audio_device(int requested_rate) {
+	// Player_closeAudioDevice() quits the audio subsystem to stop SDL's ALSA
+	// hotplug thread while the PCM is closed. Re-init it here so every reopen
+	// path (play after pause, wake from sleep, radio restart, sample-rate reset)
+	// has a live subsystem before SDL_OpenAudioDevice.
+	if (!SDL_WasInit(SDL_INIT_AUDIO) && SDL_InitSubSystem(SDL_INIT_AUDIO) < 0) {
+		LOG_error("Failed to init SDL audio: %s\n", SDL_GetError());
+		return -1;
+	}
 	int result = open_audio_device(requested_rate);
 	if (result != 0)
 		return result;
@@ -1751,6 +1759,11 @@ void Player_closeAudioDevice(void) {
 		return;
 	close_audio_device();
 	prepare_stream_for_device_close();
+	// Quit the audio subsystem while the PCM is closed so SDL's ALSA hotplug
+	// thread (SDLHotplugALSA) stops re-enumerating devices every 5s. The next
+	// open_and_restart_audio_device() re-inits before reopening.
+	if (SDL_WasInit(SDL_INIT_AUDIO))
+		SDL_QuitSubSystem(SDL_INIT_AUDIO);
 }
 
 int Player_openAudioDevice(void) {
