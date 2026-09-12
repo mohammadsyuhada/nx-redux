@@ -22,8 +22,8 @@ static SettingsShm* shm_open_rw(void) {
 }
 
 static int get_volume(SettingsShm* s) {
-	if (s->mute && s->toggled_volume != SETTINGS_DEFAULT_MUTE_NO_CHANGE)
-		return s->toggled_volume;
+	if (s->fn_mode && s->fn_volume != SETTINGS_DEFAULT_FN_NO_CHANGE)
+		return s->fn_volume;
 	if (s->jack || s->audiosink != 0)
 		return s->headphones;
 	return s->speaker;
@@ -52,7 +52,7 @@ static void usage(void) {
 					"  musicvolume (0-20)\n"
 					"  brightness  (0-10)\n"
 					"  fanspeed    (-3 to 100)\n"
-					"  mute        (0-1)\n"
+					"  mute        (0-1) output mute, independent of the FN switch\n"
 					"  rumble      (0-1) master motor switch\n"
 					"  rumblestrength (0 normal, 1 light, 2 strong)\n");
 	exit(1);
@@ -103,7 +103,7 @@ int main(int argc, char* argv[]) {
 			printf("%d\n", s->fanSpeed);
 #endif
 		else if (strcmp(prop, "mute") == 0)
-			printf("%d\n", s->mute);
+			printf("%d\n", s->speaker_mute);
 		else if (strcmp(prop, "rumble") == 0)
 			printf("%d\n", !s->rumble_off);
 		else if (strcmp(prop, "rumblestrength") == 0)
@@ -116,14 +116,12 @@ int main(int argc, char* argv[]) {
 		int value = atoi(argv[3]);
 		if (strcmp(prop, "volume") == 0) {
 			// Update shm
-			if (s->mute)
-				goto done; // don't change volume while muted
 			if (s->jack || s->audiosink != 0)
 				s->headphones = value;
 			else
 				s->speaker = value;
-			// Apply to hardware
-			SetRawVolume(value * 5); // scaleVolume: 0-20 → 0-100
+			// Apply to hardware (silent while output-muted, but still stored)
+			SetRawVolume(s->speaker_mute ? 0 : value * 5); // scaleVolume: 0-20 → 0-100
 			save_settings(s);
 		} else if (strcmp(prop, "gamevolume") == 0 || strcmp(prop, "musicvolume") == 0) {
 			if (value < 0)
@@ -153,16 +151,12 @@ int main(int argc, char* argv[]) {
 			save_settings(s);
 #endif
 		} else if (strcmp(prop, "mute") == 0) {
-			s->mute = value;
-			if (value) {
-				if (s->toggled_volume != SETTINGS_DEFAULT_MUTE_NO_CHANGE)
-					SetRawVolume(s->toggled_volume * 5);
-				else
-					SetRawVolume(0);
-			} else {
-				int vol = (s->jack || s->audiosink != 0) ? s->headphones : s->speaker;
-				SetRawVolume(vol * 5);
-			}
+			// Pure output mute: silence output only, touch no display or input.
+			s->speaker_mute = value ? 1 : 0;
+			if (s->speaker_mute)
+				SetRawVolume(0);
+			else
+				SetRawVolume((s->jack || s->audiosink != 0 ? s->headphones : s->speaker) * 5);
 			save_settings(s);
 		} else if (strcmp(prop, "rumble") == 0) {
 			// Master motor switch: the VIB thread in every app reads it live
@@ -179,7 +173,6 @@ int main(int argc, char* argv[]) {
 		usage();
 	}
 
-done:
 	if (settings_initialized)
 		QuitSettings();
 	munmap(s, sizeof(SettingsShm));

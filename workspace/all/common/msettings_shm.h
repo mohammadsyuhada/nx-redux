@@ -14,19 +14,19 @@ typedef struct {
 	int colortemperature;
 	int headphones;
 	int speaker;
-	int mute;
+	int fn_mode;
 	int contrast;
 	int saturation;
 	int exposure;
-	int toggled_brightness;
-	int toggled_colortemperature;
-	int toggled_contrast;
-	int toggled_saturation;
-	int toggled_exposure;
-	int toggled_volume;
+	int fn_brightness;
+	int fn_colortemperature;
+	int fn_contrast;
+	int fn_saturation;
+	int fn_exposure;
+	int fn_volume;
 #ifndef HAS_FAN
-	int disable_dpad_on_mute;
-	int emulate_joystick_on_mute;
+	int fn_dpad_disabled;
+	int fn_dpad_joystick;
 #endif
 	int turbo_a;
 	int turbo_b;
@@ -40,6 +40,7 @@ typedef struct {
 	int rumble_strength; // 0 Normal (default), 1 Light, 2 Strong (vib_levels.h)
 	int game_volume;
 	int music_volume;
+	int speaker_mute; // OSD output mute, silences output only, independent of the FN switch
 	int jack;
 	int audiosink;
 #ifdef HAS_FAN
@@ -48,9 +49,9 @@ typedef struct {
 } SettingsShm;
 
 #ifdef HAS_FAN
-#define MSETTINGS_SHM_VERSION 2
+#define MSETTINGS_SHM_VERSION 3
 #else
-#define MSETTINGS_SHM_VERSION 11
+#define MSETTINGS_SHM_VERSION 12
 #endif
 
 #define MSETTINGS_SHM_KEY "/SharedSettings"

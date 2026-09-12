@@ -93,7 +93,7 @@ static void* watchMute(void* arg) {
 	int is_muted, was_muted;
 
 	is_muted = was_muted = getInt(MUTE_STATE_PATH);
-	SetMute(is_muted);
+	SetFnMode(is_muted);
 
 	while (!quit) {
 		usleep(1000000);
@@ -101,8 +101,8 @@ static void* watchMute(void* arg) {
 		is_muted = getInt(MUTE_STATE_PATH);
 		if (is_muted >= 0 && was_muted != is_muted) {
 			was_muted = is_muted;
-			SetMute(is_muted);
-			if (GetMute()) {
+			SetFnMode(is_muted);
+			if (GetFnMode()) {
 				system("echo 45875 > /sys/class/motor/level"); // 70% of 16-bit level (50% was imperceptible, tuned 2026-08-02)
 				usleep(100000);
 				system("echo 0 > /sys/class/motor/level");

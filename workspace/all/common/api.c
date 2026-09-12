@@ -3709,7 +3709,7 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 	static uint32_t colortemp_pressed_at = 0; // timestamp of the color-temperature modifier's press edge
 	static uint32_t was_muted = -1;
 	if (was_muted == -1 && InitializedSettings())
-		was_muted = GetMute();
+		was_muted = GetFnMode();
 
 	static int was_charging = -1;
 	if (was_charging == -1)
@@ -3831,7 +3831,7 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 	}
 
 	if (InitializedSettings()) {
-		int muted = GetMute();
+		int muted = GetFnMode();
 		if (muted != was_muted) {
 			was_muted = muted;
 			show_setting = INDICATOR_VOLUME;
@@ -4123,7 +4123,7 @@ void LEDS_applyRules() {
 	// some rules rely on pwr.is_charging and pwr.charge being valid
 	if (pwr.initialized == 0)
 		LOG_warn("LEDS_applyRules called before PWR_init\n");
-	// some rules rely in InitSettings() being called (e.g GetMute())
+	// some rules rely in InitSettings() being called (e.g GetFnMode())
 	if (!InitializedSettings())
 		LOG_warn("LEDS_applyRules called before InitSettings\n");
 
@@ -4141,7 +4141,7 @@ void LEDS_applyRules() {
 		LEDS_setProfile(LIGHT_PROFILE_CRITICAL_BATTERY);
 	}
 	// - if muted, muted takes priority over everything except critical battery
-	else if (InitializedSettings() && CFG_getMuteLEDs() && GetMute()) {
+	else if (InitializedSettings() && CFG_getFnLEDs() && GetFnMode()) {
 		//LOG_info("LEDS_applyRules: muted\n");
 		LEDS_setProfile(LIGHT_PROFILE_OFF);
 	}

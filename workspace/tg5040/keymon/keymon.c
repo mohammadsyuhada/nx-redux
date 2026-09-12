@@ -100,7 +100,7 @@ static void* watchMute(void* arg) {
 	int is_brick = device && strcmp(device, "brick") == 0;
 
 	is_muted = was_muted = getInt(MUTE_STATE_PATH);
-	SetMute(is_muted);
+	SetFnMode(is_muted);
 
 	while (!quit) {
 		usleep(1000000);
@@ -108,8 +108,8 @@ static void* watchMute(void* arg) {
 		is_muted = getInt(MUTE_STATE_PATH);
 		if (is_muted >= 0 && was_muted != is_muted) {
 			was_muted = is_muted;
-			SetMute(is_muted);
-			if (GetMute()) {
+			SetFnMode(is_muted);
+			if (GetFnMode()) {
 				if (is_brickpro)
 					system("echo 2000000 > /sys/class/motor/voltage");
 				else if (is_brick)

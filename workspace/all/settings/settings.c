@@ -380,7 +380,7 @@ static void init_dynamic_labels(void) {
 	}
 
 	/* Mute volume: Unchanged, Muted, 5%, 10%, ... 100% */
-	mute_volume_values[0] = (int)SETTINGS_DEFAULT_MUTE_NO_CHANGE;
+	mute_volume_values[0] = (int)SETTINGS_DEFAULT_FN_NO_CHANGE;
 	mute_volume_labels[0] = "Unchanged";
 	for (i = 0; i < 21; i++) {
 		mute_volume_values[i + 1] = i;
@@ -388,7 +388,7 @@ static void init_dynamic_labels(void) {
 	}
 
 	/* Mute brightness: Unchanged, 0-10 */
-	mute_brightness_values[0] = (int)SETTINGS_DEFAULT_MUTE_NO_CHANGE;
+	mute_brightness_values[0] = (int)SETTINGS_DEFAULT_FN_NO_CHANGE;
 	mute_brightness_labels[0] = "Unchanged";
 	for (i = 0; i <= 10; i++) {
 		mute_brightness_values[i + 1] = i;
@@ -397,7 +397,7 @@ static void init_dynamic_labels(void) {
 	}
 
 	/* Mute colortemp: Unchanged, 0-40 */
-	mute_colortemp_values[0] = (int)SETTINGS_DEFAULT_MUTE_NO_CHANGE;
+	mute_colortemp_values[0] = (int)SETTINGS_DEFAULT_FN_NO_CHANGE;
 	mute_colortemp_labels[0] = "Unchanged";
 	for (i = 0; i <= 40; i++) {
 		mute_colortemp_values[i + 1] = i;
@@ -406,7 +406,7 @@ static void init_dynamic_labels(void) {
 	}
 
 	/* Mute contrast: Unchanged, -4 to 5 */
-	mute_contrast_values[0] = (int)SETTINGS_DEFAULT_MUTE_NO_CHANGE;
+	mute_contrast_values[0] = (int)SETTINGS_DEFAULT_FN_NO_CHANGE;
 	mute_contrast_labels[0] = "Unchanged";
 	for (i = -4; i <= 5; i++) {
 		int idx = i + 5; /* -4->1, -3->2, ..., 5->10 */
@@ -416,7 +416,7 @@ static void init_dynamic_labels(void) {
 	}
 
 	/* Mute saturation: Unchanged, -5 to 5 */
-	mute_saturation_values[0] = (int)SETTINGS_DEFAULT_MUTE_NO_CHANGE;
+	mute_saturation_values[0] = (int)SETTINGS_DEFAULT_FN_NO_CHANGE;
 	mute_saturation_labels[0] = "Unchanged";
 	for (i = -5; i <= 5; i++) {
 		int idx = i + 6; /* -5->1, -4->2, ..., 5->11 */
@@ -426,7 +426,7 @@ static void init_dynamic_labels(void) {
 	}
 
 	/* Mute exposure: Unchanged, -4 to 5 */
-	mute_exposure_values[0] = (int)SETTINGS_DEFAULT_MUTE_NO_CHANGE;
+	mute_exposure_values[0] = (int)SETTINGS_DEFAULT_FN_NO_CHANGE;
 	mute_exposure_labels[0] = "Unchanged";
 	for (i = -4; i <= 5; i++) {
 		int idx = i + 5; /* -4->1, -3->2, ..., 5->10 */
@@ -968,171 +968,171 @@ static void reset_fan_speed(void) {
 // ============================================
 
 static int get_muted_volume(void) {
-	return GetMutedVolume();
+	return GetFnVolume();
 }
 static void set_muted_volume(int val) {
-	SetMutedVolume(val);
+	SetFnVolume(val);
 }
 static void reset_muted_volume(void) {
-	SetMutedVolume(0);
+	SetFnVolume(0);
 }
 
 static int get_mute_leds(void) {
-	return CFG_getMuteLEDs() ? 1 : 0;
+	return CFG_getFnLEDs() ? 1 : 0;
 }
 static void set_mute_leds(int v) {
-	CFG_setMuteLEDs(v != 0);
+	CFG_setFnLEDs(v != 0);
 }
 static void reset_mute_leds(void) {
-	CFG_setMuteLEDs(CFG_DEFAULT_MUTELEDS);
+	CFG_setFnLEDs(CFG_DEFAULT_FNLEDS);
 }
 
 static int get_muted_brightness(void) {
-	return GetMutedBrightness();
+	return GetFnBrightness();
 }
 static void set_muted_brightness(int val) {
-	SetMutedBrightness(val);
+	SetFnBrightness(val);
 }
 static void reset_muted_brightness(void) {
-	SetMutedBrightness(SETTINGS_DEFAULT_MUTE_NO_CHANGE);
+	SetFnBrightness(SETTINGS_DEFAULT_FN_NO_CHANGE);
 }
 
 static int get_muted_colortemp(void) {
-	return GetMutedColortemp();
+	return GetFnColortemp();
 }
 static void set_muted_colortemp(int val) {
-	SetMutedColortemp(val);
+	SetFnColortemp(val);
 }
 static void reset_muted_colortemp(void) {
-	SetMutedColortemp(SETTINGS_DEFAULT_MUTE_NO_CHANGE);
+	SetFnColortemp(SETTINGS_DEFAULT_FN_NO_CHANGE);
 }
 
 static int get_muted_contrast(void) {
-	return GetMutedContrast();
+	return GetFnContrast();
 }
 static void set_muted_contrast(int val) {
-	SetMutedContrast(val);
+	SetFnContrast(val);
 }
 static void reset_muted_contrast(void) {
-	SetMutedContrast(SETTINGS_DEFAULT_MUTE_NO_CHANGE);
+	SetFnContrast(SETTINGS_DEFAULT_FN_NO_CHANGE);
 }
 
 static int get_muted_saturation(void) {
-	return GetMutedSaturation();
+	return GetFnSaturation();
 }
 static void set_muted_saturation(int val) {
-	SetMutedSaturation(val);
+	SetFnSaturation(val);
 }
 static void reset_muted_saturation(void) {
-	SetMutedSaturation(SETTINGS_DEFAULT_MUTE_NO_CHANGE);
+	SetFnSaturation(SETTINGS_DEFAULT_FN_NO_CHANGE);
 }
 
 static int get_muted_exposure(void) {
-	return GetMutedExposure();
+	return GetFnExposure();
 }
 static void set_muted_exposure(int val) {
-	SetMutedExposure(val);
+	SetFnExposure(val);
 }
 static void reset_muted_exposure(void) {
-	SetMutedExposure(SETTINGS_DEFAULT_MUTE_NO_CHANGE);
+	SetFnExposure(SETTINGS_DEFAULT_FN_NO_CHANGE);
 }
 
 /* Turbo buttons */
 static int get_turbo_a(void) {
-	return GetMuteTurboA();
+	return GetFnTurboA();
 }
 static void set_turbo_a(int v) {
-	SetMuteTurboA(v);
+	SetFnTurboA(v);
 }
 static void reset_turbo_a(void) {
-	SetMuteTurboA(0);
+	SetFnTurboA(0);
 }
 
 static int get_turbo_b(void) {
-	return GetMuteTurboB();
+	return GetFnTurboB();
 }
 static void set_turbo_b(int v) {
-	SetMuteTurboB(v);
+	SetFnTurboB(v);
 }
 static void reset_turbo_b(void) {
-	SetMuteTurboB(0);
+	SetFnTurboB(0);
 }
 
 static int get_turbo_x(void) {
-	return GetMuteTurboX();
+	return GetFnTurboX();
 }
 static void set_turbo_x(int v) {
-	SetMuteTurboX(v);
+	SetFnTurboX(v);
 }
 static void reset_turbo_x(void) {
-	SetMuteTurboX(0);
+	SetFnTurboX(0);
 }
 
 static int get_turbo_y(void) {
-	return GetMuteTurboY();
+	return GetFnTurboY();
 }
 static void set_turbo_y(int v) {
-	SetMuteTurboY(v);
+	SetFnTurboY(v);
 }
 static void reset_turbo_y(void) {
-	SetMuteTurboY(0);
+	SetFnTurboY(0);
 }
 
 static int get_turbo_l1(void) {
-	return GetMuteTurboL1();
+	return GetFnTurboL1();
 }
 static void set_turbo_l1(int v) {
-	SetMuteTurboL1(v);
+	SetFnTurboL1(v);
 }
 static void reset_turbo_l1(void) {
-	SetMuteTurboL1(0);
+	SetFnTurboL1(0);
 }
 
 static int get_turbo_l2(void) {
-	return GetMuteTurboL2();
+	return GetFnTurboL2();
 }
 static void set_turbo_l2(int v) {
-	SetMuteTurboL2(v);
+	SetFnTurboL2(v);
 }
 static void reset_turbo_l2(void) {
-	SetMuteTurboL2(0);
+	SetFnTurboL2(0);
 }
 
 static int get_turbo_r1(void) {
-	return GetMuteTurboR1();
+	return GetFnTurboR1();
 }
 static void set_turbo_r1(int v) {
-	SetMuteTurboR1(v);
+	SetFnTurboR1(v);
 }
 static void reset_turbo_r1(void) {
-	SetMuteTurboR1(0);
+	SetFnTurboR1(0);
 }
 
 static int get_turbo_r2(void) {
-	return GetMuteTurboR2();
+	return GetFnTurboR2();
 }
 static void set_turbo_r2(int v) {
-	SetMuteTurboR2(v);
+	SetFnTurboR2(v);
 }
 static void reset_turbo_r2(void) {
-	SetMuteTurboR2(0);
+	SetFnTurboR2(0);
 }
 
 /* Dpad mode when toggled */
 static int get_mute_dpad_mode(void) {
-	if (!GetMuteDisablesDpad() && !GetMuteEmulatesJoystick())
+	if (!GetFnDpadDisabled() && !GetFnDpadJoystick())
 		return 0;
-	if (GetMuteDisablesDpad() && GetMuteEmulatesJoystick())
+	if (GetFnDpadDisabled() && GetFnDpadJoystick())
 		return 1;
 	return 2;
 }
 static void set_mute_dpad_mode(int val) {
-	SetMuteDisablesDpad(val == 1);
-	SetMuteEmulatesJoystick(val > 0);
+	SetFnDpadDisabled(val == 1);
+	SetFnDpadJoystick(val > 0);
 }
 static void reset_mute_dpad_mode(void) {
-	SetMuteDisablesDpad(0);
-	SetMuteEmulatesJoystick(0);
+	SetFnDpadDisabled(0);
+	SetFnDpadJoystick(0);
 }
 
 // ============================================
