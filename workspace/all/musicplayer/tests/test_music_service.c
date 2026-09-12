@@ -876,6 +876,52 @@ int main(int argc, char** argv) {
 		close(fd);
 	}
 	waitpid(daemon, NULL, 0);
+
+	/* SHUTDOWN must answer before the source teardown, which on a radio source
+	 * blocks in the streaming worker's join. Point the radio at a blackhole
+	 * address (10.255.255.1: the TCP connect hangs until the radio's own connect
+	 * timeout, no DNS lookup involved) so a handler that tore down inline would
+	 * stall on the join. Started here, once the shared owner above is reaped and
+	 * the singleton socket is free. */
+	pid_t shutdown_owner = start_owner(argv[1], socket_path, &fd);
+	if (fd >= 0) {
+		MusicRadioLoadRequest blackhole_radio = {0};
+		strncpy(blackhole_radio.url, "http://10.255.255.1/music", sizeof(blackhole_radio.url) - 1);
+		check(raw_request(fd, MUSIC_CMD_RADIO_LOAD, &blackhole_radio, sizeof(blackhole_radio), &response) == MUSIC_STATUS_OK,
+			  "blackhole radio loads before shutdown");
+		wait_ms(300);
+		int64_t shutdown_start = clock_ms();
+		int shutdown_status = raw_request(fd, MUSIC_CMD_SHUTDOWN, NULL, 0, &response);
+		int64_t shutdown_elapsed = clock_ms() - shutdown_start;
+		close(fd);
+		check(shutdown_status == 0, "shutdown reply status is OK while the radio worker is connecting");
+		check(shutdown_elapsed < 1000, "shutdown replies before the radio worker join");
+		/* The owner tears the source down after the loop: Radio_stop() sets
+		 * should_stop, which the connect poll checks every 200 ms, so it exits
+		 * well within the 10 s connect timeout (radio.c:459,566). Reap without
+		 * stop_owner (its blocking SHUTDOWN would sit on the join); bound the
+		 * self-exit window at the connect timeout plus 5 s. */
+		bool owner_exited = false;
+		int64_t reap_deadline = clock_ms() + 15000;
+		while (clock_ms() < reap_deadline) {
+			if (waitpid(shutdown_owner, NULL, WNOHANG) == shutdown_owner) {
+				owner_exited = true;
+				break;
+			}
+			wait_ms(100);
+		}
+		check(owner_exited, "owner exits on its own after answering shutdown");
+		if (!owner_exited) {
+			kill(shutdown_owner, SIGKILL);
+			waitpid(shutdown_owner, NULL, 0);
+		}
+	} else {
+		check(0, "shutdown-latency owner failed to start");
+		if (shutdown_owner > 0) {
+			kill(shutdown_owner, SIGKILL);
+			waitpid(shutdown_owner, NULL, 0);
+		}
+	}
 cleanup:
 	unlink(socket_path);
 	char lock[180];

@@ -1059,8 +1059,12 @@ static void handle_command(uint16_t command, const unsigned char* payload, size_
 			wake_deadline_ms = now_ms() + WAKE_ROUTE_DEADLINE_MS;
 		break;
 	case MUSIC_CMD_SHUTDOWN:
-		stop_active_source();
-		Player_closeAudioDevice();
+		/* Flush intent now and answer at once; the source teardown (which can
+		 * block in the radio worker join) runs after the loop, once the caller
+		 * has its reply. */
+		if (active_source == MUSIC_SOURCE_PODCAST)
+			save_podcast_progress();
+		save_resume_state();
 		quit = 1;
 		break;
 	default:
