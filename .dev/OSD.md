@@ -51,27 +51,39 @@ carries only its own assets.
 
 At boot `launch.sh` overlay-mounts the OSD tree read-only onto
 `/usr/trimui/osd`, but the two platforms get there differently. tg5050 mounts
-the SD card's tree directly (`lowerdir=$SYSTEM_PATH/osd:/usr/trimui/osd`).
-tg5040 can't: its kernel 4.9 overlayfs rejects the exFAT SD card as a lower
-layer outright (`overlayfs: filesystem on '...' not supported` — its exfat
-driver's dentry revalidation isn't supported by overlayfs; hardware-verified
-on Brick 2026-07-26), so there `launch.sh` first stages the assembled tree
-(~1MB, no font) into tmpfs at `/tmp/nx_osd`, then mounts from that staging
-copy instead (`lowerdir=/tmp/nx_osd:/usr/trimui/osd`). Either way
+the SD card's tree directly (`lowerdir=$SYSTEM_PATH/osd:/usr/trimui/osd`)
+when the card is exFAT — the firmware mounts exFAT through FUSE
+(`mount.exfat-fuse`, `fuseblk`), which overlayfs accepts as a layer. A FAT32
+card it cannot: the kernel vfat driver's dentries carry their own
+hash/compare ops, and overlayfs refuses any such layer outright
+(`overlayfs: filesystem on '...' not supported`, EINVAL), which left FAT32
+Smart Pro S cards running the stock rootfs OSD (issue #87 — the reporter
+blamed firmware 1.0.2, but a full 1.0.1↔1.0.2 rootfs/kernel diff changes
+nothing the mount depends on). So when the direct mount fails, tg5050
+`launch.sh` falls back to staging the tree into tmpfs at `/tmp/nx_osd` and
+mounts that (`scripts/tests/test-osd-overlay-tg5050.sh` runs the real block
+against vfat and ext4 loop images in a privileged container).
+tg5040 always stages: its kernel 4.9 overlayfs rejects even the exFAT SD
+card as a lower layer (`overlayfs: filesystem on '...' not supported` — its
+exfat driver's dentry revalidation isn't supported by that overlayfs;
+hardware-verified on Brick 2026-07-26), so there `launch.sh` first copies
+the assembled tree (~1MB, no font) into tmpfs at `/tmp/nx_osd`, then mounts
+from that staging copy (`lowerdir=/tmp/nx_osd:/usr/trimui/osd`). Either way
 `trimui_osdd` reads its hardcoded path, but the bytes actually served come
 from the SD-sourced tree — the stock rootfs underneath is never written,
 since on tg5040 the staging copy lands in tmpfs (RAM), not on disk. Stock-only
 files not shipped on the SD card (notably `regular.ttf`, the 16MB CJK font)
 show through from the rootfs layer beneath the mount, on both platforms. SD
-edits take effect on the next boot — via re-staging on tg5040, immediately on
-tg5050 — and there is no hash stamp on either platform. **Deploy trap:**
+edits take effect on the next boot — via re-staging on tg5040 (and on a
+FAT32 tg5050 card), immediately on an exFAT tg5050 card — and there is no
+hash stamp on either platform. **Deploy trap:**
 pushing OSD files over adb into the live mount's lowerdir serves stale content
 (tg5040) or ESTALE errors (tg5050) until the next boot — always reboot after
 pushing OSD files. The fast OSD-only deploy recipe (assemble + push + reboot,
 no toolchain build) is in [TESTING.md](TESTING.md). If the mount fails,
 `/tmp/nx_osd_mount_failed` is created and the daemon starts from whatever the
-rootfs already holds; on tg5040 the same marker also covers a failed staging
-copy. A model that ships no `osd-$DEVICE` overlay at all is a different case:
+rootfs already holds; the same marker also covers a failed staging copy (on
+tg5040 always, on tg5050 in the FAT32 fallback). A model that ships no `osd-$DEVICE` overlay at all is a different case:
 the mount (and, on tg5040, the staging copy) is never attempted, so no marker
 is written and nothing fails — `trimui_osdd` simply runs against the full
 firmware OSD already on the rootfs, untouched.

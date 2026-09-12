@@ -209,6 +209,13 @@ during menu rendering — useless as a first-frame/boot proxy.
 - Host-side script tests live in `scripts/tests/` (installer/catalog logic,
   PATH-shimmed) — run these before shipping shell changes; there is no C unit
   harness apart from per-feature host tests (e.g. `common/tests/`).
+- tg5050 OSD overlay mount: `scripts/tests/test-osd-overlay-tg5050.sh`
+  sed-extracts the mount block from the tg5050 `launch.sh` and runs it under
+  busybox sh in a privileged alpine container (docker) against a FAT32 and
+  an ext4 loop-mounted fake card — FAT32 must take the tmpfs staging
+  fallback, ext4 (standing in for the FUSE-mounted exFAT card) must keep the
+  direct SD mount; both must serve the SD tree, the tint layer and the
+  rootfs-only font through the merged view.
 - Turbo fire cadence: `scripts/tests/test-turbo-shaper.sh` compiles
   `minarch/ma_turbo.c` on the host against a model of both TrimUI input
   daemons' pulse trains; `scripts/tests/turbo/inject.c` documents the Brick

@@ -168,9 +168,27 @@ rm -rf "$OSD_TINT"
 mkdir -p "$OSD_TINT"
 "$SYSTEM_PATH/bin/osdmusic.elf" --tint-osd "$OSD_SRC" "$OSD_TINT" 2> /dev/null
 if ! grep -q " $OSD_DST " /proc/mounts; then
-	mount -t overlay overlay \
-		-o ro,lowerdir="$OSD_TINT:$OSD_SRC:$OSD_DST" "$OSD_DST" \
-		|| touch /tmp/nx_osd_mount_failed
+	# overlayfs takes the SD tree as a layer directly when the card is exFAT
+	# (the firmware mounts those through FUSE), but refuses a FAT32 card:
+	# vfat dentries carry their own hash/compare ops, which overlayfs rejects
+	# outright ("filesystem on ... not supported"). When the direct mount
+	# fails, stage the SD tree (~640 KB) into tmpfs the way tg5040 does and
+	# mount that instead. vfat carries no exec bits, hence the chmod.
+	if ! mount -t overlay overlay \
+		-o ro,lowerdir="$OSD_TINT:$OSD_SRC:$OSD_DST" "$OSD_DST" 2> /dev/null; then
+		OSD_STAGE="/tmp/nx_osd"
+		rm -rf "$OSD_STAGE"
+		mkdir -p "$OSD_STAGE"
+		if cp -r "$OSD_SRC/." "$OSD_STAGE/"; then
+			chmod +x "$OSD_STAGE/trimui_osdd" "$OSD_STAGE"/*.sh \
+				"$OSD_STAGE"/widgets/*/*.sh 2> /dev/null
+			mount -t overlay overlay \
+				-o ro,lowerdir="$OSD_TINT:$OSD_STAGE:$OSD_DST" "$OSD_DST" \
+				|| touch /tmp/nx_osd_mount_failed
+		else
+			touch /tmp/nx_osd_mount_failed
+		fi
+	fi
 fi # end osd overlay mount
 
 # Start OSD overlay daemon (system-wide quick menu)
