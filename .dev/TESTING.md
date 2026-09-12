@@ -117,6 +117,12 @@ alive. Chain wake (`KEY_POWER`) + ~2 s + presses + screenshot in **one** adb
 command; check for `SetRawBrightness(0)` at the tail of the app log to detect
 sleep; poke a key every ~15 s during long waits.
 
+- Tool-pak elfs run from an adb shell need the launcher's library path
+  (`export LD_LIBRARY_PATH=/mnt/SDCARD/.system/lib:/mnt/SDCARD/.system/shared/lib:/usr/trimui/lib`)
+  or they die with `libSDL2-2.0.so.0: cannot open shared object file` — and
+  adb output carries `\r`, so match exit codes with `tr -d '\r'` + `RC=1$`,
+  not a bare `grep RC=1` (which also matches `RC=127`).
+
 ## Screenshots for verification
 
 - **tg5040**: fb0 is the real scanout — `dd if=/dev/fb0 of=/tmp/fb.raw bs=1048576 count=3`,
