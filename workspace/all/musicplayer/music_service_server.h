@@ -11,5 +11,6 @@ typedef void (*MusicServiceCommandHandler)(uint16_t command, const unsigned char
 int MusicServiceServer_open(void);
 void MusicServiceServer_poll(MusicServiceCommandHandler handler, int timeout_ms);
 void MusicServiceServer_close(void);
+int MusicServiceServer_clientCount(void);
 
 #endif

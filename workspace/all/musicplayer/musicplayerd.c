@@ -8,6 +8,7 @@
 #include "radio.h"
 #include "settings.h"
 #include "resume.h"
+#include "api.h"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_surface.h>
 #include <signal.h>
@@ -25,6 +26,18 @@ int GetMusicVolume(void);
 void SetMusicVolume(int volume);
 
 #define WAKE_ROUTE_DEADLINE_MS 5000
+
+/* Idle self-exit: the owner is the only thing keeping music state alive,
+ * so it releases the core when nothing plays and no client is attached. A
+ * stopped or empty owner exits sooner than a paused session a user resumes. */
+#define MUSIC_IDLE_EXIT_STOPPED_MS 180000
+#define MUSIC_IDLE_EXIT_PAUSED_MS 300000
+
+typedef enum {
+	IDLE_PLAYING,
+	IDLE_PAUSED,
+	IDLE_STOPPED
+} IdleClass;
 
 static volatile sig_atomic_t quit;
 static PlaylistContext queue;
@@ -62,6 +75,8 @@ static bool restore_pending;
 static int64_t restore_deadline_ms;
 static char service_error[MUSIC_SERVICE_MAX_ERROR];
 static int applied_music_volume = -1;
+static int64_t idle_since_ms;
+static int last_idle_class = -1;
 
 static void save_resume_state(void);
 static void attempt_restore(void);
@@ -845,8 +860,12 @@ static int toggle_active_source(void) {
 static void handle_command(uint16_t command, const unsigned char* payload, size_t length,
 						   MusicResponseWire* response) {
 	memset(response, 0, sizeof(*response));
-	if (command != MUSIC_CMD_SNAPSHOT)
+	if (command != MUSIC_CMD_SNAPSHOT) {
 		restore_pending = false;
+		/* Every real command is activity; a SNAPSHOT poll from an open panel
+		 * must never keep the idle owner alive. */
+		idle_since_ms = now_ms();
+	}
 	if (!MusicRequest_isValidPayload(command, payload, length)) {
 		response_error(response, MUSIC_STATUS_BAD_REQUEST, "command failed");
 		return;
@@ -1050,6 +1069,59 @@ static void handle_command(uint16_t command, const unsigned char* payload, size_
 	response_error(response, status, status == MUSIC_STATUS_OK ? NULL : "command failed");
 }
 
+static IdleClass idle_class(void) {
+	if (active_source == MUSIC_SOURCE_NONE)
+		return IDLE_STOPPED;
+	if (active_source == MUSIC_SOURCE_RADIO) {
+		if (radio_paused)
+			return IDLE_PAUSED;
+		RadioState radio_state = Radio_getState();
+		if (radio_state == RADIO_STATE_CONNECTING || radio_state == RADIO_STATE_BUFFERING ||
+			radio_state == RADIO_STATE_PLAYING)
+			return IDLE_PLAYING;
+		return IDLE_STOPPED;
+	}
+	if (active_source == MUSIC_SOURCE_PODCAST && podcast_waiting_for_seek) {
+		/* The seek has not landed yet; classify by the intent it will resume to. */
+		if (podcast_resume_transport == RESUME_TRANSPORT_PLAYING)
+			return IDLE_PLAYING;
+		if (podcast_resume_transport == RESUME_TRANSPORT_PAUSED)
+			return IDLE_PAUSED;
+		return IDLE_STOPPED;
+	}
+	PlayerSnapshot snapshot;
+	if (Player_getSnapshot(&snapshot) != 0)
+		return IDLE_STOPPED;
+	if (snapshot.state == PLAYER_STATE_PLAYING)
+		return IDLE_PLAYING;
+	if (snapshot.state == PLAYER_STATE_PAUSED)
+		return IDLE_PAUSED;
+	return IDLE_STOPPED;
+}
+
+static void check_idle_exit(void) {
+	int64_t now = now_ms();
+	IdleClass klass = idle_class();
+	if ((int)klass != last_idle_class) {
+		last_idle_class = (int)klass;
+		idle_since_ms = now;
+	}
+	/* A sleep/wake pair must find the owner alive, the boot restore must land
+	 * first, and an attached client (the open app) is an owner still in use. */
+	if (sleeping || wake_pending || restore_pending)
+		return;
+	if (MusicServiceServer_clientCount() > 0)
+		return;
+	if (klass == IDLE_PLAYING)
+		return;
+	int64_t limit = klass == IDLE_PAUSED ? MUSIC_IDLE_EXIT_PAUSED_MS : MUSIC_IDLE_EXIT_STOPPED_MS;
+	if (now - idle_since_ms >= limit) {
+		LOG_info("idle for %llds while %s, exiting\n", (long long)((now - idle_since_ms) / 1000),
+				 klass == IDLE_PAUSED ? "paused" : "stopped");
+		quit = 1;
+	}
+}
+
 static void service_tick(void) {
 	attempt_restore();
 	sync_music_volume();
@@ -1156,6 +1228,7 @@ int main(void) {
 		MusicServiceServer_poll(handle_command, 10);
 		poll_hid();
 		service_tick();
+		check_idle_exit();
 		PlayerSnapshot snapshot;
 		if (active_source == MUSIC_SOURCE_LOCAL && !eof_advanced &&
 			Player_getSnapshot(&snapshot) == 0 && snapshot.stream_eof &&

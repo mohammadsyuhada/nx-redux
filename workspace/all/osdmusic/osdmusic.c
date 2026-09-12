@@ -823,10 +823,16 @@ int main(int argc, char** argv) {
 		// Nothing composites the canvas while the OSD panel is hidden, so skip
 		// all render/sync/accent work then and only wait on the command FIFO.
 		bool visible = access(OSD_SHOW_FLAG, F_OK) == 0;
+		// While hidden the widget must hold no socket, so an idle owner can exit.
+		// This one check also drops the socket the startup attach (MusicClient_init
+		// or the initial sync) may have opened, on the first hidden pass.
+		if (!visible && MusicClient_isConnected())
+			MusicClient_disconnect();
 		if (visible && !panel_visible) {
-			// Panel just opened: publish the cached snapshot immediately so the
-			// compositor never samples a half-drawn canvas, then refresh it.
-			render(&w);
+			// Panel just opened: the socket was dropped while hidden, so sync from
+			// the owner before the first render. The compositor keeps showing the
+			// last published canvas until this render lands, so nothing is
+			// mid-frame.
 			load_accent();
 			sync_music(&w, true);
 			render(&w);

@@ -138,6 +138,14 @@ void MusicServiceServer_close(void) {
 		unlink(lock_path);
 }
 
+int MusicServiceServer_clientCount(void) {
+	int count = 0;
+	for (int i = 0; i < MAX_CLIENTS; i++)
+		if (clients[i].fd >= 0)
+			count++;
+	return count;
+}
+
 static void send_response(Client* client, uint16_t command, uint32_t request_id,
 						  MusicResponseWire* response) {
 	MusicFrameHeader header = {

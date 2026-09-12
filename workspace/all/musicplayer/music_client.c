@@ -165,6 +165,12 @@ void MusicClient_quit(void) {
 	clear_snapshot();
 }
 
+void MusicClient_disconnect(void) {
+	/* Drop the socket without spawning or restarting the owner, so an idle
+	 * daemon can exit while the panel is hidden. */
+	detach();
+}
+
 void MusicClient_update(void) {
 	int64_t now = monotonic_ms();
 	if (client_fd < 0) {

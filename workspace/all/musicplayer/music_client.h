@@ -7,6 +7,7 @@
 int MusicClient_init(const char* daemon_path);
 void MusicClient_quit(void);
 void MusicClient_update(void);
+void MusicClient_disconnect(void);
 const MusicSnapshotWire* MusicClient_snapshot(void);
 const char* MusicClient_error(void);
 
