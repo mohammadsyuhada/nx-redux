@@ -94,6 +94,13 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM HUP QUIT
 
+# Re-apply the saved audio sink, volume and brightness once LOVE/OpenAL has
+# finished its own init, which clobbers the mixer (same dance ports_launch.sh
+# does for every port). Run with the ORIGINAL library path so syncsettings.elf
+# finds libmsettings.so from .system/lib. The old pre-launch codec mute stays
+# out: it would silence background music.
+( sleep 5; LD_LIBRARY_PATH="$NX_ORIG_LDLP" syncsettings.elf 2>/dev/null ) &
+
 # Power-button sleep/poweroff handler for the duration of the game - run
 # with the ORIGINAL library path (it links libmsettings.so from
 # .system/lib, which the game-first override above doesn't carry).

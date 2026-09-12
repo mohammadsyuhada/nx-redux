@@ -88,12 +88,19 @@ main() {
     export SDL_AUDIODRIVER=alsa
     export SDL_AUDIO_BUFFER_SIZE=2048
 
+    # Re-apply the saved audio sink, volume and brightness once the emulator has
+    # finished its own SDL/ALSA init, which clobbers the mixer. The old pre-launch
+    # codec mute stays out: it would silence background music.
+    (sleep 5; syncsettings.elf) &
+    SYNC_PID=$!
+
     # Start power button sleep/poweroff handler
     sleepmon.elf &
 
     "$EMU_DIR/drastic" "$*"
 
     killall sleepmon.elf 2>/dev/null || true
+    kill $SYNC_PID 2>/dev/null || true
 }
 
 main "$@"

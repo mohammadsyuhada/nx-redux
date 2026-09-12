@@ -91,6 +91,12 @@ mkdir -p "$MINUI_DIR"
 export EMU_OVERLAY_SCREENSHOT_DIR="$MINUI_DIR"
 export EMU_OVERLAY_ROMFILE="$(basename "$ROM")"
 
+# Re-apply the saved audio sink, volume and brightness once the emulator has
+# finished its own SDL/ALSA init, which clobbers the mixer. The old pre-launch
+# codec mute stays out: it would silence background music.
+(sleep 5; syncsettings.elf) &
+SYNC_PID=$!
+
 # Start power button sleep/poweroff handler
 sleepmon.elf &
 
@@ -155,7 +161,8 @@ fi
 [ "$(nx_cfg_get input device2)" = "0" ] && nx_cfg_set input device2 10
 
 # Both early exits below leave the script BEFORE `wait $EMU_PID`, skipping
-# the teardown at the bottom -- and sleepmon.elf is started ABOVE this block. An
+# the teardown at the bottom -- and sleepmon.elf and the sync subshell
+# ($SYNC_PID) are started ABOVE this block. An
 # orphaned sleepmon.elf left running in the game list keeps its own
 # long-press power handler armed (killall -TERM nextui.elf, then an
 # unconditional poweroff), so an early exit MUST undo them itself. The old
@@ -163,6 +170,7 @@ fi
 # flycast, so the teardown at the bottom always ran.
 nx_netplay_bail() {
     killall sleepmon.elf 2>/dev/null || true
+    kill $SYNC_PID 2>/dev/null || true
     exit 0
 }
 
@@ -317,6 +325,7 @@ kill -0 "$EMU_PID" 2>/dev/null && pin_threads
 
 wait $EMU_PID
 killall sleepmon.elf 2>/dev/null || true
+kill $SYNC_PID 2>/dev/null || true
 # Netplay teardown: the session file is the only marker that this run went
 # through the wizard, so its presence gates the whole thing. --cleanup stops
 # the host's rsyncd, tears down a hotspot AP, restores the previous WiFi
