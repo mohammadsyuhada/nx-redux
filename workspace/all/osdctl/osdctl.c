@@ -6,6 +6,7 @@
 #include <sys/mman.h>
 #include <errno.h>
 #include "msettings.h"
+#include "msettings_shm.h"
 
 // Mirror of the active libmsettings Settings struct for direct shm access.
 // The layout differs per platform (see tg5040/tg5050 libmsettings/msettings.c),
@@ -16,44 +17,8 @@
 // HAS_FAN is defined by the Makefile for tg5050 only. Getting this wrong shifts
 // every field past toggled_volume, corrupting jack/audiosink reads and the
 // msettings.bin write.
-typedef struct {
-	int version;
-	int brightness;
-	int colortemperature;
-	int headphones;
-	int speaker;
-	int mute;
-	int contrast;
-	int saturation;
-	int exposure;
-	int toggled_brightness;
-	int toggled_colortemperature;
-	int toggled_contrast;
-	int toggled_saturation;
-	int toggled_exposure;
-	int toggled_volume;
-#ifndef HAS_FAN
-	int disable_dpad_on_mute;
-	int emulate_joystick_on_mute;
-#endif
-	int turbo_a;
-	int turbo_b;
-	int turbo_x;
-	int turbo_y;
-	int turbo_l1;
-	int turbo_l2;
-	int turbo_r1;
-	int turbo_r2;
-	int unused[2];
-	int jack;
-	int audiosink;
-#ifdef HAS_FAN
-	int fanSpeed;
-#endif
-} SettingsShm;
 
-#define SHM_KEY "/SharedSettings"
-#define SETTINGS_DEFAULT_MUTE_NO_CHANGE -69
+#define SHM_KEY MSETTINGS_SHM_KEY
 
 static SettingsShm* shm_open_rw(void) {
 	int fd = shm_open(SHM_KEY, O_RDWR, 0644);
@@ -95,7 +60,9 @@ static void usage(void) {
 					"  volume      (0-20)\n"
 					"  brightness  (0-10)\n"
 					"  fanspeed    (-3 to 100)\n"
-					"  mute        (0-1)\n");
+					"  mute        (0-1)\n"
+					"  rumble      (0-1) master motor switch\n"
+					"  rumblestrength (0 normal, 1 light, 2 strong)\n");
 	exit(1);
 }
 
@@ -137,6 +104,10 @@ int main(int argc, char* argv[]) {
 #endif
 		else if (strcmp(prop, "mute") == 0)
 			printf("%d\n", s->mute);
+		else if (strcmp(prop, "rumble") == 0)
+			printf("%d\n", !s->rumble_off);
+		else if (strcmp(prop, "rumblestrength") == 0)
+			printf("%d\n", s->rumble_strength);
 		else
 			usage();
 	} else if (strcmp(cmd, "set") == 0) {
@@ -178,6 +149,14 @@ int main(int argc, char* argv[]) {
 				int vol = (s->jack || s->audiosink != 0) ? s->headphones : s->speaker;
 				SetRawVolume(vol * 5);
 			}
+			save_settings(s);
+		} else if (strcmp(prop, "rumble") == 0) {
+			// Master motor switch: the VIB thread in every app reads it live
+			// from shm, so a game that is rumbling stops within a tick.
+			s->rumble_off = !value;
+			save_settings(s);
+		} else if (strcmp(prop, "rumblestrength") == 0) {
+			s->rumble_strength = (value < 0 || value > 2) ? 0 : value;
 			save_settings(s);
 		} else {
 			usage();

@@ -40,7 +40,8 @@ typedef struct SettingsV1 {
 	int turbo_l2;
 	int turbo_r1;
 	int turbo_r2;
-	int unused[2]; // for future use
+	int rumble_off;		 // OSD motor switch, stored inverted so pre-existing files read as ON
+	int rumble_strength; // Settings "Vibration strength": 0 Normal (default), 1 Light, 2 Strong
 	// NOTE: doesn't really need to be persisted but still needs to be shared
 	int jack;
 	int audiosink; // was bluetooth true/false before
@@ -49,6 +50,7 @@ typedef struct SettingsV1 {
 
 // When incrementing SETTINGS_VERSION, update the Settings typedef and add
 // backwards compatibility to InitSettings!
+// Keep all/common/msettings_shm.h (linkless mirror for osdctl/poweroff_next) in sync.
 #define SETTINGS_VERSION 1
 typedef SettingsV1 Settings;
 static Settings DefaultSettings = {
@@ -312,6 +314,27 @@ int GetHDMI(void) {
 
 int GetMute(void) {
 	return settings->mute;
+}
+// Master motor switch (OSD "Motor" widget). Every vibration in the system —
+// game rumble, sleep/wake pulses, the shutdown tap — is gated on it.
+int GetRumble(void) {
+	if (!settings)
+		return 1; // minarch starts its VIB thread before InitSettings
+	return !settings->rumble_off;
+}
+void SetRumble(int on) {
+	settings->rumble_off = !on;
+	SaveSettings();
+}
+// Settings → System → "Vibration strength" (see all/common/vib_levels.h).
+int GetRumbleStrength(void) {
+	if (!settings)
+		return 0;
+	return settings->rumble_strength;
+}
+void SetRumbleStrength(int level) {
+	settings->rumble_strength = level;
+	SaveSettings();
 }
 int GetContrast(void) {
 	return settings->contrast;

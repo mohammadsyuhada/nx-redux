@@ -51,6 +51,10 @@ void SetHDMI(int value); // 0-1
 
 int GetMute(void);
 void SetMute(int value); // 0-1
+int GetRumble(void);	 // master motor switch, 1 = vibration allowed (default)
+void SetRumble(int on);
+int GetRumbleStrength(void); // 0 Normal (default), 1 Light, 2 Strong — see all/common/vib_levels.h
+void SetRumbleStrength(int level);
 
 // unused
 inline int GetFanSpeed(void) {

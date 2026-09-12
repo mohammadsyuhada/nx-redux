@@ -28,6 +28,8 @@
 #include "platform.h"
 #include "config.h"
 #include "utils.h"
+#include "msettings_shm.h"
+#include "vib_levels.h"
 
 #ifdef HAS_AXP2202_POWEROFF
 #define I2C_DEVICE "/dev/i2c-6"
@@ -187,17 +189,66 @@ static void safe_umount(const char* path, int flags) {
 // setting, read by CFG_init before the card was unmounted.
 #define SHUTDOWN_PULSE_MS 120
 
+// OSD "Motor" master switch, persisted by libmsettings in msettings.bin on
+// the SD card. Read once at startup (before the card is unmounted) without
+// linking libmsettings: a version mismatch or missing file means "on".
+static int motor_enabled = 1;
+static int motor_level = VIB_LEVEL_NORMAL;
+
+static void read_motor_switch(void) {
+	char path[PATH_MAX];
+	const char* userdata = getenv("USERDATA_PATH");
+	if (userdata)
+		snprintf(path, sizeof(path), "%s/msettings.bin", userdata);
+	else
+		snprintf(path, sizeof(path), "%s/.userdata/%s/msettings.bin", SDCARD_PATH, PLATFORM);
+
+	SettingsShm s;
+	int fd = open(path, O_RDONLY | O_CLOEXEC);
+	if (fd < 0)
+		return;
+	ssize_t n = read(fd, &s, sizeof(s));
+	close(fd);
+	if (n != (ssize_t)sizeof(s) || s.version != MSETTINGS_SHM_VERSION) {
+		log_msg("poweroff_next: msettings.bin unreadable or version %d != %d, motor assumed on\n",
+				n == (ssize_t)sizeof(s) ? s.version : -1, MSETTINGS_SHM_VERSION);
+		return;
+	}
+	motor_enabled = !s.rumble_off;
+	motor_level = s.rumble_strength;
+}
+
+// Drive for the shutdown tap: the floor of the user's "Vibration strength"
+// level, i.e. the same strength the weakest game rumble gets.
+static void motor_drive(int on) {
+	int floor_pct, ceil_pct;
+	VIB_levelRange(motor_level, &floor_pct, &ceil_pct);
+	int pct = on ? floor_pct : 0;
+#ifdef RUMBLE_VOLTAGE_PATH
+	// tg5040 family: voltage-driven motor, Brick Pro capped (see platform.h)
+	const char* device = getenv("DEVICE");
+	int max_uv = (device && strcmp(device, "brickpro") == 0) ? RUMBLE_MAX_VOLTAGE_BRICKPRO : RUMBLE_MAX_VOLTAGE;
+	putInt(RUMBLE_VOLTAGE_PATH, on ? RUMBLE_MIN_VOLTAGE + (int)((long long)(max_uv - RUMBLE_MIN_VOLTAGE) * pct / 100) : 0);
+	putInt(RUMBLE_PATH, on ? 1 : 0);
+#else
+	// tg5050: PWM level drives the motor directly (no rumble GPIO exists)
+	putInt(RUMBLE_LEVEL_PATH, (int)(0xFFFFLL * pct / 100));
+#endif
+}
+
 static void shutdown_pulse(void) {
 	if (!CFG_getHaptics())
 		return;
+	if (!motor_enabled) {
+		log_msg("poweroff_next: motor switch off, skipping shutdown pulse\n");
+		return;
+	}
 
-	log_msg("poweroff_next: shutdown-complete haptic pulse\n");
-	putInt(RUMBLE_SHUTDOWN_LEVEL_PATH, RUMBLE_SHUTDOWN_LEVEL);
-	putInt(RUMBLE_PATH, 1);
+	log_msg("poweroff_next: shutdown-complete haptic pulse (strength level %d)\n", motor_level);
+	motor_drive(1);
 	struct timespec on = {.tv_sec = 0, .tv_nsec = SHUTDOWN_PULSE_MS * 1000000L};
 	nanosleep(&on, NULL);
-	putInt(RUMBLE_PATH, 0);
-	putInt(RUMBLE_SHUTDOWN_LEVEL_PATH, 0);
+	motor_drive(0);
 }
 
 static void finalize_poweroff(void) {
@@ -429,6 +480,7 @@ int main(void) {
 	resolve_sdcard_path();
 
 	CFG_init(NULL, NULL);
+	read_motor_switch();
 
 	bool protection_enabled = CFG_getPowerOffProtection();
 	log_msg("poweroff_next: [DEBUG] main: Power-off protection = %s\n", protection_enabled ? "enabled" : "disabled");

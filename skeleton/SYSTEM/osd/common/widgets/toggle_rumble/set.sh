@@ -1,31 +1,27 @@
 #!/bin/sh
-RUMBLE_STATE="/tmp/trimui_osd/toggle_rumble/enabled"
+# Master motor switch. The state lives in libmsettings shared memory (persisted
+# to msettings.bin) via osdctl, so every app's vibration thread and the
+# shutdown tap read the same flag.
+export LD_LIBRARY_PATH="/mnt/SDCARD/.system/lib:/usr/trimui/lib:$LD_LIBRARY_PATH"
+OSDCTL="/mnt/SDCARD/.system/bin/osdctl"
 # The rumble motor hangs off a different GPIO per platform (gpio227 on tg5040).
-# tg5050 wires it to gpio236, so device/smartpros/ ships its own copy of this
-# widget with that value — everything else here is platform-independent.
+# tg5050 has no rumble GPIO, so device/smartpros/ ships its own copy of this
+# widget that buzzes through the PWM motor level instead.
 RUMBLE_GPIO="/sys/class/gpio/gpio227/value"
 
 mkdir -p /tmp/trimui_osd/toggle_rumble/
 
-# Initialize state file from current setting if it doesn't exist
-if [ ! -f "$RUMBLE_STATE" ]; then
-    echo 1 > "$RUMBLE_STATE"
-fi
-
 if [ $# -eq 0 ] ; then
-    value=$(cat "$RUMBLE_STATE" 2>/dev/null)
-    [ -z "$value" ] && value=1
+    value=$($OSDCTL get rumble)
     echo $value > /tmp/trimui_osd/toggle_rumble/status
 else
-    value=$(cat "$RUMBLE_STATE" 2>/dev/null)
-    [ -z "$value" ] && value=1
+    value=$($OSDCTL get rumble)
     if [ "$value" -eq 1 ] ; then
-        # Currently on, turn off
-        echo 0 > "$RUMBLE_STATE"
+        $OSDCTL set rumble 0
         echo 0 > /tmp/trimui_osd/toggle_rumble/status
     else
-        # Currently off, turn on — give brief haptic feedback
-        echo 1 > "$RUMBLE_STATE"
+        $OSDCTL set rumble 1
+        # brief buzz so the user feels the motor come back
         echo 1 > $RUMBLE_GPIO 2>/dev/null
         sleep 0.1
         echo 0 > $RUMBLE_GPIO 2>/dev/null

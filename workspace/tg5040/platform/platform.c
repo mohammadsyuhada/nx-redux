@@ -351,10 +351,8 @@ void PLAT_setCPUSpeedAuto(void) {
 }
 
 #define MAX_STRENGTH 0xFFFF
-#define MIN_VOLTAGE 500000
-// The Brick Pro drives its motor at 3.3V, which is unpleasantly strong at the
-// higher rumble settings, so cap it lower.
-#define MAX_VOLTAGE (is_brickpro ? 2500000 : 3300000)
+#define MIN_VOLTAGE RUMBLE_MIN_VOLTAGE
+#define MAX_VOLTAGE (is_brickpro ? RUMBLE_MAX_VOLTAGE_BRICKPRO : RUMBLE_MAX_VOLTAGE)
 
 void PLAT_setRumble(int strength) {
 	int voltage = MAX_VOLTAGE;

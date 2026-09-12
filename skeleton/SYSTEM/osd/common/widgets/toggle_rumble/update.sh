@@ -1,9 +1,7 @@
 #!/bin/sh
-RUMBLE_STATE="/tmp/trimui_osd/toggle_rumble/enabled"
+export LD_LIBRARY_PATH="/mnt/SDCARD/.system/lib:/usr/trimui/lib:$LD_LIBRARY_PATH"
+OSDCTL="/mnt/SDCARD/.system/bin/osdctl"
 mkdir -p /tmp/trimui_osd/toggle_rumble/
-if [ ! -f "$RUMBLE_STATE" ]; then
-    echo 1 > "$RUMBLE_STATE"
-fi
-value=$(cat "$RUMBLE_STATE" 2>/dev/null)
+value=$($OSDCTL get rumble)
 [ -z "$value" ] && value=1
 echo $value > /tmp/trimui_osd/toggle_rumble/status

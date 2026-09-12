@@ -536,6 +536,7 @@ int VIB_getStrength(void);
 int VIB_scaleStrength(int strength);
 void VIB_singlePulse(int strength, int duration_ms);
 void VIB_triplePulse(int strength, int duration_ms, int gap_ms);
+void VIB_previewStrength(void); // feedback pulse for the "Vibration strength" setting
 
 ///////////////////////////////
 

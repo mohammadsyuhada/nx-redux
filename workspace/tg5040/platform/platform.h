@@ -186,10 +186,11 @@ extern int is_brickpro;
 // right before the power cut without linking the SDL-backed VIB_ layer.
 #define RUMBLE_PATH "/sys/class/gpio/gpio227/value"
 #define RUMBLE_VOLTAGE_PATH "/sys/class/motor/voltage"
-// Motor drive for the shutdown-complete pulse (microvolts): a clear but short
-// tap, under the Brick Pro's 2.5 V cap.
-#define RUMBLE_SHUTDOWN_LEVEL_PATH RUMBLE_VOLTAGE_PATH
-#define RUMBLE_SHUTDOWN_LEVEL 2000000
+// Motor drive range (microvolts). The Brick Pro drives its motor at 3.3 V,
+// which is unpleasantly strong at the higher rumble settings, so cap it lower.
+#define RUMBLE_MIN_VOLTAGE 500000
+#define RUMBLE_MAX_VOLTAGE 3300000
+#define RUMBLE_MAX_VOLTAGE_BRICKPRO 2500000
 
 // Brick Pro has 5 zones (f1, f2, top bar, joysticks, triggers), Brick 4, Smart Pro 3
 #define MAX_LIGHTS 5

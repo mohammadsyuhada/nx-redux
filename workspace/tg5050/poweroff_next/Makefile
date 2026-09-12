@@ -26,6 +26,8 @@ CC = $(CROSS_COMPILE)gcc
 # Override CFLAGS and LDFLAGS to not include SDL2 dependencies
 CFLAGS = $(OPT) -g -std=gnu11 -Wall -Wextra
 CFLAGS += $(INCDIR) -DPLATFORM=\"$(PLATFORM)\"
+# tg5050 layout of the libmsettings mirror (see all/common/msettings_shm.h)
+CFLAGS += -DHAS_FAN
 # No HAS_AXP2202_POWEROFF here: tg5050 powers off via the reboot syscall
 LDFLAGS = -lpthread -ldl
 

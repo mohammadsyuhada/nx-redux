@@ -63,7 +63,7 @@ Core experience:
 Available when you want it (Tools, pause menu and OSD):
 - Added `On-Screen Display (OSD)` for quick access to common actions from anywhere — in the menus or in-game.
     - Opened with the `Home` button on devices that have one (Smart Pro S), or by long-pressing the `MENU` button (Brick / Brick Pro / Smart Pro).
-    - Volume slider with mute toggle, brightness slider, and rumble toggle.
+    - Mute toggle, brightness slider, and a `Motor` toggle — the master vibration switch for the whole device (game rumble and OS haptic pulses), remembered across reboots.
     - Wi-Fi, Bluetooth and LED toggles with live state.
     - Built-in `Screenshot` and `Screen Recorder`:
         - When Screenshot is enabled, press `L2` + `R2` to capture the screen — an on-screen hint shows the shortcut, and a toast confirms each saved capture.

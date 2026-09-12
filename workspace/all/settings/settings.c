@@ -6,6 +6,7 @@
  */
 
 #include "msettings.h"
+#include "vib_levels.h"
 #include "defines.h"
 #include "api.h"
 #include "config.h"
@@ -286,6 +287,10 @@ static int game_art_width_values[GAME_ART_WIDTH_COUNT];
 
 /* On/off as int values 0,1 */
 static int on_off_values[] = {0, 1};
+// "Vibration strength": values are libmsettings rumble_strength levels
+// (vib_levels.h); 0 = Normal is the default and sits in the middle of the UI.
+static const char* rumble_strength_labels[] = {"Light", "Normal", "Strong"};
+static int rumble_strength_values[] = {VIB_LEVEL_LIGHT, VIB_LEVEL_NORMAL, VIB_LEVEL_STRONG};
 
 /* Dpad mode: Dpad, Joystick, Both */
 static const char* dpad_mode_labels[] = {"Dpad", "Joystick", "Both"};
@@ -794,6 +799,18 @@ static void reset_haptics(void) {
 	CFG_setHaptics(CFG_DEFAULT_HAPTICS);
 }
 
+static int get_rumble_strength(void) {
+	return GetRumbleStrength();
+}
+static void set_rumble_strength(int level) {
+	SetRumbleStrength(level);
+	VIB_previewStrength(); // let the user feel the level they just picked
+}
+static void reset_rumble_strength(void) {
+	SetRumbleStrength(VIB_LEVEL_NORMAL);
+	VIB_previewStrength();
+}
+
 static int get_default_view(void) {
 	return CFG_getDefaultView();
 }
@@ -1236,7 +1253,7 @@ static void init_about_info(void) {
 
 #define MAX_APPEARANCE_ITEMS 26
 #define MAX_DISPLAY_ITEMS 8
-#define MAX_SYSTEM_ITEMS 21
+#define MAX_SYSTEM_ITEMS 22
 #define MAX_MUTE_ITEMS 20
 #define MAX_FNKEY_ITEMS 3
 #define MAX_NOTIFY_ITEMS 8
@@ -1694,6 +1711,9 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		"Haptic feedback", "Enable or disable haptic feedback on certain actions in the OS",
 		on_off_labels, 2, on_off_values, get_haptics, set_haptics, reset_haptics);
 	system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Vibration strength", "How hard the motor rumbles in games and for haptic feedback",
+		rumble_strength_labels, 3, rumble_strength_values, get_rumble_strength, set_rumble_strength, reset_rumble_strength);
+	system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Default view", "The initial view to show on boot",
 		default_view_labels, DEFAULT_VIEW_COUNT, default_view_values, get_default_view, set_default_view, reset_default_view);
 	system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
@@ -2021,6 +2041,7 @@ int main(int argc, char* argv[]) {
 
 	InitSettings();
 	PWR_init();
+	VIB_init(); // strength preview + boot-logo error pulse need the motor thread
 	PAD_init();
 	TIME_init();
 
@@ -2103,6 +2124,7 @@ int main(int argc, char* argv[]) {
 		developer_page_destroy(dev_page_ptr);
 	free_dynamic_labels();
 
+	VIB_quit();
 	QuitSettings();
 	PWR_quit();
 	PAD_quit();

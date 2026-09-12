@@ -18,7 +18,7 @@ TARGET = osdctl
 SOURCE = $(TARGET).c
 
 CC = $(CROSS_COMPILE)gcc
-CFLAGS   = $(OPT) -I$(PREFIX_LOCAL)/include -I../../$(PLATFORM)/libmsettings -DPLATFORM=\"$(PLATFORM)\"
+CFLAGS   = $(OPT) -I$(PREFIX_LOCAL)/include -I../../$(PLATFORM)/libmsettings -I../common -DPLATFORM=\"$(PLATFORM)\"
 ifeq ($(PLATFORM),tg5050)
 CFLAGS += -DHAS_FAN
 endif

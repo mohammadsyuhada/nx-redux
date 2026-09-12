@@ -6,6 +6,7 @@
 #include <math.h>
 #include <signal.h>
 #include <msettings.h>
+#include "vib_levels.h"
 #include <pthread.h>
 #include <samplerate.h>
 #include <stdbool.h>
@@ -3469,17 +3470,43 @@ static struct VIB_Context {
 	int queued_strength;
 	int strength;
 } vib = {0};
+#ifndef MAX_STRENGTH
+#define MAX_STRENGTH 0xFFFF
+#endif
+// Below roughly 60% drive the motors on these devices spin but cannot be
+// felt (Smart Pro S: a third-power 80 ms burst is invisible, 60% registers;
+// calibrated 2026-09-12). Cores emulate cartridge rumble as short, partial
+// bursts — gambatte reports the in-frame duty of the cart's rumble bit, so
+// Pokémon Pinball asks for ~33% — which would all be lost. Map every
+// non-zero request into the range of the user's "Vibration strength" level
+// instead (vib_levels.h): weakest → floor, full → ceiling.
+static int VIB_feltStrength(int strength) {
+	if (strength <= 0)
+		return 0;
+	int floor_pct, ceil_pct;
+	VIB_levelRange(GetRumbleStrength(), &floor_pct, &ceil_pct);
+	int lo = (int)((long long)MAX_STRENGTH * floor_pct / 100);
+	int hi = (int)((long long)MAX_STRENGTH * ceil_pct / 100);
+	if (strength >= MAX_STRENGTH)
+		return hi;
+	return lo + (int)((long long)strength * (hi - lo) / MAX_STRENGTH);
+}
+
 static void* VIB_thread(void* arg) {
 #define DEFER_FRAMES 3
 	static int defer = 0;
 	while (1) {
 		SDL_Delay(17);
-		if (vib.queued_strength != vib.strength) {
-			if (defer < DEFER_FRAMES && vib.queued_strength == 0) { // minimize vacillation between 0 and some number (which this motor doesn't like)
+		// Master motor switch (OSD "Motor" widget, libmsettings shm): while it
+		// is off nothing reaches the motor, and flipping it mid-rumble stops
+		// the motor on the next tick because the applied value diverges.
+		int wanted = GetRumble() ? VIB_feltStrength(vib.queued_strength) : 0;
+		if (wanted != vib.strength) {
+			if (defer < DEFER_FRAMES && wanted == 0) { // minimize vacillation between 0 and some number (which this motor doesn't like)
 				defer += 1;
 				continue;
 			}
-			vib.strength = vib.queued_strength;
+			vib.strength = wanted;
 			defer = 0;
 
 			PLAT_setRumble(vib.strength);
@@ -3510,7 +3537,6 @@ int VIB_getStrength(void) {
 }
 
 #define MIN_STRENGTH 0x0000
-#define MAX_STRENGTH 0xFFFF
 #define NUM_INCREMENTS 10
 
 int VIB_scaleStrength(int strength) { // scale through 0-10 (NUM_INCREMENTS)
@@ -3525,6 +3551,15 @@ void VIB_singlePulse(int strength, int duration_ms) {
 	VIB_setStrength(0);
 }
 
+
+// Feedback for the "Vibration strength" setting: one pulse at the level's
+// floor, i.e. what the weakest game rumble will feel like on that level.
+void VIB_previewStrength(void) {
+	VIB_setStrength(0);
+	VIB_setStrength(1); // any non-zero request maps to the floor
+	usleep(150 * 1000);
+	VIB_setStrength(0);
+}
 
 void VIB_triplePulse(int strength, int duration_ms, int gap_ms) {
 	VIB_setStrength(0);
