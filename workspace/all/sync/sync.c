@@ -545,7 +545,10 @@ static char* read_line_cr(char* buf, int size, FILE* fp) {
 // Run rsync via popen() and capture output line by line into the log buffer
 static int run_rsync_phase(int phase) {
 	char cmd[1024];
-	const char* rsync_opts = "-rtv --update --inplace --no-perms --omit-dir-times --info=progress2";
+	// --modify-window=1: FAT32 cards keep mtimes at 2-second resolution, so a
+	// received file's timestamp rounds down and would otherwise count as
+	// changed (and be re-sent) on every later run.
+	const char* rsync_opts = "-rtv --update --inplace --no-perms --omit-dir-times --modify-window=1 --info=progress2";
 	const char* shared_excludes =
 		"--exclude=battery_logs.sqlite "
 		"--exclude=game_logs.sqlite "

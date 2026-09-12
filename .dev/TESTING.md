@@ -216,6 +216,11 @@ during menu rendering — useless as a first-frame/boot proxy.
   fallback, ext4 (standing in for the FUSE-mounted exFAT card) must keep the
   direct SD mount; both must serve the SD tree, the tint layer and the
   rootfs-only font through the merged view.
+- Device Sync on FAT32: `scripts/tests/test-sync-rsync-fat32.sh` runs the
+  exact `rsync_opts` string from `sync/sync.c` with the container's rsync
+  against a vfat loop image (docker, privileged) — a file with an odd-second
+  mtime must copy once and then not be re-sent after vfat rounds the
+  timestamp to 2-second resolution (`--modify-window=1`).
 - Turbo fire cadence: `scripts/tests/test-turbo-shaper.sh` compiles
   `minarch/ma_turbo.c` on the host against a model of both TrimUI input
   daemons' pulse trains; `scripts/tests/turbo/inject.c` documents the Brick
