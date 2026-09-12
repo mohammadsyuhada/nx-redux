@@ -182,6 +182,15 @@ extern int is_brickpro;
 // this should be set to the devices native screen refresh rate
 #define SCREEN_FPS 60.235
 
+// Rumble motor sysfs. Shared with poweroff_next, which pulses the motor
+// right before the power cut without linking the SDL-backed VIB_ layer.
+#define RUMBLE_PATH "/sys/class/gpio/gpio227/value"
+#define RUMBLE_VOLTAGE_PATH "/sys/class/motor/voltage"
+// Motor drive for the shutdown-complete pulse (microvolts): a clear but short
+// tap, under the Brick Pro's 2.5 V cap.
+#define RUMBLE_SHUTDOWN_LEVEL_PATH RUMBLE_VOLTAGE_PATH
+#define RUMBLE_SHUTDOWN_LEVEL 2000000
+
 // Brick Pro has 5 zones (f1, f2, top bar, joysticks, triggers), Brick 4, Smart Pro 3
 #define MAX_LIGHTS 5
 

@@ -251,9 +251,8 @@ void PLAT_enableBacklight(int enable) {
 }
 
 void PLAT_powerOff(int reboot) {
-	if (CFG_getHaptics()) {
-		VIB_singlePulse(VIB_bootStrength, VIB_bootDuration_ms);
-	}
+	// No haptic here: with haptics on, poweroff_next pulses the motor once
+	// shutdown has actually completed, right before the power cut.
 	system("rm -f /tmp/nextui_exec && sync");
 
 	SetRawVolume(MUTE_VOLUME_RAW);
@@ -397,8 +396,6 @@ void PLAT_setCPUSpeedAuto(void) {
 }
 
 #define MAX_STRENGTH 0xFFFF
-#define RUMBLE_PATH "/sys/class/gpio/gpio236/value"
-#define RUMBLE_LEVEL_PATH "/sys/class/motor/level"
 
 void PLAT_setRumble(int strength) {
 	if (strength > 0 && strength < MAX_STRENGTH) {

@@ -11,35 +11,6 @@ Move an entry from there to here once it compiles and needs hardware time.
 
 ---
 
-## Shutdown-complete haptic pulse (built 2026-09-12)
-
-With **Haptic feedback** on, `poweroff_next` now taps the motor once for
-120 ms right before the power cut (after the SD unmount and process kill),
-driving the motor sysfs directly (`RUMBLE_*` macros moved into each
-`platform.h`; Brick/Brick Pro 1.5 V, Smart Pro S PWM level 0x6000). The old
-pulse at the *start* of shutdown in `PLAT_powerOff` is gone. Reboot has no
-pulse. No new setting.
-
-Headless so far (2026-09-12): tg5040 + tg5050 build clean; deployed
-`poweroff_next` + `nextui.elf` + `minarch.elf` + `settings.elf` to Brick and
-Smart Pro S; motor sysfs writes accepted on both (SPS has no
-`/sys/class/gpio/gpio236`, level alone drives it, same as `PLAT_setRumble`);
-OSD power widget cut power in 1.6 s (Brick) / 1.0 s (SPS) with the new
-binary, so the pulse does not wedge the shutdown.
-
-- [ ] Brick: power on, `cat /root/powerofflog.txt` shows
-      `shutdown-complete haptic pulse`; shut down again by hand and feel a
-      light tap right as the screen dies, none when "Powering off" appears.
-- [ ] Smart Pro S: same log line + same feel (haptics was switched on for
-      the test; leave as you like).
-- [ ] Haptic feedback **off**: no tap, log line absent, shutdown timing
-      unchanged.
-- [ ] Brick Pro: same as Brick (tg4040 build shares the tg5040 binary).
-- [ ] Other paks (musicplayer, mediaplayer, tools) still carry the old
-      start-of-shutdown pulse until the next full build; harmless.
-
----
-
 ## Desktop: AppImage no longer bundles the host GL/driver stack (issue #86; built 2026-09-04)
 
 v1.9.0's AppImage died before opening a window on every Mesa >= 25 host

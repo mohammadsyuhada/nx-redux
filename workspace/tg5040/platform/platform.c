@@ -228,9 +228,8 @@ void PLAT_enableBacklight(int enable) {
 }
 
 void PLAT_powerOff(int reboot) {
-	if (CFG_getHaptics()) {
-		VIB_singlePulse(VIB_bootStrength, VIB_bootDuration_ms);
-	}
+	// No haptic here: with haptics on, poweroff_next pulses the motor once
+	// shutdown has actually completed, right before the power cut.
 	system("rm -f /tmp/nextui_exec && sync");
 
 	SetRawVolume(MUTE_VOLUME_RAW);
@@ -356,8 +355,6 @@ void PLAT_setCPUSpeedAuto(void) {
 // The Brick Pro drives its motor at 3.3V, which is unpleasantly strong at the
 // higher rumble settings, so cap it lower.
 #define MAX_VOLTAGE (is_brickpro ? 2500000 : 3300000)
-#define RUMBLE_PATH "/sys/class/gpio/gpio227/value"
-#define RUMBLE_VOLTAGE_PATH "/sys/class/motor/voltage"
 
 void PLAT_setRumble(int strength) {
 	int voltage = MAX_VOLTAGE;

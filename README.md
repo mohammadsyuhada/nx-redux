@@ -19,7 +19,7 @@ Refer to the Youtube Video below for demonstration of the features:
 - **Trimui Brick** — firmware `1.1.1`
 - **Trimui Brick Hammer** — firmware `1.1.1`
 - **Trimui Brick Pro** — firmware `1.1.1`
-- **Trimui Smart Pro S** — firmware `1.0.1`
+- **Trimui Smart Pro S** — firmware `1.0.1` or `1.0.2`
 - **Trimui Smart Pro** — firmware `1.1.1` (It should work in theory, but I can't confirm it because I don't have the device to test)
 
 > ⚠️ **SD cards are built per device model.** Each release is packaged for a specific device — resolution, OSD assets and other layout differ between models — so a card set up for one device (e.g. the Brick) must **not** be moved into another (e.g. the Smart Pro S). To carry saves, save states, settings and (optionally) ROMs across devices, use the built-in **Device Sync** tool instead of swapping cards.

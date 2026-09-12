@@ -27,6 +27,7 @@
 
 #include "platform.h"
 #include "config.h"
+#include "utils.h"
 
 #ifdef HAS_AXP2202_POWEROFF
 #define I2C_DEVICE "/dev/i2c-6"
@@ -177,6 +178,26 @@ static void safe_umount(const char* path, int flags) {
 		int err = errno;
 		log_msg("poweroff_next: umount2(%s) failed: %s\n", path, strerror(err));
 	}
+}
+
+// Shutdown-complete cue: one short, light motor tap right before the power
+// cut, so the user knows the device can be put down. Runs after every other
+// process is dead, so it drives the sysfs motor controls directly (the
+// SDL-backed VIB_ layer is not linked here). Honours the Haptic feedback
+// setting, read by CFG_init before the card was unmounted.
+#define SHUTDOWN_PULSE_MS 120
+
+static void shutdown_pulse(void) {
+	if (!CFG_getHaptics())
+		return;
+
+	log_msg("poweroff_next: shutdown-complete haptic pulse\n");
+	putInt(RUMBLE_SHUTDOWN_LEVEL_PATH, RUMBLE_SHUTDOWN_LEVEL);
+	putInt(RUMBLE_PATH, 1);
+	struct timespec on = {.tv_sec = 0, .tv_nsec = SHUTDOWN_PULSE_MS * 1000000L};
+	nanosleep(&on, NULL);
+	putInt(RUMBLE_PATH, 0);
+	putInt(RUMBLE_SHUTDOWN_LEVEL_PATH, 0);
 }
 
 static void finalize_poweroff(void) {
@@ -353,8 +374,9 @@ static int run_poweroff_protection(void) {
 
 	sync();
 
-	// sync() above is synchronous; a short settle before the power cut
-	// is plenty.
+	// sync() above is synchronous; the pulse (or a short settle when
+	// haptics are off) before the power cut is plenty.
+	shutdown_pulse();
 	struct timespec pre_pmic_wait = {.tv_sec = 0, .tv_nsec = 100000000};
 	nanosleep(&pre_pmic_wait, NULL);
 
@@ -382,6 +404,7 @@ static void run_standard_shutdown(void) {
 	safe_umount("/etc/profile", MNT_FORCE);
 	safe_umount(sdcard_path, MNT_DETACH);
 
+	shutdown_pulse();
 	finalize_poweroff();
 }
 

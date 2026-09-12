@@ -146,6 +146,14 @@
 // modetest -v -s 147@100:1280x720
 #define SCREEN_FPS 62.948
 
+// Rumble motor sysfs. Shared with poweroff_next, which pulses the motor
+// right before the power cut without linking the SDL-backed VIB_ layer.
+#define RUMBLE_PATH "/sys/class/gpio/gpio236/value"
+#define RUMBLE_LEVEL_PATH "/sys/class/motor/level"
+// PWM level (0-0xFFFF) for the shutdown-complete pulse: a clear but short tap.
+#define RUMBLE_SHUTDOWN_LEVEL_PATH RUMBLE_LEVEL_PATH
+#define RUMBLE_SHUTDOWN_LEVEL 0x8000
+
 #define MAX_LIGHTS 4
 
 ///////////////////////////////
