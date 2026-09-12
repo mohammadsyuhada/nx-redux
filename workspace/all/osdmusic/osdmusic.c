@@ -451,17 +451,21 @@ static void sync_music(Widget* w, bool poll_owner) {
 	}
 }
 
+static void draw_balance_row(Widget* w, int y);
+
 static void render_placeholder(Widget* w) {
 	SDL_Surface* f = w->frame;
 	const int title_h = w->title_font ? TTF_FontHeight(w->title_font) : 30;
 	const int hint_h = w->artist_font ? TTF_FontHeight(w->artist_font) : 22;
-	int y = (CANVAS_H - (title_h + 6 + hint_h)) / 2;
+	const int balance_gap = 18, balance_h = 30;
+	int y = (CANVAS_H - (title_h + 6 + hint_h + balance_gap + balance_h)) / 2;
 	SDL_Color white = {255, 255, 255, 255};
 	SDL_Color grey = {170, 170, 170, 255};
 	draw_text_centered(f, w->title_font, "No music playing", CANVAS_W / 2, y, white, CANVAS_W - 48);
 	y += title_h + 6;
 	draw_text_centered(f, w->artist_font, "Press A to open Music Player", CANVAS_W / 2, y,
 					   state.enabled ? accent : grey, CANVAS_W - 48);
+	draw_balance_row(w, y + hint_h + balance_gap + balance_h / 2);
 }
 
 static void draw_balance_row(Widget* w, int y) {
@@ -558,7 +562,7 @@ static void handle_command(Widget* w, const char* cmd) {
 		state.enabled = false;
 	} else if (!state.enabled) {
 		return;
-	} else if (!strcmp(cmd, "down") && music_active()) {
+	} else if (!strcmp(cmd, "down")) {
 		state.row = ROW_BALANCE;
 	} else if (!strcmp(cmd, "up")) {
 		state.row = ROW_TRANSPORT;
