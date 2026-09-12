@@ -141,6 +141,38 @@ typedef struct SettingsV9 {
 } SettingsV9;
 
 typedef struct SettingsV10 {
+	int version;
+	int brightness;
+	int colortemperature;
+	int headphones;
+	int speaker;
+	int mute;
+	int contrast;
+	int saturation;
+	int exposure;
+	int toggled_brightness;
+	int toggled_colortemperature;
+	int toggled_contrast;
+	int toggled_saturation;
+	int toggled_exposure;
+	int toggled_volume;
+	int disable_dpad_on_mute;
+	int emulate_joystick_on_mute;
+	int turbo_a;
+	int turbo_b;
+	int turbo_x;
+	int turbo_y;
+	int turbo_l1;
+	int turbo_l2;
+	int turbo_r1;
+	int turbo_r2;
+	int rumble_off;
+	int rumble_strength;
+	int jack;
+	int audiosink;
+} SettingsV10;
+
+typedef struct SettingsV11 {
 	int version; // future proofing
 	int brightness;
 	int colortemperature;
@@ -175,13 +207,13 @@ typedef struct SettingsV10 {
 	// NOTE: doesn't really need to be persisted but still needs to be shared
 	int jack;
 	int audiosink; // was bluetooth true/false before
-} SettingsV10;
+} SettingsV11;
 
 // When incrementing SETTINGS_VERSION, update the Settings typedef and add
 // backwards compatibility to InitSettings! Keep all/common/msettings_shm.h
 // (the linkless mirror used by osdctl and poweroff_next) in sync too.
-#define SETTINGS_VERSION 10
-typedef SettingsV10 Settings;
+#define SETTINGS_VERSION 11
+typedef SettingsV11 Settings;
 static Settings DefaultSettings = {
 	.version = SETTINGS_VERSION,
 	.brightness = SETTINGS_DEFAULT_BRIGHTNESS,
@@ -365,7 +397,40 @@ void InitSettings(void) {
 					memcpy(settings, &DefaultSettings, shm_size);
 
 					// overwrite with migrated data
-					if (version == 9) {
+					if (version == 10) {
+						printf("Found settings v10.\n");
+						SettingsV10 old;
+						read(fd, &old, sizeof(SettingsV10));
+
+						settings->brightness = old.brightness;
+						settings->colortemperature = old.colortemperature;
+						settings->headphones = old.headphones;
+						settings->speaker = old.speaker;
+						settings->mute = old.mute;
+						settings->contrast = old.contrast;
+						settings->saturation = old.saturation;
+						settings->exposure = old.exposure;
+						settings->toggled_brightness = old.toggled_brightness;
+						settings->toggled_colortemperature = old.toggled_colortemperature;
+						settings->toggled_contrast = old.toggled_contrast;
+						settings->toggled_saturation = old.toggled_saturation;
+						settings->toggled_exposure = old.toggled_exposure;
+						settings->toggled_volume = old.toggled_volume;
+						settings->disable_dpad_on_mute = old.disable_dpad_on_mute;
+						settings->emulate_joystick_on_mute = old.emulate_joystick_on_mute;
+						settings->turbo_a = old.turbo_a;
+						settings->turbo_b = old.turbo_b;
+						settings->turbo_x = old.turbo_x;
+						settings->turbo_y = old.turbo_y;
+						settings->turbo_l1 = old.turbo_l1;
+						settings->turbo_l2 = old.turbo_l2;
+						settings->turbo_r1 = old.turbo_r1;
+						settings->turbo_r2 = old.turbo_r2;
+						settings->rumble_off = old.rumble_off;
+						settings->rumble_strength = old.rumble_strength;
+						settings->jack = old.jack;
+						settings->audiosink = old.audiosink;
+					} else if (version == 9) {
 						printf("Found settings v9.\n");
 						SettingsV9 old;
 						read(fd, &old, sizeof(SettingsV9));
@@ -518,8 +583,7 @@ void InitSettings(void) {
 		settings->mute = 0;
 	}
 
-	// The two slots were previously unused. Zero is the migration marker;
-	// encoded values 1..21 preserve a user-selected software mute (0).
+	// Encoded values 1..21 preserve a user-selected software mute (0).
 	if (settings->game_volume < 1 || settings->game_volume > 21)
 		settings->game_volume = SETTINGS_DEFAULT_SOFTWARE_VOLUME + 1;
 	if (settings->music_volume < 1 || settings->music_volume > 21)

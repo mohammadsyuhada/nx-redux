@@ -17,6 +17,37 @@
 ///////////////////////////////////////
 
 typedef struct SettingsV1 {
+	int version;
+	int brightness;
+	int colortemperature;
+	int headphones;
+	int speaker;
+	int mute;
+	int contrast;
+	int saturation;
+	int exposure;
+	int toggled_brightness;
+	int toggled_colortemperature;
+	int toggled_contrast;
+	int toggled_saturation;
+	int toggled_exposure;
+	int toggled_volume;
+	int turbo_a;
+	int turbo_b;
+	int turbo_x;
+	int turbo_y;
+	int turbo_l1;
+	int turbo_l2;
+	int turbo_r1;
+	int turbo_r2;
+	int rumble_off;
+	int rumble_strength;
+	int jack;
+	int audiosink;
+	int fanSpeed;
+} SettingsV1;
+
+typedef struct SettingsV2 {
 	int version; // future proofing
 	int brightness;
 	int colortemperature;
@@ -48,13 +79,13 @@ typedef struct SettingsV1 {
 	int jack;
 	int audiosink; // was bluetooth true/false before
 	int fanSpeed;  // 0-100, -1 for auto
-} SettingsV1;
+} SettingsV2;
 
 // When incrementing SETTINGS_VERSION, update the Settings typedef and add
 // backwards compatibility to InitSettings!
 // Keep all/common/msettings_shm.h (linkless mirror for osdctl/poweroff_next) in sync.
-#define SETTINGS_VERSION 1
-typedef SettingsV1 Settings;
+#define SETTINGS_VERSION 2
+typedef SettingsV2 Settings;
 static Settings DefaultSettings = {
 	.version = SETTINGS_VERSION,
 	.brightness = SETTINGS_DEFAULT_BRIGHTNESS,
@@ -237,8 +268,38 @@ void InitSettings(void) {
 					memcpy(settings, &DefaultSettings, shm_size);
 
 					// overwrite with migrated data
-					if (version == 42) {
-						// do migration (TODO when needed)
+					if (version == 1) {
+						printf("Found settings v1.\n");
+						SettingsV1 old;
+						read(fd, &old, sizeof(SettingsV1));
+
+						settings->brightness = old.brightness;
+						settings->colortemperature = old.colortemperature;
+						settings->headphones = old.headphones;
+						settings->speaker = old.speaker;
+						settings->mute = old.mute;
+						settings->contrast = old.contrast;
+						settings->saturation = old.saturation;
+						settings->exposure = old.exposure;
+						settings->toggled_brightness = old.toggled_brightness;
+						settings->toggled_colortemperature = old.toggled_colortemperature;
+						settings->toggled_contrast = old.toggled_contrast;
+						settings->toggled_saturation = old.toggled_saturation;
+						settings->toggled_exposure = old.toggled_exposure;
+						settings->toggled_volume = old.toggled_volume;
+						settings->turbo_a = old.turbo_a;
+						settings->turbo_b = old.turbo_b;
+						settings->turbo_x = old.turbo_x;
+						settings->turbo_y = old.turbo_y;
+						settings->turbo_l1 = old.turbo_l1;
+						settings->turbo_l2 = old.turbo_l2;
+						settings->turbo_r1 = old.turbo_r1;
+						settings->turbo_r2 = old.turbo_r2;
+						settings->rumble_off = old.rumble_off;
+						settings->rumble_strength = old.rumble_strength;
+						settings->jack = old.jack;
+						settings->audiosink = old.audiosink;
+						settings->fanSpeed = old.fanSpeed;
 					} else {
 						printf("Found unsupported settings version: %i.\n", version);
 					}

@@ -48,9 +48,9 @@ typedef struct {
 } SettingsShm;
 
 #ifdef HAS_FAN
-#define MSETTINGS_SHM_VERSION 1
+#define MSETTINGS_SHM_VERSION 2
 #else
-#define MSETTINGS_SHM_VERSION 10
+#define MSETTINGS_SHM_VERSION 11
 #endif
 
 #define MSETTINGS_SHM_KEY "/SharedSettings"
