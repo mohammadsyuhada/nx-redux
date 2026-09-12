@@ -226,7 +226,7 @@ int main(int argc, char** argv) {
 	mkdir(recursive_nested, 448);
 	mkdir(empty_folder, 448);
 	check(write_wav(first, 4) == 0 && write_wav(second, 40) == 0 &&
-		  write_wav(recursive_first, 1) == 0 && write_wav(recursive_selected, 1) == 0,
+			  write_wav(recursive_first, 1) == 0 && write_wav(recursive_selected, 1) == 0,
 		  "create fixtures");
 	FILE* playlist_file = fopen(playlist_path, "w");
 	if (playlist_file) {
