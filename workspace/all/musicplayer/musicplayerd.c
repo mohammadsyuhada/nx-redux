@@ -234,11 +234,11 @@ static void fill_snapshot(MusicResponseWire* response) {
 			response->snapshot.capabilities |= MUSIC_CAP_PREVIOUS;
 	}
 	strncpy(response->snapshot.artwork_path, artwork_path, sizeof(response->snapshot.artwork_path) - 1);
-	memcpy(response->snapshot.current_file, snapshot.current_file, sizeof(response->snapshot.current_file));
-	memcpy(response->snapshot.queue_path, queue_path, sizeof(response->snapshot.queue_path));
-	memcpy(response->snapshot.title, snapshot.track_info.title, sizeof(response->snapshot.title));
-	memcpy(response->snapshot.artist, snapshot.track_info.artist, sizeof(response->snapshot.artist));
-	memcpy(response->snapshot.album, snapshot.track_info.album, sizeof(response->snapshot.album));
+	strncpy(response->snapshot.current_file, snapshot.current_file, sizeof(response->snapshot.current_file) - 1);
+	strncpy(response->snapshot.queue_path, queue_path, sizeof(response->snapshot.queue_path) - 1);
+	strncpy(response->snapshot.title, snapshot.track_info.title, sizeof(response->snapshot.title) - 1);
+	strncpy(response->snapshot.artist, snapshot.track_info.artist, sizeof(response->snapshot.artist) - 1);
+	strncpy(response->snapshot.album, snapshot.track_info.album, sizeof(response->snapshot.album) - 1);
 	if (active_source == MUSIC_SOURCE_RADIO) {
 		const RadioMetadata* metadata = Radio_getMetadata();
 		RadioState radio_state = Radio_getState();
