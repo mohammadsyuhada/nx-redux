@@ -556,7 +556,7 @@ static void restore_failed(const char* message) {
 	snprintf(service_error, sizeof(service_error), "%s", message);
 }
 
-static int restore_local(const ResumeState* saved) {
+static int restore_local(const ResumeState* saved, ResumeTransportState transport) {
 	shuffle_history_count = 0;
 	if (saved->type == RESUME_TYPE_FILES) {
 		if (!saved->folder_path[0] || access(saved->folder_path, R_OK) != 0)
@@ -599,10 +599,7 @@ static int restore_local(const ResumeState* saved) {
 	Player_setRepeat(saved->repeat);
 	if (saved->position_ms > 0)
 		Player_seek(saved->position_ms);
-	if (saved->transport == RESUME_TRANSPORT_PLAYING) {
-		if (Player_play() != 0)
-			return MUSIC_STATUS_UNAVAILABLE;
-	} else if (saved->transport == RESUME_TRANSPORT_PAUSED) {
+	if (transport == RESUME_TRANSPORT_PAUSED) {
 		/* Player_pause preserves the loaded decoder and position without
 		 * opening the PCM just to establish paused transport state. */
 		Player_pause();
@@ -614,19 +611,21 @@ static int restore_saved_playback(void) {
 	const ResumeState* saved = Resume_getState();
 	if (!saved)
 		return MUSIC_STATUS_NOT_FOUND;
+	/* A fresh boot never starts playback by itself: a record written while
+	 * playing (including after a crash or power cut) lands paused, position
+	 * kept, so the first sound is one the user asked for. Wake from sleep
+	 * uses enter_sleep/wake_from_sleep, not this path. */
+	const ResumeTransportState transport = saved->transport == RESUME_TRANSPORT_PLAYING
+											   ? RESUME_TRANSPORT_PAUSED
+											   : saved->transport;
 	if (saved->source == RESUME_SOURCE_LOCAL)
-		return restore_local(saved);
+		return restore_local(saved, transport);
 	if (saved->source == RESUME_SOURCE_RADIO) {
 		if (!saved->radio_url[0])
 			return MUSIC_STATUS_NOT_FOUND;
-		radio_paused = saved->transport == RESUME_TRANSPORT_PAUSED;
-		if (saved->transport == RESUME_TRANSPORT_STOPPED || radio_paused) {
-			if (Radio_prepare(saved->radio_url) != 0)
-				return MUSIC_STATUS_NOT_FOUND;
-		} else {
-			if (Radio_play(saved->radio_url) != 0)
-				return MUSIC_STATUS_UNAVAILABLE;
-		}
+		radio_paused = transport == RESUME_TRANSPORT_PAUSED;
+		if (Radio_prepare(saved->radio_url) != 0)
+			return MUSIC_STATUS_NOT_FOUND;
 		active_source = MUSIC_SOURCE_RADIO;
 		return MUSIC_STATUS_OK;
 	}
@@ -634,7 +633,7 @@ static int restore_saved_playback(void) {
 		MusicPodcastLoadRequest request = {0};
 		strncpy(request.feed_url, saved->podcast_feed_url, sizeof(request.feed_url) - 1);
 		strncpy(request.episode_guid, saved->podcast_episode_guid, sizeof(request.episode_guid) - 1);
-		podcast_resume_transport = saved->transport;
+		podcast_resume_transport = transport;
 		int status = load_podcast(&request, false);
 		if (status == MUSIC_STATUS_OK) {
 			shuffle_enabled = saved->shuffle;
