@@ -13,6 +13,12 @@
 #define MUSIC_CLIENT_POLL_INTERVAL_MS 250
 #define MUSIC_CLIENT_RECONNECT_INTERVAL_MS 500
 #define MUSIC_CLIENT_REQUEST_TIMEOUT_MS 100
+/* Commands that make the owner stop one source and open another (decoder
+ * open, catalog reload, queued seek) run synchronously inside the request
+ * and measured ~0.7 s on a Brick; 1 s produced false "Failed to play"
+ * results while playback started anyway. Match musicplayerctl's budget. */
+#define MUSIC_CLIENT_LOAD_TIMEOUT_MS 5000
+#define MUSIC_CLIENT_COMMAND_TIMEOUT_MS 1000
 
 static int client_fd = -1;
 static MusicSnapshotWire current_snapshot;
@@ -218,7 +224,7 @@ int MusicClient_load(const char* path) {
 	if (!path)
 		return MUSIC_STATUS_BAD_REQUEST;
 	strncpy(request_payload.path, path, sizeof(request_payload.path) - 1);
-	return request(MUSIC_CMD_LOAD, &request_payload, sizeof(request_payload), 1000);
+	return request(MUSIC_CMD_LOAD, &request_payload, sizeof(request_payload), MUSIC_CLIENT_LOAD_TIMEOUT_MS);
 }
 
 int MusicClient_loadFolder(const char* path, const char* selected_path) {
@@ -227,7 +233,7 @@ int MusicClient_loadFolder(const char* path, const char* selected_path) {
 		return MUSIC_STATUS_BAD_REQUEST;
 	strncpy(request_payload.path, path, sizeof(request_payload.path) - 1);
 	strncpy(request_payload.selected_path, selected_path, sizeof(request_payload.selected_path) - 1);
-	return request(MUSIC_CMD_LOAD, &request_payload, sizeof(request_payload), 1000);
+	return request(MUSIC_CMD_LOAD, &request_payload, sizeof(request_payload), MUSIC_CLIENT_LOAD_TIMEOUT_MS);
 }
 
 int MusicClient_loadPlaylist(const char* path, int index) {
@@ -236,7 +242,7 @@ int MusicClient_loadPlaylist(const char* path, int index) {
 		return MUSIC_STATUS_BAD_REQUEST;
 	strncpy(request_payload.path, path, sizeof(request_payload.path) - 1);
 	request_payload.index = index;
-	return request(MUSIC_CMD_LOAD_PLAYLIST, &request_payload, sizeof(request_payload), 1000);
+	return request(MUSIC_CMD_LOAD_PLAYLIST, &request_payload, sizeof(request_payload), MUSIC_CLIENT_LOAD_TIMEOUT_MS);
 }
 
 int MusicClient_loadRadio(const char* url) {
@@ -244,7 +250,7 @@ int MusicClient_loadRadio(const char* url) {
 	if (!url)
 		return MUSIC_STATUS_BAD_REQUEST;
 	strncpy(request_payload.url, url, sizeof(request_payload.url) - 1);
-	return request(MUSIC_CMD_RADIO_LOAD, &request_payload, sizeof(request_payload), 1000);
+	return request(MUSIC_CMD_RADIO_LOAD, &request_payload, sizeof(request_payload), MUSIC_CLIENT_LOAD_TIMEOUT_MS);
 }
 
 int MusicClient_loadPodcast(const char* feed_url, const char* episode_guid) {
@@ -253,34 +259,34 @@ int MusicClient_loadPodcast(const char* feed_url, const char* episode_guid) {
 		return MUSIC_STATUS_BAD_REQUEST;
 	strncpy(request_payload.feed_url, feed_url, sizeof(request_payload.feed_url) - 1);
 	strncpy(request_payload.episode_guid, episode_guid, sizeof(request_payload.episode_guid) - 1);
-	return request(MUSIC_CMD_PODCAST_LOAD, &request_payload, sizeof(request_payload), 1000);
+	return request(MUSIC_CMD_PODCAST_LOAD, &request_payload, sizeof(request_payload), MUSIC_CLIENT_LOAD_TIMEOUT_MS);
 }
 
 int MusicClient_select(int index) {
 	MusicIntRequest payload = {.value = index};
-	return request(MUSIC_CMD_SELECT, &payload, sizeof(payload), 1000);
+	return request(MUSIC_CMD_SELECT, &payload, sizeof(payload), MUSIC_CLIENT_LOAD_TIMEOUT_MS);
 }
 int MusicClient_play(void) {
-	return request(MUSIC_CMD_PLAY, NULL, 0, 1000);
+	return request(MUSIC_CMD_PLAY, NULL, 0, MUSIC_CLIENT_COMMAND_TIMEOUT_MS);
 }
 int MusicClient_pause(void) {
-	return request(MUSIC_CMD_PAUSE, NULL, 0, 1000);
+	return request(MUSIC_CMD_PAUSE, NULL, 0, MUSIC_CLIENT_COMMAND_TIMEOUT_MS);
 }
 int MusicClient_stop(void) {
-	return request(MUSIC_CMD_STOP, NULL, 0, 1000);
+	return request(MUSIC_CMD_STOP, NULL, 0, MUSIC_CLIENT_COMMAND_TIMEOUT_MS);
 }
 int MusicClient_toggle(void) {
-	return request(MUSIC_CMD_TOGGLE, NULL, 0, 1000);
+	return request(MUSIC_CMD_TOGGLE, NULL, 0, MUSIC_CLIENT_COMMAND_TIMEOUT_MS);
 }
 int MusicClient_next(void) {
-	return request(MUSIC_CMD_NEXT, NULL, 0, 1000);
+	return request(MUSIC_CMD_NEXT, NULL, 0, MUSIC_CLIENT_LOAD_TIMEOUT_MS);
 }
 int MusicClient_previous(void) {
-	return request(MUSIC_CMD_PREVIOUS, NULL, 0, 1000);
+	return request(MUSIC_CMD_PREVIOUS, NULL, 0, MUSIC_CLIENT_LOAD_TIMEOUT_MS);
 }
 int MusicClient_seek(int position_ms) {
 	MusicIntRequest payload = {.value = position_ms};
-	return request(MUSIC_CMD_SEEK, &payload, sizeof(payload), 1000);
+	return request(MUSIC_CMD_SEEK, &payload, sizeof(payload), MUSIC_CLIENT_COMMAND_TIMEOUT_MS);
 }
 int MusicClient_setPodcastProgress(const char* feed_url, const char* episode_guid, int position_sec) {
 	MusicPodcastProgressRequest payload = {.position_sec = position_sec};
@@ -288,7 +294,7 @@ int MusicClient_setPodcastProgress(const char* feed_url, const char* episode_gui
 		return MUSIC_STATUS_BAD_REQUEST;
 	strncpy(payload.feed_url, feed_url, sizeof(payload.feed_url) - 1);
 	strncpy(payload.episode_guid, episode_guid, sizeof(payload.episode_guid) - 1);
-	return request(MUSIC_CMD_PODCAST_PROGRESS, &payload, sizeof(payload), 1000);
+	return request(MUSIC_CMD_PODCAST_PROGRESS, &payload, sizeof(payload), MUSIC_CLIENT_COMMAND_TIMEOUT_MS);
 }
 int MusicClient_markPodcastPlayed(const char* feed_url, const char* episode_guid, bool played) {
 	MusicPodcastProgressRequest payload = {.position_sec = played ? -1 : 0};
@@ -296,15 +302,15 @@ int MusicClient_markPodcastPlayed(const char* feed_url, const char* episode_guid
 		return MUSIC_STATUS_BAD_REQUEST;
 	strncpy(payload.feed_url, feed_url, sizeof(payload.feed_url) - 1);
 	strncpy(payload.episode_guid, episode_guid, sizeof(payload.episode_guid) - 1);
-	return request(MUSIC_CMD_PODCAST_MARK_PLAYED, &payload, sizeof(payload), 1000);
+	return request(MUSIC_CMD_PODCAST_MARK_PLAYED, &payload, sizeof(payload), MUSIC_CLIENT_COMMAND_TIMEOUT_MS);
 }
 int MusicClient_setSpeed(float speed) {
 	MusicSpeedRequest payload = {.speed = speed};
-	return request(MUSIC_CMD_SET_SPEED, &payload, sizeof(payload), 1000);
+	return request(MUSIC_CMD_SET_SPEED, &payload, sizeof(payload), MUSIC_CLIENT_COMMAND_TIMEOUT_MS);
 }
 int MusicClient_setVolume(int volume) {
 	MusicIntRequest payload = {.value = volume};
-	return request(MUSIC_CMD_SET_VOLUME, &payload, sizeof(payload), 1000);
+	return request(MUSIC_CMD_SET_VOLUME, &payload, sizeof(payload), MUSIC_CLIENT_COMMAND_TIMEOUT_MS);
 }
 int MusicClient_setAudioSettings(int bass_filter_hz, float soft_limiter_threshold,
 								 int rate_mode_follow, int resampler_quality, int buffer_frames) {
@@ -314,16 +320,16 @@ int MusicClient_setAudioSettings(int bass_filter_hz, float soft_limiter_threshol
 		.rate_mode_follow = rate_mode_follow,
 		.resampler_quality = resampler_quality,
 		.buffer_frames = buffer_frames};
-	return request(MUSIC_CMD_AUDIO_SETTINGS, &payload, sizeof(payload), 1000);
+	return request(MUSIC_CMD_AUDIO_SETTINGS, &payload, sizeof(payload), MUSIC_CLIENT_COMMAND_TIMEOUT_MS);
 }
 int MusicClient_setRepeat(bool repeat) {
 	MusicIntRequest payload = {.value = repeat ? 1 : 0};
-	return request(MUSIC_CMD_REPEAT, &payload, sizeof(payload), 1000);
+	return request(MUSIC_CMD_REPEAT, &payload, sizeof(payload), MUSIC_CLIENT_COMMAND_TIMEOUT_MS);
 }
 int MusicClient_setShuffle(bool shuffle) {
 	MusicIntRequest payload = {.value = shuffle ? 1 : 0};
-	return request(MUSIC_CMD_SET_SHUFFLE, &payload, sizeof(payload), 1000);
+	return request(MUSIC_CMD_SET_SHUFFLE, &payload, sizeof(payload), MUSIC_CLIENT_COMMAND_TIMEOUT_MS);
 }
 int MusicClient_shuffle(void) {
-	return request(MUSIC_CMD_SHUFFLE, NULL, 0, 1000);
+	return request(MUSIC_CMD_SHUFFLE, NULL, 0, MUSIC_CLIENT_COMMAND_TIMEOUT_MS);
 }
