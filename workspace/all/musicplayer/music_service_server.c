@@ -141,8 +141,7 @@ void MusicServiceServer_close(void) {
 static void send_response(Client* client, uint16_t command, uint32_t request_id,
 						  MusicResponseWire* response) {
 	MusicFrameHeader header = {
-		.magic = MUSIC_SERVICE_MAGIC, .version = MUSIC_SERVICE_PROTOCOL_VERSION, .command = command,
-		.request_id = request_id, .payload_length = sizeof(*response)};
+		.magic = MUSIC_SERVICE_MAGIC, .version = MUSIC_SERVICE_PROTOCOL_VERSION, .command = command, .request_id = request_id, .payload_length = sizeof(*response)};
 	unsigned char frame[sizeof(header) + sizeof(*response)];
 	memcpy(frame, &header, sizeof(header));
 	memcpy(frame + sizeof(header), response, sizeof(*response));
