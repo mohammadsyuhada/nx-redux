@@ -86,6 +86,7 @@ static void scan_input_devices(void) {
 }
 
 static void do_suspend(void) {
+	(void)system("musicplayerctl.elf sleep >/dev/null 2>&1");
 	// Turn off backlight
 	SetRawBrightness(0);
 
@@ -98,11 +99,13 @@ static void do_suspend(void) {
 	}
 
 	// Restore backlight and volume on wake
+	(void)system("musicplayerctl.elf wake >/dev/null 2>&1");
 	SetBrightness(GetBrightness());
 	SetVolume(GetVolume());
 }
 
 static void do_poweroff(void) {
+	(void)system("musicplayerctl.elf shutdown >/dev/null 2>&1");
 	// Signal the main loop to poweroff
 	FILE* f = fopen("/tmp/poweroff", "w");
 	if (f)

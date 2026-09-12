@@ -38,6 +38,8 @@ typedef struct {
 	int turbo_r2;
 	int rumble_off;		 // OSD motor switch; inverted so old files read as on
 	int rumble_strength; // 0 Normal (default), 1 Light, 2 Strong (vib_levels.h)
+	int game_volume;
+	int music_volume;
 	int jack;
 	int audiosink;
 #ifdef HAS_FAN
@@ -46,9 +48,9 @@ typedef struct {
 } SettingsShm;
 
 #ifdef HAS_FAN
-#define MSETTINGS_SHM_VERSION 1
+#define MSETTINGS_SHM_VERSION 2
 #else
-#define MSETTINGS_SHM_VERSION 10
+#define MSETTINGS_SHM_VERSION 11
 #endif
 
 #define MSETTINGS_SHM_KEY "/SharedSettings"

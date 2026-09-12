@@ -1,7 +1,8 @@
 #include "spectrum.h"
-#include "player.h"
-#include "defines.h"
-#include "api.h"
+#include "music_client.h"
+#include "../common/defines.h"
+#include <SDL2/SDL.h>
+#include "../common/api.h"
 #include "config.h"
 #include "audio/kiss_fftr.h"
 #include <math.h>
@@ -22,8 +23,8 @@ static kiss_fft_scalar fft_input[SPECTRUM_FFT_SIZE];
 static kiss_fft_cpx fft_output[SPECTRUM_FFT_SIZE / 2 + 1];
 static float hann_window[SPECTRUM_FFT_SIZE];
 static float prev_bars[SPECTRUM_BARS];
+static int16_t sample_buffer[MUSIC_VIS_SAMPLE_COUNT];
 static SpectrumData spectrum_data;
-static int16_t sample_buffer[SPECTRUM_FFT_SIZE * 2];
 
 static int bin_ranges[SPECTRUM_BARS + 1];
 static float freq_compensation[SPECTRUM_BARS]; // Per-band gain compensation
@@ -213,7 +214,7 @@ void Spectrum_update(void) {
 	if (!fft_cfg)
 		return;
 
-	if (Player_getState() != PLAYER_STATE_PLAYING) {
+	if (MusicClient_snapshot()->state != MUSIC_STATE_PLAYING) {
 		for (int i = 0; i < SPECTRUM_BARS; i++) {
 			prev_bars[i] *= 0.9f;
 			spectrum_data.bars[i] = prev_bars[i];
@@ -223,11 +224,13 @@ void Spectrum_update(void) {
 		return;
 	}
 
-	int samples = Player_getVisBuffer(sample_buffer, SPECTRUM_FFT_SIZE * 2);
-	// Need a full FFT window of stereo samples (the loop below consumes
-	// SPECTRUM_FFT_SIZE*2). The old `< SPECTRUM_FFT_SIZE` check let a partial
-	// buffer (an audio underrun) feed the top half of the FFT with the previous
-	// frame's stale samples → glitchy bars.
+	int samples = 0;
+	const MusicSnapshotWire* snapshot = MusicClient_snapshot();
+	for (int i = 0; i < MUSIC_VIS_SAMPLE_COUNT; i++)
+		sample_buffer[i] = snapshot->visualization_samples[i];
+	for (int i = 0; i < MUSIC_VIS_SAMPLE_COUNT; i += 2)
+		if (sample_buffer[i] != 0 || sample_buffer[i + 1] != 0)
+			samples = i + 2;
 	if (samples < SPECTRUM_FFT_SIZE * 2) {
 		spectrum_data.valid = false;
 		return;
@@ -236,10 +239,8 @@ void Spectrum_update(void) {
 	for (int i = 0; i < SPECTRUM_FFT_SIZE; i++) {
 		float left = sample_buffer[i * 2];
 		float right = sample_buffer[i * 2 + 1];
-		float mono = (left + right) * 0.5f;
-		fft_input[i] = (mono / 32768.0f) * hann_window[i];
+		fft_input[i] = ((left + right) * 0.5f / 32768.0f) * hann_window[i];
 	}
-
 	kiss_fftr(fft_cfg, fft_input, fft_output);
 
 	for (int i = 0; i < SPECTRUM_BARS; i++) {
@@ -247,43 +248,31 @@ void Spectrum_update(void) {
 		int end_bin = bin_ranges[i + 1];
 		if (end_bin <= start_bin)
 			end_bin = start_bin + 1;
-
 		float sum = 0.0f;
 		int count = 0;
 		for (int j = start_bin; j < end_bin && j < SPECTRUM_FFT_SIZE / 2 + 1; j++) {
 			float re = fft_output[j].r;
 			float im = fft_output[j].i;
-			float mag = sqrtf(re * re + im * im);
-			sum += mag;
+			sum += sqrtf(re * re + im * im);
 			count++;
 		}
-
-		float avg_mag = (count > 0) ? sum / count : 0.0f;
-
-		float db = 20.0f * log10f(avg_mag + 1e-10f);
-		// Apply frequency compensation to boost higher frequencies
-		db += freq_compensation[i];
+		float avg_mag = count > 0 ? sum / count : 0.0f;
+		float db = 20.0f * log10f(avg_mag + 1e-10f) + freq_compensation[i];
 		float normalized = (db - MIN_DB) / (MAX_DB - MIN_DB);
 		if (normalized < 0.0f)
 			normalized = 0.0f;
 		if (normalized > 1.0f)
 			normalized = 1.0f;
-
-		if (normalized > prev_bars[i]) {
+		if (normalized > prev_bars[i])
 			prev_bars[i] = normalized;
-		} else {
+		else
 			prev_bars[i] = prev_bars[i] * SMOOTHING_FACTOR + normalized * (1.0f - SMOOTHING_FACTOR);
-		}
-
 		spectrum_data.bars[i] = prev_bars[i];
-
-		if (prev_bars[i] > spectrum_data.peaks[i]) {
+		if (prev_bars[i] > spectrum_data.peaks[i])
 			spectrum_data.peaks[i] = prev_bars[i];
-		} else {
+		else
 			spectrum_data.peaks[i] *= PEAK_DECAY;
-		}
 	}
-
 	spectrum_data.valid = true;
 }
 
@@ -296,7 +285,7 @@ void Spectrum_setPosition(int x, int y, int w, int h) {
 }
 
 bool Spectrum_needsRefresh(void) {
-	return position_set && spectrum_visible && (Player_getState() == PLAYER_STATE_PLAYING);
+	return position_set && spectrum_visible && (MusicClient_snapshot()->state == MUSIC_STATE_PLAYING);
 }
 
 void Spectrum_cycleNext(void) {

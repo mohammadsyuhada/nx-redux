@@ -74,8 +74,7 @@ static RadioStation default_stations[] = {
 
 // Radio context
 typedef struct {
-	// State - volatile for cross-thread access
-	volatile RadioState state;
+	RadioState state;
 	char error_msg[256];
 
 	// Connection
@@ -165,10 +164,16 @@ typedef struct {
 
 	// Album art is now managed by album_art module
 
-	// Deferred audio configuration (to avoid blocking stream thread)
+	// Deferred audio configuration (the stream thread requests it; Radio_update
+	// performs all Player/SDL operations and acknowledges the actual opened rate)
 	bool pending_sample_rate_change;
 	int pending_sample_rate;
 	bool pending_audio_resume;
+	unsigned int config_generation;
+	unsigned int applied_generation;
+	int applied_sample_rate;
+	pthread_mutex_t control_mutex;
+	pthread_cond_t control_cond;
 
 	// Track if user has custom stations loaded
 	bool has_user_stations;
@@ -183,12 +188,36 @@ typedef struct {
 } RadioContext;
 
 static RadioContext radio = {0};
+static time_t stations_mtime;
+static off_t stations_size;
+static bool stations_file_seen;
 
 // Guards radio.metadata: written by the stream thread, read by the UI
 // thread via Radio_getMetadata()
 static pthread_mutex_t meta_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+static RadioState radio_state_load(void) {
+	return __atomic_load_n(&radio.state, __ATOMIC_ACQUIRE);
+}
+
+static void radio_state_store(RadioState state) {
+	__atomic_store_n(&radio.state, state, __ATOMIC_RELEASE);
+}
+
 // Append device-rate samples to the ring (shared by all decode paths)
+static int radio_ring_count_snapshot(void) {
+	pthread_mutex_lock(&radio.audio_mutex);
+	int count = radio.audio_ring_count;
+	pthread_mutex_unlock(&radio.audio_mutex);
+	return count;
+}
+
+static void radio_start_playing_if_buffered(void) {
+	if (radio_state_load() == RADIO_STATE_BUFFERING &&
+		radio_ring_count_snapshot() > AUDIO_RING_SIZE * 2 / 3)
+		radio_state_store(RADIO_STATE_PLAYING);
+}
+
 static void radio_ring_write(const int16_t* samples, int count) {
 	pthread_mutex_lock(&radio.audio_mutex);
 	for (int s = 0; s < count; s++) {
@@ -219,11 +248,28 @@ static void radio_update_stream_rate(int stream_rate, int channels) {
 
 // First decoded frame: pick a sink-compatible device rate for the stream,
 // open the device there, and set up stream->device resampling
-static void radio_configure_rate(int stream_rate, int channels) {
-	radio.device_rate = AudioMgr_pickRate(stream_rate);
+static bool radio_configure_rate(int stream_rate, int channels) {
+	int requested_rate = AudioMgr_pickRate(stream_rate);
+	pthread_mutex_lock(&radio.control_mutex);
+	unsigned int generation = ++radio.config_generation;
+	radio.pending_sample_rate = requested_rate;
+	radio.pending_sample_rate_change = true;
+	radio.pending_audio_resume = true;
+	radio.applied_sample_rate = 0;
+	pthread_cond_broadcast(&radio.control_cond);
+	while (!radio.should_stop && radio.applied_generation < generation)
+		pthread_cond_wait(&radio.control_cond, &radio.control_mutex);
+	bool applied = !radio.should_stop && radio.applied_generation >= generation && radio.applied_sample_rate > 0;
+	int actual_rate = radio.applied_sample_rate;
+	pthread_mutex_unlock(&radio.control_mutex);
+	if (!applied)
+		return false;
+
+	// The decoder must not create a resampler until the control thread has
+	// opened the device and reported the rate SDL actually obtained.
+	radio.device_rate = actual_rate;
 	radio_update_stream_rate(stream_rate, channels);
-	Player_setSampleRate(radio.device_rate);
-	Player_resumeAudio(); // Resume after reconfiguration
+	return true;
 }
 
 // Convert decoded stream-rate samples to device rate and push to the ring.
@@ -814,7 +860,7 @@ static void* hls_stream_thread_func(void* arg) {
 	uint8_t* aac_buf = radio.hls_aac_buf;
 
 	if (!segment_buf || !aac_buf) {
-		radio.state = RADIO_STATE_ERROR;
+		radio_state_store(RADIO_STATE_ERROR);
 		snprintf(radio.error_msg, sizeof(radio.error_msg), "HLS buffers not allocated");
 		return NULL;
 	}
@@ -822,7 +868,7 @@ static void* hls_stream_thread_func(void* arg) {
 	// Initialize FDK-AAC decoder (TT_MP4_ADTS for ADTS-framed AAC in HLS segments)
 	radio.aac_decoder = aacDecoder_Open(TT_MP4_ADTS, 1);
 	if (!radio.aac_decoder) {
-		radio.state = RADIO_STATE_ERROR;
+		radio_state_store(RADIO_STATE_ERROR);
 		snprintf(radio.error_msg, sizeof(radio.error_msg), "AAC decoder init failed");
 		return NULL;
 	}
@@ -830,7 +876,7 @@ static void* hls_stream_thread_func(void* arg) {
 	radio.aac_inbuf_size = 0;
 	radio.aac_sample_rate = 0; // Will be set on first frame
 
-	radio.state = RADIO_STATE_BUFFERING;
+	radio_state_store(RADIO_STATE_BUFFERING);
 
 	int loop_iteration = 0;
 	while (!radio.should_stop) {
@@ -894,7 +940,7 @@ static void* hls_stream_thread_func(void* arg) {
 
 		// Wait if buffer is nearly full to prevent overflow
 		// Use high threshold (90%) and short wait to minimize network fetch delays
-		while (radio.audio_ring_count > AUDIO_RING_SIZE * 9 / 10 && !radio.should_stop) {
+		while (radio_ring_count_snapshot() > AUDIO_RING_SIZE * 9 / 10 && !radio.should_stop) {
 			usleep(50000); // 50ms - short wait, check frequently
 		}
 		if (radio.should_stop)
@@ -1046,7 +1092,7 @@ static void* hls_stream_thread_func(void* arg) {
 				// leaves ~1s of headroom, then a whole multi-second segment is
 				// decoded at once and the overflow is silently dropped by
 				// radio_ring_write. Pause here until the callback drains the ring.
-				while (radio.audio_ring_count > AUDIO_RING_SIZE * 9 / 10 && !radio.should_stop) {
+				while (radio_ring_count_snapshot() > AUDIO_RING_SIZE * 9 / 10 && !radio.should_stop) {
 					usleep(20000); // 20ms
 				}
 				if (radio.should_stop)
@@ -1075,7 +1121,8 @@ static void* hls_stream_thread_func(void* arg) {
 						radio.aac_sample_rate = info->sampleRate;
 						radio.aac_channels = info->numChannels;
 						// Open device at a sink-compatible rate; resample in-app
-						radio_configure_rate(info->sampleRate, info->numChannels);
+						if (!radio_configure_rate(info->sampleRate, info->numChannels))
+							return NULL;
 					} else if (info && info->sampleRate > 0 && info->sampleRate != radio.aac_sample_rate) {
 						// Station changed rate mid-stream — rebuild resampler only
 						radio.aac_sample_rate = info->sampleRate;
@@ -1106,10 +1153,7 @@ static void* hls_stream_thread_func(void* arg) {
 		// (> AUDIO_RING_SIZE, i.e. the whole 10s ring) was unsatisfiable because
 		// radio_ring_write caps count at AUDIO_RING_SIZE, so HLS streams stayed
 		// in BUFFERING forever and auto screen-off never fired.
-		if (radio.state == RADIO_STATE_BUFFERING &&
-			radio.audio_ring_count > AUDIO_RING_SIZE * 2 / 3) {
-			radio.state = RADIO_STATE_PLAYING;
-		}
+		radio_start_playing_if_buffered();
 
 		// Track the sequence number of the segment we just played (before incrementing)
 		radio.hls.last_played_sequence = radio.hls.media_sequence + radio.hls.current_segment;
@@ -1145,7 +1189,7 @@ static void* stream_thread_func(void* arg) {
 
 		// Verify SSL context is valid before use
 		if (radio.use_ssl && !radio.ssl_initialized) {
-			radio.state = RADIO_STATE_ERROR;
+			radio_state_store(RADIO_STATE_ERROR);
 			snprintf(radio.error_msg, sizeof(radio.error_msg), "SSL context invalid");
 			break;
 		}
@@ -1165,7 +1209,7 @@ static void* stream_thread_func(void* arg) {
 			int ret = select(radio.socket_fd + 1, &read_fds, NULL, NULL, &tv);
 
 			if (ret < 0) {
-				radio.state = RADIO_STATE_ERROR;
+				radio_state_store(RADIO_STATE_ERROR);
 				snprintf(radio.error_msg, sizeof(radio.error_msg), "Select error");
 				break;
 			}
@@ -1186,7 +1230,7 @@ static void* stream_thread_func(void* arg) {
 			}
 			// Transient network errors - could potentially implement reconnection here
 			// For now, set error state and let the user retry
-			radio.state = RADIO_STATE_ERROR;
+			radio_state_store(RADIO_STATE_ERROR);
 			if (bytes_read == 0) {
 				snprintf(radio.error_msg, sizeof(radio.error_msg), "Stream ended - server closed connection");
 			} else {
@@ -1261,7 +1305,7 @@ static void* stream_thread_func(void* arg) {
 					radio.aac_initialized = true;
 					radio.aac_inbuf_size = 0;
 					radio.aac_sample_rate = 0; // Will be set on first frame
-					radio.state = RADIO_STATE_BUFFERING;
+					radio_state_store(RADIO_STATE_BUFFERING);
 				} else {
 					LOG_error("AAC decoder init failed\n");
 				}
@@ -1283,7 +1327,7 @@ static void* stream_thread_func(void* arg) {
 					radio.mp3_initialized = true;
 					radio.mp3_sample_rate = 0; // Will be set on first frame
 					radio.mp3_channels = 0;
-					radio.state = RADIO_STATE_BUFFERING;
+					radio_state_store(RADIO_STATE_BUFFERING);
 				} else {
 					LOG_error("No MP3 sync found in buffer\n");
 				}
@@ -1334,7 +1378,8 @@ static void* stream_thread_func(void* arg) {
 						radio.aac_sample_rate = info->sampleRate;
 						radio.aac_channels = info->numChannels;
 						// Open device at a sink-compatible rate; resample in-app
-						radio_configure_rate(info->sampleRate, info->numChannels);
+						if (!radio_configure_rate(info->sampleRate, info->numChannels))
+							return NULL;
 					} else if (info && info->sampleRate > 0 && info->sampleRate != radio.aac_sample_rate) {
 						// Station changed rate mid-stream — rebuild resampler only
 						radio.aac_sample_rate = info->sampleRate;
@@ -1365,10 +1410,7 @@ static void* stream_thread_func(void* arg) {
 			}
 
 			// Update state based on buffer level
-			if (radio.state == RADIO_STATE_BUFFERING &&
-				radio.audio_ring_count > AUDIO_RING_SIZE * 2 / 3) {
-				radio.state = RADIO_STATE_PLAYING;
-			}
+			radio_start_playing_if_buffered();
 		} else if (radio.audio_format == RADIO_FORMAT_MP3 && radio.mp3_initialized && radio.stream_buffer_pos >= 1024) {
 			// MP3 decoding using low-level frame decoder
 			// DRMP3_MAX_SAMPLES_PER_FRAME = 1152*2 = 2304
@@ -1408,7 +1450,8 @@ static void* stream_thread_func(void* arg) {
 						radio.mp3_sample_rate = frame_info.sample_rate;
 						radio.mp3_channels = frame_info.channels;
 						// Open device at a sink-compatible rate; resample in-app
-						radio_configure_rate(frame_info.sample_rate, frame_info.channels);
+						if (!radio_configure_rate(frame_info.sample_rate, frame_info.channels))
+							return NULL;
 					} else if (frame_info.sample_rate > 0 &&
 							   frame_info.sample_rate != radio.mp3_sample_rate) {
 						// Station changed rate mid-stream — rebuild resampler only
@@ -1436,15 +1479,12 @@ static void* stream_thread_func(void* arg) {
 			}
 
 			// Update state based on buffer level
-			if (radio.state == RADIO_STATE_BUFFERING &&
-				radio.audio_ring_count > AUDIO_RING_SIZE * 2 / 3) {
-				radio.state = RADIO_STATE_PLAYING;
-			}
+			radio_start_playing_if_buffered();
 		}
 
 		// If buffering and have enough data
-		if (radio.state == RADIO_STATE_CONNECTING && radio.stream_buffer_pos > 0) {
-			radio.state = RADIO_STATE_BUFFERING;
+		if (radio_state_load() == RADIO_STATE_CONNECTING && radio.stream_buffer_pos > 0) {
+			radio_state_store(RADIO_STATE_BUFFERING);
 		}
 	}
 
@@ -1460,10 +1500,13 @@ int Radio_init(void) {
 	memset(&radio, 0, sizeof(RadioContext));
 
 	radio.socket_fd = -1;
-	radio.state = RADIO_STATE_STOPPED;
+	radio_state_store(RADIO_STATE_STOPPED);
 
 	pthread_mutex_init(&radio.audio_mutex, NULL);
 	pthread_mutex_init(&radio.hls_mutex, NULL);
+	pthread_mutex_init(&radio.control_mutex, NULL);
+	pthread_cond_init(&radio.control_cond, NULL);
+	radio_initialized = true;
 
 	// Allocate buffers
 	radio.stream_buffer_size = RADIO_BUFFER_SIZE;
@@ -1480,7 +1523,16 @@ int Radio_init(void) {
 	if (!radio.stream_buffer || !radio.audio_ring ||
 		!radio.hls_segment_buf || !radio.hls_aac_buf || !radio.hls_prefetch_buf) {
 		LOG_error("Radio_init: Failed to allocate buffers\n");
-		Radio_quit();
+		free(radio.stream_buffer);
+		free(radio.audio_ring);
+		free(radio.hls_segment_buf);
+		free(radio.hls_aac_buf);
+		free(radio.hls_prefetch_buf);
+		pthread_mutex_destroy(&radio.audio_mutex);
+		pthread_mutex_destroy(&radio.hls_mutex);
+		pthread_mutex_destroy(&radio.control_mutex);
+		pthread_cond_destroy(&radio.control_cond);
+		radio_initialized = false;
 		return -1;
 	}
 
@@ -1497,11 +1549,12 @@ int Radio_init(void) {
 	// Initialize album art module
 	album_art_init();
 
-	radio_initialized = true;
 	return 0;
 }
 
 void Radio_quit(void) {
+	if (!radio_initialized)
+		return;
 	Radio_stop();
 
 	// Cleanup online catalog module
@@ -1512,6 +1565,8 @@ void Radio_quit(void) {
 
 	pthread_mutex_destroy(&radio.audio_mutex);
 	pthread_mutex_destroy(&radio.hls_mutex);
+	pthread_mutex_destroy(&radio.control_mutex);
+	pthread_cond_destroy(&radio.control_cond);
 
 	if (radio.stream_buffer) {
 		free(radio.stream_buffer);
@@ -1537,7 +1592,24 @@ void Radio_quit(void) {
 	radio_initialized = false;
 }
 
+static void note_stations_file(void) {
+	struct stat st;
+	if (stat(RADIO_STATIONS_FILE, &st) == 0) {
+		stations_mtime = st.st_mtime;
+		stations_size = st.st_size;
+		stations_file_seen = true;
+	}
+}
+
+static void reload_stations_if_changed(void) {
+	struct stat st;
+	if (stat(RADIO_STATIONS_FILE, &st) == 0 &&
+		(!stations_file_seen || st.st_mtime != stations_mtime || st.st_size != stations_size))
+		Radio_loadStations();
+}
+
 int Radio_getStations(RadioStation** stations) {
+	reload_stations_if_changed();
 	*stations = radio.stations;
 	return radio.station_count;
 }
@@ -1574,8 +1646,8 @@ void Radio_removeStation(int index) {
 }
 
 void Radio_saveStations(void) {
-	mkdir(SHARED_USERDATA_PATH "/music-player", 0755);
-	mkdir(SHARED_USERDATA_PATH "/music-player/radio", 0755);
+	mkdir(SHARED_USERDATA_PATH "/music-player", 493);
+	mkdir(SHARED_USERDATA_PATH "/music-player/radio", 493);
 	FILE* f = fopen(RADIO_STATIONS_FILE, "w");
 	if (!f)
 		return;
@@ -1589,6 +1661,7 @@ void Radio_saveStations(void) {
 	}
 
 	fclose(f);
+	note_stations_file();
 
 	if (radio.station_count > 0) {
 		radio.has_user_stations = true;
@@ -1621,6 +1694,7 @@ void Radio_loadStations(void) {
 	}
 
 	fclose(f);
+	note_stations_file();
 
 	// Mark that user has custom stations if any were loaded
 	if (radio.station_count > 0) {
@@ -1768,12 +1842,12 @@ static void* radio_stream_thread_func(void* arg) {
 
 	if (radio.stream_type == STREAM_TYPE_HLS) {
 		if (hls_connect() != 0) {
-			radio.state = RADIO_STATE_ERROR;
+			radio_state_store(RADIO_STATE_ERROR);
 			return NULL;
 		}
 	} else {
 		if (direct_connect() != 0) {
-			radio.state = RADIO_STATE_ERROR;
+			radio_state_store(RADIO_STATE_ERROR);
 			return NULL;
 		}
 	}
@@ -1781,13 +1855,37 @@ static void* radio_stream_thread_func(void* arg) {
 	if (radio.should_stop)
 		return NULL;
 
-	// Unpause audio device for radio playback
-	Player_resumeAudio();
+	// The first decoded frame requests device open/resume through Radio_update;
+	// the stream thread never performs Player/SDL operations directly.
 
 	// Tail-call into the streaming loop for the connected stream type
 	if (radio.stream_type == STREAM_TYPE_HLS)
 		return hls_stream_thread_func(NULL);
 	return stream_thread_func(NULL);
+}
+
+int Radio_prepare(const char* url) {
+	if (!url || !url[0] || strlen(url) >= RADIO_MAX_URL)
+		return -1;
+	Radio_stop();
+	strncpy(radio.current_url, url, sizeof(radio.current_url) - 1);
+	radio.current_url[sizeof(radio.current_url) - 1] = '\0';
+	radio.error_msg[0] = '\0';
+	RadioStation* stations = NULL;
+	const char* station_name = NULL;
+	int station_count = Radio_getStations(&stations);
+	for (int i = 0; i < station_count; i++) {
+		if (strcmp(stations[i].url, url) == 0) {
+			station_name = stations[i].name;
+			break;
+		}
+	}
+	pthread_mutex_lock(&meta_mutex);
+	memset(&radio.metadata, 0, sizeof(radio.metadata));
+	if (station_name)
+		strncpy(radio.metadata.station_name, station_name, sizeof(radio.metadata.station_name) - 1);
+	pthread_mutex_unlock(&meta_mutex);
+	return 0;
 }
 
 int Radio_play(const char* url) {
@@ -1798,14 +1896,16 @@ int Radio_play(const char* url) {
 
 	strncpy(radio.current_url, url, RADIO_MAX_URL - 1);
 	radio.current_url[RADIO_MAX_URL - 1] = '\0';
-	radio.state = RADIO_STATE_CONNECTING;
+	radio_state_store(RADIO_STATE_CONNECTING);
 	radio.error_msg[0] = '\0';
 
 	// Reset buffers
 	radio.stream_buffer_pos = 0;
+	pthread_mutex_lock(&radio.audio_mutex);
 	radio.audio_ring_write = 0;
 	radio.audio_ring_read = 0;
 	radio.audio_ring_count = 0;
+	pthread_mutex_unlock(&radio.audio_mutex);
 
 	pthread_mutex_lock(&meta_mutex);
 	memset(&radio.metadata, 0, sizeof(RadioMetadata));
@@ -1822,7 +1922,13 @@ int Radio_play(const char* url) {
 	// (URL resolve, redirects, HLS playlist fetch, TLS handshake). The UI shows
 	// CONNECTING until the thread reaches BUFFERING/PLAYING or ERROR. A large
 	// stack is required — mbedTLS and getaddrinfo use a lot.
+	pthread_mutex_lock(&radio.control_mutex);
 	radio.should_stop = false;
+	radio.pending_sample_rate_change = false;
+	radio.pending_audio_resume = false;
+	radio.applied_sample_rate = 0;
+	radio.applied_generation = radio.config_generation;
+	pthread_mutex_unlock(&radio.control_mutex);
 	radio.thread_running = true;
 	pthread_attr_t attr;
 	pthread_attr_init(&attr);
@@ -1830,7 +1936,7 @@ int Radio_play(const char* url) {
 	if (pthread_create(&radio.stream_thread, &attr, radio_stream_thread_func, NULL) != 0) {
 		pthread_attr_destroy(&attr);
 		radio.thread_running = false;
-		radio.state = RADIO_STATE_ERROR;
+		radio_state_store(RADIO_STATE_ERROR);
 		snprintf(radio.error_msg, sizeof(radio.error_msg), "Thread creation failed");
 		return -1;
 	}
@@ -1840,7 +1946,16 @@ int Radio_play(const char* url) {
 }
 
 void Radio_stop(void) {
+	if (!radio_initialized)
+		return;
+	pthread_mutex_lock(&radio.control_mutex);
 	radio.should_stop = true;
+	radio.pending_sample_rate_change = false;
+	radio.pending_audio_resume = false;
+	radio.config_generation++;
+	radio.applied_generation = radio.config_generation;
+	pthread_cond_broadcast(&radio.control_cond);
+	pthread_mutex_unlock(&radio.control_mutex);
 
 	// Close socket immediately to unblock any pending recv() calls
 	// This makes the thread exit faster instead of waiting for timeout
@@ -1902,14 +2017,14 @@ void Radio_stop(void) {
 	// Clear album art
 	album_art_clear();
 
-	radio.state = RADIO_STATE_STOPPED;
+	radio_state_store(RADIO_STATE_STOPPED);
 
 	// Pause audio device when radio stops
 	Player_pauseAudio();
 }
 
 RadioState Radio_getState(void) {
-	return radio.state;
+	return radio_state_load();
 }
 
 const char* Radio_getCurrentUrl(void) {
@@ -1942,7 +2057,7 @@ const RadioMetadata* Radio_getMetadata(void) {
 }
 
 float Radio_getBufferLevel(void) {
-	return (float)radio.audio_ring_count / AUDIO_RING_SIZE;
+	return (float)radio_ring_count_snapshot() / AUDIO_RING_SIZE;
 }
 
 const char* Radio_getError(void) {
@@ -1950,11 +2065,34 @@ const char* Radio_getError(void) {
 }
 
 void Radio_update(void) {
-	// Check for buffer underrun - transition to buffering when below 2 seconds
-	// This gives time to rebuffer before audio actually runs out
-	if (radio.state == RADIO_STATE_PLAYING && radio.audio_ring_count < SAMPLE_RATE * 2 * 2) {
-		radio.state = RADIO_STATE_BUFFERING;
+	int requested_rate = 0;
+	bool resume_audio = false;
+	unsigned int generation = 0;
+	pthread_mutex_lock(&radio.control_mutex);
+	if (radio.pending_sample_rate_change) {
+		requested_rate = radio.pending_sample_rate;
+		resume_audio = radio.pending_audio_resume;
+		generation = radio.config_generation;
+		radio.pending_sample_rate_change = false;
+		radio.pending_audio_resume = false;
 	}
+	if (requested_rate > 0 && !radio.should_stop && generation == radio.config_generation) {
+		Player_setSampleRate(requested_rate);
+		int actual_rate = Player_getOutputSampleRate();
+		if (resume_audio && actual_rate > 0)
+			Player_resumeAudio();
+		radio.applied_sample_rate = actual_rate;
+		radio.applied_generation = generation;
+		pthread_cond_broadcast(&radio.control_cond);
+	}
+	pthread_mutex_unlock(&radio.control_mutex);
+
+	// Check for buffer underrun while holding the same mutex used by the audio
+	// callback and decoder ring writer.
+	pthread_mutex_lock(&radio.audio_mutex);
+	if (radio_state_load() == RADIO_STATE_PLAYING && radio.audio_ring_count < SAMPLE_RATE * 2 * 2)
+		radio_state_store(RADIO_STATE_BUFFERING);
+	pthread_mutex_unlock(&radio.audio_mutex);
 }
 
 int Radio_getAudioSamples(int16_t* buffer, int max_samples) {
@@ -1963,8 +2101,8 @@ int Radio_getAudioSamples(int16_t* buffer, int max_samples) {
 	// Check for underrun and transition to buffering if needed
 	// This provides faster response than waiting for Radio_update()
 	// But continue to provide remaining audio to avoid abrupt silence
-	if (radio.state == RADIO_STATE_PLAYING && radio.audio_ring_count < SAMPLE_RATE * 2 * 2) {
-		radio.state = RADIO_STATE_BUFFERING;
+	if (radio_state_load() == RADIO_STATE_PLAYING && radio.audio_ring_count < SAMPLE_RATE * 2 * 2) {
+		radio_state_store(RADIO_STATE_BUFFERING);
 		// Don't return early - continue to drain remaining buffer smoothly
 	}
 
@@ -1990,7 +2128,8 @@ int Radio_getAudioSamples(int16_t* buffer, int max_samples) {
 }
 
 bool Radio_isActive(void) {
-	return radio.state != RADIO_STATE_STOPPED && radio.state != RADIO_STATE_ERROR;
+	RadioState state = Radio_getState();
+	return state != RADIO_STATE_STOPPED && state != RADIO_STATE_ERROR;
 }
 
 // Curated stations API - delegates to radio_catalog module
@@ -2039,6 +2178,15 @@ bool Radio_removeStationByUrl(const char* url) {
 
 SDL_Surface* Radio_getAlbumArt(void) {
 	return album_art_get();
+}
+
+SDL_Surface* Radio_getArtwork(const RadioMetadata* metadata, unsigned int* revision) {
+	SDL_Surface* artwork = album_art_get();
+	if (revision)
+		*revision = album_art_revision();
+	if (!metadata || !album_art_matches(metadata->artist, metadata->title))
+		return NULL;
+	return artwork;
 }
 
 bool Radio_hasUserStations(void) {

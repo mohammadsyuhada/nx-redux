@@ -64,9 +64,6 @@ for chmod_dir in "$@"; do
 	if [ -f "$chmod_dir/trimui_osdd" ]; then
 		chmod 755 "$chmod_dir/trimui_osdd"
 	fi
-	if [ -f "$chmod_dir/widgets/app_music/pic2argb" ]; then
-		chmod 755 "$chmod_dir/widgets/app_music/pic2argb"
-	fi
 done
 
 # Fail loudly rather than shipping a silently dead OSD: a botched layer copy

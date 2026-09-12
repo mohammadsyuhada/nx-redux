@@ -187,6 +187,7 @@ cd "$SYSTEM_PATH/bin"
 # audiomon will write .asoundrc when USB/BT devices connect.
 rm -f $USERDATA_PATH/.asoundrc /tmp/nx_audio_sink
 audiomon.elf & # &> $SDCARD_PATH/audiomon.txt &
+musicplayerd.elf </dev/null >> "$LOGS_PATH/music-playerd.txt" 2>&1 &
 
 # BT handling
 # NOTE: On tg5040 (xradio combo chip), running bluetoothd+hciattach degrades
@@ -248,13 +249,16 @@ while [ -f $EXEC_PATH ]; do
 	fi
 
 	if [ -f "/tmp/poweroff" ]; then
+		musicplayerctl.elf shutdown >/dev/null 2>&1 || true
 		poweroff_next
 		exit 0
 	fi
 	if [ -f "/tmp/reboot" ]; then
+		musicplayerctl.elf shutdown >/dev/null 2>&1 || true
 		reboot_next
 		exit 0
 	fi
 done
 
+musicplayerctl.elf shutdown >/dev/null 2>&1 || true
 poweroff_next # just in case

@@ -10,6 +10,7 @@
 #include <pthread.h>
 #include <samplerate.h>
 #include <stdbool.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -203,6 +204,11 @@ static int qualityLevels[] = {
 	4,
 	2,
 	1};
+typedef enum {
+	PWR_SLEEP_FULL,
+	PWR_SLEEP_SCREEN_OFF_MUSIC,
+} PWRSleepMode;
+
 static struct PWR_Context {
 	int initialized;
 
@@ -224,6 +230,8 @@ static struct PWR_Context {
 
 	IndicatorType show_setting;
 } pwr = {0};
+
+static void PWR_sleepMode(PWRSleepMode mode);
 
 static struct SND_Context {
 	int initialized;
@@ -2693,7 +2701,11 @@ void SND_flushALSAConfig(void) {
 }
 
 void SND_resetAudio(double sample_rate, double frame_rate) {
-	PLAT_overrideMute(1);
+	/* PLAT_overrideMute is a global codec mute used only for idle amplifier
+	 * pop protection. Never apply it while the music owner has an open PCM;
+	 * doing so silences the independent gameplay/music mix. */
+	if (!AudioMgr_isMusicAudioOpen())
+		PLAT_overrideMute(1);
 	SND_quit();
 	SND_flushALSAConfig();
 	SND_init(sample_rate, frame_rate);
@@ -3759,16 +3771,18 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 	if (screenOffDelay == 0 || (now - last_input_at >= screenOffDelay && PWR_preventAutosleep()))
 		last_input_at = now;
 
-	if (
-		HAS_SLEEP &&
-		(pwr.requested_sleep ||												 // hardware requested sleep
-		 (screenOffDelay > 0 && now - last_input_at >= screenOffDelay) ||	 // autosleep
-		 (pwr.can_sleep && PAD_justReleased(BTN_SLEEP) && power_pressed_at)) // manual sleep
-	) {
+	const bool autosleep_expired = screenOffDelay > 0 && now - last_input_at >= screenOffDelay;
+	const bool explicit_sleep = pwr.requested_sleep ||
+								(pwr.can_sleep && PAD_justReleased(BTN_SLEEP) && power_pressed_at);
+
+	if (HAS_SLEEP && (explicit_sleep || autosleep_expired)) {
 		pwr.requested_sleep = 0;
 		if (before_sleep)
 			before_sleep();
-		PWR_sleep();
+		PWRSleepMode mode = !explicit_sleep && AudioMgr_isMusicAudioOpen()
+								? PWR_SLEEP_SCREEN_OFF_MUSIC
+								: PWR_SLEEP_FULL;
+		PWR_sleepMode(mode);
 		if (after_sleep)
 			after_sleep();
 		last_input_at = now = SDL_GetTicks();
@@ -3886,6 +3900,9 @@ void PWR_powerOff(int reboot) {
 		GFX_blitMessage(font.large, msg, gfx.screen, &(SDL_Rect){0, 0, gfx.screen->w, gfx.screen->h}); //, NULL);
 		GFX_flip(gfx.screen);
 
+		/* The music owner is independent of the foreground app; only an actual
+		 * poweroff ends it, and a missing/crashed owner is harmless. */
+		system("musicplayerctl.elf shutdown >/dev/null 2>&1");
 		system("killall -TERM keymon.elf");
 		system("killall -TERM audiomon.elf");
 
@@ -3895,19 +3912,9 @@ void PWR_powerOff(int reboot) {
 	}
 }
 
-static void PWR_enterSleep(void) {
-	SND_pauseAudio(true);
-	LEDS_pushProfileOverride(LIGHT_PROFILE_SLEEP);
-	if (GetHDMI()) {
-		PLAT_clearVideo(gfx.screen);
-		PLAT_flip(gfx.screen, 0);
-	} else {
+static void PWR_enterFullSleepServices(void) {
+	if (!GetHDMI())
 		SetRawVolume(MUTE_VOLUME_RAW);
-		if (CFG_getHaptics()) {
-			VIB_singlePulse(VIB_sleepStrength, VIB_sleepDuration_ms);
-		}
-		PLAT_enableBacklight(0);
-	}
 	system("killall -STOP keymon.elf");
 	system("killall -STOP audiomon.elf");
 
@@ -3915,37 +3922,63 @@ static void PWR_enterSleep(void) {
 
 	sync();
 }
-static void PWR_exitSleep(void) {
+
+static void PWR_enterSleep(PWRSleepMode mode) {
+	if (mode == PWR_SLEEP_FULL)
+		system("musicplayerctl.elf sleep >/dev/null 2>&1");
+	SND_pauseAudio(true);
+	LEDS_pushProfileOverride(LIGHT_PROFILE_SLEEP);
+	if (GetHDMI()) {
+		PLAT_clearVideo(gfx.screen);
+		PLAT_flip(gfx.screen, 0);
+	} else {
+		if (mode == PWR_SLEEP_FULL && CFG_getHaptics()) {
+			VIB_singlePulse(VIB_sleepStrength, VIB_sleepDuration_ms);
+		}
+		PLAT_enableBacklight(0);
+	}
+	if (mode == PWR_SLEEP_FULL)
+		PWR_enterFullSleepServices();
+}
+static void PWR_exitSleep(PWRSleepMode mode) {
 	LEDS_popProfileOverride(LIGHT_PROFILE_SLEEP);
 
-	PWR_updateFrequency(-1, true);
+	if (mode == PWR_SLEEP_FULL) {
+		PWR_updateFrequency(-1, true);
 
-	system("killall -CONT keymon.elf");
-	system("killall -CONT audiomon.elf");
+		system("killall -CONT keymon.elf");
+		system("killall -CONT audiomon.elf");
+	}
 
 	if (GetHDMI()) {
 		// buh
 	} else {
-		if (CFG_getHaptics()) {
+		if (mode == PWR_SLEEP_FULL && CFG_getHaptics()) {
 			VIB_singlePulse(VIB_sleepStrength, VIB_sleepDuration_ms);
 		}
 		PLAT_enableBacklight(1);
 	}
-	// reinitialize audio after sleep otherwise it doesnt come back on sometimes
-	LOG_info("Reinitialize audio after sleep\n");
-	SND_resetAudio(snd.sample_rate_in, snd.frame_rate);
+	if (mode == PWR_SLEEP_FULL) {
+		// reinitialize audio after sleep otherwise it doesnt come back on sometimes
+		LOG_info("Reinitialize audio after sleep\n");
+		SND_resetAudio(snd.sample_rate_in, snd.frame_rate);
 
-	// Restore volume (also unmutes speaker amp) AFTER audio device is reinitialized
-	if (!GetHDMI()) {
-		SetVolume(GetVolume());
+		// Restore volume (also unmutes speaker amp) AFTER audio device is reinitialized
+		if (!GetHDMI()) {
+			SetVolume(GetVolume());
+		}
+		/* audiomon is running again and has republished routing before the owner
+		 * is asked to reopen its stream. */
+		system("musicplayerctl.elf wake >/dev/null 2>&1");
+
+		sync();
+	} else {
+		SND_pauseAudio(false);
 	}
-
-	sync();
 }
 
-static void PWR_waitForWake(void) {
+static PWRSleepMode PWR_waitForWake(PWRSleepMode mode) {
 	uint32_t sleep_ticks = SDL_GetTicks();
-	int deep_sleep_attempts = 0;
 	const int sleepDelay = CFG_getSuspendTimeoutSecs() * 1000;
 	while (!PAD_wake()) {
 		if (pwr.requested_wake) {
@@ -3953,45 +3986,55 @@ static void PWR_waitForWake(void) {
 			break;
 		}
 		SDL_Delay(200);
-		if (sleepDelay > 0) {
-			if (SDL_GetTicks() - sleep_ticks >= sleepDelay) { // increased to two minutes
-				if (SDL_AtomicGet(&pwr.is_charging) ||
-					(CFG_getKeepAwakeUSB() && SDL_AtomicGet(&pwr.is_usb_connected))) {
-					sleep_ticks += 60000; // check again in a minute
-					continue;
-				}
-				if (PLAT_supportsDeepSleep()) {
-					int ret = PWR_deepSleep();
-					if (ret == 0) {
-						return;
-					} else {
-						LOG_warn("failed to enter deep sleep - powering off\n");
-					}
-				}
-				if (pwr.can_poweroff) {
-					PWR_powerOff(0);
+		if (mode == PWR_SLEEP_SCREEN_OFF_MUSIC && AudioMgr_isMusicAudioOpen())
+			sleep_ticks = SDL_GetTicks();
+		if (sleepDelay > 0 && SDL_GetTicks() - sleep_ticks >= sleepDelay) {
+			if (mode == PWR_SLEEP_SCREEN_OFF_MUSIC) {
+				/* A short PCM reopen does not expire the idle deadline; only
+				 * a full suspend timeout without an open Music PCM proceeds. */
+				mode = PWR_SLEEP_FULL;
+				system("musicplayerctl.elf sleep >/dev/null 2>&1");
+				PWR_enterFullSleepServices();
+			}
+			if (SDL_AtomicGet(&pwr.is_charging) ||
+				(CFG_getKeepAwakeUSB() && SDL_AtomicGet(&pwr.is_usb_connected))) {
+				sleep_ticks += 60000; // check again in a minute
+				continue;
+			}
+			if (PLAT_supportsDeepSleep()) {
+				int ret = PWR_deepSleep();
+				if (ret == 0) {
+					return PWR_SLEEP_FULL;
+				} else {
+					LOG_warn("failed to enter deep sleep - powering off\n");
 				}
 			}
+			if (pwr.can_poweroff)
+				PWR_powerOff(0);
 		}
 	}
-
-	return;
+	return mode;
 }
-void PWR_sleep(void) {
+
+static void PWR_sleepMode(PWRSleepMode mode) {
 	LOG_info("Entering hybrid sleep\n");
 
 	system("gametimectl.elf stop_all");
 
 	GFX_clear(gfx.screen);
 	PAD_reset();
-	PWR_enterSleep();
-	PWR_waitForWake();
-	PWR_exitSleep();
+	PWR_enterSleep(mode);
+	mode = PWR_waitForWake(mode);
+	PWR_exitSleep(mode);
 	PAD_reset();
 
 	system("gametimectl.elf resume");
 
 	pwr.resume_tick = SDL_GetTicks();
+}
+
+void PWR_sleep(void) {
+	PWR_sleepMode(PWR_SLEEP_FULL);
 }
 
 int PWR_deepSleep(void) {

@@ -9,6 +9,7 @@
 #define SETTINGS_DEFAULT_VOLUME 8
 #define SETTINGS_DEFAULT_HEADPHONE_VOLUME 4
 #define SETTINGS_DEFAULT_FAN_SPEED -2 // Default fan curve
+#define SETTINGS_DEFAULT_SOFTWARE_VOLUME 20
 
 #define SETTINGS_DEFAULT_MUTE_NO_CHANGE -69
 
@@ -22,6 +23,8 @@ int GetContrast(void);
 int GetSaturation(void);
 int GetExposure(void);
 int GetVolume(void);
+int GetGameVolume(void);
+int GetMusicVolume(void);
 int GetFanSpeed(void);
 
 void SetRawBrightness(int value); // 0-255
@@ -38,7 +41,9 @@ void SetContrast(int value);   // -4-5
 void SetSaturation(int value); // -5-5
 void SetExposure(int value);   // -4-5
 void SetVolume(int value);	   // 0-20
-void SetFanSpeed(int value);   // 0-100, -1 for auto
+void SetGameVolume(int value);
+void SetMusicVolume(int value);
+void SetFanSpeed(int value); // 0-100, -1 for auto
 
 int GetJack(void);
 void SetJack(int value); // 0-1

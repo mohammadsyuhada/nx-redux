@@ -46,6 +46,16 @@ bool UI_confirmModalHints(SDL_Surface* screen, const char* title, const char* su
 						  char** hints, const volatile bool* quit_flag, bool clear_layers,
 						  bool reset_pad);
 
+// Full-screen three-choice modal. A returns UI_CHOICE_YES, X returns
+// UI_CHOICE_NO, and B returns UI_CHOICE_CANCEL.
+enum {
+	UI_CHOICE_YES = 1,
+	UI_CHOICE_NO = 0,
+	UI_CHOICE_CANCEL = 2
+};
+int UI_choiceModal(SDL_Surface* screen, const char* title, const char* subtitle,
+				   const volatile bool* quit_flag, bool clear_layers, bool reset_pad);
+
 // Full-screen PIN-entry modal built on UI_modalLoop. Owns PinDialog_init/
 // PinDialog_quit for the call. Returns true and fills pin_out (at least
 // PINDIALOG_PIN_LEN+1 bytes) on confirm, false on cancel/quit_flag/timeout.

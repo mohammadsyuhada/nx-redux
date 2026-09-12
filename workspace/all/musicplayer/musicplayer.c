@@ -5,17 +5,22 @@
 #include <stdbool.h>
 #include <signal.h>
 #include <time.h>
-#include <msettings.h>
+#if defined(PLATFORM_TG5050)
+#include "../../tg5050/platform/platform.h"
+#else
+#include "../../tg5040/platform/platform.h"
+#endif
+#include "../common/api.h"
 
-#include "psa/crypto.h"
-#include "api.h"
-#include "player.h"
+extern int psa_crypto_init(void);
+#include "music_client.h"
+#include "album_art.h"
 
 // UI modules
 #include "ui_icons.h"
 #include "ui_podcast.h"
-#include "ui_splash.h"
-#include "wifi.h"
+#include "../common/ui/ui_splash.h"
+#include "../common/wifi.h"
 
 // Module architecture
 #include "module_common.h"
@@ -28,7 +33,10 @@
 #include "settings.h"
 #include "resume.h"
 #include "background.h"
-#include "display_helper.h"
+#include "../common/display_helper.h"
+
+void InitSettings(void);
+void QuitSettings(void);
 
 // Global quit flag. sig_atomic_t + volatile is the only type a signal handler
 // may portably write and the main loop reliably re-read.
@@ -48,7 +56,6 @@ static void sigHandler(int sig) {
 
 int main(int argc, char* argv[]) {
 	(void)argc;
-	(void)argv;
 
 	bool settings_ready = false;
 
@@ -72,19 +79,13 @@ int main(int argc, char* argv[]) {
 	// Seed random number generator for shuffle
 	srand((unsigned int)time(NULL));
 
-	// Mute hardware before opening audio device to prevent amplifier pop on TG5050
-	SetRawVolume(0);
-
-	// Initialize player core
-	if (Player_init() != 0) {
-		LOG_error("Failed to initialize audio player\n");
+	/* The owner is packaged in the system bin directory, not beside this UI
+	 * pak. Keep startup independent of argv[0] and of the launch cwd. */
+	album_art_init();
+	if (MusicClient_init(SDCARD_PATH "/.system/bin/musicplayerd.elf") != 0) {
+		LOG_error("Failed to connect to music service\n");
 		goto cleanup;
 	}
-
-	Player_setVolume(1.0f);
-
-	// Restore hardware volume after audio device is open and stable
-	SetVolume(GetVolume());
 
 	// Initialize common module (global input handling)
 	ModuleCommon_init();
@@ -112,8 +113,19 @@ int main(int argc, char* argv[]) {
 
 		switch (selection) {
 		case MENU_RESUME: { // Also MENU_NOW_PLAYING (same slot)
-			if (Background_isPlaying()) {
-				// "Now Playing" — route to the active background module
+			/* The daemon owns the decoder. If it already restored a source, attach
+			 * the matching UI without loading, seeking, or changing transport. This
+			 * also covers a stopped local resume, which is not "playing" but still
+			 * has a loaded owner track. */
+			const MusicSnapshotWire* owner = MusicClient_snapshot();
+			if (owner->source == MUSIC_SOURCE_LOCAL && owner->current_file[0])
+				reason = PlayerModule_run(screen);
+			else if (owner->source == MUSIC_SOURCE_RADIO && owner->current_file[0])
+				reason = RadioModule_run(screen);
+			else if (owner->source == MUSIC_SOURCE_PODCAST && owner->current_file[0])
+				reason = PodcastModule_run(screen);
+			else if (Background_isPlaying()) {
+				// "Now Playing" — route to the active background module.
 				switch (Background_getActive()) {
 				case BG_MUSIC:
 					reason = PlayerModule_run(screen);
@@ -128,11 +140,10 @@ int main(int argc, char* argv[]) {
 					break;
 				}
 			} else {
-				// "Resume" — load saved state
+				// "Resume" — load saved local state when no owner is attached.
 				const ResumeState* rs = Resume_getState();
-				if (rs) {
+				if (rs)
 					reason = PlayerModule_runResume(screen, rs);
-				}
 			}
 			break;
 		}
@@ -166,14 +177,14 @@ cleanup:
 	GFX_clear(screen);
 	GFX_flip(screen);
 
-	Background_stopAll();
-	// Only persist settings if Settings_init actually ran — otherwise a failed
-	// Player_init (goto cleanup) would save the all-zero static struct, silently
-	// resetting the user's saved preferences.
+	// Closing the client detaches the UI; the daemon remains the playback owner.
+	// Only persist settings if Settings_init actually ran. A failed service
+	// connection must not save the all-zero settings struct over user state.
 	if (settings_ready)
 		Settings_quit();
 	ModuleCommon_quit();
-	Player_quit();
+	MusicClient_quit();
+	album_art_cleanup();
 	Icons_quit();
 
 	QuitSettings();

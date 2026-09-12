@@ -1,7 +1,4 @@
 #!/bin/sh
-# Mute speaker to suppress pop during SDL audio init
-echo 1 > /sys/class/speaker/mute 2>/dev/null || true
-
 PAK_DIR="$(dirname "$0")"
 PAK_NAME="$(basename "$PAK_DIR")"
 PAK_NAME="${PAK_NAME%.*}"
@@ -56,8 +53,6 @@ export HM_SCRIPTS_DIR="$TEMP_DATA_DIR/ports"
 cleanup() {
     killall sleepmon.elf 2>/dev/null || true
     killall show2.elf 2>/dev/null || true
-    kill $SYNC_PID 2>/dev/null || true
-    echo 0 > /sys/class/speaker/mute 2>/dev/null || true
 
     umount "$TEMP_DATA_DIR/ports" 2>/dev/null || umount -l "$TEMP_DATA_DIR/ports" 2>/dev/null || true
     # Use rmdir (not rm -rf) so a still-mounted bind mount can't delete .ports game data
@@ -140,10 +135,6 @@ main() {
 
     echo "Starting port: $ROM_PATH"
     cd "$ROM_DIR"
-
-    # Unmute speaker after game audio has initialized
-    (sleep 5; echo 0 > /sys/class/speaker/mute 2>/dev/null; syncsettings.elf) &
-    SYNC_PID=$!
 
     bash "$ROM_PATH"
 }

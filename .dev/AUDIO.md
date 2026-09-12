@@ -26,17 +26,25 @@ is what the hardware path actually runs at.
 ## audiomon and rate negotiation
 
 `workspace/all/audiomon` is the routing daemon. It probes each sink at hotplug
-time and publishes `/tmp/nx_audio_sink` (`sink=`/`rates=`/`card=`, written
-atomically via tmp+rename). Consumers:
+time and publishes `/tmp/nx_audio_sink` (`sink=`/`rate=`/`rates=`/`format=`/`card=`, written
+atomically via tmp+rename). `rate=` is the single active mixer rate selected
+from the probed supported list (the speaker is fixed at 48 kHz). Consumers:
 
-- `AudioMgr_pickRate(int desired)` (`common/audio_manager.h`) — exact match
-  wins, else nearest listed rate; fallback is `MIN(desired, 48000)`.
+- `AudioMgr_pickRate(int desired)` (`common/audio_manager.h`) — returns the
+  published active `rate=` regardless of source preference; fallback is 48 kHz.
+  Source-following remains a metadata/preference mode but cannot choose a
+  second hardware rate while streams share the mixer.
 - `nx_pick_audio_rate()` shell helper for script-launched players.
 
 Policy facts:
 
 - ALSA `plug` stays in the chain as a safety net; the goal is that it never
   has to convert.
+- USB routing uses `plug -> nx_usb_dmix -> hw:<card>,0` at the published
+  rate/`S16_LE` format, allowing concurrent streams on a USB DAC.
+- Bluetooth remains `plug -> bluealsa`; BlueALSA v4.1.0 accepts one PCM
+  client, and no kernel snd-aloop/alsaloop workaround is available on the
+  target firmware, so BT concurrent sharing remains an explicit blocker.
 - BT max-rate capping is applied once at audiomon publish time.
 - USB rate lists are published 48000-first. Some USB DACs reject 44.1 kHz
   entirely — probe results are authoritative, don't assume.

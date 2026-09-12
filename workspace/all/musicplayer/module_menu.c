@@ -9,6 +9,7 @@
 #include "ui_main.h"
 #include "resume.h"
 #include "background.h"
+#include "music_client.h"
 
 // Toast message state
 static char menu_toast_message[128] = "";
@@ -25,6 +26,11 @@ static void clear_first_item(int first_item_mode, bool* dirty) {
 		GFX_clearLayers(LAYER_SCROLLTEXT);
 		*dirty = 1;
 	} else if (first_item_mode == MENU_FIRST_RESUME) {
+		if (MusicClient_stop() != MUSIC_STATUS_OK) {
+			MenuModule_setToast("Unable to clear playback history");
+			*dirty = 1;
+			return;
+		}
 		Resume_clear();
 		GFX_clearLayers(LAYER_SCROLLTEXT);
 		*dirty = 1;
@@ -49,9 +55,8 @@ int MenuModule_run(SDL_Surface* screen) {
 
 		// Background playback (track advancement, progress save) is ticked
 		// centrally in ModuleCommon_PWR_update below.
-		if (Background_isPlaying()) {
-			ModuleCommon_setAutosleepDisabled(true);
-		}
+		MusicClient_update();
+		ModuleCommon_setAutosleepDisabled(Background_isPlaying());
 
 		// Determine first item: Now Playing (if BG active) > Resume > none
 		int first_item_mode = MENU_FIRST_NONE;
@@ -110,8 +115,12 @@ int MenuModule_run(SDL_Surface* screen) {
 		}
 		case LISTVIEW_BACK:
 			GFX_clearLayers(LAYER_SCROLLTEXT);
-			// Exit app from main menu
-			return MENU_QUIT;
+			// Exit app from main menu. A cancelled background-playback choice
+			// leaves the menu open and the owner untouched.
+			if (ModuleCommon_confirmAppExit(screen))
+				return MENU_QUIT;
+			dirty = 1;
+			break;
 		default:
 			// Stop/clear moved to the context menu (MENU tap)
 			break;

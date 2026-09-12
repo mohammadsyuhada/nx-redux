@@ -251,14 +251,18 @@ static int ffplay_exec(FfplayConfig* config, int use_subs) {
 	argv[argc] = NULL;
 
 
-	// Mute speaker amp before ffplay opens audio device to prevent pop
-	PLAT_overrideMute(1);
+	// Pop protection is only valid while the shared output is idle. The
+	// platform mute is global and must not silence the music owner.
+	bool muted_for_pop = !AudioMgr_isMusicAudioOpen();
+	if (muted_for_pop)
+		PLAT_overrideMute(1);
 
 	// Fork and exec ffplay
 	pid_t child = fork();
 	if (child < 0) {
 		LOG_error("fork() failed: %s\n", strerror(errno));
-		SetVolume(GetVolume());
+		if (muted_for_pop)
+			SetVolume(GetVolume());
 		return -1;
 	}
 
@@ -305,7 +309,8 @@ static int ffplay_exec(FfplayConfig* config, int use_subs) {
 	// Parent process: restore volume after ffplay opens audio device
 	// ffplay needs time to probe media, open codecs, and open ALSA device
 	usleep(2000000); // 2s for ffplay to fully initialize audio
-	SetVolume(GetVolume());
+	if (muted_for_pop)
+		SetVolume(GetVolume());
 
 	// Start monitoring for audio device changes (BT connect/disconnect, USB DAC)
 	audio_device_changed = false;

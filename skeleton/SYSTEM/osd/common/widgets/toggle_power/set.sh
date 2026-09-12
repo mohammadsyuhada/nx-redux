@@ -11,6 +11,8 @@ echo 0 > $STATUS_DIR/status
 # no-arg call = status query only
 [ $# -eq 0 ] && exit 0
 
+musicplayerctl.elf shutdown >/dev/null 2>&1 || true
+
 # close the OSD for a clean shutdown screen
 touch /tmp/hide_osdd
 sync

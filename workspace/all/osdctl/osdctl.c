@@ -8,16 +8,6 @@
 #include "msettings.h"
 #include "msettings_shm.h"
 
-// Mirror of the active libmsettings Settings struct for direct shm access.
-// The layout differs per platform (see tg5040/tg5050 libmsettings/msettings.c),
-// so this MUST be kept in sync with them:
-//   - tg5040 family (SettingsV10): disable_dpad_on_mute + emulate_joystick_on_mute
-//     follow toggled_volume, and there is no fanSpeed field.
-//   - tg5050 (SettingsV1): no dpad/joystick fields, but a trailing fanSpeed.
-// HAS_FAN is defined by the Makefile for tg5050 only. Getting this wrong shifts
-// every field past toggled_volume, corrupting jack/audiosink reads and the
-// msettings.bin write.
-
 #define SHM_KEY MSETTINGS_SHM_KEY
 
 static SettingsShm* shm_open_rw(void) {
@@ -45,7 +35,7 @@ static void save_settings(SettingsShm* s) {
 		userdata = "/mnt/SDCARD/.userdata/" PLATFORM; // was hardcoded tg5050
 	char path[256];
 	snprintf(path, sizeof(path), "%s/msettings.bin", userdata);
-	int fd = open(path, O_CREAT | O_WRONLY, 0644);
+	int fd = open(path, O_CREAT | O_WRONLY, 420);
 	if (fd >= 0) {
 		write(fd, s, sizeof(SettingsShm));
 		close(fd);
@@ -58,6 +48,8 @@ static void usage(void) {
 					"\n"
 					"Properties:\n"
 					"  volume      (0-20)\n"
+					"  gamevolume  (0-20)\n"
+					"  musicvolume (0-20)\n"
 					"  brightness  (0-10)\n"
 					"  fanspeed    (-3 to 100)\n"
 					"  mute        (0-1)\n"
@@ -79,12 +71,6 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
-	// The SetRaw* setters below dereference libmsettings' own `settings`
-	// pointer, which is only set up by InitSettings(). Without it every
-	// `set` used to update the shm mirror and then segfault before touching
-	// the hardware (volume changed on screen, sound unchanged; mute widget
-	// never muted). Gets stay on the bare mirror: they run from update
-	// scripts every few seconds and must stay cheap.
 	int settings_initialized = 0;
 	if (strcmp(cmd, "set") == 0) {
 		if (!getenv("USERDATA_PATH"))
@@ -96,7 +82,21 @@ int main(int argc, char* argv[]) {
 	if (strcmp(cmd, "get") == 0) {
 		if (strcmp(prop, "volume") == 0)
 			printf("%d\n", get_volume(s));
-		else if (strcmp(prop, "brightness") == 0)
+		else if (strcmp(prop, "gamevolume") == 0) {
+			int value = s->game_volume > 0 ? s->game_volume - 1 : 20;
+			if (value < 0)
+				value = 0;
+			if (value > 20)
+				value = 20;
+			printf("%d\n", value);
+		} else if (strcmp(prop, "musicvolume") == 0) {
+			int value = s->music_volume > 0 ? s->music_volume - 1 : 20;
+			if (value < 0)
+				value = 0;
+			if (value > 20)
+				value = 20;
+			printf("%d\n", value);
+		} else if (strcmp(prop, "brightness") == 0)
 			printf("%d\n", s->brightness);
 #ifdef HAS_FAN
 		else if (strcmp(prop, "fanspeed") == 0)
@@ -114,7 +114,6 @@ int main(int argc, char* argv[]) {
 		if (argc < 4)
 			usage();
 		int value = atoi(argv[3]);
-
 		if (strcmp(prop, "volume") == 0) {
 			// Update shm
 			if (s->mute)
@@ -126,6 +125,21 @@ int main(int argc, char* argv[]) {
 			// Apply to hardware
 			SetRawVolume(value * 5); // scaleVolume: 0-20 → 0-100
 			save_settings(s);
+		} else if (strcmp(prop, "gamevolume") == 0 || strcmp(prop, "musicvolume") == 0) {
+			if (value < 0)
+				value = 0;
+			if (value > 20)
+				value = 20;
+			if (strcmp(prop, "gamevolume") == 0) {
+				s->game_volume = value + 1;
+				save_settings(s);
+				// audiomon owns the route and applies the softvol control. The
+				// signal wakes its bounded settings poll immediately.
+				system("killall -USR1 audiomon.elf 2>/dev/null");
+			} else {
+				s->music_volume = value + 1;
+				save_settings(s);
+			}
 		} else if (strcmp(prop, "brightness") == 0) {
 			s->brightness = value;
 			int raw = (value <= 0) ? 10 : (value >= 10) ? 220

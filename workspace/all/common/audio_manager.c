@@ -1,22 +1,35 @@
 #include "audio_manager.h"
-#include "api.h"
 #include <msettings.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <SDL2/SDL.h>
 
+void PLAT_audioDeviceWatchRegister(void (*cb)(int, int));
+void PLAT_audioDeviceWatchUnregister(void);
+int GetAudioSink(void);
+extern uint32_t SDL_GetTicks(void);
+#ifndef AUDIO_SINK_DEFAULT
+#define AUDIO_SINK_DEFAULT 0
+#define AUDIO_SINK_BLUETOOTH 1
+#define AUDIO_SINK_USBDAC 2
+#endif
+
 #define SINK_STATE_FILE "/tmp/nx_audio_sink"
+#define MUSIC_AUDIO_OWNER_FILE "/tmp/trimui_music/audio-open"
 #define SINK_MAX_RATES 8
 
 typedef struct {
 	char sink[16];
 	int rates[SINK_MAX_RATES];
 	int rate_count;
+	int active_rate;
 } SinkState;
 
 // Parse audiomon's published sink state. Returns false when absent/empty.
@@ -28,6 +41,8 @@ static bool read_sink_state(SinkState* out) {
 	char line[256];
 	while (fgets(line, sizeof(line), f)) {
 		if (sscanf(line, "sink=%15s", out->sink) == 1)
+			continue;
+		if (sscanf(line, "rate=%d", &out->active_rate) == 1)
 			continue;
 		if (strncmp(line, "rates=", 6) == 0) {
 			char* p = line + 6;
@@ -264,25 +279,60 @@ bool AudioMgr_isUSBDACActive(void) {
 	return current_sink == AUDIO_SINK_USBDAC;
 }
 
+static bool read_process_start_time(pid_t pid, unsigned long long* start_time) {
+	char path[64];
+	snprintf(path, sizeof(path), "/proc/%ld/stat", (long)pid);
+	FILE* stat_file = fopen(path, "r");
+	if (!stat_file)
+		return false;
+	char line[512];
+	bool found = false;
+	if (fgets(line, sizeof(line), stat_file)) {
+		char* fields = strrchr(line, ')');
+		if (fields) {
+			char* save = NULL;
+			char* field = strtok_r(fields + 1, " ", &save);
+			for (int number = 3; field && number <= 22; number++) {
+				if (number == 22) {
+					char* end = NULL;
+					unsigned long long value = strtoull(field, &end, 10);
+					if (end != field && *end == '\0') {
+						*start_time = value;
+						found = true;
+					}
+					break;
+				}
+				field = strtok_r(NULL, " ", &save);
+			}
+		}
+	}
+	fclose(stat_file);
+	return found;
+}
+
+bool AudioMgr_isMusicAudioOpen(void) {
+	FILE* f = fopen(MUSIC_AUDIO_OWNER_FILE, "r");
+	if (!f)
+		return false;
+	long pid = 0;
+	unsigned long long expected_start_time = 0;
+	int ok = fscanf(f, "%ld %llu", &pid, &expected_start_time) == 2;
+	fclose(f);
+	if (!ok || pid <= 0 || (kill((pid_t)pid, 0) != 0 && errno != EPERM))
+		return false;
+	unsigned long long actual_start_time = 0;
+	return read_process_start_time((pid_t)pid, &actual_start_time) &&
+		   actual_start_time == expected_start_time;
+}
 
 int AudioMgr_pickRate(int desired) {
-	if (desired <= 0)
-		desired = 48000;
-
+	(void)desired;
 	SinkState st;
 	if (!read_sink_state(&st))
-		return desired < 48000 ? desired : 48000; // pre-negotiation behavior
-
-	for (int i = 0; i < st.rate_count; i++) {
-		if (st.rates[i] == desired)
-			return desired;
-	}
-	int best = st.rates[0];
-	for (int i = 1; i < st.rate_count; i++) {
-		if (abs(st.rates[i] - desired) < abs(best - desired))
-			best = st.rates[i];
-	}
-	return best;
+		return 48000;
+	if (st.active_rate > 0)
+		return st.active_rate;
+	return st.rate_count > 0 ? st.rates[0] : 48000;
 }
 
 const char* AudioMgr_getSinkDescription(void) {
@@ -297,7 +347,8 @@ const char* AudioMgr_getSinkDescription(void) {
 		name = "Bluetooth";
 	else if (strcmp(st.sink, "usb") == 0)
 		name = "USB DAC";
-	snprintf(buf, sizeof(buf), "%s - %d Hz", name, st.rates[0]);
+	snprintf(buf, sizeof(buf), "%s - %d Hz", name,
+			 st.active_rate > 0 ? st.active_rate : st.rates[0]);
 	return buf;
 }
 

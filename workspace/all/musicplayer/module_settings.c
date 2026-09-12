@@ -3,11 +3,14 @@
 #include "module_common.h"
 #include "module_settings.h"
 #include "settings.h"
+#include "music_client.h"
+#include "music_balance.h"
 #include "ui_confirmdialog.h"
 #include "ui_settings.h"
 #include "album_art.h"
 #include "lyrics.h"
 #include <stdbool.h>
+#include <stdio.h>
 
 // Internal states
 typedef enum {
@@ -18,14 +21,15 @@ typedef enum {
 
 // Settings menu items
 #define SETTINGS_ITEM_SCREEN_OFF 0
-#define SETTINGS_ITEM_BASS_FILTER 1
-#define SETTINGS_ITEM_SOFT_LIMITER 2
-#define SETTINGS_ITEM_SAMPLE_RATE 3
-#define SETTINGS_ITEM_RESAMPLER 4
-#define SETTINGS_ITEM_BUFFER 5
-#define SETTINGS_ITEM_CLEAR_CACHE 6
-#define SETTINGS_ITEM_CLEAR_LYRICS 7
-#define SETTINGS_ITEM_COUNT 8
+#define SETTINGS_ITEM_BALANCE 1
+#define SETTINGS_ITEM_BASS_FILTER 2
+#define SETTINGS_ITEM_SOFT_LIMITER 3
+#define SETTINGS_ITEM_SAMPLE_RATE 4
+#define SETTINGS_ITEM_RESAMPLER 5
+#define SETTINGS_ITEM_BUFFER 6
+#define SETTINGS_ITEM_CLEAR_CACHE 7
+#define SETTINGS_ITEM_CLEAR_LYRICS 8
+#define SETTINGS_ITEM_COUNT 9
 
 // Internal app state constants for controls help
 // These match the pattern used in ui_main.c
@@ -36,8 +40,15 @@ ModuleExitReason SettingsModule_run(SDL_Surface* screen) {
 	int menu_selected = 0;
 	bool dirty = true;
 	IndicatorType show_setting = INDICATOR_NONE;
+	char balance_error[128] = {0};
+	int last_balance = MusicBalance_getValue();
 
 	while (1) {
+		int old_bass = Settings_getBassFilterHz();
+		float old_limiter = Settings_getSoftLimiterThreshold();
+		int old_rate_mode = Settings_getRateModeFollowSource();
+		int old_quality = Settings_getResamplerQuality();
+		int old_buffer = Settings_getBufferFrames();
 		GFX_startFrame();
 		PAD_poll();
 
@@ -70,6 +81,18 @@ ModuleExitReason SettingsModule_run(SDL_Surface* screen) {
 				if (menu_selected == SETTINGS_ITEM_SCREEN_OFF) {
 					Settings_cycleScreenOffPrev();
 					dirty = 1;
+				} else if (menu_selected == SETTINGS_ITEM_BALANCE) {
+					int value = MusicBalance_getValue();
+					if (value > 0) {
+						int status = MusicBalance_setValue(value - 1);
+						if (status == MUSIC_STATUS_OK) {
+							balance_error[0] = '\0';
+							dirty = 1;
+						} else {
+							snprintf(balance_error, sizeof(balance_error), "Balance update failed%s%s", MusicClient_error()[0] ? ": " : "", MusicClient_error());
+							dirty = 1;
+						}
+					}
 				} else if (menu_selected == SETTINGS_ITEM_BASS_FILTER) {
 					Settings_cycleBassFilterPrev();
 					dirty = 1;
@@ -90,6 +113,18 @@ ModuleExitReason SettingsModule_run(SDL_Surface* screen) {
 				if (menu_selected == SETTINGS_ITEM_SCREEN_OFF) {
 					Settings_cycleScreenOffNext();
 					dirty = 1;
+				} else if (menu_selected == SETTINGS_ITEM_BALANCE) {
+					int value = MusicBalance_getValue();
+					if (value < 10) {
+						int status = MusicBalance_setValue(value + 1);
+						if (status == MUSIC_STATUS_OK) {
+							balance_error[0] = '\0';
+							dirty = 1;
+						} else {
+							snprintf(balance_error, sizeof(balance_error), "Balance update failed%s%s", MusicClient_error()[0] ? ": " : "", MusicClient_error());
+							dirty = 1;
+						}
+					}
 				} else if (menu_selected == SETTINGS_ITEM_BASS_FILTER) {
 					Settings_cycleBassFilterNext();
 					dirty = 1;
@@ -174,6 +209,21 @@ ModuleExitReason SettingsModule_run(SDL_Surface* screen) {
 			break;
 		}
 
+		int balance = MusicBalance_getValue();
+		if (last_balance != balance) {
+			last_balance = balance;
+			dirty = 1;
+		}
+		if (old_bass != Settings_getBassFilterHz() ||
+			old_limiter != Settings_getSoftLimiterThreshold() ||
+			old_rate_mode != Settings_getRateModeFollowSource() ||
+			old_quality != Settings_getResamplerQuality() ||
+			old_buffer != Settings_getBufferFrames()) {
+			(void)MusicClient_setAudioSettings(Settings_getBassFilterHz(),
+											   Settings_getSoftLimiterThreshold(), Settings_getRateModeFollowSource(),
+											   Settings_getResamplerQuality(), Settings_getBufferFrames());
+		}
+
 		// Handle power management
 		ModuleCommon_PWR_update(&dirty, &show_setting);
 
@@ -181,14 +231,14 @@ ModuleExitReason SettingsModule_run(SDL_Surface* screen) {
 		if (dirty) {
 			switch (state) {
 			case SETTINGS_STATE_MENU:
-				render_settings_menu(screen, show_setting, menu_selected);
+				render_settings_menu(screen, show_setting, menu_selected, balance_error);
 				break;
 			case SETTINGS_STATE_CLEAR_CACHE_CONFIRM:
-				render_settings_menu(screen, show_setting, menu_selected);
+				render_settings_menu(screen, show_setting, menu_selected, balance_error);
 				UI_renderConfirmDialog(screen, "Clear album art cache?", NULL);
 				break;
 			case SETTINGS_STATE_CLEAR_LYRICS_CONFIRM:
-				render_settings_menu(screen, show_setting, menu_selected);
+				render_settings_menu(screen, show_setting, menu_selected, balance_error);
 				UI_renderConfirmDialog(screen, "Clear lyrics cache?", NULL);
 				break;
 			}

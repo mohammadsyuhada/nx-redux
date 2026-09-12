@@ -4,9 +4,9 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <sys/stat.h>
-#include "defines.h"
+#include "../common/defines.h"
 #include "playlist_m3u.h"
-#include "player.h"
+#include "music_format.h"
 
 void M3U_init(void) {
 	mkdir(SHARED_USERDATA_PATH "/music-player", 0755);
@@ -341,7 +341,7 @@ int M3U_loadTracks(const char* m3u_path, PlaylistTrack* tracks, int max, int* co
 			snprintf(track->name, sizeof(track->name), "%s", fname);
 		}
 
-		track->format = Player_detectFormat(line);
+		track->format = MusicFormat_detect(line);
 		last_extinf_name[0] = '\0';
 		(*count)++;
 	}

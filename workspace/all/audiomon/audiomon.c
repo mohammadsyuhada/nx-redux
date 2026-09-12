@@ -40,6 +40,10 @@ static char current_usb_card[16] = "";
 // Track current BT device for sink-state publishing
 static char current_bt_mac[18] = "";
 static volatile sig_atomic_t republish_requested = 0;
+static volatile sig_atomic_t game_volume_requested = 0;
+static int active_rate = 48000;
+static int applied_game_volume = -1;
+static int logged_game_volume_error = -1;
 
 // Mirrors what write_audio_file()/clear_audio_file() last routed —
 // publish must reflect actual routing, which is last-event-wins.
@@ -137,23 +141,28 @@ static void publish_sink_state(void) {
 		int cap = read_cfg_int("btMaxRate", 48000);
 		if (rate > cap)
 			rate = cap;
-		fprintf(f, "sink=bluetooth\nrates=%d\n", rate);
+		active_rate = rate;
+		fprintf(f, "sink=bluetooth\nrate=%d\nrates=%d\nformat=S16_LE\n", rate, rate);
 	} break;
 	case ROUTED_USB: {
 		int rates[8];
-		int n = negotiate ? probe_usb_rates(current_usb_card, rates, 8) : 0;
+		/* dmix's slave must use an actually supported USB hardware rate;
+		 * negotiation preference cannot turn this probe off. */
+		int n = probe_usb_rates(current_usb_card, rates, 8);
 		if (n == 0) {
 			rates[0] = 48000;
 			n = 1;
 		}
-		fprintf(f, "sink=usb\nrates=");
+		active_rate = rates[0];
+		fprintf(f, "sink=usb\nrate=%d\nrates=", active_rate);
 		for (int i = 0; i < n; i++)
 			fprintf(f, "%s%d", i ? " " : "", rates[i]);
-		fprintf(f, "\ncard=%s\n", current_usb_card);
+		fprintf(f, "\nformat=S16_LE\ncard=%s\n", current_usb_card);
 	} break;
 	case ROUTED_DEFAULT:
 	default:
-		fprintf(f, "sink=default\nrates=48000\n"); // dmix is fixed at 48 kHz
+		active_rate = 48000;
+		fprintf(f, "sink=default\nrate=48000\nrates=48000\nformat=S16_LE\n"); // dmix is fixed at 48 kHz
 		break;
 	}
 
@@ -169,6 +178,80 @@ static void audiomon_log(const char* msg) {
 		printf("%s\n", msg);
 }
 
+static int clamp_game_volume(int value) {
+	if (value < 0)
+		return 0;
+	if (value > 20)
+		return 20;
+	return value;
+}
+
+// Softvol controls are created lazily by ALSA. Prime only when a route is
+// (re)configured; ordinary volume changes only update the existing control.
+static bool apply_game_volume(const char* card, bool prime) {
+	int volume = clamp_game_volume(GetGameVolume());
+	if (prime) {
+		applied_game_volume = -1;
+		logged_game_volume_error = -1;
+		char prime_command[256];
+		snprintf(prime_command, sizeof(prime_command),
+				 "dd if=/dev/zero bs=4096 count=1 2>/dev/null | aplay -q -D nx_game -f S16_LE -r %d -c 2 2>/dev/null",
+				 active_rate);
+		if (system(prime_command) != 0) {
+			if (logged_game_volume_error != volume) {
+				audiomon_log("Failed to prime Game Volume control");
+				logged_game_volume_error = volume;
+			}
+			return false;
+		}
+	}
+
+	char command[256];
+	if (card && card[0])
+		snprintf(command, sizeof(command), "amixer -c %s cset name='Game Volume' %d%% 2>/dev/null", card,
+				 volume * 5);
+	else
+		snprintf(command, sizeof(command), "amixer cset name='Game Volume' %d%% 2>/dev/null", volume * 5);
+	if (system(command) != 0) {
+		if (logged_game_volume_error != volume) {
+			audiomon_log("Failed to apply Game Volume control");
+			logged_game_volume_error = volume;
+		}
+		return false;
+	}
+	logged_game_volume_error = -1;
+	applied_game_volume = volume;
+	return true;
+}
+
+static void apply_game_volume_if_changed(void) {
+	int volume = clamp_game_volume(GetGameVolume());
+	if (volume == applied_game_volume || current_route == ROUTED_BLUETOOTH)
+		return;
+	const char* card = current_route == ROUTED_USB ? current_usb_card : "audiocodec";
+	(void)apply_game_volume(card, false);
+}
+
+static void write_default_audio_file(void) {
+	mkdir(USERDATA_PATH, 0755);
+	FILE* f = fopen(AUDIO_FILE, "w");
+	if (!f) {
+		audiomon_log("Failed to write audio config file");
+		return;
+	}
+	// PlaybackDmix is the stock speaker dmix (ipc_key 1111, hw:audiocodec,0,
+	// 48 kHz, period 2048, buffer 8192). Reuse it so OSD and NX clients share
+	// the existing owner instead of creating a second hardware mixer.
+	fprintf(f,
+			"pcm.nx_game { type softvol; slave.pcm \"PlaybackDmix\"; control { name \"Game Volume\"; card audiocodec; } }\n"
+			"pcm.nx_music { type plug; slave.pcm \"PlaybackDmix\"; }\n"
+			"pcm.!default { type asym; playback.pcm \"nx_game\"; capture.pcm \"Capture\"; }\n"
+			"ctl.!default { type hw; card audiocodec; }\n");
+	fclose(f);
+	active_rate = 48000;
+	(void)apply_game_volume("audiocodec", true);
+}
+
 static void write_audio_file(const char* device_identifier, enum DeviceType type) {
 	mkdir(USERDATA_PATH, 0755);
 
@@ -181,41 +264,42 @@ static void write_audio_file(const char* device_identifier, enum DeviceType type
 	if (type == DEVICE_BLUETOOTH) {
 		fprintf(f,
 				"defaults.bluealsa.device \"%s\"\n\n"
-				"pcm.!default {\n"
-				"    type plug\n"
-				"    slave.pcm {\n"
-				"        type bluealsa\n"
-				"        device \"%s\"\n"
-				"        profile \"a2dp\"\n"
-				"        delay 0\n"
-				"    }\n"
-				"}\n"
-				"ctl.!default {\n"
-				"    type bluealsa\n"
-				"}\n",
+				"pcm.nx_bt_base { type plug; slave.pcm { type bluealsa; device \"%s\"; profile \"a2dp\"; delay 0; } }\n"
+				"pcm.nx_music { type plug; slave.pcm \"nx_bt_base\"; }\n"
+				"pcm.!default { type plug; slave.pcm \"nx_bt_base\"; }\n"
+				"ctl.!default { type bluealsa; }\n",
 				device_identifier, device_identifier);
-
+		fflush(f);
 		char log_buf[256];
 		snprintf(log_buf, sizeof(log_buf), "Updated .asoundrc with Bluetooth device: %s", device_identifier);
 		audiomon_log(log_buf);
 	} else if (type == DEVICE_USB_AUDIO) {
+		/* USB hardware is exclusive. Keep the plug safety net outside an ALSA
+		 * dmix slave so concurrent music/gameplay streams share one negotiated
+		 * hardware rate instead of racing direct hw opens. BlueALSA is left
+		 * untouched: its one-client limitation cannot be solved with dmix. */
 		fprintf(f,
-				"pcm.!default {\n"
-				"    type plug\n"
-				"    slave.pcm \"hw:%s,0\"\n"
+				"pcm.nx_usb_dmix {\n"
+				"    type dmix\n"
+				"    ipc_key 0x4e5858\n"
+				"    ipc_perm 0666\n"
+				"    slave { pcm \"hw:%s,0\" rate %d format S16_LE channels 2 period_size 1024 periods 4 }\n"
 				"}\n"
-				"ctl.!default {\n"
-				"    type hw\n"
-				"    card %s\n"
-				"}\n",
-				device_identifier, device_identifier);
-
+				"pcm.nx_game { type softvol; slave.pcm \"nx_usb_dmix\"; control { name \"Game Volume\"; card %s; } }\n"
+				"pcm.nx_music { type plug; slave.pcm \"nx_usb_dmix\"; }\n"
+				"pcm.!default { type plug; slave.pcm \"nx_game\"; }\n"
+				"ctl.!default { type hw; card %s; }\n",
+				device_identifier, active_rate, device_identifier, device_identifier);
+		fflush(f);
 		char log_buf[256];
 		snprintf(log_buf, sizeof(log_buf), "Updated .asoundrc with USB audio device: %s", device_identifier);
 		audiomon_log(log_buf);
 	}
 
 	fclose(f);
+
+	if (type == DEVICE_USB_AUDIO)
+		(void)apply_game_volume(device_identifier, true);
 
 	// Ensure it's flushed to disk
 	int fd = open(AUDIO_FILE, O_WRONLY);
@@ -382,6 +466,7 @@ static void handle_bt_disconnected(DBusConnection* conn, const char* path) {
 		snprintf(log_buf, sizeof(log_buf), "Audio device disconnected: %s", mac);
 		audiomon_log(log_buf);
 		clear_audio_file();
+		write_default_audio_file();
 		current_bt_mac[0] = '\0';
 		current_route = ROUTED_DEFAULT;
 		publish_sink_state();
@@ -422,6 +507,7 @@ static void handle_interfaces_removed(DBusMessage* msg) {
 		if (iface && strcmp(iface, "org.bluez.MediaTransport1") == 0) {
 			audiomon_log("A2DP transport removed (LE link may remain) - reverting audio route");
 			clear_audio_file();
+			write_default_audio_file();
 			current_bt_mac[0] = '\0';
 			current_route = ROUTED_DEFAULT;
 			publish_sink_state();
@@ -485,8 +571,12 @@ static void handle_usb_audio_connected(struct udev_device* dev) {
 	if (!card)
 		return;
 
-	// Store current card number for disconnect verification
+	// Store current card number for disconnect verification and select the
+	// shared hardware rate before writing the dmix slave configuration.
 	snprintf(current_usb_card, sizeof(current_usb_card), "%s", card);
+	int rates[8];
+	int rate_count = probe_usb_rates(card, rates, 8);
+	active_rate = rate_count > 0 ? rates[0] : 48000;
 
 	char log_buf[256];
 	snprintf(log_buf, sizeof(log_buf), "USB audio device connected: card %s", card);
@@ -518,6 +608,7 @@ static void handle_usb_audio_disconnected(void) {
 	audiomon_log("USB audio device disconnected");
 	current_usb_card[0] = '\0';
 	clear_audio_file();
+	write_default_audio_file();
 	current_route = ROUTED_DEFAULT;
 	publish_sink_state();
 	SetAudioSink(AUDIO_SINK_DEFAULT);
@@ -526,6 +617,7 @@ static void handle_usb_audio_disconnected(void) {
 static void signal_handler(int sig) {
 	if (sig == SIGUSR1) {
 		republish_requested = 1;
+		game_volume_requested = 1;
 		return;
 	}
 	running = 0;
@@ -697,6 +789,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	InitSettings();
+	write_default_audio_file();
 	SetAudioSink(AUDIO_SINK_DEFAULT);
 	publish_sink_state();
 
@@ -793,6 +886,10 @@ int main(int argc, char* argv[]) {
 		if (republish_requested) {
 			republish_requested = 0;
 			publish_sink_state(); // settings page poked us after a policy change
+		}
+		if (game_volume_requested || GetGameVolume() != applied_game_volume) {
+			game_volume_requested = 0;
+			apply_game_volume_if_changed();
 		}
 
 		fd_set readfds;

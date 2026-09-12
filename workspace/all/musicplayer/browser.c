@@ -3,12 +3,13 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
-#include "api.h"
+#include "../common/api.h"
 #include "browser.h"
+#include "music_format.h"
 
 // Check if file is a supported audio format
 bool Browser_isAudioFile(const char* filename) {
-	AudioFormat fmt = Player_detectFormat(filename);
+	AudioFormat fmt = MusicFormat_detect(filename);
 	return fmt != AUDIO_FORMAT_UNKNOWN;
 }
 
@@ -142,7 +143,7 @@ void Browser_loadDirectory(BrowserContext* ctx, const char* path, const char* mu
 		AudioFormat fmt = AUDIO_FORMAT_UNKNOWN;
 
 		if (!is_dir) {
-			fmt = Player_detectFormat(ent->d_name);
+			fmt = MusicFormat_detect(ent->d_name);
 			if (fmt == AUDIO_FORMAT_UNKNOWN)
 				continue;
 		}

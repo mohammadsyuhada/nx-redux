@@ -91,36 +91,23 @@ mkdir -p "$MINUI_DIR"
 export EMU_OVERLAY_SCREENSHOT_DIR="$MINUI_DIR"
 export EMU_OVERLAY_ROMFILE="$(basename "$ROM")"
 
-# Mute speaker before launch to prevent audio pop, then unmute after init
-echo 1 > /sys/class/speaker/mute 2>/dev/null || true
-(sleep 5; echo 0 > /sys/class/speaker/mute 2>/dev/null; syncsettings.elf) &
-SYNC_PID=$!
-
 # Start power button sleep/poweroff handler
 sleepmon.elf &
 
-# Pick the device-open rate for the current audio sink (audiomon publishes
-# /tmp/nx_audio_sink). Exact match on the native rate wins; otherwise the
-# sink's preferred (first-listed) rate; 48000 when the file is absent.
+# Use audiomon's single active mixer rate so gameplay shares the rate used by
+# music. The first supported rate is only a compatibility fallback.
 nx_pick_audio_rate() {
-    NATIVE="$1"
-    RATE=48000
-    if [ -f /tmp/nx_audio_sink ]; then
-        RATES=$(sed -n 's/^rates=//p' /tmp/nx_audio_sink)
-        for R in $RATES; do
-            if [ "$R" = "$NATIVE" ]; then
-                echo "$NATIVE"
-                return
-            fi
-        done
-        FIRST=${RATES%% *}
-        [ -n "$FIRST" ] && RATE=$FIRST
+    RATE=$(sed -n 's/^rate=//p' /tmp/nx_audio_sink 2>/dev/null | head -1)
+    if [ -z "$RATE" ]; then
+        RATES=$(sed -n 's/^rates=//p' /tmp/nx_audio_sink 2>/dev/null)
+        RATE=${RATES%% *}
     fi
+    [ -n "$RATE" ] || RATE=48000
     echo "$RATE"
 }
 
 # Dreamcast AICA is natively 44.1 kHz
-export NX_AUDIO_RATE=$(nx_pick_audio_rate 44100)
+export NX_AUDIO_RATE=$(nx_pick_audio_rate)
 
 # --- Netplay (pre-launch wizard) ---------------------------------------
 # Netplay runs only when nextui wrote /tmp/netplay_launch (Y / "Launch
@@ -168,8 +155,7 @@ fi
 [ "$(nx_cfg_get input device2)" = "0" ] && nx_cfg_set input device2 10
 
 # Both early exits below leave the script BEFORE `wait $EMU_PID`, skipping
-# the teardown at the bottom -- and sleepmon.elf, the unmute subshell
-# ($SYNC_PID) and the pre-launch mute are all started ABOVE this block. An
+# the teardown at the bottom -- and sleepmon.elf is started ABOVE this block. An
 # orphaned sleepmon.elf left running in the game list keeps its own
 # long-press power handler armed (killall -TERM nextui.elf, then an
 # unconditional poweroff), so an early exit MUST undo them itself. The old
@@ -177,8 +163,6 @@ fi
 # flycast, so the teardown at the bottom always ran.
 nx_netplay_bail() {
     killall sleepmon.elf 2>/dev/null || true
-    kill $SYNC_PID 2>/dev/null || true
-    echo 0 > /sys/class/speaker/mute 2>/dev/null || true
     exit 0
 }
 
@@ -301,7 +285,9 @@ EMU_PID=$!
 # same scan is harmless if the first pass already caught everything.
 pin_threads() {
     taskset -p 2 "$EMU_PID" 2>/dev/null   # mask 0x2 = cpu1 (main/render thread)
-    for TID in $(ls /proc/$EMU_PID/task/ 2>/dev/null); do
+    for TASK_PATH in /proc/$EMU_PID/task/*; do
+        [ -d "$TASK_PATH" ] || continue
+        TID=${TASK_PATH##*/}
         [ "$TID" = "$EMU_PID" ] && continue
         TNAME=$(cat /proc/$EMU_PID/task/$TID/comm 2>/dev/null)
         case "$TNAME" in
@@ -331,10 +317,8 @@ kill -0 "$EMU_PID" 2>/dev/null && pin_threads
 
 wait $EMU_PID
 killall sleepmon.elf 2>/dev/null || true
-kill $SYNC_PID 2>/dev/null || true
 # Netplay teardown: the session file is the only marker that this run went
 # through the wizard, so its presence gates the whole thing. --cleanup stops
 # the host's rsyncd, tears down a hotspot AP, restores the previous WiFi
 # network, and removes /tmp/netplay_session. Harmless on a plain launch.
 [ -f /tmp/netplay_session ] && netplay.elf --cleanup >> "$LOGS_PATH/netplay-wizard.txt" 2>&1
-echo 0 > /sys/class/speaker/mute 2>/dev/null || true

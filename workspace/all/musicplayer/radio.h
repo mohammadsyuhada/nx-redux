@@ -71,6 +71,9 @@ void Radio_saveStations(void);
 // Load stations from file
 void Radio_loadStations(void);
 
+// Select a station without connecting; used to restore stopped/paused identity.
+int Radio_prepare(const char* url);
+
 // Connect and start streaming
 int Radio_play(const char* url);
 
@@ -118,6 +121,7 @@ bool Radio_removeStationByUrl(const char* url);
 
 // Album art for current radio track (fetched from iTunes)
 struct SDL_Surface* Radio_getAlbumArt(void);
+struct SDL_Surface* Radio_getArtwork(const RadioMetadata* metadata, unsigned int* revision);
 
 // Check if user has custom stations (vs using defaults)
 bool Radio_hasUserStations(void);
