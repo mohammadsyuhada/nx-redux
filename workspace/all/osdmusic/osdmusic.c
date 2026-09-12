@@ -62,6 +62,7 @@ static int GRID_H = 2;
 #define LAUNCHER_PROCESS "nextui.elf"
 #define OPEN_PAK_REQUEST_PATH "/tmp/nextui_open"
 #define OSD_HIDE_PATH "/tmp/hide_osdd"
+#define OSD_SHOW_FLAG "/tmp/trimui_osd/osdd_show_up"
 #define DEBUG_FLAG_PATH "/tmp/osdmusic_debug"
 #define DEBUG_LOG_PATH "/tmp/osdmusic_cmd.log"
 #define THEME_SETTINGS_PATH "/mnt/SDCARD/.userdata/shared/minuisettings.txt"
@@ -809,15 +810,26 @@ int main(int argc, char** argv) {
 	write_ready();
 	rc = 0;
 	Uint32 next_probe = SDL_GetTicks() + MUSIC_PROBE_MS;
+	bool panel_visible = false;
 	while (!quit) {
-		if ((Sint32)(SDL_GetTicks() - next_probe) >= 0) {
-			next_probe = SDL_GetTicks() + MUSIC_PROBE_MS;
-			SDL_Color before = accent;
+		// Nothing composites the canvas while the OSD panel is hidden, so skip
+		// all render/sync/accent work then and only wait on the command FIFO.
+		bool visible = access(OSD_SHOW_FLAG, F_OK) == 0;
+		if (visible && !panel_visible) {
+			// Panel just opened: publish the cached snapshot immediately so the
+			// compositor never samples a half-drawn canvas, then refresh it.
+			render(&w);
 			load_accent();
 			sync_music(&w, true);
-			(void)before;
+			render(&w);
+			next_probe = SDL_GetTicks() + MUSIC_PROBE_MS;
+		} else if (visible && (Sint32)(SDL_GetTicks() - next_probe) >= 0) {
+			next_probe = SDL_GetTicks() + MUSIC_PROBE_MS;
+			load_accent();
+			sync_music(&w, true);
 			render(&w);
 		}
+		panel_visible = visible;
 		if (w.cmd_fd < 0) {
 			w.cmd_fd = open_fifo();
 			usleep(POLL_MS * 1000);
