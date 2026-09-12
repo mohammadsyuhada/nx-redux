@@ -1653,6 +1653,9 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		"Show menu transitions", "Enable or disable animated transitions",
 		on_off_labels, 2, on_off_values, get_menu_transitions, set_menu_transitions, reset_menu_transitions);
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Game art visible", "Show game artwork in the main menu",
+		on_off_labels, 2, on_off_values, get_show_game_art, set_show_game_art, reset_show_game_art);
+	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Game art corner radius", "Set the radius for the rounded corners of game art",
 		thumb_radius_labels, THUMB_RADIUS_LABEL_COUNT, NULL, get_thumb_radius, set_thumb_radius, reset_thumb_radius);
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
@@ -1679,9 +1682,6 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Show Emulators", "Show \"Emulators\" folders entry in game list.",
 		on_off_labels, 2, on_off_values, get_show_emulators, set_show_emulators, reset_show_emulators);
-	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Game art visible", "Show game artwork in the main menu",
-		on_off_labels, 2, on_off_values, get_show_game_art, set_show_game_art, reset_show_game_art);
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Use folder background for ROMs", "If enabled, used the emulator background image.",
 		on_off_labels, 2, on_off_values, get_roms_use_folder_bg, set_roms_use_folder_bg, reset_roms_use_folder_bg);
