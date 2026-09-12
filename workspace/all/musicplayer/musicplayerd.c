@@ -33,6 +33,12 @@ void SetMusicVolume(int volume);
 #define MUSIC_IDLE_EXIT_STOPPED_MS 180000
 #define MUSIC_IDLE_EXIT_PAUSED_MS 300000
 
+/* Main-loop poll cadence. poll() still returns at once on socket activity, so
+ * this only bounds the poll_hid()/service_tick() cadence: 100 Hz while playing,
+ * 10 Hz when paused, stopped, or sleeping. */
+#define MUSIC_POLL_ACTIVE_MS 10
+#define MUSIC_POLL_IDLE_MS 100
+
 typedef enum {
 	IDLE_PLAYING,
 	IDLE_PAUSED,
@@ -1225,7 +1231,9 @@ int main(void) {
 
 	while (!quit) {
 		attempt_restore();
-		MusicServiceServer_poll(handle_command, 10);
+		IdleClass cls = idle_class();
+		int poll_timeout_ms = (cls == IDLE_PLAYING && !sleeping) ? MUSIC_POLL_ACTIVE_MS : MUSIC_POLL_IDLE_MS;
+		MusicServiceServer_poll(handle_command, poll_timeout_ms);
 		poll_hid();
 		service_tick();
 		check_idle_exit();
