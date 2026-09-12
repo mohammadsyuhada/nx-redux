@@ -1680,7 +1680,7 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		"Show Emulators", "Show \"Emulators\" folders entry in game list.",
 		on_off_labels, 2, on_off_values, get_show_emulators, set_show_emulators, reset_show_emulators);
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Show game art", "Show game artwork in the main menu",
+		"Game art visible", "Show game artwork in the main menu",
 		on_off_labels, 2, on_off_values, get_show_game_art, set_show_game_art, reset_show_game_art);
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Use folder background for ROMs", "If enabled, used the emulator background image.",
