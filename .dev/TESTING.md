@@ -221,6 +221,11 @@ during menu rendering — useless as a first-frame/boot proxy.
   against a vfat loop image (docker, privileged) — a file with an odd-second
   mtime must copy once and then not be re-sent after vfat rounds the
   timestamp to 2-second resolution (`--modify-window=1`).
+- tg5050 post-update cleanup: `scripts/tests/test-update-btmgr-cleanup.sh`
+  runs `workspace/tg5050/install/update.sh` (shipped as
+  `.system/bin/install.sh`, executed once per MinUI.zip install, never on a
+  plain boot) against a fake card in a container and checks the old bluez
+  `btmgr_<date>.tar` backups are removed while unrelated files survive.
 - Turbo fire cadence: `scripts/tests/test-turbo-shaper.sh` compiles
   `minarch/ma_turbo.c` on the host against a model of both TrimUI input
   daemons' pulse trains; `scripts/tests/turbo/inject.c` documents the Brick

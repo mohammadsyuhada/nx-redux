@@ -18,44 +18,8 @@ else
     return 0
 fi
 
-# backup existing binaries
-rm -rf /mnt/SDCARD/btmgr_backup
-mkdir -p /mnt/SDCARD/btmgr_backup/usr/bin
-mkdir -p /mnt/SDCARD/btmgr_backup/usr/lib/alsa-lib
-mkdir -p /mnt/SDCARD/btmgr_backup/usr/lib64/alsa-lib
-mkdir -p /mnt/SDCARD/btmgr_backup/etc/dbus-1/system.d
-mkdir -p /mnt/SDCARD/btmgr_backup/usr/share/alsa/alsa.conf.d/
-
-# bluez
-for bin in bluetoothctl btmon rctest l2test l2ping bluemoon hex2hcd mpris-proxy btattach bluetoothd obexd; do
-    cp /usr/bin/$bin /mnt/SDCARD/btmgr_backup/usr/bin/ 2>/dev/null
-done
-# backup existing libbluetooth (version may vary)
-cp /usr/lib/libbluetooth.so.3.* /mnt/SDCARD/btmgr_backup/usr/lib/ 2>/dev/null
-cp /usr/lib64/libbluetooth.so.3.* /mnt/SDCARD/btmgr_backup/usr/lib64/ 2>/dev/null
-cp /etc/dbus-1/system.d/bluetooth.conf /mnt/SDCARD/btmgr_backup/etc/dbus-1/system.d/ 2>/dev/null
-cp /etc/dbus-1/system.d/bluetooth-mesh.conf /mnt/SDCARD/btmgr_backup/etc/dbus-1/system.d/ 2>/dev/null
-
-# bluealsa
-cp /usr/lib/alsa-lib/libasound_module_ctl_bluealsa.so /mnt/SDCARD/btmgr_backup/usr/lib/alsa-lib/ 2>/dev/null
-cp /usr/lib/alsa-lib/libasound_module_pcm_bluealsa.so /mnt/SDCARD/btmgr_backup/usr/lib/alsa-lib/ 2>/dev/null
-cp /usr/lib64/alsa-lib/libasound_module_ctl_bluealsa.so /mnt/SDCARD/btmgr_backup/usr/lib64/alsa-lib/ 2>/dev/null
-cp /usr/lib64/alsa-lib/libasound_module_pcm_bluealsa.so /mnt/SDCARD/btmgr_backup/usr/lib64/alsa-lib/ 2>/dev/null
-cp /usr/bin/bluealsa /mnt/SDCARD/btmgr_backup/usr/bin/ 2>/dev/null
-cp /usr/bin/bluealsa-aplay /mnt/SDCARD/btmgr_backup/usr/bin/ 2>/dev/null
-cp /usr/share/alsa/alsa.conf.d/20-bluealsa.conf /mnt/SDCARD/btmgr_backup/usr/share/alsa/alsa.conf.d/ 2>/dev/null
-
-# sbc
-cp /usr/lib/libsbc.so.1.* /mnt/SDCARD/btmgr_backup/usr/lib/ 2>/dev/null
-cp /usr/lib64/libsbc.so.1.* /mnt/SDCARD/btmgr_backup/usr/lib64/ 2>/dev/null
-for bin in sbcinfo sbcdec sbcenc; do
-    cp /usr/bin/$bin /mnt/SDCARD/btmgr_backup/usr/bin/ 2>/dev/null
-done
-
-# compress backup and clean up
-backupfile="/mnt/SDCARD/btmgr_$(date +%Y%m%d_%H%M%S).tar"
-tar cf $backupfile /mnt/SDCARD/btmgr_backup/
-rm -rf /mnt/SDCARD/btmgr_backup
+# No backup of the stock stack is kept: nothing ever restored from it, and
+# a firmware reflash is the real revert path.
 
 # deploy update
 cd $BLUEZ_PATH

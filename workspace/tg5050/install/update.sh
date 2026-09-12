@@ -32,3 +32,9 @@ sh ${SDCARD_PATH}/.system/shared/bin/migrate-paks.sh tg5050 || true
 # --------------------------------------
 # migration code here
 # --------------------------------------
+
+# Releases up to 2026-09 had the bluez upgrade (nextui.upgrade_bluez.pakz)
+# tar the stock Bluetooth stack into the card root as btmgr_<date>.tar
+# before replacing it. Nothing ever restored from it and the upgrade no
+# longer writes it, so clear any leftover on the next update.
+rm -f "${SDCARD_PATH}"/btmgr_*.tar
