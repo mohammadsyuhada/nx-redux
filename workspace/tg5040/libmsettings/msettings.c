@@ -685,8 +685,8 @@ static inline void SaveSettings(void) {
 	int fd = open(SettingsPath, O_CREAT | O_WRONLY, 0644);
 	if (fd >= 0) {
 		write(fd, settings, shm_size);
+		fsync(fd);
 		close(fd);
-		sync();
 	}
 }
 
