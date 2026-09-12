@@ -409,6 +409,8 @@ static bool music_active(void) {
 static const char* snapshot_title(void) {
 	if (state.snapshot.title[0])
 		return state.snapshot.title;
+	if (state.snapshot.source == MUSIC_SOURCE_RADIO && state.snapshot.album[0])
+		return state.snapshot.album;
 	const char* name = strrchr(state.snapshot.current_file, '/');
 	return name ? name + 1 : state.snapshot.current_file;
 }
@@ -416,6 +418,8 @@ static const char* snapshot_title(void) {
 static const char* snapshot_artist(void) {
 	if (state.snapshot.artist[0])
 		return state.snapshot.artist;
+	if (state.snapshot.source == MUSIC_SOURCE_RADIO && state.snapshot.title[0] && state.snapshot.album[0])
+		return state.snapshot.album;
 	return state.snapshot.source == MUSIC_SOURCE_RADIO ? "Radio" : state.snapshot.source == MUSIC_SOURCE_PODCAST ? "Podcast"
 																												 : "";
 }
