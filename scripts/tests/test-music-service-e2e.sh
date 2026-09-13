@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# On-device end-to-end test for the music service (tg5040) over adb.
+# On-device end-to-end test for the music service (tg5040, or tg5050 with NX_PLATFORM=tg5050) over adb.
 #
 # The music service tests need a real forked musicplayerd that opens the ALSA
 # PCM, so they cannot run on the host — they run on a Brick. This script
 # cross-compiles the two device tests plus the daemon and control CLI in the
-# tg5040 toolchain container, pushes all four to /tmp on the device under
+# platform toolchain container, pushes all four to /tmp on the device under
 # *.test.elf names (never over the installed /mnt/SDCARD binaries), and runs the
 # tests with the live launcher environment imported from the running nextui.elf
 # (HOME/USERDATA_PATH/SDCARD_PATH/LD_LIBRARY_PATH/... ), without which the owner
@@ -21,18 +21,20 @@
 # MY_LDFLAGS via `make --eval`), so there is no test target to keep in sync.
 #
 # Preconditions:
-#   - a tg5040 device (Brick / Brick Pro / Smart Pro) attached over adb with
+#   - a tg5040 device (Brick / Brick Pro / Smart Pro), or a Smart Pro S with NX_PLATFORM=tg5050, attached over adb with
 #     NX Redux running (idle at the main menu is fine). Set ANDROID_SERIAL if
 #     more than one device is attached.
-#   - docker, with the ghcr.io/loveretro/tg5040-toolchain:latest image.
+#   - docker, with the ghcr.io/loveretro/<platform>-toolchain:latest image.
 #   - run from anywhere; the container build mounts this worktree's workspace/.
 #
-# Usage: scripts/tests/test-music-service-e2e.sh
+# Usage: scripts/tests/test-music-service-e2e.sh            (tg5040: Brick, Brick Pro, Smart Pro)
+#        NX_PLATFORM=tg5050 scripts/tests/test-music-service-e2e.sh   (Smart Pro S)
 set -uo pipefail
 
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
-IMAGE=ghcr.io/loveretro/tg5040-toolchain:latest
-BIN=$REPO/workspace/all/musicplayer/build/tg5040
+PLATFORM=${NX_PLATFORM:-tg5040}
+IMAGE=ghcr.io/loveretro/${PLATFORM}-toolchain:latest
+BIN=$REPO/workspace/all/musicplayer/build/$PLATFORM
 
 die() { echo "ABORT: $*"; exit 2; }
 
@@ -40,21 +42,21 @@ command -v docker >/dev/null 2>&1 || die "docker not found"
 command -v adb >/dev/null 2>&1 || die "adb not found"
 adb get-state >/dev/null 2>&1 || die "no adb device (set ANDROID_SERIAL if several are attached)"
 
-echo "== building test_music_service, test_music_client, musicplayerd, musicplayerctl (tg5040)"
+echo "== building test_music_service, test_music_client, musicplayerd, musicplayerctl ($PLATFORM)"
 # -i so the heredoc reaches the container's bash. The daemon and ctl come from
 # the plain `make`; the two device tests are compiled with the Makefile's own
 # CC/MY_CFLAGS/MY_LDFLAGS, read back with a throwaway `print-%` pattern rule.
-docker run --rm -i -v "$REPO/workspace:/root/workspace" "$IMAGE" /bin/bash -s <<'DOCKER'
+docker run --rm -i -e NX_PLATFORM="$PLATFORM" -v "$REPO/workspace:/root/workspace" "$IMAGE" /bin/bash -s <<'DOCKER'
 set -e
 source ~/.bashrc
 cd /root/workspace/all/musicplayer
-make PLATFORM=tg5040
-vals=$(make -s PLATFORM=tg5040 --eval='print-%: ; @echo $($*)' print-CC print-MY_CFLAGS print-MY_LDFLAGS)
+make PLATFORM=$NX_PLATFORM
+vals=$(make -s PLATFORM=$NX_PLATFORM --eval='print-%: ; @echo $($*)' print-CC print-MY_CFLAGS print-MY_LDFLAGS)
 CC=$(printf '%s\n' "$vals" | sed -n 1p)
 CFLAGS=$(printf '%s\n' "$vals" | sed -n 2p)
 LDFLAGS=$(printf '%s\n' "$vals" | sed -n 3p)
-$CC tests/test_music_service.c music_service_client.c -o build/tg5040/test_music_service.elf $CFLAGS $LDFLAGS
-$CC tests/test_music_client.c music_client.c music_service_client.c -o build/tg5040/test_music_client.elf $CFLAGS -lpthread
+$CC tests/test_music_service.c music_service_client.c -o build/$NX_PLATFORM/test_music_service.elf $CFLAGS $LDFLAGS
+$CC tests/test_music_client.c music_client.c music_service_client.c -o build/$NX_PLATFORM/test_music_client.elf $CFLAGS -lpthread
 DOCKER
 [ $? -eq 0 ] || die "container build failed"
 

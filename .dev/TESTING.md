@@ -254,8 +254,9 @@ during menu rendering — useless as a first-frame/boot proxy.
   in a `// Build & run` header comment.
 - Music service on-device E2E: `scripts/tests/test-music-service-e2e.sh`
   cross-compiles the service test, the client test, `musicplayerd` and
-  `musicplayerctl` in the tg5040 toolchain image (flags read from the Makefile
-  with `make --eval`, so there is no test target to keep in sync), pushes them
+  `musicplayerctl` in the tg5040 toolchain image (`NX_PLATFORM=tg5050` for a
+  Smart Pro S; flags read from the Makefile with `make --eval`, so there is no
+  test target to keep in sync), pushes them
   to `/tmp` on the device as `*.test.elf`, and runs them over adb with the
   launcher environment imported from `nextui.elf` so the forked daemon can open
   the `.asoundrc` PCM. The service test forks a real daemon and drives the
