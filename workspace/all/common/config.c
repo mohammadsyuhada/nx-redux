@@ -65,7 +65,7 @@ void CFG_defaults(NextUISettings* cfg) {
 		.fn1Tool = CFG_DEFAULT_FN1_TOOL,
 		.fn2Tool = CFG_DEFAULT_FN2_TOOL,
 
-		.muteLeds = CFG_DEFAULT_MUTELEDS,
+		.fnLeds = CFG_DEFAULT_FNLEDS,
 
 		.screenTimeoutSecs = CFG_DEFAULT_SCREENTIMEOUTSECS,
 		.suspendTimeoutSecs = CFG_DEFAULT_SUSPENDTIMEOUTSECS,
@@ -240,8 +240,9 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 				CFG_setUseExtractedFileName((bool)temp_value);
 				continue;
 			}
-			if (sscanf(line, "muteLeds=%i", &temp_value) == 1) {
-				CFG_setMuteLEDs(temp_value);
+			// accept the new key and the legacy muteLeds= spelling
+			if (sscanf(line, "fnLeds=%i", &temp_value) == 1 || sscanf(line, "muteLeds=%i", &temp_value) == 1) {
+				CFG_setFnLEDs(temp_value);
 				continue;
 			}
 			if (sscanf(line, "artWidth=%i", &temp_value) == 1) {
@@ -708,12 +709,12 @@ void CFG_setUseExtractedFileName(bool use) {
 	CFG_sync();
 }
 
-bool CFG_getMuteLEDs(void) {
-	return settings.muteLeds;
+bool CFG_getFnLEDs(void) {
+	return settings.fnLeds;
 }
 
-void CFG_setMuteLEDs(bool on) {
-	settings.muteLeds = on;
+void CFG_setFnLEDs(bool on) {
+	settings.fnLeds = on;
 	CFG_sync();
 }
 
@@ -1085,8 +1086,8 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", CFG_getStateFormat());
 	} else if (strcmp(key, "useExtractedFileName") == 0) {
 		sprintf(value, "%i", CFG_getUseExtractedFileName());
-	} else if (strcmp(key, "muteLeds") == 0) {
-		sprintf(value, "%i", CFG_getMuteLEDs());
+	} else if (strcmp(key, "fnLeds") == 0 || strcmp(key, "muteLeds") == 0) {
+		sprintf(value, "%i", CFG_getFnLEDs());
 	} else if (strcmp(key, "artWidth") == 0) {
 		sprintf(value, "%i", (int)(CFG_getGameArtWidth() * 100));
 	} else if (strcmp(key, "artStyle") == 0) {
@@ -1173,7 +1174,7 @@ static int CFG_serialize(char* buf, size_t cap) {
 	EMIT("saveFormat=%i\n", settings.saveFormat);
 	EMIT("stateFormat=%i\n", settings.stateFormat);
 	EMIT("useExtractedFileName=%i\n", settings.useExtractedFileName);
-	EMIT("muteLeds=%i\n", settings.muteLeds);
+	EMIT("fnLeds=%i\n", settings.fnLeds);
 	EMIT("artWidth=%i\n", (int)(settings.gameArtWidth * 100));
 	EMIT("artStyle=%i\n", settings.gameArtStyle);
 	EMIT("artType=%i\n", settings.gameArtType);
@@ -1405,7 +1406,7 @@ void CFG_print(void) {
 	printf("\t\"saveFormat\": %i,\n", settings.saveFormat);
 	printf("\t\"stateFormat\": %i,\n", settings.stateFormat);
 	printf("\t\"useExtractedFileName\": %i,\n", settings.useExtractedFileName);
-	printf("\t\"muteLeds\": %i,\n", settings.muteLeds);
+	printf("\t\"fnLeds\": %i,\n", settings.fnLeds);
 	printf("\t\"artWidth\": %i,\n", (int)(settings.gameArtWidth * 100));
 	printf("\t\"artStyle\": %i,\n", settings.gameArtStyle);
 	printf("\t\"artType\": %i,\n", settings.gameArtType);

@@ -989,8 +989,8 @@ static size_t stream_decoder_read(StreamDecoder* sd, int16_t* buffer, size_t fra
 
 static bool stream_decoder_mp3_seek_table_needed(const StreamDecoder* sd, int64_t target_frame) {
 	int64_t work_frames = target_frame >= sd->current_frame
-		? target_frame - sd->current_frame
-		: target_frame;
+							  ? target_frame - sd->current_frame
+							  : target_frame;
 	int64_t sample_rate = sd->source_sample_rate;
 
 	if (sample_rate <= 0 || sample_rate > INT64_MAX / MP3_SEEK_TABLE_BREAK_EVEN_SECONDS)
@@ -1714,6 +1714,14 @@ static void close_audio_device(void) {
 }
 
 static int open_and_restart_audio_device(int requested_rate) {
+	// Player_closeAudioDevice() quits the audio subsystem to stop SDL's ALSA
+	// hotplug thread while the PCM is closed. Re-init it here so every reopen
+	// path (play after pause, wake from sleep, radio restart, sample-rate reset)
+	// has a live subsystem before SDL_OpenAudioDevice.
+	if (!SDL_WasInit(SDL_INIT_AUDIO) && SDL_InitSubSystem(SDL_INIT_AUDIO) < 0) {
+		LOG_error("Failed to init SDL audio: %s\n", SDL_GetError());
+		return -1;
+	}
 	int result = open_audio_device(requested_rate);
 	if (result != 0)
 		return result;
@@ -1751,6 +1759,11 @@ void Player_closeAudioDevice(void) {
 		return;
 	close_audio_device();
 	prepare_stream_for_device_close();
+	// Quit the audio subsystem while the PCM is closed so SDL's ALSA hotplug
+	// thread (SDLHotplugALSA) stops re-enumerating devices every 5s. The next
+	// open_and_restart_audio_device() re-inits before reopening.
+	if (SDL_WasInit(SDL_INIT_AUDIO))
+		SDL_QuitSubSystem(SDL_INIT_AUDIO);
 }
 
 int Player_openAudioDevice(void) {
@@ -1763,7 +1776,7 @@ int Player_reopenAudioDevice(void) {
 	pthread_mutex_lock(&player.mutex);
 	bool should_reopen = player.state == PLAYER_STATE_PLAYING || player.audio_device > 0;
 	bool resume_device = player.state == PLAYER_STATE_PLAYING ||
-		(player.audio_device > 0 && SDL_GetAudioDeviceStatus(player.audio_device) == SDL_AUDIO_PLAYING);
+						 (player.audio_device > 0 && SDL_GetAudioDeviceStatus(player.audio_device) == SDL_AUDIO_PLAYING);
 	int source_rate = player.use_streaming ? player.stream_decoder.source_sample_rate : 0;
 	pthread_mutex_unlock(&player.mutex);
 	if (!should_reopen)
@@ -1802,7 +1815,7 @@ static int reconfigure_audio_device(int new_sample_rate) {
 	bool device_matches = new_sample_rate == current_sample_rate &&
 						  Settings_getBufferFrames() == current_buffer_frames && player.audio_device > 0;
 	bool resume_device = player.state == PLAYER_STATE_PLAYING ||
-		(player.audio_device > 0 && SDL_GetAudioDeviceStatus(player.audio_device) == SDL_AUDIO_PLAYING);
+						 (player.audio_device > 0 && SDL_GetAudioDeviceStatus(player.audio_device) == SDL_AUDIO_PLAYING);
 	pthread_mutex_unlock(&player.mutex);
 	if (device_matches)
 		return 0; // No change needed
@@ -2558,7 +2571,8 @@ void Player_seek(int position_ms) {
 		position_ms = player.track_info.duration_ms;
 	bool seek_now = player.use_streaming && !player.stream_running;
 	int64_t target_frame = player.use_streaming
-		? (int64_t)position_ms * player.stream_decoder.source_sample_rate / 1000 : 0;
+							   ? (int64_t)position_ms * player.stream_decoder.source_sample_rate / 1000
+							   : 0;
 	if (player.use_streaming) {
 		player.seek_target_frame = target_frame;
 		player.stream_seeking = !seek_now;

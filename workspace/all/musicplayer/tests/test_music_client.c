@@ -1,3 +1,7 @@
+// Cross-compiled for a tg5040 device and run on a Brick by
+// scripts/tests/test-music-service-e2e.sh. It drives music_client.c against a
+// fake in-process owner thread, so it takes no arguments. Not built by
+// tests/run_tests.sh.
 #include "../music_client.h"
 #include <arpa/inet.h>
 #include <pthread.h>
@@ -7,6 +11,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
+#include <time.h>
 #include <unistd.h>
 
 static int failures;
@@ -181,8 +186,11 @@ int main(void) {
 	unlink(server.path);
 	rmdir(socket_dir);
 
-	/* A failed initial launch must be retried after the reconnect interval,
-	 * without allowing every poll to fork another owner. */
+	/* Spawn attempts for an owner that never comes up back off: one immediate
+	 * attempt, the next no sooner than 1 s later, then 2 s, never one per poll
+	 * (music_client.c MUSIC_CLIENT_SPAWN_BACKOFF_MIN_MS). Timeline from the
+	 * start of MusicClient_init: attempt 1 at +0, attempt 2 at +1.0..+1.5 s
+	 * (the 500 ms reconnect gate adds up to one tick), attempt 3 at +3.0..+4.0 s. */
 	char launch_script[160], launch_count[160];
 	snprintf(launch_script, sizeof(launch_script), "/tmp/music_client_launch_%ld.sh", (long)getpid());
 	snprintf(launch_count, sizeof(launch_count), "/tmp/music_client_launch_%ld.count", (long)getpid());
@@ -194,15 +202,46 @@ int main(void) {
 		chmod(launch_script, 448);
 	}
 	check(script != NULL, "retry launch script created");
+	struct timespec spawn_start;
+	clock_gettime(CLOCK_MONOTONIC, &spawn_start);
 	check(MusicClient_init(launch_script) != 0, "failed owner remains unavailable");
-	usleep(100000);
 	int launch_attempts = 0;
 	FILE* count_file = fopen(launch_count, "r");
 	if (count_file) {
 		fscanf(count_file, "%d", &launch_attempts);
 		fclose(count_file);
 	}
-	check(launch_attempts >= 2, "failed owner launch is retried after reconnect interval");
+	check(launch_attempts >= 1 && launch_attempts <= 2, "failed owner launch is attempted once, at most twice, during init");
+	/* Keep polling like the app does and sample the attempt count at +2.5 s and
+	 * +4.5 s from the start: exactly 2 then exactly 3 proves the 1 s / 2 s gaps. */
+	int attempts_at_2500 = -1, attempts_at_4500 = -1;
+	for (;;) {
+		struct timespec now;
+		clock_gettime(CLOCK_MONOTONIC, &now);
+		long elapsed_ms = (now.tv_sec - spawn_start.tv_sec) * 1000 + (now.tv_nsec - spawn_start.tv_nsec) / 1000000;
+		if (elapsed_ms >= 2500 && attempts_at_2500 < 0) {
+			attempts_at_2500 = 0;
+			count_file = fopen(launch_count, "r");
+			if (count_file) {
+				fscanf(count_file, "%d", &attempts_at_2500);
+				fclose(count_file);
+			}
+		}
+		if (elapsed_ms >= 4500) {
+			attempts_at_4500 = 0;
+			count_file = fopen(launch_count, "r");
+			if (count_file) {
+				fscanf(count_file, "%d", &attempts_at_4500);
+				fclose(count_file);
+			}
+			break;
+		}
+		MusicClient_update();
+		usleep(50000);
+	}
+	check(attempts_at_2500 == 2, "second spawn attempt lands after the 1 s backoff and no other before 2.5 s");
+	check(attempts_at_4500 == 3, "third spawn attempt lands after the 2 s backoff and no other before 4.5 s");
+	launch_attempts = attempts_at_4500;
 	MusicClient_quit();
 	check(MusicClient_init(NULL) != 0, "passive client stays unavailable without an owner");
 	usleep(100000);

@@ -64,13 +64,16 @@ int MusicBalance_setValue(int value) {
 	return status;
 }
 
-const char* MusicBalance_getDisplayString(void) {
+const char* MusicBalance_formatValue(int value) {
 	static char display[24];
-	int value = MusicBalance_getValue();
 	int offset = value - MUSIC_BALANCE_CENTER;
 	if (offset == 0)
 		snprintf(display, sizeof(display), "50/50");
 	else
 		snprintf(display, sizeof(display), "%s +%d", offset < 0 ? "Game" : "Music", offset < 0 ? -offset : offset);
 	return display;
+}
+
+const char* MusicBalance_getDisplayString(void) {
+	return MusicBalance_formatValue(MusicBalance_getValue());
 }

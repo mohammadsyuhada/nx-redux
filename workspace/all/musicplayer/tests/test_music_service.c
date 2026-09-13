@@ -1,3 +1,8 @@
+// Cross-compiled for a tg5040 device and run on a Brick by
+// scripts/tests/test-music-service-e2e.sh, which forks a real musicplayerd and
+// musicplayerctl. It is not built by tests/run_tests.sh (it needs the ALSA PCM
+// and the launcher environment on the device).
+// Usage: test_music_service <musicplayerd.elf> <musicplayerctl.elf>
 #include "../music_service_client.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -133,6 +138,38 @@ static void stop_owner(pid_t owner, int fd) {
 	waitpid(owner, NULL, 0);
 }
 
+/* Wait up to wait_ms for the owner to drop this client: poll for readability,
+ * then confirm recv() sees an orderly close (0) or a reset. A poll timeout with
+ * the socket still open means the owner kept a misbehaving client attached, so
+ * the drop regressed. */
+static bool socket_dropped(int fd, int wait_ms) {
+	int64_t deadline = clock_ms() + wait_ms;
+	for (;;) {
+		int64_t remaining = deadline - clock_ms();
+		if (remaining < 0)
+			remaining = 0;
+		struct pollfd pollfd = {.fd = fd, .events = POLLIN};
+		int result = poll(&pollfd, 1, (int)remaining);
+		if (result < 0) {
+			if (errno == EINTR)
+				continue;
+			return false;
+		}
+		if (result == 0)
+			return false; /* still attached past the deadline */
+		char scratch[64];
+		ssize_t n = recv(fd, scratch, sizeof(scratch), MSG_DONTWAIT);
+		if (n == 0)
+			return true; /* peer performed an orderly close */
+		if (n < 0) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK)
+				continue;
+			return errno == ECONNRESET || errno == EPIPE;
+		}
+		/* n > 0: unexpected bytes from the owner; keep draining until it closes */
+	}
+}
+
 static int send_raw_header(int fd, const MusicFrameHeader* header, const void* body, size_t body_size, int split) {
 	if (split) {
 		if (send(fd, header, split, 0) != split)
@@ -226,7 +263,7 @@ int main(int argc, char** argv) {
 	mkdir(recursive_nested, 448);
 	mkdir(empty_folder, 448);
 	check(write_wav(first, 4) == 0 && write_wav(second, 40) == 0 &&
-		  write_wav(recursive_first, 1) == 0 && write_wav(recursive_selected, 1) == 0,
+			  write_wav(recursive_first, 1) == 0 && write_wav(recursive_selected, 1) == 0,
 		  "create fixtures");
 	FILE* playlist_file = fopen(playlist_path, "w");
 	if (playlist_file) {
@@ -271,6 +308,36 @@ int main(int argc, char** argv) {
 	check(reply_header.payload_length == sizeof(response) && recv(fd, &response, sizeof(response), MSG_WAITALL) == sizeof(response), "partial request response payload");
 	close(fd);
 
+	/* Back pressure: 128 pipelined snapshot requests (~670 KB of responses, well
+	 * past the default AF_UNIX send buffer) are answered in order even though the
+	 * client stops reading long enough for the owner's send() to hit EAGAIN. */
+	const uint32_t pipelined_count = 128;
+	int backpressure_fd = raw_connect(socket_path);
+	check(backpressure_fd >= 0, "back-pressure client attach");
+	if (backpressure_fd >= 0) {
+		bool all_sent = true;
+		for (uint32_t i = 0; i < pipelined_count; i++) {
+			MusicFrameHeader pipelined = {.magic = MUSIC_SERVICE_MAGIC, .version = MUSIC_SERVICE_PROTOCOL_VERSION, .command = MUSIC_CMD_SNAPSHOT, .request_id = i, .payload_length = 0};
+			if (send(backpressure_fd, &pipelined, sizeof(pipelined), 0) != (ssize_t)sizeof(pipelined))
+				all_sent = false;
+		}
+		check(all_sent, "pipelined requests sent without reading");
+		wait_ms(500);
+		bool ordered = true;
+		for (uint32_t i = 0; i < pipelined_count; i++) {
+			MusicFrameHeader pipelined_reply;
+			MusicResponseWire pipelined_response;
+			if (recv(backpressure_fd, &pipelined_reply, sizeof(pipelined_reply), MSG_WAITALL) != (ssize_t)sizeof(pipelined_reply) ||
+				pipelined_reply.request_id != i || pipelined_reply.payload_length != sizeof(pipelined_response) ||
+				recv(backpressure_fd, &pipelined_response, sizeof(pipelined_response), MSG_WAITALL) != (ssize_t)sizeof(pipelined_response))
+				ordered = false;
+		}
+		check(ordered, "pipelined responses drain in order under back pressure");
+		check(raw_request(backpressure_fd, MUSIC_CMD_SNAPSHOT, NULL, 0, &response) == 0,
+			  "back-pressure client stays connected after draining");
+		close(backpressure_fd);
+	}
+
 	/* Two clients can remain attached and receive independent copied snapshots. */
 	int a = raw_connect(socket_path), b = raw_connect(socket_path);
 	check(a >= 0 && b >= 0, "two clients attach");
@@ -291,14 +358,16 @@ int main(int argc, char** argv) {
 		MusicFrameHeader huge = header;
 		huge.payload_length = MUSIC_SERVICE_MAX_FRAME;
 		(void)send(bad, &huge, sizeof(huge), 0);
-		wait_ms(30);
+		check(socket_dropped(bad, 3000), "owner drops a client that declares an oversize frame");
 		close(bad);
 	}
 	int timeout_client = raw_connect(socket_path);
 	check(timeout_client >= 0, "timeout client attach");
 	if (timeout_client >= 0) {
+		/* Only a partial header, then silence: the owner drops it once the frame
+		 * stalls past CLIENT_FRAME_TIMEOUT_MS (2000 ms, music_service_server.c). */
 		(void)send(timeout_client, &header, 2, 0);
-		wait_ms(2200);
+		check(socket_dropped(timeout_client, 5000), "owner drops a client that stalls mid-frame past the timeout");
 		close(timeout_client);
 	}
 	fd = raw_connect(socket_path);
@@ -382,9 +451,14 @@ int main(int argc, char** argv) {
 		close(fd);
 	}
 
-	/* A rejected owner must not remove the live owner's published artwork. */
+	/* A rejected owner must not remove the live owner's published artwork. The
+	 * name matches the daemon's own owner-art-<pid>-<generation>.bmp scheme
+	 * (musicplayerd.c update_artwork/cleanup_owned_artwork), so it is a real
+	 * artwork filename the cleanup path recognises rather than one no code
+	 * touches — a broad startup sweep of /tmp/trimui_music would delete it. */
 	mkdir("/tmp/trimui_music", 493);
-	const char* live_art = "/tmp/trimui_music/owner-art-999.bmp";
+	char live_art[128];
+	snprintf(live_art, sizeof(live_art), "/tmp/trimui_music/owner-art-%ld-1.bmp", (long)daemon);
 	FILE* live_art_file = fopen(live_art, "w");
 	if (live_art_file) {
 		fputs("live", live_art_file);
@@ -449,13 +523,15 @@ int main(int argc, char** argv) {
 		daemon = start_owner(argv[1], socket_path, &fd);
 		check(fd >= 0, "playing owner restart");
 		if (fd >= 0) {
+			/* A fresh owner never starts sound on its own: a session saved while
+			 * playing comes back paused at the same position (review note D12). */
 			check(raw_request(fd, MUSIC_CMD_SNAPSHOT, NULL, 0, &response) == 0 &&
-					  response.snapshot.state == MUSIC_STATE_PLAYING &&
+					  response.snapshot.state == MUSIC_STATE_PAUSED &&
 					  strcmp(response.snapshot.current_file, second) == 0 &&
 					  response.snapshot.queue_index == 1 &&
 					  response.snapshot.queue_kind == MUSIC_QUEUE_FOLDER &&
 					  response.snapshot.position_ms >= playing_position - 250,
-				  "playing intent and position restore");
+				  "playing session restores paused at its position");
 			check(raw_request(fd, MUSIC_CMD_PAUSE, NULL, 0, &response) == 0 &&
 					  response.snapshot.state == MUSIC_STATE_PAUSED,
 				  "resume paused state before restart");
@@ -675,6 +751,9 @@ int main(int argc, char** argv) {
 		check(raw_request(fd, MUSIC_CMD_RADIO_LOAD, &radio_request, sizeof(radio_request), &response) == 0 &&
 				  response.status == MUSIC_STATUS_OK && response.snapshot.source == MUSIC_SOURCE_RADIO,
 			  "radio source starts behind service");
+		/* The radio thread reports the error first; the owner's main loop closes
+		 * the audio device on its next tick (up to one idle poll interval later),
+		 * so wait for both rather than sampling the first error snapshot. */
 		bool radio_error = false;
 		int64_t radio_deadline = clock_ms() + 5000;
 		while (clock_ms() < radio_deadline) {
@@ -682,10 +761,15 @@ int main(int argc, char** argv) {
 				break;
 			if (response.snapshot.source_state == MUSIC_RADIO_ERROR) {
 				radio_error = true;
-				break;
+				if (!response.snapshot.audio_open)
+					break;
 			}
 			wait_ms(20);
 		}
+		if (!radio_error || response.snapshot.state != MUSIC_STATE_STOPPED || response.snapshot.audio_open)
+			fprintf(stderr, "radio refused: error=%d source_state=%d state=%d audio_open=%d caps=%u\n",
+					radio_error, response.snapshot.source_state, response.snapshot.state,
+					response.snapshot.audio_open, response.snapshot.capabilities);
 		check(radio_error && response.snapshot.source_state == MUSIC_RADIO_ERROR &&
 				  response.snapshot.state == MUSIC_STATE_STOPPED && !response.snapshot.audio_open &&
 				  (response.snapshot.capabilities & (MUSIC_CAP_PLAY | MUSIC_CAP_PAUSE)) ==
@@ -836,6 +920,52 @@ int main(int argc, char** argv) {
 		close(fd);
 	}
 	waitpid(daemon, NULL, 0);
+
+	/* SHUTDOWN must answer before the source teardown, which on a radio source
+	 * blocks in the streaming worker's join. Point the radio at a blackhole
+	 * address (10.255.255.1: the TCP connect hangs until the radio's own connect
+	 * timeout, no DNS lookup involved) so a handler that tore down inline would
+	 * stall on the join. Started here, once the shared owner above is reaped and
+	 * the singleton socket is free. */
+	pid_t shutdown_owner = start_owner(argv[1], socket_path, &fd);
+	if (fd >= 0) {
+		MusicRadioLoadRequest blackhole_radio = {0};
+		strncpy(blackhole_radio.url, "http://10.255.255.1/music", sizeof(blackhole_radio.url) - 1);
+		check(raw_request(fd, MUSIC_CMD_RADIO_LOAD, &blackhole_radio, sizeof(blackhole_radio), &response) == MUSIC_STATUS_OK,
+			  "blackhole radio loads before shutdown");
+		wait_ms(300);
+		int64_t shutdown_start = clock_ms();
+		int shutdown_status = raw_request(fd, MUSIC_CMD_SHUTDOWN, NULL, 0, &response);
+		int64_t shutdown_elapsed = clock_ms() - shutdown_start;
+		close(fd);
+		check(shutdown_status == 0, "shutdown reply status is OK while the radio worker is connecting");
+		check(shutdown_elapsed < 1000, "shutdown replies before the radio worker join");
+		/* The owner tears the source down after the loop: Radio_stop() sets
+		 * should_stop, which the connect poll checks every 200 ms, so it exits
+		 * well within the 10 s connect timeout (radio.c:459,566). Reap without
+		 * stop_owner (its blocking SHUTDOWN would sit on the join); bound the
+		 * self-exit window at the connect timeout plus 5 s. */
+		bool owner_exited = false;
+		int64_t reap_deadline = clock_ms() + 15000;
+		while (clock_ms() < reap_deadline) {
+			if (waitpid(shutdown_owner, NULL, WNOHANG) == shutdown_owner) {
+				owner_exited = true;
+				break;
+			}
+			wait_ms(100);
+		}
+		check(owner_exited, "owner exits on its own after answering shutdown");
+		if (!owner_exited) {
+			kill(shutdown_owner, SIGKILL);
+			waitpid(shutdown_owner, NULL, 0);
+		}
+	} else {
+		check(0, "shutdown-latency owner failed to start");
+		if (shutdown_owner > 0) {
+			kill(shutdown_owner, SIGKILL);
+			waitpid(shutdown_owner, NULL, 0);
+		}
+	}
 cleanup:
 	unlink(socket_path);
 	char lock[180];

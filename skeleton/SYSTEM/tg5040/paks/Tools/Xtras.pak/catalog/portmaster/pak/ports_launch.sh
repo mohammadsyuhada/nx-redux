@@ -44,6 +44,7 @@ export HM_SCRIPTS_DIR="$TEMP_DATA_DIR/ports"
 cleanup() {
     killall sleepmon.elf 2>/dev/null || true
     killall show2.elf 2>/dev/null || true
+    kill $SYNC_PID 2>/dev/null || true
 
     umount "$TEMP_DATA_DIR/ports" 2>/dev/null || umount -l "$TEMP_DATA_DIR/ports" 2>/dev/null || true
     # Use rmdir (not rm -rf) so a still-mounted bind mount can't delete .ports game data
@@ -102,6 +103,12 @@ main() {
     # Fix hardcoded paths and shebangs
     sed -i -e "s|/roms/ports/PortMaster|$EMU_DIR|g" \
            -e '1s|^#!/bin/bash|#!/usr/bin/env bash|' "$ROM_PATH"
+
+    # Re-apply the saved audio sink, volume and brightness once the emulator has
+    # finished its own SDL/ALSA init, which clobbers the mixer. The old pre-launch
+    # codec mute stays out: it would silence background music.
+    (sleep 5; syncsettings.elf) &
+    SYNC_PID=$!
 
     # Apply user's chosen button layout (default: nintendo)
     if [ -f "$SHARED_USERDATA_PATH/PORTS-portmaster/xbox_layout" ]; then

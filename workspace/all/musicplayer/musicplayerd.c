@@ -8,6 +8,7 @@
 #include "radio.h"
 #include "settings.h"
 #include "resume.h"
+#include "api.h"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_surface.h>
 #include <signal.h>
@@ -25,6 +26,24 @@ int GetMusicVolume(void);
 void SetMusicVolume(int volume);
 
 #define WAKE_ROUTE_DEADLINE_MS 5000
+
+/* Idle self-exit: the owner is the only thing keeping music state alive,
+ * so it releases the core when nothing plays and no client is attached. A
+ * stopped or empty owner exits sooner than a paused session a user resumes. */
+#define MUSIC_IDLE_EXIT_STOPPED_MS 180000
+#define MUSIC_IDLE_EXIT_PAUSED_MS 300000
+
+/* Main-loop poll cadence. poll() still returns at once on socket activity, so
+ * this only bounds the poll_hid()/service_tick() cadence: 100 Hz while playing,
+ * 10 Hz when paused, stopped, or sleeping. */
+#define MUSIC_POLL_ACTIVE_MS 10
+#define MUSIC_POLL_IDLE_MS 100
+
+typedef enum {
+	IDLE_PLAYING,
+	IDLE_PAUSED,
+	IDLE_STOPPED
+} IdleClass;
 
 static volatile sig_atomic_t quit;
 static PlaylistContext queue;
@@ -62,6 +81,8 @@ static bool restore_pending;
 static int64_t restore_deadline_ms;
 static char service_error[MUSIC_SERVICE_MAX_ERROR];
 static int applied_music_volume = -1;
+static int64_t idle_since_ms;
+static int last_idle_class = -1;
 
 static void save_resume_state(void);
 static void attempt_restore(void);
@@ -213,11 +234,11 @@ static void fill_snapshot(MusicResponseWire* response) {
 			response->snapshot.capabilities |= MUSIC_CAP_PREVIOUS;
 	}
 	strncpy(response->snapshot.artwork_path, artwork_path, sizeof(response->snapshot.artwork_path) - 1);
-	memcpy(response->snapshot.current_file, snapshot.current_file, sizeof(response->snapshot.current_file));
-	memcpy(response->snapshot.queue_path, queue_path, sizeof(response->snapshot.queue_path));
-	memcpy(response->snapshot.title, snapshot.track_info.title, sizeof(response->snapshot.title));
-	memcpy(response->snapshot.artist, snapshot.track_info.artist, sizeof(response->snapshot.artist));
-	memcpy(response->snapshot.album, snapshot.track_info.album, sizeof(response->snapshot.album));
+	strncpy(response->snapshot.current_file, snapshot.current_file, sizeof(response->snapshot.current_file) - 1);
+	strncpy(response->snapshot.queue_path, queue_path, sizeof(response->snapshot.queue_path) - 1);
+	strncpy(response->snapshot.title, snapshot.track_info.title, sizeof(response->snapshot.title) - 1);
+	strncpy(response->snapshot.artist, snapshot.track_info.artist, sizeof(response->snapshot.artist) - 1);
+	strncpy(response->snapshot.album, snapshot.track_info.album, sizeof(response->snapshot.album) - 1);
 	if (active_source == MUSIC_SOURCE_RADIO) {
 		const RadioMetadata* metadata = Radio_getMetadata();
 		RadioState radio_state = Radio_getState();
@@ -556,7 +577,7 @@ static void restore_failed(const char* message) {
 	snprintf(service_error, sizeof(service_error), "%s", message);
 }
 
-static int restore_local(const ResumeState* saved) {
+static int restore_local(const ResumeState* saved, ResumeTransportState transport) {
 	shuffle_history_count = 0;
 	if (saved->type == RESUME_TYPE_FILES) {
 		if (!saved->folder_path[0] || access(saved->folder_path, R_OK) != 0)
@@ -599,10 +620,7 @@ static int restore_local(const ResumeState* saved) {
 	Player_setRepeat(saved->repeat);
 	if (saved->position_ms > 0)
 		Player_seek(saved->position_ms);
-	if (saved->transport == RESUME_TRANSPORT_PLAYING) {
-		if (Player_play() != 0)
-			return MUSIC_STATUS_UNAVAILABLE;
-	} else if (saved->transport == RESUME_TRANSPORT_PAUSED) {
+	if (transport == RESUME_TRANSPORT_PAUSED) {
 		/* Player_pause preserves the loaded decoder and position without
 		 * opening the PCM just to establish paused transport state. */
 		Player_pause();
@@ -614,19 +632,21 @@ static int restore_saved_playback(void) {
 	const ResumeState* saved = Resume_getState();
 	if (!saved)
 		return MUSIC_STATUS_NOT_FOUND;
+	/* A fresh boot never starts playback by itself: a record written while
+	 * playing (including after a crash or power cut) lands paused, position
+	 * kept, so the first sound is one the user asked for. Wake from sleep
+	 * uses enter_sleep/wake_from_sleep, not this path. */
+	const ResumeTransportState transport = saved->transport == RESUME_TRANSPORT_PLAYING
+											   ? RESUME_TRANSPORT_PAUSED
+											   : saved->transport;
 	if (saved->source == RESUME_SOURCE_LOCAL)
-		return restore_local(saved);
+		return restore_local(saved, transport);
 	if (saved->source == RESUME_SOURCE_RADIO) {
 		if (!saved->radio_url[0])
 			return MUSIC_STATUS_NOT_FOUND;
-		radio_paused = saved->transport == RESUME_TRANSPORT_PAUSED;
-		if (saved->transport == RESUME_TRANSPORT_STOPPED || radio_paused) {
-			if (Radio_prepare(saved->radio_url) != 0)
-				return MUSIC_STATUS_NOT_FOUND;
-		} else {
-			if (Radio_play(saved->radio_url) != 0)
-				return MUSIC_STATUS_UNAVAILABLE;
-		}
+		radio_paused = transport == RESUME_TRANSPORT_PAUSED;
+		if (Radio_prepare(saved->radio_url) != 0)
+			return MUSIC_STATUS_NOT_FOUND;
 		active_source = MUSIC_SOURCE_RADIO;
 		return MUSIC_STATUS_OK;
 	}
@@ -634,7 +654,7 @@ static int restore_saved_playback(void) {
 		MusicPodcastLoadRequest request = {0};
 		strncpy(request.feed_url, saved->podcast_feed_url, sizeof(request.feed_url) - 1);
 		strncpy(request.episode_guid, saved->podcast_episode_guid, sizeof(request.episode_guid) - 1);
-		podcast_resume_transport = saved->transport;
+		podcast_resume_transport = transport;
 		int status = load_podcast(&request, false);
 		if (status == MUSIC_STATUS_OK) {
 			shuffle_enabled = saved->shuffle;
@@ -846,8 +866,12 @@ static int toggle_active_source(void) {
 static void handle_command(uint16_t command, const unsigned char* payload, size_t length,
 						   MusicResponseWire* response) {
 	memset(response, 0, sizeof(*response));
-	if (command != MUSIC_CMD_SNAPSHOT)
+	if (command != MUSIC_CMD_SNAPSHOT) {
 		restore_pending = false;
+		/* Every real command is activity; a SNAPSHOT poll from an open panel
+		 * must never keep the idle owner alive. */
+		idle_since_ms = now_ms();
+	}
 	if (!MusicRequest_isValidPayload(command, payload, length)) {
 		response_error(response, MUSIC_STATUS_BAD_REQUEST, "command failed");
 		return;
@@ -889,31 +913,29 @@ static void handle_command(uint16_t command, const unsigned char* payload, size_
 			shuffle_history_count = 0;
 		break;
 	case MUSIC_CMD_PODCAST_PROGRESS:
-	case MUSIC_CMD_PODCAST_MARK_PLAYED:
-		{
-			const MusicPodcastProgressRequest* progress = (const MusicPodcastProgressRequest*)payload;
-			Podcast_reloadPlaybackData();
-			if (active_source == MUSIC_SOURCE_PODCAST)
-				resolve_active_podcast();
-			if (progress->position_sec < -1) {
-				status = MUSIC_STATUS_BAD_REQUEST;
-				break;
-			}
-			if (!podcast_identity_exists(progress->feed_url, progress->episode_guid)) {
-				status = MUSIC_STATUS_NOT_FOUND;
-				break;
-			}
-			if (progress->position_sec == -1) {
-				Podcast_markAsPlayed(progress->feed_url, progress->episode_guid);
-				Podcast_removeContinueListening(progress->feed_url, progress->episode_guid);
-			} else {
-				Podcast_saveProgress(progress->feed_url, progress->episode_guid, progress->position_sec);
-				if (active_source == MUSIC_SOURCE_PODCAST)
-					podcast_last_progress_ms = now_ms();
-			}
-			Podcast_flushProgress();
+	case MUSIC_CMD_PODCAST_MARK_PLAYED: {
+		const MusicPodcastProgressRequest* progress = (const MusicPodcastProgressRequest*)payload;
+		Podcast_reloadPlaybackData();
+		if (active_source == MUSIC_SOURCE_PODCAST)
+			resolve_active_podcast();
+		if (progress->position_sec < -1) {
+			status = MUSIC_STATUS_BAD_REQUEST;
+			break;
 		}
-		break;
+		if (!podcast_identity_exists(progress->feed_url, progress->episode_guid)) {
+			status = MUSIC_STATUS_NOT_FOUND;
+			break;
+		}
+		if (progress->position_sec == -1) {
+			Podcast_markAsPlayed(progress->feed_url, progress->episode_guid);
+			Podcast_removeContinueListening(progress->feed_url, progress->episode_guid);
+		} else {
+			Podcast_saveProgress(progress->feed_url, progress->episode_guid, progress->position_sec);
+			if (active_source == MUSIC_SOURCE_PODCAST)
+				podcast_last_progress_ms = now_ms();
+		}
+		Podcast_flushProgress();
+	} break;
 	case MUSIC_CMD_SET_VOLUME:
 		if (((const MusicIntRequest*)payload)->value < 0 ||
 			((const MusicIntRequest*)payload)->value > 20)
@@ -926,7 +948,7 @@ static void handle_command(uint16_t command, const unsigned char* payload, size_
 		break;
 	case MUSIC_CMD_SET_SPEED:
 		if (((const MusicSpeedRequest*)payload)->speed < 0.5f ||
-				 ((const MusicSpeedRequest*)payload)->speed > 2.0f)
+			((const MusicSpeedRequest*)payload)->speed > 2.0f)
 			status = MUSIC_STATUS_BAD_REQUEST;
 		else
 			Player_setPlaybackSpeed(((const MusicSpeedRequest*)payload)->speed);
@@ -1037,8 +1059,12 @@ static void handle_command(uint16_t command, const unsigned char* payload, size_
 			wake_deadline_ms = now_ms() + WAKE_ROUTE_DEADLINE_MS;
 		break;
 	case MUSIC_CMD_SHUTDOWN:
-		stop_active_source();
-		Player_closeAudioDevice();
+		/* Flush intent now and answer at once; the source teardown (which can
+		 * block in the radio worker join) runs after the loop, once the caller
+		 * has its reply. */
+		if (active_source == MUSIC_SOURCE_PODCAST)
+			save_podcast_progress();
+		save_resume_state();
 		quit = 1;
 		break;
 	default:
@@ -1051,6 +1077,59 @@ static void handle_command(uint16_t command, const unsigned char* payload, size_
 			save_resume_state();
 	}
 	response_error(response, status, status == MUSIC_STATUS_OK ? NULL : "command failed");
+}
+
+static IdleClass idle_class(void) {
+	if (active_source == MUSIC_SOURCE_NONE)
+		return IDLE_STOPPED;
+	if (active_source == MUSIC_SOURCE_RADIO) {
+		if (radio_paused)
+			return IDLE_PAUSED;
+		RadioState radio_state = Radio_getState();
+		if (radio_state == RADIO_STATE_CONNECTING || radio_state == RADIO_STATE_BUFFERING ||
+			radio_state == RADIO_STATE_PLAYING)
+			return IDLE_PLAYING;
+		return IDLE_STOPPED;
+	}
+	if (active_source == MUSIC_SOURCE_PODCAST && podcast_waiting_for_seek) {
+		/* The seek has not landed yet; classify by the intent it will resume to. */
+		if (podcast_resume_transport == RESUME_TRANSPORT_PLAYING)
+			return IDLE_PLAYING;
+		if (podcast_resume_transport == RESUME_TRANSPORT_PAUSED)
+			return IDLE_PAUSED;
+		return IDLE_STOPPED;
+	}
+	PlayerSnapshot snapshot;
+	if (Player_getSnapshot(&snapshot) != 0)
+		return IDLE_STOPPED;
+	if (snapshot.state == PLAYER_STATE_PLAYING)
+		return IDLE_PLAYING;
+	if (snapshot.state == PLAYER_STATE_PAUSED)
+		return IDLE_PAUSED;
+	return IDLE_STOPPED;
+}
+
+static void check_idle_exit(void) {
+	int64_t now = now_ms();
+	IdleClass klass = idle_class();
+	if ((int)klass != last_idle_class) {
+		last_idle_class = (int)klass;
+		idle_since_ms = now;
+	}
+	/* A sleep/wake pair must find the owner alive, the boot restore must land
+	 * first, and an attached client (the open app) is an owner still in use. */
+	if (sleeping || wake_pending || restore_pending)
+		return;
+	if (MusicServiceServer_clientCount() > 0)
+		return;
+	if (klass == IDLE_PLAYING)
+		return;
+	int64_t limit = klass == IDLE_PAUSED ? MUSIC_IDLE_EXIT_PAUSED_MS : MUSIC_IDLE_EXIT_STOPPED_MS;
+	if (now - idle_since_ms >= limit) {
+		LOG_info("idle for %llds while %s, exiting\n", (long long)((now - idle_since_ms) / 1000),
+				 klass == IDLE_PAUSED ? "paused" : "stopped");
+		quit = 1;
+	}
 }
 
 static void service_tick(void) {
@@ -1156,9 +1235,12 @@ int main(void) {
 
 	while (!quit) {
 		attempt_restore();
-		MusicServiceServer_poll(handle_command, 10);
+		IdleClass cls = idle_class();
+		int poll_timeout_ms = (cls == IDLE_PLAYING && !sleeping) ? MUSIC_POLL_ACTIVE_MS : MUSIC_POLL_IDLE_MS;
+		MusicServiceServer_poll(handle_command, poll_timeout_ms);
 		poll_hid();
 		service_tick();
+		check_idle_exit();
 		PlayerSnapshot snapshot;
 		if (active_source == MUSIC_SOURCE_LOCAL && !eof_advanced &&
 			Player_getSnapshot(&snapshot) == 0 && snapshot.stream_eof &&

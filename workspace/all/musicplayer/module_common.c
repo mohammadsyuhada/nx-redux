@@ -45,8 +45,10 @@ bool ModuleCommon_confirmAppExit(SDL_Surface* screen) {
 		return false;
 	if (choice == UI_CHOICE_NO) {
 		if (MusicClient_stop() != MUSIC_STATUS_OK) {
-			(void)UI_confirmModal(screen, "Unable to stop playback", "Playback was not stopped.", NULL, true, true);
-			return false;
+			// The user asked to leave, so let them; playback just keeps running.
+			(void)UI_confirmModal(screen, "Unable to stop playback",
+								  "Playback could not be stopped; it will keep playing in the background.", NULL, true,
+								  true);
 		}
 	}
 	return true;

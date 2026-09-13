@@ -214,7 +214,8 @@ during menu rendering — useless as a first-frame/boot proxy.
   menu opens Search).
 - Host-side script tests live in `scripts/tests/` (installer/catalog logic,
   PATH-shimmed) — run these before shipping shell changes; there is no C unit
-  harness apart from per-feature host tests (e.g. `common/tests/`).
+  harness apart from per-feature host tests (e.g. `common/tests/`,
+  `musicplayer/tests/`).
 - tg5050 OSD overlay mount: `scripts/tests/test-osd-overlay-tg5050.sh`
   sed-extracts the mount block from the tg5050 `launch.sh` and runs it under
   busybox sh in a privileged alpine container (docker) against a FAT32 and
@@ -243,6 +244,31 @@ during menu rendering — useless as a first-frame/boot proxy.
   On-device proof: press d-pad down and `dd` the fb0 list band a few times
   ~60 ms apart — with the setting off every sample's pill top must sit on a
   row boundary; with it on at least one sample lands between rows.
+- Music player host units: `workspace/all/musicplayer/tests/run_tests.sh`
+  compiles and runs the sibling `test_*.c` on the host (no SDL, no cross
+  toolchain) — the balance mapping/clamp round trip (`music_balance.c`), request
+  payload validation (`music_request_validation.c`), resume persistence across
+  reloads (`resume.c`, redirected through `NX_MUSIC_RESUME_DIR`), radio catalog
+  parsing (`radio_catalog_parse.c`) and the settings round trip (`settings.c`
+  under `-DMUSIC_SETTINGS_TEST_DIR`). Each `test_*.c` carries its own `cc` line
+  in a `// Build & run` header comment.
+- Music service on-device E2E: `scripts/tests/test-music-service-e2e.sh`
+  cross-compiles the service test, the client test, `musicplayerd` and
+  `musicplayerctl` in the tg5040 toolchain image (`NX_PLATFORM=tg5050` for a
+  Smart Pro S; flags read from the Makefile with `make --eval`, so there is no
+  test target to keep in sync), pushes them
+  to `/tmp` on the device as `*.test.elf`, and runs them over adb with the
+  launcher environment imported from `nextui.elf` so the forked daemon can open
+  the `.asoundrc` PCM. The service test forks a real daemon and drives the
+  socket protocol (split-header writes, back pressure, singleton rejection,
+  oversize/stalled client drops, resume across owner restarts); the client test
+  drives `music_client.c` against a fake owner. Preconditions are in the script
+  header.
+- Removed with the #92 follow-up: the two source-grep music tests
+  (`test_resume_interval.sh`, `test-music-autosleep-source.sh`) and the
+  lock-agnostic `test_player_snapshot.c` — each passed against deliberately
+  broken code (grepping source text, or a snapshot copy that still passed with
+  the locks deleted), so none could fail.
 - On-device E2E for the Settings > Network connect flow (wrong password →
   error dialog + retry, no profile left behind; stale saved key → same):
   `scripts/tests/test-wifi-connect-e2e.sh <ssid>`. Drives the real Settings

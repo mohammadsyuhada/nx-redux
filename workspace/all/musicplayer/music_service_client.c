@@ -105,6 +105,20 @@ void MusicService_disconnect(int fd) {
 		close(fd);
 }
 
+static void terminate_response_strings(MusicResponseWire* response) {
+	/* The response direction is not validated on the wire, so guarantee every
+	 * string a client reads is NUL terminated regardless of what the owner sent. */
+	response->error[sizeof(response->error) - 1] = '\0';
+	response->snapshot.artwork_path[sizeof(response->snapshot.artwork_path) - 1] = '\0';
+	response->snapshot.current_file[sizeof(response->snapshot.current_file) - 1] = '\0';
+	response->snapshot.queue_path[sizeof(response->snapshot.queue_path) - 1] = '\0';
+	response->snapshot.title[sizeof(response->snapshot.title) - 1] = '\0';
+	response->snapshot.artist[sizeof(response->snapshot.artist) - 1] = '\0';
+	response->snapshot.album[sizeof(response->snapshot.album) - 1] = '\0';
+	response->snapshot.podcast_feed_url[sizeof(response->snapshot.podcast_feed_url) - 1] = '\0';
+	response->snapshot.podcast_episode_guid[sizeof(response->snapshot.podcast_episode_guid) - 1] = '\0';
+}
+
 int MusicService_request(int fd, uint16_t command, const void* payload,
 						 size_t payload_length, MusicResponseWire* response,
 						 int timeout_ms) {
@@ -127,5 +141,6 @@ int MusicService_request(int fd, uint16_t command, const void* payload,
 		header.payload_length != sizeof(*response) || header.payload_length > MUSIC_SERVICE_MAX_FRAME - sizeof(MusicFrameHeader) ||
 		header.command != command || transfer_until(fd, response, sizeof(*response), 0, deadline) != 0)
 		return MUSIC_SERVICE_TRANSPORT_ERROR;
+	terminate_response_strings(response);
 	return response->status;
 }

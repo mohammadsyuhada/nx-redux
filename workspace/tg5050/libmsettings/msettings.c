@@ -81,27 +81,62 @@ typedef struct SettingsV2 {
 	int fanSpeed;  // 0-100, -1 for auto
 } SettingsV2;
 
+typedef struct SettingsV3 {
+	int version; // future proofing
+	int brightness;
+	int colortemperature;
+	int headphones;
+	int speaker;
+	int fn_mode;
+	int contrast;
+	int saturation;
+	int exposure;
+	int fn_brightness;
+	int fn_colortemperature;
+	int fn_contrast;
+	int fn_saturation;
+	int fn_exposure;
+	int fn_volume;
+	int turbo_a;
+	int turbo_b;
+	int turbo_x;
+	int turbo_y;
+	int turbo_l1;
+	int turbo_l2;
+	int turbo_r1;
+	int turbo_r2;
+	int rumble_off;		 // OSD motor switch, stored inverted so pre-existing files read as ON
+	int rumble_strength; // Settings "Vibration strength": 0 Normal (default), 1 Light, 2 Strong
+	int game_volume;
+	int music_volume;
+	int speaker_mute; // OSD output mute, silences output only, independent of the FN switch
+	// NOTE: doesn't really need to be persisted but still needs to be shared
+	int jack;
+	int audiosink; // was bluetooth true/false before
+	int fanSpeed;  // 0-100, -1 for auto
+} SettingsV3;
+
 // When incrementing SETTINGS_VERSION, update the Settings typedef and add
 // backwards compatibility to InitSettings!
 // Keep all/common/msettings_shm.h (linkless mirror for osdctl/poweroff_next) in sync.
-#define SETTINGS_VERSION 2
-typedef SettingsV2 Settings;
+#define SETTINGS_VERSION 3
+typedef SettingsV3 Settings;
 static Settings DefaultSettings = {
 	.version = SETTINGS_VERSION,
 	.brightness = SETTINGS_DEFAULT_BRIGHTNESS,
 	.colortemperature = SETTINGS_DEFAULT_COLORTEMP,
 	.headphones = SETTINGS_DEFAULT_HEADPHONE_VOLUME,
 	.speaker = SETTINGS_DEFAULT_VOLUME,
-	.mute = 0,
+	.fn_mode = 0,
 	.contrast = SETTINGS_DEFAULT_CONTRAST,
 	.saturation = SETTINGS_DEFAULT_SATURATION,
 	.exposure = SETTINGS_DEFAULT_EXPOSURE,
-	.toggled_brightness = SETTINGS_DEFAULT_MUTE_NO_CHANGE,
-	.toggled_colortemperature = SETTINGS_DEFAULT_MUTE_NO_CHANGE,
-	.toggled_contrast = SETTINGS_DEFAULT_MUTE_NO_CHANGE,
-	.toggled_saturation = SETTINGS_DEFAULT_MUTE_NO_CHANGE,
-	.toggled_exposure = SETTINGS_DEFAULT_MUTE_NO_CHANGE,
-	.toggled_volume = 0, // mute is default
+	.fn_brightness = SETTINGS_DEFAULT_FN_NO_CHANGE,
+	.fn_colortemperature = SETTINGS_DEFAULT_FN_NO_CHANGE,
+	.fn_contrast = SETTINGS_DEFAULT_FN_NO_CHANGE,
+	.fn_saturation = SETTINGS_DEFAULT_FN_NO_CHANGE,
+	.fn_exposure = SETTINGS_DEFAULT_FN_NO_CHANGE,
+	.fn_volume = 0, // silent by default
 	.turbo_a = 0,
 	.turbo_b = 0,
 	.turbo_x = 0,
@@ -115,6 +150,7 @@ static Settings DefaultSettings = {
 	.fanSpeed = SETTINGS_DEFAULT_FAN_SPEED,
 	.game_volume = SETTINGS_DEFAULT_SOFTWARE_VOLUME + 1,
 	.music_volume = SETTINGS_DEFAULT_SOFTWARE_VOLUME + 1,
+	.speaker_mute = 0,
 };
 static Settings* settings;
 
@@ -268,7 +304,42 @@ void InitSettings(void) {
 					memcpy(settings, &DefaultSettings, shm_size);
 
 					// overwrite with migrated data
-					if (version == 1) {
+					if (version == 2) {
+						printf("Found settings v2.\n");
+						SettingsV2 old;
+						read(fd, &old, sizeof(SettingsV2));
+
+						settings->brightness = old.brightness;
+						settings->colortemperature = old.colortemperature;
+						settings->headphones = old.headphones;
+						settings->speaker = old.speaker;
+						settings->fn_mode = old.mute;
+						settings->contrast = old.contrast;
+						settings->saturation = old.saturation;
+						settings->exposure = old.exposure;
+						settings->fn_brightness = old.toggled_brightness;
+						settings->fn_colortemperature = old.toggled_colortemperature;
+						settings->fn_contrast = old.toggled_contrast;
+						settings->fn_saturation = old.toggled_saturation;
+						settings->fn_exposure = old.toggled_exposure;
+						settings->fn_volume = old.toggled_volume;
+						settings->turbo_a = old.turbo_a;
+						settings->turbo_b = old.turbo_b;
+						settings->turbo_x = old.turbo_x;
+						settings->turbo_y = old.turbo_y;
+						settings->turbo_l1 = old.turbo_l1;
+						settings->turbo_l2 = old.turbo_l2;
+						settings->turbo_r1 = old.turbo_r1;
+						settings->turbo_r2 = old.turbo_r2;
+						settings->rumble_off = old.rumble_off;
+						settings->rumble_strength = old.rumble_strength;
+						settings->game_volume = old.game_volume;
+						settings->music_volume = old.music_volume;
+						settings->jack = old.jack;
+						settings->audiosink = old.audiosink;
+						settings->fanSpeed = old.fanSpeed;
+						// speaker_mute is new in v3; leave it at the default 0
+					} else if (version == 1) {
 						printf("Found settings v1.\n");
 						SettingsV1 old;
 						read(fd, &old, sizeof(SettingsV1));
@@ -277,16 +348,16 @@ void InitSettings(void) {
 						settings->colortemperature = old.colortemperature;
 						settings->headphones = old.headphones;
 						settings->speaker = old.speaker;
-						settings->mute = old.mute;
+						settings->fn_mode = old.mute;
 						settings->contrast = old.contrast;
 						settings->saturation = old.saturation;
 						settings->exposure = old.exposure;
-						settings->toggled_brightness = old.toggled_brightness;
-						settings->toggled_colortemperature = old.toggled_colortemperature;
-						settings->toggled_contrast = old.toggled_contrast;
-						settings->toggled_saturation = old.toggled_saturation;
-						settings->toggled_exposure = old.toggled_exposure;
-						settings->toggled_volume = old.toggled_volume;
+						settings->fn_brightness = old.toggled_brightness;
+						settings->fn_colortemperature = old.toggled_colortemperature;
+						settings->fn_contrast = old.toggled_contrast;
+						settings->fn_saturation = old.toggled_saturation;
+						settings->fn_exposure = old.toggled_exposure;
+						settings->fn_volume = old.toggled_volume;
 						settings->turbo_a = old.turbo_a;
 						settings->turbo_b = old.turbo_b;
 						settings->turbo_x = old.turbo_x;
@@ -317,7 +388,8 @@ void InitSettings(void) {
 
 		// these shouldn't be persisted
 		// settings->jack = 0;
-		settings->mute = 0;
+		settings->fn_mode = 0;
+		settings->speaker_mute = 0;
 	}
 	if (settings->game_volume < 1 || settings->game_volume > 21)
 		settings->game_volume = SETTINGS_DEFAULT_SOFTWARE_VOLUME + 1;
@@ -330,7 +402,7 @@ void InitSettings(void) {
 	}
 
 	// This will implicitly update all other settings based on FN switch state
-	SetMute(settings->mute);
+	SetFnMode(settings->fn_mode);
 
 	SetFanSpeed(settings->fanSpeed);
 }
@@ -346,8 +418,8 @@ static inline void SaveSettings(void) {
 	int fd = open(SettingsPath, O_CREAT | O_WRONLY, 0644);
 	if (fd >= 0) {
 		write(fd, settings, shm_size);
+		fsync(fd);
 		close(fd);
-		sync();
 	}
 }
 
@@ -360,8 +432,8 @@ int GetColortemp(void) { // 0-10
 	return settings->colortemperature;
 }
 int GetVolume(void) { // 0-20
-	if (settings->mute && GetMutedVolume() != SETTINGS_DEFAULT_MUTE_NO_CHANGE)
-		return GetMutedVolume();
+	if (settings->fn_mode && GetFnVolume() != SETTINGS_DEFAULT_FN_NO_CHANGE)
+		return GetFnVolume();
 
 	if (settings->jack || settings->audiosink != AUDIO_SINK_DEFAULT)
 		return settings->headphones;
@@ -407,8 +479,11 @@ int GetHDMI(void) {
 	return 0;
 };
 
-int GetMute(void) {
-	return settings->mute;
+int GetFnMode(void) {
+	return settings->fn_mode;
+}
+int GetSpeakerMute(void) {
+	return settings->speaker_mute;
 }
 // Master motor switch (OSD "Motor" widget). Every vibration in the system —
 // game rumble, sleep/wake pulses, the shutdown tap — is gated on it.
@@ -440,52 +515,52 @@ int GetSaturation(void) {
 int GetExposure(void) {
 	return settings->exposure;
 }
-int GetMutedBrightness(void) {
-	return settings->toggled_brightness;
+int GetFnBrightness(void) {
+	return settings->fn_brightness;
 }
-int GetMutedColortemp(void) {
-	return settings->toggled_colortemperature;
+int GetFnColortemp(void) {
+	return settings->fn_colortemperature;
 }
-int GetMutedContrast(void) {
-	return settings->toggled_contrast;
+int GetFnContrast(void) {
+	return settings->fn_contrast;
 }
-int GetMutedSaturation(void) {
-	return settings->toggled_saturation;
+int GetFnSaturation(void) {
+	return settings->fn_saturation;
 }
-int GetMutedExposure(void) {
-	return settings->toggled_exposure;
+int GetFnExposure(void) {
+	return settings->fn_exposure;
 }
-int GetMutedVolume(void) {
-	return settings->toggled_volume;
+int GetFnVolume(void) {
+	return settings->fn_volume;
 }
-int GetMuteDisablesDpad(void) {
+int GetFnDpadDisabled(void) {
 	return 0;
 }
-int GetMuteEmulatesJoystick(void) {
+int GetFnDpadJoystick(void) {
 	return 0;
 }
-int GetMuteTurboA(void) {
+int GetFnTurboA(void) {
 	return settings->turbo_a;
 }
-int GetMuteTurboB(void) {
+int GetFnTurboB(void) {
 	return settings->turbo_b;
 }
-int GetMuteTurboX(void) {
+int GetFnTurboX(void) {
 	return settings->turbo_x;
 }
-int GetMuteTurboY(void) {
+int GetFnTurboY(void) {
 	return settings->turbo_y;
 }
-int GetMuteTurboL1(void) {
+int GetFnTurboL1(void) {
 	return settings->turbo_l1;
 }
-int GetMuteTurboL2(void) {
+int GetFnTurboL2(void) {
 	return settings->turbo_l2;
 }
-int GetMuteTurboR1(void) {
+int GetFnTurboR1(void) {
 	return settings->turbo_r1;
 }
-int GetMuteTurboR2(void) {
+int GetFnTurboR2(void) {
 	return settings->turbo_r2;
 }
 int GetFanSpeed(void) {
@@ -505,8 +580,8 @@ void SetColortemp(int value) {
 	SaveSettings();
 }
 void SetVolume(int value) { // 0-20
-	if (settings->mute && GetMutedVolume() != SETTINGS_DEFAULT_MUTE_NO_CHANGE)
-		return SetRawVolume(scaleVolume(GetMutedVolume()));
+	if (settings->fn_mode && GetFnVolume() != SETTINGS_DEFAULT_FN_NO_CHANGE)
+		return SetRawVolume(scaleVolume(GetFnVolume()));
 
 	if (settings->jack || settings->audiosink != AUDIO_SINK_DEFAULT)
 		settings->headphones = value;
@@ -535,37 +610,37 @@ void SetAudioSink(int value) {
 
 void SetHDMI(int value) {};
 
-void SetMute(int value) {
-	settings->mute = value;
-	if (settings->mute) {
-		if (GetMutedVolume() != SETTINGS_DEFAULT_MUTE_NO_CHANGE)
-			SetRawVolume(scaleVolume(GetMutedVolume()));
+void SetFnMode(int value) {
+	settings->fn_mode = value;
+	if (settings->fn_mode) {
+		if (GetFnVolume() != SETTINGS_DEFAULT_FN_NO_CHANGE)
+			SetRawVolume(scaleVolume(GetFnVolume()));
 		// custom mute mode display settings
-		if (GetMutedBrightness() != SETTINGS_DEFAULT_MUTE_NO_CHANGE)
-			SetRawBrightness(scaleBrightness(GetMutedBrightness()));
-		if (GetMutedColortemp() != SETTINGS_DEFAULT_MUTE_NO_CHANGE)
-			SetRawColortemp(scaleColortemp(GetMutedColortemp()));
-		if (GetMutedContrast() != SETTINGS_DEFAULT_MUTE_NO_CHANGE)
-			SetRawContrast(scaleContrast(GetMutedContrast()));
-		if (GetMutedSaturation() != SETTINGS_DEFAULT_MUTE_NO_CHANGE)
-			SetRawSaturation(scaleSaturation(GetMutedSaturation()));
-		if (GetMutedExposure() != SETTINGS_DEFAULT_MUTE_NO_CHANGE)
-			SetRawExposure(scaleExposure(GetMutedExposure()));
-		if (GetMuteTurboA())
+		if (GetFnBrightness() != SETTINGS_DEFAULT_FN_NO_CHANGE)
+			SetRawBrightness(scaleBrightness(GetFnBrightness()));
+		if (GetFnColortemp() != SETTINGS_DEFAULT_FN_NO_CHANGE)
+			SetRawColortemp(scaleColortemp(GetFnColortemp()));
+		if (GetFnContrast() != SETTINGS_DEFAULT_FN_NO_CHANGE)
+			SetRawContrast(scaleContrast(GetFnContrast()));
+		if (GetFnSaturation() != SETTINGS_DEFAULT_FN_NO_CHANGE)
+			SetRawSaturation(scaleSaturation(GetFnSaturation()));
+		if (GetFnExposure() != SETTINGS_DEFAULT_FN_NO_CHANGE)
+			SetRawExposure(scaleExposure(GetFnExposure()));
+		if (GetFnTurboA())
 			turboA(1);
-		if (GetMuteTurboB())
+		if (GetFnTurboB())
 			turboB(1);
-		if (GetMuteTurboX())
+		if (GetFnTurboX())
 			turboX(1);
-		if (GetMuteTurboY())
+		if (GetFnTurboY())
 			turboY(1);
-		if (GetMuteTurboL1())
+		if (GetFnTurboL1())
 			turboL1(1);
-		if (GetMuteTurboL2())
+		if (GetFnTurboL2())
 			turboL2(1);
-		if (GetMuteTurboR1())
+		if (GetFnTurboR1())
 			turboR1(1);
-		if (GetMuteTurboR2())
+		if (GetFnTurboR2())
 			turboR2(1);
 	} else {
 		SetVolume(GetVolume());
@@ -574,23 +649,29 @@ void SetMute(int value) {
 		SetContrast(GetContrast());
 		SetSaturation(GetSaturation());
 		SetExposure(GetExposure());
-		if (GetMuteTurboA())
+		if (GetFnTurboA())
 			turboA(0);
-		if (GetMuteTurboB())
+		if (GetFnTurboB())
 			turboB(0);
-		if (GetMuteTurboX())
+		if (GetFnTurboX())
 			turboX(0);
-		if (GetMuteTurboY())
+		if (GetFnTurboY())
 			turboY(0);
-		if (GetMuteTurboL1())
+		if (GetFnTurboL1())
 			turboL1(0);
-		if (GetMuteTurboL2())
+		if (GetFnTurboL2())
 			turboL2(0);
-		if (GetMuteTurboR1())
+		if (GetFnTurboR1())
 			turboR1(0);
-		if (GetMuteTurboR2())
+		if (GetFnTurboR2())
 			turboR2(0);
 	}
+}
+// OSD output mute: silences output only, leaves display/input untouched. The
+// SetRawVolume choke point turns the re-applied level into 0 while muted.
+void SetSpeakerMute(int value) {
+	settings->speaker_mute = value;
+	SetRawVolume(scaleVolume(GetVolume()));
 }
 void SetContrast(int value) {
 	SetRawContrast(scaleContrast(value));
@@ -608,79 +689,79 @@ void SetExposure(int value) {
 	SaveSettings();
 }
 
-void SetMutedBrightness(int value) {
-	settings->toggled_brightness = value;
+void SetFnBrightness(int value) {
+	settings->fn_brightness = value;
 	SaveSettings();
 }
 
-void SetMutedColortemp(int value) {
-	settings->toggled_colortemperature = value;
+void SetFnColortemp(int value) {
+	settings->fn_colortemperature = value;
 	SaveSettings();
 }
 
-void SetMutedContrast(int value) {
-	settings->toggled_contrast = value;
+void SetFnContrast(int value) {
+	settings->fn_contrast = value;
 	SaveSettings();
 }
 
-void SetMutedSaturation(int value) {
-	settings->toggled_saturation = value;
+void SetFnSaturation(int value) {
+	settings->fn_saturation = value;
 	SaveSettings();
 }
 
-void SetMutedExposure(int value) {
-	settings->toggled_exposure = value;
+void SetFnExposure(int value) {
+	settings->fn_exposure = value;
 	SaveSettings();
 }
 
-void SetMutedVolume(int value) {
-	settings->toggled_volume = value;
+void SetFnVolume(int value) {
+	settings->fn_volume = value;
 	SaveSettings();
 }
 
-void SetMuteDisablesDpad(int value) {
+void SetFnDpadDisabled(int value) {
 	//
 }
-void SetMuteEmulatesJoystick(int value) {
+void SetFnDpadJoystick(int value) {
 	//
 }
 
-void SetMuteTurboA(int value) {
+void SetFnTurboA(int value) {
 	settings->turbo_a = value;
 	SaveSettings();
 }
 
-void SetMuteTurboB(int value) {
+void SetFnTurboB(int value) {
 	settings->turbo_b = value;
 	SaveSettings();
 }
 
-void SetMuteTurboX(int value) {
+void SetFnTurboX(int value) {
 	settings->turbo_x = value;
 	SaveSettings();
 }
 
-void SetMuteTurboY(int value) {
+void SetFnTurboY(int value) {
 	settings->turbo_y = value;
 	SaveSettings();
 }
 
-void SetMuteTurboL1(int value) {
+void SetFnTurboL1(int value) {
 	settings->turbo_l1 = value;
 	SaveSettings();
 }
 
-void SetMuteTurboL2(int value) {
+void SetFnTurboL2(int value) {
 	settings->turbo_l2 = value;
 	SaveSettings();
 }
 
-void SetMuteTurboR1(int value) {
+void SetFnTurboR1(int value) {
 	settings->turbo_r1 = value;
 	SaveSettings();
 }
 
-void SetMuteTurboR2(int value) {
+void SetFnTurboR2(int value) {
 	settings->turbo_r2 = value;
 	SaveSettings();
 }
@@ -1107,8 +1188,12 @@ static int get_a2dp_simple_control_name(char* buf, size_t buflen) {
 }
 
 void SetRawVolume(int val) { // in: 0-100
-	if (settings->mute && GetMutedVolume() != SETTINGS_DEFAULT_MUTE_NO_CHANGE)
-		val = scaleVolume(GetMutedVolume());
+	if (settings->fn_mode && GetFnVolume() != SETTINGS_DEFAULT_FN_NO_CHANGE)
+		val = scaleVolume(GetFnVolume());
+
+	// OSD output mute: silence at the single hardware choke point
+	if (settings->speaker_mute)
+		val = 0;
 
 	if (GetAudioSink() == AUDIO_SINK_BLUETOOTH) {
 		// bluealsa is a mixer plugin, not exposed as a separate card

@@ -53,6 +53,7 @@ export HM_SCRIPTS_DIR="$TEMP_DATA_DIR/ports"
 cleanup() {
     killall sleepmon.elf 2>/dev/null || true
     killall show2.elf 2>/dev/null || true
+    kill $SYNC_PID 2>/dev/null || true
 
     umount "$TEMP_DATA_DIR/ports" 2>/dev/null || umount -l "$TEMP_DATA_DIR/ports" 2>/dev/null || true
     # Use rmdir (not rm -rf) so a still-mounted bind mount can't delete .ports game data
@@ -135,6 +136,12 @@ main() {
 
     echo "Starting port: $ROM_PATH"
     cd "$ROM_DIR"
+
+    # Re-apply the saved audio sink, volume and brightness once the emulator has
+    # finished its own SDL/ALSA init, which clobbers the mixer. The old pre-launch
+    # codec mute stays out: it would silence background music.
+    (sleep 5; syncsettings.elf) &
+    SYNC_PID=$!
 
     bash "$ROM_PATH"
 }

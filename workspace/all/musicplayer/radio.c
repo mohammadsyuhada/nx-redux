@@ -1864,6 +1864,20 @@ static void* radio_stream_thread_func(void* arg) {
 	return stream_thread_func(NULL);
 }
 
+/* Seed the station name from the saved station list so the UI has a
+ * name before (or without) an ICY icy-name header; the header, when
+ * present, still overrides it later. Caller holds meta_mutex. */
+static void radio_seed_station_name(const char* url) {
+	RadioStation* stations = NULL;
+	int count = Radio_getStations(&stations);
+	for (int i = 0; i < count; i++) {
+		if (strcmp(stations[i].url, url) == 0) {
+			strncpy(radio.metadata.station_name, stations[i].name, sizeof(radio.metadata.station_name) - 1);
+			return;
+		}
+	}
+}
+
 int Radio_prepare(const char* url) {
 	if (!url || !url[0] || strlen(url) >= RADIO_MAX_URL)
 		return -1;
@@ -1871,19 +1885,9 @@ int Radio_prepare(const char* url) {
 	strncpy(radio.current_url, url, sizeof(radio.current_url) - 1);
 	radio.current_url[sizeof(radio.current_url) - 1] = '\0';
 	radio.error_msg[0] = '\0';
-	RadioStation* stations = NULL;
-	const char* station_name = NULL;
-	int station_count = Radio_getStations(&stations);
-	for (int i = 0; i < station_count; i++) {
-		if (strcmp(stations[i].url, url) == 0) {
-			station_name = stations[i].name;
-			break;
-		}
-	}
 	pthread_mutex_lock(&meta_mutex);
 	memset(&radio.metadata, 0, sizeof(radio.metadata));
-	if (station_name)
-		strncpy(radio.metadata.station_name, station_name, sizeof(radio.metadata.station_name) - 1);
+	radio_seed_station_name(url);
 	pthread_mutex_unlock(&meta_mutex);
 	return 0;
 }
@@ -1909,6 +1913,7 @@ int Radio_play(const char* url) {
 
 	pthread_mutex_lock(&meta_mutex);
 	memset(&radio.metadata, 0, sizeof(RadioMetadata));
+	radio_seed_station_name(url);
 	pthread_mutex_unlock(&meta_mutex);
 
 	// Reset HLS state

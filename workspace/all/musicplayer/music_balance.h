@@ -3,6 +3,7 @@
 
 int MusicBalance_getValue(void);
 int MusicBalance_setValue(int value);
+const char* MusicBalance_formatValue(int value);
 const char* MusicBalance_getDisplayString(void);
 
 #endif

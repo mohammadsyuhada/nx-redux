@@ -57,6 +57,16 @@ Policy facts:
 - mediaplayer's external `ffplay` gets `-af aresample=<pickRate>`; the engine
   restarts ffplay on sink change, which makes it hotplug-safe for free.
 
+The standalone-emulator launchers (DC, N64, NDS, PortMaster, gen1recomp) run
+`syncsettings.elf` about 5 s after start to re-apply the saved audio sink,
+volume and brightness, because those emulators clobber the mixer during their
+own SDL/ALSA init and nothing else re-asserts those settings for them. The
+pre-launch `echo 1 > /sys/class/speaker/mute` that used to hide the launch pop
+was removed with #92: a codec-level mute silences background music, which is
+the whole point of the mixing work, so a short pop is now possible when a game
+starts while no music is playing — an accepted trade-off. Do **not**
+reintroduce `/sys/class/speaker/mute` in the launchers.
+
 ## The N64 / standalone-emulator audio patch
 
 `workspace/all/other/mupen64plus/mupen64plus-audio-sdl.patch` — the reference
@@ -91,7 +101,7 @@ copies that have drifted** — when touching mute/FN, volume, or display logic,
 diff the same function across both platform copies before concluding
 anything; a fix verified on one platform can silently miss a second missing
 guard on the other. Known deliberate difference: tg5050's display setters
-apply no mute overrides.
+apply no FN overrides.
 
 Mixer paths differ too: tg5050's speaker path is `amixer -c 0 cget
 name='DAC Volume'`; tg5040 uses a reversed-mapping `'digital volume'`. The
@@ -126,6 +136,35 @@ processes have it mapped, `adb push` to `<name>.so.new` and `mv` into place —
 a same-filesystem rename keeps the old inode alive (a direct push, or a
 cross-filesystem `mv` from /tmp, overwrites the mmap'd file in place and can
 crash the mapper). Reboot afterwards so everything picks up the new copy.
+
+## FN mode and speaker mute: two flags, one owner each
+
+The former single `settings->mute` flag is split into two independent flags,
+each written by exactly one owner:
+
+- `fn_mode` — keymon sets it from the FN switch GPIO only, via `SetFnMode`,
+  which applies (and reverts) the whole FN profile: `fn_volume`,
+  `fn_brightness`, `fn_colortemperature`, `fn_contrast`, `fn_saturation`,
+  `fn_exposure`, the D-pad mode and turbo-fire flags, and the LEDs.
+- `speaker_mute` — the OSD Mute widget sets it via `osdctl set mute`; keymon's
+  volume keys clear it via `SetSpeakerMute(0)` before they step the volume. It
+  only silences output; it touches no display or input setting.
+
+`SetRawVolume()` is the single hardware choke point where both flags meet:
+apply the FN volume override first, then `if (settings->speaker_mute) val = 0;`,
+then the sink-specific write. Every path that changes the hardware volume runs
+through it, so it is the one place to reason about "why is there no sound".
+
+Both flags are transient: the settings host resets `fn_mode` and `speaker_mute`
+to 0 at boot, and keymon re-derives `fn_mode` from the GPIO.
+
+Keep the layout in lockstep across **four** files: the two libmsettings copies
+above, `workspace/desktop/libmsettings/msettings.c`, and
+`workspace/all/common/msettings_shm.h`. Struct versions are tg5040
+`SETTINGS_VERSION 12`, tg5050 `3`, desktop `10`; `MSETTINGS_SHM_VERSION`
+mirrors 12/3 so a stale shm segment from an older binary is rejected. The LED
+config key is `fnLeds`; the loader still accepts the legacy `muteLeds=` on read
+so old `minuisettings.txt` files keep working.
 
 ## Misc facts
 

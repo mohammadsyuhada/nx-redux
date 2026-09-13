@@ -20,6 +20,7 @@ extern int psa_crypto_init(void);
 #include "ui_icons.h"
 #include "ui_podcast.h"
 #include "../common/ui/ui_splash.h"
+#include "../common/ui/ui_confirmdialog.h"
 #include "../common/wifi.h"
 
 // Module architecture
@@ -84,6 +85,9 @@ int main(int argc, char* argv[]) {
 	album_art_init();
 	if (MusicClient_init(SDCARD_PATH "/.system/bin/musicplayerd.elf") != 0) {
 		LOG_error("Failed to connect to music service\n");
+		(void)UI_confirmModal(screen, "Music service unavailable",
+							  "The background music service did not start. Reinstall or update NX Redux and try again.",
+							  NULL, true, true);
 		goto cleanup;
 	}
 

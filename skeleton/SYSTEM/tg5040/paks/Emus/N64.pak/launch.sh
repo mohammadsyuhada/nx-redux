@@ -86,6 +86,12 @@ mkdir -p "$MINUI_DIR"
 export EMU_OVERLAY_SCREENSHOT_DIR="$MINUI_DIR"
 export EMU_OVERLAY_ROMFILE="$(basename "$ROM")"
 
+# Re-apply the saved audio sink, volume and brightness once the emulator has
+# finished its own SDL/ALSA init, which clobbers the mixer. The old pre-launch
+# codec mute stays out: it would silence background music.
+(sleep 5; syncsettings.elf) &
+SYNC_PID=$!
+
 # Start power button sleep/poweroff handler
 sleepmon.elf &
 
@@ -145,10 +151,11 @@ fi
 # --- end video plugin -----------------------------------------------------
 
 # --- netplay pre-launch wizard -------------------------------------------
-# sleepmon + the unmute timer + swap are already running/active here, so an
+# sleepmon + the settings-sync timer + swap are already running/active here, so an
 # early exit MUST undo them itself (same rationale as DC.pak's bail helper).
 nx_netplay_bail() {
     killall sleepmon.elf 2>/dev/null || true
+    kill $SYNC_PID 2>/dev/null || true
     swapoff "$SWAPFILE" 2>/dev/null
     echo 100 >/proc/sys/vm/vfs_cache_pressure 2>/dev/null
     exit 0
@@ -310,6 +317,7 @@ done
 
 wait $EMU_PID
 killall sleepmon.elf 2>/dev/null || true
+kill $SYNC_PID 2>/dev/null || true
 
 # Netplay teardown: stop the host's server, undo hotspot/WiFi state.
 [ -n "$NETPLAY_SERVER_PID" ] && kill $NETPLAY_SERVER_PID 2>/dev/null

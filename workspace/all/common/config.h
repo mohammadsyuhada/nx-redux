@@ -132,8 +132,8 @@ typedef struct
 	char fn1Tool[256];
 	char fn2Tool[256];
 
-	// Mute switch
-	bool muteLeds;
+	// FN switch
+	bool fnLeds;
 
 	// Power
 	uint32_t screenTimeoutSecs;
@@ -216,7 +216,7 @@ typedef struct
 #define CFG_DEFAULT_SAVEFORMAT SAVE_FORMAT_SRM_UNCOMPRESSED
 #define CFG_DEFAULT_STATEFORMAT STATE_FORMAT_SRM_UNCOMPRESSED
 #define CFG_DEFAULT_EXTRACTEDFILENAME false
-#define CFG_DEFAULT_MUTELEDS false
+#define CFG_DEFAULT_FNLEDS false
 #define CFG_DEFAULT_GAMEARTWIDTH 0.45
 #define CFG_DEFAULT_GAMEARTSTYLE ART_STYLE_THUMBNAIL
 #define CFG_DEFAULT_GAMEARTTYPE ART_TYPE_MIX
@@ -352,9 +352,9 @@ void CFG_setStateFormat(int);
 // use extracted file name instead of archive name (for cores that do not support archives natively)
 bool CFG_getUseExtractedFileName(void);
 void CFG_setUseExtractedFileName(bool);
-// Enable/disable mute also shutting off LEDs.
-bool CFG_getMuteLEDs(void);
-void CFG_setMuteLEDs(bool);
+// Enable/disable FN mode also shutting off LEDs.
+bool CFG_getFnLEDs(void);
+void CFG_setFnLEDs(bool);
 // Set game art width percentage.
 double CFG_getGameArtWidth(void);
 void CFG_setGameArtWidth(double zeroToOne);

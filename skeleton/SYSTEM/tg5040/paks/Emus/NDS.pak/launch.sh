@@ -90,12 +90,19 @@ main() {
     export SDL_JOYSTICK_DEVICE=/dev/input/event3
     export SDL_JOYSTICK_DISABLE_UDEV=1
 
+    # Re-apply the saved audio sink, volume and brightness once the emulator has
+    # finished its own SDL/ALSA init, which clobbers the mixer. The old pre-launch
+    # codec mute stays out: it would silence background music.
+    (sleep 5; syncsettings.elf) &
+    SYNC_PID=$!
+
     # Start power button sleep/poweroff handler
     sleepmon.elf &
 
     "$EMU_DIR/drastic" "$*"
 
     killall sleepmon.elf 2>/dev/null || true
+    kill $SYNC_PID 2>/dev/null || true
 }
 
 main "$@"

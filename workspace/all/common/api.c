@@ -204,11 +204,6 @@ static int qualityLevels[] = {
 	4,
 	2,
 	1};
-typedef enum {
-	PWR_SLEEP_FULL,
-	PWR_SLEEP_SCREEN_OFF_MUSIC,
-} PWRSleepMode;
-
 static struct PWR_Context {
 	int initialized;
 
@@ -230,8 +225,6 @@ static struct PWR_Context {
 
 	IndicatorType show_setting;
 } pwr = {0};
-
-static void PWR_sleepMode(PWRSleepMode mode);
 
 static struct SND_Context {
 	int initialized;
@@ -1898,10 +1891,11 @@ int GFX_blitHardwareIndicator(SDL_Surface* dst, int x, int y, IndicatorType indi
 		setting_value = GetVolume();
 		setting_min = VOLUME_MIN;
 		setting_max = VOLUME_MAX;
+		int show_muted = GetSpeakerMute() || setting_value == 0;
 		if (GetAudioSink() == AUDIO_SINK_BLUETOOTH)
-			asset = (setting_value > 0 ? ASSET_BLUETOOTH : ASSET_BLUETOOTH_OFF);
+			asset = (show_muted ? ASSET_BLUETOOTH_OFF : ASSET_BLUETOOTH);
 		else
-			asset = (setting_value > 0 ? ASSET_VOLUME : ASSET_VOLUME_MUTE);
+			asset = (show_muted ? ASSET_VOLUME_MUTE : ASSET_VOLUME);
 	}
 
 	// Draw the icon
@@ -3714,9 +3708,12 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 	static uint32_t power_pressed_at = 0;	  // timestamp when power button was just pressed
 	static uint32_t mod_unpressed_at = 0;	  // timestamp of last time brightness modifier was NOT held
 	static uint32_t colortemp_pressed_at = 0; // timestamp of the color-temperature modifier's press edge
-	static uint32_t was_muted = -1;
-	if (was_muted == -1 && InitializedSettings())
-		was_muted = GetMute();
+	static uint32_t was_fn_on = -1;
+	static int was_speaker_muted = -1;
+	if (was_fn_on == -1 && InitializedSettings()) {
+		was_fn_on = GetFnMode();
+		was_speaker_muted = GetSpeakerMute();
+	}
 
 	static int was_charging = -1;
 	if (was_charging == -1)
@@ -3779,10 +3776,7 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 		pwr.requested_sleep = 0;
 		if (before_sleep)
 			before_sleep();
-		PWRSleepMode mode = !explicit_sleep && AudioMgr_isMusicAudioOpen()
-								? PWR_SLEEP_SCREEN_OFF_MUSIC
-								: PWR_SLEEP_FULL;
-		PWR_sleepMode(mode);
+		PWR_sleep();
 		if (after_sleep)
 			after_sleep();
 		last_input_at = now = SDL_GetTicks();
@@ -3841,9 +3835,11 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 	}
 
 	if (InitializedSettings()) {
-		int muted = GetMute();
-		if (muted != was_muted) {
-			was_muted = muted;
+		int fn_on = GetFnMode();
+		int speaker_muted = GetSpeakerMute();
+		if (fn_on != was_fn_on || speaker_muted != was_speaker_muted) {
+			was_fn_on = fn_on;
+			was_speaker_muted = speaker_muted;
 			show_setting = INDICATOR_VOLUME;
 			setting_shown_at = now;
 		}
@@ -3912,7 +3908,19 @@ void PWR_powerOff(int reboot) {
 	}
 }
 
-static void PWR_enterFullSleepServices(void) {
+static void PWR_enterSleep(void) {
+	system("musicplayerctl.elf sleep >/dev/null 2>&1");
+	SND_pauseAudio(true);
+	LEDS_pushProfileOverride(LIGHT_PROFILE_SLEEP);
+	if (GetHDMI()) {
+		PLAT_clearVideo(gfx.screen);
+		PLAT_flip(gfx.screen, 0);
+	} else {
+		if (CFG_getHaptics()) {
+			VIB_singlePulse(VIB_sleepStrength, VIB_sleepDuration_ms);
+		}
+		PLAT_enableBacklight(0);
+	}
 	if (!GetHDMI())
 		SetRawVolume(MUTE_VOLUME_RAW);
 	system("killall -STOP keymon.elf");
@@ -3922,62 +3930,38 @@ static void PWR_enterFullSleepServices(void) {
 
 	sync();
 }
-
-static void PWR_enterSleep(PWRSleepMode mode) {
-	if (mode == PWR_SLEEP_FULL)
-		system("musicplayerctl.elf sleep >/dev/null 2>&1");
-	SND_pauseAudio(true);
-	LEDS_pushProfileOverride(LIGHT_PROFILE_SLEEP);
-	if (GetHDMI()) {
-		PLAT_clearVideo(gfx.screen);
-		PLAT_flip(gfx.screen, 0);
-	} else {
-		if (mode == PWR_SLEEP_FULL && CFG_getHaptics()) {
-			VIB_singlePulse(VIB_sleepStrength, VIB_sleepDuration_ms);
-		}
-		PLAT_enableBacklight(0);
-	}
-	if (mode == PWR_SLEEP_FULL)
-		PWR_enterFullSleepServices();
-}
-static void PWR_exitSleep(PWRSleepMode mode) {
+static void PWR_exitSleep(void) {
 	LEDS_popProfileOverride(LIGHT_PROFILE_SLEEP);
 
-	if (mode == PWR_SLEEP_FULL) {
-		PWR_updateFrequency(-1, true);
+	PWR_updateFrequency(-1, true);
 
-		system("killall -CONT keymon.elf");
-		system("killall -CONT audiomon.elf");
-	}
+	system("killall -CONT keymon.elf");
+	system("killall -CONT audiomon.elf");
 
 	if (GetHDMI()) {
 		// buh
 	} else {
-		if (mode == PWR_SLEEP_FULL && CFG_getHaptics()) {
+		if (CFG_getHaptics()) {
 			VIB_singlePulse(VIB_sleepStrength, VIB_sleepDuration_ms);
 		}
 		PLAT_enableBacklight(1);
 	}
-	if (mode == PWR_SLEEP_FULL) {
-		// reinitialize audio after sleep otherwise it doesnt come back on sometimes
-		LOG_info("Reinitialize audio after sleep\n");
-		SND_resetAudio(snd.sample_rate_in, snd.frame_rate);
+	// reinitialize audio after sleep otherwise it doesnt come back on sometimes
+	LOG_info("Reinitialize audio after sleep\n");
+	SND_resetAudio(snd.sample_rate_in, snd.frame_rate);
 
-		// Restore volume (also unmutes speaker amp) AFTER audio device is reinitialized
-		if (!GetHDMI()) {
-			SetVolume(GetVolume());
-		}
-		/* audiomon is running again and has republished routing before the owner
-		 * is asked to reopen its stream. */
-		system("musicplayerctl.elf wake >/dev/null 2>&1");
-
-		sync();
-	} else {
-		SND_pauseAudio(false);
+	// Restore volume (also unmutes speaker amp) AFTER audio device is reinitialized
+	if (!GetHDMI()) {
+		SetVolume(GetVolume());
 	}
+	/* audiomon is running again and has republished routing before the owner
+	 * is asked to reopen its stream. */
+	system("musicplayerctl.elf wake >/dev/null 2>&1");
+
+	sync();
 }
 
-static PWRSleepMode PWR_waitForWake(PWRSleepMode mode) {
+static void PWR_waitForWake(void) {
 	uint32_t sleep_ticks = SDL_GetTicks();
 	const int sleepDelay = CFG_getSuspendTimeoutSecs() * 1000;
 	while (!PAD_wake()) {
@@ -3986,16 +3970,7 @@ static PWRSleepMode PWR_waitForWake(PWRSleepMode mode) {
 			break;
 		}
 		SDL_Delay(200);
-		if (mode == PWR_SLEEP_SCREEN_OFF_MUSIC && AudioMgr_isMusicAudioOpen())
-			sleep_ticks = SDL_GetTicks();
 		if (sleepDelay > 0 && SDL_GetTicks() - sleep_ticks >= sleepDelay) {
-			if (mode == PWR_SLEEP_SCREEN_OFF_MUSIC) {
-				/* A short PCM reopen does not expire the idle deadline; only
-				 * a full suspend timeout without an open Music PCM proceeds. */
-				mode = PWR_SLEEP_FULL;
-				system("musicplayerctl.elf sleep >/dev/null 2>&1");
-				PWR_enterFullSleepServices();
-			}
 			if (SDL_AtomicGet(&pwr.is_charging) ||
 				(CFG_getKeepAwakeUSB() && SDL_AtomicGet(&pwr.is_usb_connected))) {
 				sleep_ticks += 60000; // check again in a minute
@@ -4004,7 +3979,7 @@ static PWRSleepMode PWR_waitForWake(PWRSleepMode mode) {
 			if (PLAT_supportsDeepSleep()) {
 				int ret = PWR_deepSleep();
 				if (ret == 0) {
-					return PWR_SLEEP_FULL;
+					return;
 				} else {
 					LOG_warn("failed to enter deep sleep - powering off\n");
 				}
@@ -4013,28 +3988,24 @@ static PWRSleepMode PWR_waitForWake(PWRSleepMode mode) {
 				PWR_powerOff(0);
 		}
 	}
-	return mode;
+	return;
 }
 
-static void PWR_sleepMode(PWRSleepMode mode) {
+void PWR_sleep(void) {
 	LOG_info("Entering hybrid sleep\n");
 
 	system("gametimectl.elf stop_all");
 
 	GFX_clear(gfx.screen);
 	PAD_reset();
-	PWR_enterSleep(mode);
-	mode = PWR_waitForWake(mode);
-	PWR_exitSleep(mode);
+	PWR_enterSleep();
+	PWR_waitForWake();
+	PWR_exitSleep();
 	PAD_reset();
 
 	system("gametimectl.elf resume");
 
 	pwr.resume_tick = SDL_GetTicks();
-}
-
-void PWR_sleep(void) {
-	PWR_sleepMode(PWR_SLEEP_FULL);
 }
 
 int PWR_deepSleep(void) {
@@ -4158,7 +4129,7 @@ void LEDS_applyRules() {
 	// some rules rely on pwr.is_charging and pwr.charge being valid
 	if (pwr.initialized == 0)
 		LOG_warn("LEDS_applyRules called before PWR_init\n");
-	// some rules rely in InitSettings() being called (e.g GetMute())
+	// some rules rely in InitSettings() being called (e.g GetFnMode())
 	if (!InitializedSettings())
 		LOG_warn("LEDS_applyRules called before InitSettings\n");
 
@@ -4176,7 +4147,7 @@ void LEDS_applyRules() {
 		LEDS_setProfile(LIGHT_PROFILE_CRITICAL_BATTERY);
 	}
 	// - if muted, muted takes priority over everything except critical battery
-	else if (InitializedSettings() && CFG_getMuteLEDs() && GetMute()) {
+	else if (InitializedSettings() && CFG_getFnLEDs() && GetFnMode()) {
 		//LOG_info("LEDS_applyRules: muted\n");
 		LEDS_setProfile(LIGHT_PROFILE_OFF);
 	}

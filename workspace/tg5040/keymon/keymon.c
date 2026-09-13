@@ -43,7 +43,7 @@
 #define PRESSED 1
 #define REPEAT 2
 
-#define MUTE_STATE_PATH "/sys/class/gpio/gpio243/value"
+#define FN_SWITCH_GPIO_PATH "/sys/class/gpio/gpio243/value"
 
 #define MAX_INPUT_DEVICES 16
 #define INPUT_DIR "/dev/input"
@@ -86,9 +86,9 @@ static int getInt(char* path) {
 	return i;
 }
 
-static pthread_t mute_pt;
-static void* watchMute(void* arg) {
-	int is_muted, was_muted;
+static pthread_t fn_pt;
+static void* watchFnSwitch(void* arg) {
+	int fn_on, fn_was_on;
 	// Motor strength varies by model, so the mute-confirmation buzz voltage is
 	// tuned per device; the timing is a common two 100 ms taps. Levels chosen
 	// by A/B on hardware 2026-08-02:
@@ -99,17 +99,17 @@ static void* watchMute(void* arg) {
 	int is_brickpro = device && strcmp(device, "brickpro") == 0;
 	int is_brick = device && strcmp(device, "brick") == 0;
 
-	is_muted = was_muted = getInt(MUTE_STATE_PATH);
-	SetMute(is_muted);
+	fn_on = fn_was_on = getInt(FN_SWITCH_GPIO_PATH);
+	SetFnMode(fn_on);
 
 	while (!quit) {
 		usleep(1000000);
 
-		is_muted = getInt(MUTE_STATE_PATH);
-		if (is_muted >= 0 && was_muted != is_muted) {
-			was_muted = is_muted;
-			SetMute(is_muted);
-			if (GetMute()) {
+		fn_on = getInt(FN_SWITCH_GPIO_PATH);
+		if (fn_on >= 0 && fn_was_on != fn_on) {
+			fn_was_on = fn_on;
+			SetFnMode(fn_on);
+			if (GetFnMode()) {
 				if (is_brickpro)
 					system("echo 2000000 > /sys/class/motor/voltage");
 				else if (is_brick)
@@ -186,7 +186,7 @@ int main(int argc, char* argv[]) {
 	sigaction(SIGTERM, &sa, NULL);
 
 	InitSettings();
-	pthread_create(&mute_pt, NULL, &watchMute, NULL);
+	pthread_create(&fn_pt, NULL, &watchFnSwitch, NULL);
 
 	// Create epoll instance
 	epoll_fd = epoll_create1(EPOLL_CLOEXEC);
@@ -376,6 +376,8 @@ int main(int argc, char* argv[]) {
 				if (val < COLORTEMP_MAX)
 					SetColortemp(++val);
 			} else {
+				if (GetSpeakerMute())
+					SetSpeakerMute(0);
 				val = GetVolume();
 				if (val < VOLUME_MAX)
 					SetVolume(++val);
@@ -397,6 +399,8 @@ int main(int argc, char* argv[]) {
 				if (val > COLORTEMP_MIN)
 					SetColortemp(--val);
 			} else {
+				if (GetSpeakerMute())
+					SetSpeakerMute(0);
 				val = GetVolume();
 				if (val > VOLUME_MIN)
 					SetVolume(--val);
@@ -415,6 +419,6 @@ int main(int argc, char* argv[]) {
 	close(inotify_fd);
 	close(epoll_fd);
 
-	pthread_cancel(mute_pt);
-	pthread_join(mute_pt, NULL);
+	pthread_cancel(fn_pt);
+	pthread_join(fn_pt, NULL);
 }

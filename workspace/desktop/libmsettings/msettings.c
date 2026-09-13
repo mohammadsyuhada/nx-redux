@@ -137,28 +137,60 @@ typedef struct SettingsV9 {
 	int jack;
 } SettingsV9;
 
+typedef struct SettingsV10 {
+	int version; // future proofing
+	int brightness;
+	int colortemperature;
+	int headphones;
+	int speaker;
+	int fn_mode;
+	int contrast;
+	int saturation;
+	int exposure;
+	int fn_brightness;
+	int fn_colortemperature;
+	int fn_contrast;
+	int fn_saturation;
+	int fn_exposure;
+	int fn_volume;
+	int fn_dpad_disabled;
+	int fn_dpad_joystick;
+	int turbo_a;
+	int turbo_b;
+	int turbo_x;
+	int turbo_y;
+	int turbo_l1;
+	int turbo_l2;
+	int turbo_r1;
+	int turbo_r2;
+	int unused[2]; // for future use
+	int speaker_mute;
+	// NOTE: doesn't really need to be persisted but still needs to be shared
+	int jack;
+} SettingsV10;
+
 // When incrementing SETTINGS_VERSION, update the Settings typedef and add
 // backwards compatibility to InitSettings!
-#define SETTINGS_VERSION 9
-typedef SettingsV9 Settings;
+#define SETTINGS_VERSION 10
+typedef SettingsV10 Settings;
 static Settings DefaultSettings = {
 	.version = SETTINGS_VERSION,
 	.brightness = SETTINGS_DEFAULT_BRIGHTNESS,
 	.colortemperature = SETTINGS_DEFAULT_COLORTEMP,
 	.headphones = SETTINGS_DEFAULT_HEADPHONE_VOLUME,
 	.speaker = SETTINGS_DEFAULT_VOLUME,
-	.mute = 0,
+	.fn_mode = 0,
 	.contrast = SETTINGS_DEFAULT_CONTRAST,
 	.saturation = SETTINGS_DEFAULT_SATURATION,
 	.exposure = SETTINGS_DEFAULT_EXPOSURE,
-	.toggled_brightness = SETTINGS_DEFAULT_MUTE_NO_CHANGE,
-	.toggled_colortemperature = SETTINGS_DEFAULT_MUTE_NO_CHANGE,
-	.toggled_contrast = SETTINGS_DEFAULT_MUTE_NO_CHANGE,
-	.toggled_saturation = SETTINGS_DEFAULT_MUTE_NO_CHANGE,
-	.toggled_exposure = SETTINGS_DEFAULT_MUTE_NO_CHANGE,
-	.toggled_volume = 0, // mute is default
-	.disable_dpad_on_mute = 0,
-	.emulate_joystick_on_mute = 0,
+	.fn_brightness = SETTINGS_DEFAULT_FN_NO_CHANGE,
+	.fn_colortemperature = SETTINGS_DEFAULT_FN_NO_CHANGE,
+	.fn_contrast = SETTINGS_DEFAULT_FN_NO_CHANGE,
+	.fn_saturation = SETTINGS_DEFAULT_FN_NO_CHANGE,
+	.fn_exposure = SETTINGS_DEFAULT_FN_NO_CHANGE,
+	.fn_volume = 0, // silent by default
+	.fn_dpad_disabled = 0,
+	.fn_dpad_joystick = 0,
 	.turbo_a = 0,
 	.turbo_b = 0,
 	.turbo_x = 0,
@@ -167,6 +199,7 @@ static Settings DefaultSettings = {
 	.turbo_l2 = 0,
 	.turbo_r1 = 0,
 	.turbo_r2 = 0,
+	.speaker_mute = 0,
 	.jack = 0,
 };
 static Settings* msettings;
@@ -203,18 +236,49 @@ void InitSettings(void) {
 				memcpy(msettings, &DefaultSettings, sizeof(Settings));
 
 				// overwrite with migrated data
-				if (version == 8) {
+				if (version == 9) {
+					printf("Found settings v9.\n");
+					SettingsV9 old;
+					read(fd, &old, sizeof(SettingsV9));
+
+					msettings->brightness = old.brightness;
+					msettings->colortemperature = old.colortemperature;
+					msettings->headphones = old.headphones;
+					msettings->speaker = old.speaker;
+					msettings->fn_mode = old.mute;
+					msettings->contrast = old.contrast;
+					msettings->saturation = old.saturation;
+					msettings->exposure = old.exposure;
+					msettings->fn_brightness = old.toggled_brightness;
+					msettings->fn_colortemperature = old.toggled_colortemperature;
+					msettings->fn_contrast = old.toggled_contrast;
+					msettings->fn_saturation = old.toggled_saturation;
+					msettings->fn_exposure = old.toggled_exposure;
+					msettings->fn_volume = old.toggled_volume;
+					msettings->fn_dpad_disabled = old.disable_dpad_on_mute;
+					msettings->fn_dpad_joystick = old.emulate_joystick_on_mute;
+					msettings->turbo_a = old.turbo_a;
+					msettings->turbo_b = old.turbo_b;
+					msettings->turbo_x = old.turbo_x;
+					msettings->turbo_y = old.turbo_y;
+					msettings->turbo_l1 = old.turbo_l1;
+					msettings->turbo_l2 = old.turbo_l2;
+					msettings->turbo_r1 = old.turbo_r1;
+					msettings->turbo_r2 = old.turbo_r2;
+					msettings->jack = old.jack;
+					// speaker_mute is new in v10; leave it at the default 0
+				} else if (version == 8) {
 					printf("Found settings v8.\n");
 					SettingsV8 old;
 					read(fd, &old, sizeof(SettingsV8));
 
-					msettings->toggled_volume = old.toggled_volume;
+					msettings->fn_volume = old.toggled_volume;
 
-					msettings->toggled_brightness = old.toggled_brightness;
-					msettings->toggled_colortemperature = old.toggled_colortemperature;
-					msettings->toggled_contrast = old.toggled_contrast;
-					msettings->toggled_exposure = old.toggled_exposure;
-					msettings->toggled_saturation = old.toggled_saturation;
+					msettings->fn_brightness = old.toggled_brightness;
+					msettings->fn_colortemperature = old.toggled_colortemperature;
+					msettings->fn_contrast = old.toggled_contrast;
+					msettings->fn_exposure = old.toggled_exposure;
+					msettings->fn_saturation = old.toggled_saturation;
 
 					msettings->saturation = old.saturation;
 					msettings->contrast = old.contrast;
@@ -225,18 +289,18 @@ void InitSettings(void) {
 					msettings->brightness = old.brightness;
 					msettings->headphones = old.headphones;
 					msettings->speaker = old.speaker;
-					msettings->mute = old.mute;
+					msettings->fn_mode = old.mute;
 					msettings->jack = old.jack;
 				} else if (version == 7) {
 					printf("Found settings v7.\n");
 					SettingsV7 old;
 					read(fd, &old, sizeof(SettingsV7));
 
-					msettings->toggled_brightness = old.mutedbrightness;
-					msettings->toggled_colortemperature = old.mutedcolortemperature;
-					msettings->toggled_contrast = old.mutedcontrast;
-					msettings->toggled_exposure = old.mutedexposure;
-					msettings->toggled_saturation = old.mutedsaturation;
+					msettings->fn_brightness = old.mutedbrightness;
+					msettings->fn_colortemperature = old.mutedcolortemperature;
+					msettings->fn_contrast = old.mutedcontrast;
+					msettings->fn_exposure = old.mutedexposure;
+					msettings->fn_saturation = old.mutedsaturation;
 
 					msettings->saturation = old.saturation;
 					msettings->contrast = old.contrast;
@@ -247,7 +311,7 @@ void InitSettings(void) {
 					msettings->brightness = old.brightness;
 					msettings->headphones = old.headphones;
 					msettings->speaker = old.speaker;
-					msettings->mute = old.mute;
+					msettings->fn_mode = old.mute;
 					msettings->jack = old.jack;
 				} else if (version == 6) {
 					printf("Found settings v6.\n");
@@ -263,7 +327,7 @@ void InitSettings(void) {
 					msettings->brightness = old.brightness;
 					msettings->headphones = old.headphones;
 					msettings->speaker = old.speaker;
-					msettings->mute = old.mute;
+					msettings->fn_mode = old.mute;
 					msettings->jack = old.jack;
 				} else if (version == 5) {
 					printf("Found settings v5.\n");
@@ -275,7 +339,7 @@ void InitSettings(void) {
 					msettings->brightness = old.brightness;
 					msettings->headphones = old.headphones;
 					msettings->speaker = old.speaker;
-					msettings->mute = old.mute;
+					msettings->fn_mode = old.mute;
 					msettings->jack = old.jack;
 				} else if (version == 4) {
 					printf("Found settings v4.\n");
@@ -288,7 +352,7 @@ void InitSettings(void) {
 					msettings->brightness = old.brightness;
 					msettings->headphones = old.headphones;
 					msettings->speaker = old.speaker;
-					msettings->mute = old.mute;
+					msettings->fn_mode = old.mute;
 					msettings->jack = old.jack;
 				} else if (version == 3) {
 					printf("Found settings v3.\n");
@@ -298,7 +362,7 @@ void InitSettings(void) {
 					msettings->brightness = old.brightness;
 					msettings->headphones = old.headphones;
 					msettings->speaker = old.speaker;
-					msettings->mute = old.mute;
+					msettings->fn_mode = old.mute;
 					msettings->jack = old.jack;
 				} else {
 					printf("Found unsupported settings version: %i.\n", version);
@@ -355,71 +419,71 @@ int GetVolume(void) {
 	return 0;
 }
 
-int GetMutedBrightness(void) {
+int GetFnBrightness(void) {
 	return 0;
 }
-int GetMutedColortemp(void) {
+int GetFnColortemp(void) {
 	return 0;
 }
-int GetMutedContrast(void) {
+int GetFnContrast(void) {
 	return 0;
 }
-int GetMutedSaturation(void) {
+int GetFnSaturation(void) {
 	return 0;
 }
-int GetMutedExposure(void) {
+int GetFnExposure(void) {
 	return 0;
 }
-int GetMutedVolume(void) {
+int GetFnVolume(void) {
 	return 0;
 }
-int GetMuteDisablesDpad(void) {
+int GetFnDpadDisabled(void) {
 	return 0;
 }
-int GetMuteEmulatesJoystick(void) {
+int GetFnDpadJoystick(void) {
 	return 0;
 }
-int GetMuteTurboA(void) {
+int GetFnTurboA(void) {
 	return 0;
 }
-int GetMuteTurboB(void) {
+int GetFnTurboB(void) {
 	return 0;
 }
-int GetMuteTurboX(void) {
+int GetFnTurboX(void) {
 	return 0;
 }
-int GetMuteTurboY(void) {
+int GetFnTurboY(void) {
 	return 0;
 }
-int GetMuteTurboL1(void) {
+int GetFnTurboL1(void) {
 	return 0;
 }
-int GetMuteTurboL2(void) {
+int GetFnTurboL2(void) {
 	return 0;
 }
-int GetMuteTurboR1(void) {
+int GetFnTurboR1(void) {
 	return 0;
 }
-int GetMuteTurboR2(void) {
+int GetFnTurboR2(void) {
 	return 0;
 }
 
-void SetMutedBrightness(int value) {}
-void SetMutedColortemp(int value) {}
-void SetMutedContrast(int value) {}
-void SetMutedSaturation(int value) {}
-void SetMutedExposure(int value) {}
-void SetMutedVolume(int value) {}
-void SetMuteDisablesDpad(int value) {}
-void SetMuteEmulatesJoystick(int value) {}
-void SetMuteTurboA(int value) {}
-void SetMuteTurboB(int value) {}
-void SetMuteTurboX(int value) {}
-void SetMuteTurboY(int value) {}
-void SetMuteTurboL1(int value) {}
-void SetMuteTurboL2(int value) {}
-void SetMuteTurboR1(int value) {}
-void SetMuteTurboR2(int value) {}
+void SetFnBrightness(int value) {}
+void SetFnColortemp(int value) {}
+void SetFnContrast(int value) {}
+void SetFnSaturation(int value) {}
+void SetFnExposure(int value) {}
+void SetFnVolume(int value) {}
+void SetFnDpadDisabled(int value) {}
+void SetFnDpadJoystick(int value) {}
+void SetFnTurboA(int value) {}
+void SetFnTurboB(int value) {}
+void SetFnTurboX(int value) {}
+void SetFnTurboY(int value) {}
+void SetFnTurboL1(int value) {}
+void SetFnTurboL2(int value) {}
+void SetFnTurboR1(int value) {}
+void SetFnTurboR2(int value) {}
 
 void SetRawBrightness(int value) {}
 void SetRawVolume(int value) {}
@@ -446,6 +510,12 @@ int GetHDMI(void) {
 }
 void SetHDMI(int value) {}
 
-int GetMute(void) {
+int GetFnMode(void) {
 	return 0;
 }
+
+// OSD output mute (settings->speaker_mute) — not implemented on desktop
+int GetSpeakerMute(void) {
+	return 0;
+}
+void SetSpeakerMute(int value) {}

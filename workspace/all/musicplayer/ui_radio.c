@@ -114,7 +114,7 @@ void render_radio_list(SDL_Surface* screen, IndicatorType show_setting,
 static RadioStation* get_station_by_index(int index) {
 	RadioStation* stations;
 	int count = Radio_getStations(&stations);
-	if (count > 0 && index < count) {
+	if (count > 0 && index >= 0 && index < count) {
 		return &stations[index];
 	}
 	return NULL;

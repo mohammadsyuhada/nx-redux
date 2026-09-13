@@ -11,7 +11,7 @@
 #define SETTINGS_DEFAULT_FAN_SPEED -2 // Default fan curve
 #define SETTINGS_DEFAULT_SOFTWARE_VOLUME 20
 
-#define SETTINGS_DEFAULT_MUTE_NO_CHANGE -69
+#define SETTINGS_DEFAULT_FN_NO_CHANGE -69
 
 void InitSettings(void);
 void QuitSettings(void);
@@ -57,47 +57,50 @@ void SetAudioSink(int value);
 int GetHDMI(void);
 void SetHDMI(int value); // 0-1
 
-int GetMute(void);
-void SetMute(int value); // 0-1
-int GetRumble(void);	 // master motor switch, 1 = vibration allowed (default)
+int GetFnMode(void);
+void SetFnMode(int value); // 0-1
+// OSD output mute (settings->speaker_mute): pure output silence, independent of FN mode
+int GetSpeakerMute(void);
+void SetSpeakerMute(int value);
+int GetRumble(void); // master motor switch, 1 = vibration allowed (default)
 void SetRumble(int on);
 int GetRumbleStrength(void); // 0 Normal (default), 1 Light, 2 Strong — see all/common/vib_levels.h
 void SetRumbleStrength(int level);
 
-// custom mute mode persistence layer
+// custom FN mode persistence layer
 
-int GetMutedBrightness(void);
-int GetMutedColortemp(void);
-int GetMutedContrast(void);
-int GetMutedSaturation(void);
-int GetMutedExposure(void);
-int GetMutedVolume(void);
-int GetMuteDisablesDpad(void);
-int GetMuteEmulatesJoystick(void);
-int GetMuteTurboA(void);
-int GetMuteTurboB(void);
-int GetMuteTurboX(void);
-int GetMuteTurboY(void);
-int GetMuteTurboL1(void);
-int GetMuteTurboL2(void);
-int GetMuteTurboR1(void);
-int GetMuteTurboR2(void);
+int GetFnBrightness(void);
+int GetFnColortemp(void);
+int GetFnContrast(void);
+int GetFnSaturation(void);
+int GetFnExposure(void);
+int GetFnVolume(void);
+int GetFnDpadDisabled(void);
+int GetFnDpadJoystick(void);
+int GetFnTurboA(void);
+int GetFnTurboB(void);
+int GetFnTurboX(void);
+int GetFnTurboY(void);
+int GetFnTurboL1(void);
+int GetFnTurboL2(void);
+int GetFnTurboR1(void);
+int GetFnTurboR2(void);
 
-void SetMutedBrightness(int);
-void SetMutedColortemp(int);
-void SetMutedContrast(int);
-void SetMutedSaturation(int);
-void SetMutedExposure(int);
-void SetMutedVolume(int);
-void SetMuteDisablesDpad(int);
-void SetMuteEmulatesJoystick(int);
-void SetMuteTurboA(int);
-void SetMuteTurboB(int);
-void SetMuteTurboX(int);
-void SetMuteTurboY(int);
-void SetMuteTurboL1(int);
-void SetMuteTurboL2(int);
-void SetMuteTurboR1(int);
-void SetMuteTurboR2(int);
+void SetFnBrightness(int);
+void SetFnColortemp(int);
+void SetFnContrast(int);
+void SetFnSaturation(int);
+void SetFnExposure(int);
+void SetFnVolume(int);
+void SetFnDpadDisabled(int);
+void SetFnDpadJoystick(int);
+void SetFnTurboA(int);
+void SetFnTurboB(int);
+void SetFnTurboX(int);
+void SetFnTurboY(int);
+void SetFnTurboL1(int);
+void SetFnTurboL2(int);
+void SetFnTurboR1(int);
+void SetFnTurboR2(int);
 
 #endif // __msettings_h__

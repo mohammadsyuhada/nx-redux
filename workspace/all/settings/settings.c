@@ -112,7 +112,7 @@ static int has_stock_osd_restore(const DeviceInfo* dev) {
 	return access(path, F_OK) == 0;
 }
 
-static int has_mute_toggle(const DeviceInfo* dev) {
+static int has_fn_switch(const DeviceInfo* dev) {
 	return dev->platform == PLAT_TG5050 || dev->platform == PLAT_TG5040;
 }
 
@@ -306,43 +306,43 @@ static int dpad_mode_values[] = {0, 1, 2};
 #define DPAD_MODE_COUNT 3
 
 // ============================================
-// FN Switch "when toggled" arrays
+// FN Switch "when FN is on" arrays
 // ============================================
 
-/* Volume when toggled: Unchanged, Muted, 5%, 10%, ... 100% (22 entries) */
-#define MUTE_VOLUME_COUNT 22
-static int mute_volume_values[MUTE_VOLUME_COUNT];
-static const char* mute_volume_labels[MUTE_VOLUME_COUNT];
+/* Volume when FN is on: Unchanged, Muted, 5%, 10%, ... 100% (22 entries) */
+#define FN_VOLUME_COUNT 22
+static int fn_volume_values[FN_VOLUME_COUNT];
+static const char* fn_volume_labels[FN_VOLUME_COUNT];
 
-/* Brightness when toggled: Unchanged, 0-10 (12 entries) */
-#define MUTE_BRIGHTNESS_COUNT 12
-static int mute_brightness_values[MUTE_BRIGHTNESS_COUNT];
-static char mute_brightness_label_buf[MUTE_BRIGHTNESS_COUNT][12];
-static const char* mute_brightness_labels[MUTE_BRIGHTNESS_COUNT];
+/* Brightness when FN is on: Unchanged, 0-10 (12 entries) */
+#define FN_BRIGHTNESS_COUNT 12
+static int fn_brightness_values[FN_BRIGHTNESS_COUNT];
+static char fn_brightness_label_buf[FN_BRIGHTNESS_COUNT][12];
+static const char* fn_brightness_labels[FN_BRIGHTNESS_COUNT];
 
-/* Color temp when toggled: Unchanged, 0-40 (42 entries) */
-#define MUTE_COLORTEMP_COUNT 42
-static int mute_colortemp_values[MUTE_COLORTEMP_COUNT];
-static char mute_colortemp_label_buf[MUTE_COLORTEMP_COUNT][12];
-static const char* mute_colortemp_labels[MUTE_COLORTEMP_COUNT];
+/* Color temp when FN is on: Unchanged, 0-40 (42 entries) */
+#define FN_COLORTEMP_COUNT 42
+static int fn_colortemp_values[FN_COLORTEMP_COUNT];
+static char fn_colortemp_label_buf[FN_COLORTEMP_COUNT][12];
+static const char* fn_colortemp_labels[FN_COLORTEMP_COUNT];
 
-/* Contrast when toggled: Unchanged, -4 to 5 (11 entries) */
-#define MUTE_CONTRAST_COUNT 11
-static int mute_contrast_values[MUTE_CONTRAST_COUNT];
-static char mute_contrast_label_buf[MUTE_CONTRAST_COUNT][12];
-static const char* mute_contrast_labels[MUTE_CONTRAST_COUNT];
+/* Contrast when FN is on: Unchanged, -4 to 5 (11 entries) */
+#define FN_CONTRAST_COUNT 11
+static int fn_contrast_values[FN_CONTRAST_COUNT];
+static char fn_contrast_label_buf[FN_CONTRAST_COUNT][12];
+static const char* fn_contrast_labels[FN_CONTRAST_COUNT];
 
-/* Saturation when toggled: Unchanged, -5 to 5 (12 entries) */
-#define MUTE_SATURATION_COUNT 12
-static int mute_saturation_values[MUTE_SATURATION_COUNT];
-static char mute_saturation_label_buf[MUTE_SATURATION_COUNT][12];
-static const char* mute_saturation_labels[MUTE_SATURATION_COUNT];
+/* Saturation when FN is on: Unchanged, -5 to 5 (12 entries) */
+#define FN_SATURATION_COUNT 12
+static int fn_saturation_values[FN_SATURATION_COUNT];
+static char fn_saturation_label_buf[FN_SATURATION_COUNT][12];
+static const char* fn_saturation_labels[FN_SATURATION_COUNT];
 
-/* Exposure when toggled: Unchanged, -4 to 5 (11 entries) */
-#define MUTE_EXPOSURE_COUNT 11
-static int mute_exposure_values[MUTE_EXPOSURE_COUNT];
-static char mute_exposure_label_buf[MUTE_EXPOSURE_COUNT][12];
-static const char* mute_exposure_labels[MUTE_EXPOSURE_COUNT];
+/* Exposure when FN is on: Unchanged, -4 to 5 (11 entries) */
+#define FN_EXPOSURE_COUNT 11
+static int fn_exposure_values[FN_EXPOSURE_COUNT];
+static char fn_exposure_label_buf[FN_EXPOSURE_COUNT][12];
+static const char* fn_exposure_labels[FN_EXPOSURE_COUNT];
 
 // ============================================
 // Timezone arrays (dynamic)
@@ -379,60 +379,60 @@ static void init_dynamic_labels(void) {
 		game_art_width_labels[i] = game_art_width_label_buf[i];
 	}
 
-	/* Mute volume: Unchanged, Muted, 5%, 10%, ... 100% */
-	mute_volume_values[0] = (int)SETTINGS_DEFAULT_MUTE_NO_CHANGE;
-	mute_volume_labels[0] = "Unchanged";
+	/* FN volume: Unchanged, Muted, 5%, 10%, ... 100% */
+	fn_volume_values[0] = (int)SETTINGS_DEFAULT_FN_NO_CHANGE;
+	fn_volume_labels[0] = "Unchanged";
 	for (i = 0; i < 21; i++) {
-		mute_volume_values[i + 1] = i;
-		mute_volume_labels[i + 1] = volume_labels[i]; /* reuse: Muted, 5%, 10%, ... 100% */
+		fn_volume_values[i + 1] = i;
+		fn_volume_labels[i + 1] = volume_labels[i]; /* reuse: Muted, 5%, 10%, ... 100% */
 	}
 
-	/* Mute brightness: Unchanged, 0-10 */
-	mute_brightness_values[0] = (int)SETTINGS_DEFAULT_MUTE_NO_CHANGE;
-	mute_brightness_labels[0] = "Unchanged";
+	/* FN brightness: Unchanged, 0-10 */
+	fn_brightness_values[0] = (int)SETTINGS_DEFAULT_FN_NO_CHANGE;
+	fn_brightness_labels[0] = "Unchanged";
 	for (i = 0; i <= 10; i++) {
-		mute_brightness_values[i + 1] = i;
-		snprintf(mute_brightness_label_buf[i + 1], sizeof(mute_brightness_label_buf[i + 1]), "%d", i);
-		mute_brightness_labels[i + 1] = mute_brightness_label_buf[i + 1];
+		fn_brightness_values[i + 1] = i;
+		snprintf(fn_brightness_label_buf[i + 1], sizeof(fn_brightness_label_buf[i + 1]), "%d", i);
+		fn_brightness_labels[i + 1] = fn_brightness_label_buf[i + 1];
 	}
 
-	/* Mute colortemp: Unchanged, 0-40 */
-	mute_colortemp_values[0] = (int)SETTINGS_DEFAULT_MUTE_NO_CHANGE;
-	mute_colortemp_labels[0] = "Unchanged";
+	/* FN colortemp: Unchanged, 0-40 */
+	fn_colortemp_values[0] = (int)SETTINGS_DEFAULT_FN_NO_CHANGE;
+	fn_colortemp_labels[0] = "Unchanged";
 	for (i = 0; i <= 40; i++) {
-		mute_colortemp_values[i + 1] = i;
-		snprintf(mute_colortemp_label_buf[i + 1], sizeof(mute_colortemp_label_buf[i + 1]), "%d", i);
-		mute_colortemp_labels[i + 1] = mute_colortemp_label_buf[i + 1];
+		fn_colortemp_values[i + 1] = i;
+		snprintf(fn_colortemp_label_buf[i + 1], sizeof(fn_colortemp_label_buf[i + 1]), "%d", i);
+		fn_colortemp_labels[i + 1] = fn_colortemp_label_buf[i + 1];
 	}
 
-	/* Mute contrast: Unchanged, -4 to 5 */
-	mute_contrast_values[0] = (int)SETTINGS_DEFAULT_MUTE_NO_CHANGE;
-	mute_contrast_labels[0] = "Unchanged";
+	/* FN contrast: Unchanged, -4 to 5 */
+	fn_contrast_values[0] = (int)SETTINGS_DEFAULT_FN_NO_CHANGE;
+	fn_contrast_labels[0] = "Unchanged";
 	for (i = -4; i <= 5; i++) {
 		int idx = i + 5; /* -4->1, -3->2, ..., 5->10 */
-		mute_contrast_values[idx] = i;
-		snprintf(mute_contrast_label_buf[idx], sizeof(mute_contrast_label_buf[idx]), "%d", i);
-		mute_contrast_labels[idx] = mute_contrast_label_buf[idx];
+		fn_contrast_values[idx] = i;
+		snprintf(fn_contrast_label_buf[idx], sizeof(fn_contrast_label_buf[idx]), "%d", i);
+		fn_contrast_labels[idx] = fn_contrast_label_buf[idx];
 	}
 
-	/* Mute saturation: Unchanged, -5 to 5 */
-	mute_saturation_values[0] = (int)SETTINGS_DEFAULT_MUTE_NO_CHANGE;
-	mute_saturation_labels[0] = "Unchanged";
+	/* FN saturation: Unchanged, -5 to 5 */
+	fn_saturation_values[0] = (int)SETTINGS_DEFAULT_FN_NO_CHANGE;
+	fn_saturation_labels[0] = "Unchanged";
 	for (i = -5; i <= 5; i++) {
 		int idx = i + 6; /* -5->1, -4->2, ..., 5->11 */
-		mute_saturation_values[idx] = i;
-		snprintf(mute_saturation_label_buf[idx], sizeof(mute_saturation_label_buf[idx]), "%d", i);
-		mute_saturation_labels[idx] = mute_saturation_label_buf[idx];
+		fn_saturation_values[idx] = i;
+		snprintf(fn_saturation_label_buf[idx], sizeof(fn_saturation_label_buf[idx]), "%d", i);
+		fn_saturation_labels[idx] = fn_saturation_label_buf[idx];
 	}
 
-	/* Mute exposure: Unchanged, -4 to 5 */
-	mute_exposure_values[0] = (int)SETTINGS_DEFAULT_MUTE_NO_CHANGE;
-	mute_exposure_labels[0] = "Unchanged";
+	/* FN exposure: Unchanged, -4 to 5 */
+	fn_exposure_values[0] = (int)SETTINGS_DEFAULT_FN_NO_CHANGE;
+	fn_exposure_labels[0] = "Unchanged";
 	for (i = -4; i <= 5; i++) {
 		int idx = i + 5; /* -4->1, -3->2, ..., 5->10 */
-		mute_exposure_values[idx] = i;
-		snprintf(mute_exposure_label_buf[idx], sizeof(mute_exposure_label_buf[idx]), "%d", i);
-		mute_exposure_labels[idx] = mute_exposure_label_buf[idx];
+		fn_exposure_values[idx] = i;
+		snprintf(fn_exposure_label_buf[idx], sizeof(fn_exposure_label_buf[idx]), "%d", i);
+		fn_exposure_labels[idx] = fn_exposure_label_buf[idx];
 	}
 
 	/* Timezone labels */
@@ -964,175 +964,175 @@ static void reset_fan_speed(void) {
 }
 
 // ============================================
-// FN Switch (Mute) callbacks
+// FN Switch callbacks
 // ============================================
 
-static int get_muted_volume(void) {
-	return GetMutedVolume();
+static int get_fn_volume(void) {
+	return GetFnVolume();
 }
-static void set_muted_volume(int val) {
-	SetMutedVolume(val);
+static void set_fn_volume(int val) {
+	SetFnVolume(val);
 }
-static void reset_muted_volume(void) {
-	SetMutedVolume(0);
-}
-
-static int get_mute_leds(void) {
-	return CFG_getMuteLEDs() ? 1 : 0;
-}
-static void set_mute_leds(int v) {
-	CFG_setMuteLEDs(v != 0);
-}
-static void reset_mute_leds(void) {
-	CFG_setMuteLEDs(CFG_DEFAULT_MUTELEDS);
+static void reset_fn_volume(void) {
+	SetFnVolume(0);
 }
 
-static int get_muted_brightness(void) {
-	return GetMutedBrightness();
+static int get_fn_leds(void) {
+	return CFG_getFnLEDs() ? 1 : 0;
 }
-static void set_muted_brightness(int val) {
-	SetMutedBrightness(val);
+static void set_fn_leds(int v) {
+	CFG_setFnLEDs(v != 0);
 }
-static void reset_muted_brightness(void) {
-	SetMutedBrightness(SETTINGS_DEFAULT_MUTE_NO_CHANGE);
-}
-
-static int get_muted_colortemp(void) {
-	return GetMutedColortemp();
-}
-static void set_muted_colortemp(int val) {
-	SetMutedColortemp(val);
-}
-static void reset_muted_colortemp(void) {
-	SetMutedColortemp(SETTINGS_DEFAULT_MUTE_NO_CHANGE);
+static void reset_fn_leds(void) {
+	CFG_setFnLEDs(CFG_DEFAULT_FNLEDS);
 }
 
-static int get_muted_contrast(void) {
-	return GetMutedContrast();
+static int get_fn_brightness(void) {
+	return GetFnBrightness();
 }
-static void set_muted_contrast(int val) {
-	SetMutedContrast(val);
+static void set_fn_brightness(int val) {
+	SetFnBrightness(val);
 }
-static void reset_muted_contrast(void) {
-	SetMutedContrast(SETTINGS_DEFAULT_MUTE_NO_CHANGE);
-}
-
-static int get_muted_saturation(void) {
-	return GetMutedSaturation();
-}
-static void set_muted_saturation(int val) {
-	SetMutedSaturation(val);
-}
-static void reset_muted_saturation(void) {
-	SetMutedSaturation(SETTINGS_DEFAULT_MUTE_NO_CHANGE);
+static void reset_fn_brightness(void) {
+	SetFnBrightness(SETTINGS_DEFAULT_FN_NO_CHANGE);
 }
 
-static int get_muted_exposure(void) {
-	return GetMutedExposure();
+static int get_fn_colortemp(void) {
+	return GetFnColortemp();
 }
-static void set_muted_exposure(int val) {
-	SetMutedExposure(val);
+static void set_fn_colortemp(int val) {
+	SetFnColortemp(val);
 }
-static void reset_muted_exposure(void) {
-	SetMutedExposure(SETTINGS_DEFAULT_MUTE_NO_CHANGE);
+static void reset_fn_colortemp(void) {
+	SetFnColortemp(SETTINGS_DEFAULT_FN_NO_CHANGE);
+}
+
+static int get_fn_contrast(void) {
+	return GetFnContrast();
+}
+static void set_fn_contrast(int val) {
+	SetFnContrast(val);
+}
+static void reset_fn_contrast(void) {
+	SetFnContrast(SETTINGS_DEFAULT_FN_NO_CHANGE);
+}
+
+static int get_fn_saturation(void) {
+	return GetFnSaturation();
+}
+static void set_fn_saturation(int val) {
+	SetFnSaturation(val);
+}
+static void reset_fn_saturation(void) {
+	SetFnSaturation(SETTINGS_DEFAULT_FN_NO_CHANGE);
+}
+
+static int get_fn_exposure(void) {
+	return GetFnExposure();
+}
+static void set_fn_exposure(int val) {
+	SetFnExposure(val);
+}
+static void reset_fn_exposure(void) {
+	SetFnExposure(SETTINGS_DEFAULT_FN_NO_CHANGE);
 }
 
 /* Turbo buttons */
 static int get_turbo_a(void) {
-	return GetMuteTurboA();
+	return GetFnTurboA();
 }
 static void set_turbo_a(int v) {
-	SetMuteTurboA(v);
+	SetFnTurboA(v);
 }
 static void reset_turbo_a(void) {
-	SetMuteTurboA(0);
+	SetFnTurboA(0);
 }
 
 static int get_turbo_b(void) {
-	return GetMuteTurboB();
+	return GetFnTurboB();
 }
 static void set_turbo_b(int v) {
-	SetMuteTurboB(v);
+	SetFnTurboB(v);
 }
 static void reset_turbo_b(void) {
-	SetMuteTurboB(0);
+	SetFnTurboB(0);
 }
 
 static int get_turbo_x(void) {
-	return GetMuteTurboX();
+	return GetFnTurboX();
 }
 static void set_turbo_x(int v) {
-	SetMuteTurboX(v);
+	SetFnTurboX(v);
 }
 static void reset_turbo_x(void) {
-	SetMuteTurboX(0);
+	SetFnTurboX(0);
 }
 
 static int get_turbo_y(void) {
-	return GetMuteTurboY();
+	return GetFnTurboY();
 }
 static void set_turbo_y(int v) {
-	SetMuteTurboY(v);
+	SetFnTurboY(v);
 }
 static void reset_turbo_y(void) {
-	SetMuteTurboY(0);
+	SetFnTurboY(0);
 }
 
 static int get_turbo_l1(void) {
-	return GetMuteTurboL1();
+	return GetFnTurboL1();
 }
 static void set_turbo_l1(int v) {
-	SetMuteTurboL1(v);
+	SetFnTurboL1(v);
 }
 static void reset_turbo_l1(void) {
-	SetMuteTurboL1(0);
+	SetFnTurboL1(0);
 }
 
 static int get_turbo_l2(void) {
-	return GetMuteTurboL2();
+	return GetFnTurboL2();
 }
 static void set_turbo_l2(int v) {
-	SetMuteTurboL2(v);
+	SetFnTurboL2(v);
 }
 static void reset_turbo_l2(void) {
-	SetMuteTurboL2(0);
+	SetFnTurboL2(0);
 }
 
 static int get_turbo_r1(void) {
-	return GetMuteTurboR1();
+	return GetFnTurboR1();
 }
 static void set_turbo_r1(int v) {
-	SetMuteTurboR1(v);
+	SetFnTurboR1(v);
 }
 static void reset_turbo_r1(void) {
-	SetMuteTurboR1(0);
+	SetFnTurboR1(0);
 }
 
 static int get_turbo_r2(void) {
-	return GetMuteTurboR2();
+	return GetFnTurboR2();
 }
 static void set_turbo_r2(int v) {
-	SetMuteTurboR2(v);
+	SetFnTurboR2(v);
 }
 static void reset_turbo_r2(void) {
-	SetMuteTurboR2(0);
+	SetFnTurboR2(0);
 }
 
-/* Dpad mode when toggled */
-static int get_mute_dpad_mode(void) {
-	if (!GetMuteDisablesDpad() && !GetMuteEmulatesJoystick())
+/* Dpad mode when FN is on */
+static int get_fn_dpad_mode(void) {
+	if (!GetFnDpadDisabled() && !GetFnDpadJoystick())
 		return 0;
-	if (GetMuteDisablesDpad() && GetMuteEmulatesJoystick())
+	if (GetFnDpadDisabled() && GetFnDpadJoystick())
 		return 1;
 	return 2;
 }
-static void set_mute_dpad_mode(int val) {
-	SetMuteDisablesDpad(val == 1);
-	SetMuteEmulatesJoystick(val > 0);
+static void set_fn_dpad_mode(int val) {
+	SetFnDpadDisabled(val == 1);
+	SetFnDpadJoystick(val > 0);
 }
-static void reset_mute_dpad_mode(void) {
-	SetMuteDisablesDpad(0);
-	SetMuteEmulatesJoystick(0);
+static void reset_fn_dpad_mode(void) {
+	SetFnDpadDisabled(0);
+	SetFnDpadJoystick(0);
 }
 
 // ============================================
@@ -1284,7 +1284,7 @@ static void init_about_info(void) {
 #define MAX_APPEARANCE_ITEMS 28
 #define MAX_DISPLAY_ITEMS 8
 #define MAX_SYSTEM_ITEMS 22
-#define MAX_MUTE_ITEMS 20
+#define MAX_FN_ITEMS 20
 #define MAX_FNKEY_ITEMS 3
 #define MAX_NOTIFY_ITEMS 8
 #define MAX_ABOUT_ITEMS 8
@@ -1294,7 +1294,7 @@ static void init_about_info(void) {
 static SettingItem appearance_items[MAX_APPEARANCE_ITEMS];
 static SettingItem display_items[MAX_DISPLAY_ITEMS];
 static SettingItem system_items[MAX_SYSTEM_ITEMS];
-static SettingItem mute_items[MAX_MUTE_ITEMS];
+static SettingItem fn_items[MAX_FN_ITEMS];
 static SettingItem fnkey_items[MAX_FNKEY_ITEMS];
 static SettingItem notify_items[MAX_NOTIFY_ITEMS];
 static SettingItem about_items[MAX_ABOUT_ITEMS];
@@ -1304,8 +1304,8 @@ static SettingItem main_items[MAX_MAIN_ITEMS];
 static SettingsPage appearance_page;
 static SettingsPage display_page;
 static SettingsPage system_page;
-static SettingsPage mute_page;
-static SettingsPage fn_switch_page; /* wraps mute_items into "FN Switch" titled page */
+static SettingsPage fn_page;
+static SettingsPage fn_switch_page; /* wraps fn_items into "FN Switch" titled page */
 static SettingsPage fn_keys_page;
 static SettingsPage notify_page;
 static SettingsPage about_page;
@@ -1529,7 +1529,7 @@ static void reset_display_page(void) {
 static void reset_system_page(void) {
 	settings_page_reset_all(&system_page);
 }
-static void reset_mute_page(void) {
+static void reset_fn_page(void) {
 	settings_page_reset_all(&fn_switch_page);
 }
 static void reset_notify_page(void) {
@@ -1813,76 +1813,76 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	init_page(&system_page, "Settings | System", system_items, idx, 0);
 
 	// ============================
-	// FN Switch (Mute) page
+	// FN Switch page
 	// ============================
 	idx = 0;
-	mute_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Volume when toggled", "Speaker volume (0-20)",
-		mute_volume_labels, MUTE_VOLUME_COUNT, mute_volume_values, get_muted_volume, set_muted_volume, reset_muted_volume);
-	mute_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+	fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Volume when FN is on", "Speaker volume (0-20)",
+		fn_volume_labels, FN_VOLUME_COUNT, fn_volume_values, get_fn_volume, set_fn_volume, reset_fn_volume);
+	fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"FN switch disables LED", "Switch will also disable LEDs",
-		on_off_labels, 2, on_off_values, get_mute_leds, set_mute_leds, reset_mute_leds);
-	mute_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Brightness when toggled", "Display brightness (0 to 10)",
-		mute_brightness_labels, MUTE_BRIGHTNESS_COUNT, mute_brightness_values, get_muted_brightness, set_muted_brightness, reset_muted_brightness);
+		on_off_labels, 2, on_off_values, get_fn_leds, set_fn_leds, reset_fn_leds);
+	fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Brightness when FN is on", "Display brightness (0 to 10)",
+		fn_brightness_labels, FN_BRIGHTNESS_COUNT, fn_brightness_values, get_fn_brightness, set_fn_brightness, reset_fn_brightness);
 
-	if (has_mute_toggle(dev)) {
+	if (has_fn_switch(dev)) {
 		if (has_color_temp(dev)) {
-			mute_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-				"Color temperature when toggled", "Color temperature (0 to 40)",
-				mute_colortemp_labels, MUTE_COLORTEMP_COUNT, mute_colortemp_values, get_muted_colortemp, set_muted_colortemp, reset_muted_colortemp);
+			fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+				"Color temperature when FN is on", "Color temperature (0 to 40)",
+				fn_colortemp_labels, FN_COLORTEMP_COUNT, fn_colortemp_values, get_fn_colortemp, set_fn_colortemp, reset_fn_colortemp);
 		}
 		if (has_contrast_sat(dev)) {
-			mute_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-				"Contrast when toggled", "Contrast enhancement (-4 to 5)",
-				mute_contrast_labels, MUTE_CONTRAST_COUNT, mute_contrast_values, get_muted_contrast, set_muted_contrast, reset_muted_contrast);
-			mute_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-				"Saturation when toggled", "Saturation enhancement (-5 to 5)",
-				mute_saturation_labels, MUTE_SATURATION_COUNT, mute_saturation_values, get_muted_saturation, set_muted_saturation, reset_muted_saturation);
+			fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+				"Contrast when FN is on", "Contrast enhancement (-4 to 5)",
+				fn_contrast_labels, FN_CONTRAST_COUNT, fn_contrast_values, get_fn_contrast, set_fn_contrast, reset_fn_contrast);
+			fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+				"Saturation when FN is on", "Saturation enhancement (-5 to 5)",
+				fn_saturation_labels, FN_SATURATION_COUNT, fn_saturation_values, get_fn_saturation, set_fn_saturation, reset_fn_saturation);
 		}
 		if (has_exposure(dev)) {
-			mute_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-				"Exposure when toggled", "Exposure enhancement (-4 to 5)",
-				mute_exposure_labels, MUTE_EXPOSURE_COUNT, mute_exposure_values, get_muted_exposure, set_muted_exposure, reset_muted_exposure);
+			fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+				"Exposure when FN is on", "Exposure enhancement (-4 to 5)",
+				fn_exposure_labels, FN_EXPOSURE_COUNT, fn_exposure_values, get_fn_exposure, set_fn_exposure, reset_fn_exposure);
 		}
 
 		/* Turbo buttons */
-		mute_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 			"Turbo fire A", "Enable turbo fire A",
 			on_off_labels, 2, on_off_values, get_turbo_a, set_turbo_a, reset_turbo_a);
-		mute_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 			"Turbo fire B", "Enable turbo fire B",
 			on_off_labels, 2, on_off_values, get_turbo_b, set_turbo_b, reset_turbo_b);
-		mute_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 			"Turbo fire X", "Enable turbo fire X",
 			on_off_labels, 2, on_off_values, get_turbo_x, set_turbo_x, reset_turbo_x);
-		mute_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 			"Turbo fire Y", "Enable turbo fire Y",
 			on_off_labels, 2, on_off_values, get_turbo_y, set_turbo_y, reset_turbo_y);
-		mute_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 			"Turbo fire L1", "Enable turbo fire L1",
 			on_off_labels, 2, on_off_values, get_turbo_l1, set_turbo_l1, reset_turbo_l1);
-		mute_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 			"Turbo fire L2", "Enable turbo fire L2",
 			on_off_labels, 2, on_off_values, get_turbo_l2, set_turbo_l2, reset_turbo_l2);
-		mute_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 			"Turbo fire R1", "Enable turbo fire R1",
 			on_off_labels, 2, on_off_values, get_turbo_r1, set_turbo_r1, reset_turbo_r1);
-		mute_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 			"Turbo fire R2", "Enable turbo fire R2",
 			on_off_labels, 2, on_off_values, get_turbo_r2, set_turbo_r2, reset_turbo_r2);
 	}
 
-	if (has_mute_toggle(dev) && !has_analog_sticks(dev)) {
-		mute_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-			"Dpad mode when toggled", "Dpad: default. Joystick: Dpad exclusively acts as analog stick.\nBoth: Dpad and Joystick inputs at the same time.",
-			dpad_mode_labels, DPAD_MODE_COUNT, dpad_mode_values, get_mute_dpad_mode, set_mute_dpad_mode, reset_mute_dpad_mode);
+	if (has_fn_switch(dev) && !has_analog_sticks(dev)) {
+		fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+			"Dpad mode when FN is on", "Dpad: default. Joystick: Dpad exclusively acts as analog stick.\nBoth: Dpad and Joystick inputs at the same time.",
+			dpad_mode_labels, DPAD_MODE_COUNT, dpad_mode_values, get_fn_dpad_mode, set_fn_dpad_mode, reset_fn_dpad_mode);
 	}
 
-	mute_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
+	fn_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
 		"Reset to defaults", "Resets all options in this menu to their default values.",
-		reset_mute_page);
-	init_page(&fn_switch_page, "Settings | FN Switch", mute_items, idx, 0);
+		reset_fn_page);
+	init_page(&fn_switch_page, "Settings | FN Switch", fn_items, idx, 0);
 
 	// ============================
 	// F1/F2 keys page (Brick family only)
@@ -2006,7 +2006,7 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		}
 	}
 
-	if (has_mute_toggle(dev)) {
+	if (has_fn_switch(dev)) {
 		main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
 			"FN switch", "FN switch settings", &fn_switch_page);
 	}
