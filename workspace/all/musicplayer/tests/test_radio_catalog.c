@@ -1,7 +1,7 @@
-// Host unit test for radio_catalog_parse.c (pure, no network).
-// Build & run (from workspace/all/musicplayer/):
-//   cc -I. -I../include radio_catalog_parse.c ../include/parson/parson.c \
-//      tests/test_radio_catalog.c -o /tmp/test_radio_catalog && /tmp/test_radio_catalog
+// Host-compiled unit test for radio_catalog_parse.c (pure, no network, no device toolchain).
+// Build & run (from workspace/all/musicplayer):
+//   cc -std=gnu99 -Wall -Werror -D_GNU_SOURCE -I. -I../include radio_catalog_parse.c \
+//      ../include/parson/parson.c tests/test_radio_catalog.c -o /tmp/test_radio_catalog && /tmp/test_radio_catalog
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>

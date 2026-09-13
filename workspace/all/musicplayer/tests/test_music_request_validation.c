@@ -1,3 +1,6 @@
+// Host-compiled unit test for music_request_validation.c (no device toolchain).
+// Build & run (from workspace/all/musicplayer):
+//   cc -std=gnu99 -Wall -Werror -D_GNU_SOURCE -I. music_request_validation.c tests/test_music_request_validation.c -o /tmp/test_music_request_validation && /tmp/test_music_request_validation
 #include "../music_request_validation.h"
 #include <stdio.h>
 #include <string.h>

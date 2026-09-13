@@ -1,3 +1,8 @@
+// Cross-compiled for a tg5040 device and run on a Brick by
+// scripts/tests/test-music-service-e2e.sh, which forks a real musicplayerd and
+// musicplayerctl. It is not built by tests/run_tests.sh (it needs the ALSA PCM
+// and the launcher environment on the device).
+// Usage: test_music_service <musicplayerd.elf> <musicplayerctl.elf>
 #include "../music_service_client.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -131,6 +136,38 @@ static void stop_owner(pid_t owner, int fd) {
 		close(fd);
 	}
 	waitpid(owner, NULL, 0);
+}
+
+/* Wait up to wait_ms for the owner to drop this client: poll for readability,
+ * then confirm recv() sees an orderly close (0) or a reset. A poll timeout with
+ * the socket still open means the owner kept a misbehaving client attached, so
+ * the drop regressed. */
+static bool socket_dropped(int fd, int wait_ms) {
+	int64_t deadline = clock_ms() + wait_ms;
+	for (;;) {
+		int64_t remaining = deadline - clock_ms();
+		if (remaining < 0)
+			remaining = 0;
+		struct pollfd pollfd = {.fd = fd, .events = POLLIN};
+		int result = poll(&pollfd, 1, (int)remaining);
+		if (result < 0) {
+			if (errno == EINTR)
+				continue;
+			return false;
+		}
+		if (result == 0)
+			return false; /* still attached past the deadline */
+		char scratch[64];
+		ssize_t n = recv(fd, scratch, sizeof(scratch), MSG_DONTWAIT);
+		if (n == 0)
+			return true; /* peer performed an orderly close */
+		if (n < 0) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK)
+				continue;
+			return errno == ECONNRESET || errno == EPIPE;
+		}
+		/* n > 0: unexpected bytes from the owner; keep draining until it closes */
+	}
 }
 
 static int send_raw_header(int fd, const MusicFrameHeader* header, const void* body, size_t body_size, int split) {
@@ -321,14 +358,16 @@ int main(int argc, char** argv) {
 		MusicFrameHeader huge = header;
 		huge.payload_length = MUSIC_SERVICE_MAX_FRAME;
 		(void)send(bad, &huge, sizeof(huge), 0);
-		wait_ms(30);
+		check(socket_dropped(bad, 3000), "owner drops a client that declares an oversize frame");
 		close(bad);
 	}
 	int timeout_client = raw_connect(socket_path);
 	check(timeout_client >= 0, "timeout client attach");
 	if (timeout_client >= 0) {
+		/* Only a partial header, then silence: the owner drops it once the frame
+		 * stalls past CLIENT_FRAME_TIMEOUT_MS (2000 ms, music_service_server.c). */
 		(void)send(timeout_client, &header, 2, 0);
-		wait_ms(2200);
+		check(socket_dropped(timeout_client, 5000), "owner drops a client that stalls mid-frame past the timeout");
 		close(timeout_client);
 	}
 	fd = raw_connect(socket_path);
@@ -412,9 +451,14 @@ int main(int argc, char** argv) {
 		close(fd);
 	}
 
-	/* A rejected owner must not remove the live owner's published artwork. */
+	/* A rejected owner must not remove the live owner's published artwork. The
+	 * name matches the daemon's own owner-art-<pid>-<generation>.bmp scheme
+	 * (musicplayerd.c update_artwork/cleanup_owned_artwork), so it is a real
+	 * artwork filename the cleanup path recognises rather than one no code
+	 * touches — a broad startup sweep of /tmp/trimui_music would delete it. */
 	mkdir("/tmp/trimui_music", 493);
-	const char* live_art = "/tmp/trimui_music/owner-art-999.bmp";
+	char live_art[128];
+	snprintf(live_art, sizeof(live_art), "/tmp/trimui_music/owner-art-%ld-1.bmp", (long)daemon);
 	FILE* live_art_file = fopen(live_art, "w");
 	if (live_art_file) {
 		fputs("live", live_art_file);
