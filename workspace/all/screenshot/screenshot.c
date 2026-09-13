@@ -23,6 +23,7 @@
 #define SCREENSHOT_DIR "/mnt/SDCARD/Images/Screenshots"
 #define FFMPEG_PATH "/usr/bin/ffmpeg"
 #define OSD_TOAST_PATH "/tmp/trimui_osd/osd_toast_msg"
+#define SETTINGS_PATH "/mnt/SDCARD/.userdata/shared/minuisettings.txt"
 #define INPUT_COUNT 5
 
 // evdev codes for L2/R2 analog triggers
@@ -30,6 +31,9 @@
 #define ABS_RZ_CODE 5 // R2 trigger axis
 
 #define COOLDOWN_MS 1000 // minimum ms between screenshots
+
+#define SCREENSHOT_ORIENTATION_VERTICAL 0
+#define SCREENSHOT_ORIENTATION_HORIZONTAL 1
 
 static int inputs[INPUT_COUNT] = {};
 static volatile int quit = 0;
@@ -57,6 +61,25 @@ static void mkdir_p(const char* path) {
 		}
 	}
 	mkdir(tmp, 0755);
+}
+
+static int screenshot_orientation(void) {
+	int orientation = SCREENSHOT_ORIENTATION_VERTICAL;
+	FILE* f = fopen(SETTINGS_PATH, "r");
+	if (!f)
+		return orientation;
+
+	char line[128];
+	while (fgets(line, sizeof(line), f)) {
+		int value;
+		if (sscanf(line, "screenshotOrientation=%d", &value) == 1) {
+			if (value == SCREENSHOT_ORIENTATION_HORIZONTAL)
+				orientation = SCREENSHOT_ORIENTATION_HORIZONTAL;
+			break;
+		}
+	}
+	fclose(f);
+	return orientation;
 }
 
 #define FB_MIRROR_PATH "/tmp/fb_mirror.raw"
@@ -363,6 +386,7 @@ static void capture_screenshot(void) {
 		return;
 
 	if (pid == 0) {
+		int horizontal = screenshot_orientation() == SCREENSHOT_ORIENTATION_HORIZONTAL;
 		setsid();
 		freopen("/dev/null", "r", stdin);
 		freopen("/dev/null", "w", stdout);
@@ -373,25 +397,45 @@ static void capture_screenshot(void) {
 				  "-f", "rawvideo", "-pixel_format", "rgba",
 				  "-video_size", video_size,
 				  "-i", FB_MIRROR_PATH,
-				  "-vf", "vflip",
+				  "-vf", horizontal ? "vflip,transpose=1" : "vflip",
 				  "-frames:v", "1", "-c:v", "mjpeg", "-q:v", "2",
 				  "-y", output,
 				  (char*)NULL);
 		} else if (src == SRC_DRM || src == SRC_DISP) {
 			// scanout / write-back buffers are top-down: no flip
-			execl(FFMPEG_PATH, "ffmpeg", "-nostdin",
-				  "-f", "rawvideo", "-pixel_format", pixfmt,
-				  "-video_size", video_size,
-				  "-i", src == SRC_DRM ? DRM_RAW_PATH : DISP_RAW_PATH,
-				  "-frames:v", "1", "-c:v", "mjpeg", "-q:v", "2",
-				  "-y", output,
-				  (char*)NULL);
+			if (horizontal) {
+				execl(FFMPEG_PATH, "ffmpeg", "-nostdin",
+					  "-f", "rawvideo", "-pixel_format", pixfmt,
+					  "-video_size", video_size,
+					  "-i", src == SRC_DRM ? DRM_RAW_PATH : DISP_RAW_PATH,
+					  "-vf", "transpose=1",
+					  "-frames:v", "1", "-c:v", "mjpeg", "-q:v", "2",
+					  "-y", output,
+					  (char*)NULL);
+			} else {
+				execl(FFMPEG_PATH, "ffmpeg", "-nostdin",
+					  "-f", "rawvideo", "-pixel_format", pixfmt,
+					  "-video_size", video_size,
+					  "-i", src == SRC_DRM ? DRM_RAW_PATH : DISP_RAW_PATH,
+					  "-frames:v", "1", "-c:v", "mjpeg", "-q:v", "2",
+					  "-y", output,
+					  (char*)NULL);
+			}
 		} else {
-			execl(FFMPEG_PATH, "ffmpeg", "-nostdin",
-				  "-f", "fbdev", "-i", "/dev/fb0",
-				  "-frames:v", "1", "-c:v", "mjpeg", "-q:v", "2",
-				  "-y", output,
-				  (char*)NULL);
+			if (horizontal) {
+				execl(FFMPEG_PATH, "ffmpeg", "-nostdin",
+					  "-f", "fbdev", "-i", "/dev/fb0",
+					  "-vf", "transpose=1",
+					  "-frames:v", "1", "-c:v", "mjpeg", "-q:v", "2",
+					  "-y", output,
+					  (char*)NULL);
+			} else {
+				execl(FFMPEG_PATH, "ffmpeg", "-nostdin",
+					  "-f", "fbdev", "-i", "/dev/fb0",
+					  "-frames:v", "1", "-c:v", "mjpeg", "-q:v", "2",
+					  "-y", output,
+					  (char*)NULL);
+			}
 		}
 		_exit(1);
 	}
