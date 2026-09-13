@@ -10,12 +10,20 @@ SYSTEM_PATH="$SDCARD_PATH/.system"
 export LD_LIBRARY_PATH=/usr/trimui/lib:$LD_LIBRARY_PATH
 export PATH=/usr/trimui/bin:$PATH
 
-TRIMUI_MODEL=`strings /usr/trimui/bin/MainUI | grep ^Trimui`
-if [ "$TRIMUI_MODEL" = "Trimui Brick" ]; then
-	DEVICE="brick"
-elif [ "$TRIMUI_MODEL" = "Trimui Brick Pro" ]; then
-	DEVICE="brickpro"
-fi
+DEVICE_ID=$(cat "$SDCARD_PATH/.nx-device" 2> /dev/null)
+case "$DEVICE_ID" in
+	tg5040-brick) DEVICE="brick" ;;
+	tg5040-brickpro) DEVICE="brickpro" ;;
+	tg5040-smartpro) DEVICE="smartpro" ;;
+	*)
+		TRIMUI_MODEL=$(strings /usr/trimui/bin/MainUI | grep '^Trimui')
+		case "$TRIMUI_MODEL" in
+			"Trimui Brick") DEVICE="brick" ;;
+			"Trimui Brick Pro") DEVICE="brickpro" ;;
+			*) DEVICE="smartpro" ;;
+		esac
+		;;
+esac
 
 # only show splash if either UPDATE_PATH or pakz files exist
 SHOW_SPLASH="no"
@@ -113,8 +121,10 @@ if [ -f "$UPDATE_PATH" ]; then
 	rm -rf $SYSTEM_PATH/paks/MinUI.pak
 	rm -rf $SYSTEM_PATH/paks/Emus
 	rm -rf $SYSTEM_PATH/paks/Tools
-	# device marker files: remove the known set, the zip restores the right one
-	rm -f $SDCARD_PATH/tg5040-brick $SDCARD_PATH/tg5040-brickpro $SDCARD_PATH/tg5040-smartpro $SDCARD_PATH/tg5050-smartpros
+	# The zip restores the canonical device identity. Remove legacy markers too.
+	rm -f "$SDCARD_PATH/.nx-device" "$SDCARD_PATH/tg5040-brick" \
+		"$SDCARD_PATH/tg5040-brickpro" "$SDCARD_PATH/tg5040-smartpro" \
+		"$SDCARD_PATH/tg5050-smartpros"
 
 	# Consume the zip ONLY on successful extraction. A corrupt/truncated
 	# MinUI.zip (e.g. the card was pulled before the copy flushed) used to be

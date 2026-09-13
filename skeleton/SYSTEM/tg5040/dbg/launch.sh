@@ -14,12 +14,8 @@ export LOGS_PATH="$USERDATA_PATH/logs"
 export DATETIME_PATH="$SHARED_USERDATA_PATH/datetime.txt"
 export SHARED_SYSTEM_PATH="$SDCARD_PATH/.system/shared"
 
-export TRIMUI_MODEL=`strings /usr/trimui/bin/MainUI | grep ^Trimui`
-if [ "$TRIMUI_MODEL" = "Trimui Brick" ]; then
-	export DEVICE="brick"
-elif [ "$TRIMUI_MODEL" = "Trimui Brick Pro" ]; then
-	export DEVICE="brickpro"
-fi
+# shellcheck disable=SC1091
+. "$SHARED_SYSTEM_PATH/bin/device-info.sh"
 
 export IS_NEXT="yes"
 
