@@ -20,6 +20,7 @@
 #include "config.h"
 #include "audio_manager.h"
 #include "text_shape.h"
+#include "text_wrap.h"
 #include "rgba.h"
 
 
@@ -1023,22 +1024,15 @@ FALLBACK_IMPLEMENTATION int PLAT_supportsOverscan(void) {
 }
 FALLBACK_IMPLEMENTATION void PLAT_setEffectColor(int next_color) {}
 
+static int GFX_measureWidth(void* ctx, const char* utf8) {
+	int w;
+	GFX_measureText((TTF_Font*)ctx, utf8, &w, NULL);
+	return w;
+}
+
 int GFX_truncateText(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding) {
-	int text_width;
-	strcpy(out_name, in_name);
-	GFX_measureText(font, out_name, &text_width, NULL);
-	text_width += padding;
-
-	while (text_width > max_width) {
-		int len = strlen(out_name);
-		if (len < 4) // can't append "..." without writing before out_name
-			break;
-		strcpy(&out_name[len - 4], "...\0");
-		GFX_measureText(font, out_name, &text_width, NULL);
-		text_width += padding;
-	}
-
-	return text_width;
+	// out_name is caller-sized to hold in_name (unchanged contract).
+	return TextWrap_truncate(GFX_measureWidth, font, in_name, out_name, strlen(in_name) + 1, max_width, padding);
 }
 int GFX_getTextWidth(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding) {
 	int text_width;
@@ -1050,66 +1044,7 @@ int GFX_getTextWidth(TTF_Font* font, const char* in_name, char* out_name, int ma
 }
 
 int GFX_wrapText(TTF_Font* font, char* str, int max_width, int max_lines) {
-	if (!str)
-		return 0;
-
-	int line_width;
-	int max_line_width = 0;
-	char* line = str;
-	char buffer[MAX_PATH];
-
-	GFX_measureText(font, line, &line_width, NULL);
-	if (line_width <= max_width) {
-		line_width = GFX_truncateText(font, line, buffer, max_width, 0);
-		strcpy(line, buffer);
-		return line_width;
-	}
-
-	char* prev = NULL;
-	char* tmp = line;
-	int lines = 1;
-	int i = 0;
-	while (!max_lines || lines < max_lines) {
-		tmp = strchr(tmp, ' ');
-		if (!tmp) {
-			if (prev) {
-				GFX_measureText(font, line, &line_width, NULL);
-				if (line_width >= max_width) {
-					if (line_width > max_line_width)
-						max_line_width = line_width;
-					prev[0] = '\n';
-					line = prev + 1;
-				}
-			}
-			break;
-		}
-		tmp[0] = '\0';
-
-		GFX_measureText(font, line, &line_width, NULL);
-
-		if (line_width >= max_width) { // wrap
-			if (line_width > max_line_width)
-				max_line_width = line_width;
-			tmp[0] = ' ';
-			tmp += 1;
-			prev[0] = '\n';
-			prev += 1;
-			line = prev;
-			lines += 1;
-		} else { // continue
-			tmp[0] = ' ';
-			prev = tmp;
-			tmp += 1;
-		}
-		i += 1;
-	}
-
-	line_width = GFX_truncateText(font, line, buffer, max_width, 0);
-	strcpy(line, buffer);
-
-	if (line_width > max_line_width)
-		max_line_width = line_width;
-	return max_line_width;
+	return TextWrap_wrap(GFX_measureWidth, font, str, max_width, max_lines);
 }
 
 int GFX_blitWrappedText(TTF_Font* font, const char* text, int max_width, int max_lines, SDL_Color color, SDL_Surface* surface, int y) {
