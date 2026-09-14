@@ -61,6 +61,7 @@ void CFG_defaults(NextUISettings* cfg) {
 		.showEmulators = CFG_DEFAULT_SHOWEMULATORS,
 		.gameSwitcherScaling = CFG_DEFAULT_GAMESWITCHERSCALING,
 		.gameSwitcherResumableOnly = CFG_DEFAULT_GAMESWITCHERRESUMABLEONLY,
+		.screenshotOrientation = CFG_DEFAULT_SCREENSHOT_ORIENTATION,
 		.defaultView = CFG_DEFAULT_VIEW,
 		.fn1Tool = CFG_DEFAULT_FN1_TOOL,
 		.fn2Tool = CFG_DEFAULT_FN2_TOOL,
@@ -207,6 +208,10 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 			}
 			if (sscanf(line, "switcherresumableonly=%i", &temp_value) == 1) {
 				CFG_setGameSwitcherResumableOnly((bool)temp_value);
+				continue;
+			}
+			if (sscanf(line, "screenshotOrientation=%i", &temp_value) == 1) {
+				CFG_setScreenshotOrientation(temp_value);
 				continue;
 			}
 			if (strncmp(line, "fn1Tool=", 8) == 0) {
@@ -647,6 +652,15 @@ bool CFG_getGameSwitcherResumableOnly(void) {
 
 void CFG_setGameSwitcherResumableOnly(bool resumableOnly) {
 	settings.gameSwitcherResumableOnly = resumableOnly;
+	CFG_sync();
+}
+
+int CFG_getScreenshotOrientation(void) {
+	return settings.screenshotOrientation;
+}
+
+void CFG_setScreenshotOrientation(int orientation) {
+	settings.screenshotOrientation = clamp(orientation, SCREENSHOT_ORIENTATION_VERTICAL, SCREENSHOT_ORIENTATION_HORIZONTAL);
 	CFG_sync();
 }
 
@@ -1092,6 +1106,8 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", CFG_getGameSwitcherScaling());
 	} else if (strcmp(key, "switcherresumableonly") == 0) {
 		sprintf(value, "%i", CFG_getGameSwitcherResumableOnly());
+	} else if (strcmp(key, "screenshotOrientation") == 0) {
+		sprintf(value, "%i", CFG_getScreenshotOrientation());
 	} else if (strcmp(key, "romfolderbg") == 0) {
 		sprintf(value, "%i", CFG_getRomsUseFolderBackground());
 	} else if (strcmp(key, "saveFormat") == 0) {
@@ -1183,6 +1199,7 @@ static int CFG_serialize(char* buf, size_t cap) {
 	EMIT("powerOffProtection=%i\n", settings.powerOffProtection);
 	EMIT("switcherscale=%i\n", settings.gameSwitcherScaling);
 	EMIT("switcherresumableonly=%i\n", settings.gameSwitcherResumableOnly);
+	EMIT("screenshotOrientation=%i\n", settings.screenshotOrientation);
 	EMIT("fn1Tool=%s\n", settings.fn1Tool);
 	EMIT("fn2Tool=%s\n", settings.fn2Tool);
 	EMIT("haptics=%i\n", settings.haptics);
@@ -1418,6 +1435,7 @@ void CFG_print(void) {
 	printf("\t\"powerOffProtection\": %i,\n", settings.powerOffProtection);
 	printf("\t\"switcherscale\": %i,\n", settings.gameSwitcherScaling);
 	printf("\t\"switcherresumableonly\": %i,\n", settings.gameSwitcherResumableOnly);
+	printf("\t\"screenshotOrientation\": %i,\n", settings.screenshotOrientation);
 	printf("\t\"haptics\": %i,\n", settings.haptics);
 	printf("\t\"romfolderbg\": %i,\n", settings.romsUseFolderBackground);
 	printf("\t\"saveFormat\": %i,\n", settings.saveFormat);

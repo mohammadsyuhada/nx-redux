@@ -235,6 +235,11 @@ static int switcher_games_values[] = {1, 0};
 static const char* switcher_games_labels[] = {"Resumable only", "All recent games"};
 #define SWITCHER_GAMES_COUNT 2
 
+/* Screenshot orientation */
+static int screenshot_orientation_values[] = {SCREENSHOT_ORIENTATION_VERTICAL, SCREENSHOT_ORIENTATION_HORIZONTAL};
+static const char* screenshot_orientation_labels[] = {"Vertical", "Horizontal"};
+#define SCREENSHOT_ORIENTATION_COUNT 2
+
 /* Save format */
 static int save_format_values[] = {SAVE_FORMAT_SAV, SAVE_FORMAT_SRM, SAVE_FORMAT_SRM_UNCOMPRESSED, SAVE_FORMAT_GEN};
 static const char* save_format_labels[] = {"MinUI", "Retroarch (compressed)", "Retroarch (uncompressed)", "Generic"};
@@ -861,6 +866,16 @@ static void reset_switcher_resumable_only(void) {
 	CFG_setGameSwitcherResumableOnly(CFG_DEFAULT_GAMESWITCHERRESUMABLEONLY);
 }
 
+static int get_screenshot_orientation(void) {
+	return CFG_getScreenshotOrientation();
+}
+static void set_screenshot_orientation(int v) {
+	CFG_setScreenshotOrientation(v);
+}
+static void reset_screenshot_orientation(void) {
+	CFG_setScreenshotOrientation(CFG_DEFAULT_SCREENSHOT_ORIENTATION);
+}
+
 static int get_clock24h(void) {
 	return CFG_getClock24H() ? 1 : 0;
 }
@@ -1283,7 +1298,7 @@ static void init_about_info(void) {
 
 #define MAX_APPEARANCE_ITEMS 28
 #define MAX_DISPLAY_ITEMS 8
-#define MAX_SYSTEM_ITEMS 22
+#define MAX_SYSTEM_ITEMS 23
 #define MAX_FN_ITEMS 20
 #define MAX_FNKEY_ITEMS 3
 #define MAX_NOTIFY_ITEMS 8
@@ -1755,6 +1770,9 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Game Switcher games", "Which recently played games appear in the Game Switcher.",
 		switcher_games_labels, SWITCHER_GAMES_COUNT, switcher_games_values, get_switcher_resumable_only, set_switcher_resumable_only, reset_switcher_resumable_only);
+	system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Screenshot Orientation", "Rotate saved screenshots.",
+		screenshot_orientation_labels, SCREENSHOT_ORIENTATION_COUNT, screenshot_orientation_values, get_screenshot_orientation, set_screenshot_orientation, reset_screenshot_orientation);
 	system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Show 24h time format", "Show clock in the 24hrs time format",
 		on_off_labels, 2, on_off_values, get_clock24h, set_clock24h, reset_clock24h);

@@ -71,6 +71,11 @@ typedef enum {
 	ART_TYPE_BOXART = 2
 } ArtType;
 
+typedef enum {
+	SCREENSHOT_ORIENTATION_VERTICAL = 0,
+	SCREENSHOT_ORIENTATION_HORIZONTAL = 1
+} ScreenshotOrientation;
+
 // Achievement sort order options
 enum {
 	RA_SORT_UNLOCKED_FIRST,
@@ -126,6 +131,7 @@ typedef struct
 	bool romsUseFolderBackground;
 	int defaultView;
 	bool gameSwitcherResumableOnly;
+	int screenshotOrientation;
 
 	// F1/F2 tool shortcuts (Brick family): SD-relative path of the tool pak
 	// the key launches from the menus ("" = disabled), e.g. "/Tools/Files.pak"
@@ -209,6 +215,7 @@ typedef struct
 #define CFG_DEFAULT_SHOWFOLDERNAMESATROOT true
 #define CFG_DEFAULT_GAMESWITCHERSCALING GFX_SCALE_FULLSCREEN
 #define CFG_DEFAULT_GAMESWITCHERRESUMABLEONLY true
+#define CFG_DEFAULT_SCREENSHOT_ORIENTATION SCREENSHOT_ORIENTATION_VERTICAL
 #define CFG_DEFAULT_SCREENTIMEOUTSECS 60
 #define CFG_DEFAULT_SUSPENDTIMEOUTSECS 30
 #define CFG_DEFAULT_POWEROFFPROTECTION true
@@ -332,6 +339,9 @@ void CFG_setGameSwitcherScaling(int enumValue);
 // Whether the game switcher lists only games with a resumable save state.
 bool CFG_getGameSwitcherResumableOnly(void);
 void CFG_setGameSwitcherResumableOnly(bool resumableOnly);
+// Saved screenshot orientation: 0 = vertical, 1 = horizontal.
+int CFG_getScreenshotOrientation(void);
+void CFG_setScreenshotOrientation(int orientation);
 // SD-relative path of the tool pak launched by the F1/F2 key in the menus
 // (Brick family only), "" = disabled.
 const char* CFG_getFn1Tool(void);
