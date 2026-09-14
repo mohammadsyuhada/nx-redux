@@ -552,7 +552,7 @@ static void launch_pugwash(void) {
 			 "s|/mnt/SDCARD/Imgs/PORTS|" SDCARD_PATH "/Roms/Ports (PORTS)/.media|g' \"$PP\"; " PORTMASTER_DIR "/bin/python3 " PORTMASTER_DIR "/disable_python_function.py "
 			 "\"$PP\" portmaster_install 2>/dev/null; "
 			 "rm -rf pylibs/harbourmaster/__pycache__; "
-			 "fi; " PORTMASTER_DIR "/bin/python3 pugwash 2>&1 | tee " SDCARD_PATH "/.userdata/" PLATFORM "/logs/portmaster_pugwash.txt; "
+			 "fi; " PORTMASTER_DIR "/bin/python3 pugwash 2>&1 | tee \"${LOGS_PATH:-" SDCARD_PATH "/.userdata/" PLATFORM "/logs}/portmaster_pugwash.txt\"; "
 			 "[ -f .pugwash-reboot ] && rm -f .pugwash-reboot && continue; "
 			 // If platform.py still has unpatched paths, pugwash just extracted fresh
 			 // pylibs (first_run or update) and crashed — retry once with patches applied

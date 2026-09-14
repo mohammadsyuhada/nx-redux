@@ -460,13 +460,6 @@ static void run_standard_shutdown(void) {
 }
 
 int main(void) {
-	// Open log file first thing
-	log_fp = fopen(LOG_FILE, "w");
-	if (log_fp) {
-		// Make unbuffered so we don't lose messages if we crash/poweroff
-		setvbuf(log_fp, NULL, _IONBF, 0);
-	}
-
 	// Block SIGTERM and SIGKILL for this process to prevent self-termination
 	sigset_t block_set;
 	sigemptyset(&block_set);
@@ -480,6 +473,18 @@ int main(void) {
 	resolve_sdcard_path();
 
 	CFG_init(NULL, NULL);
+
+	// Shutdown trace lives on the internal flash (/tmp is gone by the time
+	// anyone could read it). Only write it when the Developer "Debug logging"
+	// setting is on; otherwise every shutdown rewrites a file on the rootfs.
+	if (CFG_getDebugLogging()) {
+		log_fp = fopen(LOG_FILE, "w");
+		if (log_fp) {
+			// Make unbuffered so we don't lose messages if we crash/poweroff
+			setvbuf(log_fp, NULL, _IONBF, 0);
+		}
+	}
+
 	read_motor_switch();
 
 	bool protection_enabled = CFG_getPowerOffProtection();

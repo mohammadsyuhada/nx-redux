@@ -106,6 +106,7 @@ void CFG_defaults(NextUISettings* cfg) {
 		.keepAwakeUSB = CFG_DEFAULT_KEEP_AWAKE_USB,
 		.disableSleep = CFG_DEFAULT_DISABLE_SLEEP,
 		.sshOnBoot = CFG_DEFAULT_SSH_ON_BOOT,
+		.debugLogging = CFG_DEFAULT_DEBUG_LOGGING,
 	};
 
 	*cfg = defaults;
@@ -365,6 +366,10 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 			}
 			if (sscanf(line, "sshOnBoot=%i", &temp_value) == 1) {
 				CFG_setSSHOnBoot((bool)temp_value);
+				continue;
+			}
+			if (sscanf(line, "debugLogging=%i", &temp_value) == 1) {
+				CFG_setDebugLogging((bool)temp_value);
 				continue;
 			}
 			if (sscanf(line, "keepAwakeUSB=%i", &temp_value) == 1) {
@@ -1025,6 +1030,15 @@ void CFG_setSSHOnBoot(bool enable) {
 	CFG_sync();
 }
 
+bool CFG_getDebugLogging(void) {
+	return settings.debugLogging;
+}
+
+void CFG_setDebugLogging(bool enable) {
+	settings.debugLogging = enable;
+	CFG_sync();
+}
+
 void CFG_get(const char* key, char* value) {
 	if (strcmp(key, "font") == 0) {
 		sprintf(value, "%i", CFG_getFontId());
@@ -1118,6 +1132,8 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", (int)(CFG_getDisableSleep()));
 	} else if (strcmp(key, "sshOnBoot") == 0) {
 		sprintf(value, "%i", (int)(CFG_getSSHOnBoot()));
+	} else if (strcmp(key, "debugLogging") == 0) {
+		sprintf(value, "%i", (int)(CFG_getDebugLogging()));
 	}
 
 	// meta, not a real setting
@@ -1205,6 +1221,7 @@ static int CFG_serialize(char* buf, size_t cap) {
 	EMIT("keepAwakeUSB=%i\n", settings.keepAwakeUSB);
 	EMIT("disableSleep=%i\n", settings.disableSleep);
 	EMIT("sshOnBoot=%i\n", settings.sshOnBoot);
+	EMIT("debugLogging=%i\n", settings.debugLogging);
 #undef EMIT
 	return (int)off;
 }
@@ -1422,6 +1439,7 @@ void CFG_print(void) {
 	printf("\t\"keepAwakeUSB\": %i,\n", settings.keepAwakeUSB);
 	printf("\t\"disableSleep\": %i,\n", settings.disableSleep);
 	printf("\t\"sshOnBoot\": %i,\n", settings.sshOnBoot);
+	printf("\t\"debugLogging\": %i,\n", settings.debugLogging);
 
 	// meta, not a real setting
 	printf("\t\"fontpath\": \"%s/font1.ttf\"\n", RES_PATH);

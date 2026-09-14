@@ -44,7 +44,6 @@ mkdir -p "$ROMS_PATH"
 mkdir -p "$SAVES_PATH"
 mkdir -p "$CHEATS_PATH"
 mkdir -p "$USERDATA_PATH"
-mkdir -p "$LOGS_PATH"
 mkdir -p "$SHARED_USERDATA_PATH/.minui"
 
 export TRIMUI_MODEL=`strings /usr/trimui/bin/MainUI | grep ^Trimui`
@@ -199,7 +198,31 @@ cd "$SYSTEM_PATH/bin"
 # audiomon will write .asoundrc when USB/BT devices connect.
 rm -f $USERDATA_PATH/.asoundrc /tmp/nx_audio_sink
 audiomon.elf & #&> $SDCARD_PATH/audiomon.txt &
-musicplayerd.elf </dev/null >> "$LOGS_PATH/music-playerd.txt" 2>&1 &
+# Debug logging (Developer setting). App/game logs are redirected by every
+# pak's launch.sh through $LOGS_PATH. When the setting is off, point that at
+# tmpfs (wiped before every launch) so nothing lands on the SD card; when on,
+# keep the persistent .userdata/<plat>/logs directory. Re-evaluated before
+# each launch so toggling it in Settings applies without a reboot.
+nx_update_logs_path() {
+	dbglog=$(nextval.elf debugLogging | sed -n 's/.*"debugLogging": \([0-9]*\).*/\1/p')
+	if [ "$dbglog" = "1" ]; then
+		export NX_DEBUG_LOGGING=1
+		export LOGS_PATH="$USERDATA_PATH/logs"
+		rm -rf /tmp/nx-logs
+	else
+		export NX_DEBUG_LOGGING=0
+		export LOGS_PATH="/tmp/nx-logs"
+		rm -rf "$LOGS_PATH"
+	fi
+	mkdir -p "$LOGS_PATH"
+}
+nx_update_logs_path
+# musicplayerd runs for the whole session, so its log cannot live in the
+# per-launch tmpfs dir (the wipe would unlink its open file); when debug
+# logging is off it goes to /dev/null instead.
+MPD_LOG=/dev/null
+[ "$NX_DEBUG_LOGGING" = "1" ] && MPD_LOG="$LOGS_PATH/music-playerd.txt"
+musicplayerd.elf </dev/null >> "$MPD_LOG" 2>&1 &
 
 # wifi handling
 wifion=$(nextval.elf wifi | sed -n 's/.*"wifi": \([0-9]*\).*/\1/p')
@@ -249,10 +272,12 @@ EXEC_PATH="/tmp/nextui_exec"
 NEXT_PATH="/tmp/next"
 touch "$EXEC_PATH"  && sync
 while [ -f $EXEC_PATH ]; do
-	nextui.elf &> $LOGS_PATH/nextui.txt
+	nx_update_logs_path
+	nextui.elf &> "$LOGS_PATH/nextui.txt"
 
 	if [ -f $NEXT_PATH ]; then
 		CMD=`cat $NEXT_PATH`
+		nx_update_logs_path
 		eval $CMD
 		rm -f $NEXT_PATH
 		# Restore CPU state (games/tools may change governor, freq, and cores)

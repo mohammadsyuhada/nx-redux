@@ -26,7 +26,6 @@ mkdir -p "$ROMS_PATH"
 mkdir -p "$SAVES_PATH"
 mkdir -p "$CHEATS_PATH"
 mkdir -p "$USERDATA_PATH"
-mkdir -p "$LOGS_PATH"
 mkdir -p "$SHARED_USERDATA_PATH/.minui"
 
 export IS_NEXT="yes"
@@ -51,11 +50,32 @@ cd $(dirname "$0")
 EXEC_PATH="/tmp/nextui_exec"
 NEXT_PATH="/tmp/next"
 touch "$EXEC_PATH"  && sync
+# Debug logging (Developer setting). App/game logs are redirected by every
+# pak's launch.sh through $LOGS_PATH. When the setting is off, point that at
+# tmpfs (wiped before every launch) so nothing lands on the SD card; when on,
+# keep the persistent .userdata/<plat>/logs directory. Re-evaluated before
+# each launch so toggling it in Settings applies without a reboot.
+nx_update_logs_path() {
+	dbglog=$(nextval.elf debugLogging | sed -n 's/.*"debugLogging": \([0-9]*\).*/\1/p')
+	if [ "$dbglog" = "1" ]; then
+		export NX_DEBUG_LOGGING=1
+		export LOGS_PATH="$USERDATA_PATH/logs"
+		rm -rf /tmp/nx-logs
+	else
+		export NX_DEBUG_LOGGING=0
+		export LOGS_PATH="/tmp/nx-logs"
+		rm -rf "$LOGS_PATH"
+	fi
+	mkdir -p "$LOGS_PATH"
+}
+
 #while [ -f $EXEC_PATH ]; do
-	nextui.elf # &> $LOGS_PATH/nextui.txt
+	nx_update_logs_path
+	nextui.elf # &> "$LOGS_PATH/nextui.txt"
 	
 	if [ -f $NEXT_PATH ]; then
 		CMD=`cat $NEXT_PATH`
+		nx_update_logs_path
 		eval $CMD
 		rm -f $NEXT_PATH
 	fi

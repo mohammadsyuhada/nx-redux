@@ -2,7 +2,7 @@
  * settings_developer.c - Developer settings for NxRedux Settings
  *
  * Provides developer-oriented options: disable sleep, SSH toggle,
- * and SSH on boot within the settings framework.
+ * SSH on boot and debug logging within the settings framework.
  */
 
 #include <stdio.h>
@@ -21,12 +21,13 @@
 // Developer settings page
 // ============================================
 
-#define DEV_ITEM_COUNT 5
+#define DEV_ITEM_COUNT 6
 #define DEV_IDX_DISABLE_SLEEP 0
 #define DEV_IDX_KEEP_AWAKE_USB 1
 #define DEV_IDX_SSH_TOGGLE 2
 #define DEV_IDX_SSH_ON_BOOT 3
-#define DEV_IDX_CLEAN_DOTFILES 4
+#define DEV_IDX_DEBUG_LOGGING 4
+#define DEV_IDX_CLEAN_DOTFILES 5
 
 static const char* on_off_labels[] = {"Off", "On"};
 static int on_off_values[] = {0, 1};
@@ -157,6 +158,22 @@ static void dev_set_ssh_on_boot(int v) {
 
 static void dev_reset_ssh_on_boot(void) {
 	CFG_setSSHOnBoot(CFG_DEFAULT_SSH_ON_BOOT);
+}
+
+// ============================================
+// Debug logging
+// ============================================
+
+static int dev_get_debug_logging(void) {
+	return CFG_getDebugLogging() ? 1 : 0;
+}
+
+static void dev_set_debug_logging(int v) {
+	CFG_setDebugLogging(v != 0);
+}
+
+static void dev_reset_debug_logging(void) {
+	CFG_setDebugLogging(CFG_DEFAULT_DEBUG_LOGGING);
 }
 
 // ============================================
@@ -346,6 +363,11 @@ SettingsPage* developer_page_create(DevicePlatform dev_platform) {
 		"Start SSH on boot", "Automatically start SSH when device boots.",
 		on_off_labels, 2, on_off_values,
 		dev_get_ssh_on_boot, dev_set_ssh_on_boot, dev_reset_ssh_on_boot);
+
+	items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Debug logging", "Save app and game logs to the SD card (.userdata/logs). Off keeps them in RAM only.",
+		on_off_labels, 2, on_off_values,
+		dev_get_debug_logging, dev_set_debug_logging, dev_reset_debug_logging);
 
 	items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
 		"Clean dot files",

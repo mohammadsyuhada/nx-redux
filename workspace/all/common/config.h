@@ -183,6 +183,7 @@ typedef struct
 	// Developer
 	bool disableSleep;
 	bool sshOnBoot;
+	bool debugLogging; // persist app/game logs to .userdata/<plat>/logs (off = tmpfs only)
 
 } NextUISettings;
 
@@ -257,6 +258,7 @@ typedef struct
 // Developer defaults
 #define CFG_DEFAULT_DISABLE_SLEEP false
 #define CFG_DEFAULT_SSH_ON_BOOT false
+#define CFG_DEFAULT_DEBUG_LOGGING false
 
 void CFG_init(FontLoad_callback_t fontCallback, ColorSet_callback_t ccb);
 void CFG_print(void);
@@ -448,6 +450,8 @@ bool CFG_getDisableSleep(void);
 void CFG_setDisableSleep(bool disable);
 bool CFG_getSSHOnBoot(void);
 void CFG_setSSHOnBoot(bool enable);
+bool CFG_getDebugLogging(void);
+void CFG_setDebugLogging(bool enable);
 
 void CFG_sync(void);
 void CFG_quit(void);
