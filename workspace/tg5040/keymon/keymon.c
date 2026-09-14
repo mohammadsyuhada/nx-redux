@@ -345,10 +345,15 @@ int main(int argc, char* argv[]) {
 				case CODE_HOME: // KEY_HOMEPAGE (172) — Brick Pro Home button
 					// The original Brick has no Home button and never emits this;
 					// on the Brick Pro a short press toggles the OSD. Menu long-press
-					// (above) still works on both. Toggle on the press edge only —
-					// val > REPEAT is already filtered out above, so ignore repeat
-					// (2) and release (0) here.
-					if (val == PRESSED)
+					// (above) still works on both. Toggle on the RELEASE edge: once
+					// the OSD is up, trimui_osdd grabs the virtual pad that carries
+					// Home, so keymon never sees the closing press — the daemon
+					// handles that itself (device/brickpro/trimui_osdd maps Home to
+					// its cancel key, acting on button-up). Toggling on the press
+					// edge let the daemon grab the pad mid-press and consume the
+					// release of the very same press as a cancel, so the OSD
+					// flashed and closed. Repeat (2) is filtered out above.
+					if (val == RELEASED)
 						toggle_osd();
 					break;
 				default:

@@ -319,6 +319,6 @@ jobs:
           make_latest: "true"
           body: |
 
-            Some of the features are based on NextUI, please refer NextUI documentation. Documentation for uncommon features will be added in the future.
+            More details available in https://nxredux.com/reference/release-notes/
             Select zip files that is relevant to your platform and extract it to your exFAT formatted SDCARD. Alternatively, you can update directly using the OTA update feature in the device.
             If you have any questions, please open an issue in the repository.

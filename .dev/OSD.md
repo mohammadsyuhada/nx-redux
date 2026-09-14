@@ -145,7 +145,17 @@ the same). `device/brickpro/trimui_osdd` is therefore a copy of the **Brick's**
 daemon (c3181362…), not the Brick Pro's stock one (62df0658…): both models are
 the same SoC, kernel and 1024×768 panel, and the Brick build renders the Brick
 Pro identically to the Brick (verified 2026-09-11: grid, focus, toggles,
-in-panel and standalone toasts). Brick Pro's stock
+in-panel and standalone toasts). The copy carries a two-instruction patch
+(1b120125…, 2026-09-14) in `do_osd_input_thread`: SDL joystick button 15 —
+the Brick Pro's Home key, which SDL enumerates after the 11 `BTN_*` buttons,
+F1/F2 and the volume keys — now maps to the daemon's cancel key 2 (the one physical B, SDL button 0,
+uses), in place of X's mapping to key 4, which `osd_input` ignores. Reason:
+while shown, the daemon `EVIOCGRAB`s the pad (`input_grab_all` grabs every
+`/dev/input/event*` fd it holds) and the Brick Pro's Home lives only on that
+virtual pad, so keymon's Home toggle never sees the closing press (the Smart
+Pro S is unaffected: its Home is on `sunxi-keyboard`, which the daemon never
+opens). Patch bytes: `0x40b8b4` `cmp w0,#2`→`cmp w0,#15` and `0x40b9b8`
+`mov w0,#4`→`mov w0,#2` (file offset = vaddr − 0x400000). Brick Pro's stock
 layout includes the battery widget, so `device/brickpro/osdlayout.json` keeps it
 (the widget itself lives in the shared `common/widgets/static_battery`, and is
 simply not referenced by the Brick or Smart Pro layouts). Extraction recipe,
@@ -434,8 +444,16 @@ Both platforms use the same approach: `keymon` detects the trigger → toggles O
 
 - **keymon** detects Menu long-press (`CODE_MENU2=316`, 500ms threshold) on all
   tg5040 devices, and additionally a short Home press (`KEY_HOMEPAGE` 172) on
-  the Brick Pro — the only tg5040 device with a Home button
+  the Brick Pro — the only tg5040 device with a Home button. Home toggles on
+  the RELEASE edge: toggling on press let trimui_osdd grab the pad mid-press
+  and consume the release of that same press as a cancel (OSD flashed and
+  closed, 2026-09-14)
 - On trigger: same toggle logic via `/tmp/trimui_osd/osdd_show_up`
+- keymon cannot close the OSD on the Brick Pro: while shown, trimui_osdd grabs
+  the virtual pad that carries Home, so the second press is handled inside
+  the daemon by the patched Home→cancel mapping in `device/brickpro/trimui_osdd`
+  (see the binary section above). Menu long-press cannot close it on any
+  tg5040 device for the same reason; B closes it.
 - Menu tap opens the context menu in nxredux
 
 ### nxredux
