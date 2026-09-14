@@ -186,11 +186,13 @@ extern int is_brickpro;
 // right before the power cut without linking the SDL-backed VIB_ layer.
 #define RUMBLE_PATH "/sys/class/gpio/gpio227/value"
 #define RUMBLE_VOLTAGE_PATH "/sys/class/motor/voltage"
-// Motor drive range (microvolts). The Brick Pro drives its motor at 3.3 V,
-// which is unpleasantly strong at the higher rumble settings, so cap it lower.
+// Motor drive range (microvolts). The Brick Pro's larger motor is unpleasantly
+// strong (and coasts noticeably longer) at the Brick's 3.3 V, so it gets a lower
+// ceiling that every "Vibration strength" level is scaled under. 2.5 V was still
+// felt as too hard at Normal (2026-09-15), then 2.0 V still a touch strong, hence 1.7 V.
 #define RUMBLE_MIN_VOLTAGE 500000
 #define RUMBLE_MAX_VOLTAGE 3300000
-#define RUMBLE_MAX_VOLTAGE_BRICKPRO 2500000
+#define RUMBLE_MAX_VOLTAGE_BRICKPRO 1700000
 
 // Brick Pro has 5 zones (f1, f2, top bar, joysticks, triggers), Brick 4, Smart Pro 3
 #define MAX_LIGHTS 5
