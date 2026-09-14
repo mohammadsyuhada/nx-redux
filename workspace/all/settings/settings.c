@@ -1225,8 +1225,9 @@ static void init_about_info(void) {
 		char release_name[256] = {0};
 		char build_hash[256] = {0};
 		char build_tag[256] = {0};
+		char commit_date[256] = {0};
 		int line_num = 0;
-		while (fgets(line_buf, sizeof(line_buf), vf) && line_num < 3) {
+		while (fgets(line_buf, sizeof(line_buf), vf) && line_num < 4) {
 			line_num++;
 			int len = (int)strlen(line_buf);
 			while (len > 0 && (line_buf[len - 1] == '\n' || line_buf[len - 1] == '\r'))
@@ -1237,6 +1238,8 @@ static void init_about_info(void) {
 				strncpy(build_hash, line_buf, sizeof(build_hash) - 1);
 			else if (line_num == 3)
 				strncpy(build_tag, line_buf, sizeof(build_tag) - 1);
+			else if (line_num == 4)
+				strncpy(commit_date, line_buf, sizeof(commit_date) - 1);
 		}
 		fclose(vf);
 		/* Version: use tag if available, otherwise release name */
@@ -1245,13 +1248,21 @@ static void init_about_info(void) {
 		else
 			strncpy(about_nxredux_version, release_name, sizeof(about_nxredux_version) - 1);
 		about_nxredux_version[sizeof(about_nxredux_version) - 1] = '\0';
-		/* Release date: extract YYYYMMDD from release name (e.g. "NxRedux-20260221-0") */
-		char* dash = strchr(release_name, '-');
-		if (dash && strlen(dash + 1) >= 8) {
-			char date_raw[9] = {0};
-			strncpy(date_raw, dash + 1, 8);
+		/* Release date: line 4 is the HEAD commit date (YYYYMMDD) written by the
+		 * top-level Makefile. Older version.txt files lack it, so fall back to
+		 * the date embedded in a dev release name ("NXRedux-20260221"). Tagged
+		 * releases are named after the tag, which carries no date. */
+		const char* date_src = NULL;
+		if (strlen(commit_date) == 8 && strspn(commit_date, "0123456789") == 8) {
+			date_src = commit_date;
+		} else {
+			char* dash = strchr(release_name, '-');
+			if (dash && strlen(dash + 1) >= 8 && strspn(dash + 1, "0123456789") >= 8)
+				date_src = dash + 1;
+		}
+		if (date_src) {
 			snprintf(about_release_date, sizeof(about_release_date),
-					 "%.4s-%.2s-%.2s (%s)", date_raw, date_raw + 4, date_raw + 6, build_hash);
+					 "%.4s-%.2s-%.2s (%s)", date_src, date_src + 4, date_src + 6, build_hash);
 		} else {
 			snprintf(about_release_date, sizeof(about_release_date), "%s (%s)", release_name, build_hash);
 		}

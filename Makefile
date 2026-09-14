@@ -31,6 +31,9 @@ DRASTIC_COMMIT=2b87c96a805758a249127ac979e0b33a64dd7199# 2026-01-21
 
 BUILD_HASH:=$(shell git rev-parse --short HEAD)
 BUILD_TAG:=$(shell git describe --tags --abbrev=0 2>/dev/null || echo "untagged")
+# Commit date of HEAD (GMT, YYYYMMDD): the About page shows this as the release
+# date so tag-named release builds and date-named dev builds read the same.
+BUILD_COMMIT_DATE:=$(shell TZ=GMT git log -1 --format=%cd --date=format-local:%Y%m%d 2>/dev/null || TZ=GMT date +%Y%m%d)
 BUILD_BRANCH:=$(shell (git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --short HEAD) | sed 's/\//-/g')
 RELEASE_TIME:=$(shell TZ=GMT date +%Y%m%d)
 ifeq ($(BUILD_BRANCH),main)
@@ -418,7 +421,7 @@ package: tidy
 	cp ./workspace/readmes/BASE-out.txt ./build/BASE/README.txt
 	rm -rf ./workspace/readmes
 
-	cd ./build/SYSTEM && printf "%s\n%s\n%s\n" "$(RELEASE_NAME)" "$(BUILD_HASH)" "$(BUILD_TAG)" > version.txt
+	cd ./build/SYSTEM && printf "%s\n%s\n%s\n%s\n" "$(RELEASE_NAME)" "$(BUILD_HASH)" "$(BUILD_TAG)" "$(BUILD_COMMIT_DATE)" > version.txt
 	./commits.sh > ./build/SYSTEM/commits.txt
 	cd ./build && find . -type f -name '.DS_Store' -delete
 
