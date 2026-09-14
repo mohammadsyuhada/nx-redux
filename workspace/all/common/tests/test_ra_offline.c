@@ -44,6 +44,13 @@ static void test_cache_classification(void) {
 	RA_Offline_cacheResponse("r=login2&u=bob&p=xx", login_body, strlen(login_body));
 	assert(file_exists("cache/login.json"));
 	assert(RA_Offline_hasLoginCache());
+	// token-form login2 (what the pak's RA_OfflineNet_cacheLogin sends)
+	// lands in the same file; the legacy pak "r=login" never did (issue #105)
+	reset_root();
+	RA_Offline_cacheResponse("r=login&u=bob&p=xx", login_body, strlen(login_body));
+	assert(!RA_Offline_hasLoginCache());
+	RA_Offline_cacheResponse("r=login2&u=bob&t=tok", login_body, strlen(login_body));
+	assert(RA_Offline_hasLoginCache());
 
 	const char* gid = "{\"Success\":true,\"GameID\":1446}";
 	RA_Offline_cacheResponse("r=gameid&m=abcdef0123456789abcdef0123456789", gid, strlen(gid));

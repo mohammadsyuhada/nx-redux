@@ -19,6 +19,7 @@
 #include "display_helper.h"
 #include "ra_auth.h"
 #include "ra_offline.h"
+#include "ra_offline_net.h"
 
 #include "ratools_browser.h"
 #include "ratools_data.h"
@@ -221,6 +222,12 @@ static void on_ra_authenticate(void) {
 	if (result == RA_AUTH_SUCCESS) {
 		CFG_setRAToken(response.token);
 		CFG_setRAAuthenticated(true);
+		// minarch only starts an offline session from a cached "login2"
+		// response, which it otherwise writes on its own first online login.
+		// Write it here too so "log in, prefetch, go offline" works without
+		// ever playing a game online (issue #105).
+		if (RA_OfflineNet_cacheLogin(username, response.token) != 0)
+			LOG_warn("ratools: authenticated but could not write offline login cache\n");
 		snprintf(ra_auth_status_msg, sizeof(ra_auth_status_msg),
 				 "Authenticated as %s", response.display_name);
 	} else {

@@ -6,6 +6,7 @@
 #include <time.h>
 
 #include <rcheevos/rc_api_runtime.h>
+#include <rcheevos/rc_api_user.h>
 
 typedef struct {
 	const char* token;
@@ -80,4 +81,41 @@ int RA_OfflineNet_syncAll(const char* username, const char* token,
 	if (synced > 0 && (ctx.last_score || ctx.last_softcore_score))
 		RA_Offline_updateCachedScores(ctx.last_score, ctx.last_softcore_score);
 	return synced;
+}
+
+int RA_OfflineNet_cacheLogin(const char* username, const char* token) {
+	if (!username || !*username || !token || !*token)
+		return -1;
+
+	rc_api_login_request_t api_params;
+	memset(&api_params, 0, sizeof(api_params));
+	api_params.username = username;
+	api_params.api_token = token;
+
+	rc_api_request_t request;
+	if (rc_api_init_login_request(&request, &api_params) != RC_OK)
+		return -1;
+
+	HTTP_Response* resp = HTTP_post(request.url, request.post_data, request.content_type);
+	int result = -1;
+	if (resp && resp->data && !resp->error && resp->http_status == 200) {
+		rc_api_server_response_t server_response;
+		memset(&server_response, 0, sizeof(server_response));
+		server_response.body = resp->data;
+		server_response.body_length = resp->size;
+		server_response.http_status_code = resp->http_status;
+
+		rc_api_login_response_t login;
+		if (rc_api_process_login_server_response(&login, &server_response) == RC_OK &&
+			login.response.succeeded) {
+			// same write-through path minarch uses for its own online login
+			RA_Offline_cacheResponse(request.post_data, resp->data, resp->size);
+			result = RA_Offline_hasLoginCache() ? 0 : -1;
+		}
+		rc_api_destroy_login_response(&login);
+	}
+	if (resp)
+		HTTP_freeResponse(resp);
+	rc_api_destroy_request(&request);
+	return result;
 }

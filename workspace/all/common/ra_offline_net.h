@@ -16,4 +16,14 @@
 int RA_OfflineNet_syncAll(const char* username, const char* token,
 						  RA_SyncProgressFn progress, void* progress_userdata);
 
+/**
+ * Synchronously log in with `token` (rc_client's "login2" request) and
+ * mirror the server response into the offline cache (cache/login.json),
+ * the file minarch needs before it will start a session offline. The pak
+ * is the only place a user can log in without ever playing online, so it
+ * calls this after authenticating and before a library prefetch. Blocking.
+ * @return 0 when the cache was written, -1 on network/auth failure.
+ */
+int RA_OfflineNet_cacheLogin(const char* username, const char* token);
+
 #endif // __RA_OFFLINE_NET_H__

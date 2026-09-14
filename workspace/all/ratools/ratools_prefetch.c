@@ -20,6 +20,7 @@
 #include "wifi.h"
 #include "ra_hash_cdreader.h"
 #include "ra_offline.h"
+#include "ra_offline_net.h"
 #include "ui_buttonhintbar.h"
 #include "utils.h"
 #include "ui_downloadprogress.h"
@@ -322,6 +323,19 @@ void RATPrefetch_run(SDL_Surface* screen) {
 
 	const char* username = CFG_getRAUsername();
 	const char* token = CFG_getRAToken();
+
+	// The offline session in minarch needs cache/login.json; users who
+	// logged in before the pak wrote it (issue #105) get repaired here, and
+	// everyone else gets refreshed point totals. One request, so do it every
+	// run; a failure only matters when nothing is cached yet.
+	rat_pf_render(screen, "Caching login", username, 0, total);
+	if (RA_OfflineNet_cacheLogin(username, token) != 0 && !RA_Offline_hasLoginCache()) {
+		free(roms);
+		rat_pf_message(screen, "Login check failed",
+					   "Could not verify the account. Authenticate again and retry.");
+		return;
+	}
+
 	int fetched = 0, cached = 0, unknown = 0, failed = 0;
 	bool cancelled = false;
 
