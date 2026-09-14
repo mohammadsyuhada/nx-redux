@@ -49,6 +49,10 @@ int GetFnMode(void);
 // OSD output mute (settings->speaker_mute): pure output silence, independent of FN mode
 int GetSpeakerMute(void);
 void SetSpeakerMute(int value); // 0-1
+int GetRumble(void);			// master motor switch, 1 = vibration allowed (default)
+void SetRumble(int on);
+int GetRumbleStrength(void); // 0 Normal (default), 1 Light, 2 Strong — see all/common/vib_levels.h
+void SetRumbleStrength(int level);
 
 // unused
 static inline int GetFanSpeed(void) {

@@ -163,7 +163,8 @@ typedef struct SettingsV10 {
 	int turbo_l2;
 	int turbo_r1;
 	int turbo_r2;
-	int unused[2]; // for future use
+	int rumble_off;		 // OSD motor switch, stored inverted so pre-existing files read as ON
+	int rumble_strength; // Settings "Vibration strength": 0 Normal (default), 1 Light, 2 Strong
 	int speaker_mute;
 	// NOTE: doesn't really need to be persisted but still needs to be shared
 	int jack;
@@ -199,6 +200,8 @@ static Settings DefaultSettings = {
 	.turbo_l2 = 0,
 	.turbo_r1 = 0,
 	.turbo_r2 = 0,
+	.rumble_off = 0,
+	.rumble_strength = 0,
 	.speaker_mute = 0,
 	.jack = 0,
 };
@@ -519,3 +522,25 @@ int GetSpeakerMute(void) {
 	return 0;
 }
 void SetSpeakerMute(int value) {}
+
+// Master motor switch (OSD "Motor" widget on devices). Persisted here so the
+// shared VIB thread in all/common/api.c and the Settings pak link on desktop.
+int GetRumble(void) {
+	if (!msettings)
+		return 1; // minarch starts its VIB thread before InitSettings
+	return !msettings->rumble_off;
+}
+void SetRumble(int on) {
+	msettings->rumble_off = !on;
+	SaveSettings();
+}
+// Settings → System → "Vibration strength" (see all/common/vib_levels.h).
+int GetRumbleStrength(void) {
+	if (!msettings)
+		return 0;
+	return msettings->rumble_strength;
+}
+void SetRumbleStrength(int level) {
+	msettings->rumble_strength = level;
+	SaveSettings();
+}
