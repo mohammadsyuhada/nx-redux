@@ -68,6 +68,8 @@ workspace/readmes
 compile_commands.json
 BUILD.md
 !.dev/BUILD.md
+# local working notes and scratch, never shipped
+.local/
 skeleton/BASE/Emus/shared/PortMaster/files/.DS_Store
 docs/
 docs/plans/
