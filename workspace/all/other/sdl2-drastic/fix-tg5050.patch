@@ -1,6 +1,6 @@
 diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*.la --exclude=*.lo --exclude=*.orig --exclude=Makefile --exclude=Makefile.rules --exclude=config.log --exclude=config.status --exclude=libtool --exclude=sdl2-config --exclude=sdl2-config.cmake --exclude=sdl2-config-version.cmake --exclude=sdl2.pc --exclude=SDL2.spec --exclude=gen --exclude=autom4te.cache --exclude=SDL_config.h --exclude=SDL_revision.h a/src/video/drastic_detour_main.c b/src/video/drastic_detour_main.c
---- a/src/video/drastic_detour_main.c	2026-03-05 01:59:15
-+++ b/src/video/drastic_detour_main.c	2026-03-05 01:55:28
+--- a/src/video/drastic_detour_main.c	2026-09-14 23:14:19
++++ b/src/video/drastic_detour_main.c	2026-09-14 23:09:04
 @@ -58,7 +58,6 @@
      char buf[2080] = {0};
      nds_load_state _func = (nds_load_state)FUN_LOAD_STATE;
@@ -164,8 +164,8 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  
  void detour_quit(void)
 diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*.la --exclude=*.lo --exclude=*.orig --exclude=Makefile --exclude=Makefile.rules --exclude=config.log --exclude=config.status --exclude=libtool --exclude=sdl2-config --exclude=sdl2-config.cmake --exclude=sdl2-config-version.cmake --exclude=sdl2.pc --exclude=SDL2.spec --exclude=gen --exclude=autom4te.cache --exclude=SDL_config.h --exclude=SDL_revision.h a/src/video/drastic_detour_pmparser.c b/src/video/drastic_detour_pmparser.c
---- a/src/video/drastic_detour_pmparser.c	2026-03-05 01:59:15
-+++ b/src/video/drastic_detour_pmparser.c	2026-03-05 01:55:28
+--- a/src/video/drastic_detour_pmparser.c	2026-09-14 23:14:19
++++ b/src/video/drastic_detour_pmparser.c	2026-09-14 23:09:04
 @@ -203,18 +203,10 @@
  	while(tmp!=NULL){
  		//(unsigned long) tmp->addr_start;
@@ -186,8 +186,8 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  		}else tmp=tmp->next;
  
 diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*.la --exclude=*.lo --exclude=*.orig --exclude=Makefile --exclude=Makefile.rules --exclude=config.log --exclude=config.status --exclude=libtool --exclude=sdl2-config --exclude=sdl2-config.cmake --exclude=sdl2-config-version.cmake --exclude=sdl2.pc --exclude=SDL2.spec --exclude=gen --exclude=autom4te.cache --exclude=SDL_config.h --exclude=SDL_revision.h a/src/video/drastic_event.c b/src/video/drastic_event.c
---- a/src/video/drastic_event.c	2026-03-05 01:59:15
-+++ b/src/video/drastic_event.c	2026-03-05 01:55:28
+--- a/src/video/drastic_event.c	2026-09-14 23:14:19
++++ b/src/video/drastic_event.c	2026-09-14 23:09:04
 @@ -437,7 +437,6 @@
  
  	for (i=0; i < NUM_OF_MYKEY; i++) {
@@ -205,8 +205,8 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  	}
  	else {
 diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*.la --exclude=*.lo --exclude=*.orig --exclude=Makefile --exclude=Makefile.rules --exclude=config.log --exclude=config.status --exclude=libtool --exclude=sdl2-config --exclude=sdl2-config.cmake --exclude=sdl2-config-version.cmake --exclude=sdl2.pc --exclude=SDL2.spec --exclude=gen --exclude=autom4te.cache --exclude=SDL_config.h --exclude=SDL_revision.h a/src/video/drastic_video.c b/src/video/drastic_video.c
---- a/src/video/drastic_video.c	2026-03-05 01:59:15
-+++ b/src/video/drastic_video.c	2026-03-05 01:55:28
+--- a/src/video/drastic_video.c	2026-09-14 23:14:19
++++ b/src/video/drastic_video.c	2026-09-14 23:09:49
 @@ -48,6 +48,7 @@
  #ifdef ADVDRASTIC_DRM
  #include <fcntl.h>
@@ -888,7 +888,78 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
              }
          }
      }
-@@ -6364,7 +6353,6 @@
+@@ -6237,38 +6226,44 @@
+ 
+ static int get_file_path(const char *path, int desire, char *buf, int add_path)
+ {
+-    DIR *d = NULL;
+-    int count = 0, r = -1;
+-    struct dirent *dir = NULL;
++    /* NX: enumerate in sorted (alphasort) order so a saved index refers to the
++       same file on every card — raw readdir() order differs per filesystem,
++       which made the default pen image differ between devices. */
++    struct dirent **list = NULL;
++    int n = 0, i = 0, count = 0, r = -1;
+ 
+-    d = opendir(path);
+-    if (d) {
+-        while ((dir = readdir(d)) != NULL) {
+-            if (strcmp(dir->d_name, ".") == 0) {
+-                continue;
+-            }
++    n = scandir(path, &list, NULL, alphasort);
++    if (n < 0) {
++        return -1;
++    }
++    for (i = 0; i < n; i++) {
++        struct dirent *dir = list[i];
+ 
+-            if (strcmp(dir->d_name, "..") == 0) {
+-                continue;
++        if (strcmp(dir->d_name, ".") == 0) {
++            continue;
++        }
++        if (strcmp(dir->d_name, "..") == 0) {
++            continue;
++        }
++        if (dir->d_type == DT_DIR) {
++            continue;
++        }
++        if (count == desire) {
++            if (add_path) {
++                snprintf(buf, MAX_PATH, "%s/%s", path, dir->d_name);
+             }
+-
+-            if (dir->d_type == DT_DIR) {
+-                continue;
++            else {
++                snprintf(buf, MAX_PATH, "%s", dir->d_name);
+             }
+-
+-            if (count == desire) {
+-                if (add_path) {
+-                    r = snprintf(buf, MAX_PATH, "%s/%s", path, dir->d_name) ? 0 : 1;
+-                }
+-                else {
+-                    r = snprintf(buf, MAX_PATH, "%s", dir->d_name) ? 0 : 1;
+-                }
+-                break;
+-            }
+-            count+= 1;
++            r = 0;
++            break;
+         }
+-        closedir(d);
++        count += 1;
+     }
++    for (i = 0; i < n; i++) {
++        free(list[i]);
++    }
++    free(list);
+     return r;
+ }
+ 
+@@ -6364,7 +6359,6 @@
  	drmModeAddFB(dri_fd, bo->width, bo->height, 24, 32, bo->pitch,
  			   bo->handle, &bo->fb_id);
  
@@ -896,7 +967,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  
  	/* map the dumb-buffer to userspace */
  	bo->map.handle = bo->create.handle;
-@@ -6376,12 +6364,8 @@
+@@ -6376,12 +6370,8 @@
  			MAP_SHARED, dri_fd, bo->map.offset);
       	//mmap failed: Invalid argument
  
@@ -909,7 +980,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
         		return -1;
      	}
  	/* initialize the dumb-buffer with white-color */
-@@ -6401,48 +6385,79 @@
+@@ -6401,48 +6391,79 @@
  
  int drm_init()
  {
@@ -1006,7 +1077,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  
  	return 0;
  }
-@@ -6474,8 +6489,6 @@
+@@ -6474,8 +6495,6 @@
  // [trngaje] fb_init: 0x0, rotate=0
  
      // https://docs.huihoo.com/doxygen/linux/kernel/3.7/structfb__var__screeninfo.html
@@ -1015,7 +1086,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  
      return 0;
  }
-@@ -6569,7 +6582,7 @@
+@@ -6569,7 +6588,7 @@
      glLinkProgram(vid.pObject);
      glUseProgram(vid.pObject);
  
@@ -1024,7 +1095,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
      vid.posLoc = glGetAttribLocation(vid.pObject, "a_position");
      vid.texLoc = glGetAttribLocation(vid.pObject, "a_texCoord");
      vid.samLoc = glGetUniformLocation(vid.pObject, "s_texture");
-@@ -6659,8 +6672,6 @@
+@@ -6659,8 +6678,6 @@
          //strcat(nds.theme.path, "_640");
          sprintf(nds.theme.path, "%s/%dx%d", buf, g_advdrastic.iDisplay_width, g_advdrastic.iDisplay_height);
          sprintf(buf, "%s/layout.json", nds.theme.path);
@@ -1033,7 +1104,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  
          getjsonlayout_initialize(buf);
          printjsonlayout();
-@@ -6735,6 +6746,14 @@
+@@ -6735,6 +6752,14 @@
      // 1:1 ratio 기기에서 좌우 글자 겹침 때문에 아래 구문 추가함
      FONT_SIZE= (g_advdrastic.iDisplay_height * 24 / 480 <= g_advdrastic.iDisplay_width * 24 / 640) ?  g_advdrastic.iDisplay_height * 24 / 480 : g_advdrastic.iDisplay_width * 24 / 640;  
      nds.font = TTF_OpenFont(FONT_PATH, FONT_SIZE);
@@ -1048,7 +1119,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
      if (nds.enable_752x560) {
          //TTF_SetFontStyle(nds.font, TTF_STYLE_BOLD);
      }
-@@ -6823,14 +6842,11 @@
+@@ -6823,14 +6848,11 @@
  
      switch(nds.pen.type) {
      case PEN_LT:
@@ -1063,7 +1134,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
          x -= (w * scale);
          break;
      case PEN_RB:
-@@ -7014,17 +7030,22 @@
+@@ -7014,17 +7036,22 @@
  
  void GFX_Flip(void)
  {
@@ -1094,7 +1165,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
      bo = gbm_surface_lock_front_buffer(drm_buf.gbm_surface);
      handle = gbm_bo_get_handle(bo).u32;
      pitch = gbm_bo_get_stride(bo);
-@@ -7032,8 +7053,13 @@
+@@ -7032,8 +7059,13 @@
      drmModeAddFB(dri_fd, drm_buf.width, drm_buf.height,
                   24, 32, pitch, handle, &fb);
  
@@ -1110,7 +1181,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  
      if (drm_buf.previous_bo) {
          drmModeRmFB(dri_fd, drm_buf.fb_id);
-@@ -7042,6 +7068,7 @@
+@@ -7042,6 +7074,7 @@
  
      drm_buf.fb_id = fb;
      drm_buf.previous_bo = bo;
@@ -1118,7 +1189,20 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  #endif
  
      if (nds.theme.img) {
-@@ -7249,7 +7276,6 @@
+@@ -7165,6 +7198,12 @@
+     char buf[MAX_PATH] = {0};
+     SDL_Surface *t = NULL;
+ 
++    /* NX: a saved index past the end of resources/pen (trimmed folder or stale
++       settings.json) used to leave the pen unloaded; fall back to the first file. */
++    if ((nds.pen.max > 0) && ((nds.pen.sel < 0) || (nds.pen.sel >= nds.pen.max))) {
++        nds.pen.sel = 0;
++    }
++
+     if (pre_sel != nds.pen.sel) {
+         pre_sel = nds.pen.sel;
+ 
+@@ -7249,7 +7288,6 @@
      sprintf(buf, "%s/%s", folder, MENU_CURSOR_FILE);
      nds.menu.cursor = IMG_Load(buf);
  
@@ -1126,7 +1210,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
      sprintf(buf, "%s/%s", folder, DRASTIC_MENU_BG0_FILE);
      t = IMG_Load(buf);
      if (t) {
-@@ -7269,7 +7295,6 @@
+@@ -7269,7 +7307,6 @@
          nds.menu.drastic.bg1 = SDL_ConvertSurface(t, cvt->format, 0);
          SDL_FreeSurface(t);
      }
@@ -1134,7 +1218,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
      sprintf(buf, "%s/%s", folder, DRASTIC_MENU_CURSOR_FILE);
      nds.menu.drastic.cursor = IMG_Load(buf);
  
-@@ -7334,7 +7359,6 @@
+@@ -7334,7 +7371,6 @@
                      int i;
  
                      i = g_advdrastic.ucLayoutIndex[nds.hres_mode];
@@ -1142,7 +1226,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
                      //printf("[trngaje] p =%p\n", g_theme.layout[i].bg);
                      //printf("[trngaje] g_theme.layout[i].bg =%s\n", g_theme.layout[i].bg);
                      // printf("[%d] bg=%s\n", i, g_theme.layout[i].bg);
-@@ -7342,7 +7366,6 @@
+@@ -7342,7 +7378,6 @@
                      // 변수를 직점 참조를 하면 오류가 있어서 함수를 통해서 접근하도록 수정함 (10/20)
                      if (getlayout_bg(nds.hres_mode, i)!= NULL) {
                          if (strlen(getlayout_bg(nds.hres_mode, i)) > 0) {
@@ -1150,7 +1234,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
                              //printf("[trngaje] g_theme.layout[nds.dis_mode].bg=%s\n", g_theme.layout[i].bg);
                              strcat(buf, "/");
                              strcat(buf, getlayout_bg(nds.hres_mode, i));
-@@ -7405,11 +7428,9 @@
+@@ -7405,11 +7440,9 @@
      char buf[MAX_PATH] = {0};
      SDL_Surface *t = NULL;
  
@@ -1162,7 +1246,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
          if (nds.overlay.img) {
              SDL_FreeSurface(nds.overlay.img);
              nds.overlay.img = NULL;
-@@ -7417,14 +7438,11 @@
+@@ -7417,14 +7450,11 @@
  
          nds.overlay.img = SDL_CreateRGBSurface(SDL_SWSURFACE, g_advdrastic.iDisplay_width, g_advdrastic.iDisplay_height, 32, 0, 0, 0, 0);
          if (nds.overlay.img) {
@@ -1177,7 +1261,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
                      SDL_BlitSurface(t, NULL, nds.overlay.img, NULL);
                      SDL_FreeSurface(t);
                  }
-@@ -7435,7 +7453,6 @@
+@@ -7435,7 +7465,6 @@
          }
      }
      
@@ -1185,7 +1269,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
      return 0;
  }
  
-@@ -7458,7 +7475,6 @@
+@@ -7458,7 +7487,6 @@
      vid.window = window;
      SDL_SetMouseFocus(window);
      SDL_SetKeyboardFocus(window);
@@ -1193,7 +1277,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
      return 0;
  }
  
-@@ -7510,7 +7526,7 @@
+@@ -7510,7 +7538,7 @@
      //detour_hook(FUN_SET_SCREEN_ORIENTATION, (intptr_t)sdl_setscreen_orientation);
      detour_hook(FUN_UPDATE_INPUT, (intptr_t)sdl_update_input);
      detour_hook(FUN_UPDATE_SCREEN_MENU, (intptr_t)sdl_update_screen_menu);
@@ -1202,7 +1286,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
      detour_hook(FUN_DRAW_MENU_BG, (intptr_t)sdl_draw_menu_bg);
      detour_hook(FUN_QUIT, (intptr_t)sdl_quit);
      detour_hook(FUN_PLATFORM_GET_INPUT, (intptr_t)sdl_platform_get_input);
-@@ -8090,17 +8106,13 @@
+@@ -8090,17 +8118,13 @@
      load_file = (nds_load_file)FUN_LOAD_FILE;
      load_nds = (nds_load_nds)FUN_LOAD_NDS;
  
@@ -1220,7 +1304,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
              // 새로운 롬이 실행이 되면 여기 까지 진입함
              uVar1 = *(undefined4 *)(lVar3 + 0x859b4);
              *(undefined8 *)((long)param_1 + 0x44) = 0x100000001;
-@@ -8213,7 +8225,6 @@
+@@ -8213,7 +8237,6 @@
      action_select_menu = (nds_action_select_menu)FUN_ACTION_SELECT_MENU; // 임시로 추가
       draw_menu_option = (nds_draw_menu_option)FUN_DRAW_MENU_OPTION;
  
@@ -1228,7 +1312,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  
      local_528 = *(uint *)(param_1 + 0x859b4);
      puVar1 = (uint *)(param_1 + 0x85568);
-@@ -8269,8 +8280,6 @@
+@@ -8269,8 +8292,6 @@
      //[trngaje] sdl_menu : local_518=105, local_517=99, local_516=0
      //[trngaje] sdl_menu : iVar7=0
      
@@ -1237,7 +1321,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
      if (iVar7 == 100000) {
          bVar8 = true;
          uVar5 = 1;
-@@ -8332,28 +8341,20 @@
+@@ -8332,28 +8353,20 @@
      */
      __ptr = (undefined8 *)create_menu_main(&local_578);
  
@@ -1266,7 +1350,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
              local_528 = *(uint *)(lVar9 + 0x859b4);
              local_534 = 1;
              iStack_530 = 1;
-@@ -8361,27 +8362,20 @@
+@@ -8361,27 +8374,20 @@
          }
      }
      puVar12 = local_568;
@@ -1294,7 +1378,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  
              uVar11 = 0; // 증가 값 초기화
              do {
-@@ -8390,8 +8384,6 @@
+@@ -8390,8 +8396,6 @@
                  uVar5 = iVar7 + 1;
                  uVar11 = (ulong)uVar5;
                  //(**(code **)(lVar9 + 0x10))(&local_578,lVar9,*(int *)(puVar4 + 3) == iVar7); // callback 함수 정의 필요함
@@ -1303,7 +1387,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
                  // 아래 두개 함수는 결과가 같음
                  //(*(nds_func3_cb_t *)(lVar9 + 0x10))(&local_578,lVar9,*(int *)(puVar4 + 3) == iVar7);
                  draw_menu_option(&local_578,lVar9,*(int *)(puVar4 + 3) == iVar7);
-@@ -8411,14 +8403,13 @@
+@@ -8411,14 +8415,13 @@
  [SDL] sdl_print_string:p=Load new game, fg=0xffff, bg=0x0, x=180, y=344
  [SDL] sdl_print_string:p=Restart game, fg=0xffff, bg=0x0, x=180, y=352
  [SDL] sdl_print_string:p=Return to game, fg=0xffff, bg=0x0, x=180, y=368
@@ -1319,7 +1403,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
              // [trngaje] sdl_menu:step14:offset of*puVar4=0x8e2a0 : void draw_menu_main(void)
  /*
                                   *************************************************************************
-@@ -8443,7 +8434,6 @@
+@@ -8443,7 +8446,6 @@
             0008e2ae 03                ??           03h
             0008e2af d5                ??           D5h
  */
@@ -1327,7 +1411,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
              //(*(code *)*puVar4)(&local_578,puVar4); // callback 함수 정의 필요함
  
  
-@@ -8452,9 +8442,7 @@
+@@ -8452,9 +8454,7 @@
              //아래 함수 호출시 죽음
              //(*(nds_func2_cb_t *)(*puVar4))(&local_578, puVar4);
          }
@@ -1337,7 +1421,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
          update_screen_menu();
          if (local_410 == 0) {
              lVar2 = local_578 + 0x5528;
-@@ -8462,18 +8450,14 @@
+@@ -8462,18 +8462,14 @@
                  get_gui_input(lVar2,local_580);
              } while (local_580[0] == 0xb);
          }
@@ -1356,7 +1440,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
              if (iVar7 != DRASTIC_GUI_INPUT_DOWN) { // 1
                  if (iVar7 != DRASTIC_GUI_INPUT_UP) { // 0
                      if (iVar7 == DRASTIC_GUI_INPUT_B) { // 5
-@@ -8502,9 +8486,7 @@
+@@ -8502,9 +8498,7 @@
                  iVar7 = -1;
              }
              iVar3 = *(int *)(puVar4 + 3); 
@@ -1366,7 +1450,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
                  //(**(code **)(lVar9 + 0x20))(&local_578,lVar9,1);
                  (**(nds_func3_cb_t **)(lVar9 + 0x20))(&local_578,lVar9,1);
              }
-@@ -8523,8 +8505,6 @@
+@@ -8523,8 +8517,6 @@
              //pcVar10 = *(nds_func3_cb_t **)(lVar9 + 0x20);
              pcVar10 = *(nds_func3_cb_t **)(lVar9 + 0x20);
  
@@ -1375,7 +1459,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
              *(uint *)(puVar4 + 3) = uVar5; //  여기서 커서 위치 갱신 하는 부분 일  듯
              puVar12 = local_568;
              if (pcVar10 != (nds_func3_cb_t *)0x0) {
-@@ -8534,16 +8514,13 @@
+@@ -8534,16 +8526,13 @@
          }
          goto LAB_000935e0; // loop 시작으로 
      }
@@ -1392,7 +1476,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
          do {
              while( true ) {
                  pvVar13 = *(void **)(__ptr[4] + uVar11 * 8);
-@@ -8561,9 +8538,7 @@
+@@ -8561,9 +8550,7 @@
              free(pvVar13);
          } while (uVar5 < *(uint *)((long)__ptr + 0x14));
      }
@@ -1402,7 +1486,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
      free((void *)__ptr[4]);
      free(__ptr);
      uVar5 = local_528;
-@@ -8593,28 +8568,21 @@
+@@ -8593,28 +8580,21 @@
      local_570[8] = (uint)local_518;
      local_570[9] = (uint)local_517;
      local_570[10] = (uint)local_516;
@@ -1431,7 +1515,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
              puts("Performing long jmp to reset.");
                      /* WARNING: Subroutine does not return */
              __longjmp_chk(param_1 + 0x3b29840,0);
-@@ -8624,7 +8592,6 @@
+@@ -8624,7 +8604,6 @@
                      /* WARNING: Subroutine does not return */
     // __stack_chk_fail();
    //}
@@ -1439,7 +1523,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
      return;	
  }
  
-@@ -8637,7 +8604,6 @@
+@@ -8637,7 +8616,6 @@
      
      print_string                    = (nds_print_string)FUN_PRINT_STRING;
  
@@ -1447,7 +1531,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  
      __sprintf_chk(auStack_108,1,0x100,"%s%s",*param_2,
                  *(undefined8 *)(param_2[8] + (ulong)*(uint *)param_2[6] * 8),
-@@ -8707,7 +8673,6 @@
+@@ -8707,7 +8685,6 @@
  
      delay_us                        = (nds_delay_us)FUN_DELAY_US;
      get_ticks_us                = (nds_get_ticks_us)FUN_GET_TICKS_US;
@@ -1455,7 +1539,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
      uVar3 = 0xffffffff;
      uVar4 = 0xffffffff;
      uVar5 = 0;
-@@ -8717,7 +8682,6 @@
+@@ -8717,7 +8694,6 @@
      local_50 = 0;
  
      get_ticks_us(&local_48);
@@ -1463,7 +1547,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
      while( true ) {
          get_ticks_us(&local_50);
           //printf("[trngaje] sdl_platform_get_config_input++2\n");
-@@ -8734,17 +8698,14 @@
+@@ -8734,17 +8710,14 @@
                      //printf("[trngaje] sdl_platform_get_config_input++:step1-1:event.window.event=%d\n", event.window.event);
  
                      if (event.window.windowID != uVar4) {
@@ -1481,7 +1565,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
                              // trimui 기기의 L2/R2 값이 plus -> minus 값이 연달아 들어 오는 경우 무시하도록 수정
                              // 첫 실행시에는 minus -> plus -> minus 로 들어오는 경우 존재함
                              continue;
-@@ -8754,21 +8715,18 @@
+@@ -8754,21 +8727,18 @@
                          iVar1 = 3;  // minus
                      }
                      else if (event.jaxis.value > 0) {
@@ -1503,7 +1587,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
                          uVar3 = (uint)event.window.event;
                          lVar7 = local_50;
                          iVar6 = iVar1;
-@@ -8808,7 +8766,6 @@
+@@ -8808,7 +8778,6 @@
               //printf("[trngaje] sdl_platform_get_config_input++step6\n");
              uVar3 = 0xffff;
              LAB_0009b378:
@@ -1511,7 +1595,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
              return uVar3;
          }
          //delay_us("k");
-@@ -8817,15 +8774,12 @@
+@@ -8817,15 +8786,12 @@
  
      uVar3 = (uVar4 & 3) << 8 | 0x400 | uVar3 | iVar6 << 6;
  
@@ -1527,7 +1611,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  }
  
  void sdl_draw_menu_option(long param_1,undefined8 *param_2,int param_3)
-@@ -8838,7 +8792,6 @@
+@@ -8838,7 +8804,6 @@
          param_3 = 0x17;
      }
  
@@ -1536,8 +1620,8 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
          *(int *)(param_2 + 1) << 3);
      return;
 diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*.la --exclude=*.lo --exclude=*.orig --exclude=Makefile --exclude=Makefile.rules --exclude=config.log --exclude=config.status --exclude=libtool --exclude=sdl2-config --exclude=sdl2-config.cmake --exclude=sdl2-config-version.cmake --exclude=sdl2.pc --exclude=SDL2.spec --exclude=gen --exclude=autom4te.cache --exclude=SDL_config.h --exclude=SDL_revision.h a/src/video/dummy/SDL_nullvideo.c b/src/video/dummy/SDL_nullvideo.c
---- a/src/video/dummy/SDL_nullvideo.c	2026-03-05 01:59:15
-+++ b/src/video/dummy/SDL_nullvideo.c	2026-03-05 01:54:25
+--- a/src/video/dummy/SDL_nullvideo.c	2026-09-14 23:14:19
++++ b/src/video/dummy/SDL_nullvideo.c	2026-09-14 23:09:04
 @@ -48,6 +48,13 @@
  #include "SDL_nullframebuffer_c.h"
  #include "SDL_hints.h"
@@ -1587,8 +1671,8 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
          return -1;
      }
 diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*.la --exclude=*.lo --exclude=*.orig --exclude=Makefile --exclude=Makefile.rules --exclude=config.log --exclude=config.status --exclude=libtool --exclude=sdl2-config --exclude=sdl2-config.cmake --exclude=sdl2-config-version.cmake --exclude=sdl2.pc --exclude=SDL2.spec --exclude=gen --exclude=autom4te.cache --exclude=SDL_config.h --exclude=SDL_revision.h a/src/video/jsonlayout.c b/src/video/jsonlayout.c
---- a/src/video/jsonlayout.c	2026-03-05 01:59:15
-+++ b/src/video/jsonlayout.c	2026-03-05 01:55:28
+--- a/src/video/jsonlayout.c	2026-09-14 23:14:19
++++ b/src/video/jsonlayout.c	2026-09-14 23:09:04
 @@ -22,7 +22,6 @@
      int iLayout_type;
  
