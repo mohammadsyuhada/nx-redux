@@ -28,6 +28,7 @@
 #include "scraper_fetch.h"
 #include "ui_keyboard.h"
 #include "display_helper.h"
+#include "scraper_scan.h"
 
 // ============================================
 // Constants
@@ -37,16 +38,6 @@
 #define MAX_ROMS 4096
 #define MAX_QUEUE 2048
 
-// ROM file extensions to consider
-static const char* rom_extensions[] = {
-	".zip", ".7z", ".bin", ".cue", ".iso", ".img", ".pbp",
-	".nes", ".sfc", ".smc", ".gba", ".gbc", ".gb", ".nds",
-	".n64", ".z64", ".v64", ".gen", ".md", ".sms", ".gg",
-	".pce", ".ngp", ".ngc", ".ws", ".wsc", ".lnx",
-	".a26", ".a52", ".a78", ".col", ".rom", ".mx1", ".mx2",
-	".cso", ".chd", ".fds", ".dsk", ".tap", ".tzx",
-	".d64", ".t64", ".prg",
-	NULL};
 
 // ============================================
 // User Credentials
@@ -87,12 +78,15 @@ typedef struct {
 	int system_id;	   // ScreenScraper system ID
 	int rom_count;	   // Total ROMs
 	int scraped_count; // ROMs with existing artwork
+	bool supported;	   // tag known to ScreenScraper (system_id >= 0)
 } SystemEntry;
 
 typedef struct {
-	char filename[256]; // ROM filename
+	char filename[256]; // ROM filename (basename; folder games: the .cue/.m3u)
 	char path[512];		// Full path to ROM file
-	bool has_artwork;	// Whether .media/<name>.png exists
+	char label[256];	// Display name, relative to the system folder
+	char art_png[512];	// Mix image path (nextui ROM_mediaArtPath convention)
+	bool has_artwork;	// Whether art_png exists
 } ROMEntry;
 
 typedef enum {
@@ -122,6 +116,7 @@ typedef struct {
 	char rom_path[512];
 	char system_path[512];
 	char system_name[128];
+	char out_png[512];
 	int system_id;
 	volatile ScrapeStatus status;
 } ScrapeQueueItem;
@@ -163,27 +158,6 @@ static ScraperUserInfo cached_user_info = {0};
 static bool user_info_fetched = false;
 
 // ============================================
-// ROM Extension Check
-// ============================================
-
-static bool isRomFile(const char* filename) {
-	if (!filename)
-		return false;
-	if (filename[0] == '.')
-		return false;
-
-	const char* ext = strrchr(filename, '.');
-	if (!ext)
-		return false;
-
-	for (int i = 0; rom_extensions[i] != NULL; i++) {
-		if (strcasecmp(ext, rom_extensions[i]) == 0)
-			return true;
-	}
-	return false;
-}
-
-// ============================================
 // System Scanner
 // ============================================
 
@@ -215,44 +189,36 @@ static void extractDisplayName(const char* dirname, char* name_out, int name_siz
 	snprintf(name_out, name_size, "%s", dirname);
 }
 
-static int countRomsInDir(const char* dirpath) {
-	int count = 0;
-	DIR* dir = opendir(dirpath);
-	if (!dir)
-		return 0;
-	struct dirent* entry;
-	while ((entry = readdir(dir)) != NULL) {
-		if (isRomFile(entry->d_name))
-			count++;
-	}
-	closedir(dir);
-	return count;
+typedef struct {
+	int roms;
+	int scraped;
+} GameCounts;
+
+static bool count_game_cb(const ScanGame* g, void* ud) {
+	GameCounts* c = ud;
+	c->roms++;
+	if (exists((char*)g->art_png))
+		c->scraped++;
+	return true;
 }
 
-static int countScrapedInDir(const char* dirpath) {
-	int count = 0;
-	char media_path[512];
-	snprintf(media_path, sizeof(media_path), "%s/.media", dirpath);
+// Count games the way nextui lists them (any non-hidden file, folder games
+// as one, nested folders included) and how many already have a mix image.
+static GameCounts countGames(const char* dirpath) {
+	GameCounts c = {0, 0};
+	Scan_walk(dirpath, count_game_cb, &c);
+	return c;
+}
 
-	DIR* dir = opendir(dirpath);
-	if (!dir)
-		return 0;
-	struct dirent* entry;
-	while ((entry = readdir(dir)) != NULL) {
-		if (!isRomFile(entry->d_name))
-			continue;
-
-		char* base = removeExtension(entry->d_name);
-		if (base) {
-			char png_path[512];
-			snprintf(png_path, sizeof(png_path), "%s/%s.png", media_path, base);
-			if (exists(png_path))
-				count++;
-			free(base);
-		}
-	}
-	closedir(dir);
-	return count;
+// Folders that hold standalone games rather than one console's ROMs: there is
+// no ScreenScraper system to query, so they are left out of the Library rather
+// than listed as unsupported. nextui's "Fetch Box Art" excludes the same tags.
+static bool isLibraryExcludedTag(const char* tag) {
+	static const char* excluded[] = {"PORTS", "CUSTOM", "EXTRAS", NULL};
+	for (int i = 0; excluded[i]; i++)
+		if (strcasecmp(tag, excluded[i]) == 0)
+			return true;
+	return false;
 }
 
 static int systemCompare(const void* a, const void* b) {
@@ -274,20 +240,22 @@ static void scanSystems(void) {
 
 		char tag[64];
 		extractTag(entry->d_name, tag, sizeof(tag));
-		if (tag[0] == '\0')
+		if (tag[0] == '\0' || isLibraryExcludedTag(tag))
 			continue;
 
+		// Unknown tags stay in the list, marked unsupported, so a folder that
+		// cannot be scraped is visible instead of silently missing.
 		int sid = ScraperSystems_getId(tag);
-		if (sid < 0)
-			continue;
 
 		SystemEntry* sys = &systems[system_count];
 		extractDisplayName(entry->d_name, sys->name, sizeof(sys->name));
 		snprintf(sys->tag, sizeof(sys->tag), "%s", tag);
 		snprintf(sys->path, sizeof(sys->path), "%s/%s", ROMS_PATH, entry->d_name);
 		sys->system_id = sid;
-		sys->rom_count = countRomsInDir(sys->path);
-		sys->scraped_count = countScrapedInDir(sys->path);
+		sys->supported = sid >= 0;
+		GameCounts counts = countGames(sys->path);
+		sys->rom_count = counts.roms;
+		sys->scraped_count = counts.scraped;
 
 		if (sys->rom_count > 0)
 			system_count++;
@@ -302,44 +270,27 @@ static void scanSystems(void) {
 // ============================================
 
 static int romCompare(const void* a, const void* b) {
-	return strcasecmp(((const ROMEntry*)a)->filename, ((const ROMEntry*)b)->filename);
+	return strcasecmp(((const ROMEntry*)a)->label, ((const ROMEntry*)b)->label);
+}
+
+static bool scan_rom_cb(const ScanGame* g, void* ud) {
+	(void)ud;
+	if (rom_count >= MAX_ROMS)
+		return false;
+	ROMEntry* rom = &roms[rom_count++];
+	snprintf(rom->filename, sizeof(rom->filename), "%s", g->filename);
+	snprintf(rom->path, sizeof(rom->path), "%s", g->path);
+	snprintf(rom->label, sizeof(rom->label), "%s", g->label);
+	snprintf(rom->art_png, sizeof(rom->art_png), "%s", g->art_png);
+	rom->has_artwork = exists(rom->art_png);
+	return true;
 }
 
 static void scanROMs(SystemEntry* sys) {
 	rom_count = 0;
 	rom_selected = 0;
 	rom_scroll = 0;
-
-	DIR* dir = opendir(sys->path);
-	if (!dir)
-		return;
-
-	char media_path[512];
-	snprintf(media_path, sizeof(media_path), "%s/.media", sys->path);
-
-	struct dirent* entry;
-	while ((entry = readdir(dir)) != NULL && rom_count < MAX_ROMS) {
-		if (!isRomFile(entry->d_name))
-			continue;
-
-		ROMEntry* rom = &roms[rom_count];
-		snprintf(rom->filename, sizeof(rom->filename), "%s", entry->d_name);
-		snprintf(rom->path, sizeof(rom->path), "%s/%s", sys->path, entry->d_name);
-
-		char* base = removeExtension(entry->d_name);
-		if (base) {
-			char png_path[512];
-			snprintf(png_path, sizeof(png_path), "%s/%s.png", media_path, base);
-			rom->has_artwork = exists(png_path);
-			free(base);
-		} else {
-			rom->has_artwork = false;
-		}
-
-		rom_count++;
-	}
-	closedir(dir);
-
+	Scan_walk(sys->path, scan_rom_cb, NULL);
 	qsort(roms, rom_count, sizeof(ROMEntry), romCompare);
 }
 
@@ -440,6 +391,8 @@ static void ensureThreadStarted(void) {
 }
 
 static bool queueAddROM(ROMEntry* rom, SystemEntry* sys, bool force) {
+	if (!sys->supported)
+		return false;
 	if (!force && rom->has_artwork)
 		return false;
 	if (isROMQueued(rom->path))
@@ -456,6 +409,7 @@ static bool queueAddROM(ROMEntry* rom, SystemEntry* sys, bool force) {
 	snprintf(item->rom_path, sizeof(item->rom_path), "%s", rom->path);
 	snprintf(item->system_path, sizeof(item->system_path), "%s", sys->path);
 	snprintf(item->system_name, sizeof(item->system_name), "%s", sys->name);
+	snprintf(item->out_png, sizeof(item->out_png), "%s", rom->art_png);
 	item->system_id = sys->system_id;
 	item->status = SCRAPE_STATUS_IDLE;
 	queue_count++;
@@ -482,6 +436,8 @@ static int queueAddAllSystems(void) {
 	int saved_rom_scroll = rom_scroll;
 
 	for (int s = 0; s < system_count; s++) {
+		if (!systems[s].supported)
+			continue;
 		scanROMs(&systems[s]);
 		for (int r = 0; r < rom_count; r++) {
 			if (queueAddROM(&roms[r], &systems[s], false))
@@ -589,13 +545,8 @@ static void scrape_status_cb(const char* stage, void* userdata) {
 }
 
 static void scrapeOneQueueItem(ScrapeQueueItem* item) {
-	char rom_abs[MAX_PATH];
-	snprintf(rom_abs, sizeof(rom_abs), "%s/%s", item->system_path, item->filename);
-	char out_path[512];
-	ROM_mediaArtPath(rom_abs, out_path, sizeof(out_path));
-
 	ScrapeResult r = scrapeOne(item->filename, item->rom_path, item->system_id,
-							   out_path, scrape_status_cb, item);
+							   item->out_png, scrape_status_cb, item);
 
 	pthread_mutex_lock(&queue_mutex);
 	item->status = (r == SCRAPE_RESULT_OK)		   ? SCRAPE_STATUS_DONE
@@ -713,8 +664,11 @@ static void systems_get_row(void* ctx, int i, bool selected, ListViewRow* out) {
 	(void)selected;
 	SystemEntry* sys = &systems[i];
 	out->label = sys->name;
-	snprintf(systems_badge_buf, sizeof(systems_badge_buf), "%d/%d",
-			 sys->scraped_count, sys->rom_count);
+	if (sys->supported)
+		snprintf(systems_badge_buf, sizeof(systems_badge_buf), "%d/%d",
+				 sys->scraped_count, sys->rom_count);
+	else
+		snprintf(systems_badge_buf, sizeof(systems_badge_buf), "Unsupported");
 	out->badge = systems_badge_buf;
 }
 
@@ -732,7 +686,7 @@ static void renderSystemList(void) {
 	v->get_row = systems_get_row;
 	v->ctx = NULL;
 	v->list_id = (const void*)systems;
-	v->empty_title = "No supported systems found";
+	v->empty_title = "No systems found";
 	v->empty_subtitle = "Add ROMs to your SD card";
 	if (system_count > 0)
 		v->hint_pairs = hints_full;
@@ -763,18 +717,11 @@ static void renderROMList(void) {
 
 	// Use static arrays to avoid VLA stack overflow with large ROM lists
 	static UISettingsItem items[MAX_ROMS];
-	static char clean_names[MAX_ROMS][256];
 
 	for (int i = 0; i < rom_count; i++) {
 		ROMEntry* rom = &roms[i];
-
-		char* base = removeExtension(rom->filename);
-		snprintf(clean_names[i], sizeof(clean_names[i]), "%s", base ? base : rom->filename);
-		if (base)
-			free(base);
-
 		items[i] = (UISettingsItem){
-			.label = clean_names[i],
+			.label = rom->label,
 			.value = romStatusLabel(rom),
 			.swatch = -1,
 			.cycleable = 0,
@@ -1004,12 +951,35 @@ static void resetArtworkFlow(void) {
 // Main
 // ============================================
 
+// scraper.elf --scan: print the Library exactly as the GUI would list it
+// (system, tag, support, art/total) and every game it would queue. Headless,
+// no video; for bug reports and device tests.
+static int run_headless_scan(void) {
+	scanSystems();
+	for (int i = 0; i < system_count; i++) {
+		SystemEntry* sys = &systems[i];
+		printf("system\t%s\t(%s)\t%s\t%d/%d\n", sys->name, sys->tag,
+			   sys->supported ? "supported" : "unsupported",
+			   sys->scraped_count, sys->rom_count);
+		if (!sys->supported)
+			continue;
+		scanROMs(sys);
+		for (int r = 0; r < rom_count; r++)
+			printf("game\t%s\t%s\t%s\t%s\n", sys->tag, roms[r].label,
+				   roms[r].has_artwork ? "art" : "none", roms[r].path);
+	}
+	return 0;
+}
+
 int main(int argc, char* argv[]) {
 	PATHS_init(PLATFORM);
 
-	for (int i = 1; i < argc; i++)
+	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--fetch") == 0)
 			return run_headless_fetch(argc, argv);
+		if (strcmp(argv[i], "--scan") == 0)
+			return run_headless_scan();
+	}
 
 	screen = GFX_init(MODE_MAIN);
 	UI_showSplashScreen(screen, "Artwork Manager");
@@ -1094,7 +1064,17 @@ int main(int argc, char* argv[]) {
 			}
 			if (act.type == LISTVIEW_ACTIVATED) {
 				GFX_clearLayers(LAYER_SCROLLTEXT);
-				scanROMs(&systems[act.index]);
+				SystemEntry* sys = &systems[act.index];
+				if (!sys->supported) {
+					char msg[128];
+					snprintf(msg, sizeof(msg), "ScreenScraper has no system for the (%s) tag", sys->tag);
+					UI_renderLoadingOverlay(screen, "Unsupported system", msg);
+					GFX_flip(screen);
+					SDL_Delay(1500);
+					dirty = true;
+					break;
+				}
+				scanROMs(sys);
 				current_screen = SCREEN_ROMS;
 				dirty = true;
 				break;
@@ -1117,7 +1097,7 @@ int main(int argc, char* argv[]) {
 			if (PAD_justPressed(BTN_B)) {
 				// Refresh system counts before going back
 				systems[systems_view.selected].scraped_count =
-					countScrapedInDir(systems[systems_view.selected].path);
+					countGames(systems[systems_view.selected].path).scraped;
 				current_screen = SCREEN_SYSTEMS;
 				dirty = true;
 				break;
