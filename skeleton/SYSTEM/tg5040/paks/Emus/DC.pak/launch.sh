@@ -17,17 +17,20 @@ echo 1608000 >/sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq
 # Config-dir resolution + emu.cfg seeding shared with options.sh
 . "$PAK_DIR/nx_paths.sh"
 
-# Controller mapping. flycast binds by SDL joystick index (B=0, A=1, Y=2,
-# X=3). We ship the Nintendo-layout file and generate the Xbox variant from
-# it (A<->B, X<->Y in [digital]) when Settings > System > Button layout is
-# Xbox. Nothing on-device rewrites this file — flycast saves it only from
-# its own GUI controls page, and our patch reroutes EMU_BTN_MENU to the
-# NxRedux overlay — so a file matching either variant (or the legacy shipped
-# md5 below) is ours and gets replaced; anything else was hand-edited over
-# adb/the SD card and is left alone.
+# Controller mapping -- see nx_flycast_mapping() below.
 nx_flycast_mapping() {
+    # Controller mapping. flycast binds by SDL joystick index (B=0, A=1, Y=2,
+    # X=3). We ship the Nintendo-layout file and generate the Xbox variant
+    # from it (A<->B, X<->Y in [digital]) when Settings > System > Button
+    # layout is Xbox. Nothing in NX Redux can edit these files (flycast's
+    # own controls page is unreachable: EMU_BTN_MENU opens the NX overlay),
+    # so both are ours: install the layout's variant unconditionally on
+    # every launch, for the Dreamcast mapping AND the arcade one flycast
+    # would otherwise clone from it once and keep forever (NAOMI/Atomiswave
+    # titles load "<name>_arcade.cfg"). Any future mapping change then
+    # reaches every card on the next launch.
     . "$SYSTEM_PATH/bin/nx_button_layout.sh"
-    NX_MAPPING="$DEVICE_CONFIG_DIR/flycast/mappings/SDL_Xbox 360 Controller.cfg"
+    NX_MAP_DIR="$DEVICE_CONFIG_DIR/flycast/mappings"
     NX_MAP_NINTENDO="$PAK_DIR/SDL_Xbox 360 Controller.cfg"
     NX_MAP_XBOX="/tmp/nx_flycast_mapping_xbox.cfg"
     sed -e '/^\[digital\]/,/^\[/{
@@ -43,40 +46,10 @@ nx_flycast_mapping() {
     else
         NX_MAP_WANT="$NX_MAP_NINTENDO"
     fi
-    if [ ! -f "$NX_MAPPING" ] \
-        || cmp -s "$NX_MAPPING" "$NX_MAP_NINTENDO" \
-        || cmp -s "$NX_MAPPING" "$NX_MAP_XBOX" \
-        || md5sum "$NX_MAPPING" 2>/dev/null | grep -q "^0791cba4f099c861a58c9a0473a16361 "; then
-        cmp -s "$NX_MAPPING" "$NX_MAP_WANT" 2>/dev/null || cp "$NX_MAP_WANT" "$NX_MAPPING" 2>/dev/null || true
-    fi
-    # Arcade titles (NAOMI/Atomiswave) use a sibling mapping flycast clones
-    # from the main one the first time an arcade game runs and then keeps, so
-    # it never picks up a later layout change on its own. Its line order and
-    # extra binds differ from the shipped file, so only the four face lines
-    # are rewritten, and only when they are exactly one of the two known
-    # layouts (anything else was hand-edited and is left alone).
-    NX_MAPPING_ARCADE="$DEVICE_CONFIG_DIR/flycast/mappings/SDL_Xbox 360 Controller_arcade.cfg"
-    if [ -f "$NX_MAPPING_ARCADE" ]; then
-        if grep -q '^bind1 = 1:btn_a$' "$NX_MAPPING_ARCADE" && grep -q '^bind0 = 0:btn_b$' "$NX_MAPPING_ARCADE"; then
-            NX_ARCADE_CUR=nintendo
-        elif grep -q '^bind1 = 1:btn_b$' "$NX_MAPPING_ARCADE" && grep -q '^bind0 = 0:btn_a$' "$NX_MAPPING_ARCADE"; then
-            NX_ARCADE_CUR=xbox
-        else
-            NX_ARCADE_CUR=custom
-        fi
-        if [ "$NX_ARCADE_CUR" != custom ] && [ "$NX_ARCADE_CUR" != "$NX_BUTTON_LAYOUT" ]; then
-            sed -e '/^\[digital\]/,/^\[/{
-                s/:btn_a$/:@a@/
-                s/:btn_b$/:btn_a/
-                s/:@a@$/:btn_b/
-                s/:btn_x$/:@x@/
-                s/:btn_y$/:btn_x/
-                s/:@x@$/:btn_y/
-            }' "$NX_MAPPING_ARCADE" > "$NX_MAPPING_ARCADE.nxtmp" \
-                && mv -f "$NX_MAPPING_ARCADE.nxtmp" "$NX_MAPPING_ARCADE" \
-                || rm -f "$NX_MAPPING_ARCADE.nxtmp"
-        fi
-    fi
+    mkdir -p "$NX_MAP_DIR"
+    for NX_MAP_DEST in "$NX_MAP_DIR/SDL_Xbox 360 Controller.cfg" "$NX_MAP_DIR/SDL_Xbox 360 Controller_arcade.cfg"; do
+        cmp -s "$NX_MAP_WANT" "$NX_MAP_DEST" 2>/dev/null || cp -f "$NX_MAP_WANT" "$NX_MAP_DEST" 2>/dev/null || true
+    done
 }
 nx_flycast_mapping
 

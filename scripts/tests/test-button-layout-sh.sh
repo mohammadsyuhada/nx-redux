@@ -99,8 +99,14 @@ sh -c "$N64_FAIL_BLOCK" 2>/dev/null   # awk's expected open failure is the point
 [ ! -e "$TMP/n64fail/nope/mupen64plus.cfg.nxtmp" ] \
     || fail "n64: .nxtmp left behind after transform failure"
 
-# --- flycast mapping selection ---------------------------------------------
-# Extract the nx_flycast_mapping() function from each launch.sh and run it.
+# --- flycast mapping install ----------------------------------------------
+# Both mapping files under $DEVICE_CONFIG_DIR/flycast/mappings/ are entirely
+# ours: nothing in NX Redux can edit them (flycast's own controls page is
+# unreachable -- EMU_BTN_MENU opens the NX overlay). So the launch script
+# installs the current layout's variant unconditionally on every launch, for
+# BOTH the Dreamcast mapping AND the "<name>_arcade.cfg" sibling flycast
+# clones once for NAOMI/Atomiswave titles and then keeps forever -- no file
+# is ever left alone. Extract nx_flycast_mapping() from each launch.sh and run it.
 dc_run() { # $1 = layout, $2 = platform
     NX_FAKE_LAYOUT="$1" PAK_DIR="$ROOT/skeleton/SYSTEM/$2/paks/Emus/DC.pak" \
     DEVICE_CONFIG_DIR="$TMP/dc" sh -c '
@@ -110,42 +116,40 @@ dc_run() { # $1 = layout, $2 = platform
 }
 PAKMAP="$ROOT/skeleton/SYSTEM/tg5040/paks/Emus/DC.pak/SDL_Xbox 360 Controller.cfg"
 MAP="$TMP/dc/flycast/mappings/SDL_Xbox 360 Controller.cfg"
-rm -rf "$TMP/dc"; mkdir -p "$TMP/dc/flycast/mappings"
-dc_run 0 tg5040
-cmp -s "$MAP" "$PAKMAP" || fail "dc: missing mapping should be installed as the pak file (nintendo)"
-dc_run 1 tg5040
-grep -q '^bind0 = 0:btn_a$' "$MAP" || fail "dc: bind0 should be btn_a under xbox"
-grep -q '^bind1 = 1:btn_b$' "$MAP" || fail "dc: bind1 should be btn_b under xbox"
-grep -q '^bind2 = 2:btn_x$' "$MAP" || fail "dc: bind2 should be btn_x under xbox"
-grep -q '^bind3 = 3:btn_y$' "$MAP" || fail "dc: bind3 should be btn_y under xbox"
-grep -q '^bind0 = 0-:btn_analog_left$' "$MAP" || fail "dc: [analog] section must be untouched"
-grep -q '^bind4 = 4:btn_z$' "$MAP" || fail "dc: non-face digital binds must be untouched"
-dc_run 0 tg5040
-cmp -s "$MAP" "$PAKMAP" || fail "dc: switching back should restore the pak file"
-# hand-edited file is left alone in either layout
-printf 'bind0 = 0:btn_c\n' > "$MAP"
-dc_run 1 tg5040
-[ "$(cat "$MAP")" = "bind0 = 0:btn_c" ] || fail "dc: hand-edited mapping must be left alone"
-# legacy shipped file (md5 0791cba4...) is still upgraded
-rm -f "$MAP"
-dc_run 1 tg5040
-cp "$MAP" "$TMP/dc_xbox.cfg"
-# tg5050 copy behaves the same
-rm -rf "$TMP/dc"; mkdir -p "$TMP/dc/flycast/mappings"
-dc_run 1 tg5050
-grep -q '^bind0 = 0:btn_a$' "$MAP" || fail "dc tg5050: bind0 should be btn_a under xbox"
+MAPA="$TMP/dc/flycast/mappings/SDL_Xbox 360 Controller_arcade.cfg"
 
-# --- flycast ARCADE sibling mapping (NAOMI/Atomiswave) ---------------------
-# flycast clones "<api>_<name>_arcade.cfg" from the main mapping the first
-# time an arcade game runs and then keeps it, so it never picks up a later
-# layout change. The pak rewrites only its four face lines in place; the
-# file's line order and its extra bind6 differ from the shipped mapping.
-ARC="$TMP/dc/flycast/mappings/SDL_Xbox 360 Controller_arcade.cfg"
-# The on-device arcade file: flycast's alphabetical bind order (bind0, bind1,
-# bind10, bind11, bind2 ...) with an extra bind6 = 6:btn_d. [analog]/[emulator]
-# match the shipped pak file. Nintendo face binds (bind0 = 0:btn_b etc.).
-seed_arcade() {
-    cat > "$ARC" <<'EOF'
+# fresh dir (no files): both the Dreamcast and arcade files are installed as
+# the shipped pak file under nintendo
+rm -rf "$TMP/dc"; mkdir -p "$TMP/dc/flycast/mappings"
+dc_run 0 tg5040
+cmp -s "$MAP" "$PAKMAP"  || fail "dc: missing mapping should be installed as the pak file (nintendo)"
+cmp -s "$MAPA" "$PAKMAP" || fail "dc arcade: missing mapping should be installed as the pak file (nintendo)"
+
+# xbox: both files hold the generated Xbox variant (face binds swapped,
+# non-face digital + [analog] binds untouched) and are identical to each other
+dc_run 1 tg5040
+for f in "$MAP" "$MAPA"; do
+    grep -q '^bind0 = 0:btn_a$' "$f" || fail "dc: bind0 should be btn_a under xbox ($f)"
+    grep -q '^bind1 = 1:btn_b$' "$f" || fail "dc: bind1 should be btn_b under xbox ($f)"
+    grep -q '^bind2 = 2:btn_x$' "$f" || fail "dc: bind2 should be btn_x under xbox ($f)"
+    grep -q '^bind3 = 3:btn_y$' "$f" || fail "dc: bind3 should be btn_y under xbox ($f)"
+    grep -q '^bind0 = 0-:btn_analog_left$' "$f" || fail "dc: [analog] section must be untouched ($f)"
+    grep -q '^bind4 = 4:btn_z$' "$f" || fail "dc: non-face digital binds must be untouched ($f)"
+done
+cmp -s "$MAP" "$MAPA" || fail "dc: Dreamcast and arcade files must be identical under xbox"
+
+# idempotent: a second xbox run changes nothing (cmp against copies)
+cp "$MAP" "$TMP/dc_xbox.cfg"; cp "$MAPA" "$TMP/dc_arcade_xbox.cfg"
+dc_run 1 tg5040
+cmp -s "$MAP" "$TMP/dc_xbox.cfg"         || fail "dc: second xbox run must be a no-op (main)"
+cmp -s "$MAPA" "$TMP/dc_arcade_xbox.cfg" || fail "dc: second xbox run must be a no-op (arcade)"
+
+# standardization: neither a garbage main file nor an old on-device-style
+# arcade file (flycast's alphabetical bind order + an extra bind6 = 6:btn_d) is
+# ever left alone -- both are replaced by the layout's variant. This is the
+# whole point of the refactor: no file is preserved.
+printf 'bind0 = 0:btn_c\n' > "$MAP"
+cat > "$MAPA" <<'EOF'
 [analog]
 bind0 = 0-:btn_analog_left
 bind1 = 0+:btn_analog_right
@@ -180,43 +184,20 @@ saturation = 100
 triggers = 2,5
 version = 4
 EOF
-}
+dc_run 1 tg5040
+cmp -s "$MAP" "$TMP/dc_xbox.cfg"  || fail "dc: garbage main file must be replaced by the xbox variant"
+cmp -s "$MAPA" "$TMP/dc_xbox.cfg" || fail "dc arcade: old on-device arcade file must be replaced by the xbox variant"
 
-# xbox run rewrites only the four face lines; order and extras stay put
-rm -rf "$TMP/dc"; mkdir -p "$TMP/dc/flycast/mappings"
-cp "$PAKMAP" "$MAP"
-seed_arcade
-dc_run 1 tg5040
-grep -q '^bind0 = 0:btn_a$' "$ARC" || fail "dc arcade: bind0 should be btn_a under xbox"
-grep -q '^bind1 = 1:btn_b$' "$ARC" || fail "dc arcade: bind1 should be btn_b under xbox"
-grep -q '^bind2 = 2:btn_x$' "$ARC" || fail "dc arcade: bind2 should be btn_x under xbox"
-grep -q '^bind3 = 3:btn_y$' "$ARC" || fail "dc arcade: bind3 should be btn_y under xbox"
-grep -q '^bind6 = 6:btn_d$' "$ARC" || fail "dc arcade: extra bind6 must be untouched"
-grep -q '^bind10 = 258:btn_dpad1_left$' "$ARC" || fail "dc arcade: dpad bind must be untouched"
-grep -q '^bind0 = 0-:btn_analog_left$' "$ARC" || fail "dc arcade: [analog] first line must be untouched"
-# idempotent: a second xbox run changes nothing
-cp "$ARC" "$TMP/dc_arcade_xbox.cfg"
-dc_run 1 tg5040
-cmp -s "$ARC" "$TMP/dc_arcade_xbox.cfg" || fail "dc arcade: second xbox run must be a no-op"
-# switching back to nintendo restores the face binds
+# switching back to nintendo restores the shipped pak file for both
 dc_run 0 tg5040
-grep -q '^bind0 = 0:btn_b$' "$ARC" || fail "dc arcade: bind0 back to btn_b under nintendo"
-grep -q '^bind1 = 1:btn_a$' "$ARC" || fail "dc arcade: bind1 back to btn_a under nintendo"
-# hand-edited face bind (matches neither layout) is left alone
-sed -i.bak 's/^bind1 = .*/bind1 = 1:btn_c/' "$ARC" && rm -f "$ARC.bak"
-cp "$ARC" "$TMP/dc_arcade_custom.cfg"
-dc_run 1 tg5040
-cmp -s "$ARC" "$TMP/dc_arcade_custom.cfg" || fail "dc arcade: hand-edited file must be left alone"
-# absent arcade file is never created
-rm -f "$ARC"
-dc_run 1 tg5040
-[ ! -e "$ARC" ] || fail "dc arcade: absent file must not be created"
+cmp -s "$MAP" "$PAKMAP"  || fail "dc: switching back should restore the pak file (main)"
+cmp -s "$MAPA" "$PAKMAP" || fail "dc arcade: switching back should restore the pak file (arcade)"
+
 # tg5050 copy behaves the same
 rm -rf "$TMP/dc"; mkdir -p "$TMP/dc/flycast/mappings"
-cp "$PAKMAP" "$MAP"
-seed_arcade
 dc_run 1 tg5050
-grep -q '^bind0 = 0:btn_a$' "$ARC" || fail "dc arcade tg5050: bind0 should be btn_a under xbox"
+grep -q '^bind0 = 0:btn_a$' "$MAP"  || fail "dc tg5050: bind0 should be btn_a under xbox (main)"
+grep -q '^bind0 = 0:btn_a$' "$MAPA" || fail "dc tg5050: bind0 should be btn_a under xbox (arcade)"
 
 # --- portmaster ports_launch.sh controller layout -------------------------
 # set_controller_layout() copies the right gamecontrollerdb variant from the
