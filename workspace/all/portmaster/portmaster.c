@@ -55,6 +55,14 @@ static int copy_file(const char* src, const char* dst) {
 // PortMaster runtime dependencies (bundled in skeleton/files/)
 #define PM_FILES_DIR PORTMASTER_DIR "/files"
 
+#include "config.h"
+
+// Layout comes from the global setting (Settings > System > Button layout);
+// the old per-runtime marker file and menu row are gone.
+static const char* layout_name(void) {
+	return CFG_getButtonLayout() == BUTTON_LAYOUT_XBOX ? "xbox" : "nintendo";
+}
+
 enum PMState {
 	PM_STATE_NOT_INSTALLED,
 	PM_STATE_LAUNCHING,
@@ -67,21 +75,10 @@ static enum PMState state = PM_STATE_MENU;
 // Menu state
 static int menu_selected = 0;
 static int menu_scroll = 0;
-static bool is_nintendo = true;
-
-// Layout marker
-#define LAYOUT_MARKER SHARED_USERDATA_PATH "/PORTS-portmaster/xbox_layout"
-
-static bool is_nintendo_layout(void) {
-	return access(LAYOUT_MARKER, F_OK) != 0;
-}
-
-static void toggle_layout(void);
 
 // Menu items
-#define MENU_COUNT 2
+#define MENU_COUNT 1
 #define MENU_OPEN 0
-#define MENU_LAYOUT 1
 
 static bool portmaster_installed(void) {
 	return access(PUGWASH_PATH, F_OK) == 0;
@@ -491,21 +488,6 @@ static void set_controller_layout(const char* layout) {
 	system(cmd);
 }
 
-static void toggle_layout(void) {
-	if (is_nintendo_layout()) {
-		// Switch to Xbox: create marker file
-		FILE* fp = fopen(LAYOUT_MARKER, "w");
-		if (fp)
-			fclose(fp);
-		set_controller_layout("xbox");
-	} else {
-		// Switch to Nintendo: remove marker file
-		unlink(LAYOUT_MARKER);
-		set_controller_layout("nintendo");
-	}
-	is_nintendo = is_nintendo_layout();
-}
-
 static void launch_pugwash(void) {
 	// Ensure /bin/bash exists for port scripts with #!/bin/bash shebangs
 	ensure_bash_symlink();
@@ -572,7 +554,7 @@ static void launch_pugwash(void) {
 
 	// Restore user's preferred controller layout
 	// (pugwash or updates may have overwritten gamecontrollerdb.txt)
-	set_controller_layout(is_nintendo_layout() ? "nintendo" : "xbox");
+	set_controller_layout(layout_name());
 
 	// Fix hardcoded paths in any newly installed port scripts
 	fix_port_scripts();
@@ -608,18 +590,12 @@ static void render_screen(void) {
 
 		UISettingsItem items[] = {
 			{.label = "Open PortMaster", .swatch = -1, .desc = "Launch the PortMaster GUI"},
-			{.label = "Button Layout", .value = is_nintendo ? "Nintendo" : "Xbox", .swatch = -1, .cycleable = 1, .desc = "Button layout for in-game port controls"},
 		};
 
 		UI_renderSettingsPage(screen, &layout, items, MENU_COUNT,
 							  menu_selected, &menu_scroll, NULL);
 
-		bool is_layout = (menu_selected == MENU_LAYOUT);
-		UI_renderButtonHintBar(screen, (char*[]){
-										   "B", "EXIT",
-										   is_layout ? "LEFT/RIGHT" : "A",
-										   is_layout ? "CHANGE" : "OPEN",
-										   NULL});
+		UI_renderButtonHintBar(screen, (char*[]){"B", "EXIT", "A", "OPEN", NULL});
 		break;
 	}
 	}
@@ -643,7 +619,6 @@ int main(int argc, char* argv[]) {
 	// (install/uninstall both live there now)
 	if (portmaster_installed()) {
 		ensure_default_config();
-		is_nintendo = is_nintendo_layout();
 		state = PM_STATE_MENU;
 	} else {
 		state = PM_STATE_NOT_INSTALLED;
@@ -669,19 +644,10 @@ int main(int argc, char* argv[]) {
 		case PM_STATE_MENU:
 			if (PAD_navigateMenu(&menu_selected, MENU_COUNT))
 				dirty = true;
-			if (menu_selected == MENU_LAYOUT &&
-				(PAD_justRepeated(BTN_LEFT) || PAD_justRepeated(BTN_RIGHT))) {
-				toggle_layout();
-				dirty = true;
-			}
 			if (PAD_justPressed(BTN_A)) {
 				switch (menu_selected) {
 				case MENU_OPEN:
 					state = PM_STATE_LAUNCHING;
-					dirty = true;
-					break;
-				case MENU_LAYOUT:
-					toggle_layout();
 					dirty = true;
 					break;
 				}
@@ -716,7 +682,6 @@ int main(int argc, char* argv[]) {
 
 			// Check if user uninstalled from within pugwash
 			if (portmaster_installed()) {
-				is_nintendo = is_nintendo_layout();
 				state = PM_STATE_MENU;
 			} else {
 				state = PM_STATE_NOT_INSTALLED;

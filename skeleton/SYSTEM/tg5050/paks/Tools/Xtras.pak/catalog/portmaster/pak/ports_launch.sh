@@ -124,12 +124,10 @@ main() {
     sed -i -e "s|/roms/ports/PortMaster|$EMU_DIR|g" \
            -e '1s|^#!/bin/bash|#!/usr/bin/env bash|' "$ROM_PATH"
 
-    # Apply user's chosen button layout (default: nintendo)
-    if [ -f "$SHARED_USERDATA_PATH/PORTS-portmaster/xbox_layout" ]; then
-        set_controller_layout xbox
-    else
-        set_controller_layout nintendo
-    fi
+    # Apply the global button layout (Settings > System > Button layout).
+    # Replaces the old per-runtime xbox_layout marker; the marker is ignored.
+    . "$SYSTEM_PATH/bin/nx_button_layout.sh"
+    set_controller_layout "$NX_BUTTON_LAYOUT"
 
     # Start power button sleep/poweroff handler
     sleepmon.elf &
