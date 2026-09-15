@@ -275,3 +275,7 @@ during menu rendering — useless as a first-frame/boot proxy.
   UI on a Brick over adb with the input-injection recipe above; needs a WPA
   network in range whose password you do not enter. Preconditions are in the
   script header.
+- Button layout shell side: `scripts/tests/test-button-layout-sh.sh` (helper,
+  N64 config transform, DC mapping selection); OSD daemon variants:
+  `scripts/tests/test-patch-osdd-layout.sh`; pure swap/label logic is in
+  `workspace/all/common/tests/run_tests.sh` (`test_button_layout.c`).

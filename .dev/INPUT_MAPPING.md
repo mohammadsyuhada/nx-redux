@@ -187,3 +187,22 @@ Note `lr` means the *joysticks* here, where on the Brick the same node drives th
 triggers. Effect nodes follow the usual pattern
 (`effect_<zone>`, `effect_cycles_<zone>`, `effect_duration_<zone>`,
 `effect_rgb_hex_<zone>`).
+
+
+## Button layout setting (Nintendo / Xbox)
+
+`minuisettings.txt` `buttonlayout=` (0 Nintendo, 1 Xbox) and `hintlabels=`
+(1 = hints show the printed cap, 0 = the logical letter; only differs under
+Xbox). Both are read once per process and apply at the next boot.
+
+| Layer | Where the swap happens |
+|---|---|
+| Launcher, Settings, every NX pak, minarch (menus, core input, remap capture) | `workspace/all/common/api.c` `PAD_applyLayout()` after raw→logical translation; hint glyphs via `PAD_buttonLabel()` in `GFX_blitButton`/`GFX_getButtonWidth` (`workspace/all/common/button_layout.h`) |
+| DraStic (NDS.pak) | hooked libSDL2 reads `NX_BUTTON_LAYOUT` (exported by `launch.sh` via `$SYSTEM_PATH/bin/nx_button_layout.sh`) and swaps emitted keys `code[4..7]` |
+| mupen64plus (N64.pak) | `nx_paths.sh` swaps `button(0)↔(1)`, `(2)↔(3)` in `[Input-SDL-Control1]` once per change (marker `.button_layout`); Rice/GLideN64 overlays read the env var |
+| flycast (DC.pak) | `launch.sh` installs the Nintendo or generated Xbox `SDL_Xbox 360 Controller.cfg`; `nx_overlay.cpp` reads the env var |
+| PortMaster ports | `ports_launch.sh` copies `gamecontrollerdb_<layout>.txt`; the pak's own toggle is gone |
+| Stock OSD | `trimui_osdd.xbox` (see OSD.md) |
+
+Bind files on disk (`bind A Button = A`) keep logical labels; only display
+changes.

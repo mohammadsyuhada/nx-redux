@@ -166,6 +166,22 @@ dd if=<recovery>.img of=/tmp/fs.img bs=512 skip=126432 count=1105920
 debugfs -R "rdump /usr/trimui/osd /out" /tmp/fs.img
 ```
 
+### Button layout variant (`trimui_osdd.xbox`)
+
+Settings > System > Button layout = Xbox makes the bottom face button
+A/confirm everywhere. The daemon hard-codes SDL button 0 (bottom) → key 2
+(cancel) and 1 (right) → key 1 (OK) in `do_osd_input_thread`, so each
+`device/<dev>/` also ships `trimui_osdd.xbox`, derived from the daemon next
+to it by `scripts/patch-osdd-layout.sh <dev>` (md5- and byte-verified; the
+per-device offset/byte table lives in the script, the test
+`scripts/tests/test-patch-osdd-layout.sh` disassembles the result). Smart
+Pro S needs one `csel` condition flip; Brick, Smart Pro and Brick Pro need
+four edits (two branch retargets, one ignored path, one constant) — the Brick
+Pro one keeps Home → cancel. `MinUI.pak/launch.sh` reads
+`nextval.elf buttonlayout` before starting the daemon and runs the `.xbox`
+copy when it is 1; the setting therefore applies at the next boot. Regenerate
+the four variants whenever a stock daemon is replaced.
+
 ## Dependencies
 
 ### Shared Libraries
