@@ -448,10 +448,10 @@ index 7fbbcaa..17e1b43 100644
  
 diff --git a/src/nx_overlay.cpp b/src/nx_overlay.cpp
 new file mode 100644
-index 0000000..52e3b05
+index 0000000..52de559
 --- /dev/null
 +++ b/src/nx_overlay.cpp
-@@ -0,0 +1,279 @@
+@@ -0,0 +1,289 @@
 +// nx_overlay.cpp — nx-redux in-game overlay hook, Rice port.
 +//
 +// This is a straight port of GLideN64's overlay integration
@@ -628,8 +628,18 @@ index 0000000..52e3b05
 +	Uint32 btnPressed = curButtons & ~s_prevButtons;
 +	s_prevButtons = curButtons;
 +
-+	if (btnPressed & (1u << 0)) input.b    = true;
-+	if (btnPressed & (1u << 1)) input.a    = true;
++	// NX Redux "Button layout" (Settings > System): with NX_BUTTON_LAYOUT=xbox
++	// the bottom button (SDL index 0) is A/confirm and the right one (1) is
++	// B/back, matching what the launcher and every other pak do.
++	static int s_layoutXbox = -1;
++	if (s_layoutXbox < 0) {
++		const char* nxLayout = getenv("NX_BUTTON_LAYOUT");
++		s_layoutXbox = (nxLayout && strcmp(nxLayout, "xbox") == 0) ? 1 : 0;
++	}
++	const unsigned aBit = s_layoutXbox ? 0u : 1u;
++	const unsigned bBit = s_layoutXbox ? 1u : 0u;
++	if (btnPressed & (1u << bBit)) input.b    = true;
++	if (btnPressed & (1u << aBit)) input.a    = true;
 +	if (btnPressed & (1u << 4)) input.l1   = true;
 +	if (btnPressed & (1u << 5)) input.r1   = true;
 +	if (btnPressed & (1u << 8)) input.menu = true;
