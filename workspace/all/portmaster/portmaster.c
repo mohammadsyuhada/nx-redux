@@ -63,22 +63,16 @@ static const char* layout_name(void) {
 	return CFG_getButtonLayout() == BUTTON_LAYOUT_XBOX ? "xbox" : "nintendo";
 }
 
+// Two screens only: the "not installed" pointer to the Xtras store and the
+// one-shot "Launching PortMaster..." feedback. When installed, the pak hands
+// straight off to pugwash (no menu), so there is nothing else to render.
 enum PMState {
 	PM_STATE_NOT_INSTALLED,
 	PM_STATE_LAUNCHING,
-	PM_STATE_MENU,
 };
 
 static SDL_Surface* screen;
-static enum PMState state = PM_STATE_MENU;
-
-// Menu state
-static int menu_selected = 0;
-static int menu_scroll = 0;
-
-// Menu items
-#define MENU_COUNT 1
-#define MENU_OPEN 0
+static enum PMState state = PM_STATE_NOT_INSTALLED;
 
 static bool portmaster_installed(void) {
 	return access(PUGWASH_PATH, F_OK) == 0;
@@ -583,21 +577,6 @@ static void render_screen(void) {
 		UI_renderMenuBar(screen, "PortMaster");
 		UI_renderCenteredMessage(screen, "Launching PortMaster...");
 		break;
-
-	case PM_STATE_MENU: {
-		UI_renderMenuBar(screen, "PortMaster");
-		ListLayout layout = UI_calcListLayout(screen);
-
-		UISettingsItem items[] = {
-			{.label = "Open PortMaster", .swatch = -1, .desc = "Launch the PortMaster GUI"},
-		};
-
-		UI_renderSettingsPage(screen, &layout, items, MENU_COUNT,
-							  menu_selected, &menu_scroll, NULL);
-
-		UI_renderButtonHintBar(screen, (char*[]){"B", "EXIT", "A", "OPEN", NULL});
-		break;
-	}
 	}
 
 	GFX_flip(screen);
@@ -615,14 +594,36 @@ int main(int argc, char* argv[]) {
 	PWR_init();
 	setup_signal_handlers();
 
-	// Start in menu if installed, otherwise point at the Xtras installer
-	// (install/uninstall both live there now)
+	// When PortMaster is installed, hand straight off to its GUI (pugwash):
+	// show a one-shot "Launching..." frame for feedback, tear down our SDL
+	// subsystems so pugwash owns the framebuffer, run it, then exit. There is
+	// no menu screen anymore - the single "Open PortMaster" row only delayed
+	// the user, and install/uninstall both live in the Xtras catalog entry.
 	if (portmaster_installed()) {
 		ensure_default_config();
-		state = PM_STATE_MENU;
-	} else {
-		state = PM_STATE_NOT_INSTALLED;
+
+		state = PM_STATE_LAUNCHING;
+		render_screen();
+
+		QuitSettings();
+		PWR_quit();
+		PAD_quit();
+		GFX_quit();
+
+		launch_pugwash();
+		create_busybox_wrappers();	 // Re-create if pugwash update wiped them
+		sync_xtras_version_marker(); // Reflect a pugwash self-update in Xtras
+		sync_port_artwork();
+		invalidate_emulist_cache();
+
+		// Subsystems are already torn down above (once); pugwash has returned,
+		// so just exit the process cleanly - no SDL re-init, no menu loop.
+		return EXIT_SUCCESS;
 	}
+
+	// Not installed: point the user at the Xtras installer. B or the MENU +
+	// SELECT quit combo exits.
+	state = PM_STATE_NOT_INSTALLED;
 
 	bool dirty = true;
 	IndicatorType show_setting = INDICATOR_NONE;
@@ -640,58 +641,8 @@ int main(int argc, char* argv[]) {
 		if (UI_statusBarChanged())
 			dirty = true;
 
-		switch (state) {
-		case PM_STATE_MENU:
-			if (PAD_navigateMenu(&menu_selected, MENU_COUNT))
-				dirty = true;
-			if (PAD_justPressed(BTN_A)) {
-				switch (menu_selected) {
-				case MENU_OPEN:
-					state = PM_STATE_LAUNCHING;
-					dirty = true;
-					break;
-				}
-			}
-			if (PAD_justPressed(BTN_B))
-				app_quit = true;
-			break;
-
-		case PM_STATE_NOT_INSTALLED:
-			if (PAD_justPressed(BTN_B))
-				app_quit = true;
-			break;
-
-		case PM_STATE_LAUNCHING:
-			render_screen();
-			QuitSettings();
-			PWR_quit();
-			PAD_quit();
-			GFX_quit();
-
-			launch_pugwash();
-			create_busybox_wrappers();	 // Re-create if pugwash update wiped them
-			sync_xtras_version_marker(); // Reflect a pugwash self-update in Xtras
-			sync_port_artwork();
-			invalidate_emulist_cache();
-
-			// Re-init SDL after pugwash returns
-			screen = GFX_init(MODE_MAIN);
-			InitSettings();
-			PAD_init();
-			PWR_init();
-
-			// Check if user uninstalled from within pugwash
-			if (portmaster_installed()) {
-				state = PM_STATE_MENU;
-			} else {
-				state = PM_STATE_NOT_INSTALLED;
-			}
-			dirty = true;
-			break;
-
-		default:
-			break;
-		}
+		if (PAD_justPressed(BTN_B))
+			app_quit = true;
 
 		if (dirty) {
 			render_screen();
