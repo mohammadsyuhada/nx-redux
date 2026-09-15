@@ -187,3 +187,26 @@ Note `lr` means the *joysticks* here, where on the Brick the same node drives th
 triggers. Effect nodes follow the usual pattern
 (`effect_<zone>`, `effect_cycles_<zone>`, `effect_duration_<zone>`,
 `effect_rgb_hex_<zone>`).
+
+
+## Button layout setting (Nintendo / Xbox)
+
+`minuisettings.txt` `buttonlayout=` (0 Nintendo, 1 Xbox) and `hintlabels=`
+(1 = hints show the printed cap, 0 = the logical letter; only differs under
+Xbox). Each process reads both settings once at startup, so leaving Settings
+applies a layout change everywhere but the OSD: the launcher relaunches and
+every pak reads it at its next launch, while the stock OSD daemon keeps
+running and picks it up only at the next boot. A hint-labels change is live
+at once — the Settings app's own hint bar included (`PAD_reloadHintLabels`).
+
+| Layer | Where the swap happens |
+|---|---|
+| Launcher, Settings, every NX pak, minarch (menus, core input, remap capture) | `workspace/all/common/api.c` `PAD_applyLayout()` after raw→logical translation; hint glyphs via `PAD_buttonLabel()` in `GFX_blitButton`/`GFX_getButtonWidth` (`workspace/all/common/button_layout.h`) |
+| DraStic (NDS.pak) | hooked libSDL2 reads `NX_BUTTON_LAYOUT` (exported by `launch.sh` via `$SYSTEM_PATH/bin/nx_button_layout.sh`) and, in the event thread, swaps the A/B and X/Y evdev codes in the keypad `input[]` table before the per-event compares, so the keyboard path (`code[]`, DraStic's menu / `controls_a`) follows. The hooked libSDL2 also swaps button indices `0↔1` and `2↔3` in its Linux joystick driver (`src/joystick/linux/SDL_sysjoystick.c`) under Xbox, because on tg5050 DraStic's only input path is SDL's native joystick (`controls_b`) — the hook's event thread does not read the pad there — so this is what makes the game (and its menu on tg5050) follow |
+| mupen64plus (N64.pak) | `nx_paths.sh` swaps `button(0)↔(1)`, `(2)↔(3)` in `[Input-SDL-Control1]` once per change (marker `.button_layout`); Rice/GLideN64 overlays read the env var |
+| flycast (DC.pak) | `launch.sh` installs the layout's mapping variant (the Nintendo `SDL_Xbox 360 Controller.cfg` or the Xbox one generated from it) unconditionally on every launch, for **both** the Dreamcast mapping and its `_arcade.cfg` sibling — nothing in NX Redux can edit these files (flycast's own controls page is unreachable), so a later change reaches every card on its next launch; `nx_overlay.cpp` reads the env var |
+| PortMaster ports | `ports_launch.sh` copies `gamecontrollerdb_<layout>.txt`; the pak's own toggle is gone |
+| Stock OSD | `trimui_osdd.xbox` (see OSD.md) |
+
+Bind files on disk (`bind A Button = A`) keep logical labels; only display
+changes.

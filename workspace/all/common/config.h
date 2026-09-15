@@ -87,6 +87,13 @@ enum {
 	RA_SORT_COUNT
 };
 
+// "Button layout" setting. Physical layout is Nintendo (A right, B bottom);
+// Xbox swaps A<->B and X<->Y in every consumer at the next boot.
+enum {
+	BUTTON_LAYOUT_NINTENDO = 0,
+	BUTTON_LAYOUT_XBOX = 1,
+};
+
 typedef struct
 {
 	// Theme
@@ -185,6 +192,10 @@ typedef struct
 	bool sshOnBoot;
 	bool debugLogging; // persist app/game logs to .userdata/<plat>/logs (off = tmpfs only)
 
+	// Input
+	int buttonLayout; // BUTTON_LAYOUT_NINTENDO / BUTTON_LAYOUT_XBOX (A<->B, X<->Y everywhere; applies at next boot)
+	bool hintLabels;  // true: hints show the printed cap you press (only differs from logical when layout is Xbox)
+
 } NextUISettings;
 
 #define CFG_DEFAULT_FONT_ID 1 // Next
@@ -259,6 +270,10 @@ typedef struct
 #define CFG_DEFAULT_DISABLE_SLEEP false
 #define CFG_DEFAULT_SSH_ON_BOOT false
 #define CFG_DEFAULT_DEBUG_LOGGING false
+
+// Input defaults
+#define CFG_DEFAULT_BUTTON_LAYOUT BUTTON_LAYOUT_NINTENDO
+#define CFG_DEFAULT_HINT_LABELS true
 
 void CFG_init(FontLoad_callback_t fontCallback, ColorSet_callback_t ccb);
 void CFG_print(void);
@@ -452,6 +467,13 @@ bool CFG_getSSHOnBoot(void);
 void CFG_setSSHOnBoot(bool enable);
 bool CFG_getDebugLogging(void);
 void CFG_setDebugLogging(bool enable);
+
+// Button layout (Nintendo / Xbox) and whether hints show the printed cap.
+// Read once at process start by api.c; both take effect at the next boot.
+int CFG_getButtonLayout(void);
+void CFG_setButtonLayout(int layout);
+bool CFG_getHintLabels(void);
+void CFG_setHintLabels(bool physical);
 
 void CFG_sync(void);
 void CFG_quit(void);

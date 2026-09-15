@@ -1153,20 +1153,16 @@ A curated `SDL_Xbox 360 Controller.cfg` mapping file ships in both platforms'
 pak trees — `skeleton/SYSTEM/tg5040/paks/Emus/DC.pak/SDL_Xbox 360 Controller.cfg`
 and `skeleton/SYSTEM/tg5050/paks/Emus/DC.pak/SDL_Xbox 360 Controller.cfg`
 (byte-identical; kept per-platform because everything else in each pak
-directory is per-platform too) — and `launch.sh` installs it on first launch:
-
-```sh
-if [ ! -f "$DEVICE_CONFIG_DIR/flycast/mappings/SDL_Xbox 360 Controller.cfg" ]; then
-    cp "$PAK_DIR/SDL_Xbox 360 Controller.cfg" "$DEVICE_CONFIG_DIR/flycast/mappings/" 2>/dev/null || true
-fi
-```
-
-Deliberately **not** gated by the same `.initialized` marker that seeds
-`emu.cfg`: that marker only tracks the config seed, so an install upgraded
-from an older pak version (already `.initialized`, but never given a
-mapping) would otherwise never receive one. Install-if-absent runs on every
-launch instead, and never overwrites a mapping the user has since customized
-via flycast's own Controls UI.
+directory is per-platform too) — and `launch.sh`'s `nx_flycast_mapping()`
+installs the current Button-layout variant (this shipped Nintendo file, or an
+Xbox version generated from it by swapping the `[digital]` face binds)
+**unconditionally on every launch**, for both this Dreamcast mapping and the
+`SDL_Xbox 360 Controller_arcade.cfg` sibling flycast clones once for
+NAOMI/Atomiswave titles and then keeps forever. Nothing in NX Redux can edit
+these files — flycast's own Controls UI is unreachable (`EMU_BTN_MENU` is
+rerouted to the NxRedux overlay by `flycast.patch`) — so both are ours to own
+outright, and any future mapping change reaches every card on its next launch
+rather than being left in place as a possible user edit.
 
 The joystick enumerates to SDL as **`Xbox 360 Controller`**
 (GUID `0300a3845e0400008e02000014010000`, VID `045e` PID `028e` — the Brick's

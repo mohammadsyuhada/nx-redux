@@ -25,6 +25,10 @@
 #     build no longer does. The platform subfolder is the community-pak
 #     convention for paks that hardcode it internally; this one is
 #     location-independent, and one card serves one platform anyway.
+# Because those two copies (Tools/PortMaster.pak and Emus/PORTS.pak/launch.sh)
+# live outside .system, the platform install/update.sh re-copies them from
+# this catalog on every firmware update while PortMaster stays installed, so a
+# system update never leaves them stale.
 # The NxRedux patches (control.txt, device_info.txt, platform.py,
 # hardware.py, mod_TrimUI.txt) are NOT applied here: portmaster.elf
 # re-applies all of them before/after every pugwash run, so first launch

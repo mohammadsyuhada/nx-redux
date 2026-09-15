@@ -14,8 +14,9 @@
 #
 # What this script owns (native entries own their ENTIRE runtime):
 #   - LD_LIBRARY_PATH (bundled libs first, then the firmware SDL)
-#   - Nintendo-layout SDL controller override (physical A = confirm), same
-#     xbox_layout user toggle PortMaster ports honor
+#   - Nintendo-layout SDL controller override (physical A = confirm), unless
+#     the global Button layout setting (Settings > System) is Xbox - the same
+#     setting PortMaster ports honor
 #   - audio routing: copy audiomon's .asoundrc so ALSA follows the chosen
 #     output sink (BT/USB DAC), plus the anti-pop speaker mute dance
 #   - /tmp/stay_awake + sleepmon.elf (power-button sleep, system binary on
@@ -58,9 +59,13 @@ fi
 
 # get_controls' positional (Xbox-convention) mapping would land confirm on
 # physical B; apply the default-nintendo override for the TRIMUI Player1
-# GUID unless the user opted into positional layout via the shared toggle.
-NX_SHARED_USERDATA="${SHARED_USERDATA_PATH:-${SDCARD_PATH:-/mnt/SDCARD}/.userdata/shared}"
-if [ ! -f "$NX_SHARED_USERDATA/PORTS-portmaster/xbox_layout" ]; then
+# GUID unless the global Button layout setting (Settings > System) is Xbox.
+# Read it the same way every other port does (nextval.elf via the sourced
+# helper). A missing helper (very old SD) leaves NX_BUTTON_LAYOUT unset, i.e.
+# nintendo, so the override still applies; the [ -f ] guard also keeps a
+# stray set -e from aborting the launch.
+[ -f "$SYSTEM_PATH/bin/nx_button_layout.sh" ] && . "$SYSTEM_PATH/bin/nx_button_layout.sh"
+if [ "${NX_BUTTON_LAYOUT:-nintendo}" != "xbox" ]; then
     export SDL_GAMECONTROLLERCONFIG="030000005e0400008e02000014010000,TRIMUI Player1,a:b1,b:b0,back:b6,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,dpup:h0.1,guide:b8,leftshoulder:b4,leftstick:b9,lefttrigger:a2,leftx:a0,lefty:a1,rightshoulder:b5,rightstick:b10,righttrigger:a5,rightx:a3,righty:a4,start:b7,x:b3,y:b2,platform:Linux,"
 fi
 export LOVE_GRAPHICS_USE_OPENGLES="${LOVE_GRAPHICS_USE_OPENGLES:-1}"

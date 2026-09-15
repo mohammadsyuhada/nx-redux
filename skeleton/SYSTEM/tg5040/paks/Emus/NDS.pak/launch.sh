@@ -21,6 +21,11 @@ export PATH="$EMU_DIR:$PATH"
 # NDS.pak libs first (hook-patched SDL2), then shared libs, then /usr/lib for libudev
 export LD_LIBRARY_PATH="$PAK_DIR/libs:$EMU_DIR/libs:/usr/lib:$LD_LIBRARY_PATH"
 
+# Button layout (Settings > System): the hooked libSDL2 reads
+# NX_BUTTON_LAYOUT and swaps the keys it emits for A/B and X/Y, so the game
+# and DraStic's own menu follow without touching drastic.cfg.
+. "$SYSTEM_PATH/bin/nx_button_layout.sh"
+
 cleanup() {
     rm -f /tmp/stay_awake
     umount "$EMU_DIR/config" 2>/dev/null || true

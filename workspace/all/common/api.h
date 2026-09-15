@@ -372,6 +372,16 @@ void GFX_fillRectColor(SDL_Surface* dst, const SDL_Rect* rect, uint32_t mapped_c
 void GFX_blitBatteryAtPosition(SDL_Surface* dst, int x, int y);
 int GFX_getButtonWidth(char* hint, char* button);
 void GFX_blitButton(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_rect);
+// "Button layout" (Settings > System), read once per process at first poll.
+int PAD_layoutIsXbox(void);
+// Display label for a logical face/chord label ("A", "MENU+X", ...): the
+// printed cap when Xbox layout + "Hint labels = printed caps", else unchanged.
+const char* PAD_buttonLabel(const char* logical);
+// Re-read only the "Hint labels" flag so a running app (Settings) can update
+// its hint glyphs the moment the user toggles the row. The layout flag is
+// deliberately NOT re-read: the app's own confirm/back must stay put until
+// it is relaunched.
+void PAD_reloadHintLabels(void);
 void GFX_blitMessage(TTF_Font* font, char* msg, SDL_Surface* dst, SDL_Rect* dst_rect);
 
 int GFX_blitHardwareGroup(SDL_Surface* dst, IndicatorType show_setting);

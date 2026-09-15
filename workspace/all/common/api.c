@@ -1566,6 +1566,8 @@ int GFX_getButtonWidth(char* hint, char* button) {
 	int width;
 	int btn_sz = SCALE1(BUTTON_SIZE);
 
+	button = (char*)PAD_buttonLabel(button);
+
 	struct NavGlyph* g = GFX_getNavGlyph(button);
 	if (g) {
 		button_width += g->surf->w; // both styles advance by the glyph width
@@ -1663,6 +1665,8 @@ void GFX_blitButton(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_re
 	SDL_Surface* text;
 	int ox = 0;
 	int btn_sz = SCALE1(BUTTON_SIZE);
+
+	button = (char*)PAD_buttonLabel(button);
 	// Drawn fallback (any button with no nav_*.png glyph, e.g. "L1/R1" combo
 	// pills): white disc/pill with black lettering, matching the white glyph
 	// discs beside it, instead of the old THEME_COLOR1 fill whose contrast
@@ -2742,11 +2746,92 @@ void PAD_reset(void) {
 
 FALLBACK_IMPLEMENTATION void PLAT_pokeCapture(void) {}
 
+#include "button_layout.h"
+
+// "Button layout" / "Hint labels" (Settings > System). Read once, lazily, on
+// the first poll of the process — every app calls GFX_init (which runs
+// CFG_init) before it polls — and never again, so a change applies at the
+// next boot like the Settings row says. -1 = not read yet.
+static int pad_layout_xbox = -1;
+static int pad_hint_physical = -1;
+
+static void PAD_loadLayout(void) {
+	if (pad_layout_xbox >= 0)
+		return;
+	pad_layout_xbox = CFG_getButtonLayout() == BUTTON_LAYOUT_XBOX;
+	pad_hint_physical = pad_layout_xbox && CFG_getHintLabels();
+}
+
+int PAD_layoutIsXbox(void) {
+	PAD_loadLayout();
+	return pad_layout_xbox;
+}
+
+// Re-read only the "Hint labels" flag so a running app (Settings) can update
+// its hint glyphs the moment the user toggles the row. The layout flag is
+// deliberately NOT re-read: the app's own confirm/back must stay put until
+// it is relaunched.
+void PAD_reloadHintLabels(void) {
+	PAD_loadLayout(); // init pad_layout_xbox if it was not read yet
+	pad_hint_physical = pad_layout_xbox && CFG_getHintLabels();
+}
+
+const char* PAD_buttonLabel(const char* logical) {
+	PAD_loadLayout();
+	return ButtonLayout_displayLabel(logical, pad_hint_physical);
+}
+
+// Map a freshly translated face button (btn/id in BTN_*/BTN_ID_* terms) to
+// the logical one under the active layout. Non-face buttons pass through.
+static void PAD_applyLayout(int* btn, int* id) {
+	if (pad_layout_xbox <= 0) // -1 = not yet loaded, 0 = nintendo; both mean no swap
+		return;
+	ButtonLayoutFace f = BL_FACE_NONE;
+	switch (*id) {
+	case BTN_ID_A:
+		f = BL_FACE_A;
+		break;
+	case BTN_ID_B:
+		f = BL_FACE_B;
+		break;
+	case BTN_ID_X:
+		f = BL_FACE_X;
+		break;
+	case BTN_ID_Y:
+		f = BL_FACE_Y;
+		break;
+	default:
+		return;
+	}
+	switch (ButtonLayout_swapFace(f, 1)) {
+	case BL_FACE_A:
+		*btn = BTN_A;
+		*id = BTN_ID_A;
+		break;
+	case BL_FACE_B:
+		*btn = BTN_B;
+		*id = BTN_ID_B;
+		break;
+	case BL_FACE_X:
+		*btn = BTN_X;
+		*id = BTN_ID_X;
+		break;
+	case BL_FACE_Y:
+		*btn = BTN_Y;
+		*id = BTN_ID_Y;
+		break;
+	default:
+		break;
+	}
+}
+
 FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 	// Dirty-flag apps can idle for minutes without a flip; this is the one
 	// spot every main loop passes through, so let the capture system publish
 	// a frame when the OSD screenshot/recorder toggles turn on mid-idle.
 	PLAT_pokeCapture();
+
+	PAD_loadLayout();
 
 	// reset transient state
 	pad.just_pressed = BTN_NONE;
@@ -3231,6 +3316,13 @@ FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 
 		if (btn == BTN_NONE)
 			continue;
+
+		// One place all three translation branches (keyboard CODE_*, joystick
+		// JOY_*, desktop SDL_CONTROLLER_*) converge to apply btn/id to the pad,
+		// so a single swap here covers them all. Placed after the BTN_NONE guard
+		// so the hat branch — which exits its loop with id == BTN_ID_A and forces
+		// btn = BTN_NONE — can't be resurrected into a phantom face press.
+		PAD_applyLayout(&btn, &id);
 
 		if (!pressed) {
 			pad.is_pressed &= ~btn;	   // unset

@@ -58,23 +58,28 @@ set_controller_layout() {
     local TRIMUI_GUID="030000005e0400008e02000014010000"
     local dest="$EMU_DIR/gamecontrollerdb.txt"
 
+    # The layout variants ship in files/ (BASE Emus/shared/PortMaster/files/,
+    # same dir portmaster.c copies from via PM_FILES_DIR); fall back to the
+    # runtime root for older layouts that kept them there.
+    local src="$EMU_DIR/files/gamecontrollerdb_$1.txt"
+    [ -f "$src" ] || src="$EMU_DIR/gamecontrollerdb_$1.txt"
+    if [ -f "$src" ]; then
+        # Only copy if different
+        cmp -s "$src" "$dest" || cp -f "$src" "$dest"
+    else
+        echo "ports_launch: gamecontrollerdb_$1.txt not found"
+    fi
+
+    # Always export the TrimUI pad mapping (highest SDL priority) so a port
+    # that ships its own gamecontrollerdb still follows the chosen face layout.
     case "$1" in
         nintendo)
-            local src="$EMU_DIR/gamecontrollerdb_nintendo.txt"
-            if [ -f "$src" ]; then
-                # Only copy if different
-                cmp -s "$src" "$dest" || cp -f "$src" "$dest"
-            fi
-            # Set env var (highest priority) to swap A/B and X/Y
+            # Nintendo positions: a:b1,b:b0 and x:b3,y:b2
             export SDL_GAMECONTROLLERCONFIG="${TRIMUI_GUID},TRIMUI Player1,a:b1,b:b0,back:b6,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,dpup:h0.1,guide:b8,leftshoulder:b4,leftstick:b9,lefttrigger:a2,leftx:a0,lefty:a1,rightshoulder:b5,rightstick:b10,righttrigger:a5,rightx:a3,righty:a4,start:b7,x:b3,y:b2,platform:Linux,"
             ;;
         xbox)
-            local src="$EMU_DIR/gamecontrollerdb_xbox.txt"
-            if [ -f "$src" ]; then
-                cmp -s "$src" "$dest" || cp -f "$src" "$dest"
-            fi
-            # Clear any Nintendo override — default Xbox mapping is a:b0,b:b1
-            unset SDL_GAMECONTROLLERCONFIG
+            # Xbox positions: a:b0,b:b1 and x:b2,y:b3
+            export SDL_GAMECONTROLLERCONFIG="${TRIMUI_GUID},TRIMUI Player1,a:b0,b:b1,back:b6,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,dpup:h0.1,guide:b8,leftshoulder:b4,leftstick:b9,lefttrigger:a2,leftx:a0,lefty:a1,rightshoulder:b5,rightstick:b10,righttrigger:a5,rightx:a3,righty:a4,start:b7,x:b2,y:b3,platform:Linux,"
             ;;
     esac
 }
@@ -110,12 +115,10 @@ main() {
     (sleep 5; syncsettings.elf) &
     SYNC_PID=$!
 
-    # Apply user's chosen button layout (default: nintendo)
-    if [ -f "$SHARED_USERDATA_PATH/PORTS-portmaster/xbox_layout" ]; then
-        set_controller_layout xbox
-    else
-        set_controller_layout nintendo
-    fi
+    # Apply the global button layout (Settings > System > Button layout).
+    # Replaces the old per-runtime xbox_layout marker; the marker is ignored.
+    . "$SYSTEM_PATH/bin/nx_button_layout.sh"
+    set_controller_layout "$NX_BUTTON_LAYOUT"
 
     # Start power button sleep/poweroff handler
     sleepmon.elf &
