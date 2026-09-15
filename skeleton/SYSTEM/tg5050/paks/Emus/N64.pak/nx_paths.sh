@@ -45,7 +45,7 @@ NX_LAYOUT_MARKER="$DEVICE_CONFIG_DIR/.button_layout"
 _nx_cur=$(cat "$NX_LAYOUT_MARKER" 2>/dev/null)
 [ -n "$_nx_cur" ] || _nx_cur=nintendo
 if [ "$_nx_cur" != "$NX_BUTTON_LAYOUT" ]; then
-    awk '
+    if awk '
         /^[ \t]*\[/ { insec = ($0 ~ /^[ \t]*\[Input-SDL-Control1\]/) }
         insec {
             gsub(/button\(0\)/, "button(@0@)")
@@ -56,8 +56,14 @@ if [ "$_nx_cur" != "$NX_BUTTON_LAYOUT" ]; then
             gsub(/button\(@2@\)/, "button(3)")
         }
         { print }
-    ' "$EMU_CFG" > "$EMU_CFG.nxtmp" && mv -f "$EMU_CFG.nxtmp" "$EMU_CFG"
-    printf '%s\n' "$NX_BUTTON_LAYOUT" > "$NX_LAYOUT_MARKER"
+    ' "$EMU_CFG" > "$EMU_CFG.nxtmp" && mv -f "$EMU_CFG.nxtmp" "$EMU_CFG"; then
+        # Only record the new layout once the rewrite actually landed; on
+        # failure drop the temp file and leave the marker unchanged so the
+        # next launch retries the swap instead of skipping it forever.
+        printf '%s\n' "$NX_BUTTON_LAYOUT" > "$NX_LAYOUT_MARKER"
+    else
+        rm -f "$EMU_CFG.nxtmp"
+    fi
 fi
 unset _nx_cur
 

@@ -36,6 +36,11 @@ out=$(NX_FAKE_LAYOUT=1 sh -c '. "$SYSTEM_PATH/bin/nx_button_layout.sh"; echo "$N
 # nextval missing -> nintendo, and the helper must not abort the sourcing shell
 out=$(PATH="/usr/bin:/bin" SYSTEM_PATH="$SYSTEM_PATH" sh -c '. "$SYSTEM_PATH/bin/nx_button_layout.sh"; echo "$NX_BUTTON_LAYOUT"')
 [ "$out" = "nintendo" ] || fail "helper: expected nintendo without nextval, got '$out'"
+# and even under `set -e -o pipefail` with nextval absent, the failed command
+# substitution must not abort the sourcing shell: a later statement must still
+# run (finding 2 — NDS.pak/launch.sh sources this under exactly those options).
+out=$(PATH="/usr/bin:/bin" SYSTEM_PATH="$SYSTEM_PATH" sh -c 'set -e -o pipefail; . "$SYSTEM_PATH/bin/nx_button_layout.sh"; echo "$NX_BUTTON_LAYOUT reached"')
+[ "$out" = "nintendo reached" ] || fail "helper: set -e -o pipefail source without nextval aborted or wrong ('$out')"
 
 # --- mupen64plus transform -------------------------------------------------
 # Drive N64.pak/nx_paths.sh with a fake env; the seed is the real default cfg.
@@ -77,6 +82,22 @@ rm -rf "$TMP/shared"; mkdir -p "$TMP/shared"
 n64_run 1 tg5050 x
 CFG5="$TMP/shared/N64-mupen64plus/config/tg5050/mupen64plus.cfg"
 grep -q '^A Button = "button(0)"' "$CFG5" || fail "n64 tg5050: A should be button(0) under xbox"
+
+# transform failure must leave the marker AND the cfg untouched (finding 4):
+# run only the marker/transform block (extracted like the DC function below)
+# with an EMU_CFG whose parent dir does not exist, so awk's read and its
+# redirect both fail. The marker must NOT advance and no .nxtmp may survive.
+N64_FAIL_BLOCK=$(sed -n '/^NX_LAYOUT_MARKER=/,/^unset _nx_cur$/p' \
+    "$ROOT/skeleton/SYSTEM/tg5040/paks/Emus/N64.pak/nx_paths.sh")
+rm -rf "$TMP/n64fail"; mkdir -p "$TMP/n64fail"
+DEVICE_CONFIG_DIR="$TMP/n64fail" \
+EMU_CFG="$TMP/n64fail/nope/mupen64plus.cfg" \
+NX_BUTTON_LAYOUT=xbox \
+sh -c "$N64_FAIL_BLOCK" 2>/dev/null   # awk's expected open failure is the point
+[ ! -e "$TMP/n64fail/.button_layout" ] \
+    || fail "n64: marker written despite transform failure"
+[ ! -e "$TMP/n64fail/nope/mupen64plus.cfg.nxtmp" ] \
+    || fail "n64: .nxtmp left behind after transform failure"
 
 # --- flycast mapping selection ---------------------------------------------
 # Extract the nx_flycast_mapping() function from each launch.sh and run it.

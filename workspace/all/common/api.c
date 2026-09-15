@@ -2775,7 +2775,7 @@ const char* PAD_buttonLabel(const char* logical) {
 // Map a freshly translated face button (btn/id in BTN_*/BTN_ID_* terms) to
 // the logical one under the active layout. Non-face buttons pass through.
 static void PAD_applyLayout(int* btn, int* id) {
-	if (!pad_layout_xbox)
+	if (pad_layout_xbox <= 0) // -1 = not yet loaded, 0 = nintendo; both mean no swap
 		return;
 	ButtonLayoutFace f = BL_FACE_NONE;
 	switch (*id) {
