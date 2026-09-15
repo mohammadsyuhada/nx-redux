@@ -29,6 +29,38 @@ if ! grep -q '^\[NxRedux\]' "$EMU_CFG"; then
         "$DEVICE_DEFAULT_CFG" >> "$EMU_CFG"
 fi
 
+# Button layout (Settings > System). mupen64plus binds face buttons by SDL
+# joystick index (B=0 bottom, A=1 right, Y=2 left, X=3 top) in this very
+# file, which the emulator rewrites on exit and which carries user tuning.
+# So instead of re-seeding, apply the Nintendo<->Xbox change as a pure swap
+# of button(0)<->button(1) and button(2)<->button(3) inside
+# [Input-SDL-Control1] only, exactly once per change (marker), so every
+# other line survives byte for byte. Applies at the next launch after a
+# reboot, like the rest of the setting.
+if [ -f "$SYSTEM_PATH/bin/nx_button_layout.sh" ]; then
+    . "$SYSTEM_PATH/bin/nx_button_layout.sh"
+fi
+[ -n "$NX_BUTTON_LAYOUT" ] || NX_BUTTON_LAYOUT=nintendo
+NX_LAYOUT_MARKER="$DEVICE_CONFIG_DIR/.button_layout"
+_nx_cur=$(cat "$NX_LAYOUT_MARKER" 2>/dev/null)
+[ -n "$_nx_cur" ] || _nx_cur=nintendo
+if [ "$_nx_cur" != "$NX_BUTTON_LAYOUT" ]; then
+    awk '
+        /^[ \t]*\[/ { insec = ($0 ~ /^[ \t]*\[Input-SDL-Control1\]/) }
+        insec {
+            gsub(/button\(0\)/, "button(@0@)")
+            gsub(/button\(1\)/, "button(0)")
+            gsub(/button\(@0@\)/, "button(1)")
+            gsub(/button\(2\)/, "button(@2@)")
+            gsub(/button\(3\)/, "button(2)")
+            gsub(/button\(@2@\)/, "button(3)")
+        }
+        { print }
+    ' "$EMU_CFG" > "$EMU_CFG.nxtmp" && mv -f "$EMU_CFG.nxtmp" "$EMU_CFG"
+    printf '%s\n' "$NX_BUTTON_LAYOUT" > "$NX_LAYOUT_MARKER"
+fi
+unset _nx_cur
+
 # Per-game override key. Multi-disc games live in a folder with a
 # folder-named .m3u (see BASE README); every disc of such a game maps to
 # ONE key -- the m3u/folder name -- mirroring how minarch normalizes
