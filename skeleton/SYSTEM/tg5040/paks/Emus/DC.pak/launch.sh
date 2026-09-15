@@ -49,6 +49,34 @@ nx_flycast_mapping() {
         || md5sum "$NX_MAPPING" 2>/dev/null | grep -q "^0791cba4f099c861a58c9a0473a16361 "; then
         cmp -s "$NX_MAPPING" "$NX_MAP_WANT" 2>/dev/null || cp "$NX_MAP_WANT" "$NX_MAPPING" 2>/dev/null || true
     fi
+    # Arcade titles (NAOMI/Atomiswave) use a sibling mapping flycast clones
+    # from the main one the first time an arcade game runs and then keeps, so
+    # it never picks up a later layout change on its own. Its line order and
+    # extra binds differ from the shipped file, so only the four face lines
+    # are rewritten, and only when they are exactly one of the two known
+    # layouts (anything else was hand-edited and is left alone).
+    NX_MAPPING_ARCADE="$DEVICE_CONFIG_DIR/flycast/mappings/SDL_Xbox 360 Controller_arcade.cfg"
+    if [ -f "$NX_MAPPING_ARCADE" ]; then
+        if grep -q '^bind1 = 1:btn_a$' "$NX_MAPPING_ARCADE" && grep -q '^bind0 = 0:btn_b$' "$NX_MAPPING_ARCADE"; then
+            NX_ARCADE_CUR=nintendo
+        elif grep -q '^bind1 = 1:btn_b$' "$NX_MAPPING_ARCADE" && grep -q '^bind0 = 0:btn_a$' "$NX_MAPPING_ARCADE"; then
+            NX_ARCADE_CUR=xbox
+        else
+            NX_ARCADE_CUR=custom
+        fi
+        if [ "$NX_ARCADE_CUR" != custom ] && [ "$NX_ARCADE_CUR" != "$NX_BUTTON_LAYOUT" ]; then
+            sed -e '/^\[digital\]/,/^\[/{
+                s/:btn_a$/:@a@/
+                s/:btn_b$/:btn_a/
+                s/:@a@$/:btn_b/
+                s/:btn_x$/:@x@/
+                s/:btn_y$/:btn_x/
+                s/:@x@$/:btn_y/
+            }' "$NX_MAPPING_ARCADE" > "$NX_MAPPING_ARCADE.nxtmp" \
+                && mv -f "$NX_MAPPING_ARCADE.nxtmp" "$NX_MAPPING_ARCADE" \
+                || rm -f "$NX_MAPPING_ARCADE.nxtmp"
+        fi
+    fi
 }
 nx_flycast_mapping
 
