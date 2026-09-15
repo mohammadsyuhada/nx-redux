@@ -78,5 +78,41 @@ n64_run 1 tg5050 x
 CFG5="$TMP/shared/N64-mupen64plus/config/tg5050/mupen64plus.cfg"
 grep -q '^A Button = "button(0)"' "$CFG5" || fail "n64 tg5050: A should be button(0) under xbox"
 
+# --- flycast mapping selection ---------------------------------------------
+# Extract the nx_flycast_mapping() function from each launch.sh and run it.
+dc_run() { # $1 = layout, $2 = platform
+    NX_FAKE_LAYOUT="$1" PAK_DIR="$ROOT/skeleton/SYSTEM/$2/paks/Emus/DC.pak" \
+    DEVICE_CONFIG_DIR="$TMP/dc" sh -c '
+        NX_FN=$(sed -n "/^nx_flycast_mapping() {/,/^}/p" "$PAK_DIR/launch.sh")
+        eval "$NX_FN"
+        nx_flycast_mapping'
+}
+PAKMAP="$ROOT/skeleton/SYSTEM/tg5040/paks/Emus/DC.pak/SDL_Xbox 360 Controller.cfg"
+MAP="$TMP/dc/flycast/mappings/SDL_Xbox 360 Controller.cfg"
+rm -rf "$TMP/dc"; mkdir -p "$TMP/dc/flycast/mappings"
+dc_run 0 tg5040
+cmp -s "$MAP" "$PAKMAP" || fail "dc: missing mapping should be installed as the pak file (nintendo)"
+dc_run 1 tg5040
+grep -q '^bind0 = 0:btn_a$' "$MAP" || fail "dc: bind0 should be btn_a under xbox"
+grep -q '^bind1 = 1:btn_b$' "$MAP" || fail "dc: bind1 should be btn_b under xbox"
+grep -q '^bind2 = 2:btn_x$' "$MAP" || fail "dc: bind2 should be btn_x under xbox"
+grep -q '^bind3 = 3:btn_y$' "$MAP" || fail "dc: bind3 should be btn_y under xbox"
+grep -q '^bind0 = 0-:btn_analog_left$' "$MAP" || fail "dc: [analog] section must be untouched"
+grep -q '^bind4 = 4:btn_z$' "$MAP" || fail "dc: non-face digital binds must be untouched"
+dc_run 0 tg5040
+cmp -s "$MAP" "$PAKMAP" || fail "dc: switching back should restore the pak file"
+# hand-edited file is left alone in either layout
+printf 'bind0 = 0:btn_c\n' > "$MAP"
+dc_run 1 tg5040
+[ "$(cat "$MAP")" = "bind0 = 0:btn_c" ] || fail "dc: hand-edited mapping must be left alone"
+# legacy shipped file (md5 0791cba4...) is still upgraded
+rm -f "$MAP"
+dc_run 1 tg5040
+cp "$MAP" "$TMP/dc_xbox.cfg"
+# tg5050 copy behaves the same
+rm -rf "$TMP/dc"; mkdir -p "$TMP/dc/flycast/mappings"
+dc_run 1 tg5050
+grep -q '^bind0 = 0:btn_a$' "$MAP" || fail "dc tg5050: bind0 should be btn_a under xbox"
+
 [ "$FAIL" = 0 ] && echo "test-button-layout-sh: OK"
 exit "$FAIL"

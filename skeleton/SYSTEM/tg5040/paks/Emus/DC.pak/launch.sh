@@ -17,25 +17,40 @@ echo 1608000 >/sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq
 # Config-dir resolution + emu.cfg seeding shared with options.sh
 . "$PAK_DIR/nx_paths.sh"
 
-# Install the curated controller mapping if not already present. Deliberately
-# NOT gated by .initialized: that marker only tracks the emu.cfg seed, so an
-# existing install upgraded from an older pak version (already .initialized,
-# but never had a mapping shipped) would otherwise never receive it. Install
-# unconditionally-if-absent instead, every launch.
-# The elif upgrades a PRISTINE older shipped mapping in place:
-# 0791cba4f099c861a58c9a0473a16361 is the pre-coin-bind shipped file (no
-# SELECT->btn_d bind, so Atomiswave/Naomi games had no way to insert a coin).
-# Nothing on-device rewrites this file — flycast saves it only from its own
-# GUI's controls page, and our patch reroutes EMU_BTN_MENU to the NxRedux
-# overlay instead of gui_open_settings() — so every real install stays
-# byte-identical and gets the upgrade; the hash gate only spares a mapping
-# someone hand-edited over adb/the SD card.
-NX_MAPPING="$DEVICE_CONFIG_DIR/flycast/mappings/SDL_Xbox 360 Controller.cfg"
-if [ ! -f "$NX_MAPPING" ]; then
-    cp "$PAK_DIR/SDL_Xbox 360 Controller.cfg" "$NX_MAPPING" 2>/dev/null || true
-elif md5sum "$NX_MAPPING" 2>/dev/null | grep -q "^0791cba4f099c861a58c9a0473a16361 "; then
-    cp "$PAK_DIR/SDL_Xbox 360 Controller.cfg" "$NX_MAPPING" 2>/dev/null || true
-fi
+# Controller mapping. flycast binds by SDL joystick index (B=0, A=1, Y=2,
+# X=3). We ship the Nintendo-layout file and generate the Xbox variant from
+# it (A<->B, X<->Y in [digital]) when Settings > System > Button layout is
+# Xbox. Nothing on-device rewrites this file — flycast saves it only from
+# its own GUI controls page, and our patch reroutes EMU_BTN_MENU to the
+# NxRedux overlay — so a file matching either variant (or the legacy shipped
+# md5 below) is ours and gets replaced; anything else was hand-edited over
+# adb/the SD card and is left alone.
+nx_flycast_mapping() {
+    . "$SYSTEM_PATH/bin/nx_button_layout.sh"
+    NX_MAPPING="$DEVICE_CONFIG_DIR/flycast/mappings/SDL_Xbox 360 Controller.cfg"
+    NX_MAP_NINTENDO="$PAK_DIR/SDL_Xbox 360 Controller.cfg"
+    NX_MAP_XBOX="/tmp/nx_flycast_mapping_xbox.cfg"
+    sed -e '/^\[digital\]/,/^\[/{
+        s/:btn_a$/:@a@/
+        s/:btn_b$/:btn_a/
+        s/:@a@$/:btn_b/
+        s/:btn_x$/:@x@/
+        s/:btn_y$/:btn_x/
+        s/:@x@$/:btn_y/
+    }' "$NX_MAP_NINTENDO" > "$NX_MAP_XBOX"
+    if [ "$NX_BUTTON_LAYOUT" = "xbox" ]; then
+        NX_MAP_WANT="$NX_MAP_XBOX"
+    else
+        NX_MAP_WANT="$NX_MAP_NINTENDO"
+    fi
+    if [ ! -f "$NX_MAPPING" ] \
+        || cmp -s "$NX_MAPPING" "$NX_MAP_NINTENDO" \
+        || cmp -s "$NX_MAPPING" "$NX_MAP_XBOX" \
+        || md5sum "$NX_MAPPING" 2>/dev/null | grep -q "^0791cba4f099c861a58c9a0473a16361 "; then
+        cmp -s "$NX_MAPPING" "$NX_MAP_WANT" 2>/dev/null || cp "$NX_MAP_WANT" "$NX_MAPPING" 2>/dev/null || true
+    fi
+}
+nx_flycast_mapping
 
 # Flycast resolves config to $XDG_CONFIG_HOME/flycast/ and data (BIOS search,
 # VMUs, save states) to $XDG_DATA_HOME/flycast/ (core/linux-dist/main.cpp).
