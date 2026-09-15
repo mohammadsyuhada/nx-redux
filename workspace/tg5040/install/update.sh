@@ -85,3 +85,30 @@ if [ -d $BRICK_PATH ]; then
 	fi
 fi
 # --------------------------------------
+
+# --------------------------------------
+# --- portmaster-refresh-begin
+# PortMaster (an Xtras entry) installs its GUI pak and the Ports console
+# runner as user-level copies (Tools/PortMaster.pak, Emus/PORTS.pak/launch.sh)
+# that an update never touched, so they went stale: field case 2026-09-16, a
+# Brick still ran the Aug-20 portmaster.elf (pre-RGBA colours — garbled the
+# theme on exit) and the old ports runner (retired xbox_layout marker path,
+# so ports ignored the button-layout setting). Re-sync them from the freshly
+# unpacked catalog whenever PortMaster is installed. One-shot per update;
+# must never fail the update.
+PM_CATALOG="$SDCARD_PATH/.system/paks/Tools/Xtras.pak/catalog/portmaster/pak"
+PM_TOOLS="$SDCARD_PATH/Tools/PortMaster.pak"
+PM_PORTS="$SDCARD_PATH/Emus/PORTS.pak"
+if [ -d "$PM_CATALOG" ] && [ -f "$SDCARD_PATH/Emus/shared/PortMaster/version" ]; then
+	if [ -d "$PM_TOOLS" ]; then
+		cp -f "$PM_CATALOG/launch.sh" "$PM_CATALOG/ports_launch.sh" "$PM_CATALOG/portmaster.elf" "$PM_TOOLS/" 2>/dev/null \
+			&& chmod +x "$PM_TOOLS/launch.sh" "$PM_TOOLS/ports_launch.sh" "$PM_TOOLS/portmaster.elf" 2>/dev/null \
+			&& echo "refreshed $PM_TOOLS from the Xtras catalog"
+	fi
+	if [ -d "$PM_PORTS" ]; then
+		cp -f "$PM_CATALOG/ports_launch.sh" "$PM_PORTS/launch.sh" 2>/dev/null \
+			&& chmod +x "$PM_PORTS/launch.sh" 2>/dev/null \
+			&& echo "refreshed $PM_PORTS/launch.sh from the Xtras catalog"
+	fi
+fi
+# --- portmaster-refresh-end

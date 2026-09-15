@@ -279,3 +279,11 @@ during menu rendering — useless as a first-frame/boot proxy.
   N64 config transform, DC mapping selection); OSD daemon variants:
   `scripts/tests/test-patch-osdd-layout.sh`; pure swap/label logic is in
   `workspace/all/common/tests/run_tests.sh` (`test_button_layout.c`).
+- PortMaster refresh on update: `scripts/tests/test-update-portmaster-refresh.sh`
+  sed-extracts the marked `portmaster-refresh` block from each platform's
+  `workspace/<plat>/install/update.sh` and runs it under `sh` against a fake
+  card. An installed-but-stale `Tools/PortMaster.pak` (`launch.sh`,
+  `ports_launch.sh`, `portmaster.elf`) and `Emus/PORTS.pak/launch.sh` must be
+  re-copied from the `.system` Xtras catalog and made executable; not-installed
+  (no `Emus/shared/PortMaster/version`), absent `Tools/PortMaster.pak`, and
+  absent catalog dir must each change nothing and never fail the update.
