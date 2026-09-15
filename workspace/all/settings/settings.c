@@ -300,6 +300,13 @@ static int art_type_values[] = {ART_TYPE_MIX, ART_TYPE_SCREENSHOT, ART_TYPE_BOXA
 static const char* rumble_strength_labels[] = {"Light", "Normal", "Strong"};
 static int rumble_strength_values[] = {VIB_LEVEL_LIGHT, VIB_LEVEL_NORMAL, VIB_LEVEL_STRONG};
 
+static const char* button_layout_labels[] = {"Nintendo", "Xbox"};
+static int button_layout_values[] = {BUTTON_LAYOUT_NINTENDO, BUTTON_LAYOUT_XBOX};
+static const char* hint_labels_labels[] = {"Layout letters", "Printed caps"};
+static int hint_labels_values[] = {0, 1};
+// The "Hint labels" row only matters under the Xbox layout; hidden otherwise.
+static SettingItem* hint_labels_item = NULL;
+
 /* Dpad mode: Dpad, Joystick, Both */
 static const char* dpad_mode_labels[] = {"Dpad", "Joystick", "Both"};
 static int dpad_mode_values[] = {0, 1, 2};
@@ -829,6 +836,31 @@ static void reset_haptics(void) {
 	CFG_setHaptics(CFG_DEFAULT_HAPTICS);
 }
 
+static void sync_hint_labels_visibility(void) {
+	if (hint_labels_item)
+		hint_labels_item->visible = (CFG_getButtonLayout() == BUTTON_LAYOUT_XBOX) ? 1 : 0;
+}
+static int get_button_layout(void) {
+	return CFG_getButtonLayout();
+}
+static void set_button_layout(int v) {
+	CFG_setButtonLayout(v);
+	sync_hint_labels_visibility();
+}
+static void reset_button_layout(void) {
+	CFG_setButtonLayout(CFG_DEFAULT_BUTTON_LAYOUT);
+	sync_hint_labels_visibility();
+}
+static int get_hint_labels(void) {
+	return CFG_getHintLabels() ? 1 : 0;
+}
+static void set_hint_labels(int v) {
+	CFG_setHintLabels(v != 0);
+}
+static void reset_hint_labels(void) {
+	CFG_setHintLabels(CFG_DEFAULT_HINT_LABELS);
+}
+
 static int get_rumble_strength(void) {
 	return GetRumbleStrength();
 }
@@ -1294,7 +1326,7 @@ static void init_about_info(void) {
 
 #define MAX_APPEARANCE_ITEMS 28
 #define MAX_DISPLAY_ITEMS 8
-#define MAX_SYSTEM_ITEMS 22
+#define MAX_SYSTEM_ITEMS 24
 #define MAX_FN_ITEMS 20
 #define MAX_FNKEY_ITEMS 3
 #define MAX_NOTIFY_ITEMS 8
@@ -1760,6 +1792,16 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Vibration strength", "How hard the motor rumbles in games and for haptic feedback",
 		rumble_strength_labels, 3, rumble_strength_values, get_rumble_strength, set_rumble_strength, reset_rumble_strength);
+	if (dev->platform != PLAT_DESKTOP) { // physical face-button layout; not applicable on desktop
+		system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+			"Button layout", "Xbox puts A at the bottom and B on the right. Takes effect after a restart",
+			button_layout_labels, 2, button_layout_values, get_button_layout, set_button_layout, reset_button_layout);
+		hint_labels_item = &system_items[idx];
+		system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+			"Hint labels", "What the A/B/X/Y hints show when Xbox layout is on. Takes effect after a restart",
+			hint_labels_labels, 2, hint_labels_values, get_hint_labels, set_hint_labels, reset_hint_labels);
+		sync_hint_labels_visibility();
+	}
 	system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Default view", "The initial view to show on boot",
 		default_view_labels, DEFAULT_VIEW_COUNT, default_view_values, get_default_view, set_default_view, reset_default_view);
