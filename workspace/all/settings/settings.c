@@ -846,19 +846,23 @@ static int get_button_layout(void) {
 static void set_button_layout(int v) {
 	CFG_setButtonLayout(v);
 	sync_hint_labels_visibility();
+	PAD_reloadHintLabels();
 }
 static void reset_button_layout(void) {
 	CFG_setButtonLayout(CFG_DEFAULT_BUTTON_LAYOUT);
 	sync_hint_labels_visibility();
+	PAD_reloadHintLabels();
 }
 static int get_hint_labels(void) {
 	return CFG_getHintLabels() ? 1 : 0;
 }
 static void set_hint_labels(int v) {
 	CFG_setHintLabels(v != 0);
+	PAD_reloadHintLabels();
 }
 static void reset_hint_labels(void) {
 	CFG_setHintLabels(CFG_DEFAULT_HINT_LABELS);
+	PAD_reloadHintLabels();
 }
 
 static int get_rumble_strength(void) {
@@ -1794,11 +1798,11 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		rumble_strength_labels, 3, rumble_strength_values, get_rumble_strength, set_rumble_strength, reset_rumble_strength);
 	if (dev->platform != PLAT_DESKTOP) { // physical face-button layout; not applicable on desktop
 		system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-			"Button layout", "Xbox puts A at the bottom and B on the right. Takes effect after a restart",
+			"Button layout", "Xbox puts A at the bottom and B on the right. The quick menu (OSD) follows after a restart",
 			button_layout_labels, 2, button_layout_values, get_button_layout, set_button_layout, reset_button_layout);
 		hint_labels_item = &system_items[idx];
 		system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-			"Hint labels", "What the A/B/X/Y hints show when Xbox layout is on. Takes effect after a restart",
+			"Hint labels", "What the A/B/X/Y hints show when Xbox layout is on. Applies as soon as you leave Settings",
 			hint_labels_labels, 2, hint_labels_values, get_hint_labels, set_hint_labels, reset_hint_labels);
 		sync_hint_labels_visibility();
 	}

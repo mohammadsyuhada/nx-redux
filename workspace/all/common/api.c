@@ -2767,6 +2767,15 @@ int PAD_layoutIsXbox(void) {
 	return pad_layout_xbox;
 }
 
+// Re-read only the "Hint labels" flag so a running app (Settings) can update
+// its hint glyphs the moment the user toggles the row. The layout flag is
+// deliberately NOT re-read: the app's own confirm/back must stay put until
+// it is relaunched.
+void PAD_reloadHintLabels(void) {
+	PAD_loadLayout(); // init pad_layout_xbox if it was not read yet
+	pad_hint_physical = pad_layout_xbox && CFG_getHintLabels();
+}
+
 const char* PAD_buttonLabel(const char* logical) {
 	PAD_loadLayout();
 	return ButtonLayout_displayLabel(logical, pad_hint_physical);
