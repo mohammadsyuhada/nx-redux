@@ -107,6 +107,8 @@ void CFG_defaults(NextUISettings* cfg) {
 		.disableSleep = CFG_DEFAULT_DISABLE_SLEEP,
 		.sshOnBoot = CFG_DEFAULT_SSH_ON_BOOT,
 		.debugLogging = CFG_DEFAULT_DEBUG_LOGGING,
+		.buttonLayout = CFG_DEFAULT_BUTTON_LAYOUT,
+		.hintLabels = CFG_DEFAULT_HINT_LABELS,
 	};
 
 	*cfg = defaults;
@@ -370,6 +372,14 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 			}
 			if (sscanf(line, "debugLogging=%i", &temp_value) == 1) {
 				CFG_setDebugLogging((bool)temp_value);
+				continue;
+			}
+			if (sscanf(line, "buttonlayout=%i", &temp_value) == 1) {
+				CFG_setButtonLayout(temp_value);
+				continue;
+			}
+			if (sscanf(line, "hintlabels=%i", &temp_value) == 1) {
+				CFG_setHintLabels((bool)temp_value);
 				continue;
 			}
 			if (sscanf(line, "keepAwakeUSB=%i", &temp_value) == 1) {
@@ -1039,6 +1049,24 @@ void CFG_setDebugLogging(bool enable) {
 	CFG_sync();
 }
 
+int CFG_getButtonLayout(void) {
+	return settings.buttonLayout;
+}
+
+void CFG_setButtonLayout(int layout) {
+	settings.buttonLayout = (layout == BUTTON_LAYOUT_XBOX) ? BUTTON_LAYOUT_XBOX : BUTTON_LAYOUT_NINTENDO;
+	CFG_sync();
+}
+
+bool CFG_getHintLabels(void) {
+	return settings.hintLabels;
+}
+
+void CFG_setHintLabels(bool physical) {
+	settings.hintLabels = physical;
+	CFG_sync();
+}
+
 void CFG_get(const char* key, char* value) {
 	if (strcmp(key, "font") == 0) {
 		sprintf(value, "%i", CFG_getFontId());
@@ -1134,6 +1162,10 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", (int)(CFG_getSSHOnBoot()));
 	} else if (strcmp(key, "debugLogging") == 0) {
 		sprintf(value, "%i", (int)(CFG_getDebugLogging()));
+	} else if (strcmp(key, "buttonlayout") == 0) {
+		sprintf(value, "%i", CFG_getButtonLayout());
+	} else if (strcmp(key, "hintlabels") == 0) {
+		sprintf(value, "%i", (int)(CFG_getHintLabels()));
 	}
 
 	// meta, not a real setting
@@ -1222,6 +1254,8 @@ static int CFG_serialize(char* buf, size_t cap) {
 	EMIT("disableSleep=%i\n", settings.disableSleep);
 	EMIT("sshOnBoot=%i\n", settings.sshOnBoot);
 	EMIT("debugLogging=%i\n", settings.debugLogging);
+	EMIT("buttonlayout=%i\n", settings.buttonLayout);
+	EMIT("hintlabels=%i\n", settings.hintLabels);
 #undef EMIT
 	return (int)off;
 }
@@ -1440,6 +1474,8 @@ void CFG_print(void) {
 	printf("\t\"disableSleep\": %i,\n", settings.disableSleep);
 	printf("\t\"sshOnBoot\": %i,\n", settings.sshOnBoot);
 	printf("\t\"debugLogging\": %i,\n", settings.debugLogging);
+	printf("\t\"buttonlayout\": %i,\n", settings.buttonLayout);
+	printf("\t\"hintlabels\": %i,\n", settings.hintLabels);
 
 	// meta, not a real setting
 	printf("\t\"fontpath\": \"%s/font1.ttf\"\n", RES_PATH);
