@@ -1,6 +1,6 @@
 diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*.la --exclude=*.lo --exclude=*.orig --exclude=Makefile --exclude=Makefile.rules --exclude=config.log --exclude=config.status --exclude=libtool --exclude=sdl2-config --exclude=sdl2-config.cmake --exclude=sdl2-config-version.cmake --exclude=sdl2.pc --exclude=SDL2.spec --exclude=gen --exclude=autom4te.cache --exclude=SDL_config.h --exclude=SDL_revision.h a/src/core/linux/SDL_evdev_capabilities.c b/src/core/linux/SDL_evdev_capabilities.c
---- a/src/core/linux/SDL_evdev_capabilities.c	2026-09-14 23:14:36
-+++ b/src/core/linux/SDL_evdev_capabilities.c	2026-09-14 22:21:07
+--- a/src/core/linux/SDL_evdev_capabilities.c	2026-09-15 11:21:46
++++ b/src/core/linux/SDL_evdev_capabilities.c	2026-09-15 11:19:05
 @@ -89,19 +89,19 @@
              devclass |= SDL_UDEV_DEVICE_TOUCHSCREEN; /* ID_INPUT_TOUCHSCREEN */
          }
@@ -35,8 +35,8 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  
      if (test_bit(EV_REL, bitmask_ev) &&
 diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*.la --exclude=*.lo --exclude=*.orig --exclude=Makefile --exclude=Makefile.rules --exclude=config.log --exclude=config.status --exclude=libtool --exclude=sdl2-config --exclude=sdl2-config.cmake --exclude=sdl2-config-version.cmake --exclude=sdl2.pc --exclude=SDL2.spec --exclude=gen --exclude=autom4te.cache --exclude=SDL_config.h --exclude=SDL_revision.h a/src/video/drastic_detour_main.c b/src/video/drastic_detour_main.c
---- a/src/video/drastic_detour_main.c	2026-09-14 23:14:36
-+++ b/src/video/drastic_detour_main.c	2026-09-14 22:21:07
+--- a/src/video/drastic_detour_main.c	2026-09-15 11:21:46
++++ b/src/video/drastic_detour_main.c	2026-09-15 11:19:05
 @@ -58,7 +58,6 @@
      char buf[2080] = {0};
      nds_load_state _func = (nds_load_state)FUN_LOAD_STATE;
@@ -200,8 +200,8 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  
  void detour_quit(void)
 diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*.la --exclude=*.lo --exclude=*.orig --exclude=Makefile --exclude=Makefile.rules --exclude=config.log --exclude=config.status --exclude=libtool --exclude=sdl2-config --exclude=sdl2-config.cmake --exclude=sdl2-config-version.cmake --exclude=sdl2.pc --exclude=SDL2.spec --exclude=gen --exclude=autom4te.cache --exclude=SDL_config.h --exclude=SDL_revision.h a/src/video/drastic_detour_pmparser.c b/src/video/drastic_detour_pmparser.c
---- a/src/video/drastic_detour_pmparser.c	2026-09-14 23:14:36
-+++ b/src/video/drastic_detour_pmparser.c	2026-09-14 22:21:07
+--- a/src/video/drastic_detour_pmparser.c	2026-09-15 11:21:46
++++ b/src/video/drastic_detour_pmparser.c	2026-09-15 11:19:05
 @@ -203,18 +203,10 @@
  	while(tmp!=NULL){
  		//(unsigned long) tmp->addr_start;
@@ -222,8 +222,8 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  		}else tmp=tmp->next;
  
 diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*.la --exclude=*.lo --exclude=*.orig --exclude=Makefile --exclude=Makefile.rules --exclude=config.log --exclude=config.status --exclude=libtool --exclude=sdl2-config --exclude=sdl2-config.cmake --exclude=sdl2-config-version.cmake --exclude=sdl2.pc --exclude=SDL2.spec --exclude=gen --exclude=autom4te.cache --exclude=SDL_config.h --exclude=SDL_revision.h a/src/video/drastic_event.c b/src/video/drastic_event.c
---- a/src/video/drastic_event.c	2026-09-14 23:14:36
-+++ b/src/video/drastic_event.c	2026-09-14 22:40:12
+--- a/src/video/drastic_event.c	2026-09-15 11:21:46
++++ b/src/video/drastic_event.c	2026-09-15 11:21:19
 @@ -29,6 +29,7 @@
  #include <sys/mman.h>
  #include <dirent.h>
@@ -294,6 +294,15 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  static SDL_sem *event_sem = NULL;
  static SDL_Thread *thread = NULL;
  static uint32_t cur_keypad_bitmaps = 0;
+@@ -107,7 +118,7 @@
+ extern int g_lastX;
+ extern int g_lastY;
+ 
+-const SDL_Scancode code[]={
++static SDL_Scancode code[]={
+     SDLK_UP,            // UP
+     SDLK_DOWN,          // DOWN
+     SDLK_LEFT,          // LEFT
 @@ -261,29 +272,12 @@
      }
  
@@ -513,10 +522,24 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
              handle_hotkey();
          }
          SDL_SemPost(event_sem);
-@@ -862,8 +756,20 @@
+@@ -862,8 +756,34 @@
  
      evt.mode = MMIYOO_KEYPAD_MODE;
  
++    // NX Redux "Button layout" (Settings > System). NDS.pak/launch.sh
++    // exports NX_BUTTON_LAYOUT=xbox when the user wants A at the bottom:
++    // swap the SDL keys emitted for A<->B and X<->Y so DraStic — the game
++    // AND its own menu, both bound to these keys in drastic.cfg — follows.
++    {
++        const char *nx_layout = getenv("NX_BUTTON_LAYOUT");
++        if (nx_layout && strcmp(nx_layout, "xbox") == 0) {
++            SDL_Scancode nx_t;
++            nx_t = code[4]; code[4] = code[5]; code[5] = nx_t;   /* A <-> B */
++            nx_t = code[6]; code[6] = code[7]; code[7] = nx_t;   /* X <-> Y */
++            printf(PREFIX"button layout: xbox (A/B and X/Y keys swapped)\n");
++        }
++    }
++
 +    /* tg5040: Initialize nds.input.key to -1 (not defined).
 +       The settings.json input_key parsing is commented out, so these
 +       stay zero-initialized. EventUpdate treats 0 as a valid override
@@ -535,7 +558,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  		event_fd = open(nds.input.dev, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
  	}
  	else {
-@@ -873,6 +779,15 @@
+@@ -873,6 +793,15 @@
      if(event_fd < 0){
          printf(PREFIX"Failed to open event0\n");
      }
@@ -551,7 +574,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  
      if((event_sem =  SDL_CreateSemaphore(1)) == NULL) {
          SDL_SetError("Can't create input semaphore");
-@@ -991,52 +906,11 @@
+@@ -991,52 +920,11 @@
                  }
              }
  
@@ -610,8 +633,8 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
              if (pre_keypad_bitmaps & (1 << MYKEY_QSAVE)) {
                  set_key(MYKEY_QSAVE, 0);
 diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*.la --exclude=*.lo --exclude=*.orig --exclude=Makefile --exclude=Makefile.rules --exclude=config.log --exclude=config.status --exclude=libtool --exclude=sdl2-config --exclude=sdl2-config.cmake --exclude=sdl2-config-version.cmake --exclude=sdl2.pc --exclude=SDL2.spec --exclude=gen --exclude=autom4te.cache --exclude=SDL_config.h --exclude=SDL_revision.h a/src/video/drastic_video.c b/src/video/drastic_video.c
---- a/src/video/drastic_video.c	2026-09-14 23:14:36
-+++ b/src/video/drastic_video.c	2026-09-14 23:09:49
+--- a/src/video/drastic_video.c	2026-09-15 11:21:46
++++ b/src/video/drastic_video.c	2026-09-15 11:19:05
 @@ -48,6 +48,7 @@
  #ifdef ADVDRASTIC_DRM
  #include <fcntl.h>
@@ -2074,8 +2097,8 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
          *(int *)(param_2 + 1) << 3);
      return;
 diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*.la --exclude=*.lo --exclude=*.orig --exclude=Makefile --exclude=Makefile.rules --exclude=config.log --exclude=config.status --exclude=libtool --exclude=sdl2-config --exclude=sdl2-config.cmake --exclude=sdl2-config-version.cmake --exclude=sdl2.pc --exclude=SDL2.spec --exclude=gen --exclude=autom4te.cache --exclude=SDL_config.h --exclude=SDL_revision.h a/src/video/dummy/SDL_nullevents.c b/src/video/dummy/SDL_nullevents.c
---- a/src/video/dummy/SDL_nullevents.c	2026-09-14 23:14:36
-+++ b/src/video/dummy/SDL_nullevents.c	2026-09-14 22:21:07
+--- a/src/video/dummy/SDL_nullevents.c	2026-09-15 11:21:46
++++ b/src/video/dummy/SDL_nullevents.c	2026-09-15 11:19:05
 @@ -29,10 +29,11 @@
  
  #include "SDL_nullvideo.h"
@@ -2090,8 +2113,8 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  
  #endif /* SDL_VIDEO_DRIVER_DUMMY */
 diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*.la --exclude=*.lo --exclude=*.orig --exclude=Makefile --exclude=Makefile.rules --exclude=config.log --exclude=config.status --exclude=libtool --exclude=sdl2-config --exclude=sdl2-config.cmake --exclude=sdl2-config-version.cmake --exclude=sdl2.pc --exclude=SDL2.spec --exclude=gen --exclude=autom4te.cache --exclude=SDL_config.h --exclude=SDL_revision.h a/src/video/dummy/SDL_nullvideo.c b/src/video/dummy/SDL_nullvideo.c
---- a/src/video/dummy/SDL_nullvideo.c	2026-09-14 23:14:36
-+++ b/src/video/dummy/SDL_nullvideo.c	2026-09-14 22:21:07
+--- a/src/video/dummy/SDL_nullvideo.c	2026-09-15 11:21:46
++++ b/src/video/dummy/SDL_nullvideo.c	2026-09-15 11:19:05
 @@ -48,6 +48,34 @@
  #include "SDL_nullframebuffer_c.h"
  #include "SDL_hints.h"
@@ -2219,8 +2242,8 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
          return -1;
      }
 diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*.la --exclude=*.lo --exclude=*.orig --exclude=Makefile --exclude=Makefile.rules --exclude=config.log --exclude=config.status --exclude=libtool --exclude=sdl2-config --exclude=sdl2-config.cmake --exclude=sdl2-config-version.cmake --exclude=sdl2.pc --exclude=SDL2.spec --exclude=gen --exclude=autom4te.cache --exclude=SDL_config.h --exclude=SDL_revision.h a/src/video/jsonlayout.c b/src/video/jsonlayout.c
---- a/src/video/jsonlayout.c	2026-09-14 23:14:36
-+++ b/src/video/jsonlayout.c	2026-09-14 22:21:07
+--- a/src/video/jsonlayout.c	2026-09-15 11:21:46
++++ b/src/video/jsonlayout.c	2026-09-15 11:19:05
 @@ -22,7 +22,6 @@
      int iLayout_type;
  
