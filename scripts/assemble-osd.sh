@@ -64,11 +64,14 @@ for chmod_dir in "$@"; do
 	if [ -f "$chmod_dir/trimui_osdd" ]; then
 		chmod 755 "$chmod_dir/trimui_osdd"
 	fi
+	if [ -f "$chmod_dir/trimui_osdd.xbox" ]; then
+		chmod 755 "$chmod_dir/trimui_osdd.xbox"
+	fi
 done
 
 # Fail loudly rather than shipping a silently dead OSD: a botched layer copy
 # otherwise only surfaces on hardware, as an OSD that never opens.
-for required in trimui_osdd osdlayout.json bg.png block1x1.png show_default_msg.sh; do
+for required in trimui_osdd trimui_osdd.xbox osdlayout.json bg.png block1x1.png show_default_msg.sh; do
 	if [ ! -f "$model_out/$required" ]; then
 		echo "assemble-osd: $DEVICE tree is missing $required" >&2
 		exit 1

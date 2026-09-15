@@ -162,7 +162,7 @@ if [ -d "$OSD_SRC_MODEL" ] && ! grep -q " $OSD_DST " /proc/mounts; then
 	rm -rf "$OSD_STAGE"
 	mkdir -p "$OSD_STAGE"
 	if cp -r "$OSD_SRC/." "$OSD_STAGE/" && cp -r "$OSD_SRC_MODEL/." "$OSD_STAGE/"; then
-		chmod +x "$OSD_STAGE/trimui_osdd" "$OSD_STAGE"/*.sh \
+		chmod +x "$OSD_STAGE/trimui_osdd" "$OSD_STAGE/trimui_osdd.xbox" "$OSD_STAGE"/*.sh \
 			"$OSD_STAGE"/widgets/*/*.sh 2> /dev/null
 		# Recolour the daemon's green focus ring / active slider / toast frame
 		# images in the staged copy to the theme's primary accent (no-op for
@@ -176,9 +176,17 @@ if [ -d "$OSD_SRC_MODEL" ] && ! grep -q " $OSD_DST " /proc/mounts; then
 	fi
 fi # end osd overlay mount
 
-# Start OSD overlay daemon (system-wide quick menu)
-if [ -x "$OSD_DST/trimui_osdd" ]; then
-	cd "$OSD_DST" && ./trimui_osdd &
+# Start OSD overlay daemon (system-wide quick menu). Settings > System >
+# Button layout = Xbox needs the daemon's OK/cancel buttons swapped; that is
+# a separately patched copy (scripts/patch-osdd-layout.sh), picked here at
+# boot — the setting applies after a restart, like everywhere else.
+OSDD=trimui_osdd
+if [ "$(nextval.elf buttonlayout | sed -n 's/.*"buttonlayout": \([0-9]*\).*/\1/p')" = "1" ] \
+	&& [ -x "$OSD_DST/trimui_osdd.xbox" ]; then
+	OSDD=trimui_osdd.xbox
+fi
+if [ -x "$OSD_DST/$OSDD" ]; then
+	cd "$OSD_DST" && ./$OSDD &
 fi
 cd "$SYSTEM_PATH/bin"
 
