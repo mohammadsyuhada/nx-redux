@@ -1116,7 +1116,7 @@ int Menu_options(MenuList* list) {
 						while (mi->values[vc])
 							vc++;
 						if (mi->value < vc)
-							settings_items[i].value = mi->values[mi->value];
+							settings_items[i].value = PAD_buttonLabel(mi->values[mi->value]);
 					}
 					settings_items[i].cycleable = 0;
 				} else if (mi->submenu || mi->on_confirm || (list->on_confirm && !mi->values)) {

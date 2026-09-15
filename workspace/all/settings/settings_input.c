@@ -600,28 +600,38 @@ void input_tester_run(SDL_Surface* screen) {
 				blitButton("R", screen, PAD_isPressed(BTN_DPAD_RIGHT), x + o, y + o, 0);
 			}
 
-			// ABXY group
+			// ABXY group — drawn by physical position. Under the Xbox layout the
+			// bottom cap produces A and the right one B (X/Y likewise), and the
+			// label follows Settings > System > Hint labels.
 			{
+				int xbox = PAD_layoutIsXbox();
+				int top_btn = xbox ? BTN_Y : BTN_X, bottom_btn = xbox ? BTN_A : BTN_B;
+				int left_btn = xbox ? BTN_X : BTN_Y, right_btn = xbox ? BTN_B : BTN_A;
+				char* top_lbl = (char*)PAD_buttonLabel(xbox ? "Y" : "X");
+				char* bottom_lbl = (char*)PAD_buttonLabel(xbox ? "A" : "B");
+				char* left_lbl = (char*)PAD_buttonLabel(xbox ? "X" : "Y");
+				char* right_lbl = (char*)PAD_buttonLabel(xbox ? "B" : "A");
+
 				int x = FIXED_WIDTH - SCALE1(PADDING + PILL_SIZE * 3) + SCALE1(PILL_SIZE);
 				int y = oy + SCALE1(PILL_SIZE * 2 + PILL_SIZE / 2);
 				int o = SCALE1(BUTTON_INSET);
 
 				GFX_blitPillColor(ASSET_WHITE_PILL, screen, &(SDL_Rect){x, y, 0}, THEME_COLOR3, RGB_WHITE);
-				blitButton("X", screen, PAD_isPressed(BTN_X), x + o, y + o, 0);
+				blitButton(top_lbl, screen, PAD_isPressed(top_btn), x + o, y + o, 0);
 
 				y += SCALE1(PILL_SIZE * 2);
 				GFX_blitPillColor(ASSET_WHITE_PILL, screen, &(SDL_Rect){x, y, 0}, THEME_COLOR3, RGB_WHITE);
-				blitButton("B", screen, PAD_isPressed(BTN_B), x + o, y + o, 0);
+				blitButton(bottom_lbl, screen, PAD_isPressed(bottom_btn), x + o, y + o, 0);
 
 				x -= SCALE1(PILL_SIZE);
 				y -= SCALE1(PILL_SIZE);
 
 				GFX_blitPillColor(ASSET_WHITE_PILL, screen, &(SDL_Rect){x, y, 0}, THEME_COLOR3, RGB_WHITE);
-				blitButton("Y", screen, PAD_isPressed(BTN_Y), x + o, y + o, 0);
+				blitButton(left_lbl, screen, PAD_isPressed(left_btn), x + o, y + o, 0);
 
 				x += SCALE1(PILL_SIZE * 2);
 				GFX_blitPillColor(ASSET_WHITE_PILL, screen, &(SDL_Rect){x, y, 0}, THEME_COLOR3, RGB_WHITE);
-				blitButton("A", screen, PAD_isPressed(BTN_A), x + o, y + o, 0);
+				blitButton(right_lbl, screen, PAD_isPressed(right_btn), x + o, y + o, 0);
 			}
 
 			// VOLUME group
