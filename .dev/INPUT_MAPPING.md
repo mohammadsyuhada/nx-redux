@@ -193,7 +193,10 @@ triggers. Effect nodes follow the usual pattern
 
 `minuisettings.txt` `buttonlayout=` (0 Nintendo, 1 Xbox) and `hintlabels=`
 (1 = hints show the printed cap, 0 = the logical letter; only differs under
-Xbox). Both are read once per process and apply at the next boot.
+Xbox). Each process reads both settings once at startup, so the launcher and
+the paks pick a change up at their next launch, while the stock OSD daemon
+picks it up only at the next boot. The Settings row therefore asks for a
+restart, so nothing keeps running under the old layout.
 
 | Layer | Where the swap happens |
 |---|---|
