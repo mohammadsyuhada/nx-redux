@@ -201,7 +201,7 @@ restart, so nothing keeps running under the old layout.
 | Layer | Where the swap happens |
 |---|---|
 | Launcher, Settings, every NX pak, minarch (menus, core input, remap capture) | `workspace/all/common/api.c` `PAD_applyLayout()` after raw→logical translation; hint glyphs via `PAD_buttonLabel()` in `GFX_blitButton`/`GFX_getButtonWidth` (`workspace/all/common/button_layout.h`) |
-| DraStic (NDS.pak) | hooked libSDL2 reads `NX_BUTTON_LAYOUT` (exported by `launch.sh` via `$SYSTEM_PATH/bin/nx_button_layout.sh`) and swaps emitted keys `code[4..7]` |
+| DraStic (NDS.pak) | hooked libSDL2 reads `NX_BUTTON_LAYOUT` (exported by `launch.sh` via `$SYSTEM_PATH/bin/nx_button_layout.sh`) and, in the event thread, swaps the A/B and X/Y evdev codes in the keypad `input[]` table before the per-event compares, so both the keyboard path (`code[]`, DraStic's menu / `controls_a`) and the joystick path (`controls_b`, the game) follow |
 | mupen64plus (N64.pak) | `nx_paths.sh` swaps `button(0)↔(1)`, `(2)↔(3)` in `[Input-SDL-Control1]` once per change (marker `.button_layout`); Rice/GLideN64 overlays read the env var |
 | flycast (DC.pak) | `launch.sh` installs the Nintendo or generated Xbox `SDL_Xbox 360 Controller.cfg`; `nx_overlay.cpp` reads the env var |
 | PortMaster ports | `ports_launch.sh` copies `gamecontrollerdb_<layout>.txt`; the pak's own toggle is gone |
