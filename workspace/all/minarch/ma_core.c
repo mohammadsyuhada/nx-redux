@@ -86,7 +86,18 @@ void Core_open(const char* core_path, const char* tag_name) {
 
 	sprintf((char*)core.config_dir, "%s/%s-%s", USERDATA_PATH, core.tag, core.name);
 	sprintf((char*)core.states_dir, "%s/%s-%s", SHARED_USERDATA_PATH, core.tag, core.name);
-	sprintf((char*)core.saves_dir, "%s/Saves/%s", SDCARD_PATH, core.tag);
+	// A netplay client plays on a copy of the host's save that the pre-launch
+	// wizard synced into an isolated dir (NETPLAY_SAVES_DIR, set by
+	// netplay-prelaunch.sh); redirect SRAM and RTC there so the player's own
+	// Saves/<tag> is never read or written. The host, and every non-netplay
+	// launch, use the real dir.
+	{
+		const char* netplay_saves = getenv("NETPLAY_SAVES_DIR");
+		if (netplay_saves && netplay_saves[0])
+			snprintf((char*)core.saves_dir, sizeof(core.saves_dir), "%s", netplay_saves);
+		else
+			sprintf((char*)core.saves_dir, "%s/Saves/%s", SDCARD_PATH, core.tag);
+	}
 	sprintf((char*)core.bios_dir, "%s/Bios/%s", SDCARD_PATH, core.tag);
 	sprintf((char*)core.cheats_dir, "%s/Cheats/%s", SDCARD_PATH, core.tag);
 	sprintf((char*)core.overlays_dir, "%s/Overlays/%s", SDCARD_PATH, core.tag);
