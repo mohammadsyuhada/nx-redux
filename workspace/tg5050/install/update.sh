@@ -47,16 +47,30 @@ rm -f "${SDCARD_PATH}"/btmgr_*.tar
 # Brick still ran the Aug-20 portmaster.elf (pre-RGBA colours — garbled the
 # theme on exit) and the old ports runner (retired xbox_layout marker path,
 # so ports ignored the button-layout setting). Re-sync them from the freshly
-# unpacked catalog whenever PortMaster is installed. One-shot per update;
-# must never fail the update.
+# unpacked catalog whenever PortMaster is installed. Since 2026-09-16 the pak
+# is launch.sh only (the elf is gone, and the ports_launch.sh copy the elf
+# built PORTS.pak from is unused): both are deleted, and a pak still at the pre-flat Tools/tg5050/ location
+# is moved up. One-shot per update; must never fail the update. The platform
+# tag is hard-coded on purpose: $PLATFORM is not set here, and an empty
+# value would make the old path equal the flat pak.
 PM_CATALOG="$SDCARD_PATH/.system/paks/Tools/Xtras.pak/catalog/portmaster/pak"
 PM_TOOLS="$SDCARD_PATH/Tools/PortMaster.pak"
+PM_OLD_TOOLS="$SDCARD_PATH/Tools/tg5050/PortMaster.pak"
 PM_PORTS="$SDCARD_PATH/Emus/PORTS.pak"
 if [ -d "$PM_CATALOG" ] && [ -f "$SDCARD_PATH/Emus/shared/PortMaster/version" ]; then
+	if [ -d "$PM_OLD_TOOLS" ] && [ ! -d "$PM_TOOLS" ]; then
+		mkdir -p "$PM_TOOLS" 2>/dev/null
+	fi
 	if [ -d "$PM_TOOLS" ]; then
-		cp -f "$PM_CATALOG/launch.sh" "$PM_CATALOG/ports_launch.sh" "$PM_CATALOG/portmaster.elf" "$PM_TOOLS/" 2>/dev/null \
-			&& chmod +x "$PM_TOOLS/launch.sh" "$PM_TOOLS/ports_launch.sh" "$PM_TOOLS/portmaster.elf" 2>/dev/null \
+		cp -f "$PM_CATALOG/launch.sh" "$PM_TOOLS/" 2>/dev/null \
+			&& chmod +x "$PM_TOOLS/launch.sh" 2>/dev/null \
+			&& rm -f "$PM_TOOLS/portmaster.elf" "$PM_TOOLS/ports_launch.sh" \
 			&& echo "refreshed $PM_TOOLS from the Xtras catalog"
+	fi
+	if [ -d "$PM_OLD_TOOLS" ] && [ -x "$PM_TOOLS/launch.sh" ]; then
+		rm -rf "$PM_OLD_TOOLS"
+		rmdir "$SDCARD_PATH/Tools/tg5050" 2>/dev/null
+		echo "moved the PortMaster pak from Tools/tg5050 to $PM_TOOLS"
 	fi
 	if [ -d "$PM_PORTS" ]; then
 		cp -f "$PM_CATALOG/ports_launch.sh" "$PM_PORTS/launch.sh" 2>/dev/null \

@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 # Host-side test for the portmaster Xtras catalog installer/uninstaller.
 # Network and device binaries are shimmed via PATH; all paths are sandboxed.
-# The catalog entry is COPIED into the sandbox first: pak/portmaster.elf is
-# a build-time artifact (Makefile drops it into the catalog's pak/ dir), so
-# the copy gets a stand-in elf without dirtying the repo skeleton.
+# The catalog entry is COPIED into the sandbox so the tests can remove payload files without dirtying the repo skeleton.
 # A && pass "..." || fail "..." is used throughout below: pass()/fail() only
 # printf and never fail, so the || branch never runs when the check is true.
 # shellcheck disable=SC2015
@@ -29,7 +27,6 @@ done
 # ---- sandboxed catalog entry (repo copy + stand-in elf) -----------------
 ENTRY="$TMP/entry"
 cp -R "$REPO_ENTRY" "$ENTRY"
-echo 'fake-elf' > "$ENTRY/pak/portmaster.elf"
 
 # ---- fixtures -----------------------------------------------------------
 # Fake upstream PortMaster.zip: PortMaster/ at the archive root (upstream's
@@ -173,16 +170,17 @@ grep -q 'bundled runtime files missing' "$TMP/log0b.txt" \
   && pass "preflight: bundled-deps message printed" || fail "preflight: bundled-deps message missing"
 mv "$TMP/bin.zip.away" "$PM/files/bin.zip"
 
-rm -f "$ENTRY/pak/portmaster.elf"
+mv "$ENTRY/pak/launch.sh" "$TMP/launch.sh.away"
 if run_install > "$TMP/log0c.txt" 2>&1; then
   fail "preflight: missing pak payload did not abort"
 else pass "preflight: missing pak payload aborts"; fi
 grep -q 'catalog pak payload missing' "$TMP/log0c.txt" \
   && pass "preflight: pak-payload message printed" || fail "preflight: pak-payload message missing"
-echo 'fake-elf' > "$ENTRY/pak/portmaster.elf"
+mv "$TMP/launch.sh.away" "$ENTRY/pak/launch.sh"
 
 # ---- 1. fresh install ---------------------------------------------------
 echo 'stale' > "$CACHE"
+mkdir -p "$TOOLS_PAK"; echo 'old-elf' > "$TOOLS_PAK/portmaster.elf"; echo 'old-runner' > "$TOOLS_PAK/ports_launch.sh"
 if run_install > "$TMP/log1.txt" 2>&1; then pass "fresh install exits 0"
 else fail "fresh install exited non-zero: $(tail -3 "$TMP/log1.txt")"; fi
 [ "$(cat "$PM/pugwash" 2>/dev/null)" = "pugwash-gui" ] \
@@ -218,8 +216,12 @@ grep -q '"disclaimer": true' "$PM/config/config.json" 2>/dev/null \
   && pass "default config written" || fail "default config missing"
 cmp -s "$PORTS_PAK/launch.sh" "$ENTRY/pak/ports_launch.sh" \
   && pass "PORTS.pak launcher is the catalog ports_launch.sh" || fail "PORTS.pak launcher wrong"
-[ -x "$TOOLS_PAK/launch.sh" ] && [ -x "$TOOLS_PAK/ports_launch.sh" ] && [ -x "$TOOLS_PAK/portmaster.elf" ] \
+[ -x "$TOOLS_PAK/launch.sh" ] \
   && pass "Tools pak installed with exec bits" || fail "Tools pak incomplete"
+[ ! -e "$TOOLS_PAK/portmaster.elf" ] && [ ! -e "$TOOLS_PAK/ports_launch.sh" ] \
+  && pass "stale portmaster.elf and ports_launch.sh removed from Tools pak" || fail "stale files left in Tools pak"
+cmp -s "$TOOLS_PAK/launch.sh" "$ENTRY/pak/launch.sh" \
+  && pass "Tools pak launch.sh is the catalog launcher" || fail "Tools pak launch.sh wrong"
 [ -d "$SD/Roms/Ports (PORTS)" ] \
   && pass "Ports Roms folder created" || fail "Ports Roms folder missing"
 [ ! -e "$CACHE" ] \

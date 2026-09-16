@@ -75,8 +75,13 @@ Then push per the destination rules:
   Manager.pak`, …) — quote the whole remote path, including for `adb shell
   md5sum`.
 - **PortMaster is not bundled** — the Xtras `portmaster` catalog entry
-  installs it into the SD user layer, so `portmaster.elf` pushes go to
-  `/mnt/SDCARD/Tools/PortMaster.pak/` (only present after an Xtras install).
+  installs it into the SD user layer. There is no elf any more: the tool pak
+  is just `launch.sh`, copied from
+  `.system/paks/Tools/Xtras.pak/catalog/portmaster/pak/` to
+  `/mnt/SDCARD/Tools/PortMaster.pak/` by the Xtras install and re-synced by
+  `install/update.sh` on every system update (the catalog's
+  `ports_launch.sh` becomes `Emus/PORTS.pak/launch.sh` the same way). To test
+  a launcher change without a full deploy, push the script to both places.
 
 The full deploy rules (why the reboot, how to verify the push actually landed,
 adb pitfalls) are in [TESTING.md](TESTING.md).

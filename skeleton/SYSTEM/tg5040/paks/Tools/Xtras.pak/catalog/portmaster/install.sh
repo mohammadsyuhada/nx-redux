@@ -18,8 +18,8 @@
 #     extract_deps() did (compat-lib quarantine, unversioned .so copies,
 #     busybox wrappers included)
 #   - Emus/PORTS.pak/launch.sh (the Ports console runner) <- pak/ports_launch.sh
-#   - Tools/PortMaster.pak (the GUI tool pak: launch.sh + ports_launch.sh +
-#     portmaster.elf) <- $CATALOG_DIR/pak/ - the FLAT location: getTools()
+#   - Tools/PortMaster.pak (the GUI tool pak: just launch.sh, which is the
+#     whole launcher since 2026-09-16) <- $CATALOG_DIR/pak/ - the FLAT location: getTools()
 #     (nextui/content.c) lists flat SD paks first, and migrate-paks.sh only
 #     deletes a flat name while .system ships a same-named pak, which this
 #     build no longer does. The platform subfolder is the community-pak
@@ -30,7 +30,7 @@
 # this catalog on every firmware update while PortMaster stays installed, so a
 # system update never leaves them stale.
 # The NxRedux patches (control.txt, device_info.txt, platform.py,
-# hardware.py, mod_TrimUI.txt) are NOT applied here: portmaster.elf
+# hardware.py, mod_TrimUI.txt) are NOT applied here: the pak's launch.sh
 # re-applies all of them before/after every pugwash run, so first launch
 # patches a fresh install by itself.
 #
@@ -165,7 +165,7 @@ fi
 for f in bin.zip lib.zip libs.zip pylibs.zip ca-certificates.crt disable_python_function.py; do
     [ -f "$PM_FILES/$f" ] || fail "bundled runtime files missing ($f) - reinstall the NX Redux BASE files, then retry"
 done
-for f in launch.sh ports_launch.sh portmaster.elf; do
+for f in launch.sh ports_launch.sh; do
     [ -f "$CATALOG_DIR/pak/$f" ] || fail "catalog pak payload missing ($f)"
 done
 
@@ -292,11 +292,15 @@ mkdir -p "$PORTS_PAK" || fail "cannot create PORTS.pak"
 cp -f "$CATALOG_DIR/pak/ports_launch.sh" "$PORTS_PAK/launch.sh" || fail "could not create the Ports console launcher"
 chmod +x "$PORTS_PAK/launch.sh" 2>/dev/null || true
 
-# The GUI tool pak, at the flat Tools location (see header).
+# The GUI tool pak, at the flat Tools location (see header). launch.sh IS
+# the launcher (no elf since 2026-09-16). Earlier generations also left a
+# portmaster.elf and an unused copy of ports_launch.sh here (the elf built
+# PORTS.pak from it); both must go so nothing stale sits next to the script.
 mkdir -p "$TOOLS_PAK" || fail "cannot create the PortMaster tool pak"
-cp -f "$CATALOG_DIR/pak/launch.sh" "$CATALOG_DIR/pak/ports_launch.sh" "$CATALOG_DIR/pak/portmaster.elf" "$TOOLS_PAK/" \
+cp -f "$CATALOG_DIR/pak/launch.sh" "$TOOLS_PAK/" \
     || fail "could not install the PortMaster tool pak"
-chmod +x "$TOOLS_PAK/launch.sh" "$TOOLS_PAK/ports_launch.sh" "$TOOLS_PAK/portmaster.elf" 2>/dev/null || true
+chmod +x "$TOOLS_PAK/launch.sh" 2>/dev/null || true
+rm -f "$TOOLS_PAK/portmaster.elf" "$TOOLS_PAK/ports_launch.sh"
 
 # Migration: drop any platform-subfolder copy an earlier revision installed,
 # then rmdir (not rm -rf) the platform dir so unrelated user paks survive.

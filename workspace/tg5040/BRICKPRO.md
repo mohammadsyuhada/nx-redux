@@ -123,8 +123,10 @@ background (plain black there) lacks — 138 px total, judged negligible. Restor
 
 ## PortMaster
 
-Brick Pro is detected as `trimui-brick-pro` via a marker override in
-`workspace/all/portmaster/portmaster.c` (+ `device_info.txt` / `hardware.py`).
+Brick Pro is detected as `trimui-brick-pro` via a marker override the
+PortMaster tool pak's `launch.sh` (Xtras catalog `portmaster/pak/launch.sh`)
+applies to `device_info.txt` / `hardware.py` before and after every pugwash
+run.
 Without it PortMaster collapsed the Pro onto plain `trimui-brick` (shared
 1024×768 resolution ambiguity), hiding analog-stick ports. Verified on device
 2026-08-02.

@@ -57,7 +57,6 @@ endif
 	cd ./all/musicplayer/ && make all
 	cd ./all/mediaplayer/ && make
 	cd ./all/imageviewer/ && make
-	cd ./all/portmaster/ && make
 	cd ./all/sync/ && make
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
 	cd ./all/netplay-wizard/ && make
@@ -116,7 +115,6 @@ endif
 	cd ./all/musicplayer/ && make clean
 	cd ./all/mediaplayer/ && make clean
 	cd ./all/imageviewer/ && make clean
-	cd ./all/portmaster/ && make clean
 	cd ./all/sync/ && make clean
 	cd ./all/netplay-wizard/ && make clean
 	cd ./all/emu-options/ && make clean

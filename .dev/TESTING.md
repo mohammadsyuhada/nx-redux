@@ -282,8 +282,18 @@ during menu rendering — useless as a first-frame/boot proxy.
 - PortMaster refresh on update: `scripts/tests/test-update-portmaster-refresh.sh`
   sed-extracts the marked `portmaster-refresh` block from each platform's
   `workspace/<plat>/install/update.sh` and runs it under `sh` against a fake
-  card. An installed-but-stale `Tools/PortMaster.pak` (`launch.sh`,
-  `ports_launch.sh`, `portmaster.elf`) and `Emus/PORTS.pak/launch.sh` must be
-  re-copied from the `.system` Xtras catalog and made executable; not-installed
-  (no `Emus/shared/PortMaster/version`), absent `Tools/PortMaster.pak`, and
+  card. An installed-but-stale `Tools/PortMaster.pak/launch.sh` and
+  `Emus/PORTS.pak/launch.sh` must be re-copied from the `.system` Xtras
+  catalog and made executable, a leftover `portmaster.elf` and the unused
+  `ports_launch.sh` copy deleted from the tool pak, and a pak still at the pre-flat `Tools/<plat>/PortMaster.pak`
+  moved up (unrelated paks in that folder survive); not-installed (no
+  `Emus/shared/PortMaster/version`), absent `Tools/PortMaster.pak`, and
   absent catalog dir must each change nothing and never fail the update.
+- PortMaster launcher: `scripts/tests/test-portmaster-launch.sh` runs the
+  catalog `pak/launch.sh` (the tool pak's whole launcher since the elf was
+  retired) under `sh` against a fake card with stub `python3`, `show2.elf`
+  and `nextval.elf`: not-installed screen, patches applied idempotently
+  before/after pugwash, Xbox pad map during pugwash and the Button layout
+  setting restored after, port-script fixes, patchedScripts, cover-art
+  sync, cache invalidation, Xtras version marker, first-run retry and
+  self-update reboot loop. Needs GNU sed (`brew install gnu-sed`).
