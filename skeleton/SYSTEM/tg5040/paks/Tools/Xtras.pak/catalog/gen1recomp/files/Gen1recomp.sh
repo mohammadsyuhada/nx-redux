@@ -70,6 +70,16 @@ if [ "${NX_BUTTON_LAYOUT:-nintendo}" != "xbox" ]; then
 fi
 export LOVE_GRAPHICS_USE_OPENGLES="${LOVE_GRAPHICS_USE_OPENGLES:-1}"
 export POKEPORT_GBCFX="${POKEPORT_GBCFX:-0}"
+# On-screen keyboard (2026-09-16): the launcher only offers its virtual
+# keyboard (Select opens it; text fields open it on activation) when one of
+# the game's handheld env flags is set. POKEPORT_SBC is deliberately the one
+# used: upstream gates ONLY the keyboard paths on it (Kit text fields,
+# VirtualKeyboard.isSupported, the Select handler), whereas TRIMUI/HANDHELD/
+# PORTMASTER would also switch on the game's in-app self-updater (which
+# would fight the Xtras-managed install), a different frame-pacing path and
+# its own file browser for ROM/save/mod picking. Verified against upstream
+# src at v0.2.60; re-check the getenv sites when bumping.
+export POKEPORT_SBC=1
 
 # TLS trust for the game's own network features (mod index, mod installs,
 # release checks - all shelled out to the firmware's curl): the firmware
@@ -141,33 +151,14 @@ for pol in /sys/devices/system/cpu/cpufreq/policy*; do
     [ -n "$hwmax" ] && echo "$hwmax" >"$pol/scaling_max_freq" 2>/dev/null
     [ -n "$hwmin" ] && echo "$hwmin" >"$pol/scaling_min_freq" 2>/dev/null
 done
-# eMMC swapfile OOM guard for BOTH 1GB devices (brick and tg5050). Either peaks
-# ~750MB with the Dramatic Shape voxel mod enabled; exFAT SD can't host swap, so
-# the file lives on the internal rootfs. Confirmed swap-able on both layouts:
-# tg5050's plain ext4 '/' and the brick's overlayfs '/' (upperdir is ext4).
-# Created once and reused each launch; swapon failure is always non-fatal.
-# Runs in the BACKGROUND: on a fresh device the 512MB dd takes 10-20s of
-# eMMC writes, and in the foreground that was a black screen between menu
-# and game window long enough to read as a broken launch (and backing out
-# mid-dd left a partial file, so the next launch re-ran the whole dd -
-# every attempt stalled). Swap only matters minutes into a session (voxel
-# peak ~750MB), never at boot, so let the game start while it builds.
-(
-    if [ ! -f /swapfile ]; then
-        # If dd or mkswap fails partway (e.g. a full rootfs leaves a truncated
-        # /swapfile), remove it so `[ ! -f /swapfile ]` doesn't pass forever -
-        # without this, every later launch skips creation, swapon silently fails,
-        # and voxel-mod sessions OOM-kill with no swap ever retried.
-        # shellcheck disable=SC2015
-        # (deliberate, not an if/then/else stand-in: `|| rm -f` here means "clean
-        # up on ANY failure in the chain", not just when dd fails.)
-        dd if=/dev/zero of=/swapfile bs=1M count=512 2>/dev/null &&
-            chmod 600 /swapfile && mkswap /swapfile >/dev/null 2>&1 ||
-            rm -f /swapfile
-    fi
-    swapon /swapfile 2>/dev/null
-) &
-
+# No swapfile any more (2026-09-16, user decision). The eMMC swap existed
+# for the voxel overworld mods: game + voxel peaked ~750MB, and a
+# PotatoVoxel cache build needed >1.6GB - beyond what a 1GB device can host
+# even with 2GB of swap, at real cost (eMMC wear, 2GB of UDISK, minutes of
+# thrashing). Those mods are no longer bundled or recommended here. The
+# base game with the bundled 2D mods measured 116MB peak RSS in play on
+# the Brick with zero swap, so there is nothing for an OOM guard to guard.
+# install.sh/uninstall.sh remove the legacy swapfiles.
 # Big-core affinity is tg5050-only: the brick has a single CPU cluster, so
 # there are no performance cores to pin LOVE onto.
 case "${PLATFORM:-}" in

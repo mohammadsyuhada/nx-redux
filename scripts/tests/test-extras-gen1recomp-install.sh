@@ -31,10 +31,11 @@ echo 'love-bin-v1'       > "$FIX/gen1recomp/bin/love.aarch64"
 echo 'liblove'           > "$FIX/gen1recomp/libs.aarch64/liblove-11.5.so"
 echo 'main'              > "$FIX/gen1recomp/lovegame/main.lua"
 echo '{"red":1}'         > "$FIX/gen1recomp/lovegame/tools/rom_manifest.json"
-# Minimal RomImporter.lua carrying the exact anchor lines the two
-# install-time patches key on: the d-pad cursor tuning (nxDpadSpeed after
-# the constant, speed-pick line rewritten) and the X/Y wheel-scroll splices
-# (after _cycleTab(1), gamepadreleased's opening line, and the righty read).
+# Minimal RomImporter.lua carrying the exact anchor lines the d-pad cursor
+# tuning patch keys on (nxDpadSpeed after the constant, speed-pick line
+# rewritten), plus the anchors the retired X/Y wheel-scroll splice used
+# (after _cycleTab(1), gamepadreleased's opening line, the righty read) so
+# the "no longer applied" assertions below prove absence, not a skip.
 mkdir -p "$FIX/gen1recomp/lovegame/src/import"
 cat > "$FIX/gen1recomp/lovegame/src/import/RomImporter.lua" <<'EOF'
 local PAD_DEAD = 0.28
@@ -56,14 +57,6 @@ EOF
 (cd "$FIX" && zip -qr "$TMP/game.zip" Gen1recomp.sh gen1recomp)
 
 echo '{"yellow":1}' > "$TMP/rom_manifest_yellow.json"
-
-# Dramaless Shape fixture (replaced the dead-upstream DramaticShapeVoxelMod
-# 2026-08-18): contents at the zip root.
-DRAMALESSFIX="$TMP/dramalessfix"
-mkdir -p "$DRAMALESSFIX/assets"
-echo '{"id":"DRAMALESS_SHAPE"}' > "$DRAMALESSFIX/manifest.json"
-echo 'voxels' > "$DRAMALESSFIX/assets/a.bin"
-(cd "$DRAMALESSFIX" && zip -qr "$TMP/dramaless.zip" manifest.json assets)
 
 # StadiumBattleFX fixture: contents at the zip root.
 STADIUMFIX="$TMP/stadiumfix"
@@ -118,36 +111,21 @@ write_game_json() { # digest
 }
 EOF
 }
-# DRAMALESS_ASSET_NAME override: test 3b serves the same payload under a
+# STADIUM_ASSET_NAME override: test 3b serves the same payload under a
 # name the primary glob does NOT match, proving resolve_latest's
 # sole-zip-fallback survives an upstream asset rename (the wilds v2.1.7
 # rename is exactly the failure class this guards against).
-write_dramaless_json() { # digest
-  _dn="${DRAMALESS_ASSET_NAME:-DRAMALESS_SHAPE-2.0.2.zip}"
-  cat > "$TMP/dramaless_release.json" <<EOF
-{
-  "tag_name": "v2.0.2",
-  "name": "v2.0.2 - Hotfix",
-  "assets": [
-    {
-      "name": "$_dn",
-      "digest": "sha256:$1",
-      "browser_download_url": "https://github.com/artyrambles/DRAMALESS_SHAPE/releases/download/v2.0.2/$_dn"
-    }
-  ]
-}
-EOF
-}
 write_stadium_json() { # digest
+  _sn="${STADIUM_ASSET_NAME:-STADIUM_BATTLE_FX-2.1.7.zip}"
   cat > "$TMP/stadium_release.json" <<EOF
 {
   "tag_name": "v2.1.7",
   "name": "StadiumBattleFX 2.1.7",
   "assets": [
     {
-      "name": "STADIUM_BATTLE_FX-2.1.7.zip",
+      "name": "$_sn",
       "digest": "sha256:$1",
-      "browser_download_url": "https://github.com/anxiousintrovert/StadiumBattleFX/releases/download/v2.1.7/STADIUM_BATTLE_FX-2.1.7.zip"
+      "browser_download_url": "https://github.com/anxiousintrovert/StadiumBattleFX/releases/download/v2.1.7/$_sn"
     }
   ]
 }
@@ -195,8 +173,10 @@ GB_DIR="$SD/Roms/Game Boy (GB)"
 GBC_DIR="$SD/Roms/Game Boy Color (GBC)"
 mkdir -p "$GB_DIR" "$GBC_DIR" "$SD/.userdata/tg5050/logs"
 # A "Red" ROM whose sha256 we control via the sha256sum shim below.
-echo 'red-rom' > "$GB_DIR/Pokemon Red.gb"
-echo 'junk'    > "$GB_DIR/Tetris.gb"
+echo 'red-rom'  > "$GB_DIR/Pokemon Red.gb"
+echo 'junk'     > "$GB_DIR/Tetris.gb"
+echo 'gold-rom' > "$GBC_DIR/Pokemon Gold.gbc"   # Gen 2 (GBC folder)
+echo 'junk-gbc' > "$GBC_DIR/Zelda DX.gbc"
 
 # ---- PATH shims -------------------------------------------------------
 BIN="$TMP/bin"
@@ -215,14 +195,12 @@ while [ \$# -gt 0 ]; do
 done
 case "\$url" in
   *bryanthaboi/gen1recomp/releases/latest) cp "$TMP/game_release.json" "\$out" ;;
-  *DRAMALESS_SHAPE/releases/latest)  cp "$TMP/dramaless_release.json" "\$out" ;;
   *StadiumBattleFX/releases/latest)  cp "$TMP/stadium_release.json" "\$out" ;;
   *gen1recomp-running-shoes/releases/latest) cp "$TMP/shoes_release.json" "\$out" ;;
   *overworld-spawn-mod/releases/latest)    cp "$TMP/wilds_release.json" "\$out" ;;
   *stockos64-mod.zip)        cp "$TMP/game.zip" "\$out" ;;
   *rom_manifest_yellow.json) cp "$TMP/rom_manifest_yellow.json" "\$out" ;;
-  *DRAMALESS_SHAPE-*.zip)    cp "$TMP/dramaless.zip" "\$out" ;;
-  *mystery-voxel-*.zip)      cp "$TMP/dramaless.zip" "\$out" ;;  # renamed-asset fallback (test 3b)
+  *mystery-fx-*.zip)         cp "$TMP/stadium.zip" "\$out" ;;  # renamed-asset fallback (test 3b)
   *STADIUM_BATTLE_FX-*.zip)  cp "$TMP/stadium.zip" "\$out" ;;
   *running_shoes-*.zip)      cp "$TMP/shoes.zip" "\$out" ;;
   *wilds-of-kanto-*.zip)     cp "$TMP/wilds.zip" "\$out" ;;
@@ -230,17 +208,21 @@ case "\$url" in
 esac
 SHIM
 chmod +x "$BIN/wget"
-# sha256sum shim -> host shasum (macOS has no sha256sum), EXCEPT the Red ROM
-# fixture, which reports the pinned real-dump sha256 the install.sh ROM scan
-# whitelists (the scan is sha256-keyed since 2026-08-10 - sha1sum only ever
-# existed inside PortMaster's vendored bin, which runtime=native users don't
-# have). Everything else (download digest checks) hashes for real.
+# sha256sum shim -> host shasum (macOS has no sha256sum), EXCEPT the Red and
+# Gold ROM fixtures, which report the pinned real-dump sha256 the install.sh
+# ROM scan whitelists (the scan is sha256-keyed since 2026-08-10 - sha1sum
+# only ever existed inside PortMaster's vendored bin, which runtime=native
+# users don't have; Gold is the Gen 2 / GBC-folder case added 2026-09-16).
+# Everything else (download digest checks) hashes for real.
 cat > "$BIN/sha256sum" <<SHIM
 #!/usr/bin/env bash
 for f in "\$@"; do
   case "\$f" in
     *"Pokemon Red.gb")
       echo "5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b  \$f"
+      exit 0 ;;
+    *"Pokemon Gold.gbc")
+      echo "fb0016d27b1e5374e1ec9fcad60e6628d8646103b5313ca683417f52b97e7e4e  \$f"
       exit 0 ;;
   esac
 done
@@ -250,17 +232,17 @@ chmod +x "$BIN/sha256sum"
 
 run_install() {
   # Regenerate the API fixtures each call: digests default to the CURRENT
-  # payload hashes (test 2 rebuilds game.zip; test 4 corrupts dramaless.zip
+  # payload hashes (test 2 rebuilds game.zip; test 4 corrupts stadium.zip
   # and relies on its hash being recomputed so the failure lands at extract,
   # not fetch), and the GAME_DIGEST override lets the mismatch scenario
   # serve a bad digest without touching the happy-path plumbing.
   write_game_json "${GAME_DIGEST:-$(sha "$TMP/game.zip")}"
-  write_dramaless_json "${DRAMALESS_DIGEST:-$(sha "$TMP/dramaless.zip")}"
   write_stadium_json "${STADIUM_DIGEST:-$(sha "$TMP/stadium.zip")}"
   write_shoes_json "${SHOES_DIGEST:-$(sha "$TMP/shoes.zip")}"
   write_wilds_json "${WILDS_DIGEST:-$(sha "$TMP/wilds.zip")}"
   PATH="$BIN:$PATH" \
   PLATFORM="${PLATFORM_OVERRIDE:-tg5050}" \
+  NX_SWAP_ROOT="$TMP/swaproot" \
   SDCARD_PATH="$SD" \
   LOGS_PATH="$SD/.userdata/tg5050/logs" \
   EXTRAS_ROMS_DIR="$SD/Roms/Xtra Games (EXTRAS)" \
@@ -290,6 +272,13 @@ grep -q 'system unzip tool missing' "$TMP/log0.txt" \
   && pass "preflight: no launcher registered" || fail "preflight: launcher registered despite missing unzip"
 
 # ---- 1. fresh install -------------------------------------------------
+# Legacy swapfiles from earlier launchers (see install.sh) must be cleaned
+# up; the N64 pak's own swapfile on the same partition must NOT be touched.
+mkdir -p "$TMP/swaproot/mnt/UDISK"
+echo 'old' > "$TMP/swaproot/swapfile"
+echo 'old' > "$TMP/swaproot/mnt/UDISK/swapfile"
+echo 'old' > "$TMP/swaproot/mnt/UDISK/swapfile.new"
+echo 'n64' > "$TMP/swaproot/mnt/UDISK/n64_swap"
 if run_install > "$TMP/log1.txt" 2>&1; then pass "fresh install exits 0"
 else fail "fresh install exited non-zero: $(tail -3 "$TMP/log1.txt")"; fi
 [ -f "$G/bin/love.aarch64" ]                        && pass "runtime extracted"        || fail "runtime missing"
@@ -303,15 +292,17 @@ grep -q 'and PAD_SPEED or nxDpadSpeed(self, dt)' "$G/lovegame/src/import/RomImpo
 ! grep -q 'and PAD_SPEED or PAD_DPAD_SPEED' "$G/lovegame/src/import/RomImporter.lua" \
                                                      && pass "stock flat d-pad speed no longer referenced" || fail "stock d-pad speed line still present"
 grep -q 'Tuned d-pad cursor' "$TMP/log1.txt"         && pass "d-pad tuning announced" || fail "d-pad tuning not announced"
-# X/Y wheel-scroll patch: all three splices landed (press mapping, release
-# clear, held-scroll in the update loop) and the install announced it.
-[ "$(grep -c '_nxWheelHold' "$G/lovegame/src/import/RomImporter.lua")" = "5" ] \
-                                                     && pass "X/Y scroll splices all landed" || fail "X/Y scroll splices missing or partial"
-grep -q 'elseif button == "x" or button == "y" then' "$G/lovegame/src/import/RomImporter.lua" \
-                                                     && pass "X/Y press mapping injected" || fail "X/Y press mapping missing"
-grep -q 'Mapped X/Y to list scrolling' "$TMP/log1.txt" \
-                                                     && pass "X/Y scroll patch announced" || fail "X/Y scroll patch not announced"
-[ -f "$G/lovegame/mods/DRAMALESS_SHAPE/manifest.json" ] && pass "dramaless shape mod installed" || fail "dramaless shape mod missing"
+# The old X/Y wheel-scroll splice must NOT be applied any more: upstream's
+# launcher scrolls natively with L2/R2 since v0.2.30 and uses Y as the
+# menu-navigation/cursor toggle, which the splice conflicted with.
+[ "$(grep -c '_nxWheelHold' "$G/lovegame/src/import/RomImporter.lua")" = "0" ] \
+                                                     && pass "no X/Y scroll splice applied" || fail "obsolete X/Y scroll splice still applied"
+! grep -q 'Mapped X/Y to list scrolling' "$TMP/log1.txt" \
+                                                     && pass "no X/Y scroll patch announced" || fail "obsolete X/Y scroll patch announced"
+[ ! -d "$G/lovegame/mods/DRAMALESS_SHAPE" ]           && pass "no voxel mod bundled"        || fail "a voxel mod was bundled"
+[ ! -e "$TMP/swaproot/swapfile" ] && [ ! -e "$TMP/swaproot/mnt/UDISK/swapfile" ] && [ ! -e "$TMP/swaproot/mnt/UDISK/swapfile.new" ] \
+                                                     && pass "legacy swapfiles removed"    || fail "a legacy swapfile survived"
+[ -f "$TMP/swaproot/mnt/UDISK/n64_swap" ]            && pass "N64 pak swapfile left alone"  || fail "N64 pak swapfile was removed"
 [ -f "$G/lovegame/mods/STADIUM_BATTLE_FX/manifest.json" ] && pass "stadium battle fx mod installed" || fail "stadium battle fx mod missing"
 [ -f "$G/lovegame/mods/running_shoes/manifest.json" ] && pass "running shoes mod installed" || fail "running shoes mod missing"
 # Wrapper dir must be stripped: manifest.json at the mod root, not nested.
@@ -337,6 +328,10 @@ grep -q 'GAMEDIR="$SHDIR/.data/gen1recomp"' \
 # game's curl a CA bundle (system .system/shared/ssl first, PortMaster
 # fallback) or every in-game https fetch (mod index etc) dies on cert
 # verification.
+grep -q '^export POKEPORT_SBC=1$' "$SD/Roms/Xtra Games (EXTRAS)/Gen1recomp.sh" \
+  && pass "launcher enables the on-screen keyboard (POKEPORT_SBC only)" || fail "launcher lacks POKEPORT_SBC=1"
+! grep -qE '^export (TRIMUI|HANDHELD|PORTMASTER|POKEPORT_HANDHELD)=' "$SD/Roms/Xtra Games (EXTRAS)/Gen1recomp.sh" \
+  && pass "launcher does not set the broad handheld flags (self-updater stays off)" || fail "launcher sets a broad handheld flag"
 grep -q 'CURL_CA_BUNDLE' "$SD/Roms/Xtra Games (EXTRAS)/Gen1recomp.sh" \
                                                      && pass "launcher exports a CA bundle for in-game fetches" || fail "launcher missing CURL_CA_BUNDLE export"
 grep -q '.system/shared/ssl/ca-certificates.crt' "$SD/Roms/Xtra Games (EXTRAS)/Gen1recomp.sh" \
@@ -345,30 +340,29 @@ grep -q '.system/shared/ssl/ca-certificates.crt' "$SD/Roms/Xtra Games (EXTRAS)/G
 # only when this marker sits in the script's first 20 lines.
 head -20 "$SD/Roms/Xtra Games (EXTRAS)/Gen1recomp.sh" | grep -q '^# NX_RUNTIME: native' \
                                                      && pass "launcher carries the native runtime marker" || fail "native runtime marker missing from launcher"
-# First-launch stall fix (2026-08-10): the 512MB swapfile dd must run in a
-# backgrounded subshell (closing "') &'" at column 0), not in the game's
-# critical path - in the foreground it was 10-20s of black screen that read
-# as a broken launch.
-grep -q '^) &' "$SD/Roms/Xtra Games (EXTRAS)/Gen1recomp.sh" \
-                                                     && pass "launcher swapfile block is backgrounded" || fail "launcher swapfile block runs in the foreground"
+# No swapfile any more (2026-09-16): the voxel mods it existed for are no
+# longer bundled and the base game peaks ~116MB in play - the launcher must
+# not create, grow or activate any swap.
+! grep -vE '^[[:space:]]*#' "$SD/Roms/Xtra Games (EXTRAS)/Gen1recomp.sh" | grep -qE 'swapon|swapfile|mkswap' \
+                                                     && pass "launcher creates no swapfile" || fail "launcher still manages a swapfile"
 # Display alias (map.txt is filename<TAB>alias, content.c Directory_index):
 # without it the list shows the launcher basename "Gen1recomp" (lowercase r).
 MAPFILE="$SD/Roms/Xtra Games (EXTRAS)/map.txt"
 TAB="$(printf '\t')"
 [ "$(grep -c "^Gen1recomp\.sh$TAB" "$MAPFILE" 2>/dev/null)" = "1" ] \
                                                      && pass "display alias written once"  || fail "display alias missing or duplicated"
-grep -q "^Gen1recomp\.sh${TAB}Gen1Recomp (Pokemon R/B/Y)\$" "$MAPFILE" \
+grep -q "^Gen1recomp\.sh${TAB}Pokemon Gen1Recomp++\$" "$MAPFILE" \
                                                      && pass "display alias has the right name" || fail "display alias name wrong"
 [ -f "$G/lovegame/Pokemon Red.gb" ]                  && pass "ROM scan copied Red"      || fail "Red not copied"
 [ ! -f "$G/lovegame/Tetris.gb" ]                     && pass "ROM scan skipped junk"    || fail "junk ROM copied"
+[ -f "$G/lovegame/Pokemon Gold.gbc" ]                && pass "ROM scan copied Gold from the GBC folder" || fail "Gold (GBC folder) not copied"
+[ ! -f "$G/lovegame/Zelda DX.gbc" ]                  && pass "ROM scan skipped junk .gbc" || fail "junk .gbc copied"
 [ "$(cat "$G/.nx_addon_version" 2>/dev/null)" = "v9.9.9" ] \
                                                      && pass "version marker written"  || fail "version marker wrong"
 [ "$(cat "$SD/.userdata/shared/xtras/gen1recomp.version" 2>/dev/null)" = "v9.9.9" ] \
                                                      && pass "version record written"  || fail "version record wrong"
 grep -q 'Latest game release: v9.9.9' "$TMP/log1.txt" \
                                                      && pass "resolved game release announced" || fail "no resolved game release line"
-grep -q 'Latest dramaless shape release: v2.0.2' "$TMP/log1.txt" \
-                                                     && pass "resolved dramaless shape release announced" || fail "no resolved dramaless shape release line"
 grep -q 'Latest stadium battle fx release: v2.1.7' "$TMP/log1.txt" \
                                                      && pass "resolved stadium battle fx release announced" || fail "no resolved stadium battle fx release line"
 grep -q 'Latest running shoes release: v1.4.1' "$TMP/log1.txt" \
@@ -404,35 +398,25 @@ grep -q 'fallback = "https://raw.githubusercontent.com/bryanthaboi/gen1recomp-mo
   && pass "seeded row carries the raw fallback URL" || fail "seeded row is missing the raw fallback URL"
 grep -q '\[1\] = {' "$OPTS_LUA" \
   && pass "seeded row uses the serializer's bracket-keyed array form" || fail "seeded row not bracket-keyed"
-# Voxel mod ships disabled on ALL platforms - the shared enablement answer
-# is seeded false (per-game toggles in-game override it).
-grep -q '^    DRAMALESS_SHAPE = false,$' "$OPTS_LUA" \
-  && pass "voxel mod seeded disabled" || fail "voxel mod not seeded disabled"
-# Handheld performance defaults are tg5040-only (the Brick's weaker GPU) -
-# this fresh install ran as tg5050, so none of them may appear.
-! grep -q '^    DRAMALESS_SHAPE = {$' "$OPTS_LUA" \
-  && pass "perf defaults: not seeded on tg5050" || fail "perf defaults: leaked onto tg5050"
+# No voxel mod is bundled any more, so nothing voxel-related is seeded:
+# no enablement answer, no performance bucket, no fps cap override.
+! grep -q 'DRAMALESS_SHAPE' "$OPTS_LUA" \
+  && pass "no voxel enablement or options seeded" || fail "voxel settings seeded"
 ! grep -q 'fpsCap' "$OPTS_LUA" \
-  && pass "perf defaults: fps cap untouched on tg5050" || fail "perf defaults: fps cap leaked onto tg5050"
+  && pass "fps cap untouched" || fail "fps cap seeded"
 
-# ---- 1c. tg5040 fresh install seeds the performance defaults ------------
-# Same fresh install on the Brick platform: the voxel mod's GPU-heavy
-# defaults tuned down and the FPS cap set to what its GPU can hold.
+# ---- 1c. tg5040 fresh install seeds nothing voxel-related either --------
+# The old Brick-only performance defaults existed for the voxel mod; with
+# it gone the platforms must behave identically here.
 rm -rf "$SD/Roms/Xtra Games (EXTRAS)" "$SD/.userdata/shared/xtras"
 if PLATFORM_OVERRIDE=tg5040 run_install > "$TMP/log1c.txt" 2>&1; then pass "tg5040 fresh install exits 0"
 else fail "tg5040 fresh install exited non-zero: $(tail -3 "$TMP/log1c.txt")"; fi
-grep -q '^    DRAMALESS_SHAPE = {$' "$OPTS_LUA" \
-  && pass "tg5040: mod options bucket seeded" || fail "tg5040: mod options bucket missing"
-grep -q 'renderDistanceSetting = 16,' "$OPTS_LUA" \
-  && pass "tg5040: render distance SHORT" || fail "tg5040: render distance not seeded"
-grep -q 'shadowQuality = "off",' "$OPTS_LUA" \
-  && pass "tg5040: shadows off" || fail "tg5040: shadows not seeded"
-grep -q 'water = "sky",' "$OPTS_LUA" \
-  && pass "tg5040: water reflections SKY" || fail "tg5040: water not seeded"
-grep -q '^  fpsCap = 40,$' "$OPTS_LUA" \
-  && pass "tg5040: fps cap 40 seeded" || fail "tg5040: fps cap missing"
+! grep -q 'DRAMALESS_SHAPE' "$OPTS_LUA" \
+  && pass "tg5040: no voxel options seeded" || fail "tg5040: voxel options seeded"
+! grep -q 'fpsCap' "$OPTS_LUA" \
+  && pass "tg5040: fps cap untouched" || fail "tg5040: fps cap seeded"
 grep -q 'feed = "https://bryanthaboi.github.io/gen1recomp-mod-index/data/index.json"' "$OPTS_LUA" \
-  && pass "tg5040: mod index seeded alongside perf defaults" || fail "tg5040: mod index missing"
+  && pass "tg5040: mod index seeded" || fail "tg5040: mod index missing"
 
 # ---- 2. update (version record present) refreshes the game ONLY --------
 # The baseline install left version records, so this run takes the UPDATE
@@ -441,7 +425,7 @@ grep -q 'feed = "https://bryanthaboi.github.io/gen1recomp-mod-index/data/index.j
 # manage in-game once installed (2026-08-18 spec). Every mods/ state a play
 # session could have produced must survive: a player-removed bundled mod
 # stays removed, an in-place player edit stays, and even the stale
-# voxel-era dirs stay (cleanup is a fresh-install concern, test 3b).
+# stale dirs stay (cleanup is a fresh-install concern, test 3b).
 mkdir -p "$G/lovegame/red" "$G/conf"
 echo 'save' > "$G/lovegame/red/cache.bin"
 # "opts" is not the serializer's "return {" first line, so this also proves
@@ -469,10 +453,10 @@ else fail "update exited non-zero: $(tail -3 "$TMP/log2.txt")"; fi
 grep -q "^Other\.sh${TAB}Other Game\$" "$MAPFILE" && pass "update: foreign alias line kept" || fail "update: foreign alias line lost"
 grep -q 'Update: bundled mods left as-is' "$TMP/log2.txt" \
                                                   && pass "update: mods-untouched notice printed" || fail "update: no mods-untouched notice"
-! grep -q 'Latest dramaless shape release' "$TMP/log2.txt" \
+! grep -q 'Latest stadium battle fx release' "$TMP/log2.txt" \
                                                   && pass "update: no mod release resolved" || fail "update: a mod release was resolved"
-! grep -q 'Downloading Dramaless Shape Mod' "$TMP/log2.txt" \
-                                                  && pass "update: dramaless not downloaded" || fail "update: dramaless was downloaded"
+! grep -q 'Downloading StadiumBattleFX' "$TMP/log2.txt" \
+                                                  && pass "update: stadium not downloaded" || fail "update: stadium was downloaded"
 ! grep -q 'Downloading Wilds of Kanto' "$TMP/log2.txt" \
                                                   && pass "update: wilds not downloaded" || fail "update: wilds was downloaded"
 [ -d "$G/lovegame/mods/pokepcfollowers" ] \
@@ -483,16 +467,16 @@ grep -q 'Update: bundled mods left as-is' "$TMP/log2.txt" \
                                                   && pass "update: in-place player mod edit kept" || fail "update: player mod edit overwritten"
 [ ! -d "$G/lovegame/mods/overworld_wild_spawns" ] \
                                                   && pass "update: player-removed mod stays removed" || fail "update: player-removed mod reinstalled"
-[ -f "$G/lovegame/mods/DRAMALESS_SHAPE/manifest.json" ] \
+[ -f "$G/lovegame/mods/STADIUM_BATTLE_FX/manifest.json" ] \
                                                   && pass "update: existing bundled mod left in place" || fail "update: existing bundled mod lost"
 [ "$(cat "$G/.nx_addon_version" 2>/dev/null)" = "v9.9.9" ] \
                                                   && pass "update: version marker rewritten" || fail "update: version marker wrong"
 # The update re-extracts the game payload (fresh stock RomImporter.lua), so
-# both source patches must be re-applied on the update path too.
+# the d-pad source patch must be re-applied on the update path too.
 grep -q 'and PAD_SPEED or nxDpadSpeed(self, dt)' "$G/lovegame/src/import/RomImporter.lua" \
                                                   && pass "update: d-pad tuning re-applied to fresh payload" || fail "update: d-pad tuning lost"
-grep -q '_nxWheelHold' "$G/lovegame/src/import/RomImporter.lua" \
-                                                  && pass "update: X/Y scroll patch re-applied to fresh payload" || fail "update: X/Y scroll patch lost"
+! grep -q '_nxWheelHold' "$G/lovegame/src/import/RomImporter.lua" \
+                                                  && pass "update: no X/Y scroll splice on fresh payload" || fail "update: obsolete X/Y scroll splice applied"
 
 # ---- 2b. index seeding into an existing options.lua ---------------------
 # These runs still carry a version record, so they take the update path -
@@ -518,13 +502,12 @@ grep -q '^  haptics = "light",$' "$G/lovegame/options.lua" \
   && pass "other option keys untouched by the splice" || fail "splice damaged other option keys"
 grep -q '^  zoom = 0,$' "$G/lovegame/options.lua" \
   && pass "keys after the spliced line untouched" || fail "splice damaged keys after the modIndexes line"
-grep -q '^    DRAMALESS_SHAPE = false,$' "$G/lovegame/options.lua" \
-  && pass "voxel-off seeded into existing options.lua" || fail "voxel-off missing from existing options.lua"
+! grep -q 'DRAMALESS_SHAPE' "$G/lovegame/options.lua" \
+  && pass "nothing voxel-related seeded into existing options.lua" || fail "voxel settings seeded into existing options.lua"
 
 # A player-built index list (non-empty modIndexes) is theirs - reinstall
-# must not edit it, even though our feed is absent from it. (The perf
-# defaults are orthogonal and still seed into the same file; a fpsCap the
-# player moved off the stock 60 must survive.)
+# must not edit it, even though our feed is absent from it. (A fpsCap the
+# player set must survive - nothing seeds fps caps any more.)
 cat > "$G/lovegame/options.lua" <<'EOF'
 return {
   fpsCap = 30,
@@ -544,12 +527,12 @@ grep -q 'feed = "https://example.org/data/index.json"' "$G/lovegame/options.lua"
   && pass "player-built index list not appended to" || fail "our index was forced into the player's list"
 grep -q '^  fpsCap = 30,$' "$G/lovegame/options.lua" \
   && pass "player's non-stock fps cap kept" || fail "player's fps cap overwritten"
-grep -q '^    DRAMALESS_SHAPE = {$' "$G/lovegame/options.lua" \
-  && pass "perf defaults still seeded alongside player's index list" || fail "perf defaults missing"
+! grep -q 'DRAMALESS_SHAPE' "$G/lovegame/options.lua" \
+  && pass "no perf defaults seeded alongside player's index list" || fail "perf defaults seeded"
 
-# A DRAMALESS_SHAPE options bucket the player already touched is theirs -
-# the mod-options seed must skip entirely (their values untouched, nothing
-# added), while the stock-60 fpsCap still moves to 40.
+# A DRAMALESS_SHAPE options bucket the player set up themselves (the voxel
+# mod installed from the in-game browser) is theirs - untouched, nothing
+# added - and the stock-60 fpsCap stays where it is.
 cat > "$G/lovegame/options.lua" <<'EOF'
 return {
   fpsCap = 60,
@@ -569,8 +552,8 @@ grep -q 'renderScale = 1,' "$G/lovegame/options.lua" \
   && pass "player's mod option value kept" || fail "player's mod option value overwritten"
 ! grep -q 'renderDistanceSetting' "$G/lovegame/options.lua" \
   && pass "no seed keys forced into the player's bucket" || fail "seed keys forced into player's bucket"
-grep -q '^  fpsCap = 40,$' "$G/lovegame/options.lua" \
-  && pass "stock fps cap 60 moved to 40" || fail "stock fps cap not moved"
+grep -q '^  fpsCap = 60,$' "$G/lovegame/options.lua" \
+  && pass "stock fps cap left alone" || fail "fps cap changed"
 # A non-empty mods enablement table is the player's - no voxel-off forced in.
 ! grep -q 'DRAMALESS_SHAPE = false' "$G/lovegame/options.lua" \
   && pass "player-toggled mods table left alone" || fail "voxel-off forced into player's mods table"
@@ -605,23 +588,19 @@ grep -qi 'checksum' "$TMP/log3.txt" && pass "failure names the checksum" || fail
 
 # ---- 3b. fresh install over a stale target + renamed mod asset ----------
 # Clearing BOTH version records makes the next run a fresh install again
-# (the state a manual cleanup leaves behind), which must clean the
-# voxel-era stale dirs its bundled DRAMALESS_SHAPE conflicts with. The
-# dramaless release is served under a name the primary glob does not match,
-# so the resolve only succeeds through the sole-zip fallback - the guard
-# against the next upstream asset rename.
+# (the state a manual cleanup leaves behind), which must clean the stale
+# pokepcfollowers dir. The stadium release is served under a name the
+# primary glob does not match, so the resolve only succeeds through the
+# sole-zip fallback - the guard against the next upstream asset rename.
 rm -f "$SD/.userdata/shared/xtras/gen1recomp.version" "$G/.nx_addon_version"
-mkdir -p "$G/lovegame/mods/pokepcfollowers" "$G/lovegame/mods/DRAMATIC_SHAPE"
-echo 'stale' > "$G/lovegame/mods/DRAMATIC_SHAPE/manifest.json"
-if DRAMALESS_ASSET_NAME="mystery-voxel-1.0.zip" run_install > "$TMP/log3b.txt" 2>&1; then
+mkdir -p "$G/lovegame/mods/pokepcfollowers"
+if STADIUM_ASSET_NAME="mystery-fx-1.0.zip" run_install > "$TMP/log3b.txt" 2>&1; then
   pass "fresh install with renamed mod asset exits 0"
 else fail "fresh install with renamed mod asset exited non-zero: $(tail -3 "$TMP/log3b.txt")"; fi
-grep -q 'Latest dramaless shape release: v2.0.2' "$TMP/log3b.txt" \
+grep -q 'Latest stadium battle fx release: v2.1.7' "$TMP/log3b.txt" \
   && pass "renamed asset resolved via sole-zip fallback" || fail "renamed asset did not resolve"
-[ -f "$G/lovegame/mods/DRAMALESS_SHAPE/manifest.json" ] \
-  && pass "fresh install: dramaless installed from renamed asset" || fail "fresh install: dramaless missing"
-[ ! -d "$G/lovegame/mods/DRAMATIC_SHAPE" ] \
-  && pass "fresh install: stale DRAMATIC_SHAPE removed" || fail "fresh install: stale DRAMATIC_SHAPE still present"
+[ -f "$G/lovegame/mods/STADIUM_BATTLE_FX/manifest.json" ] \
+  && pass "fresh install: stadium installed from renamed asset" || fail "fresh install: stadium missing"
 [ ! -d "$G/lovegame/mods/pokepcfollowers" ] \
   && pass "fresh install: stale pokepcfollowers removed" || fail "fresh install: stale pokepcfollowers still present"
 [ -f "$G/lovegame/mods/overworld_wild_spawns/manifest.json" ] \
@@ -637,14 +616,14 @@ else fail "setup: baseline install exited non-zero: $(tail -3 "$TMP/log4-setup.t
   && pass "setup: baseline launcher present" || fail "setup: baseline launcher missing"
 
 # Force the FRESH path (mods are only fetched/extracted there) by clearing
-# the version records the baseline just wrote, then corrupt the dramaless
+# the version records the baseline just wrote, then corrupt the stadium
 # payload in place. run_install() recomputes each fixture digest from the
 # CURRENT file each call, so the download/checksum step still passes and
 # the failure instead happens during extraction - i.e. after the game
 # payload overlay-copy has already started writing into $TARGET, which is
 # exactly the scenario the fix covers.
 rm -f "$SD/.userdata/shared/xtras/gen1recomp.version" "$G/.nx_addon_version"
-echo 'not a zip file' > "$TMP/dramaless.zip"
+echo 'not a zip file' > "$TMP/stadium.zip"
 if run_install > "$TMP/log4.txt" 2>&1; then
   fail "corrupt mod payload did not abort"
 else pass "corrupt mod payload aborts"; fi
@@ -680,19 +659,18 @@ done
 ln -s "$BIN/wget" "$BIN_NOSHA1/wget"
 ln -s "$BIN/sha256sum" "$BIN_NOSHA1/sha256sum"
 
-# Test 4 left $TMP/dramaless.zip corrupted on purpose (not a valid archive);
+# Test 4 left $TMP/stadium.zip corrupted on purpose (not a valid archive);
 # zip won't overwrite it in place ("Zip file structure invalid"), so remove
 # it before rebuilding a valid one - needed so this install can reach the
 # ROM-scan step instead of failing earlier at extract.
-rm -f "$TMP/dramaless.zip"
-(cd "$DRAMALESSFIX" && zip -qr "$TMP/dramaless.zip" manifest.json assets)
+rm -f "$TMP/stadium.zip"
+(cd "$STADIUMFIX" && zip -qr "$TMP/stadium.zip" manifest.json main.lua)
 
 # Write the API fixtures with the CURRENT (unmodified) PATH/shasum, as
 # separate statements before the PATH override below - the digest defaults
 # inside them run `sha`, which must not resolve against the isolated
 # (sha1-less, and shasum-less) PATH.
 write_game_json "$(sha "$TMP/game.zip")"
-write_dramaless_json "$(sha "$TMP/dramaless.zip")"
 write_stadium_json "$(sha "$TMP/stadium.zip")"
 write_shoes_json "$(sha "$TMP/shoes.zip")"
 write_wilds_json "$(sha "$TMP/wilds.zip")"
@@ -722,7 +700,7 @@ else fail "install with no sha1 tool anywhere exited non-zero: $(tail -3 "$TMP/l
 [ -f "$SD/Roms/Xtra Games (EXTRAS)/Gen1recomp.sh" ] \
   && pass "no sha1 tool: install completed (launcher registered)" \
   || fail "no sha1 tool: install did not complete"
-[ -f "$G/lovegame/mods/DRAMALESS_SHAPE/manifest.json" ] \
+[ -f "$G/lovegame/mods/STADIUM_BATTLE_FX/manifest.json" ] \
   && pass "no sha1 tool: fresh path ran (mods installed)" \
   || fail "no sha1 tool: fresh path did not install mods"
 grep -q 'feed = "https://bryanthaboi.github.io/gen1recomp-mod-index/data/index.json"' "$G/lovegame/options.lua" \
@@ -737,6 +715,7 @@ grep -q 'feed = "https://bryanthaboi.github.io/gen1recomp-mod-index/data/index.j
 run_uninstall() {
   PATH="$BIN:$PATH" \
   PLATFORM=tg5050 \
+  NX_SWAP_ROOT="$TMP/swaproot" \
   SDCARD_PATH="$SD" \
   LOGS_PATH="$SD/.userdata/tg5050/logs" \
   EXTRAS_ROMS_DIR="$SD/Roms/Xtra Games (EXTRAS)" \
@@ -762,8 +741,13 @@ echo 'cfg'  > "$G/conf/settings.cfg"
 # A foreign alias line: uninstall must drop only this entry's line.
 printf 'Other.sh\tOther Game\n' >> "$MAPFILE"
 
+mkdir -p "$TMP/swaproot/mnt/UDISK"
+echo 'old' > "$TMP/swaproot/mnt/UDISK/swapfile.new"
+echo 'n64' > "$TMP/swaproot/mnt/UDISK/n64_swap"
 if run_uninstall > "$TMP/log6.txt" 2>&1; then pass "uninstall exits 0"
 else fail "uninstall exited non-zero: $(tail -3 "$TMP/log6.txt")"; fi
+[ ! -e "$TMP/swaproot/mnt/UDISK/swapfile.new" ] && [ -f "$TMP/swaproot/mnt/UDISK/n64_swap" ] \
+  && pass "uninstall: legacy swapfile removed, N64 swapfile kept" || fail "uninstall: swapfile cleanup wrong"
 
 [ ! -e "$SD/Roms/Xtra Games (EXTRAS)/Gen1recomp.sh" ] \
   && pass "uninstall: launcher removed"        || fail "uninstall: launcher still present"
@@ -815,11 +799,11 @@ if run_install > "$TMP/log7.txt" 2>&1; then pass "reinstall after uninstall exit
 else fail "reinstall after uninstall exited non-zero: $(tail -3 "$TMP/log7.txt")"; fi
 [ -f "$G/bin/love.aarch64" ] \
   && pass "reinstall after uninstall: engine restored"   || fail "reinstall after uninstall: engine missing"
-[ -f "$G/lovegame/mods/DRAMALESS_SHAPE/manifest.json" ] && [ -f "$G/lovegame/mods/overworld_wild_spawns/manifest.json" ] \
+[ -f "$G/lovegame/mods/STADIUM_BATTLE_FX/manifest.json" ] && [ -f "$G/lovegame/mods/overworld_wild_spawns/manifest.json" ] \
   && pass "reinstall after uninstall: bundled mods restored (fresh path)" || fail "reinstall after uninstall: bundled mods missing"
 [ -f "$SD/Roms/Xtra Games (EXTRAS)/Gen1recomp.sh" ] \
   && pass "reinstall after uninstall: launcher restored" || fail "reinstall after uninstall: launcher missing"
-grep -q "^Gen1recomp\.sh${TAB}Gen1Recomp (Pokemon R/B/Y)\$" "$MAPFILE" 2>/dev/null \
+grep -q "^Gen1recomp\.sh${TAB}Pokemon Gen1Recomp++\$" "$MAPFILE" 2>/dev/null \
   && pass "reinstall after uninstall: display alias restored" || fail "reinstall after uninstall: display alias missing"
 [ "$(cat "$G/.nx_addon_version" 2>/dev/null)" = "v9.9.9" ] \
   && pass "reinstall after uninstall: version marker restored" || fail "reinstall after uninstall: version marker missing"

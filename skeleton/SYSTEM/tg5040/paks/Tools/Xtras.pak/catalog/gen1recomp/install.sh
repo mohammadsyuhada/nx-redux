@@ -1,6 +1,6 @@
 #!/bin/sh
-# Xtras catalog: gen1recomp + bundled mods (Dramaless Shape Voxel,
-# StadiumBattleFX, Running Shoes, Wilds of Kanto) + the default community
+# Xtras catalog: gen1recomp + bundled mods (StadiumBattleFX, Running
+# Shoes, Wilds of Kanto) + the default community
 # mod index seeded into the game's options.lua. Mods are bundled on FRESH
 # installs only; an update refreshes the game payload alone (IS_UPDATE
 # below).
@@ -31,18 +31,14 @@ set -u
 # resolved game tag (raw.githubusercontent, no digest available - TLS-only).
 GEN1_REPO="bryanthaboi/gen1recomp"
 GEN1_ASSET="*rg34xxsp-stockos64-mod.zip"
-# Dramaless Shape: voxel 3D overworld (manifest id "DRAMALESS_SHAPE").
-# Replaces the originally-bundled DramaticShape/DramaticShapeVoxelMod
-# (2026-08-18): that upstream - the whole DramaticShape account - vanished
-# from GitHub ~2026-08 and only survived as a pinned community backup zip;
-# Dramaless Shape is the live continuation, back on the normal latest-
-# release track. Its manifest declares DRAMATIC_SHAPE a conflict, so the
-# stale-dir removal in the install step below is required, not just tidy.
-DRAMALESS_REPO="artyrambles/DRAMALESS_SHAPE"
-DRAMALESS_ASSET="DRAMALESS_SHAPE-*.zip"
+# No voxel overworld mod is bundled any more (2026-09-16, user decision):
+# Dramaless Shape / PotatoVoxel need far more memory than these 1GB devices
+# have (a cache build OOM-killed the game even with 2GB of eMMC swap), so
+# the bundle is the 2D mods only. The voxel mods stay available in the
+# in-game mod browser for anyone who wants to try regardless.
 # StadiumBattleFX: Stadium-style battle effects and trainer portraits
-# (manifest id "STADIUM_BATTLE_FX", an optional dependency of Dramaless
-# Shape >=2.0). Its full effect needs a Pokemon Stadium ROM the player
+# (manifest id "STADIUM_BATTLE_FX"). Its full effect needs a Pokemon
+# Stadium ROM the player
 # imports in-game (a manifest required_imports entry the game prompts for)
 # - without one the mod just idles, so bundling it disabled-by-default is
 # safe.
@@ -238,12 +234,6 @@ GAME_SHA="$RL_SHA"
 echo "Latest game release: $GAME_TAG"
 
 if [ "$IS_UPDATE" = "0" ]; then
-    resolve_latest "$DRAMALESS_REPO" "$DRAMALESS_ASSET" "*.zip" || fail "$RL_ERR"
-    DRAMALESS_TAG="$RL_TAG"
-    DRAMALESS_URL="$RL_URL"
-    DRAMALESS_SHA="$RL_SHA"
-    echo "Latest dramaless shape release: $DRAMALESS_TAG"
-
     resolve_latest "$STADIUM_REPO" "$STADIUM_ASSET" "*.zip" || fail "$RL_ERR"
     STADIUM_TAG="$RL_TAG"
     STADIUM_URL="$RL_URL"
@@ -271,8 +261,6 @@ echo "@20 Downloaded gen1recomp"
 fetch "$GEN1_YELLOW_URL" "$TMPDIR_NX/yellow.json" ""          "Yellow ROM manifest (~1 MB)"
 echo "@25 Downloaded Yellow manifest"
 if [ "$IS_UPDATE" = "0" ]; then
-    fetch "$DRAMALESS_URL"   "$TMPDIR_NX/dramaless.zip" "$DRAMALESS_SHA" "Dramaless Shape Mod $DRAMALESS_TAG (<1 MB)"
-    echo "@30 Downloaded Dramaless Shape Mod"
     fetch "$STADIUM_URL"     "$TMPDIR_NX/stadium.zip" "$STADIUM_SHA" "StadiumBattleFX $STADIUM_TAG (<1 MB)"
     echo "@35 Downloaded StadiumBattleFX"
     fetch "$SHOES_URL"       "$TMPDIR_NX/shoes.zip"   "$SHOES_SHA" "Running Shoes Mod $SHOES_TAG (<1 MB)"
@@ -343,72 +331,18 @@ EOF
 }
 patch_pad_cursor
 
-# X/Y wheel scrolling (2026-08-18, user-reported): the launcher scrolls
-# only via mouse wheel or the right stick - the Brick has neither, so a
-# list taller than the screen (the installed-mods list, the Find-mods
-# index) is simply unreachable past the fold. Same install-time patch
-# posture as patch_pad_cursor above (exact-line anchors, fail-open skip,
-# re-applied on every payload extraction): X scrolls up, Y scrolls down,
-# hold to keep scrolling, routed through LauncherView.wheelmoved - the
-# exact path a mouse wheel feeds - so it scrolls whatever the pad pointer
-# sits over. X/Y are otherwise unused in the launcher (A=click, B=close,
-# L1/R1=tabs, Start/Select=play).
-patch_pad_scroll() {
-    _rc="$LOVE/src/import/RomImporter.lua"
-    [ -f "$_rc" ] || { echo "X/Y scroll patch skipped (no RomImporter.lua)"; return 0; }
-    grep -q '_nxWheelHold' "$_rc" && return 0   # already patched
-    if ! grep -q '^    self:_cycleTab(1)$' "$_rc" \
-        || ! grep -q '^  local ry = self._padAxis.righty or 0$' "$_rc" \
-        || ! grep -q '^function RomImporter:gamepadreleased(_, button)$' "$_rc"; then
-        echo "X/Y scroll patch skipped (upstream layout changed)"
-        return 0
-    fi
-    cat > "$TMPDIR_NX/nx_scroll_press.lua" <<'EOF'
-  elseif button == "x" or button == "y" then
-    -- NX Redux install-time patch (Xtras.pak gen1recomp install.sh):
-    -- wheel scrolling for stickless handhelds - X scrolls up, Y scrolls
-    -- down, hold to keep scrolling. Routed through the same wheel path a
-    -- mouse wheel / right stick feeds, so it scrolls whatever the pad
-    -- pointer sits over (mod lists included).
-    self._nxWheelHold = (button == "x") and 1 or -1
-    if self._flex then
-      require("src.import.LauncherView").wheelmoved(self, 0, self._nxWheelHold)
-    end
-EOF
-    cat > "$TMPDIR_NX/nx_scroll_release.lua" <<'EOF'
-  -- NX Redux patch: stop the X/Y held-scroll (see gamepadpressed).
-  if button == "x" or button == "y" then self._nxWheelHold = nil end
-EOF
-    cat > "$TMPDIR_NX/nx_scroll_update.lua" <<'EOF'
-  -- NX Redux patch: X/Y held-scroll - continuous wheel notches while held.
-  if self._nxWheelHold and self._flex then
-    self:_activatePadCursor()
-    require("src.import.LauncherView").wheelmoved(self, 0, self._nxWheelHold * 6 * dt)
-  end
-EOF
-    sed -e '/^    self:_cycleTab(1)$/r '"$TMPDIR_NX/nx_scroll_press.lua" \
-        -e '/^function RomImporter:gamepadreleased(_, button)$/r '"$TMPDIR_NX/nx_scroll_release.lua" \
-        -e '/^  local ry = self._padAxis.righty or 0$/r '"$TMPDIR_NX/nx_scroll_update.lua" \
-        "$_rc" > "$_rc.nxtmp" && mv "$_rc.nxtmp" "$_rc" \
-        || { rm -f "$_rc.nxtmp"; echo "X/Y scroll patch skipped (patch failed)"; return 0; }
-    echo "Mapped X/Y to list scrolling"
-}
-patch_pad_scroll
+# No X/Y scroll patch any more (removed 2026-09-16): the launcher gained
+# native handheld controls upstream in v0.2.30 (2026-08-27) - L2/R2 scroll
+# lists, L1/R1 cycle tabs, Y toggles menu navigation vs the pointer cursor,
+# Start plays - which made the 2026-08-18 X/Y wheel-scroll splice obsolete
+# and, worse, conflicting (Y was claimed by the toggle first, and the splice
+# stole the R1 branch's return). The d-pad cursor ramp above still applies:
+# it only shapes pointer-cursor mode, which upstream kept.
 
 if [ "$IS_UPDATE" = "0" ]; then
-    echo "Installing Dramaless Shape Mod..."
-    mkdir -p "$LOVE/mods/DRAMALESS_SHAPE"
-    extract "$TMPDIR_NX/dramaless.zip" "$LOVE/mods/DRAMALESS_SHAPE" || fail "could not extract dramaless shape mod"
-
     echo "Installing StadiumBattleFX..."
     mkdir -p "$LOVE/mods/STADIUM_BATTLE_FX"
     extract "$TMPDIR_NX/stadium.zip" "$LOVE/mods/STADIUM_BATTLE_FX" || fail "could not extract stadium battle fx mod"
-
-    # The originally-bundled DramaticShapeVoxelMod (dead upstream, see the
-    # constants block) is superseded by Dramaless Shape, whose manifest
-    # declares DRAMATIC_SHAPE a conflict - remove it from a target that
-    # carried it (a fresh install over manually-deleted version records).
-    rm -rf "$LOVE/mods/DRAMATIC_SHAPE"
 
     # PokePC Followers was bundled briefly on 2026-08-10 and then dropped the
     # same day (user-confirmed: Wilds of Kanto ships its own follower system
@@ -486,95 +420,32 @@ elif [ "$(head -1 "$OPTS_LUA")" = "return {" ]; then
         && mv "$OPTS_LUA.nxtmp" "$OPTS_LUA" || fail "could not update options.lua"
 fi
 
-# Voxel mod disabled by default (2026-08-18, user decision, BOTH
-# platforms): the 3D voxel overworld is the single heaviest thing in the
-# bundle (99% GPU on a Brick before tuning), so players opt IN from the
-# in-game mod manager instead of opting out. Seeded as the shared
-# mods.DRAMALESS_SHAPE = false enablement answer - the game's per-game
-# toggles (modsByVersion) always win over it, so a player who has enabled
-# the mod keeps it, and an existing install whose enablement migration
-# already materialized per-game answers is unaffected in practice. Same
-# never-clobber rules as above: a non-empty mods table (the player has
-# toggled something) is left alone entirely.
-if [ -f "$OPTS_LUA" ] && [ "$(head -1 "$OPTS_LUA")" = "return {" ] \
-    && ! grep -q 'DRAMALESS_SHAPE = false' "$OPTS_LUA"; then
-    MODS_SEED="$TMPDIR_NX/mods_seed"
-    cat > "$MODS_SEED" <<'EOF'
-  mods = {
-    DRAMALESS_SHAPE = false,
-  },
-EOF
-    if grep -q '^  mods = {$' "$OPTS_LUA"; then
-        : # player-toggled enablement list - theirs, not ours to edit
-    elif grep -q '^  mods = {},$' "$OPTS_LUA"; then
-        sed -e '1r '"$MODS_SEED" -e '/^  mods = {},$/d' "$OPTS_LUA" > "$OPTS_LUA.nxtmp" \
-            && mv "$OPTS_LUA.nxtmp" "$OPTS_LUA" || fail "could not seed mod enablement"
-        echo "Voxel mod ships OFF - enable it in-game under MODS"
-    else
-        sed -e '1r '"$MODS_SEED" "$OPTS_LUA" > "$OPTS_LUA.nxtmp" \
-            && mv "$OPTS_LUA.nxtmp" "$OPTS_LUA" || fail "could not seed mod enablement"
-        echo "Voxel mod ships OFF - enable it in-game under MODS"
+# Legacy swapfile cleanup (2026-09-16): earlier launchers created an eMMC
+# swapfile for the voxel overworld mods (/swapfile, later /mnt/UDISK/
+# swapfile[.new]). Those mods are no longer bundled and the base game needs
+# no swap (116MB peak RSS in play on the Brick), so reclaim the space -
+# the last version cost 2GB of UDISK plus eMMC wear. Non-fatal throughout.
+# NX_SWAP_ROOT is a test seam (the host test can't touch the real /).
+for _sf in "${NX_SWAP_ROOT:-}/swapfile" "${NX_SWAP_ROOT:-}/mnt/UDISK/swapfile" "${NX_SWAP_ROOT:-}/mnt/UDISK/swapfile.new"; do
+    [ -e "$_sf" ] || continue
+    if grep -q "^$_sf " /proc/swaps 2>/dev/null; then
+        swapoff "$_sf" 2>/dev/null || { echo "  swapfile $_sf still in use - left in place"; continue; }
     fi
-fi
-
-# Handheld performance defaults (2026-08-18, tuned on a Brick): the voxel
-# mod ships shadows ON and FULL water reflections, and the game a 60 FPS
-# cap - on the Brick's GPU (PowerVR GE8300, fixed 700 MHz, no DVFS) that
-# measured 99% GPU utilisation plus eMMC swap pressure = visible lag.
-# Seeded defaults: render scale 1/2, render distance SHORT, shadows off,
-# AA off, water SKY, fpsCap 40. tg5040 ONLY - the Smart Pro S (tg5050)
-# carries a stronger GPU and keeps the game's stock defaults. Same posture
-# as the mod-index seed above - player choices are never overwritten: the
-# whole mod-options seed is skipped when a DRAMALESS_SHAPE options bucket
-# already exists (the exact-indent match can also hit a modsGen2 bucket of
-# the same name - a rare false positive that errs toward skipping, never
-# corrupting), and fpsCap is only rewritten while it still holds the
-# stock 60.
-if [ "${PLATFORM:-}" = "tg5040" ] && [ -f "$OPTS_LUA" ] && [ "$(head -1 "$OPTS_LUA")" = "return {" ]; then
-    _po_bucket="$TMPDIR_NX/perf_bucket"
-    cat > "$_po_bucket" <<'EOF'
-    DRAMALESS_SHAPE = {
-      aa = 0,
-      renderDistanceSetting = 16,
-      renderScale = 2,
-      shadowQuality = "off",
-      water = "sky",
-    },
-EOF
-    if ! grep -q '^    DRAMALESS_SHAPE = {$' "$OPTS_LUA"; then
-        echo "Seeding handheld performance defaults..."
-        if grep -q '^  modOptions = {$' "$OPTS_LUA"; then
-            # Non-empty modOptions without our bucket: insert just the
-            # bucket inside the existing table (key order is free-form -
-            # the game re-sorts on its next save).
-            sed -e '/^  modOptions = {$/r '"$_po_bucket" "$OPTS_LUA" > "$OPTS_LUA.nxtmp"
-        elif grep -q '^  modOptions = {},$' "$OPTS_LUA"; then
-            { echo "  modOptions = {"; cat "$_po_bucket"; echo "  },"; } > "$TMPDIR_NX/perf_block"
-            sed -e '1r '"$TMPDIR_NX/perf_block" -e '/^  modOptions = {},$/d' "$OPTS_LUA" > "$OPTS_LUA.nxtmp"
-        else
-            { echo "  modOptions = {"; cat "$_po_bucket"; echo "  },"; } > "$TMPDIR_NX/perf_block"
-            sed -e '1r '"$TMPDIR_NX/perf_block" "$OPTS_LUA" > "$OPTS_LUA.nxtmp"
-        fi
-        mv "$OPTS_LUA.nxtmp" "$OPTS_LUA" || fail "could not seed performance defaults"
-    fi
-    if grep -q '^  fpsCap = ' "$OPTS_LUA"; then
-        sed 's/^  fpsCap = 60,$/  fpsCap = 40,/' "$OPTS_LUA" > "$OPTS_LUA.nxtmp" \
-            && mv "$OPTS_LUA.nxtmp" "$OPTS_LUA" || fail "could not seed fps cap"
-    else
-        printf '  fpsCap = 40,\n' > "$TMPDIR_NX/fps_seed"
-        sed -e '1r '"$TMPDIR_NX/fps_seed" "$OPTS_LUA" > "$OPTS_LUA.nxtmp" \
-            && mv "$OPTS_LUA.nxtmp" "$OPTS_LUA" || fail "could not seed fps cap"
-    fi
-fi
+    rm -f "$_sf" && echo "Removed legacy swapfile $_sf"
+done
 
 echo "@90 Scanning for ROMs..."
 echo "Looking for your Pokemon ROMs..."
 # Recognized by SHA-256 via the same busybox sha256sum fetch() already depends
 # on - every card that can run this install can run the scan. (The game's own
-# importer gates on SHA-1 internally; these are the same three US Red/Blue/
-# Yellow dumps, just hashed with the tool the device actually ships. sha1sum
-# only exists inside PortMaster's vendored bin, which runtime=native users
-# don't have - a card without it used to skip this scan entirely.)
+# importer gates on SHA-1 internally; these are the same US dumps it accepts
+# - Red, Blue, Yellow, and since upstream's Gen 2 support Gold, Silver and
+# Crystal 1.1 (2026-09-16, hashed from dumps whose SHA-1 matched upstream's
+# GameVersion.lua) - just hashed with the tool the device actually ships.
+# sha1sum only exists inside PortMaster's vendored bin, which runtime=native
+# users don't have - a card without it used to skip this scan entirely.)
+# Known gap: the Crystal 1.0 dump (SHA-1 f4cd194b...) has no verified SHA-256
+# on record, so it is not auto-copied - the game still imports it by hand.
 found=0
 for dir in "$SDCARD_PATH/Roms/Game Boy (GB)" "$SDCARD_PATH/Roms/Game Boy Color (GBC)"; do
     [ -d "$dir" ] || continue
@@ -584,14 +455,17 @@ for dir in "$SDCARD_PATH/Roms/Game Boy (GB)" "$SDCARD_PATH/Roms/Game Boy Color (
         case "$(sha256sum "$rom" | cut -d' ' -f1)" in
             5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b|\
             2a951313c2640e8c2cb21f25d1db019ae6245d9c7121f754fa61afd7bee6452d|\
-            8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf)
+            8cbaa499397e4f1a679c992ea9382a2dd7942ab398b48c19829c2d9529de47bf|\
+            fb0016d27b1e5374e1ec9fcad60e6628d8646103b5313ca683417f52b97e7e4e|\
+            72b190859a59623cbef6c49d601f8de52c1d2331b4f08a8d2acc17274fc19a8c|\
+            fdcc3c8c43813cf8731fc037d2a6d191bac75439c34b24ba1c27526e6acdc8a2)
                 echo "  found $(basename "$rom")"
                 cp "$rom" "$LOVE/" && found=$((found+1))
                 ;;
         esac
     done
 done
-[ "$found" -eq 0 ] && echo "  none found - copy a US Red/Blue/Yellow ROM into Roms/Xtra Games (EXTRAS)/.data/gen1recomp/lovegame/ later"
+[ "$found" -eq 0 ] && echo "  none found - copy a US Red/Blue/Yellow/Gold/Silver/Crystal ROM into Roms/Xtra Games (EXTRAS)/.data/gen1recomp/lovegame/ later"
 
 # Self-install the EXTRAS platform runtime. The skeleton SYSTEM tree
 # normally ships this pak out of the box (skeleton/SYSTEM/<plat>/paks/
@@ -630,7 +504,7 @@ MAP="$EXTRAS_ROMS_DIR/map.txt"
 TAB="$(printf '\t')"
 {
     [ -f "$MAP" ] && grep -v "^Gen1recomp\.sh$TAB" "$MAP"
-    printf 'Gen1recomp.sh\tGen1Recomp (Pokemon R/B/Y)\n'
+    printf 'Gen1recomp.sh\tPokemon Gen1Recomp++\n'
 } > "$MAP.tmp" && mv "$MAP.tmp" "$MAP" || fail "could not write display name"
 
 # LAST STEP: the visible menu entry. Everything above must already be good.

@@ -51,6 +51,20 @@ echo "Removing game runtime..."
 rm -rf "${LOVE:?}/src" "${LOVE:?}/data" "${LOVE:?}/assets" "${LOVE:?}/libs" "${LOVE:?}/tools" "${LOVE:?}/mods"
 rm -f "$LOVE/main.lua" "$LOVE/conf.lua" "$LOVE/portable.txt"
 
+# Legacy swapfile cleanup (2026-09-16): earlier launchers created an eMMC
+# swapfile for the voxel overworld mods (/swapfile, later /mnt/UDISK/
+# swapfile[.new]). Those mods are no longer bundled and the base game needs
+# no swap (116MB peak RSS in play on the Brick), so reclaim the space -
+# the last version cost 2GB of UDISK plus eMMC wear. Non-fatal throughout.
+# NX_SWAP_ROOT is a test seam (the host test can't touch the real /).
+for _sf in "${NX_SWAP_ROOT:-}/swapfile" "${NX_SWAP_ROOT:-}/mnt/UDISK/swapfile" "${NX_SWAP_ROOT:-}/mnt/UDISK/swapfile.new"; do
+    [ -e "$_sf" ] || continue
+    if grep -q "^$_sf " /proc/swaps 2>/dev/null; then
+        swapoff "$_sf" 2>/dev/null || { echo "  swapfile $_sf still in use - left in place"; continue; }
+    fi
+    rm -f "$_sf" && echo "Removed legacy swapfile $_sf"
+done
+
 echo "@100 Done"
 echo "Done. Saves and ROMs kept - reinstall to play again."
 exit 0
