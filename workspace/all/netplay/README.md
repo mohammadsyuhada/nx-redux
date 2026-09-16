@@ -59,6 +59,20 @@ also silently overrides a swapped `.srm` — if you replace a save file to get
 a distinct trainer, remove/rename the matching `.state.auto` too or the old
 trainer comes back.
 
+### Different titles: the joiner's override
+
+The wizard's only game gate compares ROM file names (normalized: tags in
+()/[] dropped, non-alphanumerics dropped, lowercased) in the HELLO handshake.
+Sister versions (FireRed/LeafGreen, Ruby/Sapphire) normalize differently, so
+the joiner is prompted (`wiz_client_confirm_other_game`) and, on A, sends
+`HELLO 1 <game> client any`; a host that sees `any` skips its name check. On
+hotspot the joiner listens ~2.5 s for the host's discovery broadcast to learn
+the title before connecting (`wiz_client_hotspot_peek`); silence falls back
+to the plain gate. Nothing below the wizard re-checks names or CRCs: gbalink
+only compares `gpsp_serial` strings, netplay.c/gblink.c compare nothing. An
+old host ignores the token (its fifth HELLO field fails `%d`) and rejects as
+before; an old client never sends it.
+
 ### gpsp_serial / link_mode
 
 `gpsp_serial` (`auto|disabled|rfu|mul_poke|mul_aw1|...`) is resolved by the

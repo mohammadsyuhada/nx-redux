@@ -5,8 +5,8 @@
  * lines; the host advertises itself on WIZ_UDP_PORT so the WiFi-mode client can
  * list it. The exchange, in order:
  *
- *     client -> host:  HELLO 1 <game> client
- *     host -> client:  HELLO 1 <game> host      (or REJECT <reason>, then close)
+ *     client -> host:  HELLO 1 <game> client [any]
+ *     host -> client:  HELLO 1 <game> host <n>  (or REJECT <reason>, then close)
  *     host -> client:  SYNC-READY <n>           (only when the host serves saves)
  *     host -> client:  FILE <name>              (n times, bare filenames)
  *     client -> host:  SYNC-DONE | SYNC-FAIL
@@ -16,6 +16,11 @@
  * A space separates the fields, so a game title — and a save filename, same
  * reason — travels with each space replaced by \x1f; see the wire protocol
  * helpers. Every line stays parseable with one sscanf.
+ *
+ * The client's trailing "any" says its player has seen the host's title and
+ * chosen to join a differently-named game anyway (FireRed joining LeafGreen);
+ * the host then skips its title gate. A host predating the token still reads
+ * the line (its fifth field simply fails to parse) and rejects as before.
  *
  * A rejected or dropped client never ends the host's wait: the host closes that
  * connection and returns to its waiting screen. The client is the side that
@@ -89,6 +94,14 @@
 // Discovery link_mode. Separates this wizard's broadcasts from any other user
 // of NET_sendDiscoveryBroadcast that might share the port.
 #define WIZ_NET_LINK_MODE "wizard"
+// Client HELLO flag: "join even though the titles differ" (see the header).
+#define WIZ_NET_ANY_GAME "any"
+// Longest title the different-title prompt prints before eliding; the host
+// list can marquee, a centred message cannot.
+#define WIZ_NET_PROMPT_TITLE_MAX 40
+// How long a hotspot joiner listens for the host's broadcast before
+// connecting: the host sends one a second, so this catches at least two.
+#define WIZ_NET_HOTSPOT_PEEK_MS 2500
 
 // Backstop for a peer that reports readable and then stalls mid-line: every
 // read here selects first, so this timeout should never be the one that fires.
@@ -189,6 +202,59 @@ static void wiz_net_render_wait_status(const char* message, bool cancelable) {
 	GFX_flip(wiz_screen);
 }
 
+// A title for the different-title prompt: elided past WIZ_NET_PROMPT_TITLE_MAX
+// bytes, backed off to a UTF-8 boundary so a cut never lands mid-sequence.
+static void wiz_net_short_title(const char* in, char* out, size_t out_size) {
+	size_t n = strlen(in);
+	if (n <= WIZ_NET_PROMPT_TITLE_MAX && n < out_size) {
+		memcpy(out, in, n + 1);
+		return;
+	}
+	n = WIZ_NET_PROMPT_TITLE_MAX;
+	if (n >= out_size - 4)
+		n = out_size - 4;
+	while (n > 0 && ((unsigned char)in[n] & 0xC0) == 0x80)
+		n--;
+	memcpy(out, in, n);
+	memcpy(out + n, "...", 4);
+}
+
+// The joiner's different-title prompt. The host list shows every wizard host,
+// own game or not, so a player can knowingly pick one running a differently
+// named copy of their game — the cross-version pairs (FireRed/LeafGreen,
+// Ruby/Sapphire) that the hardware links happily but the name gate cannot
+// tell from a wrong game. 1 = join anyway (the HELLO then carries
+// WIZ_NET_ANY_GAME so the host skips its gate too), 0 = back, -2 = app quit.
+// No wall-clock ceiling: this is a question, and B is live every frame.
+static int wiz_client_confirm_other_game(const char* host_game, const char* own_game) {
+	char host_short[WIZ_NET_PROMPT_TITLE_MAX + 4];
+	char own_short[WIZ_NET_PROMPT_TITLE_MAX + 4];
+	char message[192];
+
+	wiz_net_short_title(host_game, host_short, sizeof(host_short));
+	wiz_net_short_title(own_game, own_short, sizeof(own_short));
+	snprintf(message, sizeof(message),
+			 "The host is running\n%s\n\nYou are running\n%s\n\nJoin anyway?",
+			 host_short, own_short);
+
+	GFX_clear(wiz_screen);
+	UI_renderCenteredMessage(wiz_screen, message);
+	UI_renderButtonHintBar(wiz_screen, (char*[]){"B", "BACK", "A", "JOIN", NULL});
+	GFX_flip(wiz_screen);
+
+	while (1) {
+		GFX_startFrame();
+		PAD_poll();
+		if (app_quit)
+			return -2;
+		if (PAD_justPressed(BTN_A))
+			return 1;
+		if (PAD_justPressed(BTN_B))
+			return 0;
+		GFX_sync();
+	}
+}
+
 // Host list, same shape as wizard_wifi.c's pickers: the ListView owns scroll
 // and draws its own indicators, so the full label array goes in. The picker
 // Resets the view whenever a poll changes match_count.
@@ -264,14 +330,18 @@ static void wiz_unesc_spaces(char* s) {
 }
 
 // 0 = parsed a syntactically valid HELLO. game/role come back still escaped.
+// The optional fifth field is the assigned player number on a host HELLO and
+// the WIZ_NET_ANY_GAME flag on a client HELLO; a caller asks for whichever its
+// side expects and the other comes back as 0/false.
 static int wiz_parse_hello(const char* line, int* version, char* game, size_t game_size,
-						   char* role, size_t role_size, int* player_num) {
+						   char* role, size_t role_size, int* player_num, bool* any_game) {
 	char verb[16];
 	char game_tok[WIZ_NET_TOKEN_MAX];
 	char role_tok[16];
-	int ver = 0, pnum = 0;
+	char extra[16] = {0};
+	int ver = 0;
 
-	int fields = sscanf(line, "%15s %d %255s %15s %d", verb, &ver, game_tok, role_tok, &pnum);
+	int fields = sscanf(line, "%15s %d %255s %15s %15s", verb, &ver, game_tok, role_tok, extra);
 	if (fields < 4)
 		return -1;
 	if (strcmp(verb, "HELLO") != 0)
@@ -281,7 +351,9 @@ static int wiz_parse_hello(const char* line, int* version, char* game, size_t ga
 	snprintf(game, game_size, "%s", game_tok);
 	snprintf(role, role_size, "%s", role_tok);
 	if (player_num)
-		*player_num = (fields >= 5) ? pnum : 0;
+		*player_num = (fields >= 5 && isdigit((unsigned char)extra[0])) ? atoi(extra) : 0;
+	if (any_game)
+		*any_game = (fields >= 5 && strcmp(extra, WIZ_NET_ANY_GAME) == 0);
 	return 0;
 }
 
@@ -293,7 +365,10 @@ static int wiz_parse_hello(const char* line, int* version, char* game, size_t ga
 // non-alphanumeric, so escaped and raw names normalize identically. This is
 // the ONLY game gate a wizard session has: the link engines store name/CRC
 // for their own discovery broadcasts but never re-verify them on a direct
-// connect, so a mismatch that slips past here surfaces only in-game.
+// connect, so a mismatch that slips past here surfaces only in-game. The
+// joiner can waive the gate on purpose (WIZ_NET_ANY_GAME, after
+// wiz_client_confirm_other_game): two versions of one game link fine on the
+// hardware and there is no way to tell them from a wrong game by name.
 static void wiz_normalize_name(const char* in, char* out, size_t out_size) {
 	size_t o = 0;
 	int in_tag = 0;
@@ -330,10 +405,11 @@ static bool wiz_names_equivalent(const char* a, const char* b) {
 // checked first because a different version may not even mean the same thing by
 // "game" or "role".
 static const char* wiz_hello_mismatch(int version, const char* game, const char* role,
-									  const char* own_game, const char* expect_role) {
+									  const char* own_game, const char* expect_role,
+									  bool any_game) {
 	if (version != WIZ_PROTO_VERSION)
 		return "version";
-	if (!wiz_names_equivalent(game, own_game))
+	if (!any_game && !wiz_names_equivalent(game, own_game))
 		return "game";
 	if (!role || strcmp(role, expect_role) != 0)
 		return "role";
@@ -844,6 +920,7 @@ static int wiz_host_handshake(const WizArgs* a, WizSession* s, int fd,
 	char escaped[WIZ_NET_TOKEN_MAX];
 	char role[16];
 	int version = 0;
+	bool any_game = false;
 
 	// Linux does not pass O_NONBLOCK from the listening fd to the accepted one,
 	// but POSIX leaves that unspecified and the listener is now non-blocking, so
@@ -867,18 +944,21 @@ static int wiz_host_handshake(const WizArgs* a, WizSession* s, int fd,
 	if (rc != 0)
 		return 1; // no HELLO in time: not worth a reply
 
-	if (wiz_parse_hello(line, &version, game, sizeof(game), role, sizeof(role), NULL) != 0)
+	if (wiz_parse_hello(line, &version, game, sizeof(game), role, sizeof(role), NULL, &any_game) != 0)
 		return 1; // not a wizard peer at all; closing says it better than REJECT
 
 	wiz_unesc_spaces(game);
 
-	const char* reason = wiz_hello_mismatch(version, game, role, a->game, "client");
+	const char* reason = wiz_hello_mismatch(version, game, role, a->game, "client", any_game);
 	if (reason) {
 		// Rejecting is not an error here — the host keeps waiting for the peer
 		// it is actually paired with.
 		wiz_send_line(fd, "REJECT %s", reason);
 		return 1;
 	}
+	if (any_game && !wiz_names_equivalent(game, a->game))
+		fprintf(stderr, "netplay: player %d at %s runs '%s' (we run '%s'); joined on request\n",
+				player_num, peer_ip, game, a->game);
 
 	wiz_esc_spaces(a->game, escaped, sizeof(escaped));
 	if (wiz_send_line(fd, "HELLO %d %s host %d", WIZ_PROTO_VERSION, escaped, player_num) != 0)
@@ -1103,9 +1183,10 @@ int wiz_host_rendezvous(const WizArgs* a, WizSession* s) {
 // Client
 //////////////////////////////////
 
-// Live list of hosts broadcasting our game. 0 = ip_out filled, -1 = error
+// Live list of every wizard host in earshot. 0 = ip_out filled (and any_out
+// says whether the player confirmed a differently-named host), -1 = error
 // (message drawn), -2 = cancelled.
-static int wiz_client_pick_host(const WizArgs* a, char* ip_out, size_t ip_size) {
+static int wiz_client_pick_host(const WizArgs* a, char* ip_out, size_t ip_size, bool* any_out) {
 	NET_HostInfo hosts[WIZ_NET_MAX_HOSTS];
 	char label_text[WIZ_NET_MAX_HOSTS][WIZ_NET_LABEL_MAX];
 	const char* labels[WIZ_NET_MAX_HOSTS];
@@ -1203,10 +1284,31 @@ static int wiz_client_pick_host(const WizArgs* a, char* ip_out, size_t ip_size) 
 			return -2;
 		}
 		if (act.type == LISTVIEW_ACTIVATED) {
+			const NET_HostInfo* pick = &hosts[matches[act.index]];
+			bool same_game = wiz_game_matches_broadcast(pick->game_name, a->game);
+
 			// A long game title's marquee band (LAYER_SCROLLTEXT) must not
-			// persist over the join/handshake status screens.
+			// persist over the prompt or the join/handshake status screens.
 			GFX_clearLayers(LAYER_SCROLLTEXT);
-			snprintf(ip_out, ip_size, "%s", hosts[matches[act.index]].host_ip);
+
+			if (!same_game) {
+				char title[NET_MAX_GAME_NAME];
+				snprintf(title, sizeof(title), "%s", pick->game_name);
+				wiz_unesc_spaces(title);
+
+				int rc = wiz_client_confirm_other_game(title, a->game);
+				if (rc == -2) {
+					close(udp_fd);
+					return -2;
+				}
+				if (rc == 0) {
+					dirty = true; // back to the list, cursor where it was
+					continue;
+				}
+			}
+
+			*any_out = !same_game;
+			snprintf(ip_out, ip_size, "%s", pick->host_ip);
 			close(udp_fd);
 			return 0;
 		}
@@ -1298,7 +1400,8 @@ static int wiz_client_sync(const WizArgs* a, WizSession* s, int fd, WizLineReade
 // One connected control channel, start to finish. fd stays owned by the caller.
 // 0 = rendezvous complete, 1 = drop this host (message drawn; the WiFi client
 // goes back to its list), -1 = fatal (message drawn), -2 = cancelled.
-static int wiz_client_session(const WizArgs* a, WizSession* s, int fd, const char* host_ip) {
+static int wiz_client_session(const WizArgs* a, WizSession* s, int fd, const char* host_ip,
+							  bool any_game) {
 	WizLineReader reader;
 	char line[WIZ_NET_LINE_MAX];
 	char escaped[WIZ_NET_TOKEN_MAX];
@@ -1311,7 +1414,8 @@ static int wiz_client_session(const WizArgs* a, WizSession* s, int fd, const cha
 	wiz_reader_init(&reader, fd);
 	wiz_esc_spaces(a->game, escaped, sizeof(escaped));
 
-	if (wiz_send_line(fd, "HELLO %d %s client", WIZ_PROTO_VERSION, escaped) != 0) {
+	if (wiz_send_line(fd, any_game ? "HELLO %d %s client " WIZ_NET_ANY_GAME : "HELLO %d %s client",
+					  WIZ_PROTO_VERSION, escaped) != 0) {
 		wiz_net_error("Connection failed.\n\nPlease try again.");
 		return 1;
 	}
@@ -1331,18 +1435,21 @@ static int wiz_client_session(const WizArgs* a, WizSession* s, int fd, const cha
 	}
 
 	int assigned = 0;
-	if (wiz_parse_hello(line, &version, game, sizeof(game), role, sizeof(role), &assigned) != 0) {
+	if (wiz_parse_hello(line, &version, game, sizeof(game), role, sizeof(role), &assigned, NULL) != 0) {
 		wiz_net_error("That device is not waiting\nfor a netplay player.");
 		return 1;
 	}
 
 	wiz_unesc_spaces(game);
 
-	const char* mismatch = wiz_hello_mismatch(version, game, role, a->game, "host");
+	const char* mismatch = wiz_hello_mismatch(version, game, role, a->game, "host", any_game);
 	if (mismatch) {
 		wiz_net_error(wiz_reject_message(mismatch));
 		return 1;
 	}
+	if (any_game && !wiz_names_equivalent(game, a->game))
+		fprintf(stderr, "netplay: joining host %s on '%s' with our '%s' on request\n",
+				host_ip, game, a->game);
 
 	s->player_num = (assigned >= 1) ? assigned : 2; // older host omits it -> 2-player
 
@@ -1415,13 +1522,64 @@ static int wiz_client_session(const WizArgs* a, WizSession* s, int fd, const cha
 	return 0;
 }
 
+// Hotspot has no host list, but the host broadcasts on the AP subnet exactly
+// as it does on WiFi, so one short listen gives the joiner the host's title
+// before it connects — enough to run the same different-title prompt as the
+// list does. Silence (the host could not open its broadcast socket, a lossy
+// first second) is not an error: the join proceeds under the plain name gate,
+// which is what it did before. 0 = proceed (any_out set), -2 = cancelled.
+static int wiz_client_hotspot_peek(const WizArgs* a, bool* any_out) {
+	NET_HostInfo hosts[WIZ_NET_MAX_HOSTS];
+	int host_count = 0;
+	int found = -1;
+
+	*any_out = false;
+
+	int udp_fd = NET_createDiscoveryListenSocket(WIZ_UDP_PORT);
+	if (udp_fd < 0)
+		return 0;
+
+	uint32_t start = SDL_GetTicks();
+	while (found < 0 && SDL_GetTicks() - start < WIZ_NET_HOTSPOT_PEEK_MS) {
+		GFX_startFrame();
+		PAD_poll();
+		if (PAD_justPressed(BTN_B) || app_quit) {
+			close(udp_fd);
+			return -2;
+		}
+		NET_receiveDiscoveryResponses(udp_fd, WIZ_MAGIC, hosts, &host_count, WIZ_NET_MAX_HOSTS);
+		for (int i = 0; i < host_count && found < 0; i++)
+			if (strcmp(hosts[i].link_mode, WIZ_NET_LINK_MODE) == 0)
+				found = i;
+		GFX_sync();
+	}
+	close(udp_fd);
+
+	if (found < 0 || wiz_game_matches_broadcast(hosts[found].game_name, a->game))
+		return 0;
+
+	char title[NET_MAX_GAME_NAME];
+	snprintf(title, sizeof(title), "%s", hosts[found].game_name);
+	wiz_unesc_spaces(title);
+
+	// B here is the hotspot's cancel: there is no list to fall back to.
+	if (wiz_client_confirm_other_game(title, a->game) != 1)
+		return -2;
+	*any_out = true;
+	return 0;
+}
+
 // Hotspot arm: one known address, no list to go back to.
 static int wiz_client_hotspot(const WizArgs* a, WizSession* s) {
+	bool any_game = false;
+
 	// The association is seconds old — ARP and the default route may not be in
 	// place yet, and the first SYN into that gap reads to the user as a refused
 	// connection. One ping settles it. It blocks for up to 2 s, so put the
 	// screen up first rather than leaving wizard_wifi.c's last frame on show.
 	wiz_net_status("Connecting to host...");
+	if (wiz_client_hotspot_peek(a, &any_game) == -2)
+		return -2;
 	system("ping -c 1 -W 2 " WIFI_DIRECT_HOTSPOT_IP " >/dev/null 2>&1");
 
 	for (int attempt = 1; attempt <= WIZ_NET_CONNECT_ATTEMPTS; attempt++) {
@@ -1440,7 +1598,7 @@ static int wiz_client_hotspot(const WizArgs* a, WizSession* s) {
 			return -2;
 
 		if (rc == 0) {
-			int src = wiz_client_session(a, s, fd, WIFI_DIRECT_HOTSPOT_IP);
+			int src = wiz_client_session(a, s, fd, WIFI_DIRECT_HOTSPOT_IP, any_game);
 			close(fd);
 
 			if (src == 0)
@@ -1468,9 +1626,10 @@ int wiz_client_rendezvous(const WizArgs* a, WizSession* s) {
 	while (1) {
 		char host_ip[16] = {0};
 		char status[64];
+		bool any_game = false;
 		int fd = -1;
 
-		int rc = wiz_client_pick_host(a, host_ip, sizeof(host_ip));
+		int rc = wiz_client_pick_host(a, host_ip, sizeof(host_ip), &any_game);
 		if (rc != 0)
 			return rc;
 
@@ -1484,7 +1643,7 @@ int wiz_client_rendezvous(const WizArgs* a, WizSession* s) {
 			continue;
 		}
 
-		int src = wiz_client_session(a, s, fd, host_ip);
+		int src = wiz_client_session(a, s, fd, host_ip, any_game);
 		close(fd);
 
 		if (src == 0)
