@@ -99,7 +99,7 @@ typedef struct {
 	char installed[64]; // "" = not installed, else the installed release tag
 	char done_msg[128]; // optional: install-success subtitle override, for
 						// entries whose payload doesn't land in the default
-						// category folder (e.g. psp installs to Emus/, not
+						// category folder (e.g. psp installs to Emus/<plat>/, not
 						// Tools/, so "Find it in Tools." would mislead)
 	char platforms[64]; // meta.txt "platforms=" verbatim ("" = compatible everywhere)
 	bool compatible;	// computed in catalog_load via xtras_platform_compatible

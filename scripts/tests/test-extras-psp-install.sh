@@ -24,7 +24,7 @@ trap 'rm -rf "$TMP"' EXIT
 # ---- fixtures ---------------------------------------------------------
 # Fake upstream PSP.pak.zip: flat layout (launch.sh/PPSSPP/bin at the
 # archive root, no wrapper dir), with upstream's platform-hardcoded
-# launch.sh so the "patched at install" assertion below is meaningful.
+# launch.sh so the "installed verbatim" assertion below is meaningful.
 FIX="$TMP/fix"
 mkdir -p "$FIX/PPSSPP/.config/ppsspp/PSP/SYSTEM" "$FIX/bin"
 cat > "$FIX/launch.sh" <<'EOF'
@@ -36,6 +36,7 @@ echo 'ppsspp-tg5040-v1' > "$FIX/PPSSPP/PPSSPPSDL_tg5040"
 echo 'ppsspp-tg5050-v1' > "$FIX/PPSSPP/PPSSPPSDL_tg5050"
 echo 'stock-ini'        > "$FIX/PPSSPP/.config/ppsspp/PSP/SYSTEM/ppsspp.ini"
 echo 'power-control'    > "$FIX/bin/minui-power-control"
+echo 'setalpha'         > "$FIX/bin/setalpha"
 echo '{}'               > "$FIX/pak.json"
 (cd "$FIX" && zip -qr "$TMP/pak.zip" launch.sh PPSSPP bin pak.json)
 
@@ -132,8 +133,8 @@ run_uninstall() {
   bash "$ENTRY/uninstall.sh"
 }
 
-PAK="$SD/Emus/PSP.pak"
-OLD="$SD/Emus/tg5050/PSP.pak"
+PAK="$SD/Emus/tg5050/PSP.pak"   # upstream's own Emus/$PLATFORM/ layout
+OLD="$SD/Emus/PSP.pak"          # legacy flat location (installs before 2026-09-16)
 INI="PPSSPP/.config/ppsspp/PSP/SYSTEM/ppsspp.ini"
 VER="$SD/.userdata/shared/xtras/psp.version"
 
@@ -160,17 +161,24 @@ else fail "fresh install exited non-zero: $(tail -3 "$TMP/log1.txt")"; fi
 [ -f "$PAK/PPSSPP/PPSSPPSDL_tg5050" ] && pass "emulator payload extracted"  || fail "emulator payload missing"
 [ -f "$PAK/bin/minui-power-control" ] && pass "bin/ payload extracted"      || fail "bin/ payload missing"
 [ -f "$PAK/$INI" ]                    && pass "stock config extracted"      || fail "stock config missing"
-# The whole point of the entry: the pak lands at the FLAT Emus/ location
-# and its launch.sh is the location-independent catalog copy, not
-# upstream's platform-hardcoded one.
-cmp -s "$PAK/launch.sh" "$ENTRY/launch.sh" \
-  && pass "launch.sh replaced with the catalog copy" || fail "launch.sh is not the catalog copy"
-! grep -q 'Emus/\$PLATFORM/\$PAK_NAME' "$PAK/launch.sh" \
-  && pass "installed launch.sh has no platform-hardcoded path" || fail "platform-hardcoded path survived in launch.sh"
+# The whole point of the layout (2026-09-16): the pak lands in upstream's
+# own Emus/$PLATFORM/ location and its launch.sh is upstream's, byte for
+# byte. Our earlier flat-location install swapped in a catalog copy of
+# launch.sh, which silently fell behind upstream (minui-psp 6.x added the
+# Brick "setalpha 0" display fix; our copy lacked it -> black screen).
+# The catalog must ship NO launch.sh at all, so nothing can drift again.
+cmp -s "$PAK/launch.sh" "$FIX/launch.sh" \
+  && pass "launch.sh installed verbatim from upstream" || fail "launch.sh differs from upstream's"
+grep -q 'Emus/\$PLATFORM/\$PAK_NAME' "$PAK/launch.sh" \
+  && pass "installed launch.sh is upstream's platform-path one" || fail "upstream's platform-path launch.sh was altered"
+[ ! -e "$ENTRY/launch.sh" ] && [ ! -e "$ROOT/skeleton/SYSTEM/tg5040/paks/Tools/Xtras.pak/catalog/psp/launch.sh" ] \
+  && pass "catalog ships no launch.sh override" || fail "a catalog launch.sh override still exists"
 [ -x "$PAK/launch.sh" ] && [ -x "$PAK/PPSSPP/PPSSPPSDL_tg5050" ] \
   && pass "exec bits set on launcher and binary" || fail "exec bits missing"
-[ ! -d "$SD/Emus/tg5050" ] \
-  && pass "no platform subfolder created" || fail "a platform subfolder was created"
+[ -x "$PAK/bin/setalpha" ] \
+  && pass "exec bit set on bin/setalpha" || fail "exec bit missing on bin/setalpha"
+[ ! -e "$OLD" ] \
+  && pass "nothing written to the legacy flat location" || fail "legacy flat location was written"
 [ -d "$SD/Roms/Sony Playstation Portable (PSP)" ] \
   && pass "PSP Roms folder created" || fail "PSP Roms folder missing"
 [ "$(cat "$VER" 2>/dev/null)" = "9.9.9" ] \
@@ -182,9 +190,11 @@ grep -q '@70 ' "$TMP/log1.txt" \
 grep -q 'Latest release: 9.9.9' "$TMP/log1.txt" \
   && pass "resolved release announced in output" || fail "no resolved-release line in output"
 
-# ---- 2. migration: old Emus/$PLATFORM/PSP.pak is absorbed --------------
-# 2a. fresh install (no flat pak yet) + old platform install with user
-# config -> config carried over, old copy and its platform dir removed.
+# ---- 2. migration: legacy flat Emus/PSP.pak is absorbed -----------------
+# nextui probes the FLAT location first, so a leftover flat copy would
+# shadow the new install - migration must remove it.
+# 2a. fresh install (no platform pak yet) + old flat install with user
+# config -> config carried over, old flat copy removed.
 rm -rf "$SD/Emus" "$SD/Roms/Xtra Games (EXTRAS)"
 mkdir -p "$OLD/PPSSPP/.config/ppsspp/PSP/SYSTEM" "$OLD/PPSSPP/.config/ppsspp/PSP/TEXTURES"
 echo 'user-tweaked-ini' > "$OLD/$INI"
@@ -197,22 +207,34 @@ else fail "migration install exited non-zero: $(tail -3 "$TMP/log2a.txt")"; fi
 [ -f "$PAK/PPSSPP/.config/ppsspp/PSP/TEXTURES/pack.zip" ] \
   && pass "migration: texture pack carried over" || fail "migration: texture pack lost"
 [ ! -d "$OLD" ] \
-  && pass "migration: old platform install removed" || fail "migration: old platform install still present"
-[ ! -d "$SD/Emus/tg5050" ] \
-  && pass "migration: empty platform folder removed" || fail "migration: empty platform folder left behind"
+  && pass "migration: old flat install removed" || fail "migration: old flat install still present"
+[ -x "$PAK/launch.sh" ] \
+  && pass "migration: pak now at the platform location" || fail "migration: pak missing from the platform location"
 
-# 2b. platform folder holding ANOTHER pak too -> only PSP.pak removed, the
-# folder (and its other pak) stays.
+# 2b. Emus/ holding ANOTHER user pak too -> only the flat PSP.pak goes.
 rm -rf "$SD/Emus" "$SD/Roms/Xtra Games (EXTRAS)"
-mkdir -p "$OLD" "$SD/Emus/tg5050/N64.pak"
+mkdir -p "$OLD" "$SD/Emus/N64.pak"
 echo 'old' > "$OLD/launch.sh"
-echo 'n64' > "$SD/Emus/tg5050/N64.pak/launch.sh"
+echo 'n64' > "$SD/Emus/N64.pak/launch.sh"
 if run_install > "$TMP/log2b.txt" 2>&1; then pass "migration (other paks present) exits 0"
 else fail "migration (other paks present) exited non-zero: $(tail -3 "$TMP/log2b.txt")"; fi
 [ ! -d "$OLD" ] \
-  && pass "migration: PSP.pak removed from shared platform folder" || fail "migration: old PSP.pak still present"
-[ -f "$SD/Emus/tg5050/N64.pak/launch.sh" ] \
+  && pass "migration: flat PSP.pak removed" || fail "migration: old flat PSP.pak still present"
+[ -f "$SD/Emus/N64.pak/launch.sh" ] \
   && pass "migration: unrelated pak left alone" || fail "migration: unrelated pak damaged"
+
+# 2c. a hand-installed community pak already at the platform location is
+# simply upgraded in place, keeping its config.
+rm -rf "$SD/Emus" "$SD/Roms/Xtra Games (EXTRAS)"
+mkdir -p "$PAK/PPSSPP/.config/ppsspp/PSP/SYSTEM"
+echo 'hand-installed-ini' > "$PAK/$INI"
+echo 'hand-launcher'      > "$PAK/launch.sh"
+if run_install > "$TMP/log2c.txt" 2>&1; then pass "upgrade of hand-installed pak exits 0"
+else fail "upgrade of hand-installed pak exited non-zero: $(tail -3 "$TMP/log2c.txt")"; fi
+[ "$(cat "$PAK/$INI" 2>/dev/null)" = "hand-installed-ini" ] \
+  && pass "upgrade in place: config kept" || fail "upgrade in place: config clobbered"
+cmp -s "$PAK/launch.sh" "$FIX/launch.sh" \
+  && pass "upgrade in place: launch.sh refreshed from upstream" || fail "upgrade in place: launch.sh not refreshed"
 
 # ---- 3. reinstall preserves user config --------------------------------
 echo 'user-edited-ini' > "$PAK/$INI"
@@ -232,7 +254,7 @@ else fail "reinstall exited non-zero: $(tail -3 "$TMP/log3.txt")"; fi
 
 # ---- 4. bad API data aborts before touching the install ----------------
 # 4a. digest mismatch (corrupted download or tampered API response)
-rm -rf "$SD/Emus/PSP.pak" "$SD/Roms/Xtra Games (EXTRAS)" "$SD/.userdata/shared/xtras"
+rm -rf "$SD/Emus" "$SD/Roms/Xtra Games (EXTRAS)" "$SD/.userdata/shared/xtras"
 if FIX_DIGEST="deadbeef" run_install > "$TMP/log4.txt" 2>&1; then
   fail "digest mismatch did not abort"
 else pass "digest mismatch aborts"; fi
@@ -279,7 +301,7 @@ rm -f "$SD/.userdata/shared/xtras"
 if run_install > "$TMP/log6-setup.txt" 2>&1; then pass "setup: uninstall-test baseline install exits 0"
 else fail "setup: uninstall-test baseline install exited non-zero: $(tail -3 "$TMP/log6-setup.txt")"; fi
 # Simulate what play sessions create: saves OUTSIDE the pak (bind-mount
-# target), user config inside it, plus a lingering legacy platform copy.
+# target), user config inside it, plus a lingering legacy flat copy.
 mkdir -p "$SD/Saves/PSP" "$SD/Roms/Sony Playstation Portable (PSP)" "$OLD"
 echo 'save-data' > "$SD/Saves/PSP/game.sav"
 echo 'my-game'   > "$SD/Roms/Sony Playstation Portable (PSP)/game.iso"
@@ -292,7 +314,7 @@ else fail "uninstall exited non-zero: $(tail -3 "$TMP/log6.txt")"; fi
 [ ! -e "$VER" ]                           && pass "uninstall: version record removed" || fail "uninstall: version record still present"
 [ ! -e "$PAK/PPSSPP/PPSSPPSDL_tg5050" ]   && pass "uninstall: emulator binaries removed" || fail "uninstall: emulator binaries still present"
 [ ! -d "$PAK/bin" ]                       && pass "uninstall: bin/ removed"           || fail "uninstall: bin/ still present"
-[ ! -d "$OLD" ]                           && pass "uninstall: legacy platform copy removed" || fail "uninstall: legacy platform copy still present"
+[ ! -d "$OLD" ]                           && pass "uninstall: legacy flat copy removed" || fail "uninstall: legacy flat copy still present"
 [ "$(cat "$PAK/$INI" 2>/dev/null)" = "user-ini" ] \
   && pass "uninstall: user config kept"    || fail "uninstall: user config lost"
 [ "$(cat "$SD/Saves/PSP/game.sav" 2>/dev/null)" = "save-data" ] \
@@ -319,6 +341,18 @@ if run_uninstall > "$TMP/log6c.txt" 2>&1; then pass "uninstall (no user config) 
 else fail "uninstall (no user config) exited non-zero: $(tail -3 "$TMP/log6c.txt")"; fi
 [ ! -d "$PAK" ] \
   && pass "uninstall: config-less pak removed entirely" || fail "uninstall: empty pak shell left behind"
+[ ! -d "$SD/Emus/tg5050" ] \
+  && pass "uninstall: empty platform folder removed" || fail "uninstall: empty platform folder left behind"
+
+# ...but a platform folder holding another pak stays.
+mkdir -p "$PAK/bin" "$SD/Emus/tg5050/N64.pak"
+echo 'x'   > "$PAK/launch.sh"
+echo 'n64' > "$SD/Emus/tg5050/N64.pak/launch.sh"
+if run_uninstall > "$TMP/log6d.txt" 2>&1; then pass "uninstall (sibling pak) exits 0"
+else fail "uninstall (sibling pak) exited non-zero: $(tail -3 "$TMP/log6d.txt")"; fi
+[ ! -d "$PAK" ] && [ -f "$SD/Emus/tg5050/N64.pak/launch.sh" ] \
+  && pass "uninstall: sibling pak and its platform folder kept" || fail "uninstall: sibling pak damaged"
+rm -rf "$SD/Emus/tg5050/N64.pak"
 
 # ---- 7. reinstall after uninstall fully restores the entry --------------
 if run_install > "$TMP/log7.txt" 2>&1; then pass "reinstall after uninstall exits 0"

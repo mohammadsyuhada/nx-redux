@@ -7,18 +7,19 @@
 # network command must carry a timeout (the caller streams our stdout via a
 # blocking popen()/fgets() read loop with no watchdog of its own).
 #
-# Install location: $SDCARD_PATH/Emus/PSP.pak - the FLAT location, not
-# upstream's Emus/$PLATFORM/PSP.pak community-pak convention. nextui's
-# getEmuPath()/hasEmu() (common/utils.c, nextui/content.c) check the flat
-# location before the platform subfolder, and one platform-neutral install
-# serves every device since the payload ships both PPSSPPSDL_tg5040 and
-# PPSSPPSDL_tg5050 (launch.sh picks by $PLATFORM at runtime). Upstream's
-# launch.sh is the only piece that hardcodes the platform subfolder, so it
-# is replaced at install time with $CATALOG_DIR/launch.sh (same script, one
-# change - see its header). Any pre-existing Emus/$PLATFORM/PSP.pak install
-# is migrated: on a fresh install its PPSSPP config tree (settings,
-# textures, cheat toggles) is carried over, then the old copy is removed so
-# exactly one PSP.pak remains.
+# Install location: $SDCARD_PATH/Emus/$PLATFORM/PSP.pak - upstream's own
+# community-pak convention, which nextui's getEmuPath()/hasEmu()
+# (common/utils.c, nextui/content.c) resolve as a fallback after the flat
+# Emus/PSP.pak location. The payload is installed VERBATIM, launch.sh
+# included: upstream's launch.sh hardcodes that platform path, and shipping
+# our own copy (the pre-2026-09-16 flat-location design) meant re-syncing
+# it by hand on every upstream release - which silently didn't happen when
+# minui-psp 6.x added the Brick "setalpha 0" display fix, leaving Brick
+# users with a black screen. Nothing in this catalog entry overrides any
+# upstream file any more. A legacy flat Emus/PSP.pak install from that
+# earlier design is migrated: on a fresh install its PPSSPP config tree
+# (settings, textures, cheat toggles) is carried over, then the flat copy is
+# removed - it MUST go, since nextui would otherwise pick it first.
 set -u
 
 # Latest-install model (2026-08-10 spec): the release to install is resolved
@@ -36,8 +37,8 @@ PSP_ASSET="PSP.pak.zip"
 : "${NX_EXTRAS_UNZIP:=$SDCARD_PATH/.system/shared/bin/7zzs.aarch64}"
 
 TMPDIR_NX="$SDCARD_PATH/.extras_tmp"
-TARGET="$SDCARD_PATH/Emus/PSP.pak"
-OLD_PAK="$SDCARD_PATH/Emus/$PLATFORM/PSP.pak"
+TARGET="$SDCARD_PATH/Emus/$PLATFORM/PSP.pak"
+OLD_PAK="$SDCARD_PATH/Emus/PSP.pak" # legacy flat install (before 2026-09-16)
 # Installed-version record (read by extras.elf's update check). The caller
 # passes XTRAS_STATE_DIR; the fallback mirrors its device value for a bare
 # environment.
@@ -147,23 +148,18 @@ mkdir -p "$TMPDIR_NX/pak"
 extract "$TMPDIR_NX/pak.zip" "$TMPDIR_NX/pak" || fail "could not extract pak zip"
 rm -f "$TMPDIR_NX/pak.zip" # free ~31 MB before the copy below doubles the payload
 # The zip is flat (launch.sh/PPSSPP/bin/ at the archive root, no PSP.pak/
-# wrapper directory) - verified against the 5.1.0 release asset.
+# wrapper directory) - verified against the 5.1.0 and 6.2.0 release assets.
 [ -f "$TMPDIR_NX/pak/launch.sh" ] && [ -d "$TMPDIR_NX/pak/PPSSPP" ] || fail "unexpected zip layout"
 
-# Swap in the location-independent launch.sh BEFORE anything lands in
-# $TARGET, so no intermediate state ever has the platform-hardcoded one.
-[ -f "$CATALOG_DIR/launch.sh" ] || fail "catalog launch.sh missing"
-cp "$CATALOG_DIR/launch.sh" "$TMPDIR_NX/pak/launch.sh" || fail "could not patch launch.sh"
-
 echo "@80 Installing..."
-echo "Installing to Emus/PSP.pak..."
+echo "Installing to Emus/$PLATFORM/PSP.pak..."
 # Reinstall/update: keep the user's live PPSSPP config tree (in-emulator
 # settings, texture packs, cheat toggles) rather than clobbering it with
 # the payload's pristine copy - drop .config from the payload instead.
 # (Payload-side .config updates, e.g. a newer cheat.db, don't apply on
 # reinstall; acceptable for keeping every user setting.) FRESH_CONFIG also
 # gates the migration below: only a target WITHOUT its own config adopts
-# the old platform-folder install's one.
+# the legacy flat install's one.
 FRESH_CONFIG=1
 if [ -d "$TARGET/PPSSPP/.config" ]; then
     FRESH_CONFIG=0
@@ -173,22 +169,20 @@ mkdir -p "$TARGET"
 TARGET_DIRTY=1
 cp -R "$TMPDIR_NX/pak/." "$TARGET/" || fail "copy into install target failed"
 # busybox unzip/7zzs don't reliably carry zip exec bits
-chmod +x "$TARGET/launch.sh" "$TARGET/PPSSPP/PPSSPPSDL_"* "$TARGET/bin/minui-power-control" 2>/dev/null || true
+chmod +x "$TARGET/launch.sh" "$TARGET/PPSSPP/PPSSPPSDL_"* "$TARGET/bin/minui-power-control" "$TARGET/bin/setalpha" 2>/dev/null || true
 
-# Migration: remove any pre-existing community install at the platform-
-# subfolder location so exactly one PSP.pak remains (saves already live
-# outside the pak - launch.sh bind-mounts Saves/PSP and the shared
-# savestate dir - so only the config tree needs carrying over).
+# Migration: remove any legacy flat Emus/PSP.pak so exactly one PSP.pak
+# remains and nextui resolves the new one (saves already live outside the
+# pak - launch.sh bind-mounts Saves/PSP and the shared savestate dir - so
+# only the config tree needs carrying over).
 if [ -d "$OLD_PAK" ]; then
-    echo "Migrating old Emus/$PLATFORM/PSP.pak..."
+    echo "Migrating old Emus/PSP.pak..."
     if [ "$FRESH_CONFIG" = "1" ] && [ -d "$OLD_PAK/PPSSPP/.config" ]; then
         echo "  keeping its PPSSPP settings/textures/cheats"
         rm -rf "$TARGET/PPSSPP/.config"
         cp -R "$OLD_PAK/PPSSPP/.config" "$TARGET/PPSSPP/.config" || fail "could not carry over old PPSSPP config"
     fi
     rm -rf "$OLD_PAK"
-    # clear the platform folder too if this was the only pak in it
-    rmdir "$SDCARD_PATH/Emus/$PLATFORM" 2>/dev/null || true
     echo "  old install removed"
 fi
 
