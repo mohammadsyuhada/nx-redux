@@ -398,18 +398,26 @@ ListItemBadgedPos UI_renderListItemPillBadged(
 // Settings Page Component
 // ============================================
 
-void UI_renderSettingsPage(SDL_Surface* screen, ListLayout* layout,
-						   UISettingsItem* items, int count,
-						   int selected, int* scroll,
-						   const char* status_msg) {
+void UI_renderSettingsPageEx(SDL_Surface* screen, ListLayout* layout,
+							 UISettingsItem* items, int count,
+							 int selected, int* scroll,
+							 const char* status_msg, int desc_rows) {
 	if (count == 0)
 		return;
 
 	int hw = screen->w;
 
 	int total_rows = SETTINGS_ROW_COUNT;
+	// Rows held below the list for the selected item's description. A page
+	// with no descriptions passes fewer to fit more items; keep at least one
+	// so the bottom scroll arrow (and the top quarter-row inset) still clear
+	// the last row.
+	if (desc_rows < 1)
+		desc_rows = 1;
+	if (desc_rows > total_rows - 1)
+		desc_rows = total_rows - 1;
 	layout->item_h = layout->list_h / total_rows;
-	layout->items_per_page = total_rows - 2;
+	layout->items_per_page = total_rows - desc_rows;
 	// Quarter-row top inset (was half): the reclaimed space goes to the
 	// description area below the list, which fits two lines instead of one.
 	int y_offset = layout->item_h / 4;
@@ -511,6 +519,15 @@ void UI_renderSettingsPage(SDL_Surface* screen, ListLayout* layout,
 	}
 }
 
+// Default: reserve two rows for the (up to two-line) description area.
+void UI_renderSettingsPage(SDL_Surface* screen, ListLayout* layout,
+						   UISettingsItem* items, int count,
+						   int selected, int* scroll,
+						   const char* status_msg) {
+	UI_renderSettingsPageEx(screen, layout, items, count, selected, scroll,
+							status_msg, 2);
+}
+
 // ============================================
 // Settings Row Rendering
 // ============================================
@@ -523,14 +540,33 @@ int UI_renderSettingsRow(SDL_Surface* screen, ListLayout* layout,
 	int hw = screen->w;
 	TTF_Font* f = font.small;
 
-	// Measure label
-	int text_w, text_h;
-	GFX_measureText(f, label, &text_w, &text_h);
-	int label_pill_width = text_w + SCALE1(SETTINGS_ROW_PADDING * 2);
-
 	int pill_h = layout->item_h;
 	int text_x = SCALE1(PADDING) + SCALE1(SETTINGS_ROW_PADDING);
 	int text_y = y + (pill_h - TTF_FontHeight(f)) / 2;
+
+	// The row blits the label whole and right-aligns the value, so a long
+	// label would otherwise run under the value column. Fit the label into
+	// the space to the left of the value (short labels are unchanged; a long
+	// one gets an ellipsis). See the note in emu-options/options.c.
+	int val_reserve = 0;
+	if (value) {
+		int val_w = 0;
+		GFX_measureText(font.tiny, value, &val_w, NULL);
+		val_reserve = val_w + SCALE1(SETTINGS_ROW_PADDING); // value width + gap
+		if (swatch_color >= 0)
+			val_reserve += SCALE1(FONT_TINY) + SCALE1(4);
+	}
+	int label_max_w = hw - SCALE1(PADDING) - SCALE1(SETTINGS_ROW_PADDING) - text_x - val_reserve;
+	if (label_max_w < 0)
+		label_max_w = 0;
+	char label_buf[512];
+	GFX_truncateText(f, label, label_buf, label_max_w, 0);
+	label = label_buf;
+
+	// Measure label (already fitted to label_max_w above)
+	int text_w, text_h;
+	GFX_measureText(f, label, &text_w, &text_h);
+	int label_pill_width = text_w + SCALE1(SETTINGS_ROW_PADDING * 2);
 
 	if (selected) {
 		SDL_Color selected_text_color = UI_getListTextColor(1);

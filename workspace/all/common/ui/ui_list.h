@@ -121,13 +121,21 @@ typedef struct {
 	void* custom_draw_ctx;
 } UISettingsItem;
 
-// Render a compact settings page (9 rows: 8 items + 1 description)
-// Handles layout calculation, scrolling, item rendering, scroll indicators,
-// status message, and description text.
+// Render a compact settings page. Handles layout calculation, scrolling, item
+// rendering, scroll indicators, status message, and description text.
+// Reserves two rows below the list for the selected item's description.
 void UI_renderSettingsPage(SDL_Surface* screen, ListLayout* layout,
 						   UISettingsItem* items, int count,
 						   int selected, int* scroll,
 						   const char* status_msg);
+
+// As above, but `desc_rows` sets how many rows are reserved for the
+// description area (clamped to at least 1). A page with no per-item
+// descriptions passes 1 to fit one more item.
+void UI_renderSettingsPageEx(SDL_Surface* screen, ListLayout* layout,
+							 UISettingsItem* items, int count,
+							 int selected, int* scroll,
+							 const char* status_msg, int desc_rows);
 
 // ---- Settings Row Rendering ----
 

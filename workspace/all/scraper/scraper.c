@@ -82,11 +82,13 @@ typedef struct {
 } SystemEntry;
 
 typedef struct {
-	char filename[256]; // ROM filename (basename; folder games: the .cue/.m3u)
-	char path[512];		// Full path to ROM file
-	char label[256];	// Display name, relative to the system folder
-	char art_png[512];	// Mix image path (nextui ROM_mediaArtPath convention)
-	bool has_artwork;	// Whether art_png exists
+	char filename[256];	 // ROM filename (basename; folder games: the .cue/.m3u)
+	char path[512];		 // Full path to ROM file
+	char label[256];	 // Display name, relative to the system folder
+	char art_png[512];	 // Mix image path (nextui ROM_mediaArtPath convention)
+	bool has_artwork;	 // Whether the mix image (art_png) exists
+	bool has_screenshot; // Whether the .media/screenshot/ variant exists
+	bool has_boxart;	 // Whether the .media/boxart/ variant exists
 } ROMEntry;
 
 typedef enum {
@@ -141,6 +143,7 @@ static SystemEntry systems[MAX_SYSTEMS];
 static int system_count = 0;
 static ListView systems_view;
 static char systems_badge_buf[64];
+static char systems_label_buf[340]; // "<name> (<tag>)" for the current row
 
 static ROMEntry roms[MAX_ROMS];
 static int rom_count = 0;
@@ -183,10 +186,19 @@ static void extractDisplayName(const char* dirname, char* name_out, int name_siz
 		if (len > 0 && len < name_size) {
 			strncpy(name_out, dirname, len);
 			name_out[len] = '\0';
-			return;
+		} else {
+			snprintf(name_out, name_size, "%s", dirname);
 		}
+	} else {
+		snprintf(name_out, name_size, "%s", dirname);
 	}
-	snprintf(name_out, name_size, "%s", dirname);
+
+	// Drop the numeric sort prefix nextui folders use ("1) Game Boy" ->
+	// "Game Boy"), the same way the main menu title does (trimSortingMeta).
+	char* trimmed = name_out;
+	trimSortingMeta(&trimmed);
+	if (trimmed != name_out)
+		memmove(name_out, trimmed, strlen(trimmed) + 1);
 }
 
 typedef struct {
@@ -273,6 +285,108 @@ static int romCompare(const void* a, const void* b) {
 	return strcasecmp(((const ROMEntry*)a)->label, ((const ROMEntry*)b)->label);
 }
 
+// ---- map.txt display aliases (nextui "Rename Rom") ----------------------
+// nextui shows a game's map.txt alias in place of its filename. The alias
+// lives in <entry's parent dir>/map.txt keyed by the basename nextui lists:
+// the filename (with extension) for a flat game, the folder name for a
+// folder game. Scan_walk emits a directory's games together, so a single-slot
+// cache reads each map.txt at most a handful of times per scan.
+
+typedef struct {
+	char* key;
+	char* val;
+} MapAlias;
+
+static char map_cache_dir[512] = "";
+static MapAlias* map_cache = NULL;
+static int map_cache_count = 0;
+
+static void mapCacheFree(void) {
+	for (int i = 0; i < map_cache_count; i++) {
+		free(map_cache[i].key);
+		free(map_cache[i].val);
+	}
+	free(map_cache);
+	map_cache = NULL;
+	map_cache_count = 0;
+	map_cache_dir[0] = '\0';
+}
+
+// Load <dir>/map.txt into the cache (no-op if <dir> is already cached, even
+// when it had no map.txt — the empty result is cached too).
+static void mapCacheLoad(const char* dir) {
+	if (strcmp(dir, map_cache_dir) == 0)
+		return;
+	mapCacheFree();
+	snprintf(map_cache_dir, sizeof(map_cache_dir), "%s", dir);
+
+	char path[600];
+	snprintf(path, sizeof(path), "%s/map.txt", dir);
+	FILE* f = fopen(path, "r");
+	if (!f)
+		return;
+
+	int cap = 0;
+	char line[MAX_PATH];
+	while (fgets(line, sizeof(line), f)) {
+		char* nl = strpbrk(line, "\r\n");
+		if (nl)
+			*nl = '\0';
+		char* tab = strchr(line, '\t');
+		if (!tab)
+			continue;
+		*tab = '\0';
+		if (line[0] == '\0')
+			continue;
+		if (map_cache_count == cap) {
+			int ncap = cap ? cap * 2 : 64;
+			MapAlias* grown = realloc(map_cache, ncap * sizeof(*grown));
+			if (!grown)
+				break;
+			map_cache = grown;
+			cap = ncap;
+		}
+		map_cache[map_cache_count].key = strdup(line);
+		map_cache[map_cache_count].val = strdup(tab + 1);
+		map_cache_count++;
+	}
+	fclose(f);
+}
+
+static const char* mapAliasFor(const char* dir, const char* key) {
+	mapCacheLoad(dir);
+	for (int i = 0; i < map_cache_count; i++)
+		if (strcmp(map_cache[i].key, key) == 0)
+			return map_cache[i].val;
+	return NULL;
+}
+
+// Fill dir + key with the parent directory and basename nextui uses to alias
+// this game in a map.txt (see mapAliasFor).
+static void mapKeyForGame(const ScanGame* g, char* dir, size_t dir_size,
+						  char* key, size_t key_size) {
+	if (g->folder_game) {
+		// g->path is <parent>/<folder>/<folder>.cue; the listed entry is the
+		// folder, so key on the folder name and look in <parent>/map.txt.
+		char folder[SCAN_PATH_MAX];
+		snprintf(folder, sizeof(folder), "%s", g->path);
+		char* slash = strrchr(folder, '/');
+		if (slash)
+			*slash = '\0'; // -> <parent>/<folder>
+		slash = strrchr(folder, '/');
+		snprintf(key, key_size, "%s", slash ? slash + 1 : folder);
+		if (slash)
+			*slash = '\0'; // -> <parent>
+		snprintf(dir, dir_size, "%s", folder);
+	} else {
+		snprintf(key, key_size, "%s", g->filename);
+		snprintf(dir, dir_size, "%s", g->path);
+		char* slash = strrchr(dir, '/');
+		if (slash)
+			*slash = '\0'; // -> parent dir of the ROM file
+	}
+}
+
 static bool scan_rom_cb(const ScanGame* g, void* ud) {
 	(void)ud;
 	if (rom_count >= MAX_ROMS)
@@ -280,9 +394,23 @@ static bool scan_rom_cb(const ScanGame* g, void* ud) {
 	ROMEntry* rom = &roms[rom_count++];
 	snprintf(rom->filename, sizeof(rom->filename), "%s", g->filename);
 	snprintf(rom->path, sizeof(rom->path), "%s", g->path);
-	snprintf(rom->label, sizeof(rom->label), "%s", g->label);
+	// Show the map.txt alias (nextui "Rename Rom") when the game has one,
+	// otherwise the filename-derived label — matching the main game list.
+	char map_dir[SCAN_PATH_MAX], map_key[SCAN_NAME_MAX];
+	mapKeyForGame(g, map_dir, sizeof(map_dir), map_key, sizeof(map_key));
+	const char* alias = mapAliasFor(map_dir, map_key);
+	snprintf(rom->label, sizeof(rom->label), "%s", (alias && alias[0]) ? alias : g->label);
 	snprintf(rom->art_png, sizeof(rom->art_png), "%s", g->art_png);
 	rom->has_artwork = exists(rom->art_png);
+	// The scraper stores three images per game (mix + screenshot + boxart);
+	// the single-image variants live under .media/<variant>/ and are only
+	// written when ScreenScraper actually had that image, so a game with a
+	// mix can still be missing one of them.
+	char variant[512];
+	Scraper_variantPath(rom->art_png, "screenshot", variant, sizeof(variant));
+	rom->has_screenshot = exists(variant);
+	Scraper_variantPath(rom->art_png, "boxart", variant, sizeof(variant));
+	rom->has_boxart = exists(variant);
 	return true;
 }
 
@@ -291,6 +419,7 @@ static void scanROMs(SystemEntry* sys) {
 	rom_selected = 0;
 	rom_scroll = 0;
 	Scan_walk(sys->path, scan_rom_cb, NULL);
+	mapCacheFree(); // release the last directory's map.txt
 	qsort(roms, rom_count, sizeof(ROMEntry), romCompare);
 }
 
@@ -608,8 +737,17 @@ static const char* scrapeStatusText(ScrapeStatus status) {
 }
 
 static const char* romStatusLabel(ROMEntry* rom) {
-	if (rom->has_artwork)
-		return "Done";
+	if (rom->has_artwork) {
+		// Complete only when all three stored images are present; otherwise
+		// name which one is missing so it is clear what a re-scrape would add.
+		if (rom->has_screenshot && rom->has_boxart)
+			return "Done";
+		if (!rom->has_screenshot && !rom->has_boxart)
+			return "Mix only";
+		if (!rom->has_screenshot)
+			return "No screenshot";
+		return "No box art";
+	}
 	if (!isROMQueued(rom->path))
 		return NULL;
 	// A queued ROM always has one of the ScrapeStatus values that
@@ -663,7 +801,15 @@ static void systems_get_row(void* ctx, int i, bool selected, ListViewRow* out) {
 	(void)ctx;
 	(void)selected;
 	SystemEntry* sys = &systems[i];
-	out->label = sys->name;
+	// Show "Game Boy (GB)": the display name (sort prefix already stripped in
+	// extractDisplayName) with the emulator tag kept, so the console is
+	// identifiable without the numeric sort prefix.
+	if (sys->tag[0])
+		snprintf(systems_label_buf, sizeof(systems_label_buf), "%s (%s)",
+				 sys->name, sys->tag);
+	else
+		snprintf(systems_label_buf, sizeof(systems_label_buf), "%s", sys->name);
+	out->label = systems_label_buf;
 	if (sys->supported)
 		snprintf(systems_badge_buf, sizeof(systems_badge_buf), "%d/%d",
 				 sys->scraped_count, sys->rom_count);
@@ -729,7 +875,9 @@ static void renderROMList(void) {
 		};
 	}
 
-	UI_renderSettingsPage(screen, &layout, items, rom_count, rom_selected, &rom_scroll, NULL);
+	// ROM rows carry no description, so reserve only one row below the list
+	// and show one more game (8 instead of 7 on the Brick).
+	UI_renderSettingsPageEx(screen, &layout, items, rom_count, rom_selected, &rom_scroll, NULL, 1);
 	UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "Y", "QUEUE ALL", "A", "QUEUE", NULL});
 	GFX_flip(screen);
 }
@@ -964,9 +1112,14 @@ static int run_headless_scan(void) {
 		if (!sys->supported)
 			continue;
 		scanROMs(sys);
-		for (int r = 0; r < rom_count; r++)
-			printf("game\t%s\t%s\t%s\t%s\n", sys->tag, roms[r].label,
-				   roms[r].has_artwork ? "art" : "none", roms[r].path);
+		for (int r = 0; r < rom_count; r++) {
+			// Trailing column reports variant completeness (issue 4): the same
+			// wording the game list shows, or "-" when nothing is scraped yet.
+			const char* completeness = romStatusLabel(&roms[r]);
+			printf("game\t%s\t%s\t%s\t%s\t%s\n", sys->tag, roms[r].label,
+				   roms[r].has_artwork ? "art" : "none", roms[r].path,
+				   completeness ? completeness : "-");
+		}
 	}
 	return 0;
 }
