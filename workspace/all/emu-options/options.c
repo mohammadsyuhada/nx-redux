@@ -20,9 +20,10 @@
  *       --minarch-game switches to the full-snapshot per-game file. Mutually
  *       exclusive with --ini/--override.
  *
- *   options.elf --pick --entry NAME PATH [--entry NAME PATH ...]
+ *   options.elf --pick [--title TEXT] --entry NAME PATH [--entry NAME PATH ...]
  *       Emulator picker. Prints the chosen PATH on stdout and nothing else,
- *       exit 0; exit 1 when the user backs out.
+ *       exit 0; exit 1 when the user backs out. --title sets the menu heading
+ *       (default "Emulator Settings").
  *
  * Exit codes: 0 save-and-exit (or a picked entry), 1 picker cancelled / config
  * could not be loaded, 2 usage error.
@@ -245,7 +246,7 @@ static void stdout_restore(int saved) {
 
 // Returns 0 with *out_path pointing into argv when an entry was chosen,
 // 1 when the user backed out, 2 when there was nothing to pick.
-static int run_picker(int argc, char** argv, const char** out_path) {
+static int run_picker(int argc, char** argv, const char* title, const char** out_path) {
 	const char* names[MAX_PICK_ENTRIES];
 	const char* paths[MAX_PICK_ENTRIES];
 	int count = 0;
@@ -308,7 +309,7 @@ static int run_picker(int argc, char** argv, const char** out_path) {
 		}
 
 		if (dirty) {
-			render_list("Emulator Settings", names, count, selected, &scroll,
+			render_list(title ? title : "Emulator Settings", names, count, selected, &scroll,
 						(char*[]){"A", "SELECT", "B", "BACK", NULL});
 			dirty = false;
 		} else {
@@ -650,6 +651,7 @@ int main(int argc, char* argv[]) {
 	const char* minarch_game = NULL;
 	const char* minarch_system = NULL;
 	const char* minarch_default = NULL;
+	const char* pick_title = NULL;
 	bool pick = false;
 	int entry_count = 0;
 
@@ -675,6 +677,8 @@ int main(int argc, char* argv[]) {
 			minarch_system = argv[++i];
 		} else if (strcmp(arg, "--minarch-default") == 0 && has_value) {
 			minarch_default = argv[++i];
+		} else if (strcmp(arg, "--title") == 0 && has_value) {
+			pick_title = argv[++i];
 		} else if (strcmp(arg, "--entry") == 0 && i + 2 < argc) {
 			entry_count++;
 			i += 2; // run_picker re-walks argv for these
@@ -723,7 +727,7 @@ int main(int argc, char* argv[]) {
 	const char* picked_path = NULL;
 
 	if (pick) {
-		exit_code = run_picker(argc, argv, &picked_path);
+		exit_code = run_picker(argc, argv, pick_title, &picked_path);
 	} else if (minarch_dir) {
 		if (emu_ovl_cfg_load(&cfg, json_path) != 0) {
 			fprintf(stderr, "options: failed to load schema %s\n", json_path);
