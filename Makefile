@@ -117,7 +117,7 @@ package-macos: # macOS desktop bundle (arm64, unsigned); needs brew deps + gmake
 	# launch.sh). Same recipe as nextui/minarch above; gametime/gametimectl's
 	# libgametimedb.h dep is already satisfied by the explicit rebuild just
 	# above (their Makefiles no-op it).
-	for t in settings emu-options ratools scraper sync extras cheatdb gametime gametimectl netplay-wizard; do \
+	for t in settings emu-options ratools scraper sync extras gametime gametimectl netplay-wizard; do \
 		(cd workspace/all/$$t && $(MAKE) PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin BUILD_SUBDIR=$(DESKTOP_BUILD_SUBDIR)) || exit 1; \
 	done
 	# Build every core in the desktop cores Makefile's CORES list. Incremental:
