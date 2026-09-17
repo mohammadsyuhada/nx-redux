@@ -114,5 +114,23 @@ else fail "reinstall exited non-zero: $(tail -3 "$TMP/log2.txt")"; fi
 [ -f "$GBA/MyHomebrew.cht" ] \
   && pass "reinstall still preserves hand-made cheat" || fail "reinstall clobbered hand-made cheat"
 
+# ---- 3. uninstall removes only pack files, keeps hand-made --------------
+if run_uninstall > "$TMP/log3.txt" 2>&1; then pass "uninstall exits 0"
+else fail "uninstall exited non-zero: $(tail -3 "$TMP/log3.txt")"; fi
+[ ! -e "$GBA/Advance Wars (USA, Europe) (Code Breaker).cht" ] \
+  && pass "uninstall removed pack GBA file" || fail "pack GBA file still present"
+[ ! -e "$MD/Sonic The Hedgehog (USA, Europe).cht" ] \
+  && pass "uninstall removed pack MD file" || fail "pack MD file still present"
+[ -f "$GBA/MyHomebrew.cht" ] && [ "$(cat "$GBA/MyHomebrew.cht")" = "user cheat" ] \
+  && pass "uninstall kept hand-made cheat" || fail "uninstall removed hand-made cheat"
+[ ! -e "$MAN" ] && pass "uninstall removed manifest" || fail "manifest still present"
+[ ! -e "$VER" ] && pass "uninstall removed version record" || fail "version record still present"
+[ ! -d "$MD" ] && pass "empty pack-only dir removed" || fail "empty MD dir left behind"
+[ -d "$GBA" ] && pass "dir with hand-made cheat kept" || fail "GBA dir wrongly removed"
+grep -q '@100 ' "$TMP/log3.txt" \
+  && pass "uninstall emits @NN progress hints" || fail "no @NN progress hint in uninstall"
+if run_uninstall > "$TMP/log3b.txt" 2>&1; then pass "uninstall second run exits 0 (idempotent)"
+else fail "uninstall second run exited non-zero"; fi
+
 say ""
 if [ "$FAILS" -eq 0 ]; then say "ALL PASS"; exit 0; else say "$FAILS FAILURE(S)"; exit 1; fi
