@@ -13,12 +13,15 @@ USERDATA_DIR="$SDCARD_PATH/.userdata/$PLATFORM"
 
 fail() { echo "ERROR: $1"; exit 1; }
 
-[ -f "$CATALOG_DIR/pak/launch.sh" ] || fail "catalog pak payload missing (launch.sh)"
+for f in launch.sh cheatdb.elf; do
+    [ -f "$CATALOG_DIR/pak/$f" ] || fail "catalog pak payload missing ($f)"
+done
 
 echo "@40 Installing Cheat Database tool..."
 mkdir -p "$TOOLS_PAK" || fail "cannot create the Cheat Database pak"
 cp -f "$CATALOG_DIR/pak/launch.sh" "$TOOLS_PAK/launch.sh" || fail "could not copy the pak launcher"
-chmod +x "$TOOLS_PAK/launch.sh" 2>/dev/null || true
+cp -f "$CATALOG_DIR/pak/cheatdb.elf" "$TOOLS_PAK/cheatdb.elf" || fail "could not copy the pak app"
+chmod +x "$TOOLS_PAK/launch.sh" "$TOOLS_PAK/cheatdb.elf" 2>/dev/null || true
 
 echo "@90 Refreshing tools list..."
 rm -f "$USERDATA_DIR/emulist_cache.txt" "$USERDATA_DIR/romindex_cache.txt"

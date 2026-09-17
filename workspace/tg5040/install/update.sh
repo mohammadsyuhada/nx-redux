@@ -148,8 +148,9 @@ CD_TOOLS="$SDCARD_PATH/Tools/Cheat Database.pak"
 CD_MARK="$SDCARD_PATH/.userdata/shared/xtras/cheatdb.version"
 if [ -d "$CD_CATALOG/pak" ] && [ -f "$CD_MARK" ]; then
 	if [ -d "$CD_TOOLS" ] || mkdir -p "$CD_TOOLS" 2>/dev/null; then
-		cp -f "$CD_CATALOG/pak/launch.sh" "$CD_TOOLS/launch.sh" 2>/dev/null \
-			&& chmod +x "$CD_TOOLS/launch.sh" 2>/dev/null \
+		cp -f "$CD_CATALOG/pak/launch.sh" "$CD_TOOLS/launch.sh" 2>/dev/null
+		cp -f "$CD_CATALOG/pak/cheatdb.elf" "$CD_TOOLS/cheatdb.elf" 2>/dev/null
+		chmod +x "$CD_TOOLS/launch.sh" "$CD_TOOLS/cheatdb.elf" 2>/dev/null \
 			&& echo "refreshed $CD_TOOLS from the Xtras catalog"
 	fi
 	CD_VER="$(sed -n 's/^version=//p' "$CD_CATALOG/meta.txt" 2>/dev/null | head -1 | tr -d '\r')"
