@@ -28,10 +28,21 @@ while [ \$# -gt 0 ]; do case "\$1" in --spider) spider=1;; -O) out="\$2"; shift;
 if [ "\$spider" = 1 ]; then echo "  Last-Modified: \${LASTMOD:-Mon, 14 Sep 2026 18:05:15 GMT}" >&2; exit 0; fi
 [ -n "\$out" ] && cp "$TMP/cheats.zip" "\$out"
 SHIM
-# options.elf shim: prints \$PICK once, then empty (so the loop ends).
+# options.elf shim: pops one line from PICKFILE per call.
+#   --pick  -> print that line as the chosen token (empty = user backed out).
+#   --empty -> exit 0 when the popped line is "download" (A), else exit 1 (B).
 cat > "$BIN/options.elf" <<'SHIM'
 #!/usr/bin/env bash
-if [ -f "$PICKFILE" ] && [ -s "$PICKFILE" ]; then head -1 "$PICKFILE"; sed -i.bak '1d' "$PICKFILE" && rm -f "$PICKFILE.bak"; fi
+empty=0
+for a in "$@"; do [ "$a" = "--empty" ] && empty=1; done
+line=""
+if [ -f "$PICKFILE" ] && [ -s "$PICKFILE" ]; then
+  line="$(head -1 "$PICKFILE")"; sed -i.bak '1d' "$PICKFILE" && rm -f "$PICKFILE.bak"
+fi
+if [ "$empty" = 1 ]; then
+  [ "$line" = "download" ] && exit 0 || exit 1
+fi
+printf '%s\n' "$line"
 SHIM
 cat > "$BIN/show2.elf" <<'SHIM'
 #!/usr/bin/env bash

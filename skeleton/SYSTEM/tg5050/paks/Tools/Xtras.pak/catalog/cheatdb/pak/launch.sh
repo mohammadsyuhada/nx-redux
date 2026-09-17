@@ -178,18 +178,28 @@ do_remove() {
 
 # --- menu loop -------------------------------------------------------------
 while :; do
-    set --
     if db_installed; then
-        set -- "$@" --entry "Check for updates" update --entry "Remove cheat database" remove
+        # Installed: a normal list of actions.
+        CHOSEN="$(options.elf --pick --title "Cheat Database" \
+            --entry "Check for updates" update \
+            --entry "Remove cheat database" remove \
+            2>>"$LOGS_PATH/cheatdb.txt")" || break
+        [ -n "$CHOSEN" ] || break
+        case "$CHOSEN" in
+            update) do_update ;;
+            remove) do_remove ;;
+        esac
     else
-        set -- "$@" --entry "Download cheat database" download
+        # Not installed yet: an empty state instead of a one-row menu.
+        # A (Download) -> fetch; B (Exit) -> leave.
+        if options.elf --empty --title "Cheat Database" \
+            --message "No cheat database installed" \
+            --subtitle "Download it to add cheats for your games." \
+            --action "Download" 2>>"$LOGS_PATH/cheatdb.txt"; then
+            do_download
+        else
+            break
+        fi
     fi
-    CHOSEN="$(options.elf --pick --title "Cheat Database" "$@" 2>>"$LOGS_PATH/cheatdb.txt")" || break
-    [ -n "$CHOSEN" ] || break
-    case "$CHOSEN" in
-        download) do_download ;;
-        update)   do_update ;;
-        remove)   do_remove ;;
-    esac
 done
 exit 0

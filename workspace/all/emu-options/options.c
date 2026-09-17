@@ -25,6 +25,10 @@
  *       exit 0; exit 1 when the user backs out. --title sets the menu heading
  *       (default "Emulator Settings").
  *
+ *   options.elf --empty [--title TEXT] --message TEXT [--subtitle TEXT] [--action LABEL]
+ *       Empty-state screen (centered message + A/B prompt, no list). Exit 0
+ *       when A (the action) is pressed, exit 1 when B (exit). Prints nothing.
+ *
  * Exit codes: 0 save-and-exit (or a picked entry), 1 picker cancelled / config
  * could not be loaded, 2 usage error.
  */
@@ -44,6 +48,7 @@
 #include "opts_minarch.h"
 #include "opts_override.h"
 #include "ui_buttonhintbar.h"
+#include "ui_emptystate.h"
 #include "ui_list.h"
 #include "ui_menubar.h"
 #include "ui_message.h"
@@ -242,6 +247,42 @@ static void stdout_restore(int saved) {
 	fflush(stdout);
 	dup2(saved, STDOUT_FILENO);
 	close(saved);
+}
+
+// Empty-state screen (no list): the shared centered icon + message + optional
+// subtitle, with a centered A/B prompt. Returns 0 when A (the action) is
+// pressed, 1 when B (exit). Used by callers like the Cheat Database pak that
+// want an empty state instead of a one-row menu when nothing is installed yet.
+static int run_empty(const char* title, const char* message,
+					 const char* subtitle, const char* action) {
+	char* btns[] = {"A", (char*)(action ? action : "OK"), "B", "EXIT", NULL};
+	bool dirty = true;
+	IndicatorType show_setting = INDICATOR_NONE;
+
+	while (1) {
+		GFX_startFrame();
+		PAD_poll();
+		PWR_update(&dirty, &show_setting, NULL, NULL);
+
+		if (UI_statusBarChanged())
+			dirty = true;
+
+		if (PAD_justPressed(BTN_A))
+			return 0;
+		if (PAD_justPressed(BTN_B))
+			return 1;
+
+		if (dirty) {
+			GFX_clear(screen);
+			if (title && title[0])
+				UI_renderMenuBar(screen, title);
+			UI_renderEmptyStateButtons(screen, message, subtitle, btns);
+			GFX_flip(screen);
+			dirty = false;
+		} else {
+			GFX_sync();
+		}
+	}
 }
 
 // Returns 0 with *out_path pointing into argv when an entry was chosen,
@@ -652,7 +693,11 @@ int main(int argc, char* argv[]) {
 	const char* minarch_system = NULL;
 	const char* minarch_default = NULL;
 	const char* pick_title = NULL;
+	const char* message = NULL;
+	const char* subtitle = NULL;
+	const char* action = NULL;
 	bool pick = false;
+	bool empty = false;
 	int entry_count = 0;
 
 	for (int i = 1; i < argc; i++) {
@@ -679,6 +724,14 @@ int main(int argc, char* argv[]) {
 			minarch_default = argv[++i];
 		} else if (strcmp(arg, "--title") == 0 && has_value) {
 			pick_title = argv[++i];
+		} else if (strcmp(arg, "--empty") == 0) {
+			empty = true;
+		} else if (strcmp(arg, "--message") == 0 && has_value) {
+			message = argv[++i];
+		} else if (strcmp(arg, "--subtitle") == 0 && has_value) {
+			subtitle = argv[++i];
+		} else if (strcmp(arg, "--action") == 0 && has_value) {
+			action = argv[++i];
 		} else if (strcmp(arg, "--entry") == 0 && i + 2 < argc) {
 			entry_count++;
 			i += 2; // run_picker re-walks argv for these
@@ -694,11 +747,15 @@ int main(int argc, char* argv[]) {
 		fprintf(stderr, "options: --pick needs at least one '--entry NAME PATH'\n");
 		return 2;
 	}
-	if (!pick && minarch_dir && (ini_path || override_path)) {
+	if (empty && !message) {
+		fprintf(stderr, "options: --empty needs '--message TEXT'\n");
+		return 2;
+	}
+	if (!pick && !empty && minarch_dir && (ini_path || override_path)) {
 		fprintf(stderr, "options: --minarch-dir is exclusive with --ini/--override\n");
 		return 2;
 	}
-	if (!pick && !minarch_dir && (!json_path || !ini_path)) {
+	if (!pick && !empty && !minarch_dir && (!json_path || !ini_path)) {
 		fprintf(stderr, "options: --json and --ini are required\n");
 		return 2;
 	}
@@ -728,6 +785,8 @@ int main(int argc, char* argv[]) {
 
 	if (pick) {
 		exit_code = run_picker(argc, argv, pick_title, &picked_path);
+	} else if (empty) {
+		exit_code = run_empty(pick_title, message, subtitle, action);
 	} else if (minarch_dir) {
 		if (emu_ovl_cfg_load(&cfg, json_path) != 0) {
 			fprintf(stderr, "options: failed to load schema %s\n", json_path);
