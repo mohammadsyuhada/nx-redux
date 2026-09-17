@@ -33,6 +33,11 @@ void OptsCache_refreshVars(const struct retro_variable* vars) {
 static const char* dump_out = NULL;
 static char dump_emu[256] = "core";
 static int dump_wrote = 0;
+// System dir handed to the core for GET_SYSTEM_DIRECTORY. Cores such as PUAE
+// build option value lists (Kickstart ROM, cartridges) by scanning this dir at
+// registration time, so it must be the real BIOS dir, not /tmp. Save dir stays
+// /tmp: no game is loaded, and nothing should write into the BIOS dir here.
+static const char* dump_system_dir = "/tmp";
 
 static void dump_log(enum retro_log_level level, const char* fmt, ...) {
 	(void)level;
@@ -87,6 +92,9 @@ static bool dump_env(unsigned cmd, void* data) {
 		return true;
 	}
 	case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY:
+		if (data)
+			*(const char**)data = dump_system_dir;
+		return true;
 	case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
 		if (data)
 			*(const char**)data = "/tmp";
@@ -100,8 +108,9 @@ static bool dump_env(unsigned cmd, void* data) {
 	}
 }
 
-int OptsDump_run(const char* core_path, const char* out_json_path) {
+int OptsDump_run(const char* core_path, const char* out_json_path, const char* system_dir) {
 	dump_out = out_json_path;
+	dump_system_dir = (system_dir && *system_dir) ? system_dir : "/tmp";
 	void* handle = dlopen(core_path, RTLD_LAZY);
 	if (!handle) {
 		fprintf(stderr, "dump-options: dlopen failed for %s: %s\n", core_path, dlerror());

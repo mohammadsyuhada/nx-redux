@@ -234,8 +234,8 @@ void hdmimon(void) {
 
 int main(int argc, char* argv[]) {
 	PATHS_init(PLATFORM);
-	if (argc == 4 && !strcmp(argv[1], "--dump-options"))
-		return OptsDump_run(argv[2], argv[3]);
+	if (argc >= 4 && argc <= 5 && !strcmp(argv[1], "--dump-options"))
+		return OptsDump_run(argv[2], argv[3], argc == 5 ? argv[4] : NULL);
 
 	pthread_t cpucheckthread;
 	pthread_attr_t attr;

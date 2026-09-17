@@ -36,11 +36,16 @@ sections on `gliden64` and the Rice sections on `rice`.
 
 minarch core options are registered by the core at runtime, so their editor
 schema is generated, not hand-written: `minarch.elf --dump-options
-<core.so> <out.json>` loads the core without a game and serializes its
-option definitions (`ma_opts_schema.c`); a launch-time hook refreshes the
-same cache (write-if-changed) whenever a core registers options during real
-play. `options.sh` regenerates the cache when it is missing or older than
-the core `.so`.
+<core.so> <out.json> [system_dir]` loads the core without a game and
+serializes its option definitions (`ma_opts_schema.c`); a launch-time hook
+refreshes the same cache (write-if-changed) whenever a core registers options
+during real play. `system_dir` is the core's BIOS dir (`Bios/<tag>`), which
+`options.sh` passes so cores that build option value lists by scanning
+`system` at registration time (e.g. PUAE's Kickstart ROM / cartridge lists)
+see the real ROMs instead of an empty `/tmp`; it falls back to `/tmp` when
+omitted. `options.sh` regenerates the cache when it is missing, older than
+the core `.so`, or older than the BIOS dir (so ROMs added to `Bios/<tag>`
+after the first dump refresh the schema).
 
 ## Gotchas (permanent behavior, not bugs)
 

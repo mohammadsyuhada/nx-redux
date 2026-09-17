@@ -17,13 +17,18 @@ CORE_BASE="$(basename "$CORE")"
 CORE_NAME="${CORE_BASE%_*}"
 CONFIG_DIR="$USERDATA_PATH/$EMU_TAG-$CORE_NAME"
 CACHE="$CONFIG_DIR/options.json"
+BIOS_DIR="$SDCARD_PATH/Bios/$EMU_TAG"
 mkdir -p "$CONFIG_DIR"
 
-# Schema cache: regenerate when missing or older than the core .so. A failed
-# dump leaves any existing (stale) cache usable; with no cache at all
-# options.elf shows its "Settings unavailable" message.
-if [ ! -f "$CACHE" ] || [ "$CORE" -nt "$CACHE" ]; then
-    minarch.elf --dump-options "$CORE" "$CACHE" >> "$LOGS_PATH/emu-options.txt" 2>&1
+# Schema cache: regenerate when missing, older than the core .so, or older than
+# the BIOS dir. The BIOS-dir check lets cores that build option lists by
+# scanning 'system' (e.g. PUAE's Kickstart ROM list) pick up ROMs added after
+# the cache was written. BIOS_DIR is passed to the dump so the core scans the
+# real dir instead of /tmp. A failed dump leaves any existing (stale) cache
+# usable; with no cache at all options.elf shows its "Settings unavailable"
+# message.
+if [ ! -f "$CACHE" ] || [ "$CORE" -nt "$CACHE" ] || { [ -d "$BIOS_DIR" ] && [ "$BIOS_DIR" -nt "$CACHE" ]; }; then
+    minarch.elf --dump-options "$CORE" "$CACHE" "$BIOS_DIR" >> "$LOGS_PATH/emu-options.txt" 2>&1
 fi
 
 # Read-only lower layers, device variant preferred (mirrors Config_load,
