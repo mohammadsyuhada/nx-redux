@@ -577,7 +577,7 @@ int OptionCheats_openMenu(MenuList* list, int i) {
 		char cheats_path[CHEAT_MAX_LIST_LENGTH] = {0};
 
 		// prepend title with bounds checking
-		const char* title = "No cheat file loaded.\n\n";
+		const char* title = "No cheat file loaded.\nGet cheats from Xtras > Cheat Database.\n\n";
 		size_t title_len = strlen(title);
 
 		strcpy(cheats_path, title); // Use strcpy for first string

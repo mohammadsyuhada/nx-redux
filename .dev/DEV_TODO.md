@@ -151,3 +151,115 @@ as one window in place. Low risk, desktop-only, covers nextui/minarch/all tools 
 once (all go through generic_video.c). ~90% of the feel for a fraction of the effort.
 
 ---
+
+## Convert libretro cheats to DraStic (DS) format for the standalone emulator
+
+**Recorded:** 2026-09-17 (user request), as a follow-up to the Cheat Database feature
+(PR #108, branch `worktree-cheat-database`). Spike done this session; feasibility
+confirmed; **no code written**. Scope deliberately narrowed to **DS only** — see the
+N64/DC note at the bottom for why they're out.
+
+**Why this is needed.** The Cheat Database already downloads libretro's `cheats.zip`
+and drops per-system `.cht` files flat into `Cheats/<TAG>/`. For libretro cores,
+minarch reads that format directly. But three of the mapped tags (`NDS`, `N64`, `DC`)
+are served by **standalone** emulators, not libretro cores, and DraStic (DS) cannot
+read libretro's `.cht` wrapper — so the DS files we deliver today are inert. This
+entry adds the format conversion so DraStic actually sees them.
+
+**The DS plumbing already exists.** `skeleton/SYSTEM/{tg5040,tg5050}/paks/Emus/NDS.pak/launch.sh`
+bind-mounts `$SDCARD_PATH/Cheats/NDS` into DraStic's own `cheats/` dir, and
+`.../NDS.pak/devices/*/config/drastic.cfg` ships `enable_cheats = 1`. The cheat DB
+already populates `Cheats/NDS` from the libretro folder "Nintendo - Nintendo DS"
+(map in `workspace/all/cheatdb/cheatdb_data.c:20`). The **only** gap is file format.
+
+**The conversion is mechanical — same Action Replay codes, different wrapper:**
+
+- libretro side (one INI-ish file per game, many cheats):
+  ```
+  cheats = N
+  cheat0_desc = "Anti-Piracy Bypass Code"
+  cheat0_code = "0204E334+E3A00000+0204E338+E12FFF1E"
+  cheat0_enable = false
+  ```
+  Inside `cheatN_code`, individual 8-hex-digit words are joined by `+`
+  (verified against a real libretro NDS file — see Sources).
+- DraStic side (`<ROM name>.cht`, one file per game):
+  ```
+  [Anti-Piracy Bypass Code]
+  0204E334 E3A00000
+  0204E338 E12FFF1E
+  ```
+
+- Transform per cheat: strip quotes off `desc`/`code`; split `code` on `+`; flatten
+  to a list of 8-hex-digit words (be robust: also split on whitespace, so a token
+  that already reads `AAAAAAAA VVVVVVVV` still works); regroup two words per line as
+  `WORD1 WORD2`. Emit the header `[desc]`, appending a trailing `+` **only** when
+  `cheatN_enable = true` (the `+` = "active by default" in DraStic; the libretro DB
+  mostly ships `enable = false`, so cheats land **off** and the user toggles them in
+  DraStic's "Configure Cheats" menu). Pass codes through verbatim otherwise.
+
+**The one real caveat — filename keying (matters, discussed with the user).** DraStic
+matches a cheat file to a game by **exact filename** minus extension
+(`Mario Kart DS (USA).nds` ↔ `Mario Kart DS (USA).cht`), no fuzzy logic of its own,
+and the DB ships files under **No-Intro** names. Consequences:
+- NX Redux's in-launcher **"Rename Rom" is alias-only** (writes `map.txt`, never
+  touches the file on disk; DraStic never reads `map.txt`) — so that kind of rename
+  does **not** break matching. This is fine.
+- A **physically renamed file** (e.g. renamed over USB to `Mario Kart DS.nds`) will
+  **not** find cheats under v1, because the DB only has `Mario Kart DS (USA).cht`.
+- Most DS sets are No-Intro-named, so the v1 match rate is high in practice.
+
+### v1 — extract-time, in-place (recommended first)
+
+Simple, host-testable, covers the common (No-Intro-named) case. Breaks only on
+physically-renamed files.
+
+- [ ] Add a **pure** converter to `workspace/all/cheatdb/cheatdb_data.c`
+      (e.g. `Cheatdb_convertNdsCheat(const char *libretro_text, char *out, size_t cap)`
+      or a file-to-file variant), mirroring the existing pure data layer.
+- [ ] Host test it in `scripts/tests/test-cheatdb-data.sh` (feed a known libretro
+      block, assert exact DraStic output incl. the `+`-header enable mapping and
+      word-pairing).
+- [ ] In the download/extract loop (`workspace/all/cheatdb/cheatdb.c` `do_download`,
+      which calls `Cheatdb_extractFolder` + `Cheatdb_appendManifest` per system),
+      **special-case the `NDS` tag**: after extracting, rewrite each `.cht` in
+      `Cheats/NDS` from libretro to DraStic format.
+- [ ] Make the rewrite **exFAT-safe**: drive the filename list from the **archive
+      index** (the same source `Cheatdb_appendManifest` uses — `7zzs l` / `unzip -l`),
+      never a live `readdir` of the just-written dir. Opening each known path to
+      read+rewrite is fine; *listing* the fresh dir is the hazard (stale entries —
+      this is the exact race that broke the original installer, fixed in c286b9af).
+- [ ] Leave every other tag byte-for-byte unchanged (minarch's libretro path must not
+      change). Nothing but DraStic reads `Cheats/NDS`, so converting in place is safe.
+- [ ] Idempotent: "Check for updates" re-extracts and re-converts — converting an
+      already-libretro file each time is fine; guard against double-converting an
+      already-DraStic file if the loop could ever re-see one.
+
+### v2 — launch-time, fuzzy-matched (only if physical renames matter)
+
+Survives any rename. More moving parts; layer on later if v1's match rate proves
+insufficient.
+
+- [ ] Keep the libretro NDS **source** files in a staging dir (NOT `Cheats/NDS`,
+      which DraStic reads and can't parse as libretro).
+- [ ] At DS launch (`NDS.pak/launch.sh`), for the exact ROM being launched, pick the
+      best-matching source via the existing ranker in
+      `workspace/all/minarch/ma_cheat_match.c` (strips region tags, ranks
+      `Mario Kart DS` → `Mario Kart DS (USA)`), convert it, and write
+      `Cheats/NDS/<exact ROM basename>.cht`.
+
+**N64 / DC — explicitly out of scope (verified this session).** Neither pak exposes
+cheats at all, so conversion alone wouldn't help — each needs a whole cheat-exposure
+feature built first:
+- `N64.pak` (mupen64plus): the binary supports `--cheats` + a **CRC-keyed**
+  `mupencheat.txt`, but `launch.sh` never passes the flag and there's no per-cheat
+  toggle UI. Cheats key on ROM CRC, not filename.
+- `DC.pak` (flycast): flycast has a cheat manager, but only inside its own GUI;
+  `launch.sh` boots straight into the ROM with no cheat config, so it's unreachable.
+
+**Sources:**
+[DraStic cheat readme (Gamestarter)](https://github.com/bite-your-idols/Gamestarter/blob/master/repository.gamestarter/game.drastic/drastic/drastic_readme.txt),
+[DraStic cheat guide](https://drastic-ds.com/viewtopic.php?f=7&t=288),
+[libretro-database NDS cht](https://github.com/libretro/libretro-database/tree/master/cht/Nintendo%20-%20Nintendo%20DS).
+
+---

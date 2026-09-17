@@ -17,8 +17,8 @@
 #   - Xbox pad map while pugwash runs (its XBOX FIXER assumes it), the
 #     user's Button layout setting restored afterwards
 #   - post-run: fix installed port scripts, apply patchedScripts/, recreate
-#     busybox wrappers, resync the Xtras version marker, sync cover art to
-#     .media/, drop the launcher's list caches
+#     busybox wrappers, sync cover art to .media/, drop the launcher's list
+#     caches
 # Busybox sh + busybox/GNU sed only. Runs with the pak env from
 # MinUI.pak/launch.sh (SDCARD_PATH, SYSTEM_PATH, LOGS_PATH, ...).
 
@@ -224,16 +224,6 @@ create_busybox_wrappers() {
     touch busybox_wrappers.done) 2>/dev/null
 }
 
-sync_xtras_version_marker() {
-    # Xtras flags "Update Available" from .userdata/shared/xtras/
-    # portmaster.version; a pugwash self-update changes the runtime's own
-    # version file without touching that marker. Resync after every run.
-    tag="$(head -n 1 "$PM_DIR/version" 2>/dev/null | tr -d '\r\n' | cut -d' ' -f1)"
-    [ -n "$tag" ] || return 0
-    mkdir -p "$XTRAS_STATE_DIR"
-    echo "$tag" > "$XTRAS_STATE_DIR/portmaster.version"
-}
-
 sync_port_artwork() {
     # cover/screenshot from .ports/<port>/ -> .media/<script-basename>.png
     ports="$PORTS_ROM_DIR/.ports"
@@ -304,7 +294,6 @@ set_controller_layout "$NX_BUTTON_LAYOUT"
 fix_port_scripts
 apply_patched_scripts
 create_busybox_wrappers
-sync_xtras_version_marker
 sync_port_artwork
 rm -f "$USERDATA_PATH/emulist_cache.txt" "$USERDATA_PATH/romindex_cache.txt"
 exit 0

@@ -203,6 +203,7 @@ ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
 
 	# Xtras catalog pak
 	cp ./workspace/all/extras/build/$(PLATFORM)/extras.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Xtras.pak/
+	cp ./workspace/all/cheatdb/build/$(PLATFORM)/cheatdb.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Xtras.pak/catalog/cheatdb/pak/
 
 	# Dreamcast netplay pre-launch wizard (run bare off PATH by DC.pak/launch.sh);
 	# gated here, not with the other SYSTEM bin copies, because it is only built

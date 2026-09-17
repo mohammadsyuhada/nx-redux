@@ -315,9 +315,6 @@ mkdir -p "$SDCARD_PATH/Roms/Ports (PORTS)"
 # The Ports console and the new Tools pak must show up without a reboot.
 rm -f "$USERDATA_DIR/emulist_cache.txt" "$USERDATA_DIR/romindex_cache.txt"
 
-mkdir -p "$XTRAS_STATE_DIR" || fail "cannot create version state dir"
-printf '%s\n' "$RL_TAG" > "$XTRAS_STATE_DIR/portmaster.version" || fail "could not write version record"
-
 rm -rf "$TMPDIR_NX"
 echo "@100 Done"
 echo "Done. Open PortMaster from Tools to browse ports."
