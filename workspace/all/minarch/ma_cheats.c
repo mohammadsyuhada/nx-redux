@@ -253,6 +253,7 @@ void Cheats_free() {
 static const char* game_display_for_cheats(void) {
 	static char disp[MAX_PATH];
 	getDisplayName(game.alt_name, disp);
+	getAlias(game.path, disp);
 	return disp;
 }
 
@@ -407,10 +408,11 @@ bool Cheats_load() {
 						char src[64] = {0};
 						if (nsel > 1)
 							CheatMatch_sourceLabel(bases[sel[s]], src, sizeof(src));
-						if (!cheats_append(&one, src)) {
+						if (cheats_append(&one, src)) {
+							success = 1;
+						} else {
 							Cheats_free_one(&one);
 						}
-						success = 1;
 					}
 				}
 			}

@@ -6,7 +6,7 @@
 # contract); exit code is the verdict; every network command carries a timeout
 # (the caller streams stdout via a blocking popen()/fgets() loop with no
 # watchdog). The runner exports SDCARD_PATH/PLATFORM/LOGS_PATH/XTRAS_STATE_DIR/
-# CATALOG_DIR/NX_EXTRAS_UNZIP; CHEATS_PATH is NOT exported, so derive it.
+# CATALOG_DIR; CHEATS_PATH is NOT exported, so derive it.
 #
 # What it does: download cheats.zip, then for each (TAG -> libretro folder) in
 # the map, extract that folder's *.cht FLAT into Cheats/<TAG>/, recording every
