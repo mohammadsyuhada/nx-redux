@@ -2,7 +2,9 @@
 #include "utils.h"
 #include "config.h"
 #include "ma_cheats.h"
+#include "ma_cheat_match.h"
 #include <glob.h>
+#include <libgen.h>
 #include <string.h>
 #include <errno.h>
 #include "ma_menu.h"
@@ -247,86 +249,194 @@ void Cheats_free() {
 	cheatcodes.count = 0;
 }
 
+// getDisplayName-based stem for the current game, for matcher comparison.
+static const char* game_display_for_cheats(void) {
+	static char disp[MAX_PATH];
+	getDisplayName(game.alt_name, disp);
+	return disp;
+}
+
+// Free one standalone struct Cheats (used when an append fails mid-way).
+static void Cheats_free_one(struct Cheats* c) {
+	if (!c->cheats)
+		return;
+	for (size_t i = 0; i < c->count; i++) {
+		free((char*)c->cheats[i].name);
+		free((char*)c->cheats[i].info);
+		free((char*)c->cheats[i].code);
+	}
+	free(c->cheats);
+	c->cheats = NULL;
+	c->count = 0;
+}
+
+// Parse exactly one .cht file into `out` (out->cheats allocated here).
+// Returns 1 on success, 0 on failure (out left empty/freed by the caller).
+static int load_one_file(const char* path, struct Cheats* out) {
+	out->count = 0;
+	out->cheats = NULL;
+
+	FILE* file = fopen(path, "r");
+	if (!file) {
+		LOG_error("Couldn't open cheat file: %s\n", path);
+		return 0;
+	}
+
+	out->count = parse_count(file);
+	if (out->count <= 0) {
+		LOG_error("Couldn't read cheat count\n");
+		fclose(file);
+		return 0;
+	}
+
+	out->cheats = calloc(out->count, sizeof(struct Cheat));
+	if (!out->cheats) {
+		LOG_error("Couldn't allocate memory for cheats\n");
+		out->count = 0;
+		fclose(file);
+		return 0;
+	}
+
+	if (parse_cheats(out, file)) {
+		LOG_error("Error parsing cheat file: %s\n", path);
+		fclose(file);
+		return 0;
+	}
+
+	fclose(file);
+	return 1;
+}
+
+// Append every cheat in `src` onto the global cheatcodes array, taking
+// ownership of src's allocated strings (src's array itself is freed, its
+// entries are moved). When `source` is non-empty (a merged multi-variant
+// load), prefix each cheat's detail (info) line with "(<source>) " so the
+// Y-detail view shows which cheat system it came from.
+static int cheats_append(struct Cheats* src, const char* source) {
+	if (src->count <= 0)
+		return 1;
+	size_t new_count = cheatcodes.count + src->count;
+	struct Cheat* grown = realloc(cheatcodes.cheats, new_count * sizeof(struct Cheat));
+	if (!grown)
+		return 0;
+	cheatcodes.cheats = grown;
+
+	for (size_t i = 0; i < src->count; i++) {
+		struct Cheat* c = &src->cheats[i];
+		if (source && source[0]) {
+			// Build "(source) " + existing info-or-name into a fresh info line.
+			const char* base = c->info ? c->info : (c->name ? c->name : "");
+			size_t len = strlen(source) + strlen(base) + 4; // "(" ") " NUL
+			char* tagged = calloc(len, sizeof(char));
+			if (tagged) {
+				snprintf(tagged, len, "(%s) %s", source, base);
+				free((char*)c->info);
+				c->info = tagged;
+			}
+		}
+		cheatcodes.cheats[cheatcodes.count + i] = *c; // move pointers
+	}
+	cheatcodes.count = new_count;
+	free(src->cheats); // entries moved; free only the array
+	src->cheats = NULL;
+	src->count = 0;
+	return 1;
+}
+
 bool Cheats_load() {
 	int success = 0;
-	struct Cheats* cheats = &cheatcodes;
-	FILE* file = NULL;
 	size_t i;
 
 	// we get our paths frrom Cheat_getPaths, some might be wildcards
 	char paths[CHEAT_MAX_PATHS][MAX_PATH];
 	int path_count = 0;
 	Cheat_getPaths(paths, &path_count);
-	char filename[MAX_PATH] = {0};
+
 	for (i = 0; i < path_count; i++) {
-		// handle wildcards
 		if (strchr(paths[i], '*')) {
-			// Use glob to handle wildcards
-			char glob_pattern[MAX_PATH];
-			strcpy(glob_pattern, paths[i]);
-
-			glob_t glob_results;
-			memset(&glob_results, 0, sizeof(glob_t));
-			int glob_ret = glob(glob_pattern, 0, NULL, &glob_results);
-
-			if (glob_ret == 0 && glob_results.gl_pathc > 0) {
-				for (size_t gi = 0; gi < glob_results.gl_pathc; ++gi) {
-					if (!suffixMatch(".cht", glob_results.gl_pathv[gi]))
-						continue;
-					snprintf(filename, sizeof(filename), "%s", glob_results.gl_pathv[gi]);
-					if (exists(filename)) {
-						break;
-					}
-					filename[0] = '\0';
-				}
-			}
-			globfree(&glob_results);
-			if (filename[0] == '\0')
-				continue; // no match
-		} else {
-			strcpy(filename, paths[i]);
-			if (!exists(filename)) {
-				filename[0] = '\0';
+			// Wildcard: glob, then rank + merge the matches.
+			glob_t g;
+			memset(&g, 0, sizeof(g));
+			if (glob(paths[i], 0, NULL, &g) != 0 || g.gl_pathc == 0) {
+				globfree(&g);
 				continue;
 			}
+
+			// Keep only real .cht matches; collect full paths + basenames.
+			int gc = 0;
+			int max = (int)g.gl_pathc;
+			if (max > 512)
+				max = 512; // sane cap for a single game's glob
+			char (*fulls)[MAX_PATH] = calloc((size_t)max, sizeof(*fulls));
+			char (*bases)[MAX_PATH] = calloc((size_t)max, sizeof(*bases));
+			const char** baseptrs = calloc((size_t)max, sizeof(char*));
+			if (!fulls || !bases || !baseptrs) {
+				free(fulls);
+				free(bases);
+				free(baseptrs);
+				globfree(&g);
+				continue;
+			}
+			for (int gi = 0; gi < max; gi++) {
+				if (!suffixMatch(".cht", g.gl_pathv[gi]))
+					continue;
+				if (!exists(g.gl_pathv[gi]))
+					continue;
+				snprintf(fulls[gc], MAX_PATH, "%s", g.gl_pathv[gi]);
+				char tmp[MAX_PATH];
+				snprintf(tmp, sizeof(tmp), "%s", g.gl_pathv[gi]);
+				snprintf(bases[gc], MAX_PATH, "%s", basename(tmp));
+				baseptrs[gc] = bases[gc];
+				gc++;
+			}
+			globfree(&g);
+
+			if (gc > 0) {
+				int sel[512];
+				int nsel = CheatMatch_select(game_display_for_cheats(),
+											 game.alt_name,
+											 baseptrs, gc, sel, gc);
+				if (nsel <= 0) {
+					// No confident match: legacy behaviour, load the first hit.
+					sel[0] = 0;
+					nsel = 1;
+				}
+				for (int s = 0; s < nsel; s++) {
+					struct Cheats one;
+					if (load_one_file(fulls[sel[s]], &one)) {
+						char src[64] = {0};
+						if (nsel > 1)
+							CheatMatch_sourceLabel(bases[sel[s]], src, sizeof(src));
+						if (!cheats_append(&one, src)) {
+							Cheats_free_one(&one);
+						}
+						success = 1;
+					}
+				}
+			}
+			free(fulls);
+			free(bases);
+			free(baseptrs);
+			if (success)
+				break;
+			continue;
+		} else {
+			// Exact candidate: unchanged single-file behaviour.
+			if (!exists(paths[i]))
+				continue;
+			struct Cheats one;
+			if (load_one_file(paths[i], &one)) {
+				if (cheats_append(&one, NULL))
+					success = 1;
+				else
+					Cheats_free_one(&one);
+			}
+			if (success)
+				break;
 		}
-		break; // found a valid file
-	}
-	if (filename[0] == '\0') {
-		goto finish;
 	}
 
-	file = fopen(filename, "r");
-	if (!file) {
-		LOG_error("Couldn't open cheat file: %s\n", filename);
-		goto finish;
-	}
-
-	cheatcodes.count = parse_count(file);
-	if (cheatcodes.count <= 0) {
-		LOG_error("Couldn't read cheat count\n");
-		goto finish;
-	}
-
-	cheatcodes.cheats = calloc(cheatcodes.count, sizeof(struct Cheat));
-	if (!cheatcodes.cheats) {
-		LOG_error("Couldn't allocate memory for cheats\n");
-		goto finish;
-	}
-
-	if (parse_cheats(&cheatcodes, file)) {
-		LOG_error("Error parsing cheat file: %s\n", filename);
-		goto finish;
-	}
-
-	success = 1;
-finish:
-	if (!success) {
+	if (!success)
 		Cheats_free();
-	}
-
-	if (file)
-		fclose(file);
-
 	return success;
 }
