@@ -1,6 +1,7 @@
 name=Pokemon Gen1Recomp++
 category=GAME
 platforms=tg5040 tg5050
+version_source=external
 runtime=native
 desc=Native LOVE2D recreation of Pokemon Red, Blue, Yellow, Gold, Silver and Crystal. Bundles three mods (Stadium battle FX, Running Shoes, Wilds of Kanto) plus an in-game mod browser for more; the 3D voxel overworld mods found there need more memory than these devices have. Needs your own US cartridge ROMs in Roms/Game Boy or Game Boy Color. Launcher controls: D-pad and A navigate, L1/R1 switch tabs, L2/R2 scroll lists, Y switches between menu navigation and a pointer cursor, Select opens the on-screen keyboard, Start plays. Download ~27 MB.
 size_mb=60
