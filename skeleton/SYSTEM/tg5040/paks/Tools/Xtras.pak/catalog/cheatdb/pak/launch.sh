@@ -89,6 +89,10 @@ remote_lastmod() {
 db_installed() { [ -s "$MANIFEST" ]; }
 
 do_download() { # downloads + extracts everything; returns 0 on success
+    # Raise the CPU cap for the heavy download + ~185 MB 7zzs extract (startup
+    # pins a low 600000 for the idle UI); the launcher re-applies its own
+    # governor on resume, so no restore is needed here.
+    echo 1416000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null
     avail_kb="$(df -k "$SDCARD_PATH" 2>/dev/null | awk 'END{print $4}')"
     case "$avail_kb" in
         ''|*[!0-9]*) : ;;
@@ -143,7 +147,11 @@ do_download() { # downloads + extracts everything; returns 0 on success
 }
 
 do_update() {
-    msg "Checking for updates..." 1 &
+    # Non-timed spinner: the probe can take up to ~30 s, so show an
+    # indeterminate (-1) spinner that stays up until the killall below, rather
+    # than a short timed msg that would vanish mid-probe.
+    prog_start
+    prog "Checking for updates..." "-1"
     lm="$(remote_lastmod)"
     killall -9 show2.elf >/dev/null 2>&1
     if [ -z "$lm" ]; then msg "Could not check (WiFi?)." 4; return; fi

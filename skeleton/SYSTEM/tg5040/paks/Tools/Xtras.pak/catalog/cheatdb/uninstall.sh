@@ -1,8 +1,9 @@
 #!/bin/sh
 # Xtras catalog: Cheat Database uninstall. Full removal: the pak code, the
-# downloaded cheat data (manifest-based, keeping hand-authored .cht), and the
-# data-version marker. extras.elf removes the $XTRAS_STATE_DIR/cheatdb.version
-# pak-code marker itself. Self-contained; no network.
+# downloaded cheat data (manifest-based, keeping hand-authored .cht), the
+# data-version marker, and the $XTRAS_STATE_DIR/cheatdb.version pak-code marker
+# (removed here, like the other Xtras entries do in their own uninstall.sh).
+# Self-contained; no network.
 set -u
 
 : "${XTRAS_STATE_DIR:=$SDCARD_PATH/.userdata/shared/xtras}"
@@ -25,7 +26,7 @@ if [ -f "$MANIFEST" ]; then
 fi
 
 echo "@70 Removing records..."
-rm -f "$MANIFEST" "$XTRAS_STATE_DIR/cheatdb.db_lastmod"
+rm -f "$MANIFEST" "$XTRAS_STATE_DIR/cheatdb.db_lastmod" "$XTRAS_STATE_DIR/cheatdb.version"
 
 echo "@85 Removing the tool..."
 rm -rf "$TOOLS_PAK"

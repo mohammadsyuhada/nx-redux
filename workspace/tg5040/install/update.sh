@@ -124,6 +124,12 @@ if [ -d "$PM_CATALOG" ] && [ -f "$SDCARD_PATH/Emus/shared/PortMaster/version" ];
 			&& chmod +x "$PM_PORTS/launch.sh" 2>/dev/null \
 			&& echo "refreshed $PM_PORTS/launch.sh from the Xtras catalog"
 	fi
+	# PortMaster is now version_source=internal; refresh the pak-code marker to
+	# the catalog version so Xtras does not show a phantom "update available"
+	# against an old upstream tag left by a pre-migration install (PM_CATALOG is
+	# the .../portmaster/pak dir, so meta.txt is one level up).
+	PM_VER="$(sed -n 's/^version=//p' "$SDCARD_PATH/.system/paks/Tools/Xtras.pak/catalog/portmaster/meta.txt" 2>/dev/null | head -1 | tr -d '\r')"
+	[ -n "$PM_VER" ] && printf '%s\n' "$PM_VER" > "$SDCARD_PATH/.userdata/shared/xtras/portmaster.version" 2>/dev/null
 fi
 # --- portmaster-refresh-end
 
