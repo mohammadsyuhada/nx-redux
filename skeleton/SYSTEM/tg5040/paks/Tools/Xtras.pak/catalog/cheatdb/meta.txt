@@ -1,6 +1,8 @@
 name=Cheat Database
 category=TOOL
 platforms=tg5040 tg5050
-desc=Download the libretro cheat database. Cheats install into Cheats/<system> and appear in each game's in-game menu under Options > Cheats. Standalone systems (DS, N64, Dreamcast) receive files too but are not wired up yet. Download ~37 MB, about 185 MB on the card.
-size_mb=37
-done_msg=Cheats installed. Open a game and see Options > Cheats.
+version_source=internal
+version=2026-09-17
+desc=Adds a Cheat Database tool. Open it from Tools to download the libretro cheat database (~37 MB, about 185 MB on the card) into Cheats/<system>; cheats then show up in each game's Options > Cheats. Update or remove the database from inside the tool.
+size_mb=1
+done_msg=Installed. Open Cheat Database in Tools to download the cheats.

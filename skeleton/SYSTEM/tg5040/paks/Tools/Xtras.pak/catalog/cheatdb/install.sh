@@ -1,158 +1,28 @@
 #!/bin/sh
-# Xtras catalog: libretro cheat database.
-# Contract: idempotent; installs from buildbot's cheats.zip (no GitHub release,
-# so this entry is untracked - re-running just refreshes); progress on stdout
-# ("@NN status text" hints - see gen1recomp/install.sh's header for the full
-# contract); exit code is the verdict; every network command carries a timeout
-# (the caller streams stdout via a blocking popen()/fgets() loop with no
-# watchdog). The runner exports SDCARD_PATH/PLATFORM/LOGS_PATH/XTRAS_STATE_DIR/
-# CATALOG_DIR; CHEATS_PATH is NOT exported, so derive it.
-#
-# What it does: download cheats.zip, then for each (TAG -> libretro folder) in
-# the map, extract that folder's *.cht FLAT into Cheats/<TAG>/, recording every
-# file it writes in a manifest so uninstall removes only the pack's files and
-# leaves hand-authored .cht files alone. Standalone-emulator tags (NDS/N64/DC)
-# receive files too, for later experimentation; minarch applies cheats for the
-# libretro cores only.
+# Xtras catalog: Cheat Database (CODE side). Copies the launchable pak payload
+# into Tools/ and busts the launcher list caches so it appears without reboot.
+# It does NOT download the cheats - the pak (Tools/Cheat Database.pak) does that
+# on demand. It does NOT write the version marker: this is an internal entry, so
+# extras.elf writes $XTRAS_STATE_DIR/cheatdb.version after a successful install.
+# Runs under extras.elf's scrubbed env (SDCARD_PATH/PLATFORM/LOGS_PATH/
+# CATALOG_DIR/XTRAS_STATE_DIR). No network.
 set -u
 
-CHEATS_URL="https://buildbot.libretro.com/assets/frontend/cheats.zip"
-: "${NX_EXTRAS_UNZIP:=$SDCARD_PATH/.system/shared/bin/7zzs.aarch64}"
-: "${XTRAS_STATE_DIR:=$SDCARD_PATH/.userdata/shared/xtras}"
-TMPDIR_NX="$SDCARD_PATH/.extras_tmp"
-CHEATS_DIR="$SDCARD_PATH/Cheats"
-MANIFEST="$XTRAS_STATE_DIR/cheatdb.manifest"
-ZIP="$TMPDIR_NX/cheats.zip"
-NEED_KB=262144   # ~256 MB: the 37 MB zip + ~173 MB of extracted text + margin
+TOOLS_PAK="$SDCARD_PATH/Tools/Cheat Database.pak"
+USERDATA_DIR="$SDCARD_PATH/.userdata/$PLATFORM"
 
-# TAG|libretro-folder map (31 tags, 28 distinct folders). One folder can feed
-# several tags (SNES -> SFC/SUPA, Game Boy -> GB/SGB, GBA -> GBA/MGBA).
-MAP="FC|Nintendo - Nintendo Entertainment System
-FDS|Nintendo - Family Computer Disk System
-GB|Nintendo - Game Boy
-SGB|Nintendo - Game Boy
-GBC|Nintendo - Game Boy Color
-GBA|Nintendo - Game Boy Advance
-MGBA|Nintendo - Game Boy Advance
-SFC|Nintendo - Super Nintendo Entertainment System
-SUPA|Nintendo - Super Nintendo Entertainment System
-VB|Nintendo - Virtual Boy
-N64|Nintendo - Nintendo 64
-NDS|Nintendo - Nintendo DS
-SMS|Sega - Master System - Mark III
-GG|Sega - Game Gear
-MD|Sega - Mega Drive - Genesis
-32X|Sega - 32X
-SEGACD|Sega - Mega-CD - Sega CD
-SG1000|Sega - SG-1000
-DC|Sega - Dreamcast
-PS|Sony - PlayStation
-PCE|NEC - PC Engine - TurboGrafx 16
-A2600|Atari - 2600
-A5200|Atari - 5200
-A7800|Atari - 7800
-LYNX|Atari - Lynx
-COLECO|Coleco - ColecoVision
-NGP|SNK - Neo Geo Pocket
-NGPC|SNK - Neo Geo Pocket Color
-FBN|FBNeo - Arcade Games
-MSX|Microsoft - MSX - MSX2 - MSX2P - MSX Turbo R
-PRBOOM|PrBoom"
+fail() { echo "ERROR: $1"; exit 1; }
 
-fail() {
-    echo "ERROR: $1"
-    rm -rf "$TMPDIR_NX"
-    exit 1
-}
+[ -f "$CATALOG_DIR/pak/launch.sh" ] || fail "catalog pak payload missing (launch.sh)"
 
-# Extract one libretro folder's *.cht FLAT (no path prefix) straight into a
-# destination directory. A missing/empty folder is not fatal.
-extract_folder() { # zip "libretro folder" destdir
-    case "$NX_EXTRAS_UNZIP" in
-        *7zzs*) "$NX_EXTRAS_UNZIP" e -y -o"$3" "$1" "$2/*.cht" >/dev/null 2>&1 ;;
-        *)      "$NX_EXTRAS_UNZIP" -j -o -q "$1" "$2/*.cht" -d "$3" >/dev/null 2>&1 ;;
-    esac
-    return 0
-}
+echo "@40 Installing Cheat Database tool..."
+mkdir -p "$TOOLS_PAK" || fail "cannot create the Cheat Database pak"
+cp -f "$CATALOG_DIR/pak/launch.sh" "$TOOLS_PAK/launch.sh" || fail "could not copy the pak launcher"
+chmod +x "$TOOLS_PAK/launch.sh" 2>/dev/null || true
 
-# List the *.cht basenames a libretro folder holds, read from the ARCHIVE
-# index (never from the destination directory). The device's exFAT/FUSE card
-# returns stale directory listings right after a write, so scanning a
-# freshly-written dir - or the old temp-dir + glob + mv dance - races and drops
-# or mis-moves files, aborting the install partway. The archive listing is
-# authoritative and unaffected by the filesystem cache.
-list_folder() { # zip "libretro folder"
-    case "$NX_EXTRAS_UNZIP" in
-        *7zzs*) "$NX_EXTRAS_UNZIP" l "$1" "$2/*.cht" 2>/dev/null ;;
-        *)      "$NX_EXTRAS_UNZIP" -l "$1" "$2/*.cht" 2>/dev/null ;;
-    esac | grep '\.cht$' | sed 's#.*/##'
-}
+echo "@90 Refreshing tools list..."
+rm -f "$USERDATA_DIR/emulist_cache.txt" "$USERDATA_DIR/romindex_cache.txt"
 
-# ---- preflight -----------------------------------------------------------
-if ! command -v "$NX_EXTRAS_UNZIP" >/dev/null 2>&1; then
-    fail "system unzip tool missing - update or reinstall NX Redux, then retry"
-fi
-avail_kb="$(df -k "$SDCARD_PATH" 2>/dev/null | awk 'END{print $4}')"
-case "$avail_kb" in
-    ''|*[!0-9]*) : ;;                                   # unknown -> don't block
-    *) [ "$avail_kb" -ge "$NEED_KB" ] || fail "not enough space (need ~256 MB free)" ;;
-esac
-
-rm -rf "$TMPDIR_NX"
-mkdir -p "$TMPDIR_NX" || fail "cannot create install dirs"
-mkdir -p "$XTRAS_STATE_DIR" || fail "cannot create state dir"
-
-echo "@5 Downloading cheat database..."
-echo "Downloading cheat database (~37 MB)..."
-wget --no-check-certificate -q --timeout=30 --tries=2 -O "$ZIP" "$CHEATS_URL" \
-    || fail "download failed (check WiFi)"
-
-echo "@18 Verifying archive..."
-case "$NX_EXTRAS_UNZIP" in
-    *7zzs*) "$NX_EXTRAS_UNZIP" t "$ZIP" >/dev/null 2>&1 || fail "downloaded archive is corrupt" ;;
-    *)      "$NX_EXTRAS_UNZIP" -tq "$ZIP" >/dev/null 2>&1 || fail "downloaded archive is corrupt" ;;
-esac
-
-# Fresh manifest each successful install (rebuilt below).
-: > "$MANIFEST" || fail "cannot write manifest"
-
-# ---- extract each mapped system -----------------------------------------
-total="$(printf '%s\n' "$MAP" | wc -l | tr -d ' ')"
-idx=0
-OLDIFS="$IFS"
-IFS='
-'
-for line in $MAP; do
-    IFS="$OLDIFS"
-    idx=$((idx + 1))
-    tag="${line%%|*}"
-    folder="${line#*|}"
-    pct=$((20 + (idx * 75 / total)))
-    echo "@$pct $tag ($idx/$total)"
-
-    dest="$CHEATS_DIR/$tag"
-    mkdir -p "$dest" || fail "cannot create $dest"
-
-    # Extract straight into the destination - no temp dir, no glob, no mv, so
-    # nothing depends on re-reading a just-written exFAT directory. The
-    # manifest records exactly the pack's files, taken from the archive index.
-    extract_folder "$ZIP" "$folder" "$dest"   # missing folder -> no files, not fatal
-    list_folder "$ZIP" "$folder" | while IFS= read -r b; do
-        [ -n "$b" ] && printf '%s\n' "$dest/$b" >> "$MANIFEST"
-    done
-    IFS='
-'
-done
-IFS="$OLDIFS"
-
-# ---- version record (buildbot has no release tag; store Last-Modified) ---
-echo "@97 Finishing..."
-lastmod="$(wget -S --spider --no-check-certificate --timeout=30 --tries=1 "$CHEATS_URL" 2>&1 \
-           | sed -n 's/.*[Ll]ast-[Mm]odified: *//p' | head -1 | tr -d '\r')"
-[ -n "$lastmod" ] || lastmod="$(date -u '+%Y-%m-%d')"
-printf '%s\n' "$lastmod" > "$XTRAS_STATE_DIR/cheatdb.version" || fail "could not write version record"
-
-rm -rf "$TMPDIR_NX"
 echo "@100 Done"
-echo "Done. Open a game and see Options > Cheats."
+echo "Installed. Open Cheat Database in Tools to download the cheats."
 exit 0
