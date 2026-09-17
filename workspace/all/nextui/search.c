@@ -5,7 +5,6 @@
 #include "defines.h"
 #include "display_helper.h"
 #include "gamelist.h"
-#include "artbg.h"
 #include "imgloader.h"
 #include "launcher.h"
 #include "types.h"
@@ -157,6 +156,7 @@ void Search_render(SDL_Surface* screen, int lastScreen) {
 	int total = search_results ? search_results->count : 0;
 
 	bool had_thumb = false;
+	bool reserve_column = false;
 	int ox = screen->w;
 
 	if (total > 0 && CFG_getShowGameArt()) {
@@ -167,14 +167,13 @@ void Search_render(SDL_Surface* screen, int lastScreen) {
 						   CFG_getGameArtStyle() != ART_STYLE_BACKGROUND,
 						   thumbpath, sizeof(thumbpath));
 		had_thumb = startLoadThumb(thumbpath);
-		// Same as the game list: only the thumbnail style reserves a column,
-		// the background style just caps the title width.
-		int max_w = (int)(screen->w - (screen->w * CFG_getGameArtWidth()));
-		if (had_thumb) {
-			if (CFG_getGameArtStyle() == ART_STYLE_BACKGROUND)
-				ox = (int)(screen->w * ART_BG_TEXT_WIDTH);
-			else
-				ox = (int)(max_w)-SCALE1(BUTTON_MARGIN * 5);
+		// Same as the game list: only the thumbnail style reserves a column.
+		// The background style paints the art behind the list, so the title
+		// runs the full width (no override, like an art-less row).
+		reserve_column = had_thumb && CFG_getGameArtStyle() != ART_STYLE_BACKGROUND;
+		if (reserve_column) {
+			int max_w = (int)(screen->w - (screen->w * CFG_getGameArtWidth()));
+			ox = (int)(max_w)-SCALE1(BUTTON_MARGIN * 5);
 		}
 	}
 
@@ -182,9 +181,10 @@ void Search_render(SDL_Surface* screen, int lastScreen) {
 	search_view.get_row = search_get_row;
 	search_view.font = font.large;
 	search_view.list_id = (const void*)search_results;
-	// The thumbnail width adjustment is uniform across all rows.
+	// The thumbnail width adjustment is uniform across all rows; the background
+	// style reserves no column, so it keeps the default full width (0).
 	search_view.max_width_override =
-		had_thumb ? MAX(0, ox + SCALE1(BUTTON_MARGIN) - SCALE1(PADDING * 2)) : 0;
+		reserve_column ? MAX(0, ox + SCALE1(BUTTON_MARGIN) - SCALE1(PADDING * 2)) : 0;
 	search_view.empty_title = NULL; // keep today's centered message instead
 	if (total == 0) {
 		UI_renderCenteredMessage(screen, "No results");

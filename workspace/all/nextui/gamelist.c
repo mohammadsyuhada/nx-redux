@@ -23,7 +23,6 @@
 
 #include "content.h"
 #include "gameswitcher.h"
-#include "artbg.h"
 #include "imgloader.h"
 #include "launcher.h"
 #include "recents.h"
@@ -1397,14 +1396,16 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 							   thumbpath, sizeof(thumbpath));
 			had_thumb = startLoadThumb(thumbpath);
 			// "Game art width" reserves a column for the thumbnail style only.
-			// The background style has no column to reserve (the art is behind
-			// the list), just a cap so long titles stop short of the image's
-			// bright side.
+			// The background style paints the art behind the list, so the title
+			// runs the full screen width (matching an art-less row); a long
+			// title may reach over the image's bright side.
 			int max_w = (int)(screen->w - (screen->w * CFG_getGameArtWidth()));
 			if (!had_thumb)
 				ox = screen->w;
 			else if (CFG_getGameArtStyle() == ART_STYLE_BACKGROUND)
-				ox = (int)(screen->w * ART_BG_TEXT_WIDTH);
+				// The consumers add SCALE1(BUTTON_MARGIN) back to ox, so this
+				// yields the same available width as the art-less full-width row.
+				ox = screen->w - SCALE1(BUTTON_MARGIN * 2);
 			else
 				ox = (int)(max_w)-SCALE1(BUTTON_MARGIN * 5);
 		}

@@ -23,12 +23,6 @@
 // deliberately NOT an input here — it sizes the thumbnail style only.
 SDL_Surface* ArtBg_compose(SDL_Surface* art, int screen_w, int screen_h, Uint32 pixel_format);
 
-// Fraction of the screen width a game title may use in the background style.
-// The art is behind the list rather than beside it, so there is no reserved
-// column ("Game art width" sizes the thumbnail style only) — but a title that
-// ran to the very edge would sit on the brightest part of the image.
-#define ART_BG_TEXT_WIDTH 0.85f
-
 // Screen x of the leftmost column the composed surface represents, i.e. where
 // the caller blits it. Depends only on the screen size (a wide 16:9 panel uses
 // a narrower strip), so the renderer can recompute it without keeping any
