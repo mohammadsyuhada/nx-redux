@@ -93,8 +93,10 @@ typedef struct {
 	char name[META_STR];
 	char category[16]; // "GAME" | "TOOL"
 	char desc[1024];
-	char repo[128];	 // GitHub owner/name whose releases drive the update check ("" = untracked)
-	char latest[64]; // latest upstream release tag, from the <id>.latest cache ("" = unknown)
+	char repo[128];		   // GitHub owner/name whose releases drive the update check ("" = untracked)
+	char version[64];	   // our catalog version string (internal entries)
+	bool version_internal; // true = update via our version=, false = upstream repo tag
+	char latest[64];	   // latest upstream release tag, from the <id>.latest cache ("" = unknown)
 	int size_mb;
 	char installed[64]; // "" = not installed, else the installed release tag
 	char done_msg[128]; // optional: install-success subtitle override, for
@@ -138,8 +140,11 @@ static void meta_set(AddonEntry* e, const char* key, const char* val) {
 		snprintf(e->done_msg, sizeof(e->done_msg), "%s", val);
 	else if (!strcmp(key, "platforms"))
 		snprintf(e->platforms, sizeof(e->platforms), "%s", val);
-	// "version" (pre-update-tracking pin) and "asset" (consumed only by the
-	// entry's own install.sh) fall through to the unknown-key ignore.
+	else if (!strcmp(key, "version"))
+		snprintf(e->version, sizeof(e->version), "%s", val);
+	else if (!strcmp(key, "version_source"))
+		e->version_internal = (strcmp(val, "internal") == 0);
+	// "asset" is consumed only by the entry's own install.sh; ignored here.
 }
 
 static bool meta_parse(const char* path, AddonEntry* e) {
@@ -344,8 +349,19 @@ static void catalog_load(void) {
 		if (!meta_parse(meta, e))
 			continue;
 		e->compatible = xtras_platform_compatible(e->platforms, PLATFORM, build_os_token());
+		// Resolve version_source default: explicit internal wins; else an entry
+		// with a repo is external; else (no repo) internal.
+		if (!e->version_internal && e->repo[0] == '\0')
+			e->version_internal = true;
+
 		read_installed(e);
-		read_latest(e);
+		if (e->version_internal)
+			// Internal entries have no network "latest": our catalog version IS
+			// the latest. Reusing e->latest keeps entry_update_available and the
+			// list grouping unchanged.
+			snprintf(e->latest, sizeof(e->latest), "%s", e->version);
+		else
+			read_latest(e);
 		entry_count++;
 	}
 	closedir(d);
@@ -728,11 +744,13 @@ static void run_list(void) {
 // through a download, or mid-extract) when either is missing. Catch the
 // common cases up front with a friendly message instead.
 static const char* preflight(AddonEntry* e) {
-	struct addrinfo* res = NULL;
-	struct addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM};
-	if (getaddrinfo("github.com", "443", &hints, &res) != 0 || !res)
-		return "No network - connect WiFi first";
-	freeaddrinfo(res);
+	if (!e->version_internal) {
+		struct addrinfo* res = NULL;
+		struct addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM};
+		if (getaddrinfo("github.com", "443", &hints, &res) != 0 || !res)
+			return "No network - connect WiFi first";
+		freeaddrinfo(res);
+	}
 
 	struct statvfs vfs;
 	if (statvfs(SDCARD_PATH, &vfs) == 0) {
@@ -1358,11 +1376,22 @@ static int run_detail(AddonEntry* e) {
 				} else {
 					if (run_install(e) == 0) {
 						changed = true;
-						// Refresh e->installed from the marker install.sh just
-						// wrote so this still-open detail page's next redraw
-						// (metadata line + hint bar) reflects the new state
-						// immediately, rather than only after catalog_load()
-						// re-scans on return to the list.
+						// Internal entries: extras.c owns the version marker (the
+						// install.sh does not write it). Write our catalog version
+						// on success so the entry reads as up to date.
+						if (e->version_internal && e->version[0]) {
+							char state_dir[MAX_PATH];
+							xtras_state_dir(state_dir, sizeof(state_dir));
+							mkdir(state_dir, 0755);
+							char mpath[MAX_PATH];
+							snprintf(mpath, sizeof(mpath), "%s/%s.version", state_dir, e->id);
+							FILE* mf = fopen(mpath, "w");
+							if (mf) {
+								fprintf(mf, "%s\n", e->version);
+								fclose(mf);
+							}
+						}
+						// Refresh e->installed from the marker for this open page.
 						e->installed[0] = '\0';
 						read_installed(e);
 					}
@@ -1531,7 +1560,7 @@ int main(int argc, char* argv[]) {
 	// waits on a sweep that isn't coming.
 	check_count = 0;
 	for (int i = 0; i < entry_count; i++) {
-		if (!entries[i].repo[0])
+		if (entries[i].version_internal || !entries[i].repo[0])
 			continue;
 		snprintf(check_items[check_count].id, sizeof(check_items[0].id), "%s", entries[i].id);
 		snprintf(check_items[check_count].repo, sizeof(check_items[0].repo), "%s", entries[i].repo);
