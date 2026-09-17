@@ -126,3 +126,27 @@ if [ -d "$PM_CATALOG" ] && [ -f "$SDCARD_PATH/Emus/shared/PortMaster/version" ];
 	fi
 fi
 # --- portmaster-refresh-end
+
+# --------------------------------------
+# --- cheatdb-refresh-begin
+# Cheat Database (an internal Xtras entry) installs its launchable pak as a
+# user-level copy (Tools/Cheat Database.pak) that an update never touched, so
+# it would go stale. Re-copy it from the freshly unpacked catalog whenever the
+# Cheat Database is installed (the $XTRAS_STATE_DIR/cheatdb.version marker
+# exists), and refresh the pak-code marker to the catalog version so Xtras does
+# not show a phantom "update available" after the OTA already refreshed the
+# code. One-shot per update; must never fail the update. Platform tag hard-coded
+# ($PLATFORM is not set here).
+CD_CATALOG="$SDCARD_PATH/.system/paks/Tools/Xtras.pak/catalog/cheatdb"
+CD_TOOLS="$SDCARD_PATH/Tools/Cheat Database.pak"
+CD_MARK="$SDCARD_PATH/.userdata/shared/xtras/cheatdb.version"
+if [ -d "$CD_CATALOG/pak" ] && [ -f "$CD_MARK" ]; then
+	if [ -d "$CD_TOOLS" ] || mkdir -p "$CD_TOOLS" 2>/dev/null; then
+		cp -f "$CD_CATALOG/pak/launch.sh" "$CD_TOOLS/launch.sh" 2>/dev/null \
+			&& chmod +x "$CD_TOOLS/launch.sh" 2>/dev/null \
+			&& echo "refreshed $CD_TOOLS from the Xtras catalog"
+	fi
+	CD_VER="$(sed -n 's/^version=//p' "$CD_CATALOG/meta.txt" 2>/dev/null | head -1 | tr -d '\r')"
+	[ -n "$CD_VER" ] && printf '%s\n' "$CD_VER" > "$CD_MARK" 2>/dev/null
+fi
+# --- cheatdb-refresh-end
