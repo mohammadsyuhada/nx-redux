@@ -65,13 +65,27 @@ fail() {
     exit 1
 }
 
-# Extract one libretro folder's *.cht FLAT (no path prefix) into a dir.
+# Extract one libretro folder's *.cht FLAT (no path prefix) straight into a
+# destination directory. A missing/empty folder is not fatal.
 extract_folder() { # zip "libretro folder" destdir
     case "$NX_EXTRAS_UNZIP" in
-        *7zzs*) "$NX_EXTRAS_UNZIP" e -y -o"$3" "$1" "$2/*.cht" >/dev/null 2>&1 || return 1 ;;
-        *)      "$NX_EXTRAS_UNZIP" -j -o -q "$1" "$2/*.cht" -d "$3" >/dev/null 2>&1 || return 1 ;;
+        *7zzs*) "$NX_EXTRAS_UNZIP" e -y -o"$3" "$1" "$2/*.cht" >/dev/null 2>&1 ;;
+        *)      "$NX_EXTRAS_UNZIP" -j -o -q "$1" "$2/*.cht" -d "$3" >/dev/null 2>&1 ;;
     esac
     return 0
+}
+
+# List the *.cht basenames a libretro folder holds, read from the ARCHIVE
+# index (never from the destination directory). The device's exFAT/FUSE card
+# returns stale directory listings right after a write, so scanning a
+# freshly-written dir - or the old temp-dir + glob + mv dance - races and drops
+# or mis-moves files, aborting the install partway. The archive listing is
+# authoritative and unaffected by the filesystem cache.
+list_folder() { # zip "libretro folder"
+    case "$NX_EXTRAS_UNZIP" in
+        *7zzs*) "$NX_EXTRAS_UNZIP" l "$1" "$2/*.cht" 2>/dev/null ;;
+        *)      "$NX_EXTRAS_UNZIP" -l "$1" "$2/*.cht" 2>/dev/null ;;
+    esac | grep '\.cht$' | sed 's#.*/##'
 }
 
 # ---- preflight -----------------------------------------------------------
@@ -118,16 +132,13 @@ for line in $MAP; do
 
     dest="$CHEATS_DIR/$tag"
     mkdir -p "$dest" || fail "cannot create $dest"
-    td="$TMPDIR_NX/x"
-    rm -rf "$td"; mkdir -p "$td"
-    extract_folder "$ZIP" "$folder" "$td"   # missing folder -> empty, not fatal
 
-    for f in "$td"/*.cht; do
-        [ -e "$f" ] || continue
-        b="$(basename "$f")"
-        # mv (same filesystem) is a cheap rename - no doubled space
-        mv -f "$f" "$dest/$b" || fail "could not place $tag/$b"
-        printf '%s\n' "$dest/$b" >> "$MANIFEST"
+    # Extract straight into the destination - no temp dir, no glob, no mv, so
+    # nothing depends on re-reading a just-written exFAT directory. The
+    # manifest records exactly the pack's files, taken from the archive index.
+    extract_folder "$ZIP" "$folder" "$dest"   # missing folder -> no files, not fatal
+    list_folder "$ZIP" "$folder" | while IFS= read -r b; do
+        [ -n "$b" ] && printf '%s\n' "$dest/$b" >> "$MANIFEST"
     done
     IFS='
 '
