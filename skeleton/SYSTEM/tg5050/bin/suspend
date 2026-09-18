@@ -8,6 +8,8 @@ exec 0<&-
 
 wifid_running=
 bluetoothd_running=
+bluetooth_setting=
+settings_file=/mnt/SDCARD/.userdata/shared/minuisettings.txt
 
 sleep_retval=
 
@@ -22,6 +24,12 @@ before() {
 
 	if pgrep bluetoothd; then
 		bluetoothd_running=1
+		# On tg5050 bluetoothd is always alive (so bluetoothctl never hangs), so
+		# its presence says nothing about whether the user has Bluetooth on.
+		# Remember the setting now: after() restarts the whole stack, and
+		# bt_init.sh start always powers the adapter on, which used to turn
+		# Bluetooth back on after every sleep for users who had it off.
+		bluetooth_setting=$(sed -n 's/^bluetooth=\([01]\).*/\1/p' "$settings_file" 2>/dev/null)
 		>&2 echo "Stopping bluetoothd..."
 		/etc/bluetooth/bt_init.sh stop || true
 	fi
@@ -47,6 +55,13 @@ after() {
 	if [ -n "$bluetoothd_running" ]; then
 		>&2 echo "Starting bluetoothd..."
 		/etc/bluetooth/bt_init.sh start || true
+		# Mirror boot (MinUI.pak/launch.sh): keep the stack up so bluetoothctl
+		# works, but leave the adapter powered off when Bluetooth is off in
+		# settings instead of switching it on behind the user's back.
+		if [ "$bluetooth_setting" = "0" ]; then
+			>&2 echo "Bluetooth is off in settings, powering the adapter back off..."
+			bluetoothctl power off >/dev/null 2>&1 || true
+		fi
 	fi
 
 	# >&2 echo "Restoring mixer state..."

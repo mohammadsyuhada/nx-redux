@@ -246,11 +246,17 @@ echo after wifi `cat /proc/uptime` >> /tmp/nextui_boottime
 # If BT is off, the adapter gets powered off but the daemon stays alive.
 bluetoothon=$(nextval.elf bluetooth | sed -n 's/.*"bluetooth": \([0-9]*\).*/\1/p')
 cp -f $SYSTEM_PATH/etc/bluetooth/bt_init.sh /etc/bluetooth/bt_init.sh
-/etc/bluetooth/bt_init.sh start > /dev/null 2>&1 &
-if [ "$bluetoothon" -ne 1 ]; then
-	# Wait briefly for bluetoothd to start, then power off adapter
-	(sleep 5; bluetoothctl power off 2>/dev/null) &
-fi
+# Power the adapter off only after bt_init.sh start has finished. It used to
+# be a detached "sleep 5; power off": the start script spends ~7 s loading the
+# aic8800 modules and attaching, so that power-off hit a controller that did
+# not exist yet and the script's own "power on" landed afterwards, turning
+# Bluetooth on at every boot for users who had it off.
+(
+	/etc/bluetooth/bt_init.sh start
+	if [ "$bluetoothon" -ne 1 ]; then
+		bluetoothctl power off
+	fi
+) > /dev/null 2>&1 &
 echo after bluetooth `cat /proc/uptime` >> /tmp/nextui_boottime
 
 # SSH handling - developer setting

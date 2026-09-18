@@ -41,8 +41,14 @@ else
         update_config 0
         echo 0 > /tmp/trimui_osd/toggle_bt/status
     else
-        # Currently off, turn on
-        if bt_daemon_alive; then
+        # Currently off, turn on. bt_is_on only checks HCI_UP, so a
+        # powered-off-but-attached adapter also lands here — decide by whether
+        # a controller is actually attached, NOT by whether bluetoothd is
+        # alive. After a failed re-attach on sleep/wake, bluetoothd keeps
+        # running with no adapter, and "bluetoothctl power on" then just fails
+        # with "No default controller available"; only bt_init.sh start (which
+        # runs hciattach) can bring the controller back.
+        if hciconfig hci0 >/dev/null 2>&1; then
             bluetoothctl power on > /dev/null 2>&1 &
         else
             $SYSTEM_PATH/etc/bluetooth/bt_init.sh start > /dev/null 2>&1 &
