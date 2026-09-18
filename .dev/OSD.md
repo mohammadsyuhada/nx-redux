@@ -142,11 +142,11 @@ Smart Pro's 140 px cell pitch (120 px tile + 20 px gap) with an origin of
 shared 124 px tiles every multi-cell span overhangs into the gap (~4 px after
 a 4-wide slider) and the whole panel sits left of centre (stock firmware shows
 the same). `device/brickpro/trimui_osdd` is therefore a copy of the **Brick's**
-daemon (c3181362…), not the Brick Pro's stock one (62df0658…): both models are
+daemon (stock c3181362…, now a18d25dc… after the slider layout patch below), not the Brick Pro's stock one (62df0658…): both models are
 the same SoC, kernel and 1024×768 panel, and the Brick build renders the Brick
 Pro identically to the Brick (verified 2026-09-11: grid, focus, toggles,
 in-panel and standalone toasts). The copy carries a two-instruction patch
-(1b120125…, 2026-09-14) in `do_osd_input_thread`: SDL joystick button 15 —
+(1b120125…, 2026-09-14; 0ff776f3… once the slider layout patch is added) in `do_osd_input_thread`: SDL joystick button 15 —
 the Brick Pro's Home key, which SDL enumerates after the 11 `BTN_*` buttons,
 F1/F2 and the volume keys — now maps to the daemon's cancel key 2 (the one physical B, SDL button 0,
 uses), in place of X's mapping to key 4, which `osd_input` ignores. Reason:
@@ -181,6 +181,33 @@ Pro one keeps Home → cancel. `MinUI.pak/launch.sh` reads
 `nextval.elf buttonlayout` before starting the daemon and runs the `.xbox`
 copy when it is 1; the setting therefore applies at the next boot. Regenerate
 the four variants whenever a stock daemon is replaced.
+
+### Slider layout patch (all four daemons + their `.xbox` variants)
+
+The stock daemons hard-code the slider widget's geometry in `osd_render`
+(type-2 branch): the 60 px `icon0` box sits 30 px inside the tile
+(`add wN, wN, #0x1e`), the 400×30 bar 120 px inside (`mov wN, #0x78`), and the
+fill is `value*385/max + 15`. With the sun glyph occupying the middle 40 px of
+its box, that read as 40 / 40 / 36 px (left pad / icon-to-bar gap / right pad)
+on the 556 px Brick tile and 40 / 40 / 20 on the 540 px Smart Pro tile — two
+spaces on the left against one on the right. Since 2026-09-19 the checked-in
+daemons carry two immediates changed per binary so the pads match and the gap
+tightens to 24 px:
+
+| Device | icon inset | bar inset | left / gap / right | file offsets (icon, bar) | bytes |
+|---|---|---|---|---|---|
+| brick, brickpro | 30 → 36 | 120 → 110 | 46 / 24 / 46 | 0xa764, 0xa784 | `11007842`→`11009042`, `52800f02`→`52800dc2` |
+| smartpro | 30 → 28 | 120 → 102 | 38 / 24 / 38 | 0xa6d4, 0xa6f4 | `11007842`→`11007042`, `52800f02`→`52800cc2` |
+| smartpros (PIE) | 30 → 28 | 120 → 102 | 38 / 24 / 38 | 0xb93c, 0xb968 | `110078e7`→`110070e7`, `52800f07`→`52800cc7` |
+
+Nothing else changes (bar width, fill maths, icon1 centring). Verified by
+disassembly and, on the Brick Pro, by a write-back capture of the open panel.
+The `.xbox` variants are regenerated from the patched daemons by
+`scripts/patch-osdd-layout.sh`, whose md5 table now names the patched
+binaries (brick a18d25dc…, brickpro 0ff776f3…, smartpro 56a429d4…, smartpros
+dc406fc9…); `osd-stock/*.manifest.md5` still list the untouched firmware
+originals. Re-apply this patch (same offsets, verify the old bytes first) if a
+stock daemon is ever replaced.
 
 ## Dependencies
 
