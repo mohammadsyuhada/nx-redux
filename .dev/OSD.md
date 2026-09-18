@@ -238,6 +238,25 @@ the release before the panel comes up.
 Daemon md5s after both patches: brick 1781c904…, brickpro 086f6d70…, smartpro
 9d5ca562…, smartpros 3e8b2247… (the `scripts/patch-osdd-layout.sh` table).
 
+### Idle wait shim (`libosdwait.so`)
+
+Measured 2026-09-19 with the panel hidden and the pad at rest, the daemon
+costs ~6.4% of one core on both the Brick Pro and the Smart Pro S. Two thirds
+of that is `do_osd_input_thread`: it blocks in `SDL_WaitEvent`, the daemon has
+no SDL window, and SDL 2.30's fallback is "pump, `SDL_Delay(1)`" — ~920
+wakeups/s. The two layer threads take ~63 wakeups/s (~1% each) and the main
+loop's 33 ms poll is negligible. The daemon imports only `SDL_WaitEvent`, so
+it cannot be byte-patched to a cheaper poll; instead
+`workspace/all/osdwait/osdwait.c` builds `libosdwait.so`, an `LD_PRELOAD`
+shim both launchers pass when starting the daemon (bare start if the file is
+missing). It reimplements `SDL_WaitEvent` as a loop over the real
+`SDL_WaitEventTimeout(ev, 0)` (via `dlsym(RTLD_NEXT)`), sleeping 20 ms
+between empty polls while `/tmp/trimui_osd/osdd_show_up` is absent and 1 ms
+while it exists. Pending events are returned with no sleep, so a hidden-time
+backlog still drains in one pump and the Brick Pro Home release is discarded
+within ~20 ms — inside keymon's 80 ms deferral. Installed to
+`.system/<platform>/lib/` by the top-level Makefile.
+
 ## Dependencies
 
 ### Shared Libraries

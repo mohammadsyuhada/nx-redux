@@ -200,7 +200,16 @@ if [ "$(nextval.elf buttonlayout | sed -n 's/.*"buttonlayout": \([0-9]*\).*/\1/p
 	OSDD=trimui_osdd.xbox
 fi
 if [ -x "$OSD_DST/$OSDD" ]; then
-	cd "$OSD_DST" && ./$OSDD &
+	# libosdwait.so (workspace/all/osdwait) interposes the daemon's SDL_WaitEvent:
+	# with no SDL window to block on, SDL 2.30 polls every 1 ms (~920 wakeups/s,
+	# ~4.5% of a core while the panel is hidden and idle); the shim polls every
+	# 20 ms while hidden and 1 ms while shown. Bare start if the library is absent.
+	OSDWAIT="$SYSTEM_PATH/lib/libosdwait.so"
+	if [ -f "$OSDWAIT" ]; then
+		cd "$OSD_DST" && LD_PRELOAD="$OSDWAIT" ./$OSDD &
+	else
+		cd "$OSD_DST" && ./$OSDD &
+	fi
 fi
 cd "$SYSTEM_PATH/bin"
 
