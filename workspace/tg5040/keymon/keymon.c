@@ -32,6 +32,9 @@
 #define CODE_JACK 2
 
 #define LONG_PRESS_MS 1000
+// Brick Pro Home release -> OSD toggle delay; must exceed the daemon's time
+// to pump and discard its own copy of the release (SDL polls every ~10 ms).
+#define HOME_TOGGLE_DELAY_MS 80
 #define OSD_SHOW_PATH "/tmp/show_osdd"
 #define OSD_HIDE_PATH "/tmp/hide_osdd"
 #define OSD_STATE_PATH "/tmp/trimui_osd/osdd_show_up"
@@ -221,6 +224,8 @@ int main(int argc, char* argv[]) {
 	uint32_t menu_pressed = 0;
 	uint32_t menu_press_start = 0;
 	int menu_long_fired = 0;
+	// Brick Pro Home: the toggle is deferred (see CODE_HOME below); 0 = none due
+	uint32_t home_toggle_at = 0;
 
 	uint32_t up_pressed = 0;
 	uint32_t up_just_pressed = 0;
@@ -250,6 +255,9 @@ int main(int argc, char* argv[]) {
 			if (up_pressed && down_pressed)
 				next_repeat = up_repeat_at < down_repeat_at ? up_repeat_at : down_repeat_at;
 			int remaining = (int)(next_repeat - now);
+			timeout_ms = remaining > 0 ? remaining : 1;
+		} else if (home_toggle_at) {
+			int remaining = (int)(home_toggle_at - now);
 			timeout_ms = remaining > 0 ? remaining : 1;
 		} else {
 			timeout_ms = 1000; // idle — wake up occasionally
@@ -352,14 +360,29 @@ int main(int argc, char* argv[]) {
 					// its cancel key, acting on button-up). Toggling on the press
 					// edge let the daemon grab the pad mid-press and consume the
 					// release of the very same press as a cancel, so the OSD
-					// flashed and closed. Repeat (2) is filtered out above.
+					// flashed and closed. Toggling on the release edge was not
+					// enough either: the daemon also holds the pad open while
+					// hidden and only discards its copy of the release once its
+					// SDL loop has pumped it, while it polls /tmp/show_osdd every
+					// 33 ms — so a show written at the release instant usually
+					// activated the panel first, and the same release then closed
+					// it (verified 2026-09-19 by injection: 9 of 10 taps flashed).
+					// Defer the toggle by HOME_TOGGLE_DELAY_MS so the daemon has
+					// discarded the release before the panel comes up. Repeat (2)
+					// is filtered out above.
 					if (val == RELEASED)
-						toggle_osd();
+						home_toggle_at = now + HOME_TOGGLE_DELAY_MS;
 					break;
 				default:
 					break;
 				}
 			}
+		}
+
+		// Deferred Brick Pro Home toggle (see CODE_HOME above)
+		if (home_toggle_at && (int)(now - home_toggle_at) >= 0) {
+			home_toggle_at = 0;
+			toggle_osd();
 		}
 
 		// Check menu long-press threshold — trigger OSD (swallowed while a

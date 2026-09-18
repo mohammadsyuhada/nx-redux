@@ -142,11 +142,11 @@ Smart Pro's 140 px cell pitch (120 px tile + 20 px gap) with an origin of
 shared 124 px tiles every multi-cell span overhangs into the gap (~4 px after
 a 4-wide slider) and the whole panel sits left of centre (stock firmware shows
 the same). `device/brickpro/trimui_osdd` is therefore a copy of the **Brick's**
-daemon (stock c3181362…, now a18d25dc… after the slider layout patch below), not the Brick Pro's stock one (62df0658…): both models are
+daemon (stock c3181362…; see the slider layout and input drain patches below for the current md5), not the Brick Pro's stock one (62df0658…): both models are
 the same SoC, kernel and 1024×768 panel, and the Brick build renders the Brick
 Pro identically to the Brick (verified 2026-09-11: grid, focus, toggles,
 in-panel and standalone toasts). The copy carries a two-instruction patch
-(1b120125…, 2026-09-14; 0ff776f3… once the slider layout patch is added) in `do_osd_input_thread`: SDL joystick button 15 —
+(1b120125…, 2026-09-14; current md5 in the input drain patch section) in `do_osd_input_thread`: SDL joystick button 15 —
 the Brick Pro's Home key, which SDL enumerates after the 11 `BTN_*` buttons,
 F1/F2 and the volume keys — now maps to the daemon's cancel key 2 (the one physical B, SDL button 0,
 uses), in place of X's mapping to key 4, which `osd_input` ignores. Reason:
@@ -204,10 +204,39 @@ Nothing else changes (bar width, fill maths, icon1 centring). Verified by
 disassembly and, on the Brick Pro, by a write-back capture of the open panel.
 The `.xbox` variants are regenerated from the patched daemons by
 `scripts/patch-osdd-layout.sh`, whose md5 table now names the patched
-binaries (brick a18d25dc…, brickpro 0ff776f3…, smartpro 56a429d4…, smartpros
-dc406fc9…); `osd-stock/*.manifest.md5` still list the untouched firmware
+binaries (see the input drain patch below for the current values); `osd-stock/*.manifest.md5` still list the untouched firmware
 originals. Re-apply this patch (same offsets, verify the old bytes first) if a
 stock daemon is ever replaced.
+
+### Input drain patch (all four daemons + their `.xbox` variants)
+
+`do_osd_input_thread` keeps the pad open while the panel is hidden and
+discards every SDL joystick event it gets — but stock slept 100 ms after each
+discard (`usleep(100000)` right after the failed `trimui_osd_is_actived`
+check). Two consequences, both reproduced by evdev injection on the Brick Pro
+(2026-09-19): (1) events pressed while hidden queue up and are replayed into
+the panel when it next opens if they have not drained yet — ten quick Home
+taps followed by a show 0.5 s later opened the panel and a leftover release
+closed it 2 s on; in a game the backlog is d-pad, A and B releases, so the
+panel could jump focus, flip a toggle or self-cancel on open; (2) on the Brick
+Pro, whose Home release is the daemon's cancel key, keymon's show written at
+the release instant usually activated the panel (33 ms show-file poll) before
+the input thread had pumped its own copy of the release, which then cancelled
+it — 9 of 10 injected taps, 30 ms or 300 ms hold alike, flashed for ~400 ms.
+Since 2026-09-19 the checked-in daemons have that `bl usleep` replaced by a
+`nop`, so hidden-time events are discarded as they arrive (no busy loop:
+`SDL_WaitEvent` blocks when the queue is empty), and the tg5040 keymon defers
+the Home toggle by 80 ms (`HOME_TOGGLE_DELAY_MS`) so the daemon has discarded
+the release before the panel comes up.
+
+| Device | file offset | bytes |
+|---|---|---|
+| brick, brickpro | 0xb8fc | `97ffd931` → `d503201f` |
+| smartpro | 0xb84c | `97ffd94d` → `d503201f` |
+| smartpros (PIE) | 0x12fc4 | `97ffbe0f` → `d503201f` |
+
+Daemon md5s after both patches: brick 1781c904…, brickpro 086f6d70…, smartpro
+9d5ca562…, smartpros 3e8b2247… (the `scripts/patch-osdd-layout.sh` table).
 
 ## Dependencies
 
