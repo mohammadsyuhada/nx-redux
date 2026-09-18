@@ -671,23 +671,17 @@ static void write_ready(void) {
 	}
 }
 
-// ---- OSD focus-colour tint ---------------------------------------------
-// trimui_osdd paints its focus ring (block*_sel.png), the active slider
-// (progress_*_sel.png) and the toast frame (bg_msg_w*.png) from images. The
-// shipped ones are pure WHITE shapes (alpha carries the anti-aliasing). Run as
-// `osdmusic.elf --tint-osd <src> <dst>` from the launcher before the daemon
-// starts, this rewrites them with the theme accent: every white pixel becomes
-// the accent scaled by the pixel's brightness, alpha untouched, so the whole
-// OSD follows the theme (a white accent leaves them as shipped).
+// ---- OSD accent tint -----------------------------------------------------
+// trimui_osdd paints the active slider (progress_*_sel.png) and the toast
+// frame (bg_msg_w*.png) from images. The shipped ones are pure WHITE shapes
+// (alpha carries the anti-aliasing). Run as `osdmusic.elf --tint-osd <src>
+// <dst>` from the launcher before the daemon starts, this rewrites them with
+// the theme accent: every white pixel becomes the accent scaled by the pixel's
+// brightness, alpha untouched (a white accent leaves them as shipped). The
+// active-widget focus ring (block*_sel.png) is deliberately NOT tinted: it
+// stays the shipped white so it is legible over the dark tiles whatever the
+// accent (the default theme's #002222 made it all but vanish).
 static const char* const TINT_FILES[] = {
-	"block1x1_sel.png",
-	"block1x2_sel.png",
-	"block2x1_sel.png",
-	"block2x2_sel.png",
-	"block3x1_sel.png",
-	"block3x2_sel.png",
-	"block4x1_sel.png",
-	"block4x2_sel.png",
 	"progress_bg_sel.png",
 	"progress_fg_sel.png",
 	"bg_msg_w1.png",

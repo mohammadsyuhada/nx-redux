@@ -158,10 +158,10 @@ fi
 
 OSD_DST="/usr/trimui/osd"
 OSD_SRC="$SYSTEM_PATH/osd"
-# Theme-accent copies of the daemon's green focus ring / active slider / toast
-# frame images (no-op for the default theme) go into a tmpfs layer stacked
-# above the SD tree, so the card itself is never written. Must run before
-# trimui_osdd loads its images.
+# Theme-accent copies of the daemon's active slider / toast frame images
+# (no-op for the default theme; the white focus ring is left as shipped) go
+# into a tmpfs layer stacked above the SD tree, so the card itself is never
+# written. Must run before trimui_osdd loads its images.
 OSD_TINT="/tmp/nx_osd_tint"
 rm -rf "$OSD_TINT"
 mkdir -p "$OSD_TINT"

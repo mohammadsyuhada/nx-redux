@@ -49,14 +49,14 @@ mount -t "$FS" -o loop "$IMG" /mnt/SDCARD
 export SYSTEM_PATH=/mnt/SDCARD/.system
 mkdir -p "$SYSTEM_PATH/osd/widgets/toggle_wifi" "$SYSTEM_PATH/bin"
 echo nx > "$SYSTEM_PATH/osd/osdlayout.json"
-echo shipped > "$SYSTEM_PATH/osd/block1x1_sel.png"
+echo shipped > "$SYSTEM_PATH/osd/progress_fg_sel.png"
 printf '#!/bin/sh\necho nx-daemon\n' > "$SYSTEM_PATH/osd/trimui_osdd"
 printf '#!/bin/sh\necho nx-widget\n' > "$SYSTEM_PATH/osd/widgets/toggle_wifi/set.sh"
 # stand-in for osdmusic.elf --tint-osd <src> <dst>: emit one recoloured file
 cat > "$SYSTEM_PATH/bin/osdmusic.elf" <<'STUB'
 #!/bin/sh
 [ "$1" = "--tint-osd" ] || exit 1
-echo tinted > "$3/block1x1_sel.png"
+echo tinted > "$3/progress_fg_sel.png"
 STUB
 # The firmware's card mounts (vfat, exfat-FUSE) present every file as 0755;
 # ext4 needs the bits set explicitly to stand in for that.
@@ -66,7 +66,7 @@ chmod +x "$SYSTEM_PATH/bin/osdmusic.elf" "$SYSTEM_PATH/osd/trimui_osdd" \
 # fake firmware rootfs OSD tree
 mkdir -p /usr/trimui/osd/widgets/toggle_wifi
 echo stock > /usr/trimui/osd/osdlayout.json
-echo stock > /usr/trimui/osd/block1x1_sel.png
+echo stock > /usr/trimui/osd/progress_fg_sel.png
 echo font > /usr/trimui/osd/regular.ttf
 printf '#!/bin/sh\necho stock-daemon\n' > /usr/trimui/osd/trimui_osdd
 chmod +x /usr/trimui/osd/trimui_osdd
@@ -77,7 +77,7 @@ sh /osd-block.sh
 [ ! -f /tmp/nx_osd_mount_failed ] || fail "mount failure marker set"
 grep -q " /usr/trimui/osd overlay " /proc/mounts || fail "/usr/trimui/osd is not an overlay"
 [ "$(cat /usr/trimui/osd/osdlayout.json)" = nx ] || fail "layout is $(cat /usr/trimui/osd/osdlayout.json), SD tree not on top"
-[ "$(cat /usr/trimui/osd/block1x1_sel.png)" = tinted ] || fail "tint layer not on top"
+[ "$(cat /usr/trimui/osd/progress_fg_sel.png)" = tinted ] || fail "tint layer not on top"
 [ "$(cat /usr/trimui/osd/regular.ttf)" = font ] || fail "rootfs-only file does not show through"
 [ "$(cd /usr/trimui/osd && ./trimui_osdd)" = nx-daemon ] || fail "SD daemon not executable from merged tree"
 [ "$(/usr/trimui/osd/widgets/toggle_wifi/set.sh)" = nx-widget ] || fail "SD widget script not executable from merged tree"
