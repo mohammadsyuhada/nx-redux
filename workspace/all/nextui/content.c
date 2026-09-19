@@ -48,6 +48,23 @@ static void getUniqueName(Entry* entry, char* out_name) {
 	snprintf(out_name, MAX_PATH, "%s (%s)", entry->name, emu_tag);
 }
 
+// stem of a path: its basename with trailing 1-4 letter extensions removed,
+// matching getDisplayName()'s rule so multi-extensions (e.g. .p8.png) collapse.
+static void getFileStem(const char* path, char* out /* MAX_PATH */) {
+	const char* base = baseName(path);
+	snprintf(out, MAX_PATH, "%s", base);
+	char* tmp;
+	while ((tmp = strrchr(out, '.')) != NULL) {
+		int len = strlen(tmp);
+		if (len > 2 && len <= 5)
+			tmp[0] = '\0'; // 1-4 letter extension plus dot
+		else
+			break;
+	}
+	if (out[0] == '\0')
+		snprintf(out, MAX_PATH, "%s", base); // stripping ate everything; restore the basename
+}
+
 ///////////////////////////////////////
 // Directory indexing
 
@@ -122,29 +139,80 @@ static void Directory_index(Directory* self) {
 	for (int i = 0; i < self->entries->count; i++) {
 		Entry* entry = self->entries->items[i];
 
-		if (prior != NULL && exactMatch(prior->name, entry->name)) {
-			free(prior->unique);
-			free(entry->unique);
-			prior->unique = NULL;
-			entry->unique = NULL;
+		// A "run" is a maximal span of consecutive entries with an identical
+		// display name. Game lists collate every sibling Roms/<Console> (<TAG>)/
+		// folder into one list, so the same name can arrive from several cores.
+		// Disambiguate each row in a run of >= 2 with three label forms:
+		//   same file across the run  -> "<name> (<tag>)"     (per-core copies of one rom)
+		//   files differ, tags differ -> "<stem> (<tag>)"     (different roms from different cores; the core tag tells them apart)
+		//   files differ, same tag    -> "<stem>"             (same folder, e.g. "Tetris" vs "Tetris (1)")
+		// The tag is appended only when filenames differ across cores because
+		// without it the user cannot tell which core a row would launch. The stem
+		// drops the extension, except when two stems in the run would collide
+		// (e.g. "Tetris.gb" vs "Tetris.gbc") — then the whole run keeps filenames.
+		Entry* next = (i + 1 < self->entries->count) ? self->entries->items[i + 1] : NULL;
+		bool run_start = next != NULL && exactMatch(entry->name, next->name) && (prior == NULL || !exactMatch(prior->name, entry->name));
+		if (run_start) {
+			int j = i + 1;
+			while (j < self->entries->count && exactMatch(entry->name, ((Entry*)self->entries->items[j])->name))
+				j++;
 
-			char* prior_slash = strrchr(prior->path, '/');
-			char* entry_slash = strrchr(entry->path, '/');
-			if (prior_slash && entry_slash) {
-				char* prior_filename = prior_slash + 1;
-				char* entry_filename = entry_slash + 1;
-				if (exactMatch(prior_filename, entry_filename)) {
-					char prior_unique[MAX_PATH] = {0};
-					char entry_unique[MAX_PATH] = {0};
-					getUniqueName(prior, prior_unique);
-					getUniqueName(entry, entry_unique);
+			char first_tag[MAX_PATH];
+			getEmuName(entry->path, first_tag);
+			const char* first_file = baseName(entry->path);
+			bool same_file = true;
+			bool tags_differ = false;
+			for (int k = i + 1; k < j; k++) {
+				Entry* e = self->entries->items[k];
+				if (!exactMatch(baseName(e->path), first_file))
+					same_file = false;
+				char tag[MAX_PATH];
+				getEmuName(e->path, tag);
+				if (!exactMatch(tag, first_tag))
+					tags_differ = true;
+			}
 
-					prior->unique = strdup(prior_unique);
-					entry->unique = strdup(entry_unique);
-				} else {
-					prior->unique = strdup(prior_filename);
-					entry->unique = strdup(entry_filename);
+			// Prefer the extensionless stem for the "files differ" labels, but only
+			// if every stem in the run is still distinct; if two collide (e.g.
+			// "Tetris.gb" vs "Tetris.gbc") the run keeps full filenames. Runs are
+			// short, so an O(n^2) pairwise compare is fine.
+			bool stems_unique = false;
+			if (!same_file) {
+				stems_unique = true;
+				for (int k = i; k < j && stems_unique; k++) {
+					char stem_k[MAX_PATH];
+					getFileStem(((Entry*)self->entries->items[k])->path, stem_k);
+					for (int m = k + 1; m < j; m++) {
+						char stem_m[MAX_PATH];
+						getFileStem(((Entry*)self->entries->items[m])->path, stem_m);
+						if (exactMatch(stem_k, stem_m)) {
+							stems_unique = false;
+							break;
+						}
+					}
 				}
+			}
+
+			for (int k = i; k < j; k++) {
+				Entry* e = self->entries->items[k];
+				free(e->unique);
+				e->unique = NULL;
+				char buf[MAX_PATH] = {0};
+				if (same_file) {
+					getUniqueName(e, buf);
+				} else {
+					char stem[MAX_PATH];
+					getFileStem(e->path, stem);
+					const char* label = stems_unique ? stem : baseName(e->path);
+					if (tags_differ) {
+						char tag[MAX_PATH];
+						getEmuName(e->path, tag);
+						snprintf(buf, sizeof(buf), "%s (%s)", label, tag);
+					} else {
+						snprintf(buf, sizeof(buf), "%s", label);
+					}
+				}
+				e->unique = strdup(buf);
 			}
 		}
 
