@@ -1280,8 +1280,8 @@ void SetRawVolume(int val) { // in: 0-100
 
 		mixer_close(mixer);
 
-		// Really, actually, finally turn the speaker off - including the hissing
-		putInt("/sys/class/speaker/mute", val == 0 ? 1 : 0);
+		// The speaker amp mute pin is owned by audiomon's spk_guard, which also
+		// mutes the amp at volume 0 (hiss); libmsettings drives DAC Volume only.
 	}
 }
 

@@ -29,7 +29,7 @@ CFLAGS += -I$(PREFIX_LOCAL)/include -DPLATFORM=\"$(PLATFORM)\" $$(pkg-config --c
 LDFLAGS += $$(pkg-config --libs dbus-1 libudev alsa)
 LDFLAGS += -L$(PREFIX_LOCAL)/lib -lmsettings
 
-SRCS = audiomon.c
+SRCS = audiomon.c spk_guard.c
 OBJS = $(addprefix build/$(PLATFORM)/,$(SRCS:.c=.o))
 
 PRODUCT = build/$(PLATFORM)/$(TARGET)

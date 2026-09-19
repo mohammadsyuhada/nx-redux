@@ -16,9 +16,11 @@
 #include <syslog.h>
 #include <errno.h>
 #include <stdbool.h>
+#include <time.h>
 
 #include "msettings.h"
 #include "defines.h"
+#include "spk_guard.h"
 
 #define AUDIO_FILE USERDATA_PATH "/.asoundrc"
 #define UUID_A2DP "0000110b-0000-1000-8000-00805f9b34fb"
@@ -54,6 +56,207 @@ enum { ROUTED_DEFAULT,
 // Sink state published for apps/scripts (see DEV docs: sink=, rates=, card=)
 #define SINK_STATE_FILE "/tmp/nx_audio_sink"
 #define SINK_STATE_TMP "/tmp/.nx_audio_sink.tmp"
+
+// ---- Speaker anti-pop sequencer (Smart Pro S / tg5050) ----------------------
+// The codec powers its output stage up whenever a PCM stream starts and down
+// within <1s of the last one closing. The real amp gate is the TrimUI kernel
+// node /sys/class/speaker/mute (write 1 = force the amp OFF, write 0 = amp ON);
+// it overrides the DAPM "SPK Switch" in both directions, so the switch is
+// irrelevant to us. Two things pop, both verified on hardware with a game
+// playing: (1) the codec powering UP while the amp is enabled (node 0); (2)
+// enabling the amp (node 0) while the DAC is already pushing live signal.
+// Powering DOWN, and enabling the amp into a MUTED DAC, are both silent. So per
+// power-up we run: DAC_MUTE ("DAC Volume" 0, value saved) -> wait 350 ms for the
+// codec power-up to settle -> AMP_ON (node 0, into silence) -> wait 150 ms for
+// the amp to settle -> DAC_RESTORE (write the saved volume back in one step). On
+// power-down the amp is forced off (node 1) and the DAC restored (both silent).
+// At user volume 0 the amp is left muted (kills the idle hiss). Every poll we
+// also re-assert the node against stray writers (old binaries calling
+// PLAT_overrideMute, kernel resume re-init), rewriting only on mismatch.
+// libmsettings SetRawVolume no longer touches the node (it drives "DAC Volume"
+// only) and PLAT_overrideMute is a no-op on this platform, so audiomon owns it.
+//
+// PM State lives in the codec's DAPM widget dump (cheap to read).
+static const char* SPK_PM_PATH =
+	"/sys/devices/platform/soc@3000000/soc@3000000:codec_mach/"
+	"sunxi-snd-plat-aaudio-sunxi-snd-codec/dapm_widget";
+// The amp mute pin (1 = amp forced off, 0 = amp on).
+static const char* SPK_MUTE_PATH = "/sys/class/speaker/mute";
+
+static bool spk_guard_active = false;
+static SpkGuard spk_guard;
+static snd_ctl_t* spk_ctl = NULL;			 // kept open for the daemon's life
+static snd_ctl_elem_id_t* spk_dac_id = NULL; // resolved "DAC Volume" id (numid)
+static unsigned int spk_dac_count = 1;		 // "DAC Volume" channel count
+static bool spk_dac_logged_error = false;
+static bool spk_mute_logged_error = false;
+
+static long long now_ms(void) {
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+// 1 = codec output stage powered On, 0 = Off, -1 = read error (treated by the
+// state machine as "no change").
+static int spk_read_pm_on(void) {
+	FILE* f = fopen(SPK_PM_PATH, "r");
+	if (!f)
+		return -1;
+	int result = -1;
+	char line[256];
+	while (fgets(line, sizeof(line), f)) {
+		char* p = strstr(line, "PM State:");
+		if (p) {
+			result = strstr(p, "On") ? 1 : 0;
+			break;
+		}
+	}
+	fclose(f);
+	return result;
+}
+
+// The amp gate is a rare-write sysfs node — open/write/close each time.
+// mute=1 forces the amp off, mute=0 enables it.
+static int spk_mute_read(void) {
+	FILE* f = fopen(SPK_MUTE_PATH, "r");
+	if (!f)
+		return -1;
+	int v = -1;
+	if (fscanf(f, "%d", &v) != 1)
+		v = -1;
+	fclose(f);
+	return v;
+}
+
+static void spk_mute_write(int mute) {
+	FILE* f = fopen(SPK_MUTE_PATH, "w");
+	if (!f) {
+		if (!spk_mute_logged_error) {
+			audiomon_log("Speaker guard: failed to open speaker mute node");
+			spk_mute_logged_error = true;
+		}
+		return;
+	}
+	fprintf(f, "%d", mute ? 1 : 0);
+	fclose(f);
+	spk_mute_logged_error = false;
+}
+
+// Read "DAC Volume" (channel 0): current codec digital volume, or -1 on error.
+static int spk_dac_read(void) {
+	if (!spk_ctl || !spk_dac_id)
+		return -1;
+	snd_ctl_elem_value_t* v;
+	snd_ctl_elem_value_alloca(&v);
+	snd_ctl_elem_value_set_id(v, spk_dac_id);
+	if (snd_ctl_elem_read(spk_ctl, v) < 0)
+		return -1;
+	return snd_ctl_elem_value_get_integer(v, 0);
+}
+
+// Write the same value to every "DAC Volume" channel.
+static void spk_dac_write(int val) {
+	if (!spk_ctl || !spk_dac_id)
+		return;
+	snd_ctl_elem_value_t* v;
+	snd_ctl_elem_value_alloca(&v);
+	snd_ctl_elem_value_set_id(v, spk_dac_id);
+	for (unsigned int i = 0; i < spk_dac_count; i++)
+		snd_ctl_elem_value_set_integer(v, i, val);
+	if (snd_ctl_elem_write(spk_ctl, v) < 0) {
+		if (!spk_dac_logged_error) {
+			audiomon_log("Speaker guard: failed to write DAC Volume");
+			spk_dac_logged_error = true;
+		}
+	} else {
+		spk_dac_logged_error = false;
+	}
+}
+
+static void spk_guard_apply(SpkGuardAction action) {
+	switch (action) {
+	case SPK_GUARD_DAC_MUTE:
+		spk_dac_write(0); // the step already saved the user's level
+		break;
+	case SPK_GUARD_AMP_ON:
+		spk_mute_write(0); // amp on, into the muted DAC
+		break;
+	case SPK_GUARD_DAC_RESTORE:
+		spk_dac_write(spk_guard.saved_dac);
+		break;
+	case SPK_GUARD_AMP_OFF:
+		spk_mute_write(1); // force the amp off
+		break;
+	case SPK_GUARD_NONE:
+	default:
+		break;
+	}
+}
+
+// Activate only on tg5050 when the codec power sysfs, the amp mute node, and
+// the "DAC Volume" control are all present (the card index moves, so name the
+// card "audiocodec"). Keeps the ctl handle and the resolved id open for life.
+static void spk_guard_setup(void) {
+	if (strcmp(PLATFORM, "tg5050") != 0) {
+		audiomon_log("Speaker guard inactive: not tg5050");
+		return;
+	}
+	struct stat st;
+	if (stat(SPK_PM_PATH, &st) != 0) {
+		audiomon_log("Speaker guard inactive: codec power sysfs not found");
+		return;
+	}
+	if (stat(SPK_MUTE_PATH, &st) != 0) {
+		audiomon_log("Speaker guard inactive: speaker mute node not found");
+		return;
+	}
+	if (snd_ctl_open(&spk_ctl, "hw:CARD=audiocodec", 0) < 0) {
+		spk_ctl = NULL;
+		audiomon_log("Speaker guard inactive: cannot open audiocodec control");
+		return;
+	}
+	// Resolve "DAC Volume" (the codec digital volume, INTEGER) — muted before
+	// the amp is enabled, restored after.
+	snd_ctl_elem_info_t* info;
+	snd_ctl_elem_info_alloca(&info);
+	snd_ctl_elem_id_malloc(&spk_dac_id);
+	snd_ctl_elem_id_set_interface(spk_dac_id, SND_CTL_ELEM_IFACE_MIXER);
+	snd_ctl_elem_id_set_name(spk_dac_id, "DAC Volume");
+	snd_ctl_elem_info_set_id(info, spk_dac_id);
+	if (snd_ctl_elem_info(spk_ctl, info) < 0) {
+		audiomon_log("Speaker guard inactive: DAC Volume control not found");
+		snd_ctl_elem_id_free(spk_dac_id);
+		spk_dac_id = NULL;
+		snd_ctl_close(spk_ctl);
+		spk_ctl = NULL;
+		return;
+	}
+	snd_ctl_elem_info_get_id(info, spk_dac_id); // adopt the numid-resolved id
+	spk_dac_count = snd_ctl_elem_info_get_count(info);
+	if (spk_dac_count < 1)
+		spk_dac_count = 1;
+
+	spk_guard_init(&spk_guard);
+	spk_guard_active = true;
+	audiomon_log("Speaker guard active");
+	// First step forces the amp muted (node 1) before the boot priming stream,
+	// so that stream powers the codec with the amp off (silent).
+	spk_guard_apply(spk_guard_step(&spk_guard, spk_read_pm_on(), spk_dac_read(), now_ms()));
+}
+
+static void spk_guard_poll(void) {
+	int pm = spk_read_pm_on();
+	int dac = spk_dac_read();
+	spk_guard_apply(spk_guard_step(&spk_guard, pm, dac, now_ms()));
+	// Re-assert the amp node against stray writers. Wanted: 0 (amp on) only
+	// while the guard has the amp enabled, else 1 (forced off). Rewrite only on
+	// mismatch, so no log spam / needless writes.
+	int wanted = (spk_guard.amp_on == 1) ? 0 : 1;
+	int cur = spk_mute_read();
+	if (cur >= 0 && cur != wanted)
+		spk_mute_write(wanted);
+}
 
 // Parse one integer key from the shared NX Redux settings file.
 // audiomon doesn't link common/config.c, so read the key=value line directly.
@@ -789,6 +992,10 @@ int main(int argc, char* argv[]) {
 	}
 
 	InitSettings();
+	// Initialise the speaker guard (and force the switch off) BEFORE the boot
+	// priming stream in write_default_audio_file(), so that stream powers the
+	// codec with the amp off — otherwise the cold power-up pops.
+	spk_guard_setup();
 	write_default_audio_file();
 	SetAudioSink(AUDIO_SINK_DEFAULT);
 	publish_sink_state();
@@ -902,10 +1109,22 @@ int main(int argc, char* argv[]) {
 		int max_fd = (dbus_fd > udev_fd) ? dbus_fd : udev_fd;
 
 		struct timeval timeout;
-		timeout.tv_sec = 1;
-		timeout.tv_usec = 0;
+		if (spk_guard_active) {
+			// Poll the codec power state at 50 ms so the ON fires promptly once
+			// the 350 ms settle elapses and the OFF lands before the next
+			// power-up. tg5040 has no such codec and keeps the 1 s idle.
+			timeout.tv_sec = 0;
+			timeout.tv_usec = 50000;
+		} else {
+			timeout.tv_sec = 1;
+			timeout.tv_usec = 0;
+		}
 
 		int ret = select(max_fd + 1, &readfds, NULL, NULL, &timeout);
+
+		// Runs every iteration regardless of ret (timeout or fd ready).
+		if (spk_guard_active)
+			spk_guard_poll();
 
 		if (ret < 0) {
 			if (errno == EINTR)
@@ -919,6 +1138,20 @@ int main(int argc, char* argv[]) {
 
 		if (FD_ISSET(udev_fd, &readfds))
 			process_udev_events(mon);
+	}
+
+	// A stopped daemon can no longer manage the amp, so leave the speaker live:
+	// enabling it now may pop on the next power-up, but that beats a dead
+	// speaker until audiomon is restarted. Restore the DAC first so a
+	// mid-sequence stop never leaves the volume muted.
+	if (spk_guard_active) {
+		if (spk_guard.dac_muted)
+			spk_dac_write(spk_guard.saved_dac);
+		spk_mute_write(0); // amp on
+		if (spk_dac_id)
+			snd_ctl_elem_id_free(spk_dac_id);
+		if (spk_ctl)
+			snd_ctl_close(spk_ctl);
 	}
 
 	// Cleanup (private connection must be closed before unref)

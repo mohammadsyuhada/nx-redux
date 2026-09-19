@@ -408,7 +408,10 @@ void PLAT_setRumble(int strength) {
 }
 
 void PLAT_overrideMute(int mute) {
-	putInt("/sys/class/speaker/mute", mute);
+	// No-op on tg5050: the speaker amp mute pin is owned by audiomon's spk_guard,
+	// whose anti-pop sequencing this would race (called from SND_resetAudio and
+	// the mediaplayer audio-reopen path).
+	(void)mute;
 }
 
 char* PLAT_getModel(void) {
