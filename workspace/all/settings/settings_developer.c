@@ -16,6 +16,7 @@
 #include "api.h"
 #include "config.h"
 #include "ui_loadingoverlay.h"
+#include "ssh_desc.h"
 
 // ============================================
 // Developer settings page
@@ -37,6 +38,19 @@ static DevicePlatform current_platform = PLAT_UNKNOWN;
 
 // Track SSH runtime state (not persisted)
 static int ssh_running = 0;
+
+// Background WiFi-IP poller for the SSH login hint. WIFI_connectionInfo() shells
+// out to wpa_cli + ip (tens of ms), so it must never run on the UI thread per
+// frame; a detached-style long-lived thread refreshes ssh_ip every ~3s while the
+// page is shown. The UI thread only ever snapshots ssh_ip under the mutex.
+static char ssh_ip[32];
+static pthread_mutex_t ssh_ip_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_t ssh_ip_thread;
+static volatile int ssh_ip_running = 0;
+static int ssh_ip_started = 0;
+
+// Defined below (after the poller); dev_set_ssh refreshes the hint via it.
+static const char* dev_get_ssh_desc(void);
 
 // ============================================
 // Disable sleep
@@ -132,6 +146,10 @@ static void dev_set_ssh(int val) {
 
 	// Update runtime state
 	dev_ssh_check_running();
+
+	// Refresh the hint immediately so the login line appears the moment the
+	// server comes up (on_tick also does this every frame).
+	page->items[DEV_IDX_SSH_TOGGLE].desc = dev_get_ssh_desc();
 
 	// Re-sync the SSH toggle item with actual state
 	settings_item_sync(&page->items[DEV_IDX_SSH_TOGGLE]);
@@ -277,24 +295,56 @@ static void dev_clean_dotfiles(void) {
 }
 
 // ============================================
+// Background WiFi-IP poller
+// ============================================
+
+// One connection lookup; writes the current IP (or "" when disabled/offline)
+// into ssh_ip under the mutex. Runs only on the poller thread.
+static void ssh_ip_lookup(void) {
+	char ip[32] = "";
+	if (WIFI_enabled()) {
+		struct WIFI_connection conn;
+		if (WIFI_connectionInfo(&conn) == 0 && conn.valid)
+			snprintf(ip, sizeof(ip), "%s", conn.ip);
+	}
+	pthread_mutex_lock(&ssh_ip_lock);
+	snprintf(ssh_ip, sizeof(ssh_ip), "%s", ip);
+	pthread_mutex_unlock(&ssh_ip_lock);
+}
+
+static void* ssh_ip_poller(void* arg) {
+	(void)arg;
+	// WIFI_init (PLAT_wifiInit) is idempotent and cheap (sets diagnostics config
+	// + logs); settings_wifi.c calls it in wifi_on_show, so mirror that here in
+	// case the Developer page is entered without first visiting Network.
+	WIFI_init();
+	ssh_ip_lookup(); // immediate first lookup: IP shows within one frame
+	while (ssh_ip_running) {
+		// Interruptible 3s sleep in 100ms steps: leaving the page stops us in ~100ms.
+		settings_scanner_sleep(3, &ssh_ip_running, NULL);
+		if (!ssh_ip_running)
+			break;
+		ssh_ip_lookup();
+	}
+	return NULL;
+}
+
+// ============================================
 // Dynamic description for SSH item
 // ============================================
 
 static char ssh_desc_buf[128];
 
 static const char* dev_get_ssh_desc(void) {
-	if (ssh_running) {
-		if (current_platform == PLAT_TG5050) {
-			snprintf(ssh_desc_buf, sizeof(ssh_desc_buf),
-					 "SSH active. No password required.");
-		} else {
-			snprintf(ssh_desc_buf, sizeof(ssh_desc_buf),
-					 "SSH active. Password: tina");
-		}
-	} else {
-		snprintf(ssh_desc_buf, sizeof(ssh_desc_buf),
-				 "Start SSH server for remote access.");
-	}
+	// Snapshot the poller's IP under the mutex, then format cheaply (safe to run
+	// every frame; no shelling out here).
+	char ip[32];
+	pthread_mutex_lock(&ssh_ip_lock);
+	snprintf(ip, sizeof(ip), "%s", ssh_ip);
+	pthread_mutex_unlock(&ssh_ip_lock);
+
+	dev_format_ssh_desc(ssh_desc_buf, sizeof(ssh_desc_buf), ssh_running,
+						current_platform == PLAT_TG5050, ip);
 	return ssh_desc_buf;
 }
 
@@ -305,6 +355,12 @@ static const char* dev_get_ssh_desc(void) {
 static void dev_on_show(SettingsPage* page) {
 	// Re-check SSH status when page is shown
 	dev_ssh_check_running();
+	// Start the background WiFi-IP poller (long-lived while the page is shown)
+	if (!ssh_ip_started) {
+		ssh_ip_running = 1;
+		ssh_ip_started = 1;
+		pthread_create(&ssh_ip_thread, NULL, ssh_ip_poller, NULL);
+	}
 	// Update SSH item description
 	if (page->item_count > DEV_IDX_SSH_TOGGLE) {
 		page->items[DEV_IDX_SSH_TOGGLE].desc = dev_get_ssh_desc();
@@ -312,6 +368,16 @@ static void dev_on_show(SettingsPage* page) {
 	// Sync all items
 	for (int i = 0; i < page->item_count; i++) {
 		settings_item_sync(&page->items[i]);
+	}
+}
+
+static void dev_on_hide(SettingsPage* page) {
+	(void)page;
+	// Stop and join the poller so it doesn't keep shelling out off-page.
+	if (ssh_ip_started) {
+		ssh_ip_running = 0;
+		pthread_join(ssh_ip_thread, NULL);
+		ssh_ip_started = 0;
 	}
 }
 
@@ -381,7 +447,7 @@ SettingsPage* developer_page_create(DevicePlatform dev_platform) {
 	page->scroll = 0;
 	page->is_list = 0;
 	page->on_show = dev_on_show;
-	page->on_hide = NULL;
+	page->on_hide = dev_on_hide;
 	page->on_tick = dev_on_tick;
 	page->dynamic_start = -1;
 	page->max_items = DEV_ITEM_COUNT;
@@ -397,6 +463,13 @@ SettingsPage* developer_page_create(DevicePlatform dev_platform) {
 void developer_page_destroy(SettingsPage* page) {
 	if (!page)
 		return;
+	// Safety net if the process tears down while the page is still shown
+	// (on_hide normally joins the poller first).
+	if (ssh_ip_started) {
+		ssh_ip_running = 0;
+		pthread_join(ssh_ip_thread, NULL);
+		ssh_ip_started = 0;
+	}
 	free(page->items);
 	free(page);
 }

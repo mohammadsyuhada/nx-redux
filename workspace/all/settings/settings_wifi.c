@@ -425,6 +425,11 @@ static void wifi_sleep(int seconds) {
 static WifiNetworkInfo network_info_pool[SCAN_MAX_RESULTS];
 static int network_info_count = 0;
 
+// Hint text for the connected network's row. Written only under the page wrlock
+// (below) and read by the renderer, which holds the rdlock, so it needs no
+// extra mutex.
+static char wifi_conn_desc[64];
+
 static void* wifi_scanner(void* arg) {
 	SettingsPage* page = (SettingsPage*)arg;
 
@@ -487,6 +492,12 @@ static void* wifi_scanner(void* arg) {
 			// Rebuild dynamic items
 			pthread_rwlock_wrlock(&page->lock);
 
+			// Hint for the connected row: append the current IP when we have one.
+			if (has_conn && conn.ip[0])
+				snprintf(wifi_conn_desc, sizeof(wifi_conn_desc), "Connected, IP %s", conn.ip);
+			else
+				snprintf(wifi_conn_desc, sizeof(wifi_conn_desc), "Connected");
+
 			int dyn_start = page->dynamic_start;
 			if (dyn_start < 0)
 				dyn_start = WIFI_STATIC_COUNT;
@@ -504,7 +515,7 @@ static void* wifi_scanner(void* arg) {
 
 				page->items[item_idx] = (SettingItem){
 					.name = ninfo->ssid,
-					.desc = ninfo->connected ? "Connected" : "",
+					.desc = ninfo->connected ? wifi_conn_desc : "",
 					.type = ITEM_BUTTON,
 					.visible = 1,
 					.on_press = wifi_network_press,

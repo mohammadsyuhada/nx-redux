@@ -119,7 +119,7 @@ Available when you want it (Tools, pause menu and OSD):
     - Any game's play record can now be deleted (press `X`, with a confirmation dialog). The record starts fresh the next time the game is played.
 - Added joystick calibration in `Settings → Input`.
 - Added `Developer options` in `Settings`:
-    - Toggle SSH service and autostart
+    - Toggle SSH service and autostart; the hint shows the login line (`root`, password `tina` on Brick, none on Smart Pro S) with the device's current IP, which `Settings → Network` also shows on the connected network
     - Disable system sleep (useful for ADB)
     - Keep device awake over USB
     - Clean up macOS-specific dotfiles (if any were copied)
