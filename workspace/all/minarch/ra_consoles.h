@@ -51,6 +51,9 @@ static const RA_ConsoleMapping ra_console_table[] = {
 	{"GBC", RC_CONSOLE_GAMEBOY_COLOR},
 	// Game Gear
 	{"GG", RC_CONSOLE_GAME_GEAR},
+	// Genesis Plus GX. Base is Mega Drive; ra_do_load_game refines it by ROM
+	// extension so this one tag also covers Master System/Game Gear/SG-1000/CD.
+	{"GPGX", RC_CONSOLE_MEGA_DRIVE},
 	// Atari Lynx
 	{"LYNX", RC_CONSOLE_ATARI_LYNX},
 	// Mega Drive/Genesis

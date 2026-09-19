@@ -18,6 +18,7 @@ CORES+= mgba
 CORES+= pcsx_rearmed
 CORES+= pet
 CORES+= picodrive
+CORES+= genesis_plus_gx
 CORES+= plus4
 CORES+= pokemini
 CORES+= race
@@ -95,6 +96,17 @@ picodrive_MAKEFILE = Makefile.libretro
 # No background Audio on Sega CD
 # https://github.com/LoveRetro/NextUI/issues/68
 picodrive_HASH = b0be121b7d58d6ee1ee2809974e62893c80a8264
+
+# Alternative Mega Drive/Genesis (+ SegaCD/SMS/GG/SG-1000) core. Its
+# Makefile.libretro doesn't recognise our platform= value and would fall through
+# to the Windows .dll branch, so force the generic unix branch: it builds a .so
+# with the toolchain's $(CC) (aarch64 cross gcc). RetroAchievements picks it up
+# via the GPGX tag (see all/minarch/ra_consoles.h). LDFLAGS=-s strips at link
+# time (the unix branch leaves LDFLAGS empty) so the .so matches the other
+# cores' stripped size instead of shipping ~13 MB of debug_info.
+genesis_plus_gx_REPO = https://github.com/libretro/Genesis-Plus-GX
+genesis_plus_gx_MAKE = make -f Makefile.libretro platform=unix LDFLAGS=-s
+genesis_plus_gx_HASH = c2838c7dc4236fc2fe94e5dbd08b41486067918e
 
 pokemini_REPO = https://github.com/libretro/PokeMini
 pokemini_MAKEFILE = Makefile.libretro

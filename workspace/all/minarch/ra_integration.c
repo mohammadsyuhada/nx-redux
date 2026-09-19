@@ -1193,10 +1193,29 @@ static void ra_do_load_game(const char* rom_path, const uint8_t* rom_data, size_
 		console_id = RC_CONSOLE_PC_ENGINE_CD;
 		RA_LOG_DEBUG("Detected PC Engine CD image, using console ID %d\n", console_id);
 	}
-	// MD tag is used for both cartridge and Sega CD games in NextUI
-	else if (console_id == RC_CONSOLE_MEGA_DRIVE && ra_is_cd_extension(rom_path)) {
-		console_id = RC_CONSOLE_SEGA_CD;
-		RA_LOG_DEBUG("Detected Sega CD image, using console ID %d\n", console_id);
+	// MD serves cartridge and Sega CD games, and the GPGX tag (Genesis Plus GX)
+	// serves every Sega system under one tag. RA hashes per console, so refine a
+	// Mega Drive base by ROM extension — the same content-based trick as the CD
+	// upgrade above, and the way Genesis Plus GX itself picks the system. This
+	// lets one "GPGX" tag cover Mega Drive/Master System/Game Gear/SG-1000/CD.
+	else if (console_id == RC_CONSOLE_MEGA_DRIVE) {
+		if (ra_is_cd_extension(rom_path)) {
+			console_id = RC_CONSOLE_SEGA_CD;
+			RA_LOG_DEBUG("Detected Sega CD image, using console ID %d\n", console_id);
+		} else {
+			const char* ext = strrchr(rom_path, '.');
+			if (ext) {
+				ext++; // skip the dot
+				if (strcasecmp(ext, "sms") == 0)
+					console_id = RC_CONSOLE_MASTER_SYSTEM;
+				else if (strcasecmp(ext, "gg") == 0)
+					console_id = RC_CONSOLE_GAME_GEAR;
+				else if (strcasecmp(ext, "sg") == 0)
+					console_id = RC_CONSOLE_SG1000;
+			}
+			if (console_id != RC_CONSOLE_MEGA_DRIVE)
+				RA_LOG_DEBUG("Refined Sega console by extension, using console ID %d\n", console_id);
+		}
 	}
 
 	RA_LOG_INFO("Loading game: %s (console: %s, ID: %d)\n",

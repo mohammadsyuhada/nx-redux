@@ -79,8 +79,18 @@ static int rat_adjust_cd_console(int console_id, const char* path) {
 						 !strcasecmp(ext, ".m3u"));
 	if (console_id == RC_CONSOLE_PC_ENGINE && is_cd)
 		return RC_CONSOLE_PC_ENGINE_CD;
-	if (console_id == RC_CONSOLE_MEGA_DRIVE && is_cd)
-		return RC_CONSOLE_SEGA_CD;
+	if (console_id == RC_CONSOLE_MEGA_DRIVE) {
+		// The GPGX tag serves every Sega system; mirror minarch's
+		// ra_do_load_game so prefetch hashes each ROM under the right console.
+		if (is_cd)
+			return RC_CONSOLE_SEGA_CD;
+		if (ext && !strcasecmp(ext, ".sms"))
+			return RC_CONSOLE_MASTER_SYSTEM;
+		if (ext && !strcasecmp(ext, ".gg"))
+			return RC_CONSOLE_GAME_GEAR;
+		if (ext && !strcasecmp(ext, ".sg"))
+			return RC_CONSOLE_SG1000;
+	}
 	return console_id;
 }
 
