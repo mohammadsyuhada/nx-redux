@@ -206,6 +206,7 @@ at once — the Settings app's own hint bar included (`PAD_reloadHintLabels`).
 | mupen64plus (N64.pak) | `nx_paths.sh` swaps `button(0)↔(1)`, `(2)↔(3)` in `[Input-SDL-Control1]` once per change (marker `.button_layout`); Rice/GLideN64 overlays read the env var |
 | flycast (DC.pak) | `launch.sh` installs the layout's mapping variant (the Nintendo `SDL_Xbox 360 Controller.cfg` or the Xbox one generated from it) unconditionally on every launch, for **both** the Dreamcast mapping and its `_arcade.cfg` sibling — nothing in NX Redux can edit these files (flycast's own controls page is unreachable), so a later change reaches every card on its next launch; `nx_overlay.cpp` reads the env var |
 | PortMaster ports | `ports_launch.sh` copies `gamecontrollerdb_<layout>.txt`; the pak's own toggle is gone |
+| Files (NextCommander) | `launch.sh` sources the helper and, under Xbox, feeds NextCommander a `/tmp/files.cfg` = platform cfg + `key_open=0 key_parent=1 key_operation=2 key_system=3` (physical joystick indices; the binary's compiled defaults are Nintendo). The patched binary maps MENU to the *configured* system key so it keeps opening the system menu |
 | Stock OSD | `trimui_osdd.xbox` (see OSD.md) |
 
 Bind files on disk (`bind A Button = A`) keep logical labels; only display
