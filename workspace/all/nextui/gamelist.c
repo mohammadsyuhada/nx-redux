@@ -1591,10 +1591,22 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 								 abs(pill_y - y) * 2 < SCALE1(PILL_SIZE);
 				bool use_marquee = row_is_selected && !pill_animating &&
 								   !ContextMenu_isOpen();
-				UI_renderListItemText(screen,
-									  use_marquee ? &list_scroll : NULL,
-									  display_text, font.large,
-									  pos.text_x, pos.text_y, text_width, pill_over);
+				if (entry_unique && !use_marquee &&
+					strncmp(entry_unique, entry_name, strlen(entry_name)) == 0) {
+					// Duplicate-name row: name in the list colour, disambiguating
+					// suffix ("(EMU)" or the filename remainder) dimmed, as in
+					// upstream NextUI. The marquee row stays single-colour: the
+					// scroll texture is one surface.
+					UI_renderListItemTextDimSuffix(screen, entry_name,
+												   entry_unique + strlen(entry_name),
+												   font.large, pos.text_x, pos.text_y,
+												   text_width, pill_over);
+				} else {
+					UI_renderListItemText(screen,
+										  use_marquee ? &list_scroll : NULL,
+										  display_text, font.large,
+										  pos.text_x, pos.text_y, text_width, pill_over);
+				}
 			}
 		}
 		UI_renderScrollIndicators(screen, top->start, MAIN_ROW_COUNT - 1, total);

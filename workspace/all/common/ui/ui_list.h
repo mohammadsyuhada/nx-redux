@@ -82,6 +82,17 @@ void UI_renderListItemText(SDL_Surface* screen, ScrollTextState* scroll_state,
 						   int text_x, int text_y, int max_text_width,
 						   bool selected);
 
+// Like UI_renderListItemText, but for a "unique" duplicate-name label whose
+// text is `name` immediately followed by `suffix` (e.g. "Zelda" + " (GBA)").
+// The name is drawn in the normal list colour and the suffix in
+// COLOR_DARK_TEXT so the disambiguating part reads as secondary, matching
+// upstream NextUI. Static (non-marquee) path only: callers use
+// UI_renderListItemText with a scroll state for the marquee row.
+void UI_renderListItemTextDimSuffix(SDL_Surface* screen,
+									const char* name, const char* suffix,
+									TTF_Font* font, int text_x, int text_y,
+									int max_text_width, bool selected);
+
 // ---- Badged Pill Rendering ----
 
 // Position information returned by render_list_item_pill_badged

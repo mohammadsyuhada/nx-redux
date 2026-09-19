@@ -275,6 +275,36 @@ ListItemPos UI_renderListItemPill(SDL_Surface* screen, ListLayout* layout,
 	return pos;
 }
 
+// Intersect the current clip with a list-item text run at (text_x, text_y) of
+// size (max_text_width x font height) and set it, saving the previous clip in
+// *old_clip. Returns false (clip left untouched) when the intersection is
+// empty, so the caller can skip drawing. Pair with list_text_end_clip.
+static bool list_text_begin_clip(SDL_Surface* screen, int text_x, int text_y, int max_text_width, TTF_Font* font, SDL_Rect* old_clip) {
+	SDL_GetClipRect(screen, old_clip);
+	SDL_Rect clip = {text_x, text_y, max_text_width, TTF_FontHeight(font)};
+	if (old_clip->w > 0 && old_clip->h > 0) {
+		int left = clip.x > old_clip->x ? clip.x : old_clip->x;
+		int top = clip.y > old_clip->y ? clip.y : old_clip->y;
+		int right = (clip.x + clip.w) < (old_clip->x + old_clip->w) ? (clip.x + clip.w) : (old_clip->x + old_clip->w);
+		int bottom = (clip.y + clip.h) < (old_clip->y + old_clip->h) ? (clip.y + clip.h) : (old_clip->y + old_clip->h);
+		if (right > left && bottom > top) {
+			clip = (SDL_Rect){left, top, right - left, bottom - top};
+		} else {
+			return false;
+		}
+	}
+	SDL_SetClipRect(screen, &clip);
+	return true;
+}
+
+// Restore the clip saved by list_text_begin_clip.
+static void list_text_end_clip(SDL_Surface* screen, const SDL_Rect* old_clip) {
+	if (old_clip->w > 0 && old_clip->h > 0)
+		SDL_SetClipRect(screen, old_clip);
+	else
+		SDL_SetClipRect(screen, NULL);
+}
+
 void UI_renderListItemText(SDL_Surface* screen, ScrollTextState* scroll_state,
 						   const char* text, TTF_Font* font,
 						   int text_x, int text_y, int max_text_width,
@@ -282,20 +312,8 @@ void UI_renderListItemText(SDL_Surface* screen, ScrollTextState* scroll_state,
 	SDL_Color text_color = UI_getListTextColor(selected);
 
 	SDL_Rect old_clip;
-	SDL_GetClipRect(screen, &old_clip);
-	SDL_Rect clip = {text_x, text_y, max_text_width, TTF_FontHeight(font)};
-	if (old_clip.w > 0 && old_clip.h > 0) {
-		int left = clip.x > old_clip.x ? clip.x : old_clip.x;
-		int top = clip.y > old_clip.y ? clip.y : old_clip.y;
-		int right = (clip.x + clip.w) < (old_clip.x + old_clip.w) ? (clip.x + clip.w) : (old_clip.x + old_clip.w);
-		int bottom = (clip.y + clip.h) < (old_clip.y + old_clip.h) ? (clip.y + clip.h) : (old_clip.y + old_clip.h);
-		if (right > left && bottom > top) {
-			clip = (SDL_Rect){left, top, right - left, bottom - top};
-		} else {
-			return;
-		}
-	}
-	SDL_SetClipRect(screen, &clip);
+	if (!list_text_begin_clip(screen, text_x, text_y, max_text_width, font, &old_clip))
+		return;
 
 	if (selected && scroll_state) {
 		// Logical text + primary font: the marquee's own renders go through the
@@ -320,10 +338,54 @@ void UI_renderListItemText(SDL_Surface* screen, ScrollTextState* scroll_state,
 		}
 	}
 
-	if (old_clip.w > 0 && old_clip.h > 0)
-		SDL_SetClipRect(screen, &old_clip);
-	else
-		SDL_SetClipRect(screen, NULL);
+	list_text_end_clip(screen, &old_clip);
+}
+
+void UI_renderListItemTextDimSuffix(SDL_Surface* screen,
+									const char* name, const char* suffix,
+									TTF_Font* font, int text_x, int text_y,
+									int max_text_width, bool selected) {
+	SDL_Rect old_clip;
+	if (!list_text_begin_clip(screen, text_x, text_y, max_text_width, font, &old_clip))
+		return;
+
+	// Name in the normal list colour. Cached surface is owned by the cache
+	// (do NOT free); the fallback render is owned and freed after blitting.
+	int name_w = 0;
+	SDL_Color name_color = UI_getListTextColor(selected);
+	SDL_Surface* name_surf = GFX_getCachedText(font, name, name_color);
+	bool name_owned = false;
+	if (!name_surf) {
+		name_surf = GFX_renderText(font, name, name_color);
+		name_owned = true;
+	}
+	if (name_surf) {
+		SDL_Rect src = {0, 0, name_surf->w > max_text_width ? max_text_width : name_surf->w, name_surf->h};
+		SDL_BlitSurface(name_surf, &src, screen, &(SDL_Rect){text_x, text_y, 0, 0});
+		name_w = name_surf->w;
+		if (name_owned)
+			SDL_FreeSurface(name_surf);
+	}
+
+	// Suffix (the disambiguator) dimmed in COLOR_DARK_TEXT, right after the
+	// name — only while some width remains. src.w is clamped to what's left.
+	if (suffix && suffix[0] && name_w < max_text_width) {
+		SDL_Surface* suffix_surf = GFX_getCachedText(font, suffix, COLOR_DARK_TEXT);
+		bool suffix_owned = false;
+		if (!suffix_surf) {
+			suffix_surf = GFX_renderText(font, suffix, COLOR_DARK_TEXT);
+			suffix_owned = true;
+		}
+		if (suffix_surf) {
+			int avail = max_text_width - name_w;
+			SDL_Rect src = {0, 0, suffix_surf->w > avail ? avail : suffix_surf->w, suffix_surf->h};
+			SDL_BlitSurface(suffix_surf, &src, screen, &(SDL_Rect){text_x + name_w, text_y, 0, 0});
+			if (suffix_owned)
+				SDL_FreeSurface(suffix_surf);
+		}
+	}
+
+	list_text_end_clip(screen, &old_clip);
 }
 
 // ============================================
