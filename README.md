@@ -76,6 +76,10 @@ This project is a derivative of [LoveRetro/NextUI](https://github.com/LoveRetro/
 
 NX Redux now develops independently. NextUI has since moved to the PolyForm Noncommercial 1.0.0 license, which is not compatible with this project's GPL-3.0 — so newer upstream changes are no longer merged, and NX Redux continues from the GPL-3.0 codebase it forked.
 
+## AI-assisted development
+
+NX Redux is developed with the help of [Claude](https://claude.ai), Anthropic's AI model. The maintainer's own contributions since the fork — features, fixes and this documentation — are written by Claude from the maintainer's requirements and feedback, then tested on real hardware and reviewed before shipping. This does not cover the inherited NextUI and MinUI code or other people's contributions. Full details on the [disclaimer page](https://nxredux.com/reference/disclaimer/).
+
 ## Credits
 
 - [ro8inmorgan](https://github.com/ro8inmorgan), [frysee](https://github.com/frysee) and all contributors for developing NextUI
