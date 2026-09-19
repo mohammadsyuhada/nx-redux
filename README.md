@@ -10,7 +10,7 @@ NX Redux is a fork of [NextUI](https://github.com/LoveRetro/NextUI) by LoveRetro
 
 📖 **User documentation: [nxredux.com](https://nxredux.com)** — installation, guides for every feature and a full settings reference, illustrated with screenshots from the device.
 
-Refer to the Youtube Video below for demonstration of the features:
+The video below demonstrates the features. It was recorded on an earlier release, so the current UI looks a little different and several newer features are not shown; the [documentation site](https://nxredux.com) has up-to-date screenshots.
 
 [![nx-redux-youtube](https://github.com/user-attachments/assets/e4cf9c86-604b-49a4-b888-4b569ba592a9)](https://www.youtube.com/watch?v=l4iJBRgUe4U)
 
@@ -32,139 +32,43 @@ NextUI keeps a deliberately tight core and pushes extras out to paks. That's the
 
 ## What's Different
 
+Every feature below has its own page on [nxredux.com](https://nxredux.com); the list here is the map, not the manual.
+
 Core experience:
-- Redesigned UI with consistent styling across the system.
-- Rewrote the `Settings` app in C with a redesigned UI.
-- Game art fallback for titles without save states in the game switcher.
-- `Game Switcher` lists only resumable games by default — switch to `All recent games` in `Settings → System`.
-- Quitting a game now auto-saves to a hidden save slot (minarch cores, N64 and Dreamcast), so the `Game Switcher` always resumes exactly where you left off.
-- Main menu shortcut for quick access to frequently used `Tools` and `Games`
-- Option to disable the emulator folders (ideal for users who prefer listing only selected games via shortcuts in the main menu)
-- Added `Search` function in main menu (Press `START` to activate)
-- Added a game-list context menu (press `MENU` on a highlighted game):
-    - Built-in ROMs collection management — add a game to an existing collection or create a new one on the spot.
-    - Pin or unpin a game to the main menu.
-    - Rename a game.
-    - Delete a game.
-    - Remove a game from `Recently Played`.
-    - Refresh the ROMs list.
-    - Edit per game emulator options
-- Added slide transition animations (can be disabled in Settings)
-    - `Game Switcher` slides up on enter and down on exit
-    - `Page Navigation` slides in from the right on enter and out to the left on exit
-- Added top and bottom scroll indicators to all menu lists.
-- Added a semi-transparent progress overlay for blocking actions.
-- Added confirmation dialogs for actions that require them.
-- Added `Simple Mode` in `Settings` — a simplified menu for children or casual users.
-    - Hides `Tools` from the main menu and replaces `Options` with `Reset` in-game.
-    - `Settings` stays on the main menu, protected by a 4-digit PIN set when enabling Simple Mode.
-    - Forgot the PIN? Delete `.userdata/shared/enable-simple-mode` from the SD card to turn Simple Mode off.
+- Redesigned UI with consistent styling across the system, slide transitions, scroll indicators, progress overlays and confirmation dialogs.
+- `Settings` rewritten in C, with the former `LED Control`, `Input`, `Clock` and `Updater` apps merged into it — [Settings reference](https://nxredux.com/settings/).
+- [Game Switcher](https://nxredux.com/guide/game-switcher/) lists only resumable games by default, with art fallback and an auto-save on quit so every game resumes where you left it.
+- Main menu [shortcuts](https://nxredux.com/guide/main-menu/) for frequently used tools and games, optional hiding of the emulator folders, and `START` to [search](https://nxredux.com/guide/main-menu/).
+- A [game context menu](https://nxredux.com/guide/context-menu/): collections, pin to main menu, rename, delete, remove from recents, refresh, per-game emulator options.
+- [Simple Mode](https://nxredux.com/guide/simple-mode/) — a PIN-protected, distraction-free menu for children or casual users.
 
 Available when you want it (Tools, pause menu and OSD):
-- Added `On-Screen Display (OSD)` for quick access to common actions from anywhere — in the menus or in-game.
-    - Opened with the `Home` button on devices that have one (Smart Pro S), or by long-pressing the `MENU` button (Brick / Brick Pro / Smart Pro).
-    - Mute toggle (speaker only), brightness slider, and a `Motor` toggle — the master vibration switch for the whole device (game rumble and OS haptic pulses), remembered across reboots.
-    - Wi-Fi, Bluetooth and LED toggles with live state.
-    - Built-in `Screenshot` and `Screen Recorder`:
-        - When Screenshot is enabled, press `L2` + `R2` to capture the screen — an on-screen hint shows the shortcut, and a toast confirms each saved capture.
-        - When Screen Recorder is enabled, recording runs automatically in the background (the record icon turns red while recording).
-        - The OSD closes itself when either is activated, so it never gets in the way of the capture.
-    - System monitors: CPU frequency, memory usage and temperature (plus fan control on the Smart Pro S).
-    - Power off button.
-    - The entire OSD (layout, widgets, icons) ships on the SD card, so it stays consistent regardless of the stock firmware version.
-- Built-in [Music Player](https://github.com/mohammadsyuhada/nextui-music-player)
-    - Audio settings: sample-rate mode (`Device default` / `Follow source` for bit-exact hi-res playback on USB DACs), resampler quality and buffer size.
-    - Live sample-rate badge on the now-playing screen (e.g. `96kHz` when playing natively, `44.1→48kHz` when resampling).
-    - Internet radio streams through the same high-quality resampler, with cover art fetched for the currently playing song.
-- Built-in `Media Player` with audio and subtitle switcher.
-- Bundled `Drastic Nintendo DS` emulator.
-    - Hold `SELECT` + `Left` / `Right` to cycle the screen layout.
-    - Hold `SELECT` + `Y` to cycle the theme.
-- Bundled `Mupen64Plus Nintendo 64` emulator.
-    - Two video plugins, selectable per system or per game from the emulator options: **Rice** (default on Brick, Brick Pro and Smart Pro — much lighter; on the Brick it used less CPU and produced far fewer audio underruns in testing) and **GLideN64** (default on Smart Pro S — more accurate). High-resolution texture packs, and the other N64 option sections, require GLideN64.
-    - Support for high resolution textures (with limitations due to 1GB RAM)
-        - Place Rice-format texture packs in `Roms/Nintendo 64 (N64)/.hires_texture/<ROM NAME>/`, where `<ROM NAME>` is the ROM's **internal header name** (e.g. `MARIOKART64`), not its filename. To find it, run the game once and look for the `Core: Name:` line in `.userdata/<platform>/logs/N64.txt`.
-        - On the game's first launch the pack is converted into a cache in `Roms/Nintendo 64 (N64)/.cache/` with an on-screen progress display — large packs take several minutes and need extra free space on the SD card (e.g. a 2.6 GB pack produces a ~450 MB cache). Later launches load straight from the cache and start fast.
-    - Netplay with up to 4 players for Nintendo 64 games:
-        - **Player-count depends on the device's GPU.** N64 renders a separate split-screen viewport per player, so 3–4 players need a **Smart Pro S** on *every* seat. On the **Smart Pro / Brick / Brick Pro** the GPU can't hold full speed past a 2-way split, so N64 netplay there is limited to **2 players** (as host or joiner).
-- Bundled `Flycast Sega Dreamcast` emulator.
-    - Runs out of the box without a BIOS (HLE boot); drop `dc_boot.bin` into `Bios/DC/` on the SD card to boot through the real BIOS instead.
-    - GGPO netplay for Dreamcast games, up to 2 players.
-- `PortMaster` installable on-device from the Xtras store (Tools tab).
-    - Configured by default with Nintendo input layout (configurable)
-- All standalone emulators now support USB-C and Bluetooth audio. 
-- All standalone emulators now include a custom in-game menu with UI styling consistent with the system.
-- All standalone emulators now support save states with screenshots.
-- Added sleep by pressing power button support for all standalone emulator and Portmaster games. 
-- Added [Netplay](https://github.com/mohammadsyuhada/nextui-netplay) for local wireless multiplayer. Press `Y` on a supported game in the list to host or join over Wi-Fi or a device-hosted hotspot — no manual IP entry, no persistent toggle to remember to turn back off, and save data is synced automatically before the match starts.
-    - `GB Link` support for Game Boy (gambatte) — link cable games like Pokémon trades and battles.
-    - `GBA Link` support for Game Boy Advance (gpSP) — wireless adapter and link cable games.
-    - Classic lockstep netplay for the other supported cores.
-    - Supported `Dreamcast` and `Nintendo 64` standalone emulator.
-    - Save states, fast-forward and rewind are automatically disabled during a session to protect the connection.
-- Added `RetroAchievements` with full offline support (powered by [rcheevos](https://github.com/RetroAchievements/rcheevos)).
-    - Earn achievements while completely offline — they are journaled to the SD card and submitted automatically the next time you play online.
-    - Achievement data (definitions, unlock state and badges) is cached as you play and can be pre-downloaded for your whole library, so games work offline even if you have never launched them online before.
-    - Softcore only by design — NX Redux is not an RA-approved hardcore emulator, so hardcore mode is intentionally omitted to keep your account safe.
-    - New `RetroAchievements` tool as the single home for the feature:
-        - Sign in and manage all achievement settings here (moved out of `Settings`).
-        - Browse every cached game and its achievements — unlocked, pending-sync and locked — with box art and badges, fully offline.
-        - Per-achievement details: description, points, unlock date, unlock rate and type (Progression / Win Condition / Missable), honouring your chosen sort order.
-        - `Sync now` to push pending offline unlocks, and `Download all game data` to cache your whole library with a live progress bar.
-        - `Reset account data` (for switching accounts) and `Erase all achievement data` options.
-    - In-game achievement unlock and progress notifications, with a per-achievement mute toggle.
-- Added `Device Sync` to sync game saves, states, user settings, and ROMs (optional) across devices. 
-- Added `Artwork Manager` to fetch custom mix box art for ROMs. 
-- Redesigned the `Game Tracker` tool with a cleaner play-stats list (total · average · play count per game).
-    - Any game's play record can now be deleted (press `X`, with a confirmation dialog). The record starts fresh the next time the game is played.
-- Added joystick calibration in `Settings → Input`.
-- Added `Developer options` in `Settings`:
-    - Toggle SSH service and autostart; the hint shows the login line (`root`, password `tina` on Brick, none on Smart Pro S) with the device's current IP, which `Settings → Network` also shows on the connected network
-    - Disable system sleep (useful for ADB)
-    - Keep device awake over USB
-    - Clean up macOS-specific dotfiles (if any were copied)
+- [On-Screen Display](https://nxredux.com/guide/osd/) reachable anywhere: mute, brightness, motor, Wi-Fi, Bluetooth and LED toggles, screenshot and screen recorder, system monitors, music controls and power off.
+- [Music Player](https://nxredux.com/apps/music-player/) with background playback, internet radio and hi-res output on USB DACs, plus a [Media Player](https://nxredux.com/apps/media-player/) with audio and subtitle switching.
+- Bundled standalone emulators for [Nintendo DS](https://nxredux.com/emulators/nintendo-ds/), [Nintendo 64](https://nxredux.com/emulators/nintendo-64/) and [Sega Dreamcast](https://nxredux.com/emulators/dreamcast/), all with the system's in-game menu, save states with screenshots, USB-C and Bluetooth audio, and sleep on the power button.
+- [PortMaster](https://nxredux.com/apps/portmaster/) and PSP installable on-device from the [Xtras Store](https://nxredux.com/apps/xtras/).
+- [Netplay](https://nxredux.com/netplay/) for local wireless multiplayer: press `Y` on a supported game to host or join, with GB and GBA link-cable support, lockstep netplay for the other cores, and N64 and Dreamcast sessions.
+- [RetroAchievements](https://nxredux.com/apps/retroachievements/) with full offline support — earn achievements offline, sync later, and browse your whole cached library on the device. Softcore only by design.
+- [Cheats](https://nxredux.com/apps/cheats/) downloaded straight from the libretro cheat database, no PC needed.
+- [Device Sync](https://nxredux.com/apps/device-sync/) for saves, states, settings and ROMs across devices, [Artwork Manager](https://nxredux.com/apps/artwork-manager/) for box art, and a redesigned [Game Tracker](https://nxredux.com/apps/game-tracker/).
+- [Nintendo / Xbox button layout](https://nxredux.com/guide/button-layout/), joystick calibration, and [Developer options](https://nxredux.com/settings/developer/) with SSH, sleep control and debug logging.
 
 Under the hood:
-- Refactored `nextui.c`, splitting the monolithic code into smaller, focused components (game list, game switcher, search, launcher, image loader and more).
-- Introduced a reusable UI component library in `common/ui/` for consistent design across tools.
-    - Strict one-component-per-file layout (menu bar, button hint bar, dialogs, overlays, lists, keyboard, toast, etc.), each with its own header — apps include only what they use.
-    - Single `ui.mk` fragment wires the components into every app build, so adding a component is a one-line change.
-    - Shared drawing primitives (rounded rects/pills, scrim surfaces, centered button rows) replace previously duplicated rendering code across the UI files.
-- Applied various bug fixes and optimizations across the refactored components.
-- Added clang-format tooling with enforced code style and VSCode support.
-- Split release builds into per-platform zips packages (brick/brickpro/smartpro/smartpros).
-- Sink-aware audio sample-rate negotiation across the whole system (music, radio, video and all emulators):
-    - The audio device opens at the rate the active output actually prefers — 48 kHz on the speaker, the negotiated Bluetooth rate, or a USB DAC's supported rates — with high-quality in-app resampling instead of silent low-quality system resampling.
-    - Hot-plugging a USB-C DAC or connecting Bluetooth mid-playback reroutes audio automatically, and a headphone icon appears in the status bar while an external output is active.
-    - New `Audio` page in `Settings`: current output device and rate, a `Force 48 kHz` escape hatch, and the Bluetooth max sample rate setting.
+- `nextui.c` split into focused components (game list, game switcher, search, launcher, image loader and more) and `minarch` split into `ma_*` modules, adapted from [carroarmato0's work in NextUI #721](https://github.com/LoveRetro/NextUI/pull/721).
+- A reusable UI component library in `common/ui/`, one component per file, wired into every app through a single `ui.mk` fragment.
+- Sink-aware audio sample-rate negotiation across music, radio, video and every emulator, with automatic rerouting when a USB-C DAC or Bluetooth device connects — see [Audio settings](https://nxredux.com/settings/audio/).
+- clang-format tooling with enforced code style, and per-platform release zips (brick / brickpro / smartpro / smartpros).
 
 Removed or consolidated:
-- Merged the standalone `LED Control`, `Input`, `Clock` and `Updater` apps into the `Settings` app — one place to configure the device instead of five separate paks.
-- Integrated the `Remove Loading` feature directly into the install script — it's a one-time tweak, not something that needs a resident app.
-- Removed the `Battery` monitoring feature — it needed an always-on daemon logging to a database on the SD card to power a history graph, while the status bar already shows the charge level.
-- Hardcore RetroAchievements mode is intentionally omitted (see the RetroAchievements notes above — account safety).
-
-Merged from upstream:
-- Modular `minarch` split (`ma_*` modules: game, saves, rewind, config, shaders, options, input, video, audio, core, menu and more) — from [carroarmato0's work in NextUI #721](https://github.com/LoveRetro/NextUI/pull/721), adapted here.
-
-Upcoming Features:
-- `CPU mode` switch in the OSD — quickly change the CPU governor (e.g. performance mode) from anywhere; defaults to mode configured in launch.sh script.
-- Background `Music Player` — keep music playing while you browse, with playback controls in the OSD.
-
-Ongoing focus areas:
-- Cleaner, more maintainable core code
-- Improved file and module structure
-- Refactoring for readability
-- Selective feature improvements as needed
+- The `Remove Loading` tweak now happens once in the install script instead of through a resident app.
+- The `Battery` history feature is gone — it needed an always-on daemon logging to the SD card, while the status bar already shows the charge level.
+- Hardcore RetroAchievements mode is intentionally omitted — NX Redux is not an RA-approved hardcore emulator, so leaving it out keeps your account safe.
 
 ## Additional Emulators
 
-Some emulators are not bundled with NX Redux but can be added:
+Emulators that aren't bundled can be added: PSP through the on-device Xtras store, anything else by copying a community pak into the `/Emus` folder on the SD card. See [Additional Emulators](https://nxredux.com/emulators/additional/).
 
-- **PPSSPP** (PlayStation Portable) — easiest via the on-device `Xtras` store (Tools tab), which downloads and installs [ben16w/minui-psp](https://github.com/ben16w/minui-psp) directly on the device — no computer needed.
-- Any other system — install a community pak by hand: copy it into the `/Emus` folder on the SD card, following the pak's own installation steps.
-
-> ⚠️ Community paks (including the PSP pak above) are built for **NextUI** (which NX Redux is based on), **not** for NX Redux. They will generally work, but they are not developed, maintained, or supported for NX Redux. Please **do not** report issues you hit while using them on NX Redux to their developers — those developers build for NextUI and cannot help with NX Redux-specific behavior.
+> ⚠️ Community paks (including the PSP pak) are built for **NextUI**, not for NX Redux. They generally work, but they are not developed, maintained or supported for NX Redux — please don't report NX Redux-specific problems to their developers.
 
 ## Upstream
 
