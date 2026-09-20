@@ -318,11 +318,24 @@ void* PLAT_cpu_monitor(void* arg) {
 #define MAX_FREQ_PATH CPU_FREQ_BASE "/scaling_max_freq"
 #define CPU_FREQ_MIN 408000
 #define CPU_FREQ_MAX 2000000
+// Governor used by the full/"Auto" ranges. Decided by the 2026-09 emulation
+// sweep (scripts/bench): stays schedutil unless the sweep shows another
+// governor holds full speed at a lower average clock. The launcher's boot
+// phase (PLAT_setCPUSpeedAuto) deliberately stays on schedutil.
+#define CPU_AUTO_GOVERNOR "schedutil"
 
 static void setGovernor(const char* governor) {
 	putFile(GOVERNOR_PATH, (char*)governor);
 }
 static void setFreqRange(int min_khz, int max_khz) {
+	// Write min, then max, then min again. Lowering (e.g. from a fixed 2000/2000
+	// preset to 408-1008) needs min first, or the kernel rejects a max below the
+	// current min; raising past the current max needs max first (the first min
+	// write is then rejected silently and the last one lands). min-max-min is
+	// valid in both directions. This is also what lets CPU_SPEED_MENU drop to its
+	// capped range from a fixed-clock preset (POWERSAVE/NORMAL/PERFORMANCE),
+	// whose max write used to be rejected.
+	putInt(MIN_FREQ_PATH, min_khz);
 	putInt(MAX_FREQ_PATH, max_khz);
 	putInt(MIN_FREQ_PATH, min_khz);
 }
@@ -360,6 +373,11 @@ void PLAT_setCPUSpeed(int speed) {
 void PLAT_setCPUSpeedAuto(void) {
 	setGovernor("schedutil");
 	setFreqRange(CPU_FREQ_MIN, CPU_FREQ_MAX);
+}
+
+void PLAT_setCPUSpeedRange(int min_khz, int max_khz) {
+	setGovernor(CPU_AUTO_GOVERNOR);
+	setFreqRange(min_khz, max_khz); // min, then max, then min (see setFreqRange)
 }
 
 #define MAX_STRENGTH 0xFFFF

@@ -78,3 +78,4 @@ workspace/all/n64-netplay-server/m64p-server-native
 workspace/all/n64-netplay-server/tests/test_client
 workspace/all/n64-netplay-server/**/*.dSYM/
 .clangd-shim
+scripts/bench/results/**/*.log

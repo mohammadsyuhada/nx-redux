@@ -100,6 +100,23 @@ Notes:
   (schedutil 408/408) before every pak, so pak scripts still see the 3-core
   boot policy. A relaunch after a pak finds the marker present and caps at its
   first frame.
+- **minarch paks declare a CPU profile as data** (spec:
+  `docs/superpowers/specs/2026-09-20-minarch-cpu-profiles-design.md`):
+  `default.cfg` may carry `minarch_cpu_min` / `minarch_cpu_max` (MHz); the in-app
+  CPU Speed "Auto" applies that range (`PLAT_setCPUSpeedRange`: cpu0 on tg5040;
+  every online policy on tg5050), the other presets stay user overrides. On
+  tg5050 the Powersave / Normal / Performance presets pin every online cluster
+  (the little cluster alone when the pak has taken cpu4 offline; values are
+  rounded to that cluster's table, so Normal and Performance both land on 1416
+  there); the launcher's menu speeds stay big-core only. The
+  pak's `launch.sh` decides cores online (tg5050: `echo 0 > cpu4/online` for
+  cores measured full-speed on the little cluster). Profiles come from
+  `scripts/bench` (results in `scripts/bench/results/<plat>/SUMMARY.md`); a
+  core without a ROM on the test cards ships no profile and keeps the full range.
+  `Config_load` loads `default-<DEVICE>.cfg` **instead of** `default.cfg` when one
+  exists (full replacement, not an overlay), so on the Brick the FC/SFC/FBN caps
+  live in their `default-brick.cfg` and `default-brickpro.cfg` too — a key present
+  only in `default.cfg` silently drops on any device that ships an override.
 
 ## Firmware requirements
 

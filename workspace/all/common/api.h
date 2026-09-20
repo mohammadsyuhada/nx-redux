@@ -633,6 +633,7 @@ enum {
 };
 #define PWR_setCPUSpeed PLAT_setCPUSpeed
 #define PWR_setCPUSpeedAuto PLAT_setCPUSpeedAuto
+#define PWR_setCPUSpeedRange PLAT_setCPUSpeedRange
 
 enum {
 	CPU_CORE_EFFICIENCY,
@@ -731,6 +732,13 @@ void PLAT_powerOff(int reboot);
 void* PLAT_cpu_monitor(void* arg);
 void PLAT_setCPUSpeed(int speed); // enum
 void PLAT_setCPUSpeedAuto(void);
+// Per-pak range for minarch's "Auto" (ma_cpu_profile.h): governor = the
+// platform's CPU_AUTO_GOVERNOR, then min, then max, then min (valid in both
+// directions). tg5040: cpu0 (the whole cluster). tg5050: every cpufreq policy
+// that has an online CPU — policy0 and policy4 when the pak keeps cpu4 up,
+// policy0 alone when its launch.sh took cpu4 offline — so a pak's range
+// means the same thing on either topology.
+void PLAT_setCPUSpeedRange(int min_khz, int max_khz);
 // Launcher-only topology hook (nextui/cpu_policy.h): false takes the big core
 // offline while the launcher runs, true brings it back for the boot phase.
 // No-op on single-cluster devices (weak fallback in api.c). Pak launch scripts

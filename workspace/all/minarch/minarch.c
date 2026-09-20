@@ -35,6 +35,7 @@
 #include "ma_menu.h"
 #include "ma_frontend_opts.h"
 #include "ma_runframe.h"
+#include "ma_bench.h"
 #include "minarch.h"
 #include "netplay.h"
 #include "gbalink.h"
@@ -243,6 +244,7 @@ int main(int argc, char* argv[]) {
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 	pthread_create(&cpucheckthread, &attr, PLAT_cpu_monitor, NULL);
 	pthread_attr_destroy(&attr);
+	Bench_init(); // NX_BENCH=1: one "[bench]" stats line per second (scripts/bench)
 
 	PWR_setCPUSpeed(CPU_SPEED_PERFORMANCE); // start up in performance mode, faster init
 	PWR_pinToCores(CPU_CORE_PERFORMANCE);	// thread affinity
@@ -364,6 +366,7 @@ int main(int argc, char* argv[]) {
 
 	while (!quit) {
 		GFX_startFrame();
+		Bench_tick(SDL_GetTicks());
 
 		// Netplay: synchronize inputs BEFORE running the core. If we're still waiting
 		// on the peer this frame, poll input (so menu/quit stay responsive) and skip it.

@@ -11,6 +11,120 @@ Move an entry from there to here once it compiles and needs hardware time.
 
 ---
 
+## minarch per-core CPU profiles (built + measured 2026-09-20)
+
+Per-pak CPU profiles ship as pak data: each measured Emu pak's `default.cfg`
+carries `minarch_cpu_max` (with `minarch_cpu_min` left at the table floor, 408),
+so the in-app CPU Speed **Auto** runs the core inside a measured range instead of
+the full clock. Shipped alongside in minarch/platform: `ma_bench.c`
+(`NX_BENCH=1` → one `[bench]` line per second), `ma_cpu_profile.c` + the
+`minarch_cpu_min` / `minarch_cpu_max` keys, `PLAT_setCPUSpeedRange`
+(cluster-aware on tg5050; Auto governor `CPU_AUTO_GOVERNOR` = schedutil on both),
+and the platform range writers now emit min-max-min (which also fixes
+`CPU_SPEED_MENU` from a fixed-clock preset). Host tests
+`scripts/tests/test-minarch-bench.sh` and
+`scripts/tests/test-minarch-cpu-profile.sh`; the sweep harness is `scripts/bench/`
+(its README documents the config specs and the pass rule; per-device results in
+`scripts/bench/results/<plat>/SUMMARY.md`). tg5040 caps `cpu0` (all four A53s
+share one domain). On tg5050 the pak `launch.sh` runs **topology A** —
+`echo 0 > cpu4/online` first, so the core runs on the two little cores and
+`default.cfg` caps the little cluster; minarch still tries to pin itself to
+cpu4-7 at start and logs a harmless "Failed to pin" when cpu4 is offline. All 16
+shipped rows (8 cores × 2 devices) pass; the Brick rows were re-taken at 4 cores
+after fix round 1b made the driver re-online cpu1-3 after every run.
+
+**Per-core profiles and shipped-row pass metrics** (`shipped` row of each
+core's SUMMARY table; fps mean/min · drops · worst ms):
+
+| core | scene (title/attract) | tg5040 cap | tg5050 profile | tg5040 shipped | tg5050 shipped |
+|---|---|---|---|---|---|
+| GB | Pokemon - Red | 816 | A792 | 60.3/60.3 · 6 · 74.9 | 63.0/62.8 · 13 · 18.7 |
+| GBC | Pokemon Pinball | 816 | A792 | 60.3/60.2 · 0 · 17.6 | 63.0/62.8 · 11 · 19.0 |
+| GBA | Zelda: The Minish Cap | 816 | A792 | 60.3/60.3 · 1 · 17.8 | 63.0/62.9 · 21 · 22.6 |
+| MGBA | Iridion II | 1200 | A1032 | 60.3/60.2 · 2 · 25.1 | 63.0/61.9 · 126 · 31.6 |
+| FC | Mega Man 2 | 1008 | A1032 | 60.3/60.2 · 0 · 17.6 | 63.0/62.7 · 50 · 24.3 |
+| SFC | Yoshi's Island | 1200 | A1032 | 60.3/60.2 · 1 · 18.4 | 63.0/62.6 · 48 · 25.9 |
+| MD | Sonic 3D Blast | 816 | A792 | 60.3/60.3 · 4 · 61.7 | 63.0/62.8 · 19 · 49.5 |
+| FBN | Metal Slug (mslug) | 1200 | A1032 | 60.3/60.2 · 1 · 18.5 | 63.0/62.7 · 29 · 20.0 |
+| PS | Tekken 3 | no cap (full range) | no ROM | base 60.3/60.2 · 18 · 65.2 | — |
+| GPGX | Streets of Rage 2 | unmeasured | unmeasured | — | — |
+
+The little/heavy split: GB/GBC/GBA/MD are light (chosen at the low steps — 816 on
+tg5040, A792 on tg5050); MGBA/FC/SFC/FBN are real load (1008-1200 / A1032). PS
+ships no profile — it passes only at cap1608 and base, with fps min landing on the
+95% line, marginal even uncapped, so it keeps the full range per ruling. GPGX pak
+exists in the tree (commit 2805e8c5) but was not deployed on either test card, so
+it was never measured and keeps the full range. tg5050 shows higher drop counts
+because the panel runs ~63 fps against ~60 Hz and the periodic resync frame counts
+as jitter; every shipped row still passes its baseline-relative bounds.
+
+Measurement notes:
+
+- Pass rule is baseline-relative for both drops and worst frame:
+  `perf.frame_drops` counts any frame > 1.1× the display period, so it registers
+  jitter as well as misses; a literal zero-drop / flat worst-frame bound failed
+  healthy cores.
+- The Genesis and PlayStation attract scenes carry a periodic 48-69 ms frame at
+  every cap (uncapped included) — a scene/display hitch, not starvation. Under the
+  baseline-relative rule MD passes (chosen 816 / A792).
+- A sweep-wide sporadic 68-75 ms single-frame stall hits ~1/3 of runs regardless
+  of cap; every *chosen* row was taken on a clean window.
+- No 2-core Brick profile ships: at the chosen cap two cores worsened the worst
+  frame +21% to +98% (fps min held), so four cores stays the default.
+
+**Brick Auto governor — kept schedutil.** Re-ran GB@816, SFC@1200, MGBA@1200
+under each governor at its chosen cap. A governor replaces schedutil only if it
+passes all three cores **and** is ≥15% cheaper (mean kHz) on ≥2 of them; ties go
+to schedutil.
+
+| core @ cap | governor | fps mean/min | worst ms | mean kHz | kHz vs su | pass |
+|---|---|---|---|---|---|---|
+| GB @ 816 | schedutil | 60.3/59.9 | 78.8 | 694759 | — | yes |
+| GB @ 816 | ondemand | 60.3/59.9 | 22.6 | 816000 | +17.5% | yes |
+| GB @ 816 | interactive | 60.2/59.8 | 32.8 | 576000 | -17.1% | yes |
+| SFC @ 1200 | schedutil | 60.3/59.9 | 78.1 | 1179724 | — | no* |
+| SFC @ 1200 | ondemand | 60.3/60.0 | 27.5 | 1200000 | +1.7% | yes |
+| SFC @ 1200 | interactive | 60.3/59.8 | 31.6 | 1176414 | -0.3% | yes |
+| MGBA @ 1200 | schedutil | 60.3/59.9 | 28.7 | 1159158 | — | yes |
+| MGBA @ 1200 | ondemand | 60.3/60.0 | 37.5 | 1200000 | +3.5% | yes |
+| MGBA @ 1200 | interactive | 60.3/60.0 | 32.0 | 1136690 | -1.9% | yes |
+
+ondemand is *more* expensive than schedutil on all three cores (0 meet the bar);
+interactive is ≥15% cheaper only on GB (1 core, short of two). Neither clears the
+bar, so schedutil is retained (the decision rests on mean kHz). *schedutil's SFC
+"no" caught the sweep-wide sporadic ~78 ms stall, not starvation.
+
+**Unmeasured (no ROM on either card, keep today's full range — spec §4.2):** PCE,
+SMS, GG, 32X, SEGACD, NGP/NGPC, LYNX, VB, WSC, PKM, A2600/5200/7800, COLECO, MSX,
+CPC, C64/C128/PET/PLUS4/VIC, PUAE, PRBOOM, FDS, SGB, SUPA, P8, DOS.
+
+Open items:
+
+- [x] tg5050 user presets now apply to every online cluster (`setAllOnlinePoliciesRange`, 2026-09-20): a profiled pak keeps cpu4 offline so
+  Powersave/Normal/Performance pin cpu0 alone; an unprofiled pak pins cpu0 and
+  cpu4 both. Smart Pro S readings — profiled+Powersave cpu0 1224000 (rounds
+  1200000); profiled+Performance cpu0 1416000 (2160000 clamped); profiled+Auto
+  cpu0 408000-792000; unprofiled+Powersave (`online=0-1,4`) cpu0 1224000 & cpu4
+  1200000. Launcher menu speeds stay big-core only.
+- [ ] Untethered battery A/B on GB and SFC (cheapest cap vs full range) — the
+  tether charges, so power was never measured directly; use the Battery app's
+  discharge readout.
+- [ ] GPGX: deploy the pak to a test card and sweep it; until then it keeps the
+  full range (genesis_plus_gx is generally heavier than MD/picodrive).
+- [ ] `Config_load` device-override semantics: `default-<DEVICE>.cfg` replaces
+  `default.cfg` wholesale, so any new `default.cfg` key silently drops on a pak
+  that ships an override (why the FC/SFC/FBN caps had to be copied into
+  `default-brick.cfg` / `default-brickpro.cfg`). Consider overlay semantics
+  (broader minarch change, not done).
+- [ ] Sporadic 68-75 ms single-frame stall: cause unknown (candidates: autosave /
+  RetroAchievements / SD write / OSD daemon); frequency-independent, ~1/3 of runs.
+- [ ] Re-run the unmeasured systems (spec §4.2) once ROMs for them exist on a card.
+- [ ] Tier 2 spike (spec §7): frame-time-adaptive scaling inside Auto — later,
+  separate effort, with this harness as ground truth.
+- [ ] PS: marginal even uncapped on the Brick (fps min 57-60 in Tekken 3 attract);
+  ships no profile — revisit if a heavier scene, a Brick Pro, or a firmware change
+  moves the numbers.
+
 ## Launcher CPU policy: boot phase at full range, menu cap, idle cap, big core offline on tg5050 (built; Brick + Smart Pro S verified 2026-09-20)
 
 Users migrating from NextUI reported a laggy menu that "went away" after

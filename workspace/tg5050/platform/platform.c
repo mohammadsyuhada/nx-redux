@@ -360,6 +360,7 @@ void* PLAT_cpu_monitor(void* arg) {
 #define MAX_FREQ_PATH CPU_FREQ_BASE "/scaling_max_freq"
 #define CPU_FREQ_MIN 408000
 #define CPU_FREQ_MAX 2160000
+#define CPU_AUTO_GOVERNOR "schedutil" // 5.15 schedutil scales correctly here (measured 2026-09-20)
 
 #define GPU_GOVERNOR_PATH "/sys/devices/platform/soc@3000000/1800000.gpu/devfreq/1800000.gpu/governor"
 
@@ -367,8 +368,43 @@ static void setGovernor(const char* governor) {
 	putFile(GOVERNOR_PATH, (char*)governor);
 }
 static void setFreqRange(int min_khz, int max_khz) {
+	// Write min, then max, then min again. Lowering (e.g. from a fixed 2000/2000
+	// preset to 408-1008) needs min first, or the kernel rejects a max below the
+	// current min; raising past the current max needs max first (the first min
+	// write is then rejected silently and the last one lands). min-max-min is
+	// valid in both directions. This is also what lets CPU_SPEED_MENU drop to its
+	// capped range from a fixed-clock preset (POWERSAVE/NORMAL/PERFORMANCE),
+	// whose max write used to be rejected.
+	putInt(MIN_FREQ_PATH, min_khz);
 	putInt(MAX_FREQ_PATH, max_khz);
 	putInt(MIN_FREQ_PATH, min_khz);
+}
+
+// Apply governor + range to one cpufreq policy. Write min, then max, then min
+// again: lowering (e.g. from a fixed 2160/2160 preset to 408-1032) needs min
+// first or the kernel rejects a max below the current min; raising past the
+// current max needs max first (the first min write is rejected silently and
+// the last one lands). min-max-min is valid in both directions.
+static void setPolicyRange(const char* cpu_dir, const char* governor, int min_khz, int max_khz) {
+	char path[256];
+	snprintf(path, sizeof(path), "%s/cpufreq/scaling_governor", cpu_dir);
+	putFile(path, (char*)governor);
+	snprintf(path, sizeof(path), "%s/cpufreq/scaling_min_freq", cpu_dir);
+	putInt(path, min_khz);
+	snprintf(path, sizeof(path), "%s/cpufreq/scaling_max_freq", cpu_dir);
+	putInt(path, max_khz);
+	snprintf(path, sizeof(path), "%s/cpufreq/scaling_min_freq", cpu_dir);
+	putInt(path, min_khz);
+}
+
+// Every policy with an online CPU: cpu0 (the little cluster; the boot CPU has
+// no "online" node) always, cpu4 (the big cluster) only when it is up. Values
+// come from the big-core table; on the little cluster the kernel rounds them to
+// its own table (1200 -> 1128/1224, 1680 and 2160 clamp to the 1416 ceiling).
+static void setAllOnlinePoliciesRange(const char* governor, int min_khz, int max_khz) {
+	setPolicyRange("/sys/devices/system/cpu/cpu0", governor, min_khz, max_khz);
+	if (getInt("/sys/devices/system/cpu/cpu4/online") == 1)
+		setPolicyRange("/sys/devices/system/cpu/cpu4", governor, min_khz, max_khz);
 }
 
 void PLAT_setCPUSpeed(int speed) {
@@ -392,13 +428,18 @@ void PLAT_setCPUSpeed(int speed) {
 		putFile(GPU_GOVERNOR_PATH, "simple_ondemand");
 		break;
 	case CPU_SPEED_POWERSAVE:
-		setFreqRange(1200000, 1200000);
+		// The three user presets pin whatever cluster(s) the game can run on:
+		// with a profiled pak cpu4 is offline (its launch.sh), so this is the
+		// little cluster; with cpu4 up it is both. The launcher speeds above
+		// stay big-core only on purpose — the launcher lives on the little
+		// cluster and a cap there costs it frames (measured 2026-09-20).
+		setAllOnlinePoliciesRange("schedutil", 1200000, 1200000);
 		break;
 	case CPU_SPEED_NORMAL:
-		setFreqRange(1680000, 1680000);
+		setAllOnlinePoliciesRange("schedutil", 1680000, 1680000);
 		break;
 	case CPU_SPEED_PERFORMANCE:
-		setFreqRange(CPU_FREQ_MAX, CPU_FREQ_MAX);
+		setAllOnlinePoliciesRange("schedutil", CPU_FREQ_MAX, CPU_FREQ_MAX);
 		break;
 	}
 }
@@ -406,6 +447,10 @@ void PLAT_setCPUSpeed(int speed) {
 void PLAT_setCPUSpeedAuto(void) {
 	setGovernor("schedutil");
 	setFreqRange(CPU_FREQ_MIN, CPU_FREQ_MAX);
+}
+
+void PLAT_setCPUSpeedRange(int min_khz, int max_khz) {
+	setAllOnlinePoliciesRange(CPU_AUTO_GOVERNOR, min_khz, max_khz);
 }
 // The launcher runs on the little cluster (glide ~18 ms for any big-core cap,
 // 2026-09-20), so while it is up the big core is taken offline outright — an

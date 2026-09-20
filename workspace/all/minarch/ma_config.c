@@ -3,6 +3,7 @@
 #include "ma_config.h"
 #include "ma_options.h"
 #include "ma_rewind.h"
+#include "ma_cpu_profile.h"
 #include <dirent.h>
 
 char* onoff_labels[] = {
@@ -872,9 +873,20 @@ void setOverclock(int i) {
 	case 2:
 		PWR_setCPUSpeed(CPU_SPEED_PERFORMANCE);
 		break;
-	case 3:
-		PWR_setCPUSpeedAuto();
+	case 3: {
+		// "Auto" = the pak's measured range (default.cfg minarch_cpu_min/max),
+		// or the full range when the pak ships none — exactly the old behaviour.
+		int hw_min = getInt("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq");
+		int hw_max = getInt("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq");
+		if (hw_min <= 0 || hw_max <= 0) { // no cpufreq (desktop)
+			PWR_setCPUSpeedAuto();
+			break;
+		}
+		int lo, hi;
+		CpuProfile_rangeKhz(cpu_profile_min_mhz, cpu_profile_max_mhz, hw_min, hw_max, &lo, &hi);
+		PWR_setCPUSpeedRange(lo, hi);
 		break;
+	}
 	}
 }
 void Config_syncFrontend(char* key, int value) {
@@ -1243,6 +1255,13 @@ void Config_readOptionsString(char* cfg) {
 		int device = strtol(gamepad_values[gamepad_type], NULL, 0);
 		core.set_controller_port_device(0, device);
 	}
+
+	// Per-pak CPU range (ma_cpu_profile.h). Plain integers in MHz; a user's
+	// minarch.cfg may override the pak's default.cfg like any other key.
+	if (Config_getValue(cfg, "minarch_cpu_min", value, NULL))
+		cpu_profile_min_mhz = atoi(value);
+	if (Config_getValue(cfg, "minarch_cpu_max", value, NULL))
+		cpu_profile_max_mhz = atoi(value);
 	for (int i = 0; config.core.options[i].key; i++) {
 		Option* option = &config.core.options[i];
 		if (!Config_getValue(cfg, option->key, value, &option->lock))

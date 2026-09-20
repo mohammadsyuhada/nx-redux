@@ -2759,6 +2759,10 @@ FALLBACK_IMPLEMENTATION void PLAT_pokeCapture(void) {}
 FALLBACK_IMPLEMENTATION void PLAT_setBigCoreOnline(bool online) {
 	(void)online; // single cluster (tg5040, desktop): nothing to hotplug
 }
+FALLBACK_IMPLEMENTATION void PLAT_setCPUSpeedRange(int min_khz, int max_khz) {
+	(void)min_khz;
+	(void)max_khz; // no cpufreq on this platform (desktop)
+}
 
 #include "button_layout.h"
 
