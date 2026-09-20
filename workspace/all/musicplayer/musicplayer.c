@@ -20,7 +20,7 @@ extern int psa_crypto_init(void);
 #include "ui_icons.h"
 #include "ui_podcast.h"
 #include "../common/ui/ui_splash.h"
-#include "../common/ui/ui_confirmdialog.h"
+#include "../common/ui/ui_buttonhintbar.h"
 #include "../common/wifi.h"
 
 // Module architecture
@@ -55,6 +55,65 @@ static void sigHandler(int sig) {
 	}
 }
 
+/* The owner answered nothing inside MusicClient_init's deadline. Rather than a
+ * dead-end modal, keep the client's reconnect-and-respawn cycle running behind
+ * a loading screen until it attaches; B leaves. After a while the screen says
+ * so, because a missing or crashing musicplayerd.elf would otherwise look like
+ * a hang. Returns true once attached, false on B, SIGTERM or a lost display. */
+#define MUSIC_SERVICE_WAIT_SLOW_MS 15000
+static bool wait_for_music_service(void) {
+	Uint32 started = SDL_GetTicks();
+	bool slow = false;
+	bool dirty = true;
+	while (!quit) {
+		GFX_startFrame();
+		PAD_poll();
+		if (PAD_justPressed(BTN_B))
+			return false;
+		MusicClient_update();
+		if (MusicClient_isConnected())
+			return true;
+		PWR_update(&dirty, NULL, NULL, NULL);
+		if (!slow && SDL_GetTicks() - started >= MUSIC_SERVICE_WAIT_SLOW_MS) {
+			slow = true;
+			dirty = true;
+		}
+		if (!dirty) {
+			GFX_sync();
+			continue;
+		}
+		dirty = false;
+		GFX_clear(screen);
+		SDL_Surface* text = GFX_renderText(font.large, "Music Player", COLOR_WHITE);
+		if (text) {
+			SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){(screen->w - text->w) / 2, screen->h / 2 - text->h});
+			SDL_FreeSurface(text);
+		}
+		int y = screen->h / 2 + SCALE1(4);
+		text = GFX_renderText(font.small, "Starting music service...", COLOR_GRAY);
+		if (text) {
+			SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){(screen->w - text->w) / 2, y});
+			y += text->h + SCALE1(12);
+			SDL_FreeSurface(text);
+		}
+		if (slow) {
+			const char* lines[] = {"Taking longer than expected. Press B to go back.",
+								   "If this keeps happening, reinstall or update NX Redux."};
+			for (size_t i = 0; i < sizeof(lines) / sizeof(lines[0]); i++) {
+				text = GFX_renderText(font.small, lines[i], COLOR_GRAY);
+				if (!text)
+					continue;
+				SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){(screen->w - text->w) / 2, y});
+				y += text->h + SCALE1(2);
+				SDL_FreeSurface(text);
+			}
+		}
+		UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", NULL});
+		GFX_flip(screen);
+	}
+	return false;
+}
+
 int main(int argc, char* argv[]) {
 	(void)argc;
 
@@ -84,11 +143,9 @@ int main(int argc, char* argv[]) {
 	 * pak. Keep startup independent of argv[0] and of the launch cwd. */
 	album_art_init();
 	if (MusicClient_init(SDCARD_PATH "/.system/bin/musicplayerd.elf") != 0) {
-		LOG_error("Music service did not answer within the init deadline\n");
-		(void)UI_confirmModal(screen, "Music service unavailable",
-							  "The background music service did not respond. Press B, then open Music Player again. If this keeps happening, reinstall or update NX Redux.",
-							  NULL, true, true);
-		goto cleanup;
+		LOG_warn("Music service did not answer within the init deadline, waiting for it\n");
+		if (!wait_for_music_service())
+			goto cleanup;
 	}
 
 	// Initialize common module (global input handling)
