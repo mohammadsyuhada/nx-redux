@@ -269,6 +269,7 @@ SDL_Surface* GFX_init(int mode);
 // 1s startup CPU boost early so that work runs uncapped too. GFX_init() calls it
 // itself for MODE_MAIN and is a no-op if a boost is already active.
 void GFX_startStartupBoost(int mode);
+void GFX_endStartupBoost(void);
 SDL_Surface* GFX_getScreen(void);								   // current screen surface (owned by GFX; do not free)
 void GFX_setScreen(SDL_Surface* s);								   // refresh the cached screen after an external display re-init
 #define GFX_resize PLAT_resizeVideo								   // (int w, int h, int pitch);
@@ -628,6 +629,7 @@ enum {
 	CPU_SPEED_POWERSAVE,
 	CPU_SPEED_NORMAL,
 	CPU_SPEED_PERFORMANCE,
+	CPU_SPEED_MENU_IDLE, // launcher idle (no input for a few seconds); see nextui/cpu_policy.h
 };
 #define PWR_setCPUSpeed PLAT_setCPUSpeed
 #define PWR_setCPUSpeedAuto PLAT_setCPUSpeedAuto
@@ -729,6 +731,11 @@ void PLAT_powerOff(int reboot);
 void* PLAT_cpu_monitor(void* arg);
 void PLAT_setCPUSpeed(int speed); // enum
 void PLAT_setCPUSpeedAuto(void);
+// Launcher-only topology hook (nextui/cpu_policy.h): false takes the big core
+// offline while the launcher runs, true brings it back for the boot phase.
+// No-op on single-cluster devices (weak fallback in api.c). Pak launch scripts
+// never see the core offline: MinUI.pak/launch.sh re-onlines it before eval.
+void PLAT_setBigCoreOnline(bool online);
 // note: this affects the calling thread and every thread spawned from it (after)
 void PLAT_pinToCores(int core_type); // CPU_CORE_EFFICIENCY or CPU_CORE_PERFORMANCE
 void PLAT_setRumble(int strength);

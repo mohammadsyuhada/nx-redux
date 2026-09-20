@@ -4,6 +4,7 @@
 // tests/run_tests.sh.
 #include "../music_client.h"
 #include <arpa/inet.h>
+#include <poll.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,10 +59,15 @@ typedef struct {
 	int received_speed_command;
 	int received_volume;
 	int received_volume_command;
+	/* A cold musicplayerd needs ~0.8 s on a Brick between exec and its first
+	 * poll; this delays the fake owner's listen to model that. */
+	int listen_delay_ms;
 } ServerState;
 
 static void* server_main(void* argument) {
 	ServerState* state = argument;
+	if (state->listen_delay_ms > 0)
+		usleep((useconds_t)state->listen_delay_ms * 1000);
 	int listener = socket(AF_UNIX, SOCK_STREAM, 0);
 	struct sockaddr_un address;
 	memset(&address, 0, sizeof(address));
@@ -70,6 +76,12 @@ static void* server_main(void* argument) {
 	unlink(state->path);
 	if (listener < 0 || bind(listener, (struct sockaddr*)&address, sizeof(address)) != 0 || listen(listener, 1) != 0)
 		return NULL;
+	/* A client that gave up must not leave this thread in accept() forever. */
+	struct pollfd waiter = {.fd = listener, .events = POLLIN};
+	if (poll(&waiter, 1, 5000) <= 0) {
+		close(listener);
+		return NULL;
+	}
 	int client = accept(listener, NULL, NULL);
 	if (client >= 0) {
 		for (int request_number = 0; request_number < 7; request_number++) {
@@ -186,11 +198,8 @@ int main(void) {
 	unlink(server.path);
 	rmdir(socket_dir);
 
-	/* Spawn attempts for an owner that never comes up back off: one immediate
-	 * attempt, the next no sooner than 1 s later, then 2 s, never one per poll
-	 * (music_client.c MUSIC_CLIENT_SPAWN_BACKOFF_MIN_MS). Timeline from the
-	 * start of MusicClient_init: attempt 1 at +0, attempt 2 at +1.0..+1.5 s
-	 * (the 500 ms reconnect gate adds up to one tick), attempt 3 at +3.0..+4.0 s. */
+	/* The launch script only records each spawn; the owner itself is the fake
+	 * in-process one, so its start-up time is under test control. */
 	char launch_script[160], launch_count[160];
 	snprintf(launch_script, sizeof(launch_script), "/tmp/music_client_launch_%ld.sh", (long)getpid());
 	snprintf(launch_count, sizeof(launch_count), "/tmp/music_client_launch_%ld.count", (long)getpid());
@@ -202,36 +211,70 @@ int main(void) {
 		chmod(launch_script, 448);
 	}
 	check(script != NULL, "retry launch script created");
-	struct timespec spawn_start;
+
+	/* A cold owner that only starts listening 1.5 s after it was spawned must
+	 * still be attached by MusicClient_init: the app shows its splash for the
+	 * whole wait, and a fixed attempt budget shorter than the owner's start-up
+	 * is exactly the "Music service unavailable" failure that a second launch
+	 * then does not reproduce (the first launch's owner is up by then). */
+	memset(&server, 0, sizeof(server));
+	snprintf(server.path, sizeof(server.path), "%s/control.sock", socket_dir);
+	server.listen_delay_ms = 1500;
+	mkdir(socket_dir, 448);
+	check(pthread_create(&thread, NULL, server_main, &server) == 0, "slow owner starts");
+	struct timespec slow_start, slow_end;
+	clock_gettime(CLOCK_MONOTONIC, &slow_start);
+	int slow_init = MusicClient_init(launch_script);
+	clock_gettime(CLOCK_MONOTONIC, &slow_end);
+	long slow_ms = (slow_end.tv_sec - slow_start.tv_sec) * 1000 + (slow_end.tv_nsec - slow_start.tv_nsec) / 1000000;
+	check(slow_init == 0 && MusicClient_isConnected(), "owner that takes 1.5 s to listen is attached during init");
+	check(slow_ms >= 1500 && slow_ms < 2500, "init returns as soon as the slow owner answers, not at a fixed deadline");
+	MusicClient_quit();
+	pthread_join(thread, NULL);
+	unlink(server.path);
+	rmdir(socket_dir);
+	unlink(launch_count);
+
+	/* Spawn attempts for an owner that never comes up back off: one immediate
+	 * attempt, the next no sooner than 1 s later, then 2 s, then 4 s, never one
+	 * per poll (music_client.c MUSIC_CLIENT_SPAWN_BACKOFF_MIN_MS). Timeline from
+	 * the start of MusicClient_init: attempts at +0, +1.0, +3.0 s all land inside
+	 * the 5 s init deadline (MUSIC_CLIENT_INIT_TIMEOUT_MS); attempt 4 at
+	 * +7.0..+7.5 s (the 500 ms reconnect gate adds up to one tick) comes from the
+	 * app's polling after init gave up. */
+	struct timespec spawn_start, spawn_end;
 	clock_gettime(CLOCK_MONOTONIC, &spawn_start);
 	check(MusicClient_init(launch_script) != 0, "failed owner remains unavailable");
+	clock_gettime(CLOCK_MONOTONIC, &spawn_end);
+	long init_ms = (spawn_end.tv_sec - spawn_start.tv_sec) * 1000 + (spawn_end.tv_nsec - spawn_start.tv_nsec) / 1000000;
+	check(init_ms >= 5000 && init_ms < 5600, "init gives a failed owner the full 5 s deadline, then gives up");
 	int launch_attempts = 0;
 	FILE* count_file = fopen(launch_count, "r");
 	if (count_file) {
 		fscanf(count_file, "%d", &launch_attempts);
 		fclose(count_file);
 	}
-	check(launch_attempts >= 1 && launch_attempts <= 2, "failed owner launch is attempted once, at most twice, during init");
-	/* Keep polling like the app does and sample the attempt count at +2.5 s and
-	 * +4.5 s from the start: exactly 2 then exactly 3 proves the 1 s / 2 s gaps. */
-	int attempts_at_2500 = -1, attempts_at_4500 = -1;
+	check(launch_attempts == 3, "failed owner launch is attempted at +0, +1 and +3 s during init");
+	/* Keep polling like the app does and sample the attempt count at +6.5 s and
+	 * +8.0 s from the start: still 3 then exactly 4 proves the 4 s gap. */
+	int attempts_at_6500 = -1, attempts_at_8000 = -1;
 	for (;;) {
 		struct timespec now;
 		clock_gettime(CLOCK_MONOTONIC, &now);
 		long elapsed_ms = (now.tv_sec - spawn_start.tv_sec) * 1000 + (now.tv_nsec - spawn_start.tv_nsec) / 1000000;
-		if (elapsed_ms >= 2500 && attempts_at_2500 < 0) {
-			attempts_at_2500 = 0;
+		if (elapsed_ms >= 6500 && attempts_at_6500 < 0) {
+			attempts_at_6500 = 0;
 			count_file = fopen(launch_count, "r");
 			if (count_file) {
-				fscanf(count_file, "%d", &attempts_at_2500);
+				fscanf(count_file, "%d", &attempts_at_6500);
 				fclose(count_file);
 			}
 		}
-		if (elapsed_ms >= 4500) {
-			attempts_at_4500 = 0;
+		if (elapsed_ms >= 8000) {
+			attempts_at_8000 = 0;
 			count_file = fopen(launch_count, "r");
 			if (count_file) {
-				fscanf(count_file, "%d", &attempts_at_4500);
+				fscanf(count_file, "%d", &attempts_at_8000);
 				fclose(count_file);
 			}
 			break;
@@ -239,9 +282,9 @@ int main(void) {
 		MusicClient_update();
 		usleep(50000);
 	}
-	check(attempts_at_2500 == 2, "second spawn attempt lands after the 1 s backoff and no other before 2.5 s");
-	check(attempts_at_4500 == 3, "third spawn attempt lands after the 2 s backoff and no other before 4.5 s");
-	launch_attempts = attempts_at_4500;
+	check(attempts_at_6500 == 3, "no spawn attempt between +3 s and +6.5 s");
+	check(attempts_at_8000 == 4, "fourth spawn attempt lands after the 4 s backoff, by +8 s");
+	launch_attempts = attempts_at_8000;
 	MusicClient_quit();
 	check(MusicClient_init(NULL) != 0, "passive client stays unavailable without an owner");
 	usleep(100000);

@@ -2,8 +2,10 @@
 
 cd "$(dirname "$0")"
 
-# Idle big core, cap little cores for network I/O
-echo 408000 > /sys/devices/system/cpu/cpu4/cpufreq/scaling_max_freq 2>/dev/null
+# Big core offline: this app runs on the little cores. MinUI.pak/launch.sh
+# hands every pak over with cpu4 online (emulators need it); a 408 MHz big
+# core adds nothing here, an offline one is power-gated. Little cores capped below for network I/O.
+echo 0 > /sys/devices/system/cpu/cpu4/online 2>/dev/null
 echo 1032000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null
 
 ./sync.elf &> "$LOGS_PATH/sync.txt"

@@ -230,6 +230,15 @@ MPD_LOG=/dev/null
 [ "$NX_DEBUG_LOGGING" = "1" ] && MPD_LOG="$LOGS_PATH/music-playerd.txt"
 musicplayerd.elf </dev/null >> "$MPD_LOG" 2>&1 &
 
+# Boot-time radio/ssh init below is backgrounded; the launcher runs the CPU at
+# full range until all of it has exited, polling this marker (15 s fallback —
+# see workspace/all/nextui/cpu_policy.h). /tmp is tmpfs, so the marker never
+# outlives a boot; the rm is belt and braces. A relaunch after a game or tool
+# finds the marker present and caps at its first frame as before.
+BOOT_DONE_MARKER=/tmp/nx_boot_done
+rm -f "$BOOT_DONE_MARKER"
+BOOT_JOBS=""
+
 # BT handling
 # NOTE: On tg5040 (xradio combo chip), running bluetoothd+hciattach degrades
 # WiFi throughput from ~330 KB/s to ~2 KB/s due to coexistence interference.
@@ -242,6 +251,7 @@ if [ "$bluetoothon" -eq 1 ]; then
 else
 	/etc/bluetooth/bt_init.sh stop > /dev/null 2>&1 &
 fi
+BOOT_JOBS="$BOOT_JOBS $!"
 
 # wifi handling
 # on by default, disable based on systemval setting
@@ -252,12 +262,22 @@ if [ "$wifion" -eq 0 ]; then
 else 
 	/etc/wifi/wifi_init.sh start > /dev/null 2>&1 &
 fi
+BOOT_JOBS="$BOOT_JOBS $!"
 
 # SSH handling - developer setting
 sshonboot=$(nextval.elf sshOnBoot | sed -n 's/.*"sshOnBoot": \([0-9]*\).*/\1/p')
 if [ "$sshonboot" -eq 1 ]; then
 	/etc/init.d/sshd start > /dev/null 2>&1 &
+	BOOT_JOBS="$BOOT_JOBS $!"
 fi
+
+# Touch the marker once every boot job above has exited (kill -0 = alive).
+(
+	for p in $BOOT_JOBS; do
+		while kill -0 $p 2>/dev/null; do sleep 0.2; done
+	done
+	touch "$BOOT_DONE_MARKER"
+) > /dev/null 2>&1 &
 
 #######################################
 
@@ -283,6 +303,13 @@ while [ -f $EXEC_PATH ]; do
 	if [ -f $NEXT_PATH ]; then
 		CMD=`cat $NEXT_PATH`
 		nx_update_logs_path
+		# The launcher may be sitting at its 600 MHz idle cap (nextui/
+		# cpu_policy.h); hand every pak the boot-default range instead, the
+		# same state the restore block below leaves. Paks own their clocks
+		# from here (minarch, DC/N64/NDS/PSP, PortMaster all set their own).
+		echo schedutil > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null
+		echo 408000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq 2>/dev/null
+		echo 1008000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null
 		eval $CMD
 		rm -f $NEXT_PATH
 		# Restore CPU state (games/tools may change governor and freq)

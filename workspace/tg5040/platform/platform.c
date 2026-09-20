@@ -331,6 +331,18 @@ void PLAT_setCPUSpeed(int speed) {
 	setGovernor("schedutil");
 	switch (speed) {
 	case CPU_SPEED_MENU:
+		// Launcher / in-game menu: schedutil idles at 408 and ramps only while
+		// navigating. 600 (the table's second step) left a ~15ms UI frame just
+		// over the 16.6ms vblank and made boot-time daemons visibly steal frames;
+		// 1008 stays on the low-voltage plateau of the A53 table (408 600 816
+		// 1008 | 1200 1416 1608 1800 2000).
+		setFreqRange(CPU_FREQ_MIN, 1008000);
+		break;
+	case CPU_SPEED_MENU_IDLE:
+		// No input for a few seconds (nextui/cpu_policy.h). schedutil parks at
+		// the cap when idle, so this IS the idle operating point; 600 keeps
+		// the marquee/thumbnail loaders usable (~31ms frames, the pre-2026-09
+		// menu speed) at the lower voltage.
 		setFreqRange(CPU_FREQ_MIN, 600000);
 		break;
 	case CPU_SPEED_POWERSAVE:

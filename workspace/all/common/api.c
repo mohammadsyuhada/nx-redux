@@ -455,6 +455,17 @@ static void GFX_finishStartupBoost(void) {
 	pthread_mutex_unlock(&startup_boost_mutex);
 }
 
+// The app is taking over CPU policy itself (nextui's boot phase keeps the full
+// range until launch.sh's init jobs finish — see nextui/cpu_policy.h): drop the
+// boost bookkeeping WITHOUT touching scaling_max_freq, so the 1 s restore
+// thread below cannot later undo whatever the app has set.
+void GFX_endStartupBoost(void) {
+	pthread_mutex_lock(&startup_boost_mutex);
+	startup_boost.active = false;
+	startup_boost.generation++;
+	pthread_mutex_unlock(&startup_boost_mutex);
+}
+
 static void* GFX_restoreStartupCPUMax(void* arg) {
 	unsigned int generation = (unsigned int)(uintptr_t)arg;
 	usleep(STARTUP_CPU_BOOST_US);
@@ -2745,6 +2756,9 @@ void PAD_reset(void) {
 #define OSD_SHOW_FLAG "/tmp/trimui_osd/osdd_show_up"
 
 FALLBACK_IMPLEMENTATION void PLAT_pokeCapture(void) {}
+FALLBACK_IMPLEMENTATION void PLAT_setBigCoreOnline(bool online) {
+	(void)online; // single cluster (tg5040, desktop): nothing to hotplug
+}
 
 #include "button_layout.h"
 

@@ -84,9 +84,9 @@ int main(int argc, char* argv[]) {
 	 * pak. Keep startup independent of argv[0] and of the launch cwd. */
 	album_art_init();
 	if (MusicClient_init(SDCARD_PATH "/.system/bin/musicplayerd.elf") != 0) {
-		LOG_error("Failed to connect to music service\n");
+		LOG_error("Music service did not answer within the init deadline\n");
 		(void)UI_confirmModal(screen, "Music service unavailable",
-							  "The background music service did not start. Reinstall or update NX Redux and try again.",
+							  "The background music service did not respond. Press B, then open Music Player again. If this keeps happening, reinstall or update NX Redux.",
 							  NULL, true, true);
 		goto cleanup;
 	}

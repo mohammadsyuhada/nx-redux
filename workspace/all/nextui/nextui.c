@@ -23,6 +23,7 @@
 #include "ui_listview.h"
 #include "recents.h"
 #include "types.h"
+#include "cpu_policy.h"
 
 // Boot-phase stamps into the same file the launch scripts write, so a slow
 // boot can be attributed (script phase vs GFX init vs content scan vs first
@@ -81,6 +82,45 @@ static bool dirty = true;
 #define IDLE_FRAME_MS 100	 // ~10 FPS when idle
 static uint32_t last_active_input = 0;
 
+// CPU frequency policy: full range through the boot-time init, the menu cap
+// while navigating, a lower cap when idle. Pure state machine in cpu_policy.c;
+// this is the only place it touches the hardware.
+static CPUPolicy cpu_policy;
+static bool cpu_policy_started = false;
+static bool cpuBootDone(void) {
+	return exists(CPU_POLICY_BOOT_MARKER);
+}
+static void startCPUPolicy(bool boot_done);
+static void applyCPUPolicy(CPUPolicyAction action) {
+	// Big core (tg5050): online for the boot phase, offline for the rest of the
+	// launcher's life — see PLAT_setBigCoreOnline. Order matters: online before
+	// driving its policy, drive it (harmless once gone) before taking it down.
+	switch (action) {
+	case CPU_POLICY_SET_AUTO:
+		PLAT_setBigCoreOnline(true);
+		PWR_setCPUSpeedAuto();
+		break;
+	case CPU_POLICY_SET_MENU:
+		PWR_setCPUSpeed(CPU_SPEED_MENU);
+		PLAT_setBigCoreOnline(false);
+		break;
+	case CPU_POLICY_SET_IDLE:
+		PWR_setCPUSpeed(CPU_SPEED_MENU_IDLE);
+		PLAT_setBigCoreOnline(false);
+		break;
+	case CPU_POLICY_KEEP:
+		break;
+	}
+}
+static void startCPUPolicy(bool boot_done) {
+	// GFX_init's 1 s startup boost would otherwise restore the pre-boost cap
+	// under the policy's full-range boot phase (seen as a 0.4 s dip to the
+	// menu cap right before the first frame).
+	GFX_endStartupBoost();
+	applyCPUPolicy(CPUPolicy_start(&cpu_policy, SDL_GetTicks(), boot_done));
+	cpu_policy_started = true;
+}
+
 SDL_Surface* screen = NULL;
 static SDL_Surface* blackBG = NULL;
 
@@ -119,6 +159,13 @@ int main(int argc, char* argv[]) {
 	// Lift the CPU cap before InitSettings, not just inside GFX_init: on tg5050
 	// the settings library alone is ~0.45s of the ~1s start-to-first-frame.
 	GFX_startStartupBoost(MODE_MAIN);
+	// Fresh boot: take over from that 1 s boost right away and run the whole
+	// start-up (InitSettings, GFX_init, menu init incl. a first-boot ROM
+	// rescan) at full range — on tg5050 GFX_init alone outlasts the boost,
+	// which showed as a 0.8 s dip to the floor before the first frame. A
+	// relaunch (marker present) keeps the boost and caps at its first frame.
+	if (!cpuBootDone())
+		startCPUPolicy(false);
 
 	simple_mode = exists(SIMPLE_MODE_PATH);
 	Content_setSimpleMode(simple_mode);
@@ -179,6 +226,8 @@ int main(int argc, char* argv[]) {
 
 		if (PAD_anyPressed())
 			last_active_input = SDL_GetTicks();
+		if (cpu_policy_started) // idle drop / wake / end of boot phase, before this frame renders
+			applyCPUPolicy(CPUPolicy_update(&cpu_policy, now, PAD_anyPressed(), cpuBootDone));
 
 		// External pak-launch request: a file naming a pak directory, written
 		// by something outside nextui (the OSD Music widget asks for the Music
@@ -458,7 +507,8 @@ int main(int argc, char* argv[]) {
 				if (!first_frame_stamped) {
 					first_frame_stamped = true;
 					bootStamp("first frame");
-					PWR_setCPUSpeed(CPU_SPEED_MENU);
+					if (!cpu_policy_started)
+						startCPUPolicy(cpuBootDone());
 				}
 			}
 

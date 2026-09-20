@@ -375,7 +375,20 @@ void PLAT_setCPUSpeed(int speed) {
 	setGovernor("schedutil");
 	switch (speed) {
 	case CPU_SPEED_MENU:
+		// CPU_FREQ_BASE is the BIG-core policy (cpu4-7) on this device. The
+		// little cluster (cpu0-3), where the launcher UI actually runs, is
+		// left at launch.sh's uncapped 408-1416 schedutil range. Measured
+		// 2026-09-20: the glide frame is ~18 ms flat for any big-core cap from
+		// 408 to 2160, but climbs to 36 ms if the little cluster is capped at
+		// 408 — so the menu keeps the big core cheap (672, the second step)
+		// and never touches the little cluster.
 		setFreqRange(CPU_FREQ_MIN, 672000);
+		putFile(GPU_GOVERNOR_PATH, "simple_ondemand");
+		break;
+	case CPU_SPEED_MENU_IDLE:
+		// No input for a few seconds (nextui/cpu_policy.h): park the big core
+		// at its floor, the same state launch.sh boots it in.
+		setFreqRange(CPU_FREQ_MIN, CPU_FREQ_MIN);
 		putFile(GPU_GOVERNOR_PATH, "simple_ondemand");
 		break;
 	case CPU_SPEED_POWERSAVE:
@@ -393,6 +406,18 @@ void PLAT_setCPUSpeed(int speed) {
 void PLAT_setCPUSpeedAuto(void) {
 	setGovernor("schedutil");
 	setFreqRange(CPU_FREQ_MIN, CPU_FREQ_MAX);
+}
+// The launcher runs on the little cluster (glide ~18 ms for any big-core cap,
+// 2026-09-20), so while it is up the big core is taken offline outright — an
+// offline core is power-gated, a parked one at 408 is not. Only the launcher
+// calls this (nextui/cpu_policy.h): minarch's in-game menu must keep cpu4 up
+// because the emulator returns to it. MinUI.pak/launch.sh onlines cpu4 before
+// every pak (N64 pins its emulator there, DC/NDS/PS set its clocks, minarch
+// drives policy4), and the post-pak restore leaves it online for the relaunch,
+// which offlines it again at its first frame. While cpu4 is offline, policy4's
+// sysfs is gone and PLAT_setCPUSpeed's writes to it fail silently by design.
+void PLAT_setBigCoreOnline(bool online) {
+	putInt("/sys/devices/system/cpu/cpu4/online", online ? 1 : 0);
 }
 
 #define MAX_STRENGTH 0xFFFF

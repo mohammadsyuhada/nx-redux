@@ -81,9 +81,25 @@ Notes:
   e.g. the screen-record toggle onlines cpu2).
 - **Pak launch scripts own CPU state**: each `.pak`'s `launch.sh` is
   responsible for setting clocks on entry and cleaning up on exit. Some cap
-  clocks hard (e.g. the Files pak caps big cores at 408 MHz) and a manual /
+  clocks hard, and the tg5050 Tools paks other than Media Player take cpu4
+  offline outright (they run on the little cores); a manual /
   killed run may leave the cap in place — always check `scaling_max_freq`
   before benchmarking on device (see [TESTING.md](TESTING.md)).
+- **The launcher drives its own policy** (`workspace/all/nextui/cpu_policy.h`):
+  full range while booting (until 12 s have passed and `launch.sh` has touched
+  `/tmp/nx_boot_done`, 20 s fallback), then `CPU_SPEED_MENU` while navigating
+  and `CPU_SPEED_MENU_IDLE` after 3 s without input. The policy drives
+  `CPU_FREQ_BASE`, which is **cpu0 (all four A53s) on tg5040** — menu 408-1008,
+  idle 408-600; the Brick's 4.9 schedutil parks at `scaling_max_freq` when
+  idle, so that cap *is* the idle operating point — but **cpu4, the big core,
+  on tg5050** — menu 408-672, idle parked at 408, and **cpu4 is taken offline
+  outright** while the launcher runs (`PLAT_setBigCoreOnline`; glide 16 ms
+  median on the two little cores alone). The little cluster (cpu0-1 online),
+  where the launcher UI actually runs, stays at launch.sh's 408-1416 and is
+  what governs menu frame time. `MinUI.pak/launch.sh` onlines cpu4 again
+  (schedutil 408/408) before every pak, so pak scripts still see the 3-core
+  boot policy. A relaunch after a pak finds the marker present and caps at its
+  first frame.
 
 ## Firmware requirements
 

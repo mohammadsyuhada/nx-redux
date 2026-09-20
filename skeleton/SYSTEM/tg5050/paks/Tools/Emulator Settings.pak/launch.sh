@@ -2,8 +2,10 @@
 
 cd "$(dirname "$0")"
 
-# Idle big core at minimum, little cores auto-scale via schedutil
-echo 408000 > /sys/devices/system/cpu/cpu4/cpufreq/scaling_max_freq 2>/dev/null
+# Big core offline: this app runs on the little cores. MinUI.pak/launch.sh
+# hands every pak over with cpu4 online (emulators need it); a 408 MHz big
+# core adds nothing here, an offline one is power-gated.
+echo 0 > /sys/devices/system/cpu/cpu4/online 2>/dev/null
 
 # Emulator paks opt in by shipping an options.sh (also the marker nextui
 # probes for the game list's "Emulator Options" context-menu entry).

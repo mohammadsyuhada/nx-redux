@@ -18,6 +18,10 @@
  * results while playback started anyway. Match musicplayerctl's budget. */
 #define MUSIC_CLIENT_LOAD_TIMEOUT_MS 5000
 #define MUSIC_CLIENT_COMMAND_TIMEOUT_MS 1000
+/* A cold owner measured ~0.8 s on a Brick from exec to its first poll (socket
+ * open, then SDL audio, radio and podcast init) under the Music Player pak's
+ * CPU cap. Give it a wall-clock deadline, not an attempt count. */
+#define MUSIC_CLIENT_INIT_TIMEOUT_MS 5000
 
 static int client_fd = -1;
 static MusicSnapshotWire current_snapshot;
@@ -153,9 +157,19 @@ int MusicClient_init(const char* daemon_path) {
 		(void)request(MUSIC_CMD_SNAPSHOT, NULL, 0, 100);
 		return client_fd >= 0 ? 0 : -1;
 	}
-	for (int attempt = 0; attempt < 20 && client_fd < 0; attempt++) {
+	/* The 500 ms reconnect gate paces steady-state polling after a lost owner;
+	 * it is not a start-up budget. The old fixed loop of 20 ticks ended after
+	 * ~1.0 s, which the gate cut to connect attempts at +0 and +0.5 s, so a
+	 * spawned owner that answered at +0.8 s was found only when timer jitter
+	 * let a third attempt in: "Music service unavailable" on the first launch,
+	 * fine on the second. Poll every tick until the deadline instead. */
+	int64_t deadline = monotonic_ms() + MUSIC_CLIENT_INIT_TIMEOUT_MS;
+	for (;;) {
+		next_reconnect_ms = 0;
 		if (request(MUSIC_CMD_SNAPSHOT, NULL, 0, 100) >= MUSIC_STATUS_OK)
 			return 0;
+		if (client_fd >= 0 || monotonic_ms() >= deadline)
+			break;
 		usleep(50000);
 	}
 	return client_fd >= 0 ? 0 : -1;
