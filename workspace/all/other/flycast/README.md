@@ -429,9 +429,10 @@ binary byte-for-byte except a 4-byte embedded build timestamp.
 
 ## Patch: what `flycast.patch` does
 
-`workspace/all/other/flycast/flycast.patch` (26,357 bytes, 11 hunks across 7
+`workspace/all/other/flycast/flycast.patch` (25,751 bytes, 14 hunks across 10
 files) carries the NxRedux in-game overlay integration plus one compiler
-workaround and one audio-quality fix, all on top of the pinned v2.6 checkout:
+workaround, one audio-quality fix, and one networking fix, all on top of the
+pinned v2.6 checkout:
 
 | File | Change |
 |---|---|
@@ -442,6 +443,7 @@ workaround and one audio-quality fix, all on top of the pinned v2.6 checkout:
 | `core/hw/sh4/sh4_interrupts.cpp` | GCC 8.3.0 (tg5040 toolchain) internal-compiler-error workaround. `InterruptSourceList` was `static const`, but its `PrioReg` field was a `const u16*` built via a reinterpret-cast macro (`GIPA`/`GIPB`/`GIPC`) — never a C++ constant expression, so the compiler had to emit a dynamic global constructor, and GCC 8.3.0's aarch64 backend crashes expanding it (`internal compiler error: in gen_reg_rtx, at emit-rtl.c:1187`). Refactored `PrioReg` into an `enum class IprReg : u8 { Fixed, IPRA, IPRB, IPRC }` tag, resolved to the live register value via a `switch` inside `GetPrLvl()` — same one dereference-shift-mask cost as before, at the same single call site — so the initializer is now a literal integer aggregate, fully constant-initializable, no dynamic constructor, no ICE. Confirmed flag-independent (reproduced at `-O0` through `-O3`/`-Og`, with/without half a dozen individual optimization-pass toggles) and toolchain-specific (absent under tg5050's GCC 10.3.0 compiling the identical file/flags) before landing this fix — see the "Status update" note in Step 1 above. |
 | `CMakeLists.txt` | Overlay-sources block, guarded `if(NOT LIBRETRO AND NOT ANDROID AND NOT APPLE AND NOT WIN32)`: compiles `nx_overlay.cpp` plus the 3 shared `workspace/all/common/emu_overlay*.c` files into the `flycast` target. Scopes their `-I .../common` include path to just those sources (`set_source_files_properties(... PROPERTIES INCLUDE_DIRECTORIES ...)`) rather than target-wide — a target-wide include broke *every* pre-existing flycast `#include <SDL.h>` by resolving it against `workspace/all/common/sdl.h` (an SDL1/2 compatibility shim used by other emulator cores in this workspace) instead of the toolchain's real SDL2 headers, on this Docker bind mount's case-insensitive filesystem. Also links `GLESv2` directly (+ `mali` on tg5050, whose `libGLESv2.so` is a thin stub backed by `libmali.so.0`) — the overlay calls GLES3 functions directly (`emu_overlay_sdl.c`), unlike flycast's own renderer which resolves GL lazily via `glad`+`dlopen()`. |
 | `core/audio/audiobackend_sdl2.cpp` | Sink-preferred audio rate, driven by `NX_AUDIO_RATE` (see "Audio: NX_AUDIO_RATE (sink-preferred output rate)" below). Upstream `SDLAudioBackend::init()` tried opening the SDL audio device at 44.1 kHz (the Dreamcast's native rate) first, falling back to 48 kHz + an `SDL_AudioCVT` resampler only if that failed. On this hardware the 44.1 kHz open always *succeeds* (ALSA's `plug` device accepts any rate), but the device's real output — `dmix`, fixed at 48000 Hz with no quality `rate_converter` configured — then does its own low-quality linear resample from 44.1→48 kHz in `alsa-lib`, producing constant audible distortion (the same class of bug already fixed for mupen64plus/N64.pak — see that pak's README for the precedent). The patch reverses the order and generalizes the target: `target_rate` defaults to 48000 but is overridable via the `NX_AUDIO_RATE` env var (integer Hz, range-validated (`[8000, 192000]`; out-of-range falls back to 48000)), which `DC.pak/launch.sh`'s `nx_pick_audio_rate()` helper sets from the audiomon-published `/tmp/nx_audio_sink` sink info — opening at `target_rate` (matching the device's real output rate exactly when it's 48000, so ALSA does no resampling at all) with SDL's own higher-quality `SDL_BuildAudioCVT` converter as the primary path when `target_rate != 44100`, skipping the converter entirely when the sink prefers native 44.1 kHz, and falling back to a literal native 44.1 kHz open only if the `target_rate` open or converter build fails. The pre-existing `needs_resampling`/`audioCvt` buffer machinery is unchanged (buffer sizing is driven by the device's fixed frame-count callback size, not by sample rate, so it already covered this code path when it was the fallback). Also switches the mode-report log lines from `INFO_LOG` to `NOTICE_LOG`, since `INFO_LOG` is compiled out entirely in Release builds (`MAX_LOGLEVEL`, `core/log/Log.h`) and would otherwise never reach the on-device log — `NOTICE_LOG` matches the codebase's existing convention for startup path decisions (e.g. `core/emulator.cpp`'s `"Forcing real BIOS"`/`"Forcing HLE BIOS"`) and is what lets `$LOGS_PATH/DC.txt` prove which rate path a given run actually took. |
+| `core/oslib/http_client.cpp` | Fixes RetroAchievements login failing with a generic `Login failed: No response` on targets that ship no default CA trust store (see "RetroAchievements" below). `makeCurlEasy()` never set `CURLOPT_CAINFO`/`CURLOPT_CAPATH`, so an unconfigured libcurl fell back to its own compiled-in default CA path — nonexistent on this firmware — with no way to override it: `SSL_CERT_FILE`/`CURL_CA_BUNDLE` env vars are honored by the `curl` CLI tool's own option parsing, not by an app calling the libcurl API directly, so setting them in `launch.sh` alone (already done, unrelated to this patch) had no effect. The patch reads `SSL_CERT_FILE` (falling back to `CURL_CA_BUNDLE`) and explicitly sets `CURLOPT_CAINFO` from it when present, so the env var `DC.pak/launch.sh` already exports actually reaches libcurl. |
 
 ## Regenerating the patch
 
@@ -638,11 +640,20 @@ Mode is active — upstream behavior, not something this pak adds or can route
 around. The overlay's Save/Load actions will fail silently in that mode.
 Accepted as v1 behavior.
 
-**Verification status (as of 2026-08-02):** credential sync, the `Enabled`
-gating, and HTTPS connectivity are verified on Brick, Brick Pro, and Smart Pro S.
-A *full* session test — a real achievement actually unlocking in-game, not just
-login/HTTPS reachability — has **not** yet been run. Do this once against a
-known achievement-supported DC title before calling RA fully verified.
+**Verification status (updated 2026-09-19):** the gap this note originally
+left open was real. On live Brick Pro (tg5040) hardware, RA login failed
+every time with `achievements/achievements.cpp: RA error: Login failed: No
+response` — traced to the CA-bundle gap the `http_client.cpp` patch above now
+fixes (the 2026-08-02 "HTTPS connectivity verified" claim below was based on
+dynamic-library resolution checks, not an actual login attempt, which is why
+it missed this). With the patch applied and rebuilt, RA login succeeds on
+Brick Pro — confirmed live over SSH, watching `achievements.cpp` log a
+successful login instead of the failure. tg5050 got the same source patch and
+was rebuilt (`build-tg5050/flycast`, byte-identical size to the previously
+shipped binary) but **not** tested on physical Smart Pro S hardware — do that
+before calling it verified there too. A *full* session test — a real
+achievement actually unlocking in-game, as opposed to a successful login —
+still hasn't been run on any platform.
 
 ## Netplay (GGPO + DCNet)
 

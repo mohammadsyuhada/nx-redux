@@ -62,6 +62,23 @@ export XDG_DATA_HOME="$USERDATA_DIR/data"
 export FLYCAST_BIOS_PATH="$SDCARD_PATH/Bios/DC"
 export LD_LIBRARY_PATH="$PAK_DIR:$EMU_DIR:$SDCARD_PATH/.system/lib:/usr/trimui/lib:$LD_LIBRARY_PATH"
 
+# The firmware ships no CA store (/etc/ssl/certs is empty), so flycast's TLS
+# stack fails every HTTPS request -- including its native RetroAchievements
+# login -- with a generic connection error unless told where to find a CA
+# bundle. NX Redux's own http.c sidesteps this everywhere else by shelling
+# out to curl with -k, but flycast calls libcurl directly with no such
+# escape hatch, so flycast.patch's http_client.cpp hunk reads these two env
+# vars and wires them into CURLOPT_CAINFO explicitly. Same bundle path
+# Gen1recomp.sh/PortMaster's launch.sh already use.
+for _ca in "$SDCARD_PATH/.system/shared/ssl/ca-certificates.crt" \
+    "$SDCARD_PATH/Emus/shared/PortMaster/ssl/certs/ca-certificates.crt"; do
+    if [ -f "$_ca" ]; then
+        export CURL_CA_BUNDLE="$_ca"
+        export SSL_CERT_FILE="$_ca"
+        break
+    fi
+done
+
 # BIOS: prefer real BIOS when present, HLE (Reios) otherwise. Never block launch.
 # dc_flash.bin is not required -- flycast auto-creates it when missing
 # (core/hw/flashrom/nvmem.cpp); only dc_boot.bin gates real-BIOS mode.
