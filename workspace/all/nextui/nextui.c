@@ -611,5 +611,8 @@ int main(int argc, char* argv[]) {
 	if (thumbbmp)
 		SDL_FreeSurface(thumbbmp);
 
+	// Stop the rumble thread before QuitSettings() munmaps the libmsettings
+	// shared memory it polls (GetRumble()), or its next poll segfaults.
+	VIB_quit();
 	QuitSettings();
 }
