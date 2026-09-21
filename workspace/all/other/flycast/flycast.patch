@@ -619,6 +619,27 @@ index 000000000..d3cf4525c
 +void nx_overlay_after_render();
 +// Requests the menu (safe from input handlers).
 +void nx_overlay_request_menu();
+diff --git a/core/oslib/http_client.cpp b/core/oslib/http_client.cpp
+index e4fa6c194..d0910b9d7 100644
+--- a/core/oslib/http_client.cpp
++++ b/core/oslib/http_client.cpp
+@@ -244,6 +244,16 @@ static CURL *makeCurlEasy(const std::string& url)
+ 
+ 	curl_easy_setopt(curl, CURLOPT_COOKIEFILE, "");
+ 
++	// Some minimal Linux targets ship no default CA trust store and no
++	// compiled-in libcurl CA path, so unconfigured verification fails every
++	// HTTPS request unconditionally. SSL_CERT_FILE/CURL_CA_BUNDLE are only
++	// honored by the curl CLI tool, not by apps linking libcurl directly, so
++	// give libcurl an explicit CAINFO when either is set in the environment.
++	if (const char *caBundle = getenv("SSL_CERT_FILE"))
++		curl_easy_setopt(curl, CURLOPT_CAINFO, caBundle);
++	else if (const char *caBundle2 = getenv("CURL_CA_BUNDLE"))
++		curl_easy_setopt(curl, CURLOPT_CAINFO, caBundle2);
++
+ 	curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+ 
+ 	return curl;
 diff --git a/core/ui/mainui.cpp b/core/ui/mainui.cpp
 index 4b1ad55b5..a1b81678a 100644
 --- a/core/ui/mainui.cpp
