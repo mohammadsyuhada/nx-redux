@@ -68,22 +68,18 @@ WILDS_ASSET="[Ww]ilds[.-]of[.-][Kk]anto*.zip"
 
 # TLS: verify whenever a CA bundle exists on the card; only fall back to the
 # system updater's --no-check-certificate convention (common/wget_fetch.c;
-# the firmware itself ships no CA bundle) when none is found. PortMaster's
-# vendored bundle is used opportunistically - the runtime=native conversion
-# removed the REQUIREMENT on PortMaster, not the willingness to use its
-# certs when present. The .system/shared/ssl path is a seam for a future
-# system-shipped bundle and wins when both exist. Verified TLS also protects
-# the release-API JSON (which carries the asset digests), closing the
-# digest-over-unverified-channel loop the sha256 check alone can't.
-NX_WGET_TLS="--no-check-certificate"
-for _ca in "$SDCARD_PATH/.system/shared/ssl/ca-certificates.crt" \
-           "$SDCARD_PATH/Emus/shared/PortMaster/ssl/certs/ca-certificates.crt"; do
-    if [ -f "$_ca" ]; then
-        export SSL_CERT_FILE="$_ca"
-        NX_WGET_TLS=""
-        break
-    fi
-done
+# the firmware ships no CA store) when none is found. The shared helper
+# resolves the NX Redux bundle (.system/shared/ssl, PortMaster's copy as a
+# fallback) and exports SSL_CERT_FILE for wget's OpenSSL backend. Verified TLS
+# also protects the release-API JSON (which carries the asset digests),
+# closing the digest-over-unverified-channel loop the sha256 check alone can't.
+_nx_ca_helper="$SDCARD_PATH/.system/shared/bin/nx_ca_bundle.sh"
+[ -f "$_nx_ca_helper" ] && . "$_nx_ca_helper"
+if [ -n "${NX_CA_BUNDLE:-}" ]; then
+    NX_WGET_TLS=""
+else
+    NX_WGET_TLS="--no-check-certificate"
+fi
 
 TMPDIR_NX="$SDCARD_PATH/.extras_tmp"
 TARGET="$EXTRAS_DATA_DIR/gen1recomp"

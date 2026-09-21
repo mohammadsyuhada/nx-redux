@@ -8,6 +8,9 @@
 #include <sys/stat.h>
 #include "defines.h"
 #include "api.h"
+// CA-bundle resolver shared with http.c: picks the bundle to verify TLS
+// against, or NULL on a card without one.
+#include "ca_bundle.h"
 
 // Path to wget binary in shared system bin. SHARED_BIN_PATH is a compile-time
 // literal on device builds but a runtime-resolved buffer on desktop
@@ -81,6 +84,26 @@ static void shell_escape_single(const char* src, char* dst, int dst_size) {
 	dst[j] = '\0';
 }
 
+// TLS verification argument for the active fetch tool. NX Redux ships a CA
+// bundle (the firmware carries none), so when nx_ca_bundle_path() finds one we
+// verify against it (wget --ca-certificate=, curl --cacert); on a card without
+// any bundle we keep the historical skip-verification flag
+// (--no-check-certificate / -k). Written into a caller-provided buffer so the
+// download threads never share state.
+static void fetch_tls_arg(char* buf, int buf_size) {
+	const char* ca = nx_ca_bundle_path();
+	if (!ca) {
+		snprintf(buf, buf_size, "%s", use_wget() ? "--no-check-certificate" : "-k");
+		return;
+	}
+	char esc[MAX_PATH * 4];
+	shell_escape_single(ca, esc, sizeof(esc));
+	if (use_wget())
+		snprintf(buf, buf_size, "--ca-certificate='%s'", esc);
+	else
+		snprintf(buf, buf_size, "--cacert '%s'", esc);
+}
+
 int wget_fetch(const char* url, uint8_t* buffer, int buffer_size) {
 	if (!url || !buffer || buffer_size <= 0) {
 		LOG_error("[WgetFetch] Invalid parameters\n");
@@ -98,17 +121,20 @@ int wget_fetch(const char* url, uint8_t* buffer, int buffer_size) {
 	if (fetch_tool() == FETCH_TOOL_NONE)
 		return -1;
 
+	char tls_arg[MAX_PATH * 4 + 32];
+	fetch_tls_arg(tls_arg, sizeof(tls_arg));
+
 	char cmd[8192];
 	if (use_wget())
 		snprintf(cmd, sizeof(cmd),
-				 "%s --no-check-certificate -q -T 15 -t 2"
+				 "%s %s -q -T 15 -t 2"
 				 " -O '%s' '%s' 2>/dev/null",
-				 wget_cmd_name(), tmpfile, safe_url);
+				 wget_cmd_name(), tls_arg, tmpfile, safe_url);
 	else
 		snprintf(cmd, sizeof(cmd),
-				 "curl -k -s -L --max-time 15 --retry 1"
+				 "curl %s -s -L --max-time 15 --retry 1"
 				 " -o '%s' '%s' 2>/dev/null",
-				 tmpfile, safe_url);
+				 tls_arg, tmpfile, safe_url);
 
 	int ret = system(cmd);
 
@@ -161,16 +187,19 @@ int wget_fetch_headers_noredirect(const char* url, char* buffer, int buffer_size
 	if (fetch_tool() == FETCH_TOOL_NONE)
 		return -1;
 
+	char tls_arg[MAX_PATH * 4 + 32];
+	fetch_tls_arg(tls_arg, sizeof(tls_arg));
+
 	char cmd[8192];
 	if (use_wget())
 		snprintf(cmd, sizeof(cmd),
-				 "%s --no-check-certificate -S --max-redirect=0 -T 15 -t 2"
+				 "%s %s -S --max-redirect=0 -T 15 -t 2"
 				 " -O /dev/null '%s' 2>'%s'",
-				 wget_cmd_name(), safe_url, tmpfile);
+				 wget_cmd_name(), tls_arg, safe_url, tmpfile);
 	else
 		snprintf(cmd, sizeof(cmd),
-				 "curl -k -s --max-time 15 -D '%s' -o /dev/null '%s'",
-				 tmpfile, safe_url);
+				 "curl %s -s --max-time 15 -D '%s' -o /dev/null '%s'",
+				 tls_arg, tmpfile, safe_url);
 
 	system(cmd);
 
@@ -235,16 +264,18 @@ int wget_download_file(const char* url, const char* filepath,
 	// takes the LAST Content-Length, so redirects parse identically.
 	if (fetch_tool() == FETCH_TOOL_NONE)
 		return -1;
+	char tls_arg[MAX_PATH * 4 + 32];
+	fetch_tls_arg(tls_arg, sizeof(tls_arg));
 	if (use_wget())
 		snprintf(cmd, sizeof(cmd),
-				 "(%s --no-check-certificate -S -T 30 -t 2"
+				 "(%s %s -S -T 30 -t 2"
 				 " -O '%s' '%s' 2>'%s'; touch '%s') &",
-				 wget_cmd_name(), safe_filepath, safe_url, safe_headers_file, safe_done_marker);
+				 wget_cmd_name(), tls_arg, safe_filepath, safe_url, safe_headers_file, safe_done_marker);
 	else
 		snprintf(cmd, sizeof(cmd),
-				 "(curl -k -s -L --connect-timeout 30"
+				 "(curl %s -s -L --connect-timeout 30"
 				 " -D '%s' -o '%s' '%s'; touch '%s') &",
-				 safe_headers_file, safe_filepath, safe_url, safe_done_marker);
+				 tls_arg, safe_headers_file, safe_filepath, safe_url, safe_done_marker);
 	system(cmd);
 
 	// Step 2: Poll file size for progress with speed/stall tracking

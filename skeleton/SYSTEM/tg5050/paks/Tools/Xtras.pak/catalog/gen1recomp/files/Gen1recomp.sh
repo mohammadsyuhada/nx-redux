@@ -82,21 +82,12 @@ export POKEPORT_GBCFX="${POKEPORT_GBCFX:-0}"
 export POKEPORT_SBC=1
 
 # TLS trust for the game's own network features (mod index, mod installs,
-# release checks - all shelled out to the firmware's curl): the firmware
-# ships NO CA store at all (/etc/ssl/certs is empty, device-verified
-# 2026-08-18), so every https fetch dies with a certificate error unless a
-# bundle is handed to it. The system-shipped bundle (.system/shared/ssl,
-# same seam install.sh's TLS check uses) is preferred; PortMaster's vendored
-# copy is the fallback for a card running an older system build. curl reads
-# CURL_CA_BUNDLE directly; SSL_CERT_FILE covers OpenSSL-level consumers.
-for _ca in "${SDCARD_PATH:-/mnt/SDCARD}/.system/shared/ssl/ca-certificates.crt" \
-    "${SDCARD_PATH:-/mnt/SDCARD}/Emus/shared/PortMaster/ssl/certs/ca-certificates.crt"; do
-    if [ -f "$_ca" ]; then
-        export CURL_CA_BUNDLE="$_ca"
-        export SSL_CERT_FILE="$_ca"
-        break
-    fi
-done
+# release checks - all shelled out to the firmware's curl): the firmware ships
+# NO CA store (/etc/ssl/certs is empty), so every https fetch dies on cert
+# verification unless handed a bundle. The shared helper resolves the NX Redux
+# bundle and exports CURL_CA_BUNDLE (curl CLI) / SSL_CERT_FILE (OpenSSL-level).
+_nx_ca_helper="${SDCARD_PATH:-/mnt/SDCARD}/.system/shared/bin/nx_ca_bundle.sh"
+[ -f "$_nx_ca_helper" ] && . "$_nx_ca_helper"
 
 chmod a+x ./bin/love.aarch64 2>/dev/null
 

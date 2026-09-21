@@ -10,6 +10,10 @@
 // HTTP communication itself uses curl via popen().
 #include "sdl.h"
 
+// CA-bundle resolver shared with wget_fetch.c: picks the bundle to verify TLS
+// against, or NULL on a card without one.
+#include "ca_bundle.h"
+
 // Build version info (defined in makefile)
 #ifndef BUILD_HASH
 #define BUILD_HASH "dev"
@@ -118,7 +122,11 @@ static HTTP_Response* execute_curl(const char* url, const char* post_data, const
 	// Build curl command
 	// -s: silent (no progress)
 	// -S: show errors
-	// -k: insecure (skip SSL cert verification - needed on embedded devices without CA bundle)
+	// TLS: NX Redux ships a CA bundle (the firmware itself carries none), so
+	//   verify against it with --cacert when nx_ca_bundle_path() finds one.
+	//   Only when no bundle exists on the card do we fall back to -k (skip SSL
+	//   verification) - unchanged behaviour there, but the common case is now
+	//   a verified connection instead of a blindly-trusted one.
 	// -w '%{http_code}': write HTTP status at end
 	// -o -: output to stdout
 	// --connect-timeout: connection timeout
@@ -136,6 +144,21 @@ static HTTP_Response* execute_curl(const char* url, const char* post_data, const
 		free(escaped_ua);
 		response->error = strdup("Memory allocation failed");
 		return response;
+	}
+
+	// TLS verification flag: "--cacert '<bundle>'" when we have one, else "-k".
+	const char* ca_bundle = nx_ca_bundle_path();
+	char tls_opt[MAX_PATH + 16];
+	if (ca_bundle) {
+		char* escaped_ca = shell_escape(ca_bundle);
+		if (escaped_ca) {
+			snprintf(tls_opt, sizeof(tls_opt), "--cacert %s", escaped_ca);
+			free(escaped_ca);
+		} else {
+			snprintf(tls_opt, sizeof(tls_opt), "-k");
+		}
+	} else {
+		snprintf(tls_opt, sizeof(tls_opt), "-k");
 	}
 
 	if (post_data) {
@@ -158,12 +181,13 @@ static HTTP_Response* execute_curl(const char* url, const char* post_data, const
 		}
 
 		snprintf(cmd, sizeof(cmd),
-				 "curl -s -S -k -L --connect-timeout %d -m %d "
+				 "curl -s -S %s -L --connect-timeout %d -m %d "
 				 "-A %s "
 				 "-H %s "
 				 "-d %s "
 				 "-w '\\n%%{http_code}' "
 				 "%s 2>&1",
+				 tls_opt,
 				 HTTP_TIMEOUT_SECS, HTTP_TIMEOUT_SECS * 2,
 				 escaped_ua,
 				 escaped_ct,
@@ -174,10 +198,11 @@ static HTTP_Response* execute_curl(const char* url, const char* post_data, const
 		free(escaped_ct);
 	} else {
 		snprintf(cmd, sizeof(cmd),
-				 "curl -s -S -k -L --connect-timeout %d -m %d "
+				 "curl -s -S %s -L --connect-timeout %d -m %d "
 				 "-A %s "
 				 "-w '\\n%%{http_code}' "
 				 "%s 2>&1",
+				 tls_opt,
 				 HTTP_TIMEOUT_SECS, HTTP_TIMEOUT_SECS * 2,
 				 escaped_ua,
 				 escaped_url);

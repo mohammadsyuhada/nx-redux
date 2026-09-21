@@ -176,5 +176,13 @@ Contract for new entries (the existing `gen1recomp` entry is the reference):
   is a PortMaster-created symlink, not guaranteed); LÖVE/PhysFS won't see
   files added to a mounted game dir after mount — restart the port.
 - The firmware ships **no CA store**; verified TLS needs
-  `.system/shared/ssl/ca-certificates.crt` (exported as
-  `CURL_CA_BUNDLE`/`SSL_CERT_FILE` by launchers that fetch over https).
+  `.system/shared/ssl/ca-certificates.crt`. Launchers that fetch over https
+  source the shared helper `skeleton/SYSTEM/shared/bin/nx_ca_bundle.sh`
+  (`. "$SHARED_SYSTEM_PATH/bin/nx_ca_bundle.sh"` from paks;
+  `. "${SDCARD_PATH:-/mnt/SDCARD}/.system/shared/bin/nx_ca_bundle.sh"` from
+  Xtras scripts) rather than open-coding the lookup — it resolves the bundle
+  (PortMaster's copy as a fallback), sets `NX_CA_BUNDLE`, and exports
+  `CURL_CA_BUNDLE`/`SSL_CERT_FILE`. `common/http.c` and `common/wget_fetch.c`
+  resolve the same bundle in C (`common/ca_bundle.h`) and now verify against it
+  (curl `--cacert`, wget `--ca-certificate=`), falling back to `-k` /
+  `--no-check-certificate` only on a card without any bundle.

@@ -325,17 +325,21 @@ grep -q 'Tuned d-pad cursor' "$TMP/log1.txt"         && pass "d-pad tuning annou
 grep -q 'GAMEDIR="$SHDIR/.data/gen1recomp"' \
   "$SD/Roms/Xtra Games (EXTRAS)/Gen1recomp.sh"      && pass "launcher is nx-patched"  || fail "launcher not patched"
 # TLS trust: the firmware ships no CA store, so the launcher must hand the
-# game's curl a CA bundle (system .system/shared/ssl first, PortMaster
-# fallback) or every in-game https fetch (mod index etc) dies on cert
-# verification.
+# game's curl a CA bundle or every in-game https fetch (mod index etc) dies on
+# cert verification. The lookup lives in the shared skeleton helper
+# nx_ca_bundle.sh, which the launcher sources (system .system/shared/ssl first,
+# PortMaster fallback) rather than open-coding the loop itself.
 grep -q '^export POKEPORT_SBC=1$' "$SD/Roms/Xtra Games (EXTRAS)/Gen1recomp.sh" \
   && pass "launcher enables the on-screen keyboard (POKEPORT_SBC only)" || fail "launcher lacks POKEPORT_SBC=1"
 ! grep -qE '^export (TRIMUI|HANDHELD|PORTMASTER|POKEPORT_HANDHELD)=' "$SD/Roms/Xtra Games (EXTRAS)/Gen1recomp.sh" \
   && pass "launcher does not set the broad handheld flags (self-updater stays off)" || fail "launcher sets a broad handheld flag"
-grep -q 'CURL_CA_BUNDLE' "$SD/Roms/Xtra Games (EXTRAS)/Gen1recomp.sh" \
-                                                     && pass "launcher exports a CA bundle for in-game fetches" || fail "launcher missing CURL_CA_BUNDLE export"
-grep -q '.system/shared/ssl/ca-certificates.crt' "$SD/Roms/Xtra Games (EXTRAS)/Gen1recomp.sh" \
-                                                     && pass "launcher prefers the system-shipped CA bundle" || fail "launcher does not reference the system CA bundle"
+grep -q 'nx_ca_bundle.sh' "$SD/Roms/Xtra Games (EXTRAS)/Gen1recomp.sh" \
+                                                     && pass "launcher sources the shared CA-bundle helper" || fail "launcher does not source nx_ca_bundle.sh"
+CA_HELPER="$ROOT/skeleton/SYSTEM/shared/bin/nx_ca_bundle.sh"
+grep -q 'CURL_CA_BUNDLE' "$CA_HELPER" \
+                                                     && pass "CA helper exports CURL_CA_BUNDLE" || fail "CA helper missing CURL_CA_BUNDLE export"
+grep -q '.system/shared/ssl/ca-certificates.crt' "$CA_HELPER" \
+                                                     && pass "CA helper references the system-shipped CA bundle" || fail "CA helper does not reference the system CA bundle"
 # runtime=native contract: extras_games_launch.sh execs the entry directly
 # only when this marker sits in the script's first 20 lines.
 head -20 "$SD/Roms/Xtra Games (EXTRAS)/Gen1recomp.sh" | grep -q '^# NX_RUNTIME: native' \
