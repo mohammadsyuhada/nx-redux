@@ -15,12 +15,27 @@ mkdir -p /tmp/bench.pak
 printf '#!/bin/sh\nexport NX_BENCH=1\nexec "%s/launch.sh" "%s"\n' "$PAK" "$ROM" > /tmp/bench.pak/launch.sh
 chmod +x /tmp/bench.pak/launch.sh
 : > "$L" 2>/dev/null
+# Optional pre-launch hook (e.g. Brick daemon herding: taskset the keymon/audio
+# daemons off the big core before the pak starts). Runs before the pak request.
+[ -n "${BENCH_PRELAUNCH:-}" ] && eval "$BENCH_PRELAUNCH"
 echo /tmp/bench.pak > /tmp/nextui_open
 n=0; while [ -z "$(pidof minarch.elf)" ] && [ $n -lt 150 ]; do sleep 0.2; n=$((n+1)); done
 PID=$(pidof minarch.elf); [ -z "$PID" ] && { echo "[driver] minarch did not start"; exit 3; }
 sleep 5 # minarch has applied its own preset by now
 for cmd in "$@"; do eval "$cmd"; done
 echo "[driver] cfg=$CFG online=$(cat /sys/devices/system/cpu/online) c0=$(cat $C0/scaling_governor 2>/dev/null)/$(cat $C0/scaling_min_freq 2>/dev/null)-$(cat $C0/scaling_max_freq 2>/dev/null) c4=$(cat $C4/scaling_governor 2>/dev/null)/$(cat $C4/scaling_min_freq 2>/dev/null)-$(cat $C4/scaling_max_freq 2>/dev/null)"
+# Thread residency sampler: every 100 ms emit one [thr] line naming each of
+# minarch's tasks and the cpu it is on (comm from task/<tid>/comm, cpu = field 39
+# of task/<tid>/stat). The summary turns these into per-thread residency % and
+# migration counts. Runs alongside the [freq] loop; killed before the exit block.
+( while :; do
+    line="[thr] t=$(cut -d' ' -f1 /proc/uptime)"
+    for t in /proc/$PID/task/*; do
+      tid=${t##*/}; c=$(cat $t/comm 2>/dev/null); cpu=$(awk '{print $39}' $t/stat 2>/dev/null)
+      line="$line $tid:$c:$cpu"
+    done
+    echo "$line"; sleep 0.1
+  done ) & SAMPLER=$!
 n0=$(grep -c '\[bench\]' "$L")
 i=0
 while [ $i -lt $SECS ]; do
@@ -28,6 +43,7 @@ while [ $i -lt $SECS ]; do
   sleep 1; i=$((i+1))
 done
 grep '\[bench\]' "$L" | tail -n +$((n0+1))
+kill $SAMPLER 2>/dev/null # stop the thread sampler before the exit sequence
 # Exit through minarch's own menu: MENU, Down x4 (Continue Save Load Options
 # Quit), A. NEVER SIGTERM the emulator: SDL turns SIGTERM into SDL_QUIT, which
 # the shared input code treats as the OSD power widget's power-off request

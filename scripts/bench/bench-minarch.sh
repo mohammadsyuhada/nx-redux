@@ -15,7 +15,10 @@ for spec in "$@"; do
   args=""; IFS=';' read -ra parts <<< "$cmds"
   for c in "${parts[@]}"; do [ -n "$c" ] && args+=" '$c'"; done
   echo "== $TAG $id"
-  adb -s "$SERIAL" shell "sh /tmp/bench-driver.sh $PLAT $TAG \"$ROM\" $id $SECS $args" | tee "$OUT/$TAG-$id.log" | grep -E '^\[driver\]'
+  # Forward the optional pre-launch hook into the device command when set, so the
+  # driver can eval it before requesting the pak (e.g. Brick daemon herding).
+  pre=""; [ -n "${BENCH_PRELAUNCH:-}" ] && pre="export BENCH_PRELAUNCH='$BENCH_PRELAUNCH'; "
+  adb -s "$SERIAL" shell "${pre}sh /tmp/bench-driver.sh $PLAT $TAG \"$ROM\" $id $SECS $args" | tee "$OUT/$TAG-$id.log" | grep -E '^\[driver\]'
   sleep 5 # let the launcher settle (its own policy re-applies)
 done
 python3 "$HERE/bench-summary.py" "$PLAT" "$TAG"

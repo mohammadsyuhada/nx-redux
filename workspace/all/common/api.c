@@ -265,6 +265,26 @@ FALLBACK_IMPLEMENTATION void PLAT_pinToCores(int core_type) {
 	// no-op
 }
 
+FALLBACK_IMPLEMENTATION void PLAT_pinToCoreSet(int set) {
+	(void)set;
+}
+FALLBACK_IMPLEMENTATION void PLAT_pinOtherThreadsToCoreSet(int set) {
+	(void)set;
+}
+FALLBACK_IMPLEMENTATION void PLAT_pinThreadsByCommToCoreSet(const char* comm_prefix, int set) {
+	(void)comm_prefix;
+	(void)set;
+}
+
+static int helper_thread_core_set = -1; // -1: nothing recorded -> PWR_pinHelperThread is a no-op
+void PWR_setHelperThreadCoreSet(int set_or_minus1) {
+	helper_thread_core_set = set_or_minus1;
+}
+void PWR_pinHelperThread(void) {
+	if (helper_thread_core_set >= 0)
+		PLAT_pinToCoreSet(helper_thread_core_set);
+}
+
 FALLBACK_IMPLEMENTATION void* PLAT_cpu_monitor(void* arg) {
 	return NULL;
 }
@@ -2106,6 +2126,11 @@ void GFX_blitText(TTF_Font* font, const char* str, int leading, SDL_Color color,
 pthread_mutex_t audio_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static void SND_audioCallback(void* userdata, uint8_t* stream, int len) {
+	static bool pinned = false; // the SDL audio thread is minarch's helper: slow set under "big"
+	if (!pinned) {
+		pinned = true;
+		PWR_pinHelperThread();
+	}
 	if (snd.frame_count == 0)
 		return;
 	if (!snd.initialized)
@@ -2762,6 +2787,17 @@ FALLBACK_IMPLEMENTATION void PLAT_setBigCoreOnline(bool online) {
 FALLBACK_IMPLEMENTATION void PLAT_setCPUSpeedRange(int min_khz, int max_khz) {
 	(void)min_khz;
 	(void)max_khz; // no cpufreq on this platform (desktop)
+}
+// tg5040 and desktop: cpu0's cpufreq policy is the only one. tg5050 overrides
+// this to also span the big cluster's policy4 when cpu4 is online.
+FALLBACK_IMPLEMENTATION bool PLAT_getCPUHwRangeKhz(int* min_khz, int* max_khz) {
+	int lo = getInt("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq");
+	int hi = getInt("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq");
+	if (lo <= 0 || hi <= 0) // no cpufreq (desktop)
+		return false;
+	*min_khz = lo;
+	*max_khz = hi;
+	return true;
 }
 
 #include "button_layout.h"

@@ -1197,6 +1197,7 @@ static SDL_Surface* rawCaptureToSurface(unsigned char* pixels, int w, int h, Uin
 	return converted;
 }
 int save_screenshot_thread(void* data) {
+	PWR_pinHelperThread(); // minarch_cpu_affinity=big -> SLOW set (no-op otherwise)
 	SaveImageArgs* args = (SaveImageArgs*)data;
 	SDL_Surface* converted = rawCaptureToSurface(args->pixels, args->w, args->h, SDL_PIXELFORMAT_ARGB8888);
 

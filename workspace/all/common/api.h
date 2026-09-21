@@ -641,6 +641,18 @@ enum {
 };
 #define PWR_pinToCores PLAT_pinToCores
 
+// Thread placement for minarch's per-pak affinity key (ma_cpu_profile.h).
+// FAST = where the emulation thread and the core's own threads run, SLOW =
+// minarch's helpers and the GPU driver's threads. tg5050: FAST = the online
+// big cores (cpu4-7), SLOW = cpu0-1. tg5040 (one cluster): FAST = cpu3 alone,
+// SLOW = cpu0-2 — isolation rather than a cluster split. Desktop: no-op.
+// Unlike PLAT_pinToCores (legacy, untouched, tg5050-only) these exist on both
+// devices, so "none" stays exactly today's behaviour.
+enum {
+	CPU_SET_FAST,
+	CPU_SET_SLOW,
+};
+
 ///////////////////////////////
 
 void PLAT_initPlatform(void); // *actual* platform-specific init
@@ -739,6 +751,13 @@ void PLAT_setCPUSpeedAuto(void);
 // policy0 alone when its launch.sh took cpu4 offline — so a pak's range
 // means the same thing on either topology.
 void PLAT_setCPUSpeedRange(int min_khz, int max_khz);
+// Hardware frequency bounds across every cpufreq policy that has an online CPU
+// (cpuinfo_min_freq / cpuinfo_max_freq): the validation bounds for a pak's
+// minarch_cpu_min/max before PLAT_setCPUSpeedRange writes the range to each
+// policy (the kernel then clamps per cluster). tg5040: cpu0. tg5050: cpu0 and,
+// when online, cpu4 — so a big-core cap is not truncated to the little cluster's
+// 1416 MHz ceiling. Returns false when no cpufreq exists (desktop).
+bool PLAT_getCPUHwRangeKhz(int* min_khz, int* max_khz);
 // Launcher-only topology hook (nextui/cpu_policy.h): false takes the big core
 // offline while the launcher runs, true brings it back for the boot phase.
 // No-op on single-cluster devices (weak fallback in api.c). Pak launch scripts
@@ -746,6 +765,15 @@ void PLAT_setCPUSpeedRange(int min_khz, int max_khz);
 void PLAT_setBigCoreOnline(bool online);
 // note: this affects the calling thread and every thread spawned from it (after)
 void PLAT_pinToCores(int core_type); // CPU_CORE_EFFICIENCY or CPU_CORE_PERFORMANCE
+
+void PLAT_pinToCoreSet(int set);									   // calling thread; inherited by later spawns
+void PLAT_pinOtherThreadsToCoreSet(int set);						   // every thread of this process except the caller
+void PLAT_pinThreadsByCommToCoreSet(const char* comm_prefix, int set); // threads whose comm starts with prefix
+// Helper-thread hook: minarch records the slow set for "big"; helper threads in
+// shared code (prepareFrameThread, SND_audioCallback) and minarch's own helpers
+// call PWR_pinHelperThread() when they start. No-op in every other app.
+void PWR_setHelperThreadCoreSet(int set_or_minus1);
+void PWR_pinHelperThread(void);
 void PLAT_setRumble(int strength);
 void PLAT_captureRecStop(void);
 void PLAT_pokeCapture(void); // republish a frame for the OSD capture daemons when the app is idle

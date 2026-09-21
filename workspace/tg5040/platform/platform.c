@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 // tg5040
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +11,9 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <assert.h>
+#include <sched.h>
+#include <string.h>
+#include <sys/syscall.h>
 
 #include <msettings.h>
 
@@ -378,6 +382,86 @@ void PLAT_setCPUSpeedAuto(void) {
 void PLAT_setCPUSpeedRange(int min_khz, int max_khz) {
 	setGovernor(CPU_AUTO_GOVERNOR);
 	setFreqRange(min_khz, max_khz); // min, then max, then min (see setFreqRange)
+}
+
+// tg5040: FAST = cpu3 alone, SLOW = cpu0-2 (isolation, not a cluster split).
+static void coreSetMask(int set, cpu_set_t* mask) {
+	CPU_ZERO(mask);
+	if (set == CPU_SET_SLOW) {
+		CPU_SET(0, mask);
+		CPU_SET(1, mask);
+		CPU_SET(2, mask);
+		return;
+	}
+	CPU_SET(3, mask);
+}
+static void pinTid(pid_t tid, const cpu_set_t* mask, const char* what) {
+	if (sched_setaffinity(tid, sizeof(cpu_set_t), mask) != 0)
+		LOG_error("pin %s (tid %d) failed: %s\n", what, (int)tid, strerror(errno));
+}
+void PLAT_pinToCoreSet(int set) {
+	cpu_set_t mask;
+	coreSetMask(set, &mask);
+	if (CPU_COUNT(&mask) == 0) {
+		LOG_error("pin self: core set %d has no online CPU\n", set);
+		return;
+	}
+	pinTid(0, &mask, "self"); // tid 0 = calling thread
+}
+// procfs comm is a seq_file: SEEK_END fails, so getFile() returns "". Read it plainly.
+static bool readComm(pid_t tid, char* out, size_t out_size) {
+	char path[64];
+	snprintf(path, sizeof(path), "/proc/self/task/%d/comm", (int)tid);
+	FILE* f = fopen(path, "r");
+	if (!f)
+		return false;
+	bool ok = fgets(out, (int)out_size, f) != NULL;
+	fclose(f);
+	if (!ok) {
+		out[0] = '\0';
+		return false;
+	}
+	out[strcspn(out, "\n")] = '\0';
+	return true;
+}
+// Walk /proc/self/task; `only_prefix` NULL = every thread except the caller.
+static void pinTasks(const char* only_prefix, int set) {
+	cpu_set_t mask;
+	coreSetMask(set, &mask);
+	if (CPU_COUNT(&mask) == 0)
+		return;
+	pid_t self = (pid_t)syscall(SYS_gettid);
+	DIR* d = opendir("/proc/self/task");
+	if (!d)
+		return;
+	int matched = 0;
+	struct dirent* e;
+	while ((e = readdir(d))) {
+		if (e->d_name[0] < '0' || e->d_name[0] > '9')
+			continue;
+		pid_t tid = (pid_t)atoi(e->d_name);
+		if (tid == self)
+			continue;
+		char comm[32] = {0};
+		if (only_prefix) {
+			// A thread can exit between readdir and the open; skip it silently.
+			if (!readComm(tid, comm, sizeof(comm)))
+				continue;
+			if (strncmp(comm, only_prefix, strlen(only_prefix)) != 0)
+				continue;
+		}
+		pinTid(tid, &mask, only_prefix ? comm : "other");
+		matched++;
+	}
+	closedir(d);
+	if (only_prefix)
+		LOG_info("affinity: swept %d thread(s) matching \"%s\" to %s set\n", matched, only_prefix, set == CPU_SET_FAST ? "fast" : "slow");
+}
+void PLAT_pinOtherThreadsToCoreSet(int set) {
+	pinTasks(NULL, set);
+}
+void PLAT_pinThreadsByCommToCoreSet(const char* comm_prefix, int set) {
+	pinTasks(comm_prefix, set);
 }
 
 #define MAX_STRENGTH 0xFFFF

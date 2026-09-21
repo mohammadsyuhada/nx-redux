@@ -12,6 +12,8 @@
 #include <errno.h>
 #include <assert.h>
 #include <sched.h>
+#include <string.h>
+#include <sys/syscall.h>
 
 #include <msettings.h>
 
@@ -314,6 +316,90 @@ void PLAT_pinToCores(int core_type) {
 		LOG_error("Failed to pin: Are all cores sleeping?\n");
 }
 
+// tg5050: FAST = online big cores (cpu4-7), SLOW = cpu0-1.
+static void coreSetMask(int set, cpu_set_t* mask) {
+	CPU_ZERO(mask);
+	if (set == CPU_SET_SLOW) {
+		CPU_SET(0, mask);
+		CPU_SET(1, mask);
+		return;
+	}
+	for (int c = 4; c <= 7; c++) {
+		char path[64];
+		snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/online", c);
+		if (getInt(path) == 1)
+			CPU_SET(c, mask);
+	}
+}
+static void pinTid(pid_t tid, const cpu_set_t* mask, const char* what) {
+	if (sched_setaffinity(tid, sizeof(cpu_set_t), mask) != 0)
+		LOG_error("pin %s (tid %d) failed: %s\n", what, (int)tid, strerror(errno));
+}
+void PLAT_pinToCoreSet(int set) {
+	cpu_set_t mask;
+	coreSetMask(set, &mask);
+	if (CPU_COUNT(&mask) == 0) {
+		LOG_error("pin self: core set %d has no online CPU\n", set);
+		return;
+	}
+	pinTid(0, &mask, "self"); // tid 0 = calling thread
+}
+// procfs comm is a seq_file: SEEK_END fails, so getFile() returns "". Read it plainly.
+static bool readComm(pid_t tid, char* out, size_t out_size) {
+	char path[64];
+	snprintf(path, sizeof(path), "/proc/self/task/%d/comm", (int)tid);
+	FILE* f = fopen(path, "r");
+	if (!f)
+		return false;
+	bool ok = fgets(out, (int)out_size, f) != NULL;
+	fclose(f);
+	if (!ok) {
+		out[0] = '\0';
+		return false;
+	}
+	out[strcspn(out, "\n")] = '\0';
+	return true;
+}
+// Walk /proc/self/task; `only_prefix` NULL = every thread except the caller.
+static void pinTasks(const char* only_prefix, int set) {
+	cpu_set_t mask;
+	coreSetMask(set, &mask);
+	if (CPU_COUNT(&mask) == 0)
+		return;
+	pid_t self = (pid_t)syscall(SYS_gettid);
+	DIR* d = opendir("/proc/self/task");
+	if (!d)
+		return;
+	int matched = 0;
+	struct dirent* e;
+	while ((e = readdir(d))) {
+		if (e->d_name[0] < '0' || e->d_name[0] > '9')
+			continue;
+		pid_t tid = (pid_t)atoi(e->d_name);
+		if (tid == self)
+			continue;
+		char comm[32] = {0};
+		if (only_prefix) {
+			// A thread can exit between readdir and the open; skip it silently.
+			if (!readComm(tid, comm, sizeof(comm)))
+				continue;
+			if (strncmp(comm, only_prefix, strlen(only_prefix)) != 0)
+				continue;
+		}
+		pinTid(tid, &mask, only_prefix ? comm : "other");
+		matched++;
+	}
+	closedir(d);
+	if (only_prefix)
+		LOG_info("affinity: swept %d thread(s) matching \"%s\" to %s set\n", matched, only_prefix, set == CPU_SET_FAST ? "fast" : "slow");
+}
+void PLAT_pinOtherThreadsToCoreSet(int set) {
+	pinTasks(NULL, set);
+}
+void PLAT_pinThreadsByCommToCoreSet(const char* comm_prefix, int set) {
+	pinTasks(comm_prefix, set);
+}
+
 void* PLAT_cpu_monitor(void* arg) {
 	double prev_real_time = get_time_sec();
 	double prev_cpu_time = get_process_cpu_time_sec();
@@ -451,6 +537,27 @@ void PLAT_setCPUSpeedAuto(void) {
 
 void PLAT_setCPUSpeedRange(int min_khz, int max_khz) {
 	setAllOnlinePoliciesRange(CPU_AUTO_GOVERNOR, min_khz, max_khz);
+}
+
+// Hardware bounds spanning every online policy (see api.h). cpu0's little
+// cluster always; cpu4's big cluster too when it is up, so a big-core cap
+// isn't truncated to the little cluster's 1416 MHz ceiling.
+bool PLAT_getCPUHwRangeKhz(int* min_khz, int* max_khz) {
+	int lo = getInt("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq");
+	int hi = getInt("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq");
+	if (lo <= 0 || hi <= 0)
+		return false;
+	if (getInt("/sys/devices/system/cpu/cpu4/online") == 1) {
+		int big_lo = getInt("/sys/devices/system/cpu/cpu4/cpufreq/cpuinfo_min_freq");
+		int big_hi = getInt("/sys/devices/system/cpu/cpu4/cpufreq/cpuinfo_max_freq");
+		if (big_lo > 0 && big_lo < lo)
+			lo = big_lo;
+		if (big_hi > hi)
+			hi = big_hi;
+	}
+	*min_khz = lo;
+	*max_khz = hi;
+	return true;
 }
 // The launcher runs on the little cluster (glide ~18 ms for any big-core cap,
 // 2026-09-20), so while it is up the big core is taken offline outright — an

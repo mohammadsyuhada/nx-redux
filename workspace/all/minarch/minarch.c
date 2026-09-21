@@ -25,6 +25,7 @@
 #include "ma_saves.h"
 #include "ma_rewind.h"
 #include "ma_config.h"
+#include "ma_cpu_profile.h"
 #include "ma_shaders.h"
 #include "ma_options.h"
 #include "ma_opts_dump.h"
@@ -291,6 +292,10 @@ int main(int argc, char* argv[]) {
 	Config_readOptions();	 // cores with boot logo option (eg. gb) need to load options early
 	setOverclock(overclock); // why twice?
 
+	// Per-pak thread placement (minarch_cpu_affinity). Must run before Core_init:
+	// pinning the main thread here makes the core's own threads inherit the set.
+	CpuProfile_applyAffinity();
+
 	Core_init();
 
 	// Initialize RetroAchievements after core.init() but before Core_load()
@@ -367,6 +372,18 @@ int main(int argc, char* argv[]) {
 	while (!quit) {
 		GFX_startFrame();
 		Bench_tick(SDL_GetTicks());
+
+		// Late affinity sweep (minarch_cpu_affinity=big): the GPU driver spins up
+		// its mali-* worker threads lazily, so re-pin them ~2 s after the loop's
+		// first iteration. One-shot; no-op for the other modes.
+		static uint32_t loop_start_ms = 0;
+		static bool late_swept = false;
+		if (loop_start_ms == 0)
+			loop_start_ms = SDL_GetTicks();
+		if (!late_swept && SDL_GetTicks() - loop_start_ms > 2000) {
+			late_swept = true;
+			CpuProfile_lateSweep();
+		}
 
 		// Netplay: synchronize inputs BEFORE running the core. If we're still waiting
 		// on the peer this frame, poll input (so menu/quit stay responsive) and skip it.

@@ -876,9 +876,10 @@ void setOverclock(int i) {
 	case 3: {
 		// "Auto" = the pak's measured range (default.cfg minarch_cpu_min/max),
 		// or the full range when the pak ships none — exactly the old behaviour.
-		int hw_min = getInt("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq");
-		int hw_max = getInt("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq");
-		if (hw_min <= 0 || hw_max <= 0) { // no cpufreq (desktop)
+		// The hardware bounds span every online cpufreq policy, so a big-core cap
+		// on tg5050 isn't truncated to the little cluster's ceiling.
+		int hw_min, hw_max;
+		if (!PLAT_getCPUHwRangeKhz(&hw_min, &hw_max)) { // no cpufreq (desktop)
 			PWR_setCPUSpeedAuto();
 			break;
 		}
@@ -1262,6 +1263,8 @@ void Config_readOptionsString(char* cfg) {
 		cpu_profile_min_mhz = atoi(value);
 	if (Config_getValue(cfg, "minarch_cpu_max", value, NULL))
 		cpu_profile_max_mhz = atoi(value);
+	if (Config_getValue(cfg, "minarch_cpu_affinity", value, NULL))
+		cpu_profile_affinity = CpuProfile_parseAffinity(value);
 	for (int i = 0; config.core.options[i].key; i++) {
 		Option* option = &config.core.options[i];
 		if (!Config_getValue(cfg, option->key, value, &option->lock))

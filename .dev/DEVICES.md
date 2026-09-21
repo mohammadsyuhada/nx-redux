@@ -117,6 +117,23 @@ Notes:
   exists (full replacement, not an overlay), so on the Brick the FC/SFC/FBN caps
   live in their `default-brick.cfg` and `default-brickpro.cfg` too — a key present
   only in `default.cfg` silently drops on any device that ships an override.
+- **minarch can also pin threads by role** (spec:
+  `docs/superpowers/specs/2026-09-20-minarch-thread-affinity-design.md`):
+  `default.cfg` may carry `minarch_cpu_affinity = none|big|little`. `none` is the
+  default and today's behaviour (including the legacy startup pin). `big` runs the
+  emulation main thread and every core-created thread on the device's **FAST** set
+  and moves minarch's own helpers (frame prep, audio callback, CPU monitor,
+  rewind, achievements sync, screenshot) plus the GPU driver threads to the
+  **SLOW** set; `little` puts the whole process on SLOW. Core sets are per device:
+  **tg5050** FAST = the online big cores cpu4-7 (a pak's `launch.sh` may online
+  cpu5+ when the core uses them), SLOW = cpu0-1; **tg5040** FAST = cpu3, SLOW =
+  cpu0-2 (isolation — the Brick is one homogeneous cluster). Applied before
+  `Core_init`, with a late `mali-` sweep 2 s after the first frame. Built and
+  measured: **PS.pak on tg5050 carries `minarch_cpu_affinity = big`** — its
+  `launch.sh` onlines cpu5 so both big cores serve `pcsxr-drc` and the render +
+  `mali-*` helpers land on cpu0-1, replacing the pak's old `taskset` launch script
+  (`scripts/bench/results/tg5050/AFFINITY.md` 2026-09-21). Every other pak ships
+  off and keeps its cap-only profile.
 
 ## Firmware requirements
 

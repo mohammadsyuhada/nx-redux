@@ -11,6 +11,19 @@ its environment, prints one `[bench]` line per second:
 `khz0`/`khz4` are the current frequency of the cpu0 and cpu4 cpufreq policies
 (0 when the policy is absent — e.g. cpu4 offline on tg5050).
 
+While a config is being measured the driver also emits, every 100 ms, one
+thread-residency line naming each of minarch's tasks and the cpu it is on:
+
+```
+[thr] t=<uptime> <tid>:<comm>:<cpu> <tid>:<comm>:<cpu> ...
+```
+
+`comm` is `/proc/<pid>/task/<tid>/comm`; `<cpu>` is field 39 of
+`.../task/<tid>/stat` (the cpu the thread last ran on). These feed the summary's
+per-thread residency and migration tables (below); they interleave with the
+`[freq]` lines and are teed into the same log. A token with an empty cpu (a
+thread that vanished mid-sample) is ignored by the summary.
+
 ## The three scripts
 
 - **`bench-driver.sh`** (runs on the device, busybox sh) —
@@ -19,9 +32,13 @@ its environment, prints one `[bench]` line per second:
   `/tmp/nextui_open`; the pak dir is a generated `/tmp/bench.pak/launch.sh` that
   exports `NX_BENCH=1` and execs the real `Emus/<TAG>.pak/launch.sh` with the
   ROM). It waits for `minarch.elf`, sleeps 5 s so minarch applies its own
-  preset, runs each sysfs `cmd`, prints a `[driver] cfg=...` line, samples
-  `[freq]` lines for `<seconds>` seconds, then dumps the new `[bench]` lines
-  from the emulator log. It quits the game through minarch's own in-game menu
+  preset, runs each sysfs `cmd`, prints a `[driver] cfg=...` line, starts the
+  100 ms `[thr]` thread sampler, samples `[freq]` lines for `<seconds>` seconds,
+  then dumps the new `[bench]` lines from the emulator log (killing the sampler
+  first). If the env var `BENCH_PRELAUNCH` is set, its value is `eval`ed **before**
+  the pak is requested — the hook for herding background daemons off a cluster
+  before the emulator starts, e.g. `taskset -p 0x3 $(pidof keymon.elf) || true` on
+  the Brick. It quits the game through minarch's own in-game menu
   (MENU, Down x4, A) — **never SIGTERM**, which SDL turns into a power-off — with
   `kill -9` only as a fallback, then removes `/tmp/bench.pak` and prints
   `[driver] done`.
@@ -30,11 +47,18 @@ its environment, prints one `[bench]` line per second:
   `bench-minarch.sh <plat> <serial> <TAG> "<rom path on device>" <config-spec>...`.
   Pushes the driver, runs each config-spec in turn, tees each run to
   `results/<plat>/<TAG>-<id>.log`, then calls the summary. `BENCH_SECS`
-  (default 60) sets the sample window.
+  (default 60) sets the sample window. `BENCH_PRELAUNCH`, when set, is exported
+  into the device command so the driver runs it before requesting the pak.
 
 - **`bench-summary.py`** (runs on the host) —
   `bench-summary.py <plat> <TAG>` reads `results/<plat>/<TAG>-*.log`, prints a
-  markdown pass table and the cheapest passing config.
+  markdown pass table and the cheapest passing config. The pass table carries a
+  `stalls/min` column (count of `[bench]` rows in the analysed window whose worst
+  frame exceeded 60 ms, scaled to a 60 s minute). After it, each run whose log has
+  `[thr]` samples gets a second table — `thread | residency % per cpu | migrations`
+  — with one row per `comm`: the share of that comm's samples spent on each cpu,
+  the number of tids it covers, and the migration count (consecutive-sample cpu
+  changes, summed over its tids). Older logs without `[thr]` samples are skipped.
 
 ## config-spec syntax
 
@@ -87,6 +111,39 @@ scripts/bench/bench-minarch.sh tg5050 7057408880c2c8c239a SFC \
 Set `BENCH_SECS=20` for a quick validation pass; leave it at the default (60)
 for the real sweep. Run the ROM directory paths in double quotes — they contain
 spaces, parentheses, and an apostrophe.
+
+## CPU affinity comparison
+
+The Task 2 `minarch_cpu_affinity = big|little|none` key (in a pak's `default.cfg`)
+pins minarch's emulation/main thread to a cluster. To compare a pak as shipped
+against a `big`-pinned variant, edit the **on-device** pak data (no sysfs `cmd`s —
+the variants are pak data, so both runs use an empty command list) and diff the
+`[thr]` tables:
+
+1. Back up the on-device pak's `default.cfg` and `launch.sh`
+   (`/mnt/SDCARD/.system/paks/Emus/<TAG>.pak/`).
+2. Shipped run — leave the pak untouched and run one config, e.g. `none:`.
+3. `big` run — append `minarch_cpu_affinity = big` to the on-device `default.cfg`
+   and, on tg5050, delete the `echo 0 > .../cpu4/online` line from the on-device
+   `launch.sh` (otherwise the big cluster the key pins to is offline); push both
+   back, then run `big:`.
+4. Restore the backed-up files.
+
+```bash
+BENCH_SECS=20 scripts/bench/bench-minarch.sh tg5050 7057408880c2c8c239a SFC \
+  "/mnt/SDCARD/Roms/Super Nintendo ES (SFC)/Super Mario World 2 - Yoshi's Island.sfc" \
+  none:   # then, after editing the on-device pak, run big:
+```
+
+The `big` run's thread table should show the main thread (`comm minarch.elf`, the
+tid equal to the pid) at ~100 % on the big core (cpu4 on tg5050) with the render
+(`PrepareFrameThr`), audio (`SDLAudioP2`) and `mali-*` helpers on cpu0-1; the
+shipped/`none` run shows every thread on cpu0-1 — but only because the untouched
+pak keeps cpu4 offline, so to compare placement rather than core count delete the
+`cpu4/online` line for the `none` arm too and keep cpu4 online for both, as the
+real sweep did. (Idle threads that were never
+scheduled during a run report whatever cpu they last ran on, so a dormant worker
+pool may show 100 % on a single cpu — read residency for the busy threads.)
 
 ## Pass rule (spec §4.4, fix round 2)
 

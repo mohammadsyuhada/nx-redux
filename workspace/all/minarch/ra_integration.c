@@ -700,6 +700,7 @@ static void ra_event_handler(const rc_client_event_t* event, rc_client_t* client
  * Background journal sync (after online login)
  *****************************************************************************/
 static int ra_sync_thread_fn(void* data) {
+	PWR_pinHelperThread(); // minarch_cpu_affinity=big -> SLOW set (no-op otherwise)
 	(void)data;
 	int synced = RA_OfflineNet_syncAll(CFG_getRAUsername(), CFG_getRAToken(), NULL, NULL);
 	ra_sync_synced = synced;

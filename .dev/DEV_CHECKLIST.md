@@ -11,6 +11,98 @@ Move an entry from there to here once it compiles and needs hardware time.
 
 ---
 
+## minarch thread affinity (built + measured 2026-09-20; Smart Pro S re-swept with the Task 4.5 fix 2026-09-21)
+
+The `minarch_cpu_affinity = none|big|little` key is built and measured (spec
+`docs/superpowers/specs/2026-09-20-minarch-thread-affinity-design.md`). `none`
+(default) is today's behaviour including the legacy startup pin; `big` pins the
+emulation main thread + core-created threads to the **FAST** set and minarch's
+helpers (frame prep, audio callback, CPU monitor, rewind, achievements sync,
+screenshot) + the GPU driver threads to the **SLOW** set; `little` runs the whole
+process on SLOW. Core sets: tg5050 FAST = online cpu4-7 (a pak's `launch.sh` may
+online cpu5+ when the core uses them), SLOW = cpu0-1; tg5040 FAST = cpu3, SLOW =
+cpu0-2 (isolation). The mechanism lives in `ma_cpu_affinity.c` via
+`PLAT_pinToCoreSet` / `PLAT_pinOtherThreadsToCoreSet` /
+`PLAT_pinThreadsByCommToCoreSet` and `PWR_setHelperThreadCoreSet` /
+`PWR_pinHelperThread`, applied before `Core_init` with a late `mali-` sweep 2 s
+after the first frame. Placement is verified on both devices (Smart Pro S `big`:
+main on cpu4, helpers 0-1; Brick `big`: main cpu3, helpers 0-2; PS `pcsxr-drc`
+balanced across cpu4/cpu5 under `big2`, `mali-*` on cpu0-1). The sweep harness gained a `[thr]` 100 ms
+thread sampler (per-thread residency % + inferred migrations), a `stalls/min`
+column, and a `BENCH_PRELAUNCH` hook (used for the Brick daemon herd). Harness
+caveat: field 39 is the last-run cpu, so idle threads misreport — read the busy
+threads.
+
+**Decision table** (from `scripts/bench/results/{tg5040,tg5050}/AFFINITY.md`):
+
+| core | device | none | big | big2 / herd | decision |
+|---|---|---|---|---|---|
+| PS | Brick (tg5040) | pass @1608 (2000 fails fps-min + stall) | fails 2000 & 1608 (stall) | herd: fails 2000 & 1608 (fps-min) | nothing ships — PS marginal even at base; big/herd beat neither |
+| SFC | Brick (tg5040) | pass @1008 & @1200 | pass @1200, **fail @1008** (drops 183 > 118) | herd: pass @1200, fail @1008 | nothing ships — big's cheapest pass (1200) > none's (1008) |
+| FBN | Brick (tg5040) | pass @1008 & @1200 | pass @1008 & @1200 | herd: pass @1008 & @1200 | nothing ships — tie at cheapest cap (1008) |
+| MGBA | Brick (tg5040) | pass @1008 & @1200 | pass @1200, fail @1008 (stall) | herd: pass @1200, fail @1008 | nothing ships — big never cheaper than none |
+| PS | Smart Pro S (tg5050) | pass @1200 (2160/1680 trip the sporadic stall) | pass @2160 & @1200 (drops ~480-580) | **pass @2160 & @1200, drops 283-306 (fewest of any config)** | **SHIPS: `minarch_cpu_affinity = big` + cpu5 (replaces the taskset script)** — big2 ≥ script (283-306 vs 384 drops, worst 47.7 vs 65.2, 0 vs 1 stall) |
+| SFC | Smart Pro S (tg5050) | pass @936 & @1032 | @1032/@936 trip the sporadic worst-frame (drops lower: 187/522 vs 138/903) | big2@1032 cleanest (drops 84) | nothing ships — topology-A (cap 1032) stands; no robust big win |
+| FBN | Smart Pro S (tg5050) | pass @936 & @1032 | pass @936 & @1032 | big2@1032 cleanest (drops 58) | nothing ships — tie at 936; topology-A (cap 1032) stands |
+| MGBA | Smart Pro S (tg5050) | pass @1032 only (936 fails fps-min 56.6 < 56.7) | **pass @1032 & @936** (936: fps-min 57.3, drops 876 vs none 1612) | big2@1032 cleanest (drops 130) | not adopted: topology-A 1032 passes; big's edge is over none-on-big, not over the shipped profile; revisit if GBA titles drop in the field |
+
+Brick daemon herding (`BENCH_PRELAUNCH` taskset of keymon/audiomon/etc. onto
+cpu0-1) does **not** ship: stalls/min stayed flat-to-worse (PS 1.0→1.0, SFC@1008
+0.0→1.0, FBN 0.0→0.0, MGBA@1008 1.0→1.0), no ≥50 % reduction. The Smart Pro S was
+re-swept complete on 2026-09-21 with the Task 4.5 fix build; the earlier wedge
+(during the Task-4a PS `big2@1680` exit) did not recur across ~50 min of load.
+
+**Defect fixed alongside (Task 4.5):** `PLAT_getCPUHwRangeKhz` — Auto's bounds
+now span every online cpufreq policy, not cpu0 alone. Commit 12bf8e30 clamped
+Auto's range to cpu0's 1416000 kHz (an effective ~1344 MHz after rounding), so
+on the Smart Pro S every minarch pak that keeps cpu4 online and ships no
+`minarch_cpu_max` runs Auto over the full range and drove the big core at ~1344
+MHz instead of its own 2160 MHz — the whole uncapped, cpu4-online set (PS, 32X,
+SEGACD, GPGX, PCE, SUPA, PUAE, the C64/C128/VIC/PET/PLUS4 line, CPC, MSX,
+A2600/A5200/A7800, COLECO, SG1000, SMS, GG, SGB, FDS, LYNX, NGP/NGPC, PKM, VB,
+PRBOOM, P8), not just PS as an earlier note implied; the PS caps 2160/1680
+collapsing to one effective run was only its most visible symptom. The 8 capped
+paks (GB/GBC/GBA/MD/FC/SFC/MGBA/FBN) offline cpu4 and were unaffected, and
+tg5040 is unaffected (single cluster, weak cpu0-only fallback). The regression
+is present in the committed 12bf8e30; the staged `PLAT_getCPUHwRangeKhz`
+restores the pre-12bf8e30 behaviour. **Device check PASSED (2026-09-21):** with the
+fix build on the Smart Pro S, cpu4 `scaling_max_freq` = 2160000 and `khz4` reached
+1680000 both with a temporary `minarch_cpu_max = 2160` and in the shipped uncapped
+case (pre-fix both were pinned at 1344000). Release gate satisfied.
+
+Open items:
+
+- [x] Smart Pro S re-sweep with the Task 4.5 fix (2026-09-21): SFC/FBN/MGBA `none`
+  vs `big` vs `big2` at 1032/936/792, PS `base`/`script`/`none`/`big`/`big2` at
+  the now-meaningful caps. `affinity: swept N thread(s) matching "mali-"` reported
+  **N = 10** on every `big`/`big2` run of all four cores.
+- [x] Task 4.5 device check on the Smart Pro S — PASSED (cpu4 max 2160000 with cpu4
+  online, capped and uncapped; `khz4` reached 1680000). Release gate satisfied.
+- [x] Restore/verify PS.pak on the Smart Pro S — restored + md5-verified
+  (`default.cfg` 874221a48e987a24f8c9bf7079bc9071, `launch.sh`
+  5f036aa6ee3f55debb982fd9804261f5); SFC/FBN/MGBA paks also restored md5-OK after
+  the re-sweep.
+- [ ] Investigate the wedge during PS exit under `big2` (repro: PS, cpu4+cpu5
+  online, key `big`, menu-quit) — did **not** recur in the 2026-09-21 re-sweep;
+  trigger still unexplained.
+- [ ] Brick sporadic ~75 ms single-frame stall still unexplained (daemon herding
+  did not help — daemon placement is not the cause). The Smart Pro S carries the
+  same class of sporadic ~47-91 ms single-frame stall.
+
+**Ruling (2026-09-21): exactly one pak ships the key — PS.pak on the Smart Pro S
+(tg5050).** Its `default.cfg` now carries `minarch_cpu_affinity = big` and its
+`launch.sh` keeps `echo 1 > cpu5/online` while dropping the old `taskset -c 4,5`
++ `pin_threads` block, because `big2` measured equal-or-better than that script
+(drops 283-306 vs 384, worst 47.7 vs 65.2 ms, 0 vs 1 stall): the key floats
+`pcsxr-drc` across both big cores and sweeps render + `mali-*` onto cpu0-1. PS
+stays full-range (no `minarch_cpu_max`). **MGBA (Smart Pro S) is not adopted:**
+topology-A cap 1032 already passes, and `big`'s only edge is a step lower than
+`none`-on-big — not over the shipped little-cluster profile — so it does not
+earn the extra big core; revisit if GBA titles drop in the field. Everything
+else stands unchanged: the Brick ships no affinity key and no herding; Smart
+Pro S SFC/FBN keep their topology-A cap-1032 profiles. The mechanism is built
+and verified on both devices, off by default on every other pak.
+
 ## minarch per-core CPU profiles (built + measured 2026-09-20)
 
 Per-pak CPU profiles ship as pak data: each measured Emu pak's `default.cfg`

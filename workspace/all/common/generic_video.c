@@ -2304,6 +2304,7 @@ typedef struct {
 static FramePreparation frame_prep = {0};
 
 int prepareFrameThread(void* data) {
+	PWR_pinHelperThread();
 	while (1) {
 		updateEffect();
 

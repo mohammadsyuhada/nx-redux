@@ -460,6 +460,7 @@ int Rewind_init(size_t state_size) {
 }
 
 static void* Rewind_worker_thread(void* arg) {
+	PWR_pinHelperThread(); // minarch_cpu_affinity=big -> SLOW set (no-op otherwise)
 	(void)arg;
 
 	while (1) {
