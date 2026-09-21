@@ -128,10 +128,19 @@ void Core_applyCheats(struct Cheats* cheats) {
 		return;
 
 	core.cheat_reset();
+	// Mirror RetroArch: hand the core only the enabled cheats, numbered with a
+	// running counter rather than their position in the .cht file. PCSX-ReARMed
+	// treats the index as a slot in its freshly cleared list and silently leaves
+	// a cheat disabled when the slots below it are empty (#116). Cores that ignore
+	// the enabled flag would activate anything they are given, so disabled
+	// cheats must not be sent at all. Entries without a code are skipped so a
+	// NULL is never passed to cores that dereference it unchecked.
+	unsigned idx = 0;
 	for (int i = 0; i < cheats->count; i++) {
-		if (cheats->cheats[i].enabled) {
-			core.cheat_set(i, cheats->cheats[i].enabled, cheats->cheats[i].code);
-		}
+		struct Cheat* cheat = &cheats->cheats[i];
+		if (!cheat->enabled || !cheat->code)
+			continue;
+		core.cheat_set(idx++, true, cheat->code);
 	}
 }
 
