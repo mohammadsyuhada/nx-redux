@@ -530,9 +530,10 @@ finish:
 	SDL_WaitThread(screenshotsavethread, NULL);
 	// Last: QuitSettings() munmaps the libmsettings shared memory. It used to run
 	// right after Notification_quit(), while the VIB_thread (stopped only by
-	// VIB_quit() above) was still polling GetRumble() every 17 ms; its next poll
-	// faulted and took the whole process down mid-teardown, in the window where
-	// Core_quit() writes the SRAM file, leaving a 0 KB .srm behind (issue #115).
+	// VIB_quit() above) could still be polling GetRumble() for an active burst;
+	// its next poll faulted and took the whole process down mid-teardown, in the
+	// window where Core_quit() writes the SRAM file, leaving a 0 KB .srm behind
+	// (issue #115).
 	QuitSettings();
 	return EXIT_SUCCESS;
 }

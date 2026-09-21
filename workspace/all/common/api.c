@@ -3551,12 +3551,25 @@ int PAD_longPressedMenu(uint32_t now) {
 }
 
 ///////////////////////////////
+// Rumble runs on its own thread so callers (the core's rumble callback, the
+// launcher's sleep/boot pulses) never block on the sysfs writes behind
+// PLAT_setRumble(). The thread only ticks while there is work: idle (motor off,
+// nothing queued) it blocks on a condition variable and costs no wakeups at
+// all; while a burst is in flight it polls every 17 ms (one 60 fps frame) so
+// the 3-tick defer and the OSD "Motor" master switch keep working as before.
+// The switch lives in libmsettings shared memory and is flipped by another
+// process, so there is no in-process event to wait on for it; polling only
+// while the motor is on is enough, because flipping it while idle needs no
+// reaction anyway.
 static struct VIB_Context {
 	int initialized;
 	pthread_t pt;
-	int queued_strength;
-	int strength;
-} vib = {0};
+	pthread_mutex_t lock;
+	pthread_cond_t wake;
+	int queued_strength; // guarded by lock
+	int quit;			 // guarded by lock
+	int strength;		 // applied value; written by the thread only
+} vib = {.lock = PTHREAD_MUTEX_INITIALIZER, .wake = PTHREAD_COND_INITIALIZER};
 #ifndef MAX_STRENGTH
 #define MAX_STRENGTH 0xFFFF
 #endif
@@ -3581,43 +3594,72 @@ static int VIB_feltStrength(int strength) {
 
 static void* VIB_thread(void* arg) {
 #define DEFER_FRAMES 3
-	static int defer = 0;
+	int defer = 0;
 	while (1) {
-		SDL_Delay(17);
+		pthread_mutex_lock(&vib.lock);
+		// Idle: sleep until VIB_setStrength() or VIB_quit() signals. The first
+		// tick after a wakeup applies the request immediately, so a burst
+		// starts faster than under the old fixed 17 ms poll.
+		while (!vib.quit && vib.queued_strength == 0 && vib.strength == 0) {
+			defer = 0;
+			pthread_cond_wait(&vib.wake, &vib.lock);
+		}
+		int quit = vib.quit;
+		int queued = vib.queued_strength;
+		pthread_mutex_unlock(&vib.lock);
+
+		if (quit) {
+			if (vib.strength) { // never leave the motor running behind us
+				vib.strength = 0;
+				PLAT_setRumble(0);
+			}
+			break;
+		}
+
 		// Master motor switch (OSD "Motor" widget, libmsettings shm): while it
 		// is off nothing reaches the motor, and flipping it mid-rumble stops
 		// the motor on the next tick because the applied value diverges.
-		int wanted = GetRumble() ? VIB_feltStrength(vib.queued_strength) : 0;
+		int wanted = GetRumble() ? VIB_feltStrength(queued) : 0;
 		if (wanted != vib.strength) {
 			if (defer < DEFER_FRAMES && wanted == 0) { // minimize vacillation between 0 and some number (which this motor doesn't like)
 				defer += 1;
-				continue;
+			} else {
+				vib.strength = wanted;
+				defer = 0;
+				PLAT_setRumble(vib.strength);
 			}
-			vib.strength = wanted;
-			defer = 0;
-
-			PLAT_setRumble(vib.strength);
 		}
+		SDL_Delay(17);
 	}
 	return 0;
 }
 void VIB_init(void) {
 	vib.queued_strength = vib.strength = 0;
+	vib.quit = 0;
 	pthread_create(&vib.pt, NULL, &VIB_thread, NULL);
 	vib.initialized = 1;
 }
+// Stops the thread and switches the motor off. Must run before QuitSettings()
+// unmaps the libmsettings shm the thread reads while a burst is active.
 void VIB_quit(void) {
 	if (!vib.initialized)
 		return;
 
-	VIB_setStrength(0);
-	pthread_cancel(vib.pt);
-	pthread_join(vib.pt, NULL);
+	pthread_mutex_lock(&vib.lock);
+	vib.queued_strength = 0;
+	vib.quit = 1;
+	pthread_cond_signal(&vib.wake);
+	pthread_mutex_unlock(&vib.lock);
+	pthread_join(vib.pt, NULL); // at most one 17 ms tick
+	vib.initialized = 0;
 }
 void VIB_setStrength(int strength) {
-	if (vib.queued_strength == strength)
-		return;
-	vib.queued_strength = strength;
+	pthread_mutex_lock(&vib.lock);
+	if (vib.queued_strength != strength) {
+		vib.queued_strength = strength;
+		pthread_cond_signal(&vib.wake);
+	}
+	pthread_mutex_unlock(&vib.lock);
 }
 int VIB_getStrength(void) {
 	return vib.strength;
