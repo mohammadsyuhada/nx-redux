@@ -246,6 +246,39 @@ int RAT_listGames(RAT_Game** out_games) {
 	}
 	closedir(d);
 
+	// Multi-disc games: every disc (and the .m3u, which hashes as disc 1)
+	// resolves to its own hash but the same RA game, and all of them are
+	// cached so minarch can identify any disc offline. Show the game once:
+	// keep the entry whose rom is the .m3u when there is one (its art is the
+	// folder art), otherwise the first seen, carrying over the highest unlock
+	// count (server unlocks are shared through the session cache; only
+	// offline-pending unlocks are hash-specific, and those follow the disc
+	// that was actually played).
+	for (int i = 0; i < count; i++) {
+		for (int j = i + 1; j < count;) {
+			if (games[j].session_game_id != games[i].session_game_id) {
+				j++;
+				continue;
+			}
+			char rom[512];
+			bool j_is_m3u = RA_Offline_getGameRomPath(games[j].hash, rom, sizeof(rom)) &&
+							strlen(rom) > 4 && strcasecmp(rom + strlen(rom) - 4, ".m3u") == 0;
+			RAT_Game* keep = &games[i];
+			RAT_Game* drop = &games[j];
+			if (j_is_m3u) {
+				RAT_Game tmp = games[i];
+				games[i] = games[j];
+				games[j] = tmp;
+			}
+			if (drop->unlocked > keep->unlocked) {
+				keep->unlocked = drop->unlocked;
+				keep->pending = drop->pending;
+			}
+			memmove(&games[j], &games[j + 1], (size_t)(count - j - 1) * sizeof(RAT_Game));
+			count--;
+		}
+	}
+
 	if (count == 0) {
 		free(games);
 		return 0;

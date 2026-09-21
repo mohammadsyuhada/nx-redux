@@ -64,12 +64,50 @@ static bool rat_skip_extension(const char* name) {
 	if (!ext)
 		return true;
 	ext++;
+	// raw/sub are only ever disc tracks (CD-DA / subchannel), never a game
 	static const char* deny[] = {"txt", "dat", "png", "jpg", "jpeg", "bmp", "xml",
-								 "db", "sav", "srm", "st", "cfg", "log", "bak", NULL};
+								 "db", "sav", "srm", "st", "cfg", "log", "bak",
+								 "raw", "sub", NULL};
 	for (int i = 0; deny[i]; i++)
 		if (strcasecmp(ext, deny[i]) == 0)
 			return true;
 	return false;
+}
+
+// true if `name` is a raw disc track (bin/img/raw/sub) that belongs to a
+// cue/gdi/ccd/toc index rather than being a game on its own.
+static bool rat_is_track_file(const char* name) {
+	const char* ext = strrchr(name, '.');
+	if (!ext)
+		return false;
+	ext++;
+	static const char* tracks[] = {"bin", "img", "raw", "sub", NULL};
+	for (int i = 0; tracks[i]; i++)
+		if (strcasecmp(ext, tracks[i]) == 0)
+			return true;
+	return false;
+}
+
+// true if the directory holds a disc index (cue/gdi/ccd/toc); its bin/img/raw/
+// sub siblings are then tracks, not games. One extra O(n) pass per directory.
+static bool rat_dir_has_disc_index(const char* dir) {
+	DIR* d = opendir(dir);
+	if (!d)
+		return false;
+	struct dirent* ent;
+	bool found = false;
+	while ((ent = readdir(d))) {
+		const char* ext = strrchr(ent->d_name, '.');
+		if (!ext)
+			continue;
+		if (!strcasecmp(ext, ".cue") || !strcasecmp(ext, ".gdi") ||
+			!strcasecmp(ext, ".ccd") || !strcasecmp(ext, ".toc")) {
+			found = true;
+			break;
+		}
+	}
+	closedir(d);
+	return found;
 }
 
 static int rat_adjust_cd_console(int console_id, const char* path) {
@@ -91,6 +129,12 @@ static int rat_adjust_cd_console(int console_id, const char* path) {
 		if (ext && !strcasecmp(ext, ".sg"))
 			return RC_CONSOLE_SG1000;
 	}
+	if (console_id == RC_CONSOLE_DREAMCAST && ext &&
+		(!strcasecmp(ext, ".zip") || !strcasecmp(ext, ".7z"))) {
+		// The Dreamcast folder also holds NAOMI/Atomiswave MAME sets; RA hashes
+		// those by their zip name under the "Arcade" console (like FBN).
+		return RC_CONSOLE_ARCADE;
+	}
 	return console_id;
 }
 
@@ -98,6 +142,10 @@ static void rat_scan_dir(const char* dir, int console_id, int depth,
 						 RAT_RomFile* roms, int* count) {
 	if (depth > 2 || *count >= RAT_MAX_ROMS)
 		return;
+	// a cue/gdi/ccd/toc in this directory means its bin/img/raw/sub siblings
+	// are disc tracks, not games — skip them so each one doesn't hash as a
+	// failure (the index file is the game we hash instead)
+	bool has_disc_index = rat_dir_has_disc_index(dir);
 	DIR* d = opendir(dir);
 	if (!d)
 		return;
@@ -112,7 +160,8 @@ static void rat_scan_dir(const char* dir, int console_id, int depth,
 			continue;
 		if (S_ISDIR(st.st_mode)) {
 			rat_scan_dir(path, console_id, depth + 1, roms, count);
-		} else if (!rat_skip_extension(ent->d_name)) {
+		} else if (!rat_skip_extension(ent->d_name) &&
+				   !(has_disc_index && rat_is_track_file(ent->d_name))) {
 			RAT_RomFile* r = &roms[(*count)++];
 			snprintf(r->path, sizeof(r->path), "%s", path);
 			r->console_id = rat_adjust_cd_console(console_id, path);
@@ -302,6 +351,12 @@ static bool rat_download_set_badges(SDL_Surface* screen,
 	return true;
 }
 
+// rc_hash error sink (see RATPrefetch_run): lands in the pak's log next to
+// the "[prefetch] hash failed" line naming the file.
+static void rat_hash_error(const char* message) {
+	fprintf(stderr, "[prefetch] rc_hash: %s\n", message ? message : "(null)");
+}
+
 void RATPrefetch_run(SDL_Surface* screen) {
 	if (!CFG_getRAAuthenticated() || strlen(CFG_getRAToken()) == 0) {
 		rat_pf_message(screen, "Not authenticated",
@@ -323,6 +378,9 @@ void RATPrefetch_run(SDL_Surface* screen) {
 	rc_hash_cdreader_t cdreader;
 	RA_HashCdreader_get(&cdreader);
 	rc_hash_init_custom_cdreader(&cdreader);
+	// rc_hash only reports why a file could not be hashed through this
+	// callback; without it a "failed" in the summary is undiagnosable.
+	rc_hash_init_error_message_callback(rat_hash_error);
 
 	RAT_RomFile* roms = NULL;
 	int total = rat_collect_roms(&roms);
@@ -362,6 +420,8 @@ void RATPrefetch_run(SDL_Surface* screen) {
 
 		char hash[33];
 		if (!rc_hash_generate_from_file(hash, (uint32_t)roms[i].console_id, roms[i].path)) {
+			fprintf(stderr, "[prefetch] hash failed (console %d): %s\n",
+					roms[i].console_id, roms[i].path);
 			failed++;
 			continue;
 		}

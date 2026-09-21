@@ -23,6 +23,9 @@ typedef struct {
 	int pregap_frames;	// Pregap frames
 	int postgap_frames; // Postgap frames
 	int start_frame;	// Starting frame (cumulative)
+	int is_gdrom;		// Track came from GD-ROM metadata
+	int lba_start;		// Absolute disc LBA of the track's first sector (see
+						// chd_first_track_sector)
 } chd_track_info_t;
 
 /*****************************************************************************
@@ -38,10 +41,11 @@ typedef struct {
 	int num_tracks;
 
 	// Current track info
-	int track_start_frame; // First frame of this track in CHD
-	int track_frames;	   // Number of frames in track
-	int track_type;		   // CD_TRACK_* type
-	int track_pregap;	   // Pregap frames for this track
+	int track_start_frame;	  // First frame of this track in CHD
+	uint32_t track_lba_start; // Absolute LBA rcheevos addresses this track by
+	int track_frames;		  // Number of frames in track
+	int track_type;			  // CD_TRACK_* type
+	int track_pregap;		  // Pregap frames for this track
 
 	// Sector format info (determined from track type)
 	int sector_header_size; // Bytes to skip to reach raw data (0, 16, or 24)
@@ -149,6 +153,7 @@ static int parse_chd_tracks(chd_file* chd, chd_track_info_t* tracks, int* num_tr
 			tracks[track_idx].frames = frames;
 			tracks[track_idx].pregap_frames = pregap;
 			tracks[track_idx].postgap_frames = postgap;
+			tracks[track_idx].is_gdrom = is_gdrom;
 
 			// CHD format: 'frames' is the actual data frames, NOT including pregap.
 			// The cumulative frame_offset points to the first frame of this track's allocation.
@@ -158,6 +163,27 @@ static int parse_chd_tracks(chd_file* chd, chd_track_info_t* tracks, int* num_tr
 			int padding = ((frames + 3) & ~3) - frames;
 			cumulative_frames += frames + padding;
 			track_idx++;
+		}
+	}
+
+	// Absolute LBAs. rcheevos addresses sectors by disc LBA: first_track_sector()
+	// must return the track's LBA and read_sector() receives LBAs (ISO9660
+	// directory records hold absolute LBAs, and the Dreamcast hasher follows
+	// them). A CHD stores tracks back to back with no notion of disc position,
+	// so derive it: on a CD the track's frame offset doubles as its LBA (track
+	// 1 sits at 0, which is all the PS1/Sega CD/PC Engine hashers rely on). On
+	// a GD-ROM the high-density area (track 3 onward) always starts at LBA
+	// 45000 regardless of how short the low-density session was, so the
+	// ~44000-sector gap the CHD omits has to be added back or every ISO lookup
+	// in the data track lands outside the image.
+	int gd_base = -1;
+	for (int i = 0; i < track_idx; i++) {
+		if (tracks[i].is_gdrom && i + 1 >= 3) {
+			if (gd_base < 0)
+				gd_base = tracks[i].start_frame;
+			tracks[i].lba_start = 45000 + (tracks[i].start_frame - gd_base);
+		} else {
+			tracks[i].lba_start = tracks[i].start_frame;
 		}
 	}
 
@@ -365,6 +391,7 @@ void* chd_open_track_iterator(const char* path, uint32_t track, const void* iter
 
 	handle->track_num = track_idx + 1; // Convert to 1-based
 	handle->track_start_frame = handle->tracks[track_idx].start_frame;
+	handle->track_lba_start = (uint32_t)handle->tracks[track_idx].lba_start;
 	handle->track_frames = handle->tracks[track_idx].frames;
 	handle->track_type = handle->tracks[track_idx].type;
 	handle->track_pregap = handle->tracks[track_idx].pregap_frames;
@@ -381,16 +408,19 @@ size_t chd_read_sector(void* track_handle, uint32_t sector, void* buffer, size_t
 	if (!handle || !handle->chd)
 		return 0;
 
-	// Convert relative sector number to CHD frame number
-	// rcheevos calls: read_sector(first_track_sector() + offset)
-	// Since first_track_sector() returns 0, sector IS the relative offset
-	// We add track_start_frame to get the CHD frame number
+	// Convert the absolute disc LBA rcheevos hands us into a CHD frame number:
+	// rcheevos reads either first_track_sector() + offset or an absolute LBA
+	// it found in the ISO9660 directory, and both are relative to this
+	// track's lba_start (see parse_chd_tracks), so subtract it and add the
+	// track's frame offset inside the CHD.
 	//
 	// IMPORTANT: CHD allocates frames sequentially including pregap frames.
 	// Even if PGTYPE='V' (virtual/silence), the frames are still allocated.
 	// The FRAMES metadata field is the actual data frames AFTER pregap.
 	// So we must always skip over pregap frames to reach the actual data.
-	uint32_t frame = handle->track_start_frame + sector;
+	if (sector < handle->track_lba_start)
+		return 0; // before this track: not addressable through this handle
+	uint32_t frame = handle->track_start_frame + (sector - handle->track_lba_start);
 
 	// Always skip pregap for data tracks - the pregap frames are allocated
 	// in the CHD regardless of whether they contain real data or silence.
@@ -486,8 +516,8 @@ uint32_t chd_first_track_sector(void* track_handle) {
 	if (!handle)
 		return 0;
 
-	// Return 0 to indicate the track starts at relative sector 0.
-	// The read_sector callback will add track_start_frame to convert
-	// to CHD frame numbers.
-	return 0;
+	// Absolute disc LBA of the track (0 for track 1 of a CD, 45000 for the
+	// first high-density track of a GD-ROM); chd_read_sector expects LBAs
+	// on the same basis. See parse_chd_tracks.
+	return handle->track_lba_start;
 }

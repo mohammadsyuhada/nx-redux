@@ -150,6 +150,10 @@ RA_NetMode RA_Offline_getMode(void) {
 	return mode;
 }
 
+const char* RA_Offline_rootDir(void) {
+	return ra_root[0] ? ra_root : NULL;
+}
+
 const char* RA_Offline_currentGameHash(void) {
 	return ra_current_hash;
 }

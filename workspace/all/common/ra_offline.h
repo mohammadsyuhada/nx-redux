@@ -38,6 +38,10 @@ void RA_Offline_init(const char* root_dir);
 void RA_Offline_setMode(RA_NetMode mode);
 RA_NetMode RA_Offline_getMode(void);
 
+/** The cache root passed to RA_Offline_init(), or NULL before init. Lets the
+ *  network half enumerate cache/games without hard-coding the path. */
+const char* RA_Offline_rootDir(void);
+
 /** true if cache/login.json exists (a login succeeded online at least once) */
 bool RA_Offline_hasLoginCache(void);
 
