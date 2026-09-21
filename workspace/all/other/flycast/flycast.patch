@@ -620,10 +620,18 @@ index 000000000..d3cf4525c
 +// Requests the menu (safe from input handlers).
 +void nx_overlay_request_menu();
 diff --git a/core/oslib/http_client.cpp b/core/oslib/http_client.cpp
-index e4fa6c194..d0910b9d7 100644
+index e4fa6c194..0009ad700 100644
 --- a/core/oslib/http_client.cpp
 +++ b/core/oslib/http_client.cpp
-@@ -244,6 +244,16 @@ static CURL *makeCurlEasy(const std::string& url)
+@@ -221,6 +221,7 @@ void term()
+ 
+ #else
+ #include <curl/curl.h>
++#include <unistd.h>
+ 
+ namespace http {
+ 
+@@ -244,6 +245,34 @@ static CURL *makeCurlEasy(const std::string& url)
  
  	curl_easy_setopt(curl, CURLOPT_COOKIEFILE, "");
  
@@ -632,10 +640,28 @@ index e4fa6c194..d0910b9d7 100644
 +	// HTTPS request unconditionally. SSL_CERT_FILE/CURL_CA_BUNDLE are only
 +	// honored by the curl CLI tool, not by apps linking libcurl directly, so
 +	// give libcurl an explicit CAINFO when either is set in the environment.
-+	if (const char *caBundle = getenv("SSL_CERT_FILE"))
++	// Logged once so the on-device log shows which bundle (if any) is in use
++	// instead of only a generic "No response" from the failing request.
++	static bool caLogged = false;
++	const char *caBundle = getenv("SSL_CERT_FILE");
++	if (caBundle == nullptr || *caBundle == '\0')
++		caBundle = getenv("CURL_CA_BUNDLE");
++	if (caBundle != nullptr && *caBundle != '\0')
++	{
 +		curl_easy_setopt(curl, CURLOPT_CAINFO, caBundle);
-+	else if (const char *caBundle2 = getenv("CURL_CA_BUNDLE"))
-+		curl_easy_setopt(curl, CURLOPT_CAINFO, caBundle2);
++		if (!caLogged)
++		{
++			if (access(caBundle, R_OK) == 0)
++				NOTICE_LOG(NETWORK, "Using CA bundle %s", caBundle);
++			else
++				WARN_LOG(NETWORK, "CA bundle %s is not readable; HTTPS verification will fail", caBundle);
++		}
++	}
++	else if (!caLogged)
++	{
++		NOTICE_LOG(NETWORK, "No CA bundle configured (SSL_CERT_FILE/CURL_CA_BUNDLE unset); using libcurl's default trust store");
++	}
++	caLogged = true;
 +
  	curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
  
