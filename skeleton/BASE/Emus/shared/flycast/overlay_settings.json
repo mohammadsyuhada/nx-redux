@@ -55,13 +55,6 @@
       "ini_section": "achievements",
       "items": [
         {
-          "key": "Enabled",
-          "label": "Achievements",
-          "description": "Requires login via the RetroAchievements app",
-          "type": "bool",
-          "default": false
-        },
-        {
           "key": "HardcoreMode",
           "label": "Hardcore Mode",
           "description": "Disables save states while playing for achievements",

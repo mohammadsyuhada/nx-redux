@@ -62,22 +62,13 @@ export XDG_DATA_HOME="$USERDATA_DIR/data"
 export FLYCAST_BIOS_PATH="$SDCARD_PATH/Bios/DC"
 export LD_LIBRARY_PATH="$PAK_DIR:$EMU_DIR:$SDCARD_PATH/.system/lib:/usr/trimui/lib:$LD_LIBRARY_PATH"
 
-# The firmware ships no CA store (/etc/ssl/certs is empty), so flycast's TLS
-# stack fails every HTTPS request -- including its native RetroAchievements
-# login -- with a generic connection error unless told where to find a CA
-# bundle. NX Redux's own http.c sidesteps this everywhere else by shelling
-# out to curl with -k, but flycast calls libcurl directly with no such
-# escape hatch, so flycast.patch's http_client.cpp hunk reads these two env
-# vars and wires them into CURLOPT_CAINFO explicitly. Same bundle path
-# Gen1recomp.sh/PortMaster's launch.sh already use.
-for _ca in "$SDCARD_PATH/.system/shared/ssl/ca-certificates.crt" \
-    "$SDCARD_PATH/Emus/shared/PortMaster/ssl/certs/ca-certificates.crt"; do
-    if [ -f "$_ca" ]; then
-        export CURL_CA_BUNDLE="$_ca"
-        export SSL_CERT_FILE="$_ca"
-        break
-    fi
-done
+# The firmware ships no CA store, so flycast's TLS stack (its libcurl-based
+# RetroAchievements login and boxart fetches) fails every HTTPS request unless
+# handed a CA bundle. The shared helper resolves the NX Redux bundle and
+# exports CURL_CA_BUNDLE / SSL_CERT_FILE; flycast.patch's http_client.cpp hunk
+# reads them into CURLOPT_CAINFO (libcurl ignores those env vars on its own).
+_nx_ca_helper="$SHARED_SYSTEM_PATH/bin/nx_ca_bundle.sh"
+[ -f "$_nx_ca_helper" ] && . "$_nx_ca_helper"
 
 # BIOS: prefer real BIOS when present, HLE (Reios) otherwise. Never block launch.
 # dc_flash.bin is not required -- flycast auto-creates it when missing
@@ -88,11 +79,17 @@ else
     sed -i 's/^UseReios =.*/UseReios = yes/' "$EMU_CFG"
 fi
 
-# RetroAchievements: sync credentials from the NXRedux RA login (if any).
+# RetroAchievements: pure tool control, same as minarch. The RetroAchievements
+# tool owns whether achievements are on -- its "Enable achievements" setting
+# plus a valid login -- so [achievements] Enabled is rewritten on every launch
+# from the NXRedux RA settings and there is no per-game toggle for it (only
+# HardcoreMode stays user-editable). A stale or absent credential therefore
+# never sits at Enabled = yes with nothing able to authenticate it.
+RA_ENABLE=$(sed -n 's/^raEnable=//p' "$SHARED_USERDATA_PATH/minuisettings.txt" 2>/dev/null)
 RA_USER=$(sed -n 's/^raUsername=//p' "$SHARED_USERDATA_PATH/minuisettings.txt" 2>/dev/null)
 RA_TOKEN=$(sed -n 's/^raToken=//p' "$SHARED_USERDATA_PATH/minuisettings.txt" 2>/dev/null)
-if [ -n "$RA_USER" ] && [ -n "$RA_TOKEN" ]; then
-    sed -i "/^\[achievements\]/,/^\[/{s/^UserName =.*/UserName = $RA_USER/;s/^Token =.*/Token = $RA_TOKEN/;}" "$EMU_CFG"
+if [ "$RA_ENABLE" = "1" ] && [ -n "$RA_USER" ] && [ -n "$RA_TOKEN" ]; then
+    sed -i "/^\[achievements\]/,/^\[/{s/^Enabled =.*/Enabled = yes/;s/^UserName =.*/UserName = $RA_USER/;s/^Token =.*/Token = $RA_TOKEN/;}" "$EMU_CFG"
 else
     sed -i "/^\[achievements\]/,/^\[/{s/^Enabled =.*/Enabled = no/;}" "$EMU_CFG"
 fi
@@ -261,12 +258,16 @@ fi
 # rewriting can never bake per-game values into it. Values are ints/bools
 # and never contain whitespace, so word-splitting GAME_ARGS is safe.
 # A malformed or unreadable file yields no args: the game still launches.
+# achievements:Enabled is dropped on purpose: the RetroAchievements tool owns
+# that key (see the RA block above), and override files written before the
+# per-game toggle was removed may still carry it.
 GAME_ARGS=""
 NX_ROM_BASE="$(nx_rom_base "$ROM")"
 NX_GAME_CFG="$DEVICE_CONFIG_DIR/games/$NX_ROM_BASE.cfg"
 if [ -f "$NX_GAME_CFG" ]; then
     GAME_ARGS=$(awk -F' = ' '
         /^\[.*\]$/ { sec = substr($0, 2, length($0) - 2); next }
+        sec == "achievements" && $1 == "Enabled" { next }
         NF == 2 && sec != "" { printf "-config %s:%s=%s ", sec, $1, $2 }
     ' "$NX_GAME_CFG" 2>/dev/null)
 fi
