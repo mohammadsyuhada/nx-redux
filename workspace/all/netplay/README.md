@@ -68,7 +68,11 @@ the joiner is prompted (`wiz_client_confirm_other_game`) and, on A, sends
 `HELLO 1 <game> client any`; a host that sees `any` skips its name check. On
 hotspot the joiner listens ~2.5 s for the host's discovery broadcast to learn
 the title before connecting (`wiz_client_hotspot_peek`); silence falls back
-to the plain gate. Nothing below the wizard re-checks names or CRCs: gbalink
+to the plain gate. That peek only works because `NET_sendDiscoveryBroadcast`
+sends to the interface's subnet-directed address (10.0.0.255): the hotspot
+host has no default route (wlan0 was cycled for hostapd), so the old limited
+broadcast to 255.255.255.255 failed with ENETUNREACH and never left the host
+— on hotspot the prompt silently never appeared. Nothing below the wizard re-checks names or CRCs: gbalink
 only compares `gpsp_serial` strings, netplay.c/gblink.c compare nothing. An
 old host ignores the token (its fifth HELLO field fails `%d`) and rejects as
 before; an old client never sends it.

@@ -1029,9 +1029,11 @@ int wiz_host_rendezvous(const WizArgs* a, WizSession* s) {
 	if (listen_flags >= 0)
 		fcntl(listen_fd, F_SETFL, listen_flags | O_NONBLOCK);
 
-	// Discovery is how the WiFi client finds us; the hotspot client already
-	// knows the address. A socket we could not create is therefore not fatal in
-	// hotspot mode and only costs the list entry in WiFi mode.
+	// Discovery is how the WiFi client finds us. The hotspot client already
+	// knows the address but still listens for one packet to learn our title
+	// (wiz_client_hotspot_peek); a socket we could not create is therefore not
+	// fatal in hotspot mode — it only costs that peek — and only costs the
+	// list entry in WiFi mode.
 	int udp_fd = NET_createBroadcastSocket();
 	NET_initBroadcastTimer(&broadcast_timer, WIZ_NET_BROADCAST_INTERVAL_US);
 

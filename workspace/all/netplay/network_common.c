@@ -16,8 +16,7 @@
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <net/if.h> // IFF_UP / IFF_LOOPBACK for NET_getLanInfo
-
-#include "defines.h" // IWYU pragma: keep — HAS_RUNTIME_PATHS (desktop) gates the directed broadcast
+#include <errno.h>
 
 // Default TCP configuration
 static const NET_TCPConfig DEFAULT_TCP_CONFIG = {
@@ -33,8 +32,8 @@ static const int SSID_CHARSET_LEN = 32;
 // IP Address Utilities
 //////////////////////////////////////////////////////////////////////////////
 
-// Interface-selection core behind NET_getLocalIP and the desktop arm of
-// NET_sendDiscoveryBroadcast. Skips loopback by FLAG, not name — macOS calls
+// Interface-selection core behind NET_getLocalIP and the directed broadcast
+// in NET_sendDiscoveryBroadcast. Skips loopback by FLAG, not name — macOS calls
 // it lo0, which the old strcmp("lo") let straight through — plus interfaces
 // that are down and the virtual links a desktop host carries (VPN tunnels,
 // VM/container bridges, Apple peer-to-peer). Advertising one of those
@@ -307,25 +306,40 @@ void NET_sendDiscoveryBroadcast(int udp_fd, uint32_t magic, uint32_t protocol_ve
 		strncpy(pkt.link_mode, link_mode, NET_MAX_LINK_MODE - 1);
 	}
 
+	// The subnet-directed broadcast (ip | ~mask) of the interface whose IP the
+	// host advertises (NET_getLanInfo), on every platform. Linux routes the
+	// limited broadcast 255.255.255.255 through the default route and fails
+	// the sendto with ENETUNREACH when there is none — which is exactly the
+	// hotspot host's state: WIFI_direct_startHotspot takes wlan0 down and
+	// re-adds 10.0.0.1/24, leaving only the connected route. Devices used to
+	// keep the limited broadcast, so a hotspot host never advertised at all
+	// and the joiner's title peek (wizard_net.c) heard silence. Desktop had
+	// the opposite failure — a VPN's default route swallowed it. The directed
+	// address rides the connected route and reaches the same peers over the
+	// right link in both cases. The limited broadcast stays as the fallback
+	// for an interface that has no address yet.
 	struct sockaddr_in bcast = {0};
 	bcast.sin_family = AF_INET;
 	bcast.sin_addr.s_addr = INADDR_BROADCAST;
 	bcast.sin_port = htons(discovery_port);
 
-#if defined(HAS_RUNTIME_PATHS)
-	// Desktop: 255.255.255.255 leaves on whichever interface holds the
-	// default route — with a VPN up that is the tunnel, and the LAN never
-	// hears the packet. The subnet-directed address of the interface whose
-	// IP the host advertises reaches the same peers over the right link.
-	// Devices keep the limited broadcast: single radio, and the hotspot path
-	// sends before the AP subnet is even settled.
 	char bcast_ip[16];
 	if (NET_getLanInfo(NULL, 0, bcast_ip, sizeof(bcast_ip)) == 0)
 		inet_pton(AF_INET, bcast_ip, &bcast.sin_addr);
-#endif
 
-	sendto(udp_fd, &pkt, sizeof(pkt), 0,
-		   (struct sockaddr*)&bcast, sizeof(bcast));
+	if (sendto(udp_fd, &pkt, sizeof(pkt), 0,
+			   (struct sockaddr*)&bcast, sizeof(bcast)) < 0) {
+		// Once per process: a dead broadcast is otherwise invisible (the
+		// hotspot case above went unnoticed until a joiner missed its prompt).
+		static bool warned = false;
+		if (!warned) {
+			warned = true;
+			char dst[16];
+			inet_ntop(AF_INET, &bcast.sin_addr, dst, sizeof(dst));
+			fprintf(stderr, "netplay: discovery broadcast to %s:%u failed: %s\n",
+					dst, (unsigned)discovery_port, strerror(errno));
+		}
+	}
 }
 
 int NET_receiveDiscoveryResponses(int udp_fd, uint32_t expected_magic,
