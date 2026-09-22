@@ -11,6 +11,7 @@
 #include <sqlite3.h>
 
 #include "gametimedb.h"
+#include "next_cmd.h"
 
 #define CMD_TO_RUN "/tmp/next"
 #define ROM_NOT_FOUND -1
@@ -344,25 +345,14 @@ int play_activity_transaction_rom_find_by_file_path(const char* rom_path, bool c
 }
 
 bool _get_active_rom_path(char* rom_path_out) {
-	char* ptr;
 	char cmd[STR_MAX];
 	getFile(CMD_TO_RUN, cmd, STR_MAX);
 	trimTrailingNewlines(cmd);
 
-	if (strlen(cmd) == 0) {
-		return false;
-	}
-
-	if ((ptr = strrchr(cmd, '\'')) != NULL) {
-		*ptr = '\0';
-	}
-
-	if ((ptr = strrchr(cmd, '\'')) != NULL) {
-		strncpy(rom_path_out, ptr + 1, STR_MAX - 1);
-		rom_path_out[STR_MAX - 1] = '\0';
-		return true;
-	}
-	return false;
+	// The ROM is the last single-quoted word of the launch command; parse it
+	// like the shell does so an escaped apostrophe ('\'') in the title comes
+	// back as a plain ' instead of truncating the path (see next_cmd.h).
+	return NextCmd_lastWord(cmd, rom_path_out, STR_MAX) == 1;
 }
 
 int __db_get_active_closed_activity(sqlite3* game_log_db) {
