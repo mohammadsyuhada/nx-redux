@@ -60,6 +60,7 @@
 #include <unistd.h>
 
 #include "api.h"
+#include "utils.h"
 #include "defines.h"
 #include "ui_buttonhintbar.h"
 #include "ui_list.h"
@@ -562,7 +563,7 @@ void wiz_sync_serve_stop(void) {
 }
 
 int wiz_sync_serve_start(const char* serve_dir, const char* client_ip) {
-	char cmd[512];
+	char cmd[MAX_PATH * 4 + 128]; // quoted runtime rsync path + options
 	FILE* fp;
 	int wrote;
 
@@ -607,9 +608,13 @@ int wiz_sync_serve_start(const char* serve_dir, const char* client_ip) {
 		return -1;
 	}
 
-	// No data in this command line: both halves are compile-time constants, so
-	// system() here carries none of the risk the pull's argv would.
-	snprintf(cmd, sizeof(cmd), "%s --daemon --config=%s", rsync_bin(), WIZ_RSYNC_CONF);
+	// No user data in this command line, but rsync_bin() is a runtime path on
+	// desktop (inside the .app / AppImage), so quote it against spaces.
+	char bin_q[MAX_PATH * 4];
+	strncpy(bin_q, rsync_bin(), sizeof(bin_q) - 1);
+	bin_q[sizeof(bin_q) - 1] = '\0';
+	escapeSingleQuotes(bin_q, sizeof(bin_q));
+	snprintf(cmd, sizeof(cmd), "'%s' --daemon --config=%s", bin_q, WIZ_RSYNC_CONF);
 	if (system(cmd) != 0) {
 		wiz_sync_serve_stop();
 		wiz_sync_error("Could not start the\nsave server.");

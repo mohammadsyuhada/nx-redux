@@ -4150,7 +4150,14 @@ int PWR_deepSleep(void) {
 	if (exists(suspend_path)) {
 		LOG_info("suspending using platform suspend executable\n");
 
-		int ret = system(suspend_path);
+		// BIN_PATH is a runtime value on desktop; quote it for the shell.
+		char suspend_q[MAX_PATH * 4];
+		strncpy(suspend_q, suspend_path, sizeof(suspend_q) - 1);
+		suspend_q[sizeof(suspend_q) - 1] = '\0';
+		escapeSingleQuotes(suspend_q, sizeof(suspend_q));
+		char suspend_cmd[MAX_PATH * 4 + 4];
+		snprintf(suspend_cmd, sizeof(suspend_cmd), "'%s'", suspend_q);
+		int ret = system(suspend_cmd);
 		if (ret < 0) {
 			LOG_error("failed to launch suspend executable: %d\n", errno);
 			return -1;

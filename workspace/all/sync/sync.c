@@ -54,6 +54,15 @@ static const char* rsync_bin_path(void) {
 	return buf;
 }
 
+// Single-quote a path for a shell command line. Every card-derived path is a
+// runtime value on desktop (the .app location, $HOME/NXRedux), so it can carry
+// spaces or an apostrophe; device paths are fixed and pass through unchanged.
+static const char* shq(const char* path, char* buf, size_t size) {
+	strncpy(buf, path, size - 1);
+	buf[size - 1] = '\0';
+	return escapeSingleQuotes(buf, size);
+}
+
 // Log buffer for terminal-like display
 #define LOG_MAX_LINES 20
 #define LOG_LINE_LEN 128
@@ -458,8 +467,9 @@ static int start_rsync_daemon(void) {
 
 	write_rsync_config();
 
-	char cmd[512];
-	snprintf(cmd, sizeof(cmd), "%s --daemon --config=%s", rsync_bin_path(), RSYNC_CONF_PATH);
+	char cmd[MAX_PATH * 4 + 128];
+	char bin_q[MAX_PATH * 4];
+	snprintf(cmd, sizeof(cmd), "'%s' --daemon --config=%s", shq(rsync_bin_path(), bin_q, sizeof(bin_q)), RSYNC_CONF_PATH);
 	int ret = system(cmd);
 	if (ret != 0)
 		return -1;
@@ -544,7 +554,7 @@ static char* read_line_cr(char* buf, int size, FILE* fp) {
 
 // Run rsync via popen() and capture output line by line into the log buffer
 static int run_rsync_phase(int phase) {
-	char cmd[1024];
+	char cmd[MAX_PATH * 8 + 512]; // two quoted runtime paths + rsync options
 	// --modify-window=1: FAT32 cards keep mtimes at 2-second resolution, so a
 	// received file's timestamp rounds down and would otherwise count as
 	// changed (and be re-sent) on every later run.
@@ -561,30 +571,32 @@ static int run_rsync_phase(int phase) {
 	phase_files_total = 0;
 	phase_files_transferred = 0;
 
+	char bin_q[MAX_PATH * 4];
+	char dir_q[MAX_PATH * 4];
 	switch (phase) {
 	case 1:
-		snprintf(cmd, sizeof(cmd), "%s %s %s %s/ rsync://%s:%d/shared/ 2>&1",
-				 rsync_bin_path(), rsync_opts, shared_excludes, SHARED_DATA_PATH, peer_ip, SYNC_RSYNC_PORT);
+		snprintf(cmd, sizeof(cmd), "'%s' %s %s '%s'/ rsync://%s:%d/shared/ 2>&1",
+				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, shared_excludes, shq(SHARED_DATA_PATH, dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
 		break;
 	case 2:
-		snprintf(cmd, sizeof(cmd), "%s %s %s/ rsync://%s:%d/saves/ 2>&1",
-				 rsync_bin_path(), rsync_opts, saves_path(), peer_ip, SYNC_RSYNC_PORT);
+		snprintf(cmd, sizeof(cmd), "'%s' %s '%s'/ rsync://%s:%d/saves/ 2>&1",
+				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, shq(saves_path(), dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
 		break;
 	case 3:
-		snprintf(cmd, sizeof(cmd), "%s %s %s rsync://%s:%d/shared/ %s/ 2>&1",
-				 rsync_bin_path(), rsync_opts, shared_excludes, peer_ip, SYNC_RSYNC_PORT, SHARED_DATA_PATH);
+		snprintf(cmd, sizeof(cmd), "'%s' %s %s rsync://%s:%d/shared/ '%s'/ 2>&1",
+				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, shared_excludes, peer_ip, SYNC_RSYNC_PORT, shq(SHARED_DATA_PATH, dir_q, sizeof(dir_q)));
 		break;
 	case 4:
-		snprintf(cmd, sizeof(cmd), "%s %s rsync://%s:%d/saves/ %s/ 2>&1",
-				 rsync_bin_path(), rsync_opts, peer_ip, SYNC_RSYNC_PORT, saves_path());
+		snprintf(cmd, sizeof(cmd), "'%s' %s rsync://%s:%d/saves/ '%s'/ 2>&1",
+				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, peer_ip, SYNC_RSYNC_PORT, shq(saves_path(), dir_q, sizeof(dir_q)));
 		break;
 	case 5:
-		snprintf(cmd, sizeof(cmd), "%s %s %s/ rsync://%s:%d/roms/ 2>&1",
-				 rsync_bin_path(), rsync_opts, ROMS_PATH, peer_ip, SYNC_RSYNC_PORT);
+		snprintf(cmd, sizeof(cmd), "'%s' %s '%s'/ rsync://%s:%d/roms/ 2>&1",
+				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, shq(ROMS_PATH, dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
 		break;
 	case 6:
-		snprintf(cmd, sizeof(cmd), "%s %s rsync://%s:%d/roms/ %s/ 2>&1",
-				 rsync_bin_path(), rsync_opts, peer_ip, SYNC_RSYNC_PORT, ROMS_PATH);
+		snprintf(cmd, sizeof(cmd), "'%s' %s rsync://%s:%d/roms/ '%s'/ 2>&1",
+				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, peer_ip, SYNC_RSYNC_PORT, shq(ROMS_PATH, dir_q, sizeof(dir_q)));
 		break;
 	default:
 		return -1;

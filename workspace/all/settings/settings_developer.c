@@ -14,6 +14,7 @@
 #include "settings_developer.h"
 #include "defines.h"
 #include "api.h"
+#include "utils.h"
 #include "config.h"
 #include "ui_loadingoverlay.h"
 #include "ssh_desc.h"
@@ -208,9 +209,17 @@ static void* dotclean_thread(void* arg) {
 	// Build and run a shell command that finds and deletes macOS dot files
 	// Matches: .Spotlight-V100, .apDisk, .fseventsd, .TemporaryItems,
 	//          .Trash, .Trashes, ._*, .DS_Store, *_cache[0-9].db, __MACOSX
-	char cmd[1024];
+	// The card root is a runtime value on desktop ($HOME/NXRedux, or
+	// NXREDUX_SDCARD), so a home folder with a space or apostrophe must be
+	// quoted for the shell like any other user-controlled path.
+	char sd_q[MAX_PATH * 4];
+	strncpy(sd_q, SDCARD_PATH, sizeof(sd_q) - 1);
+	sd_q[sizeof(sd_q) - 1] = '\0';
+	escapeSingleQuotes(sd_q, sizeof(sd_q));
+
+	char cmd[MAX_PATH * 4 + 512];
 	snprintf(cmd, sizeof(cmd),
-			 "cd %s && "
+			 "cd '%s' && "
 			 "{"
 			 " find . -maxdepth 1 \\( -name '.Spotlight-V100' -o -name '.apDisk'"
 			 " -o -name '.fseventsd' -o -name '.TemporaryItems'"
@@ -219,7 +228,7 @@ static void* dotclean_thread(void* arg) {
 			 " -o -name '*_cache[0-9].db' \\);"
 			 " find . -depth -type d -name '__MACOSX';"
 			 "} 2>/dev/null",
-			 SDCARD_PATH);
+			 sd_q);
 
 	FILE* fp = popen(cmd, "r");
 	if (fp) {
@@ -233,11 +242,13 @@ static void* dotclean_thread(void* arg) {
 				continue;
 
 			// Build full path and remove
-			char fullpath[1280];
+			char fullpath[MAX_PATH * 4];
 			snprintf(fullpath, sizeof(fullpath), "%s/%s", SDCARD_PATH, line + 2); // skip "./"
-			// Use rm -rf for both files and directories
-			char rm_cmd[1400];
-			snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf \"%s\"", fullpath);
+			// Use rm -rf for both files and directories. Single-quoted +
+			// escaped: "._Link's Awakening.gb" is a perfectly normal name here.
+			escapeSingleQuotes(fullpath, sizeof(fullpath));
+			char rm_cmd[MAX_PATH * 4 + 16];
+			snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf '%s'", fullpath);
 			system(rm_cmd);
 			dotclean_count++;
 		}
