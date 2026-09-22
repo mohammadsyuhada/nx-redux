@@ -28,5 +28,7 @@ Array* getTools(void);
 
 // Search
 Array* Content_searchRoms(const char* query);
+// Byte length of the rom-label part of an indexed search name (before " (TAG)").
+int Content_romLabelLen(const char* indexed_name);
 
 #endif // CONTENT_H

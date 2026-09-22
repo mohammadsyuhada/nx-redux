@@ -446,6 +446,18 @@ void UI_listViewRender(ListView* v, SDL_Surface* screen) {
 		if (row_sel && !gf.animating) {
 			UI_renderListItemText(screen, &v->marquee, row.label, row_font(v),
 								  text_x, pos.text_y, text_w, true);
+		} else if (row.dim_from > 0 && row.dim_from < (int)strlen(row.label)) {
+			// Dimmed-suffix row (e.g. a search result's "(TAG)", or a duplicate
+			// game-list row): name in the list colour, the disambiguating suffix
+			// (e.g. " (TAG)") dimmed in COLOR_DARK_TEXT, exactly as the game
+			// list draws it (gamelist.c). The marquee branch above stays single
+			// colour: the scroll texture is one surface.
+			char name_part[256];
+			int nlen = row.dim_from < 255 ? row.dim_from : 255;
+			memcpy(name_part, row.label, nlen);
+			name_part[nlen] = '\0';
+			UI_renderListItemTextDimSuffix(screen, name_part, row.label + row.dim_from,
+										   row_font(v), text_x, pos.text_y, text_w, row_sel);
 		} else {
 			UI_renderListItemText(screen, NULL, truncated, row_font(v),
 								  text_x, pos.text_y, text_w, row_sel);

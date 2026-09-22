@@ -33,6 +33,10 @@ static void search_get_row(void* ctx, int i, bool selected, ListViewRow* out) {
 	char* name = entry->name;
 	trimSortingMeta(&name);
 	out->label = name;
+	// the "(TAG)" suffix is secondary information, so it is always drawn
+	// dimmed, in the same colour the game list uses for a duplicate row's
+	// disambiguator.
+	out->dim_from = Content_romLabelLen(name);
 }
 
 void Search_init(void) {

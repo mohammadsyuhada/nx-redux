@@ -16,6 +16,7 @@ typedef struct {
 	SDL_Surface* icon;		// optional; provider picks variant via `selected`
 	const char* annotation; // optional screen-right secondary text, outside the pill
 	const char* badge;		// optional in-pill right-aligned text; reserves pill width
+	int dim_from;			// optional: byte offset into label where a dimmed disambiguating suffix starts (e.g. a duplicate row's tag); 0 = none
 	bool is_header;			// section header row: half-height gray label, not selectable
 } ListViewRow;
 

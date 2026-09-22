@@ -68,69 +68,75 @@ static void getFileStem(const char* path, char* out /* MAX_PATH */) {
 ///////////////////////////////////////
 // Directory indexing
 
+// Parse a map.txt: one "<key>\t<display name>" line per entry, blank lines
+// skipped. Returns NULL if the file cannot be opened (missing or unreadable),
+// else a Hash the caller must Hash_free.
+static Hash* readMapFile(const char* map_path) {
+	FILE* file = fopen(map_path, "r");
+	if (!file)
+		return NULL;
+	Hash* map = Hash_new();
+	char line[MAX_PATH];
+	while (fgets(line, sizeof(line), file) != NULL) {
+		normalizeNewline(line);
+		trimTrailingNewlines(line);
+		if (strlen(line) == 0)
+			continue; // skip empty lines
+
+		char* tmp = strchr(line, '\t');
+		if (tmp) {
+			tmp[0] = '\0';
+			char* key = line;
+			char* value = tmp + 1;
+			Hash_set(map, key, value);
+		}
+	}
+	fclose(file);
+	return map;
+}
+
 static void Directory_index(Directory* self) {
 	int is_collection = prefixMatch(COLLECTIONS_PATH, self->path);
 	int skip_index = exactMatch(FAUX_RECENT_PATH, self->path) || is_collection; // not alphabetized
 
-	Hash* map = NULL;
 	char map_path[MAX_PATH];
 	snprintf(map_path, sizeof(map_path), "%s/map.txt", is_collection ? COLLECTIONS_PATH : self->path);
+	Hash* map = readMapFile(map_path);
 
-	if (exists(map_path)) {
-		FILE* file = fopen(map_path, "r");
-		if (file) {
-			map = Hash_new();
-			char line[MAX_PATH];
-			while (fgets(line, sizeof(line), file) != NULL) {
-				normalizeNewline(line);
-				trimTrailingNewlines(line);
-				if (strlen(line) == 0)
-					continue; // skip empty lines
-
-				char* tmp = strchr(line, '\t');
-				if (tmp) {
-					tmp[0] = '\0';
-					char* key = line;
-					char* value = tmp + 1;
-					Hash_set(map, key, value);
-				}
+	if (map) {
+		bool resort = false;
+		bool filter = false;
+		for (int i = 0; i < self->entries->count; i++) {
+			Entry* entry = self->entries->items[i];
+			char* slash = strrchr(entry->path, '/');
+			if (!slash)
+				continue;
+			char* filename = slash + 1;
+			char* alias = Hash_get(map, filename);
+			if (alias) {
+				free(entry->name);
+				entry->name = strdup(alias);
+				resort = true;
+				if (!filter && hide(entry->name))
+					filter = true;
 			}
-			fclose(file);
+		}
 
-			bool resort = false;
-			bool filter = false;
+		if (filter) {
+			Array* entries = Array_new();
 			for (int i = 0; i < self->entries->count; i++) {
 				Entry* entry = self->entries->items[i];
-				char* slash = strrchr(entry->path, '/');
-				if (!slash)
-					continue;
-				char* filename = slash + 1;
-				char* alias = Hash_get(map, filename);
-				if (alias) {
-					free(entry->name);
-					entry->name = strdup(alias);
-					resort = true;
-					if (!filter && hide(entry->name))
-						filter = true;
+				if (hide(entry->name)) {
+					Entry_free(entry);
+				} else {
+					Array_push(entries, entry);
 				}
 			}
-
-			if (filter) {
-				Array* entries = Array_new();
-				for (int i = 0; i < self->entries->count; i++) {
-					Entry* entry = self->entries->items[i];
-					if (hide(entry->name)) {
-						Entry_free(entry);
-					} else {
-						Array_push(entries, entry);
-					}
-				}
-				Array_free(self->entries);
-				self->entries = entries;
-			}
-			if (resort)
-				EntryArray_sort(self->entries);
+			Array_free(self->entries);
+			self->entries = entries;
 		}
+		if (resort)
+			EntryArray_sort(self->entries);
 	}
 
 	Entry* prior = NULL;
@@ -412,16 +418,23 @@ int isConsoleDir(char* path) {
 
 // The caches persist across boots, so they are only trusted while nothing
 // they were built from has changed: the console dirs under Roms (rom
-// add/remove bumps the dir mtime), Roms/map.txt (console aliases), and the
-// Emus pak roots consulted by hasEmu (pak add/remove). In-app mutations go
-// through Content_invalidateEmulist and don't rely on this check.
+// add/remove bumps the dir mtime), Roms/map.txt (console aliases), each
+// per-console Roms/<Console>/map.txt (rom aliases), and the Emus pak roots
+// consulted by hasEmu (pak add/remove). In-app mutations go through
+// Content_invalidateEmulist and don't rely on this check.
 //
 // Change detection is by EQUALITY of a fingerprint of the source mtimes that
 // is recorded in the cache file, not by "source newer than cache": a source
 // carrying a bogus future mtime (seen in the wild: an Emus dir dated 2098,
 // FAT keeps whatever a copy tool writes) is "newer" forever, which forced a
 // full rescan on every boot and left Search permanently empty. The sum is
-// order-independent so readdir order does not matter.
+// order-independent so readdir order does not matter. The fingerprint is also
+// seeded with a schema tag (CACHE_SCHEMA_TAG) so a change to the index-building
+// logic invalidates stale caches too.
+
+// Bump this whenever the index-building logic changes, so existing caches are
+// rebuilt once after an upgrade without users clearing them.
+#define CACHE_SCHEMA_TAG "romindex-v3"
 static uint64_t fnv1a64(const char* str) {
 	uint64_t h = 0xCBF29CE484222325ULL;
 	for (; *str; str++)
@@ -437,7 +450,7 @@ static void fingerprintMix(uint64_t* fp, const char* path) {
 }
 
 static uint64_t cacheSourcesFingerprint(void) {
-	uint64_t fp = 1;
+	uint64_t fp = fnv1a64(CACHE_SCHEMA_TAG);
 	char roms_map_path[MAX_PATH];
 	snprintf(roms_map_path, sizeof(roms_map_path), "%s/map.txt", ROMS_PATH);
 	char paks_emus_path[MAX_PATH];
@@ -461,13 +474,19 @@ static uint64_t cacheSourcesFingerprint(void) {
 		return 0; // no Roms dir: never matches a recorded fingerprint
 	struct dirent* dp;
 	char path[MAX_PATH];
+	char map_path[MAX_PATH];
 	struct stat st;
 	while ((dp = readdir(dh)) != NULL) {
 		if (hide(dp->d_name))
 			continue;
 		snprintf(path, sizeof(path), "%s/%s", ROMS_PATH, dp->d_name);
-		if (stat(path, &st) == 0 && S_ISDIR(st.st_mode))
+		if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
 			fingerprintMix(&fp, path);
+			// per-console map.txt: appearing, vanishing, or being edited all
+			// change the fingerprint (a missing file is a stable contribution)
+			snprintf(map_path, sizeof(map_path), "%s/map.txt", path);
+			fingerprintMix(&fp, map_path);
+		}
 	}
 	closedir(dh);
 	return fp;
@@ -583,6 +602,16 @@ void Content_invalidateEmulist(void) {
 	unlink(ROMINDEX_CACHE_PATH);
 }
 
+// Byte length of the rom-label part of an indexed name ("Zelda (GBA)" -> 5):
+// the offset of the LAST " (" (the tag suffix always starts there and tags
+// never contain parentheses), or the whole string when there is no " (".
+int Content_romLabelLen(const char* indexed_name) {
+	const char* last = NULL;
+	for (const char* p = strstr(indexed_name, " ("); p; p = strstr(p + 1, " ("))
+		last = p;
+	return last ? (int)(last - indexed_name) : (int)strlen(indexed_name);
+}
+
 Array* Content_searchRoms(const char* query) {
 	Array* all_roms = readRomIndexCache();
 	if (!all_roms) {
@@ -606,14 +635,87 @@ Array* Content_searchRoms(const char* query) {
 	Array* results = Array_new();
 	for (int i = 0; i < all_roms->count; i++) {
 		Entry* entry = all_roms->items[i];
-		if (containsString(entry->name, (char*)query)) {
+		// match the label ("Metal Slug (Arcade)") or the raw filename ("mslug"),
+		// so an aliased rom still surfaces under its on-disk name
+		if (containsString(entry->name, (char*)query) || containsString((char*)baseName(entry->path), (char*)query)) {
 			Array_push(results, entry);
 		} else {
 			Entry_free(entry);
 		}
 	}
 	Array_free(all_roms);
+
 	return results;
+}
+
+// Scan one console folder and push one search-index Entry per rom, each named
+// "<rom label> (<TAG>)". The TAG is the folder's parenthesised emulator tag
+// (getEmuName), or the folder name itself when it has none; it is used instead
+// of the console's display name because it is short (so long console names
+// never truncate) and because sibling folders differ only by their tag, so it
+// disambiguates the same ROM indexed from several cores.
+// Per-console Roms/<Console>/map.txt aliases and folder sort prefixes (e.g.
+// "001)Game Boy (GB)") are resolved here at index time, so Search matches and
+// shows the same names as the folder views. (search.c still calls
+// trimSortingMeta at render; with the prefix already gone that is a harmless
+// no-op.)
+static void indexRomDir(Array* rom_index, const char* dir_path) {
+	DIR* rom_dh = opendir(dir_path);
+	if (!rom_dh)
+		return;
+
+	// the suffix for every rom in this folder: its emulator tag, sort prefix
+	// stripped (getEmuName already returns the folder name when there's no tag)
+	char tag_buf[MAX_PATH];
+	getEmuName(dir_path, tag_buf);
+	char* tag = tag_buf;
+	trimSortingMeta(&tag);
+
+	// per-console aliases: the same map.txt the folder view honours
+	char map_path[MAX_PATH];
+	snprintf(map_path, sizeof(map_path), "%s/map.txt", dir_path);
+	Hash* rom_map = readMapFile(map_path);
+
+	struct dirent* rom_dp;
+	char rom_path[MAX_PATH];
+	while ((rom_dp = readdir(rom_dh)) != NULL) {
+		if (hide(rom_dp->d_name))
+			continue;
+
+		snprintf(rom_path, sizeof(rom_path), "%s/%s", dir_path, rom_dp->d_name);
+
+		// Directory_index keys aliases by the entry's last path component,
+		// which for a folder game is the directory name — so this matches.
+		const char* alias = rom_map ? Hash_get(rom_map, rom_dp->d_name) : NULL;
+		if (alias && hide((char*)alias))
+			continue; // folder view filters hidden aliases; search must too
+
+		if (direntIsDir(dir_path, rom_dp)) {
+			// folder game (e.g. Game/Game.m3u): index the resolved
+			// cue/m3u so multi-disc games are searchable too
+			char resolved[MAX_PATH];
+			if (!dirGameFile(rom_path, resolved))
+				continue;
+			snprintf(rom_path, sizeof(rom_path), "%s", resolved);
+		}
+
+		char display_name[MAX_PATH];
+		char* rom_label;
+		if (alias) {
+			rom_label = (char*)alias;
+		} else {
+			getDisplayName(rom_path, display_name);
+			rom_label = display_name;
+		}
+		trimSortingMeta(&rom_label);
+		char full_display[MAX_PATH];
+		snprintf(full_display, sizeof(full_display), "%s (%s)", rom_label, tag);
+
+		Array_push(rom_index, Entry_newNamed(rom_path, ENTRY_ROM, full_display));
+	}
+	closedir(rom_dh);
+	if (rom_map)
+		Hash_free(rom_map);
 }
 
 static Array* getRoms(void) {
@@ -626,6 +728,9 @@ static Array* getRoms(void) {
 	// scanning so anything that changes mid-scan mismatches on the next read.
 	uint64_t fp = cacheSourcesFingerprint();
 	entries = Array_new();
+	// declared outside the if so it survives an opendir failure; freed after
+	// the ROM-index block below
+	Array* sibling_dirs = Array_new();
 	DIR* dh = opendir(ROMS_PATH);
 	if (dh) {
 		struct dirent* dp;
@@ -651,7 +756,11 @@ static Array* getRoms(void) {
 		for (int i = 0; i < emus->count; i++) {
 			Entry* entry = emus->items[i];
 			if (prev_entry && exactMatch(prev_entry->name, entry->name)) {
-				Entry_free(entry);
+				// siblings that lose the display-name dedupe (e.g. Sega Genesis
+				// (MD) when Sega Genesis (GPGX) survived) are still scanned for
+				// the search index under the survivor's label, mirroring
+				// getEntries' collation
+				Array_push(sibling_dirs, entry);
 				continue;
 			}
 			Array_push(entries, entry);
@@ -663,91 +772,60 @@ static Array* getRoms(void) {
 	// Handle mapping logic
 	char map_path[MAX_PATH];
 	snprintf(map_path, sizeof(map_path), "%s/map.txt", ROMS_PATH);
-	if (entries->count > 0 && exists(map_path)) {
-		FILE* file = fopen(map_path, "r");
-		if (file) {
-			Hash* map = Hash_new();
-			char line[MAX_PATH];
-
-			while (fgets(line, sizeof(line), file)) {
-				normalizeNewline(line);
-				trimTrailingNewlines(line);
-				if (strlen(line) == 0)
-					continue;
-
-				char* tmp = strchr(line, '\t');
-				if (tmp) {
-					*tmp = '\0';
-					char* key = line;
-					char* value = tmp + 1;
-					Hash_set(map, key, value);
-				}
+	Hash* map = entries->count > 0 ? readMapFile(map_path) : NULL;
+	if (map) {
+		bool resort = false;
+		for (int i = 0; i < entries->count; i++) {
+			Entry* entry = entries->items[i];
+			char* slash = strrchr(entry->path, '/');
+			if (!slash)
+				continue;
+			char* filename = slash + 1;
+			char* alias = Hash_get(map, filename);
+			if (alias) {
+				free(entry->name);
+				entry->name = strdup(alias);
+				resort = true;
 			}
-			fclose(file);
-
-			bool resort = false;
-			for (int i = 0; i < entries->count; i++) {
-				Entry* entry = entries->items[i];
-				char* slash = strrchr(entry->path, '/');
-				if (!slash)
-					continue;
-				char* filename = slash + 1;
-				char* alias = Hash_get(map, filename);
-				if (alias) {
-					free(entry->name);
-					entry->name = strdup(alias);
-					resort = true;
-				}
-			}
-			if (resort)
-				EntryArray_sort(entries);
-			Hash_free(map);
 		}
+		if (resort)
+			EntryArray_sort(entries);
+		Hash_free(map);
 	}
 
-	// Build ROM index: scan all console dirs for individual ROMs
+	// Build ROM index: scan every console dir for individual ROMs. indexRomDir
+	// pushes one entry per rom, named "<rom label> (<TAG>)".
 	{
 		Array* rom_index = Array_new();
 		for (int i = 0; i < entries->count; i++) {
 			Entry* console_entry = entries->items[i];
-			char* console_name = console_entry->name;
 
-			DIR* rom_dh = opendir(console_entry->path);
-			if (!rom_dh)
-				continue;
+			indexRomDir(rom_index, console_entry->path);
 
-			struct dirent* rom_dp;
-			char rom_path[MAX_PATH];
-			while ((rom_dp = readdir(rom_dh)) != NULL) {
-				if (hide(rom_dp->d_name))
-					continue;
-
-				snprintf(rom_path, sizeof(rom_path), "%s/%s",
-						 console_entry->path, rom_dp->d_name);
-
-				if (direntIsDir(console_entry->path, rom_dp)) {
-					// folder game (e.g. Game/Game.m3u): index the resolved
-					// cue/m3u so multi-disc games are searchable too
-					char resolved[MAX_PATH];
-					if (!dirGameFile(rom_path, resolved))
-						continue;
-					snprintf(rom_path, sizeof(rom_path), "%s", resolved);
-				}
-
-				char display_name[MAX_PATH];
-				getDisplayName(rom_path, display_name);
-				char full_display[MAX_PATH];
-				snprintf(full_display, sizeof(full_display), "%s (%s)",
-						 display_name, console_name);
-
-				Array_push(rom_index, Entry_newNamed(rom_path, ENTRY_ROM, full_display));
+			// Sibling folders that lost the display-name dedupe belong to this
+			// console in the game list too, so index them under the same label.
+			// This is the same rule the game list uses to merge sibling folders
+			// (getEntries): share the path prefix up to and including the last
+			// '('. Doing it here keeps search and the list agreeing on which
+			// ROMs belong to a console. (A loser folder matches at most one
+			// survivor prefix in practice, so no marking is needed.)
+			char collated[MAX_PATH];
+			strncpy(collated, console_entry->path, MAX_PATH - 1);
+			collated[MAX_PATH - 1] = '\0';
+			char* p = strrchr(collated, '(');
+			if (p)
+				p[1] = '\0';
+			for (int j = 0; j < sibling_dirs->count; j++) {
+				Entry* sib = sibling_dirs->items[j];
+				if (prefixMatch(collated, sib->path))
+					indexRomDir(rom_index, sib->path);
 			}
-			closedir(rom_dh);
 		}
 		EntryArray_sort(rom_index);
 		writeEntryCache(ROMINDEX_CACHE_PATH, rom_index, fp);
 		EntryArray_free(rom_index);
 	}
+	EntryArray_free(sibling_dirs);
 
 	// Write cache for next launch (refused for an empty scan — see writeEntryCache)
 	writeEntryCache(EMULIST_CACHE_PATH, entries, fp);
