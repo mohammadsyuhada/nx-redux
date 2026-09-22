@@ -47,7 +47,8 @@ void Search_quit(void) {
 }
 
 bool Search_open(void) {
-	char* query = UIKeyboard_open("Search");
+	// START opened us, so a START tap on the keyboard closes us again (#112)
+	char* query = UIKeyboard_openEx("Search", KB_START_CANCELS);
 	// the keyboard cleared every GPU layer; if we end up staying on the game
 	// list (cancel / empty query) nothing else re-uploads its background
 	requestBackgroundReupload();
@@ -79,7 +80,6 @@ bool Search_open(void) {
 }
 
 SearchResult Search_handleInput(unsigned long now) {
-	(void)now;
 	SearchResult result = {0};
 	result.screen = SCREEN_SEARCH;
 
@@ -87,7 +87,12 @@ SearchResult Search_handleInput(unsigned long now) {
 
 	int prev_selected = search_view.selected;
 	ListViewAction act = UI_listViewHandleInput(&search_view);
-	if (act.type == LISTVIEW_BACK) {
+	// START toggles search closed again, mirroring SELECT on the game
+	// switcher (#112). A tap, not a raw release: START + volume is the
+	// color-temp combo and that release must not leave search. The tap
+	// that opened search was consumed on the gamelist frame, so it cannot
+	// close search on the same press.
+	if (act.type == LISTVIEW_BACK || PAD_tappedStart(now)) {
 		result.screen = SCREEN_GAMELIST;
 		result.dirty = true;
 		result.folderbgchanged = true;

@@ -173,6 +173,10 @@ static void kb_draw(SDL_Surface* screen, const char* title, const char* input,
 }
 
 char* UIKeyboard_open(const char* prompt) {
+	return UIKeyboard_openEx(prompt, 0);
+}
+
+char* UIKeyboard_openEx(const char* prompt, int flags) {
 	SDL_Surface* screen = GFX_getScreen();
 	if (!screen) {
 		LOG_error("UIKeyboard_open: no screen (GFX_init not called?)\n");
@@ -200,7 +204,11 @@ char* UIKeyboard_open(const char* prompt) {
 
 		const char*(*layout)[KB_COLS] = shift ? kb_upper : kb_lower;
 
-		if (PAD_justPressed(BTN_B)) {
+		// START cancel is a tap (release within 250 ms, no volume key in
+		// between): START + volume is the color-temp combo that PWR_update
+		// below services, and that release must not close the keyboard.
+		if (PAD_justPressed(BTN_B) ||
+			((flags & KB_START_CANCELS) && PAD_tappedStart(SDL_GetTicks()))) {
 			PAD_reset();
 			return NULL;
 		}

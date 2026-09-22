@@ -3972,6 +3972,14 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 
 	if (show_setting)
 		dirty = true; // shm is slow or keymon is catching input on the next frame
+	// Callers that pass no _show_setting (keyboard, confirm dialog) restart
+	// from INDICATOR_NONE every frame, so the hide branch above never runs for
+	// them: on modifier release the published state dropped to NONE without a
+	// repaint and the hint bar kept showing the modifier pairs (e.g. "COLOR
+	// TEMP") until something else dirtied the screen. Any transition of the
+	// published state must repaint.
+	if (pwr.show_setting != show_setting)
+		dirty = true;
 	pwr.show_setting = show_setting;
 	if (_dirty)
 		*_dirty = dirty;
