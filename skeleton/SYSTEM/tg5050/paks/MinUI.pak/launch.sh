@@ -331,7 +331,7 @@ while [ -f $EXEC_PATH ]; do
 		echo schedutil > /sys/devices/system/cpu/cpu4/cpufreq/scaling_governor 2>/dev/null
 		echo 408000 > /sys/devices/system/cpu/cpu4/cpufreq/scaling_min_freq 2>/dev/null
 		echo 408000 > /sys/devices/system/cpu/cpu4/cpufreq/scaling_max_freq 2>/dev/null
-		eval $CMD
+		eval "$CMD"
 		rm -f $NEXT_PATH
 		# Restore CPU state (games/tools may change governor, freq, and cores)
 		echo 0 > /sys/devices/system/cpu/cpu2/online 2>/dev/null

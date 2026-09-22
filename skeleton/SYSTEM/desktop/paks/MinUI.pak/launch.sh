@@ -76,7 +76,7 @@ nx_update_logs_path() {
 	if [ -f $NEXT_PATH ]; then
 		CMD=`cat $NEXT_PATH`
 		nx_update_logs_path
-		eval $CMD
+		eval "$CMD"
 		rm -f $NEXT_PATH
 	fi
 #done
