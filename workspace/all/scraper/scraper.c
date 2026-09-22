@@ -539,7 +539,8 @@ static bool queueAddROM(ROMEntry* rom, SystemEntry* sys, bool force) {
 	snprintf(item->system_path, sizeof(item->system_path), "%s", sys->path);
 	snprintf(item->system_name, sizeof(item->system_name), "%s", sys->name);
 	snprintf(item->out_png, sizeof(item->out_png), "%s", rom->art_png);
-	item->system_id = sys->system_id;
+	// Per ROM, not per system: the MD/GPGX tags cover several Sega systems.
+	item->system_id = ScraperSystems_getIdForRom(sys->tag, rom->path);
 	item->status = SCRAPE_STATUS_IDLE;
 	queue_count++;
 	pthread_mutex_unlock(&queue_mutex);

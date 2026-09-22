@@ -48,7 +48,7 @@ int run_headless_fetch(int argc, char* argv[]) {
 		*nl = '\0';
 	ScraperAPI_setUserCredentials(user, pass);
 
-	int sid = ScraperSystems_getId(tag);
+	int sid = ScraperSystems_getIdForRom(tag, rom);
 	if (sid < 0) {
 		putFile((char*)status, "error");
 		return 1;

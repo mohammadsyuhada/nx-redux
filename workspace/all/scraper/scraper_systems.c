@@ -8,6 +8,15 @@ typedef struct {
 	const char* name;
 } SystemMapping;
 
+// ScreenScraper ids the per-ROM refinement below hands out.
+#define SS_ID_MEGA_DRIVE 1
+#define SS_ID_MASTER_SYSTEM 2
+#define SS_ID_SEGA_CD 20
+#define SS_ID_GAME_GEAR 21
+#define SS_ID_SG1000 109
+#define SS_ID_DREAMCAST 23
+#define SS_ID_ARCADE 75
+
 static const SystemMapping systems[] = {
 	// Nintendo
 	{"NES", 3, "Nintendo Entertainment System"},
@@ -34,6 +43,9 @@ static const SystemMapping systems[] = {
 	{"SMS", 2, "Sega Master System"},
 	{"GG", 21, "Sega Game Gear"},
 	{"MD", 1, "Sega Mega Drive"},
+	// Genesis Plus GX: one tag for every Sega system; ScraperSystems_getIdForRom
+	// refines this Mega Drive base by the ROM's extension (see below).
+	{"GPGX", 1, "Sega Mega Drive"},
 	{"GENESIS", 1, "Sega Genesis"},
 	{"GEN", 1, "Sega Genesis"},
 	{"SMD", 1, "Sega Mega Drive"},
@@ -174,4 +186,46 @@ int ScraperSystems_getId(const char* tag) {
 			return systems[i].id;
 	}
 	return -1;
+}
+
+// Extension of the last path component, or NULL (a dot in a directory name
+// is not an extension).
+static const char* romExtension(const char* rom_path) {
+	const char* base = strrchr(rom_path, '/');
+	base = base ? base + 1 : rom_path;
+	const char* ext = strrchr(base, '.');
+	return (ext && ext != base) ? ext + 1 : NULL;
+}
+
+int ScraperSystems_getIdForRom(const char* tag, const char* rom_path) {
+	int id = ScraperSystems_getId(tag);
+	if (!rom_path)
+		return id;
+	const char* ext = romExtension(rom_path);
+	if (!ext)
+		return id;
+
+	// The Dreamcast folder also holds Naomi/Atomiswave MAME-style zips; those
+	// are arcade sets matched by short zip name, like FBN (ratools_prefetch
+	// hashes them under RA's Arcade console the same way).
+	if (id == SS_ID_DREAMCAST)
+		return (strcasecmp(ext, "zip") == 0 || strcasecmp(ext, "7z") == 0) ? SS_ID_ARCADE : id;
+	if (id != SS_ID_MEGA_DRIVE)
+		return id;
+
+	// MD serves cartridge and Sega CD games, and the GPGX tag (Genesis Plus
+	// GX) serves every Sega system under one tag. ScreenScraper searches per
+	// system, so refine a Mega Drive base by extension the same way minarch's
+	// RetroAchievements code (ra_do_load_game) and Genesis Plus GX itself do.
+	static const char* cd_exts[] = {"cue", "chd", "ccd", "toc", "m3u", "iso", NULL};
+	for (int i = 0; cd_exts[i]; i++)
+		if (strcasecmp(ext, cd_exts[i]) == 0)
+			return SS_ID_SEGA_CD;
+	if (strcasecmp(ext, "sms") == 0)
+		return SS_ID_MASTER_SYSTEM;
+	if (strcasecmp(ext, "gg") == 0)
+		return SS_ID_GAME_GEAR;
+	if (strcasecmp(ext, "sg") == 0)
+		return SS_ID_SG1000;
+	return id;
 }
