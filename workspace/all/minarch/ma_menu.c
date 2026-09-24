@@ -877,11 +877,11 @@ void OptionAchievements_updateDesc(void) {
 		RA_getAchievementSummary(&unlocked, &total);
 		if (total > 0) {
 			snprintf(ach_desc_buffer, sizeof(ach_desc_buffer), "%u / %u unlocked", unlocked, total);
-			options_menu.items[5].desc = ach_desc_buffer;
+			options_menu.items[6].desc = ach_desc_buffer;
 			return;
 		}
 	}
-	options_menu.items[5].desc = NULL;
+	options_menu.items[6].desc = NULL;
 }
 
 // alias must be at least MAX_PATH bytes
