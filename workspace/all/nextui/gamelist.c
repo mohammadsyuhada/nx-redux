@@ -1416,6 +1416,14 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		char* right_pairs[16] = {NULL};
 		int p = 0;
 
+		// game switcher hint at root — SELECT already opens it from anywhere
+		// (see PAD_tappedSelect above); only advertised at root so it doesn't
+		// crowd the folder bar's BACK/NETPLAY/RESUME/OPEN hints
+		if (stack->count == 1) {
+			right_pairs[p++] = "SELECT";
+			right_pairs[p++] = "GAME SWITCHER";
+		}
+
 		// search hint at root (hint only — START still opens search when the
 		// "Show search hint" Appearance setting hides it)
 		if (CFG_getShowSearchHint() && !(show_setting && !GetHDMI()) && !GetHDMI() &&
