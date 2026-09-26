@@ -1,0 +1,365 @@
+18wheelr	18 Wheeler
+18wheelro	18 Wheeler
+18wheelrt	18 Wheeler
+18wheels	18 Wheeler
+18wheelu	18 Wheeler
+airlbios	.
+alienfnt	Alien Front
+alienfnta	Alien Front
+alpilot	Airline Pilots
+alpilotj	Airline Pilots
+anmlbskt	Animal Basket
+anmlbskta	Animal Basket
+anpanman2	Soreike! Anpanman Popcorn Koujou 2
+anpanman2a	Soreike! Anpanman Popcorn Koujou 2
+asndynmt	Asian Dynamite
+asndynmto	Asian Dynamite
+ausfache	Akatsuki Blitzkampf Ausf. Achse
+awbios	.
+azumanga	Azumanga Daioh Puzzle Bobble
+basschal	Sega Bass Fishing Challenge
+basschalo	Sega Bass Fishing Challenge
+bdrdown	Border Down
+beachspi	Beach Spikers
+bingogal	Bingo Galaxy
+bingogals	Bingo Galaxy
+blokpong	Block Pong-Pong
+brickppl	Brick People
+btlracer	Saikyou Saisoku Battle Racer
+capsnk	Capcom vs. SNK Millennium Fight 2000
+capsnka	Capcom vs. SNK Millennium Fight 2000
+capsnkb	Capcom vs. SNK Millennium Fight 2000
+cfield	Chaos Field
+chocomk	Musapey's Choco Marker
+claychal	Sega Clay Challenge
+cleoftp	Cleopatra Fortune Plus
+clubk2k3	Club Kart: European Session
+clubk2kp	Club Kart: European Session
+clubk2kpa	Club Kart: European Session
+clubkcyc	Club Kart for Cycraft
+clubkcyco	Club Kart for Cycraft
+clubkprz	Club Kart Prize
+clubkpzb	Club Kart Prize
+clubkpzbp	Club Kart Prize
+clubkrt	Club Kart: European Session
+clubkrta	Club Kart: European Session
+clubkrtc	Club Kart: European Session
+clubkrto	Club Kart: European Session
+confmiss	Confidential Mission
+crackndj	Crackin' DJ
+crakndj2	Crackin' DJ Part 2
+crzytaxi	Crazy Taxi
+csmash	Cosmic Smash
+csmasho	Cosmic Smash
+cspike	Cannon Spike
+cvs2	Capcom vs. SNK 2 Mark Of The Millennium 2001
+cvs2mf	Capcom vs. SNK 2 Millionaire Fighting 2001
+cvsgd	Capcom vs. SNK Millennium Fight 2000 Pro
+deathcox	Death Crimson OX
+deathcoxj	Death Crimson OX
+deathcoxo	Death Crimson OX
+demofist	Demolish Fist
+derbyo2k	Derby Owners Club 2000 Ver.2
+derbyoc	Derby Owners Club
+derbyoc2	Derby Owners Club II Ver.2.1
+derbyocw	Derby Owners Club World Edition EX
+dinoki25	Dinosaur King - D-Team VS. the Alpha Fortress
+dinoki4	Ancient Ruler Dinosaur King - Wake up! New Power!!
+dinokich	Konglongwang - D-Kids VS Alpha Yaosai
+dinoking	Dinosaur King
+dinokior	Dinosaur King - Operation: Dinosaur Rescue
+dirtypig	Dirty Pigskin Football
+doa2	Dead or Alive 2
+doa2a	Dead or Alive 2
+doa2m	Dead or Alive 2 Millennium
+dolphin	Dolphin Blue
+dragntr	Dragon Treasure
+dragntr2	Dragon Treasure 2
+dragntr3	Dragon Treasure 3
+dragntra	Dragon Treasure
+drbyocwa	Derby Owners Club World Edition
+drbyocwb	Derby Owners Club World Edition
+drbyocwc	Derby Owners Club World Edition
+drbyocwt	Derby Owners Club World Edition
+dybb99	Dynamite Baseball '99
+dybbnao	Dynamite Baseball NAOMI
+dygolf	Virtua Golf
+dygolfp	Virtua Golf
+f355	Ferrari F355 Challenge
+f355bios	.
+f355dlx	.
+f355twin	Ferrari F355 Challenge
+f355twinp	Ferrari F355 Challenge
+f355twn2	Ferrari F355 Challenge 2 - International Course Edition
+fotns	Fist Of The North Star
+ftspeed	Faster Than Speed
+galilfac	Galileo Factory
+ggisuka	Guilty Gear Isuka
+ggram2	Giant Gram: All Japan Pro Wrestling 2
+ggx	Guilty Gear X
+ggx15	Guilty Gear X ver. 1.5
+ggxx	Guilty Gear XX
+ggxxac	Guilty Gear XX Accent Core
+ggxxrl	Guilty Gear XX #Reload
+ggxxrlo	Guilty Gear XX #Reload
+ggxxsla	Guilty Gear XX Slash
+gram2000	Giant Gram 2000
+gundmct	Mobile Suit Gundam: Federation vs. Zeon
+gundmgd	Mobile Suit Gundam: Federation vs. Zeon
+gundmxgd	Mobile Suit Gundam: Federation vs. Zeon DX
+gunsur2	Gun Survivor 2 Biohazard Code: Veronica
+gunsur2j	Gun Survivor 2 Biohazard Code: Veronica
+gwing2	Giga Wing 2
+hmgeo	Heavy Metal: Geomatrix
+hod2bios	.
+hopper	SWP Hopper Board
+hotd2	The House of the Dead 2
+hotd2e	The House of the Dead 2
+hotd2o	The House of the Dead 2
+hotd2p	The House of the Dead 2
+huhimage	Heat Up Hockey Image
+ikaruga	Ikaruga
+illvelo	Illvelo
+inidv3ca	Initial D Arcade Stage 3 Cycraft Edition
+inidv3cy	Initial D Arcade Stage 3 Cycraft Edition
+initd	Initial D Arcade Stage
+initdexp	Initial D Arcade Stage
+initdexpo	Initial D Arcade Stage
+initdo	Initial D Arcade Stage
+initdv2e	Initial D Arcade Stage 2
+initdv2j	Initial D Arcade Stage 2
+initdv2ja	Initial D Arcade Stage 2
+initdv2jo	Initial D Arcade Stage 2
+initdv3e	Initial D Arcade Stage 3
+initdv3j	Initial D Arcade Stage 3
+initdv3jb	Initial D Arcade Stage 3
+inunoos	Inu no Osanpo
+isshoni	Isshoni Wanwan Waiwai Puppy 2008
+jambo	Jambo! Safari
+jingystm	Jingi Storm - The Arcade
+karous	Karous
+keyboard	La Keyboard
+kick4csh	Kick '4' Cash
+kingrt66	The King of Route 66
+kingrt66p	The King of Route 66
+kingyo	Yataimura Kingyosukui
+kingyoch	Yataimura Kingyosukui
+kofnw	The King of Fighters Neowave
+kofnwj	The King of Fighters Neowave
+kofxi	The King of Fighters XI
+kov7sprt	Knights of Valour - The Seven Spirits
+kurucham	Kurukuru Chameleon
+loveber3	Love And Berry - 3rd-5th Collection
+loveber3cn	Love And Berry - 3rd-5th Collection
+lovebero	Love And Berry - 1st-2nd Collection
+lovebery	Love And Berry - 1st-2nd Collection
+lupinsho	Lupin The Third - The Shooting
+lupinshoo	Lupin The Third - The Shooting
+luptype	Lupin The Third - The Typing
+magicpop	Magical Poppins
+mamonoro	Mamoru-kun wa Norowarete Shimatta!
+manicpnc	Manic Panic Ghosts!
+manpuku	Manpuku Suizokukan
+marstv	Kasei Channel Mars TV
+maxspeed	Maximum Speed
+mazan	Mazan: Flash of the Blade
+mazanj	Mazan: Flash of the Blade
+mazanu	Mazan: Flash of the Blade
+mbaa	Melty Blood Actress Again
+mbaao	Melty Blood Actress Again
+meltyb	Melty Blood Act Cadenza
+meltybld	Melty Blood Act Cadenza
+meltyblo	Melty Blood Act Cadenza
+meltybo	Melty Blood Act Cadenza
+mj1	Sega Yonin Uchi Mahjong MJ
+moeru	Moeru Casinyo
+mok	The Maze of the Kings
+monkeyba	Monkey Ball
+monomedal	Monopoly the Medal 2nd Edition
+mslug6	Metal Slug 6
+mushi2eo	Mushiking The King Of Beetles - Mushiking II
+mushi2k3	Mushiking The King Of Beetle
+mushi2k4	Mushiking The King Of Beetles 2004 Second
+mushi2k5	Mushiking The King Of Beetles 2005 First
+mushi2k61	Mushiking The King Of Beetles 2006 First
+mushi2k62	Mushiking The King Of Beetles 2006 Second
+mushik2e	Mushiking The King Of Beetles - Mushiking II
+mushik2k	Mushiking The King Of Beetles - Mushiking II
+mushik4e	Mushiking The King Of Beetles - Mushiking IV
+mushik4t	Mushiking The King Of Beetles - Mushiking IV
+mushikc	Mushiking The King Of Beetle
+mushike	Mushiking The King Of Beetle
+mushikeo	Mushiking The King Of Beetle
+mushikep	Mushiking The King Of Beetle
+mushikk	Mushiking The King Of Beetle
+mvsc2	Marvel vs. Capcom 2 New Age of Heroes
+mvsc2u	Marvel vs. Capcom 2 New Age of Heroes
+naomi	.
+naomi-jp-d	.
+naomi-ko-h	.
+naomi2	.
+naomidev	.
+naomigd	.
+ngbc	NeoGeo Battle Coliseum
+ngbcj	NeoGeo Battle Coliseum
+ninjaslt	Ninja Assault
+ninjaslta	Ninja Assault
+ninjasltj	Ninja Assault
+ninjasltu	Ninja Assault
+ntvmys	Nittere Shiki! Mirai Yosou Studio
+ochaken	Ocha-Ken Hot Medal
+oinori	Oinori-daimyoujin Matsuri
+otrigger	OutTrigger
+pjustic	Project Justice
+pjustica	Project Justice
+pokasuka	Pokasuka Ghost!
+pstone	Power Stone
+pstone2	Power Stone 2
+pstone2b	Power Stone 2
+psyvar2	Psyvariar 2 - The Will To Fabricate
+puyoda	Puyo Puyo Da!
+puyofev	Puyo Pop Fever
+puyofevj	Puyo Puyo Fever
+puyofevp	Puyo Puyo Fever
+puyomedal	Puyo Puyo! The Medal Edition
+qmegamis	Quiz Ah Megamisama
+quizqgd	Quiz Keitai Q mode
+radirgy	Radirgy
+radirgyn	Radirgy Noa
+radirgyo	Radirgy
+rangrmsn	Ranger Mission
+rhytngk	Rhythm Tengoku
+ringout	Ring Out 4x4
+ringouto	Ring Out 4x4
+rumblef	The Rumble Fish
+rumblef2	The Rumble Fish 2
+rumblefp	The Rumble Fish
+rumblf2p	The Rumble Fish 2
+salmankt	Net Select: Salaryman Kintaro
+samba	Samba De Amigo
+samba2k	Samba de Amigo ver. 2000
+sambaa	Samba De Amigo
+sambap	Samba De Amigo
+samsptk	Samurai Shodown VI
+segasp	.
+senko	Senko no Ronde
+senkoo	Senko no Ronde
+senkosp	Senko no Ronde Special
+sfz3ugd	Street Fighter Zero 3 Upper
+sgdrvsim	Sega Driving Simulator
+sgtetris	Sega Tetris
+shaktam	Shakatto Tambourine
+shaktamb	Shakatto Tambourine Cho Powerup Chu
+shaktmsp	Shakatto Tambourine Motto Norinori Shinkyoku Tsuika
+shangril	Dengen Tenshi Taisen Janshi Shangri-la
+shateki	Yataimura Shateki
+shikgam2	Shikigami no Shiro II
+shootopl	Shootout Pool
+shootpl	Shootout Pool Prize
+shootplm	Shootout Pool Prize
+shootplmp	Shootout Pool Prize
+shors2k1	Star Horse 2001
+shors2k2	Star Horse 2002
+shors2k2l	Star Horse 2002
+shors2k2m	Star Horse 2002
+shors2k2s	Star Horse 2002
+shorse	Star Horse
+shorsel	Star Horse
+shorsem	Star Horse
+shorsep	Star Horse Progress
+shorsepb	Star Horse Progress
+shorsepl	Star Horse Progress
+shorsepm	Star Horse Progress
+shorsepr	Star Horse Progress Returns
+shorseps	Star Horse Progress
+sl2007	Shooting Love 2007
+slasho	Slashout
+slashout	Slashout
+smarinef	Sega Marine Fishing
+smlg99	World Series 99
+soulsurf	Soul Surfer
+spawn	Spawn: In the Demon's Hand
+spkrbtl	Spikers Battle
+sprtjam	Sports Jam
+sprtshot	Sports Shooting USA
+ss2005	Super Shanghai 2005
+ss2005o	Super Shanghai 2005
+sstrkfgt	Sega Strike Fighter
+sstrkfgta	Sega Strike Fighter
+starseek	Doki Doki Idol Star Seeker
+suchie3	Idol Janshi Suchie-Pai 3
+sushibar	Sushi Bar
+takoron	Noukone Puzzle Takoron
+tduno	Touch de Uno!
+tduno2	Touch de Uno! 2
+tetgiano	Tetris Giant
+tetgiant	Tetris Giant
+tetkiwam	Tetris Kiwamemichi
+tokyobus	Tokyo Bus Guide
+totd	The Typing of the Dead
+totdo	The Typing of the Dead
+toukon4	Shin Nihon Pro Wrestling Toukon Retsuden 4 Arcade Edition
+toyfight	Toy Fighter
+trgheart	Trigger Heart Exelica
+trghearto	Trigger Heart Exelica
+trizeal	Trizeal
+undefeat	Under Defeat
+unomedal	UNO the Medal
+usagiym	Usagi - Yamashiro Mahjong Hen
+vathlete	Virtua Athletics
+vf4	Virtua Fighter 4
+vf4b	Virtua Fighter 4
+vf4cart	Virtua Fighter 4
+vf4evo	Virtua Fighter 4 Evolution
+vf4evoa	Virtua Fighter 4 Evolution
+vf4evob	Virtua Fighter 4 Evolution
+vf4evoct	Virtua Fighter 4 Evolution
+vf4o	Virtua Fighter 4
+vf4tuned	Virtua Fighter 4 Final Tuned
+vf4tuneda	Virtua Fighter 4 Final Tuned
+vf4tunedd	Virtua Fighter 4 Final Tuned
+vfurlong	Net Select Horse Racing: Victory Furlong
+virnba	Virtua NBA
+virnbao	Virtua NBA
+virnbap	Virtua NBA
+virnbapa	Virtua NBA
+vonot	Virtual-On Oratorio Tangram M.S.B.S. Ver. 5.66
+vs2_2k	Virtua Striker 2 Ver. 2000
+vs2_2ko	Virtua Striker 2 Ver. 2000
+vstrik3	Virtua Striker 3
+vstrik3c	Virtua Striker 3
+vstrik3co	Virtua Striker 3
+vtenis2c	Virtua Tennis 2
+vtennis	Virtua Tennis
+vtennis2	Virtua Tennis 2
+vtennisg	Virtua Tennis
+waidrive	WaiWai Drive
+wccf116	World Club Champion Football Serie A 2001-2002
+wccf1dup	World Club Champion Football Serie A 2001-2002 DIMM FIRM Ver.3.03
+wccf212e	World Club Champion Football Serie A 2002-2003
+wccf234j	World Club Champion Football Serie A 2002-2003
+wccf310j	World Club Champion Football European Clubs 2004-2005
+wccf322e	World Club Champion Football European Clubs 2004-2005
+wccf331e	World Club Champion Football European Clubs 2004-2005 v1.1
+wccf331j	World Club Champion Football European Clubs 2004-2005 v1.1
+wccf341j	World Club Champion Football European Clubs 2004-2005
+wccf400j	World Club Champion Football European Clubs 2005-2006
+wccf420e	World Club Champion Football European Clubs 2005-2006
+westdrmg	Western Dream Gold
+wldkicks	World Kicks
+wldkicksj	World Kicks
+wldkickspj	World Kicks
+wldkickspw	World Kicks
+wldkicksu	World Kicks
+wldrider	Wild Riders
+wrungp	Wave Runner GP
+wrungpo	Wave Runner GP
+wsbbgd	World Series Baseball
+wwfroyal	WWF Royal Rumble
+xtrmhnt2	Extreme Hunting 2
+xtrmhunt	Extreme Hunting
+zerogu2	Zero Gunner 2
+zombrvn	Zombie Revenge
+zombrvne	Zombie Revenge
+zombrvno	Zombie Revenge
+zunou	Touch De Zunou

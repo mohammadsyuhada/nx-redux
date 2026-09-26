@@ -11,6 +11,7 @@
 #include "content.h"
 #include "shortcuts.h"
 #include "config.h"
+#include "arcade_names.h"
 
 static bool _simple_mode = false;
 
@@ -95,6 +96,44 @@ static Hash* readMapFile(const char* map_path) {
 	return map;
 }
 
+// Arcade titles for ROMs with no map.txt alias (see arcade_names.h), keyed by
+// the Roms folder's emulator tag. Each table is loaded on first use and kept
+// for the process lifetime; a tag without a table is cached too, so other
+// consoles cost one failed fopen per boot.
+#define ARCADE_TABLES_MAX 64
+static struct {
+	char tag[MAX_PATH];
+	ArcadeNames* names;
+} arcade_tables[ARCADE_TABLES_MAX];
+static int arcade_table_count = 0;
+
+static const char* arcadeName(const char* rom_path) {
+	if (!prefixMatch(ROMS_PATH "/", (char*)rom_path))
+		return NULL;
+	char tag[MAX_PATH];
+	getEmuName(rom_path, tag);
+
+	ArcadeNames* names = NULL;
+	int i;
+	for (i = 0; i < arcade_table_count; i++) {
+		if (exactMatch(arcade_tables[i].tag, tag)) {
+			names = arcade_tables[i].names;
+			break;
+		}
+	}
+	if (i == arcade_table_count) {
+		char table_path[MAX_PATH];
+		snprintf(table_path, sizeof(table_path), "%s/arcade/%s.txt", RES_PATH, tag);
+		if (arcade_table_count == ARCADE_TABLES_MAX)
+			return NULL; // more emulator tags than any card has; skip rather than evict
+		names = ArcadeNames_load(table_path);
+		snprintf(arcade_tables[arcade_table_count].tag, MAX_PATH, "%s", tag);
+		arcade_tables[arcade_table_count].names = names;
+		arcade_table_count++;
+	}
+	return ArcadeNames_get(names, baseName(rom_path));
+}
+
 static void Directory_index(Directory* self) {
 	int is_collection = prefixMatch(COLLECTIONS_PATH, self->path);
 	int skip_index = exactMatch(FAUX_RECENT_PATH, self->path) || is_collection; // not alphabetized
@@ -102,42 +141,48 @@ static void Directory_index(Directory* self) {
 	char map_path[MAX_PATH];
 	snprintf(map_path, sizeof(map_path), "%s/map.txt", is_collection ? COLLECTIONS_PATH : self->path);
 	Hash* map = readMapFile(map_path);
+	// Recents names come from the alias recorded at launch (a Rename or the
+	// arcade title it showed then); the arcade table must not override that.
+	bool use_arcade = !exactMatch(FAUX_RECENT_PATH, self->path);
 
-	if (map) {
-		bool resort = false;
-		bool filter = false;
+	bool resort = false;
+	bool filter = false;
+	for (int i = 0; i < self->entries->count; i++) {
+		Entry* entry = self->entries->items[i];
+		char* slash = strrchr(entry->path, '/');
+		if (!slash)
+			continue;
+		char* filename = slash + 1;
+		char* alias = map ? Hash_get(map, filename) : NULL;
+		bool from_map = alias != NULL;
+		if (!alias && use_arcade && entry->type == ENTRY_ROM)
+			alias = (char*)arcadeName(entry->path);
+		if (alias) {
+			free(entry->name);
+			entry->name = strdup(alias);
+			// collections keep their file order unless map.txt renames (as before)
+			if (from_map || !is_collection)
+				resort = true;
+			if (!filter && hide(entry->name))
+				filter = true;
+		}
+	}
+
+	if (filter) {
+		Array* entries = Array_new();
 		for (int i = 0; i < self->entries->count; i++) {
 			Entry* entry = self->entries->items[i];
-			char* slash = strrchr(entry->path, '/');
-			if (!slash)
-				continue;
-			char* filename = slash + 1;
-			char* alias = Hash_get(map, filename);
-			if (alias) {
-				free(entry->name);
-				entry->name = strdup(alias);
-				resort = true;
-				if (!filter && hide(entry->name))
-					filter = true;
+			if (hide(entry->name)) {
+				Entry_free(entry);
+			} else {
+				Array_push(entries, entry);
 			}
 		}
-
-		if (filter) {
-			Array* entries = Array_new();
-			for (int i = 0; i < self->entries->count; i++) {
-				Entry* entry = self->entries->items[i];
-				if (hide(entry->name)) {
-					Entry_free(entry);
-				} else {
-					Array_push(entries, entry);
-				}
-			}
-			Array_free(self->entries);
-			self->entries = entries;
-		}
-		if (resort)
-			EntryArray_sort(self->entries);
+		Array_free(self->entries);
+		self->entries = entries;
 	}
+	if (resort)
+		EntryArray_sort(self->entries);
 
 	Entry* prior = NULL;
 	int alpha = -1;
@@ -419,9 +464,10 @@ int isConsoleDir(char* path) {
 // The caches persist across boots, so they are only trusted while nothing
 // they were built from has changed: the console dirs under Roms (rom
 // add/remove bumps the dir mtime), Roms/map.txt (console aliases), each
-// per-console Roms/<Console>/map.txt (rom aliases), and the Emus pak roots
-// consulted by hasEmu (pak add/remove). In-app mutations go through
-// Content_invalidateEmulist and don't rely on this check.
+// per-console Roms/<Console>/map.txt (rom aliases), the Emus pak roots
+// consulted by hasEmu (pak add/remove), and the res/arcade name tables.
+// In-app mutations go through Content_invalidateEmulist and don't rely on
+// this check.
 //
 // Change detection is by EQUALITY of a fingerprint of the source mtimes that
 // is recorded in the cache file, not by "source newer than cache": a source
@@ -434,7 +480,7 @@ int isConsoleDir(char* path) {
 
 // Bump this whenever the index-building logic changes, so existing caches are
 // rebuilt once after an upgrade without users clearing them.
-#define CACHE_SCHEMA_TAG "romindex-v3"
+#define CACHE_SCHEMA_TAG "romindex-v4"
 static uint64_t fnv1a64(const char* str) {
 	uint64_t h = 0xCBF29CE484222325ULL;
 	for (; *str; str++)
@@ -468,6 +514,23 @@ static uint64_t cacheSourcesFingerprint(void) {
 	};
 	for (size_t i = 0; i < sizeof(source_paths) / sizeof(source_paths[0]); i++)
 		fingerprintMix(&fp, source_paths[i]);
+
+	// arcade name tables: an update that replaces one changes its mtime but
+	// not the directory's, so mix each file
+	char arcade_path[MAX_PATH];
+	snprintf(arcade_path, sizeof(arcade_path), "%s/arcade", RES_PATH);
+	DIR* arcade_dh = opendir(arcade_path);
+	if (arcade_dh) {
+		struct dirent* adp;
+		char table_path[MAX_PATH];
+		while ((adp = readdir(arcade_dh)) != NULL) {
+			if (hide(adp->d_name))
+				continue;
+			snprintf(table_path, sizeof(table_path), "%s/%s", arcade_path, adp->d_name);
+			fingerprintMix(&fp, table_path);
+		}
+		closedir(arcade_dh);
+	}
 
 	DIR* dh = opendir(ROMS_PATH);
 	if (!dh)
@@ -687,6 +750,8 @@ static void indexRomDir(Array* rom_index, const char* dir_path) {
 		// Directory_index keys aliases by the entry's last path component,
 		// which for a folder game is the directory name — so this matches.
 		const char* alias = rom_map ? Hash_get(rom_map, rom_dp->d_name) : NULL;
+		if (!alias)
+			alias = arcadeName(rom_path); // same fallback as Directory_index
 		if (alias && hide((char*)alias))
 			continue; // folder view filters hidden aliases; search must too
 
