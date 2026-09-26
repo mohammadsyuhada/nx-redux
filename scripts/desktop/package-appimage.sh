@@ -108,7 +108,7 @@ cp workspace/all/gametimectl/build/$SUBDIR/gametimectl.elf "$APPDIR/usr/system/b
 cp scripts/desktop/entry-common.sh "$APPDIR/usr/"
 install -m 0755 scripts/desktop/AppRun.sh "$APPDIR/AppRun"
 cp scripts/desktop/nxredux.desktop "$APPDIR/"
-convert skeleton/SYSTEM/res/logo.png -resize 256x256 "$APPDIR/nxredux.png"
+convert scripts/desktop/nxredux-icon.png -resize 256x256 "$APPDIR/nxredux.png"
 
 # 3. shared-lib closure. First our own in-tree libs -- libmsettings.so,
 # libchdr.so.0, libgametimedb.so are linked with a bare (path-less) name and

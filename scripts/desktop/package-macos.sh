@@ -144,8 +144,8 @@ install -m 0755 "$ROOT/scripts/desktop/macos-entry.sh" "$APP/Contents/MacOS/NXRe
 sed -e "s/@VERSION@/$TAG/" -e "s/@HASH@/$HASH/" \
 	"$ROOT/scripts/desktop/Info.plist.in" > "$APP/Contents/Info.plist"
 
-# icon: 1024px logo -> icns (stock tools only)
-ICONSRC="$ROOT/skeleton/SYSTEM/res/logo.png"
+# icon: 1024px app icon -> icns (stock tools only)
+ICONSRC="$ROOT/scripts/desktop/nxredux-icon.png"
 ICONSET="$STAGE/icon.iconset"; mkdir -p "$ICONSET"
 for s in 16 32 64 128 256 512; do
 	sips -z $s $s "$ICONSRC" --out "$ICONSET/icon_${s}x${s}.png" >/dev/null

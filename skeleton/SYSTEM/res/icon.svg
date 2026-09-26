@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="120" fill="#1F1F1F"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="13.6" stroke-linejoin="round" stroke-linecap="round">
+    <!-- left outline: outer bar, top-left diagonal to the right inner bar, back down to the bottom-left -->
+    <path d="M110.3 115.7 H147.7 L356.8 328.2 V183.8 L147.7 396.3 H110.3 Z"/>
+    <!-- right outline (mirror) -->
+    <path d="M401.7 115.7 H364.3 L155.2 328.2 V183.8 L364.3 396.3 H401.7 Z"/>
+  </g>
+</svg>
