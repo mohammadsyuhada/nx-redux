@@ -1176,9 +1176,8 @@ pak trees — `skeleton/SYSTEM/tg5040/paks/Emus/DC.pak/SDL_Xbox 360 Controller.c
 and `skeleton/SYSTEM/tg5050/paks/Emus/DC.pak/SDL_Xbox 360 Controller.cfg`
 (byte-identical; kept per-platform because everything else in each pak
 directory is per-platform too) — and `launch.sh`'s `nx_flycast_mapping()`
-installs the current Button-layout variant (this shipped Nintendo file, or an
-Xbox version generated from it by swapping the `[digital]` face binds)
-**unconditionally on every launch**, for both this Dreamcast mapping and the
+installs it **unconditionally on every launch**, whatever the Button layout
+setting, for both this Dreamcast mapping and the
 `SDL_Xbox 360 Controller_arcade.cfg` sibling flycast clones once for
 NAOMI/Atomiswave titles and then keeps forever. Nothing in NX Redux can edit
 these files — flycast's own Controls UI is unreachable (`EMU_BTN_MENU` is
@@ -1193,10 +1192,13 @@ matches exactly what `GamepadDevice::save_mapping()` would itself write
 (`make_mapping_filename()` = `api_name() + "_" + name()`).
 
 **Curation:**
-- **Face buttons are label-accurate, not positional** — the physical pad's
-  A/B and X/Y pairs are swapped relative to flycast's own positional default,
-  per user preference, so the label printed on the physical button matches
-  the DC input it triggers rather than matching physical slot position.
+- **Face buttons are positional** — bottom → DC A, right → DC B, left → DC X,
+  top → DC Y, matching the Dreamcast pad (and libretro flycast). The earlier
+  label-accurate binds (printed A → DC A) rotated every face button a slot
+  away from where DC games expect it, which broke face-button camera controls
+  (issue #121). flycast reads the pad directly, so the Button layout
+  setting's A/B, X/Y swap never reaches it and positional binds are right
+  under either layout; only the overlay's confirm/back follow the setting.
 - D-pad → DC d-pad, left stick → DC analog stick, L2/R2 axes → DC analog
   triggers — straightforward, no surprises.
 - **L1/R1 → `btn_z`/`btn_c`** — a deliberate deviation from the task brief's

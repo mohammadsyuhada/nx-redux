@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Host tests for the shell side of "Button layout": the sourced helper
 # (skeleton/SYSTEM/<plat>/bin/nx_button_layout.sh), the mupen64plus config
-# transform in N64.pak/nx_paths.sh and the flycast mapping selection in
+# transform in N64.pak/nx_paths.sh and the flycast mapping install in
 # DC.pak/launch.sh. A fake nextval.elf on PATH stands in for the settings
 # reader. Busybox-compatible constructs only in the scripts under test.
 set -euo pipefail
@@ -103,10 +103,11 @@ sh -c "$N64_FAIL_BLOCK" 2>/dev/null   # awk's expected open failure is the point
 # Both mapping files under $DEVICE_CONFIG_DIR/flycast/mappings/ are entirely
 # ours: nothing in NX Redux can edit them (flycast's own controls page is
 # unreachable -- EMU_BTN_MENU opens the NX overlay). So the launch script
-# installs the current layout's variant unconditionally on every launch, for
-# BOTH the Dreamcast mapping AND the "<name>_arcade.cfg" sibling flycast
-# clones once for NAOMI/Atomiswave titles and then keeps forever -- no file
-# is ever left alone. Extract nx_flycast_mapping() from each launch.sh and run it.
+# installs the shipped pak file unconditionally on every launch, for BOTH the
+# Dreamcast mapping AND the "<name>_arcade.cfg" sibling flycast clones once
+# for NAOMI/Atomiswave titles and then keeps forever -- no file is ever left
+# alone. The face binds are positional (issue #121) and independent of the
+# Button layout. Extract nx_flycast_mapping() from each launch.sh and run it.
 dc_run() { # $1 = layout, $2 = platform
     NX_FAKE_LAYOUT="$1" PAK_DIR="$ROOT/skeleton/SYSTEM/$2/paks/Emus/DC.pak" \
     DEVICE_CONFIG_DIR="$TMP/dc" sh -c '
@@ -118,36 +119,33 @@ PAKMAP="$ROOT/skeleton/SYSTEM/tg5040/paks/Emus/DC.pak/SDL_Xbox 360 Controller.cf
 MAP="$TMP/dc/flycast/mappings/SDL_Xbox 360 Controller.cfg"
 MAPA="$TMP/dc/flycast/mappings/SDL_Xbox 360 Controller_arcade.cfg"
 
+# the shipped file is positional: bottom (SDL 0) = DC A, right (1) = B,
+# left (2) = X, top (3) = Y; the platform copies are byte-identical
+grep -q '^bind0 = 0:btn_a$' "$PAKMAP" || fail "dc: pak bind0 should be btn_a (bottom = DC A)"
+grep -q '^bind1 = 1:btn_b$' "$PAKMAP" || fail "dc: pak bind1 should be btn_b (right = DC B)"
+grep -q '^bind2 = 2:btn_x$' "$PAKMAP" || fail "dc: pak bind2 should be btn_x (left = DC X)"
+grep -q '^bind3 = 3:btn_y$' "$PAKMAP" || fail "dc: pak bind3 should be btn_y (top = DC Y)"
+cmp -s "$PAKMAP" "$ROOT/skeleton/SYSTEM/tg5050/paks/Emus/DC.pak/SDL_Xbox 360 Controller.cfg" \
+    || fail "dc: tg5040/tg5050 pak mapping files differ"
+
 # fresh dir (no files): both the Dreamcast and arcade files are installed as
-# the shipped pak file under nintendo
-rm -rf "$TMP/dc"; mkdir -p "$TMP/dc/flycast/mappings"
-dc_run 0 tg5040
-cmp -s "$MAP" "$PAKMAP"  || fail "dc: missing mapping should be installed as the pak file (nintendo)"
-cmp -s "$MAPA" "$PAKMAP" || fail "dc arcade: missing mapping should be installed as the pak file (nintendo)"
-
-# xbox: both files hold the generated Xbox variant (face binds swapped,
-# non-face digital + [analog] binds untouched) and are identical to each other
-dc_run 1 tg5040
-for f in "$MAP" "$MAPA"; do
-    grep -q '^bind0 = 0:btn_a$' "$f" || fail "dc: bind0 should be btn_a under xbox ($f)"
-    grep -q '^bind1 = 1:btn_b$' "$f" || fail "dc: bind1 should be btn_b under xbox ($f)"
-    grep -q '^bind2 = 2:btn_x$' "$f" || fail "dc: bind2 should be btn_x under xbox ($f)"
-    grep -q '^bind3 = 3:btn_y$' "$f" || fail "dc: bind3 should be btn_y under xbox ($f)"
-    grep -q '^bind0 = 0-:btn_analog_left$' "$f" || fail "dc: [analog] section must be untouched ($f)"
-    grep -q '^bind4 = 4:btn_z$' "$f" || fail "dc: non-face digital binds must be untouched ($f)"
+# the shipped pak file, under either layout
+for layout in 0 1; do
+    rm -rf "$TMP/dc"; mkdir -p "$TMP/dc/flycast/mappings"
+    dc_run $layout tg5040
+    cmp -s "$MAP" "$PAKMAP"  || fail "dc: missing mapping should be installed as the pak file (layout $layout)"
+    cmp -s "$MAPA" "$PAKMAP" || fail "dc arcade: missing mapping should be installed as the pak file (layout $layout)"
 done
-cmp -s "$MAP" "$MAPA" || fail "dc: Dreamcast and arcade files must be identical under xbox"
 
-# idempotent: a second xbox run changes nothing (cmp against copies)
-cp "$MAP" "$TMP/dc_xbox.cfg"; cp "$MAPA" "$TMP/dc_arcade_xbox.cfg"
+# idempotent: a second run changes nothing
 dc_run 1 tg5040
-cmp -s "$MAP" "$TMP/dc_xbox.cfg"         || fail "dc: second xbox run must be a no-op (main)"
-cmp -s "$MAPA" "$TMP/dc_arcade_xbox.cfg" || fail "dc: second xbox run must be a no-op (arcade)"
+cmp -s "$MAP" "$PAKMAP"  || fail "dc: second run must be a no-op (main)"
+cmp -s "$MAPA" "$PAKMAP" || fail "dc: second run must be a no-op (arcade)"
 
-# standardization: neither a garbage main file nor an old on-device-style
-# arcade file (flycast's alphabetical bind order + an extra bind6 = 6:btn_d) is
-# ever left alone -- both are replaced by the layout's variant. This is the
-# whole point of the refactor: no file is preserved.
+# standardization: neither a garbage main file nor an old installed file (the
+# pre-#121 label-matched face binds, in flycast's alphabetical bind order
+# with an extra bind6 = 6:btn_d) is ever left alone -- both are replaced by
+# the pak file.
 printf 'bind0 = 0:btn_c\n' > "$MAP"
 cat > "$MAPA" <<'EOF'
 [analog]
@@ -184,20 +182,15 @@ saturation = 100
 triggers = 2,5
 version = 4
 EOF
-dc_run 1 tg5040
-cmp -s "$MAP" "$TMP/dc_xbox.cfg"  || fail "dc: garbage main file must be replaced by the xbox variant"
-cmp -s "$MAPA" "$TMP/dc_xbox.cfg" || fail "dc arcade: old on-device arcade file must be replaced by the xbox variant"
-
-# switching back to nintendo restores the shipped pak file for both
 dc_run 0 tg5040
-cmp -s "$MAP" "$PAKMAP"  || fail "dc: switching back should restore the pak file (main)"
-cmp -s "$MAPA" "$PAKMAP" || fail "dc arcade: switching back should restore the pak file (arcade)"
+cmp -s "$MAP" "$PAKMAP"  || fail "dc: garbage main file must be replaced by the pak file"
+cmp -s "$MAPA" "$PAKMAP" || fail "dc arcade: old installed arcade file must be replaced by the pak file"
 
 # tg5050 copy behaves the same
 rm -rf "$TMP/dc"; mkdir -p "$TMP/dc/flycast/mappings"
-dc_run 1 tg5050
-grep -q '^bind0 = 0:btn_a$' "$MAP"  || fail "dc tg5050: bind0 should be btn_a under xbox (main)"
-grep -q '^bind0 = 0:btn_a$' "$MAPA" || fail "dc tg5050: bind0 should be btn_a under xbox (arcade)"
+dc_run 0 tg5050
+grep -q '^bind0 = 0:btn_a$' "$MAP"  || fail "dc tg5050: bind0 should be btn_a (main)"
+grep -q '^bind0 = 0:btn_a$' "$MAPA" || fail "dc tg5050: bind0 should be btn_a (arcade)"
 
 # --- portmaster ports_launch.sh controller layout -------------------------
 # set_controller_layout() copies the right gamecontrollerdb variant from the

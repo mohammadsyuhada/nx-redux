@@ -21,38 +21,29 @@ echo performance >/sys/devices/platform/soc@3000000/1800000.gpu/devfreq/1800000.
 # Controller mapping -- see nx_flycast_mapping() below.
 nx_flycast_mapping() {
     # Controller mapping. flycast binds by SDL joystick index (B=0, A=1, Y=2,
-    # X=3). We ship the Nintendo-layout file and generate the Xbox variant
-    # from it (A<->B, X<->Y in [digital]) when Settings > System > Button
-    # layout is Xbox. Nothing in NX Redux can edit these files (flycast's
-    # own controls page is unreachable: EMU_BTN_MENU opens the NX overlay),
-    # so both are ours: install the layout's variant unconditionally on
-    # every launch, for the Dreamcast mapping AND the arcade one flycast
-    # would otherwise clone from it once and keep forever (NAOMI/Atomiswave
-    # titles load "<name>_arcade.cfg"). Any future mapping change then
-    # reaches every card on the next launch.
-    . "$SYSTEM_PATH/bin/nx_button_layout.sh"
+    # X=3) and reads the pad directly, so the Button layout setting's A/B and
+    # X/Y swap never reaches it. The face binds are positional: the bottom
+    # button is DC A, right B, left X, top Y -- the Dreamcast's own layout,
+    # which games built around it (face-button camera controls) need, and the
+    # same result under either Button layout. Nothing in NX Redux can edit
+    # these files (flycast's own controls page is unreachable: EMU_BTN_MENU
+    # opens the NX overlay), so both are ours: install the shipped file
+    # unconditionally on every launch, for the Dreamcast mapping AND the
+    # arcade one flycast would otherwise clone from it once and keep forever
+    # (NAOMI/Atomiswave titles load "<name>_arcade.cfg"). Any future mapping
+    # change then reaches every card on the next launch.
     NX_MAP_DIR="$DEVICE_CONFIG_DIR/flycast/mappings"
-    NX_MAP_NINTENDO="$PAK_DIR/SDL_Xbox 360 Controller.cfg"
-    NX_MAP_XBOX="/tmp/nx_flycast_mapping_xbox.cfg"
-    sed -e '/^\[digital\]/,/^\[/{
-        s/:btn_a$/:@a@/
-        s/:btn_b$/:btn_a/
-        s/:@a@$/:btn_b/
-        s/:btn_x$/:@x@/
-        s/:btn_y$/:btn_x/
-        s/:@x@$/:btn_y/
-    }' "$NX_MAP_NINTENDO" > "$NX_MAP_XBOX"
-    if [ "$NX_BUTTON_LAYOUT" = "xbox" ]; then
-        NX_MAP_WANT="$NX_MAP_XBOX"
-    else
-        NX_MAP_WANT="$NX_MAP_NINTENDO"
-    fi
+    NX_MAP_WANT="$PAK_DIR/SDL_Xbox 360 Controller.cfg"
     mkdir -p "$NX_MAP_DIR"
     for NX_MAP_DEST in "$NX_MAP_DIR/SDL_Xbox 360 Controller.cfg" "$NX_MAP_DIR/SDL_Xbox 360 Controller_arcade.cfg"; do
         cmp -s "$NX_MAP_WANT" "$NX_MAP_DEST" 2>/dev/null || cp -f "$NX_MAP_WANT" "$NX_MAP_DEST" 2>/dev/null || true
     done
 }
 nx_flycast_mapping
+
+# The overlay's confirm/back follow Settings > System > Button layout
+# (nx_overlay.cpp reads NX_BUTTON_LAYOUT).
+. "$SYSTEM_PATH/bin/nx_button_layout.sh"
 
 # Flycast resolves config to $XDG_CONFIG_HOME/flycast/ and data (BIOS search,
 # VMUs, save states) to $XDG_DATA_HOME/flycast/ (core/linux-dist/main.cpp).
