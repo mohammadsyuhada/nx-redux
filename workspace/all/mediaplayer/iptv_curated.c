@@ -16,12 +16,14 @@
 #define COUNTRIES_CACHE CACHE_DIR "/countries.json"
 
 #define MAX_CURATED_COUNTRIES 300
-#define MAX_CURATED_CHANNELS 512
 
 static CuratedTVCountry curated_countries[MAX_CURATED_COUNTRIES];
 static int curated_country_count = 0;
 
-static CuratedTVChannel curated_channels[MAX_CURATED_CHANNELS];
+// Sized per country by M3U_parseFile (some countries carry well over 1000
+// channels -- a fixed cap here previously truncated the list silently, e.g.
+// alphabetically stopping partway through the US list).
+static CuratedTVChannel* curated_channels = NULL;
 static int curated_channel_count = 0;
 static char loaded_country_code[8] = ""; // which country curated_channels holds
 
@@ -30,12 +32,16 @@ void IPTV_curated_init(void) {
 	NetCache_ensureDir(APP_DATA_DIR "/tv");
 	NetCache_ensureDir(CACHE_DIR);
 	curated_country_count = 0;
+	free(curated_channels);
+	curated_channels = NULL;
 	curated_channel_count = 0;
 	loaded_country_code[0] = '\0';
 }
 
 void IPTV_curated_cleanup(void) {
 	curated_country_count = 0;
+	free(curated_channels);
+	curated_channels = NULL;
 	curated_channel_count = 0;
 	loaded_country_code[0] = '\0';
 }
@@ -117,7 +123,10 @@ int IPTV_curated_loadCountryChannels(const char* country_code, bool force,
 	if (NetCache_ensure(url, cache, force, should_stop, progress) != 0)
 		return -1;
 
-	int n = M3U_parseFile(cache, curated_channels, MAX_CURATED_CHANNELS, country_code);
+	free(curated_channels);
+	curated_channels = NULL;
+	curated_channel_count = 0;
+	int n = M3U_parseFile(cache, &curated_channels, country_code);
 	if (n < 0)
 		return -1;
 	curated_channel_count = n;
