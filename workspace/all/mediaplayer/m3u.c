@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "m3u.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
 
@@ -37,12 +38,33 @@ static void extinf_name(const char* line, char* out, int out_sz) {
 	rtrim(out);
 }
 
-int M3U_parseFile(const char* path, CuratedTVChannel* out, int max, const char* country_code) {
+int M3U_parseFile(const char* path, CuratedTVChannel** out, const char* country_code) {
+	*out = NULL;
+
 	FILE* f = fopen(path, "r");
 	if (!f)
 		return -1;
 
+	// First pass: an #EXTINF per channel is the upper bound (some are orphaned
+	// -- no URL follows -- so the real count can be lower, never higher).
 	char line[2048];
+	int max = 0;
+	while (fgets(line, sizeof(line), f)) {
+		if (strncmp(line, "#EXTINF", 7) == 0)
+			max++;
+	}
+	if (max == 0) {
+		fclose(f);
+		return 0;
+	}
+
+	CuratedTVChannel* channels = malloc(sizeof(CuratedTVChannel) * max);
+	if (!channels) {
+		fclose(f);
+		return -1;
+	}
+
+	rewind(f);
 	int count = 0;
 	bool have_meta = false;
 	CuratedTVChannel cur;
@@ -69,11 +91,16 @@ int M3U_parseFile(const char* path, CuratedTVChannel* out, int max, const char* 
 			if (!have_meta)
 				continue; // URL with no preceding #EXTINF
 			snprintf(cur.url, IPTV_MAX_URL, "%s", line);
-			out[count++] = cur;
+			channels[count++] = cur;
 			have_meta = false;
 		}
 	}
 
 	fclose(f);
+	if (count == 0) {
+		free(channels);
+		return 0;
+	}
+	*out = channels;
 	return count;
 }

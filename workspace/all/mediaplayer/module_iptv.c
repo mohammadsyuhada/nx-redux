@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -53,14 +54,26 @@ static int confirm_target_index = -1;
 static char confirm_channel_name[IPTV_MAX_NAME] = "";
 static char confirm_channel_url[IPTV_MAX_URL] = "";
 
-// Sorted channel index mapping for alphabetical display
-static int sorted_channel_indices[256];
+// Sorted channel index mapping for alphabetical display. Allocated per
+// country by build_sorted_channel_indices (some countries carry well over
+// 1000 channels -- a fixed 256-slot cap here previously hid every channel
+// past it, on top of the separate storage cap fixed in iptv_curated.c).
+static int* sorted_channel_indices = NULL;
 static int sorted_channel_count = 0;
 
 static void build_sorted_channel_indices(const char* country_code) {
+	free(sorted_channel_indices);
+	sorted_channel_indices = NULL;
+	sorted_channel_count = 0;
+
 	int sc = 0;
 	const CuratedTVChannel* cs = IPTV_curated_get_channels(country_code, &sc);
-	sorted_channel_count = (sc < 256) ? sc : 256;
+	if (sc <= 0)
+		return;
+	sorted_channel_indices = malloc(sizeof(int) * sc);
+	if (!sorted_channel_indices)
+		return;
+	sorted_channel_count = sc;
 	for (int i = 0; i < sorted_channel_count; i++)
 		sorted_channel_indices[i] = i;
 	// Insertion sort by name
@@ -73,6 +86,45 @@ static void build_sorted_channel_indices(const char* country_code) {
 		}
 		sorted_channel_indices[j + 1] = key;
 	}
+}
+
+// L1/R1: jump the channel-browse selection to the next/previous first-letter
+// group, same convention as UI_listViewJumpInitial (used for the country
+// list) -- this list isn't a ListView, so it needs its own copy of that
+// group-boundary logic against sorted_channel_indices directly.
+static bool jump_channel_initial(const CuratedTVChannel* channels, int dir) {
+	if (sorted_channel_count <= 1)
+		return false;
+	int sel = curated_channel_selected;
+	if (sel < 0)
+		sel = 0;
+	if (sel >= sorted_channel_count)
+		sel = sorted_channel_count - 1;
+	char cur = (char)tolower((unsigned char)channels[sorted_channel_indices[sel]].name[0]);
+	int target;
+	if (dir > 0) {
+		int i = sel + 1;
+		while (i < sorted_channel_count &&
+			   (char)tolower((unsigned char)channels[sorted_channel_indices[i]].name[0]) == cur)
+			i++;
+		if (i >= sorted_channel_count)
+			return false; // already in the last letter group
+		target = i;
+	} else {
+		int i = sel - 1;
+		while (i >= 0 && (char)tolower((unsigned char)channels[sorted_channel_indices[i]].name[0]) == cur)
+			i--;
+		if (i < 0)
+			return false; // already in the first letter group
+		char prev = (char)tolower((unsigned char)channels[sorted_channel_indices[i]].name[0]);
+		while (i > 0 && (char)tolower((unsigned char)channels[sorted_channel_indices[i - 1]].name[0]) == prev)
+			i--;
+		target = i;
+	}
+	if (target == curated_channel_selected || target < 0 || target >= sorted_channel_count)
+		return false;
+	curated_channel_selected = target;
+	return true;
 }
 
 // Copy `name` into `out`, dropping any "[...]" tag segments (e.g. the
@@ -303,6 +355,13 @@ ModuleExitReason IPTVModule_run(SDL_Surface* screen) {
 			} else if (PAD_justRepeated(BTN_DOWN) && sorted_channel_count > 0) {
 				curated_channel_selected = (curated_channel_selected < sorted_channel_count - 1) ? curated_channel_selected + 1 : 0;
 				dirty = 1;
+			} else if (PAD_justRepeated(BTN_R1) && sorted_channel_count > 0) {
+				// L1/R1: jump by first letter (same convention as the country list).
+				if (jump_channel_initial(channels, +1))
+					dirty = 1;
+			} else if (PAD_justRepeated(BTN_L1) && sorted_channel_count > 0) {
+				if (jump_channel_initial(channels, -1))
+					dirty = 1;
 			} else if (PAD_justPressed(BTN_A) && sorted_channel_count > 0) {
 				int actual_idx = sorted_channel_indices[curated_channel_selected];
 				const CuratedTVChannel* channel = &channels[actual_idx];
