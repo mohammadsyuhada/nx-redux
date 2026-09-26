@@ -362,6 +362,22 @@ ModuleExitReason IPTVModule_run(SDL_Surface* screen) {
 			} else if (PAD_justRepeated(BTN_L1) && sorted_channel_count > 0) {
 				if (jump_channel_initial(channels, -1))
 					dirty = 1;
+			} else if (PAD_justRepeated(BTN_RIGHT) && sorted_channel_count > 0) {
+				// LEFT/RIGHT: page jump, same convention as the country list
+				// (ListView's own LEFT/RIGHT paging) and the main ROM browser.
+				// Clamps at the ends rather than wrapping, matching ListView's
+				// nearest_selectable() -- unlike UP/DOWN above, which wrap.
+				ListLayout layout = UI_calcListLayout(screen);
+				int page = layout.items_per_page > 0 ? layout.items_per_page : 1;
+				int target = curated_channel_selected + page;
+				curated_channel_selected = (target < sorted_channel_count) ? target : sorted_channel_count - 1;
+				dirty = 1;
+			} else if (PAD_justRepeated(BTN_LEFT) && sorted_channel_count > 0) {
+				ListLayout layout = UI_calcListLayout(screen);
+				int page = layout.items_per_page > 0 ? layout.items_per_page : 1;
+				int target = curated_channel_selected - page;
+				curated_channel_selected = (target > 0) ? target : 0;
+				dirty = 1;
 			} else if (PAD_justPressed(BTN_A) && sorted_channel_count > 0) {
 				int actual_idx = sorted_channel_indices[curated_channel_selected];
 				const CuratedTVChannel* channel = &channels[actual_idx];
