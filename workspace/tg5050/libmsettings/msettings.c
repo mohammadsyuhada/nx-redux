@@ -116,11 +116,47 @@ typedef struct SettingsV3 {
 	int fanSpeed;  // 0-100, -1 for auto
 } SettingsV3;
 
+typedef struct SettingsV4 {
+	int version; // future proofing
+	int brightness;
+	int colortemperature;
+	int headphones;
+	int speaker;
+	int fn_mode;
+	int contrast;
+	int saturation;
+	int exposure;
+	int fn_brightness;
+	int fn_colortemperature;
+	int fn_contrast;
+	int fn_saturation;
+	int fn_exposure;
+	int fn_volume;
+	int fn_prevent_wake; // FN switch blocks power-button sleep/wake (travel lock)
+	int turbo_a;
+	int turbo_b;
+	int turbo_x;
+	int turbo_y;
+	int turbo_l1;
+	int turbo_l2;
+	int turbo_r1;
+	int turbo_r2;
+	int rumble_off;		 // OSD motor switch, stored inverted so pre-existing files read as ON
+	int rumble_strength; // Settings "Vibration strength": 0 Normal (default), 1 Light, 2 Strong
+	int game_volume;
+	int music_volume;
+	int speaker_mute; // OSD output mute, silences output only, independent of the FN switch
+	// NOTE: doesn't really need to be persisted but still needs to be shared
+	int jack;
+	int audiosink; // was bluetooth true/false before
+	int fanSpeed;  // 0-100, -1 for auto
+} SettingsV4;
+
 // When incrementing SETTINGS_VERSION, update the Settings typedef and add
 // backwards compatibility to InitSettings!
 // Keep all/common/msettings_shm.h (linkless mirror for osdctl/poweroff_next) in sync.
-#define SETTINGS_VERSION 3
-typedef SettingsV3 Settings;
+#define SETTINGS_VERSION 4
+typedef SettingsV4 Settings;
 static Settings DefaultSettings = {
 	.version = SETTINGS_VERSION,
 	.brightness = SETTINGS_DEFAULT_BRIGHTNESS,
@@ -137,6 +173,7 @@ static Settings DefaultSettings = {
 	.fn_saturation = SETTINGS_DEFAULT_FN_NO_CHANGE,
 	.fn_exposure = SETTINGS_DEFAULT_FN_NO_CHANGE,
 	.fn_volume = 0, // silent by default
+	.fn_prevent_wake = 0,
 	.turbo_a = 0,
 	.turbo_b = 0,
 	.turbo_x = 0,
@@ -304,7 +341,43 @@ void InitSettings(void) {
 					memcpy(settings, &DefaultSettings, shm_size);
 
 					// overwrite with migrated data
-					if (version == 2) {
+					if (version == 3) {
+						printf("Found settings v3.\n");
+						SettingsV3 old;
+						read(fd, &old, sizeof(SettingsV3));
+
+						settings->brightness = old.brightness;
+						settings->colortemperature = old.colortemperature;
+						settings->headphones = old.headphones;
+						settings->speaker = old.speaker;
+						settings->fn_mode = old.fn_mode;
+						settings->contrast = old.contrast;
+						settings->saturation = old.saturation;
+						settings->exposure = old.exposure;
+						settings->fn_brightness = old.fn_brightness;
+						settings->fn_colortemperature = old.fn_colortemperature;
+						settings->fn_contrast = old.fn_contrast;
+						settings->fn_saturation = old.fn_saturation;
+						settings->fn_exposure = old.fn_exposure;
+						settings->fn_volume = old.fn_volume;
+						settings->turbo_a = old.turbo_a;
+						settings->turbo_b = old.turbo_b;
+						settings->turbo_x = old.turbo_x;
+						settings->turbo_y = old.turbo_y;
+						settings->turbo_l1 = old.turbo_l1;
+						settings->turbo_l2 = old.turbo_l2;
+						settings->turbo_r1 = old.turbo_r1;
+						settings->turbo_r2 = old.turbo_r2;
+						settings->rumble_off = old.rumble_off;
+						settings->rumble_strength = old.rumble_strength;
+						settings->game_volume = old.game_volume;
+						settings->music_volume = old.music_volume;
+						settings->speaker_mute = old.speaker_mute;
+						settings->jack = old.jack;
+						settings->audiosink = old.audiosink;
+						settings->fanSpeed = old.fanSpeed;
+						// fn_prevent_wake is new in v4; leave it at the default 0
+					} else if (version == 2) {
 						printf("Found settings v2.\n");
 						SettingsV2 old;
 						read(fd, &old, sizeof(SettingsV2));
@@ -533,6 +606,9 @@ int GetFnExposure(void) {
 int GetFnVolume(void) {
 	return settings->fn_volume;
 }
+int GetFnPreventWake(void) {
+	return settings->fn_prevent_wake;
+}
 int GetFnDpadDisabled(void) {
 	return 0;
 }
@@ -716,6 +792,10 @@ void SetFnExposure(int value) {
 
 void SetFnVolume(int value) {
 	settings->fn_volume = value;
+	SaveSettings();
+}
+void SetFnPreventWake(int value) {
+	settings->fn_prevent_wake = value;
 	SaveSettings();
 }
 

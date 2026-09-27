@@ -28,6 +28,7 @@ typedef struct {
 	int fn_dpad_disabled;
 	int fn_dpad_joystick;
 #endif
+	int fn_prevent_wake;
 	int turbo_a;
 	int turbo_b;
 	int turbo_x;
@@ -49,9 +50,9 @@ typedef struct {
 } SettingsShm;
 
 #ifdef HAS_FAN
-#define MSETTINGS_SHM_VERSION 3
+#define MSETTINGS_SHM_VERSION 4
 #else
-#define MSETTINGS_SHM_VERSION 12
+#define MSETTINGS_SHM_VERSION 13
 #endif
 
 #define MSETTINGS_SHM_KEY "/SharedSettings"

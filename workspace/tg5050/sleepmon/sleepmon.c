@@ -214,7 +214,8 @@ int main(int argc, char* argv[]) {
 				} else if (input_ev.value == 0) {
 					// Release
 					if (power_held && power_pressed_at &&
-						now - power_pressed_at < POWEROFF_HOLD_MS) {
+						now - power_pressed_at < POWEROFF_HOLD_MS &&
+						!(GetFnMode() && GetFnPreventWake())) {
 						do_suspend();
 						// Drain all pending input after wake
 						for (int i = 0; i < input_count; i++) {

@@ -440,6 +440,9 @@ int GetFnExposure(void) {
 int GetFnVolume(void) {
 	return 0;
 }
+int GetFnPreventWake(void) {
+	return 0;
+}
 int GetFnDpadDisabled(void) {
 	return 0;
 }
@@ -477,6 +480,7 @@ void SetFnContrast(int value) {}
 void SetFnSaturation(int value) {}
 void SetFnExposure(int value) {}
 void SetFnVolume(int value) {}
+void SetFnPreventWake(int value) {}
 void SetFnDpadDisabled(int value) {}
 void SetFnDpadJoystick(int value) {}
 void SetFnTurboA(int value) {}
