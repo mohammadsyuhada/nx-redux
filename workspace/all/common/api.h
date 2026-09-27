@@ -847,6 +847,11 @@ int PLAT_isUSBConnected(void);								   // 1 while configured as a USB gadget b
 void PLAT_enableBacklight(int enable);
 int PLAT_supportsDeepSleep(void);
 int PLAT_deepSleep(void);
+// Live read of the physical FN switch, bypassing msettings' fn_mode (which
+// only updates while keymon is running -- keymon is SIGSTOPped for the
+// entire hybrid-sleep window, so fn_mode is frozen exactly when the
+// travel-lock wake gate needs a current answer).
+int PLAT_isFnSwitchOn(void);
 void PLAT_powerOff(int reboot);
 
 void* PLAT_cpu_monitor(void* arg);

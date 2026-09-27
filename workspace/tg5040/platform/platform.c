@@ -257,6 +257,20 @@ int PLAT_supportsDeepSleep(void) {
 	return 1;
 }
 
+// Live GPIO read, bypassing msettings' fn_mode -- keymon (the only writer of
+// fn_mode) is SIGSTOPped for the whole hybrid-sleep window, so fn_mode can't
+// be trusted from inside PWR_waitForWake()/PLAT_shouldWake().
+#define FN_SWITCH_GPIO_PATH "/sys/class/gpio/gpio243/value"
+int PLAT_isFnSwitchOn(void) {
+	int value = 0;
+	FILE* file = fopen(FN_SWITCH_GPIO_PATH, "r");
+	if (file) {
+		fscanf(file, "%i", &value);
+		fclose(file);
+	}
+	return value;
+}
+
 ///////////////////////////////
 
 double get_time_sec() {
