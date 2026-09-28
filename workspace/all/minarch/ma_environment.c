@@ -1,6 +1,7 @@
 #include "ma_internal.h"
 #include "utils.h"
 #include "ma_environment.h"
+#include "ma_hwrender.h"
 #include "ma_input.h"
 #include "ma_config.h"
 #include "ma_options.h"
@@ -362,16 +363,21 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 	// 	break;
 	// };
 	case RETRO_ENVIRONMENT_SET_HW_RENDER: {
-		struct retro_hw_render_callback* cb = (struct retro_hw_render_callback*)data;
-
-		// Fallback if version is 0.0 or other unexpected values
-		if (cb->context_type == 4 && cb->version_major == 0 && cb->version_minor == 0) {
-			cb->context_type = RETRO_HW_CONTEXT_OPENGLES3;
-			cb->version_major = 3;
-			cb->version_minor = 0;
-		}
-
+#if defined(HAS_RUNTIME_PATHS)
+		return false; // desktop: no GPU-core path (its context is desktop GL, not GLES)
+#else
+		return HWR_setCallback((struct retro_hw_render_callback*)data);
+#endif
+	}
+	case RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER: {
+#if defined(HAS_RUNTIME_PATHS)
+		return false;
+#else
+		if (!data)
+			return false;
+		*(unsigned*)data = RETRO_HW_CONTEXT_OPENGLES3;
 		return true;
+#endif
 	}
 	case RETRO_ENVIRONMENT_SET_NETPACKET_INTERFACE: {
 		const struct retro_netpacket_callback* cb =

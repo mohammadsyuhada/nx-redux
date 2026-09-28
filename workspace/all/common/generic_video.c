@@ -118,6 +118,143 @@ static struct VID_Context {
 	int sharpness;
 } vid;
 
+// libretro GPU-render (hardware core) support. The core draws into hwr.fbo on
+// the game context; each frame is blitted (flipped upright) into copy_tex,
+// which PLAT_GL_Swap feeds to the shader pipeline in place of the CPU upload.
+static struct {
+	GLuint fbo, color_tex, depth_rb;
+	unsigned w, h;
+	GLuint copy_fbo, copy_tex;
+	unsigned copy_w, copy_h;
+	int frame_ready; // copy_tex holds a frame to present
+	int state_dirty; // the core ran since our last draw: drop cached GL state
+} hwr;
+
+void PLAT_HWR_makeCurrent(void) {
+	SDL_GL_MakeCurrent(vid.window, vid.gl_context);
+}
+
+void* PLAT_HWR_getProcAddress(const char* sym) {
+	return SDL_GL_GetProcAddress(sym);
+}
+
+int PLAT_HWR_maxTextureSize(void) {
+	GLint max = 0;
+	PLAT_HWR_makeCurrent();
+	glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max);
+	return max;
+}
+
+static void hwr_delete_copy(void) {
+	if (hwr.copy_fbo)
+		glDeleteFramebuffers(1, &hwr.copy_fbo);
+	if (hwr.copy_tex)
+		glDeleteTextures(1, &hwr.copy_tex);
+	hwr.copy_fbo = hwr.copy_tex = 0;
+	hwr.copy_w = hwr.copy_h = 0;
+}
+
+void PLAT_HWR_destroy(void) {
+	PLAT_HWR_makeCurrent();
+	hwr_delete_copy();
+	if (hwr.depth_rb)
+		glDeleteRenderbuffers(1, &hwr.depth_rb);
+	if (hwr.fbo)
+		glDeleteFramebuffers(1, &hwr.fbo);
+	if (hwr.color_tex)
+		glDeleteTextures(1, &hwr.color_tex);
+	memset(&hwr, 0, sizeof(hwr));
+}
+
+unsigned PLAT_HWR_create(unsigned w, unsigned h, int depth, int stencil) {
+	if (!vid.gl_context)
+		return 0;
+	PLAT_HWR_makeCurrent();
+	glGenTextures(1, &hwr.color_tex);
+	glBindTexture(GL_TEXTURE_2D, hwr.color_tex);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+	glGenFramebuffers(1, &hwr.fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, hwr.fbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, hwr.color_tex, 0);
+	if (depth || stencil) {
+		glGenRenderbuffers(1, &hwr.depth_rb);
+		glBindRenderbuffer(GL_RENDERBUFFER, hwr.depth_rb);
+		glRenderbufferStorage(GL_RENDERBUFFER, stencil ? GL_DEPTH24_STENCIL8 : GL_DEPTH_COMPONENT24, w, h);
+		glFramebufferRenderbuffer(GL_FRAMEBUFFER, stencil ? GL_DEPTH_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT,
+								  GL_RENDERBUFFER, hwr.depth_rb);
+		glBindRenderbuffer(GL_RENDERBUFFER, 0);
+	}
+	GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+	if (status != GL_FRAMEBUFFER_COMPLETE) {
+		LOG_error("HWR: FBO %ux%u incomplete: 0x%X\n", w, h, status);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		PLAT_HWR_destroy();
+		return 0;
+	}
+	glClearColor(0, 0, 0, 1);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	hwr.w = w;
+	hwr.h = h;
+	return hwr.fbo;
+}
+
+void PLAT_HWR_setFrame(unsigned w, unsigned h, int flip) {
+	if (!hwr.fbo)
+		return;
+	if (hwr.copy_w != w || hwr.copy_h != h) {
+		hwr_delete_copy();
+		glGenTextures(1, &hwr.copy_tex);
+		glBindTexture(GL_TEXTURE_2D, hwr.copy_tex);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+		glGenFramebuffers(1, &hwr.copy_fbo);
+		glBindFramebuffer(GL_FRAMEBUFFER, hwr.copy_fbo);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, hwr.copy_tex, 0);
+		hwr.copy_w = w;
+		hwr.copy_h = h;
+	}
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, hwr.fbo);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, hwr.copy_fbo);
+	glDisable(GL_SCISSOR_TEST);
+	// The pipeline expects texture row 0 = image top (the CPU-upload layout);
+	// a bottom-left-origin GL frame is flipped here, exactly once.
+	if (flip)
+		glBlitFramebuffer(0, 0, w, h, 0, h, w, 0, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+	else
+		glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	hwr.frame_ready = 1;
+}
+
+void PLAT_HWR_restoreFrontendState(void) {
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glUseProgram(0);
+	glBindVertexArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glDisable(GL_DEPTH_TEST);
+	glDisable(GL_STENCIL_TEST);
+	glDisable(GL_SCISSOR_TEST);
+	glDisable(GL_CULL_FACE);
+	glDisable(GL_BLEND);
+	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+	glPixelStorei(GL_PACK_ALIGNMENT, 4);
+	hwr.state_dirty = 1;
+}
+
 static int device_width;
 static int device_height;
 static int device_pitch;
@@ -2142,6 +2279,19 @@ void runShaderPass(GLuint src_texture, GLuint shader_program, GLuint* target_tex
 		last_bound_texture = 0;
 	}
 
+	if (hwr.state_dirty) {
+		// A GPU core ran on this context: the cached program/texture say
+		// nothing about what is bound now, and the attribute setup below
+		// records into whatever VAO/VBO is current -- rebind ours first.
+		last_program = 0;
+		last_bound_texture = 0;
+		if (static_VAO) {
+			glBindVertexArray(static_VAO);
+			glBindBuffer(GL_ARRAY_BUFFER, static_VBO);
+		}
+		hwr.state_dirty = 0;
+	}
+
 	texelSize[0] = 1.0f / shader->texw;
 	texelSize[1] = 1.0f / shader->texh;
 
@@ -2412,7 +2562,7 @@ void PLAT_GL_Swap() {
 	SDL_Rect dst_rect = {0, 0, device_width, device_height};
 	setRectToAspectRatio(&dst_rect);
 
-	if (!vid.blit->src) {
+	if (!hwr.frame_ready && (!vid.blit || !vid.blit->src)) {
 		return;
 	}
 
@@ -2534,33 +2684,40 @@ void PLAT_GL_Swap() {
 		pthread_mutex_unlock(&video_prep_mutex);
 	}
 
-	if (!src_texture || reloadShaderTextures) {
-		// if (src_texture) {
-		//     glDeleteTextures(1, &src_texture);
-		//     src_texture = 0;
-		// }
-		if (src_texture == 0)
-			glGenTextures(1, &src_texture);
-		glBindTexture(GL_TEXTURE_2D, src_texture);
+	GLuint frame_tex = src_texture;
+	if (hwr.frame_ready) {
+		// GPU core: the frame is already a texture; only its filtering follows
+		// the pipeline's settings (same rule as the CPU-upload texture).
+		frame_tex = hwr.copy_tex;
+		glBindTexture(GL_TEXTURE_2D, frame_tex);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, nrofshaders > 0 ? shaders[0]->filter : finalScaleFilter);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, nrofshaders > 0 ? shaders[0]->filter : finalScaleFilter);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	}
-
-	glBindTexture(GL_TEXTURE_2D, src_texture);
-	if (vid.blit->src_w != src_w_last || vid.blit->src_h != src_h_last || reloadShaderTextures) {
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vid.blit->src_w, vid.blit->src_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, vid.blit->src);
-		src_w_last = vid.blit->src_w;
-		src_h_last = vid.blit->src_h;
 	} else {
-		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, vid.blit->src_w, vid.blit->src_h, GL_RGBA, GL_UNSIGNED_BYTE, vid.blit->src);
+		if (!src_texture || reloadShaderTextures) {
+			if (src_texture == 0)
+				glGenTextures(1, &src_texture);
+			glBindTexture(GL_TEXTURE_2D, src_texture);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, nrofshaders > 0 ? shaders[0]->filter : finalScaleFilter);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, nrofshaders > 0 ? shaders[0]->filter : finalScaleFilter);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		}
+		glBindTexture(GL_TEXTURE_2D, src_texture);
+		if (vid.blit->src_w != src_w_last || vid.blit->src_h != src_h_last || reloadShaderTextures) {
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vid.blit->src_w, vid.blit->src_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, vid.blit->src);
+			src_w_last = vid.blit->src_w;
+			src_h_last = vid.blit->src_h;
+		} else {
+			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, vid.blit->src_w, vid.blit->src_h, GL_RGBA, GL_UNSIGNED_BYTE, vid.blit->src);
+		}
 	}
+	// Mid-frame GL work above may have changed the unit-0 binding.
+	hwr.state_dirty = hwr.state_dirty || hwr.frame_ready;
 
 	last_w = vid.blit->src_w;
 	last_h = vid.blit->src_h;
 
-	orig_texture_gl = src_texture;
+	orig_texture_gl = frame_tex;
 	orig_frame_w = vid.blit->src_w;
 	orig_frame_h = vid.blit->src_h;
 
@@ -2611,7 +2768,7 @@ void PLAT_GL_Swap() {
 		if (shaders[i]->shader_p) {
 			//LOG_info("Shader Pass: Pipeline step %d/%d\n", i + 1, nrofshaders);
 			runShaderPass(
-				(i == 0) ? src_texture : shaders[i - 1]->texture,
+				(i == 0) ? frame_tex : shaders[i - 1]->texture,
 				shaders[i]->shader_p,
 				&shaders[i]->texture,
 				0, 0, dst_w, dst_h,
@@ -2620,7 +2777,7 @@ void PLAT_GL_Swap() {
 				(i == nrofshaders - 1) ? finalScaleFilter : shaders[i + 1]->filter);
 		} else {
 			runShaderPass(
-				(i == 0) ? src_texture : shaders[i - 1]->texture,
+				(i == 0) ? frame_tex : shaders[i - 1]->texture,
 				g_noshader,
 				&shaders[i]->texture,
 				0, 0, dst_w, dst_h,
@@ -2644,7 +2801,7 @@ void PLAT_GL_Swap() {
 			0, GL_NONE);
 	} else {
 		//LOG_info("Shader Pass: Scale to screen (pipeline size: %d)\n", nrofshaders);
-		runShaderPass(src_texture,
+		runShaderPass(frame_tex,
 					  g_shader_default,
 					  NULL,
 					  dst_rect.x, dst_rect.y, dst_rect.w, dst_rect.h,

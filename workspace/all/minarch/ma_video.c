@@ -1,5 +1,6 @@
 #include "ma_internal.h"
 #include "ma_video.h"
+#include "ma_hwrender.h"
 
 static const char* bitmap_font[] = {
 	['0'] =
@@ -965,6 +966,28 @@ static void convert_rgb565_to_rgba(const void* src, uint32_t* dst, unsigned widt
 	}
 }
 
+// GPU core frame: the pixels never touch the CPU, so the software-only extras
+// (fade-in, debug HUD, ambient colour) are skipped in this spike.
+static void video_refresh_hw(const void* data, unsigned width, unsigned height) {
+	Special_render();
+	if (!HWR_submitFrame(data, width, height))
+		return;
+	HWR_clampFrame(&width, &height);
+	if (renderer.dst_p == 0 || width != renderer.true_w || height != renderer.true_h) {
+		selectScaler(width, height, width * 4);
+		GFX_clearAll();
+		if (!shader_reset_suppressed)
+			GFX_resetShaders();
+		else
+			shader_reset_suppressed = 0;
+	}
+	renderer.src = NULL;
+	renderer.dst = screen->pixels;
+	GFX_blitRenderer(&renderer);
+	screen_flip(screen);
+	last_flip_time = SDL_GetTicks();
+}
+
 void video_refresh_callback(const void* data, unsigned width, unsigned height, size_t pitch) {
 	// Log NEON availability once on first call
 	static int neon_logged = 0;
@@ -990,6 +1013,13 @@ void video_refresh_callback(const void* data, unsigned width, unsigned height, s
 	// pixel conversion and ambient scan for frames that will never be shown
 	if (fast_forward && SDL_GetTicks() - last_flip_time < FF_FRAME_INTERVAL_MS)
 		return;
+
+	if (HWR_active()) {
+		video_refresh_hw(data, width, height);
+		return;
+	}
+	if (data == RETRO_HW_FRAME_BUFFER_VALID)
+		return; // a GPU frame with no GPU path: not pixel data
 
 	// Allocate RGBA buffer if needed
 	if (!rgbaData || rgbaDataSize != width * height) {

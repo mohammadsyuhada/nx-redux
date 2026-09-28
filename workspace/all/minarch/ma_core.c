@@ -8,6 +8,7 @@
 #include "ma_audio.h"
 #include "ma_environment.h"
 #include "ma_rewind.h"
+#include "ma_hwrender.h"
 #include <dlfcn.h>
 #include <libgen.h>
 
@@ -26,8 +27,28 @@ static void Core_getName(char* in_name, char* out_name, size_t out_size) {
 // lazily when this frame has not been polled yet.
 static void (*core_run_real)(void);
 static void core_run_wrapped(void) {
+	HWR_beforeRun();
 	Input_beginFrame();
 	core_run_real();
+}
+
+// GPU cores may touch GL in any entry point, not only retro_run, and the
+// in-game menu leaves SDL's renderer context current: make the game context
+// current first. No-ops for software cores.
+static void (*core_reset_real)(void);
+static void core_reset_wrapped(void) {
+	HWR_makeCurrent();
+	core_reset_real();
+}
+static bool (*core_serialize_real)(void* data, size_t size);
+static bool core_serialize_wrapped(void* data, size_t size) {
+	HWR_makeCurrent();
+	return core_serialize_real(data, size);
+}
+static bool (*core_unserialize_real)(const void* data, size_t size);
+static bool core_unserialize_wrapped(const void* data, size_t size) {
+	HWR_makeCurrent();
+	return core_unserialize_real(data, size);
 }
 void Core_open(const char* core_path, const char* tag_name) {
 	core.handle = dlopen(core_path, RTLD_LAZY);
@@ -44,12 +65,15 @@ void Core_open(const char* core_path, const char* tag_name) {
 	core.get_system_info = dlsym(core.handle, "retro_get_system_info");
 	core.get_system_av_info = dlsym(core.handle, "retro_get_system_av_info");
 	core.set_controller_port_device = dlsym(core.handle, "retro_set_controller_port_device");
-	core.reset = dlsym(core.handle, "retro_reset");
+	core_reset_real = dlsym(core.handle, "retro_reset");
+	core.reset = core_reset_real ? core_reset_wrapped : NULL;
 	core_run_real = dlsym(core.handle, "retro_run");
 	core.run = core_run_wrapped;
 	core.serialize_size = dlsym(core.handle, "retro_serialize_size");
-	core.serialize = dlsym(core.handle, "retro_serialize");
-	core.unserialize = dlsym(core.handle, "retro_unserialize");
+	core_serialize_real = dlsym(core.handle, "retro_serialize");
+	core.serialize = core_serialize_real ? core_serialize_wrapped : NULL;
+	core_unserialize_real = dlsym(core.handle, "retro_unserialize");
+	core.unserialize = core_unserialize_real ? core_unserialize_wrapped : NULL;
 	core.cheat_reset = dlsym(core.handle, "retro_cheat_reset");
 	core.cheat_set = dlsym(core.handle, "retro_cheat_set");
 	core.load_game = dlsym(core.handle, "retro_load_game");
@@ -173,6 +197,19 @@ void Core_load(void) {
 		LOG_error("core refused to load game: %s\n", game_info.path);
 		exit(EXIT_FAILURE);
 	}
+	{
+		// GPU cores: the context must be live before the first retro_run and
+		// before State_resume loads a state into the core's renderer.
+		struct retro_system_av_info av = {0};
+		core.get_system_av_info(&av);
+		HWR_contextReset(av.geometry.max_width, av.geometry.max_height);
+		if (HWR_contextFailed()) {
+			// the core was promised a GL context it will never get: its GL
+			// calls would fail and its frames are not pixel data
+			LOG_error("GPU core context could not be started: %s\n", game_info.path);
+			exit(EXIT_FAILURE);
+		}
+	}
 
 	if (Cheats_load())
 		Core_applyCheats(&cheatcodes);
@@ -200,7 +237,9 @@ void Core_quit(void) {
 		SRAM_write();
 		Cheats_free();
 		RTC_write();
+		HWR_makeCurrent();
 		core.unload_game();
+		HWR_contextDestroy();
 		core.deinit();
 		core.initialized = 0;
 	}

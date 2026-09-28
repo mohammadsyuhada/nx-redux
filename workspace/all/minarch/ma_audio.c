@@ -1,9 +1,11 @@
 #include "ma_internal.h"
 #include "ma_audio.h"
 #include "ma_rewind.h"
+#include "ma_hwrender.h"
 #include <msettings.h>
 
 void audio_sample_callback(int16_t left, int16_t right) {
+	HWR_countAudio(1);
 	if (rewinding && !rewind_ctx.audio)
 		return;
 	if (!fast_forward || ff_audio) {
@@ -15,6 +17,7 @@ void audio_sample_callback(int16_t left, int16_t right) {
 	}
 }
 size_t audio_sample_batch_callback(const int16_t* data, size_t frames) {
+	HWR_countAudio(frames);
 	if (rewinding && !rewind_ctx.audio)
 		return frames;
 	if (!fast_forward || ff_audio) {

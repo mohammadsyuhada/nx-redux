@@ -5,6 +5,7 @@
 #include "scaler.h"
 #include "defines.h"
 #include <stdbool.h>
+#include "hwr_plat.h"
 
 ///////////////////////////////
 
