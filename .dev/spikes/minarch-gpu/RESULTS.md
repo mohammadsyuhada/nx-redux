@@ -93,6 +93,24 @@ no `dc_boot.bin`) and widescreen on. Standalone speed comes from the same audio 
 - The in-game menu drawn by minarch did not show up in the fb-mirror capture, and the save-state key sequence created no
   state on this device. Neither is investigated yet. Menu and save/load were verified on the Brick.
 
+## Follow-ups — 2026-09-29
+
+**CPU speed (Brick) is resolved.** `minarch_cpu_speed = Performance` works: a fresh libretro run holds min = max = 2.0 GHz
+(schedutil, `thermal-cpufreq-0` state 0, 52–61 °C). Standalone holds 2.0 GHz with the performance governor at ~55 °C. The
+fixed 1.8/1.8 range seen earlier appeared after about an hour of back-to-back runs, which fits a thermal cap. Re-measured at 2.0 GHz,
+Crazy Taxi 2 attract on libretro runs at 36.8–38.4k/s → **83–87 %** (vs 82–85 % at 1.8 GHz; standalone 78–80 %).
+
+**Double-rate audio on 30 fps games (Metal Slug 6).** nx-mobile fixed this in `1ab0b36b` (+ `5ed0387` to lock it on).
+flycast's `retro_run` runs until the game renders, so a 30 fps game gets two vblanks per call. The fix has two parts:
+1. `reicast_detect_vsync_swap_interval = enabled`, so flycast reports the halved rate through `SET_SYSTEM_AV_INFO`;
+2. the frontend paces to the reported rate. minarch ignores `SET_SYSTEM_AV_INFO`, which is the same gap as the aspect bug.
+
+Caveat for us: flycast v2.6 **and** v2.7 force detection off when `AutoSkipFrame != 0 && ThreadedRendering`
+(`shell/libretro/libretro.cpp` ~894). Our matched config uses `reicast_auto_skip_frame = some` + threaded rendering, and
+auto-skip is what carries Crazy Taxi 2 on the Brick. nx-mobile leaves auto-skip at its default (off). Phase 1 must
+implement AV-info handling, then measure auto-skip on (fast, 30 fps games double speed) against auto-skip off +
+detection on (correct pacing, heavy 3D slower) on the Brick. The alternative is patching the rule so both can be on.
+
 ## Netplay (GGPO) in the libretro build — checked 2026-09-29
 
 The rollback code is shared core code, but four places compile it out of the libretro build, and none of them is a build option:
