@@ -46,6 +46,7 @@ libchdr
 !**/other/flycast/*.cmake
 !**/other/flycast/cmake-hints/
 !**/other/flycast/cmake-hints/**
+!**/other/flycast/*.sh
 **/other/sdl2-drastic/SDL_drastic
 **/other/sdl2-drastic/extra-deps
 **/other/sdl2-drastic/output
