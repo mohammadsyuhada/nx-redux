@@ -63,8 +63,52 @@ Disabling anisotropic filtering alone changed nothing.
 6. **Spike-only code to replace in phase 1:** the `[HWR]` stats line and `HWR_countAudio` instrumentation; fade-in/debug HUD/ambient colour are skipped for GPU frames.
 7. An earlier, unrecorded libretro build attempt exists in the standalone tree (`build-tg5040-libretro*`, 2026-09-13), with no notes.
 
+## Smart Pro S (tg5050, Mali-G57) — 2026-09-29
+
+Same method. Libretro core built with `build-libretro-spike.sh tg5050`. Launcher `launch-tg5050.sh` copies DC.pak's
+CPU/GPU setup (big cores cpu4-5 at 1992–2160 MHz, GPU devfreq on performance) and pins minarch to cpu4-5. Options are in
+`minarch-smartpros.cfg` (`DEVICE=smartpros`), set to match standalone's tg5050 `default.cfg`: HLE BIOS (the card has
+no `dc_boot.bin`) and widescreen on. Standalone speed comes from the same audio probe, in a copy of `DC.pak` under
+`.spike/`.
+
+| Game / scene | Standalone speed | Libretro speed |
+|---|---|---|
+| Crazy Taxi 2, attract driving | 41.5–44.2k/s → **94–100 %** | 41.5–46.4k/s → **94–105 %** |
+| Soulcalibur, intro/attract | 43.8–44.2k/s → **100 %** | 45.1–46.4k/s → **102–105 %** |
+| Metal Slug 6, attract | 44.1k/s → **100 %** | 46.3k/s → **105 %** (plus a ~15 s burst at 92k/s, see below) |
+
+- **Speed is at parity.** Both run full speed. The ">100 %" is minarch's screen sync: it presents at the
+  panel rate (~63 Hz here) and resamples audio, the same as for every core. Here `minarch_cpu_speed = Performance` did apply (big
+  policy locked at 2160 MHz). That supports the idea that the Brick's 1.8 GHz came from a thermal cap, not from minarch ignoring the
+  option. Still unconfirmed on the Brick (it was not attached): read its cooling_device state during a run.
+- **Mali renders correctly.** The core got the same GLES2-labelled context, and images captured through the tg5050 fb mirror
+  (`/tmp/screenshot.pid`) are upright with correct colours.
+- **Aspect ratio is wrong. This makes the deferred review item user-visible.** minarch keeps the load-time aspect and ignores
+  flycast's later `SET_GEOMETRY` / `SET_SYSTEM_AV_INFO`. Crazy Taxi 2 shows at 4:3 (960 px wide) whether widescreen is on or off,
+  so the 16:9 frame is squeezed. Soulcalibur with widescreen on shows square (720 px wide). With widescreen on, flycast also sends
+  854×480 frames into an 853-wide FBO (one column clamped). The Brick's 4:3 panel hid all of this.
+- **VMU works.** Crazy Taxi 2's memory-card screen finds a card in port A (106 free blocks). Soulcalibur's "Unable to
+  load SOULCALIBUR game data. Check the VMU" still needs its own look (compare nx-mobile's per-game VMU handling).
+- **Anomaly:** Metal Slug 6 on libretro produced audio at ~2× rate (92k/s) for about 15 s mid-attract. Listen for it.
+- The in-game menu drawn by minarch did not show up in the fb-mirror capture, and the save-state key sequence created no
+  state on this device. Neither is investigated yet. Menu and save/load were verified on the Brick.
+
+## Netplay (GGPO) in the libretro build — checked 2026-09-29
+
+The rollback code is shared core code, but four places compile it out of the libretro build, and none of them is a build option:
+1. `CMakeLists.txt` `if(NOT LIBRETRO)` excludes the GGPO library sources.
+2. `core/build.h` `#if !defined(LIBRETRO) #define USE_GGPO`. Without it, `core/network/ggpo.cpp` compiles stubs
+   (`active()` false, `startNetwork()` false).
+3. `shell/libretro/option.cpp` declares `GGPOEnable`, `ActAsServer`, `NetworkServer`, `GGPODelay` and `NetworkEnable` with
+   empty names, so they cannot be set as core options.
+4. The session start/wait lives in the standalone UI (`core/ui/gui.cpp`), and the GGPO sync-start
+   `dc_loadstate(-1)` in `emulator.cpp` is `#ifndef LIBRETRO`.
+
+Enabling it is a source patch plus libretro glue (options, session start, frame-skip/rollback under `retro_run`). It is
+not a flag. nx-mobile's DC spec lists it as a future spike, not a result. Estimate: a 2–4 day spike.
+
 ## Device state after the spike
 
 Removed: `/mnt/SDCARD/.spike`, `Bios/DC/dc/`, `Saves/DC/reicast/`, `.userdata/tg5040/DC-flycast/`, the spike's
 `Soulcalibur (USA).state`, and the `rend.ShowFPS` line in standalone `emu.cfg`. Kept, at the user's request:
-`Roms/DreamCast (DC)/ChuChu Rocket.chd` and `Crazy Taxi 2 v1.004 (2001)(Sega)(US)[!].chd`.
+`Roms/DreamCast (DC)/ChuChu Rocket.chd` and `Crazy Taxi 2 v1.004 (2001)(Sega)(US)[!].chd`. Smart Pro S: same cleanup (`.spike`, `Bios/DC/dc/`, `Saves/DC/reicast/`, `.userdata/tg5050/DC-flycast/`); kept `Soulcalibur (USA).chd` + Crazy Taxi 2 in its DC folder.
