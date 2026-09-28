@@ -128,7 +128,14 @@ pass on tg5040, tg5050 and desktop. GBA (gpsp) regression is clean (no `[AV]`/`[
   when late instead of blocking. A GPU-core pacing mode that waits after `retro_run` until the audio buffer has room
   would throttle a 2-vblank `retro_run` to real time by itself. That gives correct 30 fps games *with* auto-skip on, without
   flycast's detection. It needs its own design and a check that it does not add latency or jitter.
-- Smart Pro S aspect verification is pending (device not attached).
+- **Smart Pro S (2026-09-29): the aspect bug is fixed.** With widescreen on, Crazy Taxi 2 logs `[AV] aspect=1.7778` and
+  `[HWR] FBO grown 853x853 -> 854x854`, and the GL capture fills the full 1280 px width (was 960). With widescreen off it is 960 px
+  (4:3). Soulcalibur's 2D memory-card screen now draws at correct 4:3 proportions (was square). One widescreen frame showed a
+  garbled strip bottom-left; a second capture was clean. It is most likely flycast's widescreen hack exposing off-screen geometry;
+  watch for it.
+- **Smart Pro S 30 fps pacing:** Metal Slug 6 (auto-skip off + detection) runs at 30.0 runs/s, 44.1k/s audio in 30 fps scenes
+  and ~63 (panel rate) in 60 fps scenes.
+- Soulcalibur still stops at "Unable to load SOULCALIBUR game data. Check the VMU" on both devices. That is the remaining memory-card item.
 
 ## Netplay (GGPO) in the libretro build — checked 2026-09-29
 
