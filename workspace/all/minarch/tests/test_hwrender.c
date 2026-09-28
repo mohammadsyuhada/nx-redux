@@ -45,6 +45,14 @@ void* PLAT_HWR_getProcAddress(const char* sym) {
 int PLAT_HWR_maxTextureSize(void) {
 	return 4096;
 }
+static unsigned stub_resize_w, stub_resize_h;
+static int stub_resize_calls, stub_resize_ok = 1;
+int PLAT_HWR_resize(unsigned w, unsigned h) {
+	stub_resize_calls++;
+	stub_resize_w = w;
+	stub_resize_h = h;
+	return stub_resize_ok;
+}
 
 // --- fake core callbacks ---
 static int core_reset_calls, core_destroy_calls;
@@ -185,6 +193,36 @@ int main(void) {
 		CHECK(!HWR_active(), "inactive after destroy");
 		HWR_contextDestroy();
 		CHECK(core_destroy_calls == 1 && stub_destroy_calls == 1, "second destroy is a no-op");
+	}
+
+	// 9. grow-only FBO resize, clamped, failure keeps the old size
+	reset_all();
+	stub_resize_calls = 0;
+	stub_resize_ok = 1;
+	{
+		CHECK(!HWR_growFramebuffer(854, 480), "inactive: no grow");
+		CHECK(stub_resize_calls == 0, "inactive: resize never called");
+		struct retro_hw_render_callback cb = make_cb(RETRO_HW_CONTEXT_OPENGLES3);
+		HWR_setCallback(&cb);
+		HWR_contextReset(640, 480);
+		CHECK(HWR_growFramebuffer(854, 480), "854x480 grows a 640x480 FBO");
+		CHECK(stub_resize_w == 854 && stub_resize_h == 480, "resized to 854x480");
+		unsigned w = 854, h = 480;
+		HWR_clampFrame(&w, &h);
+		CHECK(w == 854 && h == 480, "854x480 frame no longer clamped");
+		int calls = stub_resize_calls;
+		CHECK(!HWR_growFramebuffer(320, 240), "smaller request: no shrink");
+		CHECK(!HWR_growFramebuffer(854, 480), "same size: no resize");
+		CHECK(stub_resize_calls == calls, "no resize call for fit/shrink");
+		CHECK(HWR_growFramebuffer(8000, 480), "oversized request grows");
+		CHECK(stub_resize_w == 4096 && stub_resize_h == 480, "clamped to max texture size");
+		stub_resize_ok = 0;
+		CHECK(!HWR_growFramebuffer(4096, 2000), "resize failure returns false");
+		w = 4096;
+		h = 2000;
+		HWR_clampFrame(&w, &h);
+		CHECK(w == 4096 && h == 480, "failure keeps the old FBO size");
+		stub_resize_ok = 1;
 	}
 
 	printf("%s (%d failures)\n", fails ? "FAILED" : "ALL PASS", fails);

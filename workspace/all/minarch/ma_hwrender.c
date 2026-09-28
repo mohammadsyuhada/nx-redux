@@ -151,6 +151,33 @@ void HWR_clampFrame(unsigned* w, unsigned* h) {
 	}
 }
 
+bool HWR_growFramebuffer(unsigned max_w, unsigned max_h) {
+	if (!hwr.active)
+		return false;
+	unsigned w = max_w > hwr.fbo_w ? max_w : hwr.fbo_w;
+	unsigned h = max_h > hwr.fbo_h ? max_h : hwr.fbo_h;
+	int gl_max = PLAT_HWR_maxTextureSize();
+	if (gl_max > 0) {
+		if (w > (unsigned)gl_max)
+			w = gl_max;
+		if (h > (unsigned)gl_max)
+			h = gl_max;
+	}
+	if (w == hwr.fbo_w && h == hwr.fbo_h)
+		return false;
+	if (!PLAT_HWR_resize(w, h)) {
+		printf("[HWR] FBO grow to %ux%u failed, keeping %ux%u\n", w, h, hwr.fbo_w, hwr.fbo_h);
+		fflush(stdout);
+		return false;
+	}
+	printf("[HWR] FBO grown %ux%u -> %ux%u\n", hwr.fbo_w, hwr.fbo_h, w, h);
+	fflush(stdout);
+	hwr.fbo_w = w;
+	hwr.fbo_h = h;
+	hwr.warned_clamp = false;
+	return true;
+}
+
 int HWR_frameFlip(void) {
 	return hwr.cb.bottom_left_origin ? 1 : 0;
 }

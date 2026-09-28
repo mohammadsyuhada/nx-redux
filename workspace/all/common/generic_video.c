@@ -204,6 +204,37 @@ unsigned PLAT_HWR_create(unsigned w, unsigned h, int depth, int stencil) {
 	return hwr.fbo;
 }
 
+int PLAT_HWR_resize(unsigned w, unsigned h) {
+	if (!hwr.fbo)
+		return 0;
+	// Called from the core's environment callback inside retro_run: leave the
+	// core's texture, renderbuffer and framebuffer bindings as they were.
+	GLint prev_tex = 0, prev_rb = 0, prev_fb = 0;
+	glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev_tex);
+	glGetIntegerv(GL_RENDERBUFFER_BINDING, &prev_rb);
+	glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prev_fb);
+	glBindTexture(GL_TEXTURE_2D, hwr.color_tex);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+	GLint depth_format = 0;
+	if (hwr.depth_rb) {
+		glBindRenderbuffer(GL_RENDERBUFFER, hwr.depth_rb);
+		glGetRenderbufferParameteriv(GL_RENDERBUFFER, GL_RENDERBUFFER_INTERNAL_FORMAT, &depth_format);
+		glRenderbufferStorage(GL_RENDERBUFFER, depth_format, w, h);
+	}
+	glBindFramebuffer(GL_FRAMEBUFFER, hwr.fbo);
+	GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+	glBindTexture(GL_TEXTURE_2D, prev_tex);
+	glBindRenderbuffer(GL_RENDERBUFFER, prev_rb);
+	glBindFramebuffer(GL_FRAMEBUFFER, prev_fb);
+	if (status != GL_FRAMEBUFFER_COMPLETE) {
+		LOG_error("HWR: FBO resize to %ux%u incomplete: 0x%X\n", w, h, status);
+		return 0;
+	}
+	hwr.w = w;
+	hwr.h = h;
+	return 1;
+}
+
 void PLAT_HWR_setFrame(unsigned w, unsigned h, int flip) {
 	if (!hwr.fbo)
 		return;

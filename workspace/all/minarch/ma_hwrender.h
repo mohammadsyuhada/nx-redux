@@ -16,6 +16,7 @@ void HWR_contextDestroy(void);
 void HWR_beforeRun(void);
 bool HWR_submitFrame(const void* data, unsigned w, unsigned h);
 void HWR_clampFrame(unsigned* w, unsigned* h);
+bool HWR_growFramebuffer(unsigned max_w, unsigned max_h); // grow-only; true when resized
 int HWR_frameFlip(void);
 void HWR_countAudio(size_t frames);
 void HWR_reset(void);
