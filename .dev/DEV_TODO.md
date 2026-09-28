@@ -263,3 +263,39 @@ feature built first:
 [libretro-database NDS cht](https://github.com/libretro/libretro-database/tree/master/cht/Nintendo%20-%20Nintendo%20DS).
 
 ---
+
+## DC: per-game VMUs, and whether to move flycast to the libretro core
+
+**Requested:** 2026-09-28 (owner), while NX Redux Mobile added Dreamcast on the flycast **libretro** core with one
+VMU per game (`Saves/DC/<game>.A1.bin`, mirrored to the user's tree like any battery save).
+
+**Today on the handheld:** `DC.pak` runs **standalone** flycast. `launch.sh` sets `XDG_DATA_HOME="$USERDATA_DIR/data"`,
+so flycast keeps its memory cards (`vmu_save_A1.bin` …, one per port/slot, **shared by every game**), `dc_nvmem.bin`
+and save states in `.userdata/…/data/flycast/`, not in `Saves/DC/` (which `launch.sh` creates but flycast never
+uses). A shared card fills up with many games, and the user can't see or back it up with the other saves.
+
+**Per-game VMUs without changing emulator (recommended first):**
+- [ ] Check standalone flycast's per-game VMU option (believed `PerGameVmu` in `core/cfg/option.h`; confirm the key,
+      its section in `emu.cfg`, and the per-game file name it writes) and set it in `DC.pak`'s `default.cfg`
+      (tg5040 `default-smartpro.cfg` too).
+- [ ] Decide where per-game cards live: point them at `$SAVES_PATH/DC/` if flycast allows it, so they sit with the
+      other saves; otherwise leave them in the data dir.
+- [ ] Migration: existing shared `vmu_save_A1.bin` holds every game's saves. Keep it (don't delete) and document that
+      old saves stay on the shared card; optionally leave per-game off for users who already have one.
+- [ ] Netplay: the wizard's `--fetch-files "vmu_save_*.bin,dc_nvmem.bin"` and the host backup copy assume shared
+      cards; update the file globs for per-game cards.
+
+**Moving the handheld to the flycast libretro core (only if there is a reason beyond VMUs):** not needed for
+per-game VMUs. Standalone flycast was chosen for things the launcher builds on — the GGPO netplay wizard,
+RetroAchievements through flycast's own libcurl (with our CA-bundle patch), the NX overlay integration and the
+positional controller mapping files — which a libretro/minarch move would have to redo or drop, plus a
+performance check on the handheld GPU. Revisit only if the standalone build becomes a maintenance burden.
+
+**Performance check done — phase 0 spike, 2026-09-29 (branch `minarch-gpu-spike`): GO.** A minimal GPU
+(hardware-render) path in minarch runs flycast libretro v2.6 on the Brick at or above standalone speed with matched
+settings (Crazy Taxi 2 82–85 % vs 78–80 %, Soulcalibur fight 73–81 % vs 70–76 %, Metal Slug 6 100 %), and shaders,
+menu, save states and screenshots work. Open items (VMU, CPU-speed option, BIOS dir, GGPO loss): `.dev/spikes/minarch-gpu/RESULTS.md`.
+
+**Cross-device saves (later, optional):** even with per-game cards on both, standalone and libretro name the files
+differently (libretro per-content: `<content>.A1.bin`); moving a save between phone and handheld needs an agreed
+name or a small rename step.
