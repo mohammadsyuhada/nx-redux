@@ -111,6 +111,25 @@ auto-skip is what carries Crazy Taxi 2 on the Brick. nx-mobile leaves auto-skip 
 implement AV-info handling, then measure auto-skip on (fast, 30 fps games double speed) against auto-skip off +
 detection on (correct pacing, heavy 3D slower) on the Brick. The alternative is patching the rule so both can be on.
 
+## Phase 1a — AV-info / geometry handling (2026-09-29, Brick)
+
+Commits `27f51604` (AV classification + sync helpers), `5fe35b46` (in-place FBO growth), `eecb03f0` (env 32/37 for GPU
+cores + pending apply after `retro_run` + AUTO sync paces by core fps below 75 % of the panel rate). Host tests pass. Builds
+pass on tg5040, tg5050 and desktop. GBA (gpsp) regression is clean (no `[AV]`/`[HWR]` lines).
+
+- **30 fps pacing works.** Metal Slug 6 with `reicast_auto_skip_frame = disabled` + `reicast_detect_vsync_swap_interval
+  = enabled`: `[AV] fps=29.970` / `59.940` switches follow the game. It runs at 30.0 runs/s in 30 fps scenes and ~59 in 60 fps
+  scenes, with audio ~44.1k/s throughout (no more 2×). flycast reports a bogus 4.995–6.66 fps once at boot and corrects it one
+  report later.
+- **The trade-off (Crazy Taxi 2 attract, 2.0 GHz, cooling state 0):** auto-skip `some` gives **83–87 %**, and auto-skip
+  `disabled` + detection gives **61–73 %** (26.8–32.3k/s). Standalone gives 78–80 %. flycast forces detection off with auto-skip + threaded,
+  so today it is either correct 30 fps games or heavy-3D speed.
+- **Possible way out (not built): audio-master pacing for GPU cores.** minarch's fixed-rate audio path drops samples
+  when late instead of blocking. A GPU-core pacing mode that waits after `retro_run` until the audio buffer has room
+  would throttle a 2-vblank `retro_run` to real time by itself. That gives correct 30 fps games *with* auto-skip on, without
+  flycast's detection. It needs its own design and a check that it does not add latency or jitter.
+- Smart Pro S aspect verification is pending (device not attached).
+
 ## Netplay (GGPO) in the libretro build — checked 2026-09-29
 
 The rollback code is shared core code, but four places compile it out of the libretro build, and none of them is a build option:
