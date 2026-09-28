@@ -9,6 +9,9 @@
 #include "ma_environment.h"
 #include "ma_rewind.h"
 #include "ma_hwrender.h"
+#include "ma_avinfo.h"
+#include "ma_runframe.h"
+#include <msettings.h>
 #include <dlfcn.h>
 #include <libgen.h>
 
@@ -183,6 +186,53 @@ int Core_updateAVInfo(void) {
 	core.aspect_ratio = a;
 
 	return changed;
+}
+
+// GPU cores report timing and aspect changes mid-game (SET_SYSTEM_AV_INFO /
+// SET_GEOMETRY) from inside retro_run. Audio re-init and re-scaling cannot run
+// there, so the environment callback stores them and the main loop applies
+// them once retro_run has returned.
+static struct {
+	int has_av;
+	int has_geometry;
+	struct retro_system_av_info av;
+	struct retro_game_geometry geometry;
+} pending_av;
+
+void Core_setPendingAVInfo(const struct retro_system_av_info* av) {
+	pending_av.av = *av;
+	pending_av.has_av = 1;
+}
+void Core_setPendingGeometry(const struct retro_game_geometry* geometry) {
+	pending_av.geometry = *geometry;
+	pending_av.has_geometry = 1;
+}
+void Core_applyPendingAV(void) {
+	if (!pending_av.has_av && !pending_av.has_geometry)
+		return;
+	AVState cur = {core.fps, core.sample_rate, core.aspect_ratio};
+	int changes = 0;
+	if (pending_av.has_av)
+		changes |= AVInfo_classifyTiming(&cur, &pending_av.av);
+	if (pending_av.has_geometry)
+		changes |= AVInfo_classifyGeometry(&cur, &pending_av.geometry);
+	if (changes & AV_CHANGE_AUDIO) {
+		core.fps = pending_av.av.timing.fps;
+		core.sample_rate = pending_av.av.timing.sample_rate;
+		SND_resetAudio(core.sample_rate, core.fps);
+		SetVolume(GetVolume());
+		chooseSyncRef();
+	}
+	if (changes & AV_CHANGE_ASPECT) {
+		// SET_GEOMETRY is the more recent, narrower update when both arrived
+		core.aspect_ratio = pending_av.has_geometry ? AVInfo_aspect(&pending_av.geometry)
+													: AVInfo_aspect(&pending_av.av.geometry);
+		renderer.dst_p = 0; // re-run the scaler on the next frame
+	}
+	if (changes)
+		LOG_info("[AV] fps=%.3f rate=%.0f aspect=%.4f\n", core.fps, core.sample_rate, core.aspect_ratio);
+	pending_av.has_av = 0;
+	pending_av.has_geometry = 0;
 }
 
 void Core_load(void) {

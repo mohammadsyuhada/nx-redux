@@ -2,6 +2,7 @@
 #include "utils.h"
 #include "ma_environment.h"
 #include "ma_hwrender.h"
+#include "ma_core.h"
 #include "ma_input.h"
 #include "ma_config.h"
 #include "ma_options.h"
@@ -368,6 +369,25 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 #else
 		return HWR_setCallback((struct retro_hw_render_callback*)data);
 #endif
+	}
+	case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO: { /* 32 */
+		// GPU cores only: software cores keep today's "unsupported" answer
+		// until this is verified across the bundled cores.
+		const struct retro_system_av_info* av = (const struct retro_system_av_info*)data;
+		if (!av || !HWR_active())
+			return false;
+		// the core renders the new size in this same retro_run
+		HWR_growFramebuffer(av->geometry.max_width, av->geometry.max_height);
+		Core_setPendingAVInfo(av);
+		return true;
+	}
+	case RETRO_ENVIRONMENT_SET_GEOMETRY: { /* 37 */
+		const struct retro_game_geometry* geometry = (const struct retro_game_geometry*)data;
+		if (!geometry || !HWR_active())
+			return false;
+		HWR_growFramebuffer(geometry->max_width, geometry->max_height);
+		Core_setPendingGeometry(geometry);
+		return true;
 	}
 	case RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER: {
 #if defined(HAS_RUNTIME_PATHS)

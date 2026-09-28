@@ -401,6 +401,7 @@ int main(int argc, char* argv[]) {
 		} else {
 			run_frame();
 		}
+		Core_applyPendingAV();
 		if (Netplay_isActive()) {
 			Netplay_postFrame();
 		}

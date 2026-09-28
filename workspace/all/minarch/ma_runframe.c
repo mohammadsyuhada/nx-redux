@@ -3,6 +3,10 @@
 #include "ma_runframe.h"
 #include "ma_input.h"
 #include "ma_rewind.h"
+#include "ma_avinfo.h"
+
+_Static_assert(SYNC_SRC_AUTO == AVSYNC_AUTO && SYNC_SRC_SCREEN == AVSYNC_SCREEN && SYNC_SRC_CORE == AVSYNC_CORE,
+			   "ma_avinfo.h sync values must match SYNC_SRC_*");
 
 void chooseSyncRef(void) {
 #if defined(HAS_RUNTIME_PATHS)
@@ -13,17 +17,7 @@ void chooseSyncRef(void) {
 	// fixed-rate audio path; its buffer-occupancy modes absorb clock drift.
 	use_core_fps = 1;
 #else
-	switch (sync_ref) {
-	case SYNC_SRC_AUTO:
-		use_core_fps = (core.get_region() == RETRO_REGION_PAL);
-		break;
-	case SYNC_SRC_SCREEN:
-		use_core_fps = 0;
-		break;
-	case SYNC_SRC_CORE:
-		use_core_fps = 1;
-		break;
-	}
+	use_core_fps = SyncRef_useCoreFps(sync_ref, core.get_region() == RETRO_REGION_PAL, core.fps, SCREEN_FPS);
 #endif
 }
 
