@@ -181,5 +181,6 @@ flycast_REPO = https://github.com/flyinghead/flycast
 flycast_HASH = 5aa091fde632fb332c8d8c34e280d62dc951954c
 flycast_SUBMODULES = core/deps/libchdr core/deps/tinygettext core/deps/asio
 flycast_MAKE = sh $(CURDIR)/../../all/cores/flycast/build-libretro.sh $(PLATFORM)
+flycast_DEPS = ../../all/cores/flycast/build-libretro.sh ../../all/cores/flycast/toolchain-aarch64.cmake
 
 include ../../all/cores/Makefile

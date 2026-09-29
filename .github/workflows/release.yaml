@@ -104,6 +104,12 @@ jobs:
           for f in workspace/all/cores/patches/${{ matrix.core }}/*.patch; do
             [ -f "$f" ] && FILES="$FILES $f"
           done
+          # - the patch applier, and a core's own build files (e.g. flycast's
+          #   build script and toolchain in workspace/all/cores/flycast/)
+          FILES="$FILES workspace/all/cores/apply-patches.sh"
+          for f in $(find workspace/all/cores/${{ matrix.core }} -type f 2>/dev/null | sort); do
+            FILES="$FILES $f"
+          done
           HASH=$(cat $FILES | sha256sum | cut -d' ' -f1)
           echo "hash=$HASH" >> $GITHUB_OUTPUT
 

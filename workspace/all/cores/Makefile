@@ -62,15 +62,18 @@ $(SRC_ROOT)/$(1)/.patched: $(SRC_ROOT)/$(1)
 	(test ! -f patches/$(1).patch) || (test -f $(SRC_ROOT)/$(1)/.patched) || (cd $(SRC_ROOT)/$(1) && $(PATCH) -p1 < $(CURDIR)/patches/$(1).patch)
 	test -f $(SRC_ROOT)/$(1)/.patched || touch $(SRC_ROOT)/$(1)/.patched
 
-$(SRC_ROOT)/$(1)/.patched-all:
-	(test ! -d ../../all/cores/patches/$(1)) || (test -f $(SRC_ROOT)/$(1)/.patched-all) || (cd $(SRC_ROOT)/$(1) && $(foreach patch, $(sort $(wildcard ../../all/cores/patches/$(1)/*.patch)), $(PATCH) -p1 < $(CURDIR)/$(patch) &&) true)
-	test -f $(SRC_ROOT)/$(1)/.patched-all || touch $(SRC_ROOT)/$(1)/.patched-all
+# Shared patches: depends on the patch files, and apply-patches.sh keeps a
+# checksum of the set in the marker, so a patch added or changed after the
+# checkout was patched stops the build instead of being silently skipped.
+$(SRC_ROOT)/$(1)/.patched-all: $(sort $(wildcard ../../all/cores/patches/$(1)/*.patch)) | $(SRC_ROOT)/$(1)
+	sh $(CURDIR)/../../all/cores/apply-patches.sh $(SRC_ROOT)/$(1) ../../all/cores/patches/$(1)
 
 
 # The target is the real artifact filename ($1_CORE, e.g. stella2014_libretro.so
 # for a2600) — targeting a nonexistent $(1)_libretro.so made every renamed core
 # perpetually stale and relinked on each run.
-$(OUTPUT_ROOT)/$$($1_CORE): $(SRC_ROOT)/$(1)/.patched $(SRC_ROOT)/$(1)/.patched-all
+# $1_DEPS: extra files the build depends on (e.g. a build script outside the checkout)
+$(OUTPUT_ROOT)/$$($1_CORE): $(SRC_ROOT)/$(1)/.patched $(SRC_ROOT)/$(1)/.patched-all $($1_DEPS)
 	mkdir -p $(OUTPUT_ROOT)
 	cd $(SRC_ROOT)/$$($1_BUILD_PATH) && $$($1_MAKE) $(PROCS)
 	mv $(SRC_ROOT)/$$($1_BUILD_PATH)/$$($1_CORE) ./$(OUTPUT_ROOT)
@@ -83,7 +86,7 @@ status-$(1): $(SRC_ROOT)/$(1)
 patch-$(1): $(SRC_ROOT)/$(1)/.patched
 
 clean-$(1):
-	test ! -d $(SRC_ROOT)/$(1) || cd $(SRC_ROOT)/$$($1_BUILD_PATH) && $$($1_MAKE) clean
+	test ! -d $(SRC_ROOT)/$(1) || (cd $(SRC_ROOT)/$$($1_BUILD_PATH) && $$($1_MAKE) clean)
 	rm -f $(OUTPUT_ROOT)/$$($1_CORE)
 
 $(1): $(OUTPUT_ROOT)/$$($1_CORE)

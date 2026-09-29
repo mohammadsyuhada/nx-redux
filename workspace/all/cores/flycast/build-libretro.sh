@@ -6,6 +6,11 @@ set -e
 PLAT="$1"
 JOBS="${2:--j4}"
 HERE=$(cd "$(dirname "$0")" && pwd)
+if [ "$JOBS" = clean ]; then
+	# clean-flycast: the template calls "$flycast_MAKE clean"
+	rm -rf build-libretro-"$PLAT" flycast_libretro.so
+	exit 0
+fi
 # The template initialises flycast_SUBMODULES non-recursively; tinygettext
 # carries its own submodule (external/tinycmmc), so finish it here.
 git submodule update --init --recursive core/deps/tinygettext
