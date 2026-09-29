@@ -50,6 +50,18 @@ int main(void) {
 	FlipSchedule_next(&y, 0, d, d);
 	CHECK(FlipSchedule_next(&y, 400, 0, d) == 0, "zero slot: target not in the future (no wait)");
 
+	// a 3-vblank slot (20 fps game) must be waited for, not treated as "early"
+	FlipSchedule z = {0};
+	FlipSchedule_next(&z, 0, d, d);
+	CHECK(FlipSchedule_next(&z, 100, 3 * d, d) == 3 * d, "3-frame slot: wait for it (no early reset)");
+	CHECK(FlipSchedule_next(&z, 3100, 4 * d, d) == 7 * d, "4-frame slot (clamp limit): wait for it");
+	FlipSchedule e = {0};
+	FlipSchedule_next(&e, 10000, d, d);
+	CHECK(FlipSchedule_next(&e, 9500, 3 * d, d) == 13000, "3-frame slot, 3.5 frames ahead: still scheduled");
+	FlipSchedule g = {0};
+	FlipSchedule_next(&g, 10000, d, d);
+	CHECK(FlipSchedule_next(&g, 4000, 3 * d, d) == 4000, "far beyond slot + 2 frames early still resets");
+
 	printf("%s (%d failures)\n", fails ? "FAILED" : "ALL PASS", fails);
 	return fails ? 1 : 0;
 }

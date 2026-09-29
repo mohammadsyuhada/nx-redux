@@ -26,7 +26,10 @@ static inline int64_t FlipSchedule_next(FlipSchedule* s, int64_t now, int64_t sl
 	int64_t target = s->target + slot;
 	int64_t offset = now - target;
 	int64_t limit = FLIP_SCHEDULE_MAX_LOST * nominal;
-	if (offset > limit || offset < -limit) {
+	// A slot longer than one frame (a GPU core covering several vblanks in one
+	// retro_run) puts its target that much further ahead; that is not "early".
+	int64_t early = limit + (slot > nominal ? slot - nominal : 0);
+	if (offset > limit || offset < -early) {
 		s->target = now;
 		return now;
 	}
