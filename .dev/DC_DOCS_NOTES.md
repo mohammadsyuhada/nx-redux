@@ -112,6 +112,13 @@ yet**; the switch ships together with netplay (sub-project 4). Until then the cu
 ### `docs/handheld/netplay.md`
 
 - Update the Dreamcast section when sub-project 4 lands (see the Netplay notes above).
+- **In-game menu during any netplay session (all systems)** *(built)*:
+  - MENU now shows only **"Leave netplay?"** (B Continue, A Leave) instead of the full menu (which had little left to do:
+    states, rewind and fast-forward were already off).
+  - Other systems: both players pause while it's open, with no time limit ("Leaving ends the session for both players").
+    After a player leaves a lockstep game, the other keeps playing on their own (unchanged).
+  - Dreamcast: the other player's game waits, and the dialog counts down ("The other player is waiting: N s left"). No
+    answer in 20 s = leave.
 
 ### `docs/handheld/emulators/cores.md`, `docs/handheld/emulators/index.md`
 

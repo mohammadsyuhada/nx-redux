@@ -411,6 +411,7 @@ int main(int argc, char* argv[]) {
 
 		// the other player left on purpose: end now, not at the core's timeout
 		if (CoreNetplay_isActive() && CoreNetplay_byePoll()) {
+			LOG_info("CoreNetplay: the other player left\n");
 			CoreNetplay_markEnded();
 			quit = 1;
 			break;

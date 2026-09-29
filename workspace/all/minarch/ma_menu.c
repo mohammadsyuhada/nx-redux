@@ -1442,24 +1442,32 @@ void Menu_undoLoadState(void) {
 	}
 }
 
-// Netplay run by the core (flycast GGPO): the other player's game waits while
-// this one is paused, so MENU only asks whether to leave. No answer within the
-// grace ends the session (leaves), well before the core's disconnect timeout.
+// During any netplay session MENU only asks whether to leave: states, rewind
+// and fast-forward are off anyway, and a menu left open stalls the other player.
+// minarch's own engines pause both sides cleanly, so their dialog simply waits;
+// a session the core runs itself (flycast GGPO) can't pause, the other
+// player's game just waits for this one, so no answer within the grace ends
+// the session (leaves), well before the core's disconnect timeout.
 typedef struct {
 	uint32_t start;
-	int seconds_left;
+	int seconds_left; // -1: no countdown
 } LeaveNetplayCtx;
 
 static void leaveNetplay_render(SDL_Surface* dst, void* data) {
 	LeaveNetplayCtx* ctx = data;
 	char subtitle[128];
-	snprintf(subtitle, sizeof(subtitle), "The other player is waiting.\nThe session ends in %d s.", ctx->seconds_left);
+	if (ctx->seconds_left >= 0)
+		snprintf(subtitle, sizeof(subtitle), "The other player is waiting: %d s left.", ctx->seconds_left);
+	else
+		snprintf(subtitle, sizeof(subtitle), "Leaving ends the session for both players.");
 	UI_renderConfirmDialogHints(dst, "Leave netplay?", subtitle, (char*[]){"B", "CONTINUE", "A", "LEAVE", NULL});
 }
 
 static int leaveNetplay_handle(void* data) {
 	LeaveNetplayCtx* ctx = data;
-	if (CoreNetplay_byePoll()) { // the other player left meanwhile
+	if (Netplay_isConnected())
+		Netplay_pollWhilePaused(); // keep the lockstep link alive, as the full menu did
+	if (CoreNetplay_byePoll()) {   // the other player left meanwhile
 		CoreNetplay_markEnded();
 		return 1;
 	}
@@ -1467,23 +1475,26 @@ static int leaveNetplay_handle(void* data) {
 		return 1;
 	if (PAD_justPressed(BTN_B) || PAD_justPressed(BTN_MENU))
 		return 0;
-	int left = CoreNetplay_leaveSecondsLeft(ctx->start, SDL_GetTicks());
-	if (left != ctx->seconds_left) {
-		ctx->seconds_left = left;
-		return UI_MODAL_DIRTY;
+	if (ctx->seconds_left >= 0) {
+		int left = CoreNetplay_leaveSecondsLeft(ctx->start, SDL_GetTicks());
+		if (left != ctx->seconds_left) {
+			ctx->seconds_left = left;
+			return UI_MODAL_DIRTY;
+		}
 	}
 	return UI_MODAL_CONTINUE;
 }
 
 // true = leave the session (and the game)
 static bool Menu_leaveNetplay(void) {
-	LeaveNetplayCtx ctx = {SDL_GetTicks(), CORE_NETPLAY_LEAVE_GRACE_MS / 1000};
+	bool timed = CoreNetplay_isActive();
+	LeaveNetplayCtx ctx = {SDL_GetTicks(), timed ? CORE_NETPLAY_LEAVE_GRACE_MS / 1000 : -1};
 	UI_ModalOpts opts = {
 		.screen = screen,
 		.render = leaveNetplay_render,
 		.handle = leaveNetplay_handle,
 		.ctx = &ctx,
-		.timeout_ms = CORE_NETPLAY_LEAVE_GRACE_MS, // expiry returns -1: leave
+		.timeout_ms = timed ? CORE_NETPLAY_LEAVE_GRACE_MS : 0, // expiry returns -1: leave
 		.reset_pad = true,
 	};
 	return UI_modalLoop(&opts) != 0;
@@ -1561,9 +1572,11 @@ void Menu_loop(void) {
 
 	//set vid.blit to null for menu drawing no need for blitrender drawing
 	GFX_clearShaders();
-	if (CoreNetplay_isActive()) {
-		if (Menu_leaveNetplay())
+	if (Multiplayer_isActive()) {
+		if (Menu_leaveNetplay()) {
+			Netplay_quitAll(); // as the full menu's Quit: close the link cleanly
 			quit = 1;
+		}
 		show_menu = 0; // straight to the teardown below
 	}
 	while (show_menu) {
