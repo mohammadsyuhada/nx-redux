@@ -101,6 +101,12 @@ static int parse_args(int argc, char** argv, WizArgs* a) {
 			a->fetch_to = argv[++i];
 		} else if (strcmp(arg, "--session-file") == 0 && has_value) {
 			a->session_path = argv[++i];
+		} else if (strcmp(arg, "--caps") == 0 && has_value) {
+			a->caps = argv[++i];
+			if (!WizCaps_isValid(a->caps)) {
+				fprintf(stderr, "netplay: --caps must be [A-Za-z0-9._=,-], under %d chars\n", WIZ_CAPS_MAX);
+				return -1;
+			}
 		} else if (strcmp(arg, "--fetch-files") == 0 && has_value) {
 			if (parse_patterns(argv[++i], a) != 0)
 				return -1;
@@ -148,6 +154,7 @@ int wizard_write_session(const char* path, const WizSession* s, const char* game
 			s->player_num, s->num_players);
 	fput_shq(fp, "NETPLAY_GAME", game);
 	fput_shq(fp, "NETPLAY_PREV_SSID", s->prev_ssid);
+	fput_shq(fp, "NETPLAY_PEER_CAPS", s->peer_caps);
 
 	// A short write (tmpfs ENOSPC/EIO) must not read as success: exit 0 is the
 	// hard "start with netplay" contract, and launch.sh would then source a

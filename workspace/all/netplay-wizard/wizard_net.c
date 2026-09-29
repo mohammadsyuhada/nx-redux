@@ -5,8 +5,8 @@
  * lines; the host advertises itself on WIZ_UDP_PORT so the WiFi-mode client can
  * list it. The exchange, in order:
  *
- *     client -> host:  HELLO 1 <game> client [any]
- *     host -> client:  HELLO 1 <game> host <n>  (or REJECT <reason>, then close)
+ *     client -> host:  HELLO 1 <game> client [any] [caps=<token>]
+ *     host -> client:  HELLO 1 <game> host <n> [caps=<token>]  (or REJECT <reason>, then close)
  *     host -> client:  SYNC-READY <n>           (only when the host serves saves)
  *     host -> client:  FILE <name>              (n times, bare filenames)
  *     client -> host:  SYNC-DONE | SYNC-FAIL
@@ -21,6 +21,10 @@
  * chosen to join a differently-named game anyway (FireRed joining LeafGreen);
  * the host then skips its title gate. A host predating the token still reads
  * the line (its fifth field simply fails to parse) and rejects as before.
+ *
+ * The trailing "caps=<token>" carries the launcher's --caps (wiz_caps.h), so
+ * each side learns the other's (e.g. Dreamcast's BIOS fingerprint). Wizards
+ * that predate it ignore it, since every HELLO parse reads a fixed field count.
  *
  * A rejected or dropped client never ends the host's wait: the host closes that
  * connection and returns to its waiting screen. The client is the side that
@@ -960,8 +964,11 @@ static int wiz_host_handshake(const WizArgs* a, WizSession* s, int fd,
 		fprintf(stderr, "netplay: player %d at %s runs '%s' (we run '%s'); joined on request\n",
 				player_num, peer_ip, game, a->game);
 
+	WizCaps_find(line, s->peer_caps, sizeof(s->peer_caps));
+	char caps_field[WIZ_CAPS_MAX + 8];
+	WizCaps_field(a->caps, caps_field, sizeof(caps_field));
 	wiz_esc_spaces(a->game, escaped, sizeof(escaped));
-	if (wiz_send_line(fd, "HELLO %d %s host %d", WIZ_PROTO_VERSION, escaped, player_num) != 0)
+	if (wiz_send_line(fd, "HELLO %d %s host %d%s", WIZ_PROTO_VERSION, escaped, player_num, caps_field) != 0)
 		return 1;
 
 	snprintf(ip_out, 16, "%s", peer_ip);
@@ -1416,8 +1423,10 @@ static int wiz_client_session(const WizArgs* a, WizSession* s, int fd, const cha
 	wiz_reader_init(&reader, fd);
 	wiz_esc_spaces(a->game, escaped, sizeof(escaped));
 
-	if (wiz_send_line(fd, any_game ? "HELLO %d %s client " WIZ_NET_ANY_GAME : "HELLO %d %s client",
-					  WIZ_PROTO_VERSION, escaped) != 0) {
+	char caps_field[WIZ_CAPS_MAX + 8];
+	WizCaps_field(a->caps, caps_field, sizeof(caps_field));
+	if (wiz_send_line(fd, any_game ? "HELLO %d %s client " WIZ_NET_ANY_GAME "%s" : "HELLO %d %s client%s",
+					  WIZ_PROTO_VERSION, escaped, caps_field) != 0) {
 		wiz_net_error("Connection failed.\n\nPlease try again.");
 		return 1;
 	}
@@ -1454,6 +1463,7 @@ static int wiz_client_session(const WizArgs* a, WizSession* s, int fd, const cha
 				host_ip, game, a->game);
 
 	s->player_num = (assigned >= 1) ? assigned : 2; // older host omits it -> 2-player
+	WizCaps_find(line, s->peer_caps, sizeof(s->peer_caps));
 
 	snprintf(s->peer_ip, sizeof(s->peer_ip), "%s", host_ip);
 
