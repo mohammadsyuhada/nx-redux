@@ -128,6 +128,10 @@ static struct {
 	unsigned copy_w, copy_h;
 	int frame_ready; // copy_tex holds a frame to present
 	int state_dirty; // the core ran since our last draw: drop cached GL state
+	GLuint hud_tex;	 // debug HUD drawn over the game (0 = none)
+	int hud_w, hud_h;
+	GLuint avg_fbo, avg_tex; // downsample target for ambient LED colour
+	int avg_w, avg_h;
 } hwr;
 
 void PLAT_HWR_makeCurrent(void) {
@@ -157,6 +161,12 @@ static void hwr_delete_copy(void) {
 void PLAT_HWR_destroy(void) {
 	PLAT_HWR_makeCurrent();
 	hwr_delete_copy();
+	if (hwr.hud_tex)
+		glDeleteTextures(1, &hwr.hud_tex);
+	if (hwr.avg_fbo)
+		glDeleteFramebuffers(1, &hwr.avg_fbo);
+	if (hwr.avg_tex)
+		glDeleteTextures(1, &hwr.avg_tex);
 	if (hwr.depth_rb)
 		glDeleteRenderbuffers(1, &hwr.depth_rb);
 	if (hwr.fbo)
@@ -280,10 +290,70 @@ void PLAT_HWR_restoreFrontendState(void) {
 	glDisable(GL_CULL_FACE);
 	glDisable(GL_BLEND);
 	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	glDepthMask(GL_TRUE);
+	glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+	glBindSampler(0, 0);
+	glBindSampler(1, 0);
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+	glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 	glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+	glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+	glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
 	glPixelStorei(GL_PACK_ALIGNMENT, 4);
 	hwr.state_dirty = 1;
+}
+
+void PLAT_HWR_setHud(const void* rgba, int w, int h) {
+	if (!rgba || w <= 0 || h <= 0) {
+		if (hwr.hud_tex)
+			glDeleteTextures(1, &hwr.hud_tex);
+		hwr.hud_tex = 0;
+		hwr.hud_w = hwr.hud_h = 0;
+		return;
+	}
+	if (!hwr.hud_tex || hwr.hud_w != w || hwr.hud_h != h) {
+		if (!hwr.hud_tex)
+			glGenTextures(1, &hwr.hud_tex);
+		glBindTexture(GL_TEXTURE_2D, hwr.hud_tex);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+		hwr.hud_w = w;
+		hwr.hud_h = h;
+	} else {
+		glBindTexture(GL_TEXTURE_2D, hwr.hud_tex);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+	}
+	hwr.state_dirty = 1;
+}
+
+int PLAT_HWR_readAverage(void* rgba, int w, int h) {
+	if (!hwr.copy_fbo || !hwr.frame_ready || w <= 0 || h <= 0)
+		return 0;
+	if (!hwr.avg_fbo || hwr.avg_w != w || hwr.avg_h != h) {
+		if (!hwr.avg_tex)
+			glGenTextures(1, &hwr.avg_tex);
+		glBindTexture(GL_TEXTURE_2D, hwr.avg_tex);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+		if (!hwr.avg_fbo)
+			glGenFramebuffers(1, &hwr.avg_fbo);
+		glBindFramebuffer(GL_FRAMEBUFFER, hwr.avg_fbo);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, hwr.avg_tex, 0);
+		hwr.avg_w = w;
+		hwr.avg_h = h;
+	}
+	// downsample on the GPU so only w*h pixels come back to the CPU
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, hwr.copy_fbo);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, hwr.avg_fbo);
+	glBlitFramebuffer(0, 0, hwr.copy_w, hwr.copy_h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, hwr.avg_fbo);
+	glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	hwr.state_dirty = 1;
+	return 1;
 }
 
 static int device_width;
@@ -2859,6 +2929,17 @@ void PLAT_GL_Swap() {
 			NULL,
 			0, 0, device_width, device_height,
 			&(Shader){.srcw = vid.blit->src_w, .srch = vid.blit->src_h, .texw = overlay_w, .texh = overlay_h},
+			1, GL_NONE);
+	}
+
+	// Debug HUD over a GPU core's frame (software cores draw it into the frame)
+	if (hwr.frame_ready && hwr.hud_tex) {
+		runShaderPass(
+			hwr.hud_tex,
+			g_shader_overlay,
+			NULL,
+			dst_rect.x, dst_rect.y, dst_rect.w, dst_rect.h,
+			&(Shader){.srcw = hwr.hud_w, .srch = hwr.hud_h, .texw = hwr.hud_w, .texh = hwr.hud_h},
 			1, GL_NONE);
 	}
 

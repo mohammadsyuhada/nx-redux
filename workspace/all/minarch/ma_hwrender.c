@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <stdlib.h>
 #include "ma_hwrender.h"
 #include "hwr_plat.h"
 #include "ma_emutime.h"
@@ -17,7 +18,8 @@ static struct {
 	bool has_frame;
 	bool warned_clamp;
 	unsigned stat_runs, stat_frames;
-	unsigned long long stat_audio_base; // EmuTime total at the window start: emulation speed = audio rate / sample rate
+	unsigned long long stat_audio_base;
+	bool stats_on; // NX_HWR_STATS=1 // EmuTime total at the window start: emulation speed = audio rate / sample rate
 	unsigned long stat_start_ms;
 } hwr;
 
@@ -95,6 +97,9 @@ void HWR_contextReset(unsigned max_w, unsigned max_h) {
 	hwr.active = true;
 	hwr.has_frame = false;
 	hwr.stat_start_ms = now_ms();
+	// the 5 s [HWR] stats line is a measuring aid (spike runs, benchmarks)
+	const char* stats = getenv("NX_HWR_STATS");
+	hwr.stats_on = stats != NULL && strcmp(stats, "1") == 0;
 	hwr.stat_audio_base = EmuTime_totalFrames();
 	if (hwr.cb.context_reset)
 		hwr.cb.context_reset();
@@ -116,6 +121,8 @@ void HWR_contextDestroy(void) {
 }
 
 static void hwr_stats(void) {
+	if (!hwr.stats_on)
+		return;
 	unsigned long now = now_ms();
 	unsigned long elapsed = now - hwr.stat_start_ms;
 	if (elapsed < HWR_STATS_MS)

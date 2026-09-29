@@ -982,6 +982,10 @@ void GFX_sync(void) {
 	}
 }
 
+// One schedule for every fixed-rate/scheduled present in the process: Native
+// (GFX_flip_fixed_rate) and Emulated slots share it, so switching between them
+// (e.g. fast-forward under Emulated) keeps the timeline; a change of nominal
+// fps re-anchors it.
 static FlipSchedule flip_schedule;
 
 void GFX_flip_scheduled(SDL_Surface* screen, double slot_s, double target_fps) {
@@ -1016,7 +1020,9 @@ void GFX_flip_scheduled(SDL_Surface* screen, double slot_s, double target_fps) {
 
 	// Stats logic
 	double frame_ms = elapsed_time_s * 1000.0;
-	double target_ms = 1000.0 / target_fps;
+	// a GPU core's present covers slot_s of game time (two frames for a 30 fps
+	// game): measure drops and jitter against that, not against 1/fps
+	double target_ms = slot_s > 0 ? slot_s * 1000.0 : 1000.0 / target_fps;
 	perf.jitter = fabs(frame_ms - target_ms);
 
 	if (frame_ms > target_ms * 1.1) {
