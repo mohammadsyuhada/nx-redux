@@ -11,7 +11,8 @@ void UI_renderConfirmDialog(SDL_Surface* dst, const char* title,
 							const char* subtitle);
 // Same dialog with caller-supplied button hints: NULL-terminated
 // "button","label" pairs, e.g. (char*[]){"B", "BACK", "A", "RETRY", NULL}.
-// NULL hints = the default CANCEL/CONFIRM pair.
+// NULL hints = the default CANCEL/CONFIRM pair; an empty list ((char*[]){NULL})
+// = no button row (a notice).
 void UI_renderConfirmDialogHints(SDL_Surface* dst, const char* title,
 								 const char* subtitle, char** hints);
 
