@@ -1,0 +1,313 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 19bdfee..ad51273 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1215,7 +1215,11 @@ if((USE_OPENGL OR USE_GLES2 OR USE_GLES) AND NOT LIBRETRO)
+ 	target_link_libraries(${PROJECT_NAME} PRIVATE glad)
+ endif()
+ 
+-if(NOT LIBRETRO)
++option(NX_LIBRETRO_GGPO "NX Redux: GGPO netplay in the libretro core" OFF)
++if(LIBRETRO AND NX_LIBRETRO_GGPO)
++	target_compile_definitions(${PROJECT_NAME} PRIVATE NX_LIBRETRO_GGPO)
++endif()
++if(NOT LIBRETRO OR NX_LIBRETRO_GGPO)
+ 	target_include_directories(${PROJECT_NAME} PRIVATE core/deps/ggpo/include core/deps/ggpo/lib/ggpo)
+ 	target_sources(${PROJECT_NAME} PRIVATE
+ 		core/deps/ggpo/lib/ggpo/bitvector.cpp
+@@ -1252,6 +1256,8 @@ if(NOT LIBRETRO)
+ 		core/deps/ggpo/lib/ggpo/network/udp_proto.h
+ 		core/deps/ggpo/lib/ggpo/network/udp.cpp
+ 		core/deps/ggpo/lib/ggpo/network/udp.h)
++endif()
++if(NOT LIBRETRO)
+ 
+ 	if(ANDROID)
+ 		target_compile_definitions(${PROJECT_NAME} PRIVATE GLES GLES3)
+diff --git a/core/build.h b/core/build.h
+index 6ea5355..89971ee 100755
+--- a/core/build.h
++++ b/core/build.h
+@@ -105,7 +105,7 @@
+ #endif
+ #endif
+ 
+-#if !defined(LIBRETRO)
++#if !defined(LIBRETRO) || defined(NX_LIBRETRO_GGPO)
+ #define USE_GGPO
+ #endif
+ 
+diff --git a/core/network/ggpo.cpp b/core/network/ggpo.cpp
+index 64218ff..b4ef57f 100644
+--- a/core/network/ggpo.cpp
++++ b/core/network/ggpo.cpp
+@@ -31,6 +31,9 @@ namespace ggpo
+ {
+ 
+ bool inRollback;
++#ifdef LIBRETRO
++std::atomic<bool> nxStopRequested{false};
++#endif
+ 
+ static void getLocalInput(MapleInputState inputState[4])
+ {
+@@ -73,8 +76,12 @@ static void getLocalInput(MapleInputState inputState[4])
+ #ifdef USE_GGPO
+ #include "ggponet.h"
+ #include "emulator.h"
++#ifndef LIBRETRO // no ImGui/UI in the libretro core
+ #include "ui/gui.h"
++#endif
++#ifndef LIBRETRO // no ImGui/UI in the libretro core
+ #include "ui/gui_util.h"
++#endif
+ #include "hw/mem/mem_watch.h"
+ #include <string.h>
+ #include <chrono>
+@@ -82,7 +89,9 @@ static void getLocalInput(MapleInputState inputState[4])
+ #include <mutex>
+ #include <unordered_map>
+ #include <numeric>
++#ifndef LIBRETRO // no ImGui/UI in the libretro core
+ #include "imgui.h"
++#endif
+ #include "miniupnp.h"
+ #include "hw/naomi/naomi_cart.h"
+ 
+@@ -564,7 +573,14 @@ void startSession(int localPort, int localPlayerNum)
+ 	// automatically disconnect clients after 3000 ms and start our count-down timer
+ 	// for disconnects after 1000 ms.   To completely disable disconnects, simply use
+ 	// a value of 0 for ggpo_set_disconnect_timeout.
++#ifdef LIBRETRO
++	// NX Redux: the frontend sets a longer grace so a player can pause (menu)
++	// without ending the session; the peer's game waits meanwhile
++	const char *nxTimeout = getenv("NX_GGPO_DISCONNECT_MS");
++	ggpo_set_disconnect_timeout(ggpoSession, nxTimeout != nullptr && atoi(nxTimeout) > 0 ? atoi(nxTimeout) : 3000);
++#else
+ 	ggpo_set_disconnect_timeout(ggpoSession, 3000);
++#endif
+ 	ggpo_set_disconnect_notify_start(ggpoSession, 1000);
+ 
+ 	ggpo::localPlayerNum = localPlayerNum;
+@@ -763,6 +779,10 @@ bool nextFrame()
+ 			throw FlycastException("GGPO error");
+ 		}
+ 		DEBUG_LOG(NETWORK, "ggpo_add_local_input prediction barrier reached");
++#ifdef LIBRETRO
++		if (nxStopRequested)
++			return false; // unloading: release the lock, don't restart the SH4
++#endif
+ 		std::this_thread::sleep_for(std::chrono::milliseconds(5));
+ 		error = ggpo_idle(ggpoSession, 0);
+ 		if (error != GGPO_OK)
+@@ -866,6 +886,7 @@ void displayStats()
+ {
+ 	if (!active())
+ 		return;
++#ifndef LIBRETRO
+ 	GGPONetworkStats stats;
+ 	ggpo_get_network_stats(ggpoSession, remotePlayer, &stats);
+ 
+@@ -918,6 +939,7 @@ void displayStats()
+ 	}
+ 
+ 	ImGui::End();
++#endif
+ }
+ 
+ void endOfFrame()
+diff --git a/core/network/ggpo.h b/core/network/ggpo.h
+index 2b9889a..bfea25d 100644
+--- a/core/network/ggpo.h
++++ b/core/network/ggpo.h
+@@ -17,6 +17,7 @@
+     along with Flycast.  If not, see <https://www.gnu.org/licenses/>.
+ */
+ #pragma once
++#include <atomic>
+ #include <future>
+ #include <string>
+ 
+@@ -36,6 +37,13 @@ void endOfFrame();
+ void sendChatMessage(int playerNum, const std::string& msg);
+ void receiveChatMessages(void (*callback)(int playerNum, const std::string& msg));
+ 
++#ifdef LIBRETRO
++// NX Redux: set by the frontend's unload (and cleared by the next load). A
++// thread waiting for the peer's inputs holds the session lock the unload needs,
++// so it gives up on this flag instead of waiting for the peer or the timeout.
++extern std::atomic<bool> nxStopRequested;
++#endif
++
+ static inline bool rollbacking() {
+ 	extern bool inRollback;
+ 
+diff --git a/shell/libretro/libretro.cpp b/shell/libretro/libretro.cpp
+index ef59b7a..95a0fca 100644
+--- a/shell/libretro/libretro.cpp
++++ b/shell/libretro/libretro.cpp
+@@ -1345,6 +1345,92 @@ void retro_run()
+ 	first_run = false;
+ }
+ 
++#ifdef NX_LIBRETRO_GGPO
++// NX Redux: GGPO rollback netplay in the libretro core. The frontend's launcher
++// runs the session setup (peer discovery, save sync) and hands the result over
++// in environment variables, read here before the game loads; the handshake the
++// standalone UI runs (core/ui/gui.cpp) is started and awaited after the load.
++//   NX_GGPO=1                  start a session
++//   NX_GGPO_HOST=1|0           host (player 1) or client (player 2)
++//   NX_GGPO_SERVER=<ip>        the peer's address (both sides need it)
++//   NX_GGPO_HLE=1              use the HLE BIOS (the two sides' BIOS differ)
++//   NX_GGPO_DISCONNECT_MS=<n>  peer silence before the session ends (ggpo.cpp)
++//   NX_GGPO_TIMEOUT=<s>        how long to wait for the peer at start
++// The input delay is a core option (reicast_netplay_delay), set per player.
++#include "network/net_handshake.h"
++#include "network/ggpo.h"
++#include <chrono>
++static bool nx_ggpo_env_is(const char *name, const char *value)
++{
++	const char *v = getenv(name);
++	return v != nullptr && strcmp(v, value) == 0;
++}
++static bool nx_ggpo_configure()
++{
++	ggpo::nxStopRequested = false;
++	if (!nx_ggpo_env_is("NX_GGPO", "1"))
++		return false;
++	const char *server = getenv("NX_GGPO_SERVER");
++	config::GGPOEnable.override(true);
++	config::NetworkEnable.override(false);
++	config::ActAsServer.override(nx_ggpo_env_is("NX_GGPO_HOST", "1"));
++	config::NetworkServer.override(std::string(server != nullptr ? server : ""));
++	if (nx_ggpo_env_is("NX_GGPO_HLE", "1"))
++		config::UseReios.override(true);
++	// Everything that changes what the emulated machine does must be the same
++	// on both sides, or the session desyncs. Region, language and broadcast
++	// follow the disc and the (host-synced) console flash; render-only options
++	// (resolution, widescreen hack, frame skip, sorting) stay per device.
++	config::Region.override(3);		// Default
++	config::Language.override(6);	// Default
++	config::Broadcast.override(4);	// Default
++	config::Sh4Clock.override(200);
++	config::DSPEnabled.override(false);
++	config::WidescreenGameHacks.override(false);
++	config::FastGDRomLoad.override(false);
++	config::RamMod32MB.override(false);
++	config::ForceFreePlay.override(true);
++	config::EmulateBBA.override(false);
++	config::UseDCNet.override(false);
++	config::EnableUPnP.override(false);
++	// GGPO always drives port B as player 2: both machines need a controller
++	// there (the frontend only plugs port A)
++	retro_set_controller_port_device(1, RETRO_DEVICE_JOYPAD);
++	NOTICE_LOG(NETWORK, "NX GGPO: %s, server '%s', delay %d, %s BIOS", config::ActAsServer ? "host" : "client",
++			config::NetworkServer.get().c_str(), config::GGPODelay.get(), config::UseReios ? "HLE" : "real");
++	return true;
++}
++static bool nx_ggpo_start()
++{
++	if (NetworkHandshake::instance == nullptr)
++	{
++		ERROR_LOG(NETWORK, "NX GGPO: no network handshake after load");
++		return false;
++	}
++	const char *t = getenv("NX_GGPO_TIMEOUT");
++	int timeout = t != nullptr && atoi(t) > 0 ? atoi(t) : 60;
++	std::future<bool> status = NetworkHandshake::instance->start();
++	if (status.wait_for(std::chrono::seconds(timeout)) != std::future_status::ready)
++	{
++		ERROR_LOG(NETWORK, "NX GGPO: peer not synchronized after %d s", timeout);
++		NetworkHandshake::instance->stop();
++		return false;
++	}
++	try {
++		if (!status.get())
++		{
++			ERROR_LOG(NETWORK, "NX GGPO: handshake failed");
++			return false;
++		}
++	} catch (const FlycastException& e) {
++		ERROR_LOG(NETWORK, "NX GGPO: %s", e.what());
++		return false;
++	}
++	NOTICE_LOG(NETWORK, "NX GGPO: synchronized with peer");
++	return true;
++}
++#endif
++
+ static bool loadGame()
+ {
+ 	try {
+@@ -2422,8 +2508,18 @@ bool retro_load_game(const struct retro_game_info *game)
+ 	}
+ 
+ 	config::ScreenStretching = 100;
++#ifdef NX_LIBRETRO_GGPO
++	bool nxGgpo = nx_ggpo_configure();
++#endif
+ 	if (!loadGame())
+ 		return false;
++#ifdef NX_LIBRETRO_GGPO
++	if (nxGgpo && !nx_ggpo_start())
++	{
++		retro_unload_game();
++		return false;
++	}
++#endif
+ 
+ 	rotate_game = config::Rotate90;
+ 	if (rotate_game)
+@@ -2450,6 +2546,10 @@ bool retro_load_game_special(unsigned game_type, const struct retro_game_info *i
+ void retro_unload_game()
+ {
+ 	INFO_LOG(COMMON, "Flycast unloading game");
++#ifdef NX_LIBRETRO_GGPO
++	// a thread waiting for the peer must let go of the session first
++	ggpo::nxStopRequested = true;
++#endif
+ 	emu.unloadGame();
+ 	dreampotato::term();
+ 	game_data.clear();
+diff --git a/shell/libretro/libretro_core_options.h b/shell/libretro/libretro_core_options.h
+index 8c58e74..3245b7e 100644
+--- a/shell/libretro/libretro_core_options.h
++++ b/shell/libretro/libretro_core_options.h
+@@ -264,6 +264,24 @@ struct retro_core_option_v2_definition option_defs_us[] = {
+       },
+       "enabled",
+    },
++   {
++      CORE_OPTION_NAME "_netplay_delay",
++      "Netplay Input Delay",
++      NULL,
++      "Frames of delay added to your own input in a netplay session. Higher values mean fewer corrections (rollbacks) on a slow connection, but more input lag. Each player sets their own.",
++      NULL,
++      "system",
++      {
++         { "0", NULL },
++         { "1", NULL },
++         { "2", NULL },
++         { "3", NULL },
++         { "4", NULL },
++         { "5", NULL },
++         { NULL, NULL },
++      },
++      "1",
++   },
+    {
+       CORE_OPTION_NAME "_dcnet",
+       "Use DCNet",
+diff --git a/shell/libretro/option.cpp b/shell/libretro/option.cpp
+index 6d317df..5dfbda1 100644
+--- a/shell/libretro/option.cpp
++++ b/shell/libretro/option.cpp
+@@ -122,7 +122,7 @@ Option<int> LocalPort("", 0);
+ Option<bool> EmulateBBA(CORE_OPTION_NAME "_emulate_bba", false);
+ Option<bool> EnableUPnP(CORE_OPTION_NAME "_upnp", true);
+ Option<bool> GGPOEnable("", false);
+-Option<int> GGPODelay("", 0);
++Option<int> GGPODelay(CORE_OPTION_NAME "_netplay_delay", 1);
+ Option<bool> NetworkStats("", false);
+ Option<int> GGPOAnalogAxes("", 0);
+ Option<bool> NetworkOutput(CORE_OPTION_NAME "_network_output", false);

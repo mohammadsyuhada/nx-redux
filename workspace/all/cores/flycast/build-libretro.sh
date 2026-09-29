@@ -22,6 +22,7 @@ EXTRA=""
 cmake -S . -B build-libretro-"$PLAT" $EXTRA \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DCMAKE_TOOLCHAIN_FILE="$HERE/toolchain-aarch64.cmake" \
-	-DLIBRETRO=ON -DUSE_GLES=ON -DUSE_VULKAN=OFF -DUSE_OPENMP=OFF
+	-DLIBRETRO=ON -DUSE_GLES=ON -DUSE_VULKAN=OFF -DUSE_OPENMP=OFF \
+	-DNX_LIBRETRO_GGPO=ON # GGPO netplay in the libretro core (patch 0006)
 cmake --build build-libretro-"$PLAT" "$JOBS"
 /opt/aarch64-nextui-linux-gnu/bin/aarch64-nextui-linux-gnu-strip -o flycast_libretro.so build-libretro-"$PLAT"/flycast_libretro.so
