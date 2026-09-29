@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <string.h>
 #include "ma_rewind.h"
+#include "ma_emutime.h"
 #ifdef HAS_SRM
 #include "streams/rzip_stream.h"
 #include "streams/file_stream.h"
@@ -265,6 +266,7 @@ int State_read(void) { // from picoarch
 		goto error;
 	}
 	success = 1;
+	EmuTime_reset(); // the loaded state starts a new emulated timeline
 
 error:
 	if (state)
@@ -302,6 +304,7 @@ error:
 		goto error;
 	}
 	success = 1;
+	EmuTime_reset(); // the loaded state starts a new emulated timeline
 
 error:
 	if (state)

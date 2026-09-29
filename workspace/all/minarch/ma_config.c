@@ -108,6 +108,7 @@ char* sync_ref_labels[] = {
 	"Auto",
 	"Screen",
 	"Native",
+	"Emulated",
 	NULL};
 static char* max_ff_labels[] = {
 	"None",
@@ -508,10 +509,10 @@ struct Config config = {
 					 [FE_OPT_SYNC_REFERENCE] = {
 						 .key = "minarch_sync_reference",
 						 .name = "Core Sync",
-						 .desc = "Choose what should be used as a\nreference for the frame rate.\n\"Native\" uses the emulator frame rate,\n\"Screen\" uses the frame rate of the screen.",
+						 .desc = "Choose what should be used as a\nreference for the frame rate.\n\"Native\" uses the emulator frame rate,\n\"Screen\" uses the frame rate of the screen,\n\"Emulated\" follows the game's own timing\n(GPU cores).",
 						 .default_value = SYNC_SRC_AUTO,
 						 .value = SYNC_SRC_AUTO,
-						 .count = 3,
+						 .count = 4,
 						 .values = sync_ref_labels,
 						 .labels = sync_ref_labels,
 					 },

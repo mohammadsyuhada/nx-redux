@@ -1,4 +1,5 @@
 #include "ma_internal.h"
+#include "ma_emutime.h"
 #include "netplay.h"
 #include "utils.h"
 #include "config.h"
@@ -138,6 +139,7 @@ void Menu_beforeSleep() {
 void Menu_afterSleep() {
 	unlink(AUTO_RESUME_PATH);
 	setOverclock(overclock);
+	EmuTime_reset();
 }
 static int ach_compare_unlocked_first(const void* a, const void* b) {
 	const rc_client_achievement_t* achA = *(const rc_client_achievement_t**)a;

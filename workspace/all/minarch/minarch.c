@@ -47,6 +47,7 @@
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL.h>
 #include <rcheevos/rc_client.h>
+#include "ma_emutime.h"
 
 ///////////////////////////////////////
 
@@ -464,6 +465,7 @@ int main(int argc, char* argv[]) {
 			}
 			PWR_updateFrequency(PWR_UPDATE_FREQ, 1);
 			Menu_loop();
+			EmuTime_reset(); // emulated-time pacing restarts after the menu
 			// Process RA async operations while menu is shown
 			RA_idle();
 			if (Netplay_isPaused()) {

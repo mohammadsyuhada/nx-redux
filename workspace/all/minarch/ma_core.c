@@ -10,6 +10,7 @@
 #include "ma_rewind.h"
 #include "ma_hwrender.h"
 #include "ma_avinfo.h"
+#include "ma_emutime.h"
 #include "ma_runframe.h"
 #include <msettings.h>
 #include <dlfcn.h>
@@ -272,6 +273,7 @@ void Core_load(void) {
 }
 void Core_reset(void) {
 	core.reset();
+	EmuTime_reset();
 	// the undo snapshot belongs to the abandoned pre-reset session
 	State_invalidateUndo();
 	Rewind_on_state_change();

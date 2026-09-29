@@ -1,6 +1,8 @@
 #include "ma_internal.h"
 #include "ma_video.h"
 #include "ma_hwrender.h"
+#include "ma_emutime.h"
+#include "netplay_helper.h"
 
 static const char* bitmap_font[] = {
 	['0'] =
@@ -637,7 +639,18 @@ static void screen_flip(SDL_Surface* screen) {
 	// same limiter the PAL/core-fps branch below already relies on.
 	GFX_flip_fixed_rate(screen, core.fps);
 #else
-	if (use_core_fps) {
+	if (sync_ref == SYNC_SRC_EMULATED && HWR_active() && !Multiplayer_isActive()) {
+		if (fast_forward) {
+			// fast-forward keeps its usual pacing; buffered audio must not
+			// turn into a sleep once it ends
+			EmuTime_reset();
+			GFX_flip_fixed_rate(screen, core.fps);
+		} else {
+			// a GPU core can cover several vblanks per retro_run (flycast: a
+			// 30 fps game covers two); present after the emulated time it covered
+			GFX_flip_scheduled(screen, EmuTime_takeSlot(core.sample_rate, core.fps), core.fps);
+		}
+	} else if (use_core_fps) {
 		GFX_flip_fixed_rate(screen, core.fps);
 	} else {
 		GFX_GL_Swap();

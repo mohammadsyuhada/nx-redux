@@ -3,6 +3,7 @@
 #include <time.h>
 #include "ma_hwrender.h"
 #include "hwr_plat.h"
+#include "ma_emutime.h"
 
 #define HWR_DEFAULT_W 640
 #define HWR_DEFAULT_H 480
@@ -16,7 +17,7 @@ static struct {
 	bool has_frame;
 	bool warned_clamp;
 	unsigned stat_runs, stat_frames;
-	unsigned long stat_audio; // audio frames from the core: emulation speed = rate / sample rate
+	unsigned long long stat_audio_base; // EmuTime total at the window start: emulation speed = audio rate / sample rate
 	unsigned long stat_start_ms;
 } hwr;
 
@@ -94,6 +95,7 @@ void HWR_contextReset(unsigned max_w, unsigned max_h) {
 	hwr.active = true;
 	hwr.has_frame = false;
 	hwr.stat_start_ms = now_ms();
+	hwr.stat_audio_base = EmuTime_totalFrames();
 	if (hwr.cb.context_reset)
 		hwr.cb.context_reset();
 	printf("[HWR] context reset, FBO %u (%ux%u)\n", hwr.fbo, max_w, max_h);
@@ -120,10 +122,10 @@ static void hwr_stats(void) {
 		return;
 	printf("[HWR] %.1fs: runs=%u frames=%u -> %.1f runs/s %.1f frames/s audio %.0f/s\n", elapsed / 1000.0,
 		   hwr.stat_runs, hwr.stat_frames, hwr.stat_runs * 1000.0 / elapsed,
-		   hwr.stat_frames * 1000.0 / elapsed, hwr.stat_audio * 1000.0 / elapsed);
+		   hwr.stat_frames * 1000.0 / elapsed, (EmuTime_totalFrames() - hwr.stat_audio_base) * 1000.0 / elapsed);
 	fflush(stdout);
 	hwr.stat_runs = hwr.stat_frames = 0;
-	hwr.stat_audio = 0;
+	hwr.stat_audio_base = EmuTime_totalFrames();
 	hwr.stat_start_ms = now;
 }
 
@@ -198,11 +200,6 @@ bool HWR_submitFrame(const void* data, unsigned w, unsigned h) {
 	hwr.has_frame = true;
 	hwr.stat_frames++;
 	return true;
-}
-
-void HWR_countAudio(size_t frames) {
-	if (hwr.active)
-		hwr.stat_audio += frames;
 }
 
 void HWR_reset(void) {

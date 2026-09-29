@@ -289,7 +289,8 @@ enum {
 enum {
 	SYNC_SRC_AUTO,
 	SYNC_SRC_SCREEN,
-	SYNC_SRC_CORE
+	SYNC_SRC_CORE,
+	SYNC_SRC_EMULATED
 };
 
 // Shader option indices

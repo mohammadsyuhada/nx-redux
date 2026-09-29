@@ -19,7 +19,8 @@ enum {
 enum {
 	AVSYNC_AUTO = 0,
 	AVSYNC_SCREEN = 1,
-	AVSYNC_CORE = 2
+	AVSYNC_CORE = 2,
+	AVSYNC_EMULATED = 3 // GPU cores: presents paced by emulated time (ma_emutime)
 };
 
 double AVInfo_aspect(const struct retro_game_geometry* g);

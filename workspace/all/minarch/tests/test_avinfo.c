@@ -70,6 +70,8 @@ int main(void) {
 	CHECK(SyncRef_useCoreFps(AVSYNC_AUTO, 0, 30.0, 60.235) == 1, "AUTO 30 fps on 60.235 -> core");
 	CHECK(SyncRef_useCoreFps(AVSYNC_AUTO, 0, 30.0, 62.948) == 1, "AUTO 30 fps on 62.948 -> core");
 
+	CHECK(SyncRef_useCoreFps(AVSYNC_EMULATED, 0, 60.0, 60.235) == 1, "EMULATED paces by core fps for audio");
+
 	printf("%s (%d failures)\n", fails ? "FAILED" : "ALL PASS", fails);
 	return fails ? 1 : 0;
 }

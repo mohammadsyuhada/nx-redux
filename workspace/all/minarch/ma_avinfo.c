@@ -31,6 +31,7 @@ int SyncRef_useCoreFps(int sync_ref, int is_pal, double core_fps, double screen_
 	switch (sync_ref) {
 	case AVSYNC_SCREEN:
 		return 0;
+	case AVSYNC_EMULATED: // audio stays on the fixed-rate path; presents are paced in screen_flip
 	case AVSYNC_CORE:
 		return 1;
 	default:
