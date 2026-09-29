@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "../../nextui/arcade_names.h"
+#include "../arcade_names.h"
 
 #define RES_ARCADE "../../../../skeleton/SYSTEM/res/arcade"
 

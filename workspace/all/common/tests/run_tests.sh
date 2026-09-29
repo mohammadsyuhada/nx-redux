@@ -10,7 +10,7 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_text_wrap test
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_initial_jump test_initial_jump.c && /tmp/nx_test_initial_jump
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_scraper_scan ../../scraper/scraper_scan.c test_scraper_scan.c && /tmp/nx_test_scraper_scan
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_scraper_systems ../../scraper/scraper_systems.c test_scraper_systems.c && /tmp/nx_test_scraper_systems
-cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_arcade_names ../../nextui/arcade_names.c test_arcade_names.c && /tmp/nx_test_arcade_names
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_arcade_names ../arcade_names.c test_arcade_names.c && /tmp/nx_test_arcade_names
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_button_layout test_button_layout.c && /tmp/nx_test_button_layout
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_next_cmd test_next_cmd.c && /tmp/nx_test_next_cmd
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_ui_scale test_ui_scale.c && /tmp/nx_test_ui_scale

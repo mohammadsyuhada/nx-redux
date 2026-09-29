@@ -6,7 +6,8 @@
 // tables (DC). Each line is "<zip stem>\t<title>"; BIOS sets carry the title
 // "." so hide() drops them, like a "."-prefixed map.txt alias. Titles are
 // plain (no revision/region brackets, first of " / " names). The launcher
-// consults a table only when map.txt has no alias for the ROM.
+// (game lists) and minarch (in-game menu title) consult a table only when
+// map.txt has no alias for the ROM.
 //
 // Depends on libc only, so the host unit tests can link it directly.
 
