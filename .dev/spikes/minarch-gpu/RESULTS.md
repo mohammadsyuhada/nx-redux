@@ -137,6 +137,25 @@ pass on tg5040, tg5050 and desktop. GBA (gpsp) regression is clean (no `[AV]`/`[
   and ~63 (panel rate) in 60 fps scenes.
 - Soulcalibur still stops at "Unable to load SOULCALIBUR game data. Check the VMU" on both devices. That is the remaining memory-card item.
 
+## Emulated Core Sync (2026-09-29)
+
+Commits `900fa539` (emulated-time counter), `65c02967` (slot scheduler; `GFX_flip_fixed_rate` rebuilt on it), `bb1169ef`
+(the "Emulated" value of `minarch_sync_reference`; GPU cores only). Spec/plan (local):
+`docs/superpowers/specs/2026-09-29-minarch-emulated-sync-design.md`, `docs/superpowers/plans/2026-09-29-minarch-emulated-sync.md`.
+
+**Smart Pro S**, Emulated + `reicast_auto_skip_frame = some` + frame-rate detection OFF:
+
+| Game | Result |
+|---|---|
+| Metal Slug 6 | 30.0 runs/s @ 44.1k in 30 fps scenes, 60.0 @ 44.1k in 60 fps scenes: exactly 100 % (screen sync gave ~105 % on the 63 Hz panel) |
+| Quake III Arena (30 fps game) | 29.6–30.1 runs/s @ 44.1k |
+| Marvel vs Capcom 2 | 60 @ 44.1k (slower only while loading) |
+| Crazy Taxi 2 | 100 %, heaviest stretches 92–96 % (auto-skip catching up) |
+
+- **Fast-forward on→off and menu open/close** recover within one 5 s window, with no stall and no audio burst.
+- **Save/load could not be exercised on this device:** injected Save/Load keypresses create no state here (the menu opens; RA hardcore is off). To verify on the Brick.
+- **One freeze during the first fast-forward test:** the device was hot with the fan silent. The fan was not on Auto then. After the user set Auto, the same sequence ran clean at 64–68 °C with the fan at 31/31. `fancontrol` stays alive across spike launches. This is most likely a thermal lockup with CPU/GPU pinned at max under fast-forward, not a pacing bug. Keep the fan on Auto for DC testing.
+
 ## Netplay (GGPO) in the libretro build — checked 2026-09-29
 
 The rollback code is shared core code, but four places compile it out of the libretro build, and none of them is a build option:
