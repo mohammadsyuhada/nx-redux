@@ -6,7 +6,7 @@ index 9402444..a5424a9 100644
  			ERROR_LOG(MAPLE, "Failed to write the VMU %s to disk", logical_port);
  			return false;
  		}
-+		// NX Redux: hand the data to the OS now, so a crash or power loss mid-game
++		// NX Redux: hand the data to the OS now, so a crash or a killed process
 +		// cannot leave a half-written card (stdio buffers until fclose otherwise)
 +		std::fflush(file);
  		fullSaveNeeded = false;
