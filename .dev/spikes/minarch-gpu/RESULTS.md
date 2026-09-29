@@ -282,3 +282,37 @@ not a flag. nx-mobile's DC spec lists it as a future spike, not a result. Estima
 Removed: `/mnt/SDCARD/.spike`, `Bios/DC/dc/`, `Saves/DC/reicast/`, `.userdata/tg5040/DC-flycast/`, the spike's
 `Soulcalibur (USA).state`, and the `rend.ShowFPS` line in standalone `emu.cfg`. Kept, at the user's request:
 `Roms/DreamCast (DC)/ChuChu Rocket.chd` and `Crazy Taxi 2 v1.004 (2001)(Sega)(US)[!].chd`. Smart Pro S: same cleanup (`.spike`, `Bios/DC/dc/`, `Saves/DC/reicast/`, `.userdata/tg5050/DC-flycast/`); kept `Soulcalibur (USA).chd` + Crazy Taxi 2 in its DC folder.
+
+## Sub-project 3: DC.pak on minarch — device checks 2026-09-29
+
+A copy of the new pak ran as a card-root `Emus/DC.pak` (which `getEmuPath` prefers). Its launcher called
+`/mnt/SDCARD/.spike/minarch-spike.elf` (branch build) with `NX_HWR_STATS=1`. The installed `.system` pak was untouched.
+flycast v2.7 with patches 0001–0005.
+
+- **Save carry-over (Brick, real standalone data):** Soulcalibur's first launch created `Saves/DC/Soulcalibur (USA).A1.bin`,
+  md5 = standalone `vmu_save_A1.bin`. `dc_nvmem.bin` and `vmu_save_A2.bin` were copied to `Bios/DC/`. The game went
+  title → arcade character select with no card prompt. Metal Slug 6: `Saves/DC/reicast/mslug6.zip.nvmem`/`.nvmem2`
+  seeded, md5 = standalone. Standalone files unchanged afterwards (md5, both devices).
+- **BIOS:** Brick loaded the real `Bios/DC/dc_boot.bin` without a `dc/` folder (no "Forcing HLE" line). On the Smart Pro S,
+  with no `dc_boot.bin`, the log says "Did not load BIOS, using reios" and games boot. The core creates an empty `Bios/DC/data/`.
+- **Crazy Taxi 2 (Smart Pro S):** the seeded card has no CT2 file, so the game shows its own "No Save File, 196 free
+  blocks" card screen. That is correct.
+- **Controls:** Select inserts a coin on Metal Slug 6 ("CREDIT(S) 1"). Start works.
+- **Pre-launch options:** `options.sh` (no ROM) opens "Dreamcast (Flycast)" with System / Video / Performance / Emulation
+  Hacks / Input / Controller Expansion Slots.
+- **In-game menu title:** showed "mslug6"; after the arcade-name fallback in `ma_menu.c` it shows "Metal Slug 6".
+- **Smart Pro S CPU layout** (Crazy Taxi 2 attract after Start, 36 × 5 s windows each, Emulated sync, shipping
+  `default.cfg`, fan Auto, 66–68 °C):
+
+  | Layout | Threads | Mean | Worst window | 10th pct |
+  |---|---|---|---|---|
+  | `affinity = big` (shipping) | emu 4-5; PrepareFrame, audio, mali-* 0-1 | 96.4 % | 90.1 % | 91.9 % |
+  | taskset 0x30 (spike) | everything 4-5 | 96.4 % | 90.4 % | 92.0 % |
+  | `affinity = none` | everything inherits the launcher's 4-5 | 96.5 % | 90.2 % | 91.7 % |
+  | `big` + cpu6–7 online | emu 4-7; helpers 0-1 | 95.5 % | 88.5 % | 90.9 % |
+
+  No difference within noise, so this stretch is bound by the emulation thread or the GPU, not by core count. Kept
+  `affinity = big` (as PS.pak), cpu6–7 stay offline. Note: the "100 %" Smart Pro S figure earlier in this file came from a
+  lighter window. CT2's attract drive sits at ~96 % mean on every layout.
+- **Devices after the checks:** removed `Emus/DC.pak`, `.spike`, seeded `Saves/DC/*.A1.bin`, `Saves/DC/reicast/`,
+  `Bios/DC/{dc_nvmem.bin,vmu_save_A2.bin,data}`, `.userdata/<plat>/DC-flycast/`; Smart Pro S cpu6–7 offline.
