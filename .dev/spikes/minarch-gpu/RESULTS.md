@@ -183,6 +183,21 @@ Commits `900fa539` (emulated-time counter), `65c02967` (slot scheduler; `GFX_fli
   it by disc ID (`T1401N.A1.bin` for Soulcalibur). nx-mobile patched it to `<content>.A1.bin` for cross-device saves; choose one
   at the pak switch.
 
+## Sub-project 2 — GPU path polish (2026-09-29, Brick)
+
+Commits `eaeadf24`, `698e7476`, `b6336e70`.
+- **GPU debug HUD:** the same HUD text drawn into a transparent frame-sized buffer every 15 presents and shown over the game,
+  with an extra `EMU nn%` line (audio-rate speed). The software-core HUD is unchanged (checked on GBA).
+- **Ambient LEDs for GPU frames:** blit to 256², `glGenerateMipmap`, read back the 32² level (a true box average, 4 KB),
+  every 8th present. On the Brick the LED colour follows scenes (e.g. `BC6A60` → `6767FE` → `CA7906`). Cost on
+  Crazy Taxi 2 with ambient on (sampled every 4th present): 78–83 % vs 81–85 % off. Now sampled every 8th, which halves the cost
+  (not re-measured).
+- `[HWR]` stats only print with `NX_HWR_STATS=1` (the spike launchers set it).
+- Emulated-sync drop and jitter stats use the slot.
+- Fuller GL state restore.
+- The desktop-guarded include.
+- The comment on the shared FlipSchedule.
+
 ## Sub-project 1 — flycast **v2.7** libretro core in the cores Makefile (2026-09-29)
 
 Commits `cef39ff9` (build: `workspace/all/cores/flycast/build-libretro.sh` + a minimal libretro toolchain with no curl/OpenSSL;

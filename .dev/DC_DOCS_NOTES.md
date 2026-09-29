@@ -5,7 +5,7 @@ on minarch. Use it to update the docs site (`~/Work/Personal/nx-redux-docs`) whe
 sub-project lands; say for every item whether it is **built** (on branch `minarch-gpu-spike`) or **planned**.
 Technical detail and measurements: `.dev/spikes/minarch-gpu/RESULTS.md`. Open work: `.dev/DEV_TODO.md` ("DC: …" entries).
 
-Status: sub-project 1 of 5 done (core build). **Nothing below is released yet.** Until `DC.pak` switches (sub-project 3),
+Status: sub-projects 1 (core build) and 2 (GPU path polish) of 5 done. **Nothing below is released yet.** Until `DC.pak` switches (sub-project 3),
 users still run standalone flycast, and the current docs stay correct.
 
 ## Pages to update
@@ -43,6 +43,10 @@ users still run standalone flycast, and the current docs stay correct.
   - 30 fps games (Metal Slug 6, Quake III Arena) now run at their real speed.
   - Auto frame-skip stays on for heavy 3D games.
   - Widescreen (the hack) shows correctly at 16:9 on the Smart Pro S.
+- **Debug HUD and ambient LEDs** *(built, sub-project 2)*
+  - minarch's debug HUD (Options → Debug HUD) now works for Dreamcast. It has an extra **`EMU nn%`** line: true emulation
+    speed, the best way to see whether a heavy scene keeps up.
+  - Ambient LEDs follow Dreamcast games like other systems. Enabling it costs ~1–2 % speed on heavy scenes.
 - **Controls** *(planned, sub-project 3)*
   - Document the final mapping (position-based face buttons, Select = coin for arcade, analog triggers if added) and the
     minarch Controls menu instead of standalone's mapping file.
