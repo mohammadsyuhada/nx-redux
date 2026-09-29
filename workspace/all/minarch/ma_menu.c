@@ -2,6 +2,7 @@
 #include "ma_emutime.h"
 #include "netplay.h"
 #include "utils.h"
+#include "arcade_names.h"
 #include "config.h"
 #include "ui_list.h"
 #include "ui_buttonhintbar.h"
@@ -886,6 +887,21 @@ void OptionAchievements_updateDesc(void) {
 	options_menu.items[6].desc = NULL;
 }
 
+// Arcade zips without a map.txt alias get the title the launcher shows for them
+// (.system/res/arcade/<TAG>.txt, keyed by the Roms folder's tag), so the menu
+// says "Metal Slug 6" rather than "mslug6". Leaves name alone otherwise.
+static void getArcadeTitle(const char* path, char* name) {
+	char tag[MAX_PATH];
+	getEmuName(path, tag);
+	char table_path[MAX_PATH];
+	snprintf(table_path, sizeof(table_path), "%s/arcade/%s.txt", RES_PATH, tag);
+	ArcadeNames* names = ArcadeNames_load(table_path);
+	const char* title = ArcadeNames_get(names, baseName(path));
+	if (title && strcmp(title, ".") != 0)
+		snprintf(name, MAX_PATH, "%s", title);
+	ArcadeNames_free(names);
+}
+
 // alias must be at least MAX_PATH bytes
 bool getAlias(char* path, char* alias) {
 	bool is_alias = false;
@@ -1450,7 +1466,8 @@ void Menu_loop(void) {
 	char* tmp;
 	char rom_name[MAX_PATH]; // without extension or cruft
 	getDisplayName(game.name, rom_name);
-	getAlias(game.path, rom_name);
+	if (!getAlias(game.path, rom_name))
+		getArcadeTitle(game.path, rom_name);
 
 	int rom_disc = -1;
 	char disc_name[16];
