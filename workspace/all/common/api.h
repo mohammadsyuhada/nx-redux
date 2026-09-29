@@ -301,10 +301,11 @@ SDL_Color uintToColour(uint32_t rgba); // packed 0xRRGGBBAA
 void GFX_startFrame(void);
 void GFX_flip(SDL_Surface* screen);
 void PLAT_flipHidden();
-void GFX_flip_fixed_rate(SDL_Surface* screen, double target_fps); // if target_fps is 0, then use the native screen FPS
-#define GFX_supportsOverscan PLAT_supportsOverscan				  // (void)
-void GFX_sync(void);											  // call this to maintain 60fps when not calling GFX_flip() this frame
-void GFX_delay(void);											  // gfx_sync() is only for everywhere where there is no audio buffer to rely on for delaying, stupid so doing gfx_delay() for like waiting for input loop in binding menu. Need to remove gfx_sync() everwhere eventually
+void GFX_flip_fixed_rate(SDL_Surface* screen, double target_fps);				// if target_fps is 0, then use the native screen FPS
+void GFX_flip_scheduled(SDL_Surface* screen, double slot_s, double target_fps); // present one slot after the previous; a 1/fps slot is fixed rate
+#define GFX_supportsOverscan PLAT_supportsOverscan								// (void)
+void GFX_sync(void);															// call this to maintain 60fps when not calling GFX_flip() this frame
+void GFX_delay(void);															// gfx_sync() is only for everywhere where there is no audio buffer to rely on for delaying, stupid so doing gfx_delay() for like waiting for input loop in binding menu. Need to remove gfx_sync() everwhere eventually
 void GFX_quit(void);
 // Re-applies the stored UI scale (CFG_getUIScale) to a running process: asset
 // sheet, asset rects, nav glyphs and fonts. Returns -1 and keeps the old scale

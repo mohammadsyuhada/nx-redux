@@ -1,5 +1,6 @@
 #include "defines.h"
 #include "api.h"
+#include "flip_schedule.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -981,61 +982,31 @@ void GFX_sync(void) {
 	}
 }
 
-void GFX_flip_fixed_rate(SDL_Surface* screen, double target_fps) {
+static FlipSchedule flip_schedule;
+
+void GFX_flip_scheduled(SDL_Surface* screen, double slot_s, double target_fps) {
 	if (target_fps == 0.0)
 		target_fps = SCREEN_FPS;
-	double frame_budget_ms = 1000.0 / target_fps;
-
-	static int64_t frame_index = -1;
-	static int64_t first_frame_start_time = 0;
-	static double last_target_fps = 0.0;
 
 	int64_t perf_freq = SDL_GetPerformanceFrequency();
 	int64_t now = SDL_GetPerformanceCounter();
+	int64_t nominal = perf_freq / target_fps;
+	int64_t slot = (int64_t)(slot_s * perf_freq);
+	int64_t time_of_frame = FlipSchedule_next(&flip_schedule, now, slot, nominal);
 
-	if (++frame_index == 0 || target_fps != last_target_fps) {
-		frame_index = 0;
-		first_frame_start_time = now;
-		last_target_fps = target_fps;
-	}
+	if (time_of_frame > now) {
+		useconds_t time_to_sleep_us = (useconds_t)((time_of_frame - now) * 1e6 / perf_freq);
 
-	int64_t frame_duration = perf_freq / target_fps;
-	int64_t time_of_frame = first_frame_start_time + frame_index * frame_duration;
-	int64_t offset = now - time_of_frame;
-	const int max_lost_frames = 2;
-
-	// printf("%s: frame #%lld, time is %lld, scheduled at %lld, offset is %lld\n",
-	// 	__FUNCTION__,
-	// 	frame_index,
-	// 	now,
-	// 	time_of_frame,
-	// 	now - time_of_frame);
-
-	if (offset > 0) {
-		if (offset > max_lost_frames * frame_duration) {
-			frame_index = -1;
-			last_target_fps = 0.0;
-			LOG_debug("%s: lost sync by more than %d frames (late) @%llu -> reset\n\n", __FUNCTION__, max_lost_frames, SDL_GetPerformanceCounter());
+		// The OS scheduling algorithm cannot guarantee that
+		// the sleep will last the exact amount of requested time.
+		// We sleep as much as we can using the OS primitive.
+		const useconds_t min_waiting_time = 2000;
+		if (time_to_sleep_us > min_waiting_time) {
+			usleep(time_to_sleep_us - min_waiting_time);
 		}
-	} else {
-		if (offset < -max_lost_frames * frame_duration) {
-			frame_index = -1;
-			last_target_fps = 0.0;
-			LOG_debug("%s: lost sync by more than %d frames (early ?!) @%llu -> reset\n\n", __FUNCTION__, max_lost_frames, SDL_GetPerformanceCounter());
-		} else if (offset < 0) {
-			useconds_t time_to_sleep_us = (useconds_t)((time_of_frame - now) * 1e6 / perf_freq);
 
-			// The OS scheduling algorithm cannot guarantee that
-			// the sleep will last the exact amount of requested time.
-			// We sleep as much as we can using the OS primitive.
-			const useconds_t min_waiting_time = 2000;
-			if (time_to_sleep_us > min_waiting_time) {
-				usleep(time_to_sleep_us - min_waiting_time);
-			}
-
-			while (SDL_GetPerformanceCounter() < time_of_frame) {
-				// nothing...
-			}
+		while (SDL_GetPerformanceCounter() < time_of_frame) {
+			// nothing...
 		}
 	}
 	PLAT_GL_Swap();
@@ -1082,6 +1053,12 @@ void GFX_flip_fixed_rate(SDL_Surface* screen, double target_fps) {
 		perf.max_frame_ms = perf.avg_frame_ms;
 	}
 	per_frame_start = SDL_GetPerformanceCounter();
+}
+
+void GFX_flip_fixed_rate(SDL_Surface* screen, double target_fps) {
+	if (target_fps == 0.0)
+		target_fps = SCREEN_FPS;
+	GFX_flip_scheduled(screen, 1.0 / target_fps, target_fps);
 }
 
 // if a fake vsycn delay is really needed
