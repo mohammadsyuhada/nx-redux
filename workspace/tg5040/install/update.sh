@@ -157,3 +157,19 @@ if [ -d "$CD_CATALOG/pak" ] && [ -f "$CD_MARK" ]; then
 	[ -n "$CD_VER" ] && printf '%s\n' "$CD_VER" > "$CD_MARK" 2>/dev/null
 fi
 # --- cheatdb-refresh-end
+
+# --------------------------------------
+# --- dc-standalone-cleanup-begin
+# Dreamcast moved from standalone flycast to the flycast libretro core on
+# minarch. The install replaces .system/paks/Emus wholesale, so only the
+# standalone OSD overlay file on the card root is left over. Players' flycast
+# data (.userdata/shared/DC-flycast/, the source of the per-game memory card
+# carried over by DC.pak) is never touched. One-shot per update; must never
+# fail the update.
+DC_OLD="$SDCARD_PATH/Emus/shared/flycast"
+if [ -f "$DC_OLD/overlay_settings.json" ]; then
+	rm -f "$DC_OLD/overlay_settings.json"
+	rmdir "$DC_OLD" 2>/dev/null
+	echo "removed the standalone flycast overlay settings"
+fi
+# --- dc-standalone-cleanup-end

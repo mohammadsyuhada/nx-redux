@@ -153,7 +153,7 @@ ifneq ($(PLATFORM), desktop)
 	cp ./workspace/$(PLATFORM)/keymon/keymon.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/$(PLATFORM)/sleepmon/sleepmon.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/syncsettings/build/$(PLATFORM)/syncsettings.elf ./build/SYSTEM/$(PLATFORM)/bin/
-	# taskset: used for CPU-affinity pinning by N64.pak, DC.pak, and (tg5050)
+	# taskset: used for CPU-affinity pinning by N64.pak and (tg5050)
 	# PS.pak launch.sh. Built from source here so a full `make deploy` stays
 	# reproducible; see workspace/all/taskset/Makefile for why it must be
 	# dynamically linked (NOT -static) on this toolchain/kernel combination.
@@ -255,6 +255,7 @@ cores: # TODO: can't assume every platform will have the same stock cores (platf
 	cp ./workspace/$(PLATFORM)/cores/output/mgba_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/MGBA.pak
 	cp ./workspace/$(PLATFORM)/cores/output/mgba_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/SGB.pak
 	cp ./workspace/$(PLATFORM)/cores/output/genesis_plus_gx_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/GPGX.pak
+	cp ./workspace/$(PLATFORM)/cores/output/flycast_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/DC.pak
 	cp ./workspace/$(PLATFORM)/cores/output/mednafen_pce_fast_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/PCE.pak
 	cp ./workspace/$(PLATFORM)/cores/output/pokemini_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/PKM.pak
 	cp ./workspace/$(PLATFORM)/cores/output/race_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/NGP.pak
