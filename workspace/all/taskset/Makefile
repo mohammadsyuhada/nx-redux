@@ -26,9 +26,8 @@ CC = $(CROSS_COMPILE)gcc
 # binary this replaced; only the __LINUX_KERNEL_VERSION-gated static path
 # was the difference. Dynamic linking sidesteps the whole class of bug: it
 # resolves libc.so.6 from the device's own /usr/lib64 at runtime (same
-# NEEDED-entry resolution flycast itself relies on - see
-# workspace/all/other/flycast/README.md's "Library-resolution decision"
-# section) instead of embedding the toolchain's own glibc + its version
+# NEEDED-entry resolution every dynamic binary in the build relies on)
+# instead of embedding the toolchain's own glibc + its version
 # gate, and was confirmed working on-device (task-11) where every prior
 # static attempt was not. Conclusion (build dynamic) unchanged from the
 # original fix; only this comment's explanation of the mechanism changed.

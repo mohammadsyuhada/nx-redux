@@ -90,8 +90,9 @@ for fixing audio in any SDL-audio standalone emulator here:
 
 Generous buffering matters because production is bursty: a target of ~256 ms
 operating level took a 4-minute run from 62 underruns + 16 drops to 1/0.
-The same 44.1-vs-48 fix is applied in flycast's `audiobackend_sdl2`
-(flycast.patch).
+The retired standalone flycast carried the same 44.1-vs-48 fix in its
+`audiobackend_sdl2`; Dreamcast now runs as a libretro core through minarch's
+audio path.
 
 ## libmsettings (volume/brightness) divergence
 

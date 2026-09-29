@@ -16,7 +16,6 @@ REQUIRES_UNZIP60=other/unzip60
 REQUIRES_FILEMGR=other/NextCommander
 REQUIRES_MUPEN64PLUS=other/mupen64plus
 REQUIRES_SDL2_DRASTIC=other/sdl2-drastic
-REQUIRES_FLYCAST=../all/other/flycast/flycast
 
 # Pinned upstream commits — update these when upgrading to a new version
 SDL_DRASTIC_REPO=https://github.com/trngaje/SDL_drastic.git
@@ -31,8 +30,6 @@ MUPEN64PLUS_RICE_REPO=https://github.com/mupen64plus/mupen64plus-video-rice.git
 MUPEN64PLUS_RICE_COMMIT=038882dd2e7cb660fd7512c0745032f17edd0bfa  # master, 2026-06-23
 # GLideN64 is built once from the tg5040 checkout and shared across platforms —
 # see workspace/all/other/mupen64plus/README.md
-FLYCAST_REPO=https://github.com/flyinghead/flycast.git
-FLYCAST_COMMIT=392a429e8b040b3e5bf6696cb4f984274fc44123  # v2.6, 2026-07
 
 all: readmes
 
@@ -81,13 +78,5 @@ $(REQUIRES_SDL2_DRASTIC)/SDL_drastic:
 	cd $(REQUIRES_SDL2_DRASTIC)/SDL_drastic && git checkout $(SDL_DRASTIC_COMMIT)
 	cd $(REQUIRES_SDL2_DRASTIC)/SDL_drastic && patch -p1 < ../../../../all/other/sdl2-drastic/0006-add-hook-for-drastic.patch
 	cd $(REQUIRES_SDL2_DRASTIC)/SDL_drastic && patch -p1 < ../../../../all/other/sdl2-drastic/fix-tg5050.patch
-
-$(REQUIRES_FLYCAST):
-	[ -d $(REQUIRES_FLYCAST) ] || ( \
-		git clone $(FLYCAST_REPO) $(REQUIRES_FLYCAST) && \
-		cd $(REQUIRES_FLYCAST) && \
-		git checkout $(FLYCAST_COMMIT) && \
-		git submodule update --init --recursive && \
-		git apply ../flycast.patch )
 
 include ../all/readmes/Makefile

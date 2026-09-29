@@ -117,7 +117,7 @@ Component source lives in `workspace/all/<component>` (shared) and
   Makefiles include the fragment. New UI components are added to ui.mk, never
   to individual app Makefiles. There is no umbrella header — include exactly
   the `ui_*.h` you use.
-- Patched vendored projects (mupen64plus/GLideN64, flycast) are cloned at
+- Patched vendored projects (mupen64plus/GLideN64) are cloned at
   **pinned commits** by the platform Makefiles and patched from
   `workspace/all/other/`. Never regenerate a multi-file vendored patch with a
   plain `git diff` — untracked new files vanish from it; splice per-file

@@ -40,13 +40,8 @@ libchdr
 **/other/mupen64plus/*
 !**/other/mupen64plus/README.md
 !**/other/mupen64plus/*.patch
-**/other/flycast/*
-!**/other/flycast/README.md
-!**/other/flycast/*.patch
-!**/other/flycast/*.cmake
-!**/other/flycast/cmake-hints/
-!**/other/flycast/cmake-hints/**
-!**/other/flycast/*.sh
+# local build trees of the retired standalone flycast (Dreamcast is a libretro core now)
+**/other/flycast/
 **/other/sdl2-drastic/SDL_drastic
 **/other/sdl2-drastic/extra-deps
 **/other/sdl2-drastic/output
