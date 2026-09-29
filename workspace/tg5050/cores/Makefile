@@ -27,6 +27,7 @@ CORES+= vic
 CORES+= prboom
 CORES+= bluemsx
 CORES+= gearcoleco
+CORES+= flycast
 
 ###############################
 
@@ -171,5 +172,14 @@ gearcoleco_BUILD_PATH = gearcoleco/platforms/libretro
 gearcoleco_HASH = ed5095b3ce158ff0cf82395a61c2476505634894
 
 ###############################
+
+# flycast (Dreamcast) libretro core, v2.7 (5aa091fd is the v2.7 tag). CMake, so
+# flycast_MAKE runs a build script (toolchain + flags live next to it); shared
+# patches are in all/cores/patches/flycast/. Only the submodules the libretro
+# build uses are initialised (tinygettext's own submodule is finished by the script).
+flycast_REPO = https://github.com/flyinghead/flycast
+flycast_HASH = 5aa091fde632fb332c8d8c34e280d62dc951954c
+flycast_SUBMODULES = core/deps/libchdr core/deps/tinygettext core/deps/asio
+flycast_MAKE = sh $(CURDIR)/../../all/cores/flycast/build-libretro.sh $(PLATFORM)
 
 include ../../all/cores/Makefile
