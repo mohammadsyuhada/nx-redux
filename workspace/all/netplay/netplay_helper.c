@@ -22,6 +22,7 @@
 
 // Minarch accessor functions (game data/name for CRC + discovery identity)
 #include "minarch.h"
+#include "core_netplay.h"
 
 //////////////////////////////////////////////////////////////////////////////
 // Hotspot Connection State
@@ -92,7 +93,8 @@ void stopHotspotAndRestoreWiFiAsync(bool is_host) {
 //////////////////////////////////////////////////////////////////////////////
 
 int Multiplayer_isActive(void) {
-	return GBALink_isConnected() || GBLink_isConnected() || Netplay_isConnected();
+	// CoreNetplay: a session the core runs itself (flycast GGPO); see core_netplay.h
+	return GBALink_isConnected() || GBLink_isConnected() || Netplay_isConnected() || CoreNetplay_isActive();
 }
 
 CoreLinkSupport checkCoreLinkSupport(const char* core_name) {

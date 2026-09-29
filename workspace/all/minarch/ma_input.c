@@ -175,7 +175,8 @@ void input_poll_callback(void) {
 					Menu_screenshot();
 					break;
 				case SHORTCUT_RESET_GAME:
-					Core_reset();
+					if (!Multiplayer_isActive()) // a reset on one side desyncs the session
+						Core_reset();
 					break;
 				case SHORTCUT_SAVE_QUIT:
 					Netplay_quitAll();

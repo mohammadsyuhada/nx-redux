@@ -12,6 +12,8 @@
 #include "ma_avinfo.h"
 #include "ma_emutime.h"
 #include "ma_runframe.h"
+#include "core_netplay.h"
+#include "ma_menu.h"
 #include <msettings.h>
 #include <dlfcn.h>
 #include <libgen.h>
@@ -126,7 +128,16 @@ void Core_open(const char* core_path, const char* tag_name) {
 		else
 			sprintf((char*)core.saves_dir, "%s/Saves/%s", SDCARD_PATH, core.tag);
 	}
-	sprintf((char*)core.bios_dir, "%s/Bios/%s", SDCARD_PATH, core.tag);
+	// Same for the core's system files (flycast keeps its console flash and the
+	// shared second memory card beside the BIOS): NETPLAY_SYSTEM_DIR is an
+	// isolated copy holding the host's files and the BIOS the session uses.
+	{
+		const char* netplay_system = getenv("NETPLAY_SYSTEM_DIR");
+		if (netplay_system && netplay_system[0])
+			snprintf((char*)core.bios_dir, sizeof(core.bios_dir), "%s", netplay_system);
+		else
+			sprintf((char*)core.bios_dir, "%s/Bios/%s", SDCARD_PATH, core.tag);
+	}
 	sprintf((char*)core.cheats_dir, "%s/Cheats/%s", SDCARD_PATH, core.tag);
 	sprintf((char*)core.overlays_dir, "%s/Overlays/%s", SDCARD_PATH, core.tag);
 
@@ -246,6 +257,8 @@ void Core_load(void) {
 	if (!core.load_game(&game_info)) {
 		// running a core with no loaded game is a guaranteed crash inside the core
 		LOG_error("core refused to load game: %s\n", game_info.path);
+		if (CoreNetplay_isActive()) // the core gave up waiting for the peer
+			Menu_netplayNotice("Netplay failed", "Couldn't connect to the other player.", 3000);
 		exit(EXIT_FAILURE);
 	}
 	{

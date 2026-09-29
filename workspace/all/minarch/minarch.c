@@ -43,6 +43,7 @@
 #include "gblink.h"
 #include "netplay_helper.h"
 #include "netplay_boot.h"
+#include "core_netplay.h"
 #include <dirent.h>
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL.h>
@@ -279,6 +280,11 @@ int main(int argc, char* argv[]) {
 	if (!HAS_POWER_BUTTON)
 		PWR_disableSleep();
 	IMG_Init(IMG_INIT_PNG);
+	// A netplay session the core runs itself (flycast GGPO): read before the
+	// core opens, since it also sets the core's disconnect timeout
+	CoreNetplay_initFromEnv();
+	if (CoreNetplay_isActive() && CoreNetplay_byeOpen(CORE_NETPLAY_BYE_PORT) != 0)
+		LOG_warn("CoreNetplay: no goodbye channel, the peer's timeout will end its session\n");
 	Core_open(core_path, tag_name);
 
 	Game_open(rom_path); // nes tries to load gamegenie setting before this returns ffs
@@ -304,6 +310,10 @@ int main(int argc, char* argv[]) {
 	RA_setMemoryAccessors(core.get_memory_data, core.get_memory_size);
 	RA_init();
 
+	// the core waits for the other player inside load_game (up to a minute)
+	if (CoreNetplay_isActive()) {
+		Menu_netplayNotice("Connecting...", "Waiting for the other player.", 0);
+	}
 	Core_load();
 
 	Input_init(NULL);
@@ -326,7 +336,9 @@ int main(int argc, char* argv[]) {
 		RA_loadGame(rom_path_for_ra, game.data, game.size, core.tag);
 	}
 
-	State_resume();
+	// a netplay session starts from a clean boot on both sides
+	if (!CoreNetplay_isActive())
+		State_resume();
 	Menu_initState(); // make ready for state shortcuts
 
 	PWR_disableAutosleep();
@@ -397,6 +409,12 @@ int main(int argc, char* argv[]) {
 		GBALink_pollAndDeliverPackets();
 		GBLink_pollConnectionState(); // GB Link: detect connect/disconnect from the socket table
 
+		// the other player left on purpose: end now, not at the core's timeout
+		if (CoreNetplay_isActive() && CoreNetplay_byePoll()) {
+			CoreNetplay_markEnded();
+			quit = 1;
+			break;
+		}
 		if (Multiplayer_isActive()) {
 			core.run(); // link/netplay drives timing; rewind & FF are disabled
 		} else {
@@ -492,6 +510,11 @@ int main(int argc, char* argv[]) {
 
 		hdmimon();
 	}
+	// leaving (menu, quit shortcut, power): tell the other player right away
+	if (CoreNetplay_isActive())
+		CoreNetplay_byeSend(CORE_NETPLAY_BYE_PORT);
+	if (CoreNetplay_hasEnded())
+		Menu_netplayNotice("Netplay ended", "The other player left or the connection was lost.", 3000);
 	SDL_Surface* converted = Menu_captureScreenSurface(screen->format->format);
 	if (converted) {
 		GFX_animateSurfaceOpacity(converted, 0, 0, converted->w, converted->h, 255, 0, CFG_getMenuTransitions() ? 200 : 20, 1);
@@ -508,6 +531,7 @@ int main(int argc, char* argv[]) {
 finish:
 
 	Netplay_quitAll();
+	CoreNetplay_byeClose();
 
 	// Unload game and shutdown RetroAchievements before Core_quit
 	RA_unloadGame();

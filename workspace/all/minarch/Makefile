@@ -33,7 +33,7 @@ include ../common/ui/ui.mk
 SOURCE = $(TARGET).c ma_hwrender.c ma_avinfo.c ma_emutime.c ma_game.c ma_cheats.c ma_cheat_match.c ma_saves.c ma_rewind.c ma_config.c ma_shaders.c ma_options.c \
          ma_input.c ma_turbo.c ma_bench.c ma_cpu_profile.c ma_cpu_affinity.c ma_environment.c ma_video.c ma_audio.c ma_core.c ma_menu.c ma_frontend_opts.c ma_runframe.c \
          ma_opts_schema.c ma_opts_dump.c ../common/cjson/cJSON.c \
-         ../common/scaler.c ../common/utils.c ../common/config.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/notification.c ../common/arcade_names.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c ../../$(PLATFORM)/platform/platform.c ../netplay/netplay.c ../netplay/gbalink.c ../netplay/gblink.c ../netplay/network_common.c ../netplay/netplay_helper.c ../netplay/netplay_boot.c ../common/paths.c
+         ../common/scaler.c ../common/utils.c ../common/config.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/notification.c ../common/arcade_names.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c ../../$(PLATFORM)/platform/platform.c ../netplay/netplay.c ../netplay/gbalink.c ../netplay/gblink.c ../netplay/network_common.c ../netplay/netplay_helper.c ../netplay/core_netplay.c ../netplay/netplay_boot.c ../common/paths.c
 
 # Desktop's platform.c backs PLAT_wifiConnected with a real reachability probe
 # (device platform.c doesn't; it uses generic_wifi.c) -- desktop-only source.

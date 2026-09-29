@@ -3,6 +3,8 @@
 #include "netplay.h"
 #include "utils.h"
 #include "arcade_names.h"
+#include "core_netplay.h"
+#include "ui_confirmdialog.h"
 #include "config.h"
 #include "ui_list.h"
 #include "ui_buttonhintbar.h"
@@ -1440,6 +1442,64 @@ void Menu_undoLoadState(void) {
 	}
 }
 
+// Netplay run by the core (flycast GGPO): the other player's game waits while
+// this one is paused, so MENU only asks whether to leave. No answer within the
+// grace ends the session (leaves), well before the core's disconnect timeout.
+typedef struct {
+	uint32_t start;
+	int seconds_left;
+} LeaveNetplayCtx;
+
+static void leaveNetplay_render(SDL_Surface* dst, void* data) {
+	LeaveNetplayCtx* ctx = data;
+	char subtitle[128];
+	snprintf(subtitle, sizeof(subtitle), "The other player is waiting.\nThe session ends in %d s.", ctx->seconds_left);
+	UI_renderConfirmDialogHints(dst, "Leave netplay?", subtitle, (char*[]){"B", "CONTINUE", "A", "LEAVE", NULL});
+}
+
+static int leaveNetplay_handle(void* data) {
+	LeaveNetplayCtx* ctx = data;
+	if (CoreNetplay_byePoll()) { // the other player left meanwhile
+		CoreNetplay_markEnded();
+		return 1;
+	}
+	if (PAD_justPressed(BTN_A))
+		return 1;
+	if (PAD_justPressed(BTN_B) || PAD_justPressed(BTN_MENU))
+		return 0;
+	int left = CoreNetplay_leaveSecondsLeft(ctx->start, SDL_GetTicks());
+	if (left != ctx->seconds_left) {
+		ctx->seconds_left = left;
+		return UI_MODAL_DIRTY;
+	}
+	return UI_MODAL_CONTINUE;
+}
+
+// true = leave the session (and the game)
+static bool Menu_leaveNetplay(void) {
+	LeaveNetplayCtx ctx = {SDL_GetTicks(), CORE_NETPLAY_LEAVE_GRACE_MS / 1000};
+	UI_ModalOpts opts = {
+		.screen = screen,
+		.render = leaveNetplay_render,
+		.handle = leaveNetplay_handle,
+		.ctx = &ctx,
+		.timeout_ms = CORE_NETPLAY_LEAVE_GRACE_MS, // expiry returns -1: leave
+		.reset_pad = true,
+	};
+	return UI_modalLoop(&opts) != 0;
+}
+
+void Menu_netplayNotice(const char* title, const char* subtitle, int hold_ms) {
+	if (screen->w != DEVICE_WIDTH || screen->h != DEVICE_HEIGHT)
+		screen = GFX_resize(DEVICE_WIDTH, DEVICE_HEIGHT, DEVICE_PITCH);
+	GFX_clearShaders();
+	// the leave dialog's look, as a notice: no button row
+	UI_renderConfirmDialogHints(screen, title, subtitle, (char*[]){NULL});
+	GFX_flip(screen);
+	if (hold_ms > 0)
+		SDL_Delay(hold_ms);
+}
+
 void Menu_loop(void) {
 	menu.bitmap = Menu_captureScreenSurface(SDL_PIXELFORMAT_ARGB8888);
 	SDL_Surface* backing = SDL_CreateRGBSurfaceWithFormat(0, DEVICE_WIDTH, DEVICE_HEIGHT, 32, SDL_PIXELFORMAT_ARGB8888);
@@ -1501,6 +1561,11 @@ void Menu_loop(void) {
 
 	//set vid.blit to null for menu drawing no need for blitrender drawing
 	GFX_clearShaders();
+	if (CoreNetplay_isActive()) {
+		if (Menu_leaveNetplay())
+			quit = 1;
+		show_menu = 0; // straight to the teardown below
+	}
 	while (show_menu) {
 		GFX_startFrame();
 		uint32_t now = SDL_GetTicks();

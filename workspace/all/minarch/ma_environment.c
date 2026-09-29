@@ -8,6 +8,7 @@
 #include "ma_options.h"
 #include "ma_opts_dump.h"
 #include "ra_integration.h"
+#include "core_netplay.h"
 #include "gbalink.h"
 
 static bool set_rumble_state(unsigned port, enum retro_rumble_effect effect, uint16_t strength) {
@@ -54,6 +55,7 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		// exit. Without this the request is silently dropped and the main loop
 		// keeps running a core that has given up.
 		LOG_info("Core requested shutdown\n");
+		CoreNetplay_markEnded(); // a GGPO core stops like this when the peer is gone
 		quit = 1;
 		break;
 	}
