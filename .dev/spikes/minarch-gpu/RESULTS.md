@@ -183,6 +183,43 @@ Commits `900fa539` (emulated-time counter), `65c02967` (slot scheduler; `GFX_fli
   it by disc ID (`T1401N.A1.bin` for Soulcalibur). nx-mobile patched it to `<content>.A1.bin` for cross-device saves; choose one
   at the pak switch.
 
+## Netplay (GGPO) spike in the libretro core — WORKS (2026-09-29, Brick host + Smart Pro S client)
+
+The spike patch (throwaway) is saved as `flycast-libretro-ggpo.spike.patch`. It is ~170 lines against flycast v2.6 and is built with `-DNX_LIBRETRO_GGPO=ON`:
+- the GGPO sources are compiled into the libretro core, and `USE_GGPO` is defined;
+- ggpo.cpp's ImGui stats and UI includes are compiled out (no ImGui in libretro);
+- `libretro.cpp` reads the session from env vars (`NX_GGPO`, `NX_GGPO_HOST`, `NX_GGPO_SERVER`, `NX_GGPO_DELAY`,
+  `NX_GGPO_TIMEOUT`) before load, and forces UPnP off;
+- it plugs a pad into port B (`retro_set_controller_port_device(1, JOYPAD)`: GGPO drives port B as player 2);
+- after load it starts `NetworkHandshake` and blocks until synchronized, then carries on.
+
+**Results** (Marvel vs Capcom 2, delay 1, HLE BIOS both sides, fresh identical per-game cards):
+- **It works:** both sides synchronize in seconds; input from both devices lands (after the port-B fix); both screens stay
+  identical through a real VS match (the user played); no desync.
+- **Speed:** menus ~100 %, **fights ~41 frames/s / ~30k audio/s ≈ 67–71 %** on both (the slower side sets the pace),
+  giving occasional lag and stuttering audio. **Standalone flycast measured on the same pair and scene: 30.0–32.3k/s ≈
+  68–73 %.** It feels the same to the user. The cost is GGPO itself (per-frame snapshots plus rollback) on this hardware, not the port.
+- **Pitfalls found:**
+  1. The host needs the client's IP too (`server=` on both sides), as the standalone wizard already does.
+  2. Port B must hold a controller on both sides.
+  3. Any pause > 3 s drops the session (`ggpo_set_disconnect_timeout(3000)`): minarch's in-game menu, a debug
+     screen capture. Standalone's overlay has the same limit.
+  4. Both sides need identical memory cards and BIOS mode: the host's card must be copied to an isolated client copy
+     (standalone wizard: serve/fetch; minarch already has `NETPLAY_SAVES_DIR`).
+  5. `kill -9` truncates unflushed card writes (see the VMU section).
+
+**Production estimate: ~4–6 days.**
+- Core options instead of env (the four netplay options get real names/definitions): ½ day.
+- minarch glue:
+  - plug port B while netplay is on;
+  - block the in-game menu, or keep it under 3 s, and show a netplay-aware "Disconnect" instead;
+  - netplay-safe fast-forward, rewind and state restrictions (like the existing lockstep netplay).
+
+  1–2 days.
+- Netplay wizard for DC on minarch: reuse the existing discovery + card sync (serve the host card, client on an isolated copy),
+  and feed host/peer to the core: 1–2 days.
+- Device matrix (both roles on both devices, Brick Pro, cross-version standalone↔libretro not required): 1 day.
+
 ## Netplay (GGPO) in the libretro build — checked 2026-09-29
 
 The rollback code is shared core code, but four places compile it out of the libretro build, and none of them is a build option:

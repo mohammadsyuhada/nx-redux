@@ -1,0 +1,171 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 8340288fe..6831fad68 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1315,7 +1315,11 @@ if((USE_OPENGL OR USE_GLES2 OR USE_GLES) AND NOT LIBRETRO)
+ 	target_link_libraries(${PROJECT_NAME} PRIVATE glad)
+ endif()
+ 
+-if(NOT LIBRETRO)
++option(NX_LIBRETRO_GGPO "SPIKE: GGPO netplay in the libretro core" OFF)
++if(LIBRETRO AND NX_LIBRETRO_GGPO)
++	target_compile_definitions(${PROJECT_NAME} PRIVATE NX_LIBRETRO_GGPO)
++endif()
++if(NOT LIBRETRO OR NX_LIBRETRO_GGPO)
+ 	target_include_directories(${PROJECT_NAME} PRIVATE core/deps/ggpo/include core/deps/ggpo/lib/ggpo)
+ 	target_sources(${PROJECT_NAME} PRIVATE
+ 		core/deps/ggpo/lib/ggpo/bitvector.cpp
+@@ -1352,6 +1356,8 @@ if(NOT LIBRETRO)
+ 		core/deps/ggpo/lib/ggpo/network/udp_proto.h
+ 		core/deps/ggpo/lib/ggpo/network/udp.cpp
+ 		core/deps/ggpo/lib/ggpo/network/udp.h)
++endif()
++if(NOT LIBRETRO)
+ 
+ 	if(ANDROID)
+ 		target_compile_definitions(${PROJECT_NAME} PRIVATE GLES GLES3)
+diff --git a/core/build.h b/core/build.h
+index 6ea535504..89971ee76 100755
+--- a/core/build.h
++++ b/core/build.h
+@@ -105,7 +105,7 @@
+ #endif
+ #endif
+ 
+-#if !defined(LIBRETRO)
++#if !defined(LIBRETRO) || defined(NX_LIBRETRO_GGPO)
+ #define USE_GGPO
+ #endif
+ 
+diff --git a/core/network/ggpo.cpp b/core/network/ggpo.cpp
+index 1200407dd..40a7b21c4 100644
+--- a/core/network/ggpo.cpp
++++ b/core/network/ggpo.cpp
+@@ -72,8 +72,12 @@ static void getLocalInput(MapleInputState inputState[4])
+ #ifdef USE_GGPO
+ #include "ggponet.h"
+ #include "emulator.h"
++#ifndef LIBRETRO // SPIKE: no ImGui/UI in the libretro core
+ #include "ui/gui.h"
++#endif
++#ifndef LIBRETRO // SPIKE: no ImGui/UI in the libretro core
+ #include "ui/gui_util.h"
++#endif
+ #include "hw/mem/mem_watch.h"
+ #include <string.h>
+ #include <chrono>
+@@ -81,7 +85,9 @@ static void getLocalInput(MapleInputState inputState[4])
+ #include <mutex>
+ #include <unordered_map>
+ #include <numeric>
++#ifndef LIBRETRO // SPIKE: no ImGui/UI in the libretro core
+ #include "imgui.h"
++#endif
+ #include "miniupnp.h"
+ #include "hw/naomi/naomi_cart.h"
+ 
+@@ -864,6 +870,7 @@ void displayStats()
+ {
+ 	if (!active())
+ 		return;
++#ifndef LIBRETRO
+ 	GGPONetworkStats stats;
+ 	ggpo_get_network_stats(ggpoSession, remotePlayer, &stats);
+ 
+@@ -916,6 +923,7 @@ void displayStats()
+ 	}
+ 
+ 	ImGui::End();
++#endif
+ }
+ 
+ void endOfFrame()
+diff --git a/shell/libretro/libretro.cpp b/shell/libretro/libretro.cpp
+index 82c2fe561..54def0c70 100644
+--- a/shell/libretro/libretro.cpp
++++ b/shell/libretro/libretro.cpp
+@@ -1276,6 +1276,65 @@ void retro_run()
+ 	first_run = false;
+ }
+ 
++#ifdef NX_LIBRETRO_GGPO
++// SPIKE (minarch-gpu-spike): GGPO netplay in the libretro core. The frontend
++// (for the spike: environment variables set by the launcher) configures the
++// session before the game loads; the handshake standalone runs from its UI
++// (core/ui/gui.cpp) is started and awaited here, after the game has loaded.
++#include "network/net_handshake.h"
++#include <chrono>
++static bool nx_ggpo_configure()
++{
++	const char *on = getenv("NX_GGPO");
++	if (on == nullptr || strcmp(on, "1") != 0)
++		return false;
++	const char *host = getenv("NX_GGPO_HOST");
++	const char *server = getenv("NX_GGPO_SERVER");
++	const char *delay = getenv("NX_GGPO_DELAY");
++	config::GGPOEnable.override(true);
++	config::NetworkEnable.override(false);
++	config::EnableUPnP.override(false);
++	config::ActAsServer.override(host != nullptr && strcmp(host, "1") == 0);
++	config::NetworkServer.override(std::string(server != nullptr ? server : ""));
++	config::GGPODelay.override(delay != nullptr ? atoi(delay) : 1);
++	// GGPO always drives port B as player 2: both machines need a controller
++	// there (the frontend only plugs port A)
++	retro_set_controller_port_device(1, RETRO_DEVICE_JOYPAD);
++	NOTICE_LOG(NETWORK, "NX GGPO: %s, server '%s', delay %d", config::ActAsServer ? "host" : "client",
++			config::NetworkServer.get().c_str(), config::GGPODelay.get());
++	return true;
++}
++static bool nx_ggpo_start()
++{
++	if (NetworkHandshake::instance == nullptr)
++	{
++		ERROR_LOG(NETWORK, "NX GGPO: no network handshake after load");
++		return false;
++	}
++	const char *t = getenv("NX_GGPO_TIMEOUT");
++	int timeout = t != nullptr ? atoi(t) : 60;
++	std::future<bool> status = NetworkHandshake::instance->start();
++	if (status.wait_for(std::chrono::seconds(timeout)) != std::future_status::ready)
++	{
++		ERROR_LOG(NETWORK, "NX GGPO: peer not synchronized after %d s", timeout);
++		NetworkHandshake::instance->stop();
++		return false;
++	}
++	try {
++		if (!status.get())
++		{
++			ERROR_LOG(NETWORK, "NX GGPO: handshake failed");
++			return false;
++		}
++	} catch (const FlycastException& e) {
++		ERROR_LOG(NETWORK, "NX GGPO: %s", e.what());
++		return false;
++	}
++	NOTICE_LOG(NETWORK, "NX GGPO: synchronized with peer");
++	return true;
++}
++#endif
++
+ static bool loadGame()
+ {
+ 	try {
+@@ -2324,8 +2383,18 @@ bool retro_load_game(const struct retro_game_info *game)
+ 	}
+ 
+ 	config::ScreenStretching = 100;
++#ifdef NX_LIBRETRO_GGPO
++	bool nxGgpo = nx_ggpo_configure();
++#endif
+ 	if (!loadGame())
+ 		return false;
++#ifdef NX_LIBRETRO_GGPO
++	if (nxGgpo && !nx_ggpo_start())
++	{
++		retro_unload_game();
++		return false;
++	}
++#endif
+ 
+ 	rotate_game = config::Rotate90;
+ 	if (rotate_game)
