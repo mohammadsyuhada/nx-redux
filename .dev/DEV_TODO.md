@@ -299,3 +299,14 @@ menu, save states and screenshots work. Open items (VMU, CPU-speed option, BIOS 
 **Cross-device saves (later, optional):** even with per-game cards on both, standalone and libretro name the files
 differently (libretro per-content: `<content>.A1.bin`); moving a save between phone and handheld needs an agreed
 name or a small rename step.
+
+---
+
+## Credit Kenney for the button-hint glyphs
+
+**Requested:** 2026-09-29 (owner). The button-hint glyphs come from Kenney's **Input Prompts** pack (1.5A, CC0: credit
+is not required, but the owner wants to give it). Source pack: `~/Downloads/kenney_input-prompts_1.5/` on the owner's Mac.
+
+- [ ] Add a line to the `## Credits` section of `README.md`, e.g.
+      `- [Kenney](https://kenney.nl/assets/input-prompts) for the Input Prompts glyphs used in the button hints (CC0)`.
+- [ ] Add the same credit to the docs site page `nx-redux-docs/docs/reference/credits.md`.
