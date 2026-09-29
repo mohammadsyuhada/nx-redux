@@ -35,6 +35,11 @@ yet**; the switch ships together with netplay (sub-project 4). Until then the cu
   - **Save states are not carried over** (different emulator version and format). Old standalone states stay on the card
     but can't be loaded; players should save in-game on the card before updating if they rely on states.
   - A game that never saved on the standalone card shows its "no save file" / create prompt as usual (e.g. Crazy Taxi 2).
+  - Each copy happens **once**. To start a game with an empty card (or if its copy of an old, nearly full shared card has
+    no room), delete `Saves/DC/<rom name>.A1.bin`: the next launch gets a fresh card and the old one is not copied back.
+    A card already in `Saves/DC/` before the first launch (e.g. copied from NX Redux Mobile) is kept.
+  - The standalone data folder `.userdata/shared/DC-flycast/` is kept for good, not cleaned up (it is small; minarch's
+    Dreamcast save states also live in that folder).
 - **BIOS** *(built, sub-project 3)*
   - Unchanged for users: `dc_boot.bin`, `naomi.zip`, `awbios.zip` stay in `Bios/DC/` (a RetroArch-style `Bios/DC/dc/` folder
     also works and then takes precedence).
@@ -69,7 +74,7 @@ yet**; the switch ships together with netplay (sub-project 4). Until then the cu
   Slots, …), per game or for all games.
 - **Arcade game names** *(built)*: arcade zips keep their full names in the game list (the table is regenerated from
   flycast v2.7), and minarch's in-game menu now shows that name too ("Metal Slug 6", not "mslug6"). The menu change also
-  applies to FinalBurn Neo arcade zips.
+  applies to FinalBurn Neo arcade zips. Arcade sets with upper-case `.ZIP`/`.7Z` names are handled like lower-case ones.
 - **Removed with standalone** *(built)*: the standalone flycast in-game overlay (its own OSD menu with options,
   save/load and quit) is gone; minarch's in-game menu replaces it.
 - **CPU / performance defaults** *(built)*: Performance CPU speed on both devices; on the Smart Pro S the emulation threads
