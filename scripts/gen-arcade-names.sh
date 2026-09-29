@@ -11,20 +11,20 @@
 # disambiguation).
 #
 # The tables are committed rather than generated at build time: the FBNeo
-# core source is only fetched when cores are compiled, and the Flycast
-# checkout (workspace/all/other/flycast/flycast) is gitignored.
+# and Flycast core sources are only fetched when cores are compiled.
 #
 #   FBN.txt  FinalBurn Neo Arcade + Neo Geo DATs (ClrMame Pro XML), the core
 #            pinned by fbneo_HASH in workspace/tg5040/cores/Makefile
 #   DC.txt   Flycast's Naomi/Naomi 2/Atomiswave/System SP tables
-#            (core/hw/naomi/naomi_roms.cpp Games[] and BIOS[])
+#            (core/hw/naomi/naomi_roms.cpp Games[] and BIOS[]), the core
+#            pinned by flycast_HASH in workspace/tg5040/cores/Makefile
 #
 # usage: scripts/gen-arcade-names.sh [fbneo_src_dir] [flycast_src_dir]
 set -eu
 cd "$(dirname "$0")/.."
 
 FBNEO=${1:-workspace/tg5040/cores/src/fbneo}
-FLYCAST=${2:-workspace/all/other/flycast/flycast}
+FLYCAST=${2:-workspace/tg5040/cores/src/flycast}
 OUT=skeleton/SYSTEM/res/arcade
 export LC_ALL=C
 

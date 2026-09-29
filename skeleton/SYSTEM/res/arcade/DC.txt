@@ -90,7 +90,7 @@ f355bios	.
 f355dlx	.
 f355twin	Ferrari F355 Challenge
 f355twinp	Ferrari F355 Challenge
-f355twn2	Ferrari F355 Challenge 2 - International Course Edition
+f355twn2	Ferrari F355 Challenge 2
 fotns	Fist Of The North Star
 ftspeed	Faster Than Speed
 galilfac	Galileo Factory
