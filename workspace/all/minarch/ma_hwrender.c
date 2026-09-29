@@ -18,8 +18,8 @@ static struct {
 	bool has_frame;
 	bool warned_clamp;
 	unsigned stat_runs, stat_frames;
-	unsigned long long stat_audio_base;
-	bool stats_on; // NX_HWR_STATS=1 // EmuTime total at the window start: emulation speed = audio rate / sample rate
+	unsigned long long stat_audio_base; // EmuTime total at the window start: speed = audio rate / sample rate
+	bool stats_on;						// NX_HWR_STATS=1 prints the 5 s [HWR] line
 	unsigned long stat_start_ms;
 } hwr;
 

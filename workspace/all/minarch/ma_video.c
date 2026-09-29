@@ -1035,7 +1035,7 @@ static void video_hw_hud(unsigned width, unsigned height, unsigned present) {
 
 // Ambient LEDs for a GPU core: the frame's average colour comes from a small
 // GPU downsample (the software path averages its CPU frame).
-#define HWR_AMBIENT_EVERY 4
+#define HWR_AMBIENT_EVERY 8 // LEDs fade between colours; 7.5 updates/s is smooth and halves the readback cost
 #define HWR_AMBIENT_SIZE 32
 static void video_hw_ambient(unsigned present) {
 	static uint32_t avg[HWR_AMBIENT_SIZE * HWR_AMBIENT_SIZE];
@@ -1053,7 +1053,6 @@ static void video_refresh_hw(const void* data, unsigned width, unsigned height) 
 	HWR_clampFrame(&width, &height);
 	present++;
 	video_hw_ambient(present);
-	video_hw_hud(width, height, present);
 	if (renderer.dst_p == 0 || width != renderer.true_w || height != renderer.true_h) {
 		selectScaler(width, height, width * 4);
 		GFX_clearAll();
@@ -1062,6 +1061,8 @@ static void video_refresh_hw(const void* data, unsigned width, unsigned height) 
 		else
 			shader_reset_suppressed = 0;
 	}
+	// after the scaler: the HUD text is placed from renderer.*
+	video_hw_hud(width, height, present);
 	renderer.src = NULL;
 	renderer.dst = screen->pixels;
 	GFX_blitRenderer(&renderer);
@@ -1150,6 +1151,9 @@ void Video_cleanup(void) {
 		rgbaData = NULL;
 		rgbaDataSize = 0;
 	}
+	free(hwr_hud);
+	hwr_hud = NULL;
+	hwr_hud_len = 0;
 	if (fade_buffer) {
 		free(fade_buffer);
 		fade_buffer = NULL;

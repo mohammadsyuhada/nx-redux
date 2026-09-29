@@ -327,29 +327,46 @@ void PLAT_HWR_setHud(const void* rgba, int w, int h) {
 		glBindTexture(GL_TEXTURE_2D, hwr.hud_tex);
 		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
 	}
+	glBindTexture(GL_TEXTURE_2D, 0); // leave unit 0 as restoreFrontendState did
 	hwr.state_dirty = 1;
 }
 
+// The frame is blitted to HWR_AVG_BASE^2, mipmapped (each level texel is a true
+// box average), and the level that is w x h is read back: a smooth average of
+// the whole frame for only w*h*4 bytes. w and h must be HWR_AVG_BASE >> n.
+#define HWR_AVG_BASE 256
 int PLAT_HWR_readAverage(void* rgba, int w, int h) {
-	if (!hwr.copy_fbo || !hwr.frame_ready || w <= 0 || h <= 0)
+	if (!hwr.copy_fbo || !hwr.frame_ready || w <= 0 || h <= 0 || w != h || w > HWR_AVG_BASE)
 		return 0;
-	if (!hwr.avg_fbo || hwr.avg_w != w || hwr.avg_h != h) {
-		if (!hwr.avg_tex)
-			glGenTextures(1, &hwr.avg_tex);
+	int level = 0;
+	while ((HWR_AVG_BASE >> level) > w)
+		level++;
+	if ((HWR_AVG_BASE >> level) != w)
+		return 0;
+	if (!hwr.avg_fbo) {
+		glGenTextures(1, &hwr.avg_tex);
 		glBindTexture(GL_TEXTURE_2D, hwr.avg_tex);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-		if (!hwr.avg_fbo)
-			glGenFramebuffers(1, &hwr.avg_fbo);
-		glBindFramebuffer(GL_FRAMEBUFFER, hwr.avg_fbo);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, hwr.avg_tex, 0);
+		// levels 0..level (glTexStorage2D is GL 4.2; the desktop build is GL 4.1)
+		for (int l = 0; l <= level; l++)
+			glTexImage2D(GL_TEXTURE_2D, l, GL_RGBA, HWR_AVG_BASE >> l, HWR_AVG_BASE >> l, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, level);
+		glGenFramebuffers(1, &hwr.avg_fbo);
 		hwr.avg_w = w;
 		hwr.avg_h = h;
 	}
-	// downsample on the GPU so only w*h pixels come back to the CPU
+	if (hwr.avg_w != w)
+		return 0; // texture storage is fixed at first use
+	// blit the frame into level 0, then let the GPU average it down
+	glBindFramebuffer(GL_FRAMEBUFFER, hwr.avg_fbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, hwr.avg_tex, 0);
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, hwr.copy_fbo);
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, hwr.avg_fbo);
-	glBlitFramebuffer(0, 0, hwr.copy_w, hwr.copy_h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_LINEAR);
-	glBindFramebuffer(GL_READ_FRAMEBUFFER, hwr.avg_fbo);
+	glBlitFramebuffer(0, 0, hwr.copy_w, hwr.copy_h, 0, 0, HWR_AVG_BASE, HWR_AVG_BASE, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+	glBindTexture(GL_TEXTURE_2D, hwr.avg_tex);
+	glGenerateMipmap(GL_TEXTURE_2D);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glBindFramebuffer(GL_FRAMEBUFFER, hwr.avg_fbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, hwr.avg_tex, level);
 	glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	hwr.state_dirty = 1;
