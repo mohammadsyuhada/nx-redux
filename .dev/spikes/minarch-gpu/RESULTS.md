@@ -167,6 +167,22 @@ Commits `900fa539` (emulated-time counter), `65c02967` (slot scheduler; `GFX_fli
 - **CPU layout observed on the Brick:** all 4 cores online in menu and game (a single cluster, one policy). Menu: schedutil 408–600 MHz. Game: minarch "Performance" locks 2.0 GHz. Threads spread across cores; no pinning (the Brick has no `taskset`).
 - Marvel vs Capcom 2 and Quake III are now also on the Brick's card.
 
+## Soulcalibur "Unable to load game data / Check the VMU": resolved (2026-09-29, Brick)
+
+- **Cause: the test harness, not the core.** flycast writes VMU blocks with `fseek` + `fwrite` and no `fflush`
+  (`core/hw/maple/maple_devs.cpp` ~676). The data stays in the stdio buffer until the file is closed at unload. Ending a
+  game with `kill -9` (what every spike run did) truncated the card. That happened on the shared `Bios/DC/dc/vmu_save_A1.bin`
+  (hence Crazy Taxi 2's odd "106 free blocks") and on a per-game card.
+- **Proof:** with `reicast_per_content_vmus = VMU A1`, a fresh boot shows Soulcalibur's normal first-run screen ("requires 12
+  blocks … press Start to create"). After quitting through minarch's menu (a clean unload), the relaunch goes straight into the
+  intro with no VMU error. After `kill -9` instead, the relaunch shows "Unable to load".
+- **Real-user risk:** a power loss or crash mid-game loses unflushed card writes. Standalone has the same code, so this is not a
+  regression. Cheap hardening for the pak switch: a flycast patch hunk that `fflush`es after each VMU block write (writes
+  are rare).
+- **Pak default:** `reicast_per_content_vmus = VMU A1` (one card per game in `Saves/DC/`, as DEV_TODO asked). flycast names
+  it by disc ID (`T1401N.A1.bin` for Soulcalibur). nx-mobile patched it to `<content>.A1.bin` for cross-device saves; choose one
+  at the pak switch.
+
 ## Netplay (GGPO) in the libretro build — checked 2026-09-29
 
 The rollback code is shared core code, but four places compile it out of the libretro build, and none of them is a build option:
