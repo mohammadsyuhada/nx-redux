@@ -34,6 +34,11 @@ users still run standalone flycast, and the current docs stay correct.
   - The HLE BIOS still works without `dc_boot.bin`.
 - **Arcade (NAOMI / Atomiswave)** *(built)*
   - The modern MAME `awbios.zip` (containing `bios.ic23_l`) is accepted, as before (Metal Slug 6 verified).
+- **Internal resolution** *(planned default, sub-project 3)*
+  - The default is 640×480 (Dreamcast native) on every device, the same as standalone.
+  - Players can change it (`reicast_internal_resolution`, up to 1280×960 and beyond) in minarch's in-game Options (core
+    options), per game or for all games; changing it mid-game is handled (framebuffer and aspect follow).
+  - Higher values cost speed: the Brick has little headroom; the Smart Pro S may handle 960×720 in lighter games.
 - **Frame rate and speed** *(built: minarch "Emulated" Core Sync)*
   - 30 fps games (Metal Slug 6, Quake III Arena) now run at their real speed.
   - Auto frame-skip stays on for heavy 3D games.
