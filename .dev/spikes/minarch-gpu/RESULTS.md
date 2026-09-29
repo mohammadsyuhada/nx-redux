@@ -183,6 +183,34 @@ Commits `900fa539` (emulated-time counter), `65c02967` (slot scheduler; `GFX_fli
   it by disc ID (`T1401N.A1.bin` for Soulcalibur). nx-mobile patched it to `<content>.A1.bin` for cross-device saves; choose one
   at the pak switch.
 
+## Sub-project 1 — flycast **v2.7** libretro core in the cores Makefile (2026-09-29)
+
+Commits `cef39ff9` (build: `workspace/all/cores/flycast/build-libretro.sh` + a minimal libretro toolchain with no curl/OpenSSL;
+`CORES += flycast` in the tg5040/tg5050 cores Makefiles, v2.7 `5aa091fd`, only the libchdr/tinygettext/asio submodules) and
+`6d055bfd` (patches in `workspace/all/cores/patches/flycast/`):
+- `0001` the tg5040 GCC 8.3 ICE: **still needed on v2.7**;
+- `0002` modern awbios;
+- `0003` per-game VMU named after the ROM (`<rom>.A1.bin`, same as nx-mobile);
+- `0004` `fflush` after each VMU write.
+
+tg5040 also needs `-lstdc++fs` (GCC 8 keeps `std::filesystem` separate; v2.7's tinygettext uses it). Both platforms build from a clean
+clone: ~35 MB, NEEDED only libc/libm/libstdc++/libgcc/pthread/dl/rt. Not packaged yet (sub-project 3).
+
+**Device verification** (committed minarch GPU path, Emulated sync, per-game VMU):
+
+| Check | Brick | Smart Pro S |
+|---|---|---|
+| Soulcalibur card | `Soulcalibur (USA).A1.bin`; relaunch after a clean quit loads | — |
+| Card flush (save, then `kill -9`, relaunch) | loads (was "Unable to load" before `0004`) | — |
+| Metal Slug 6 (modern awbios) | boots; 30 fps scenes 30.0 @ 44.1k | 30.0 / 60.0 @ 44.1k |
+| Crazy Taxi 2 attract | 81–85 % (v2.6: 82–87 %, same within noise) | 100 %, heaviest 92–97 % |
+| Widescreen aspect | — | fills 1280 px (`[AV] aspect=1.7778`, FBO 854) |
+
+**Smart Pro S CPU layout in game:** online cpu0–1 (little, 1.416 GHz) + cpu4–5 (big, 2.16 GHz); cpu2–3 and 6–7 are offline
+(the menu runs on cpu0–1 only). The spike launcher's `taskset 0x30` crowds the emu thread, minarch, audio and 8 Mali workers onto
+cpu4–5. Standalone keeps emu on cpu4, main/render on cpu5, and audio/Mali on cpu0–1. **For the real DC.pak use
+`minarch_cpu_affinity = big`** (helpers and Mali go to the little cores), as PS.pak does.
+
 ## Netplay (GGPO) spike in the libretro core — WORKS (2026-09-29, Brick host + Smart Pro S client)
 
 The spike patch (throwaway) is saved as `flycast-libretro-ggpo.spike.patch`. It is ~170 lines against flycast v2.6 and is built with `-DNX_LIBRETRO_GGPO=ON`:
