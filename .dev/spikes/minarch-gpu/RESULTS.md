@@ -156,6 +156,17 @@ Commits `900fa539` (emulated-time counter), `65c02967` (slot scheduler; `GFX_fli
 - **Save/load could not be exercised on this device:** injected Save/Load keypresses create no state here (the menu opens; RA hardcore is off). To verify on the Brick.
 - **One freeze during the first fast-forward test:** the device was hot with the fan silent. The fan was not on Auto then. After the user set Auto, the same sequence ran clean at 64–68 °C with the fan at 31/31. `fancontrol` stays alive across spike launches. This is most likely a thermal lockup with CPU/GPU pinned at max under fast-forward, not a pacing bug. Keep the fan on Auto for DC testing.
 
+**Brick**, same configuration:
+
+| Game | Result |
+|---|---|
+| Metal Slug 6 | 30.0 runs/s @ ~44.1k in 30 fps scenes, 59.9 @ 44.1k in 60 fps scenes |
+| Crazy Taxi 2 attract | 36.0–38.2k/s → **82–87 %** (median ~84 %), meeting the ≥ 83 % target with auto-skip on (standalone 78–80 %; auto-skip off + detection 61–73 %). CPU fixed at 2.0 GHz, no throttling, 53–62 °C |
+
+- **Save/load recovery (Crazy Taxi 2):** the window with menu + 36 MB save reads 13.8k/s, then straight back to 37.9k/s. Load: one partial window (31.5k/s), then 38.3k/s. No stall and no burst.
+- **CPU layout observed on the Brick:** all 4 cores online in menu and game (a single cluster, one policy). Menu: schedutil 408–600 MHz. Game: minarch "Performance" locks 2.0 GHz. Threads spread across cores; no pinning (the Brick has no `taskset`).
+- Marvel vs Capcom 2 and Quake III are now also on the Brick's card.
+
 ## Netplay (GGPO) in the libretro build — checked 2026-09-29
 
 The rollback code is shared core code, but four places compile it out of the libretro build, and none of them is a build option:
