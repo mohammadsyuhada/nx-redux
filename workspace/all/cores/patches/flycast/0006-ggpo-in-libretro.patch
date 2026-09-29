@@ -143,10 +143,55 @@ index 2b9889a..bfea25d 100644
  	extern bool inRollback;
  
 diff --git a/shell/libretro/libretro.cpp b/shell/libretro/libretro.cpp
-index ef59b7a..95a0fca 100644
+index ef59b7a..33c8747 100644
 --- a/shell/libretro/libretro.cpp
 +++ b/shell/libretro/libretro.cpp
-@@ -1345,6 +1345,92 @@ void retro_run()
+@@ -827,6 +827,23 @@ static void setRotation()
+ 	environ_cb(RETRO_ENVIRONMENT_SET_ROTATION, &rotation);
+ }
+ 
++#ifdef NX_LIBRETRO_GGPO
++// NX Redux: GGPO compares every memory card's contents between the two peers
++// before a session starts, and a device change mid-session desyncs it. While a
++// session runs the layout is fixed, whatever the options say: port A has the
++// per-game card (the one the launcher syncs from the host) and a rumble pack,
++// port B (player 2) a rumble pack and no card.
++static void nx_ggpo_pin_expansion(int port)
++{
++	if (!config::GGPOEnable || port > 1)
++		return;
++	config::MapleExpansionDevices[port][0] = port == 0 ? MDT_SegaVMU : MDT_None;
++	config::MapleExpansionDevices[port][1] = MDT_PurupuruPack;
++	config::NetworkExpansionDevices[port][0] = 0;
++	config::NetworkExpansionDevices[port][1] = 0;
++}
++#endif
++
+ static void update_variables(bool first_startup)
+ {
+ 	bool wasThreadedRendering = config::ThreadedRendering;
+@@ -850,6 +867,10 @@ static void update_variables(bool first_startup)
+ 		else if (!strcmp("All VMUs", var.value))
+ 			per_content_vmus = 2;
+ 	}
++#ifdef NX_LIBRETRO_GGPO
++	if (config::GGPOEnable)
++		per_content_vmus = 1; // the per-game card the launcher syncs
++#endif
+ 	if (!first_startup && per_content_vmus != previous_per_content_vmus
+ 			&& settings.platform.isConsole())
+ 	{
+@@ -1081,6 +1102,9 @@ static void update_variables(bool first_startup)
+ 				config::MapleExpansionDevices[i][1] = MDT_None;
+ 			}
+ 
++#ifdef NX_LIBRETRO_GGPO
++			nx_ggpo_pin_expansion(i);
++#endif
+ 			if (MapleExpansionDevicesPrev[0] != config::MapleExpansionDevices[i][0]
+ 					|| MapleExpansionDevicesPrev[1] != config::MapleExpansionDevices[i][1])
+ 				devices_need_refresh = true;
+@@ -1345,6 +1369,98 @@ void retro_run()
  	first_run = false;
  }
  
@@ -180,8 +225,8 @@ index ef59b7a..95a0fca 100644
 +	config::NetworkEnable.override(false);
 +	config::ActAsServer.override(nx_ggpo_env_is("NX_GGPO_HOST", "1"));
 +	config::NetworkServer.override(std::string(server != nullptr ? server : ""));
-+	if (nx_ggpo_env_is("NX_GGPO_HLE", "1"))
-+		config::UseReios.override(true);
++	// both ways: a player's own "HLE BIOS" option must not split the two sides
++	config::UseReios.override(nx_ggpo_env_is("NX_GGPO_HLE", "1"));
 +	// Everything that changes what the emulated machine does must be the same
 +	// on both sides, or the session desyncs. Region, language and broadcast
 +	// follow the disc and the (host-synced) console flash; render-only options
@@ -198,6 +243,12 @@ index ef59b7a..95a0fca 100644
 +	config::EmulateBBA.override(false);
 +	config::UseDCNet.override(false);
 +	config::EnableUPnP.override(false);
++	// with it off, the wait for the peer's inputs runs on the frontend's thread,
++	// which then can't show its menu or quit while the other player is paused
++	config::ThreadedRendering.override(true);
++	per_content_vmus = 1;
++	nx_ggpo_pin_expansion(0);
++	nx_ggpo_pin_expansion(1);
 +	// GGPO always drives port B as player 2: both machines need a controller
 +	// there (the frontend only plugs port A)
 +	retro_set_controller_port_device(1, RETRO_DEVICE_JOYPAD);
@@ -239,7 +290,7 @@ index ef59b7a..95a0fca 100644
  static bool loadGame()
  {
  	try {
-@@ -2422,8 +2508,18 @@ bool retro_load_game(const struct retro_game_info *game)
+@@ -2422,8 +2538,18 @@ bool retro_load_game(const struct retro_game_info *game)
  	}
  
  	config::ScreenStretching = 100;
@@ -258,7 +309,7 @@ index ef59b7a..95a0fca 100644
  
  	rotate_game = config::Rotate90;
  	if (rotate_game)
-@@ -2450,6 +2546,10 @@ bool retro_load_game_special(unsigned game_type, const struct retro_game_info *i
+@@ -2450,6 +2576,10 @@ bool retro_load_game_special(unsigned game_type, const struct retro_game_info *i
  void retro_unload_game()
  {
  	INFO_LOG(COMMON, "Flycast unloading game");
