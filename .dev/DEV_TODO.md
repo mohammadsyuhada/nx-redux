@@ -310,3 +310,21 @@ is not required, but the owner wants to give it). Source pack: `~/Downloads/kenn
 - [ ] Add a line to the `## Credits` section of `README.md`, e.g.
       `- [Kenney](https://kenney.nl/assets/input-prompts) for the Input Prompts glyphs used in the button hints (CC0)`.
 - [ ] Add the same credit to the docs site page `nx-redux-docs/docs/reference/credits.md`.
+
+---
+
+## DC libretro vs standalone: performance figure for the PR and release notes
+
+**Requested:** 2026-09-29 (owner). The PR that moves `DC.pak` to minarch must state how much faster or slower the flycast
+libretro core runs than standalone flycast, **with Soulcalibur as the reference**. The figure goes into the release notes.
+
+Method, so the number holds up (the spike figures in `.dev/spikes/minarch-gpu/RESULTS.md` are not a like-for-like comparison):
+- [ ] Same build and settings as shipped: the libretro core with the pak's final `default.cfg` (Emulated sync,
+      auto-skip `some`, per-game VMU, …); standalone with its shipped `default-brick.cfg` / `default.cfg`. Same
+      BIOS mode on both. Smart Pro S fan on Auto.
+- [ ] Metric: emulation speed = core audio frames/s ÷ 44 100. Libretro via minarch's `[HWR]` line; standalone via the audio
+      probe in a *copy* of `DC.pak` (never replace the installed binary).
+- [ ] Scene: Soulcalibur's attract loop from the title screen onward. Average over ≥ 5 min per run, 3 runs per emulator
+      per device (Brick + Smart Pro S). Report the mean and range, then libretro ÷ standalone − 1 as the percentage.
+- [ ] Put the table plus one summary line per device in the PR description, e.g. "Soulcalibur runs N % faster on the
+      Brick (X % vs Y % of full speed)". Keep the raw windows in `RESULTS.md`.
