@@ -99,12 +99,17 @@ void ArcadeNames_free(ArcadeNames* self) {
 	free(self);
 }
 
+int ArcadeNames_isArcadeFile(const char* filename) {
+	if (!filename)
+		return 0;
+	const char* dot = strrchr(filename, '.');
+	return dot && dot != filename && (strcasecmp(dot, ".zip") == 0 || strcasecmp(dot, ".7z") == 0);
+}
+
 const char* ArcadeNames_get(const ArcadeNames* self, const char* filename) {
-	if (!self || !filename)
+	if (!self || !ArcadeNames_isArcadeFile(filename))
 		return NULL;
 	const char* dot = strrchr(filename, '.');
-	if (!dot || dot == filename || (strcasecmp(dot, ".zip") != 0 && strcasecmp(dot, ".7z") != 0))
-		return NULL;
 
 	// set names are lowercase; FAT keeps whatever case a copy tool wrote
 	char stem[256];

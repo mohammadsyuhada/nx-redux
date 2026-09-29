@@ -889,17 +889,29 @@ void OptionAchievements_updateDesc(void) {
 
 // Arcade zips without a map.txt alias get the title the launcher shows for them
 // (.system/res/arcade/<TAG>.txt, keyed by the Roms folder's tag), so the menu
-// says "Metal Slug 6" rather than "mslug6". Leaves name alone otherwise.
+// says "Metal Slug 6" rather than "mslug6". Leaves name alone otherwise. The
+// table is only read for .zip/.7z files, once per game: the answer is cached by
+// ROM path, so later menu opens don't re-parse it (FBN.txt has ~8000 lines).
 static void getArcadeTitle(const char* path, char* name) {
-	char tag[MAX_PATH];
-	getEmuName(path, tag);
-	char table_path[MAX_PATH];
-	snprintf(table_path, sizeof(table_path), "%s/arcade/%s.txt", RES_PATH, tag);
-	ArcadeNames* names = ArcadeNames_load(table_path);
-	const char* title = ArcadeNames_get(names, baseName(path));
-	if (title && strcmp(title, ".") != 0)
-		snprintf(name, MAX_PATH, "%s", title);
-	ArcadeNames_free(names);
+	static char cached_path[MAX_PATH];
+	static char cached_title[MAX_PATH]; // "" = the table has no title for it
+	if (!ArcadeNames_isArcadeFile(baseName(path)))
+		return;
+	if (strcmp(cached_path, path) != 0) {
+		cached_title[0] = '\0';
+		char tag[MAX_PATH];
+		getEmuName(path, tag);
+		char table_path[MAX_PATH];
+		snprintf(table_path, sizeof(table_path), "%s/arcade/%s.txt", RES_PATH, tag);
+		ArcadeNames* names = ArcadeNames_load(table_path);
+		const char* title = ArcadeNames_get(names, baseName(path));
+		if (title && strcmp(title, ".") != 0)
+			snprintf(cached_title, sizeof(cached_title), "%s", title);
+		ArcadeNames_free(names);
+		snprintf(cached_path, sizeof(cached_path), "%s", path);
+	}
+	if (cached_title[0])
+		snprintf(name, MAX_PATH, "%s", cached_title);
 }
 
 // alias must be at least MAX_PATH bytes

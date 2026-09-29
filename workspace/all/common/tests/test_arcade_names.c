@@ -1,4 +1,4 @@
-// Host test for nextui/arcade_names.c: the launcher's fallback display names
+// Host test for common/arcade_names.c: the launcher's fallback display names
 // for arcade zips with no map.txt alias. Checks the loader against a small
 // hand-written table (unsorted, CRLF, malformed lines) and the committed
 // res/arcade tables against sets people actually have.
@@ -19,6 +19,17 @@ static void expect(const ArcadeNames* names, const char* filename, const char* t
 }
 
 int main(void) {
+	// cheap pre-check callers use before loading a table
+	assert(ArcadeNames_isArcadeFile("mslug6.zip"));
+	assert(ArcadeNames_isArcadeFile("MSLUG6.ZIP"));
+	assert(ArcadeNames_isArcadeFile("kof98.7z"));
+	assert(ArcadeNames_isArcadeFile("KOF98.7Z"));
+	assert(!ArcadeNames_isArcadeFile("Soulcalibur (USA).chd"));
+	assert(!ArcadeNames_isArcadeFile("mslug6"));
+	assert(!ArcadeNames_isArcadeFile(".zip"));
+	assert(!ArcadeNames_isArcadeFile("a.zip.chd"));
+	assert(!ArcadeNames_isArcadeFile(NULL));
+
 	assert(ArcadeNames_load("/nonexistent/arcade.txt") == NULL);
 
 	const char* fixture = "/tmp/nx_test_arcade_names.txt";

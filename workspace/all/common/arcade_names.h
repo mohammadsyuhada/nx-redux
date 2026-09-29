@@ -17,6 +17,10 @@ typedef struct ArcadeNames ArcadeNames;
 ArcadeNames* ArcadeNames_load(const char* path);
 void ArcadeNames_free(ArcadeNames* self);
 
+// True for a .zip/.7z filename (any case) with a non-empty stem: the only files
+// a table can name. Lets callers skip loading a table for everything else.
+int ArcadeNames_isArcadeFile(const char* filename);
+
 // Title for a ROM filename (e.g. "mslug.zip"), or NULL when the table does
 // not know it. Only .zip and .7z files are looked up (any case), so disc
 // images sharing a folder with arcade sets (DC's .chd/.gdi) keep their names.
