@@ -64,11 +64,28 @@ yet**; the switch ships together with netplay (sub-project 4). Until then the cu
   - Face buttons are position-based, as before: bottom = DC A, right = B, left = X, top = Y. L2/R2 = the analog triggers,
     Select = insert coin on arcade games (verified: Metal Slug 6 "CREDIT(S) 1").
   - Remapping is done in minarch's in-game Options → Controls, like other systems (standalone's mapping file is gone).
-- **Netplay** *(planned, sub-project 4)*
-  - GGPO netplay works on the libretro core (spike verified).
-  - Document the same wizard flow, any change in which device is host (player 1) / client (player 2), and the note that
-    **opening the in-game menu for more than ~3 s drops the session**.
-  - Fights run at about 70 % speed on this hardware in both the standalone and libretro builds.
+- **Netplay** *(built, sub-project 4; device E2E in progress)*
+  - Same flow as other systems: Y / "Launch with Netplay" → the wizard (host or join, hotspot or Wi-Fi).
+  - It's flycast's GGPO rollback netplay, now inside the libretro core.
+  - **The host brings the save:**
+    - the host's memory card, console settings and second card (or an arcade game's saves) are used for the session;
+    - the other player plays on a temporary copy, so their own saves are never touched;
+    - the host keeps a one-deep backup in `.userdata/shared/DC-flycast/netplay-backup/`.
+  - **BIOS:** both use the real BIOS only when they have the same `dc_boot.bin`; otherwise both use the built-in (HLE) BIOS
+    automatically. Arcade games need `naomi.zip` / `awbios.zip` on both devices.
+  - **In-game menu during netplay:** MENU shows only **"Leave netplay?"** (A Leave, B Continue).
+    - The other player's game pauses meanwhile.
+    - With no answer in 20 s, the player leaves.
+    - Save/load states, fast-forward, rewind and reset are off during a session (as for other netplay).
+  - When a player leaves, the other device shows **"Netplay ended"** at once and returns to the game list. After a lost
+    connection it takes ~25 s.
+  - **Emulator Options → "Netplay Input Delay"** (0–5, default 1): each player's own setting. Higher means fewer
+    corrections on a weak connection, but more input lag.
+  - Kept the same on both sides for the session, whatever the settings (so the session stays in sync):
+    - region, language, broadcast: follow the disc and the host's console settings;
+    - SH4 clock at 200 MHz; DSP, widescreen cheats, fast GD-ROM loading and the 32 MB mod off; BBA/DCNet off.
+  - Render settings (resolution, widescreen, frame skip) stay per device.
+  - Fights run at ~70 % speed on this hardware, the same as standalone; menus at full speed. Expect some audio stutter.
 - **Pre-launch Emulator Options** *(built, sub-project 3)*: the game-list "Emulator Options" entry and the Emulator
   Settings tool now edit flycast's core options (System, Video, Performance, Emulation Hacks, Input, Controller Expansion
   Slots, …), per game or for all games.

@@ -316,3 +316,26 @@ flycast v2.7 with patches 0001–0005.
   lighter window. CT2's attract drive sits at ~96 % mean on every layout.
 - **Devices after the checks:** removed `Emus/DC.pak`, `.spike`, seeded `Saves/DC/*.A1.bin`, `Saves/DC/reicast/`,
   `Bios/DC/{dc_nvmem.bin,vmu_save_A2.bin,data}`, `.userdata/<plat>/DC-flycast/`; Smart Pro S cpu6–7 offline.
+
+## Sub-project 4: Dreamcast netplay on minarch — device checks 2026-09-29
+
+Brick host (real BIOS) + Smart Pro S client (no BIOS), Soulcalibur, Wi-Fi. Test copies of the pak (card-root
+`Emus/DC.pak`), minarch and the wizard (`.spike/bin` first on PATH).
+
+- **Session:** both sides synchronize in seconds. BIOS fingerprints differ (Smart Pro S: `dcbios=none`), so both
+  use HLE (`NX GGPO: host|client … HLE BIOS`). Fights run ~41–52 fps, as in the spike.
+- **Host brings the save:** the client played on `/tmp/netplay-saves/Soulcalibur (USA).A1.bin` = the Brick's card
+  (md5 `921d53…`). It got the host's `dc_nvmem`/A2 plus a copy of the arcade BIOS in `/tmp/netplay-system`. The client's
+  own card (`6de215…`) and the host's card were unchanged. The host keeps a backup in `DC-flycast/netplay-backup/`. All
+  `/tmp` copies and the session file are gone after the game.
+- **In-game menu:** "Leave netplay?" (A Leave / B Continue) with a countdown. Continue resumed both; Leave quit. With
+  no answer, it left on its own after 20 s. The peer's game waits meanwhile.
+- **Leaving:** first build — the peer only ended after the 25 s disconnect timeout, so a UDP goodbye (port 55442) was added.
+  Now the peer shows "Netplay ended" at once (all four checks, both directions).
+- **First run hang:** the Smart Pro S froze on Leave (adb dead too, forced reboot; log cut off). Suspected cause: the emu
+  thread spun in GGPO's prediction-barrier loop holding `ggpoMutex` while the unload's `stopSession()` waited for it.
+  Patch 0006 now makes the loop exit when the frontend unloads (`ggpo::nxStopRequested`). Not reproduced in 5+ later
+  sessions (tracer on both devices).
+- **Notices** ("Connecting…", "Netplay ended", "Netplay failed") use the confirm dialog without buttons.
+- Test-setup gotcha: a leftover `MinUI.zip` on the Smart Pro S card reinstalled v1.13.0 at a forced reboot and removed the
+  card-root test pak.
