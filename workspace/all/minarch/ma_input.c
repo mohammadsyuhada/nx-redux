@@ -8,6 +8,7 @@
 #include "ma_config.h"
 #include "netplay_helper.h"
 #include "ma_turbo.h"
+#include "button_layout.h"
 
 int setFastForward(int enable) {
 	int val = enable ? 1 : 0;
@@ -19,6 +20,43 @@ static uint32_t buttons = 0; // RETRO_DEVICE_ID_JOYPAD_* buttons
 static TurboState turbo;
 static int ignore_menu = 0;
 static int polled_this_frame = 0;
+int input_positional_faces = 0;
+
+// A binding's button as read for a positional pak: the logical button that
+// the pad's layout swap turns the bound physical position into (see
+// ButtonLayout_positionalFace). Other buttons, or the Nintendo layout, pass
+// through.
+static int Input_positionalBtn(int btn) {
+	ButtonLayoutFace f;
+	switch (btn) {
+	case BTN_A:
+		f = BL_FACE_A;
+		break;
+	case BTN_B:
+		f = BL_FACE_B;
+		break;
+	case BTN_X:
+		f = BL_FACE_X;
+		break;
+	case BTN_Y:
+		f = BL_FACE_Y;
+		break;
+	default:
+		return btn;
+	}
+	switch (ButtonLayout_positionalFace(f, PAD_layoutIsXbox())) {
+	case BL_FACE_A:
+		return BTN_A;
+	case BL_FACE_B:
+		return BTN_B;
+	case BL_FACE_X:
+		return BTN_X;
+	case BL_FACE_Y:
+		return BTN_Y;
+	default:
+		return btn;
+	}
+}
 
 void Input_beginFrame(void) {
 	polled_this_frame = 0;
@@ -232,6 +270,8 @@ void input_poll_callback(void) {
 		int btn = ButtonMapping_btn(mapping);
 		if (btn == BTN_NONE)
 			continue; // present buttons can still be unbound
+		if (input_positional_faces)
+			btn = Input_positionalBtn(btn);
 		if (gamepad_type == 0) {
 			switch (btn) {
 			case BTN_DPAD_UP:

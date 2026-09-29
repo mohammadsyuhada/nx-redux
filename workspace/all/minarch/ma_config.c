@@ -1,6 +1,7 @@
 #include "ma_internal.h"
 #include "utils.h"
 #include "ma_config.h"
+#include "ma_input.h"
 #include "ma_options.h"
 #include "ma_rewind.h"
 #include "ma_cpu_profile.h"
@@ -1266,6 +1267,9 @@ void Config_readOptionsString(char* cfg) {
 		cpu_profile_max_mhz = atoi(value);
 	if (Config_getValue(cfg, "minarch_cpu_affinity", value, NULL))
 		cpu_profile_affinity = CpuProfile_parseAffinity(value);
+	// Per-pak face-button positions (ma_input.h)
+	if (Config_getValue(cfg, "minarch_face_buttons", value, NULL))
+		input_positional_faces = strcmp(value, "positional") == 0;
 	for (int i = 0; config.core.options[i].key; i++) {
 		Option* option = &config.core.options[i];
 		if (!Config_getValue(cfg, option->key, value, &option->lock))

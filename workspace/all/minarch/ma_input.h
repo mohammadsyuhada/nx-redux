@@ -12,3 +12,9 @@ void Input_init(const struct retro_input_descriptor* vars);
 
 // Current local RETRO_DEVICE_ID_JOYPAD_* button bitmask (for netplay input sync).
 uint32_t Input_getButtons(void);
+
+// Per-pak "minarch_face_buttons = positional" (default.cfg): the core's face
+// buttons follow the pad's physical positions whatever the Button layout
+// setting, as the console's own controller would (Dreamcast). Menus keep
+// following the layout. Set by Config_readOptions.
+extern int input_positional_faces;

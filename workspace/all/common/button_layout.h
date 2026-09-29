@@ -39,6 +39,15 @@ static inline ButtonLayoutFace ButtonLayout_swapFace(ButtonLayoutFace f, int xbo
 	}
 }
 
+// The logical face that reads a physical position: a binding to Nintendo face
+// f (B = bottom, A = right, ...) is answered by this logical face under the
+// active layout. For paks whose games expect the pad's positions whatever
+// the layout (Dreamcast: its own A is the bottom button). The swap is its own
+// inverse, so this undoes it.
+static inline ButtonLayoutFace ButtonLayout_positionalFace(ButtonLayoutFace f, int xbox) {
+	return ButtonLayout_swapFace(f, xbox);
+}
+
 // Label to DISPLAY for a logical hint/binding label. With "physical" the
 // letter printed on the cap you actually press is shown (Xbox layout on,
 // Hint labels = printed caps): the four face letters swap, their MENU+

@@ -6,6 +6,16 @@
 
 static void test_swap_face(void) {
 	// Nintendo: identity
+	// positional faces (a pak that wants the pad's physical positions, e.g.
+	// Dreamcast): undoing the layout swap recovers the physical face, so the
+	// button in the Nintendo "B" position is the bottom one under either layout
+	for (int f = BL_FACE_A; f <= BL_FACE_Y; f++) {
+		assert(ButtonLayout_positionalFace((ButtonLayoutFace)f, 0) == (ButtonLayoutFace)f);
+		assert(ButtonLayout_swapFace(ButtonLayout_positionalFace((ButtonLayoutFace)f, 1), 1) == (ButtonLayoutFace)f);
+	}
+	assert(ButtonLayout_positionalFace(BL_FACE_B, 1) == BL_FACE_A); // bottom reads as logical A under Xbox
+	assert(ButtonLayout_positionalFace(BL_FACE_NONE, 1) == BL_FACE_NONE);
+
 	assert(ButtonLayout_swapFace(BL_FACE_A, 0) == BL_FACE_A);
 	assert(ButtonLayout_swapFace(BL_FACE_B, 0) == BL_FACE_B);
 	assert(ButtonLayout_swapFace(BL_FACE_X, 0) == BL_FACE_X);
