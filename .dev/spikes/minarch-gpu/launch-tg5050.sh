@@ -12,6 +12,7 @@ echo 2160000 >/sys/devices/system/cpu/cpu4/cpufreq/scaling_max_freq
 echo 1992000 >/sys/devices/system/cpu/cpu4/cpufreq/scaling_min_freq
 echo performance >/sys/devices/platform/soc@3000000/1800000.gpu/devfreq/1800000.gpu/governor 2>/dev/null
 cd "$USERDATA_PATH"
+export NX_HWR_STATS=1 # [HWR] 5 s stats line (measurements)
 # DC.pak pins flycast's emu thread to cpu4 and its main/render thread to cpu5;
 # keep the whole minarch process (main + flycast's emu thread) on cpu4-5.
 taskset 0x30 "$SPIKE/minarch-spike.elf" "$CORE" "$ROM" >"$SPIKE/last-run.log" 2>&1
