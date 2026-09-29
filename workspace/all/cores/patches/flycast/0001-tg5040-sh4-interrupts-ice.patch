@@ -1,0 +1,62 @@
+diff --git a/core/hw/sh4/sh4_interrupts.cpp b/core/hw/sh4/sh4_interrupts.cpp
+index 49a3be455..40eacc928 100644
+--- a/core/hw/sh4/sh4_interrupts.cpp
++++ b/core/hw/sh4/sh4_interrupts.cpp
+@@ -20,21 +20,48 @@
+ 
+ //these are fixed
+ const u16 IRLPriority = 0x0246;
+-#define IRLP9 &IRLPriority,0
+-#define IRLP11 &IRLPriority,4
+-#define IRLP13 &IRLPriority,8
+-
+-#define GIPA(p) &INTC_IPRA.reg_data,4*p
+-#define GIPB(p) &INTC_IPRB.reg_data,4*p
+-#define GIPC(p) &INTC_IPRC.reg_data,4*p
++#define IRLP9 IprReg::Fixed,0
++#define IRLP11 IprReg::Fixed,4
++#define IRLP13 IprReg::Fixed,8
++
++#define GIPA(p) IprReg::IPRA,4*p
++#define GIPB(p) IprReg::IPRB,4*p
++#define GIPC(p) IprReg::IPRC,4*p
++
++// GCC 8.3.0 ICE workaround (tg5040 toolchain; internal compiler error in
++// gen_reg_rtx at emit-rtl.c:1187 while expanding this file's global
++// initializer; absent under GCC 10.3.0). Root cause: InterruptSourceList
++// below is `static const`, but its entries used to store a `const u16*`
++// initialized via &INTC_IPRA.reg_data (SH4IO_REG_T reinterpret-casts the
++// INTC[5] MMIO array) — a reinterpret_cast is never a core constant
++// expression, so the whole array needed a dynamic global constructor to
++// compute ~22 pointers at process startup, and GCC 8.3.0's aarch64 backend
++// crashes expanding that constructor. Replacing the pointer field with this
++// enum tag (resolved to the live register in GetPrLvl() below, at the same
++// call site and cost as the old `*PrioReg` dereference) makes
++// InterruptSourceList fully constant-initializable again — no dynamic
++// initializer is emitted, and the ICE construct no longer exists. Purely a
++// storage-representation change; behavior is identical.
++enum class IprReg : u8 { Fixed, IPRA, IPRB, IPRC };
+ 
+ struct InterptSourceList_Entry
+ {
+-	const u16* PrioReg;
++	IprReg Reg;
+ 	u32 Shift;
+ 	Sh4ExceptionCode IntEvnCode;
+ 
+-	int GetPrLvl() const { return (*PrioReg >> Shift) & 0xF; }
++	int GetPrLvl() const
++	{
++		u16 v;
++		switch (Reg)
++		{
++		case IprReg::IPRA: v = INTC_IPRA.reg_data; break;
++		case IprReg::IPRB: v = INTC_IPRB.reg_data; break;
++		case IprReg::IPRC: v = INTC_IPRC.reg_data; break;
++		default:           v = IRLPriority;        break;
++		}
++		return (v >> Shift) & 0xF;
++	}
+ };
+ 
+ static const InterptSourceList_Entry InterruptSourceList[sh4_INT_ID_COUNT] =

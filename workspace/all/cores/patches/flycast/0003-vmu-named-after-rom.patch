@@ -1,0 +1,44 @@
+diff --git a/shell/libretro/oslib.cpp b/shell/libretro/oslib.cpp
+index a32d109..329f671 100644
+--- a/shell/libretro/oslib.cpp
++++ b/shell/libretro/oslib.cpp
+@@ -42,26 +42,20 @@ std::string getVmuPath(const std::string& port, bool save)
+ 	if ((per_content_vmus == 1 && port == "A1")
+ 			|| per_content_vmus == 2)
+ 	{
++		// nx-mobile: name per-game VMUs after the content file (not the disc's game ID) so the frontend's
++		// saves mirror can tie <content>.A1.bin to its game. A game-ID file from an earlier run is read once, then
++		// rewritten as <content>.A1.bin and deleted (maple_devs.cpp OnSetup: the save path differs from the read one).
+ 		std::string vmuDir = vmu_dir_no_slash + std::string(PATH_DEFAULT_SLASH());
+-		if (settings.platform.isConsole() && !settings.content.gameId.empty())
+-		{
+-			constexpr std::string_view INVALID_CHARS { " /\\:*?|<>" };
+-			std::string vmuName = settings.content.gameId;
+-			for (char &c: vmuName)
+-				if (INVALID_CHARS.find(c) != INVALID_CHARS.npos)
+-					c = '_';
+-			vmuName += "." + port + ".bin";
+-			std::string wpath = vmuDir + vmuName;
+-			if (save || file_exists(wpath.c_str()))
+-				return wpath;
+-			// Legacy path with rom name
+-			std::string rpath = vmuDir + std::string(content_name) + "." + port + ".bin";
+-			if (file_exists(rpath.c_str()))
+-				return rpath;
+-			else
+-				return wpath;
+-		}
+-		return vmuDir + std::string(content_name) + "." + port + ".bin";
++		std::string byName = vmuDir + std::string(content_name) + "." + port + ".bin";
++		if (save || file_exists(byName.c_str()) || !settings.platform.isConsole() || settings.content.gameId.empty())
++			return byName;
++		constexpr std::string_view INVALID_CHARS { " /\\:*?|<>" };
++		std::string vmuName = settings.content.gameId;
++		for (char &c: vmuName)
++			if (INVALID_CHARS.find(c) != INVALID_CHARS.npos)
++				c = '_';
++		std::string byId = vmuDir + vmuName + "." + port + ".bin";
++		return file_exists(byId.c_str()) ? byId : byName;
+ 	}
+ 	else {
+ 		return std::string(game_dir_no_slash) + std::string(PATH_DEFAULT_SLASH()) + "vmu_save_" + port + ".bin";

@@ -1,0 +1,23 @@
+diff --git a/core/hw/maple/maple_devs.cpp b/core/hw/maple/maple_devs.cpp
+index 9402444..a5424a9 100644
+--- a/core/hw/maple/maple_devs.cpp
++++ b/core/hw/maple/maple_devs.cpp
+@@ -411,6 +411,9 @@ struct maple_sega_vmu: maple_base
+ 			ERROR_LOG(MAPLE, "Failed to write the VMU %s to disk", logical_port);
+ 			return false;
+ 		}
++		// NX Redux: hand the data to the OS now, so a crash or power loss mid-game
++		// cannot leave a half-written card (stdio buffers until fclose otherwise)
++		std::fflush(file);
+ 		fullSaveNeeded = false;
+ 		return true;
+ 	}
+@@ -709,6 +712,8 @@ struct maple_sega_vmu: maple_base
+ 								ERROR_LOG(MAPLE, "Failed to save VMU %s: I/O error", logical_port);
+ 								return MDRE_FileError; // I/O error
+ 							}
++							else
++								std::fflush(file); // NX Redux: see fullSave()
+ 						}
+ 						return MDRS_DeviceReply;
+ 					}
