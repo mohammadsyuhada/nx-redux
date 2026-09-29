@@ -339,3 +339,17 @@ Brick host (real BIOS) + Smart Pro S client (no BIOS), Soulcalibur, Wi-Fi. Test 
 - **Notices** ("Connecting…", "Netplay ended", "Netplay failed") use the confirm dialog without buttons.
 - Test-setup gotcha: a leftover `MinUI.zip` on the Smart Pro S card reinstalled v1.13.0 at a forced reboot and removed the
   card-root test pak.
+- **Opus review fixes (2026-09-29), device-verified with the automated scripts:**
+  - **Sleep, power-off or HDMI mid-session:** skip the state autosave (serializing flycast stopped GGPO and resumed solo).
+    A core-run session is left instead: the goodbye goes out on sleep, and the game quits to the list on wake. Test: the
+    Smart Pro S slept mid-session; the Brick ended 4.1 s later (goodbye + notice); the Smart Pro S returned to the list on
+    wake. No state was written.
+  - **Patch 0006:** HLE forced both ways (a player's own HLE option can't split the sides); threaded rendering pinned on.
+  - **Card layout pinned during GGPO** (GGPO's pre-session check hashes every card): A1 per-game card + rumble,
+    port B rumble and no card, per-game cards on. The session still syncs.
+  - The subtitle for other systems is now "Leaving ends the netplay session." (a lockstep peer plays on alone).
+- **Automated checks** (wizard skipped, session env passed directly; DC client saves copied by hand, as GGPO refuses
+  differing saves with "Peer verification failed"):
+  - SNES Contra III (lockstep): MENU pauses both (CPU 70–80 % → 4–9 %); Continue resumes; Leave exits in 1.1 s; the
+    host plays on alone.
+  - DC Soulcalibur: the same pause and resume; no answer leaves at 22.2 s; the peer ends via the goodbye ~2 s later.
