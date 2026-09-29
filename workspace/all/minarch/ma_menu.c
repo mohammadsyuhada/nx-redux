@@ -133,9 +133,20 @@ void Menu_quit(void) {
 void Menu_beforeSleep() {
 	SRAM_write();
 	RTC_write();
-	State_autosave();
-	if (prefixMatch(SDCARD_PATH, game.path))
-		putFile(AUTO_RESUME_PATH, game.path + strlen(SDCARD_PATH));
+	if (Multiplayer_isActive()) {
+		// No state, no auto-resume: a netplay session can't be resumed, and
+		// serializing flycast stops its emulator, which silently ends GGPO.
+		// Sleeping (or powering off) in a core-run session is leaving it: tell
+		// the other player now, and quit to the list on wake.
+		if (CoreNetplay_isActive()) {
+			CoreNetplay_byeSend(CORE_NETPLAY_BYE_PORT);
+			quit = 1;
+		}
+	} else {
+		State_autosave();
+		if (prefixMatch(SDCARD_PATH, game.path))
+			putFile(AUTO_RESUME_PATH, game.path + strlen(SDCARD_PATH));
+	}
 
 	PWR_setCPUSpeed(CPU_SPEED_MENU);
 }
@@ -1459,7 +1470,7 @@ static void leaveNetplay_render(SDL_Surface* dst, void* data) {
 	if (ctx->seconds_left >= 0)
 		snprintf(subtitle, sizeof(subtitle), "The other player is waiting: %d s left.", ctx->seconds_left);
 	else
-		snprintf(subtitle, sizeof(subtitle), "Leaving ends the session for both players.");
+		snprintf(subtitle, sizeof(subtitle), "Leaving ends the netplay session.");
 	UI_renderConfirmDialogHints(dst, "Leave netplay?", subtitle, (char*[]){"B", "CONTINUE", "A", "LEAVE", NULL});
 }
 
