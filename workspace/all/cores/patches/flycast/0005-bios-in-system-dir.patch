@@ -1,0 +1,28 @@
+diff --git a/shell/libretro/libretro.cpp b/shell/libretro/libretro.cpp
+index a4444c9..ef59b7a 100644
+--- a/shell/libretro/libretro.cpp
++++ b/shell/libretro/libretro.cpp
+@@ -2242,8 +2242,21 @@ bool retro_load_game(const struct retro_game_info *game)
+ 	if (!(environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &dir) && dir))
+ 		dir = game_dir;
+ 
+-	snprintf(game_dir, sizeof(game_dir), "%s%cdc%c", dir, slash, slash);
+-	snprintf(game_dir_no_slash, sizeof(game_dir_no_slash), "%s%cdc", dir, slash);
++	// NX Redux: the BIOS (dc_boot.bin, naomi.zip, awbios.zip) lives directly in
++	// the frontend's system dir (Bios/DC/), as it did for standalone flycast; a
++	// RetroArch-style "dc" subfolder is used only when the player has one
++	char dc_subdir[1024];
++	snprintf(dc_subdir, sizeof(dc_subdir), "%s%cdc", dir, slash);
++	if (path_is_directory(dc_subdir))
++	{
++		snprintf(game_dir, sizeof(game_dir), "%s%cdc%c", dir, slash, slash);
++		snprintf(game_dir_no_slash, sizeof(game_dir_no_slash), "%s%cdc", dir, slash);
++	}
++	else
++	{
++		snprintf(game_dir, sizeof(game_dir), "%s%c", dir, slash);
++		snprintf(game_dir_no_slash, sizeof(game_dir_no_slash), "%s", dir);
++	}
+ 
+ 	// Per-content VMU additions START
+ 	// > Get save directory
