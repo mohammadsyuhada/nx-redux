@@ -22,6 +22,7 @@
 #include "api.h"
 #include "config.h"
 #include "utils.h"
+#include "gpu_governor_hold.h"
 
 #include <time.h>
 #include <pthread.h>
@@ -452,6 +453,20 @@ void* PLAT_cpu_monitor(void* arg) {
 
 #define GPU_GOVERNOR_PATH "/sys/devices/platform/soc@3000000/1800000.gpu/devfreq/1800000.gpu/governor"
 
+// The menu speeds switch the GPU to simple_ondemand; the game speeds put back the
+// governor the pak set (see gpu_governor_hold.h).
+static GpuGovHold gpu_gov_hold;
+static void gpuEnterMenu(void) {
+	char current[32] = "";
+	getFile(GPU_GOVERNOR_PATH, current, sizeof(current));
+	putFile(GPU_GOVERNOR_PATH, (char*)GpuGovHold_enterMenu(&gpu_gov_hold, current));
+}
+static void gpuLeaveMenu(void) {
+	const char* governor = GpuGovHold_leaveMenu(&gpu_gov_hold);
+	if (governor)
+		putFile(GPU_GOVERNOR_PATH, (char*)governor);
+}
+
 static void setGovernor(const char* governor) {
 	putFile(GOVERNOR_PATH, (char*)governor);
 }
@@ -507,15 +522,16 @@ void PLAT_setCPUSpeed(int speed) {
 		// 408 — so the menu keeps the big core cheap (672, the second step)
 		// and never touches the little cluster.
 		setFreqRange(CPU_FREQ_MIN, 672000);
-		putFile(GPU_GOVERNOR_PATH, "simple_ondemand");
+		gpuEnterMenu();
 		break;
 	case CPU_SPEED_MENU_IDLE:
 		// No input for a few seconds (nextui/cpu_policy.h): park the big core
 		// at its floor, the same state launch.sh boots it in.
 		setFreqRange(CPU_FREQ_MIN, CPU_FREQ_MIN);
-		putFile(GPU_GOVERNOR_PATH, "simple_ondemand");
+		gpuEnterMenu();
 		break;
 	case CPU_SPEED_POWERSAVE:
+		gpuLeaveMenu();
 		// The three user presets pin whatever cluster(s) the game can run on:
 		// with a profiled pak cpu4 is offline (its launch.sh), so this is the
 		// little cluster; with cpu4 up it is both. The launcher speeds above
@@ -524,20 +540,24 @@ void PLAT_setCPUSpeed(int speed) {
 		setAllOnlinePoliciesRange("schedutil", 1200000, 1200000);
 		break;
 	case CPU_SPEED_NORMAL:
+		gpuLeaveMenu();
 		setAllOnlinePoliciesRange("schedutil", 1680000, 1680000);
 		break;
 	case CPU_SPEED_PERFORMANCE:
+		gpuLeaveMenu();
 		setAllOnlinePoliciesRange("schedutil", CPU_FREQ_MAX, CPU_FREQ_MAX);
 		break;
 	}
 }
 
 void PLAT_setCPUSpeedAuto(void) {
+	gpuLeaveMenu();
 	setGovernor("schedutil");
 	setFreqRange(CPU_FREQ_MIN, CPU_FREQ_MAX);
 }
 
 void PLAT_setCPUSpeedRange(int min_khz, int max_khz) {
+	gpuLeaveMenu();
 	setAllOnlinePoliciesRange(CPU_AUTO_GOVERNOR, min_khz, max_khz);
 }
 
