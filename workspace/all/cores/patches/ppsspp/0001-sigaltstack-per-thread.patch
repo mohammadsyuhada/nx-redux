@@ -1,0 +1,48 @@
+# reason: InstallExceptionHandler runs on the boot loader thread and saves that thread's
+# sigaltstack; UninstallExceptionHandler runs from retro_unload_game on the frontend's thread
+# and restores the saved stack there. sigaltstack is per thread, so the frontend thread ends up
+# on the (by then unmapped) signal stack of the exited loader thread, and the next signal it
+# takes (ART's SIGSEGV-based suspend checks) cannot be delivered: the kernel kills the process
+# with SIGSEGV, no tombstone, seconds after a game is closed. Keep a thread's existing alternate
+# stack (Bionic gives every thread one) and only install/restore our own when there is none.
+diff --git a/Common/ExceptionHandlerSetup.cpp b/Common/ExceptionHandlerSetup.cpp
+index 2cdb36a..a84add7 100644
+--- a/Common/ExceptionHandlerSetup.cpp
++++ b/Common/ExceptionHandlerSetup.cpp
+@@ -393,20 +393,26 @@ void InstallExceptionHandler(BadAccessHandler badAccessHandler, bool logStackTra
+ 	INFO_LOG(Log::System, "Installed exception handler. stack size: %d", (int)altStackSize);
+ 	g_badAccessHandler = badAccessHandler;
+ 
++	// sigaltstack is per thread, and Uninstall may run on another thread (a libretro frontend's
++	// unload thread, after this loader thread has exited). Restoring this thread's old stack there
++	// would point that thread at a stack unmapped with this one, and the next signal it takes would
++	// kill the process. So keep an alternate stack the thread already has (Bionic gives every
++	// thread one) and only install and later restore our own when there is none.
+ 	stack_t signal_stack{};
+-	if (sigaltstack(nullptr, &old_signal_stack) == 0) {
+-		old_signal_stack_valid = true;
+-	}
+-	altStack = malloc(altStackSize);
++	bool haveOldStack = sigaltstack(nullptr, &old_signal_stack) == 0;
++	if (!haveOldStack || (old_signal_stack.ss_flags & SS_DISABLE)) {
++		old_signal_stack_valid = haveOldStack;
++		altStack = malloc(altStackSize);
+ #ifdef __FreeBSD__
+-	signal_stack.ss_sp = (char*)altStack;
++		signal_stack.ss_sp = (char*)altStack;
+ #else
+-	signal_stack.ss_sp = altStack;
++		signal_stack.ss_sp = altStack;
+ #endif
+-	signal_stack.ss_size = altStackSize;
+-	signal_stack.ss_flags = 0;
+-	if (sigaltstack(&signal_stack, nullptr)) {
+-		_assert_msg_(false, "sigaltstack failed");
++		signal_stack.ss_size = altStackSize;
++		signal_stack.ss_flags = 0;
++		if (sigaltstack(&signal_stack, nullptr)) {
++			_assert_msg_(false, "sigaltstack failed");
++		}
+ 	}
+ 	struct sigaction sa{};
+ 	sa.sa_handler = nullptr;

@@ -256,6 +256,10 @@ cores: # TODO: can't assume every platform will have the same stock cores (platf
 	cp ./workspace/$(PLATFORM)/cores/output/mgba_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/SGB.pak
 	cp ./workspace/$(PLATFORM)/cores/output/genesis_plus_gx_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/GPGX.pak
 	cp ./workspace/$(PLATFORM)/cores/output/flycast_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/DC.pak
+	cp ./workspace/$(PLATFORM)/cores/output/ppsspp_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/PSP.pak
+	# PPSSPP runtime assets (staged next to the core by all/cores/ppsspp/build-libretro.sh), read via NX_PPSSPP_ASSETS
+	rm -rf ./build/SYSTEM/$(PLATFORM)/paks/Emus/PSP.pak/PPSSPP
+	cp -R ./workspace/$(PLATFORM)/cores/output/ppsspp-assets/PPSSPP ./build/SYSTEM/$(PLATFORM)/paks/Emus/PSP.pak/PPSSPP
 	cp ./workspace/$(PLATFORM)/cores/output/mednafen_pce_fast_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/PCE.pak
 	cp ./workspace/$(PLATFORM)/cores/output/pokemini_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/PKM.pak
 	cp ./workspace/$(PLATFORM)/cores/output/race_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/NGP.pak

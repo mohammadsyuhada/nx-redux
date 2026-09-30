@@ -1,0 +1,24 @@
+# Offer only 1x and 2x Rendering Resolution: 3x and higher exceed the Brick (1024x768)
+# and Smart Pro S (1280x720) panels, so they only cost speed and heat (Tekken 6 at 3x
+# throttled the Smart Pro S). minarch maps a saved value no longer listed to 1x.
+diff --git a/libretro/libretro_core_options.h b/libretro/libretro_core_options.h
+index 333ac3a..d403849 100644
+--- a/libretro/libretro_core_options.h
++++ b/libretro/libretro_core_options.h
+@@ -323,14 +323,8 @@ struct retro_core_option_v2_definition option_defs_us[] = {
+       {
+          { "480x272",   "1x (480x272)" },
+          { "960x544",   "2x (960x544)" },
+-         { "1440x816",  "3x (1440x816)" },
+-         { "1920x1088", "4x (1920x1088)" },
+-         { "2400x1360", "5x (2400x1360)" },
+-         { "2880x1632", "6x (2880x1632)" },
+-         { "3360x1904", "7x (3360x1904)" },
+-         { "3840x2176", "8x (3840x2176)" },
+-         { "4320x2448", "9x (4320x2448)" },
+-         { "4800x2720", "10x (4800x2720)" },
++         // NX Redux: 3x and up are larger than the 1024x768 / 1280x720 panels and only
++         // cost speed and heat on these devices. A saved 3x+ value falls back to 1x.
+          { NULL, NULL },
+       },
+       "480x272"

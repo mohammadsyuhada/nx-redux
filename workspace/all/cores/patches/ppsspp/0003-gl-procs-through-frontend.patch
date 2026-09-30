@@ -1,0 +1,92 @@
+# Resolve GLES3/extension entry points through the libretro frontend instead of
+# eglGetProcAddress (PowerVR EGL 1.4 returns NULL for core ES3 functions, so GLES3
+# was misdetected and depth copies asserted), fall back glCopyImageSubDataOES to
+# the EXT and core names (Tekken 6 called it NULL on the Brick), and drop the
+# libEGL link and the EGL-extension query (only used by an Android EGL timer)
+# for the libretro GLES build (tg5050's sysroot has no libEGL.so).
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 65e2b49..0bf9975 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -312,7 +312,11 @@ include_directories(ext/glew)
+ if(OPENXR AND NOT ARMV7_DEVICE)
+ 	set(OPENGL_LIBRARIES GLESv3 EGL)
+ elseif(NOT OPENGL_LIBRARIES AND USING_GLES2)
+-	set(OPENGL_LIBRARIES GLESv2 EGL)
++	if(LIBRETRO)
++		set(OPENGL_LIBRARIES GLESv2) # GL entry points come from the frontend (gl3stub.c)
++	else()
++		set(OPENGL_LIBRARIES GLESv2 EGL)
++	endif()
+ endif()
+ 
+ if(NOT OPENGL_LIBRARIES)
+diff --git a/Common/GPU/OpenGL/GLFeatures.cpp b/Common/GPU/OpenGL/GLFeatures.cpp
+index 6877dbd..03312b9 100644
+--- a/Common/GPU/OpenGL/GLFeatures.cpp
++++ b/Common/GPU/OpenGL/GLFeatures.cpp
+@@ -482,7 +482,7 @@ bool CheckGLExtensions() {
+ 		eglGetSystemTimeNV = (PFNEGLGETSYSTEMTIMENVPROC)eglGetProcAddress("eglGetSystemTimeNV");
+ 		eglGetSystemTimeFrequencyNV = (PFNEGLGETSYSTEMTIMEFREQUENCYNVPROC)eglGetProcAddress("eglGetSystemTimeFrequencyNV");
+ 	}
+-#elif defined(USING_GLES2) && defined(__linux__)
++#elif defined(USING_GLES2) && defined(__linux__) && !defined(__LIBRETRO__) // libretro: no EGL linked, the frontend owns the display
+ 	const char *eglString = eglQueryString(NULL, EGL_EXTENSIONS);
+ 	g_all_egl_extensions = eglString ? eglString : "";
+ 	if (eglString) {
+diff --git a/Common/GPU/OpenGL/gl3stub.c b/Common/GPU/OpenGL/gl3stub.c
+index 9f47314..fb4a924 100644
+--- a/Common/GPU/OpenGL/gl3stub.c
++++ b/Common/GPU/OpenGL/gl3stub.c
+@@ -22,8 +22,24 @@
+ #if !PPSSPP_PLATFORM(IOS)
+ #include "EGL/egl.h"
+ 
++#ifdef __LIBRETRO__
++// The frontend's hw_render get_proc_address, stored by LibretroHWRenderContext::InitHW
++// (retro_hw_get_proc_address_t, declared here without pulling in libretro.h). The
++// frontend resolves core GLES3 and extension entry points (SDL_GL_GetProcAddress under
++// minarch); PowerVR's EGL 1.4 eglGetProcAddress returns NULL for core ES3 functions,
++// which made GLES3 undetectable. Also means the core needs no libEGL at all.
++extern void (*(*libretro_get_proc_address)(const char *))(void);
++static void *gl3stub_proc(const char *name) {
++    return libretro_get_proc_address ? (void *)libretro_get_proc_address(name) : (void *)0;
++}
++#else
++static void *gl3stub_proc(const char *name) {
++    return (void *)eglGetProcAddress(name);
++}
++#endif
++
+ GLboolean gl3stubInit() {
+-    #define FIND_PROC(s) s = (void*)eglGetProcAddress(#s)
++    #define FIND_PROC(s) s = gl3stub_proc(#s)
+     FIND_PROC(glReadBuffer);
+     FIND_PROC(glDrawRangeElements);
+     FIND_PROC(glTexImage3D);
+@@ -39,9 +55,9 @@ GLboolean gl3stubInit() {
+     FIND_PROC(glGetQueryiv);
+     FIND_PROC(glGetQueryObjectuiv);
+     // GL_EXT_disjoint_timer_query - load EXT suffix versions into non-suffix pointers
+-    glQueryCounter = (void*)eglGetProcAddress("glQueryCounterEXT");
+-    glGetQueryObjecti64v = (void*)eglGetProcAddress("glGetQueryObjecti64vEXT");
+-    glGetQueryObjectui64v = (void*)eglGetProcAddress("glGetQueryObjectui64vEXT");
++    glQueryCounter = gl3stub_proc("glQueryCounterEXT");
++    glGetQueryObjecti64v = gl3stub_proc("glGetQueryObjecti64vEXT");
++    glGetQueryObjectui64v = gl3stub_proc("glGetQueryObjectui64vEXT");
+     FIND_PROC(glUnmapBuffer);
+     FIND_PROC(glGetBufferPointerv);
+     FIND_PROC(glDrawBuffers);
+@@ -146,6 +162,12 @@ GLboolean gl3stubInit() {
+ 
+     /* OES_copy_image, etc. */
+     FIND_PROC(glCopyImageSubDataOES);
++    // Same signature under every name. GLFeatures.cpp aliases the EXT/NV names on Android
++    // only, and the TrimUI Brick's libGLESv2 exports only the ES 3.2 core name.
++    if (!glCopyImageSubDataOES)
++        glCopyImageSubDataOES = gl3stub_proc("glCopyImageSubDataEXT");
++    if (!glCopyImageSubDataOES)
++        glCopyImageSubDataOES = gl3stub_proc("glCopyImageSubData");
+ 
+     #undef FIND_PROC
+ 

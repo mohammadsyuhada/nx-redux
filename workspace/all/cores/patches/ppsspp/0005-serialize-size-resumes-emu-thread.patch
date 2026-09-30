@@ -1,0 +1,27 @@
+# retro_serialize_size resumes an emu thread it paused: minarch asks for the size on its
+# own (undo-load check while its menu highlights Load, rewind setup), after which
+# retro_run only swapped buffers and the game stayed frozen (audio 0/s).
+diff --git a/libretro/libretro.cpp b/libretro/libretro.cpp
+index 88714ec..67196f8 100644
+--- a/libretro/libretro.cpp
++++ b/libretro/libretro.cpp
+@@ -1768,11 +1768,17 @@ size_t retro_serialize_size(void)
+ 
+    SaveState::SaveStart state;
+    // TODO: Libretro API extension to use the savestate queue
++   // Frontends also ask for the size on its own (NX Redux's minarch: undo-load checks in its
++   // menu, rewind setup), not only right before retro_serialize, so resume a thread that was
++   // running; otherwise retro_run only swaps buffers from then on and the game stays frozen.
++   bool resume = useEmuThread && emuThreadState == EmuThreadState::RUNNING;
+    if (useEmuThread)
+       EmuThreadPause();
+ 
+-   return (CChunkFileReader::MeasurePtr(state) + 0x800000) & ~0x7FFFFF;
+-   // We don't unpause intentionally
++   size_t size = (CChunkFileReader::MeasurePtr(state) + 0x800000) & ~0x7FFFFF;
++   if (resume)
++      EmuThreadStart();
++   return size;
+ }
+ 
+ bool retro_serialize(void *data, size_t size) {

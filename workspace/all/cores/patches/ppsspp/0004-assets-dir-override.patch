@@ -1,0 +1,18 @@
+# NX_PPSSPP_ASSETS (set by PSP.pak launch.sh) points the core at the assets shipped
+# inside the system pak instead of <system dir>/PPSSPP (Bios/PSP, the player's space).
+diff --git a/libretro/libretro.cpp b/libretro/libretro.cpp
+index a217af8..88714ec 100644
+--- a/libretro/libretro.cpp
++++ b/libretro/libretro.cpp
+@@ -1227,6 +1227,11 @@ void retro_init(void)
+       retro_save_dir = Path(dir_ptr);
+ 
+    retro_base_dir /= "PPSSPP";
++   // NX Redux ships the assets inside the system pak (read-only, updated with the
++   // system) and points the core at them; the system dir stays the player's.
++   if (const char *nx_assets = getenv("NX_PPSSPP_ASSETS"))
++      if (*nx_assets)
++         retro_base_dir = Path(nx_assets);
+ 
+    // Check if '<system_dir>/PPSSPP/compat.ini' exists, if not we can assume
+    // the user is missing the assets entirely, so let's warn them about it.

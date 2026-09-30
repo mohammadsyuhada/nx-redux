@@ -1,0 +1,32 @@
+# retro_cheat_set wrote the header chunk of the cheat file (the BOM a new file starts
+# with) back as a "_C" line, so CwCheat rejected the file ("could not parse cheat name
+# line") and no cheat set through the libretro API ever applied.
+diff --git a/libretro/libretro.cpp b/libretro/libretro.cpp
+index 67196f8..de3cd13 100644
+--- a/libretro/libretro.cpp
++++ b/libretro/libretro.cpp
+@@ -1889,6 +1889,10 @@ void retro_cheat_set(unsigned index, bool enabled, const char *code) {
+    }
+    std::string existing_cheats=ReplaceAll(cheat_content, std::string("\n_C"), std::string("|"));
+    SplitString(existing_cheats, '|', cheats);
++   // cheats[0] is whatever precedes the first _C line: the BOM CreateCheatFile writes, or an
++   // existing file's _S/_G header. Keep the slot so cheats[index + 1] maps to cheat index.
++   if (cheats.empty())
++      cheats.push_back("");
+ 
+    // Generate Cheat String
+    std::stringstream cheat("");
+@@ -1922,9 +1926,10 @@ void retro_cheat_set(unsigned index, bool enabled, const char *code) {
+    FILE *outFile = File::OpenCFile(file, "wb");
+    if (outFile != nullptr) {
+       fprintf(outFile, "_S %s\n", g_paramSFO.GetDiscID().c_str());
+-      for (const std::string &cheat : cheats) {
+-         fprintf(outFile, "_C%s\n", cheat.c_str());
+-      }
++      // Skip cheats[0]: the _S line above replaces that header. Writing it as a "_C" line
++      // (a lone BOM for a new file) made CwCheat reject the whole file, so no cheat applied.
++      for (size_t i = 1; i < cheats.size(); i++)
++         fprintf(outFile, "_C%s\n", cheats[i].c_str());
+       fclose(outFile);
+    }
+ 
