@@ -270,6 +270,14 @@ void PLAT_HWR_setFrame(unsigned w, unsigned h, int flip) {
 		glBlitFramebuffer(0, 0, w, h, 0, h, w, 0, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 	else
 		glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+	// Opaque, like CPU frames: the core's alpha channel is not coverage (PPSSPP
+	// leaves 0 on 2D screens) and the Brick's display layer composites the window
+	// with per-pixel alpha, so alpha-0 pixels would come out black.
+	glBindFramebuffer(GL_FRAMEBUFFER, hwr.copy_fbo);
+	glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
+	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT);
+	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	hwr.frame_ready = 1;
 }
