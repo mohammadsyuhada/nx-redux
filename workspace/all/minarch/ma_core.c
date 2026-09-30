@@ -46,6 +46,11 @@ static void core_reset_wrapped(void) {
 	HWR_makeCurrent();
 	core_reset_real();
 }
+static size_t (*core_serialize_size_real)(void);
+static size_t core_serialize_size_wrapped(void) {
+	HWR_makeCurrent(); // PPSSPP flushes its GL queue when it pauses its emu thread to measure
+	return core_serialize_size_real();
+}
 static bool (*core_serialize_real)(void* data, size_t size);
 static bool core_serialize_wrapped(void* data, size_t size) {
 	HWR_makeCurrent();
@@ -75,7 +80,8 @@ void Core_open(const char* core_path, const char* tag_name) {
 	core.reset = core_reset_real ? core_reset_wrapped : NULL;
 	core_run_real = dlsym(core.handle, "retro_run");
 	core.run = core_run_wrapped;
-	core.serialize_size = dlsym(core.handle, "retro_serialize_size");
+	core_serialize_size_real = dlsym(core.handle, "retro_serialize_size");
+	core.serialize_size = core_serialize_size_real ? core_serialize_size_wrapped : NULL;
 	core_serialize_real = dlsym(core.handle, "retro_serialize");
 	core.serialize = core_serialize_real ? core_serialize_wrapped : NULL;
 	core_unserialize_real = dlsym(core.handle, "retro_unserialize");
@@ -303,8 +309,11 @@ void Core_quit(void) {
 		Cheats_free();
 		RTC_write();
 		HWR_makeCurrent();
-		core.unload_game();
+		// Destroy the hw context BEFORE unloading, as RetroArch does: PPSSPP frees the
+		// object its context_destroy callback dereferences in retro_unload_game, so the
+		// reverse order crashed (SIGSEGV) on every quit.
 		HWR_contextDestroy();
+		core.unload_game();
 		core.deinit();
 		core.initialized = 0;
 	}
