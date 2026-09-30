@@ -55,7 +55,12 @@ int main(void) {
 		fclose(f);
 
 	// mapping sanity
-	CHECK(CHEATDB_MAP_COUNT == 31, "31 tag mappings");
+	CHECK(CHEATDB_MAP_COUNT == 32, "32 tag mappings");
+	const char* psp = NULL;
+	for (int i = 0; i < CHEATDB_MAP_COUNT; i++)
+		if (strcmp(CHEATDB_MAP[i].tag, "PSP") == 0)
+			psp = CHEATDB_MAP[i].folder;
+	CHECK(psp && strcmp(psp, "Sony - PlayStation Portable") == 0, "PSP -> Sony - PlayStation Portable");
 
 	printf(fails ? "\n%d FAILURE(S)\n" : "\nALL PASS\n", fails);
 	return fails ? 1 : 0;
