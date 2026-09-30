@@ -19,6 +19,8 @@ CONFIG_DIR="$USERDATA_PATH/$EMU_TAG-$CORE_NAME"
 CACHE="$CONFIG_DIR/options.json"
 BIOS_DIR="$SDCARD_PATH/Bios/$EMU_TAG"
 mkdir -p "$CONFIG_DIR"
+# Same runtime assets as launch.sh, for the core the option dump loads
+export NX_PPSSPP_ASSETS="$PAK_DIR/PPSSPP"
 
 # Schema cache: regenerate when missing, older than the core .so, or older than
 # the BIOS dir. The BIOS-dir check lets cores that build option lists by
