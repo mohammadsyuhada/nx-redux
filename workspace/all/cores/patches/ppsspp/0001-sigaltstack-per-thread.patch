@@ -2,9 +2,9 @@
 # sigaltstack; UninstallExceptionHandler runs from retro_unload_game on the frontend's thread
 # and restores the saved stack there. sigaltstack is per thread, so the frontend thread ends up
 # on the (by then unmapped) signal stack of the exited loader thread, and the next signal it
-# takes (ART's SIGSEGV-based suspend checks) cannot be delivered: the kernel kills the process
-# with SIGSEGV, no tombstone, seconds after a game is closed. Keep a thread's existing alternate
-# stack (Bionic gives every thread one) and only install/restore our own when there is none.
+# takes cannot be delivered: the kernel kills the process with SIGSEGV after a game is closed.
+# Keep a thread's existing alternate stack (some C libraries give every thread one; glibc
+# threads have none) and only install and later restore our own when there is none.
 diff --git a/Common/ExceptionHandlerSetup.cpp b/Common/ExceptionHandlerSetup.cpp
 index 2cdb36a..a84add7 100644
 --- a/Common/ExceptionHandlerSetup.cpp
@@ -16,8 +16,8 @@ index 2cdb36a..a84add7 100644
 +	// sigaltstack is per thread, and Uninstall may run on another thread (a libretro frontend's
 +	// unload thread, after this loader thread has exited). Restoring this thread's old stack there
 +	// would point that thread at a stack unmapped with this one, and the next signal it takes would
-+	// kill the process. So keep an alternate stack the thread already has (Bionic gives every
-+	// thread one) and only install and later restore our own when there is none.
++	// kill the process. So keep an alternate stack the thread already has (some C libraries give
++	// every thread one) and only install and later restore our own when there is none.
  	stack_t signal_stack{};
 -	if (sigaltstack(nullptr, &old_signal_stack) == 0) {
 -		old_signal_stack_valid = true;
