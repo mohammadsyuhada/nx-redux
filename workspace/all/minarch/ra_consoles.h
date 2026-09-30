@@ -85,6 +85,8 @@ static const RA_ConsoleMapping ra_console_table[] = {
 	{"PS", RC_CONSOLE_PLAYSTATION},
 	// PlayStation (SwanStation)
 	{"PSX", RC_CONSOLE_PLAYSTATION},
+	// PlayStation Portable (PPSSPP libretro core)
+	{"PSP", RC_CONSOLE_PSP},
 	// Amiga
 	{"PUAE", RC_CONSOLE_AMIGA},
 	// Sega CD
