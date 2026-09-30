@@ -19,9 +19,9 @@ reset_card() {
 	mkdir -p "$SYS/paks/Emus/N64.pak" "$SYS/paks/Emus/FBN.pak" \
 	         "$SYS/paks/Tools/Game Tracker.pak"
 	# current-layout SD paks: shipped-name + community
-	mkdir -p "$SD/Emus/N64.pak" "$SD/Emus/PSP.pak" "$SD/Tools/Game Tracker.pak"
+	mkdir -p "$SD/Emus/N64.pak" "$SD/Emus/MyEmu.pak" "$SD/Tools/Game Tracker.pak"
 	printf 'x' > "$SD/Emus/N64.pak/launch.sh"
-	printf 'x' > "$SD/Emus/PSP.pak/launch.sh"
+	printf 'x' > "$SD/Emus/MyEmu.pak/launch.sh"
 	printf 'x' > "$SD/Tools/Game Tracker.pak/launch.sh"
 	# legacy platform dirs: shipped-name, community, collision, .media
 	mkdir -p "$SD/Emus/$PLAT/FBN.pak" "$SD/Emus/$PLAT/PSP2.pak" \
@@ -81,7 +81,7 @@ SDCARD_PATH="$SD" NX_LEGACY_FLAG="$FLAG" sh "$SCRIPT" "$PLAT"
 # current layout
 [ ! -d "$SD/Emus/N64.pak" ]              || fail "shipped-name emu pak not deleted"
 [ ! -d "$SD/Tools/Game Tracker.pak" ]    || fail "shipped-name tool pak (space) not deleted"
-[ -d "$SD/Emus/PSP.pak" ]                || fail "community pak touched"
+[ -d "$SD/Emus/MyEmu.pak" ]                || fail "community pak touched"
 # legacy dir
 [ ! -d "$SD/Emus/$PLAT/FBN.pak" ]        || fail "legacy shipped-name pak not deleted"
 [ -d "$SD/Emus/PSP2.pak" ]               || fail "legacy community pak not hoisted"

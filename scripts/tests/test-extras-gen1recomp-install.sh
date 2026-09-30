@@ -257,7 +257,7 @@ G="$SD/Roms/Xtra Games (EXTRAS)/.data/gen1recomp"
 
 # ---- 0. preflight: system unzip tool probe ----------------------------
 # Since the runtime=native conversion (2026-08-10) nothing here depends on
-# PortMaster; the only preflight is the SYSTEM-shipped 7zzs (psp/install.sh
+# PortMaster; the only preflight is the SYSTEM-shipped 7zzs (portmaster/install.sh
 # posture). A missing/broken system tree must abort before any network use.
 if NX_EXTRAS_UNZIP_OVERRIDE="$TMP/no-such-7zzs" run_install > "$TMP/log0.txt" 2>&1; then
   fail "preflight: missing system unzip did not abort"

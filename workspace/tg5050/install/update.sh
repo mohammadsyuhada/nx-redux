@@ -24,6 +24,60 @@ if [ -n "$MIN_FW" ] && [ -n "$FW" ] && [ "$FW" != "$MIN_FW" ]; then
 fi
 
 # --------------------------------------
+# --- psp-standalone-cleanup-begin
+# PSP moved from the standalone PPSSPP pak (ben16w/minui-psp, installed from
+# Xtras into Emus/<platform>/PSP.pak, earlier the flat Emus/PSP.pak) to the
+# PPSSPP libretro core in the system PSP.pak. The standalone (identified by its
+# PPSSPPSDL binary, or the PPSSPP/.config shell an Xtras uninstall leaves) has
+# its memory stick carried to the libretro one (Saves/PSP: PPSSPP maps ms0:/PSP
+# straight onto a save dir named PSP) and is removed. Any
+# other user PSP.pak is left to migrate-paks.sh, which removes shipped-name
+# paks. Standalone saves (Saves/PSP/<ID>: the standalone bind-mounted
+# Saves/PSP as SAVEDATA) move to Saves/PSP/SAVEDATA/<ID>; an existing
+# destination is never overwritten.
+# Standalone save states (.userdata/shared/PSP-ppsspp) are not portable and
+# are left alone. Runs BEFORE migrate-paks.sh, which deletes every shipped-name
+# pak (PSP.pak now ships) from /Emus without carrying texture packs over.
+# One-shot per update; must never fail the update.
+PSP_SAVES="$SDCARD_PATH/Saves/PSP"
+for PSP_PAK in "$SDCARD_PATH/Emus/tg5040/PSP.pak" "$SDCARD_PATH/Emus/tg5050/PSP.pak" "$SDCARD_PATH/Emus/PSP.pak"; do
+	if ! ls "$PSP_PAK"/PPSSPP/PPSSPPSDL* >/dev/null 2>&1; then
+		[ ! -f "$PSP_PAK/launch.sh" ] && [ -d "$PSP_PAK/PPSSPP/.config" ] || continue
+	fi
+	# its memory stick: what the libretro one (Saves/PSP) uses moves over, never
+	# overwriting; the rest (settings, its cheat files, name clashes) is kept in
+	# Saves/PSP/standalone-backup/<tg5040|tg5050|flat> rather than deleted
+	PSP_MS="$PSP_PAK/PPSSPP/.config/ppsspp/PSP"
+	for PSP_D in GAME TEXTURES SAVEDATA PLUGINS SCREENSHOT; do
+		for PSP_T in "$PSP_MS/$PSP_D"/*; do
+			[ -e "$PSP_T" ] || continue
+			[ -e "$PSP_SAVES/$PSP_D/${PSP_T##*/}" ] && continue
+			mkdir -p "$PSP_SAVES/$PSP_D" 2>/dev/null
+			mv "$PSP_T" "$PSP_SAVES/$PSP_D/" 2>/dev/null
+		done
+	done
+	if [ -n "$(find "$PSP_MS" -type f 2>/dev/null | head -n 1)" ]; then
+		PSP_B="${PSP_PAK%/PSP.pak}"
+		PSP_B="${PSP_B##*/}"
+		[ "$PSP_B" = Emus ] && PSP_B=flat
+		mkdir -p "$PSP_SAVES/standalone-backup" 2>/dev/null
+		[ -e "$PSP_SAVES/standalone-backup/$PSP_B" ] || mv "$PSP_MS" "$PSP_SAVES/standalone-backup/$PSP_B" 2>/dev/null
+	fi
+	rm -rf "$PSP_PAK" && echo "removed the standalone PPSSPP pak ${PSP_PAK#"$SDCARD_PATH"/}"
+	rmdir "${PSP_PAK%/*}" 2>/dev/null
+done
+rm -f "$SDCARD_PATH/.userdata/shared/xtras/psp.version" "$SDCARD_PATH/.userdata/shared/xtras/psp.latest" 2>/dev/null
+for PSP_S in "$PSP_SAVES"/*; do
+	[ -f "$PSP_S/PARAM.SFO" ] || continue
+	PSP_N="${PSP_S##*/}"
+	[ -e "$PSP_SAVES/SAVEDATA/$PSP_N" ] && continue
+	mkdir -p "$PSP_SAVES/SAVEDATA" 2>/dev/null
+	mv "$PSP_S" "$PSP_SAVES/SAVEDATA/" 2>/dev/null && echo "moved PSP save $PSP_N"
+done
+true
+# --- psp-standalone-cleanup-end
+
+# --------------------------------------
 # clean shipped-name paks out of /Emus and /Tools (moved into .system
 # 2026-07-31; removal of this hook is tracked in DEV_TODO.md);
 # must never fail the update
@@ -126,3 +180,4 @@ if [ -f "$DC_OLD/overlay_settings.json" ]; then
 	echo "removed the standalone flycast overlay settings"
 fi
 # --- dc-standalone-cleanup-end
+

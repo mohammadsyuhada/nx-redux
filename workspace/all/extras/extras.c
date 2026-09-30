@@ -2,8 +2,8 @@
  * extras.elf — the Xtras catalog: browse curated games/tools, install
  * on-device. Entries live in ./catalog/<id>/{meta.txt,install.sh,files/}.
  * Games install into "Roms/Xtra Games (EXTRAS)"; tools into Tools/ - except
- * where an entry's install.sh targets somewhere else entirely (psp installs
- * an emulator pak into Emus/), flagged per-entry via meta.txt's done_msg.
+ * where an entry's install.sh targets somewhere else entirely (e.g. an
+ * emulator pak installed into Emus/), flagged per-entry via meta.txt's done_msg.
  */
 
 #include <ctype.h>
@@ -101,7 +101,7 @@ typedef struct {
 	char installed[64]; // "" = not installed, else the installed release tag
 	char done_msg[128]; // optional: install-success subtitle override, for
 						// entries whose payload doesn't land in the default
-						// category folder (e.g. psp installs to Emus/<plat>/, not
+						// category folder (e.g. an emulator pak in Emus/<plat>/, not
 						// Tools/, so "Find it in Tools." would mislead)
 	char platforms[64]; // meta.txt "platforms=" verbatim ("" = compatible everywhere)
 	bool compatible;	// computed in catalog_load via xtras_platform_compatible
@@ -1006,8 +1006,8 @@ static int run_entry_script(AddonEntry* e, const char* script_name, const char* 
 	// (e.g. gen1recomp's LOVE engine + saves live in .data/<id>/). Named .data,
 	// not .ports: native entries own their whole runtime and don't touch
 	// PortMaster. A PortMaster-dependent extra is expected to install into the
-	// normal Roms/Ports (PORTS) tree from its own install.sh (as the psp TOOL
-	// installs to Emus/), so "Xtra Games (EXTRAS)" stays native-only.
+	// normal Roms/Ports (PORTS) tree from its own install.sh (as a TOOL entry
+	// may install outside Tools/), so "Xtra Games (EXTRAS)" stays native-only.
 	char cmd[MAX_PATH * 4];
 	snprintf(cmd, sizeof(cmd),
 			 "PLATFORM='%s' SDCARD_PATH='%s' LOGS_PATH='%s' "

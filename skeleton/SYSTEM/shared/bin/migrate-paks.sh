@@ -51,8 +51,8 @@ report() {
 for dir in "$SDCARD_PATH/Emus" "$SDCARD_PATH/Tools"; do
 	mkdir -p "$dir"
 	cat > "$dir/README.txt" <<RM_EOF
-Put your own paks here (e.g. PSP.pak), either directly in this folder or in a
-platform subfolder (e.g. $PLATFORM/PSP.pak). Community paks usually require
+Put your own paks here (e.g. MyEmu.pak), either directly in this folder or in
+a platform subfolder (e.g. $PLATFORM/MyEmu.pak). Community paks usually require
 the platform subfolder — they hardcode that path internally. The paks NX Redux
 ships live in /.system/paks/ and are replaced wholesale on every update — do
 not edit them there, and do not place a pak here with the same name as a

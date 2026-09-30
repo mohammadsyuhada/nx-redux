@@ -260,10 +260,8 @@ little cluster, versus upstream NextUI's "auto" (408-1800 / 408-1320).
   hands it over online — same performance (a 408 MHz big core added nothing),
   cluster gated. Media Player keeps the big cluster (video decode). Verified:
   Settings round trip shows `online=0-1` inside Settings and after.
-- Xtras catalog audit: PSP (upstream ben16w/minui-psp launch.sh) saves the
-  clocks, sets its own on both clusters (Brick ondemand 1608-1800; tg5050
-  little 1416 fixed + big performance 1992-2160) and restores on exit — needs
-  cpu4 online, which the hand-over provides. Gen1recomp onlines every core,
+- Xtras catalog audit: PSP left Xtras on 2026-09-30 (now the system PSP.pak,
+  PPSSPP libretro in minarch, clocks via minarch_cpu_speed). Gen1recomp onlines every core,
   full range on each policy, `taskset -c 4-7` on tg5050. PortMaster (GUI and
   ports) onlines all tg5050 cores at full range / Brick performance 2 GHz —
   deliberate, left alone. Cheat Database pinned cpu0 to `performance` for a
