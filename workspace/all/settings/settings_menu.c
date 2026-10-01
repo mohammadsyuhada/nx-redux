@@ -565,8 +565,9 @@ void settings_menu_render(SDL_Surface* screen, IndicatorType show_setting) {
 
 	UI_renderMenuBar(screen, page->title);
 
-	// Calculate list layout
+	// Calculate list layout (an untitled options page keeps the pill list's top gutter)
 	ListLayout layout = UI_calcListLayout(screen);
+	layout.titled = page->title && page->title[0];
 
 	int has_lock = (page->dynamic_start >= 0);
 	if (has_lock)

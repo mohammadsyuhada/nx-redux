@@ -286,7 +286,7 @@ void clock_adjustment_run(SDL_Surface* screen) {
 
 			GFX_clear(screen);
 
-			UI_renderMenuBar(screen, "Clock");
+			UI_renderMenuBar(screen, "Settings | Clock");
 
 			UI_renderButtonHintBar(screen, (char*[]){"B", "CANCEL", "A", "SET", "SELECT", show_24hour ? "12 HOUR" : "24 HOUR", NULL});
 

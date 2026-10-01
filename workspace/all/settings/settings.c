@@ -292,6 +292,11 @@ static int on_off_values[] = {0, 1};
 static const char* art_style_labels[] = {"Thumbnail", "Background"};
 static int art_style_values[] = {ART_STYLE_THUMBNAIL, ART_STYLE_BACKGROUND};
 
+/* Main menu tab and game list styles for the Layouts page (all draw as List for now) */
+static const char* menu_style_labels[] = {"List", "Grid", "Carousel", "Backdrop"};
+static int menu_style_values[] = {MENU_STYLE_LIST, MENU_STYLE_GRID, MENU_STYLE_CAROUSEL, MENU_STYLE_BACKDROP};
+static const char* hide_show_labels[] = {"Hide", "Show"};
+
 /* Game art type: which stored variant the game lists show */
 static const char* art_type_labels[] = {"Mix", "Screenshot", "Box art"};
 static int art_type_values[] = {ART_TYPE_MIX, ART_TYPE_SCREENSHOT, ART_TYPE_BOXART};
@@ -704,15 +709,30 @@ static void reset_show_folder_names(void) {
 	CFG_setShowFolderNamesAtRoot(CFG_DEFAULT_SHOWFOLDERNAMESATROOT);
 }
 
-/* Show Recents */
-static int get_show_recents(void) {
-	return CFG_getShowRecents() ? 1 : 0;
+/* Main menu tab styles, one getter/setter/reset triple per category */
+#define MENU_STYLE_CALLBACKS(_name, _cat)              \
+	static int get_menu_style_##_name(void) {          \
+		return CFG_getMenuStyle(_cat);                 \
+	}                                                  \
+	static void set_menu_style_##_name(int v) {        \
+		CFG_setMenuStyle(_cat, v);                     \
+	}                                                  \
+	static void reset_menu_style_##_name(void) {       \
+		CFG_setMenuStyle(_cat, CFG_DEFAULT_MENUSTYLE); \
+	}
+MENU_STYLE_CALLBACKS(consoles, MENU_CAT_CONSOLES)
+MENU_STYLE_CALLBACKS(collections, MENU_CAT_COLLECTIONS)
+MENU_STYLE_CALLBACKS(tools, MENU_CAT_TOOLS)
+
+/* Game list style */
+static int get_game_list_style(void) {
+	return CFG_getGameListStyle();
 }
-static void set_show_recents(int v) {
-	CFG_setShowRecents(v != 0);
+static void set_game_list_style(int v) {
+	CFG_setGameListStyle(v);
 }
-static void reset_show_recents(void) {
-	CFG_setShowRecents(CFG_DEFAULT_SHOWRECENTS);
+static void reset_game_list_style(void) {
+	CFG_setGameListStyle(CFG_DEFAULT_GAMELISTSTYLE);
 }
 
 /* Show Tools */
@@ -1352,6 +1372,7 @@ static void init_about_info(void) {
 // ============================================
 
 #define MAX_APPEARANCE_ITEMS 28
+#define MAX_LAYOUTS_ITEMS 12
 #define MAX_DISPLAY_ITEMS 8
 #define MAX_SYSTEM_ITEMS 24
 #define MAX_FN_ITEMS 20
@@ -1362,6 +1383,7 @@ static void init_about_info(void) {
 #define MAX_MAIN_ITEMS 15
 
 static SettingItem appearance_items[MAX_APPEARANCE_ITEMS];
+static SettingItem layouts_items[MAX_LAYOUTS_ITEMS];
 static SettingItem display_items[MAX_DISPLAY_ITEMS];
 static SettingItem system_items[MAX_SYSTEM_ITEMS];
 static SettingItem fn_items[MAX_FN_ITEMS];
@@ -1372,6 +1394,7 @@ static SettingItem simple_mode_items[MAX_SIMPLE_MODE_ITEMS];
 static SettingItem main_items[MAX_MAIN_ITEMS];
 
 static SettingsPage appearance_page;
+static SettingsPage layouts_page;
 static SettingsPage display_page;
 static SettingsPage system_page;
 static SettingsPage fn_page;
@@ -1592,6 +1615,10 @@ static void reset_fn_keys_page(void) {
 
 static void reset_appearance_page(void) {
 	settings_page_reset_all(&appearance_page);
+	settings_page_reset_all(&layouts_page); // reset does not recurse into submenus
+}
+static void reset_layouts_page(void) {
+	settings_page_reset_all(&layouts_page);
 }
 static void reset_display_page(void) {
 	settings_page_reset_all(&display_page);
@@ -1679,6 +1706,36 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	int idx;
 
 	// ============================
+	// Layouts page (Appearance submenu)
+	// ============================
+	idx = 0;
+	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Consoles", "How the Consoles tab draws.",
+		menu_style_labels, MENU_STYLE_COUNT, menu_style_values, get_menu_style_consoles, set_menu_style_consoles, reset_menu_style_consoles);
+	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Collections", "How the Collections tab draws.",
+		menu_style_labels, MENU_STYLE_COUNT, menu_style_values, get_menu_style_collections, set_menu_style_collections, reset_menu_style_collections);
+	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Tools", "How the Tools tab draws.",
+		menu_style_labels, MENU_STYLE_COUNT, menu_style_values, get_menu_style_tools, set_menu_style_tools, reset_menu_style_tools);
+	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Game lists", "How a console's or collection's games draw.",
+		menu_style_labels, MENU_STYLE_COUNT, menu_style_values, get_game_list_style, set_game_list_style, reset_game_list_style);
+	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Consoles tab", "Show the Consoles tab.",
+		hide_show_labels, 2, on_off_values, get_show_emulators, set_show_emulators, reset_show_emulators);
+	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Collections tab", "Show the Collections tab.",
+		hide_show_labels, 2, on_off_values, get_show_collections, set_show_collections, reset_show_collections);
+	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Tools tab", "Show the Tools tab.",
+		hide_show_labels, 2, on_off_values, get_show_tools, set_show_tools, reset_show_tools);
+	layouts_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
+		"Reset to defaults", "Resets all options in this menu to their default values.",
+		reset_layouts_page);
+	init_page(&layouts_page, "Settings | Layouts", layouts_items, idx, 0);
+
+	// ============================
 	// Appearance page
 	// ============================
 	snprintf(ui_scale_default_label, sizeof(ui_scale_default_label), "Default (%ix)", NATIVE_SCALE - 1);
@@ -1687,6 +1744,8 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"UI scale", "Size of text and menus. Larger scales show fewer rows.",
 		ui_scale_labels, 3, ui_scale_values, get_ui_scale, set_ui_scale, reset_ui_scale);
+	appearance_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
+		"Layouts", "Main menu tab styles and which tabs show.", &layouts_page);
 	appearance_items[idx++] = (SettingItem)ITEM_COLOR_INIT(
 		"Main color", "The color used to render main UI elements.",
 		color_labels, COLOR_COUNT, (int*)color_values, get_color1, set_color1, reset_color1);
@@ -1742,20 +1801,8 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		"Game art type", "Which fetched image to show. The background style always uses the screenshot.",
 		art_type_labels, 3, art_type_values, get_game_art_type, set_game_art_type, reset_game_art_type);
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Show folder names at root", "Show folder names at root directory",
+		"Show folder names at root", "Names on the main menu are always shown.",
 		on_off_labels, 2, on_off_values, get_show_folder_names, set_show_folder_names, reset_show_folder_names);
-	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Show Recents", "Show \"Recently Played\" menu entry in game list.",
-		on_off_labels, 2, on_off_values, get_show_recents, set_show_recents, reset_show_recents);
-	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Show Tools", "Show \"Tools\" menu entry in game list.",
-		on_off_labels, 2, on_off_values, get_show_tools, set_show_tools, reset_show_tools);
-	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Show Collections", "Show \"Collections\" menu entry in game list.",
-		on_off_labels, 2, on_off_values, get_show_collections, set_show_collections, reset_show_collections);
-	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Show Emulators", "Show \"Emulators\" folders entry in game list.",
-		on_off_labels, 2, on_off_values, get_show_emulators, set_show_emulators, reset_show_emulators);
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Use folder background for ROMs", "If enabled, used the emulator background image.",
 		on_off_labels, 2, on_off_values, get_roms_use_folder_bg, set_roms_use_folder_bg, reset_roms_use_folder_bg);
@@ -2130,7 +2177,7 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	// ============================
 	{
 		SettingsPage* pages[] = {
-			&appearance_page, &display_page, &system_page,
+			&appearance_page, &layouts_page, &display_page, &system_page,
 			&fn_switch_page, &notify_page, &simple_mode_page, NULL};
 		for (int p = 0; pages[p]; p++) {
 			for (int i = 0; i < pages[p]->item_count; i++) {

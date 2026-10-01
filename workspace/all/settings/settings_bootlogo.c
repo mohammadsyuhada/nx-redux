@@ -140,7 +140,7 @@ void bootlogo_run(SDL_Surface* screen) {
 				SDL_BlitSurface(image, NULL, screen, &image_rect);
 			}
 
-			UI_renderMenuBar(screen, "Bootlogo");
+			UI_renderMenuBar(screen, "Settings | Bootlogo");
 			UI_renderButtonHintBar(screen, (char*[]){"LEFT/RIGHT", "SCROLL", "B", "BACK", "A", "SET", NULL});
 
 			GFX_flip(screen);
