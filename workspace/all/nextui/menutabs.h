@@ -26,8 +26,9 @@ bool MenuTabs_step(int delta);
 // Something changed what the tabs hold (pin, unpin, delete, refresh). Recompute the visible tabs and
 // rebuild stack[0]; if the current tab vanished, open the resolved neighbour. keep_selected clamps.
 void MenuTabs_reload(int keep_selected);
-// Bumped whenever MenuTabs_openRoot/MenuTabs_reload replace stack[0]. malloc often reuses the freed
-// Directory's address, so list-change checks compare this alongside the `top` pointer.
+// Bumped whenever MenuTabs_openRoot/MenuTabs_reload replace stack[0] (a tab switch or reload). Readers use it
+// to tell a tab change from a push/pop; per-list caches key on Directory.serial (which also changes on a
+// push, pop or openDirectory stack rebuild) alongside it.
 unsigned MenuTabs_generation(void);
 // The next MenuTabs_saveState records that the launch came from Home itself (Continue or a pin):
 // boot then reopens Home even when the ROM belongs to another tab. Call only right before Entry_open:
@@ -36,8 +37,14 @@ void MenuTabs_markHomeLaunch(void);
 // Drop a pending mark (Entry_open calls this last, so a mark never outlives its own open).
 void MenuTabs_clearHomeLaunch(void);
 // saveLast() hook: write the current tab key to MENU_TAB_PATH ("home\nlaunch\n" after
-// MenuTabs_markHomeLaunch while on Home). Clears the mark.
+// MenuTabs_markHomeLaunch while on Home; "<tab>\ntools\n" from the Tools list pushed over <tab> while the
+// Tools tab is hidden).
+// Clears the mark.
 void MenuTabs_saveState(void);
+// MENU_TAB_PATH carries a launch from Home itself (the "launch" line): loadLast then only reselects Home's row.
+bool MenuTabs_savedHomeLaunch(void);
+// MENU_TAB_PATH carries the "tools" line: the launch came from the Tools list pushed over the saved tab.
+bool MenuTabs_savedToolsPush(void);
 // The tab to open at boot: MENU_TAB_PATH if visible, else the tab of last_path, else Home.
 MenuTabId MenuTabs_initialTab(const char* last_path);
 // Tab-row focus (docs/superpowers/specs/2026-10-01-menu-sp6-tab-focus-design.md): UP from the top of a tab's content

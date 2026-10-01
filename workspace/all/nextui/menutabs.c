@@ -233,9 +233,46 @@ void MenuTabs_clearHomeLaunch(void) {
 void MenuTabs_saveState(void) {
 	if (home_launch && current == MENU_TAB_HOME)
 		putFile(MENU_TAB_PATH, "home\nlaunch\n");
-	else
+	else if (stack && stack->count > 1 && !MenuTabs_isVisible(MENU_TAB_TOOLS) &&
+			 exactMatch(((Directory*)stack->items[1])->path, TOOLS_PATH)) {
+		// the context menu's Tools list pushed over a tab (Tools tab hidden): the tab it was pushed over plus a
+		// "tools" line, so boot reopens that tab and loadLast re-pushes Tools on the tool's row
+		char state[64];
+		snprintf(state, sizeof(state), "%s\ntools\n", MenuTabs_key(current));
+		putFile(MENU_TAB_PATH, state);
+	} else
 		putFile(MENU_TAB_PATH, (char*)MenuTabs_key(current));
 	home_launch = false;
+}
+
+// MENU_TAB_PATH split into the tab key and its optional second line.
+static void readSavedState(char* key, size_t key_size, char** second) {
+	key[0] = '\0';
+	*second = NULL;
+	if (exists(MENU_TAB_PATH))
+		getFile(MENU_TAB_PATH, key, key_size);
+	char* nl = strchr(key, '\n');
+	if (nl) {
+		*nl++ = '\0';
+		trimTrailingNewlines(nl);
+		*second = nl;
+	}
+	trimTrailingNewlines(key);
+}
+
+bool MenuTabs_savedToolsPush(void) {
+	char key[64];
+	char* second;
+	readSavedState(key, sizeof(key), &second);
+	return second && strcmp(second, "tools") == 0;
+}
+
+bool MenuTabs_savedHomeLaunch(void) {
+	char key[64];
+	char* second;
+	readSavedState(key, sizeof(key), &second);
+	MenuTabId saved = MENU_TAB_HOME;
+	return MenuTabs_parseKey(key, &saved) && saved == MENU_TAB_HOME && second && strcmp(second, "launch") == 0;
 }
 
 // A saved path belongs to the Home tab when it, or a folder it sits in
@@ -270,15 +307,9 @@ static bool savedOwnsPath(MenuTabId saved, const char* last_path, MenuTabId path
 }
 
 MenuTabId MenuTabs_initialTab(const char* last_path) {
-	char key[64] = "";
-	if (exists(MENU_TAB_PATH))
-		getFile(MENU_TAB_PATH, key, sizeof(key));
-	char* second = strchr(key, '\n');
-	if (second) {
-		*second++ = '\0';
-		trimTrailingNewlines(second);
-	}
-	trimTrailingNewlines(key);
+	char key[64];
+	char* second;
+	readSavedState(key, sizeof(key), &second);
 	MenuTabId saved = MENU_TAB_HOME;
 	bool saved_valid = MenuTabs_parseKey(key, &saved);
 	bool home_launched = saved_valid && saved == MENU_TAB_HOME && second && strcmp(second, "launch") == 0;
@@ -288,7 +319,9 @@ MenuTabId MenuTabs_initialTab(const char* last_path) {
 	if (has_path) {
 		MenuTabPaths p = tabPaths();
 		path_tab = MenuTabs_forPath(last_path, &p);
-		owns = home_launched || (saved_valid && savedOwnsPath(saved, last_path, path_tab));
+		// a tool from the Tools list pushed over the saved tab: boot reopens that tab (loadLast re-pushes Tools)
+		bool tools_push = second && strcmp(second, "tools") == 0 && path_tab == MENU_TAB_TOOLS && !MenuTabs_isVisible(MENU_TAB_TOOLS);
+		owns = home_launched || tools_push || (saved_valid && savedOwnsPath(saved, last_path, path_tab));
 	}
 	return MenuTabs_pickInitial(tabs, tab_count, saved_valid, saved, has_path, path_tab, owns);
 }

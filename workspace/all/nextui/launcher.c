@@ -632,6 +632,37 @@ void saveLast(char* path) {
 	putFile(LAST_PATH, path);
 	MenuTabs_saveState();
 }
+// Push the Tools list over the current tab, as the root context menu's Tools item does, with `last_path`'s row selected
+// (a system tool pak is saved SD-shaped, TOOLS_PATH/<name>, so match on the name too).
+static void restoreToolsOverTab(const char* last_path) {
+	Directory* tools = Directory_new(TOOLS_PATH, 0);
+	int rc = GameList_rowCount();
+	int count = tools->entries->count;
+	const char* name = strrchr(last_path, '/');
+	char paks_tools_path[MAX_PATH];
+	snprintf(paks_tools_path, sizeof(paks_tools_path), "%s/Tools/", PAKS_PATH);
+	int sel = 0;
+	for (int i = 0; i < count; i++) {
+		Entry* entry = tools->entries->items[i];
+		if (exactMatch(entry->path, (char*)last_path) ||
+			(name && prefixMatch(paks_tools_path, entry->path) && suffixMatch((char*)name, entry->path))) {
+			sel = i;
+			break;
+		}
+	}
+	tools->selected = sel;
+	tools->start = 0;
+	tools->end = (count < rc) ? count : rc;
+	if (sel >= tools->end) {
+		tools->end = sel + 1;
+		tools->start = tools->end - rc;
+	}
+	Array_push(stack, tools);
+	top = tools;
+	if (count > 0)
+		readyResume(tools->entries->items[sel]);
+}
+
 void loadLast(void) { // call after loading root directory
 	if (!exists(LAST_PATH))
 		return;
@@ -645,6 +676,18 @@ void loadLast(void) { // call after loading root directory
 	// pointer subtraction writes through a wild offset
 	if (!prefixMatch(SDCARD_PATH, last_path))
 		return;
+
+	bool home_launch = MenuTabs_savedHomeLaunch();
+	if (MenuTabs_savedToolsPush()) {
+		// a tool launched from the Tools list pushed over a tab (Tools tab hidden): boot opened that tab,
+		// re-push Tools on the tool's row
+		char tools_dir[MAX_PATH];
+		snprintf(tools_dir, sizeof(tools_dir), "%s/", TOOLS_PATH);
+		if (prefixMatch(tools_dir, last_path) && !MenuTabs_isVisible(MENU_TAB_TOOLS) && hasTools()) {
+			restoreToolsOverTab(last_path);
+			return;
+		}
+	}
 
 	// Home tab: the saved path is the pinned row itself — select it, don't walk
 	// into a pinned parent folder on the way
@@ -666,6 +709,10 @@ void loadLast(void) { // call after loading root directory
 				return;
 			}
 		}
+		// a launch from Home itself (Continue or a pin) comes back to Home only: walking the path would
+		// land inside a pinned folder's tab (Consoles › … › folder) when the row is gone
+		if (home_launch)
+			return;
 	}
 
 	char full_path[MAX_PATH];

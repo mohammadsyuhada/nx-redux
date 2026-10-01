@@ -57,7 +57,7 @@ static Tween slide_tw;
 static int lit_sel = -1, lit_prev = -1;
 static Tween lit_tw;
 // what the state above belongs to: a change of any snaps (no slide in, no crossfade from a stale index)
-static const void* seen_top = NULL;
+static unsigned seen_top = 0; // the Directory serial (0 = none)
 static unsigned seen_gen = 0;
 static int seen_n = -1;
 static int seen_screen_w = 0, seen_scale = 0;
@@ -417,13 +417,13 @@ bool GridView_active(void) {
 
 // A list, tab, screen size or scale change: start over with the grid snapped to the selection.
 static bool syncList(SDL_Surface* screen, int n, int lastScreen) {
-	bool changed = (const void*)top != seen_top || MenuTabs_generation() != seen_gen || n != seen_n ||
+	bool changed = top->serial != seen_top || MenuTabs_generation() != seen_gen || n != seen_n ||
 				   screen->w != seen_screen_w || (int)FIXED_SCALE != seen_scale || lastScreen != SCREEN_GAMELIST;
 	if (!changed)
 		return false;
-	if ((const void*)top != seen_top || MenuTabs_generation() != seen_gen || n != seen_n)
+	if (top->serial != seen_top || MenuTabs_generation() != seen_gen || n != seen_n)
 		resetKinds(n);
-	seen_top = (const void*)top;
+	seen_top = top->serial;
 	seen_gen = MenuTabs_generation();
 	seen_n = n;
 	seen_screen_w = screen->w;

@@ -100,14 +100,14 @@ typedef struct {
 static float pos_from = 0, pos_to = 0;
 static Tween slide_tw;
 // What the position belongs to: a change of any snaps it (keyed on `top` and the tab generation, not on the list).
-static const void* seen_top = NULL;
+static unsigned seen_top = 0; // the Directory serial (0 = none)
 static unsigned seen_gen = 0;
 static int seen_n = -1, seen_screen_w = 0, seen_scale = 0, seen_kind = -1;
 
 // Tile kinds per index of the current list, worked out on first sight (a folder game stats the disk).
 static signed char* kinds = NULL;
 static int kinds_cap = 0;
-static const void* kinds_top = NULL;
+static unsigned kinds_top = 0;
 static unsigned kinds_gen = 0;
 static int kinds_n = -1;
 
@@ -118,7 +118,7 @@ static bool from_valid = false; // false: the from layer is black
 static char to_path[MAX_PATH];
 static bool to_set = false, fade_started = false;
 static Tween fade_tw;
-static const void* pic_top = NULL;
+static unsigned pic_top = 0;
 static unsigned pic_gen = 0;
 static bool pic_on = false;
 
@@ -330,9 +330,9 @@ static int selectedIndex(int n) {
 // Entries
 
 static void syncKinds(int n) {
-	if ((const void*)top == kinds_top && MenuTabs_generation() == kinds_gen && n == kinds_n)
+	if (top->serial == kinds_top && MenuTabs_generation() == kinds_gen && n == kinds_n)
 		return;
-	kinds_top = (const void*)top;
+	kinds_top = top->serial;
 	kinds_gen = MenuTabs_generation();
 	kinds_n = n;
 	if (n > kinds_cap) {
@@ -1105,7 +1105,7 @@ static void resetPicture(void) {
 	fade_started = false;
 	fade_tw.active = false;
 	to_path[0] = '\0';
-	pic_top = NULL;
+	pic_top = 0;
 	if (pic_from) { // 3-4 MB: only held on a Backdrop game row
 		SDL_FreeSurface(pic_from);
 		pic_from = NULL;
@@ -1173,9 +1173,9 @@ bool RowView_renderPicture(SDL_Surface* screen) {
 	int n = top->entries->count;
 	syncKinds(n);
 	// a new list or tab: the picture starts from black (no crossfade from another list's game)
-	if ((const void*)top != pic_top || MenuTabs_generation() != pic_gen) {
+	if (top->serial != pic_top || MenuTabs_generation() != pic_gen) {
 		resetPicture();
-		pic_top = (const void*)top;
+		pic_top = top->serial;
 		pic_gen = MenuTabs_generation();
 	}
 	const char* want = "";
@@ -1236,12 +1236,12 @@ bool RowView_renderPicture(SDL_Surface* screen) {
 
 // A list, tab, screen size, scale or kind change: start over with the row snapped to the selection.
 static bool syncList(SDL_Surface* screen, int n, int lastScreen, RowKind kind) {
-	bool changed = (const void*)top != seen_top || MenuTabs_generation() != seen_gen || n != seen_n ||
+	bool changed = top->serial != seen_top || MenuTabs_generation() != seen_gen || n != seen_n ||
 				   screen->w != seen_screen_w || (int)FIXED_SCALE != seen_scale || (int)kind != seen_kind ||
 				   lastScreen != SCREEN_GAMELIST;
 	if (!changed)
 		return false;
-	seen_top = (const void*)top;
+	seen_top = top->serial;
 	seen_gen = MenuTabs_generation();
 	seen_n = n;
 	seen_screen_w = screen->w;
@@ -1434,7 +1434,7 @@ void RowView_quit(void) {
 	free(kinds);
 	kinds = NULL;
 	kinds_cap = 0;
-	kinds_top = NULL;
+	kinds_top = 0;
 	kinds_n = -1;
 	itemsClear();
 	if (caption.s)

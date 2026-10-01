@@ -360,7 +360,11 @@ Directory* Directory_new(char* path, int selected) {
 	char display_name[MAX_PATH];
 	getDisplayName(path, display_name);
 
+	static unsigned next_serial = 0;
 	Directory* self = malloc(sizeof(Directory));
+	if (++next_serial == 0)
+		next_serial = 1;
+	self->serial = next_serial;
 	self->path = strdup(path);
 	self->name = strdup(display_name);
 	if (exactMatch(path, SDCARD_PATH)) {

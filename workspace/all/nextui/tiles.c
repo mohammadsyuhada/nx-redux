@@ -244,7 +244,9 @@ bool Tiles_camelSplit(char* buf, size_t size) {
 float Tiles_fitWordsSp(const char* text, float sp_max, float sp_min, bool bold, int max_w) {
 	char work[LINE_MAX];
 	float sp = sp_max;
-	for (; sp > sp_min; sp -= 1.0f) {
+	// sp_max itself first (the size the caller draws at when it fits), then whole-sp steps: a tile's scale
+	// animates sp_max every frame, and fractional steps below it would open new font sizes each frame
+	for (; sp > sp_min; sp = (sp == sp_max) ? ceilf(sp_max) - 1.0f : sp - 1.0f) {
 		TTF_Font* f = UIFont_get(sp, bold);
 		if (!f)
 			break;
@@ -454,9 +456,12 @@ static SDL_Surface* buildCaption(int w, int h, int rad, const TileSpec* t, float
 	// in the lower half, where the fade would grey its later lines
 	if (t->kind == TILE_GAME) {
 		int fade_h = (int)(h * CAPTION_FADE_SHARE + 0.5f);
-		SDL_Surface* fade = UI_bandFadeSurface(w, fade_h, CAPTION_FADE_EDGE, 0); // linear 0 → 85%, cache-owned
-		if (fade)
-			UI_blitFade(fade, NULL, cap, 0, h - fade_h); // over clear pixels: black at the row's alpha, as SDL's blend
+		// the fade's rows are uniform, so its width only has to cover the tile: ask for it in 64 px buckets and
+		// blit the tile's part, so tiles of nearby widths (the lit one, a scale step) share one cached fade
+		int fade_w = (w + 63) & ~63;
+		SDL_Surface* fade = UI_bandFadeSurface(fade_w, fade_h, CAPTION_FADE_EDGE, 0); // linear 0 → 85%, cache-owned
+		if (fade)																	  // over clear pixels: black at the row's alpha, as SDL's blend
+			UI_blitFade(fade, &(SDL_Rect){0, 0, w, fade_h}, cap, 0, h - fade_h);
 	}
 
 	int pad_x = NX_DPF(CAPTION_PAD_X_DP * s);

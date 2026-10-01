@@ -63,7 +63,7 @@ static int list_pill_target = -1;
 static int list_pill_prev_sel = -1;
 // Previous directory, to detect a page/list change (folder enter/exit) so the
 // pill snaps to the new list's selection instead of gliding from the stale row.
-static const void* list_pill_prev_top = NULL;
+static unsigned list_pill_prev_top = 0; // the Directory serial (0 = none)
 static unsigned list_pill_prev_gen = 0;
 
 static bool had_thumb = false;
@@ -1199,33 +1199,37 @@ void GameList_runContextAction(int id) {
 					removed = parent_dir;
 				} else
 					unlink(entry->path);
-				// prune the deleted game from any collection that lists it
-				// (folder games are stored as their resolved cue/m3u path)
-				const char* del_line = folder_game ? game_file : entry->path;
-				if (prefixMatch(SDCARD_PATH, del_line))
-					removeCollectionLines(del_line + strlen(SDCARD_PATH));
-				// drop its display alias too, so a future file that reuses the
-				// name doesn't inherit the dead entry's alias (mirrors rename)
-				{
-					char adir[MAX_PATH];
-					strncpy(adir, entry->path, sizeof(adir) - 1);
-					adir[sizeof(adir) - 1] = '\0';
-					char* aslash = strrchr(adir, '/');
-					const char* home_key = aslash ? aslash + 1 : adir;
-					const char* gslash = strrchr(del_line, '/');
-					const char* coll_key = gslash ? gslash + 1 : del_line;
-					char amap[MAX_PATH];
-					if (aslash) {
-						*aslash = '\0'; // adir -> parent dir; home_key still valid
-						snprintf(amap, sizeof(amap), "%s/map.txt", adir);
-						dropMapKey(amap, home_key);
+				// the index, collection and alias drops only follow a delete that happened (a read-only
+				// card or a busy file leaves the game listed, so it must stay counted and named)
+				if (!exists((char*)removed)) {
+					// prune the deleted game from any collection that lists it
+					// (folder games are stored as their resolved cue/m3u path)
+					const char* del_line = folder_game ? game_file : entry->path;
+					if (prefixMatch(SDCARD_PATH, del_line))
+						removeCollectionLines(del_line + strlen(SDCARD_PATH));
+					// drop its display alias too, so a future file that reuses the
+					// name doesn't inherit the dead entry's alias (mirrors rename)
+					{
+						char adir[MAX_PATH];
+						strncpy(adir, entry->path, sizeof(adir) - 1);
+						adir[sizeof(adir) - 1] = '\0';
+						char* aslash = strrchr(adir, '/');
+						const char* home_key = aslash ? aslash + 1 : adir;
+						const char* gslash = strrchr(del_line, '/');
+						const char* coll_key = gslash ? gslash + 1 : del_line;
+						char amap[MAX_PATH];
+						if (aslash) {
+							*aslash = '\0'; // adir -> parent dir; home_key still valid
+							snprintf(amap, sizeof(amap), "%s/map.txt", adir);
+							dropMapKey(amap, home_key);
+						}
+						snprintf(amap, sizeof(amap), "%s/map.txt", COLLECTIONS_PATH);
+						dropMapKey(amap, coll_key);
 					}
-					snprintf(amap, sizeof(amap), "%s/map.txt", COLLECTIONS_PATH);
-					dropMapKey(amap, coll_key);
+					// drop it from the rom index so console counts and Search follow (after the
+					// map.txt clean-up: both feed the index fingerprint)
+					Content_forgetRom(removed, caches_fresh);
 				}
-				// drop it from the rom index so console counts and Search follow (after the
-				// map.txt clean-up: both feed the index fingerprint)
-				Content_forgetRom(removed, caches_fresh);
 				// root too: a pinned copy of the deleted rom must not linger
 				// as a dead shortcut (mirrors pin/unpin)
 				MenuTabs_reload(root_sel);
@@ -1388,8 +1392,10 @@ static void romItems(Entry* entry, bool allow_pin, ContextMenuItem* items, int* 
 		// shared launch path the Y handler documents.
 		if (entryEmuOptionsCapable(entry))
 			addItem(items, idx, "Emulator Options", 36);
+		// the fetched .media mix only shows in the List style, so the item is offered only there (never on Home)
 		char af_rom[MAX_PATH], af_out[MAX_PATH], af_tag[MAX_PATH];
-		if (entryArtInfo(entry, af_rom, af_out, af_tag) && !exists(af_out))
+		if (!Home_active() && GameList_currentStyle() == MENU_STYLE_LIST &&
+			entryArtInfo(entry, af_rom, af_out, af_tag) && !exists(af_out))
 			addItem(items, idx, "Fetch Box Art", 37);
 	}
 }
@@ -1820,18 +1826,18 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 // list starts over) instead of rerun every frame.
 static bool selectedIsGame(Entry* entry) {
 	static char last_path[MAX_PATH];
-	static const void* last_list;
+	static unsigned last_list; // the Directory serial
 	static unsigned last_gen;
 	static bool last_is_game;
 	if (!entry)
 		return false;
 	if (entry->type == ENTRY_ROM)
 		return true;
-	// the generation catches a tab switch/reload whose new Directory landed at the old address
-	if ((const void*)top != last_list || MenuTabs_generation() != last_gen ||
+	// keyed on the Directory serial (a new Directory can land at a freed one's address)
+	if (top->serial != last_list || MenuTabs_generation() != last_gen ||
 		strcmp(last_path, entry->path) != 0) {
 		char game_file[MAX_PATH];
-		last_list = top;
+		last_list = top->serial;
 		last_gen = MenuTabs_generation();
 		snprintf(last_path, sizeof(last_path), "%s", entry->path);
 		last_is_game = entryFolderGame(entry, game_file);
@@ -2162,14 +2168,13 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 			char sel_trunc[256];
 			int sel_pill_w = UI_calcListPillWidth(font.large, sel_text, sel_trunc, sel_avail, 0);
 			int target_y = listTop() + SCALE1(selected_row * PILL_SIZE);
-			// A page/list change (folder enter/exit — the `top` directory pointer
+			// A page/list change (folder enter/exit, a tab switch: the `top` Directory's serial
 			// changes) snaps the pill to the new selection instead of gliding in
 			// from the previous list's row, which briefly flashed the old position.
-			// The tab generation also counts: a tab switch frees stack[0] and malloc often puts the
-			// new Directory at the same address.
-			bool list_changed = (const void*)top != list_pill_prev_top ||
+			// Keyed on the serial, not the pointer: a freed Directory's address is often reused.
+			bool list_changed = top->serial != list_pill_prev_top ||
 								MenuTabs_generation() != list_pill_prev_gen;
-			list_pill_prev_top = (const void*)top;
+			list_pill_prev_top = top->serial;
 			list_pill_prev_gen = MenuTabs_generation();
 			// On a wrap (last<->first), enter from the near edge in the direction of
 			// travel instead of sliding the whole list: forward wrap (last->first)

@@ -65,7 +65,7 @@ static const SDL_Color C_GREY_LIT = {0x73, 0x73, 0x73, 255}; // 55% black over w
 
 static bool need_rebuild = true;
 static unsigned built_gen = 0;
-static const void* built_root = NULL;
+static unsigned built_root = 0; // the root Directory's serial (0 = none)
 static int built_w = 0, built_h = 0, built_scale = 0;
 
 static HomeLayout layout;
@@ -435,7 +435,7 @@ static void rebuild(void) {
 		return;
 	need_rebuild = false;
 	built_gen = MenuTabs_generation();
-	built_root = stack->items[0];
+	built_root = ((Directory*)stack->items[0])->serial;
 	built_w = screen->w;
 	built_h = screen->h;
 	built_scale = FIXED_SCALE;
@@ -493,7 +493,7 @@ static void rebuild(void) {
 static void ensureBuilt(void) {
 	if (!screen || !Home_active())
 		return;
-	if (!need_rebuild && built_gen == MenuTabs_generation() && built_root == stack->items[0] &&
+	if (!need_rebuild && built_gen == MenuTabs_generation() && built_root == ((Directory*)stack->items[0])->serial &&
 		built_w == screen->w && built_h == screen->h && built_scale == FIXED_SCALE)
 		return;
 	rebuild();
