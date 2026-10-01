@@ -44,6 +44,10 @@ static char ra_game_hash[64] = {0};
 // info for the offline achievements browser)
 static char ra_current_rom_path[512] = {0};
 
+// Path rom.txt records when set (RA_setRecordedRomPath): the launcher's path for
+// an archive, whose content is hashed/loaded from its extracted tmp copy
+static char ra_record_rom_path[512] = {0};
+
 // Muted achievements tracking
 #define RA_MAX_MUTED_ACHIEVEMENTS 1024
 static uint32_t ra_muted_achievements[RA_MAX_MUTED_ACHIEVEMENTS];
@@ -1012,8 +1016,9 @@ static void ra_game_loaded_callback(int result, const char* error_message,
 
 			// Record the rom path so the offline achievements browser can
 			// later locate the game's box art
-			if (ra_current_rom_path[0] != '\0')
-				RA_Offline_setGameRomPath(ra_game_hash, ra_current_rom_path);
+			const char* record_path = ra_record_rom_path[0] ? ra_record_rom_path : ra_current_rom_path;
+			if (record_path[0] != '\0')
+				RA_Offline_setGameRomPath(ra_game_hash, record_path);
 
 			// Load muted achievements for this game
 			ra_load_muted_achievements();
@@ -1378,6 +1383,10 @@ static void ra_do_load_game(const char* rom_path, const uint8_t* rom_data, size_
 	// Fallback for builds without hash support
 	RA_LOG_ERROR("Hash support not compiled in - cannot identify game\n");
 #endif
+}
+
+void RA_setRecordedRomPath(const char* path) {
+	snprintf(ra_record_rom_path, sizeof(ra_record_rom_path), "%s", path ? path : "");
 }
 
 void RA_loadGame(const char* rom_path, const uint8_t* rom_data, size_t rom_size, const char* emu_tag) {
