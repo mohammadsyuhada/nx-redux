@@ -1,0 +1,63 @@
+#ifndef MENUTABS_H
+#define MENUTABS_H
+
+#include "menutabs_model.h"
+#include "sdl.h"
+#include "types.h"
+#include <stdbool.h>
+
+void MenuTabs_init(void); // compute the visible tabs from settings + content
+int MenuTabs_count(void);
+MenuTabId MenuTabs_at(int index);
+MenuTabId MenuTabs_current(void);
+// Only assigns the current tab (pathToStack builds stack[0] itself).
+void MenuTabs_setCurrent(MenuTabId id);
+bool MenuTabs_isVisible(MenuTabId id);
+const char* MenuTabs_path(MenuTabId id);			 // the stack[0] path for a tab
+MenuTabId MenuTabs_forPathVisible(const char* path); // MenuTabs_forPath, then Home
+// The tab's main menu style category (MENU_CAT_* in config.h), or -1 for Home.
+int MenuTabs_styleCategory(MenuTabId id);
+// Make `id` current and put a fresh Directory for it at stack[0], replacing the whole stack.
+// Restores the tab's remembered selection. Sets `top` when the stack ends up with one entry.
+void MenuTabs_openRoot(MenuTabId id);
+// L1/R1 at the root: remember the current tab's selection, move by delta (wrapping), open it.
+// Returns true when the tab changed.
+bool MenuTabs_step(int delta);
+// Something changed what the tabs hold (pin, unpin, delete, refresh). Recompute the visible tabs and
+// rebuild stack[0]; if the current tab vanished, open the resolved neighbour. keep_selected clamps.
+void MenuTabs_reload(int keep_selected);
+// Bumped whenever MenuTabs_openRoot/MenuTabs_reload replace stack[0]. malloc often reuses the freed
+// Directory's address, so list-change checks compare this alongside the `top` pointer.
+unsigned MenuTabs_generation(void);
+// The next MenuTabs_saveState records that the launch came from Home itself (Continue or a pin):
+// boot then reopens Home even when the ROM belongs to another tab. Call only right before Entry_open:
+// Entry_open clears the mark when it returns, whether or not anything launched.
+void MenuTabs_markHomeLaunch(void);
+// Drop a pending mark (Entry_open calls this last, so a mark never outlives its own open).
+void MenuTabs_clearHomeLaunch(void);
+// saveLast() hook: write the current tab key to MENU_TAB_PATH ("home\nlaunch\n" after
+// MenuTabs_markHomeLaunch while on Home). Clears the mark.
+void MenuTabs_saveState(void);
+// The tab to open at boot: MENU_TAB_PATH if visible, else the tab of last_path, else Home.
+MenuTabId MenuTabs_initialTab(const char* last_path);
+// Tab-row focus (docs/superpowers/specs/2026-10-01-menu-sp6-tab-focus-design.md): UP from the top of a tab's content
+// moves focus to the tab row. Meaningful only at the root: setFocused(true) is refused below it, and every path that
+// pushes a list clears it (Entry_open, openDirectory, the context menu's Tools push), so B back to the root
+// returns to the content; MenuTabs_focused is a pure read. MenuTabs_openRoot clears it (boot, a launch return);
+// MenuTabs_step keeps it (LEFT/RIGHT, L1/R1 on the row).
+bool MenuTabs_focused(void);
+void MenuTabs_setFocused(bool focused);
+// The content's own highlight while the tab row has focus: 0.4, else 1 (the lit tile, the List pill, the captions).
+float MenuTabs_contentLit(void);
+// Tab row (Task 5) and its glide. While focused, the current label wears the selection plate (white pill, black text)
+// and the underline hides.
+void MenuTabs_renderRow(SDL_Surface* screen, int ow);
+// Over a Backdrop picture (§8b.4; nextui.c sets it before each MenuTabs_renderRow): inactive labels at 62% and the
+// labels with the dark shadow (black 60%, SCALE1(1) offset). Off: the plain row.
+void MenuTabs_setOverArt(bool over_art);
+bool MenuTabs_animating(void);
+// Read-only (never ticks): the underline is mid-glide at the root. For checks later in a frame
+// (upload deferral) that must not consume MenuTabs_animating()'s one settled-frame "true".
+bool MenuTabs_underlineGliding(void);
+
+#endif

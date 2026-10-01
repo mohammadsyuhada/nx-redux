@@ -3,15 +3,23 @@
 #include "config.h"
 #include "defines.h"
 #include "imgloader.h"
+#include "gameinfo.h"
+#include "gameinfo_text.h"
+#include "infoband.h"
 #include "launcher.h"
 #include "recents.h"
 #include "ui_buttonhintbar.h"
 #include "ui_emptystate.h"
 #include "ui_image.h"
+#include "ui_menubar.h"
 #include "ui_message.h"
+#include "ui_fade.h"
 #include "utils.h"
 
+#include <string.h>
 #include <unistd.h>
+
+#define GS_SCRIM_ALPHA 230 // the switcher's hint bar: 90%
 
 static int switcher_selected = 0;
 
@@ -157,6 +165,65 @@ GameSwitcherResult GameSwitcher_handleInput(unsigned long now) {
 	return result;
 }
 
+// The console a recent belongs to: its Roms/<Console> folder (else its parent folder), shown as the list
+// title shows it (getDisplayName drops the "(TAG)", trimSortingMeta the "001) " prefix).
+static void consoleName(const char* rom_path, char* out, size_t size) {
+	char dir[MAX_PATH];
+	snprintf(dir, sizeof(dir), "%s", rom_path);
+	size_t roms_len = strlen(ROMS_PATH);
+	char* cut = NULL;
+	if (strncmp(dir, ROMS_PATH, roms_len) == 0 && dir[roms_len] == '/')
+		cut = strchr(dir + roms_len + 1, '/');
+	if (!cut)
+		cut = strrchr(dir, '/');
+	if (cut)
+		*cut = '\0';
+	char display[MAX_PATH];
+	getDisplayName(dir, display);
+	char* name = display;
+	trimSortingMeta(&name);
+	snprintf(out, size, "%s", name);
+}
+
+// "<console>   <i> / <n>" under the title, in font.tiny grey.
+static void drawSubtitle(const char* rom_path) {
+	if (!font.tiny)
+		return;
+	char console[MAX_PATH];
+	consoleName(rom_path, console, sizeof(console));
+	char line[MAX_PATH + 32];
+	snprintf(line, sizeof(line), "%s   %d / %d", console, switcher_selected + 1, gs_count);
+	int x = UI_pageTitleX(); // under the title's first letter
+	char cut[sizeof(line)];
+	GFX_truncateText(font.tiny, line, cut, screen->w - x - SCALE1(PADDING), 0);
+	SDL_Surface* text = GFX_getCachedText(font.tiny, cut, COLOR_GRAY);
+	if (text)
+		SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){x, SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2)});
+}
+
+// The selected game's one-line info (time, achievements, Next), bottom-left over an eased fade that rises
+// from the hint bar. The recent's own path, so a game whose emulator is gone still shows its history.
+static void drawInfo(const char* rom_path) {
+	GameInfo info;
+	if (!font.small || !GameInfo_get(rom_path, &info) || !(info.has_time || info.has_ra))
+		return;
+	InfoSeg segs[3];
+	int n = GameInfo_segments(time(NULL), info.has_time ? info.last_played : 0, info.has_time ? info.seconds : -1,
+							  info.has_ra ? info.unlocked : 0, info.has_ra ? info.total : 0,
+							  info.has_ra ? info.next : NULL, true, segs);
+	if (n <= 0)
+		return;
+	int bar_top = screen->h - SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2);
+	int text_h = TTF_FontHeight(font.small);
+	int fade_h = NX_DP(64) + text_h;
+	SDL_Surface* fade = UI_easedFadeSurface(screen->w, fade_h, 0.9f, 2.0f, false);
+	if (fade) // cached: blit right away
+		SDL_BlitSurface(fade, NULL, screen, &(SDL_Rect){0, bar_top - fade_h});
+	int y = bar_top - SCALE1(BUTTON_MARGIN) - text_h;
+	InfoBand_drawSegments(screen, segs, n, SCALE1(PADDING + BUTTON_MARGIN), false, y, screen->w * 60 / 100,
+						  font.small);
+}
+
 static void drawBackground(SDL_Surface* surface, int x, int y, int w, int h,
 						   SDL_Surface* blackBG) {
 	GFX_flipHidden();
@@ -188,10 +255,16 @@ void GameSwitcher_render(int lastScreen, SDL_Surface* blackBG,
 
 	if (gs_count <= 0) {
 		SDL_FillRect(screen, &(SDL_Rect){0, 0, screen->w, screen->h}, 0);
-		if (Recents_count() > 0)
+		if (Recents_count() > 0) {
 			UI_renderEmptyState(screen, "No Resumable Games", "Suspend a game to see it here", NULL);
-		else
-			UI_renderEmptyState(screen, "No Recents", "Play a game to see it here", NULL);
+		} else {
+			// nothing played yet: centred grey text, B BACK only
+			SDL_Surface* text = font.large ? GFX_getCachedText(font.large, "Nothing played yet", COLOR_GRAY) : NULL;
+			if (text)
+				SDL_BlitSurface(text, NULL, screen,
+								&(SDL_Rect){(screen->w - text->w) / 2, (screen->h - text->h) / 2});
+			UI_renderButtonHintBarEx(screen, (char*[]){"B", "BACK", NULL}, GS_SCRIM_ALPHA);
+		}
 		GFX_flipHidden();
 		return;
 	}
@@ -200,7 +273,17 @@ void GameSwitcher_render(int lastScreen, SDL_Surface* blackBG,
 		Recents_entryFromRecent(Recents_at(gs_indices[switcher_selected]));
 	readyResume(selectedEntry);
 
-	UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "Y", "REMOVE", "A", resume.can_resume ? "RESUME" : "START", NULL});
+	// on `screen` with the hint bar; the preview/box art goes to LAYER_BACKGROUND underneath
+	Recent* recent = Recents_at(gs_indices[switcher_selected]);
+	if (recent) {
+		char rom_path[MAX_PATH];
+		snprintf(rom_path, sizeof(rom_path), "%s%s", SDCARD_PATH, recent->path);
+		drawSubtitle(rom_path);
+		drawInfo(rom_path);
+	}
+	UI_renderButtonHintBarEx(screen,
+							 (char*[]){"B", "BACK", "Y", "REMOVE", "A", resume.can_resume ? "RESUME" : "START", NULL},
+							 GS_SCRIM_ALPHA);
 
 	if (resume.has_preview) {
 		SDL_Surface* bmp = gs_get_cached_image(resume.preview_path);

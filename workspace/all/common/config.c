@@ -20,6 +20,10 @@ static bool cfg_bt_explicit = false;
 
 NextUISettings settings = {0};
 
+// minuisettings.txt keys for the per-tab main menu styles, indexed by MENU_CAT_*.
+static const char* menu_style_keys[MENU_CAT_COUNT] = {
+	"menuStyleConsoles", "menuStyleCollections", "menuStyleTools"};
+
 // deprecated
 uint32_t THEME_COLOR1_255;
 uint32_t THEME_COLOR2_255;
@@ -45,6 +49,8 @@ void CFG_defaults(NextUISettings* cfg) {
 		.thumbRadius = CFG_DEFAULT_THUMBRADIUS,
 		.gameArtWidth = CFG_DEFAULT_GAMEARTWIDTH,
 		.gameArtStyle = CFG_DEFAULT_GAMEARTSTYLE,
+		.menuStyle = {CFG_DEFAULT_MENUSTYLE, CFG_DEFAULT_MENUSTYLE, CFG_DEFAULT_MENUSTYLE},
+		.gameListStyle = CFG_DEFAULT_GAMELISTSTYLE,
 		.gameArtType = CFG_DEFAULT_GAMEARTTYPE,
 		.showFolderNamesAtRoot = CFG_DEFAULT_SHOWFOLDERNAMESATROOT,
 
@@ -255,6 +261,24 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 			}
 			if (sscanf(line, "artStyle=%i", &temp_value) == 1) {
 				CFG_setGameArtStyle(temp_value);
+				continue;
+			}
+			{
+				bool matched = false;
+				for (int c = 0; c < MENU_CAT_COUNT; c++) {
+					char fmt[48];
+					snprintf(fmt, sizeof(fmt), "%s=%%i", menu_style_keys[c]);
+					if (sscanf(line, fmt, &temp_value) == 1) {
+						CFG_setMenuStyle(c, temp_value);
+						matched = true;
+						break;
+					}
+				}
+				if (matched)
+					continue;
+			}
+			if (sscanf(line, "gameListStyle=%i", &temp_value) == 1) {
+				CFG_setGameListStyle(temp_value);
 				continue;
 			}
 			if (sscanf(line, "artType=%i", &temp_value) == 1) {
@@ -760,6 +784,34 @@ void CFG_setGameArtStyle(int style) {
 	CFG_sync();
 }
 
+static int clampMenuStyle(int style) {
+	if (style < MENU_STYLE_LIST || style >= MENU_STYLE_COUNT)
+		return MENU_STYLE_LIST;
+	return style;
+}
+
+int CFG_getMenuStyle(int category) {
+	if (category < 0 || category >= MENU_CAT_COUNT)
+		return MENU_STYLE_LIST;
+	return settings.menuStyle[category];
+}
+
+void CFG_setMenuStyle(int category, int style) {
+	if (category < 0 || category >= MENU_CAT_COUNT)
+		return;
+	settings.menuStyle[category] = clampMenuStyle(style);
+	CFG_sync();
+}
+
+int CFG_getGameListStyle(void) {
+	return settings.gameListStyle;
+}
+
+void CFG_setGameListStyle(int style) {
+	settings.gameListStyle = clampMenuStyle(style);
+	CFG_sync();
+}
+
 int CFG_getGameArtType(void) {
 	return settings.gameArtType;
 }
@@ -1082,6 +1134,13 @@ void CFG_setUIScale(int scale) {
 }
 
 void CFG_get(const char* key, char* value) {
+	for (int c = 0; c < MENU_CAT_COUNT; c++) {
+		if (strcmp(key, menu_style_keys[c]) == 0) {
+			sprintf(value, "%i", CFG_getMenuStyle(c));
+			return;
+		}
+	}
+
 	if (strcmp(key, "font") == 0) {
 		sprintf(value, "%i", CFG_getFontId());
 	} else if (strcmp(key, "color1") == 0) {
@@ -1148,6 +1207,8 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", (int)(CFG_getGameArtWidth() * 100));
 	} else if (strcmp(key, "artStyle") == 0) {
 		sprintf(value, "%i", CFG_getGameArtStyle());
+	} else if (strcmp(key, "gameListStyle") == 0) {
+		sprintf(value, "%i", CFG_getGameListStyle());
 	} else if (strcmp(key, "artType") == 0) {
 		sprintf(value, "%i", CFG_getGameArtType());
 	} else if (strcmp(key, "wifi") == 0) {
@@ -1241,6 +1302,9 @@ static int CFG_serialize(char* buf, size_t cap) {
 	EMIT("fnLeds=%i\n", settings.fnLeds);
 	EMIT("artWidth=%i\n", (int)(settings.gameArtWidth * 100));
 	EMIT("artStyle=%i\n", settings.gameArtStyle);
+	for (int c = 0; c < MENU_CAT_COUNT; c++)
+		EMIT("%s=%i\n", menu_style_keys[c], settings.menuStyle[c]);
+	EMIT("gameListStyle=%i\n", settings.gameListStyle);
 	EMIT("artType=%i\n", settings.gameArtType);
 	EMIT("wifi=%i\n", settings.wifi);
 	EMIT("defaultView=%i\n", settings.defaultView);
@@ -1477,6 +1541,9 @@ void CFG_print(void) {
 	printf("\t\"fnLeds\": %i,\n", settings.fnLeds);
 	printf("\t\"artWidth\": %i,\n", (int)(settings.gameArtWidth * 100));
 	printf("\t\"artStyle\": %i,\n", settings.gameArtStyle);
+	for (int c = 0; c < MENU_CAT_COUNT; c++)
+		printf("\t\"%s\": %i,\n", menu_style_keys[c], settings.menuStyle[c]);
+	printf("\t\"gameListStyle\": %i,\n", settings.gameListStyle);
 	printf("\t\"artType\": %i,\n", settings.gameArtType);
 	printf("\t\"wifi\": %i,\n", settings.wifi);
 	printf("\t\"defaultView\": %i,\n", settings.defaultView);

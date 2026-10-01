@@ -1,0 +1,116 @@
+// Main menu tab rules, SDL-free so they can be host-tested
+// (common/tests/test_menutabs_model.c). menutabs.c applies them.
+
+#include "menutabs_model.h"
+
+#include <string.h>
+
+static const char* tab_labels[MENU_TAB_COUNT] = {"Home", "Consoles", "Collections", "Tools"};
+static const char* tab_keys[MENU_TAB_COUNT] = {"home", "consoles", "collections", "tools"};
+
+int MenuTabs_visible(const MenuTabInputs* in, MenuTabId out[MENU_TAB_COUNT]) {
+	int n = 0;
+	out[n++] = MENU_TAB_HOME;
+	if (in->show_consoles && in->has_consoles)
+		out[n++] = MENU_TAB_CONSOLES;
+	if (in->show_collections && in->has_collections)
+		out[n++] = MENU_TAB_COLLECTIONS;
+	// simple mode keeps Settings reachable whatever the Tools toggle says
+	if (in->simple_mode ? in->has_settings : (in->show_tools && in->has_tools))
+		out[n++] = MENU_TAB_TOOLS;
+	return n;
+}
+
+int MenuTabs_wrap(int count, int index, int delta) {
+	if (count <= 0)
+		return 0;
+	int i = (index + delta) % count;
+	return i < 0 ? i + count : i;
+}
+
+int MenuTabs_indexOf(const MenuTabId* tabs, int count, MenuTabId id) {
+	for (int i = 0; i < count; i++)
+		if (tabs[i] == id)
+			return i;
+	return -1;
+}
+
+int MenuTabs_resolve(const MenuTabId* tabs, int count, MenuTabId current) {
+	int i = MenuTabs_indexOf(tabs, count, current);
+	if (i >= 0)
+		return i;
+	for (i = 0; i < count; i++)
+		if (tabs[i] > current)
+			return i;
+	return count > 0 ? count - 1 : 0;
+}
+
+// path == base, or path continues below base with a '/'
+static int underPath(const char* path, const char* base) {
+	if (!base || !base[0])
+		return 0;
+	size_t n = strlen(base);
+	return strncmp(path, base, n) == 0 && (path[n] == '\0' || path[n] == '/');
+}
+
+MenuTabId MenuTabs_forPath(const char* path, const MenuTabPaths* paths) {
+	if (!path)
+		return MENU_TAB_HOME;
+	if (underPath(path, paths->roms))
+		return MENU_TAB_CONSOLES;
+	if (underPath(path, paths->collections))
+		return MENU_TAB_COLLECTIONS;
+	if (underPath(path, paths->tools) || underPath(path, paths->sys_tools))
+		return MENU_TAB_TOOLS;
+	return MENU_TAB_HOME;
+}
+
+const char* MenuTabs_label(MenuTabId id) {
+	return (id >= 0 && id < MENU_TAB_COUNT) ? tab_labels[id] : "";
+}
+
+const char* MenuTabs_key(MenuTabId id) {
+	return (id >= 0 && id < MENU_TAB_COUNT) ? tab_keys[id] : "";
+}
+
+bool MenuTabs_parseKey(const char* key, MenuTabId* out) {
+	if (!key)
+		return false;
+	for (int i = 0; i < MENU_TAB_COUNT; i++) {
+		if (strcmp(key, tab_keys[i]) == 0) {
+			*out = (MenuTabId)i;
+			return true;
+		}
+	}
+	// legacy keys from the Pinned/Recent tab set
+	if (strcmp(key, "pinned") == 0 || strcmp(key, "recent") == 0) {
+		*out = MENU_TAB_HOME;
+		return true;
+	}
+	return false;
+}
+
+int MenuTabs_scrollOffset(int content_w, int view_w, int cur_x, int cur_w, int margin) {
+	if (content_w <= view_w)
+		return 0;
+	int off = cur_x + cur_w / 2 - view_w / 2;
+	// keep the label inside [margin, view_w - margin] (its left edge wins when it can't fit)
+	if (cur_x + cur_w - off > view_w - margin)
+		off = cur_x + cur_w - (view_w - margin);
+	if (cur_x - off < margin)
+		off = cur_x - margin;
+	if (off < 0)
+		off = 0;
+	if (off > content_w - view_w)
+		off = content_w - view_w;
+	return off;
+}
+
+MenuTabId MenuTabs_pickInitial(const MenuTabId* tabs, int count, bool saved_valid, MenuTabId saved,
+							   bool has_path, MenuTabId path_tab, bool saved_owns_path) {
+	if (saved_valid && MenuTabs_indexOf(tabs, count, saved) >= 0 && (!has_path || saved_owns_path))
+		return saved;
+	if (has_path && MenuTabs_indexOf(tabs, count, path_tab) >= 0)
+		return path_tab;
+	return MENU_TAB_HOME; // always visible; also the cold-boot tab
+}

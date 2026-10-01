@@ -2,19 +2,62 @@
 # Host-side unit tests for common/. No SDL, no cross toolchain.
 set -eu
 cd "$(dirname "$0")"
+# Compile and run on separate lines: set -e ignores a failure on the left of &&, so a test that
+# fails to compile would otherwise be skipped silently.
 cc -std=gnu99 -Wall -Werror -o /tmp/nx_test_paths ../paths.c test_paths.c
 /tmp/nx_test_paths
-cc -std=gnu99 -Wall -Werror -o /tmp/nx_test_probe ../desktop_probe.c test_desktop_probe.c && /tmp/nx_test_probe
-cc -std=gnu99 -Wall -Werror -o /tmp/nx_test_xtras_compat ../../extras/xtras_compat.c test_xtras_compat.c && /tmp/nx_test_xtras_compat
-cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_text_wrap test_text_wrap.c && /tmp/nx_test_text_wrap
-cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_initial_jump test_initial_jump.c && /tmp/nx_test_initial_jump
-cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_scraper_scan ../../scraper/scraper_scan.c test_scraper_scan.c && /tmp/nx_test_scraper_scan
-cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_scraper_systems ../../scraper/scraper_systems.c test_scraper_systems.c && /tmp/nx_test_scraper_systems
-cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_arcade_names ../arcade_names.c test_arcade_names.c && /tmp/nx_test_arcade_names
-cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_button_layout test_button_layout.c && /tmp/nx_test_button_layout
-cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_next_cmd test_next_cmd.c && /tmp/nx_test_next_cmd
-cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_gpu_governor_hold test_gpu_governor_hold.c && /tmp/nx_test_gpu_governor_hold
-cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_ui_scale test_ui_scale.c && /tmp/nx_test_ui_scale
-cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_wiz_caps ../../netplay-wizard/wiz_caps.c test_wiz_caps.c && /tmp/nx_test_wiz_caps
-cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_core_netplay ../../netplay/core_netplay.c test_core_netplay.c && /tmp/nx_test_core_netplay
+cc -std=gnu99 -Wall -Werror -o /tmp/nx_test_probe ../desktop_probe.c test_desktop_probe.c
+/tmp/nx_test_probe
+cc -std=gnu99 -Wall -Werror -o /tmp/nx_test_xtras_compat ../../extras/xtras_compat.c test_xtras_compat.c
+/tmp/nx_test_xtras_compat
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_text_wrap test_text_wrap.c
+/tmp/nx_test_text_wrap
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_title_fit test_title_fit.c
+/tmp/nx_test_title_fit
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_list_layout test_list_layout.c
+/tmp/nx_test_list_layout
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_initial_jump test_initial_jump.c
+/tmp/nx_test_initial_jump
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_scraper_scan ../../scraper/scraper_scan.c test_scraper_scan.c
+/tmp/nx_test_scraper_scan
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_scraper_systems ../../scraper/scraper_systems.c test_scraper_systems.c
+/tmp/nx_test_scraper_systems
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_arcade_names ../arcade_names.c test_arcade_names.c
+/tmp/nx_test_arcade_names
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_button_layout test_button_layout.c
+/tmp/nx_test_button_layout
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_next_cmd test_next_cmd.c
+/tmp/nx_test_next_cmd
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_gpu_governor_hold test_gpu_governor_hold.c
+/tmp/nx_test_gpu_governor_hold
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_ui_scale test_ui_scale.c
+/tmp/nx_test_ui_scale
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_wiz_caps ../../netplay-wizard/wiz_caps.c test_wiz_caps.c
+/tmp/nx_test_wiz_caps
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_core_netplay ../../netplay/core_netplay.c test_core_netplay.c
+/tmp/nx_test_core_netplay
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_menutabs_model ../../nextui/menutabs_model.c test_menutabs_model.c
+/tmp/nx_test_menutabs_model
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_gameinfo_text ../../nextui/gameinfo_text.c test_gameinfo_text.c
+/tmp/nx_test_gameinfo_text
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_menulogo ../../nextui/menulogo.c test_menulogo.c
+/tmp/nx_test_menulogo
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_ui_ease ../ui/ui_ease.c test_ui_ease.c -lm
+/tmp/nx_test_ui_ease
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_infoband_layout ../../nextui/infoband_layout.c test_infoband_layout.c
+/tmp/nx_test_infoband_layout
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_collcount_model ../../nextui/collcount_model.c test_collcount_model.c
+/tmp/nx_test_collcount_model
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_collname ../../nextui/collname.c test_collname.c
+/tmp/nx_test_collname
 sh test_launcher_logs_path.sh
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_home_layout ../../nextui/home_layout.c test_home_layout.c -lm
+/tmp/nx_test_home_layout
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_homeart_model ../../nextui/homeart_model.c test_homeart_model.c
+/tmp/nx_test_homeart_model
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_home_stats_model ../../nextui/home_stats_model.c test_home_stats_model.c
+/tmp/nx_test_home_stats_model
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_grid_layout ../../nextui/grid_layout.c test_grid_layout.c -lm
+/tmp/nx_test_grid_layout
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_row_model ../../nextui/row_model.c test_row_model.c -lm
+/tmp/nx_test_row_model

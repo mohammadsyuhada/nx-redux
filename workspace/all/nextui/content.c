@@ -12,12 +12,14 @@
 #include "shortcuts.h"
 #include "config.h"
 #include "arcade_names.h"
+#include "collname.h"
 
 static bool _simple_mode = false;
 
 // file-local content builders (exported API lives in content.h)
 static Array* getRoms(void);
-static Array* getRoot(int simple_mode);
+static Array* getPinned(void);
+static Array* getSimpleTools(void);
 static Array* getCollection(char* path);
 static Array* getDiscs(char* path);
 static Array* getEntries(char* path);
@@ -199,7 +201,10 @@ static void Directory_index(Directory* self) {
 	int skip_index = exactMatch(FAUX_RECENT_PATH, self->path) || is_collection; // not alphabetized
 
 	char map_path[MAX_PATH];
-	snprintf(map_path, sizeof(map_path), "%s/map.txt", is_collection ? COLLECTIONS_PATH : self->path);
+	const char* map_dir = is_collection						  ? COLLECTIONS_PATH
+						  : exactMatch(ROMS_PATH, self->path) ? SDCARD_PATH // Consoles tab: the old root's map.txt
+															  : self->path;
+	snprintf(map_path, sizeof(map_path), "%s/map.txt", map_dir);
 	Hash* map = readMapFile(map_path);
 	// Recents names come from the alias recorded at launch (a Rename or the
 	// arcade title it showed then); the arcade table must not override that.
@@ -359,17 +364,19 @@ Directory* Directory_new(char* path, int selected) {
 	self->path = strdup(path);
 	self->name = strdup(display_name);
 	if (exactMatch(path, SDCARD_PATH)) {
-		self->entries = getRoot(_simple_mode);
+		self->entries = getPinned();
 	} else if (exactMatch(path, FAUX_RECENT_PATH)) {
 		self->entries = Recents_getEntries();
 	} else if (exactMatch(path, ROMS_PATH)) {
 		self->entries = getRoms();
+	} else if (exactMatch(path, COLLECTIONS_PATH)) {
+		self->entries = getCollections(); // the Collections tab: finishes a cut-short rename first
 	} else if (!exactMatch(path, COLLECTIONS_PATH) && prefixMatch(COLLECTIONS_PATH, path) && suffixMatch(".txt", path)) {
 		self->entries = getCollection(path);
 	} else if (suffixMatch(".m3u", path)) {
 		self->entries = getDiscs(path);
 	} else if (exactMatch(path, TOOLS_PATH)) {
-		self->entries = getTools();
+		self->entries = _simple_mode ? getSimpleTools() : getTools();
 	} else {
 		self->entries = getEntries(path);
 	}
@@ -458,7 +465,7 @@ int canPinEntry(Entry* entry) {
 	return 0;
 }
 
-static int hasCollections(void) {
+int hasCollections(void) {
 	int has = 0;
 	if (!exists(COLLECTIONS_PATH))
 		return has;
@@ -651,17 +658,19 @@ static void writeEntryCache(const char* cache_path, Array* entries, uint64_t fp)
 	free(buf);
 }
 
-// Shared reader for the "path\tname\n" caches writeEntryCache emits. Returns
-// NULL when the cache is missing, malformed, or empty; otherwise an Array of
-// Entry_newNamed(path, type, name). With expect_fp set, the recorded source
-// fingerprint must match it (else NULL — stale, or a pre-fingerprint file);
-// NULL expect_fp skips the check, for callers that just (re)built the file.
-static Array* readEntryCacheFile(const char* cache_path, int type, const uint64_t* expect_fp) {
+// Walks the "path\tname\n" lines writeEntryCache emits, calling cb(path, name, ctx) for each.
+// Returns the line count, or -1 when the cache is missing or malformed, or when expect_fp is set
+// and the recorded source fingerprint differs (stale, or a pre-fingerprint file). fp_out (may be
+// NULL) receives the recorded fingerprint, 0 when there is none.
+static int forEachEntryCacheLine(const char* cache_path, const uint64_t* expect_fp, uint64_t* fp_out,
+								 void (*cb)(char* path, char* name, void* ctx), void* ctx) {
+	if (fp_out)
+		*fp_out = 0;
 	FILE* file = fopen(cache_path, "r");
 	if (!file)
-		return NULL;
+		return -1;
 
-	Array* entries = Array_new();
+	int count = 0;
 	// sized to what writeEntryCache can emit: two MAX_PATH strings + tab + newline
 	char line[MAX_PATH * 2 + 8];
 	bool first = true;
@@ -673,33 +682,162 @@ static Array* readEntryCacheFile(const char* cache_path, int type, const uint64_
 			uint64_t fp = 0;
 			bool has_fp = sscanf(line, CACHE_FP_PREFIX "%" SCNx64, &fp) == 1;
 			if (expect_fp && (!has_fp || fp != *expect_fp)) {
-				EntryArray_free(entries);
 				fclose(file);
-				return NULL; // sources changed since this cache was written
+				return -1; // sources changed since this cache was written
 			}
-			if (has_fp)
+			if (has_fp) {
+				if (fp_out)
+					*fp_out = fp;
 				continue;
+			}
 		}
 		if (strlen(line) == 0)
 			continue;
 
 		char* tab = strchr(line, '\t');
 		if (!tab) {
-			EntryArray_free(entries);
 			fclose(file);
-			return NULL; // malformed cache, force rescan
+			return -1; // malformed cache, force rescan
 		}
 		*tab = '\0';
-		char* path = line;
-		char* name = tab + 1;
-		Array_push(entries, Entry_newNamed(path, type, name));
+		cb(line, tab + 1, ctx);
+		count++;
 	}
 	fclose(file);
-	if (entries->count == 0) { // empty cache is never trusted, force rescan
-		EntryArray_free(entries);
+	return count;
+}
+
+typedef struct {
+	Array* entries;
+	int type;
+} EntryCacheRead;
+
+static void readEntryCacheCb(char* path, char* name, void* ctx) {
+	EntryCacheRead* read = ctx;
+	Array_push(read->entries, Entry_newNamed(path, read->type, name));
+}
+
+// Shared reader for the "path\tname\n" caches writeEntryCache emits. Returns
+// NULL when the cache is missing, malformed, or empty; otherwise an Array of
+// Entry_newNamed(path, type, name). With expect_fp set, the recorded source
+// fingerprint must match it (else NULL — stale, or a pre-fingerprint file);
+// NULL expect_fp skips the check, for callers that just (re)built the file.
+static Array* readEntryCacheFile(const char* cache_path, int type, const uint64_t* expect_fp) {
+	EntryCacheRead read = {Array_new(), type};
+	int count = forEachEntryCacheLine(cache_path, expect_fp, NULL, readEntryCacheCb, &read);
+	if (count <= 0) { // missing/stale/malformed; an empty cache is never trusted either: force rescan
+		EntryArray_free(read.entries);
 		return NULL;
 	}
-	return entries;
+	return read.entries;
+}
+
+///////////////////////////////////////
+// Console row game counts
+
+// Per console folder (the first path segment under ROMS_PATH), how many rom-index rows it holds.
+// Built lazily from ROMINDEX_CACHE_PATH with one read; dropped whenever getRoms rewrites the index
+// or it is invalidated. UI thread only.
+typedef struct {
+	char folder[256];
+	int count;
+} ConsoleCount;
+
+static ConsoleCount* console_counts = NULL;
+static int console_counts_len = 0;
+static int console_counts_cap = 0;
+static bool console_counts_built = false;
+static bool console_counts_ok = false; // the index was readable
+static char library_fp[32] = "";
+
+static void dropConsoleCounts(void) {
+	free(console_counts);
+	console_counts = NULL;
+	console_counts_len = console_counts_cap = 0;
+	console_counts_built = console_counts_ok = false;
+	library_fp[0] = '\0';
+}
+
+static void consoleCountCb(char* path, char* name, void* ctx) {
+	(void)name;
+	(void)ctx;
+	size_t root_len = strlen(ROMS_PATH);
+	if (strncmp(path, ROMS_PATH, root_len) != 0 || path[root_len] != '/')
+		return;
+	const char* folder = path + root_len + 1;
+	size_t len = strcspn(folder, "/");
+	if (len == 0 || len >= sizeof(console_counts[0].folder))
+		return;
+	// rows arrive sorted by label, not folder: check the last hit first, then scan (few folders)
+	static int last = -1;
+	if (last >= console_counts_len)
+		last = -1;
+	int found = -1;
+	if (last >= 0 && strncmp(console_counts[last].folder, folder, len) == 0 && !console_counts[last].folder[len])
+		found = last;
+	for (int i = 0; found < 0 && i < console_counts_len; i++) {
+		if (strncmp(console_counts[i].folder, folder, len) == 0 && !console_counts[i].folder[len])
+			found = i;
+	}
+	if (found < 0) {
+		if (console_counts_len == console_counts_cap) {
+			int cap = console_counts_cap ? console_counts_cap * 2 : 32;
+			ConsoleCount* grown = realloc(console_counts, cap * sizeof(ConsoleCount));
+			if (!grown)
+				return;
+			console_counts = grown;
+			console_counts_cap = cap;
+		}
+		found = console_counts_len++;
+		memcpy(console_counts[found].folder, folder, len);
+		console_counts[found].folder[len] = '\0';
+		console_counts[found].count = 0;
+	}
+	console_counts[found].count++;
+	last = found;
+}
+
+static void buildConsoleCounts(void) {
+	if (console_counts_built)
+		return;
+	console_counts_built = true;
+	uint64_t fp = 0;
+	// no staleness gate: getRoms already validated (or rebuilt) the index this boot, and a
+	// rewrite drops this table
+	console_counts_ok = forEachEntryCacheLine(ROMINDEX_CACHE_PATH, NULL, &fp, consoleCountCb, NULL) > 0;
+	if (console_counts_ok && fp)
+		snprintf(library_fp, sizeof(library_fp), "%016" PRIx64, fp);
+	else if (!console_counts_ok)
+		// no rows (writeEntryCache never writes an empty index): an empty library is still a
+		// library, so counts of pak-only collections stay cacheable
+		snprintf(library_fp, sizeof(library_fp), "empty");
+}
+
+const char* Content_libraryFingerprint(void) {
+	buildConsoleCounts();
+	return library_fp;
+}
+
+int Content_consoleGameCount(const Entry* console_row) {
+	if (!console_row || !console_row->path || !isConsoleDir(console_row->path))
+		return -1;
+	buildConsoleCounts();
+	if (!console_counts_ok)
+		return -1;
+	// the folders opening this row collates: getEntries' rule (path prefix up to and including the last '(')
+	char collated[MAX_PATH];
+	snprintf(collated, sizeof(collated), "%s", console_row->path);
+	char* paren = strrchr(collated, '(');
+	if (paren)
+		paren[1] = '\0';
+	int total = 0;
+	char folder_path[MAX_PATH];
+	for (int i = 0; i < console_counts_len; i++) {
+		snprintf(folder_path, sizeof(folder_path), "%s/%s", ROMS_PATH, console_counts[i].folder);
+		if (prefixMatch(collated, folder_path))
+			total += console_counts[i].count;
+	}
+	return total;
 }
 
 // readEntryCacheFile plus the staleness gate: NULL (forcing a rescan) when any
@@ -727,6 +865,105 @@ static Array* readRomIndexCache(void) {
 void Content_invalidateEmulist(void) {
 	unlink(EMULIST_CACHE_PATH);
 	unlink(ROMINDEX_CACHE_PATH);
+	dropConsoleCounts();
+}
+
+// The "#fp=" header of a cache file; false when the file is missing or has none.
+static bool readCacheFp(const char* cache_path, uint64_t* fp) {
+	FILE* file = fopen(cache_path, "r");
+	if (!file)
+		return false;
+	char line[64];
+	bool ok = fgets(line, sizeof(line), file) != NULL && sscanf(line, CACHE_FP_PREFIX "%" SCNx64, fp) == 1;
+	fclose(file);
+	return ok;
+}
+
+bool Content_romCachesFresh(void) {
+	uint64_t now = cacheSourcesFingerprint(), index_fp = 0, emulist_fp = 0;
+	return now && readCacheFp(ROMINDEX_CACHE_PATH, &index_fp) && index_fp == now &&
+		   readCacheFp(EMULIST_CACHE_PATH, &emulist_fp) && emulist_fp == now;
+}
+
+typedef struct {
+	char* buf;
+	size_t len, cap;
+	const char* drop; // rows at or below this path are left out; NULL keeps all
+	size_t drop_len;
+	int kept;
+	bool failed;
+} CacheRewrite;
+
+static void rewriteCacheCb(char* path, char* name, void* ctx) {
+	CacheRewrite* rw = ctx;
+	if (rw->failed)
+		return;
+	if (rw->drop && strncmp(path, rw->drop, rw->drop_len) == 0 &&
+		(path[rw->drop_len] == '\0' || path[rw->drop_len] == '/'))
+		return;
+	size_t need = strlen(path) + strlen(name) + 2;
+	while (rw->len + need + 1 > rw->cap) {
+		char* grown = realloc(rw->buf, rw->cap * 2);
+		if (!grown) {
+			rw->failed = true;
+			return;
+		}
+		rw->buf = grown;
+		rw->cap *= 2;
+	}
+	rw->len += snprintf(rw->buf + rw->len, rw->cap - rw->len, "%s\t%s\n", path, name);
+	rw->kept++;
+}
+
+// Rewrite cache_path stamped with new_fp, leaving out the rows at or below `drop`. Returns the rows kept,
+// or -1 (file untouched) when it can't be read or written; an empty result is not written (see writeEntryCache).
+static int rewriteEntryCache(const char* cache_path, uint64_t new_fp, const char* drop) {
+	CacheRewrite rw = {malloc(16384), 0, 16384, drop, drop ? strlen(drop) : 0, 0, false};
+	if (!rw.buf)
+		return -1;
+	rw.len = snprintf(rw.buf, rw.cap, CACHE_FP_PREFIX "%016" PRIx64 "\n", new_fp);
+	int rows = forEachEntryCacheLine(cache_path, NULL, NULL, rewriteCacheCb, &rw);
+	int kept = rw.kept;
+	if (rows < 0 || rw.failed || (kept > 0 && !writeFileAtomic(cache_path, rw.buf, rw.len)))
+		kept = -1;
+	free(rw.buf);
+	return kept;
+}
+
+void Content_forgetRom(const char* removed_path, bool caches_were_fresh) {
+	if (removed_path && exists((char*)removed_path)) {
+		// the delete failed (a read-only card) or only half-removed a folder game: the rom is still on the
+		// card, so its rows must not be dropped. The map.txt/collection clean-up still ran, so the caches
+		// can't be restamped as fresh either: invalidate, and the next getRoms rescans what is really there.
+		Content_invalidateEmulist();
+		return;
+	}
+	size_t root_len = strlen(ROMS_PATH);
+	if (!caches_were_fresh || !removed_path || strncmp(removed_path, ROMS_PATH, root_len) != 0 ||
+		removed_path[root_len] != '/') {
+		// a stale index is rebuilt by the next getRoms (its fingerprint no longer matches)
+		dropConsoleCounts();
+		return;
+	}
+	// the console folder: a deletion that empties it changes what the Consoles tab lists, so rescan
+	char folder[MAX_PATH];
+	snprintf(folder, sizeof(folder), "%s", removed_path + root_len + 1);
+	folder[strcspn(folder, "/")] = '\0';
+	if (!folder[0] || !hasRoms(folder)) {
+		Content_invalidateEmulist();
+		return;
+	}
+	// Both caches were current before the delete and the delete (plus its map.txt clean-up) is the only
+	// change since, so the index minus the removed rows, stamped with today's fingerprint, is what a
+	// rescan would produce. The index goes first: a crash in between leaves the emulist stale, and a
+	// stale emulist forces the full rescan.
+	uint64_t fp = cacheSourcesFingerprint();
+	if (!fp || rewriteEntryCache(ROMINDEX_CACHE_PATH, fp, removed_path) <= 0 ||
+		rewriteEntryCache(EMULIST_CACHE_PATH, fp, NULL) <= 0) {
+		Content_invalidateEmulist();
+		return;
+	}
+	dropConsoleCounts();
 }
 
 // Byte length of the rom-label part of an indexed name ("Zelda (GBA)" -> 5):
@@ -1031,6 +1268,7 @@ static Array* getRoms(void) {
 		}
 		EntryArray_sort(rom_index);
 		writeEntryCache(ROMINDEX_CACHE_PATH, rom_index, fp);
+		dropConsoleCounts(); // counts and the library fingerprint follow the new index
 		EntryArray_free(rom_index);
 	}
 	EntryArray_free(sibling_dirs);
@@ -1041,8 +1279,37 @@ static Array* getRoms(void) {
 	return entries;
 }
 
+// True when the Consoles tab has anything to list (reads the cached emulist).
+int Content_hasConsoles(void) {
+	Array* roms = getRoms();
+	int has = roms->count > 0;
+	EntryArray_free(roms);
+	return has;
+}
+
+// A case-only collection rename goes old -> <new>.txt.part -> <new>.txt (gamelist.c). A "<name>.txt.part" left by a
+// cut-short rename is finished here, when its "<name>.txt" doesn't exist; otherwise it stays (and is never listed).
+static void recoverCollectionParts(void) {
+	DIR* dh = opendir(COLLECTIONS_PATH);
+	if (!dh)
+		return;
+	struct dirent* dp;
+	while ((dp = readdir(dh)) != NULL) {
+		char target[MAX_PATH];
+		if (dp->d_name[0] == '.' || !CollName_partTarget(dp->d_name, target, sizeof(target)))
+			continue;
+		char part_path[MAX_PATH], txt_path[MAX_PATH];
+		snprintf(part_path, sizeof(part_path), "%s/%s", COLLECTIONS_PATH, dp->d_name);
+		snprintf(txt_path, sizeof(txt_path), "%s/%s", COLLECTIONS_PATH, target);
+		if (!exists(txt_path))
+			rename(part_path, txt_path);
+	}
+	closedir(dh);
+}
+
 Array* getCollections(void) {
 	Array* collections = Array_new();
+	recoverCollectionParts();
 	DIR* dh = opendir(COLLECTIONS_PATH);
 	if (dh) {
 		struct dirent* dp;
@@ -1052,7 +1319,8 @@ Array* getCollections(void) {
 
 		size_t remaining = sizeof(full_path) - (tmp - full_path);
 		while ((dp = readdir(dh)) != NULL) {
-			if (hide(dp->d_name))
+			char part_target[MAX_PATH];
+			if (hide(dp->d_name) || CollName_partTarget(dp->d_name, part_target, sizeof(part_target)))
 				continue;
 			strncpy(tmp, dp->d_name, remaining - 1);
 			full_path[MAX_PATH - 1] = '\0';
@@ -1064,27 +1332,10 @@ Array* getCollections(void) {
 	return collections;
 }
 
-static Array* getRoot(int simple_mode) {
+// The Home tab's pins: the pinned games, folders and tools, in stored order.
+static Array* getPinned(void) {
 	Array* root = Array_new();
 
-	if (Recents_load() && CFG_getShowRecents())
-		Array_push(root, Entry_new(FAUX_RECENT_PATH, ENTRY_DIR));
-
-	Array* entries = getRoms();
-
-	// Handle collections
-	if (hasCollections() && CFG_getShowCollections()) {
-		if (entries->count) {
-			Array_push(root, Entry_new(COLLECTIONS_PATH, ENTRY_DIR));
-		} else { // No visible systems, promote collections to root
-			// yoink into root directly — yoinking into `entries` meant the
-			// promoted collections never appeared when emulators were hidden
-			Array* collections = getCollections();
-			Array_yoink(root, collections);
-		}
-	}
-
-	// Add shortcuts (after Recents and Collections, before user root folders)
 	if (Shortcuts_getCount() > 0) {
 		Shortcuts_validate();
 		for (int i = 0; i < Shortcuts_getCount(); i++) {
@@ -1116,53 +1367,55 @@ static Array* getRoot(int simple_mode) {
 		}
 	}
 
-	if (CFG_getShowEmulators()) {
-		// Move entries to root
-		Array_yoink(root, entries);
-	} else {
-		// emulators hidden: `entries` never reaches root, so free it (and its
-		// Entry items) here instead of leaking the whole console list on every
-		// root rebuild
-		EntryArray_free(entries);
-	}
-
-	// Add tools if applicable
-	if (hasTools() && CFG_getShowTools() && !simple_mode) {
-		Array_push(root, Entry_new(TOOLS_PATH, ENTRY_DIR));
-	} else if (simple_mode) {
-		// Simple mode hides Tools, but Settings must stay reachable (the
-		// game list PIN-gates it) or parents get locked out of the device.
-		char settings_path[MAX_PATH];
-		snprintf(settings_path, sizeof(settings_path), "%s/Settings.pak", TOOLS_PATH);
-		if (!exists(settings_path))
-			snprintf(settings_path, sizeof(settings_path), "%s/Tools/Settings.pak", PAKS_PATH);
-		if (exists(settings_path))
-			Array_push(root, Entry_newNamed(settings_path, ENTRY_PAK, "Settings"));
-	}
-
 	return root;
 }
 
+// Simple mode's Tools tab: Settings only. Simple mode hides the other tools,
+// but Settings must stay reachable (the game list PIN-gates it) or parents
+// get locked out of the device.
+static Array* getSimpleTools(void) {
+	Array* entries = Array_new();
+	char settings_path[MAX_PATH];
+	snprintf(settings_path, sizeof(settings_path), "%s/Settings.pak", TOOLS_PATH);
+	if (!exists(settings_path))
+		snprintf(settings_path, sizeof(settings_path), "%s/Tools/Settings.pak", PAKS_PATH);
+	if (exists(settings_path))
+		Array_push(entries, Entry_newNamed(settings_path, ENTRY_PAK, "Settings"));
+	return entries;
+}
+
+int Content_forEachCollectionGame(const char* path, bool (*cb)(const char* sd_path, void* ctx), void* ctx) {
+	FILE* file = fopen(path, "r");
+	if (!file)
+		return -1;
+	int n = 0;
+	char line[MAX_PATH];
+	while (fgets(line, sizeof(line), file) != NULL) {
+		normalizeNewline(line);
+		trimTrailingNewlines(line);
+		if (strlen(line) == 0)
+			continue;
+
+		char sd_path[MAX_PATH];
+		snprintf(sd_path, sizeof(sd_path), "%s%s", SDCARD_PATH, line);
+		if (exists(sd_path)) {
+			n++;
+			if (cb && !cb(sd_path, ctx))
+				break;
+		}
+	}
+	fclose(file);
+	return n;
+}
+
+static bool getCollectionCb(const char* sd_path, void* ctx) {
+	int type = suffixMatch(".pak", sd_path) ? ENTRY_PAK : ENTRY_ROM;
+	Array_push((Array*)ctx, Entry_new(sd_path, type));
+	return true;
+}
 static Array* getCollection(char* path) {
 	Array* entries = Array_new();
-	FILE* file = fopen(path, "r");
-	if (file) {
-		char line[MAX_PATH];
-		while (fgets(line, sizeof(line), file) != NULL) {
-			normalizeNewline(line);
-			trimTrailingNewlines(line);
-			if (strlen(line) == 0)
-				continue;
-
-			char sd_path[MAX_PATH];
-			snprintf(sd_path, sizeof(sd_path), "%s%s", SDCARD_PATH, line);
-			if (exists(sd_path)) {
-				int type = suffixMatch(".pak", sd_path) ? ENTRY_PAK : ENTRY_ROM;
-				Array_push(entries, Entry_new(sd_path, type));
-			}
-		}
-		fclose(file);
-	}
+	Content_forEachCollectionGame(path, getCollectionCb, entries);
 	return entries;
 }
 

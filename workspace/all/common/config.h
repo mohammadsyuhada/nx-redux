@@ -61,6 +61,18 @@ typedef enum {
 	ART_STYLE_BACKGROUND = 1
 } ArtStyle;
 
+// Main menu tab and game list layout styles.
+enum { MENU_STYLE_LIST = 0,
+	   MENU_STYLE_GRID,
+	   MENU_STYLE_CAROUSEL,
+	   MENU_STYLE_BACKDROP,
+	   MENU_STYLE_COUNT };
+// Main menu style categories; MenuTabs_styleCategory (menutabs.h) maps a tab to one (Home has none).
+enum { MENU_CAT_CONSOLES = 0,
+	   MENU_CAT_COLLECTIONS,
+	   MENU_CAT_TOOLS,
+	   MENU_CAT_COUNT };
+
 // Which stored art variant the game lists display. The scraper writes a mix
 // composite to <console>/.media/<game>.png and, when available, screenshot-
 // and box-art-only variants to .media/screenshot/ and .media/boxart/. Older
@@ -106,10 +118,12 @@ typedef struct
 	uint32_t color6_255; // not screen mapped
 	uint32_t color7_255; // not screen mapped
 	int thumbRadius;
-	int gameSwitcherScaling; // enum
-	double gameArtWidth;	 // [0,1] -> 0-100% of screen width
-	int gameArtStyle;		 // ArtStyle: thumbnail on the right, or faded background
-	int gameArtType;		 // ArtType: which stored art variant (mix/screenshot/boxart) to show
+	int gameSwitcherScaling;	   // enum
+	double gameArtWidth;		   // [0,1] -> 0-100% of screen width
+	int gameArtStyle;			   // ArtStyle: thumbnail on the right, or faded background
+	int menuStyle[MENU_CAT_COUNT]; // MENU_STYLE_* per main menu tab (MENU_CAT_*)
+	int gameListStyle;			   // MENU_STYLE_* for game lists
+	int gameArtType;			   // ArtType: which stored art variant (mix/screenshot/boxart) to show
 
 	// font loading/unloading callback
 	FontLoad_callback_t onFontChange;
@@ -214,7 +228,7 @@ typedef struct
 #define CFG_DEFAULT_SHOWSEARCHHINT true
 #define CFG_DEFAULT_SHOWMENUANIMATIONS true
 #define CFG_DEFAULT_SHOWMENUTRANSITIONS true
-#define CFG_DEFAULT_SHOWRECENTS true
+#define CFG_DEFAULT_SHOWRECENTS false // unused since the tab set lost Recent; kept so the key round-trips
 #define CFG_DEFAULT_SHOWCOLLECTIONS true
 #define CFG_DEFAULT_SHOWGAMEART true
 #define CFG_DEFAULT_SHOWEMULATORS true
@@ -232,6 +246,8 @@ typedef struct
 #define CFG_DEFAULT_FNLEDS false
 #define CFG_DEFAULT_GAMEARTWIDTH 0.45
 #define CFG_DEFAULT_GAMEARTSTYLE ART_STYLE_THUMBNAIL
+#define CFG_DEFAULT_MENUSTYLE MENU_STYLE_LIST
+#define CFG_DEFAULT_GAMELISTSTYLE MENU_STYLE_LIST
 #define CFG_DEFAULT_GAMEARTTYPE ART_TYPE_MIX
 #define CFG_DEFAULT_WIFI false
 #define CFG_DEFAULT_VIEW SCREEN_GAMELIST
@@ -381,6 +397,13 @@ void CFG_setGameArtWidth(double zeroToOne);
 // 1 = full-height background that fades into the list.
 int CFG_getGameArtStyle(void);
 void CFG_setGameArtStyle(int style);
+// Main menu tab layout (MENU_STYLE_*) per category (MENU_CAT_*); an
+// out-of-range category reads as List.
+int CFG_getMenuStyle(int category);
+void CFG_setMenuStyle(int category, int style);
+// Game list layout (MENU_STYLE_*), whichever tab opened the list.
+int CFG_getGameListStyle(void);
+void CFG_setGameListStyle(int style);
 // Which stored art variant (ArtType) the game lists display: 0 = mix
 // composite, 1 = screenshot only, 2 = box art only.
 int CFG_getGameArtType(void);

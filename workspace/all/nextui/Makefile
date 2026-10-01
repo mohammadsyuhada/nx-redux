@@ -28,8 +28,10 @@ SDL?=SDL
 
 TARGET = nextui
 INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
+# gameinfo.c: ratools data code + RA offline cache, game time DB
+INCDIR += -I../ratools -I../libgametimedb
 include ../common/ui/ui.mk
-SOURCE = $(TARGET).c types.c recents.c content.c launcher.c imgloader.c artbg.c shortcuts.c gamelist.c gameswitcher.c search.c desktop_update.c cpu_policy.c ../common/arcade_names.c ../common/display_helper.c ../common/scaler.c ../common/utils.c ../common/config.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/wifi.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c $(UI_LISTVIEW_SRCS) $(UI_DIR)/ui_listdialog.c $(UI_DIR)/ui_keyboard.c $(UI_DIR)/ui_contextmenu.c ../../$(PLATFORM)/platform/platform.c ../common/paths.c
+SOURCE = $(TARGET).c types.c recents.c content.c launcher.c imgloader.c artbg.c shortcuts.c gamelist.c gameswitcher.c search.c menutabs.c menutabs_model.c menuart.c menulogo.c gameinfo.c gameinfo_text.c collcount.c collcount_model.c collname.c infoband.c infoband_layout.c home.c home_layout.c homeart.c homeart_model.c row_model.c home_stats.c home_stats_model.c grid_layout.c tiles.c gridview.c rowview.c ../ratools/ratools_data.c ../common/ra_offline.c desktop_update.c cpu_policy.c ../common/arcade_names.c ../common/display_helper.c ../common/scaler.c ../common/utils.c ../common/config.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/wifi.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c $(UI_LISTVIEW_SRCS) $(UI_DIR)/ui_listdialog.c $(UI_DIR)/ui_keyboard.c $(UI_DIR)/ui_contextmenu.c ../../$(PLATFORM)/platform/platform.c ../common/paths.c
 
 # Desktop's platform.c backs PLAT_wifiConnected with a real reachability probe
 # (device platform.c doesn't; it uses generic_wifi.c) -- desktop-only source.
@@ -50,10 +52,11 @@ ifneq (,$(BUILD_TAG))
 CFLAGS  += -DBUILD_TAG=\"$(BUILD_TAG)\"
 endif
 LDFLAGS	 += -L../../$(PLATFORM)/libmsettings -lmsettings
+LDFLAGS	 += -lgametimedb -lsqlite3 -lrcheevos -lpthread
 
 PRODUCT= build/$(BUILD_SUBDIR)/$(TARGET).elf
 
-all: $(PREFIX_LOCAL)/include/msettings.h
+all: $(PREFIX_LOCAL)/include/msettings.h $(PREFIX_LOCAL)/include/gametimedb.h $(PREFIX_LOCAL)/lib/librcheevos.a
 	mkdir -p build/$(BUILD_SUBDIR)
 	$(CC) $(SOURCE) -o $(PRODUCT) $(CFLAGS) $(LDFLAGS)
 clean:
@@ -61,3 +64,11 @@ clean:
 
 $(PREFIX_LOCAL)/include/msettings.h:
 	cd ../../$(PLATFORM)/libmsettings && make
+
+$(PREFIX_LOCAL)/include/gametimedb.h:
+	cd ../libgametimedb && make
+
+# nextui builds before minarch in workspace/Makefile, so also fetch the
+# libretro-common checkout rcheevos' rc_libretro.c includes (no-op once present)
+$(PREFIX_LOCAL)/lib/librcheevos.a:
+	cd ../minarch && make libretro-common rcheevos

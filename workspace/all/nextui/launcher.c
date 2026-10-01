@@ -11,7 +11,9 @@
 #include "types.h"
 #include "recents.h"
 #include "content.h"
+#include "gamelist.h"
 #include "launcher.h"
+#include "menutabs.h"
 #include "shortcuts.h"
 
 ///////////////////////////////////////
@@ -192,21 +194,21 @@ static bool queuePakLaunch(char* path) {
 	return true;
 }
 
+// The list on screen is the Home tab itself (not a folder opened from it).
+static bool onHomeTab(void) {
+	return stack->count == 1 && MenuTabs_current() == MENU_TAB_HOME;
+}
+
 void openPak(char* path) {
-	// If launched from root and the pak is a shortcut, save root path
-	// so the user returns to main menu instead of the tools folder.
+	// Launched from the Home tab: save the pinned row's real path as is, so
+	// loadLast reselects that row (the tab lists the pak under this path).
 	char* save_path = path;
-	if (exactMatch(top->path, SDCARD_PATH) && prefixMatch(SDCARD_PATH, save_path)) {
-		if (Shortcuts_exists(save_path + strlen(SDCARD_PATH))) {
-			save_path = SDCARD_PATH;
-		}
-	}
 	char virt_path[MAX_PATH];
 	char paks_tools_path[MAX_PATH];
 	snprintf(paks_tools_path, sizeof(paks_tools_path), "%s/Tools/", PAKS_PATH);
-	if (save_path == path && prefixMatch(paks_tools_path, save_path)) {
-		// system tool pak: save the SD-shaped path so loadLast walks
-		// root -> Tools (the merged view lists this pak there)
+	if (!onHomeTab() && prefixMatch(paks_tools_path, save_path)) {
+		// system tool pak: save the SD-shaped path so loadLast lands in
+		// Tools (the merged view lists this pak there)
 		char* name = strrchr(save_path, '/');
 		snprintf(virt_path, sizeof(virt_path), "%s%s", TOOLS_PATH, name);
 		save_path = virt_path;
@@ -360,15 +362,6 @@ void openRom(char* path, char* last) {
 	}
 
 	char* save_path = (last == NULL) ? sd_path : last;
-
-	// If launched from root and the game is a shortcut, save root path
-	// so the user returns to main menu instead of the console folder.
-	if (exactMatch(top->path, SDCARD_PATH) && prefixMatch(SDCARD_PATH, save_path)) {
-		if (Shortcuts_exists(save_path + strlen(SDCARD_PATH))) {
-			save_path = SDCARD_PATH;
-		}
-	}
-
 	saveLast(save_path);
 
 	char* gametimectl_argv[] = {"gametimectl.elf", "start", sd_path, NULL};
@@ -430,19 +423,26 @@ static Array* pathToStack(const char* path) {
 	if (!prefixMatch(SDCARD_PATH, path))
 		return array;
 
-	// Always include root directory
-	Directory* root_dir = Directory_new(SDCARD_PATH, 0);
+	// Start from the tab the path belongs to and walk the segments below it
+	MenuTabId tab = MenuTabs_forPathVisible(path);
+	const char* base = MenuTabs_path(tab);
+	if (!prefixMatch((char*)base, (char*)path))
+		base = SDCARD_PATH; // e.g. Roms/… while Consoles is hidden: walk from the card root as before
+
+	// Always include the tab's root directory
+	Directory* root_dir = Directory_new((char*)MenuTabs_path(tab), 0);
 	root_dir->start = 0;
-	int root_rows = MAIN_ROW_COUNT - 1;
+	int root_rows = GameList_rowCount();
 	root_dir->end = (root_dir->entries->count < root_rows) ? root_dir->entries->count : root_rows;
 	Array_push(array, root_dir);
+	MenuTabs_setCurrent(tab);
 
-	if (exactMatch(path, SDCARD_PATH))
+	if (exactMatch(path, base))
 		return array;
 
 	char temp_path[PATH_MAX];
-	strcpy(temp_path, SDCARD_PATH);
-	size_t current_len = strlen(SDCARD_PATH);
+	strcpy(temp_path, base);
+	size_t current_len = strlen(base);
 
 	const char* cursor = path + current_len;
 	if (*cursor == '/')
@@ -508,6 +508,7 @@ void openDirectory(char* path, int auto_launch) {
 		openRom(auto_path, path);
 		return;
 	}
+	MenuTabs_setFocused(false); // a list opens (pushed or rebuilt): B back to the root returns to the content
 
 	char m3u_path[MAX_PATH];
 	if (hasFolderM3u(path, m3u_path) && auto_launch) {
@@ -540,7 +541,7 @@ void openDirectory(char* path, int auto_launch) {
 		}
 
 		top = Directory_new(path, selected);
-		int rc = MAIN_ROW_COUNT - 1;
+		int rc = GameList_rowCount();
 		int count = top->entries->count;
 		if (selected >= count || end > count) {
 			// saved state can outlive the listing it described (entries
@@ -567,12 +568,8 @@ void openDirectory(char* path, int auto_launch) {
 		stack = pathToStack(temp_path);
 		if (stack->count == 0) {
 			// pathToStack yields an empty stack for non-SD paths — fall back
-			// to root rather than indexing items[-1]
-			top = Directory_new(SDCARD_PATH, 0);
-			top->start = 0;
-			int rc = MAIN_ROW_COUNT - 1;
-			top->end = (top->entries->count < rc) ? top->entries->count : rc;
-			Array_push(stack, top);
+			// to Home rather than indexing items[-1] (sets stack and top)
+			MenuTabs_openRoot(MENU_TAB_HOME);
 		} else {
 			top = stack->items[stack->count - 1];
 		}
@@ -593,12 +590,15 @@ void closeDirectory(void) {
 }
 
 void Entry_open(Entry* self) {
+	MenuTabs_setFocused(false); // any launch or open: the content has focus when the menu shows again
 	Recents_setAlias(self->name);
 	if (self->type == ENTRY_ROM) {
 		startgame = true;
 		char* last = NULL;
 		char last_path[MAX_PATH];
-		if (prefixMatch(COLLECTIONS_PATH, top->path)) {
+		// inside a collection (the Collections tab itself only lists the
+		// collections; a ROM opened there came from Search or the switcher)
+		if (prefixMatch(COLLECTIONS_PATH, top->path) && !exactMatch(COLLECTIONS_PATH, top->path)) {
 			char* tmp;
 			char filename[MAX_PATH];
 			filename[0] = '\0';
@@ -609,6 +609,10 @@ void Entry_open(Entry* self) {
 
 			snprintf(last_path, sizeof(last_path), "%s/%s", top->path, filename);
 			last = last_path;
+		} else if (onHomeTab()) {
+			// save the pinned row itself, not a game folder it sits in, so
+			// loadLast reselects it on the Home tab
+			last = self->path;
 		}
 		openRom(self->path, last);
 	} else if (self->type == ENTRY_PAK) {
@@ -617,19 +621,16 @@ void Entry_open(Entry* self) {
 	} else if (self->type == ENTRY_DIR) {
 		openDirectory(self->path, 1);
 	}
+	// A launch above already wrote MENU_TAB_PATH (saveLast runs synchronously); otherwise nothing
+	// launched (a plain folder, an aborted command) and a Home mark must not reach a later launch.
+	MenuTabs_clearHomeLaunch();
 }
 
 ///////////////////////////////////////
 
 void saveLast(char* path) {
-	// special case for recently played
-	if (exactMatch(top->path, FAUX_RECENT_PATH)) {
-		// NOTE: that we don't have to save the file because
-		// your most recently played game will always be at
-		// the top which is also the default selection
-		path = FAUX_RECENT_PATH;
-	}
 	putFile(LAST_PATH, path);
+	MenuTabs_saveState();
 }
 void loadLast(void) { // call after loading root directory
 	if (!exists(LAST_PATH))
@@ -644,6 +645,28 @@ void loadLast(void) { // call after loading root directory
 	// pointer subtraction writes through a wild offset
 	if (!prefixMatch(SDCARD_PATH, last_path))
 		return;
+
+	// Home tab: the saved path is the pinned row itself — select it, don't walk
+	// into a pinned parent folder on the way
+	if (MenuTabs_current() == MENU_TAB_HOME) {
+		for (int i = 0; i < top->entries->count; i++) {
+			Entry* entry = top->entries->items[i];
+			if (exactMatch(entry->path, last_path)) {
+				top->selected = i;
+				if (i >= top->end) {
+					int lrc = GameList_rowCount();
+					top->start = i;
+					top->end = top->start + lrc;
+					if (top->end > top->entries->count) {
+						top->end = top->entries->count;
+						top->start = top->end - lrc;
+					}
+				}
+				readyResume(entry);
+				return;
+			}
+		}
+	}
 
 	char full_path[MAX_PATH];
 	strcpy(full_path, last_path);
@@ -691,7 +714,7 @@ void loadLast(void) { // call after loading root directory
 				if (exactMatch(entry->path, path) || (strlen(collated_path) && prefixMatch(collated_path, entry->path) && isConsoleDir(entry->path)) || (prefixMatch(COLLECTIONS_PATH, full_path) && suffixMatch(filename, entry->path)) || (prefixMatch(paks_tools_path, entry->path) && suffixMatch(slash_name, entry->path))) {
 					top->selected = i;
 					if (i >= top->end) {
-						int lrc = MAIN_ROW_COUNT - 1;
+						int lrc = GameList_rowCount();
 						top->start = i;
 						top->end = top->start + lrc;
 						if (top->end > top->entries->count) {

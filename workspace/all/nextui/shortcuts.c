@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 ///////////////////////////////////////
 // Internal types
@@ -48,19 +49,6 @@ static void ShortcutArray_free(Array* self) {
 	Array_free(self);
 }
 
-static int ShortcutCompare(const void* a, const void* b) {
-	Shortcut* sa = *(Shortcut**)a;
-	Shortcut* sb = *(Shortcut**)b;
-	// Compare by name (case-insensitive)
-	return strcasecmp(sa->name ? sa->name : sa->path, sb->name ? sb->name : sb->path);
-}
-
-static void ShortcutArray_sort(Array* self) {
-	if (self && self->count > 1) {
-		qsort(self->items, self->count, sizeof(void*), ShortcutCompare);
-	}
-}
-
 ///////////////////////////////////////
 // Global state
 
@@ -70,19 +58,25 @@ static Array* shortcuts = NULL;
 // Save/Load functions
 
 static void saveShortcuts(void) {
-	FILE* file = fopen(SHORTCUTS_PATH, "w");
-	if (file) {
-		for (int i = 0; i < shortcuts->count; i++) {
-			Shortcut* shortcut = shortcuts->items[i];
-			fputs(shortcut->path, file);
-			if (shortcut->name) {
-				fputs("\t", file);
-				fputs(shortcut->name, file);
-			}
-			putc('\n', file);
-		}
-		fclose(file);
+	// one buffer, written via writeFileAtomic (tmp + fsync + rename): a crash or a full card mid-write can't
+	// truncate the pins
+	size_t cap = 1, len = 0;
+	for (int i = 0; i < shortcuts->count; i++) {
+		Shortcut* shortcut = shortcuts->items[i];
+		cap += strlen(shortcut->path) + 2 + (shortcut->name ? strlen(shortcut->name) : 0);
 	}
+	char* buf = malloc(cap);
+	if (!buf)
+		return;
+	for (int i = 0; i < shortcuts->count; i++) {
+		Shortcut* shortcut = shortcuts->items[i];
+		len += (size_t)snprintf(buf + len, cap - len, "%s%s%s\n", shortcut->path, shortcut->name ? "\t" : "",
+								shortcut->name ? shortcut->name : "");
+	}
+	buf[len] = '\0';
+	if (!writeFileAtomic(SHORTCUTS_PATH, buf, len))
+		LOG_warn("Shortcuts: couldn't save %s\n", SHORTCUTS_PATH);
+	free(buf);
 }
 
 static int loadShortcuts(void) {
@@ -122,8 +116,7 @@ static int loadShortcuts(void) {
 		fclose(file);
 	}
 
-	// Sort alphabetically
-	ShortcutArray_sort(shortcuts);
+	// Kept in stored (pin) order: no sorting.
 
 	// Auto-clean: re-save if any were removed
 	if (removed_any)
@@ -163,13 +156,11 @@ void Shortcuts_add(Entry* entry) {
 		return;
 
 	if (shortcuts->count >= MAX_SHORTCUTS) {
-		// refuse rather than silently evict — the list is kept sorted, so a
-		// pop would delete the alphabetically-last shortcut, not the oldest
+		// refuse rather than silently evict a pin the user placed
 		LOG_warn("Shortcuts_add: limit of %d reached, not adding %s\n", MAX_SHORTCUTS, path);
 		return;
 	}
-	Array_push(shortcuts, Shortcut_new(path, entry->name));
-	ShortcutArray_sort(shortcuts);
+	Array_push(shortcuts, Shortcut_new(path, entry->name)); // appended: pins keep the order they were added
 	saveShortcuts();
 }
 
@@ -187,6 +178,23 @@ void Shortcuts_remove(Entry* entry) {
 		Shortcut_free(shortcut);
 		saveShortcuts();
 	}
+}
+
+bool Shortcuts_replacePath(const char* old_path, const char* new_path, const char* new_name) {
+	if (!shortcuts || !old_path || !new_path)
+		return false;
+	int idx = ShortcutArray_indexOf(shortcuts, old_path);
+	if (idx == -1)
+		return false;
+	Shortcut* shortcut = shortcuts->items[idx];
+	free(shortcut->path);
+	shortcut->path = strdup(new_path); // same slot: the pin keeps its place
+	if (new_name) {
+		free(shortcut->name);
+		shortcut->name = strdup(new_name);
+	}
+	saveShortcuts();
+	return true;
 }
 
 int Shortcuts_isInToolsFolder(const char* path) {

@@ -103,7 +103,7 @@ for exe in "$SYS/bin/nextui.elf" "$SYS/bin/minarch.elf" "$SYS/bin/netplay.elf" \
 	install_name_tool -change "build/$SUBDIR/libmsettings.so" "$LIBMSETTINGS" "$exe"
 done
 
-# gametime.elf/gametimectl.elf also link libgametimedb.so, with an even
+# nextui.elf/gametime.elf/gametimectl.elf also link libgametimedb.so, with an even
 # odder install name than libmsettings.so's bare one: the *relative build
 # path* used at link time ("build/$SUBDIR/libgametimedb.so" — see
 # workspace/all/libgametimedb/Makefile's PRODUCT, no -install_name passed).
@@ -112,7 +112,7 @@ done
 # string when it recurses into that dependency's own rpaths) — same fix.
 LIBGAMETIMEDB="$STAGE/tmp/libgametimedb.so"
 cp "$ROOT/workspace/all/libgametimedb/build/$SUBDIR/libgametimedb.so" "$LIBGAMETIMEDB"
-for exe in "$GAMETIME_ELF" "$GAMETIMECTL_PAK_ELF" "$GAMETIMECTL_BIN_ELF"; do
+for exe in "$SYS/bin/nextui.elf" "$GAMETIME_ELF" "$GAMETIMECTL_PAK_ELF" "$GAMETIMECTL_BIN_ELF"; do
 	install_name_tool -change build/$SUBDIR/libgametimedb.so "$LIBGAMETIMEDB" "$exe"
 done
 
