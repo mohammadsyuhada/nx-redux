@@ -104,16 +104,22 @@ int UI_renderPageTitleEx(SDL_Surface* dst, int x, const char* title, const char*
 
 	// The bar redraws every frame during list animation: re-fit only when the input changes. The key holds
 	// the font's height and the scale too, since a reopened font can land at the same address.
+	// The strings are keyed whole (length + hash): a long title can share the first 255 bytes with another.
 	static char last_title[256], last_suffix[64], fitted[256];
+	static UI_TitleKey last_title_key, last_suffix_key;
 	static TTF_Font* last_font = NULL;
 	static int last_max_w = -1, last_h = -1, last_scale = -1;
 	const char* sfx = suffix ? suffix : "";
 	int fh = TTF_FontHeight(f);
+	UI_TitleKey title_key = UI_titleFit_key(title), suffix_key = UI_titleFit_key(sfx);
 	if (f != last_font || max_w != last_max_w || fh != last_h || FIXED_SCALE != last_scale ||
-		strncmp(title, last_title, sizeof(last_title)) != 0 || strncmp(sfx, last_suffix, sizeof(last_suffix)) != 0) {
+		strncmp(title, last_title, sizeof(last_title)) != 0 || strncmp(sfx, last_suffix, sizeof(last_suffix)) != 0 ||
+		!UI_titleFit_keyEq(title_key, last_title_key) || !UI_titleFit_keyEq(suffix_key, last_suffix_key)) {
 		UI_titleFit(title, suffix && suffix[0] ? suffix : NULL, max_w, measureTitle, f, fitted, sizeof(fitted));
 		snprintf(last_title, sizeof(last_title), "%s", title);
 		snprintf(last_suffix, sizeof(last_suffix), "%s", sfx);
+		last_title_key = title_key;
+		last_suffix_key = suffix_key;
 		last_font = f;
 		last_max_w = max_w;
 		last_h = fh;

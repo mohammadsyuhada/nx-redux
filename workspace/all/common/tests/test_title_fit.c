@@ -176,6 +176,23 @@ static void test_empty_and_null(void) {
 	assert(out[0] == '\0' && w == 0);
 }
 
+// The fit cache key covers the whole string: long titles sharing a 255-byte prefix differ.
+static void test_key_covers_whole_input(void) {
+	char a[400], b[400];
+	memset(a, 'x', 300);
+	a[300] = '\0';
+	memcpy(b, a, sizeof(a));
+	b[299] = 'y';
+	assert(strncmp(a, b, 256) == 0);
+	assert(!UI_titleFit_keyEq(UI_titleFit_key(a), UI_titleFit_key(b)));
+	b[299] = 'x';
+	b[300] = 'x';
+	b[301] = '\0';
+	assert(!UI_titleFit_keyEq(UI_titleFit_key(a), UI_titleFit_key(b)));
+	assert(UI_titleFit_keyEq(UI_titleFit_key(a), UI_titleFit_key(a)));
+	assert(UI_titleFit_keyEq(UI_titleFit_key(NULL), UI_titleFit_key("")));
+}
+
 int main(void) {
 	test_fits_whole();
 	test_middle_cut_keeps_prefix_and_suffix();
@@ -191,6 +208,7 @@ int main(void) {
 	test_title_longer_than_buffer();
 	test_ascii_ellipsis_option();
 	test_empty_and_null();
+	test_key_covers_whole_input();
 	printf("test_title_fit: all passed\n");
 	return 0;
 }

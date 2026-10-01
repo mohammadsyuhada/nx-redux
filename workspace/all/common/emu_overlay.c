@@ -301,14 +301,18 @@ static void draw_menu_bar(EmuOvl* ovl, const char* title) {
 		return;
 	// "..." rather than "…": the GLideN64 GL backend's bitmap font is ASCII-only. The fit is cached: the
 	// menu redraws every frame.
+	// keyed on the whole title (length + hash), not just the 255 bytes kept in last_title
 	static char last_title[256], fitted[256];
+	static UI_TitleKey last_key;
 	static int last_max_w = -1, last_scale = -1;
 	static EmuOvlRenderBackend* last_r = NULL;
 	int max_w = ovl->screen_w * 8 / 10;
+	UI_TitleKey key = UI_titleFit_key(title);
 	if (r != last_r || max_w != last_max_w || ovl_scale != last_scale ||
-		strncmp(title, last_title, sizeof(last_title)) != 0) {
+		strncmp(title, last_title, sizeof(last_title)) != 0 || !UI_titleFit_keyEq(key, last_key)) {
 		UI_titleFitEx(title, NULL, max_w, measure_title, r, "...", fitted, sizeof(fitted));
 		snprintf(last_title, sizeof(last_title), "%s", title);
+		last_key = key;
 		last_r = r;
 		last_max_w = max_w;
 		last_scale = ovl_scale;

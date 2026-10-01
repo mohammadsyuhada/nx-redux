@@ -22,6 +22,28 @@
 // The fewest middle code points worth keeping the protected prefix for (below this the prefix is dropped).
 #define UI_TITLE_MIN_MIDDLE_CPS 8
 
+// A fit cache's key for one input string: its full length and an FNV-1a hash of every byte, so two long
+// inputs that share a fixed-size cached prefix never hit a stale fit. NULL keys like "".
+typedef struct {
+	size_t len;
+	unsigned hash;
+} UI_TitleKey;
+
+static inline UI_TitleKey UI_titleFit_key(const char* s) {
+	UI_TitleKey k = {0, 2166136261u};
+	if (!s)
+		return k;
+	for (; s[k.len]; k.len++) {
+		k.hash ^= (unsigned char)s[k.len];
+		k.hash *= 16777619u;
+	}
+	return k;
+}
+
+static inline int UI_titleFit_keyEq(UI_TitleKey a, UI_TitleKey b) {
+	return a.len == b.len && a.hash == b.hash;
+}
+
 // Returns the rendered pixel width of the NUL-terminated UTF-8 string.
 typedef int (*UI_TitleMeasureFn)(const char* utf8, void* ctx);
 

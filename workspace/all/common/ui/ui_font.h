@@ -1,6 +1,7 @@
 #ifndef UI_FONT_H
 #define UI_FONT_H
 
+#include "defines.h" // FONT_LARGE (UI_TEXT_LABEL_LOGICAL)
 #include "sdl.h"
 #include <stdbool.h>
 

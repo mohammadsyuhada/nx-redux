@@ -362,7 +362,7 @@ void UI_blitBlendOpaque(SDL_Surface* src, const SDL_Rect* srect, SDL_Surface* ds
 		const Uint32* s = (const Uint32*)((const Uint8*)src->pixels + (sy + y) * src->pitch) + sx;
 		Uint32* d = (Uint32*)((Uint8*)dst->pixels + (c.y + y) * dst->pitch) + c.x;
 		int i = 0;
-#ifdef __ARM_NEON
+#if defined(__ARM_NEON) && defined(__aarch64__) // vmaxvq/vminvq are AArch64-only: 32-bit ARM takes the scalar loop
 		// 4 pixels a step: a = A·g / 255 per pixel (exact), copied into its 4 bytes, then the opaque lerp
 		uint32x4_t round = vdupq_n_u32(128);
 		uint8x16_t opaque = vreinterpretq_u8_u32(vdupq_n_u32(0xFF000000u));

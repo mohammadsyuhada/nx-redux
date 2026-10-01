@@ -12,6 +12,7 @@
 // never reached by these tests and stay unresolved (see the runner script).
 uint32_t RGB_WHITE, THEME_COLOR1, THEME_COLOR2, THEME_COLOR4_255, THEME_COLOR5_255;
 GFX_Fonts font;
+int ui_scale = 2; // ui_scale.h's FIXED_SCALE (SCALE1 in ui_list.c), normally defined in api.c
 
 // Stand-in for config.c: the test flips this to model the user's setting.
 static bool g_menu_animations = true;

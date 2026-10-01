@@ -7,15 +7,17 @@
 
 // Scrolling text state for marquee animation
 typedef struct {
-	char text[512];						// Text to display
-	int text_width;						// Full text width in pixels
-	int max_width;						// Maximum display width
-	uint32_t start_time;				// Animation start time
-	bool needs_scroll;					// True if text is wider than max_width
-	int scroll_offset;					// Current pixel offset for smooth scrolling
-	bool use_gpu_scroll;				// True = use GPU layer (for lists), False = software (for player)
-	int last_x, last_y;					// Last render position (for animate-only mode)
-	TTF_Font* last_font;				// Last font used (for animate-only mode)
+	char text[512];		 // Text to display
+	int text_width;		 // Full text width in pixels
+	int max_width;		 // Maximum display width
+	uint32_t start_time; // Animation start time
+	bool needs_scroll;	 // True if text is wider than max_width
+	int scroll_offset;	 // Current pixel offset for smooth scrolling
+	bool use_gpu_scroll; // True = use GPU layer (for lists), False = software (for player)
+	int last_x, last_y;	 // Last render position (for animate-only mode)
+	// Last font used (for animate-only mode, which draws with it on later frames): must be a long-lived font
+	// (font.* from api.h), never a UIFont_get / UI_textRole pointer, which a later UIFont_get may evict and close.
+	TTF_Font* last_font;
 	SDL_Color last_color;				// Last color used (for animate-only mode)
 	SDL_Surface* cached_scroll_surface; // Cached surface for GPU scroll (no bg)
 	bool scroll_active;					// True once GPU scroll has actually started (after delay)
