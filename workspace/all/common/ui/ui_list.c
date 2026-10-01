@@ -10,6 +10,7 @@
 #include "ui_buttonhintbar.h"
 #include "../ui_list_layout.h"
 #include "ui_font.h"
+#include "ui_accent.h"
 
 // Scroll gap for software scrolling
 #define SCROLL_GAP 30
@@ -279,14 +280,20 @@ int UI_calcListPillWidth(TTF_Font* font, const char* text, char* truncated, int 
 	return MIN(max_width, prefix_width + raw_text_w + padding);
 }
 
+// The selection pill's fill: the accent, screen-mapped like the THEME_COLORn it replaces (the GFX_*Color blits decode
+// it with the screen's format).
+static uint32_t accentPill(void) {
+	return UI_accentMapped(GFX_getScreen()->format);
+}
+
 void UI_drawListItemBg(SDL_Surface* dst, SDL_Rect* rect, bool selected) {
 	if (selected) {
-		GFX_blitPillColor(ASSET_WHITE_PILL, dst, rect, THEME_COLOR1, RGB_WHITE);
+		GFX_blitPillColor(ASSET_WHITE_PILL, dst, rect, accentPill(), RGB_WHITE);
 	}
 }
 
 SDL_Color UI_getListTextColor(bool selected) {
-	return selected ? uintToColour(THEME_COLOR5_255) : uintToColour(THEME_COLOR4_255);
+	return selected ? UI_onAccent() : uintToColour(THEME_COLOR4_255);
 }
 
 ListItemPos UI_renderListItemPill(SDL_Surface* screen, ListLayout* layout,
@@ -459,8 +466,8 @@ ListItemBadgedPos UI_renderListItemPillBadged(
 			UI_fillRoundedRect(screen, px, y, total_w, item_h, item_h / 3, THEME_COLOR2);
 		}
 
-		// Layer 2 (or only layer): THEME_COLOR1 inner capsule for title area
-		UI_fillRoundedRect(screen, px, y, pos.pill_width, item_h, item_h / 3, THEME_COLOR1);
+		// Layer 2 (or only layer): the accent inner capsule for title area
+		UI_fillRoundedRect(screen, px, y, pos.pill_width, item_h, item_h / 3, accentPill());
 	}
 
 	// Text positions: two rows vertically centered
@@ -714,13 +721,13 @@ int UI_renderSettingsRow(SDL_Surface* screen, ListLayout* layout,
 		SDL_Color selected_text_color = UI_getListTextColor(1);
 
 		if (value) {
-			// 2-layer: full-width THEME_COLOR2 + label-width THEME_COLOR1
+			// 2-layer: full-width THEME_COLOR2 + label-width accent
 			int row_width = hw - SCALE1(PADDING) - pill_x;
 			SDL_Rect row_rect = {pill_x, y, row_width, pill_h};
 			GFX_blitRectColor(ASSET_BUTTON, screen, &row_rect, THEME_COLOR2);
 
 			SDL_Rect label_pill_rect = {pill_x, y, label_pill_width, pill_h};
-			GFX_blitRectColor(ASSET_BUTTON, screen, &label_pill_rect, THEME_COLOR1);
+			GFX_blitRectColor(ASSET_BUTTON, screen, &label_pill_rect, accentPill());
 
 			// Label text
 			SDL_Surface* label_surf = GFX_renderText(f, label, selected_text_color);
@@ -757,7 +764,7 @@ int UI_renderSettingsRow(SDL_Surface* screen, ListLayout* layout,
 		} else {
 			// Single label rect only
 			SDL_Rect label_pill_rect = {pill_x, y, label_pill_width, pill_h};
-			GFX_blitRectColor(ASSET_BUTTON, screen, &label_pill_rect, THEME_COLOR1);
+			GFX_blitRectColor(ASSET_BUTTON, screen, &label_pill_rect, accentPill());
 
 			SDL_Surface* label_surf = GFX_renderText(f, label, selected_text_color);
 			if (label_surf) {
@@ -1071,7 +1078,7 @@ ListItemRichPos UI_renderListItemPillRich(SDL_Surface* screen, ListLayout* layou
 
 	if (selected) {
 		UI_fillRoundedRect(screen, capsule_x, y, pos.pill_width, item_h,
-						   item_h / 3, THEME_COLOR1);
+						   item_h / 3, accentPill());
 	}
 
 	int text_start_x = capsule_x + image_area_w;
@@ -1142,7 +1149,7 @@ RichRowPos UI_renderRichRow(SDL_Surface* screen, const ListLayout* layout, const
 		pos.text_max_width = 0;
 
 	if (selected)
-		UI_fillRoundedRect(screen, pos.capsule_x, y, pos.capsule_w, row_h, row_h / 2, THEME_COLOR1);
+		UI_fillRoundedRect(screen, pos.capsule_x, y, pos.capsule_w, row_h, row_h / 2, accentPill());
 	return pos;
 }
 

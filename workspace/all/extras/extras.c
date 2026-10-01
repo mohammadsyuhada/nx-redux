@@ -27,6 +27,7 @@
 #include "defines.h"
 #include "api.h"
 #include "wget_fetch.h" // latest-release API queries (settings_updater's helper)
+#include "ui_accent.h"
 #include "ui_buttonhintbar.h"
 #include "ui_confirmdialog.h"
 #include "ui_downloadprogress.h"
@@ -417,9 +418,10 @@ static void build_tab_rows(AddonTab tab, TabRows* rows) {
 // and switched via L1/R1 in run_list() below. One rounded THEME_COLOR2
 // "container" strip holds both segments, left-aligned and only as wide as
 // the segments themselves (not full screen width); the active segment is a
-// smaller THEME_COLOR1 pill inset within the strip, same "bright selection"
-// family + text color (UI_getListTextColor) an entry row's own selected
-// pill uses; the inactive segment is plain text in the dim gray the shared
+// smaller pill in the accent token (UI_accentMapped: Color 1 unless an
+// accent override is set) inset within the strip, with the accent's ink as
+// its text color (UI_getListTextColor), same as an entry row's own selected
+// pill; the inactive segment is plain text in the dim gray the shared
 // ListView's section-header rows use for "Installed", sitting directly on
 // the strip with no background of its own.
 //
@@ -465,7 +467,7 @@ static int render_tab_bar(SDL_Surface* screen, ListLayout* layout, AddonTab acti
 		if (selected) {
 			UI_renderRoundedRectBg(screen, cx + inset, y + inset,
 								   cell_w[t] - inset * 2, strip_h - inset * 2,
-								   THEME_COLOR1);
+								   UI_accentMapped(screen->format));
 		}
 
 		// Active label: same bright "selected" text color an entry row's own

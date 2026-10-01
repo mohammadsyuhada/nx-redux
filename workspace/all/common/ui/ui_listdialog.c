@@ -1,5 +1,6 @@
 #include "ui_listdialog.h"
 #include "ui_list.h"
+#include "ui_accent.h"
 #include "ui_buttonhintbar.h"
 #include "ui_menubar.h"
 #include "ui_draw.h"
@@ -124,13 +125,13 @@ static void render_item(SDL_Surface* screen, ListLayout* layout,
 	// Draw rounded rect background for selected item
 	if (selected) {
 		UI_fillRoundedRect(screen, UI_listPillX(), y, pill_width,
-						   layout->item_h, layout->item_h / 3, THEME_COLOR1);
+						   layout->item_h, layout->item_h / 3, UI_accentMapped(GFX_getScreen()->format));
 	}
 
 	int text_x = UI_listPillX() + SCALE1(BUTTON_PADDING);
 	int text_y = y + (layout->item_h - TTF_FontHeight(font.small)) / 2;
 	int center_y_pos = y + layout->item_h / 2;
-	uint32_t icon_color = selected ? THEME_COLOR5 : THEME_COLOR4;
+	uint32_t icon_color = selected ? UI_onAccentMapped(GFX_getScreen()->format) : THEME_COLOR4;
 
 	// Prepend icons (left side, before title)
 	if (prepend_w > 0) {
