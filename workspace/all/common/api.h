@@ -181,6 +181,11 @@ extern GFX_Fonts font_ar; // secondary Arabic font (MiSans Arabic), same sizes
 
 // The Arabic-font counterpart of a primary size-font (NULL if unavailable).
 TTF_Font* GFX_fallbackFontFor(TTF_Font* primary);
+// Register a resolver GFX_fallbackFontFor consults for fonts outside `font` (one slot; common/ui/ui_font.c
+// registers one so its runtime fonts render Arabic with font1-arabic.ttf at their own size and style).
+void GFX_setFallbackFontResolver(TTF_Font* (*resolver)(TTF_Font* primary));
+// The Arabic UI font file (RES_PATH/font1-arabic.ttf), shared by the system fonts and ui_font.c.
+const char* GFX_getArabicFontPath(void);
 
 enum {
 	SHARPNESS_SHARP,
@@ -328,6 +333,15 @@ void GFX_setVsync(int vsync);
 // colour changes need no invalidation because the colour is part of the key.
 // Purpose: eliminate per-frame TTF rasterization in animated list redraws.
 SDL_Surface* GFX_getCachedText(TTF_Font* font, const char* text, SDL_Color color);
+// Drop font's cached text surfaces. Call before TTF_CloseFont on a font that may have been passed to
+// GFX_getCachedText: the cache keys on the pointer, and a font reopened at the same address would hit them.
+void GFX_forgetFontText(TTF_Font* font);
+// The TTF file the system fonts (font.*) were last loaded from: the user's selected UI font.
+const char* GFX_getSystemFontPath(void);
+// Register a callback that closes a runtime font cache (one slot; common/ui/ui_font.c uses it). It runs
+// before every system-font reload (font change, GFX_reloadScale) and in GFX_quit, so the cache reopens on the
+// new font and scale. It must GFX_forgetFontText each font it closes.
+void GFX_setFontReloadHook(void (*hook)(void));
 
 // Arabic-aware text primitives (drop-in replacements). Non-Arabic input takes
 // the identical legacy path; Arabic is shaped + BiDi-reordered and drawn with

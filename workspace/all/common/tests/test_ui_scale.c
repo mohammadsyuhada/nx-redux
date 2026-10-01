@@ -39,13 +39,13 @@ static void test_native(void) {
 static void test_layout(void) {
 	UIScaleLayout l;
 	l = UIScale_layout(768, 2);
-	assert(l.main_rows == 11 && l.settings_rows == 11 && l.padding == 10 && l.overlay_items == 8);
+	assert(l.main_rows == 11 && l.padding == 10 && l.overlay_items == 8);
 	l = UIScale_layout(768, 3);
-	assert(l.main_rows == 7 && l.settings_rows == 9 && l.padding == 5 && l.overlay_items == 5);
+	assert(l.main_rows == 7 && l.padding == 5 && l.overlay_items == 5);
 	l = UIScale_layout(720, 2);
-	assert(l.main_rows == 10 && l.settings_rows == 11 && l.padding == 10 && l.overlay_items == 8);
+	assert(l.main_rows == 10 && l.padding == 10 && l.overlay_items == 8);
 	l = UIScale_layout(720, 3);
-	assert(l.main_rows == 6 && l.settings_rows == 8 && l.padding == 10 && l.overlay_items == 5);
+	assert(l.main_rows == 6 && l.padding == 10 && l.overlay_items == 5);
 }
 
 static void test_parse_line(void) {

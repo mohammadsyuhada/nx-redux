@@ -112,6 +112,10 @@ void UI_fillRoundedRect(SDL_Surface* dst, int x, int y, int w, int h,
 }
 
 SDL_Surface* UI_getScrim(SDL_Surface** cache, int w, int h) {
+	return UI_getScrimAlpha(cache, w, h, 178);
+}
+
+SDL_Surface* UI_getScrimAlpha(SDL_Surface** cache, int w, int h, Uint8 alpha) {
 	SDL_Surface* scrim = *cache;
 	if (!scrim || scrim->w != w || scrim->h != h) {
 		if (scrim)
@@ -119,7 +123,7 @@ SDL_Surface* UI_getScrim(SDL_Surface** cache, int w, int h) {
 		scrim = SDL_CreateRGBSurface(SDL_SWSURFACE, w, h, 32,
 									 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000);
 		if (scrim) {
-			SDL_FillRect(scrim, NULL, SDL_MapRGBA(scrim->format, 0, 0, 0, 178));
+			SDL_FillRect(scrim, NULL, SDL_MapRGBA(scrim->format, 0, 0, 0, alpha));
 			SDL_SetSurfaceBlendMode(scrim, SDL_BLENDMODE_BLEND);
 		}
 		*cache = scrim;

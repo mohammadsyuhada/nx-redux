@@ -139,7 +139,6 @@ extern int ui_scale;
 ///////////////////////////////
 
 #define MAIN_ROW_COUNT (UIScale_layout(FIXED_HEIGHT, FIXED_SCALE).main_rows)
-#define SETTINGS_ROW_COUNT (UIScale_layout(FIXED_HEIGHT, FIXED_SCALE).settings_rows)
 #define PADDING (UIScale_layout(FIXED_HEIGHT, FIXED_SCALE).padding)
 
 ///////////////////////////////

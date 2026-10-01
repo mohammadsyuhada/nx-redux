@@ -96,8 +96,22 @@ static uint32_t asset_rgbs[ASSET_COLORS];
 GFX_Fonts font;
 GFX_Fonts font_ar; // secondary Arabic font (MiSans Arabic), same sizes as `font`
 
-// The Arabic-font counterpart of a primary size-font (NULL if the Arabic font
-// failed to load or `primary` isn't one of the size fonts).
+// Resolver for fonts outside `font` (common/ui/ui_font.c's runtime cache registers one).
+static TTF_Font* (*fallback_resolver)(TTF_Font* primary) = NULL;
+
+void GFX_setFallbackFontResolver(TTF_Font* (*resolver)(TTF_Font* primary)) {
+	fallback_resolver = resolver;
+}
+
+const char* GFX_getArabicFontPath(void) {
+	static char path[MAX_PATH];
+	if (!path[0])
+		snprintf(path, sizeof(path), "%s/font1-arabic.ttf", RES_PATH);
+	return path;
+}
+
+// The Arabic-font counterpart of a primary size-font, or of a font the registered resolver knows (NULL if
+// the Arabic font failed to load or `primary` is unknown).
 TTF_Font* GFX_fallbackFontFor(TTF_Font* primary) {
 	if (primary == font.xlarge)
 		return font_ar.xlarge;
@@ -113,7 +127,7 @@ TTF_Font* GFX_fallbackFontFor(TTF_Font* primary) {
 		return font_ar.tiny;
 	if (primary == font.micro)
 		return font_ar.micro;
-	return NULL;
+	return fallback_resolver ? fallback_resolver(primary) : NULL;
 }
 
 // Render UTF-8 to a NEW surface (caller frees). Non-Arabic text takes the exact
@@ -335,6 +349,17 @@ static void GFX_clearTextCache(void) {
 	text_cache_lru = 0;
 }
 
+void GFX_forgetFontText(TTF_Font* font) {
+	if (!font)
+		return;
+	for (int i = 0; i < TEXT_CACHE_SIZE; i++) {
+		if (text_cache[i].surf && text_cache[i].font == font) {
+			SDL_FreeSurface(text_cache[i].surf);
+			text_cache[i] = (TextCacheEntry){0};
+		}
+	}
+}
+
 SDL_Surface* GFX_getCachedText(TTF_Font* font, const char* text, SDL_Color color) {
 	if (!font || !text || !text[0])
 		return NULL;
@@ -376,10 +401,32 @@ SDL_Surface* GFX_getCachedText(TTF_Font* font, const char* text, SDL_Color color
 	return surf;
 }
 
+// The path GFX_loadSystemFont last opened, for runtime font caches (common/ui/ui_font.c) that open the same
+// face at other sizes; and their close hook, run before every system-font (re)load (font or scale change)
+// and in GFX_quit so they reopen at the new font/scale.
+static char system_font_path[MAX_PATH];
+static void (*font_reload_hook)(void) = NULL;
+
+const char* GFX_getSystemFontPath(void) {
+	if (!system_font_path[0])
+		snprintf(system_font_path, sizeof(system_font_path), "%s/font1.ttf", RES_PATH);
+	return system_font_path;
+}
+
+void GFX_setFontReloadHook(void (*hook)(void)) {
+	font_reload_hook = hook;
+}
+
 int GFX_loadSystemFont(const char* fontPath) {
 	// Load/Reload fonts
 	if (!TTF_WasInit())
 		TTF_Init();
+
+	// Runtime font caches close first (dropping their cached text), then reopen lazily on fontPath.
+	if (font_reload_hook)
+		font_reload_hook();
+	if (fontPath && fontPath != system_font_path)
+		snprintf(system_font_path, sizeof(system_font_path), "%s", fontPath);
 
 	// Cached text surfaces hold now-dangling font pointers; drop them all.
 	GFX_clearTextCache();
@@ -402,8 +449,7 @@ int GFX_loadSystemFont(const char* fontPath) {
 
 	// Secondary Arabic font (fixed path — independent of the primary UI font).
 	// Missing file => NULL entries => Arabic falls back to primary (tofu), no crash.
-	char arPath[MAX_PATH];
-	snprintf(arPath, sizeof(arPath), "%s/font1-arabic.ttf", RES_PATH);
+	const char* arPath = GFX_getArabicFontPath();
 	TTF_CloseFont(font_ar.xlarge);
 	TTF_CloseFont(font_ar.title);
 	TTF_CloseFont(font_ar.large);
@@ -719,6 +765,9 @@ void GFX_setScreen(SDL_Surface* s) {
 }
 void GFX_quit(void) {
 	GFX_finishStartupBoost();
+
+	if (font_reload_hook)
+		font_reload_hook(); // runtime font caches close while the TTF state is intact
 
 	TTF_CloseFont(font.large);
 	TTF_CloseFont(font.medium);

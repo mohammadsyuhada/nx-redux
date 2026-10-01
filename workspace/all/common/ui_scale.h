@@ -14,7 +14,6 @@
 
 typedef struct {
 	int main_rows;	   // MAIN_ROW_COUNT
-	int settings_rows; // SETTINGS_ROW_COUNT
 	int padding;	   // PADDING
 	int overlay_items; // emulator overlay items per page
 } UIScaleLayout;
@@ -39,8 +38,8 @@ static inline int UIScale_nativeForDevice(const char* device) {
 // `scale` is a resolved value (2 or 3); anything other than 3 is treated as 2.
 static inline UIScaleLayout UIScale_layout(int panel_h, int scale) {
 	if (panel_h >= 768)
-		return scale == 3 ? (UIScaleLayout){7, 9, 5, 5} : (UIScaleLayout){11, 11, 10, 8};
-	return scale == 3 ? (UIScaleLayout){6, 8, 10, 5} : (UIScaleLayout){10, 11, 10, 8};
+		return scale == 3 ? (UIScaleLayout){7, 5, 5} : (UIScaleLayout){11, 10, 8};
+	return scale == 3 ? (UIScaleLayout){6, 10, 5} : (UIScaleLayout){10, 10, 8};
 }
 
 // Parses one minuisettings.txt line. Returns 1 and stores the sanitized value

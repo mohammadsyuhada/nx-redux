@@ -34,11 +34,26 @@ static int TextWrap_truncate(TextWrap_measureFn measure, void* ctx, const char* 
 	out_name[len] = '\0';
 	text_width = measure(ctx, out_name) + padding;
 
+	// Each pass keeps `body` bytes of the text and appends "...". The first pass makes room for the dots
+	// inside the current length (body = len - 4, never growing the string); later passes drop one more
+	// character. body always steps back to a code-point boundary, so a multi-byte character is removed
+	// whole and no orphan UTF-8 lead byte is left before the dots.
+	size_t body = len;
+	int first = 1;
 	while (text_width > max_width) {
-		int len = strlen(out_name);
-		if (len < 4) // can't append "..." without writing before out_name
-			break;
-		strcpy(&out_name[len - 4], "...\0");
+		if (first) {
+			if (len < 4) // can't append "..." without writing before out_name
+				break;
+			body = len - 4;
+			first = 0;
+		} else {
+			if (body == 0)
+				break;
+			body--;
+		}
+		while (body > 0 && (out_name[body] & 0xC0) == 0x80)
+			body--;
+		memcpy(&out_name[body], "...", 4);
 		text_width = measure(ctx, out_name) + padding;
 	}
 
@@ -88,15 +103,21 @@ static int TextWrap_wrap(TextWrap_measureFn measure, void* ctx, char* str, int m
 		if (line_width >= max_width) { // wrap
 			if (line_width > max_line_width)
 				max_line_width = line_width;
-			tmp[0] = ' ';
-			// No earlier space to break at (a single word wider than the line):
-			// break here instead so the word becomes its own line.
-			if (!prev)
+			if (prev) {
+				// Break at the previous space: the word just measured starts the next line, and the space after it
+				// is that line's first break candidate. (prev must never point at a line's first character: a
+				// later break would overwrite that letter with '\n'.)
+				tmp[0] = ' ';
+				prev[0] = '\n';
+				line = prev + 1;
 				prev = tmp;
+			} else {
+				// No earlier space to break at (a single word wider than the line):
+				// break after it so the word becomes its own line.
+				tmp[0] = '\n';
+				line = tmp + 1;
+			}
 			tmp += 1;
-			prev[0] = '\n';
-			prev += 1;
-			line = prev;
 			lines += 1;
 		} else { // continue
 			tmp[0] = ' ';

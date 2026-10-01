@@ -70,7 +70,8 @@
 #define RESUME_SLOT_DEFAULT 8
 #define AUTO_RESUME_SLOT 9
 
-#define LAST_PATH "/tmp/last.txt" // transient
+#define LAST_PATH "/tmp/last.txt"		 // transient
+#define MENU_TAB_PATH "/tmp/menutab.txt" // transient, next to LAST_PATH
 #define CHANGE_DISC_PATH "/tmp/change_disc.txt"
 #define RESUME_SLOT_PATH "/tmp/resume_slot.txt"
 #define NETPLAY_LAUNCH_PATH "/tmp/netplay_launch"
@@ -167,6 +168,17 @@ enum {
 #define SCALE1(a) ((a) * FIXED_SCALE)
 #define SCALE2(a, b) ((a) * FIXED_SCALE), ((b) * FIXED_SCALE)
 #define SCALE4(a, b, c, d) ((a) * FIXED_SCALE), ((b) * FIXED_SCALE), ((c) * FIXED_SCALE), ((d) * FIXED_SCALE)
+// mobile dp -> pixels (a 42 dp row is one 30-unit PILL_SIZE row)
+#define NX_DP(x) ((int)((x) * FIXED_SCALE * 30.0f / 42.0f + 0.5f))
+// dp float -> pixels, rounded (layout math stays in dp floats until drawing)
+#define NX_DPF(x) ((int)((x) * FIXED_SCALE * 30.0f / 42.0f + 0.5f))
+// mobile sp -> text pixels (14 sp body text is the 12-unit text size)
+#define NX_SP(x) ((int)((x) * FIXED_SCALE * 12.0f / 14.0f + 0.5f))
+// LIST-LAYOUT §1/§10.1: list row text starts NX_LIST_INSET_DP in (game lists, Settings, Tools, every shared
+// list), and its selection pill keeps the same 14 dp (== SCALE1(BUTTON_PADDING)) round the text, so the pill's
+// edge is 14 dp left of the text. The main menu's List rows, tab words and band arrows sit on the 24 dp gutter.
+#define NX_LIST_INSET_DP 14
+#define NX_MENU_GUTTER_DP 24
 
 ///////////////////////////////
 

@@ -7,6 +7,10 @@
 #define EMU_OVL_FONT_LARGE 0
 #define EMU_OVL_FONT_SMALL 1
 #define EMU_OVL_FONT_TINY 2
+// Page title (LIST-LAYOUT §10.1): bold, the size of the UI's UIFont_get(16) (NX_SP(16)). Backends without
+// it fall back to their default font.
+#define EMU_OVL_FONT_TITLE 3
+#define EMU_OVL_FONT_COUNT 4
 
 // Colors (ARGB)
 #define EMU_OVL_COLOR_WHITE 0xFFFFFFFF

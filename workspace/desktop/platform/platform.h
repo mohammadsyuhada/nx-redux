@@ -148,7 +148,6 @@ extern int ui_scale;
 #define FIXED_WIDTH 1024
 #define FIXED_HEIGHT 768
 #define MAIN_ROW_COUNT (UIScale_layout(FIXED_HEIGHT, FIXED_SCALE).main_rows)
-#define SETTINGS_ROW_COUNT (UIScale_layout(FIXED_HEIGHT, FIXED_SCALE).settings_rows)
 #define PADDING (UIScale_layout(FIXED_HEIGHT, FIXED_SCALE).padding)
 
 // emulate TSP
