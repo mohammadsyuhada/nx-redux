@@ -61,12 +61,8 @@ typedef enum {
 	ART_STYLE_BACKGROUND = 1
 } ArtStyle;
 
-// Main menu tab and game list layout styles.
-enum { MENU_STYLE_LIST = 0,
-	   MENU_STYLE_GRID,
-	   MENU_STYLE_CAROUSEL,
-	   MENU_STYLE_BACKDROP,
-	   MENU_STYLE_COUNT };
+// Main menu tab and game list layout styles (MENU_STYLE_*), their defaults and the stored-value mapping.
+#include "menustyle_model.h"
 // Main menu style categories; MenuTabs_styleCategory (menutabs.h) maps a tab to one (Home has none).
 enum { MENU_CAT_CONSOLES = 0,
 	   MENU_CAT_COLLECTIONS,
@@ -246,8 +242,8 @@ typedef struct
 #define CFG_DEFAULT_FNLEDS false
 #define CFG_DEFAULT_GAMEARTWIDTH 0.45
 #define CFG_DEFAULT_GAMEARTSTYLE ART_STYLE_THUMBNAIL
-#define CFG_DEFAULT_MENUSTYLE MENU_STYLE_LIST
-#define CFG_DEFAULT_GAMELISTSTYLE MENU_STYLE_LIST
+#define CFG_DEFAULT_MENUSTYLE MENUSTYLE_MAIN_DEFAULT		 // Carousel
+#define CFG_DEFAULT_GAMELISTSTYLE MENUSTYLE_GAMELIST_DEFAULT // Grid
 #define CFG_DEFAULT_GAMEARTTYPE ART_TYPE_MIX
 #define CFG_DEFAULT_WIFI false
 #define CFG_DEFAULT_VIEW SCREEN_GAMELIST
@@ -397,11 +393,11 @@ void CFG_setGameArtWidth(double zeroToOne);
 // 1 = full-height background that fades into the list.
 int CFG_getGameArtStyle(void);
 void CFG_setGameArtStyle(int style);
-// Main menu tab layout (MENU_STYLE_*) per category (MENU_CAT_*); an
-// out-of-range category reads as List.
+// Main menu tab layout per category (MENU_CAT_*): List, Grid or Carousel. A stored Backdrop (from an
+// older build) reads as Carousel without rewriting the stored value; an out-of-range category reads as List.
 int CFG_getMenuStyle(int category);
 void CFG_setMenuStyle(int category, int style);
-// Game list layout (MENU_STYLE_*), whichever tab opened the list.
+// Game list layout (MENU_STYLE_*: List, Grid, Carousel or Backdrop), whichever tab opened the list.
 int CFG_getGameListStyle(void);
 void CFG_setGameListStyle(int style);
 // Which stored art variant (ArtType) the game lists display: 0 = mix

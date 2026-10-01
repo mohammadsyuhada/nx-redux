@@ -292,7 +292,8 @@ static int on_off_values[] = {0, 1};
 static const char* art_style_labels[] = {"Thumbnail", "Background"};
 static int art_style_values[] = {ART_STYLE_THUMBNAIL, ART_STYLE_BACKGROUND};
 
-/* Main menu tab and game list styles for the Layouts page */
+/* Main menu tab and game list styles for the Layouts page: the main-menu tabs offer the first
+   MENUSTYLE_MAIN_COUNT (List, Grid, Carousel), game lists all MENUSTYLE_GAMELIST_COUNT (+ Backdrop) */
 static const char* menu_style_labels[] = {"List", "Grid", "Carousel", "Backdrop"};
 static int menu_style_values[] = {MENU_STYLE_LIST, MENU_STYLE_GRID, MENU_STYLE_CAROUSEL, MENU_STYLE_BACKDROP};
 static const char* hide_show_labels[] = {"Hide", "Show"};
@@ -1700,16 +1701,16 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	idx = 0;
 	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Consoles", "How the Consoles tab draws.",
-		menu_style_labels, MENU_STYLE_COUNT, menu_style_values, get_menu_style_consoles, set_menu_style_consoles, reset_menu_style_consoles);
+		menu_style_labels, MENUSTYLE_MAIN_COUNT, menu_style_values, get_menu_style_consoles, set_menu_style_consoles, reset_menu_style_consoles);
 	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Collections", "How the Collections tab draws.",
-		menu_style_labels, MENU_STYLE_COUNT, menu_style_values, get_menu_style_collections, set_menu_style_collections, reset_menu_style_collections);
+		menu_style_labels, MENUSTYLE_MAIN_COUNT, menu_style_values, get_menu_style_collections, set_menu_style_collections, reset_menu_style_collections);
 	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Tools", "How the Tools tab draws.",
-		menu_style_labels, MENU_STYLE_COUNT, menu_style_values, get_menu_style_tools, set_menu_style_tools, reset_menu_style_tools);
+		menu_style_labels, MENUSTYLE_MAIN_COUNT, menu_style_values, get_menu_style_tools, set_menu_style_tools, reset_menu_style_tools);
 	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Game lists", "How a console's or collection's games draw.",
-		menu_style_labels, MENU_STYLE_COUNT, menu_style_values, get_game_list_style, set_game_list_style, reset_game_list_style);
+		menu_style_labels, MENUSTYLE_GAMELIST_COUNT, menu_style_values, get_game_list_style, set_game_list_style, reset_game_list_style);
 	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Consoles tab", "Show the Consoles tab.",
 		hide_show_labels, 2, on_off_values, get_show_emulators, set_show_emulators, reset_show_emulators);

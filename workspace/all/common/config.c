@@ -784,31 +784,27 @@ void CFG_setGameArtStyle(int style) {
 	CFG_sync();
 }
 
-static int clampMenuStyle(int style) {
-	if (style < MENU_STYLE_LIST || style >= MENU_STYLE_COUNT)
-		return MENU_STYLE_LIST;
-	return style;
-}
-
+// The mapping lives in menustyle_model.h (host-tested): the setters store the value (out of range → the
+// default; a main-menu Backdrop is kept as written), the getters map it (main-menu Backdrop → Carousel).
 int CFG_getMenuStyle(int category) {
 	if (category < 0 || category >= MENU_CAT_COUNT)
 		return MENU_STYLE_LIST;
-	return settings.menuStyle[category];
+	return MenuStyle_mainMenu(settings.menuStyle[category]);
 }
 
 void CFG_setMenuStyle(int category, int style) {
 	if (category < 0 || category >= MENU_CAT_COUNT)
 		return;
-	settings.menuStyle[category] = clampMenuStyle(style);
+	settings.menuStyle[category] = MenuStyle_storeMainMenu(style);
 	CFG_sync();
 }
 
 int CFG_getGameListStyle(void) {
-	return settings.gameListStyle;
+	return MenuStyle_gameList(settings.gameListStyle);
 }
 
 void CFG_setGameListStyle(int style) {
-	settings.gameListStyle = clampMenuStyle(style);
+	settings.gameListStyle = MenuStyle_storeGameList(style);
 	CFG_sync();
 }
 
