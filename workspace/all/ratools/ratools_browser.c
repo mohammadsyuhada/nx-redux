@@ -158,13 +158,18 @@ static int rat_show_achievement_detail(SDL_Surface* screen, RAT_Achievement* ach
 			char info[RAT_DETAIL_INFO_MAX][96];
 			int n_info = 0;
 			snprintf(info[n_info++], sizeof(info[0]), a->points == 1 ? "1 point" : "%u points", a->points);
-			if (a->unlock_time > 0) {
-				struct tm tm;
-				localtime_r(&a->unlock_time, &tm);
-				char tbuf[64];
-				strftime(tbuf, sizeof(tbuf), "%B %d %Y, %I:%M%p", &tm);
-				snprintf(info[n_info++], sizeof(info[0]),
-						 a->state == RAT_ACH_PENDING ? "Unlocked %s (pending sync)" : "Unlocked %s", tbuf);
+			// locked or not is the achievement's state (as the badge below); the time only dates an unlock
+			if (a->state != RAT_ACH_LOCKED) {
+				const char* pending = a->state == RAT_ACH_PENDING ? " (pending sync)" : "";
+				if (a->unlock_time > 0) {
+					struct tm tm;
+					localtime_r(&a->unlock_time, &tm);
+					char tbuf[64];
+					strftime(tbuf, sizeof(tbuf), "%B %d %Y, %I:%M%p", &tm);
+					snprintf(info[n_info++], sizeof(info[0]), "Unlocked %s%s", tbuf, pending);
+				} else {
+					snprintf(info[n_info++], sizeof(info[0]), "Unlocked%s", pending);
+				}
 			} else {
 				snprintf(info[n_info++], sizeof(info[0]), "Locked");
 			}
@@ -446,7 +451,7 @@ void RATBrowser_run(SDL_Surface* screen) {
 
 		if (dirty) {
 			GFX_clear(screen);
-			UI_renderMenuBar(screen, "RetroAchievements | Achievements");
+			UI_renderMenuBar(screen, "RetroAchievements | Games");
 
 			for (int r = 0; r < rows_visible && scroll + r < count; r++) {
 				int i = scroll + r;

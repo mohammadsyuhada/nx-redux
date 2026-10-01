@@ -292,7 +292,7 @@ static int on_off_values[] = {0, 1};
 static const char* art_style_labels[] = {"Thumbnail", "Background"};
 static int art_style_values[] = {ART_STYLE_THUMBNAIL, ART_STYLE_BACKGROUND};
 
-/* Main menu tab and game list styles for the Layouts page (all draw as List for now) */
+/* Main menu tab and game list styles for the Layouts page */
 static const char* menu_style_labels[] = {"List", "Grid", "Carousel", "Backdrop"};
 static int menu_style_values[] = {MENU_STYLE_LIST, MENU_STYLE_GRID, MENU_STYLE_CAROUSEL, MENU_STYLE_BACKDROP};
 static const char* hide_show_labels[] = {"Hide", "Show"};
@@ -696,17 +696,6 @@ static void set_ui_scale(int v) {
 }
 static void reset_ui_scale(void) {
 	set_ui_scale(CFG_DEFAULT_UI_SCALE);
-}
-
-/* Show folder names at root */
-static int get_show_folder_names(void) {
-	return CFG_getShowFolderNamesAtRoot() ? 1 : 0;
-}
-static void set_show_folder_names(int v) {
-	CFG_setShowFolderNamesAtRoot(v != 0);
-}
-static void reset_show_folder_names(void) {
-	CFG_setShowFolderNamesAtRoot(CFG_DEFAULT_SHOWFOLDERNAMESATROOT);
 }
 
 /* Main menu tab styles, one getter/setter/reset triple per category */
@@ -1801,9 +1790,6 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		"Game art type", "Which fetched image to show. The background style always uses the screenshot.",
 		art_type_labels, 3, art_type_values, get_game_art_type, set_game_art_type, reset_game_art_type);
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Show folder names at root", "Names on the main menu are always shown.",
-		on_off_labels, 2, on_off_values, get_show_folder_names, set_show_folder_names, reset_show_folder_names);
-	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Use folder background for ROMs", "If enabled, used the emulator background image.",
 		on_off_labels, 2, on_off_values, get_roms_use_folder_bg, set_roms_use_folder_bg, reset_roms_use_folder_bg);
 	if (dev->platform != PLAT_DESKTOP) { // desktop has no device boot logo
@@ -2053,7 +2039,7 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	notify_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
 		"Reset to defaults", "Resets all options in this menu to their default values.",
 		reset_notify_page);
-	init_page(&notify_page, "Settings | In-game notifications", notify_items, idx, 0);
+	init_page(&notify_page, "Settings | Notifications", notify_items, idx, 0);
 
 	// ============================
 	// Simple Mode page

@@ -227,7 +227,7 @@ static int cal_write_config(const char* path, const JoypadCal* cal) {
 
 static void cal_render_msg(SDL_Surface* screen, const char* title, const char* subtitle, int countdown) {
 	GFX_clear(screen);
-	UI_renderMenuBar(screen, "Settings | Joystick Calibration");
+	UI_renderMenuBar(screen, "Settings | Stick Calibration");
 
 	int cy = FIXED_HEIGHT / 2 - SCALE1(FONT_LARGE + PADDING);
 

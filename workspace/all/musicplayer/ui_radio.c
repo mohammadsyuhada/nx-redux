@@ -472,7 +472,7 @@ void render_radio_help(SDL_Surface* screen, IndicatorType show_setting, int* hel
 	int hw = screen->w;
 	int hh = screen->h;
 
-	UI_renderMenuBar(screen, "Music Player | How to Add Stations");
+	UI_renderMenuBar(screen, "Music Player | Add Stations");
 
 	// Content padding (aligned with the page title)
 	int left_padding = UI_listTextX();

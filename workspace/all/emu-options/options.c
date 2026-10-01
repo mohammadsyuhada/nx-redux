@@ -167,10 +167,10 @@ static void render_list(const char* title, const char** labels, int count,
  * outside, because they change per row — so they are built here rather than
  * passed as a parameter.
  */
-static void render_item_page(const char* title, UISettingsItem* items, int count,
+static void render_item_page(const char* parent, const char* title, UISettingsItem* items, int count,
 							 int selected, int* scroll) {
 	GFX_clear(screen);
-	UI_renderMenuBarPage(screen, "Options", title); // a section page names its parent (LIST-LAYOUT §10.1)
+	UI_renderMenuBarPage(screen, parent, title); // a section page names its parent, the editor (LIST-LAYOUT §10.1)
 
 	ListLayout layout = UI_calcListLayout(screen);
 	UI_renderSettingsPage(screen, &layout, items, count, selected, scroll, NULL);
@@ -583,7 +583,7 @@ static void run_editor(const char* title, bool per_game) {
 				render_list(title, row_ptr, row_count, section_selected, &section_scroll,
 							(char*[]){"A", "OPEN", "B", "SAVE", NULL});
 			else
-				render_item_page(cfg.sections[current_section].name, row_item, row_count,
+				render_item_page(title, cfg.sections[current_section].name, row_item, row_count,
 								 item_selected, &item_scroll);
 			dirty = false;
 		} else {

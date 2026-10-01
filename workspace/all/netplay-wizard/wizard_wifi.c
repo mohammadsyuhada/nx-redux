@@ -542,7 +542,7 @@ int wiz_hotspot_join(WizSession* s) {
 
 		if (!scanned || now - last_scan >= WIZ_SCAN_INTERVAL_MS) {
 			if (!scanned)
-				wiz_render_empty("Netplay | Select code shown on the host", "Scanning for hosts...");
+				wiz_render_empty("Netplay | Pick Host Code", "Scanning for hosts...");
 
 			memset(hotspots, 0, sizeof(hotspots)); // scanForHotspots leaves the tail untouched
 			// Three scan passes live inside WIFI_direct_scanForHotspots (a hotspot
@@ -594,9 +594,9 @@ int wiz_hotspot_join(WizSession* s) {
 
 		if (dirty) {
 			if (count > 0)
-				wiz_render_list("Netplay | Select code shown on the host", labels, count);
+				wiz_render_list("Netplay | Pick Host Code", labels, count);
 			else
-				wiz_render_empty("Netplay | Select code shown on the host", "Waiting for a host...");
+				wiz_render_empty("Netplay | Pick Host Code", "Waiting for a host...");
 			dirty = false;
 		} else {
 			UI_listViewTickIdle(&wiz_pick_view);

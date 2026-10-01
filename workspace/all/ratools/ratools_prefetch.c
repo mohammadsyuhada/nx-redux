@@ -270,7 +270,7 @@ static bool rat_download_badge(const char* url, const char* badge_name, bool loc
 static void rat_pf_render(SDL_Surface* screen, const char* line1, const char* line2,
 						  int done, int total) {
 	GFX_clear(screen);
-	UI_renderMenuBar(screen, "RetroAchievements | Download game data");
+	UI_renderMenuBar(screen, "RetroAchievements | Game Data");
 
 	char detail[192];
 	snprintf(detail, sizeof(detail), "%s (%d/%d)", line2 ? line2 : "", done, total);
