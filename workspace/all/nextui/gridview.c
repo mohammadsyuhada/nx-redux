@@ -16,9 +16,12 @@
 #include "config.h"
 #include "defines.h"
 #include "ui_ease.h"
+#include "ui_accent.h"
 #include "ui_message.h"
 #include "utils.h"
 
+#include "collcount.h"
+#include "content.h"
 #include "gameinfo.h"
 #include "gameinfo_text.h"
 #include "gamelist.h"
@@ -43,7 +46,6 @@
 #define CUT_SHADE_ALPHA 179			   // black at 70% over a column cut by a screen edge
 #define EDGE_FADE_SHARE 0.20f		   // the edge fade's width, of the screen's
 #define BAR_DP (28.0f * 42.0f / 30.0f) // the header and the hint bar: 28 logical each
-#define TILE_W_SPEC 140.0f
 
 typedef struct {
 	bool active;
@@ -191,6 +193,20 @@ static int gameInfo(Entry* e, InfoSeg segs[3]) {
 							 info.has_ra ? info.next : NULL, false, segs);
 }
 
+// "N games" for the main menu's Consoles or Collections tile i ("" while unknown, and on other kinds or lists). A
+// collection's count is requested when it isn't known (latest request wins: call it for the selection last).
+static void tileCount(int i, char* out, size_t size) {
+	out[0] = '\0';
+	if (stack->count != 1 || i < 0 || i >= top->entries->count)
+		return;
+	Entry* e = top->entries->items[i];
+	TileKind k = kindFor(i, e);
+	if (k == TILE_LOGO)
+		GameInfo_gamesLabel(Content_consoleGameCount(e), out, size);
+	else if (k == TILE_COLLECTION)
+		GameInfo_gamesLabel(CollCount_get(e->path), out, size);
+}
+
 ///////////////////////////////////////
 // The tile cache
 
@@ -201,7 +217,8 @@ typedef struct {
 	bool used, lit;
 	int w, h, scale; // the tile (px, without the ring room) and FIXED_SCALE
 	char path[MAX_PATH];
-	Uint32 stamp; // what the tile shows (tileStamp)
+	Uint32 stamp;	// what the tile shows (tileStamp)
+	char count[32]; // the lit look's "N games" when it was composed ("" none or unknown)
 	unsigned lru;
 	SDL_Surface* surf; // (w + 2 room) × (h + 2 room), opaque
 } TileSlot;
@@ -227,8 +244,9 @@ static Uint32 fnvStr(Uint32 h, const char* s) {
 	return s ? fnv(h, s, strlen(s) + 1) : fnv(h, "\xff", 1); // NULL (no name while loading) differs from ""
 }
 
-// Everything Tiles_draw reads for a cached look (the lit caption, with the info, is drawn per frame instead).
-static Uint32 tileStamp(const TileSpec* t) {
+// Everything Tiles_draw reads for a cached look (the lit caption, with the info, is drawn per frame instead). The lit
+// look also shows the accent (the ring, or the Logo look's outline and content) and the count.
+static Uint32 tileStamp(const TileSpec* t, bool lit) {
 	Uint32 h = 2166136261u;
 	h = fnv(h, &t->kind, sizeof(t->kind));
 	h = fnv(h, &t->scale, sizeof(t->scale));
@@ -236,6 +254,12 @@ static Uint32 tileStamp(const TileSpec* t) {
 	h = fnvStr(h, t->logo_file);
 	h = fnvStr(h, t->icon_file);
 	h = fnv(h, &t->picture, sizeof(t->picture));
+	if (lit) {
+		SDL_Color ac = UI_accent();
+		Uint8 rgb[3] = {ac.r, ac.g, ac.b};
+		h = fnv(h, rgb, sizeof(rgb));
+		h = fnvStr(h, t->count && t->count[0] ? t->count : "");
+	}
 	return h;
 }
 
@@ -248,13 +272,15 @@ static void composeTile(SDL_Surface* s, int w, int h, const TileSpec* t, bool li
 	look.no_caption = true;
 	look.info = NULL;
 	look.ninfo = 0;
+	if (!lit)
+		look.count = NULL; // only the lit look shows it (a collection reserves its line either way)
 	Tiles_draw(s, (SDL_Rect){room, room, w, h}, &look, lit ? 1.0f : 0.0f);
 }
 
 // The tile's cached look (path + lit + size + scale), recomposed in place when what it shows changed. NULL when out
 // of memory.
 static SDL_Surface* cachedTile(const char* path, int w, int h, const TileSpec* t, bool lit) {
-	Uint32 stamp = tileStamp(t);
+	Uint32 stamp = tileStamp(t, lit);
 	int room = ringRoom();
 	TileSlot* victim = NULL;
 	for (int i = 0; i < TILE_CACHE_MAX; i++) {
@@ -267,6 +293,7 @@ static SDL_Surface* cachedTile(const char* path, int w, int h, const TileSpec* t
 		if (c->lit == lit && c->w == w && c->h == h && c->scale == (int)FIXED_SCALE && strcmp(c->path, path) == 0) {
 			if (c->stamp != stamp) {
 				c->stamp = stamp;
+				snprintf(c->count, sizeof(c->count), "%s", lit && t->count ? t->count : "");
 				composeTile(c->surf, w, h, t, lit);
 			}
 			c->lru = ++tile_lru;
@@ -296,9 +323,21 @@ static SDL_Surface* cachedTile(const char* path, int w, int h, const TileSpec* t
 	victim->scale = (int)FIXED_SCALE;
 	snprintf(victim->path, sizeof(victim->path), "%s", path);
 	victim->stamp = stamp;
+	snprintf(victim->count, sizeof(victim->count), "%s", lit && t->count ? t->count : "");
 	victim->lru = ++tile_lru;
 	composeTile(surf, w, h, t, lit);
 	return surf;
+}
+
+// The count a cached lit look of path at w×h already shows, or NULL (none cached, or composed without a known count).
+static const char* litCount(const char* path, int w, int h) {
+	for (int i = 0; i < TILE_CACHE_MAX; i++) {
+		const TileSlot* c = &tile_cache[i];
+		if (c->used && c->lit && c->w == w && c->h == h && c->scale == (int)FIXED_SCALE && c->count[0] &&
+			strcmp(c->path, path) == 0)
+			return c->count;
+	}
+	return NULL;
 }
 
 static void tileCacheClear(void) {
@@ -480,9 +519,7 @@ void GridView_render(SDL_Surface* screen, int lastScreen) {
 
 	int tw = NX_DPF(g.tile_w), th = NX_DPF(g.tile_h);
 	int row_y[2] = {NX_DPF(g.rows_top), NX_DPF(g.rows_top + g.tile_h + g.gap)};
-	float scale = g.tile_w / TILE_W_SPEC;
-	if (scale > 1.0f)
-		scale = 1.0f;
+	float scale = GridLayout_tileK(&g);
 
 	// the lit tiles' info first, the selection's last: GameInfo's queue keeps the latest request
 	InfoSeg prev_segs[3], sel_segs[3];
@@ -497,6 +534,11 @@ void GridView_render(SDL_Surface* screen, int lastScreen) {
 		if (kindFor(sel, e) == TILE_GAME)
 			sel_n = gameInfo(e, sel_segs);
 	}
+	// the main menu's "N games" on the lit tiles, the selection's last (CollCount's queue keeps the latest request)
+	char prev_count[32] = "", sel_count[32];
+	if (lit_tw.active && lit_prev >= 0 && lit_prev < n)
+		tileCount(lit_prev, prev_count, sizeof(prev_count));
+	tileCount(sel, sel_count, sizeof(sel_count));
 
 	fillBlack(screen, 0, bar + body_h, screen->w, screen->h - bar - body_h); // under the hint bar's scrim
 	SDL_Rect prev_clip;
@@ -519,9 +561,11 @@ void GridView_render(SDL_Surface* screen, int lastScreen) {
 			if (i == sel) {
 				t.info = sel_segs;
 				t.ninfo = sel_n;
+				t.count = sel_count;
 			} else if (i == lit_prev) {
 				t.info = prev_segs;
 				t.ninfo = prev_n;
+				t.count = prev_count;
 			}
 			if (drawTile(screen, ((Entry*)top->entries->items[i])->path, (SDL_Rect){x, row_y[row], tw, th}, &t, litAmount(i))) {
 				fillBlack(screen, cursor[row], row_y[row] - room, x - room - cursor[row], th + 2 * room);
@@ -563,6 +607,7 @@ void GridView_render(SDL_Surface* screen, int lastScreen) {
 		}
 		int step = g.sliding ? 2 : g.cols;
 		int around[4] = {sel - 1, sel + 1, sel - step, sel + step};
+		bool counted = false;
 		for (int k = 0; k < 4 && !more; k++) {
 			int i = around[k];
 			if (i < 0 || i >= n)
@@ -571,11 +616,24 @@ void GridView_render(SDL_Surface* screen, int lastScreen) {
 				more = true;
 				break;
 			}
-			char logo[64];
+			char logo[64], count[32];
 			TileSpec t;
 			tileSpec(i, tw, th, scale, &t, logo);
-			cachedTile(((Entry*)top->entries->items[i])->path, tw, th, &t, true);
+			// the lit look carries its count: the move then starts cached. A neighbour whose lit look already shows
+			// a known count reuses it (no CollCount stat each settled render); the selection always asks afresh.
+			const char* path = ((Entry*)top->entries->items[i])->path;
+			const char* known = litCount(path, tw, th);
+			if (known) {
+				snprintf(count, sizeof(count), "%s", known);
+			} else {
+				tileCount(i, count, sizeof(count));
+				counted = true;
+			}
+			t.count = count;
+			cachedTile(path, tw, th, &t, true);
 		}
+		if (counted)
+			tileCount(sel, sel_count, sizeof(sel_count)); // the selection's count stays the latest request
 		prefetch_pending = more;
 	}
 

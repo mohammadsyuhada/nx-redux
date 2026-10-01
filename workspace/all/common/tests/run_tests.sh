@@ -44,6 +44,8 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_menulogo ../..
 /tmp/nx_test_menulogo
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_ui_ease ../ui/ui_ease.c test_ui_ease.c -lm
 /tmp/nx_test_ui_ease
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -DUI_ACCENT_NO_SDL -o /tmp/nx_test_accent ../ui/ui_accent.c test_accent.c -lm
+/tmp/nx_test_accent
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_infoband_layout ../../nextui/infoband_layout.c test_infoband_layout.c
 /tmp/nx_test_infoband_layout
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_collcount_model ../../nextui/collcount_model.c test_collcount_model.c
@@ -57,7 +59,11 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_homeart_model 
 /tmp/nx_test_homeart_model
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_home_stats_model ../../nextui/home_stats_model.c test_home_stats_model.c
 /tmp/nx_test_home_stats_model
-cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_grid_layout ../../nextui/grid_layout.c test_grid_layout.c -lm
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_grid_layout ../../nextui/grid_layout.c ../../nextui/row_model.c test_grid_layout.c -lm
 /tmp/nx_test_grid_layout
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_row_model ../../nextui/row_model.c test_row_model.c -lm
 /tmp/nx_test_row_model
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_menustyle test_menustyle.c
+/tmp/nx_test_menustyle
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I../ui -o /tmp/nx_test_menu_transition ../../nextui/menu_transition.c ../ui/ui_ease.c test_menu_transition.c -lm
+/tmp/nx_test_menu_transition

@@ -7,13 +7,23 @@ typedef struct {
 	int band_top;	 // y where the band's fade starts
 	int text_top;	 // y of the text line
 	int text_h;		 // text line height
-	int band_bottom; // == screen_h - bar_h (top of the hint bar)
+	int band_bottom; // the band's bottom edge (fixed: inside the bar; InfoBand_layout: the hint bar's top)
+	int fill_bottom; // where the band's 80% fill stops: always the hint bar's top (screen_h - bar_h)
 	int arrow_x;	 // the arrows' x: the rows' text start (0 = the 14 dp list inset)
 } InfoBandLayout;
 
-// The List geometry for main-menu tabs and game lists. Rows end at the top of the text line (landscape rule):
+// The former game-list geometry, no longer used by nextui (game lists now use InfoBand_fixedLayout too); kept as the
+// host test's "before" reference. The band sits on the hint bar (band_bottom == fill_bottom == screen_h - bar_h), its
+// text line dp2 above the bar and dp12 of fade above that. Rows end at the top of the text line (landscape rule):
 // rows = (text_top - list_top) / row_h, floored, at least 1.
 InfoBandLayout InfoBand_layout(int screen_h, int bar_h, int list_top, int row_h, int text_h, int dp2, int dp12);
+
+// The List geometry (main-menu tabs and game lists alike; only list_top differs): a fixed band just above the hints,
+// whatever the list length. It is line_h + 2 * pad tall (18 dp line, 4 dp each side) with its bottom `inset` (12 dp)
+// inside the hint bar's empty top, so it draws over the bar; its fill stops at the bar's top (fill_bottom). Rows are
+// whole rows from list_top down to the band's top: rows = (band_top - list_top) / row_h, floored, at least 1, so no
+// part row reaches the gap above the arrows.
+InfoBandLayout InfoBand_fixedLayout(int screen_h, int bar_h, int list_top, int row_h, int line_h, int pad, int inset);
 
 #include <stddef.h>
 

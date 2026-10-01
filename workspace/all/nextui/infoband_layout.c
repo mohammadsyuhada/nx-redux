@@ -1,5 +1,7 @@
-// The List geometry under the info band. Bottom to top: the hint bar, dp2 of solid ground, the text line,
-// dp12 of fade. Pure, host-tested.
+// The List geometry under the info band: a fixed band reaching into the hint bar's empty top, for main-menu tabs and
+// game lists alike (InfoBand_fixedLayout). InfoBand_layout (the band on the bar, bottom to top: the hint bar, dp2 of
+// solid ground, the text line, dp12 of fade) is the former game-list geometry, kept as the tests' reference. Pure,
+// host-tested.
 
 #include "infoband_layout.h"
 
@@ -12,9 +14,26 @@ InfoBandLayout InfoBand_layout(int screen_h, int bar_h, int list_top, int row_h,
 	l.arrow_x = 0;
 	l.text_h = text_h;
 	l.band_bottom = screen_h - bar_h;
+	l.fill_bottom = l.band_bottom;
 	l.text_top = l.band_bottom - dp2 - text_h;
 	l.band_top = l.text_top - dp12;
 	l.rows = row_h > 0 ? (l.text_top - list_top) / row_h : 1;
+	if (l.rows < 1)
+		l.rows = 1;
+	return l;
+}
+
+InfoBandLayout InfoBand_fixedLayout(int screen_h, int bar_h, int list_top, int row_h, int line_h, int pad,
+									int inset) {
+	InfoBandLayout l;
+	l.list_top = list_top;
+	l.arrow_x = 0;
+	l.text_h = line_h;
+	l.fill_bottom = screen_h - bar_h;
+	l.band_bottom = l.fill_bottom + inset;
+	l.band_top = l.band_bottom - (line_h + 2 * pad);
+	l.text_top = l.band_top + pad;
+	l.rows = row_h > 0 ? (l.band_top - list_top) / row_h : 1;
 	if (l.rows < 1)
 		l.rows = 1;
 	return l;

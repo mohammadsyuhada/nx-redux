@@ -432,7 +432,8 @@ static Array* pathToStack(const char* path) {
 	// Always include the tab's root directory
 	Directory* root_dir = Directory_new((char*)MenuTabs_path(tab), 0);
 	root_dir->start = 0;
-	int root_rows = GameList_rowCount();
+	int root_rows = GameList_rowCountAt(true);
+	int list_rows = GameList_rowCountAt(false); // a directory below the root is a game list (its own header)
 	root_dir->end = (root_dir->entries->count < root_rows) ? root_dir->entries->count : root_rows;
 	Array_push(array, root_dir);
 	MenuTabs_setCurrent(tab);
@@ -480,16 +481,17 @@ static Array* pathToStack(const char* path) {
 				Array_pop(array);
 				Directory_free(last); // assuming you have a Directory_free
 
-				// Replace with updated one using combined path
+				// Replace with updated one using combined path (the root's rows when it replaces the root)
 				Directory* merged = Directory_new(temp_path, 0);
+				int rows = array->count == 0 ? root_rows : list_rows;
 				merged->start = 0;
-				merged->end = (merged->entries->count < root_rows) ? merged->entries->count : root_rows;
+				merged->end = (merged->entries->count < rows) ? merged->entries->count : rows;
 				Array_push(array, merged);
 			}
 		} else {
 			Directory* dir = Directory_new(temp_path, 0);
 			dir->start = 0;
-			dir->end = (dir->entries->count < root_rows) ? dir->entries->count : root_rows;
+			dir->end = (dir->entries->count < list_rows) ? dir->entries->count : list_rows;
 			Array_push(array, dir);
 		}
 
@@ -541,7 +543,7 @@ void openDirectory(char* path, int auto_launch) {
 		}
 
 		top = Directory_new(path, selected);
-		int rc = GameList_rowCount();
+		int rc = GameList_rowCountAt(!stack || stack->count == 0); // pushed next: a root when the stack is empty
 		int count = top->entries->count;
 		if (selected >= count || end > count) {
 			// saved state can outlive the listing it described (entries
@@ -636,7 +638,7 @@ void saveLast(char* path) {
 // (a system tool pak is saved SD-shaped, TOOLS_PATH/<name>, so match on the name too).
 static void restoreToolsOverTab(const char* last_path) {
 	Directory* tools = Directory_new(TOOLS_PATH, 0);
-	int rc = GameList_rowCount();
+	int rc = GameList_rowCountAt(false);
 	int count = tools->entries->count;
 	const char* name = strrchr(last_path, '/');
 	char paks_tools_path[MAX_PATH];

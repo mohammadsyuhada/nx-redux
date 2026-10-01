@@ -30,8 +30,11 @@ void GridLayout_compute(float screen_w, float body_top, float body_h, int n, Gri
 	g->tile_w = g->tile_h * TILE_W_CAP / TILE_H_CAP;
 	int cols = (int)floorf((screen_w - 2 * GUTTER + GAP) / (g->tile_w + GAP));
 	g->cols = cols < 1 ? 1 : cols;
-	g->rows_top = maxf(body_top + RING_ROOM, body_top + (body_h - (2 * g->tile_h + GAP)) / 2);
 	g->sliding = g->n > 2 * g->cols;
+	// a still grid centres the rows it fills (one row of tools sits at the body's centre); a sliding one keeps both
+	g->rows = (g->sliding || g->n > g->cols) ? 2 : 1;
+	float block_h = g->rows * g->tile_h + (g->rows - 1) * GAP;
+	g->rows_top = maxf(body_top + RING_ROOM, body_top + (body_h - block_h) / 2);
 	g->frame_x0 = g->sliding ? 0 : (screen_w - (g->cols * g->tile_w + (g->cols - 1) * GAP)) / 2;
 }
 
@@ -179,4 +182,47 @@ int GridLayout_bottomOf(const GridLayout* g, int index) {
 	if (!g->sliding && g->n > g->cols)
 		return g->n - 1;
 	return i;
+}
+
+float GridLayout_tileK(const GridLayout* g) {
+	return minf(1.0f, g->tile_w / TILE_W_CAP);
+}
+
+float GridLayout_countSp(float spec_sp, float tile_k) {
+	return maxf(GRID_COUNT_MIN_SP, spec_sp * tile_k);
+}
+
+float GridLayout_logoCountY(float tile_y, float tile_h, float drawn_h, float gap) {
+	return tile_y + tile_h / 2 + drawn_h / 2 + gap;
+}
+
+GridCollText GridLayout_collText(int tile_h, int lines, int line_h, int gap, int count_h) {
+	lines = lines < 1 ? 1 : (lines > GRID_COLL_LINES ? GRID_COLL_LINES : lines);
+	GridCollText t;
+	t.name_h = lines * line_h;
+	t.block_h = t.name_h + gap + count_h;
+	t.name_y = (tile_h - t.block_h) / 2;
+	t.count_y = t.name_y + t.name_h + gap;
+	return t;
+}
+
+int GridLayout_wordMaxLines(int tile_h, int pad, int line_h, int gap, int count_h, int edge, int max_lines) {
+	if (line_h <= 0 || max_lines < 1)
+		return 1;
+	int n = (tile_h - 2 * pad) / line_h;
+	if (n > max_lines)
+		n = max_lines;
+	// centred: half the name, the gap and the count line below the tile's middle, clear of the edge
+	while (count_h > 0 && n > 1 && n * line_h + 2 * (gap + count_h + edge) > tile_h)
+		n--;
+	return n < 1 ? 1 : n;
+}
+
+int GridLayout_wordTop(int tile_h, int lines, int line_h) {
+	return (tile_h - lines * line_h) / 2;
+}
+
+int GridLayout_collMaxLines(int avail_h, int line_h, int gap, int count_h) {
+	int n = line_h > 0 ? (avail_h - gap - count_h) / line_h : 1;
+	return n < 1 ? 1 : (n > GRID_COLL_LINES ? GRID_COLL_LINES : n);
 }

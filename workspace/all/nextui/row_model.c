@@ -33,11 +33,14 @@ RowSizes Row_sizes(RowKind k, float body_w, float body_h) {
 		s.item_h = h, s.item_w = h * 170.0f / 150.0f, s.gap = 28 * f;
 		break;
 	}
-	case ROW_BACKDROP_LOGO:
+	case ROW_BACKDROP_LOGO: // the main-menu Consoles' logo slot: side logos shrink further, so the selected one stands out
 		s.item_w = 330 * f, s.item_h = 130 * f, s.scale = 0.45f, s.gap = 28 * f;
 		break;
 	case ROW_BACKDROP_TOOL:
 		s.item_w = 150 * f, s.item_h = 160 * f, s.gap = 14 * f;
+		break;
+	case ROW_BACKDROP_COLL: // the tool slot, with side items at half size: the selected name reads 2x its neighbours
+		s.item_w = 150 * f, s.item_h = 160 * f, s.scale = 0.5f, s.gap = 14 * f;
 		break;
 	}
 	return s;
@@ -84,6 +87,50 @@ void Row_visibleRange(int n, float pos, int* first, int* last) {
 float Row_top(float body_top, float body_h, float row_h, float room, float caption_gap, float caption_h) {
 	float block = room + row_h + room + (caption_h > 0 ? caption_gap + caption_h : 0);
 	return body_top + maxf(0.0f, (body_h - block) / 2) + room;
+}
+
+float Row_containH(float box_w, float box_h, float aspect) {
+	if (!(aspect > 0))
+		return box_h;
+	return minf(box_h, box_w / aspect);
+}
+
+float Row_logoCountY(float row_cy, float drawn_h, float gap) {
+	return row_cy + drawn_h / 2 + gap;
+}
+
+float Row_countSp(float k) {
+	return maxf(ROW_COUNT_MIN_SP, ROW_COUNT_SP * k);
+}
+
+float Row_collNameFloor(float start_sp, float count_sp) {
+	return maxf(ROW_COLL_NAME_FLOOR * start_sp, ROW_COLL_NAME_OVER_COUNT * count_sp);
+}
+
+float Row_collNameSp(float start_sp, float word_w, float avail, float count_sp) {
+	float floor_sp = Row_collNameFloor(start_sp, count_sp);
+	if (!(start_sp > 0) || !(avail > 0))
+		return maxf(start_sp, floor_sp);
+	// start_sp itself, then whole-sp steps (Tiles_fitWordsSp's sequence: no fractional font sizes below the start)
+	for (float sp = start_sp; sp > floor_sp; sp = (sp == start_sp) ? ceilf(start_sp) - 1.0f : sp - 1.0f) {
+		if (word_w * sp / start_sp <= avail)
+			return sp;
+	}
+	return floor_sp;
+}
+
+int Row_lineStep(int font_px, float line) {
+	return (int)floorf(font_px * line + 0.5f);
+}
+
+RowCollText Row_collText(int slot_h, int lines, int line_h, int gap, int count_h) {
+	lines = lines < 1 ? 1 : (lines > ROW_COLL_LINES ? ROW_COLL_LINES : lines);
+	RowCollText t;
+	t.name_h = lines * line_h;
+	t.block_h = t.name_h + gap + count_h;
+	t.name_y = (slot_h - t.block_h) / 2;
+	t.count_y = t.name_y + t.name_h + gap;
+	return t;
 }
 
 // Fritsch–Carlson monotone cubic through the shade keys.

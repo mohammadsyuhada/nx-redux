@@ -18,8 +18,10 @@
 #include "gamelist.h"
 #include "home.h"
 #include "launcher.h"
+#include "menu_transition.h"
 #include "recents.h"
 #include "shortcuts.h"
+#include "ui_accent.h"
 #include "ui_ease.h"
 #include "ui_list.h"
 
@@ -128,7 +130,7 @@ MenuTabId MenuTabs_forPathVisible(const char* path) {
 static Directory* buildRoot(MenuTabId id, int selected, int start, int end) {
 	Directory* dir = Directory_new((char*)MenuTabs_path(id), 0);
 	int count = dir->entries->count;
-	int rc = GameList_rowCount();
+	int rc = GameList_rowCountAt(true);
 	if (selected < 0 || selected >= count || end > count || start < 0 || start > selected ||
 		(end && selected >= end)) {
 		selected = 0;
@@ -205,7 +207,7 @@ void MenuTabs_reload(int keep_selected) {
 	if (sel >= n)
 		sel = n > 0 ? n - 1 : 0;
 	fresh->selected = sel < 0 ? 0 : sel;
-	int rc = GameList_rowCount();
+	int rc = GameList_rowCountAt(true);
 	if (fresh->selected >= fresh->end && n > rc) { // same windowing as reloadDirectoryAt
 		fresh->end = fresh->selected + 1;
 		fresh->start = fresh->end - rc;
@@ -334,21 +336,20 @@ MenuTabId MenuTabs_initialTab(const char* last_path) {
 // current label wears the selection plate (12 dp past the word each side, 5 dp
 // above and below) and the underline hides; the words keep their positions.
 
-#define TAB_LABEL_GAP NX_DP(20)	   // pixels between labels
-#define TAB_UNDERLINE_H NX_DP(3)   // underline height in pixels
-#define TAB_EDGE NX_DP(16)		   // scroll margin + edge fade width
-#define TAB_PLATE_PAD_X NX_DP(12)  // the plate past the word, each side
-#define TAB_PLATE_PAD_Y NX_DP(5)   // and above and below
-#define TAB_DIM_ALPHA 97		   // 38%: labels of the other tabs
-#define TAB_DIM_ALPHA_OVER_ART 158 // 62%: the same over a Backdrop picture
-#define TAB_SHADOW_ALPHA 153	   // the dark shadow over a picture: black at 60%
-#define TAB_GLIDE_MS 240		   // underline glide, eased with UI_easeStandard
+#define TAB_LABEL_GAP NX_DP(20)	  // pixels between labels
+#define TAB_UNDERLINE_H NX_DP(3)  // underline height in pixels
+#define TAB_EDGE NX_DP(16)		  // scroll margin + edge fade width
+#define TAB_PLATE_PAD_X NX_DP(12) // the plate past the word, each side
+#define TAB_PLATE_PAD_Y NX_DP(5)  // and above and below
+#define TAB_DIM_ALPHA 97		  // 38%: labels of the other tabs
+#define TAB_GLIDE_MS 240		  // underline glide, eased with UI_easeStandard
 
 // Underline glide (strip coordinates). Position = lerp(from, to, UI_easeStandard(elapsed / 240 ms)).
 static struct {
 	int from_x, from_w, to_x, to_w;
 	Uint32 start_ms;
 	bool active;
+	bool first; // started on the last drawn frame: the next one rebases start_ms (underlineRebase)
 } ul;
 static int ul_tab = -1; // MenuTabId last targeted: only a tab change glides
 
@@ -359,37 +360,8 @@ static struct {
 	int off, cur, count, w, h;
 	MenuTabId ids[MENU_TAB_COUNT];
 	int scale;
-	bool over_art, focused; // focused: the current label is left out (the plate draws it)
+	bool focused; // the current label is left out (the plate draws it)
 } strip;
-
-// A Backdrop picture is under the row (§8b.4): brighter inactive labels and dark shadows.
-static bool over_art = false;
-
-void MenuTabs_setOverArt(bool on) {
-	over_art = on;
-}
-
-// Blit src (a white mask) with the dark shadow under it: the same surface tinted black at 60% of its own alpha
-// mod, SCALE1(1) right and down. The surface's mods are restored.
-static void blitShadowed(SDL_Surface* src, SDL_Surface* dst, int x, int y) {
-	Uint8 r, g, b, a;
-	SDL_GetSurfaceColorMod(src, &r, &g, &b);
-	SDL_GetSurfaceAlphaMod(src, &a);
-	SDL_SetSurfaceColorMod(src, 0, 0, 0);
-	SDL_SetSurfaceAlphaMod(src, (Uint8)(a * TAB_SHADOW_ALPHA / 255));
-	SDL_BlitSurface(src, NULL, dst, &(SDL_Rect){x + SCALE1(1), y + SCALE1(1)});
-	SDL_SetSurfaceColorMod(src, r, g, b);
-	SDL_SetSurfaceAlphaMod(src, a);
-	SDL_BlitSurface(src, NULL, dst, &(SDL_Rect){x, y});
-}
-
-// The label strip: with the dark shadow over a picture, plain otherwise.
-static void blitRowPart(SDL_Surface* src, SDL_Surface* dst, int x, int y) {
-	if (over_art)
-		blitShadowed(src, dst, x, y);
-	else
-		SDL_BlitSurface(src, NULL, dst, &(SDL_Rect){x, y});
-}
 
 // Label strip layout for one font: label x/width per visible tab (strip x 0
 // = the first label's left edge); returns the strip's width.
@@ -426,8 +398,7 @@ static void fadeColumns(SDL_Surface* s, int x0, int n, bool rising) {
 
 static bool stripMatches(TTF_Font* f, int off, int cur, int w, int h) {
 	if (!strip.surf || strip.font != f || strip.off != off || strip.cur != cur || strip.count != tab_count ||
-		strip.w != w || strip.h != h || strip.scale != FIXED_SCALE || strip.over_art != over_art ||
-		strip.focused != focused)
+		strip.w != w || strip.h != h || strip.scale != FIXED_SCALE || strip.focused != focused)
 		return false;
 	return memcmp(strip.ids, tabs, sizeof(MenuTabId) * tab_count) == 0;
 }
@@ -458,7 +429,7 @@ static SDL_Surface* labelStrip(TTF_Font* f, const int* xs, int labels_w, int off
 			SDL_BlitSurface(text, NULL, s, &dst);
 		} else {
 			// The text cache is shared: dim for this blit only.
-			SDL_SetSurfaceAlphaMod(text, over_art ? TAB_DIM_ALPHA_OVER_ART : TAB_DIM_ALPHA);
+			SDL_SetSurfaceAlphaMod(text, TAB_DIM_ALPHA);
 			SDL_BlitSurface(text, NULL, s, &dst);
 			SDL_SetSurfaceAlphaMod(text, 255);
 		}
@@ -477,7 +448,6 @@ static SDL_Surface* labelStrip(TTF_Font* f, const int* xs, int labels_w, int off
 	strip.w = band_w;
 	strip.h = bar_h;
 	strip.scale = FIXED_SCALE;
-	strip.over_art = over_art;
 	strip.focused = focused;
 	memcpy(strip.ids, tabs, sizeof(MenuTabId) * tab_count);
 	return s;
@@ -503,19 +473,44 @@ static void underlineSnap(int x, int w) {
 	ul.from_x = ul.to_x = x;
 	ul.from_w = ul.to_w = w;
 	ul.active = false;
+	ul.first = false;
 }
 
-// The selection plate around the current label (pw x ph px): a white pill (radius = half its height, anti-aliased by
-// coverage) with the label in black, composed once and cached per label, size and font.
+// The glide's second frame. Its first one also built the new tab's body, which can take long when the tab has
+// another layout (a Carousel or Grid builds its items on its first frame): count from one frame before now, so the
+// underline moves on screen from where it started instead of jumping to its end (menu_transition.h).
+static void underlineRebase(void) {
+	if (!ul.active || !ul.first)
+		return;
+	ul.first = false;
+	ul.start_ms = MenuTransition_rebaseStart(ul.start_ms, SDL_GetTicks(), MENU_TRANSITION_FRAME_MS);
+}
+
+// The accent's RGB, opaque (only the List pill wears Color 1's opacity).
+static Uint32 accentOpaque(const SDL_PixelFormat* fmt) {
+	SDL_Color ac = UI_accent();
+	return SDL_MapRGB(fmt, ac.r, ac.g, ac.b);
+}
+
+// The selection plate around the current label (pw x ph px): an accent pill (radius = half its height, anti-aliased by
+// coverage) with the label in the accent's ink, composed once and cached per label, size, font and accent.
 static struct {
 	SDL_Surface* surf;
 	TTF_Font* font;
 	MenuTabId id;
 	int w, h, scale;
+	uint64_t key; // the accent and its ink
 } plate;
 
 static SDL_Surface* plateSurface(TTF_Font* f, MenuTabId id, int pw, int ph, int pad_y) {
-	if (plate.surf && plate.font == f && plate.id == id && plate.w == pw && plate.h == ph && plate.scale == FIXED_SCALE)
+	SDL_Color ac = UI_accent(), ink = UI_onAccent(); // opaque here: only the List pill wears Color 1's opacity
+	uint32_t accent = ((uint32_t)ac.r << 16) | ((uint32_t)ac.g << 8) | ac.b;
+	// GFX_getCachedText keys its cache on the colour including alpha, so the ink is forced to a=255: one cached label
+	// whatever Color 5's opacity, drawn opaque like the plate.
+	ink.a = 255;
+	uint64_t key = ((uint64_t)accent << 24) | ((uint32_t)ink.r << 16) | ((uint32_t)ink.g << 8) | ink.b;
+	if (plate.surf && plate.font == f && plate.id == id && plate.w == pw && plate.h == ph && plate.scale == FIXED_SCALE &&
+		plate.key == key)
 		return plate.surf;
 	if (plate.surf)
 		SDL_FreeSurface(plate.surf);
@@ -535,13 +530,13 @@ static SDL_Surface* plateSurface(TTF_Font* f, MenuTabId id, int pw, int ph, int 
 				float dx = cx < x0 ? x0 - cx : (cx > x1 ? cx - x1 : 0.0f);
 				float cover = r - sqrtf(dx * dx + cy * cy) + 0.5f;
 				Uint32 a = cover >= 1.0f ? 255 : (cover <= 0.0f ? 0 : (Uint32)(cover * 255.0f + 0.5f));
-				row[x] = (a << 24) | 0x00ffffff; // white: the label blends onto it
+				row[x] = (a << 24) | accent; // the accent: the label blends onto it
 			}
 		}
 		SDL_UnlockSurface(s);
 	}
 	SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
-	SDL_Surface* text = GFX_getCachedText(f, MenuTabs_label(id), (SDL_Color){0, 0, 0, 255});
+	SDL_Surface* text = GFX_getCachedText(f, MenuTabs_label(id), ink);
 	if (text)
 		SDL_BlitSurface(text, NULL, s, &(SDL_Rect){TAB_PLATE_PAD_X, pad_y});
 	plate.surf = s;
@@ -550,6 +545,7 @@ static SDL_Surface* plateSurface(TTF_Font* f, MenuTabId id, int pw, int ph, int 
 	plate.w = pw;
 	plate.h = ph;
 	plate.scale = FIXED_SCALE;
+	plate.key = key;
 	return s;
 }
 
@@ -585,12 +581,15 @@ void MenuTabs_renderRow(SDL_Surface* screen, int ow) {
 	SDL_SetClipRect(screen, &(SDL_Rect){band_x, 0, band_w, bar_h});
 
 	SDL_Surface* labels = labelStrip(f, xs, labels_w, off, cur, band_w, bar_h, band_h);
-	if (labels) // over a picture the whole strip casts the shadow: the labels, their dimming and the edge fades
-		blitRowPart(labels, screen, band_x, 0);
+	if (labels)
+		SDL_BlitSurface(labels, NULL, screen, &(SDL_Rect){band_x, 0});
 
 	// Underline: a tab change glides (x + width) from where it is drawn now; the
 	// same tab moving (a relabel or rescale) snaps, and so does a change on the
-	// focused row (the plate jumps, the hidden underline follows).
+	// focused row (the plate jumps, the hidden underline follows). The glide is
+	// the row's own: whatever layout the old and new tabs' bodies use, it runs
+	// on (underlineRebase keeps a slow first body frame from eating it).
+	underlineRebase();
 	if (ul_tab != (int)current || cur_x != ul.to_x) {
 		bool tab_changed = ul_tab >= 0 && ul_tab != (int)current;
 		if (tab_changed && CFG_getMenuAnimations() && !tf) {
@@ -602,6 +601,7 @@ void MenuTabs_renderRow(SDL_Surface* screen, int ow) {
 			ul.to_w = cur_w;
 			ul.start_ms = SDL_GetTicks();
 			ul.active = true;
+			ul.first = true;
 		} else {
 			underlineSnap(cur_x, cur_w);
 		}
@@ -639,7 +639,7 @@ void MenuTabs_renderRow(SDL_Surface* screen, int ow) {
 		int ux, uw;
 		underlineNow(&ux, &uw);
 		SDL_FillRect(screen, &(SDL_Rect){base + ux, bar_h - TAB_UNDERLINE_H - SCALE1(2), uw, TAB_UNDERLINE_H},
-					 SDL_MapRGB(screen->format, 255, 255, 255));
+					 accentOpaque(screen->format));
 	}
 
 	SDL_SetClipRect(screen, &prev_clip);
@@ -658,6 +658,7 @@ bool MenuTabs_animating(void) {
 		underlineSnap(ul.to_x, ul.to_w);
 		return false;
 	}
+	underlineRebase(); // before the time-up check: a slow first frame must not end the glide
 	if (SDL_GetTicks() - ul.start_ms >= TAB_GLIDE_MS)
 		underlineSnap(ul.to_x, ul.to_w);
 	return true;

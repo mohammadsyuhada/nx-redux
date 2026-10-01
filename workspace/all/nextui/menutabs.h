@@ -56,12 +56,9 @@ bool MenuTabs_focused(void);
 void MenuTabs_setFocused(bool focused);
 // The content's own highlight while the tab row has focus: 0.4, else 1 (the lit tile, the List pill, the captions).
 float MenuTabs_contentLit(void);
-// Tab row (Task 5) and its glide. While focused, the current label wears the selection plate (white pill, black text)
+// Tab row (Task 5) and its glide. While focused, the current label wears the selection plate (accent pill, onAccent text)
 // and the underline hides.
 void MenuTabs_renderRow(SDL_Surface* screen, int ow);
-// Over a Backdrop picture (§8b.4; nextui.c sets it before each MenuTabs_renderRow): inactive labels at 62% and the
-// labels with the dark shadow (black 60%, SCALE1(1) offset). Off: the plain row.
-void MenuTabs_setOverArt(bool over_art);
 bool MenuTabs_animating(void);
 // Read-only (never ticks): the underline is mid-glide at the root. For checks later in a frame
 // (upload deferral) that must not consume MenuTabs_animating()'s one settled-frame "true".

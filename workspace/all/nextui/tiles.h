@@ -19,6 +19,9 @@ typedef struct {
 	const InfoSeg* info;   // lit game/title caption info (count-only segments), may be NULL
 	int ninfo;
 	float scale; // tile_w / 140: insets and text scale with the tile (never above 1)
+	// The Grid's selected console or collection: "N games" in the accent (NULL or "" = no line). Only the lit look
+	// draws it; a collection reserves its line either way.
+	const char* count;
 	// The Carousel's look (§8b.3): a tool's icon at 30% of the tile height and its name at 20 sp × tile_w / 340
 	// (capped so "Achievements" fits); a lit game shows only its ring (the caption sits under the row instead).
 	bool carousel;
@@ -27,7 +30,9 @@ typedef struct {
 	bool no_caption;
 } TileSpec;
 
-// lit 0..1 crossfades plain → lit (fill for LOGO/TOOL/COLLECTION; ring + caption for GAME/TITLE).
+// lit 0..1 crossfades plain → lit: GAME/TITLE get the 3 dp accent ring + caption; the Grid's LOGO/TOOL/COLLECTION the
+// "Logo" look (a 1.5 dp outline at 70% accent, the content in the accent, the count); the Carousel's fill (white, black
+// content).
 // Everything is blitted, so it honours dst's clip rect. The game ring sits 3 dp outside r.
 void Tiles_draw(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float lit);
 // Only the lit caption of a game or title tile (not the Carousel's) at r, at the lit amount: the cached caption
@@ -51,6 +56,10 @@ float Tiles_fitWordsSp(const char* text, float sp_max, float sp_min, bool bold, 
 // height); a NULL dst only measures.
 int Tiles_textBlock(SDL_Surface* dst, TTF_Font* f, const char* text, int cx, int y, int max_w, int max_lines,
 					bool camel_split, Uint8 grey, Uint8 alpha, bool shadow);
+// The same with each line in a line_h px box (the glyphs centred in it; 0 = the font's height): a CSS line height
+// (Collections' 1.15). Returns lines × line_h.
+int Tiles_textBlockStep(SDL_Surface* dst, TTF_Font* f, const char* text, int cx, int y, int max_w, int max_lines,
+						bool camel_split, Uint8 grey, Uint8 alpha, bool shadow, int line_h);
 // Free the cached shape masks, captions and scratch surface.
 void Tiles_quit(void);
 

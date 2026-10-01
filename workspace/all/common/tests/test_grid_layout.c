@@ -1,4 +1,5 @@
 #include "../../nextui/grid_layout.h"
+#include "../../nextui/row_model.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -122,8 +123,163 @@ static void tab_focus_rows(void) {
 	assert(GridLayout_isTopRow(&g, 0) && GridLayout_bottomOf(&g, 0) == 0);
 }
 
+// The two screens in dp (px / (FIXED_SCALE × 30/42)): the Brick 1024×768 at 3, the Smart Pro S 1280×720 at 2.
+#define BRICK_W (1024.0f / (3 * 30.0f / 42.0f))
+#define BRICK_H (768.0f / (3 * 30.0f / 42.0f))
+#define SPS_W (1280.0f / (2 * 30.0f / 42.0f))
+#define SPS_H (720.0f / (2 * 30.0f / 42.0f))
+
+static float rowsCentre(const GridLayout* g) {
+	return g->rows_top + (g->rows * g->tile_h + (g->rows - 1) * g->gap) / 2;
+}
+
+// Sub-project 8: a still grid centres the rows it uses; a sliding grid keeps both rows as before. The same geometry
+// serves the main menu and the game lists (GridView_render computes every Grid through GridLayout_compute).
+static void still_centring(void) {
+	GridLayout g;
+	float brick_mid = BAR + (BRICK_H - 2 * BAR) / 2, sps_mid = BAR + (SPS_H - 2 * BAR) / 2; // 179.2, 252.0
+	// Brick: tile 117.3 × 129, 3 columns
+	make(BRICK_W, BRICK_H, 3, &g); // one full row (3 tools)
+	assert(g.cols == 3 && !g.sliding && g.rows == 1);
+	assert(near(g.tile_h, 129) && near(g.rows_top, 114.7f) && near(rowsCentre(&g), brick_mid));
+	make(BRICK_W, BRICK_H, 1, &g); // one tile
+	assert(g.rows == 1 && near(g.rows_top, 114.7f));
+	make(BRICK_W, BRICK_H, 4, &g); // 4 tools: 3 + 1, the two rows centred as a block
+	assert(!g.sliding && g.rows == 2 && near(g.rows_top, 43.2f) && near(rowsCentre(&g), brick_mid));
+	make(BRICK_W, BRICK_H, 7, &g); // sliding: unchanged (both rows, ring room above)
+	assert(g.sliding && g.rows == 2 && near(g.rows_top, BAR + 4) && near(g.rows_top, 43.2f));
+	// SPS: tile 140 × 154, 5 columns
+	make(SPS_W, SPS_H, 4, &g); // 4 collections: one row at the body's centre
+	assert(g.cols == 5 && g.rows == 1 && near(g.rows_top, 175.0f) && near(rowsCentre(&g), sps_mid));
+	make(SPS_W, SPS_H, 5, &g);
+	assert(g.rows == 1 && near(g.rows_top, 175.0f));
+	make(SPS_W, SPS_H, 7, &g); // 5 + 2
+	assert(!g.sliding && g.rows == 2 && near(g.rows_top, 91.0f) && near(rowsCentre(&g), sps_mid));
+	make(SPS_W, SPS_H, 11, &g); // sliding: as before
+	assert(g.sliding && g.rows == 2 && near(g.rows_top, 91.0f));
+	make(SPS_W, SPS_H, 40, &g);
+	assert(g.sliding && near(g.rows_top, 91.0f));
+}
+
+// The selected tile's "N games" and a collection's name, at the Grid tile scale k (tile_w / 140).
+static void counts_and_names(void) {
+	GridLayout g;
+	make(BRICK_W, BRICK_H, 9, &g);
+	float kb = GridLayout_tileK(&g);
+	assert(fabsf(kb - 117.2727f / 140) < 0.001f); // 0.838
+	make(SPS_W, SPS_H, 9, &g);
+	float ks = GridLayout_tileK(&g);
+	assert(near(ks, 1.0f));
+	make(717, 538, 9, &g); // capped tile: never above 1
+	assert(near(GridLayout_tileK(&g), 1.0f));
+	// Consoles 13 sp, Collections 14 sp, × k, floored at 10 sp
+	assert(fabsf(GridLayout_countSp(GRID_LOGO_COUNT_SP, kb) - 10.89f) < 0.01f);
+	assert(fabsf(GridLayout_countSp(GRID_COLL_COUNT_SP, kb) - 11.73f) < 0.01f);
+	assert(near(GridLayout_countSp(GRID_LOGO_COUNT_SP, ks), 13) && near(GridLayout_countSp(GRID_COLL_COUNT_SP, ks), 14));
+	assert(near(GridLayout_countSp(GRID_LOGO_COUNT_SP, 0.5f), 10)); // a small tile keeps the floor
+	// the name: 20 sp × k, its floor max(0.75 × start, 1.25 × count) (Row_collNameSp's rule)
+	float sb = GRID_COLL_NAME_SP * kb, ss = GRID_COLL_NAME_SP * ks; // 16.75, 20
+	float cb = GridLayout_countSp(GRID_COLL_COUNT_SP, kb), cs = GridLayout_countSp(GRID_COLL_COUNT_SP, ks);
+	assert(fabsf(Row_collNameFloor(sb, cb) - 14.66f) < 0.01f && near(Row_collNameFloor(ss, cs), 17.5f));
+	assert(near(Row_collNameSp(sb, 150, 200, cb), sb));				  // a word that fits keeps the start
+	assert(near(Row_collNameSp(ss, 180, 170, cs), 18.0f));			  // 20 → 19 (171 px) → 18 (162 px)
+	assert(fabsf(Row_collNameSp(sb, 400, 200, cb) - 14.66f) < 0.01f); // too wide: the floor, then it wraps
+	assert(Row_collNameSp(sb, 400, 200, cb) >= 1.25f * cb - 0.001f);  // the name never reads smaller than its count
+	// Consoles: the count's top 6 dp under the logo as drawn, the logo centred in the tile (Brick, dp)
+	assert(near(GridLayout_logoCountY(43.2f, 129, 20, 6), 43.2f + 64.5f + 10 + 6));
+	assert(GridLayout_logoCountY(0, 129, 40, 6) > GridLayout_logoCountY(0, 129, 20, 6));
+}
+
+// A collection tile's text block (px): name lines + 4 dp + the reserved count line, centred in the tile.
+static void collection_text(void) {
+	// Brick: tile 276 px, name 43 px (16.75 sp) step 49, gap 9, count 30 px (11.73 sp), pad 25 px
+	assert(GridLayout_collMaxLines(276 - 2 * 25, 49, 9, 30) == 3);
+	GridCollText t = GridLayout_collText(276, 2, 49, 9, 30);
+	assert(t.name_y == 69 && t.name_h == 98 && t.count_y == 176 && t.block_h == 137);
+	t = GridLayout_collText(276, 1, 49, 9, 30);
+	assert(t.name_y == 94 && t.count_y == 152);
+	// SPS: tile 220 px, name 34 px (20 sp) step 39, gap 6, count 24 px (14 sp), pad 20 px
+	assert(GridLayout_collMaxLines(220 - 2 * 20, 39, 6, 24) == 3);
+	t = GridLayout_collText(220, 3, 39, 6, 24);
+	assert(t.name_y == 36 && t.name_h == 117 && t.count_y == 159 && t.block_h == 147);
+	t = GridLayout_collText(220, 5, 39, 6, 24); // clamps to 3 lines
+	assert(t.name_h == 117);
+	t = GridLayout_collText(220, 1, 39, 6, 24);
+	assert(t.name_y == 75 && t.count_y == 120);
+	// the reserved line keeps the group inside the tile; a cramped tile still shows one line
+	assert(t.name_y >= 0 && t.count_y + 24 <= 220);
+	assert(GridLayout_collMaxLines(40, 39, 6, 24) == 1);
+}
+
+// A game list's Grid centres in the body under the game-list header (GameList listTopAt(false): the strip
+// SCALE1(BUTTON_SIZE + 2 × BUTTON_MARGIN) = 28 logical px, in dp at each device scale), not only under BAR/BAR: the
+// rows' centre follows body_top + body_h / 2 for any body, symmetric or not.
+static void game_list_centring(void) {
+	GridLayout g;
+	const int scales[2] = {3, 2};
+	const float sw[2] = {BRICK_W, SPS_W}, sh[2] = {BRICK_H, SPS_H};
+	for (int i = 0; i < 2; i++) {
+		float px_per_dp = scales[i] * 30.0f / 42.0f;
+		float header = (16 + 2 * 6) * scales[i] / px_per_dp; // the game-list header strip, dp
+		assert(near(header, BAR));
+		float body_h = sh[i] - header - BAR; // header above, hint bar below
+		make(sw[i], sh[i], 2, &g);
+		GridLayout h;
+		GridLayout_compute(sw[i], header, body_h, 2, &h); // one still row of two games
+		assert(h.rows == 1 && near(rowsCentre(&h), header + body_h / 2) && near(h.rows_top, g.rows_top));
+		GridLayout_compute(sw[i], header, body_h, h.cols + 1, &h); // two still rows
+		assert(h.rows == 2 && near(rowsCentre(&h), header + body_h / 2));
+		// an asymmetric body (header 39.2 dp on top, 60 dp off the bottom): still centred on its own middle
+		float abody = sh[i] - header - 60;
+		GridLayout_compute(sw[i], header, abody, 2, &h);
+		assert(h.rows == 1 && near(rowsCentre(&h), header + abody / 2));
+		assert(h.rows_top >= header + 4 - 0.01f); // the ring room under the header holds
+	}
+}
+
+// The selected Consoles tile's "N games" stays inside the tile, clear of the 1.5 dp outline, at both scales: under a
+// logo (the logo box's tallest fit) and under a logo-less name (4 lines unless the count needs the room) (px).
+static void count_fits_tile(void) {
+	struct {
+		int tile_h, pad, word_h, gap, count_h, edge, inset_y;
+	} dev[2] = {
+		// Brick 3x: tile 129 dp = 276 px, k 0.838: pad 14 dp×k = 25, 17 sp×k = 37 px font (height 50), gap 6 dp = 13,
+		// count 10.89 sp = 28 px font (height 38), outline 1.5 dp = 3, logo inset 30 dp×k = 54
+		{276, 25, 50, 13, 38, 3, 54},
+		// SPS 2x: tile 154 dp = 220 px, k 1: pad 20, 17 sp = 29 px font (height 39), gap 9, 13 sp = 22 px (height 30),
+		// outline 2, inset 43
+		{220, 20, 39, 9, 30, 2, 43},
+	};
+	for (int i = 0; i < 2; i++) {
+		int th = dev[i].tile_h, lh = dev[i].word_h, gap = dev[i].gap, ch = dev[i].count_h, edge = dev[i].edge;
+		// the logo case: the tallest logo the box allows, centred; the count 6 dp under it
+		int box_h = th - 2 * dev[i].inset_y;
+		int cy = (int)floorf(GridLayout_logoCountY(0, (float)th, (float)box_h, (float)gap) + 0.5f);
+		assert(cy + ch <= th - edge);
+		// the no-logo case: plain (no count) keeps 4 lines; with the count the lines drop until it fits
+		assert(GridLayout_wordMaxLines(th, dev[i].pad, lh, gap, 0, edge, 4) == 4);
+		int n = GridLayout_wordMaxLines(th, dev[i].pad, lh, gap, ch, edge, 4);
+		assert(n == 3);
+		int top = GridLayout_wordTop(th, n, lh);
+		int count_top = top + n * lh + gap;
+		assert(top >= edge && count_top + ch <= th - edge);
+		// before the cap: 4 lines put the count past the tile's edge
+		int top4 = GridLayout_wordTop(th, 4, lh);
+		assert(top4 + 4 * lh + gap + ch > th);
+		// a short name (1 line) is never capped below 1 and fits
+		assert(GridLayout_wordMaxLines(th, dev[i].pad, lh, gap, ch, edge, 1) == 1);
+	}
+	// a cramped tile still shows one line
+	assert(GridLayout_wordMaxLines(60, 10, 50, 13, 38, 3, 4) == 1);
+}
+
 int main(void) {
 	device_vectors();
+	still_centring();
+	counts_and_names();
+	collection_text();
+	game_list_centring();
+	count_fits_tile();
 	tab_focus_rows();
 	still_placement();
 	sliding_clamps_and_last_column();

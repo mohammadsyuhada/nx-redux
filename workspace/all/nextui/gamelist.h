@@ -34,10 +34,13 @@ void GameList_renderInfoLayer(void);
 int GameList_currentStyle(void);
 // A folder game: an ENTRY_DIR under Roms holding its folder-named .cue/.m3u (stats the disk: cache the answer).
 bool GameList_entryIsFolderGame(Entry* entry);
-// Rows on List screens (main-menu tabs and game lists): InfoBand_layout(...).rows for the current screen.
 // The List rows' text start: the 24 dp gutter on the main menu, the 14 dp list inset in game lists.
 int GameList_textX(void);
+// Rows on List screens for the current level (the stack's depth), down to the fixed band (InfoBand_fixedLayout):
+// main-menu tabs start 12 dp under the tab row, game lists right under their header. GameList_rowCountAt names the level, for a
+// Directory built before it reaches the stack (root = a tab's own list at stack[0]).
 int GameList_rowCount(void);
+int GameList_rowCountAt(bool root);
 // Scroll-text (marquee) state, driven by the main loop's idle path.
 bool GameList_scrollBusy(void);		   // still needs animation/render ticks
 bool GameList_pillAnimating(void);	   // selection pill mid-glide, keep redrawing

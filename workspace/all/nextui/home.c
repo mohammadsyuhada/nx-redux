@@ -37,6 +37,7 @@
 #include "launcher.h"
 #include "menuart.h"
 #include "menutabs.h"
+#include "ui_accent.h"
 #include "ui_font.h"
 #include "tiles.h"
 #include "ui_buttonhintbar.h"
@@ -57,8 +58,37 @@
 
 static const SDL_Color C_WHITE = {255, 255, 255, 255};
 static const SDL_Color C_BLACK = {0, 0, 0, 255};
-static const SDL_Color C_GREY = {0x99, 0x99, 0x99, 255};	 // COLOR_GRAY
-static const SDL_Color C_GREY_LIT = {0x73, 0x73, 0x73, 255}; // 55% black over white
+static const SDL_Color C_GREY = {0x99, 0x99, 0x99, 255}; // COLOR_GRAY
+#define LIT_DIM_ALPHA 140								 // the lit card's secondary text: its ink at 140/255 over the accent (black on white = 0x73)
+
+// A card's ground and ink: black / white plain, the accent / its ink lit (selected), opaque (only the List pill wears
+// Color 1's opacity).
+static SDL_Color opaque(SDL_Color c) {
+	c.a = 255;
+	return c;
+}
+static SDL_Color cardBg(bool lit) {
+	return lit ? opaque(UI_accent()) : C_BLACK;
+}
+static SDL_Color cardInk(bool lit) {
+	return lit ? opaque(UI_onAccent()) : C_WHITE;
+}
+// Secondary text: grey plain; lit, the ink mixed over the accent at LIT_DIM_ALPHA, as one opaque colour so the
+// default theme draws exactly the old 0x73 grey: (0 * 140 + 255 * 115 + 127) / 255 = 115.
+static SDL_Color cardDim(bool lit) {
+	if (!lit)
+		return C_GREY;
+	SDL_Color bg = cardBg(true), ink = cardInk(true);
+	const int a = LIT_DIM_ALPHA;
+	return (SDL_Color){(Uint8)((ink.r * a + bg.r * (255 - a) + 127) / 255),
+					   (Uint8)((ink.g * a + bg.g * (255 - a) + 127) / 255),
+					   (Uint8)((ink.b * a + bg.b * (255 - a) + 127) / 255), 255};
+}
+// A watermark lit: tinted to the ink (black at the default theme), its alpha unchanged.
+static void tintLit(SDL_Surface* art) {
+	SDL_Color ink = cardInk(true);
+	SDL_SetSurfaceColorMod(art, ink.r, ink.g, ink.b);
+}
 
 ///////////////////////////////////////
 // State
@@ -601,14 +631,14 @@ static void composeContinue(SDL_Surface* s, int w, int h) {
 }
 
 static void composePick(SDL_Surface* s, int w, int h, bool lit) {
-	SDL_Color bg = lit ? C_WHITE : C_BLACK;
+	SDL_Color bg = cardBg(lit);
 	SDL_FillRect(s, &(SDL_Rect){0, 0, w, h}, SDL_MapRGBA(s->format, bg.r, bg.g, bg.b, 255));
 	// the mark's ink (the PNG is cropped to it) 60% of the card tall, its width following
 	SDL_Surface* mark = MenuArt_get("nx_mark.png", w, (int)(h * 0.6f));
 	if (mark) {
 		if (lit)
-			SDL_SetSurfaceColorMod(mark, 0, 0, 0);
-		SDL_SetSurfaceAlphaMod(mark, lit ? 20 : 26); // black at 8% / white at 10%
+			tintLit(mark);
+		SDL_SetSurfaceAlphaMod(mark, lit ? 20 : 26); // the ink (default black) at 8% / white at 10%
 		SDL_BlitSurface(mark, NULL, s, &(SDL_Rect){(w - mark->w) / 2, (h - mark->h) / 2});
 		SDL_SetSurfaceColorMod(mark, 255, 255, 255);
 		SDL_SetSurfaceAlphaMod(mark, 255);
@@ -625,10 +655,10 @@ static void composePick(SDL_Surface* s, int w, int h, bool lit) {
 		int gap = NX_DPF(4);
 		int y = (h - (big_h + gap + small_h)) / 2;
 		big = UIFont_get(24, false);
-		drawText(s, big, title, lit ? C_BLACK : C_WHITE, (w - textW(big, title)) / 2, y, 255);
+		drawText(s, big, title, cardInk(lit), (w - textW(big, title)) / 2, y, 255);
 		y += big_h + gap;
 		small = UIFont_get(14, false);
-		drawText(s, small, sub, lit ? C_GREY_LIT : C_GREY, (w - textW(small, sub)) / 2, y, 255);
+		drawText(s, small, sub, cardDim(lit), (w - textW(small, sub)) / 2, y, 255);
 	}
 	if (!lit)
 		tileBorder(s, w, h);
@@ -695,14 +725,14 @@ static const char* toolIcon(Entry* e) {
 
 static void composeTool(SDL_Surface* s, int w, int h, bool lit, int i) {
 	Entry* e = pins[i];
-	SDL_Color bg = lit ? C_WHITE : C_BLACK;
+	SDL_Color bg = cardBg(lit);
 	SDL_FillRect(s, &(SDL_Rect){0, 0, w, h}, SDL_MapRGBA(s->format, bg.r, bg.g, bg.b, 255));
 	const char* file = toolIcon(e);
 	SDL_Surface* icon = file ? MenuArt_get(file, (int)(w * 0.72f), (int)(h * 0.72f)) : NULL;
 	if (icon) {
 		if (lit)
-			SDL_SetSurfaceColorMod(icon, 0, 0, 0);
-		SDL_SetSurfaceAlphaMod(icon, lit ? 36 : 41); // black at 14% / white at 16%
+			tintLit(icon);
+		SDL_SetSurfaceAlphaMod(icon, lit ? 36 : 41); // the ink (default black) at 14% / white at 16%
 		SDL_BlitSurface(icon, NULL, s, &(SDL_Rect){(w - icon->w) / 2, (h - icon->h) / 2});
 		SDL_SetSurfaceColorMod(icon, 255, 255, 255);
 		SDL_SetSurfaceAlphaMod(icon, 255);
@@ -747,7 +777,7 @@ static void composeTool(SDL_Surface* s, int w, int h, bool lit, int i) {
 			if (lines[nl][0])
 				nl++;
 		}
-		drawCentredLines(s, f, lines, nl, lh, lit ? C_BLACK : C_WHITE, w, 0, h);
+		drawCentredLines(s, f, lines, nl, lh, cardInk(lit), w, 0, h);
 	}
 	if (!lit)
 		tileBorder(s, w, h);
@@ -802,8 +832,8 @@ static int blockHeight(const StatsBlock* b, int nlist) {
 // narrow: the reference's narrow-card sizes (labels 11 sp, large values 14 sp, grey words 10 sp).
 static void buildStatsSized(StatsBlock* b, const HomeStats* st, bool lit, int avail, bool narrow) {
 	memset(b, 0, sizeof(*b));
-	SDL_Color ink = lit ? C_BLACK : C_WHITE;
-	SDL_Color dim = lit ? C_GREY_LIT : C_GREY;
+	SDL_Color ink = cardInk(lit);
+	SDL_Color dim = cardDim(lit);
 	float f_head = 12;
 	float f_label = narrow ? 11 : 13;
 	float f_value = narrow ? 14 : 22;
@@ -927,7 +957,7 @@ static void drawActivityFace(SDL_Surface* s, const HomeStats* st, bool lit, int 
 	int grid_h = 5 * cell + 4 * gap;
 	int x0 = (w - grid_w) / 2;
 	int y0 = top + NX_DPF(15 + 16);
-	SDL_Color ink = lit ? C_BLACK : C_WHITE;
+	SDL_Color ink = cardInk(lit);
 	int radius = NX_DPF(4);
 	for (int i = 0; i < HOME_DAYS; i++) {
 		if (st->ready && i > st->today)
@@ -946,14 +976,14 @@ static void drawActivityFace(SDL_Surface* s, const HomeStats* st, bool lit, int 
 		TTF_Font* f = UIFont_get(13, false);
 		const char* text = "No play yet";
 		if (f)
-			drawText(s, f, text, lit ? C_GREY_LIT : C_GREY, (w - textW(f, text)) / 2,
+			drawText(s, f, text, cardDim(lit), (w - textW(f, text)) / 2,
 					 y0 + (grid_h - TTF_FontHeight(f)) / 2, alpha);
 	}
 }
 
 // One face of the card (the flip blends the two cached faces; the header is identical in both, so it never fades).
 static void composeCard(SDL_Surface* s, int w, int h, bool lit, bool activity, const HomeStats* st) {
-	SDL_Color bg = lit ? C_WHITE : C_BLACK;
+	SDL_Color bg = cardBg(lit);
 	SDL_FillRect(s, &(SDL_Rect){0, 0, w, h}, SDL_MapRGBA(s->format, bg.r, bg.g, bg.b, 255));
 	int pad = NX_DPF(CARD_PAD_DP);
 	StatsBlock b;
@@ -1249,7 +1279,7 @@ static void drawCard(SDL_Surface* dst, CardKind kind, SDL_Rect r, HomeFocus whic
 	bool lit_differs = kind != CARD_CONTINUE; // Continue lights with its ring only
 	if (ringed && lit > 0.0f)
 		strokeRounded(dst, r.x - ring, r.y - ring, r.w + 2 * ring, r.h + 2 * ring, NX_DPF(RADIUS_DP) + ring, ring,
-					  C_WHITE, (int)(lit * 255 + 0.5f));
+					  cardBg(true), (int)(lit * 255 + 0.5f));
 	bool flipping = kind == CARD_STATS && canFlip() && tweenProgress(&flip_tw, FLIP_MS) < 1.0f;
 	if (lit > 0.0f && lit < 1.0f && lit_differs && !flipping) { // a plain crossfade: both looks in one pass
 		bool face = kind == CARD_STATS && canFlip() && face_activity;

@@ -1,6 +1,9 @@
-// The Carousel and Backdrop styles (§8b): render and D-pad input over the current Directory `top`. Geometry and
-// curves come from row_model.c (dp, host-tested), the Carousel tiles from tiles.c, the box art and the Backdrop
-// picture from homeart.c. Everything else (A, B, X, Y, L1/R1, MENU, SELECT, START, the F keys) stays on
+// The Carousel and Backdrop styles (§8b): render and D-pad input over the current Directory `top`. A main-menu tab
+// (Consoles, Collections, Tools) in Carousel draws the frameless row on plain black: Consoles' logo slot with its "N
+// games" under the logo as drawn, Collections' names with the selected one's count, Tools' slots (sub-project 8). A
+// game list draws the Carousel's tile row, or the Backdrop's box art over the picture. Geometry and curves come from
+// row_model.c (dp, host-tested), the Carousel tiles from tiles.c, the box art and the Backdrop picture from
+// homeart.c. Everything else (A, B, X, Y, L1/R1, MENU, SELECT, START, the F keys) stays on
 // GameList_handleInput's own paths, as on Grid.
 //
 // Items are painted once per size into cached surfaces at two fixed sizes, the centre's and a neighbour's at rest,
@@ -29,12 +32,14 @@
 #include "launcher.h"
 #include "menuart.h"
 #include "menulogo.h"
+#include "menu_transition.h"
 #include "menutabs.h"
 #include "ui_font.h"
 #include "row_model.h"
 #include "shortcuts.h"
 #include "tiles.h"
 #include "types.h"
+#include "ui_accent.h"
 #include "ui_fade.h"
 
 #include <math.h>
@@ -43,10 +48,10 @@
 #include <string.h>
 #include <time.h>
 
-#define SLIDE_MS 300				   // the row's slide (§8b.2)
-#define FADE_MS 350					   // the Backdrop picture's crossfade (§8b.4)
-#define BAR_DP (28.0f * 42.0f / 30.0f) // the header and the hint bar: 28 logical each
-#define ROOM_DP 4.0f				   // ring/shadow room above and below the row: the 3 dp ring + 1
+#define SLIDE_MS 300					// the row's slide (§8b.2)
+#define FADE_MS MENU_TRANSITION_FADE_MS // the Backdrop picture's crossfade, and its fade in from black (§8b.4)
+#define BAR_DP (28.0f * 42.0f / 30.0f)	// the header and the hint bar: 28 logical each
+#define ROOM_DP 4.0f					// ring/shadow room above and below the row: the 3 dp ring + 1
 #define RING_DP 3.0f
 #define SCALE_EPS 0.004f // an item this close to a rest size is drawn 1:1 from that size's surface
 
@@ -67,12 +72,7 @@
 #define SLOT_TOOL_GAP_DP 12.0f
 #define SLOT_TOOL_NAME_SP 17.0f
 #define SLOT_LOGO_NAME_SP 24.0f
-#define COLL_NAME_SP 24.0f
-#define COLL_NAME_MIN_SP 17.0f
-#define COLL_COUNT_SP 14.0f
-#define COLL_FIT_MARGIN_DP 1.0f
 #define TOOL_LONGEST_WORD "Achievements"
-#define HINT_GREY 153 // COLOR_GRAY
 
 // the placeholder box (§8b.4)
 #define PH_ASPECT 0.72f
@@ -119,8 +119,10 @@ static char to_path[MAX_PATH];
 static bool to_set = false, fade_started = false;
 static Tween fade_tw;
 static unsigned pic_top = 0;
-static unsigned pic_gen = 0;
 static bool pic_on = false;
+// B out of a Backdrop game list: the outgoing screen fades to black before the list closes (menu_transition.h).
+static MenuTransitionExit exit_fade;
+static unsigned exit_top = 0; // the list it belongs to (the Directory serial)
 
 // Item surfaces at the two rest sizes, keyed by kind, size, state, path and the drawn name (a rename changes it).
 typedef struct {
@@ -133,6 +135,22 @@ static ItemSlot items[ITEM_SLOTS];
 static unsigned item_clock = 0;
 static unsigned item_builds = 0;	  // items built so far (the settled prefetch's budget counts them)
 static bool prefetch_pending = false; // the settled prefetch stopped at its budget: one more frame to continue
+
+// The main-menu Carousel's "N games" line in the accent: Consoles' 8 dp under the selected logo as drawn, its y
+// gliding as logo heights differ; Collections' on the selected item (its line is reserved in every item), fading in.
+// The text surface is rebuilt only when its text, size or colour changes, the line's place on a new selection (and,
+// for Consoles, when the selected logo's surface changes).
+static struct {
+	char key[96];
+	SDL_Surface* s;
+	int sel;				// the selection the place was worked out for (-1 = none)
+	int y_from, y_to;		// Consoles: the line's top (px), gliding from → to
+	const SDL_Surface* art; // Consoles: the logo surface y_to was worked out for (NULL = none, the name)
+	int art_w, art_h;		// and its size
+	int off;				// Collections: the line's centre below the item's centre, at the selected size (px)
+	bool fade_pending;		// Collections: the fade starts when the selection's count is first known
+	Tween glide, fade;
+} cnt = {.sel = -1};
 
 // The caption under the row, rebuilt only when its text changes.
 static struct {
@@ -210,50 +228,36 @@ static int textW(TTF_Font* f, const char* t) {
 // What the row shows
 
 static RowKind currentKind(void) {
-	if (GameList_currentStyle() == MENU_STYLE_CAROUSEL)
-		return ROW_CAROUSEL;
+	// A main-menu tab is only ever Carousel here (CFG_getMenuStyle reads a stored Backdrop as Carousel; Home draws
+	// itself): the frameless row on black, never the tile row.
 	if (stack->count == 1) {
 		switch (MenuTabs_current()) {
 		case MENU_TAB_CONSOLES:
 			return ROW_BACKDROP_LOGO;
 		case MENU_TAB_COLLECTIONS:
-		case MENU_TAB_TOOLS:
-			return ROW_BACKDROP_TOOL;
+			return ROW_BACKDROP_COLL;
 		default:
-			return ROW_BACKDROP_BOX; // a root tab of games
+			return ROW_BACKDROP_TOOL; // Tools
 		}
 	}
+	if (GameList_currentStyle() == MENU_STYLE_CAROUSEL)
+		return ROW_CAROUSEL; // a game list's tile row
 	if (Shortcuts_isInToolsFolder(top->path))
 		return ROW_BACKDROP_TOOL; // the Tools listing
 	return ROW_BACKDROP_BOX;	  // a game list
 }
 
 typedef enum { CAP_NONE,
-			   CAP_GAME,
-			   CAP_COUNT } CapKind;
+			   CAP_GAME } CapKind;
 
+// Only a game list's rows have a caption (the tile row's and the box row's). The main-menu rows and a Tools listing
+// name themselves, and are centred alone (Consoles' count hangs under its logo, Collections' sits in the item).
 static CapKind captionKind(RowKind k) {
-	bool root = stack->count == 1;
-	MenuTabId tab = MenuTabs_current();
-	switch (k) {
-	case ROW_CAROUSEL:
-		if (root && tab == MENU_TAB_TOOLS)
-			return CAP_NONE; // a tool's tile names itself
-		if (root && (tab == MENU_TAB_CONSOLES || tab == MENU_TAB_COLLECTIONS))
-			return CAP_COUNT;
-		return CAP_GAME;
-	case ROW_BACKDROP_BOX:
-		return CAP_GAME;
-	case ROW_BACKDROP_LOGO:
-		return CAP_COUNT;
-	default:
-		return CAP_NONE; // Backdrop Collections and Tools: the item shows its name
-	}
+	return k == ROW_CAROUSEL || k == ROW_BACKDROP_BOX ? CAP_GAME : CAP_NONE;
 }
 
-// The caption's reserved height (px): the Carousel's games 2 name lines + the info line, its consoles and
-// collections the name + the count; Backdrop's games and consoles the name's one line + two info rows (one block for
-// both, so the logo row sits at the games row's y).
+// The caption's reserved height (px): the Carousel's 2 name lines + the info line; the Backdrop's name's one line +
+// two info rows.
 static int captionReserve(RowKind k, CapKind c) {
 	if (c == CAP_NONE)
 		return 0;
@@ -261,9 +265,7 @@ static int captionReserve(RowKind k, CapKind c) {
 	int nh = fn ? TTF_FontHeight(fn) : 0;
 	TTF_Font* fi = UIFont_get(CAPTION_INFO_SP, false);
 	int ih = fi ? TTF_FontHeight(fi) : 0;
-	if (k == ROW_CAROUSEL)
-		return c == CAP_GAME ? 2 * nh + ih : nh + ih;
-	return nh + 2 * ih;
+	return k == ROW_CAROUSEL ? 2 * nh + ih : nh + 2 * ih;
 }
 
 typedef struct {
@@ -285,20 +287,12 @@ static void computeGeo(SDL_Surface* screen, RowKind kind, RowGeo* g) {
 	g->kind = kind;
 	g->cap = captionKind(kind);
 	g->sz = Row_sizes(kind, sw, body_h);
-	// The Carousel reserves its caption room on every root tab, Tools too (whose tiles name themselves), so the row
-	// stays at one height on L1/R1 (§8b.1). Only Backdrop's Collections and Tools centre the row alone.
-	CapKind reserve = (kind == ROW_CAROUSEL && g->cap == CAP_NONE) ? CAP_COUNT : g->cap;
-	g->cap_h = captionReserve(kind, reserve);
+	g->cap_h = captionReserve(kind, g->cap); // 0: the row alone is centred between the tab row and the hint bar
 	float gap = (kind == ROW_CAROUSEL ? CAROUSEL_CAPTION_GAP_DP : BACKDROP_CAPTION_GAP_DP) * g->sz.f;
 	// the box slot gives way to its caption (a px of slack for the rounding to px below), so the block fits the body
 	float cap_dp = g->cap_h > 0 ? (g->cap_h + 1) / pd : 0;
 	Row_fitBoxSlot(&g->sz, kind, body_h, ROOM_DP, gap, cap_dp);
 	float row_h = g->sz.item_h;
-	if (kind == ROW_BACKDROP_LOGO) { // the logo slot sits centred in the games row's band (§8b.1: the same y)
-		RowSizes box = Row_sizes(ROW_BACKDROP_BOX, sw, body_h);
-		Row_fitBoxSlot(&box, ROW_BACKDROP_BOX, body_h, ROOM_DP, gap, cap_dp);
-		row_h = box.item_h;
-	}
 	float top = Row_top(BAR_DP, body_h, row_h, ROOM_DP, gap, cap_dp);
 	g->cx = screen->w / 2;
 	g->cy = dpToPx(top + row_h / 2);
@@ -313,9 +307,9 @@ static void computeGeo(SDL_Surface* screen, RowKind kind, RowGeo* g) {
 	g->full_h = dpToPx(g->sz.item_h);
 	g->side_w = dpToPx(g->sz.item_w * g->sz.scale);
 	g->side_h = dpToPx(g->sz.item_h * g->sz.scale);
-	float spec_w = kind == ROW_BACKDROP_LOGO   ? LOGO_SLOT_W_SPEC
-				   : kind == ROW_BACKDROP_TOOL ? TOOL_SLOT_W_SPEC
-											   : BOX_SLOT_W_SPEC;
+	float spec_w = kind == ROW_BACKDROP_LOGO								? LOGO_SLOT_W_SPEC
+				   : kind == ROW_BACKDROP_TOOL || kind == ROW_BACKDROP_COLL ? TOOL_SLOT_W_SPEC
+																			: BOX_SLOT_W_SPEC;
 	g->k = fminf(1.0f, g->sz.item_w / spec_w);
 }
 
@@ -601,7 +595,9 @@ static SDL_Surface* carouselTile(const RowGeo* g, Entry* e, TileKind kind, int w
 		state = st == HOMEART_READY && pic ? 2 : (st == HOMEART_LOADING ? 1 : 0);
 	}
 	char key[ITEM_KEY];
-	snprintf(key, sizeof(key), "C|%d|%d|%d|%d|%d|%s|%s", w, h, (int)kind, lit, state, e->path, displayName(e));
+	SDL_Color ac = lit ? UI_accent() : (SDL_Color){0, 0, 0, 0}; // the lit look's ring is in the accent
+	snprintf(key, sizeof(key), "C|%d|%d|%d|%d|%02x%02x%02x|%d|%s|%s", w, h, (int)kind, lit, ac.r, ac.g, ac.b, state,
+			 e->path, displayName(e));
 	SDL_Surface* s;
 	if (itemFind(key, &s))
 		return s;
@@ -678,9 +674,54 @@ static void longestWord(TTF_Font* f, const char* name, char* out, size_t size) {
 	}
 }
 
+// A collection item's text at w×h px, a side item at lvl of the selected size (k_full: the selected size's slot
+// content scale). The name size is worked out at the selected size, so a side item is the same item smaller: 30 sp ×
+// k_full, shrunk in whole sp until its longest word fits the slot less 8 dp each side, never below max(0.75 × that,
+// 1.25 × the count); then the count line (max(10, 14 × k_full) sp, 6 dp unscaled under the name; × lvl on a side
+// item) reserved under it.
+typedef struct {
+	RowCollText t;
+	float sp;  // the name's size
+	int step;  // its line height (1.15)
+	int avail; // its width
+} CollLayout;
+
+static CollLayout collLayout(const char* name, int w, int h, float k_full, float lvl) {
+	CollLayout c;
+	int full_avail = (int)(w / lvl + 0.5f) - 2 * NX_DPF(SLOT_PAD_DP);
+	float start = ROW_COLL_NAME_SP * k_full;
+	char word[256];
+	TTF_Font* f = UIFont_get(start, false);
+	longestWord(f, name, word, sizeof(word));
+	float count_sp = Row_countSp(k_full);
+	float sp = Row_collNameSp(start, (float)textW(f, word), (float)full_avail, count_sp);
+	// widths don't scale exactly with the size (hinting, NX_SP's rounding): a whole sp more while it still overflows
+	float floor_sp = Row_collNameFloor(start, count_sp);
+	while (sp > floor_sp && textW(UIFont_get(sp, false), word) > full_avail) {
+		float next = sp == start ? ceilf(start) - 1.0f : sp - 1.0f;
+		sp = next > floor_sp ? next : floor_sp;
+	}
+	c.sp = sp * lvl;
+	c.avail = w - 2 * NX_DPF(SLOT_PAD_DP * lvl);
+	TTF_Font* fc = UIFont_get(count_sp * lvl, false);
+	int count_h = fc ? TTF_FontHeight(fc) : 0;
+	c.step = Row_lineStep(NX_SP(c.sp), ROW_COLL_LINE);
+	f = UIFont_get(c.sp, false);
+	int nh = Tiles_textBlockStep(NULL, f, name, 0, 0, c.avail, ROW_COLL_LINES, false, 255, 255, false, c.step);
+	int lines = c.step > 0 && nh > 0 ? nh / c.step : 1;
+	c.t = Row_collText(h, lines, c.step, NX_DPF(ROW_COLL_COUNT_GAP_DP * lvl), count_h);
+	return c;
+}
+
+// A logo-less console's name in the logo slot (24 sp × k, two lines): its height measured, or drawn at y.
+static int logoName(SDL_Surface* s, const char* name, int w, int y, float k, float lvl) {
+	TTF_Font* f = UIFont_get(SLOT_LOGO_NAME_SP * k, false);
+	return Tiles_textBlock(s, f, name, w / 2, y, w - 2 * NX_DPF(SLOT_TEXT_PAD_DP * lvl), 2, false, 255, 255, false);
+}
+
 // A Backdrop slot item at w×h px (pad none, transparent white ground): content scale k already includes the size's
 // own scale (lvl, 1 or the neighbour scale), and px paddings scale by lvl.
-static SDL_Surface* buildSlot(Entry* e, TileKind kind, int w, int h, float k, float lvl, const char* count) {
+static SDL_Surface* buildSlot(Entry* e, TileKind kind, int w, int h, float k, float lvl) {
 	SDL_Surface* s = newSurface(w, h, true);
 	if (!s)
 		return NULL;
@@ -695,10 +736,7 @@ static SDL_Surface* buildSlot(Entry* e, TileKind kind, int w, int h, float k, fl
 			break;
 		}
 		// no logo: the name is the item (24 sp, two lines)
-		TTF_Font* f = UIFont_get(SLOT_LOGO_NAME_SP * k, false);
-		int max_w = w - 2 * NX_DPF(SLOT_TEXT_PAD_DP * lvl);
-		int th = Tiles_textBlock(NULL, f, name, w / 2, 0, max_w, 2, false, 255, 255, false);
-		Tiles_textBlock(s, f, name, w / 2, (h - th) / 2, max_w, 2, false, 255, 255, false);
+		logoName(s, name, w, (h - logoName(NULL, name, w, 0, k, lvl)) / 2, k, lvl);
 		break;
 	}
 	case TILE_TOOL: {
@@ -718,24 +756,11 @@ static SDL_Surface* buildSlot(Entry* e, TileKind kind, int w, int h, float k, fl
 		break;
 	}
 	case TILE_COLLECTION: {
-		// the name from 24 sp, shrunk until its longest word fits (never below 17 sp), then "N games" under it
-		int avail = w - 2 * NX_DPF(SLOT_PAD_DP * lvl);
-		char word[256];
-		TTF_Font* f = UIFont_get(COLL_NAME_SP * k, false);
-		longestWord(f, name, word, sizeof(word));
-		int fit_w = avail - NX_DPF(COLL_FIT_MARGIN_DP * lvl);
-		f = fitFont(COLL_NAME_SP * k, COLL_NAME_MIN_SP * k, word, fit_w);
-		int nh = Tiles_textBlock(NULL, f, name, w / 2, 0, avail, 2, false, 255, 255, false);
-		// a font is only good until a later UIFont_get: measure the count, then ask for each font again to draw
-		TTF_Font* fc = count && count[0] ? UIFont_get(COLL_COUNT_SP * k, false) : NULL;
-		int ch = fc ? TTF_FontHeight(fc) : 0;
-		int y = (h - (nh + ch)) / 2;
-		f = fitFont(COLL_NAME_SP * k, COLL_NAME_MIN_SP * k, word, fit_w); // cached lookups now
-		Tiles_textBlock(s, f, name, w / 2, y, avail, 2, false, 255, 255, false);
-		if (ch > 0) {
-			fc = UIFont_get(COLL_COUNT_SP * k, false);
-			Tiles_textBlock(s, fc, count, w / 2, y + nh, avail, 1, false, HINT_GREY, 255, false);
-		}
+		// the name (from 30 sp, line height 1.15, ≤ 2 lines with "…") over the count line every item reserves, so
+		// names don't move; the count itself is drawn per frame on the selected item only (drawCount)
+		CollLayout c = collLayout(name, w, h, k / lvl, lvl);
+		TTF_Font* f = UIFont_get(c.sp, false); // a font is only good until a later UIFont_get
+		Tiles_textBlockStep(s, f, name, w / 2, c.t.name_y, c.avail, ROW_COLL_LINES, false, 255, 255, false, c.step);
 		break;
 	}
 	default: { // a game or a folder in a slot row (unusual): its name
@@ -752,15 +777,12 @@ static SDL_Surface* buildSlot(Entry* e, TileKind kind, int w, int h, float k, fl
 static SDL_Surface* slotItem(const RowGeo* g, Entry* e, TileKind kind, bool side) {
 	int w = side ? g->side_w : g->full_w, h = side ? g->side_h : g->full_h;
 	float lvl = side ? g->sz.scale : 1.0f;
-	char count[32] = "";
-	if (kind == TILE_COLLECTION)
-		countLabel(e, kind, count, sizeof(count));
 	char key[ITEM_KEY];
-	snprintf(key, sizeof(key), "S|%d|%d|%d|%s|%s|%s", w, h, (int)kind, count, e->path, displayName(e));
+	snprintf(key, sizeof(key), "S|%d|%d|%d|%s|%s", w, h, (int)kind, e->path, displayName(e));
 	SDL_Surface* s;
 	if (itemFind(key, &s))
 		return s;
-	return itemStore(key, buildSlot(e, kind, w, h, g->k * lvl, lvl, count));
+	return itemStore(key, buildSlot(e, kind, w, h, g->k * lvl, lvl));
 }
 
 // The placeholder box (§8b.4) fitted in a slot_w×slot_h slot, over the soft shadow, padded for it on every side.
@@ -972,12 +994,6 @@ static void drawBackdropItem(SDL_Surface* screen, const RowGeo* g, Entry* e, Til
 		drawRested(screen, placeholderItem, g, e, kind, it->scale, cx, a);
 		return;
 	}
-	// a logo-less console's name fades out at the centre while the caption shows it
-	if (g->kind == ROW_BACKDROP_LOGO && kind == TILE_LOGO) {
-		char logo[64];
-		if (!entryLogoFile(e, logo, sizeof(logo)))
-			alpha *= d < 1.0f ? d : 1.0f;
-	}
 	drawRested(screen, slotItem, g, e, kind, it->scale, cx, (Uint8)(alpha * 255.0f + 0.5f));
 }
 
@@ -1070,21 +1086,131 @@ static void drawCaption(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind
 			}
 			nrows = 2;
 		}
-	} else if (kind == TILE_LOGO || kind == TILE_COLLECTION) {
-		char count[32];
-		countLabel(e, kind, count, sizeof(count));
-		if (count[0]) {
-			rows[0].segs[0].kind = INFO_SEG_COUNT;
-			snprintf(rows[0].segs[0].text, sizeof(rows[0].segs[0].text), "%s", count);
-			rows[0].n = 1;
-			nrows = 1;
-		}
 	}
 	int w = g->cx * 2 - 2 * NX_DPF(CAPTION_GUTTER_DP);
 	SDL_Surface* s = captionSurface(w, g->cap_draw_h, displayName(e), name_lines, rows, nrows);
 	if (s && caption.ink.w > 0)
 		SDL_BlitSurface(s, &caption.ink, screen,
 						&(SDL_Rect){g->cx - w / 2 + caption.ink.x, g->cap_y + caption.ink.y, caption.ink.w, caption.ink.h});
+}
+
+///////////////////////////////////////
+// The main-menu count line
+
+// The "N games" text in the accent (opaque) at sp: the one cached surface, rebuilt when the text, size or colour
+// changes. NULL for an empty text.
+static SDL_Surface* countSurface(const char* text, float sp) {
+	if (!text || !text[0])
+		return NULL;
+	SDL_Color ac = UI_accent();
+	char key[sizeof(cnt.key)];
+	snprintf(key, sizeof(key), "%d|%02x%02x%02x|%s", NX_SP(sp), ac.r, ac.g, ac.b, text);
+	if (cnt.s && strcmp(cnt.key, key) == 0)
+		return cnt.s;
+	if (cnt.s)
+		SDL_FreeSurface(cnt.s);
+	snprintf(cnt.key, sizeof(cnt.key), "%s", key);
+	TTF_Font* f = UIFont_get(sp, false);
+	cnt.s = f ? GFX_renderText(f, text, (SDL_Color){ac.r, ac.g, ac.b, 255}) : NULL;
+	if (cnt.s)
+		SDL_SetSurfaceBlendMode(cnt.s, SDL_BLENDMODE_BLEND);
+	return cnt.s;
+}
+
+// Consoles: the selected console's logo as buildSlot draws it in its slot (MenuArt's fit), or NULL (no logo).
+static SDL_Surface* logoArt(const RowGeo* g, Entry* e, TileKind kind) {
+	char logo[64];
+	const char* file = kind == TILE_LOGO ? entryLogoFile(e, logo, sizeof(logo)) : NULL;
+	return file ? MenuArt_get(file, g->full_w, g->full_h) : NULL;
+}
+
+// Consoles: the count line's top (px), 8 dp under what the selected item draws in its slot: the logo `art` (its own
+// aspect in the slot), or a logo-less console's name.
+static int logoCountTop(const RowGeo* g, Entry* e, const SDL_Surface* art) {
+	int drawn = art ? art->h : logoName(NULL, displayName(e), g->full_w, 0, g->k, 1.0f);
+	return (int)floorf(Row_logoCountY((float)g->cy, (float)drawn, (float)NX_DPF(ROW_LOGO_COUNT_GAP_DP)) + 0.5f);
+}
+
+// Consoles: send the line's top to y, gliding from where it is now (at once when `at_once`).
+static void retargetCount(int y, bool at_once) {
+	if (at_once || !animationsOn()) {
+		cnt.y_from = cnt.y_to = y;
+		cnt.glide.active = false;
+		return;
+	}
+	if (y == cnt.y_to)
+		return;
+	float p = cnt.glide.active ? UI_easeStandard(tweenProgress(&cnt.glide, ROW_COUNT_GLIDE_MS)) : 1.0f;
+	cnt.y_from = (int)floorf(cnt.y_from + (cnt.y_to - cnt.y_from) * p + 0.5f);
+	cnt.y_to = y;
+	tweenStart(&cnt.glide);
+}
+
+// The line's place for a new selection: Consoles' top glides there from where it is (snapped on a new list, tab or
+// screen), and again whenever the selected logo's surface changes (it loads, or reloads at another size);
+// Collections' fades in on the selected item once its count is known (`known`: it is this frame).
+static void placeCount(const RowGeo* g, Entry* e, TileKind kind, int sel, bool snap, bool known) {
+	if (g->kind == ROW_BACKDROP_LOGO) {
+		SDL_Surface* art = logoArt(g, e, kind);
+		bool art_changed = art != cnt.art || (art && (art->w != cnt.art_w || art->h != cnt.art_h));
+		if (!snap && sel == cnt.sel && !art_changed)
+			return;
+		retargetCount(logoCountTop(g, e, art), snap || cnt.sel < 0);
+		cnt.art = art;
+		cnt.art_w = art ? art->w : 0;
+		cnt.art_h = art ? art->h : 0;
+	} else {
+		if (!snap && sel == cnt.sel)
+			return;
+		CollLayout c = collLayout(displayName(e), g->full_w, g->full_h, g->k, 1.0f);
+		TTF_Font* fc = UIFont_get(Row_countSp(g->k), false);
+		int ch = fc ? TTF_FontHeight(fc) : 0;
+		cnt.off = c.t.count_y + ch / 2 - g->full_h / 2;
+		cnt.fade.active = false;
+		// a new list or tab shows a known count at once; a new selection, or a count still unknown, fades in from
+		// the frame it is first known (drawCount), so a count that arrives late never pops in
+		cnt.fade_pending = !(snap && known);
+	}
+	cnt.sel = sel;
+}
+
+// The main-menu Carousel's "N games" for the selection: none while the count is unknown. Dimmed with the selected
+// item while the tab row has focus.
+static void drawCount(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind kind, int sel, float pos, bool snap) {
+	if (g->kind != ROW_BACKDROP_LOGO && g->kind != ROW_BACKDROP_COLL) {
+		cnt.sel = -1;
+		return;
+	}
+	char text[32];
+	countLabel(e, kind, text, sizeof(text));
+	placeCount(g, e, kind, sel, snap, text[0] != '\0');
+	if (!text[0])
+		return;
+	if (g->kind == ROW_BACKDROP_COLL && cnt.fade_pending) { // the selection's count is known from this frame: fade
+		cnt.fade_pending = false;
+		tweenStart(&cnt.fade); // animations off: inactive, so it shows at once
+	}
+	float lit = focusLit();
+	if (g->kind == ROW_BACKDROP_LOGO) {
+		SDL_Surface* s = countSurface(text, Row_countSp(g->k));
+		if (!s)
+			return;
+		float p = cnt.glide.active ? UI_easeStandard(tweenProgress(&cnt.glide, ROW_COUNT_GLIDE_MS)) : 1.0f;
+		int y = (int)floorf(cnt.y_from + (cnt.y_to - cnt.y_from) * p + 0.5f);
+		blitCentred(screen, s, g->cx, y + s->h / 2, 1.0f, (Uint8)(255.0f * lit + 0.5f), 255);
+		return;
+	}
+	// Collections: on the selected item, wherever the slide has it, at its scale and alpha
+	SDL_Surface* s = countSurface(text, Row_countSp(g->k));
+	if (!s)
+		return;
+	RowItem it = Row_item(&g->sz, g->kind, (float)sel, pos);
+	if (!it.visible)
+		return;
+	float fade = cnt.fade.active ? UI_easeStandard(tweenProgress(&cnt.fade, ROW_COUNT_FADE_MS)) : 1.0f;
+	float a = fade * it.alpha * lit;
+	int y = g->cy + (int)floorf(cnt.off * it.scale + 0.5f);
+	blitCentred(screen, s, g->cx + dpToPx(it.dx), y, it.scale, (Uint8)(255.0f * a + 0.5f), 255);
 }
 
 ///////////////////////////////////////
@@ -1159,24 +1285,30 @@ static void settlePicture(SDL_Surface* screen) {
 	from_valid = true;
 }
 
+// The picture is a game list's (Backdrop box row) only: a main-menu tab never has one.
+static bool pictureRow(void) {
+	return top && stack->count > 1 && RowView_active() && currentKind() == ROW_BACKDROP_BOX;
+}
+
 bool RowView_paintsScreen(void) {
-	return top && RowView_active() && currentKind() == ROW_BACKDROP_BOX;
+	return pictureRow();
 }
 
 bool RowView_renderPicture(SDL_Surface* screen) {
 	pic_on = false;
-	if (!screen || !top || !RowView_active() || currentKind() != ROW_BACKDROP_BOX) {
+	if (!screen || !pictureRow()) {
 		if (to_set || pic_from)
 			resetPicture();
 		return false;
 	}
 	int n = top->entries->count;
 	syncKinds(n);
-	// a new list or tab: the picture starts from black (no crossfade from another list's game)
-	if (top->serial != pic_top || MenuTabs_generation() != pic_gen) {
+	// a new list: the picture starts from black (no crossfade from another list's game). Keyed on the Directory
+	// alone: only a game list has a picture, and the tab generation moves only at the root (a reload under an open
+	// game list keeps the same list, and its picture).
+	if (top->serial != pic_top) {
 		resetPicture();
 		pic_top = top->serial;
-		pic_gen = MenuTabs_generation();
 	}
 	const char* want = "";
 	if (n > 0) {
@@ -1234,6 +1366,39 @@ bool RowView_renderPicture(SDL_Surface* screen) {
 	return pic_on;
 }
 
+///////////////////////////////////////
+// Leaving a Backdrop game list (B)
+
+bool RowView_beginExit(void) {
+	MenuTransition_exitCancel(&exit_fade);
+	// a picture on screen now (the last frame's) that is this list's own: with none the screen is already black and
+	// the list just closes. A second B mid-fade lands here on the parent before it ever drew: pic_on still tells of
+	// the child's picture, so pic_top must match too, or the parent would fade from a black frame (a row flash).
+	if (!pictureRow() || !pic_on || pic_top != top->serial)
+		return false;
+	exit_top = top->serial;
+	return MenuTransition_exitBegin(&exit_fade, SDL_GetTicks(), true, animationsOn());
+}
+
+bool RowView_exiting(void) {
+	// the list went away under the fade (nothing expected: input waits for it): drop it
+	if (exit_fade.active && (!pictureRow() || top->serial != exit_top))
+		MenuTransition_exitCancel(&exit_fade);
+	return exit_fade.active;
+}
+
+bool RowView_exitStep(bool key_pressed) {
+	return RowView_exiting() && MenuTransition_exitStep(&exit_fade, SDL_GetTicks(), key_pressed);
+}
+
+void RowView_renderExit(SDL_Surface* screen) {
+	if (!screen || !RowView_exiting())
+		return;
+	float d = MenuTransition_exitDarkness(&exit_fade, SDL_GetTicks());
+	if (d > 0.0f)
+		UI_dimRect(screen, NULL, (Uint8)(d * 255.0f + 0.5f)); // one pass, only while the fade runs
+}
+
 // A list, tab, screen size, scale or kind change: start over with the row snapped to the selection.
 static bool syncList(SDL_Surface* screen, int n, int lastScreen, RowKind kind) {
 	bool changed = top->serial != seen_top || MenuTabs_generation() != seen_gen || n != seen_n ||
@@ -1259,8 +1424,8 @@ void RowView_render(SDL_Surface* screen, int lastScreen) {
 	int bar = barPx();
 	int body_h = screen->h - 2 * bar;
 	RowKind kind = currentKind();
-	// plain black under the row (and under the hint bar's scrim); a Backdrop game row's picture is already drawn
-	if (kind != ROW_BACKDROP_BOX)
+	// plain black under the row (and under the hint bar's scrim); a Backdrop game list's picture is already drawn
+	if (!pictureRow())
 		SDL_FillRect(screen, &(SDL_Rect){0, bar, screen->w, screen->h - bar},
 					 SDL_MapRGBA(screen->format, 0, 0, 0, 255));
 
@@ -1325,11 +1490,12 @@ void RowView_render(SDL_Surface* screen, int lastScreen) {
 	// the selection's caption (its game info requested last: GameInfo's queue keeps the latest request)
 	Entry* e = top->entries->items[sel];
 	drawCaption(screen, &g, e, kindFor(sel, e));
+	drawCount(screen, &g, e, kindFor(sel, e), sel, pos, snap);
 
 	SDL_SetClipRect(screen, &prev_clip);
 
 	// settled: build ahead what the next step needs (one item a frame; GameList keeps asking while there's more)
-	prefetch_pending = !slide_tw.active && !fade_tw.active && prefetchItems(&g, n, sel);
+	prefetch_pending = !slide_tw.active && !fade_tw.active && !exit_fade.active && prefetchItems(&g, n, sel);
 }
 
 // The items the next step in either direction draws first: the neighbours at the centre size (they grow into the
@@ -1421,13 +1587,18 @@ bool RowView_animating(void) {
 		slide_tw.active = false;
 		pos_from = pos_to;
 		fade_tw.active = false;
+		cnt.glide.active = cnt.fade.active = false;
+		cnt.fade_pending = false;
+		cnt.sel = -1;
 		return false;
 	}
 	bool a = tweenTick(&slide_tw, SLIDE_MS);
 	bool b = tweenTick(&fade_tw, FADE_MS);
+	bool c = tweenTick(&cnt.glide, ROW_COUNT_GLIDE_MS);
+	bool d = tweenTick(&cnt.fade, ROW_COUNT_FADE_MS);
 	if (a && !slide_tw.active)
 		pos_from = pos_to;
-	return a || b || prefetch_pending;
+	return a || b || c || d || prefetch_pending || RowView_exiting();
 }
 
 void RowView_quit(void) {
@@ -1440,7 +1611,12 @@ void RowView_quit(void) {
 	if (caption.s)
 		SDL_FreeSurface(caption.s);
 	memset(&caption, 0, sizeof(caption));
+	if (cnt.s)
+		SDL_FreeSurface(cnt.s);
+	memset(&cnt, 0, sizeof(cnt));
+	cnt.sel = -1;
 	resetPicture();
+	MenuTransition_exitCancel(&exit_fade);
 	if (stretch_scratch)
 		SDL_FreeSurface(stretch_scratch);
 	stretch_scratch = NULL;

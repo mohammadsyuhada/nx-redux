@@ -15,6 +15,7 @@
 #include "ui_message.h"
 #include "ui_contextmenu.h"
 #include "ui_keyboard.h"
+#include "ui_accent.h"
 #include "ui_list.h"
 #include "ui_listdialog.h"
 #include "ui_pindialog.h"
@@ -225,7 +226,7 @@ static void reloadDirectoryAt(int idx, int keep_selected) {
 		sel = 0;
 	fresh->selected = sel;
 
-	int rc = GameList_rowCount();
+	int rc = GameList_rowCountAt(idx == 0);
 	fresh->start = 0;
 	fresh->end = (n < rc) ? n : rc;
 	if (sel >= fresh->end && n > rc) {
@@ -865,7 +866,7 @@ static bool doRenameCollection(Entry* entry, int root_sel) {
 	int row = rootRowFor(new_path);
 	Directory* root = stack->items[0];
 	if (row >= 0 && row != root->selected) { // windowed as reloadDirectoryAt
-		int total = root->entries->count, rc = GameList_rowCount();
+		int total = root->entries->count, rc = GameList_rowCountAt(true);
 		root->selected = row;
 		if (row >= root->end) { // below the window: it ends on the row
 			root->end = row + 1;
@@ -1152,7 +1153,7 @@ void GameList_runContextAction(int id) {
 		// Tools is a direct child of the Home tab only; from any other tab
 		// openDirectory would rebuild the stack on Home.
 		Directory* tools = Directory_new(TOOLS_PATH, 0);
-		int rc = GameList_rowCount();
+		int rc = GameList_rowCountAt(false); // pushed over the tab: a game list's rows
 		int count = tools->entries->count;
 		tools->start = 0;
 		tools->end = (count < rc) ? count : rc;
@@ -1521,6 +1522,16 @@ static bool tabRowInput(unsigned long now, IndicatorType show_setting, GameListR
 	return false;
 }
 
+// B: close the list (back to its parent, or the root tab in its layout). The page slides right unless a Backdrop
+// game list is involved (nextui.c drops the slide: its picture fades from and to black instead).
+static void leaveList(GameListResult* result, bool* dirty) {
+	closeDirectory();
+	result->animdir = SLIDE_RIGHT;
+	*dirty = true;
+	if (top->entries->count > 0)
+		readyResume(top->entries->items[top->selected]);
+}
+
 GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 									IndicatorType show_setting, bool* dirty) {
 	GameListResult result = {
@@ -1528,6 +1539,22 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 		.animdir = ANIM_NONE,
 		.folderbgchanged = false,
 	};
+
+	// B's fade out of a Backdrop game list (RowView_beginExit) takes no input while it runs. When its time is up the
+	// list closes; a key pressed during it closes the list at once and is then handled below, on the screen B
+	// returned to (the tab in its layout, or the parent list): pressed once, handled once.
+	if (RowView_exiting()) {
+		if (!RowView_exitStep(PAD_anyJustPressed())) {
+			// keep the tap and long-press trackers seeing the edges (as nextui.c does under the context menu): a
+			// MENU/SELECT/START held into the fade and released during it is spent here, not misread later
+			PAD_tappedMenu(now);
+			PAD_tappedSelect(now);
+			PAD_tappedStart(now);
+			PAD_longPressedMenu(now);
+			return result;
+		}
+		leaveList(&result, dirty);
+	}
 
 	// latch X/Y pressed on the tab row; a latched release is swallowed below (a press with the content focused re-arms)
 	bool row_focused = stack->count == 1 && MenuTabs_focused();
@@ -1810,12 +1837,9 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 		if (top->entries->count > 0)
 			readyResume(top->entries->items[top->selected]);
 	} else if (PAD_justPressed(BTN_B) && stack->count > 1) {
-		closeDirectory();
-		result.animdir = SLIDE_RIGHT;
 		*dirty = true;
-
-		if (top->entries->count > 0)
-			readyResume(top->entries->items[top->selected]);
+		if (!RowView_beginExit()) // a Backdrop list with a picture closes when its fade-out ends
+			leaveList(&result, dirty);
 	}
 
 	return result;
@@ -1845,17 +1869,34 @@ static bool selectedIsGame(Entry* entry) {
 	return last_is_game;
 }
 
-// Top of the first row: right under the top strip at every level (no arrow gutter; the arrows live in the
-// info band).
+// The main menu (the root: a tab's own list) or a game list (anything pushed over it). Before the stack exists
+// (boot), the first list built is a root.
+static bool atRoot(void) {
+	return !stack || stack->count <= 1;
+}
+
+// Top of the first row (no arrow gutter; the arrows live in the info band): game lists right under their header;
+// the main menu 12 dp below the tab row.
+static int listTopAt(bool root) {
+	int strip = SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2); // the header / tab row (MenuTabs_renderRow's bar_h)
+	return root ? strip + NX_DP(12) : strip;
+}
+
 static int listTop(void) {
-	return SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2);
+	return listTopAt(atRoot());
+}
+
+// The rows' and the band's geometry (infoband_layout.c, host-tested), main menu and game lists alike: a fixed 26 dp
+// band (18 dp line, 4 dp each side) with its bottom 12 dp inside the hint bar's empty top, whole rows from the list top
+// down to its top. Only the list top differs (listTopAt).
+static InfoBandLayout listLayoutAt(bool root) {
+	int screen_h = screen ? screen->h : FIXED_HEIGHT;
+	int bar_h = SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2); // the hint bar (UI_buttonHintBarTop)
+	return InfoBand_fixedLayout(screen_h, bar_h, listTopAt(root), SCALE1(PILL_SIZE), NX_DP(18), NX_DP(4), NX_DP(12));
 }
 
 static InfoBandLayout listLayout(void) {
-	int screen_h = screen ? screen->h : FIXED_HEIGHT;
-	int text_h = font.small ? TTF_FontHeight(font.small) : SCALE1(FONT_SMALL);
-	return InfoBand_layout(screen_h, SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2), listTop(), SCALE1(PILL_SIZE), text_h,
-						   NX_DP(2), NX_DP(12));
+	return listLayoutAt(atRoot());
 }
 
 int GameList_textX(void) {
@@ -1866,13 +1907,17 @@ int GameList_rowCount(void) {
 	return listLayout().rows;
 }
 
+int GameList_rowCountAt(bool root) {
+	return listLayoutAt(root).rows;
+}
+
 int GameList_currentStyle(void) {
 	int style;
 	if (stack->count == 1) {
 		int cat = MenuTabs_styleCategory(MenuTabs_current());
 		if (cat < 0)
-			return MENU_STYLE_LIST; // Home draws itself
-		style = CFG_getMenuStyle(cat);
+			return MENU_STYLE_LIST;	   // Home draws itself
+		style = CFG_getMenuStyle(cat); // List, Grid or Carousel (a stored Backdrop reads as Carousel)
 	} else {
 		style = CFG_getGameListStyle();
 	}
@@ -2216,10 +2261,9 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 			if (at_root && MenuTabs_focused()) {
 				// the tab row has focus: the pill at 40% (its text keeps the on-pill colour, as the mockup's
 				// whole-row 40% gives over the black ground)
-				Uint8 r, g, b;
-				SDL_GetRGB(THEME_COLOR1, screen->format, &r, &g, &b);
+				SDL_Color ac = UI_accent();
 				GFX_blitPillColor(ASSET_WHITE_PILL, screen, &pill,
-								  SDL_MapRGBA(screen->format, r, g, b, (Uint8)(255 * MenuTabs_contentLit() + 0.5f)),
+								  SDL_MapRGBA(screen->format, ac.r, ac.g, ac.b, (Uint8)(255 * MenuTabs_contentLit() + 0.5f)),
 								  RGB_WHITE);
 			} else {
 				UI_drawListItemBg(screen, &pill, true);

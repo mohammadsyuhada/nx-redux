@@ -390,8 +390,13 @@ int main(int argc, char* argv[]) {
 					animationdirection = SLIDE_RIGHT;
 			}
 		} else if (!ContextMenu_isOpen()) {
+			bool was_backdrop = RowView_paintsScreen();
 			GameListResult glr =
 				GameList_handleInput(now, currentScreen, show_setting, &dirty);
+			// into or out of a Backdrop game list: no page slide (the Menu transitions setting's), its picture fades
+			// in from / out to black instead; the new list or tab is rebuilt in its own layout at once
+			if ((glr.animdir == SLIDE_LEFT || glr.animdir == SLIDE_RIGHT) && (was_backdrop || RowView_paintsScreen()))
+				glr.animdir = ANIM_NONE;
 			currentScreen = glr.screen;
 			if (glr.animdir != ANIM_NONE)
 				animationdirection = glr.animdir;
@@ -446,8 +451,9 @@ int main(int argc, char* argv[]) {
 			if (!(currentScreen == SCREEN_GAMELIST && !startgame && RowView_paintsScreen()))
 				GFX_clear(screen);
 
-			// A Backdrop game row's picture: the bottom-most layer, under the band, the bar and the tab row. With
-			// it on screen the eased top band is skipped and the bar's text gets the dark "over art" shadows.
+			// A Backdrop game list's picture: the bottom-most layer, under the band and the bar. With it on screen
+			// the eased top band is skipped and the bar's text gets the dark "over art" shadows. (Never at the root:
+			// a main-menu tab has no picture.)
 			bool over_art = currentScreen == SCREEN_GAMELIST && !startgame && RowView_renderPicture(screen);
 
 			// render top menu bar
@@ -487,10 +493,8 @@ int main(int argc, char* argv[]) {
 			} else {
 				ow = UI_renderMenuBar(screen, menu_title);
 			}
-			if (currentScreen == SCREEN_GAMELIST && stack->count == 1) {
-				MenuTabs_setOverArt(over_art);
-				MenuTabs_renderRow(screen, ow);
-			}
+			if (currentScreen == SCREEN_GAMELIST && stack->count == 1)
+				MenuTabs_renderRow(screen, ow); // the root has no picture: the plain tab row
 
 			// capture menu bar for fixed overlay during animation
 			SDL_Surface* menuBarSurface = NULL;
@@ -509,6 +513,7 @@ int main(int argc, char* argv[]) {
 				lastScreen = SCREEN_GAMESWITCHER;
 			} else {
 				GameList_render(screen, lastScreen, show_setting, blackBG);
+				RowView_renderExit(screen); // B's fade out of a Backdrop game list: the whole frame toward black
 				lastScreen = SCREEN_GAMELIST;
 			}
 

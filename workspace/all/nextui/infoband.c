@@ -1,5 +1,7 @@
-// The info band on List screens (main-menu tabs and game lists): a fade that sits on the hint bar, the packed
-// scroll arrows on the left and one right-aligned line of info segments ("Today - 1h 5m · 3 of 40 · Next: …").
+// The info band on List screens (main-menu tabs and game lists): a fade that rises from the hint bar's top, the
+// packed scroll arrows on the left and one right-aligned line of info segments ("Today - 1h 5m · 3 of 40 · Next: …").
+// The band is fixed just above the hints on both (InfoBand_fixedLayout): it reaches into the bar's empty top, its fill
+// stopping at the bar.
 // The whole band is one cached ARGB block drawn onto a GPU layer, rebuilt only when its content changes.
 
 #include "infoband.h"
@@ -77,9 +79,9 @@ static int drawShadowedText(TTF_Font* f, SDL_Surface* dst, const char* text, SDL
 	return textWidthFor(f, text);
 }
 
-// The scroll arrows, NX_DP(28) wide (aspect kept) at alpha 51, built once per scale. The asset sheet is
-// shared, so each arrow is copied into a scratch surface first (white-transparent ground, so the art's soft
-// edges stay white) and the scaled copy is the one faded.
+// The scroll arrows, white, NX_DP(28) wide (aspect kept) at alpha 51, built once per scale. The asset sheet is
+// shared, so each arrow is copied into a scratch surface first (whitened, keeping the art's coverage) and the scaled
+// copy is the one faded.
 #define ARROW_W NX_DP(28)
 static SDL_Surface* arrow_up = NULL;
 static SDL_Surface* arrow_down = NULL;
@@ -95,6 +97,17 @@ static SDL_Surface* buildArrow(int asset) {
 		return NULL;
 	SDL_FillRect(tmp, NULL, SDL_MapRGBA(tmp->format, 255, 255, 255, 0));
 	GFX_blitAsset(asset, NULL, tmp, &(SDL_Rect){0, 0});
+	// the sheet's arrow art is dark grey (0x26, drawn for light grounds); the band's arrow is white at 20%: keep only
+	// its coverage (alpha), in white
+	if (SDL_MUSTLOCK(tmp))
+		SDL_LockSurface(tmp);
+	for (int y = 0; y < tmp->h; y++) {
+		Uint32* px = (Uint32*)((Uint8*)tmp->pixels + y * tmp->pitch);
+		for (int x = 0; x < tmp->w; x++)
+			px[x] |= 0x00FFFFFF;
+	}
+	if (SDL_MUSTLOCK(tmp))
+		SDL_UnlockSurface(tmp);
 	int out_h = (r.h * ARROW_W + r.w / 2) / r.w;
 	SDL_Surface* out =
 		SDL_CreateRGBSurfaceWithFormat(0, ARROW_W, out_h > 0 ? out_h : 1, 32, SDL_PIXELFORMAT_ARGB8888);
@@ -136,15 +149,15 @@ static struct {
 	InfoSeg segs[MAX_SEGS];
 	int nsegs;
 	bool up, down;
-	int w, h, text_off, text_h, arrow_x;
+	int w, h, fill_h, text_off, text_h, arrow_x;
 	float scale;
 	TTF_Font* font;
 } block;
 
-static bool keyMatches(const InfoSeg* segs, int nsegs, bool up, bool down, int w, int h, int text_off, int text_h,
-					   int arrow_x) {
+static bool keyMatches(const InfoSeg* segs, int nsegs, bool up, bool down, int w, int h, int fill_h, int text_off,
+					   int text_h, int arrow_x) {
 	if (!block.surf || block.nsegs != nsegs || block.up != up || block.down != down || block.w != w ||
-		block.h != h || block.text_off != text_off || block.text_h != text_h || block.arrow_x != arrow_x ||
+		block.h != h || block.fill_h != fill_h || block.text_off != text_off || block.text_h != text_h || block.arrow_x != arrow_x ||
 		block.scale != (float)FIXED_SCALE || block.font != font.small)
 		return false;
 	for (int i = 0; i < nsegs; i++)
@@ -211,16 +224,43 @@ int InfoBand_segmentsWidth(const InfoSeg* in, int n, int max_w, TTF_Font* f) {
 	return total;
 }
 
-static SDL_Surface* buildBlock(const InfoSeg* in, int nsegs, bool up, bool down, int w, int h, int text_off,
-							   int text_h, int arrow_x) {
+// Un-premultiply the block for its layer. The block is built on a black ground (clear (0,0,0,0), or the band's black
+// fill), so SDL's BLEND leaves every pixel's colour multiplied by its alpha (P = c × a); the layer then multiplies by
+// alpha again, and the 20% arrows and the text's soft edges came out near black (the fill rows included: an arrow on
+// the fade's thin top read 1/4 of its colour). Dividing the colour back out, on every row, gives the straight colour
+// the layer expects; the black fill and opaque pixels are unchanged.
+static void unpremultiply(SDL_Surface* s) {
+	if (!s || s->format->format != SDL_PIXELFORMAT_ARGB8888)
+		return;
+	if (SDL_MUSTLOCK(s) && SDL_LockSurface(s) != 0)
+		return;
+	for (int y = 0; y < s->h; y++) {
+		Uint32* px = (Uint32*)((Uint8*)s->pixels + y * s->pitch);
+		for (int x = 0; x < s->w; x++) {
+			Uint32 a = px[x] >> 24;
+			if (a == 0 || a == 255 || !(px[x] & 0x00FFFFFF))
+				continue;
+			Uint32 r = ((px[x] >> 16 & 0xFF) * 255 + a / 2) / a;
+			Uint32 g = ((px[x] >> 8 & 0xFF) * 255 + a / 2) / a;
+			Uint32 b = ((px[x] & 0xFF) * 255 + a / 2) / a;
+			px[x] = a << 24 | (r > 255 ? 255 : r) << 16 | (g > 255 ? 255 : g) << 8 | (b > 255 ? 255 : b);
+		}
+	}
+	if (SDL_MUSTLOCK(s))
+		SDL_UnlockSurface(s);
+}
+
+static SDL_Surface* buildBlock(const InfoSeg* in, int nsegs, bool up, bool down, int w, int h, int fill_h,
+							   int text_off, int text_h, int arrow_x) {
 	SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888);
 	if (!s)
 		return NULL;
 	SDL_FillRect(s, NULL, SDL_MapRGBA(s->format, 0, 0, 0, 0));
 	SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
 
-	// the fade: ground at 80% across the bottom 2 dp, linear to 0 at the top
-	SDL_Surface* fade = UI_bandFadeSurface(w, h, 0.8f, NX_DP(2));
+	// the fade: ground at 80% across the 2 dp above the hint bar's top, linear to 0 at the band's top; below the
+	// bar's top (the band reaches into it) nothing, the bar's own 80% shows
+	SDL_Surface* fade = fill_h > 0 ? UI_bandFadeSurface(w, fill_h, 0.8f, NX_DP(2)) : NULL;
 	if (fade)
 		SDL_BlitSurface(fade, NULL, s, NULL);
 
@@ -234,14 +274,14 @@ static SDL_Surface* buildBlock(const InfoSeg* in, int nsegs, bool up, bool down,
 	if (down && arrow_down)
 		SDL_BlitSurface(arrow_down, NULL, s, &(SDL_Rect){x, text_off + (text_h - arrow_down->h) / 2});
 
-	if (nsegs <= 0 || !font.small)
-		return s;
-
-	// the text: reserved room for both arrows + a gap on the left (fixed, so the text never moves), right-aligned
-	// at w - 24 dp
-	int left = arrow_x + ARROW_W * 2 + NX_DP(1) + NX_DP(12);
-	int right = w - NX_DP(24);
-	InfoBand_drawSegments(s, in, nsegs, right, true, text_off, right - left, font.small);
+	if (nsegs > 0 && font.small) {
+		// the text: reserved room for both arrows + a gap on the left (fixed, so the text never moves),
+		// right-aligned at w - 24 dp
+		int left = arrow_x + ARROW_W * 2 + NX_DP(1) + NX_DP(12);
+		int right = w - NX_DP(24);
+		InfoBand_drawSegments(s, in, nsegs, right, true, text_off, right - left, font.small);
+	}
+	unpremultiply(s); // once per content change (the block is cached)
 	return s;
 }
 
@@ -255,15 +295,16 @@ void InfoBand_render(const InfoBandLayout* layout, const InfoSeg* segs, int nseg
 	const InfoBandLayout l = *layout;
 	int w = screen->w;
 	int h = l.band_bottom - l.band_top;
+	int fill_h = (l.fill_bottom < l.band_bottom ? l.fill_bottom : l.band_bottom) - l.band_top;
 	int text_off = l.text_top - l.band_top;
 	int arrow_x = l.arrow_x > 0 ? l.arrow_x : NX_DP(NX_LIST_INSET_DP);
 	if (w <= 0 || h <= 0)
 		return;
 
-	if (!keyMatches(segs, nsegs, up, down, w, h, text_off, l.text_h, arrow_x)) {
+	if (!keyMatches(segs, nsegs, up, down, w, h, fill_h, text_off, l.text_h, arrow_x)) {
 		if (block.surf)
 			SDL_FreeSurface(block.surf);
-		block.surf = buildBlock(segs, nsegs, up, down, w, h, text_off, l.text_h, arrow_x);
+		block.surf = buildBlock(segs, nsegs, up, down, w, h, fill_h, text_off, l.text_h, arrow_x);
 		if (nsegs)
 			memcpy(block.segs, segs, sizeof(InfoSeg) * nsegs);
 		block.nsegs = nsegs;
@@ -271,6 +312,7 @@ void InfoBand_render(const InfoBandLayout* layout, const InfoSeg* segs, int nseg
 		block.down = down;
 		block.w = w;
 		block.h = h;
+		block.fill_h = fill_h;
 		block.text_off = text_off;
 		block.text_h = l.text_h;
 		block.arrow_x = arrow_x;
