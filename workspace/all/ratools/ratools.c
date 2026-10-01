@@ -16,6 +16,7 @@
 #include "ui_confirmdialog.h"
 #include "ui_menubar.h"
 #include "ui_buttonhintbar.h"
+#include "ui_font.h"
 #include "display_helper.h"
 #include "ra_auth.h"
 #include "ra_offline.h"
@@ -371,22 +372,34 @@ static bool ra_is_authenticated(void) {
 	return CFG_getRAAuthenticated() && *CFG_getRAToken();
 }
 
-// Non-selectable status header below the menu bar. Recomputed every call so
-// it always reflects the latest auth/sync/pending state. Returns the y
-// (screen px) where the selectable list should start.
+// One header line at x, y in the font just fetched (UIFont pointers are only valid until the next
+// UIFont_get). Returns the line's height.
+static int header_line(SDL_Surface* screen, TTF_Font* f, const char* text, SDL_Color color, int x, int y) {
+	if (!f)
+		return 0;
+	if (text && text[0]) {
+		SDL_Surface* s = GFX_renderText(f, text, color);
+		if (s) {
+			SDL_BlitSurface(s, NULL, screen, &(SDL_Rect){x, y});
+			SDL_FreeSurface(s);
+		}
+	}
+	return TTF_FontHeight(f);
+}
+
+// Non-selectable status header below the menu bar (LIST-LAYOUT §10.3): the headline (username) bold at
+// 1.15 x the list label, then the grey detail lines at 0.8 x (secondary), 2 dp apart, starting 8 dp under the
+// title strip. Recomputed every call so it always reflects the latest auth/sync/pending state. Returns the y
+// (screen px) where the list's area starts; the list's block (rows + arrow strips) centres itself below it.
 static int render_main_header(SDL_Surface* screen) {
-	int x = SCALE1(PADDING + BUTTON_PADDING);
-	int y = SCALE1(PADDING + PILL_SIZE + 1);
+	int x = UI_listTextX(); // under the page title and the rows' text (the 14 dp inset)
+	int y = UI_menuBarHeight() + NX_DP(8);
+	int gap = NX_DP(2);
 	bool auth = ra_is_authenticated();
 
 	// Line 1: username, or "Not authenticated"
 	const char* line1 = auth ? get_user_display() : "Not authenticated";
-	SDL_Surface* s1 = GFX_renderText(font.medium, line1, col_header_title);
-	if (s1) {
-		SDL_BlitSurface(s1, NULL, screen, &(SDL_Rect){x, y});
-		SDL_FreeSurface(s1);
-	}
-	y += TTF_FontHeight(font.medium) + SCALE1(2);
+	y += header_line(screen, UI_textRole(UI_TEXT_HEADLINE, true), line1, col_header_title, x, y);
 
 	// Line 2: cached score, prompt to authenticate, or omitted (no cached
 	// login yet). Slot height is reserved either way so line 3 never shifts.
@@ -403,34 +416,20 @@ static int render_main_header(SDL_Surface* screen) {
 			line2 = line2_buf;
 		}
 	}
-	if (line2) {
-		SDL_Surface* s2 = GFX_renderText(font.small, line2, col_header_gray);
-		if (s2) {
-			SDL_BlitSurface(s2, NULL, screen, &(SDL_Rect){x, y});
-			SDL_FreeSurface(s2);
-		}
-	}
-	y += TTF_FontHeight(font.small) + SCALE1(2);
+	y += gap;
+	y += header_line(screen, UI_textRole(UI_TEXT_SECONDARY, false), line2, col_header_gray, x, y);
 
 	// Line 3: pending unlocks, highlighted yellow when unlocks are waiting.
 	int n = RA_Offline_pendingCount();
-	SDL_Surface* s3 = GFX_renderText(font.small, get_pending_display(),
-									 n > 0 ? col_header_pending : col_header_gray);
-	if (s3) {
-		SDL_BlitSurface(s3, NULL, screen, &(SDL_Rect){x, y});
-		SDL_FreeSurface(s3);
-	}
-	y += TTF_FontHeight(font.small) + SCALE1(2);
+	y += gap;
+	y += header_line(screen, UI_textRole(UI_TEXT_SECONDARY, false), get_pending_display(),
+					 n > 0 ? col_header_pending : col_header_gray, x, y);
 
 	// Line 4: last sync time.
 	char line4_buf[96];
 	snprintf(line4_buf, sizeof(line4_buf), "Last sync: %s", get_lastsync_display());
-	SDL_Surface* s4 = GFX_renderText(font.small, line4_buf, col_header_gray);
-	if (s4) {
-		SDL_BlitSurface(s4, NULL, screen, &(SDL_Rect){x, y});
-		SDL_FreeSurface(s4);
-	}
-	y += TTF_FontHeight(font.small) + SCALE1(14);
+	y += gap;
+	y += header_line(screen, UI_textRole(UI_TEXT_SECONDARY, false), line4_buf, col_header_gray, x, y);
 
 	return y;
 }

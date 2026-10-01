@@ -119,6 +119,30 @@ static bool rat_server_find(const RAT_ServerUnlock* ids, int count, uint32_t id,
 	return false;
 }
 
+// The unlock state of achievement `id`: a server unlock, else an offline one awaiting sync (pending),
+// else a synced offline one the stale session cache predates (confirmed, unlocked). `hash` filters the
+// pending/confirmed entries by game; NULL when the arrays are already filtered. *when = the unlock
+// time (untouched while locked).
+static RAT_AchState rat_resolve_unlock(uint32_t id, const char* hash, const RAT_ServerUnlock* srv,
+									   int nsrv, const RA_PendingUnlock* pend, int npend,
+									   const RA_PendingUnlock* conf, int nconf, time_t* when) {
+	if (rat_server_find(srv, nsrv, id, when))
+		return RAT_ACH_UNLOCKED;
+	for (int i = 0; i < npend; i++) {
+		if (pend[i].achievement_id == id && (!hash || strcmp(pend[i].game_hash, hash) == 0)) {
+			*when = pend[i].when;
+			return RAT_ACH_PENDING;
+		}
+	}
+	for (int i = 0; i < nconf; i++) {
+		if (conf[i].achievement_id == id && (!hash || strcmp(conf[i].game_hash, hash) == 0)) {
+			*when = conf[i].when;
+			return RAT_ACH_UNLOCKED;
+		}
+	}
+	return RAT_ACH_LOCKED;
+}
+
 typedef int (*RAT_EntriesReadFn)(RA_PendingUnlock* out, int max);
 
 static int rat_entries_for_hash(RAT_EntriesReadFn read_fn, const char* hash,
@@ -211,30 +235,13 @@ int RAT_listGames(RAT_Game** out_games) {
 				if (!rat_is_visible_achievement(def))
 					continue;
 				g->total++;
-				bool counted = false;
-				if (rat_server_find(server_ids, server_count, def->id, NULL)) {
+				time_t when = 0;
+				RAT_AchState state = rat_resolve_unlock(def->id, NULL, server_ids, server_count, pend,
+														pend_count, conf, conf_count, &when);
+				if (state != RAT_ACH_LOCKED)
 					g->unlocked++;
-					counted = true;
-				}
-				if (!counted) {
-					for (int i = 0; i < pend_count; i++) {
-						if (pend[i].achievement_id == def->id) {
-							g->pending++;
-							g->unlocked++;
-							counted = true;
-							break;
-						}
-					}
-				}
-				if (!counted) {
-					// synced offline unlock the session cache predates
-					for (int i = 0; i < conf_count; i++) {
-						if (conf[i].achievement_id == def->id) {
-							g->unlocked++;
-							break;
-						}
-					}
-				}
+				if (state == RAT_ACH_PENDING)
+					g->pending++;
 			}
 		}
 
@@ -331,32 +338,10 @@ int RAT_loadAchievements(const RAT_Game* game, RAT_Achievement** out) {
 					 def->badge_name ? def->badge_name : "");
 			dst->type = def->type;
 			dst->rarity = def->rarity;
-			dst->unlock_time = 0;
 			time_t when = 0;
-			if (rat_server_find(server_ids, server_count, def->id, &when)) {
-				dst->state = RAT_ACH_UNLOCKED;
-				dst->unlock_time = when;
-			} else {
-				dst->state = RAT_ACH_LOCKED;
-				for (int i = 0; i < pend_count; i++) {
-					if (pend[i].achievement_id == def->id) {
-						dst->state = RAT_ACH_PENDING;
-						dst->unlock_time = pend[i].when;
-						break;
-					}
-				}
-				if (dst->state == RAT_ACH_LOCKED) {
-					// synced offline unlock: on the server, but the cached
-					// session predates it - still unlocked, not pending
-					for (int i = 0; i < conf_count; i++) {
-						if (conf[i].achievement_id == def->id) {
-							dst->state = RAT_ACH_UNLOCKED;
-							dst->unlock_time = conf[i].when;
-							break;
-						}
-					}
-				}
-			}
+			dst->state = rat_resolve_unlock(def->id, NULL, server_ids, server_count, pend, pend_count,
+											conf, conf_count, &when);
+			dst->unlock_time = dst->state == RAT_ACH_LOCKED ? 0 : when;
 		}
 	}
 
@@ -366,6 +351,67 @@ int RAT_loadAchievements(const RAT_Game* game, RAT_Achievement** out) {
 	rc_api_destroy_fetch_game_sets_response(&sets);
 	*out = achs;
 	return n;
+}
+
+// A cut at byte `len` can split a UTF-8 sequence: back off to the last sequence boundary so the
+// string never ends in a partial character.
+static void rat_utf8_trim(char* s, size_t len) {
+	size_t i = len;
+	size_t cont = 0;
+	while (i > 0 && cont < 3 && ((unsigned char)s[i - 1] & 0xC0) == 0x80) {
+		i--;
+		cont++;
+	}
+	if (i == 0) {
+		s[len - cont] = '\0'; // only continuation bytes: nothing to anchor them
+		return;
+	}
+	unsigned char lead = (unsigned char)s[i - 1];
+	size_t need = lead >= 0xF0 ? 3 : lead >= 0xE0 ? 2
+								 : lead >= 0xC0	  ? 1
+												  : 0;
+	if (lead >= 0xC0 && cont < need)
+		s[i - 1] = '\0'; // incomplete: drop the lead byte and its continuation bytes
+	else if (lead < 0xC0 && cont > 0)
+		s[i] = '\0'; // stray continuation bytes after ASCII
+}
+
+bool RAT_progressForHash(const char* hash, int* unlocked, int* total, char* next, size_t next_size) {
+	rc_api_fetch_game_sets_response_t sets;
+	if (!rat_parse_sets(hash, &sets))
+		return false;
+	RAT_Game game;
+	memset(&game, 0, sizeof(game));
+	snprintf(game.hash, sizeof(game.hash), "%s", hash);
+	game.session_game_id = sets.session_game_id;
+	rc_api_destroy_fetch_game_sets_response(&sets);
+
+	// RAT_loadAchievements already drops non-core and hidden achievements
+	// (rat_is_visible_achievement), the same set RAT_listGames counts
+	RAT_Achievement* achs = NULL;
+	int n = RAT_loadAchievements(&game, &achs);
+	if (n <= 0) {
+		free(achs);
+		return false;
+	}
+	const RAT_Achievement* first_locked = NULL;
+	*unlocked = 0;
+	*total = n;
+	for (int i = 0; i < n; i++) {
+		if (achs[i].state != RAT_ACH_LOCKED)
+			(*unlocked)++;
+		else if (!first_locked || achs[i].id < first_locked->id)
+			first_locked = &achs[i];
+	}
+	if (next_size) {
+		const char* title = first_locked ? first_locked->title : "";
+		snprintf(next, next_size, "%s", title);
+		size_t len = strlen(next);
+		if (strlen(title) > len && len > 0) // truncated: don't end mid-character
+			rat_utf8_trim(next, len);
+	}
+	free(achs);
+	return true;
 }
 
 
@@ -494,4 +540,106 @@ bool RAT_getCachedScore(uint32_t* score, uint32_t* softcore_score) {
 	rc_api_destroy_login_response(&resp);
 	free(body);
 	return ok;
+}
+
+typedef struct {
+	uint32_t game; // session_game_id: every disc of a multi-disc game shares it (and its unlocks)
+	uint32_t id;
+} RAT_UnlockKey;
+
+static int rat_unlock_key_cmp(const void* a, const void* b) {
+	const RAT_UnlockKey* x = a;
+	const RAT_UnlockKey* y = b;
+	if (x->game != y->game)
+		return x->game < y->game ? -1 : 1;
+	return x->id < y->id ? -1 : x->id > y->id;
+}
+
+// One pass over cache/games/: each sets.json is parsed once (RAT_listGames + RAT_loadAchievements would
+// parse it twice), the journal and confirmed files are read once, and the unlocks are kept as
+// (session game, achievement) keys, so the discs of one game (RAT_listGames merges them) count once.
+// Reads and parses every cached game: call it from a worker thread only.
+int RAT_unlocksSinceCancellable(time_t since, bool (*cancelled)(void)) {
+	char games_dir[512];
+	snprintf(games_dir, sizeof(games_dir), "%s/.ra/cache/games", SHARED_USERDATA_PATH);
+	DIR* d = opendir(games_dir);
+	if (!d)
+		return 0;
+
+	RA_PendingUnlock* pend = malloc(sizeof(RA_PendingUnlock) * RA_OFFLINE_MAX_PENDING);
+	RA_PendingUnlock* conf = malloc(sizeof(RA_PendingUnlock) * RA_OFFLINE_MAX_PENDING);
+	if (!pend || !conf) {
+		free(pend);
+		free(conf);
+		closedir(d);
+		return -1;
+	}
+	int pend_count = RA_Offline_readJournal(pend, RA_OFFLINE_MAX_PENDING);
+	int conf_count = RA_Offline_readConfirmed(conf, RA_OFFLINE_MAX_PENDING);
+
+	RAT_UnlockKey* keys = NULL;
+	int nkeys = 0, cap = 0;
+	bool failed = false; // cancelled or out of memory
+	struct dirent* ent;
+	while ((ent = readdir(d))) {
+		if (cancelled && cancelled()) {
+			failed = true;
+			break;
+		}
+		if (ent->d_name[0] == '.')
+			continue;
+		const char* hash = ent->d_name;
+		rc_api_fetch_game_sets_response_t sets;
+		if (!rat_parse_sets(hash, &sets))
+			continue;
+		RAT_ServerUnlock* server_ids = NULL;
+		int server_count = rat_server_unlocks(sets.session_game_id, &server_ids);
+
+		// the journal and confirmed files hold every game's entries: filtered by hash here
+		for (uint32_t s = 0; s < sets.num_sets && !failed; s++) {
+			for (uint32_t a = 0; a < sets.sets[s].num_achievements; a++) {
+				const rc_api_achievement_definition_t* def = &sets.sets[s].achievements[a];
+				if (!rat_is_visible_achievement(def))
+					continue;
+				time_t when = 0;
+				if (rat_resolve_unlock(def->id, hash, server_ids, server_count, pend, pend_count, conf,
+									   conf_count, &when) == RAT_ACH_LOCKED ||
+					when < since)
+					continue;
+				if (nkeys == cap) {
+					int grown = cap ? cap * 2 : 64;
+					RAT_UnlockKey* bigger = realloc(keys, grown * sizeof(RAT_UnlockKey));
+					if (!bigger) {
+						failed = true; // no silent undercount
+						break;
+					}
+					keys = bigger;
+					cap = grown;
+				}
+				keys[nkeys].game = sets.session_game_id;
+				keys[nkeys].id = def->id;
+				nkeys++;
+			}
+		}
+		free(server_ids);
+		rc_api_destroy_fetch_game_sets_response(&sets);
+		if (failed)
+			break;
+	}
+	closedir(d);
+	free(pend);
+	free(conf);
+
+	int count = -1;
+	if (!failed) {
+		if (nkeys > 1)
+			qsort(keys, nkeys, sizeof(RAT_UnlockKey), rat_unlock_key_cmp);
+		count = 0;
+		for (int i = 0; i < nkeys; i++) {
+			if (i == 0 || rat_unlock_key_cmp(&keys[i - 1], &keys[i]) != 0)
+				count++;
+		}
+	}
+	free(keys);
+	return count;
 }
