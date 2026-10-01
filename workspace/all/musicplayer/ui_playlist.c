@@ -47,7 +47,7 @@ void render_playlist_list(SDL_Surface* screen, IndicatorType show_setting,
 	(void)show_setting;
 	GFX_clear(screen);
 
-	UI_renderMenuBar(screen, "Playlists");
+	UI_renderMenuBar(screen, "Music Player | Playlists");
 
 	ListView* v = &playlist_list_view;
 	v->title = NULL; // menu bar drawn above (caller-owned chrome)
@@ -73,9 +73,7 @@ void render_playlist_detail(SDL_Surface* screen, IndicatorType show_setting,
 	(void)show_setting;
 	GFX_clear(screen);
 
-	char title[300];
-	snprintf(title, sizeof(title), "Playlist %s", playlist_name);
-	UI_renderMenuBar(screen, title);
+	UI_renderMenuBarPage(screen, "Music Player", playlist_name);
 
 	ListView* v = &playlist_detail_view;
 	v->title = NULL; // menu bar drawn above (caller-owned chrome)

@@ -63,6 +63,7 @@
 #include "utils.h"
 #include "defines.h"
 #include "ui_buttonhintbar.h"
+#include "ui_font.h"
 #include "ui_list.h"
 #include "ui_message.h"
 #include "wizard.h"
@@ -179,8 +180,16 @@ static void wiz_sync_render_progress(int index, int count, int percent) {
 	int bar_w = wiz_screen->w - SCALE1(PADDING * 8);
 	int bar_h = SCALE1(12);
 	int bar_x = SCALE1(PADDING * 4);
-	int bar_y = wiz_screen->h / 2 + SCALE1(10);
 	int fill_w;
+	// a progress page (LIST-LAYOUT §10.6): the status line at the secondary size, bold for the semi-bold
+	// weight, then the bar 1.0 x the status size under it; the pair is centred on the screen (no title or hints)
+	int status_px = UI_textRolePx(UI_TEXT_SECONDARY);
+	TTF_Font* status_font = UI_textRole(UI_TEXT_SECONDARY, true);
+	if (!status_font)
+		status_font = font.medium; // never drop the status line
+	int status_h = TTF_FontHeight(status_font);
+	int status_y = (wiz_screen->h - (status_h + status_px + bar_h)) / 2;
+	int bar_y = status_y + status_h + status_px;
 
 	if (percent < 0)
 		percent = 0;
@@ -193,9 +202,8 @@ static void wiz_sync_render_progress(int index, int count, int percent) {
 	GFX_clear(wiz_screen);
 	// GFX_blitText centres inside dst_rect, so a full-width rect is a centred
 	// line (wizard_net.c:146 does the same).
-	GFX_blitText(font.medium, message, 0, COLOR_WHITE, wiz_screen,
-				 &(SDL_Rect){0, bar_y - SCALE1(FONT_MEDIUM + PADDING), wiz_screen->w,
-							 SCALE1(FONT_MEDIUM)});
+	GFX_blitText(status_font, message, 0, COLOR_WHITE, wiz_screen,
+				 &(SDL_Rect){0, status_y, wiz_screen->w, status_h});
 
 	UI_renderRoundedRectBg(wiz_screen, bar_x, bar_y, bar_w, bar_h, RGB_DARK_GRAY);
 	// UI_fillRoundedRect clamps its radius to w/2, so a fill narrower than the

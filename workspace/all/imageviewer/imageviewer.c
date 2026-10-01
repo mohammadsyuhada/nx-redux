@@ -170,11 +170,13 @@ static void render_preview_pane(void) {
 static void render_browser(void) {
 	GFX_clear(screen);
 
+	// "Images" at the root, "Images | <folder>" deeper (LIST-LAYOUT §10.1)
 	const char* title = "Images";
+	char folder_title[300];
 	if (strcmp(browser.current_path, IMAGES_ROOT) != 0) {
 		const char* slash = strrchr(browser.current_path, '/');
 		if (slash && slash[1] != '\0')
-			title = slash + 1;
+			title = UI_pageTitle(folder_title, sizeof(folder_title), "Images", slash + 1);
 	}
 	UI_renderMenuBar(screen, title);
 

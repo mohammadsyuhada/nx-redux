@@ -899,7 +899,7 @@ static void draw_result_dialog(const char* title, const char* subtitle, const ch
 static void draw_progress_screen(const char* menu_title, const char* status,
 								 const char* detail, int progress) {
 	GFX_clear(screen);
-	UI_renderMenuBar(screen, menu_title);
+	UI_renderMenuBarPage(screen, "Xtras", menu_title); // "Xtras | <entry>" (LIST-LAYOUT §10.1)
 	UI_renderDownloadProgress(screen, &(UIDownloadProgress){
 										  .status = status,
 										  .detail = detail,
@@ -1428,9 +1428,9 @@ static int run_detail(AddonEntry* e) {
 			// Same menu bar as the list screen (status icons/battery/clock
 			// live there); layout.list_y below already reserves its band, the
 			// bar just wasn't drawn here (user-reported 2026-08-09).
-			UI_renderMenuBar(screen, "Xtras");
+			UI_renderMenuBarPage(screen, "Xtras", e->name); // a page inside the tool names it (LIST-LAYOUT §10.1)
 			ListLayout layout = UI_calcListLayout(screen);
-			int x = SCALE1(PADDING);
+			int x = UI_listTextX(); // under the title's first letter
 			int y = layout.list_y;
 
 			// Title: the same font a selectable list row uses, so the

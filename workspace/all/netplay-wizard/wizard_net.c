@@ -273,7 +273,7 @@ static void wiz_net_pick_get_row(void* ctx, int i, bool selected, ListViewRow* o
 static void wiz_net_render_list(const char** labels, int count) {
 	GFX_clear(wiz_screen);
 	ListView* v = &net_pick_view;
-	v->title = "Select Host";
+	v->title = "Netplay | Select Host";
 	v->font = font.large;
 	v->count = count;
 	v->get_row = wiz_net_pick_get_row;
@@ -289,7 +289,7 @@ static void wiz_net_render_list(const char** labels, int count) {
 static void wiz_net_render_empty(const char* message) {
 	GFX_clear(wiz_screen);
 	ListView* v = &net_pick_view;
-	v->title = "Select Host";
+	v->title = "Netplay | Select Host";
 	v->font = font.large;
 	v->count = 0;
 	v->get_row = wiz_net_pick_get_row;

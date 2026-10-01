@@ -96,7 +96,15 @@ void render_browser(SDL_Surface* screen, IndicatorType show_setting, BrowserCont
 	(void)show_setting;
 	GFX_clear(screen);
 
-	UI_renderMenuBar(screen, "Music Player");
+	// "Music Player | Files" at the root, "Files | <folder>" deeper (LIST-LAYOUT §10.1)
+	const char* header_title = "Music Player | Files";
+	char folder_title[600];
+	if (Browser_hasParent(browser)) {
+		const char* slash = strrchr(browser->current_path, '/');
+		if (slash && slash[1] != '\0')
+			header_title = UI_pageTitle(folder_title, sizeof(folder_title), "Files", slash + 1);
+	}
+	UI_renderMenuBar(screen, header_title);
 
 	// Empty state at root: no playable music anywhere
 	if (Browser_countAudioFiles(browser) == 0 && !Browser_hasParent(browser)) {

@@ -37,7 +37,7 @@ static void format_cache_size(long bytes, char* buf, int buf_size) {
 void render_settings_menu(SDL_Surface* screen, IndicatorType show_setting, int menu_selected, const char* balance_error) {
 	GFX_clear(screen);
 
-	UI_renderMenuBar(screen, "Settings");
+	UI_renderMenuBar(screen, "Music Player | Settings");
 	ListLayout layout = UI_calcListLayout(screen);
 
 	// Build dynamic cache labels

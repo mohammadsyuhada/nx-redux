@@ -142,7 +142,7 @@ static void render_list(const char* title, const char** labels, int count,
 							  pos.text_x, pos.text_y, layout.max_width, is_selected);
 	}
 
-	UI_renderScrollIndicators(screen, *scroll, layout.items_per_page, count);
+	UI_renderScrollIndicatorsAt(screen, &layout, *scroll, layout.items_per_page, count);
 
 	UI_renderButtonHintBar(screen, hints);
 	GFX_flip(screen);
@@ -151,8 +151,8 @@ static void render_list(const char* title, const char** labels, int count,
 /*
  * Item screen: the Settings app's two-column rows (label pill left, value
  * right, "< value >" on the selected row) instead of one long "Label: Value"
- * pill. SETTINGS_ROW_COUNT short rows fit where the pill list fit
- * list_h/PILL_SIZE tall ones, and the component's last row carries the
+ * pill. Options rows are 0.75 x the pill list pitch (LIST-LAYOUT §10.2), and
+ * the component's description area under the rows carries the
  * selected item's description — which is where the schema's options_hint now
  * lands too, as the fallback for items that ship no description of their own.
  *
@@ -170,7 +170,7 @@ static void render_list(const char* title, const char** labels, int count,
 static void render_item_page(const char* title, UISettingsItem* items, int count,
 							 int selected, int* scroll) {
 	GFX_clear(screen);
-	UI_renderMenuBar(screen, title);
+	UI_renderMenuBarPage(screen, "Options", title); // a section page names its parent (LIST-LAYOUT §10.1)
 
 	ListLayout layout = UI_calcListLayout(screen);
 	UI_renderSettingsPage(screen, &layout, items, count, selected, scroll, NULL);

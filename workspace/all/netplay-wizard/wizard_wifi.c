@@ -350,7 +350,7 @@ int wiz_wifi_ensure_connected(WizSession* s) {
 		// one blocking call — so the read happens inline. The 4s cadence is kept.
 		if (!scanned || now - last_scan >= WIZ_SCAN_INTERVAL_MS) {
 			if (!scanned)
-				wiz_render_empty("Select WiFi Network", "Scanning for networks...");
+				wiz_render_empty("Netplay | Select WiFi Network", "Scanning for networks...");
 
 			count = WIFI_direct_scanNetworks(networks, WIZ_WIFI_MAX_NETWORKS);
 			last_scan = SDL_GetTicks();
@@ -440,9 +440,9 @@ int wiz_wifi_ensure_connected(WizSession* s) {
 
 		if (dirty) {
 			if (count > 0)
-				wiz_render_list("Select WiFi Network", labels, count);
+				wiz_render_list("Netplay | Select WiFi Network", labels, count);
 			else
-				wiz_render_empty("Select WiFi Network", "No networks found");
+				wiz_render_empty("Netplay | Select WiFi Network", "No networks found");
 			dirty = false;
 		} else {
 			UI_listViewTickIdle(&wiz_pick_view);
@@ -542,7 +542,7 @@ int wiz_hotspot_join(WizSession* s) {
 
 		if (!scanned || now - last_scan >= WIZ_SCAN_INTERVAL_MS) {
 			if (!scanned)
-				wiz_render_empty("Select code shown on the host", "Scanning for hosts...");
+				wiz_render_empty("Netplay | Select code shown on the host", "Scanning for hosts...");
 
 			memset(hotspots, 0, sizeof(hotspots)); // scanForHotspots leaves the tail untouched
 			// Three scan passes live inside WIFI_direct_scanForHotspots (a hotspot
@@ -594,9 +594,9 @@ int wiz_hotspot_join(WizSession* s) {
 
 		if (dirty) {
 			if (count > 0)
-				wiz_render_list("Select code shown on the host", labels, count);
+				wiz_render_list("Netplay | Select code shown on the host", labels, count);
 			else
-				wiz_render_empty("Select code shown on the host", "Waiting for a host...");
+				wiz_render_empty("Netplay | Select code shown on the host", "Waiting for a host...");
 			dirty = false;
 		} else {
 			UI_listViewTickIdle(&wiz_pick_view);

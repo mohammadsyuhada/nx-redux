@@ -9,6 +9,7 @@
 #include "../common/utils.h"
 #include "../common/api.h"
 #include "../common/sdl.h"
+#include "../common/ui_list_layout.h"
 #include "../common/ui/ui_buttonhintbar.h"
 #include "../common/ui/ui_emptystate.h"
 #include "../common/ui/ui_menubar.h"
@@ -455,7 +456,7 @@ static void format_date(char* buf, uint32_t timestamp) {
 static void render_section_header(SDL_Surface* screen, const char* text, int y) {
 	SDL_Surface* surf = GFX_renderText(font.small, text, COLOR_GRAY);
 	if (surf) {
-		SDL_BlitSurface(surf, NULL, screen, &(SDL_Rect){SCALE1(PADDING + BUTTON_PADDING), y});
+		SDL_BlitSurface(surf, NULL, screen, &(SDL_Rect){UI_listTextX(), y});
 		SDL_FreeSurface(surf);
 	}
 }
@@ -508,7 +509,7 @@ void render_podcast_main_page(SDL_Surface* screen, MusicIndicatorType show_setti
 
 	int hw = screen->w;
 
-	UI_renderMenuBar(screen, "Podcasts");
+	UI_renderMenuBar(screen, "Music Player | Podcasts");
 
 	int cl_count_raw = Podcast_getContinueListeningCount();
 	int cl_count = (cl_count_raw > PODCAST_CONTINUE_LISTENING_DISPLAY) ? PODCAST_CONTINUE_LISTENING_DISPLAY : cl_count_raw;
@@ -748,7 +749,7 @@ void render_podcast_manage(SDL_Surface* screen, MusicIndicatorType show_setting,
 	char truncated[256];
 	char label_buf[128];
 
-	UI_renderMenuBar(screen, "Manage Podcasts");
+	UI_renderMenuBar(screen, "Music Player | Manage Podcasts");
 
 	// Use common list layout
 	ListLayout layout = UI_calcListLayout(screen);
@@ -777,7 +778,7 @@ void render_podcast_top_shows(SDL_Surface* screen, MusicIndicatorType show_setti
 
 	int hw = screen->w;
 
-	UI_renderMenuBar(screen, "Top Shows");
+	UI_renderMenuBar(screen, "Music Player | Top Shows");
 
 	const PodcastChartsStatus* status = Podcast_getChartsStatus();
 
@@ -811,11 +812,10 @@ void render_podcast_top_shows(SDL_Surface* screen, MusicIndicatorType show_setti
 
 	// List layout (rich 2-row items)
 	ListLayout layout = UI_calcListLayout(screen);
-	layout.item_h = SCALE1(PILL_SIZE) * 3 / 2;
-	layout.items_per_page = layout.list_h / layout.item_h;
+	UI_listLayoutSetRowHeight(&layout, UI_listFitRowHeight(layout.avail_bottom - layout.avail_top, SCALE1(PILL_SIZE) * 3 / 2), 0);
 	UI_adjustListScroll(selected, scroll, layout.items_per_page);
 
-	int thumb_size = SCALE1(PILL_SIZE) * 3 / 2 - SCALE1(4) * 2; // same as image_size in pill_rich
+	int thumb_size = layout.item_h - SCALE1(4) * 2; // same as image_size in pill_rich
 	for (int i = 0; i < layout.items_per_page && *scroll + i < count; i++) {
 		int idx = *scroll + i;
 		PodcastChartItem* item = &items[idx];
@@ -834,7 +834,7 @@ void render_podcast_top_shows(SDL_Surface* screen, MusicIndicatorType show_setti
 			break;
 	}
 
-	UI_renderScrollIndicators(screen, *scroll, layout.items_per_page, count);
+	UI_renderScrollIndicatorsAt(screen, &layout, *scroll, layout.items_per_page, count);
 
 	// Check if selected item is already subscribed (by iTunes ID)
 	bool selected_is_subscribed = false;
@@ -856,7 +856,7 @@ void render_podcast_search_results(SDL_Surface* screen, MusicIndicatorType show_
 
 	int hw = screen->w;
 
-	UI_renderMenuBar(screen, "Search Results");
+	UI_renderMenuBar(screen, "Music Player | Search Results");
 
 	const PodcastSearchStatus* status = Podcast_getSearchStatus();
 
@@ -890,8 +890,7 @@ void render_podcast_search_results(SDL_Surface* screen, MusicIndicatorType show_
 
 	// List layout (rich 2-row items)
 	ListLayout layout = UI_calcListLayout(screen);
-	layout.item_h = SCALE1(PILL_SIZE) * 3 / 2;
-	layout.items_per_page = layout.list_h / layout.item_h;
+	UI_listLayoutSetRowHeight(&layout, UI_listFitRowHeight(layout.avail_bottom - layout.avail_top, SCALE1(PILL_SIZE) * 3 / 2), 0);
 	UI_adjustListScroll(selected, scroll, layout.items_per_page);
 
 	// Check if selected item is already subscribed
@@ -900,7 +899,7 @@ void render_podcast_search_results(SDL_Surface* screen, MusicIndicatorType show_
 		selected_is_subscribed = Podcast_isSubscribed(results[selected].feed_url);
 	}
 
-	int thumb_size = SCALE1(PILL_SIZE) * 3 / 2 - SCALE1(4) * 2;
+	int thumb_size = layout.item_h - SCALE1(4) * 2; // same as image_size in pill_rich
 	for (int i = 0; i < layout.items_per_page && *scroll + i < count; i++) {
 		int idx = *scroll + i;
 		PodcastSearchResult* result = &results[idx];
@@ -919,7 +918,7 @@ void render_podcast_search_results(SDL_Surface* screen, MusicIndicatorType show_
 			break;
 	}
 
-	UI_renderScrollIndicators(screen, *scroll, layout.items_per_page, count);
+	UI_renderScrollIndicatorsAt(screen, &layout, *scroll, layout.items_per_page, count);
 
 	UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", selected_is_subscribed ? "UNSUBSCRIBE" : "SUBSCRIBE", NULL});
 
@@ -938,14 +937,14 @@ void render_podcast_episodes(SDL_Surface* screen, MusicIndicatorType show_settin
 
 	PodcastFeed* feed = Podcast_getSubscription(feed_index);
 	if (!feed) {
-		UI_renderMenuBar(screen, "Episodes");
+		UI_renderMenuBar(screen, "Music Player | Episodes");
 		UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", NULL});
 		return;
 	}
 
 	int count = feed->episode_count;
 
-	UI_renderMenuBar(screen, "Episodes");
+	UI_renderMenuBar(screen, "Music Player | Episodes");
 
 	// Viewport (below fixed header, above buttons)
 	int base_y = SCALE1(PADDING + PILL_SIZE + BUTTON_MARGIN);
@@ -1377,14 +1376,10 @@ void render_podcast_download_queue(SDL_Surface* screen, MusicIndicatorType show_
 	const PodcastDownloadProgress* progress = Podcast_getDownloadProgress();
 
 	// Title with completion count
-	char title[64];
-	if (queue_count > 0) {
-		snprintf(title, sizeof(title), "Downloads (%d/%d)",
-				 progress->completed_count, progress->total_items);
-	} else {
-		snprintf(title, sizeof(title), "Downloads");
-	}
-	UI_renderMenuBar(screen, title);
+	char count[32] = "";
+	if (queue_count > 0)
+		snprintf(count, sizeof(count), " (%d/%d)", progress->completed_count, progress->total_items);
+	UI_renderMenuBarAt(screen, "Music Player | Downloads", count, -1, true, false);
 
 	// Empty state
 	if (queue_count == 0) {
@@ -1402,10 +1397,8 @@ void render_podcast_download_queue(SDL_Surface* screen, MusicIndicatorType show_
 
 	// List layout — use taller item height for two-row pills (title + subtitle)
 	ListLayout layout = UI_calcListLayout(screen);
-	layout.item_h = SCALE1(PILL_SIZE) * 3 / 2;
-	layout.items_per_page = layout.list_h / layout.item_h;
-	if (layout.items_per_page > 5)
-		layout.items_per_page = 5;
+	// at most 5 rows, the block (and its arrows) sized for what's drawn
+	UI_listLayoutSetRowHeight(&layout, UI_listFitRowHeight(layout.avail_bottom - layout.avail_top, SCALE1(PILL_SIZE) * 3 / 2), 5);
 	UI_adjustListScroll(selected, scroll, layout.items_per_page);
 
 	for (int i = 0; i < layout.items_per_page && *scroll + i < queue_count; i++) {
@@ -1521,7 +1514,7 @@ void render_podcast_download_queue(SDL_Surface* screen, MusicIndicatorType show_
 	}
 
 	// Scroll indicators
-	UI_renderScrollIndicators(screen, *scroll, layout.items_per_page, queue_count);
+	UI_renderScrollIndicatorsAt(screen, &layout, *scroll, layout.items_per_page, queue_count);
 
 	char* hint_pairs[16];
 	int h = 0;
@@ -1548,7 +1541,7 @@ void render_podcast_playing(SDL_Surface* screen, MusicIndicatorType show_setting
 	int have_ep = Podcast_getEpisode(feed_index, episode_index, &ep);
 
 	if (!feed || !have_ep) {
-		UI_renderMenuBar(screen, "Now Playing");
+		UI_renderMenuBar(screen, "Music Player | Now Playing");
 		UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", NULL});
 		return;
 	}

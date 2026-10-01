@@ -851,7 +851,7 @@ static void renderROMList(void) {
 	GFX_clear(screen);
 
 	SystemEntry* sys = &systems[systems_view.selected];
-	UI_renderMenuBar(screen, sys->name);
+	UI_renderMenuBarPage(screen, "Artwork Manager", sys->name);
 
 	if (rom_count == 0) {
 		UI_renderEmptyState(screen, "No ROMs found", NULL, NULL);

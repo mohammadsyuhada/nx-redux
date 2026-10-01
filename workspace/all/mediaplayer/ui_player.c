@@ -59,13 +59,13 @@ void render_video_browser(SDL_Surface* screen, IndicatorType show_setting,
 	(void)show_setting;
 	GFX_clear(screen);
 
-	// Determine header title: "Videos" at root, or folder name in subdirectories
-	const char* header_title = "Videos";
+	// Header title: "Media Player | Videos" at root, "Videos | <folder>" in subdirectories (LIST-LAYOUT §10.1)
+	const char* header_title = "Media Player | Videos";
+	char folder_title[300];
 	if (strcmp(ctx->current_path, VIDEO_ROOT) != 0) {
 		const char* slash = strrchr(ctx->current_path, '/');
-		if (slash && slash[1] != '\0') {
-			header_title = slash + 1;
-		}
+		if (slash && slash[1] != '\0')
+			header_title = UI_pageTitle(folder_title, sizeof(folder_title), "Videos", slash + 1);
 	}
 
 	UI_renderMenuBar(screen, header_title);
