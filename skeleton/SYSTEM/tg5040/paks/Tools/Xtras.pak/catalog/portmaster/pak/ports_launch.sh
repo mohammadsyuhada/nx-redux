@@ -23,9 +23,11 @@ export PYSDL2_DLL_PATH="/usr/trimui/lib"
 export HOME="$SHARED_USERDATA_PATH/PORTS-portmaster"
 # Copy audio config so ALSA finds Bluetooth/USB DAC routing (audiomon writes to USERDATA_PATH)
 [ -f "$USERDATA_PATH/.asoundrc" ] && cp "$USERDATA_PATH/.asoundrc" "$HOME/.asoundrc"
-# Point XDG_DATA_HOME to PortMaster's parent so port scripts find it directly
-# (port scripts check: elif [ -d "$XDG_DATA_HOME/PortMaster/" ])
-export XDG_DATA_HOME="$SDCARD_PATH/Emus/shared"
+# The standard XDG data home, as on other PortMaster platforms: games inherit it
+# and keep their data under ~/.local/share/<game>, which is where port scripts
+# bind_directories their save/config folders. Port scripts find PortMaster via
+# their fallback path, rewritten to $EMU_DIR before launch (see main).
+export XDG_DATA_HOME="$HOME/.local/share"
 
 [ -z "$1" ] && exit 1
 ROM_PATH="$1"
@@ -107,6 +109,7 @@ main() {
 
     # Fix hardcoded paths and shebangs
     sed -i -e "s|/roms/ports/PortMaster|$EMU_DIR|g" \
+           -e "s|/mnt/SDCARD/Emus/tg50[45]0/PORTS.pak/PortMaster|$EMU_DIR|g" \
            -e '1s|^#!/bin/bash|#!/usr/bin/env bash|' "$ROM_PATH"
 
     # Re-apply the saved audio sink, volume and brightness once the emulator has
