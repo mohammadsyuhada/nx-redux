@@ -50,12 +50,15 @@ kill $SAMPLER 2>/dev/null # stop the thread sampler before the exit sequence
 # (api.c PAD_poll) — the device shuts down. SIGKILL bypasses SDL and is the
 # fallback only.
 DEV=/dev/input/event3; [ "$PLAT" = tg5050 ] && DEV=/dev/input/event4
+# A's raw code: TRIMUI Player1 sends A as 305 and B as 304; the Xbox button
+# layout (buttonlayout=1) swaps them.
+A='\061\001'; grep -q '^buttonlayout=1' /mnt/SDCARD/.userdata/shared/minuisettings.txt 2>/dev/null && A='\060\001'
 ev() { printf "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000$1" > $DEV; }
 key() { ev "\001\000$1\001\000\000\000"; ev '\000\000\000\000\000\000\000\000'; sleep 0.1; ev "\001\000$1\000\000\000\000"; ev '\000\000\000\000\000\000\000\000'; sleep 0.35; }
 hat() { ev "\003\000\021\000$1\000\000\000"; ev '\000\000\000\000\000\000\000\000'; sleep 0.1; ev '\003\000\021\000\000\000\000\000'; ev '\000\000\000\000\000\000\000\000'; sleep 0.35; }
 key '\074\001'; sleep 1.5                      # MENU (316) opens the in-game menu
 hat '\001'; hat '\001'; hat '\001'; hat '\001'  # Down x4 -> Quit
-key '\060\001'                                 # A (304) confirms
+key "$A"                                       # A confirms
 n=0; while [ -n "$(pidof minarch.elf)" ] && [ $n -lt 50 ]; do sleep 0.2; n=$((n+1)); done
 [ -n "$(pidof minarch.elf)" ] && { echo "[driver] menu quit failed, SIGKILL fallback"; kill -9 $(pidof minarch.elf); }
 n=0; while [ -z "$(pidof nextui.elf)" ] && [ $n -lt 150 ]; do sleep 0.2; n=$((n+1)); done
