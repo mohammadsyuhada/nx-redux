@@ -139,6 +139,14 @@ enum {
 #define SCALE1(a) ((a) * FIXED_SCALE)
 #define SCALE2(a, b) ((a) * FIXED_SCALE), ((b) * FIXED_SCALE)
 #define SCALE4(a, b, c, d) ((a) * FIXED_SCALE), ((b) * FIXED_SCALE), ((c) * FIXED_SCALE), ((d) * FIXED_SCALE)
+// device-default ("native") size, whatever the UI scale: the tab row, the hint bar, the hardware status group and the
+// page titles keep NATIVE_SCALE. Each expansion keeps its call sites' exact operand order and types (int math for
+// NATIVE1; NATIVE_SCALE first, as the sites wrote it), so swapping a site to the macro is pixel-identical.
+#define NATIVE1(a) ((NATIVE_SCALE) * (a))
+// mobile dp / sp at NATIVE_SCALE (dp: a 42 dp row is one 30-unit row; sp: 14 sp is one 12-unit font size). Not folded
+// into a per-dp factor: dp * (F * 30 / 42) rounds differently from (dp * F) * 30 / 42.
+#define NX_NATIVE_DP(x) ((int)((x) * NATIVE_SCALE * 30.0f / 42.0f + 0.5f))
+#define NX_NATIVE_SP(x) ((int)((x) * NATIVE_SCALE * 12.0f / 14.0f + 0.5f))
 // mobile dp -> pixels (a 42 dp row is one 30-unit PILL_SIZE row)
 #define NX_DP(x) ((int)((x) * FIXED_SCALE * 30.0f / 42.0f + 0.5f))
 // dp float -> pixels, rounded (layout math stays in dp floats until drawing)

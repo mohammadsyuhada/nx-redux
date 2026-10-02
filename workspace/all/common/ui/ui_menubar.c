@@ -13,7 +13,7 @@
 // The page title keeps the device's default size whatever the UI scale (like the main menu's tabs): UI_PAGE_TITLE_SP at
 // NATIVE_SCALE, not FIXED_SCALE.
 static TTF_Font* titleFont(void) {
-	return UIFont_getPx((int)(UI_PAGE_TITLE_SP * NATIVE_SCALE * 12.0f / 14.0f + 0.5f), false);
+	return UIFont_getPx(NX_NATIVE_SP(UI_PAGE_TITLE_SP), false);
 }
 
 int UI_menuBarHeight(void) {

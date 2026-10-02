@@ -34,17 +34,17 @@ int UI_renderButtonHintBarEx(SDL_Surface* dst, char** pairs, Uint8 scrim_alpha) 
 				break;
 			int w = GFX_getButtonWidthNative(hint, button);
 			hints[count++] = (struct Hint){hint, button, w};
-			total_w += NATIVE_SCALE * BUTTON_MARGIN + w;
+			total_w += NATIVE1(BUTTON_MARGIN) + w;
 		}
 	}
 
 	if (count == 0)
 		return 0;
-	total_w += NATIVE_SCALE * BUTTON_MARGIN;
+	total_w += NATIVE1(BUTTON_MARGIN);
 
 	// Full-width semi-transparent black bar (keep in step with UI_buttonHintIconTop): its height follows the UI scale
 	// (the space every screen reserves), the hints in it keep the device's default size (NATIVE_SCALE), centred
-	int btn_sz = NATIVE_SCALE * BUTTON_SIZE;
+	int btn_sz = NATIVE1(BUTTON_SIZE);
 	int bar_h = SCALE1(BUTTON_SIZE) + SCALE1(BUTTON_MARGIN * 2);
 	int oy = dst->h - bar_h;
 
@@ -65,17 +65,17 @@ int UI_renderButtonHintBarEx(SDL_Surface* dst, char** pairs, Uint8 scrim_alpha) 
 	// Render all buttons from the left; the first glyph is pulled left so its
 	// circle (inset 16/128 of the glyph) sits on the old text edge
 	int by = oy + UI_hintBarIconOffset(bar_h, btn_sz);
-	int ox = SCALE1(PADDING) + NATIVE_SCALE * BUTTON_MARGIN - (btn_sz * 16 + 64) / 128;
+	int ox = SCALE1(PADDING) + NATIVE1(BUTTON_MARGIN) - (btn_sz * 16 + 64) / 128;
 	for (int i = 0; i < count; i++) {
 		GFX_blitButtonNative(hints[i].hint, hints[i].button, dst, &(SDL_Rect){ox, by});
-		ox += hints[i].ow + NATIVE_SCALE * BUTTON_MARGIN;
+		ox += hints[i].ow + NATIVE1(BUTTON_MARGIN);
 	}
 
 	return total_w;
 }
 
 int UI_buttonHintIconTop(int screen_h) {
-	int btn_sz = NATIVE_SCALE * BUTTON_SIZE;
+	int btn_sz = NATIVE1(BUTTON_SIZE);
 	int bar_h = SCALE1(BUTTON_SIZE) + SCALE1(BUTTON_MARGIN * 2);
 	return screen_h - bar_h + UI_hintBarIconOffset(bar_h, btn_sz);
 }

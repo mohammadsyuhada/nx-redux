@@ -456,7 +456,7 @@ int GFX_loadSystemFont(const char* fontPath) {
 	// the hint bar's native-size face is only used when the UI scale differs from the device's (hintTinyNative);
 	// a scale change reloads the system fonts, so this re-decides then
 	TTF_CloseFont(hint_tiny_native);
-	hint_tiny_native = NATIVE_SCALE != FIXED_SCALE ? TTF_OpenFont(fontPath, NATIVE_SCALE * FONT_TINY) : NULL;
+	hint_tiny_native = NATIVE_SCALE != FIXED_SCALE ? TTF_OpenFont(fontPath, NATIVE1(FONT_TINY)) : NULL;
 
 	// Secondary Arabic font (fixed path — independent of the primary UI font).
 	// Missing file => NULL entries => Arabic falls back to primary (tofu), no crash.
@@ -476,7 +476,7 @@ int GFX_loadSystemFont(const char* fontPath) {
 	font_ar.tiny = TTF_OpenFont(arPath, SCALE1(FONT_TINY));
 	font_ar.micro = TTF_OpenFont(arPath, SCALE1(FONT_MICRO));
 	TTF_CloseFont(hint_tiny_native_ar);
-	hint_tiny_native_ar = NATIVE_SCALE != FIXED_SCALE ? TTF_OpenFont(arPath, NATIVE_SCALE * FONT_TINY) : NULL;
+	hint_tiny_native_ar = NATIVE_SCALE != FIXED_SCALE ? TTF_OpenFont(arPath, NATIVE1(FONT_TINY)) : NULL;
 
 	return 0;
 }
@@ -2242,9 +2242,9 @@ static bool hwNativeReady(void) {
 	char path[MAX_PATH];
 	sprintf(path, "%s/assets@%ix.png", RES_PATH, NATIVE_SCALE);
 	hw_native.assets = IMG_Load(path);
-	hw_native.small = TTF_OpenFont(font_path, NATIVE_SCALE * FONT_SMALL);
-	hw_native.tiny = TTF_OpenFont(font_path, NATIVE_SCALE * FONT_TINY);
-	hw_native.micro = TTF_OpenFont(font_path, NATIVE_SCALE * FONT_MICRO);
+	hw_native.small = TTF_OpenFont(font_path, NATIVE1(FONT_SMALL));
+	hw_native.tiny = TTF_OpenFont(font_path, NATIVE1(FONT_TINY));
+	hw_native.micro = TTF_OpenFont(font_path, NATIVE1(FONT_MICRO));
 	hw_native.built_for = FIXED_SCALE;
 	snprintf(hw_native.font_path, sizeof(hw_native.font_path), "%s", font_path);
 	if (!hw_native.assets || !hw_native.small || !hw_native.tiny || !hw_native.micro) {
@@ -2258,7 +2258,7 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, IndicatorType show_setting) {
 	if (!hwNativeReady())
 		return hardwareGroupDraw(dst, show_setting, 0);
 	int bar_h = SCALE1(BUTTON_SIZE) + SCALE1(BUTTON_MARGIN * 2);
-	int native_h = NATIVE_SCALE * (BUTTON_SIZE + BUTTON_MARGIN * 2);
+	int native_h = NATIVE1(BUTTON_SIZE + BUTTON_MARGIN * 2);
 	int y0 = (bar_h - native_h) / 2;
 	// swap the native context in
 	SDL_Rect live[ASSET_COUNT];
