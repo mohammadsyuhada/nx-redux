@@ -1,4 +1,5 @@
 #include "ui_buttonhintbar.h"
+#include "ui_hintbar_layout.h"
 #include "ui_draw.h"
 #include "api.h"
 #include "defines.h"
@@ -62,7 +63,7 @@ int UI_renderButtonHintBarEx(SDL_Surface* dst, char** pairs, Uint8 scrim_alpha) 
 
 	// Render all buttons from the left; the first glyph is pulled left so its
 	// circle (inset 16/128 of the glyph) sits on the old text edge
-	int by = oy + (bar_h - btn_sz) / 2;
+	int by = oy + UI_hintBarIconOffset(bar_h, btn_sz);
 	int ox = SCALE1(PADDING) + SCALE1(BUTTON_MARGIN) - (btn_sz * 16 + 64) / 128;
 	for (int i = 0; i < count; i++) {
 		GFX_blitButton(hints[i].hint, hints[i].button, dst, &(SDL_Rect){ox, by});
@@ -75,7 +76,7 @@ int UI_renderButtonHintBarEx(SDL_Surface* dst, char** pairs, Uint8 scrim_alpha) 
 int UI_buttonHintIconTop(int screen_h) {
 	int btn_sz = SCALE1(BUTTON_SIZE);
 	int bar_h = btn_sz + SCALE1(BUTTON_MARGIN * 2);
-	return screen_h - bar_h + (bar_h - btn_sz) / 2;
+	return screen_h - bar_h + UI_hintBarIconOffset(bar_h, btn_sz);
 }
 
 int UI_buttonHintBarTop(int screen_h) {
