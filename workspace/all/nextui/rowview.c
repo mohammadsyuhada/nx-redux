@@ -102,6 +102,7 @@
 // The row's position (items): eases from pos_from to pos_to.
 static float pos_from = 0, pos_to = 0;
 static Tween slide_tw;
+static bool slide_retargeted = false; // the slide began while another ran (a held D-pad's repeats)
 // What the position belongs to: a change of any snaps it (keyed on `top` and the tab generation, not on the list).
 static unsigned seen_top = 0; // the Directory serial (0 = none)
 static unsigned seen_gen = 0;
@@ -130,14 +131,21 @@ static unsigned exit_top = 0; // the list it belongs to (the Directory serial)
 // Item surfaces at the two rest sizes, keyed by kind, size, state, path and the drawn name (a rename changes it).
 typedef struct {
 	char key[ITEM_KEY];
+	Uint32 hash;	// keyHash(key): compared before the ~300-byte strcmp
 	SDL_Surface* s; // may be NULL (a remembered failed build)
 	unsigned stamp;
 	bool used;
 } ItemSlot;
 static ItemSlot items[ITEM_SLOTS];
 static unsigned item_clock = 0;
-static unsigned item_builds = 0;	  // items built so far (the settled prefetch's budget counts them)
-static bool prefetch_pending = false; // the settled prefetch stopped at its budget: one more frame to continue
+
+// Prefetch (RowView_prefetchStep) works for the last frame's row: its geometry and selection, armed by each render and
+// disarmed once everything ahead is built (or the row stops drawing). It runs between frames, never forcing one.
+static struct {
+	bool armed;
+	RowGeo g;
+	int n, sel;
+} pf;
 
 // The main-menu Carousel's "N games" line, in the count grey: Consoles' 8 dp under the selected logo as drawn, its y
 // gliding as logo heights differ; Collections' on the selected item (its line is reserved in every item), fading in.
@@ -519,9 +527,18 @@ static void blackOver(SDL_Surface* dst, Uint8 a) {
 ///////////////////////////////////////
 // The item cache
 
+// 32-bit FNV-1a of a cache key.
+static Uint32 keyHash(const char* key) {
+	Uint32 h = 2166136261u;
+	for (const unsigned char* p = (const unsigned char*)key; *p; p++)
+		h = (h ^ *p) * 16777619u;
+	return h;
+}
+
 static bool itemFind(const char* key, SDL_Surface** out) {
+	Uint32 h = keyHash(key);
 	for (int i = 0; i < ITEM_SLOTS; i++) {
-		if (items[i].used && strcmp(items[i].key, key) == 0) {
+		if (items[i].used && items[i].hash == h && strcmp(items[i].key, key) == 0) {
 			items[i].stamp = ++item_clock;
 			*out = items[i].s;
 			return true;
@@ -532,7 +549,6 @@ static bool itemFind(const char* key, SDL_Surface** out) {
 
 // Takes ownership of s (NULL remembers a failed build). Evicts the least recently used slot.
 static SDL_Surface* itemStore(const char* key, SDL_Surface* s) {
-	item_builds++;
 	ItemSlot* victim = &items[0];
 	for (int i = 0; i < ITEM_SLOTS; i++) {
 		if (!items[i].used) {
@@ -545,11 +561,14 @@ static SDL_Surface* itemStore(const char* key, SDL_Surface* s) {
 	if (victim->s)
 		SDL_FreeSurface(victim->s);
 	snprintf(victim->key, sizeof(victim->key), "%s", key);
+	victim->hash = keyHash(victim->key); // of the stored (possibly truncated) key, as itemFind compares it
 	victim->s = s;
 	victim->used = true;
 	victim->stamp = ++item_clock;
 	return s;
 }
+
+static void logoNamesClear(void);
 
 static void itemsClear(void) {
 	for (int i = 0; i < ITEM_SLOTS; i++) {
@@ -558,6 +577,7 @@ static void itemsClear(void) {
 	}
 	memset(items, 0, sizeof(items));
 	item_clock = 0;
+	logoNamesClear();
 }
 
 ///////////////////////////////////////
@@ -568,16 +588,18 @@ static void itemsClear(void) {
 static SDL_Surface* carouselTile(const RowGeo* g, Entry* e, TileKind kind, int w, int h, bool lit) {
 	SDL_Surface* pic = NULL;
 	int state = 0;
+	unsigned gen = 0;
 	if (kind == TILE_GAME) {
 		HomeArtState st = HomeArt_pin(e->path, g->full_w, g->full_h, 0, &pic); // valid until the next HomeArt_*
+		gen = HomeArt_lastGen();											   // changes after HomeArt_forget (Fetch artwork), so a re-decoded art misses the cache
 		state = st == HOMEART_READY && pic ? 2 : (st == HOMEART_LOADING ? 1 : 0);
 	}
 	char key[ITEM_KEY];
 	// the lit look's ring (a game) or fill (a tool) is in the accent, a tool's content in its ink
 	SDL_Color ac = lit ? UI_accent() : (SDL_Color){0, 0, 0, 0};
 	SDL_Color ink = lit ? UI_onAccent() : (SDL_Color){0, 0, 0, 0};
-	snprintf(key, sizeof(key), "C|%d|%d|%d|%d|%02x%02x%02x%02x%02x%02x|%d|%s|%s", w, h, (int)kind, lit, ac.r, ac.g,
-			 ac.b, ink.r, ink.g, ink.b, state, e->path, displayName(e));
+	snprintf(key, sizeof(key), "C|%d|%d|%d|%d|%02x%02x%02x%02x%02x%02x|%d|%u|%s|%s", w, h, (int)kind, lit, ac.r,
+			 ac.g, ac.b, ink.r, ink.g, ink.b, state, gen, e->path, displayName(e));
 	SDL_Surface* s;
 	if (itemFind(key, &s))
 		return s;
@@ -733,6 +755,38 @@ static int logoName(SDL_Surface* s, const char* name, int w, int h, int y, float
 	int nh = Tiles_textBlock(s, f, name, w / 2, y + ih + gap, w - 2 * NX_DPF(SLOT_TEXT_PAD_DP * lvl), 2, false,
 							 TILE_MENU_GREY, 255, false);
 	return ih + gap + nh;
+}
+
+// logoName's measured height for a logo-less console at the full slot size, kept per name so the count lines (selection
+// and neighbours, every frame) don't re-wrap and re-measure it: keyed on everything it depends on (the name, the slot,
+// the content scale and FIXED_SCALE, which set the emblem and font sizes). Cleared with the item cache.
+#define LOGO_NAME_SLOTS 16
+static struct {
+	char name[MAX_PATH];
+	int w, h, scale;
+	float k;
+	int drawn;
+} logo_name_h[LOGO_NAME_SLOTS];
+static int logo_name_next = 0;
+
+static void logoNamesClear(void) {
+	memset(logo_name_h, 0, sizeof(logo_name_h));
+	logo_name_next = 0;
+}
+
+static int logoNameHeight(const char* name, int w, int h, float k) {
+	for (int i = 0; i < LOGO_NAME_SLOTS; i++) {
+		if (logo_name_h[i].w == w && logo_name_h[i].h == h && logo_name_h[i].k == k &&
+			logo_name_h[i].scale == FIXED_SCALE && strcmp(logo_name_h[i].name, name) == 0)
+			return logo_name_h[i].drawn;
+	}
+	int drawn = logoName(NULL, name, w, h, 0, k, 1.0f);
+	int i = logo_name_next;
+	logo_name_next = (logo_name_next + 1) % LOGO_NAME_SLOTS;
+	snprintf(logo_name_h[i].name, sizeof(logo_name_h[i].name), "%s", name);
+	logo_name_h[i].w = w, logo_name_h[i].h = h, logo_name_h[i].k = k, logo_name_h[i].scale = FIXED_SCALE;
+	logo_name_h[i].drawn = drawn;
+	return drawn;
 }
 
 // A Backdrop slot item at w×h px (pad none, transparent white ground): content scale k already includes the size's
@@ -1019,13 +1073,15 @@ static void drawCarouselItem(SDL_Surface* screen, const RowGeo* g, Entry* e, Til
 }
 
 // A box art at a neighbour's rest size: stretched once and kept, so a rested neighbour isn't stretched every frame.
-// Keyed by the art surface itself (HomeArt keeps a READY surface until it evicts it).
-static SDL_Surface* sideArt(const RowGeo* g, Entry* e, SDL_Surface* art) {
+// Keyed by the art surface itself (HomeArt keeps a READY surface until it evicts it) and its HomeArt slot generation
+// `gen` (HomeArt_lastGen right after the HomeArt_boxart call that returned `art`).
+static SDL_Surface* sideArt(const RowGeo* g, Entry* e, SDL_Surface* art, unsigned gen) {
 	int w = (int)(art->w * g->sz.scale + 0.5f), h = (int)(art->h * g->sz.scale + 0.5f);
 	if (w <= 0 || h <= 0)
 		return NULL;
 	char key[ITEM_KEY];
-	snprintf(key, sizeof(key), "A|%d|%d|%p|%s", w, h, (void*)art, e->path);
+	// the gen beside the pointer: a re-decoded art (after HomeArt_forget) may reuse the old surface's address
+	snprintf(key, sizeof(key), "A|%d|%d|%p|%u|%s", w, h, (void*)art, gen, e->path);
 	SDL_Surface* s;
 	if (itemFind(key, &s))
 		return s;
@@ -1055,9 +1111,10 @@ static void drawBackdropItem(SDL_Surface* screen, const RowGeo* g, Entry* e, Til
 		if (kind == TILE_GAME) {
 			SDL_Surface* art = NULL;
 			HomeArtState st = HomeArt_boxart(e->path, g->full_w, g->full_h, &art, NULL, NULL);
+			unsigned gen = HomeArt_lastGen(); // the slot of that art: keys its stretched copy
 			if (st == HOMEART_READY && art) {
 				// the shadow padding is the same on every side: the surface's centre is the art's
-				SDL_Surface* side = fabsf(scale - g->sz.scale) < SCALE_EPS ? sideArt(g, e, art) : NULL;
+				SDL_Surface* side = fabsf(scale - g->sz.scale) < SCALE_EPS ? sideArt(g, e, art, gen) : NULL;
 				if (side)
 					blitCentred(screen, side, cx, cy, 1.0f, a, 255);
 				else
@@ -1328,7 +1385,7 @@ static SDL_Surface* logoArt(const RowGeo* g, Entry* e, TileKind kind) {
 // Consoles: the count line's top (px), 8 dp under what the selected item draws in its slot: the logo `art` (its own
 // aspect in the slot), or a logo-less console's name.
 static int logoCountTop(const RowGeo* g, Entry* e, const SDL_Surface* art) {
-	int drawn = art ? art->h : logoName(NULL, displayName(e), g->full_w, g->full_h, 0, g->k, 1.0f);
+	int drawn = art ? art->h : logoNameHeight(displayName(e), g->full_w, g->full_h, g->k);
 	return (int)floorf(Row_logoCountY((float)g->cy, (float)drawn, (float)NX_DPF(ROW_LOGO_COUNT_GAP_DP)) + 0.5f);
 }
 
@@ -1391,7 +1448,7 @@ static void drawItemCount(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKi
 	if (!text[0])
 		return;
 	SDL_Surface* art = logoArt(g, e, kind);
-	int drawn = art ? art->h : logoName(NULL, displayName(e), g->full_w, g->full_h, 0, g->k, 1.0f);
+	int drawn = art ? art->h : logoNameHeight(displayName(e), g->full_w, g->full_h, g->k);
 	if (!art && g->vertical && drawn < g->full_h / 2)
 		drawn = g->full_h / 2;
 	StackCount c = Stack_countOn((float)cy, scale, (float)drawn, (float)NX_DPF(ROW_LOGO_COUNT_GAP_DP), d);
@@ -1450,7 +1507,7 @@ static void drawSideCount(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKi
 	int centre;
 	if (g->kind == ROW_BACKDROP_LOGO) {
 		SDL_Surface* art = logoArt(g, e, kind);
-		int drawn = art ? art->h : logoName(NULL, displayName(e), g->full_w, g->full_h, 0, g->k, 1.0f);
+		int drawn = art ? art->h : logoNameHeight(displayName(e), g->full_w, g->full_h, g->k);
 		SDL_Surface* s = itemCountSurface(text, Row_countSp(g->k) * ROW_SIDE_COUNT_SCALE);
 		if (!s)
 			return;
@@ -1749,7 +1806,7 @@ static bool syncList(SDL_Surface* screen, int n, int lastScreen, RowKind kind) {
 	return true;
 }
 
-static bool prefetchItems(const RowGeo* g, int n, int sel);
+static bool prefetchItems(const RowGeo* g, int n, int sel, Uint32 deadline);
 
 // One item ahead: a Carousel tile (plain or lit), a box art's neighbour-size copy or the placeholder box, a slot.
 static void prefetchOne(const RowGeo* g, Entry* e, TileKind k, bool side, bool lit) {
@@ -1761,9 +1818,10 @@ static void prefetchOne(const RowGeo* g, Entry* e, TileKind k, bool side, bool l
 		SDL_Surface* art = NULL;
 		HomeArtState st =
 			k == TILE_GAME ? HomeArt_boxart(e->path, g->full_w, g->full_h, &art, NULL, NULL) : HOMEART_NONE;
+		unsigned gen = HomeArt_lastGen(); // the slot of that art (0 when not looked up: art is then NULL)
 		if (st == HOMEART_READY && art) {
 			if (side)
-				sideArt(g, e, art);
+				sideArt(g, e, art, gen);
 		} else if (st != HOMEART_LOADING) {
 			placeholderItem(g, e, k, side);
 		}
@@ -1773,7 +1831,7 @@ static void prefetchOne(const RowGeo* g, Entry* e, TileKind k, bool side, bool l
 }
 
 void RowView_render(SDL_Surface* screen, int lastScreen) {
-	prefetch_pending = false;
+	pf.armed = false;
 	if (!screen || !top)
 		return;
 	int bar = barPx();
@@ -1787,6 +1845,7 @@ void RowView_render(SDL_Surface* screen, int lastScreen) {
 	// the Vertical orientation (§8f) draws its own stack over the same black; the row snaps when it shows again
 	if (StackView_active()) {
 		seen_top = 0;
+		pf.armed = false;
 		slide_tw.active = false;
 		pos_from = pos_to;
 		StackView_render(screen, lastScreen);
@@ -1810,6 +1869,7 @@ void RowView_render(SDL_Surface* screen, int lastScreen) {
 		pos_from = pos_to = (float)sel;
 		slide_tw.active = false;
 	} else if ((float)sel != pos_to) {
+		slide_retargeted = slide_tw.active && tweenProgress(&slide_tw, SLIDE_MS) < 1.0f;
 		pos_from = currentPos();
 		pos_to = (float)sel;
 		tweenStart(&slide_tw);
@@ -1865,15 +1925,17 @@ void RowView_render(SDL_Surface* screen, int lastScreen) {
 
 	SDL_SetClipRect(screen, &prev_clip);
 
-	// settled: build ahead what the next step needs (one item a frame; GameList keeps asking while there's more)
-	prefetch_pending = !slide_tw.active && !RowView_pictureBusy() && prefetchItems(&g, n, sel);
+	// what's ahead of this row is built between frames (RowView_prefetchStep), for this geometry and selection
+	pf.armed = true;
+	pf.g = g;
+	pf.n = n;
+	pf.sel = sel;
 }
 
 // The items the next step in either direction draws first: the neighbours at the centre size (they grow into the
 // centre; plain and lit for a Carousel tile) and the items that come into view at d = 4 (a neighbour's size). Builds
-// at most one; true when it stopped with more to build.
-static bool prefetchItems(const RowGeo* g, int n, int sel) {
-	unsigned start = item_builds;
+// until done or the deadline; true when it stopped with more to build.
+static bool prefetchItems(const RowGeo* g, int n, int sel, Uint32 deadline) {
 	const struct {
 		int di;
 		bool side, lit;
@@ -1882,7 +1944,7 @@ static bool prefetchItems(const RowGeo* g, int n, int sel) {
 		int i = sel + jobs[j].di;
 		if (i < 0 || i >= n)
 			continue;
-		if (item_builds != start)
+		if (RowView_pastDeadline(deadline))
 			return true;
 		Entry* e = top->entries->items[i];
 		prefetchOne(g, e, kindFor(i, e), jobs[j].side, jobs[j].lit);
@@ -1937,7 +1999,7 @@ bool RowView_handleInput(unsigned long now, bool* dirty) {
 
 bool RowView_animating(void) {
 	if (!RowView_active()) {
-		prefetch_pending = false;
+		pf.armed = false;
 		slide_tw.active = false;
 		pos_from = pos_to;
 		fade_tw.active = false;
@@ -1952,7 +2014,6 @@ bool RowView_animating(void) {
 		// picture: its crossfade and B's fade out (the picture is the row's, whichever orientation draws over it)
 		slide_tw.active = false;
 		pos_from = pos_to;
-		prefetch_pending = false;
 		bool b = tweenTick(&fade_tw, FADE_MS);
 		bool c = tweenTick(&cnt.glide, ROW_COUNT_GLIDE_MS);
 		bool d = tweenTick(&cnt.fade, ROW_COUNT_FADE_MS);
@@ -1965,7 +2026,32 @@ bool RowView_animating(void) {
 	bool d = tweenTick(&cnt.fade, ROW_COUNT_FADE_MS);
 	if (a && !slide_tw.active)
 		pos_from = pos_to;
-	return a || b || c || d || prefetch_pending || RowView_exiting();
+	return a || b || c || d || RowView_exiting();
+}
+
+bool RowView_prefetchStep(Uint32 deadline) {
+	if (StackView_active())
+		return StackView_prefetchStep(deadline); // the Vertical orientation builds its own stack's
+	if (!pf.armed)
+		return false;
+	// the row the geometry was worked out for is gone (a new list, tab, size, scale or kind not drawn yet, or a moved
+	// selection): nothing until the next render re-arms it
+	if (!RowView_active() || !top || !screen || top->serial != seen_top || MenuTabs_generation() != seen_gen ||
+		top->entries->count != pf.n || screen->w != seen_screen_w || (int)FIXED_SCALE != seen_scale ||
+		(int)currentKind() != seen_kind || selectedIndex(pf.n) != pf.sel) {
+		pf.armed = false;
+		return false;
+	}
+	// not while the picture crossfades or fades out (a build would stall its frames), nor through the first part of a
+	// single step's slide; past PREFETCH_SLIDE_SHARE, or on a held D-pad (its repeats retarget the slide before it
+	// ever gets that far), the target's neighbours are built so the next steps land on cached items
+	if (RowView_pictureBusy() ||
+		(slide_tw.active && !slide_retargeted && tweenProgress(&slide_tw, SLIDE_MS) < PREFETCH_SLIDE_SHARE))
+		return true;
+	if (prefetchItems(&pf.g, pf.n, pf.sel, deadline))
+		return true;
+	pf.armed = false;
+	return false;
 }
 
 ///////////////////////////////////////
@@ -1985,10 +2071,6 @@ SDL_Surface* RowView_slotItem(const RowGeo* g, Entry* e, TileKind kind, bool sid
 
 void RowView_blitItem(SDL_Surface* dst, SDL_Surface* s, int cx, int cy, float factor, Uint8 a) {
 	blitCentred(dst, s, cx, cy, factor, a, 255);
-}
-
-unsigned RowView_itemBuilds(void) {
-	return item_builds;
 }
 
 void RowView_drawCount(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind kind, int sel, const RowPlace* at,
@@ -2019,6 +2101,7 @@ void RowView_drawItemCount(SDL_Surface* screen, const RowGeo* g, Entry* e, TileK
 }
 
 void RowView_quit(void) {
+	pf.armed = false;
 	free(kinds);
 	kinds = NULL;
 	kinds_cap = 0;

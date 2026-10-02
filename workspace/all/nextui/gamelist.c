@@ -115,6 +115,18 @@ bool GameList_scrollIsScrolling(void) {
 	return ScrollText_isScrolling(&list_scroll);
 }
 
+bool GameList_prefetchIdle(Uint32 deadline) {
+	// Home and the List build nothing ahead; the Grid, Carousel and Backdrop (either orientation) compose the items
+	// their next move draws first
+	if (Home_active())
+		return false;
+	if (GridView_active())
+		return GridView_prefetchStep(deadline);
+	if (RowView_active())
+		return RowView_prefetchStep(deadline);
+	return false;
+}
+
 void GameList_scrollTickIdle(void) {
 	ScrollText_activateAfterDelay(&list_scroll);
 	if (ScrollText_isScrolling(&list_scroll)) {
@@ -412,9 +424,10 @@ static void removeCollectionLines(const char* old_rel) {
 		fclose(in);
 		fclose(out);
 
-		if (changed)
+		if (changed) {
 			rename(tmp_path, coll_path);
-		else
+			CollCount_invalidate(coll_path); // its count and cached stamps are stale
+		} else
 			unlink(tmp_path);
 	}
 	closedir(d);
@@ -655,6 +668,8 @@ static void doAddToCollection(const char* rom_path) {
 			snprintf(coll_path, sizeof(coll_path), "%s/%s.txt", COLLECTIONS_PATH, name);
 			addRomToCollectionFile(coll_path, rom_path);
 			CollCount_invalidate(coll_path);
+			// no MenuTabs_reload here: a parked Collections root would go on listing without the new one
+			MenuTabs_dropCached(MENU_TAB_COLLECTIONS);
 		}
 		if (name)
 			free(name);
@@ -1165,20 +1180,12 @@ void GameList_runContextAction(int id) {
 		Content_invalidateEmulist();
 		MenuTabs_reload(root_sel);
 		break;
-	case 2: { // Tools (root, offered while the Tools tab is hidden)
+	case 2: // Tools (root, offered while the Tools tab is hidden)
 		// Push the Tools folder over the current tab so B comes back to it.
 		// Tools is a direct child of the Home tab only; from any other tab
 		// openDirectory would rebuild the stack on Home.
-		Directory* tools = Directory_new(TOOLS_PATH, 0);
-		int rc = GameList_rowCountAt(false); // pushed over the tab: a game list's rows
-		int count = tools->entries->count;
-		tools->start = 0;
-		tools->end = (count < rc) ? count : rc;
-		MenuTabs_leaveFocus(); // a list opened: B back to the root returns to the content (lit at once)
-		Array_push(stack, tools);
-		top = tools;
+		pushToolsOverTab(NULL);
 		break;
-	}
 	case 20: // Pin Tool
 	case 30: // Pin Item
 		if (entry) {
@@ -1348,6 +1355,29 @@ void GameList_runContextAction(int id) {
 	// don't act on the previous row. readyResume(NULL) clears it.
 	bool has_row = top->entries->count > 0 && top->selected >= 0 && top->selected < top->entries->count;
 	readyResume(has_row ? top->entries->items[top->selected] : NULL);
+}
+
+// readyResume for the list's selected row, skipped when nothing changed since this list's last probe: the
+// render pass asks on every dirty frame, and each async completion (thumbnail, GameInfo, CollCount, HomeArt,
+// HomeStats, status bar) dirties one, while the probe stats the card several times (save slot, .m3u,
+// preview/box art). Keyed on (Directory serial, selected row, tab generation, entry path) plus
+// readyResumeCount(), so a probe by anything else (Search, the switcher, Home, a context action) since
+// makes the next call probe again. Home keeps its own per-focus probe (home.c readyFocus).
+static void readySelectedResume(Entry* entry) {
+	static unsigned last_list, last_gen, last_count;
+	static int last_selected = -1;
+	static char last_path[MAX_PATH];
+	if (!entry)
+		return;
+	if (last_selected == top->selected && last_list == top->serial && last_gen == MenuTabs_generation() &&
+		last_count == readyResumeCount() && strcmp(last_path, entry->path) == 0)
+		return;
+	readyResume(entry);
+	last_list = top->serial;
+	last_gen = MenuTabs_generation();
+	last_selected = top->selected;
+	last_count = readyResumeCount();
+	snprintf(last_path, sizeof(last_path), "%s", entry->path);
 }
 
 // After the root tab changed: reset what belonged to the old one.
@@ -1615,7 +1645,7 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 			if (switched)
 				result.folderbgchanged = true; // switchTab already reset the resume state for the new tab
 			else if (top->selected != was && top->entries->count > 0)
-				readyResume(top->entries->items[top->selected]);
+				readySelectedResume(top->entries->items[top->selected]);
 			return result;
 		}
 	}
@@ -1628,7 +1658,7 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 			if (MenuTabs_generation() != gen)
 				result.folderbgchanged = true; // switchTab already reset the resume state for the new tab
 			else if (top->selected != was && top->entries->count > 0)
-				readyResume(top->entries->items[top->selected]);
+				readySelectedResume(top->entries->items[top->selected]);
 			return result;
 		}
 	}
@@ -1814,7 +1844,7 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 	Entry* entry = total > 0 ? top->entries->items[top->selected] : NULL;
 
 	if (*dirty && total > 0)
-		readyResume(entry);
+		readySelectedResume(entry); // once per selection change, not once per dirty frame
 
 	if (total > 0 && resume.can_resume && PAD_justReleased(BTN_RESUME) && !(row_released & BTN_RESUME) &&
 		!PAD_isPressed(BTN_L2) && !PAD_isPressed(BTN_R2)) {

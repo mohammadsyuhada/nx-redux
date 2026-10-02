@@ -28,6 +28,11 @@ void RowView_render(SDL_Surface* screen, int lastScreen);
 bool RowView_handleInput(unsigned long now, bool* dirty);
 // The slide, the picture crossfade or a main-menu count's glide or fade is running (one settled frame after each).
 bool RowView_animating(void);
+// Build ahead (between frames: no redraw) the items the last frame's row needs next, until `deadline` (SDL ticks):
+// the selection's neighbours (plain and lit) and the items a step brings into view. The Vertical orientation's stack
+// builds its own. True while more remains; false once done, or when the row it was for is gone (the next render
+// starts it again).
+bool RowView_prefetchStep(Uint32 deadline);
 // A Backdrop game list's picture is on screen now (the last RowView_renderPicture): no top band.
 bool RowView_backdropPicture(void);
 // B out of a Backdrop game list (menu_transition.h): the outgoing screen, its last picture included, fades to black over

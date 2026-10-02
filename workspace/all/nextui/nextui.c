@@ -87,6 +87,7 @@ static void Menu_quit(void) {
 	Recents_quit();
 	Shortcuts_quit();
 	DirectoryArray_free(stack);
+	MenuTabs_quit(); // the parked roots (never in the stack)
 
 	Search_quit();
 	InfoBand_quit();
@@ -100,6 +101,8 @@ static bool dirty = true;
 
 #define IDLE_TIMEOUT_MS 3000 // 3 seconds of no input
 #define IDLE_FRAME_MS 100	 // ~10 FPS when idle
+#define PREFETCH_IDLE_MS 8	 // of an idle 16 ms slot, what building ahead may use (the rest sleeps)
+#define PREFETCH_MARGIN_MS 2 // a dirty frame's leftover kept free, so the next frame's input and render start on time
 static uint32_t last_active_input = 0;
 
 // CPU frequency policy: full range through the boot-time init, the menu cap
@@ -242,7 +245,8 @@ int main(int argc, char* argv[]) {
 	HomeStats_init();
 	CollCount_init();
 	Menu_init();
-	Home_reset(); // Continue, the pins and the stats for this menu show (nextui restarts after every game)
+	Home_reset(); // Continue and the pins for this menu show (nextui restarts after every game); the stats are
+				  // requested when Home is first shown
 	bootStamp("after menu init");
 	GameSwitcher_init();
 	int lastScreen = SCREEN_OFF;
@@ -622,7 +626,8 @@ int main(int argc, char* argv[]) {
 				GFX_clearLayers(LAYER_SCROLLTEXT);
 				ContextMenu_render(screen);
 			}
-			if (!startgame) { // dont flip if game gonna start
+			if (!startgame) {								  // dont flip if game gonna start
+				unsigned long work_ms = SDL_GetTicks() - now; // this frame's input and render
 				GFX_flip(screen);
 				static bool first_frame_stamped = false;
 				if (!first_frame_stamped) {
@@ -631,6 +636,11 @@ int main(int argc, char* argv[]) {
 					if (!cpu_policy_started)
 						startCPUPolicy(cpuBootDone());
 				}
+				// build ahead in what's left of the frame, assuming the next costs what this one did: a held D-pad
+				// redraws every frame, and this is what lands its steps on cached items. No redraw: the next frame
+				// picks them up.
+				if (currentScreen == SCREEN_GAMELIST && !ContextMenu_isOpen() && work_ms + PREFETCH_MARGIN_MS < 16)
+					GameList_prefetchIdle(SDL_GetTicks() + (Uint32)(16 - PREFETCH_MARGIN_MS - work_ms));
 			}
 
 			if (tmpOldScreen)
@@ -674,8 +684,14 @@ int main(int argc, char* argv[]) {
 				PLAT_GPU_Flip();
 				setNeedDraw(0);
 			} else {
+				// build ahead what the view's next move draws first, in part of the slot (no redraw: the next real
+				// frame picks it up). Done (or nothing to build), it returns at once; while more remains the 16 ms
+				// cadence holds, and only then does the deep-idle one take over.
+				bool prefetching = currentScreen == SCREEN_GAMELIST && !ContextMenu_isOpen() &&
+								   GameList_prefetchIdle((Uint32)now + PREFETCH_IDLE_MS);
 				unsigned long elapsed = SDL_GetTicks() - now;
-				int frame_target = (SDL_GetTicks() - last_active_input > IDLE_TIMEOUT_MS) ? IDLE_FRAME_MS : 16;
+				int frame_target =
+					(!prefetching && SDL_GetTicks() - last_active_input > IDLE_TIMEOUT_MS) ? IDLE_FRAME_MS : 16;
 				if (elapsed < frame_target)
 					SDL_Delay(frame_target - elapsed);
 			}

@@ -27,8 +27,11 @@ void StackView_render(SDL_Surface* screen, int lastScreen);
 bool StackView_handleInput(bool* dirty);
 // UP on the tab row: the selection goes to the last item, the stack snapped there.
 void StackView_focusBottom(void);
-// The slide or a settled prefetch is running (one settled frame after the slide).
+// The slide is running (one settled frame after it).
 bool StackView_animating(void);
+// RowView_prefetchStep for the stack: builds ahead, until `deadline`, what the last frame's stack needs next. True
+// while more remains.
+bool StackView_prefetchStep(Uint32 deadline);
 // Forget the list the position belongs to: the next frame snaps (the row drew instead, or nothing did).
 void StackView_forget(void);
 

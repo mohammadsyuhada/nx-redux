@@ -10,6 +10,7 @@
 #include "utils.h"
 #include "types.h"
 #include "recents.h"
+#include "collcount.h"
 #include "content.h"
 #include "gamelist.h"
 #include "launcher.h"
@@ -22,6 +23,9 @@ static void queueNext(char* cmd) {
 	LOG_info("cmd: %s\n", cmd);
 	putFile("/tmp/next", cmd);
 	quit = true;
+	// Every external launch (rom, pak, script, auto-resume) comes through here and then leaves nextui with
+	// _exit, so CollCount_quit never runs: write the collection counts now (the worker defers its writes).
+	CollCount_flush();
 }
 
 // Fire-and-forget launch that leaves this process's SIGCHLD disposition
@@ -115,7 +119,12 @@ static void readyResumePath(char* rom_path, int type) {
 		resume.has_boxart = ROM_findArt(rom_path, resume.boxart_path, sizeof(resume.boxart_path));
 	}
 }
+static unsigned resume_probes = 0;
+unsigned readyResumeCount(void) {
+	return resume_probes;
+}
 void readyResume(Entry* entry) {
+	resume_probes++; // the shared state now describes this entry (or none): see readyResumeCount
 	if (!entry) {
 		resume.can_resume = false;
 		resume.has_preview = false;
@@ -634,35 +643,37 @@ void saveLast(char* path) {
 	putFile(LAST_PATH, path);
 	MenuTabs_saveState();
 }
-// Push the Tools list over the current tab, as the root context menu's Tools item does, with `last_path`'s row selected
-// (a system tool pak is saved SD-shaped, TOOLS_PATH/<name>, so match on the name too).
-static void restoreToolsOverTab(const char* last_path) {
+// One copy for both callers (the root context menu's Tools item, and loadLast re-pushing Tools after a tool launched
+// from it), which had drifted apart. Kept from each, deliberately:
+//  - the window is clamped to the selection (boot copy, via MenuTabs_clampWindow): with select_path NULL the row is 0
+//    and this is the plain top window the menu copy built, and on boot the tool's row must be visible;
+//  - MenuTabs_leaveFocus (menu copy): a list was opened over the tab, so the content has focus, lit. On boot it is a
+//    no-op in practice (Entry_open already left focus before the launch), and it keeps the two pushes identical.
+// The resume probe is the caller's: the context menu re-probes whatever is selected after any action, so only
+// loadLast probes here.
+void pushToolsOverTab(const char* select_path) {
 	Directory* tools = Directory_new(TOOLS_PATH, 0);
-	int rc = GameList_rowCountAt(false);
 	int count = tools->entries->count;
-	const char* name = strrchr(last_path, '/');
-	char paks_tools_path[MAX_PATH];
-	snprintf(paks_tools_path, sizeof(paks_tools_path), "%s/Tools/", PAKS_PATH);
 	int sel = 0;
-	for (int i = 0; i < count; i++) {
-		Entry* entry = tools->entries->items[i];
-		if (exactMatch(entry->path, (char*)last_path) ||
-			(name && prefixMatch(paks_tools_path, entry->path) && suffixMatch((char*)name, entry->path))) {
-			sel = i;
-			break;
+	if (select_path) { // a system tool pak is saved SD-shaped, TOOLS_PATH/<name>, so match on the name too
+		const char* name = strrchr(select_path, '/');
+		char paks_tools_path[MAX_PATH];
+		snprintf(paks_tools_path, sizeof(paks_tools_path), "%s/Tools/", PAKS_PATH);
+		for (int i = 0; i < count; i++) {
+			Entry* entry = tools->entries->items[i];
+			if (exactMatch(entry->path, (char*)select_path) ||
+				(name && prefixMatch(paks_tools_path, entry->path) && suffixMatch((char*)name, entry->path))) {
+				sel = i;
+				break;
+			}
 		}
 	}
 	tools->selected = sel;
-	tools->start = 0;
-	tools->end = (count < rc) ? count : rc;
-	if (sel >= tools->end) {
-		tools->end = sel + 1;
-		tools->start = tools->end - rc;
-	}
+	tools->start = tools->end = 0; // rebuilt around the selection, with a game list's rows (pushed over the tab)
+	MenuTabs_clampWindow(count, GameList_rowCountAt(false), &tools->selected, &tools->start, &tools->end);
+	MenuTabs_leaveFocus();
 	Array_push(stack, tools);
 	top = tools;
-	if (count > 0)
-		readyResume(tools->entries->items[sel]);
 }
 
 void loadLast(void) { // call after loading root directory
@@ -686,7 +697,9 @@ void loadLast(void) { // call after loading root directory
 		char tools_dir[MAX_PATH];
 		snprintf(tools_dir, sizeof(tools_dir), "%s/", TOOLS_PATH);
 		if (prefixMatch(tools_dir, last_path) && !MenuTabs_isVisible(MENU_TAB_TOOLS) && hasTools()) {
-			restoreToolsOverTab(last_path);
+			pushToolsOverTab(last_path);
+			if (top->entries->count > 0)
+				readyResume(top->entries->items[top->selected]);
 			return;
 		}
 	}

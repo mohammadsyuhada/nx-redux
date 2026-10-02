@@ -46,6 +46,7 @@
 #define CUT_SHADE_ALPHA 179			   // black at 70% over a column cut by a screen edge
 #define EDGE_FADE_SHARE 0.20f		   // the edge fade's width, of the screen's
 #define BAR_DP (28.0f * 42.0f / 30.0f) // the header and the hint bar: 28 logical each
+#define PREFETCH_TWEEN_SHARE 0.6f	   // a single move's slide and crossfade this far through let prefetch run
 
 typedef struct {
 	bool active;
@@ -58,6 +59,8 @@ static Tween slide_tw;
 // the lit crossfade: `lit_sel` fades in, `lit_prev` fades out
 static int lit_sel = -1, lit_prev = -1;
 static Tween lit_tw;
+// the slide or the crossfade began while the last one ran (a held D-pad's repeats): prefetch builds for the target
+static bool slide_retargeted = false, lit_retargeted = false;
 // what the state above belongs to: a change of any snaps (no slide in, no crossfade from a stale index)
 static unsigned seen_top = 0; // the Directory serial (0 = none)
 static unsigned seen_gen = 0;
@@ -251,8 +254,14 @@ typedef struct {
 
 static TileSlot tile_cache[TILE_CACHE_MAX];
 static unsigned tile_lru = 0;
-static unsigned tile_composes = 0;	  // looks composed so far (the settled frame's prefetch budget counts them)
-static bool prefetch_pending = false; // the settled prefetch stopped at its budget: one more frame to continue
+
+// Prefetch (GridView_prefetchStep) works for the last frame's grid: its layout and selection, armed by each render and
+// disarmed once everything ahead is composed (or the grid stops drawing). It runs between frames, never forcing one.
+static struct {
+	bool armed;
+	GridLayout g;
+	int n, sel;
+} pf;
 
 // The ring's room around a tile: the 3 dp ring and its anti-aliased edge.
 static int ringRoom(void) {
@@ -280,6 +289,7 @@ static Uint32 tileStamp(const TileSpec* t, bool lit) {
 	h = fnvStr(h, t->logo_file);
 	h = fnvStr(h, t->icon_file);
 	h = fnv(h, &t->picture, sizeof(t->picture));
+	h = fnv(h, &t->picture_gen, sizeof(t->picture_gen)); // a re-decoded art may reuse the old pointer
 	if (lit) {
 		SDL_Color ac = UI_accent();
 		Uint8 rgb[3] = {ac.r, ac.g, ac.b};
@@ -292,7 +302,6 @@ static Uint32 tileStamp(const TileSpec* t, bool lit) {
 
 static void composeTile(SDL_Surface* s, int w, int h, const TileSpec* t, bool lit) {
 	int room = ringRoom();
-	tile_composes++;
 	SDL_SetClipRect(s, NULL);
 	SDL_FillRect(s, NULL, SDL_MapRGBA(s->format, 0, 0, 0, 255)); // the Grid's black ground: the whole surface opaque
 	TileSpec look = *t;
@@ -465,10 +474,13 @@ static void tileSpec(int i, int tw, int th, float scale, TileSpec* t, char logo[
 	} else if (kind == TILE_GAME) {
 		SDL_Surface* pic = NULL;
 		HomeArtState st = HomeArt_pin(e->path, tw, th, 0, &pic); // valid until the next HomeArt_* call
-		if (st == HOMEART_READY && pic)
+		unsigned gen = HomeArt_lastGen();						 // read at once: changes after HomeArt_forget (Fetch artwork)
+		if (st == HOMEART_READY && pic) {
 			t->picture = pic; // its screenshot, or its abstract picture (HomeArt_pin's fallback)
-		else
+			t->picture_gen = gen;
+		} else {
 			t->kind = TILE_TITLE; // none at all (HomeArt couldn't make one): a title tile
+		}
 		if (st == HOMEART_LOADING)
 			t->name = NULL; // still loading: the black base only, no title flashing in and out
 	}
@@ -497,7 +509,7 @@ static bool syncList(SDL_Surface* screen, int n, int lastScreen) {
 }
 
 void GridView_render(SDL_Surface* screen, int lastScreen) {
-	prefetch_pending = false;
+	pf.armed = false;
 	if (!screen || !top)
 		return;
 	int bar = barPx();
@@ -527,6 +539,7 @@ void GridView_render(SDL_Surface* screen, int lastScreen) {
 		off_from = off_to = target;
 		slide_tw.active = false;
 	} else if (target != off_to) {
+		slide_retargeted = slide_tw.active && tweenProgress(&slide_tw, SLIDE_MS) < 1.0f;
 		off_from = currentOffset();
 		off_to = target;
 		tweenStart(&slide_tw);
@@ -537,6 +550,7 @@ void GridView_render(SDL_Surface* screen, int lastScreen) {
 		lit_prev = -1;
 		lit_tw.active = false;
 	} else if (sel != lit_sel) {
+		lit_retargeted = lit_tw.active && tweenProgress(&lit_tw, LIT_MS) < 1.0f;
 		lit_prev = lit_sel;
 		lit_sel = sel;
 		tweenStart(&lit_tw);
@@ -613,63 +627,6 @@ void GridView_render(SDL_Surface* screen, int lastScreen) {
 	for (int row = 0; row < 2; row++)
 		fillBlack(screen, cursor[row], row_y[row] - room, screen->w - cursor[row], th + 2 * room);
 
-	// settled (nothing moving): compose ahead what the next move needs, so it starts on cached tiles: the off-screen
-	// columns either side (plain) and the selection's neighbours (lit; the caption isn't part of the cached look)
-	// One compose a frame at most: while there's more, GridView_animating asks for another (unchanged) frame.
-	if (!slide_tw.active && !lit_tw.active) {
-		unsigned start = tile_composes;
-		bool more = false;
-		for (int col = first; col <= last && !more; col++) {
-			int x = NX_DPF(GridLayout_columnX(&g, col, off));
-			if (x + tw + room > 0 && x - room < screen->w)
-				continue; // on screen: already drawn (cached)
-			for (int row = 0; row < 2 && !more; row++) {
-				int i = GridLayout_index(&g, col, row);
-				if (i < 0)
-					continue;
-				if (tile_composes - start >= 1) {
-					more = true;
-					break;
-				}
-				char logo[64], plain[32];
-				TileSpec t;
-				tileSpec(i, tw, th, scale, &t, logo);
-				t.count = plainCount(i, plain, sizeof(plain), &asked);
-				cachedTile(((Entry*)top->entries->items[i])->path, tw, th, &t, false);
-			}
-		}
-		int step = g.sliding ? 2 : g.cols;
-		int around[4] = {sel - 1, sel + 1, sel - step, sel + step};
-		bool counted = false;
-		for (int k = 0; k < 4 && !more; k++) {
-			int i = around[k];
-			if (i < 0 || i >= n)
-				continue;
-			if (tile_composes - start >= 1) {
-				more = true;
-				break;
-			}
-			char logo[64], count[32];
-			TileSpec t;
-			tileSpec(i, tw, th, scale, &t, logo);
-			// the lit look carries its count: the move then starts cached. A neighbour whose lit look already shows
-			// a known count reuses it (no CollCount stat each settled render); the selection always asks afresh.
-			const char* path = ((Entry*)top->entries->items[i])->path;
-			const char* known = litCount(path, tw, th);
-			if (known) {
-				snprintf(count, sizeof(count), "%s", known);
-			} else {
-				tileCount(i, count, sizeof(count));
-				counted = true;
-			}
-			t.count = count;
-			cachedTile(path, tw, th, &t, true);
-		}
-		if (counted || asked)
-			tileCount(sel, sel_count, sizeof(sel_count)); // the selection's count stays the latest request
-		prefetch_pending = more;
-	}
-
 	if (g.sliding) {
 		// one darkening pass over the edges: the columns cut by a screen edge under a 70% black layer, and the edge
 		// fades (black at the edge → clear over 20% of the width) on a side with more to scroll. Per column: the
@@ -701,6 +658,101 @@ void GridView_render(SDL_Surface* screen, int lastScreen) {
 	}
 
 	SDL_SetClipRect(screen, &prev_clip);
+
+	// what the next move needs is composed between frames (GridView_prefetchStep), for this layout and selection
+	pf.armed = true;
+	pf.g = g;
+	pf.n = n;
+	pf.sel = sel;
+}
+
+static bool pastDeadline(Uint32 deadline) {
+	return (Sint32)(SDL_GetTicks() - deadline) >= 0; // wrap-safe
+}
+
+// Compose ahead what the next move needs, so it starts on cached tiles: the columns just off screen either side at
+// the slide's target (plain) and the selection's neighbours (lit; the caption isn't part of the cached look). Until
+// done or the deadline; true when it stopped with more.
+static bool prefetchTiles(const GridLayout* g, int n, int sel, Uint32 deadline) {
+	int tw = NX_DPF(g->tile_w), th = NX_DPF(g->tile_h);
+	float scale = GridLayout_tileK(g);
+	int room = ringRoom();
+	bool more = false, asked = false, counted = false;
+	int first, last;
+	GridLayout_visibleColumns(g, off_to, &first, &last);
+	for (int col = first; col <= last && !more; col++) {
+		int x = NX_DPF(GridLayout_columnX(g, col, off_to));
+		if (x + tw + room > 0 && x - room < screen->w)
+			continue; // on screen at the target: drawn (cached) as the slide brings it in
+		for (int row = 0; row < 2; row++) {
+			int i = GridLayout_index(g, col, row);
+			if (i < 0)
+				continue;
+			if (pastDeadline(deadline)) {
+				more = true;
+				break;
+			}
+			char logo[64], plain[32];
+			TileSpec t;
+			tileSpec(i, tw, th, scale, &t, logo);
+			t.count = plainCount(i, plain, sizeof(plain), &asked);
+			cachedTile(((Entry*)top->entries->items[i])->path, tw, th, &t, false);
+		}
+	}
+	int step = g->sliding ? 2 : g->cols;
+	int around[4] = {sel - 1, sel + 1, sel - step, sel + step};
+	for (int k = 0; k < 4 && !more; k++) {
+		int i = around[k];
+		if (i < 0 || i >= n)
+			continue;
+		if (pastDeadline(deadline)) {
+			more = true;
+			break;
+		}
+		char logo[64], count[32];
+		TileSpec t;
+		tileSpec(i, tw, th, scale, &t, logo);
+		// the lit look carries its count: the move then starts cached. A neighbour whose lit look already shows a
+		// known count reuses it (no CollCount stat each pass); the selection always asks afresh.
+		const char* path = ((Entry*)top->entries->items[i])->path;
+		const char* known = litCount(path, tw, th);
+		if (known) {
+			snprintf(count, sizeof(count), "%s", known);
+		} else {
+			tileCount(i, count, sizeof(count));
+			counted = true;
+		}
+		t.count = count;
+		cachedTile(path, tw, th, &t, true);
+	}
+	if (counted || asked) {
+		char sel_count[32];
+		tileCount(sel, sel_count, sizeof(sel_count)); // the selection's count stays the latest request
+	}
+	return more;
+}
+
+bool GridView_prefetchStep(Uint32 deadline) {
+	if (!pf.armed)
+		return false;
+	// the grid the layout was worked out for is gone (a new list, tab, size or scale not drawn yet, or a moved
+	// selection): nothing until the next render re-arms it
+	if (!GridView_active() || !top || !screen || top->serial != seen_top || MenuTabs_generation() != seen_gen ||
+		top->entries->count != pf.n || screen->w != seen_screen_w || (int)FIXED_SCALE != seen_scale ||
+		selectedIndex(pf.n) != pf.sel) {
+		pf.armed = false;
+		return false;
+	}
+	// not through the first part of a single move's slide or crossfade (a compose would stall their frames); past
+	// PREFETCH_TWEEN_SHARE, or on a held D-pad (its repeats retarget both before they get that far), the target's
+	// tiles are composed so the next moves land on cached ones
+	if ((slide_tw.active && !slide_retargeted && tweenProgress(&slide_tw, SLIDE_MS) < PREFETCH_TWEEN_SHARE) ||
+		(lit_tw.active && !lit_retargeted && tweenProgress(&lit_tw, LIT_MS) < PREFETCH_TWEEN_SHARE))
+		return true;
+	if (prefetchTiles(&pf.g, pf.n, pf.sel, deadline))
+		return true;
+	pf.armed = false;
+	return false;
 }
 
 // Select `index` and keep the List window consistent for a later switch back to List: the selection at the top, clamped.
@@ -775,7 +827,7 @@ bool GridView_handleInput(unsigned long now, bool* dirty, bool* switched_tab) {
 
 bool GridView_animating(void) {
 	if (!GridView_active()) {
-		prefetch_pending = false;
+		pf.armed = false;
 		slide_tw.active = lit_tw.active = false;
 		off_from = off_to;
 		return false;
@@ -784,10 +836,11 @@ bool GridView_animating(void) {
 	bool b = tweenTick(&lit_tw, LIT_MS);
 	if (a && !slide_tw.active)
 		off_from = off_to;
-	return a || b || prefetch_pending;
+	return a || b;
 }
 
 void GridView_quit(void) {
+	pf.armed = false;
 	free(kinds);
 	kinds = NULL;
 	kinds_cap = 0;

@@ -18,6 +18,10 @@ bool GridView_handleInput(unsigned long now, bool* dirty, bool* switched_tab);
 void GridView_focusBottom(void);
 // The slide tween or the lit crossfade is running (one settled frame after each).
 bool GridView_animating(void);
+// Compose ahead (between frames: no redraw) the tiles the last frame's grid needs next, until `deadline` (SDL
+// ticks): the columns just off screen at the slide's target and the selection's neighbours' lit looks. True while
+// more remains; false once done, or when the grid it was for is gone (the next render starts it again).
+bool GridView_prefetchStep(Uint32 deadline);
 // Free the cached surfaces and the per-list tile kinds.
 void GridView_quit(void);
 

@@ -51,6 +51,10 @@ bool GameList_pillAnimating(void);	   // selection pill mid-glide, keep redrawin
 bool GameList_scrollIsScrolling(void); // actively scrolling right now
 void GameList_scrollTickIdle(void);	   // advance marquee on non-dirty frames
 void GameList_clearScroll(void);	   // drop cached scroll state (screen switch/exit)
+// Build ahead what the current view's next move draws first (Grid, Carousel, Backdrop), until `deadline` (SDL ticks),
+// with no redraw: the next real frame picks the items up. True while more remains. The main loop runs it in a dirty
+// frame's leftover time and in the idle slot.
+bool GameList_prefetchIdle(Uint32 deadline);
 
 // Invalidate the folder-background cache so the next render reloads it.
 // Call when another screen clears the shared background surface.

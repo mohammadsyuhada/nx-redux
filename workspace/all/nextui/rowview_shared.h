@@ -35,6 +35,13 @@ static inline int barPx(void) {
 	return SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2);
 }
 
+// Prefetch (built between frames, never forcing one): it may run through a single step's slide once the slide is this
+// far through, and stops at the caller's deadline (SDL ticks, wrap-safe).
+#define PREFETCH_SLIDE_SHARE 0.6f
+static inline bool RowView_pastDeadline(Uint32 deadline) {
+	return (Sint32)(SDL_GetTicks() - deadline) >= 0;
+}
+
 typedef enum { CAP_NONE,
 			   CAP_GAME } CapKind;
 
@@ -75,8 +82,6 @@ TileKind RowView_kindFor(int index, Entry* e);
 SDL_Surface* RowView_slotItem(const RowGeo* g, Entry* e, TileKind kind, bool side);
 // s centred on (cx, cy), scaled by factor (1:1 at 1), at alpha a, onto an opaque dst.
 void RowView_blitItem(SDL_Surface* dst, SDL_Surface* s, int cx, int cy, float factor, Uint8 a);
-// Items built so far (a prefetch builds one a frame).
-unsigned RowView_itemBuilds(void);
 // The main-menu "N games" line for the selection `sel` drawn at `at` (Consoles: under the selection's logo as drawn,
 // gliding; Collections: on the item, fading in). Nothing for other kinds. `snap`: a new list, tab or screen.
 void RowView_drawCount(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind kind, int sel, const RowPlace* at,
@@ -91,7 +96,8 @@ void RowView_drawGameItem(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKi
 // The picture is busy: its screenshot crossfade or B's exit fade is running. Prefetch waits for it (a build would
 // stall the fade's frames), as the row's own does.
 bool RowView_pictureBusy(void);
-// Build one item ahead at the selected size (side false; `lit`: a Carousel tile's lit look) or a neighbour's.
+// Build one item ahead at the selected size (side false; `lit`: a Carousel tile's lit look) or a neighbour's (a cache
+// hit builds nothing).
 void RowView_prefetchItem(const RowGeo* g, Entry* e, TileKind kind, bool side, bool lit);
 // The game caption beside a stack (§8f.4): the name (18 sp, 2 lines), the time row and the trophy row (14 sp; a long
 // Next on its own lines, caption_fit.h), 3 dp apart, left-aligned from x in w px, centred on cy and kept inside the

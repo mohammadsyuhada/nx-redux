@@ -17,6 +17,7 @@
 #include "ui_message.h"
 
 #include "gamelist.h"
+#include "imgloader.h" // screen
 #include "launcher.h"
 #include "menutabs.h"
 #include "rowview.h"
@@ -32,22 +33,27 @@
 // The stack's position (items): eases from pos_from to pos_to (STACK_SLIDE_MS, UI_easeStandard).
 static float pos_from = 0, pos_to = 0;
 static Tween slide_tw;
+static bool slide_retargeted = false; // the slide began while another ran (a held D-pad's repeats)
 // What the position belongs to: a change of any snaps it (the Directory serial and the tab generation, not the list).
 static unsigned seen_top = 0; // 0 = none (forgotten)
 static unsigned seen_gen = 0;
 static int seen_n = -1, seen_screen_w = 0, seen_scale = 0, seen_kind = -1;
-static bool snap_next = false;		  // UP from the tab row jumped to the last item: no slide across the list
-static bool prefetch_pending = false; // the settled prefetch stopped at its budget: one more frame to continue
+static bool snap_next = false; // UP from the tab row jumped to the last item: no slide across the list
 
 ///////////////////////////////////////
 // Timing
 
+static float slideProgress(void) {
+	if (!slide_tw.active)
+		return 1.0f;
+	Uint32 elapsed = SDL_GetTicks() - slide_tw.start;
+	return elapsed >= STACK_SLIDE_MS ? 1.0f : (float)elapsed / (float)STACK_SLIDE_MS;
+}
+
 static float currentPos(void) {
 	if (!slide_tw.active)
 		return pos_to;
-	Uint32 elapsed = SDL_GetTicks() - slide_tw.start;
-	float p = elapsed >= STACK_SLIDE_MS ? 1.0f : (float)elapsed / (float)STACK_SLIDE_MS;
-	return pos_from + (pos_to - pos_from) * UI_easeStandard(p);
+	return pos_from + (pos_to - pos_from) * UI_easeStandard(slideProgress());
 }
 
 ///////////////////////////////////////
@@ -93,6 +99,14 @@ typedef struct {
 	int cap_x, cap_w;	  // the side caption's column (px): from its left edge to the 24 dp right margin
 	float body_h_dp, sel_y_dp;
 } StackGeo;
+
+// Prefetch (StackView_prefetchStep) works for the last frame's stack: its geometry and selection, armed by each render
+// and disarmed once everything ahead is built (or the stack stops drawing). It runs between frames, never forcing one.
+static struct {
+	bool armed;
+	StackGeo sg;
+	int n, sel;
+} pf;
 
 static void computeGeo(SDL_Surface* screen, StackKind kind, StackGeo* sg) {
 	float pd = pxPerDp();
@@ -205,10 +219,9 @@ static bool syncList(SDL_Surface* screen, int n, int lastScreen, StackKind kind)
 }
 
 // What the next step either way draws first: the neighbours at the selected size (they grow into the selection; a
-// Carousel tile plain and lit), and at a neighbour's size the items that step brings into the body. Builds at most
-// one; true when it stopped with more.
-static bool prefetchItems(const StackGeo* sg, int n, int sel) {
-	unsigned start = RowView_itemBuilds();
+// Carousel tile plain and lit), and at a neighbour's size the items that step brings into the body. Builds until done
+// or the deadline; true when it stopped with more.
+static bool prefetchItems(const StackGeo* sg, int n, int sel, Uint32 deadline) {
 	static const struct {
 		int di;
 		bool side, lit;
@@ -223,7 +236,7 @@ static bool prefetchItems(const StackGeo* sg, int n, int sel) {
 			if (i < f || i > l)
 				continue;
 		}
-		if (RowView_itemBuilds() != start)
+		if (RowView_pastDeadline(deadline))
 			return true;
 		Entry* e = top->entries->items[i];
 		RowView_prefetchItem(&sg->g, e, RowView_kindFor(i, e), jobs[j].side, jobs[j].lit);
@@ -237,7 +250,7 @@ bool StackView_active(void) {
 }
 
 void StackView_render(SDL_Surface* screen, int lastScreen) {
-	prefetch_pending = false;
+	pf.armed = false;
 	if (!screen || !top)
 		return;
 	StackKind kind = currentKind();
@@ -258,6 +271,7 @@ void StackView_render(SDL_Surface* screen, int lastScreen) {
 		pos_from = pos_to = (float)sel;
 		slide_tw.active = false;
 	} else if ((float)sel != pos_to) {
+		slide_retargeted = slideProgress() < 1.0f;
 		pos_from = currentPos();
 		pos_to = (float)sel;
 		slide_tw.active = true;
@@ -323,9 +337,32 @@ void StackView_render(SDL_Surface* screen, int lastScreen) {
 	edgeFade(screen, &sg);
 	SDL_SetClipRect(screen, &prev_clip);
 
-	// settled, and the picture's crossfade and B's exit fade done: build ahead what the next step needs (one item a
-	// frame; RowView_animating keeps asking while there's more)
-	prefetch_pending = !slide_tw.active && !RowView_pictureBusy() && prefetchItems(&sg, n, sel);
+	// what's ahead of this stack is built between frames (StackView_prefetchStep), for this geometry and selection
+	pf.armed = true;
+	pf.sg = sg;
+	pf.n = n;
+	pf.sel = sel;
+}
+
+bool StackView_prefetchStep(Uint32 deadline) {
+	if (!pf.armed)
+		return false;
+	// the stack the geometry was worked out for is gone (a new list, tab, size, scale or kind not drawn yet, a moved
+	// selection, or a forgotten stack): nothing until the next render re-arms it
+	if (!StackView_active() || !screen || seen_top == 0 || top->serial != seen_top ||
+		MenuTabs_generation() != seen_gen || top->entries->count != pf.n || screen->w != seen_screen_w ||
+		(int)FIXED_SCALE != seen_scale || (int)currentKind() != seen_kind || selectedIndex(pf.n) != pf.sel) {
+		pf.armed = false;
+		return false;
+	}
+	// as the row's (RowView_prefetchStep): not while the picture is busy, nor through the first part of a single
+	// step's slide; a held D-pad's retargeted slide builds for its target
+	if (RowView_pictureBusy() || (slide_tw.active && !slide_retargeted && slideProgress() < PREFETCH_SLIDE_SHARE))
+		return true;
+	if (prefetchItems(&pf.sg, pf.n, pf.sel, deadline))
+		return true;
+	pf.armed = false;
+	return false;
 }
 
 ///////////////////////////////////////
@@ -390,7 +427,7 @@ bool StackView_animating(void) {
 		slide_tw.active = false; // one settled frame as it clears
 		pos_from = pos_to;
 	}
-	return sliding || prefetch_pending;
+	return sliding;
 }
 
 void StackView_forget(void) {
@@ -398,5 +435,5 @@ void StackView_forget(void) {
 	slide_tw.active = false;
 	pos_from = pos_to;
 	snap_next = false;
-	prefetch_pending = false;
+	pf.armed = false;
 }
