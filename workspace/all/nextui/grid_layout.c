@@ -23,24 +23,29 @@ void GridLayout_compute(float screen_w, float body_top, float body_h, int n, Gri
 }
 
 void GridLayout_computeWide(float screen_w, float body_top, float body_h, int n, float width_mul, GridLayout* out) {
+	GridLayout_computeEx(screen_w, body_top, body_h, n, width_mul, 1.0f, out);
+}
+
+void GridLayout_computeEx(float screen_w, float body_top, float body_h, int n, float width_mul, float gap_mul,
+						  GridLayout* out) {
 	GridLayout* g = out;
 	g->width_mul = width_mul > 0 ? width_mul : 1.0f;
 	g->screen_w = screen_w;
 	g->body_top = body_top;
 	g->body_h = body_h;
-	g->gap = GAP;
+	g->gap = GAP * (gap_mul > 0 ? gap_mul : 1.0f);
 	g->gutter = GUTTER;
 	g->n = n < 0 ? 0 : n;
-	g->tile_h = maxf(1.0f, minf(TILE_H_CAP, (body_h - 2 * RING_ROOM - GAP) / 2));
+	g->tile_h = maxf(1.0f, minf(TILE_H_CAP, (body_h - 2 * RING_ROOM - g->gap) / 2));
 	g->tile_w = g->tile_h * TILE_W_CAP / TILE_H_CAP * g->width_mul;
-	int cols = (int)floorf((screen_w - 2 * GUTTER + GAP) / (g->tile_w + GAP));
+	int cols = (int)floorf((screen_w - 2 * GUTTER + g->gap) / (g->tile_w + g->gap));
 	g->cols = cols < 1 ? 1 : cols;
 	g->sliding = g->n > 2 * g->cols;
 	// a still grid centres the rows it fills (one row of tools sits at the body's centre); a sliding one keeps both
 	g->rows = (g->sliding || g->n > g->cols) ? 2 : 1;
-	float block_h = g->rows * g->tile_h + (g->rows - 1) * GAP;
+	float block_h = g->rows * g->tile_h + (g->rows - 1) * g->gap;
 	g->rows_top = maxf(body_top + RING_ROOM, body_top + (body_h - block_h) / 2);
-	g->frame_x0 = g->sliding ? 0 : (screen_w - (g->cols * g->tile_w + (g->cols - 1) * GAP)) / 2;
+	g->frame_x0 = g->sliding ? 0 : (screen_w - (g->cols * g->tile_w + (g->cols - 1) * g->gap)) / 2;
 }
 
 void GridLayout_cell(const GridLayout* g, int index, int* col, int* row) {
@@ -74,8 +79,8 @@ int GridLayout_columnCount(const GridLayout* g) {
 float GridLayout_offsetFor(const GridLayout* g, int col) {
 	if (!g->sliding)
 		return 0;
-	float step = g->tile_w + GAP;
-	float raw = col * step - (ANCHOR_FRAC * g->tile_w + GAP);
+	float step = g->tile_w + g->gap;
+	float raw = col * step - (ANCHOR_FRAC * g->tile_w + g->gap);
 	int c = GridLayout_columnCount(g);
 	float hi = maxf(0, (c - 1) * step + g->tile_w - (g->screen_w - 2 * GUTTER));
 	return minf(hi, maxf(0, raw));
@@ -83,7 +88,7 @@ float GridLayout_offsetFor(const GridLayout* g, int col) {
 
 float GridLayout_columnX(const GridLayout* g, int col, float offset) {
 	float base = g->sliding ? GUTTER : g->frame_x0;
-	return base + col * (g->tile_w + GAP) - offset;
+	return base + col * (g->tile_w + g->gap) - offset;
 }
 
 void GridLayout_visibleColumns(const GridLayout* g, float offset, int* first, int* last) {

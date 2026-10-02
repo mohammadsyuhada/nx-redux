@@ -5,8 +5,9 @@
 #include <stddef.h>
 #include "sdl.h"
 
-// Page title (LIST-LAYOUT §10.1): one look everywhere. UIFont_get(UI_PAGE_TITLE_SP, regular: the UI font has no bold
-// face, and TTF_STYLE_BOLD's synthetic emboldening reads heavy with rough edges) in COLOR_GRAY,
+// Page title (LIST-LAYOUT §10.1): one look everywhere, at the device's default scale whatever the UI scale.
+// UI_PAGE_TITLE_SP regular (the UI font has no bold face, and TTF_STYLE_BOLD's synthetic emboldening reads heavy with
+// rough edges) in COLOR_GRAY,
 // vertically centred in the top strip (UI_menuBarHeight()). The part up to and including the first " | " and
 // the optional suffix (e.g. the RA count " (12/39)") never truncate; only the middle ellipsizes
 // (UI_titleFit, common/ui_title_fit.h).

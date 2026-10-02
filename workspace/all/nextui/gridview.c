@@ -131,7 +131,8 @@ static void computeLayout(SDL_Surface* screen, int n, GridLayout* g) {
 	bool root = stack->count == 1;
 	MenuTabId tab = MenuTabs_current();
 	float mul = !root ? 1.5f : (tab == MENU_TAB_TOOLS ? 1.0f : 2.0f);
-	GridLayout_computeWide(sw, BAR_DP, sh - 2 * BAR_DP, n, mul, g);
+	// the gap between tiles stays the default scale's px whatever the UI scale
+	GridLayout_computeEx(sw, BAR_DP, sh - 2 * BAR_DP, n, mul, (float)NATIVE_SCALE / (float)FIXED_SCALE, g);
 }
 
 static int selectedIndex(int n) {

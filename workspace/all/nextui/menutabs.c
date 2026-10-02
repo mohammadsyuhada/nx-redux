@@ -13,6 +13,7 @@
 #include "config.h"
 #include "defines.h"
 #include "utils.h"
+#include "ui_font.h"
 
 #include "content.h"
 #include "gamelist.h"
@@ -362,13 +363,16 @@ MenuTabId MenuTabs_initialTab(const char* last_path) {
 // current label wears the selection plate (12 dp past the word each side, 5 dp
 // above and below) and the underline hides; the words keep their positions.
 
-#define TAB_LABEL_GAP NX_DP(20)	  // pixels between labels
-#define TAB_UNDERLINE_H NX_DP(3)  // underline height in pixels
-#define TAB_EDGE NX_DP(16)		  // scroll margin + edge fade width
-#define TAB_PLATE_PAD_X NX_DP(12) // the plate past the word, each side
-#define TAB_PLATE_PAD_Y NX_DP(5)  // and above and below
-#define TAB_DIM_ALPHA 97		  // 38%: labels of the other tabs
-#define TAB_GLIDE_MS 240		  // underline glide, eased with UI_easeStandard
+// The tab row keeps the device's default size whatever the UI scale (UI scale enlarges the content, not the tabs):
+// its measures in dp at NATIVE_SCALE, its font at NATIVE_SCALE too (tabFont)
+#define TAB_DP(x) ((int)((x) * NATIVE_SCALE * 30.0f / 42.0f + 0.5f))
+#define TAB_LABEL_GAP TAB_DP(20)   // pixels between labels
+#define TAB_UNDERLINE_H TAB_DP(3)  // underline height in pixels
+#define TAB_EDGE TAB_DP(16)		   // scroll margin + edge fade width
+#define TAB_PLATE_PAD_X TAB_DP(12) // the plate past the word, each side
+#define TAB_PLATE_PAD_Y TAB_DP(5)  // and above and below
+#define TAB_DIM_ALPHA 97		   // 38%: labels of the other tabs
+#define TAB_GLIDE_MS 240		   // underline glide, eased with UI_easeStandard
 
 // Underline glide (strip coordinates). Position = lerp(from, to, UI_easeStandard(elapsed / 240 ms)).
 static struct {
@@ -587,7 +591,12 @@ void MenuTabs_renderRow(SDL_Surface* screen, int ow) {
 		return;
 
 	int bar_h = SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2);
-	int band_h = bar_h - TAB_UNDERLINE_H * 2; // labels centre above the underline
+	// the row's own height at the default scale, centred in the (UI-scaled) top bar
+	int row_h = NATIVE_SCALE * (BUTTON_SIZE + BUTTON_MARGIN * 2);
+	if (row_h > bar_h)
+		row_h = bar_h;
+	int row_y = (bar_h - row_h) / 2;
+	int band_h = row_h - TAB_UNDERLINE_H * 2; // labels centre above the underline
 	int left = NX_DP(NX_MENU_GUTTER_DP);	  // the first label on the 24 dp gutter (§5), where the List rows' text starts
 	int right_limit = screen->w - ow - SCALE1(PADDING);
 	int band_w = right_limit - left;
@@ -596,7 +605,10 @@ void MenuTabs_renderRow(SDL_Surface* screen, int ow) {
 	bool tf = MenuTabs_focused();
 
 	int xs[MENU_TAB_COUNT], ws[MENU_TAB_COUNT];
-	TTF_Font* f = font.medium; // 16 sp; labels that don't fit scroll (never a smaller font)
+	// font.medium's size at the default scale; labels that don't fit scroll (never a smaller font)
+	TTF_Font* f = UIFont_getPx(NATIVE_SCALE * FONT_MEDIUM, false);
+	if (!f)
+		f = font.medium;
 	int labels_w = layoutLabels(f, xs, ws);
 
 	int cur = MenuTabs_indexOf(tabs, tab_count, current);
@@ -613,9 +625,9 @@ void MenuTabs_renderRow(SDL_Surface* screen, int ow) {
 	SDL_GetClipRect(screen, &prev_clip);
 	SDL_SetClipRect(screen, &(SDL_Rect){band_x, 0, band_w, bar_h});
 
-	SDL_Surface* labels = labelStrip(f, xs, labels_w, off, cur, band_w, bar_h, band_h);
+	SDL_Surface* labels = labelStrip(f, xs, labels_w, off, cur, band_w, row_h, band_h);
 	if (labels)
-		SDL_BlitSurface(labels, NULL, screen, &(SDL_Rect){band_x, 0});
+		SDL_BlitSurface(labels, NULL, screen, &(SDL_Rect){band_x, row_y});
 
 	// Underline: a tab change glides (x + width) from where it is drawn now; the
 	// same tab moving (a relabel or rescale) snaps, and so does a change on the
@@ -658,8 +670,8 @@ void MenuTabs_renderRow(SDL_Surface* screen, int ow) {
 		int py = centre - ph / 2;
 		if (py < 0)
 			py = 0;
-		if (py + ph > bar_h)
-			py = bar_h - ph;
+		if (py + ph > row_h)
+			py = row_h - ph;
 		int px = base + cur_x - TAB_PLATE_PAD_X;
 		SDL_Surface* p = plateSurface(f, current, cur_w + 2 * TAB_PLATE_PAD_X, ph, ty - py);
 		int cl = band_x - TAB_PLATE_PAD_X, cr = right_limit + TAB_PLATE_PAD_X;
@@ -669,12 +681,12 @@ void MenuTabs_renderRow(SDL_Surface* screen, int ow) {
 			cr = screen->w - ow;
 		if (p) {
 			SDL_SetClipRect(screen, &(SDL_Rect){cl, 0, cr - cl, bar_h});
-			SDL_BlitSurface(p, NULL, screen, &(SDL_Rect){px, py});
+			SDL_BlitSurface(p, NULL, screen, &(SDL_Rect){px, row_y + py});
 		}
 	} else {
 		int ux, uw;
 		underlineNow(&ux, &uw);
-		SDL_FillRect(screen, &(SDL_Rect){base + ux, bar_h - TAB_UNDERLINE_H - SCALE1(2), uw, TAB_UNDERLINE_H},
+		SDL_FillRect(screen, &(SDL_Rect){base + ux, row_y + row_h - TAB_UNDERLINE_H - NATIVE_SCALE * 2, uw, TAB_UNDERLINE_H},
 					 accentOpaque(screen->format));
 	}
 

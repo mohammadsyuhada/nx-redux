@@ -112,7 +112,14 @@ const char* GFX_getArabicFontPath(void) {
 
 // The Arabic-font counterpart of a primary size-font, or of a font the registered resolver knows (NULL if
 // the Arabic font failed to load or `primary` is unknown).
+// The button hint bar's label font at the device's default scale (it keeps that size whatever the UI scale), and its
+// Arabic counterpart; opened with the other system fonts.
+static TTF_Font* hint_tiny_native = NULL;
+static TTF_Font* hint_tiny_native_ar = NULL;
+
 TTF_Font* GFX_fallbackFontFor(TTF_Font* primary) {
+	if (primary && primary == hint_tiny_native)
+		return hint_tiny_native_ar;
 	if (primary == font.xlarge)
 		return font_ar.xlarge;
 	if (primary == font.title)
@@ -446,6 +453,8 @@ int GFX_loadSystemFont(const char* fontPath) {
 	font.small = TTF_OpenFont(fontPath, SCALE1(FONT_SMALL));
 	font.tiny = TTF_OpenFont(fontPath, SCALE1(FONT_TINY));
 	font.micro = TTF_OpenFont(fontPath, SCALE1(FONT_MICRO));
+	TTF_CloseFont(hint_tiny_native);
+	hint_tiny_native = TTF_OpenFont(fontPath, NATIVE_SCALE * FONT_TINY);
 
 	// Secondary Arabic font (fixed path — independent of the primary UI font).
 	// Missing file => NULL entries => Arabic falls back to primary (tofu), no crash.
@@ -464,6 +473,8 @@ int GFX_loadSystemFont(const char* fontPath) {
 	font_ar.small = TTF_OpenFont(arPath, SCALE1(FONT_SMALL));
 	font_ar.tiny = TTF_OpenFont(arPath, SCALE1(FONT_TINY));
 	font_ar.micro = TTF_OpenFont(arPath, SCALE1(FONT_MICRO));
+	TTF_CloseFont(hint_tiny_native_ar);
+	hint_tiny_native_ar = TTF_OpenFont(arPath, NATIVE_SCALE * FONT_TINY);
 
 	return 0;
 }
@@ -774,6 +785,8 @@ void GFX_quit(void) {
 	TTF_CloseFont(font.small);
 	TTF_CloseFont(font.tiny);
 	TTF_CloseFont(font.micro);
+	TTF_CloseFont(hint_tiny_native);
+	hint_tiny_native = NULL;
 
 	SDL_FreeSurface(gfx.assets);
 
@@ -1623,23 +1636,25 @@ static struct NavGlyph {
 	NavGlyphStyle style;
 	SDL_Surface* surf;
 	uint8_t tried;
+	SDL_Surface* nsurf; // at NATIVE_SCALE (the hint bar's), when it differs from FIXED_SCALE
+	uint8_t ntried;
 } nav_glyphs[] = {
-	{"A", "nav_button_a", NAV_DISC, NULL, 0},
-	{"B", "nav_button_b", NAV_DISC, NULL, 0},
-	{"X", "nav_button_x", NAV_DISC, NULL, 0},
-	{"Y", "nav_button_y", NAV_DISC, NULL, 0},
-	{"L1", "nav_trigger_l1", NAV_DISC, NULL, 0},
-	{"L2", "nav_trigger_l2", NAV_DISC, NULL, 0},
-	{"R1", "nav_trigger_r1", NAV_DISC, NULL, 0},
-	{"R2", "nav_trigger_r2", NAV_DISC, NULL, 0},
-	{"L3", "nav_button_l3", NAV_DISC, NULL, 0},
-	{"R3", "nav_button_r3", NAV_DISC, NULL, 0},
-	{"MENU", "nav_button_menu", NAV_DISC, NULL, 0},
-	{"HOME", "nav_button_home", NAV_DISC, NULL, 0},
-	{"START", "nav_button_start", NAV_LABEL, NULL, 0},
-	{"SELECT", "nav_button_select", NAV_LABEL, NULL, 0},
-	{"LEFT/RIGHT", "nav_dpad_horizontal", NAV_IMAGE, NULL, 0},
-	{"UP/DOWN", "nav_dpad_vertical", NAV_IMAGE, NULL, 0},
+	{"A", "nav_button_a", NAV_DISC, NULL, 0, NULL, 0},
+	{"B", "nav_button_b", NAV_DISC, NULL, 0, NULL, 0},
+	{"X", "nav_button_x", NAV_DISC, NULL, 0, NULL, 0},
+	{"Y", "nav_button_y", NAV_DISC, NULL, 0, NULL, 0},
+	{"L1", "nav_trigger_l1", NAV_DISC, NULL, 0, NULL, 0},
+	{"L2", "nav_trigger_l2", NAV_DISC, NULL, 0, NULL, 0},
+	{"R1", "nav_trigger_r1", NAV_DISC, NULL, 0, NULL, 0},
+	{"R2", "nav_trigger_r2", NAV_DISC, NULL, 0, NULL, 0},
+	{"L3", "nav_button_l3", NAV_DISC, NULL, 0, NULL, 0},
+	{"R3", "nav_button_r3", NAV_DISC, NULL, 0, NULL, 0},
+	{"MENU", "nav_button_menu", NAV_DISC, NULL, 0, NULL, 0},
+	{"HOME", "nav_button_home", NAV_DISC, NULL, 0, NULL, 0},
+	{"START", "nav_button_start", NAV_LABEL, NULL, 0, NULL, 0},
+	{"SELECT", "nav_button_select", NAV_LABEL, NULL, 0, NULL, 0},
+	{"LEFT/RIGHT", "nav_dpad_horizontal", NAV_IMAGE, NULL, 0, NULL, 0},
+	{"UP/DOWN", "nav_dpad_vertical", NAV_IMAGE, NULL, 0, NULL, 0},
 };
 // Glyph PNGs are per-scale (@2x/@3x); drop them so the next lookup loads the
 // current scale.
@@ -1649,54 +1664,74 @@ static void GFX_resetNavGlyphs(void) {
 			SDL_FreeSurface(nav_glyphs[i].surf);
 		nav_glyphs[i].surf = NULL;
 		nav_glyphs[i].tried = 0;
+		if (nav_glyphs[i].nsurf)
+			SDL_FreeSurface(nav_glyphs[i].nsurf);
+		nav_glyphs[i].nsurf = NULL;
+		nav_glyphs[i].ntried = 0;
 	}
 }
-static struct NavGlyph* GFX_getNavGlyph(const char* button) {
+// The glyph surface for `button` at `scale` (FIXED_SCALE's cache, or the NATIVE_SCALE one when they differ), or NULL
+// when the button has no art (the drawn fallback).
+static SDL_Surface* GFX_getNavGlyphAt(const char* button, int scale) {
 	if (!button || !button[0])
 		return NULL;
+	bool native = scale != FIXED_SCALE;
 	for (int i = 0; i < (int)(sizeof(nav_glyphs) / sizeof(nav_glyphs[0])); i++) {
 		struct NavGlyph* g = &nav_glyphs[i];
 		if (strcmp(button, g->key) != 0)
 			continue;
-		if (g->surf)
-			return g;
-		if (g->tried)
+		SDL_Surface** surf = native ? &g->nsurf : &g->surf;
+		uint8_t* tried = native ? &g->ntried : &g->tried;
+		if (*surf)
+			return *surf;
+		if (*tried)
 			return NULL; // asset absent on device — use the drawn fallback
-		g->tried = 1;
+		*tried = 1;
 		char path[MAX_PATH];
-		sprintf(path, "%s/%s@%ix.png", RES_PATH, g->file, FIXED_SCALE);
+		sprintf(path, "%s/%s@%ix.png", RES_PATH, g->file, scale);
 		SDL_Surface* s = IMG_Load(path);
 		if (s) {
 			SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
-			g->surf = s;
-			return g;
+			*surf = s;
 		}
-		return NULL;
+		return *surf;
 	}
 	return NULL;
 }
-int GFX_getButtonWidth(char* hint, char* button) {
+// A button hint drawn at `scale`: its glyphs, sizes and label font (`tiny`, FONT_TINY at that scale).
+static int GFX_getButtonWidthAt(char* hint, char* button, int scale, TTF_Font* tiny) {
 	int button_width = 0;
 	int width;
-	int btn_sz = SCALE1(BUTTON_SIZE);
+	int btn_sz = scale * BUTTON_SIZE;
 
 	button = (char*)PAD_buttonLabel(button);
 
-	struct NavGlyph* g = GFX_getNavGlyph(button);
-	if (g) {
-		button_width += g->surf->w; // both styles advance by the glyph width
+	SDL_Surface* glyph = GFX_getNavGlyphAt(button, scale);
+	if (glyph) {
+		button_width += glyph->w; // both styles advance by the glyph width
 	} else if (strlen(button) == 1) {
 		button_width += btn_sz;
 	} else {
 		button_width += btn_sz / 2;
-		GFX_measureText(font.tiny, button, &width, NULL);
+		GFX_measureText(tiny, button, &width, NULL);
 		button_width += width;
 	}
-	button_width += SCALE1(BUTTON_TEXT_GAP);
+	button_width += scale * BUTTON_TEXT_GAP;
 
-	GFX_measureText(font.tiny, hint, &width, NULL);
+	GFX_measureText(tiny, hint, &width, NULL);
 	button_width += width;
 	return button_width;
+}
+int GFX_getButtonWidth(char* hint, char* button) {
+	return GFX_getButtonWidthAt(hint, button, FIXED_SCALE, font.tiny);
+}
+// The hint bar's own size: the device's default scale whatever the UI scale.
+static TTF_Font* hintTinyNative(void) {
+	return (NATIVE_SCALE == FIXED_SCALE || !hint_tiny_native) ? font.tiny : hint_tiny_native;
+}
+int GFX_getButtonWidthNative(char* hint, char* button) {
+	TTF_Font* tiny = hintTinyNative();
+	return GFX_getButtonWidthAt(hint, button, tiny == font.tiny ? FIXED_SCALE : NATIVE_SCALE, tiny);
 }
 static uint32_t gfx_px_get(SDL_Surface* s, int x, int y) {
 	uint8_t* p = (uint8_t*)s->pixels + y * s->pitch + x * s->format->BytesPerPixel;
@@ -1775,10 +1810,11 @@ static void GFX_drawFilledRoundedRect(SDL_Surface* sur, int x, int y, int w, int
 	if (SDL_MUSTLOCK(sur))
 		SDL_UnlockSurface(sur);
 }
-void GFX_blitButton(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_rect) {
+static void GFX_blitButtonAt(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_rect, int scale,
+							 TTF_Font* tiny) {
 	SDL_Surface* text;
 	int ox = 0;
-	int btn_sz = SCALE1(BUTTON_SIZE);
+	int btn_sz = scale * BUTTON_SIZE;
 
 	button = (char*)PAD_buttonLabel(button);
 	// Drawn fallback (any button with no nav_*.png glyph, e.g. "L1/R1" combo
@@ -1788,13 +1824,12 @@ void GFX_blitButton(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_re
 	Uint32 btn_color = SDL_MapRGB(dst->format, TRIAD_WHITE);
 
 	// button
-	struct NavGlyph* g = GFX_getNavGlyph(button);
-	if (g) {
+	SDL_Surface* glyph = GFX_getNavGlyphAt(button, scale);
+	if (glyph) {
 		// Show every glyph in its native colours (white masks; the d-pad's
 		// white + red) with no tint, so the button hint matches the white
 		// description text. Disc glyphs read as a white disc with the symbol
 		// knocked out; the .style field is kept for reference only.
-		SDL_Surface* glyph = g->surf;
 		int gy = dst_rect->y + (btn_sz - glyph->h) / 2;
 		GFX_blitSurfaceColor(glyph, NULL, dst, &(SDL_Rect){dst_rect->x, gy}, RGB_WHITE);
 		ox += glyph->w;
@@ -1802,12 +1837,12 @@ void GFX_blitButton(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_re
 		GFX_drawFilledCircle(dst, dst_rect->x + btn_sz / 2, dst_rect->y + btn_sz / 2, btn_sz / 2, btn_color);
 
 		// label (cached — hint bars redraw every frame during list animation)
-		text = GFX_getCachedText(font.tiny, button, COLOR_BLACK);
+		text = GFX_getCachedText(tiny, button, COLOR_BLACK);
 		if (text)
 			SDL_BlitSurface(text, NULL, dst, &(SDL_Rect){dst_rect->x + (btn_sz - text->w) / 2, dst_rect->y + (btn_sz - text->h) / 2});
 		ox += btn_sz;
 	} else {
-		text = GFX_getCachedText(font.tiny, button, COLOR_BLACK);
+		text = GFX_getCachedText(tiny, button, COLOR_BLACK);
 		int pill_w = btn_sz / 2 + (text ? text->w : 0);
 		GFX_drawFilledRoundedRect(dst, dst_rect->x, dst_rect->y, pill_w, btn_sz, btn_color);
 		ox += btn_sz / 4;
@@ -1819,13 +1854,20 @@ void GFX_blitButton(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_re
 		ox += btn_sz / 4;
 	}
 
-	ox += SCALE1(BUTTON_TEXT_GAP);
+	ox += scale * BUTTON_TEXT_GAP;
 
 	// hint text (cached; colour is part of the cache key so theme changes are safe)
 	SDL_Color text_color = uintToColour(THEME_COLOR6_255);
-	text = GFX_getCachedText(font.tiny, hint, text_color);
+	text = GFX_getCachedText(tiny, hint, text_color);
 	if (text)
 		SDL_BlitSurface(text, NULL, dst, &(SDL_Rect){ox + dst_rect->x, dst_rect->y + (btn_sz - text->h) / 2, text->w, text->h});
+}
+void GFX_blitButton(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_rect) {
+	GFX_blitButtonAt(hint, button, dst, dst_rect, FIXED_SCALE, font.tiny);
+}
+void GFX_blitButtonNative(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_rect) {
+	TTF_Font* tiny = hintTinyNative();
+	GFX_blitButtonAt(hint, button, dst, dst_rect, tiny == font.tiny ? FIXED_SCALE : NATIVE_SCALE, tiny);
 }
 void GFX_blitMessage(TTF_Font* font, char* msg, SDL_Surface* dst, SDL_Rect* dst_rect) {
 	if (!dst_rect)
@@ -1982,7 +2024,8 @@ SDL_Surface* GFX_createScreenFormatSurface(int width, int height) {
 		gfx.screen->format->format);
 }
 
-int GFX_blitHardwareGroup(SDL_Surface* dst, IndicatorType show_setting) {
+// The status group drawn at the current SCALE1, its icons centred in a bar_h band whose top is y0.
+static int hardwareGroupDraw(SDL_Surface* dst, IndicatorType show_setting, int y0) {
 	int ox;
 	int ow = 0;
 
@@ -1992,7 +2035,7 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, IndicatorType show_setting) {
 		// Use the helper function to render the indicator at the standard position
 		ow = SCALE1(HW_INDICATOR_WIDTH);
 		ox = dst->w - SCALE1(PADDING) - ow;
-		GFX_blitHardwareIndicator(dst, ox, 0, (IndicatorType)show_setting);
+		GFX_blitHardwareIndicator(dst, ox, y0, (IndicatorType)show_setting);
 	} else {
 		ConnectionStrength strength = PLAT_connectionStrength();
 		int show_wifi = strength > SIGNAL_STRENGTH_OFF;
@@ -2012,7 +2055,7 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, IndicatorType show_setting) {
 			ox = dst->w - SCALE1(PADDING) - ow;
 
 			int battery_x = ox + (ow - battery_rect.w) / 2;
-			int battery_y = (bar_h - battery_rect.h) / 2;
+			int battery_y = y0 + (bar_h - battery_rect.h) / 2;
 
 			GFX_blitBatteryAtPosition(dst, battery_x, battery_y);
 		} else {
@@ -2070,7 +2113,7 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, IndicatorType show_setting) {
 			if (show_rec) {
 				// classic "recording" red dot
 				SDL_Rect rec_rect = asset_rects[ASSET_RECORD];
-				int y = (bar_h - rec_rect.h) / 2;
+				int y = y0 + (bar_h - rec_rect.h) / 2;
 
 				GFX_blitAssetColor(ASSET_RECORD, NULL, dst, &(SDL_Rect){ox, y}, 0xFF453A);
 				ox += rec_rect.w + SCALE1(BUTTON_MARGIN);
@@ -2079,7 +2122,7 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, IndicatorType show_setting) {
 			if (show_cap) {
 				// camera: screenshot daemon armed (L2+R2 captures)
 				SDL_Rect cap_rect = asset_rects[ASSET_SCREENSHOT];
-				int y = (bar_h - cap_rect.h) / 2;
+				int y = y0 + (bar_h - cap_rect.h) / 2;
 
 				GFX_blitAssetColor(ASSET_SCREENSHOT, NULL, dst, &(SDL_Rect){ox, y}, THEME_COLOR6);
 				ox += cap_rect.w + SCALE1(BUTTON_MARGIN);
@@ -2088,7 +2131,7 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, IndicatorType show_setting) {
 			if (show_ext_audio) {
 				SDL_Rect audio_rect = asset_rects[ASSET_AUDIO];
 				int x = ox;
-				int y = (bar_h - audio_rect.h) / 2;
+				int y = y0 + (bar_h - audio_rect.h) / 2;
 
 				GFX_blitAssetColor(ASSET_AUDIO, NULL, dst, &(SDL_Rect){x, y}, THEME_COLOR6);
 				ox += audio_rect.w + SCALE1(BUTTON_MARGIN);
@@ -2097,7 +2140,7 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, IndicatorType show_setting) {
 			if (show_bt_controller) {
 				SDL_Rect ctrl_rect = asset_rects[ASSET_CONTROLLER];
 				int x = ox;
-				int y = (bar_h - ctrl_rect.h) / 2;
+				int y = y0 + (bar_h - ctrl_rect.h) / 2;
 
 				GFX_blitAssetColor(ASSET_CONTROLLER, NULL, dst, &(SDL_Rect){x, y}, THEME_COLOR6);
 				ox += ctrl_rect.w + SCALE1(BUTTON_MARGIN);
@@ -2110,27 +2153,104 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, IndicatorType show_setting) {
 																									: ASSET_WIFI_OFF; // this should use ASSET_WIFI and be greyed out
 				SDL_Rect wifi_rect = asset_rects[asset];
 				int x = ox;
-				int y = (bar_h - wifi_rect.h) / 2;
+				int y = y0 + (bar_h - wifi_rect.h) / 2;
 
 				GFX_blitAssetColor(asset, NULL, dst, &(SDL_Rect){x, y}, THEME_COLOR6);
 				ox += wifi_rect.w + SCALE1(BUTTON_MARGIN);
 			}
 
 			int battery_x = ox;
-			int battery_y = (bar_h - battery_rect.h) / 2;
+			int battery_y = y0 + (bar_h - battery_rect.h) / 2;
 
 			GFX_blitBatteryAtPosition(dst, battery_x, battery_y);
 			ox += battery_rect.w + SCALE1(BUTTON_MARGIN);
 
 			if (show_clock && clock) {
 				int x = ox;
-				int y = (bar_h - clock->h) / 2;
+				int y = y0 + (bar_h - clock->h) / 2;
 				SDL_BlitSurface(clock, NULL, dst, &(SDL_Rect){x, y});
 				// no free — surface is owned by the text cache
 			}
 		}
 	}
 
+	return ow;
+}
+
+// The status group (indicator, or recording, capture, audio, controller, Wi-Fi, battery and clock) keeps the device's
+// default size whatever the UI scale: drawn with the asset sheet, its rects and the fonts loaded at NATIVE_SCALE, swapped
+// in for the call (the UI thread draws it), and centred in the UI-scaled top bar. Returns its width in px.
+static struct {
+	int built_for;			  // the FIXED_SCALE it was built beside (0: not built)
+	char font_path[MAX_PATH]; // and the system font it opened
+	SDL_Surface* assets;
+	SDL_Rect rects[ASSET_COUNT];
+	TTF_Font *small, *tiny, *micro;
+} hw_native;
+
+static void hwNativeFree(void) {
+	if (hw_native.assets)
+		SDL_FreeSurface(hw_native.assets);
+	TTF_CloseFont(hw_native.small);
+	TTF_CloseFont(hw_native.tiny);
+	TTF_CloseFont(hw_native.micro);
+	memset(&hw_native, 0, sizeof(hw_native));
+}
+
+static bool hwNativeReady(void) {
+	if (FIXED_SCALE == NATIVE_SCALE)
+		return false;
+	const char* font_path = GFX_getSystemFontPath();
+	if (hw_native.built_for == FIXED_SCALE && hw_native.assets && hw_native.small &&
+		strcmp(hw_native.font_path, font_path) == 0)
+		return true;
+	hwNativeFree();
+	// the rects at the native scale: GFX_initAssetRects with the scale switched, the live ones kept
+	SDL_Rect live[ASSET_COUNT];
+	memcpy(live, asset_rects, sizeof(live));
+	int saved = ui_scale;
+	ui_scale = NATIVE_SCALE;
+	GFX_initAssetRects();
+	memcpy(hw_native.rects, asset_rects, sizeof(hw_native.rects));
+	ui_scale = saved;
+	memcpy(asset_rects, live, sizeof(live));
+	char path[MAX_PATH];
+	sprintf(path, "%s/assets@%ix.png", RES_PATH, NATIVE_SCALE);
+	hw_native.assets = IMG_Load(path);
+	hw_native.small = TTF_OpenFont(font_path, NATIVE_SCALE * FONT_SMALL);
+	hw_native.tiny = TTF_OpenFont(font_path, NATIVE_SCALE * FONT_TINY);
+	hw_native.micro = TTF_OpenFont(font_path, NATIVE_SCALE * FONT_MICRO);
+	hw_native.built_for = FIXED_SCALE;
+	snprintf(hw_native.font_path, sizeof(hw_native.font_path), "%s", font_path);
+	if (!hw_native.assets || !hw_native.small || !hw_native.tiny || !hw_native.micro) {
+		hwNativeFree();
+		return false;
+	}
+	return true;
+}
+
+int GFX_blitHardwareGroup(SDL_Surface* dst, IndicatorType show_setting) {
+	if (!hwNativeReady())
+		return hardwareGroupDraw(dst, show_setting, 0);
+	int bar_h = SCALE1(BUTTON_SIZE) + SCALE1(BUTTON_MARGIN * 2);
+	int native_h = NATIVE_SCALE * (BUTTON_SIZE + BUTTON_MARGIN * 2);
+	int y0 = (bar_h - native_h) / 2;
+	// swap the native context in
+	SDL_Rect live[ASSET_COUNT];
+	memcpy(live, asset_rects, sizeof(live));
+	SDL_Surface* live_assets = gfx.assets;
+	TTF_Font *live_small = font.small, *live_tiny = font.tiny, *live_micro = font.micro;
+	int saved = ui_scale;
+	ui_scale = NATIVE_SCALE;
+	memcpy(asset_rects, hw_native.rects, sizeof(live));
+	gfx.assets = hw_native.assets;
+	font.small = hw_native.small, font.tiny = hw_native.tiny, font.micro = hw_native.micro;
+	int ow = hardwareGroupDraw(dst, show_setting, y0);
+	// and back
+	font.small = live_small, font.tiny = live_tiny, font.micro = live_micro;
+	gfx.assets = live_assets;
+	memcpy(asset_rects, live, sizeof(live));
+	ui_scale = saved;
 	return ow;
 }
 char** GFX_getHardwareHintPairs(IndicatorType show_setting) {

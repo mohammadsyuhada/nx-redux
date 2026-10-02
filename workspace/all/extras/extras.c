@@ -420,11 +420,14 @@ static void build_tab_rows(AddonTab tab, TabRows* rows) {
 //
 // Local to extras.c - promote to common/ui if a second pak ever needs a
 // segmented control. The reserved vertical band (and so the returned y) is
-// deliberately kept at the ORIGINAL item_h-based height even though the
-// strip itself only draws at ~0.75x that - same contract as the pre-13c
-// pill-button version, so nothing below this call has to move.
+// the strip's own height (it once reserved a whole row height above the
+// list's top, which read as a gap under the title).
 static int render_tab_bar(SDL_Surface* screen, ListLayout* layout, AddonTab active_tab) {
-	int y = layout->list_y;
+	// just under the page title (6 dp below its text), not at the list's own top, which left a wide gap at any UI
+	// scale; the list's rows then start right under it (list_anchor_top)
+	int y = UI_pageTitleBandTop() + NX_DP(6);
+	if (y > layout->list_y)
+		y = layout->list_y;
 	int strip_h = (layout->item_h * 3) / 4;
 	int inset = SCALE1(3);
 	int x = SCALE1(PADDING);
@@ -472,7 +475,7 @@ static int render_tab_bar(SDL_Surface* screen, ListLayout* layout, AddonTab acti
 		cx += cell_w[t];
 	}
 
-	return y + layout->item_h + SCALE1(PADDING);
+	return y + strip_h;
 }
 
 // Shared-ListView row model (Task 17): the widget's rows are the TabRows
@@ -578,6 +581,7 @@ static void render_extras_list(SDL_Surface* screen, AddonTab active_tab, const T
 	extras_view.list_id = TAB_LABEL[active_tab];
 	extras_view.empty_title = "Nothing here yet";
 	extras_view.list_y_override = render_tab_bar(screen, &layout, active_tab);
+	extras_view.list_anchor_top = true; // the rows right under the tabs (their arrow strip between)
 	// L1/R1 leads the bar (user preference 2026-08-08), then B, then A.
 	// Always shown, even on an empty tab (v1 ships with TOOLS empty) -
 	// otherwise the tab switcher's only remaining discoverability hint (see

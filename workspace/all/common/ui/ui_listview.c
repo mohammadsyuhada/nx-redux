@@ -231,6 +231,16 @@ void UI_listViewRender(ListView* v, SDL_Surface* screen) {
 							: UI_calcListLayout(screen);
 	if (v->max_width_override > 0)
 		layout.max_width = v->max_width_override;
+	// the rows against the caller's header instead of centred in the band (the half of the leftover above them
+	// read as a gap under a header such as Xtras' tabs, a wide one at a large UI scale)
+	if (v->list_anchor_top && v->list_y_override > 0) {
+		int shift = layout.list_y - layout.strip - v->list_y_override;
+		if (shift > 0) {
+			layout.list_y -= shift;
+			layout.up_y -= shift;
+			layout.down_y -= shift;
+		}
+	}
 
 	if (v->title)
 		UI_renderMenuBar(screen, v->title);

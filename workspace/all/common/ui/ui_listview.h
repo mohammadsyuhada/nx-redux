@@ -60,6 +60,7 @@ typedef struct {
 								// caller claims LEFT/RIGHT for its own action (extras'
 								// d-pad tab switch) so the widget doesn't also page
 	int list_y_override;		// 0 = layout default; else band origin
+	bool list_anchor_top;		// with list_y_override: rows start right under it (the leftover goes below)
 	int max_width_override;		// 0 = layout default; else thumb-adjusted row width
 	// -- state (widget-owned; zero-init valid) --
 	int selected;

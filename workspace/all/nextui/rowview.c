@@ -77,6 +77,7 @@
 #define SLOT_TOOL_GAP_DP 12.0f
 #define SLOT_TOOL_NAME_SP 17.0f
 #define SLOT_LOGO_NAME_SP 24.0f
+#define ROW_BIG_UI_SHRINK 0.85f	   // the Consoles/Collections slots at a UI scale above the default
 #define SLOT_UNKNOWN_ICON_DP 44.0f // a logo-less console's emblem, × the slot content scale
 #define SLOT_UNKNOWN_GAP_DP 8.0f
 
@@ -267,6 +268,14 @@ static void computeGeo(SDL_Surface* screen, RowKind kind, RowGeo* g) {
 	g->vertical = false;
 	g->cap = captionKind(kind);
 	g->sz = Row_sizes(kind, sw, body_h);
+	// a UI scale above the device's default: the main-menu Carousel's Consoles and Collections slots at 85% (their
+	// logo and name too, through the slot content scale), else they take most of the smaller body
+	if (FIXED_SCALE > NATIVE_SCALE && (kind == ROW_BACKDROP_LOGO || kind == ROW_BACKDROP_COLL)) {
+		g->sz.item_w *= ROW_BIG_UI_SHRINK;
+		g->sz.item_h *= ROW_BIG_UI_SHRINK;
+		g->sz.gap *= ROW_BIG_UI_SHRINK;
+		g->sz.f *= ROW_BIG_UI_SHRINK;
+	}
 	g->cap_h = captionReserve(screen, kind, g->cap); // 0: the row alone is centred between the tab row and the hint bar
 	float gap = (kind == ROW_CAROUSEL ? CAROUSEL_CAPTION_GAP_DP : BACKDROP_CAPTION_GAP_DP) * g->sz.f;
 	// the box slot gives way to its caption (a px of slack for the rounding to px below), so the block fits the body
