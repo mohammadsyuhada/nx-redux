@@ -2,9 +2,7 @@
 #include "ma_video.h"
 #include "ma_hwrender.h"
 #include "ma_emutime.h"
-#if !defined(HAS_RUNTIME_PATHS)
-#include "netplay_helper.h" // Multiplayer_isActive (device screen_flip only)
-#endif
+#include "netplay_helper.h" // Multiplayer_isActive
 
 static const char* bitmap_font[] = {
 	['0'] =
@@ -631,16 +629,6 @@ void selectScaler(int src_w, int src_h, int src_p) {
 	renderer.blit = GFX_getScaler(&renderer);
 }
 static void screen_flip(SDL_Surface* screen) {
-#if defined(HAS_RUNTIME_PATHS)
-	// Desktop has no reliable vsync to pace by: the GL swap interval is never
-	// set (PLAT_setVsync is a no-op here), so SDL_GL_SwapWindow returns
-	// immediately, and the monitor's refresh rate is unknown/variable anyway.
-	// The screen-sync present path (GFX_GL_Swap) would therefore run
-	// unthrottled and games fast-forward. Always pace to the core's own fps in
-	// software on desktop; this is correct on any refresh rate and reuses the
-	// same limiter the PAL/core-fps branch below already relies on.
-	GFX_flip_fixed_rate(screen, core.fps);
-#else
 	if (sync_ref == SYNC_SRC_EMULATED && HWR_active() && !Multiplayer_isActive()) {
 		if (fast_forward) {
 			// fast-forward keeps its usual pacing; buffered audio must not
@@ -658,7 +646,6 @@ static void screen_flip(SDL_Surface* screen) {
 		GFX_GL_Swap();
 		// GFX_flip(screen);
 	}
-#endif
 }
 
 // couple of animation functions for pixel data keeping them all cause wanna use them later

@@ -651,7 +651,7 @@ enum {
 // FAST = where the emulation thread and the core's own threads run, SLOW =
 // minarch's helpers and the GPU driver's threads. tg5050: FAST = the online
 // big cores (cpu4-7), SLOW = cpu0-1. tg5040 (one cluster): FAST = cpu3 alone,
-// SLOW = cpu0-2 — isolation rather than a cluster split. Desktop: no-op.
+// SLOW = cpu0-2 — isolation rather than a cluster split.
 // Unlike PLAT_pinToCores (legacy, untouched, tg5050-only) these exist on both
 // devices, so "none" stays exactly today's behaviour.
 enum {
@@ -762,7 +762,7 @@ void PLAT_setCPUSpeedRange(int min_khz, int max_khz);
 // minarch_cpu_min/max before PLAT_setCPUSpeedRange writes the range to each
 // policy (the kernel then clamps per cluster). tg5040: cpu0. tg5050: cpu0 and,
 // when online, cpu4 — so a big-core cap is not truncated to the little cluster's
-// 1416 MHz ceiling. Returns false when no cpufreq exists (desktop).
+// 1416 MHz ceiling. Returns false when no cpufreq exists.
 bool PLAT_getCPUHwRangeKhz(int* min_khz, int* max_khz);
 // Launcher-only topology hook (nextui/cpu_policy.h): false takes the big core
 // offline while the launcher runs, true brings it back for the boot phase.

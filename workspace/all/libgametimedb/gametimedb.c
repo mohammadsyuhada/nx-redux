@@ -18,10 +18,7 @@
 
 #define GAMETIME_LOG_PATH SHARED_USERDATA_PATH
 
-// SHARED_USERDATA_PATH is a runtime array (not a string literal) on desktop
-// builds (see paths.h), so it can no longer be adjacent-string-literal
-// concatenated at compile time; build the same path with snprintf instead
-// (byte-identical to the old macro on device).
+// The play-activity database path, built with snprintf.
 static char* gametime_log_file(void) {
 	static char buf[MAX_PATH];
 	snprintf(buf, sizeof(buf), "%s/game_logs.sqlite", GAMETIME_LOG_PATH);
@@ -39,12 +36,6 @@ static char* gametime_log_file(void) {
 #define MAX_PLAUSIBLE_PLAY_TIME (24 * 60 * 60) // 86400 s = 24 h
 
 sqlite3* play_activity_db_open(void) {
-	// no-op on device; this library is its own shared object on desktop, so
-	// its copy of the PATHS_* globals (paths.c) needs its own init call --
-	// the caller's PATHS_init(PLATFORM) in main() does not reach across the
-	// dylib boundary. Idempotent: safe to call on every open.
-	PATHS_init(PLATFORM);
-
 	mkdir(GAMETIME_LOG_PATH, 0777);
 	char* log_file = gametime_log_file();
 	bool db_exists = exists(log_file);

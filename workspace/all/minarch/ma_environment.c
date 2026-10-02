@@ -366,11 +366,7 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 	// 	break;
 	// };
 	case RETRO_ENVIRONMENT_SET_HW_RENDER: {
-#if defined(HAS_RUNTIME_PATHS)
-		return false; // desktop: no GPU-core path (its context is desktop GL, not GLES)
-#else
 		return HWR_setCallback((struct retro_hw_render_callback*)data);
-#endif
 	}
 	case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO: { /* 32 */
 		// GPU cores only: software cores keep today's "unsupported" answer
@@ -392,14 +388,10 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		return true;
 	}
 	case RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER: {
-#if defined(HAS_RUNTIME_PATHS)
-		return false;
-#else
 		if (!data)
 			return false;
 		*(unsigned*)data = RETRO_HW_CONTEXT_OPENGLES3;
 		return true;
-#endif
 	}
 	case RETRO_ENVIRONMENT_SET_NETPACKET_INTERFACE: {
 		const struct retro_netpacket_callback* cb =

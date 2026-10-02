@@ -21,7 +21,7 @@ export USERDATA_PATH="$tmp/userdata"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-for plat in tg5040 tg5050 desktop; do
+for plat in tg5040 tg5050; do
 	launcher="$root/skeleton/SYSTEM/$plat/paks/MinUI.pak/launch.sh"
 	sh -n "$launcher" || fail "$plat launch.sh does not parse"
 	# Extract just the helper function so the test never runs the real boot script.

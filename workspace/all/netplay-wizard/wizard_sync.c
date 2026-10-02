@@ -72,9 +72,6 @@ extern char** environ;
 
 // rsync binary path (shared across platforms). Same location as sync.c:41,
 // duplicated rather than shared because nothing in sync.c is linkable here.
-// A function, not SHARED_BIN_PATH pasted into a literal: on desktop that
-// macro is a runtime array (HAS_RUNTIME_PATHS), so the path is assembled on
-// first use instead of concatenated at compile time.
 static const char* rsync_bin(void) {
 	static char path[MAX_PATH];
 	if (!path[0])
@@ -547,14 +544,7 @@ void wiz_sync_serve_stop(void) {
 	// a launcher app, which cannot be running while launch.sh has a game
 	// mid-launch — and the wizard's own pull is a client that has already
 	// finished by the time anything calls this.
-#if defined(HAS_RUNTIME_PATHS)
-	// A desktop machine can be running rsyncs that are none of ours (backup
-	// jobs, deploy scripts) — killall would take those down too. Our daemon's
-	// command line carries the wizard's config path, so match on that.
-	system("pkill -f -- '--config=" WIZ_RSYNC_CONF "' 2>/dev/null");
-#else
 	system("killall rsync 2>/dev/null");
-#endif
 
 	unlink(WIZ_RSYNC_CONF);
 	// Not in sync.c: the log names the peer and every file it read, and /tmp
@@ -608,8 +598,8 @@ int wiz_sync_serve_start(const char* serve_dir, const char* client_ip) {
 		return -1;
 	}
 
-	// No user data in this command line, but rsync_bin() is a runtime path on
-	// desktop (inside the .app / AppImage), so quote it against spaces.
+	// No user data in this command line; quote rsync_bin() against spaces
+	// all the same.
 	char bin_q[MAX_PATH * 4];
 	strncpy(bin_q, rsync_bin(), sizeof(bin_q) - 1);
 	bin_q[sizeof(bin_q) - 1] = '\0';

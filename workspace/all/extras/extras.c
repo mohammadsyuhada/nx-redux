@@ -75,11 +75,8 @@
 // is simply installed != latest - the catalog itself no longer pins
 // versions.
 //
-// The state dir is SHARED_USERDATA_PATH "/xtras", but SHARED_USERDATA_PATH
-// is a runtime array (not a string literal) on desktop builds, so it's no
-// longer adjacent-string-literal-concatenable -- resolved via snprintf
-// instead (byte-identical to the device value; same technique as ratools'
-// rat_badge_path()).
+// The state dir is SHARED_USERDATA_PATH "/xtras", resolved via snprintf
+// (same technique as ratools' rat_badge_path()).
 static void xtras_state_dir(char* buf, size_t n) {
 	snprintf(buf, n, "%s/xtras", SHARED_USERDATA_PATH);
 }
@@ -111,18 +108,6 @@ static AddonEntry entries[MAX_ENTRIES];
 static int entry_count = 0;
 static SDL_Surface* screen = NULL;
 static char pak_dir[MAX_PATH];
-
-// The desktop-OS token this build advertises to the compatibility gate.
-// PLATFORM is one "desktop" for both macOS and Linux, but extras.c is
-// compiled once per desktop OS, so __APPLE__ is a compile-time fact. Returns
-// "" on device builds (they match only their PLATFORM: tg5040 / tg5050).
-static const char* build_os_token(void) {
-#ifdef __APPLE__
-	return strcmp(PLATFORM, "desktop") == 0 ? "macos" : "";
-#else
-	return strcmp(PLATFORM, "desktop") == 0 ? "linux" : "";
-#endif
-}
 
 // --- meta.txt: flat key=value, unknown keys ignored ---------------------
 static void meta_set(AddonEntry* e, const char* key, const char* val) {
@@ -348,7 +333,7 @@ static void catalog_load(void) {
 		snprintf(e->id, sizeof(e->id), "%s", de->d_name);
 		if (!meta_parse(meta, e))
 			continue;
-		e->compatible = xtras_platform_compatible(e->platforms, PLATFORM, build_os_token());
+		e->compatible = xtras_platform_compatible(e->platforms, PLATFORM);
 		// Resolve version_source default: explicit internal wins; else an entry
 		// with a repo is external; else (no repo) internal.
 		if (!e->version_internal && e->repo[0] == '\0')
@@ -983,10 +968,7 @@ static bool parse_hint(const char* line, int* pct, const char** status_text,
 // this only bites install.sh.
 static int run_entry_script(AddonEntry* e, const char* script_name, const char* title) {
 	const char* logs_path = getenv("LOGS_PATH");
-	// USERDATA_PATH is a runtime array (not a string literal) on desktop
-	// builds, so appending "/logs" via adjacent string-literal concatenation
-	// no longer compiles -- resolved into a local buffer via snprintf
-	// instead (byte-identical to the device value).
+	// "<USERDATA_PATH>/logs", resolved into a local buffer via snprintf.
 	char logs_path_buf[MAX_PATH];
 	if (!logs_path) {
 		snprintf(logs_path_buf, sizeof(logs_path_buf), "%s/logs", USERDATA_PATH);
@@ -1401,10 +1383,10 @@ static int run_detail(AddonEntry* e) {
 		}
 		// X/UNINSTALL is guarded on installed[0] only (not compatible): in
 		// SP1 no incompatible entry can ever reach the installed state, so
-		// this branch is unreachable for them. SP2 (desktop-installable
-		// entries) must decide what happens to an entry whose tag flips to
-		// incompatible while installed — keep uninstall available, or block
-		// it to match the hidden hint — before this assumption is relied on.
+		// this branch is unreachable for them. Anything that lets an entry's
+		// tag flip to incompatible while installed must decide whether to keep
+		// uninstall available, or block it to match the hidden hint, before
+		// this assumption is relied on.
 		if (PAD_justPressed(BTN_X) && e->installed[0]) {
 			if (run_confirm_dialog("Uninstall?",
 								   "Saves and ROMs are kept - reinstall to play again.")) {
@@ -1531,7 +1513,6 @@ static int run_detail(AddonEntry* e) {
 }
 
 int main(int argc, char* argv[]) {
-	PATHS_init(PLATFORM); // no-op on device; resolves SDCARD_PATH et al on desktop
 	(void)argc;
 	char* slash = strrchr(argv[0], '/');
 	if (slash) {

@@ -34,10 +34,7 @@
 #define RSYNC_PID_PATH "/tmp/rsyncd.pid"
 
 // Paths to sync
-// SDCARD_PATH is a runtime array (not a string literal) on desktop builds
-// (see paths.h), so it can no longer be adjacent-string-literal concatenated
-// at compile time; build the same "<SDCARD_PATH>/Saves" path with snprintf
-// instead (byte-identical to the old macro on device).
+// "<SDCARD_PATH>/Saves", built with snprintf.
 static const char* saves_path(void) {
 	static char buf[MAX_PATH];
 	snprintf(buf, sizeof(buf), "%s/Saves", SDCARD_PATH);
@@ -47,16 +44,14 @@ static const char* saves_path(void) {
 // ROMS_PATH already defined in defines.h
 
 // rsync binary path (shared across platforms)
-// SHARED_BIN_PATH is likewise a runtime array on desktop -- same fix as above.
 static const char* rsync_bin_path(void) {
 	static char buf[MAX_PATH];
 	snprintf(buf, sizeof(buf), "%s/rsync", SHARED_BIN_PATH);
 	return buf;
 }
 
-// Single-quote a path for a shell command line. Every card-derived path is a
-// runtime value on desktop (the .app location, $HOME/NXRedux), so it can carry
-// spaces or an apostrophe; device paths are fixed and pass through unchanged.
+// Single-quote a path for a shell command line, so a path carrying spaces or
+// an apostrophe survives the shell; plain paths pass through unchanged.
 static const char* shq(const char* path, char* buf, size_t size) {
 	strncpy(buf, path, size - 1);
 	buf[size - 1] = '\0';
@@ -147,12 +142,10 @@ static int get_own_ip(void) {
 	if (getifaddrs(&ifaddr) == -1)
 		return -1;
 
-	// Virtual interfaces a desktop host may carry (VPN tunnels, VM/container
-	// bridges, Apple's peer-to-peer links). Advertising one of their
-	// addresses in the discovery payload sends the peer's READY/rsync
-	// traffic somewhere unreachable — the peer then waits forever. The old
-	// loop kept the LAST interface unless it hit "wlan0" (a device name), so
-	// on a Mac with OrbStack it advertised the NAT bridge.
+	// Virtual interfaces (VPN tunnels, VM/container bridges, peer-to-peer
+	// links). Advertising one of their addresses in the discovery payload
+	// sends the peer's READY/rsync traffic somewhere unreachable — the peer
+	// then waits forever.
 	static const char* virtual_prefixes[] = {
 		"utun", "bridge", "awdl", "llw", "vmnet", "docker",
 		"veth", "tap", "tun", "zt", "p2p", NULL};
@@ -194,7 +187,7 @@ static int get_own_ip(void) {
 
 		found = 1;
 
-		// First real interface wins (wlan0 on devices, en0/eth0 on desktops).
+		// First real interface wins (wlan0 on devices).
 		break;
 	}
 
@@ -924,8 +917,6 @@ static void render_screen(void) {
 		break;
 
 	case STATE_NO_WIFI:
-		// "Network", not "WiFi": desktop may be on ethernet, and the phrasing
-		// stays correct on wifi-only handhelds too.
 		UI_renderCenteredMessage(screen, "Network not connected.\nPlease check your connection and try again.");
 		UI_renderButtonHintBar(screen, (char*[]){"B", "EXIT", NULL});
 		break;
@@ -1071,8 +1062,6 @@ static void render_screen(void) {
 int main(int argc, char* argv[]) {
 	(void)argc;
 	(void)argv;
-	PATHS_init(PLATFORM);
-
 	screen = GFX_init(MODE_MAIN);
 	UI_showSplashScreen(screen, "Device Sync");
 
@@ -1086,9 +1075,7 @@ int main(int argc, char* argv[]) {
 	IndicatorType show_setting = INDICATOR_NONE;
 
 	// Resolve connectivity from the main loop's INIT state instead of one
-	// shot here: desktop's reachability check is a background probe whose
-	// first result lands a few seconds after the first poll, so a one-shot
-	// check always read "offline" there. Devices resolve on the first poll.
+	// shot here. Devices resolve on the first poll.
 	uint32_t connectivity_check_start = SDL_GetTicks();
 	state = STATE_INIT;
 

@@ -237,7 +237,6 @@ void hdmimon(void) {
 #define PWR_UPDATE_FREQ_INGAME 20
 
 int main(int argc, char* argv[]) {
-	PATHS_init(PLATFORM);
 	if (argc >= 4 && argc <= 5 && !strcmp(argv[1], "--dump-options"))
 		return OptsDump_run(argv[2], argv[3], argc == 5 ? argv[4] : NULL);
 

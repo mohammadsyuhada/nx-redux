@@ -57,11 +57,6 @@ typedef struct {
 static DeviceInfo device_detect(void) {
 	DeviceInfo dev = {PLAT_UNKNOWN, MODEL_UNKNOWN};
 
-	if (strcmp(PLATFORM, "desktop") == 0) {
-		dev.platform = PLAT_DESKTOP;
-		return dev;
-	}
-
 	const char* device = getenv("DEVICE");
 	if (!device)
 		return dev;
@@ -135,15 +130,18 @@ static int has_bluetooth(const DeviceInfo* dev) {
 }
 
 static int has_leds(const DeviceInfo* dev) {
-	return dev->platform != PLAT_DESKTOP && MAX_LIGHTS > 0;
+	(void)dev;
+	return MAX_LIGHTS > 0;
 }
 
 static int has_display_hw(const DeviceInfo* dev) {
-	return dev->platform != PLAT_DESKTOP; // no brightness/color on desktop
+	(void)dev;
+	return 1;
 }
 
 static int has_power_mgmt(const DeviceInfo* dev) {
-	return dev->platform != PLAT_DESKTOP; // no battery/sleep/power on desktop
+	(void)dev;
+	return 1;
 }
 
 static void extract_busybox_version(const char* output, char* version_out, int max_len) {
@@ -1759,11 +1757,9 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Use folder background for ROMs", "If enabled, used the emulator background image.",
 		on_off_labels, 2, on_off_values, get_roms_use_folder_bg, set_roms_use_folder_bg, reset_roms_use_folder_bg);
-	if (dev->platform != PLAT_DESKTOP) { // desktop has no device boot logo
-		appearance_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
-			"Bootlogo", "Change the device boot logo.",
-			launch_bootlogo);
-	}
+	appearance_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
+		"Bootlogo", "Change the device boot logo.",
+		launch_bootlogo);
 	appearance_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
 		"Reset to defaults", "Resets all options in this menu to their default values.",
 		reset_appearance_page);
@@ -1823,16 +1819,14 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Vibration strength", "How hard the motor rumbles in games and for haptic feedback",
 		rumble_strength_labels, 3, rumble_strength_values, get_rumble_strength, set_rumble_strength, reset_rumble_strength);
-	if (dev->platform != PLAT_DESKTOP) { // physical face-button layout; not applicable on desktop
-		system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-			"Button layout", "Xbox puts A at the bottom and B on the right. The quick menu (OSD) follows after a restart",
-			button_layout_labels, 2, button_layout_values, get_button_layout, set_button_layout, reset_button_layout);
-		hint_labels_item = &system_items[idx];
-		system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-			"Hint labels", "What the A/B/X/Y hints show when Xbox layout is on. Applies as soon as you leave Settings",
-			hint_labels_labels, 2, hint_labels_values, get_hint_labels, set_hint_labels, reset_hint_labels);
-		sync_hint_labels_visibility();
-	}
+	system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Button layout", "Xbox puts A at the bottom and B on the right. The quick menu (OSD) follows after a restart",
+		button_layout_labels, 2, button_layout_values, get_button_layout, set_button_layout, reset_button_layout);
+	hint_labels_item = &system_items[idx];
+	system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Hint labels", "What the A/B/X/Y hints show when Xbox layout is on. Applies as soon as you leave Settings",
+		hint_labels_labels, 2, hint_labels_values, get_hint_labels, set_hint_labels, reset_hint_labels);
+	sync_hint_labels_visibility();
 	system_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Default view", "The initial view to show on boot",
 		default_view_labels, DEFAULT_VIEW_COUNT, default_view_values, get_default_view, set_default_view, reset_default_view);
@@ -2030,14 +2024,11 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		"Release date", "", get_about_release_date);
 	about_items[idx++] = (SettingItem)ITEM_STATIC_INIT(
 		"Platform", "", get_about_platform);
-	// Desktop reports the host OS release (macOS/Linux), not device firmware
 	about_items[idx++] = (SettingItem)ITEM_STATIC_INIT(
-		dev->platform == PLAT_DESKTOP ? "OS version" : "Firmware version",
+		"Firmware version",
 		"", get_about_os_version);
-	if (dev->platform != PLAT_DESKTOP) { // no busybox on desktop hosts
-		about_items[idx++] = (SettingItem)ITEM_STATIC_INIT(
-			"Busybox version", "", get_about_busybox);
-	}
+	about_items[idx++] = (SettingItem)ITEM_STATIC_INIT(
+		"Busybox version", "", get_about_busybox);
 	about_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
 		"Updater", "",
 		updater_check_for_updates);
@@ -2049,8 +2040,6 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	// Main page (category list)
 	// ============================
 	idx = 0;
-	// Desktop has no display hardware to adjust (host OS owns the panel), which
-	// would leave the page holding only its Reset button — hide it entirely.
 	if (has_display_hw(dev) || has_contrast_sat(dev) || has_exposure(dev)) {
 		main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
 			"Display", "", &display_page);
@@ -2082,12 +2071,10 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		}
 	}
 
-	if (dev->platform != PLAT_DESKTOP) { // desktop audio is routed by the host OS
-		audio_page_ptr = audio_page_create();
-		if (audio_page_ptr) {
-			main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
-				"Audio", "Output device and sample-rate policy", audio_page_ptr);
-		}
+	audio_page_ptr = audio_page_create();
+	if (audio_page_ptr) {
+		main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
+			"Audio", "Output device and sample-rate policy", audio_page_ptr);
 	}
 
 	if (has_fn_switch(dev)) {
@@ -2108,12 +2095,10 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
 		"System", "", &system_page);
 
-	if (dev->platform != PLAT_DESKTOP) {
-		dev_page_ptr = developer_page_create(dev->platform);
-		if (dev_page_ptr) {
-			main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
-				"Developer", "Developer & debugging tools", dev_page_ptr);
-		}
+	dev_page_ptr = developer_page_create(dev->platform);
+	if (dev_page_ptr) {
+		main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
+			"Developer", "Developer & debugging tools", dev_page_ptr);
 	}
 
 	main_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
@@ -2147,8 +2132,6 @@ static void build_menu_tree(const DeviceInfo* dev) {
 int main(int argc, char* argv[]) {
 	(void)argc;
 	(void)argv;
-	PATHS_init(PLATFORM);
-
 	SDL_Surface* screen = GFX_init(MODE_MAIN);
 	g_screen = screen;
 	UI_showSplashScreen(screen, "Settings");

@@ -1,23 +1,18 @@
 # Building & Deploying
 
-Build system, desktop setup, and per-component iteration. Device facts are in
+Build system and per-component iteration. Device facts are in
 [DEVICES.md](DEVICES.md); on-device testing in [TESTING.md](TESTING.md).
 
 ## Build targets & platforms
 
-The root `Makefile` runs on the **host** (macOS/Linux), not inside Docker, and
-picks a build path from the target platform:
-
-- **Device builds** (`tg5040`, `tg5050`) compile inside the LoveRetro Docker
-  toolchain images and produce flashable release archives.
-- **Desktop builds** (`desktop`) compile natively against Homebrew libraries
-  for fast UI/debug iteration.
+The root `Makefile` runs on the **host** (macOS/Linux), not inside Docker.
+Device builds (`tg5040`, `tg5050`) compile inside the LoveRetro Docker
+toolchain images and produce flashable release archives.
 
 | Platform | Device(s) | Toolchain |
 |---|---|---|
 | `tg5040` | Trimui Smart Pro / Brick / Brick Pro | `ghcr.io/loveretro/tg5040-toolchain:latest` |
 | `tg5050` | Trimui Smart Pro S | `ghcr.io/loveretro/tg5050-toolchain:latest` |
-| `desktop` | Native host debug build | Homebrew GCC + SDL |
 
 `make all` builds both device platforms (`PLATFORMS = tg5040 tg5050`) and
 packages one release zip **per device variant** into `releases/`:
@@ -123,53 +118,12 @@ Component source lives in `workspace/all/<component>` (shared) and
   plain `git diff` — untracked new files vanish from it; splice per-file
   sections instead. See `workspace/all/other/mupen64plus/README.md`.
 
-## Desktop development setup
-
-Prerequisites:
-
-```bash
-brew install gcc sdl2 sdl2_image sdl2_ttf sqlite libsamplerate clang-format dylibbundler make
-```
-
-One-time setup:
-
-```bash
-# 1. The build expects `gcc` to be Homebrew GCC, not Apple Clang. No sudo —
-#    this shims a symlink under /var/tmp/nxredux/bin, not /usr/local/bin:
-scripts/desktop/setup-macos-toolchain.sh
-/var/tmp/nxredux/bin/gcc --version   # must say "Homebrew GCC"
-
-# 2. Fake SD card root at /var/tmp/nxredux/sdcard:
-./workspace/desktop/prepare_fake_sd_root.sh
-
-# 3. compile_commands.json for clangd (gitignored, per-clone):
-make compile-commands
-```
-
-Build and run:
-
-```bash
-cd workspace/desktop/libmsettings
-make build CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux
-
-cd workspace/all/nextui
-make PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin
-NXREDUX_SDCARD=/var/tmp/nxredux/sdcard DYLD_LIBRARY_PATH=/opt/homebrew/lib:/var/tmp/nxredux/lib ./build/desktop/nextui.elf
-```
-
-Runtime path roots (desktop only — device builds keep compile-time literals):
-`NXREDUX_SDCARD` picks the "SD card" root directory; if unset it defaults to
-`~/NXRedux`. `NXREDUX_SYSTEM_ROOT` independently overrides just the
-`.system` root (defaults to `<sdcard>/.system`). Use the fake-SD workflow's
-`/var/tmp/nxredux/sdcard` (from `prepare_fake_sd_root.sh` above) for a
-populated dev card, or leave both unset to exercise the real default-root
-path under `$HOME/NXRedux`.
-
 ## IDE setup (clangd)
 
 The project uses **clangd** (VS Code: the llvm-vs-code-extensions.vscode-clangd
 extension; the Microsoft C/C++ IntelliSense is disabled in
-`.vscode/settings.json`). Run `make compile-commands` after cloning.
+`.vscode/settings.json`). Run `make compile-commands` after cloning
+(`compile_commands.json` is gitignored, per-clone).
 
 `make compile-commands` also assembles a two-part include shim so device
 translation units parse on macOS: `build/clangd/include/` (rcheevos symlinks +

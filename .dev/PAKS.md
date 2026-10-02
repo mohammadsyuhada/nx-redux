@@ -130,7 +130,7 @@ then points at the wrong directory.
 - `PORTS.pak` lives flat at `Emus/PORTS.pak` by design — it's installed there
   by the Xtras `portmaster` catalog entry (which also removes legacy
   platform-subdir copies on uninstall); never move it under a platform folder.
-- Platform-named dirs (tg5040/tg5050/desktop/shared) are hidden from the
+- Platform-named dirs (tg5040/tg5050/shared) are hidden from the
   Tools list.
 - `migrate-paks.sh` (`skeleton/SYSTEM/shared/bin/`, run from the updater) is
   a transition-period cleanup with a planned sunset — see `DEV_TODO.md`.

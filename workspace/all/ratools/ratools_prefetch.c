@@ -236,11 +236,9 @@ static bool rat_download_badge(const char* url, const char* badge_name, bool loc
 	if (!url || !*url || !badge_name || !*badge_name)
 		return false;
 	char path[512];
-	// RA_BADGE_CACHE_DIR (ra_badges.h) is SHARED_USERDATA_PATH "/.ra/badges",
-	// no longer adjacent-string-literal-concatenable now that
-	// SHARED_USERDATA_PATH is a runtime array on desktop builds -- spell the
-	// same path out with snprintf instead (byte-identical to the macro on
-	// device, mirroring how ra_badges.c itself builds this same directory).
+	// RA_BADGE_CACHE_DIR (ra_badges.h) is SHARED_USERDATA_PATH "/.ra/badges";
+	// spell the same path out with snprintf, mirroring how ra_badges.c itself
+	// builds this same directory.
 	if (locked)
 		snprintf(path, sizeof(path), "%s/.ra/badges/%s_lock.png", SHARED_USERDATA_PATH, badge_name);
 	else

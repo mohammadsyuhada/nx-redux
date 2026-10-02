@@ -161,10 +161,9 @@ through it, so it is the one place to reason about "why is there no sound".
 Both flags are transient: the settings host resets `fn_mode` and `speaker_mute`
 to 0 at boot, and keymon re-derives `fn_mode` from the GPIO.
 
-Keep the layout in lockstep across **four** files: the two libmsettings copies
-above, `workspace/desktop/libmsettings/msettings.c`, and
-`workspace/all/common/msettings_shm.h`. Struct versions are tg5040
-`SETTINGS_VERSION 12`, tg5050 `3`, desktop `10`; `MSETTINGS_SHM_VERSION`
+Keep the layout in lockstep across **three** files: the two libmsettings copies
+above and `workspace/all/common/msettings_shm.h`. Struct versions are tg5040
+`SETTINGS_VERSION 12`, tg5050 `3`; `MSETTINGS_SHM_VERSION`
 mirrors 12/3 so a stale shm segment from an older binary is rejected. The LED
 config key is `fnLeds`; the loader still accepts the legacy `muteLeds=` on read
 so old `minuisettings.txt` files keep working.

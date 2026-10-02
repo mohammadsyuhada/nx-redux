@@ -108,7 +108,6 @@ static struct {
 static int arcade_table_count = 0;
 
 static ArcadeNames* arcadeTable(const char* rom_path) {
-	// ROMS_PATH is a runtime value on desktop, so no literal "/" concatenation
 	if (!prefixMatch(ROMS_PATH, rom_path) || rom_path[strlen(ROMS_PATH)] != '/')
 		return NULL;
 	char tag[MAX_PATH];
@@ -1272,7 +1271,7 @@ static Array* getEntries(char* path) {
 // platform subfolders (MinUI community pak convention, e.g. Tools/tg5040)
 // get their paks merged into the Tools list instead of appearing as folders
 static int isPlatformDirName(const char* name) {
-	return strcmp(name, "tg5040") == 0 || strcmp(name, "tg5050") == 0 || strcmp(name, "desktop") == 0 || strcmp(name, "shared") == 0;
+	return strcmp(name, "tg5040") == 0 || strcmp(name, "tg5050") == 0 || strcmp(name, "shared") == 0;
 }
 
 Array* getTools(void) {

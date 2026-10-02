@@ -3,7 +3,7 @@
 
 The hint bar renders button glyphs at SCALE1(BUTTON_SIZE) = BUTTON_SIZE * FIXED_SCALE
 pixels (BUTTON_SIZE = 16, see workspace/all/common/defines.h). FIXED_SCALE is 2 on
-most devices and 3 on Brick Pro / desktop, and on tg5040 it is chosen at *runtime*
+most devices and 3 on Brick, and on tg5040 it is chosen at *runtime*
 (is_brick ? 3 : 2) -- so a single build must ship both sizes. We therefore bake one
 variant per scale, named with the same "@Nx" convention as assets@Nx.png, so the
 loader can pick nav_<name>@<FIXED_SCALE>x.png at runtime with zero runtime scaling.

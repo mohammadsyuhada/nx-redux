@@ -293,8 +293,6 @@ void initLayout() {
 int main(int argc, char* argv[]) {
 	(void)argc;
 	(void)argv;
-	PATHS_init(PLATFORM); // no-op on device; resolves SDCARD_PATH et al on desktop
-
 	screen = GFX_init(MODE_MAIN);
 	UI_showSplashScreen(screen, "Game Time");
 

@@ -7,11 +7,10 @@
 #include <string.h>
 #include <stdbool.h>
 #include "config.h"
-#include "paths.h"
 
-// config.c reaches the settings file through SHARED_USERDATA_PATH, which is
-// the PATHS_SHARED_USERDATA runtime-path variable (paths.c, linked in) under
-// HAS_RUNTIME_PATHS; main() points it at the scratch directory.
+// config.c reaches the settings file through SHARED_USERDATA_PATH; the test
+// script compiles with -DHOSTTEST_SDCARD (scripts/tests/hostplat/platform.h)
+// so that resolves under its scratch card, and passes that directory in.
 
 static int failures = 0;
 #define CHECK(cond, msg)                \
@@ -25,7 +24,7 @@ static int failures = 0;
 	} while (0)
 
 static void write_settings(const char* dir, const char* body) {
-	char path[PATHS_MAX];
+	char path[512];
 	snprintf(path, sizeof(path), "%s/minuisettings.txt", dir);
 	FILE* f = fopen(path, "w");
 	if (!f) {
@@ -37,7 +36,7 @@ static void write_settings(const char* dir, const char* body) {
 }
 
 static bool settings_contain(const char* dir, const char* needle) {
-	char path[PATHS_MAX];
+	char path[512];
 	snprintf(path, sizeof(path), "%s/minuisettings.txt", dir);
 	FILE* f = fopen(path, "r");
 	if (!f)
@@ -55,7 +54,6 @@ int main(int argc, char** argv) {
 		return 2;
 	}
 	const char* dir = argv[1];
-	snprintf(PATHS_SHARED_USERDATA, sizeof(PATHS_SHARED_USERDATA), "%s", dir);
 	setenv("SHARED_USERDATA_PATH", dir, 1);
 
 	// 1. Existing install: file predates the key -> default (visible).

@@ -32,10 +32,7 @@ PROCS = -j4
 
 ###############################
 
-# Clone/object and artifact roots. Device platforms use the flat defaults;
-# desktop overrides these before including (src/<os-arch>, output/<os-arch>)
-# so macOS and Linux (docker) builds in the same checkout never share compiled
-# objects or clobber each other's .so files.
+# Clone/object and artifact roots.
 SRC_ROOT ?= src
 OUTPUT_ROOT ?= output
 
