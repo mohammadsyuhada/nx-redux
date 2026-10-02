@@ -2,6 +2,7 @@
 // pre-scaled to the box it is drawn in, so the render loop only blits.
 
 #include "menuart.h"
+#include "area_scale.h"
 
 #include "defines.h"
 
@@ -46,9 +47,11 @@ static SDL_Surface* loadScaled(const char* file, int box_w, int box_h) {
 
 	SDL_Surface* out = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888);
 	if (out) {
-		// copy the pixels with their alpha as they are; the result blends onto the screen
-		SDL_SetSurfaceBlendMode(src, SDL_BLENDMODE_NONE);
-		SDL_BlitScaled(src, NULL, out, NULL);
+		// area-averaged, not SDL_BlitScaled's nearest pick, so the logo's anti-aliased edges survive the shrink
+		if (AreaScale_argb(src->pixels, src->w, src->h, src->pitch / 4, out->pixels, w, h, out->pitch / 4) != 0) {
+			SDL_SetSurfaceBlendMode(src, SDL_BLENDMODE_NONE);
+			SDL_BlitScaled(src, NULL, out, NULL);
+		}
 		SDL_SetSurfaceBlendMode(out, SDL_BLENDMODE_BLEND);
 	}
 	SDL_FreeSurface(src);

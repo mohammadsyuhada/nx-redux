@@ -34,6 +34,7 @@
 #include "infoband.h"
 #include "launcher.h"
 #include "menuart.h"
+#include "area_scale.h"
 #include "menulogo.h"
 #include "menu_transition.h"
 #include "menutabs.h"
@@ -793,7 +794,10 @@ static SDL_Surface* sideCopy(const char* full_key, SDL_Surface* full, float scal
 		SDL_SetSurfaceBlendMode(full, SDL_BLENDMODE_NONE);
 		SDL_SetSurfaceAlphaMod(full, 255);
 		SDL_SetSurfaceColorMod(full, 255, 255, 255);
-		SDL_BlitScaled(full, NULL, s, NULL);
+		// area-averaged (a neighbour is 0.4-0.62 of the selected size: a nearest pick leaves jagged edges)
+		if (full->format->format != SDL_PIXELFORMAT_ARGB8888 ||
+			AreaScale_argb(full->pixels, full->w, full->h, full->pitch / 4, s->pixels, w, h, s->pitch / 4) != 0)
+			SDL_BlitScaled(full, NULL, s, NULL);
 		SDL_SetSurfaceAlphaMod(full, oa);
 		SDL_SetSurfaceColorMod(full, orr, og, ob);
 		SDL_SetSurfaceBlendMode(full, bm);

@@ -59,6 +59,8 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_grid_layout ..
 /tmp/nx_test_grid_layout
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_row_model ../../nextui/row_model.c test_row_model.c -lm
 /tmp/nx_test_row_model
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_area_scale ../../nextui/area_scale.c test_area_scale.c -lm
+/tmp/nx_test_area_scale
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_stack_model ../../nextui/stack_model.c ../../nextui/row_model.c test_stack_model.c -lm
 /tmp/nx_test_stack_model
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I../ui -o /tmp/nx_test_caption_fit ../../nextui/caption_fit.c ../../nextui/infoband_layout.c test_caption_fit.c
