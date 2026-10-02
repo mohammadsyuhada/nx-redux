@@ -303,23 +303,19 @@ static void layoutLines(TTF_Font* f, const char* text, int max_w, int max_lines,
 	}
 }
 
-// White text tinted to colour c at alpha a. The cached surface is shared: its mods are restored.
+// White text tinted to colour c at alpha a. Rendered and freed here, not through GFX_getCachedText: everything drawn
+// with it is baked into a cached surface (tiles, captions, slot items), and its one-off lines would evict the shared
+// text cache's per-frame users (page title, tab labels, hint bar, list rows).
 static void blitTextColor(SDL_Surface* dst, TTF_Font* f, const char* text, int x, int y, SDL_Color c, Uint8 a) {
 	if (!f || !text[0] || a == 0)
 		return;
-	SDL_Surface* owned = NULL;
-	SDL_Surface* s = GFX_getCachedText(f, text, COLOR_WHITE);
-	if (!s)
-		s = owned = GFX_renderText(f, text, COLOR_WHITE);
+	SDL_Surface* s = GFX_renderText(f, text, COLOR_WHITE);
 	if (!s)
 		return;
 	SDL_SetSurfaceColorMod(s, c.r, c.g, c.b);
 	SDL_SetSurfaceAlphaMod(s, a);
 	SDL_BlitSurface(s, NULL, dst, &(SDL_Rect){x, y, s->w, s->h});
-	SDL_SetSurfaceColorMod(s, 255, 255, 255);
-	SDL_SetSurfaceAlphaMod(s, 255);
-	if (owned)
-		SDL_FreeSurface(owned);
+	SDL_FreeSurface(s);
 }
 
 static SDL_Color greyColor(Uint8 c) {

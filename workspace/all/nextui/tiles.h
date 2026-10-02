@@ -26,6 +26,7 @@ typedef struct {
 	const char* logo_file; // TILE_LOGO: "menu_logo_<id>.png" or NULL (→ name)
 	const char* icon_file; // TILE_TOOL: "menu_icon_*.png" or NULL (→ name only)
 	SDL_Surface* picture;  // TILE_GAME: screenshot already cropped to the tile (owned by the caller's cache)
+	unsigned picture_gen;  // HomeArt_lastGen() of picture's lookup: the caller's cache key (Tiles_draw ignores it)
 	const InfoSeg* info;   // lit game/title caption info (count-only segments), may be NULL
 	int ninfo;
 	float scale; // tile_w / 140: insets and text scale with the tile (never above 1)

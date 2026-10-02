@@ -7,7 +7,10 @@
 #include "api.h"
 #include "defines.h"
 
-#define UIFONT_MAX 32
+// SDL_ttf on tg5040 is 2.0.13 (no TTF_SetFontSize, which arrived in 2.0.18; tg5050 ships 2.0.18), so each
+// size stays its own TTF_Font. 64 holds the whole-sp working set of the compose paths (Grid/Carousel/Home
+// shrink loops at any UI scale) without evicting; each open face costs little memory (glyphs load lazily).
+#define UIFONT_MAX 64
 
 typedef struct {
 	int px;
@@ -22,6 +25,19 @@ static UIFontEntry cache[UIFONT_MAX];
 static int cache_count = 0;
 static int cache_scale = 0; // FIXED_SCALE the cached fonts were opened at
 static unsigned cache_tick = 0;
+
+// Debug counter: TTF_OpenFont calls this process (primary + Arabic). A steadily rising count while scrolling means
+// the working set outgrows UIFONT_MAX (each open parses the 8 MB CJK font1.ttf). Logged every 50 opens and when
+// the cache closes (font reload, GFX_quit).
+static unsigned open_count = 0;
+static unsigned open_logged = 0;
+
+static void countOpen(int px) {
+	if (++open_count % 50 == 0) {
+		LOG_info("UIFont: %u font opens so far (latest %dpx, %d cached)\n", open_count, px, cache_count);
+		open_logged = open_count;
+	}
+}
 
 // Close a cached font, dropping its GFX_getCachedText surfaces first (that cache keys on the pointer).
 static void closeFont(TTF_Font* f) {
@@ -40,6 +56,10 @@ static void closeEntry(UIFontEntry* e) {
 }
 
 void UIFont_quit(void) {
+	if (open_count != open_logged) {
+		LOG_info("UIFont: %u font opens so far\n", open_count);
+		open_logged = open_count;
+	}
 	for (int i = 0; i < cache_count; i++)
 		closeEntry(&cache[i]);
 	cache_count = 0;
@@ -58,6 +78,7 @@ static TTF_Font* arabicFor(TTF_Font* primary) {
 			e->ar_tried = true;
 			const char* path = GFX_getArabicFontPath();
 			e->ar = TTF_OpenFont(path, e->px);
+			countOpen(e->px);
 			if (!e->ar)
 				LOG_warn("UIFont: can't open %s at %dpx: %s\n", path, e->px, TTF_GetError());
 		}
@@ -84,7 +105,7 @@ TTF_Font* UIFont_getPx(int px, bool bold) {
 		}
 	if (cache_count >= UIFONT_MAX) {
 		// Full: close the least recently used (and its cached text). A font pointer is only valid until a
-		// later UIFont_get call: use it before the next UIFont_get, and don't keep it.
+		// later UIFont_get call evicts it: use it before the next UIFont_get, and don't keep it.
 		int victim = 0;
 		for (int i = 1; i < cache_count; i++)
 			if (cache[i].lru < cache[victim].lru)
@@ -100,6 +121,7 @@ TTF_Font* UIFont_getPx(int px, bool bold) {
 	GFX_setFallbackFontResolver(arabicFor);
 	const char* path = GFX_getSystemFontPath();
 	TTF_Font* f = TTF_OpenFont(path, px);
+	countOpen(px);
 	if (!f) {
 		LOG_warn("UIFont_get: can't open %s at %dpx: %s\n", path, px, TTF_GetError());
 		return NULL;

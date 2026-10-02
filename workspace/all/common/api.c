@@ -453,8 +453,10 @@ int GFX_loadSystemFont(const char* fontPath) {
 	font.small = TTF_OpenFont(fontPath, SCALE1(FONT_SMALL));
 	font.tiny = TTF_OpenFont(fontPath, SCALE1(FONT_TINY));
 	font.micro = TTF_OpenFont(fontPath, SCALE1(FONT_MICRO));
+	// the hint bar's native-size face is only used when the UI scale differs from the device's (hintTinyNative);
+	// a scale change reloads the system fonts, so this re-decides then
 	TTF_CloseFont(hint_tiny_native);
-	hint_tiny_native = TTF_OpenFont(fontPath, NATIVE_SCALE * FONT_TINY);
+	hint_tiny_native = NATIVE_SCALE != FIXED_SCALE ? TTF_OpenFont(fontPath, NATIVE_SCALE * FONT_TINY) : NULL;
 
 	// Secondary Arabic font (fixed path — independent of the primary UI font).
 	// Missing file => NULL entries => Arabic falls back to primary (tofu), no crash.
@@ -474,7 +476,7 @@ int GFX_loadSystemFont(const char* fontPath) {
 	font_ar.tiny = TTF_OpenFont(arPath, SCALE1(FONT_TINY));
 	font_ar.micro = TTF_OpenFont(arPath, SCALE1(FONT_MICRO));
 	TTF_CloseFont(hint_tiny_native_ar);
-	hint_tiny_native_ar = TTF_OpenFont(arPath, NATIVE_SCALE * FONT_TINY);
+	hint_tiny_native_ar = NATIVE_SCALE != FIXED_SCALE ? TTF_OpenFont(arPath, NATIVE_SCALE * FONT_TINY) : NULL;
 
 	return 0;
 }
@@ -774,21 +776,40 @@ void GFX_setScreen(SDL_Surface* s) {
 	if (s)
 		gfx.screen = s;
 }
+static void hwNativeFree(void); // the native-scale status-group context (below)
 void GFX_quit(void) {
 	GFX_finishStartupBoost();
 
 	if (font_reload_hook)
 		font_reload_hook(); // runtime font caches close while the TTF state is intact
 
+	// cached text keys on the font pointers closed below
+	GFX_clearTextCache();
+	hwNativeFree();
+
+	TTF_CloseFont(font.xlarge);
+	TTF_CloseFont(font.title);
 	TTF_CloseFont(font.large);
 	TTF_CloseFont(font.medium);
 	TTF_CloseFont(font.small);
 	TTF_CloseFont(font.tiny);
 	TTF_CloseFont(font.micro);
+	memset(&font, 0, sizeof(font));
+	TTF_CloseFont(font_ar.xlarge);
+	TTF_CloseFont(font_ar.title);
+	TTF_CloseFont(font_ar.large);
+	TTF_CloseFont(font_ar.medium);
+	TTF_CloseFont(font_ar.small);
+	TTF_CloseFont(font_ar.tiny);
+	TTF_CloseFont(font_ar.micro);
+	memset(&font_ar, 0, sizeof(font_ar));
 	TTF_CloseFont(hint_tiny_native);
 	hint_tiny_native = NULL;
+	TTF_CloseFont(hint_tiny_native_ar);
+	hint_tiny_native_ar = NULL;
 
 	SDL_FreeSurface(gfx.assets);
+	gfx.assets = NULL;
 
 	CFG_quit();
 
@@ -2191,6 +2212,10 @@ static struct {
 static void hwNativeFree(void) {
 	if (hw_native.assets)
 		SDL_FreeSurface(hw_native.assets);
+	// cached text keys on the font pointer: drop these fonts' entries before a later open can reuse the address
+	GFX_forgetFontText(hw_native.small);
+	GFX_forgetFontText(hw_native.tiny);
+	GFX_forgetFontText(hw_native.micro);
 	TTF_CloseFont(hw_native.small);
 	TTF_CloseFont(hw_native.tiny);
 	TTF_CloseFont(hw_native.micro);
