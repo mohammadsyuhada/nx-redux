@@ -3,7 +3,8 @@
 
 typedef struct {
 	int list_top;	 // y of the first row
-	int rows;		 // whole PILL rows that fit (>= 1)
+	int rows;		 // whole rows that fit (InfoBand_fixedLayout: >= 2; InfoBand_layout: >= 1)
+	int row_h;		 // the row pitch in whole px (InfoBand_fixedLayout: stretched to fill the slot; else row_h as given)
 	int band_top;	 // y where the band's fade starts
 	int text_top;	 // y of the text line
 	int text_h;		 // text line height
@@ -18,12 +19,30 @@ typedef struct {
 // rows = (text_top - list_top) / row_h, floored, at least 1.
 InfoBandLayout InfoBand_layout(int screen_h, int bar_h, int list_top, int row_h, int text_h, int dp2, int dp12);
 
-// The List geometry (main-menu tabs and game lists alike; only list_top differs): a fixed band just above the hints,
-// whatever the list length. It is line_h + 2 * pad tall (18 dp line, 4 dp each side) with its bottom `inset` (12 dp)
-// inside the hint bar's empty top, so it draws over the bar; its fill stops at the bar's top (fill_bottom). Rows are
-// whole rows from list_top down to the band's top: rows = (band_top - list_top) / row_h, floored, at least 1, so no
-// part row reaches the gap above the arrows.
-InfoBandLayout InfoBand_fixedLayout(int screen_h, int bar_h, int list_top, int row_h, int line_h, int pad, int inset);
+// The List geometry (main-menu tabs and game lists alike; only list_top differs, LIST-LAYOUT §3.3): a fixed band just
+// above the hints, whatever the list length. It is line_h + 2 * pad tall (18 dp line, 4 dp each side) with its bottom
+// `overlap` inside the hint bar (InfoBand_overlap), so it draws over the bar; its fill stops at the bar's top
+// (fill_bottom). The rows fill the slot from list_top down to the band's top in whole rows (InfoBand_listFit at the
+// target `pitch`): rows and row_h, the leftover px below the last row.
+InfoBandLayout InfoBand_fixedLayout(int screen_h, int bar_h, int list_top, int pitch, int line_h, int pad, int overlap);
+
+// nxListFit: n = max(2, floor(slot / (0.95 * pitch))) rows, each floor(slot / n) whole px (*row_h), so n rows never
+// overrun the slot and the under-n px left over fall below the last row. The 5% slack: a row may shrink by up to 5%
+// rather than lose a row to a pixel-level shortfall (it grows as needed otherwise). Returns n.
+int InfoBand_listFit(int slot, int pitch, int* row_h);
+
+// The hint glyphs' transparent margin above their ink, in px: none. The nav_*.png glyphs (SYSTEM/res, @2x and @3x)
+// are cropped to their discs and labels, with ink on their first row, and drawn BUTTON_SIZE tall (no centring offset).
+#define INFOBAND_HINT_GLYPH_INK_MARGIN 0
+
+// The hint bar's ink top (LIST-LAYOUT §3.3): from the bar's top edge (bar_h tall) to the top of its glyphs' drawn ink.
+// The bar centres its icon_h icons (UI_hintBarIconOffset, shared with UI_renderButtonHintBarEx and
+// UI_buttonHintIconTop: SCALE1(BUTTON_MARGIN) above them), plus the glyph art's own margin. 18 px at 3x, 12 px at 2x.
+int InfoBand_hintInkTop(int bar_h, int icon_h);
+
+// How far the band's bottom reaches into the hint bar: min(max (12 dp), the bar's ink top), the ink top being the y
+// distance from the bar's top edge to the top of its glyphs' drawn ink (InfoBand_hintInkTop).
+int InfoBand_overlap(int max, int ink_top);
 
 #include <stddef.h>
 

@@ -41,7 +41,11 @@ static int textWidthFor(TTF_Font* f, const char* text) {
 
 // Blit src with a black 60% copy under it, SCALE1(1) right/down. The shared (cached) icon gets its
 // colour/alpha mods restored.
-static void blitIconShadowed(SDL_Surface* icon, SDL_Surface* dst, int x, int y) {
+static void blitIconShadowed(SDL_Surface* icon, SDL_Surface* dst, int x, int y, bool shadowed) {
+	if (!shadowed) {
+		SDL_BlitSurface(icon, NULL, dst, &(SDL_Rect){x, y});
+		return;
+	}
 	Uint8 r, g, b, a;
 	SDL_GetSurfaceColorMod(icon, &r, &g, &b);
 	SDL_GetSurfaceAlphaMod(icon, &a);
@@ -53,10 +57,10 @@ static void blitIconShadowed(SDL_Surface* icon, SDL_Surface* dst, int x, int y) 
 	SDL_BlitSurface(icon, NULL, dst, &(SDL_Rect){x, y});
 }
 
-// Text with the dark shadow, its top-left at (x, line top + centring); returns its measured width
+// Text with the dark shadow (unless !shadowed), its top-left at (x, line top + centring); returns its measured width
 // (textWidth, the same measure the layout used, so advancing by it lands exactly where the layout said).
 static int drawShadowedText(TTF_Font* f, SDL_Surface* dst, const char* text, SDL_Color color, int x, int line_y,
-							int line_h) {
+							int line_h, bool shadowed) {
 	if (!text[0])
 		return 0;
 	// the cached surface is shared: blit it as is, never change its alpha or format
@@ -67,7 +71,7 @@ static int drawShadowedText(TTF_Font* f, SDL_Surface* dst, const char* text, SDL
 	if (!surf)
 		return 0;
 	int ty = line_y + (line_h - surf->h) / 2;
-	SDL_Surface* shadow = GFX_renderText(f, text, COLOR_BLACK);
+	SDL_Surface* shadow = shadowed ? GFX_renderText(f, text, COLOR_BLACK) : NULL;
 	if (shadow) {
 		SDL_SetSurfaceAlphaMod(shadow, SHADOW_ALPHA);
 		SDL_BlitSurface(shadow, NULL, dst, &(SDL_Rect){x + SCALE1(1), ty + SCALE1(1)});
@@ -177,6 +181,11 @@ static int fitSegments(TTF_Font* f, InfoSeg* segs, int n, int avail) {
 
 int InfoBand_drawSegments(SDL_Surface* dst, const InfoSeg* in, int n, int x, bool align_right, int y, int max_w,
 						  TTF_Font* f) {
+	return InfoBand_drawSegmentsEx(dst, in, n, x, align_right, y, max_w, f, true);
+}
+
+int InfoBand_drawSegmentsEx(SDL_Surface* dst, const InfoSeg* in, int n, int x, bool align_right, int y, int max_w,
+							TTF_Font* f, bool shadow) {
 	if (!dst || !in || n <= 0 || max_w <= 0 || !f)
 		return 0;
 	InfoSeg segs[MAX_SEGS];
@@ -198,12 +207,12 @@ int InfoBand_drawSegments(SDL_Surface* dst, const InfoSeg* in, int n, int x, boo
 		x -= total;
 	for (int i = 0; i < n; i++) {
 		if (i)
-			x += drawShadowedText(f, dst, SEPARATOR, COLOR_GRAY, x, y, line_h);
+			x += drawShadowedText(f, dst, SEPARATOR, COLOR_GRAY, x, y, line_h, shadow);
 		if (segs[i].kind == INFO_SEG_ACH && trophy) {
-			blitIconShadowed(trophy, dst, x, y + (line_h - trophy->h) / 2);
+			blitIconShadowed(trophy, dst, x, y + (line_h - trophy->h) / 2, shadow);
 			x += trophy_w;
 		}
-		x += drawShadowedText(f, dst, segs[i].text, segColor(segs[i].kind), x, y, line_h);
+		x += drawShadowedText(f, dst, segs[i].text, segColor(segs[i].kind), x, y, line_h, shadow);
 	}
 	return total;
 }
@@ -222,6 +231,14 @@ int InfoBand_segmentsWidth(const InfoSeg* in, int n, int max_w, TTF_Font* f) {
 	for (int i = 0; i < n; i++)
 		total += (i ? sep_w : 0) + textWidthFor(f, segs[i].text) + (segs[i].kind == INFO_SEG_ACH ? trophy_w : 0);
 	return total;
+}
+
+int InfoBand_separatorWidth(TTF_Font* f) {
+	return f ? textWidthFor(f, SEPARATOR) : 0;
+}
+
+int InfoBand_trophyWidth(TTF_Font* f) {
+	return f ? trophyWidthFor(f) : 0;
 }
 
 // Un-premultiply the block for its layer. The block is built on a black ground (clear (0,0,0,0), or the band's black
@@ -285,7 +302,8 @@ static SDL_Surface* buildBlock(const InfoSeg* in, int nsegs, bool up, bool down,
 	return s;
 }
 
-void InfoBand_render(const InfoBandLayout* layout, const InfoSeg* segs, int nsegs, bool up, bool down, int layer) {
+void InfoBand_render(const InfoBandLayout* layout, const InfoSeg* segs, int nsegs, bool up, bool down, int layer,
+					 SDL_Surface* dst) {
 	if (!screen || !layout)
 		return;
 	if (nsegs < 0 || !segs)
@@ -319,18 +337,21 @@ void InfoBand_render(const InfoBandLayout* layout, const InfoSeg* segs, int nseg
 		block.scale = (float)FIXED_SCALE;
 		block.font = font.small;
 	}
-	if (block.surf)
+	if (block.surf && dst)
+		SDL_BlitSurface(block.surf, NULL, dst, &(SDL_Rect){0, l.band_top});
+	else if (block.surf)
 		GFX_drawOnLayer(block.surf, 0, l.band_top, w, h, 1.0f, 0, layer);
 }
 
-void InfoBand_renderText(const InfoBandLayout* layout, const char* text, bool up, bool down, int layer) {
+void InfoBand_renderText(const InfoBandLayout* layout, const char* text, bool up, bool down, int layer,
+						 SDL_Surface* dst) {
 	InfoSeg seg = {.kind = INFO_SEG_COUNT};
 	if (!text || !text[0]) {
-		InfoBand_render(layout, NULL, 0, up, down, layer);
+		InfoBand_render(layout, NULL, 0, up, down, layer, dst);
 		return;
 	}
 	snprintf(seg.text, sizeof(seg.text), "%s", text);
-	InfoBand_render(layout, &seg, 1, up, down, layer);
+	InfoBand_render(layout, &seg, 1, up, down, layer, dst);
 }
 
 void InfoBand_quit(void) {

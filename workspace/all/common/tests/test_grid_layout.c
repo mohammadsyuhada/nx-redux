@@ -190,6 +190,24 @@ static void counts_and_names(void) {
 	assert(GridLayout_logoCountY(0, 129, 40, 6) > GridLayout_logoCountY(0, 129, 20, 6));
 }
 
+// A console without a logo draws as a collection tile (§8.4): the name from 20 sp × k, its count at Consoles' 13 sp × k
+// (floored at 10 sp) 4 dp under it, so the name's floor follows that smaller count.
+static void logoless_console(void) {
+	GridLayout g;
+	make(BRICK_W, BRICK_H, 9, &g);
+	float kb = GridLayout_tileK(&g);
+	make(SPS_W, SPS_H, 9, &g);
+	float ks = GridLayout_tileK(&g);
+	float cb = GridLayout_countSp(GRID_LOGO_COUNT_SP, kb), cs = GridLayout_countSp(GRID_LOGO_COUNT_SP, ks);
+	assert(fabsf(cb - 10.89f) < 0.01f && near(cs, 13.0f));
+	float sb = GRID_COLL_NAME_SP * kb, ss = GRID_COLL_NAME_SP * ks;
+	// floor = max(0.75 × start, 1.25 × count): Brick 1.25 × 10.89 = 13.61, SPS 1.25 × 13 = 16.25
+	assert(fabsf(Row_collNameFloor(sb, cb) - 13.61f) < 0.01f && near(Row_collNameFloor(ss, cs), 16.25f));
+	assert(near(GRID_COLL_COUNT_GAP_DP, 4.0f) && GRID_COLL_LINES == 3 && near(GRID_COLL_LINE, 1.15f));
+	// a small tile keeps the 10 sp count floor
+	assert(near(GridLayout_countSp(GRID_LOGO_COUNT_SP, 0.5f), 10.0f));
+}
+
 // A collection tile's text block (px): name lines + 4 dp + the reserved count line, centred in the tile.
 static void collection_text(void) {
 	// Brick: tile 276 px, name 43 px (16.75 sp) step 49, gap 9, count 30 px (11.73 sp), pad 25 px
@@ -277,6 +295,7 @@ int main(void) {
 	device_vectors();
 	still_centring();
 	counts_and_names();
+	logoless_console();
 	collection_text();
 	game_list_centring();
 	count_fits_tile();

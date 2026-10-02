@@ -1,9 +1,10 @@
-// The List geometry under the info band: a fixed band reaching into the hint bar's empty top, for main-menu tabs and
-// game lists alike (InfoBand_fixedLayout). InfoBand_layout (the band on the bar, bottom to top: the hint bar, dp2 of
-// solid ground, the text line, dp12 of fade) is the former game-list geometry, kept as the tests' reference. Pure,
-// host-tested.
+// The List geometry under the info band: a fixed band reaching into the hint bar down to its ink, for main-menu tabs
+// and game lists alike, with whole px rows filling the slot above it (InfoBand_fixedLayout, InfoBand_listFit).
+// InfoBand_layout (the band on the bar, bottom to top: the hint bar, dp2 of solid ground, the text line, dp12 of fade)
+// is the former game-list geometry, kept as the tests' reference. Pure, host-tested.
 
 #include "infoband_layout.h"
+#include "ui_hintbar_layout.h"
 
 #include <stdbool.h>
 #include <string.h>
@@ -11,6 +12,7 @@
 InfoBandLayout InfoBand_layout(int screen_h, int bar_h, int list_top, int row_h, int text_h, int dp2, int dp12) {
 	InfoBandLayout l;
 	l.list_top = list_top;
+	l.row_h = row_h;
 	l.arrow_x = 0;
 	l.text_h = text_h;
 	l.band_bottom = screen_h - bar_h;
@@ -23,20 +25,37 @@ InfoBandLayout InfoBand_layout(int screen_h, int bar_h, int list_top, int row_h,
 	return l;
 }
 
-InfoBandLayout InfoBand_fixedLayout(int screen_h, int bar_h, int list_top, int row_h, int line_h, int pad,
-									int inset) {
+InfoBandLayout InfoBand_fixedLayout(int screen_h, int bar_h, int list_top, int pitch, int line_h, int pad,
+									int overlap) {
 	InfoBandLayout l;
 	l.list_top = list_top;
 	l.arrow_x = 0;
 	l.text_h = line_h;
 	l.fill_bottom = screen_h - bar_h;
-	l.band_bottom = l.fill_bottom + inset;
+	l.band_bottom = l.fill_bottom + overlap;
 	l.band_top = l.band_bottom - (line_h + 2 * pad);
 	l.text_top = l.band_top + pad;
-	l.rows = row_h > 0 ? (l.band_top - list_top) / row_h : 1;
-	if (l.rows < 1)
-		l.rows = 1;
+	l.rows = InfoBand_listFit(l.band_top - list_top, pitch, &l.row_h);
 	return l;
+}
+
+int InfoBand_listFit(int slot, int pitch, int* row_h) {
+	// floor(slot / (0.95 * pitch)) in integers: a row may shrink by up to 5%, so a pixel-level shortfall never costs one
+	int n = pitch > 0 && slot > 0 ? (slot * 20) / (pitch * 19) : 0;
+	if (n < 2)
+		n = 2;
+	if (row_h)
+		*row_h = slot > 0 ? slot / n : 0;
+	return n;
+}
+
+int InfoBand_hintInkTop(int bar_h, int icon_h) {
+	return UI_hintBarIconOffset(bar_h, icon_h) + INFOBAND_HINT_GLYPH_INK_MARGIN;
+}
+
+int InfoBand_overlap(int max, int ink_top) {
+	int o = ink_top < max ? ink_top : max;
+	return o > 0 ? o : 0;
 }
 
 int InfoBand_cutText(char* text, size_t size, int room, size_t min_bytes, InfoBand_measureFn measure, void* ctx) {

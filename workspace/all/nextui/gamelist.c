@@ -23,6 +23,7 @@
 #include "wifi.h"
 
 #include "collcount.h"
+#include "contentdim.h"
 #include "collname.h"
 #include "content.h"
 #include "gameswitcher.h"
@@ -31,6 +32,7 @@
 #include "gameinfo_text.h"
 #include "gridview.h"
 #include "rowview.h"
+#include "stackview.h"
 #include "home.h"
 #include "infoband.h"
 #include "launcher.h"
@@ -44,6 +46,7 @@
 #include <dirent.h>
 #include <msettings.h>
 #include <libgen.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -1157,7 +1160,7 @@ void GameList_runContextAction(int id) {
 		int count = tools->entries->count;
 		tools->start = 0;
 		tools->end = (count < rc) ? count : rc;
-		MenuTabs_setFocused(false); // a list opened: B back to the root returns to the content
+		MenuTabs_leaveFocus(); // a list opened: B back to the root returns to the content (lit at once)
 		Array_push(stack, tools);
 		top = tools;
 		break;
@@ -1444,22 +1447,26 @@ void GameList_openContextMenuFor(Entry* entry, bool is_pin, bool is_continue) {
 	ctx_target = Entry_newNamed(entry->path, entry->type, entry->name);
 	if (entry->unique)
 		ctx_target->unique = strdup(entry->unique);
+	MenuTabs_leaveFocus(); // the menu opens over lit content
 	ContextMenu_open(items, idx);
 }
 
 // UP on the tab row: focus returns to the bottom of the content (List's last row, Grid's bottom row in the same
-// column, Home's last pin; Carousel and Backdrop are one row, so the item stays).
+// column, Home's last pin, a vertical Carousel's last item; a horizontal Carousel is one row, so the item stays).
 static void contentToBottom(void) {
 	if (Home_active()) {
 		Home_focusBottom();
 		return;
 	}
-	if (RowView_active())
+	bool vertical = StackView_active();
+	if (RowView_active() && !vertical)
 		return;
 	int total = top->entries->count;
 	if (total <= 0)
 		return;
-	if (GridView_active()) {
+	if (vertical) {
+		StackView_focusBottom();
+	} else if (GridView_active()) {
 		GridView_focusBottom();
 	} else { // List: the last row, windowed as the List's own wrap to the bottom
 		int rc = GameList_rowCount();
@@ -1492,7 +1499,7 @@ static int tab_row_held = 0;
 static bool tabRowInput(unsigned long now, IndicatorType show_setting, GameListResult* result, bool* dirty) {
 	if (PAD_tappedSelect(now) || PAD_tappedStart(now) || PAD_tappedMenu(now) ||
 		(HAS_FN_KEYS && (PAD_justPressed(BTN_FN1) || PAD_justPressed(BTN_FN2)))) {
-		MenuTabs_setFocused(false);
+		MenuTabs_leaveFocus(); // not a d-pad move: the content snaps lit (a screen slides in or a menu opens over it)
 		*dirty = true;
 		return false;
 	}
@@ -1646,6 +1653,7 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 
 		if (idx > 0) {
 			GameList_contextMenuClosed(); // a list menu never acts on a stale Home target
+			MenuTabs_leaveFocus();		  // the menu opens over lit content
 			ContextMenu_open(items, idx);
 			*dirty = true;
 		}
@@ -1887,12 +1895,15 @@ static int listTop(void) {
 }
 
 // The rows' and the band's geometry (infoband_layout.c, host-tested), main menu and game lists alike: a fixed 26 dp
-// band (18 dp line, 4 dp each side) with its bottom 12 dp inside the hint bar's empty top, whole rows from the list top
-// down to its top. Only the list top differs (listTopAt).
+// band (18 dp line, 4 dp each side) with its bottom min(12 dp, the bar's ink top) inside the hint bar, and whole px
+// rows (nxListFit at the PILL_SIZE pitch) filling the slot from the list top down to the band's top. Only the list top
+// differs (listTopAt).
 static InfoBandLayout listLayoutAt(bool root) {
 	int screen_h = screen ? screen->h : FIXED_HEIGHT;
 	int bar_h = SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2); // the hint bar (UI_buttonHintBarTop)
-	return InfoBand_fixedLayout(screen_h, bar_h, listTopAt(root), SCALE1(PILL_SIZE), NX_DP(18), NX_DP(4), NX_DP(12));
+	// the bar's ink top: the padding over its centred BUTTON_SIZE icons, plus the glyphs' margin (host-tested)
+	int overlap = InfoBand_overlap(NX_DP(12), InfoBand_hintInkTop(bar_h, SCALE1(BUTTON_SIZE)));
+	return InfoBand_fixedLayout(screen_h, bar_h, listTopAt(root), SCALE1(PILL_SIZE), NX_DP(18), NX_DP(4), overlap);
 }
 
 static InfoBandLayout listLayout(void) {
@@ -1909,6 +1920,16 @@ int GameList_rowCount(void) {
 
 int GameList_rowCountAt(bool root) {
 	return listLayoutAt(root).rows;
+}
+
+int GameList_currentOrientation(void) {
+	if (stack->count == 1) {
+		int cat = MenuTabs_styleCategory(MenuTabs_current());
+		if (cat < 0)
+			return MENU_ORIENT_HORIZONTAL; // Home draws itself
+		return CFG_getMenuOrientEffective(cat);
+	}
+	return CFG_getGameListOrientEffective();
 }
 
 int GameList_currentStyle(void) {
@@ -1931,7 +1952,7 @@ int GameList_currentStyle(void) {
 	}
 }
 
-void GameList_renderInfoLayer(void) {
+static void renderInfoBand(void) {
 	// Home, Grid, Carousel and Backdrop have no info band (Grid's game info sits in the lit tile, the rows'
 	// in the caption under the row)
 	if (ContextMenu_isOpen() || Home_active() || GridView_active() || RowView_active())
@@ -1943,6 +1964,8 @@ void GameList_renderInfoLayer(void) {
 	layout.arrow_x = GameList_textX();	  // the arrows sit at the rows' text start (§3.2)
 	// On LAYER_OVERLAY, above the thumbnail layer (which would otherwise cover it on 4:3 screens).
 	// nextui.c clears that layer at the start of every dirty pass, so this is redrawn with the list.
+	// While the tab-focus dim is layered, onto the screen instead: it dims with the rows (contentdim.h).
+	SDL_Surface* dst = ContentDim_layered() ? screen : NULL;
 	// The band is always there (fade + arrows), with or without text, so rows never move.
 	Entry* entry = total > 0 ? top->entries->items[top->selected] : NULL;
 	MenuTabId tab = MenuTabs_current();
@@ -1956,7 +1979,7 @@ void GameList_renderInfoLayer(void) {
 			n = GameInfo_segments(time(NULL), info.has_time ? info.last_played : 0,
 								  info.has_time ? info.seconds : -1, info.has_ra ? info.unlocked : 0,
 								  info.has_ra ? info.total : 0, info.has_ra ? info.next : NULL, true, segs);
-		InfoBand_render(&layout, segs, n, up, down, LAYER_OVERLAY);
+		InfoBand_render(&layout, segs, n, up, down, LAYER_OVERLAY, dst);
 		return;
 	}
 	// Consoles and Collections rows: "N games" (nothing while unknown); Tools and folders show no text.
@@ -1965,7 +1988,16 @@ void GameList_renderInfoLayer(void) {
 		GameInfo_gamesLabel(Content_consoleGameCount(entry), games, sizeof(games));
 	else if (entry && at_root && tab == MENU_TAB_COLLECTIONS)
 		GameInfo_gamesLabel(CollCount_get(entry->path), games, sizeof(games));
-	InfoBand_renderText(&layout, games[0] ? games : NULL, up, down, LAYER_OVERLAY);
+	InfoBand_renderText(&layout, games[0] ? games : NULL, up, down, LAYER_OVERLAY, dst);
+}
+
+// nextui.c's re-add after a slide, outside GameList_render's content layer. While the content is dimmed the band is
+// already in the screen, dimmed with the rows (GameList_render drew it inside the layer): a lit copy on the GPU layer
+// would sit over them, so nothing is drawn.
+void GameList_renderInfoLayer(void) {
+	if (ContentDim_dimmed())
+		return;
+	renderInfoBand();
 }
 
 // The hint bar of a List or Grid screen (main-menu tabs and game lists): one copy of the pairs, the four-pair cap
@@ -2080,13 +2112,21 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		return;
 	}
 
+	// the content below the tab row: one layer for the tab-focus dim (contentdim.h); the tab row, the hint bar and the
+	// page background (the List's art and console logo, a Backdrop picture) are drawn outside it and stay lit
+	int bar_h = SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2);
+	// Grid and rows: the body between the tab row and the hint bar (a List's reaches into the bar with its band)
+	SDL_Rect content = {0, bar_h, screen->w, screen->h - 2 * bar_h};
+
 	bool grid = GridView_active();
 	if (grid || RowView_active()) {
 		clearArtForGrid(screen, lastScreen);
+		ContentDim_begin(screen, content);
 		if (grid)
 			GridView_render(screen, lastScreen);
 		else
 			RowView_render(screen, lastScreen);
+		ContentDim_end(screen);
 		renderHints(screen, show_setting); // over the black body (or the picture), as on List
 		if (lastScreen == SCREEN_OFF)
 			GFX_animateSurfaceOpacity(blackBG, 0, 0, screen->w, screen->h, 255, 0,
@@ -2163,9 +2203,42 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 
 	renderHints(screen, show_setting);
 
+	// the rows' geometry: whole px rows of row_h (nxListFit), the band below them
+	InfoBandLayout rows_layout = listLayout();
+	int row_h = rows_layout.row_h;
+
+	// Consoles tab: the selected console's logo, dimmed, on the right behind the rows (the page background: it stays
+	// lit under the tab-focus dim)
+	if (total > 0 && at_root && tab == MENU_TAB_CONSOLES) {
+		const char* slash = strrchr(entry->path, '/');
+		const char* logo_id = MenuLogo_idForFolder(slash ? slash + 1 : entry->path);
+		if (logo_id) {
+			char file[64];
+			snprintf(file, sizeof(file), "menu_logo_%s.png", logo_id);
+			int band_y = listTop();
+			int band_h = rows_layout.rows * row_h;
+			SDL_Surface* logo = MenuArt_get(file, screen->w * 40 / 100, band_h * 60 / 100);
+			if (logo) {
+				SDL_SetSurfaceAlphaMod(logo, 41); // white at 16%
+				SDL_BlitSurface(logo, NULL, screen,
+								&(SDL_Rect){screen->w - SCALE1(23) - logo->w, band_y + (band_h - logo->h) / 2});
+				SDL_SetSurfaceAlphaMod(logo, 255);
+			}
+		}
+	}
+
+	// the List's content: the rows and the band, down to the band's bottom (inside the hint bar)
+	content.h = rows_layout.band_bottom - content.y;
+	ContentDim_begin(screen, content);
+	// layered, the content draws in software: no marquee (it presents its own lit frames on the scroll-text layer);
+	// the selected row shows its truncated title until the dim lifts
+	bool layered = ContentDim_layered();
+	if (layered && GameList_scrollBusy())
+		ScrollText_clear(&list_scroll);
+
 	// The info band (a GPU layer), drawn even for an empty list. Drawn before the rows: the marquee below
 	// may present mid-render, and the band must already be back on its layer by then (no blink).
-	GameList_renderInfoLayer();
+	renderInfoBand();
 
 	if (total > 0) {
 		int selected_row = top->selected - top->start;
@@ -2173,25 +2246,6 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		// the 14 dp list inset; the pill keeps its 14 dp (SCALE1(BUTTON_PADDING)) round the text either way.
 		int row_text_x = GameList_textX();
 		int row_pill_x = UI_listPillXFor(row_text_x);
-
-		// Consoles tab: the selected console's logo, dimmed, on the right behind the rows
-		if (at_root && tab == MENU_TAB_CONSOLES) {
-			const char* slash = strrchr(entry->path, '/');
-			const char* logo_id = MenuLogo_idForFolder(slash ? slash + 1 : entry->path);
-			if (logo_id) {
-				char file[64];
-				snprintf(file, sizeof(file), "menu_logo_%s.png", logo_id);
-				int band_y = listTop();
-				int band_h = GameList_rowCount() * SCALE1(PILL_SIZE);
-				SDL_Surface* logo = MenuArt_get(file, screen->w * 40 / 100, band_h * 60 / 100);
-				if (logo) {
-					SDL_SetSurfaceAlphaMod(logo, 41); // white at 16%
-					SDL_BlitSurface(logo, NULL, screen,
-									&(SDL_Rect){screen->w - SCALE1(23) - logo->w, band_y + (band_h - logo->h) / 2});
-					SDL_SetSurfaceAlphaMod(logo, 255);
-				}
-			}
-		}
 
 		// Glide the selection pill to the selected row. Drawn here, decoupled from
 		// the per-row loop, so it can sit between rows mid-slide; the rows below
@@ -2212,7 +2266,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 									   SCALE1(PADDING) - row_pill_x);
 			char sel_trunc[256];
 			int sel_pill_w = UI_calcListPillWidth(font.large, sel_text, sel_trunc, sel_avail, 0);
-			int target_y = listTop() + SCALE1(selected_row * PILL_SIZE);
+			int target_y = listTop() + selected_row * row_h;
 			// A page/list change (folder enter/exit, a tab switch: the `top` Directory's serial
 			// changes) snaps the pill to the new selection instead of gliding in
 			// from the previous list's row, which briefly flashed the old position.
@@ -2233,9 +2287,9 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 			if (target_y != list_pill_target || list_changed) {
 				bool animate = list_pill_target >= 0 && !ContextMenu_isOpen() && !list_changed;
 				if (wrap_fwd)
-					list_pill_anim.current_y = target_y - SCALE1(PILL_SIZE);
+					list_pill_anim.current_y = target_y - row_h;
 				else if (wrap_bwd)
-					list_pill_anim.current_y = target_y + SCALE1(PILL_SIZE);
+					list_pill_anim.current_y = target_y + row_h;
 				UI_pillAnimSetTarget(&list_pill_anim, target_y, sel_pill_w, animate);
 				list_pill_target = target_y;
 			}
@@ -2252,22 +2306,23 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 			// row beyond the list edge, and unclipped it would slide over the
 			// menu bar (top) or button hint bar (bottom). Clipped, the incoming
 			// pill is revealed only through the first/last row.
+			// The pill keeps its PILL_SIZE (the pill art's height: its end caps can't stretch), centred on the row like
+			// the row's text, the difference split evenly (rounded). nxListFit lets a row shrink by up to 5% (Brick
+			// main menu 89 px, Smart Pro S game lists 58 px), so the pill may overhang its row by a px; it is clipped to
+			// the list area: never above the list top (the header or the tab row's gap) nor below the band's top.
+			int pill_h = SCALE1(PILL_SIZE);
+			int pill_off = (int)floorf((row_h - pill_h) / 2.0f + 0.5f);
+			int below = pill_h + pill_off - row_h; // the overhang under the last row, when the pill is taller
 			int band_rows = top->end - top->start;
-			SDL_Rect band = {0, listTop(), screen->w, SCALE1(band_rows * PILL_SIZE)};
+			int clip_bottom = listTop() + band_rows * row_h + (below > 0 ? below : 0);
+			if (clip_bottom > rows_layout.band_top)
+				clip_bottom = rows_layout.band_top;
+			SDL_Rect band = {0, listTop(), screen->w, clip_bottom - listTop()};
 			SDL_Rect prev_clip;
 			SDL_GetClipRect(screen, &prev_clip);
 			SDL_SetClipRect(screen, &band);
-			SDL_Rect pill = {row_pill_x, pill_y, list_pill_anim.current_w, SCALE1(PILL_SIZE)};
-			if (at_root && MenuTabs_focused()) {
-				// the tab row has focus: the pill at 40% (its text keeps the on-pill colour, as the mockup's
-				// whole-row 40% gives over the black ground)
-				SDL_Color ac = UI_accent();
-				GFX_blitPillColor(ASSET_WHITE_PILL, screen, &pill,
-								  SDL_MapRGBA(screen->format, ac.r, ac.g, ac.b, (Uint8)(255 * MenuTabs_contentLit() + 0.5f)),
-								  RGB_WHITE);
-			} else {
-				UI_drawListItemBg(screen, &pill, true);
-			}
+			SDL_Rect pill = {row_pill_x, pill_y + pill_off, list_pill_anim.current_w, pill_h};
+			UI_drawListItemBg(screen, &pill, true); // dimmed with the whole content while the tab row has focus
 			SDL_SetClipRect(screen, &prev_clip);
 		}
 
@@ -2289,12 +2344,12 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 				trimSortingMeta(&entry_unique);
 			char* display_text = entry_unique ? entry_unique : entry_name;
 
-			int y = listTop() + SCALE1(j * PILL_SIZE);
+			int y = listTop() + j * row_h;
 
 			if (list_show_entry_names) {
 				char truncated[256];
 				ListLayout item_layout = {
-					.item_h = SCALE1(PILL_SIZE),
+					.item_h = row_h,
 					.max_width = available_width,
 				};
 				// selected=false: the selection background is the moving pill drawn
@@ -2336,9 +2391,9 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 				// background. The marquee still waits until the pill has fully
 				// settled on the actual selection (and the context menu is closed).
 				bool pill_over = pill_y >= 0 &&
-								 abs(pill_y - y) * 2 < SCALE1(PILL_SIZE);
+								 abs(pill_y - y) * 2 < row_h;
 				bool use_marquee = row_is_selected && !pill_animating &&
-								   !ContextMenu_isOpen();
+								   !ContextMenu_isOpen() && !layered;
 				if (entry_unique && !use_marquee &&
 					strncmp(entry_unique, entry_name, strlen(entry_name)) == 0) {
 					// Duplicate-name row: name in the list colour, disambiguating
@@ -2357,13 +2412,12 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 				}
 			}
 		}
-		if (lastScreen == SCREEN_OFF) {
-			GFX_animateSurfaceOpacity(blackBG, 0, 0, screen->w, screen->h, 255,
-									  0, CFG_getMenuTransitions() ? 200 : 20,
-									  LAYER_THUMBNAIL);
-		}
-
 	} else {
 		UI_renderCenteredMessage(screen, "Empty folder");
 	}
+	ContentDim_end(screen); // before the fade below: it presents frames itself
+
+	if (total > 0 && lastScreen == SCREEN_OFF)
+		GFX_animateSurfaceOpacity(blackBG, 0, 0, screen->w, screen->h, 255, 0, CFG_getMenuTransitions() ? 200 : 20,
+								  LAYER_THUMBNAIL);
 }

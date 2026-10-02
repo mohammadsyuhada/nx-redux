@@ -32,3 +32,38 @@ void MenuTransition_exitCancel(MenuTransitionExit* x) {
 uint32_t MenuTransition_rebaseStart(uint32_t start, uint32_t now, uint32_t cap) {
 	return now - start > cap ? now - cap : start;
 }
+
+static float dimAmount(const MenuTransitionDim* d, uint32_t now) {
+	if (!d->active)
+		return d->to;
+	uint32_t elapsed = now - d->start;
+	if (elapsed >= MENU_TRANSITION_DIM_MS)
+		return d->to;
+	return d->from + (d->to - d->from) * UI_easeStandard((float)elapsed / (float)MENU_TRANSITION_DIM_MS);
+}
+
+void MenuTransition_dimAim(MenuTransitionDim* d, bool on, uint32_t now, bool animate) {
+	float to = on ? 1.0f : 0.0f;
+	if (d->to == to) {
+		if (!animate)
+			d->active = false; // snap whatever is left of a running tween
+		return;
+	}
+	float cur = dimAmount(d, now);
+	d->from = animate ? cur : to;
+	d->to = to;
+	d->start = now;
+	d->active = animate && cur != to;
+}
+
+float MenuTransition_dimAlpha(const MenuTransitionDim* d, uint32_t now) {
+	return 1.0f - (1.0f - MENU_TRANSITION_DIM_ALPHA) * dimAmount(d, now);
+}
+
+bool MenuTransition_dimStep(MenuTransitionDim* d, uint32_t now) {
+	if (!d->active)
+		return false;
+	if (now - d->start >= MENU_TRANSITION_DIM_MS)
+		d->active = false; // this frame draws the settled value
+	return true;
+}

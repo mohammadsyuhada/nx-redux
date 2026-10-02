@@ -53,9 +53,17 @@ MenuTabId MenuTabs_initialTab(const char* last_path);
 // returns to the content; MenuTabs_focused is a pure read. MenuTabs_openRoot clears it (boot, a launch return);
 // MenuTabs_step keeps it (LEFT/RIGHT, L1/R1 on the row).
 bool MenuTabs_focused(void);
+// Focus moved by the d-pad, A or B (onto the row, or back to the content): the dim tweens over 180 ms.
 void MenuTabs_setFocused(bool focused);
-// The content's own highlight while the tab row has focus: 0.4, else 1 (the lit tile, the List pill, the captions).
-float MenuTabs_contentLit(void);
+// Focus lost to anything else (SELECT, START, MENU, the F keys, a launch, a list opened, a context menu): the content
+// snaps lit, so nothing shows it part-dimmed.
+void MenuTabs_leaveFocus(void);
+// The opacity of the whole content below the tab row (LIST-LAYOUT §5): 1, easing to 0.4 over 180 ms while the tab row
+// has focus and back when it returns to the content (MenuTabs_setFocused); MenuTabs_leaveFocus, off the main menu or
+// animations off snap it. Drawn as one layer by contentdim.c.
+float MenuTabs_contentAlpha(void);
+// Once per frame: the dim is moving (true once more on its settled frame), so the host keeps drawing.
+bool MenuTabs_dimAnimating(void);
 // Tab row (Task 5) and its glide. While focused, the current label wears the selection plate (accent pill, onAccent text)
 // and the underline hides.
 void MenuTabs_renderRow(SDL_Surface* screen, int ow);

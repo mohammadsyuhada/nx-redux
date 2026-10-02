@@ -26,6 +26,7 @@
 #include "utils.h"
 
 #include "content.h"
+#include "contentdim.h"
 #include "gameinfo.h"
 #include "gameinfo_text.h"
 #include "gamelist.h"
@@ -1019,14 +1020,14 @@ static bool sameFocus(HomeFocus a, HomeFocus b) {
 	return a.area == b.area && (a.area != HOME_FOCUS_PIN || a.pin == b.pin);
 }
 
-// How lit a card is (0..1): the focused card fades in, the previous one out. While the tab row has focus the lit look
-// (and Continue's ring) shows at 40% over the plain one, through the crossfade's own blend.
+// How lit a card is (0..1): the focused card fades in, the previous one out. (While the tab row has focus the whole
+// page dims as one layer: contentdim.c.)
 static float litAmount(HomeFocus f) {
-	float p = tweenProgress(&sel_tw, SEL_MS) * MenuTabs_contentLit();
+	float p = tweenProgress(&sel_tw, SEL_MS);
 	if (sameFocus(f, focus))
 		return p;
 	if (sel_tw.active && sameFocus(f, prev_focus))
-		return MenuTabs_contentLit() - p;
+		return 1.0f - p;
 	return 0.0f;
 }
 
@@ -1367,6 +1368,8 @@ void Home_render(SDL_Surface* dst, int lastScreen) {
 		if (!HomeStats_get(&st))
 			st.ready = false;
 
+		// the page as one layer for the tab-focus dim (contentdim.h); the top band's fade and the hints stay lit
+		ContentDim_begin(dst, (SDL_Rect){0, bar_h, dst->w, body_h});
 		HomeFocus top_focus = {HOME_FOCUS_CONTINUE, 0};
 		drawCard(dst, cont ? CARD_CONTINUE : CARD_PICK, toScreen(layout.cont, scroll_px), top_focus, 0, &st);
 		if (layout.mode != HOME_MODE_FRESH)
@@ -1374,6 +1377,7 @@ void Home_render(SDL_Surface* dst, int lastScreen) {
 		for (int i = 0; i < layout.npins; i++)
 			drawCard(dst, isGamePin(i) ? CARD_GAME : CARD_TOOL, toScreen(layout.pins[i].r, scroll_px),
 					 (HomeFocus){HOME_FOCUS_PIN, i}, i, &st);
+		ContentDim_end(dst);
 		// scrolled: the top band's part below the tab strip goes over the page (nextui.c drew the strip's part)
 		if (scroll_px > 0) {
 			int fade_h = bar_h + NX_DP(48);

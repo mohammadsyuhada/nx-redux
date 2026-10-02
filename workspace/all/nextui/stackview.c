@@ -1,0 +1,402 @@
+// The Vertical orientation (§8f): render and D-pad input for the main-menu Carousel-Vertical (§8f.3) and the game
+// lists' Backdrop-Vertical and Carousel-Vertical (§8f.4–6: the stack left of centre, the caption to its right).
+// Geometry and the d-pad's rules come from stack_model.c (dp, host-tested); the items are rowview.c's (rowview_shared.h):
+// the frameless slots and the "N games" line, the Carousel's game tiles, the Backdrop's box art and placeholder box,
+// and the game caption, all cached there per rest size (the caption per text), so nothing is rendered per frame but
+// blits: no font, logo, tile or caption is made at a tweened size (an item changing size is its selected-size surface
+// scaled, as on the row). A Backdrop-Vertical's picture (the crossfading screenshot layers with their 65% dim and the
+// shade, its fade in and out) is the row's own, drawn under the body before RowView_render (RowView_renderPicture).
+
+#include "stackview.h"
+
+#include "api.h"
+#include "config.h"
+#include "defines.h"
+#include "ui_ease.h"
+#include "ui_fade.h"
+#include "ui_message.h"
+
+#include "gamelist.h"
+#include "launcher.h"
+#include "menutabs.h"
+#include "rowview.h"
+#include "rowview_shared.h"
+#include "shortcuts.h"
+#include "stack_model.h"
+
+#include <math.h>
+#include <string.h>
+
+#define SCALE_EPS 0.004f // an item this close to its neighbour size is drawn 1:1 from that size's surface
+
+// The stack's position (items): eases from pos_from to pos_to (STACK_SLIDE_MS, UI_easeStandard).
+static float pos_from = 0, pos_to = 0;
+static Tween slide_tw;
+// What the position belongs to: a change of any snaps it (the Directory serial and the tab generation, not the list).
+static unsigned seen_top = 0; // 0 = none (forgotten)
+static unsigned seen_gen = 0;
+static int seen_n = -1, seen_screen_w = 0, seen_scale = 0, seen_kind = -1;
+static bool snap_next = false;		  // UP from the tab row jumped to the last item: no slide across the list
+static bool prefetch_pending = false; // the settled prefetch stopped at its budget: one more frame to continue
+
+///////////////////////////////////////
+// Timing
+
+static float currentPos(void) {
+	if (!slide_tw.active)
+		return pos_to;
+	Uint32 elapsed = SDL_GetTicks() - slide_tw.start;
+	float p = elapsed >= STACK_SLIDE_MS ? 1.0f : (float)elapsed / (float)STACK_SLIDE_MS;
+	return pos_from + (pos_to - pos_from) * UI_easeStandard(p);
+}
+
+///////////////////////////////////////
+// What the stack shows
+
+static StackKind currentKind(void) {
+	if (stack->count > 1) { // a game list in Carousel or Backdrop
+		if (GameList_currentStyle() == MENU_STYLE_CAROUSEL)
+			return STACK_GAME_CAROUSEL;
+		if (Shortcuts_isInToolsFolder(top->path))
+			return STACK_MAIN_TOOLS; // a Tools listing in Backdrop: its slots, centred, as the Tools tab's
+		return STACK_GAME_BACKDROP;
+	}
+	switch (MenuTabs_current()) {
+	case MENU_TAB_CONSOLES:
+		return STACK_MAIN_CONSOLES;
+	case MENU_TAB_COLLECTIONS:
+		return STACK_MAIN_COLLECTIONS;
+	default:
+		return STACK_MAIN_TOOLS;
+	}
+}
+
+// The game lists' stacks: the side arrangement with the caption (the others centre their slots, captionless).
+static bool gameStack(StackKind k) {
+	return k == STACK_GAME_BACKDROP || k == STACK_GAME_CAROUSEL;
+}
+
+static int selectedIndex(int n) {
+	int s = top->selected;
+	if (s >= n)
+		s = n - 1;
+	return s < 0 ? 0 : s;
+}
+
+// The frame's geometry: the stack's sizes (dp), and for rowview's slots their px sizes and the selection's centre.
+typedef struct {
+	StackKind kind;
+	StackSizes ss;
+	StackSide side; // the game lists' side arrangement (dp)
+	RowGeo g;
+	int body_top, body_h; // px
+	int cap_x, cap_w;	  // the side caption's column (px): from its left edge to the 24 dp right margin
+	float body_h_dp, sel_y_dp;
+} StackGeo;
+
+static void computeGeo(SDL_Surface* screen, StackKind kind, StackGeo* sg) {
+	float pd = pxPerDp();
+	int bar = barPx();
+	bool game = gameStack(kind);
+	sg->kind = kind;
+	sg->body_top = bar;
+	sg->body_h = screen->h - 2 * bar;
+	sg->body_h_dp = sg->body_h / pd;
+	memset(&sg->side, 0, sizeof(sg->side));
+	sg->ss = game ? Stack_gameSizes(kind, sg->body_h_dp, screen->w / pd, &sg->side) : Stack_mainSizes(kind, screen->w / pd);
+	sg->sel_y_dp = Stack_selectionY(sg->body_h_dp, sg->ss.cap); // a game list's cap is 0: the body's middle
+
+	RowGeo* g = &sg->g;
+	memset(g, 0, sizeof(*g));
+	switch (kind) {
+	case STACK_GAME_CAROUSEL:
+		g->kind = ROW_CAROUSEL;
+		break;
+	case STACK_GAME_BACKDROP:
+		g->kind = ROW_BACKDROP_BOX;
+		break;
+	case STACK_MAIN_CONSOLES:
+		g->kind = ROW_BACKDROP_LOGO;
+		break;
+	case STACK_MAIN_COLLECTIONS:
+		g->kind = ROW_BACKDROP_COLL;
+		break;
+	default:
+		g->kind = ROW_BACKDROP_TOOL;
+		break;
+	}
+	g->cap = game ? CAP_GAME : CAP_NONE;
+	g->vertical = true;
+	g->sz = (RowSizes){sg->ss.item_w, sg->ss.item_h, sg->ss.scale, sg->ss.gap, 1.0f}; // unscaled (no small-screen f)
+	g->cx = game ? Stack_round(sg->side.x * pd) : screen->w / 2;
+	g->cy = sg->body_top + Stack_round(sg->sel_y_dp * pd);
+	g->full_w = Stack_round(sg->ss.item_w * pd);
+	g->full_h = Stack_round(sg->ss.item_h * pd);
+	g->side_w = Stack_round(sg->ss.item_w * sg->ss.scale * pd);
+	g->side_h = Stack_round(sg->ss.item_h * sg->ss.scale * pd);
+	// the slot content scale, as the row's: min(1, slot_w / spec slot_w); 1 on both screens (the slots aren't capped).
+	// A game tile or box art doesn't use it.
+	float spec_w = kind == STACK_MAIN_CONSOLES ? ROWVIEW_LOGO_SLOT_W_SPEC : ROWVIEW_TOOL_SLOT_W_SPEC;
+	g->k = game ? 1.0f : fminf(1.0f, sg->ss.item_w / spec_w);
+	sg->cap_x = game ? Stack_capXPx(g->cx, g->full_w, pd) : 0; // from the drawn item (px), not rounded from dp
+	sg->cap_w = game ? screen->w - Stack_round(STACK_SIDE_CAP_MARGIN_DP * pd) - sg->cap_x : 0;
+}
+
+// An item's centre on screen (px).
+static int itemCy(const StackGeo* sg, const StackItem* it) {
+	return sg->body_top + Stack_round((sg->sel_y_dp + it->dy) * pxPerDp());
+}
+
+///////////////////////////////////////
+// Drawing
+
+// An item from its two rest-size surfaces: the neighbour's 1:1 at that size, else the selected one's scaled. A game
+// list's Carousel tile darkens toward the black ground; its Backdrop box art, and every frameless slot, fade.
+static void drawItem(SDL_Surface* screen, const StackGeo* sg, Entry* e, TileKind kind, const StackItem* it) {
+	int cy = itemCy(sg, it);
+	if (gameStack(sg->kind)) {
+		RowView_drawGameItem(screen, &sg->g, e, kind, sg->g.cx, cy, it->scale, it->alpha, it->darken, it->d);
+		return;
+	}
+	Uint8 a = (Uint8)(it->alpha * 255.0f + 0.5f);
+	if (a == 0)
+		return;
+	if (fabsf(it->scale - sg->ss.scale) < SCALE_EPS)
+		RowView_blitItem(screen, RowView_slotItem(&sg->g, e, kind, true), sg->g.cx, cy, 1.0f, a);
+	else
+		RowView_blitItem(screen, RowView_slotItem(&sg->g, e, kind, false), sg->g.cx, cy, it->scale, a);
+}
+
+// The 20 dp fade to the black ground at the body's top and bottom, row by row, across the body's whole width (a game
+// list's side caption is outside the stack's column). The plain-black stacks only: never over a Backdrop-Vertical's
+// picture, which runs behind the edges.
+static void edgeFade(SDL_Surface* screen, const StackGeo* sg) {
+	if (sg->kind == STACK_GAME_BACKDROP)
+		return;
+	float pd = pxPerDp();
+	int band = (int)ceilf(STACK_EDGE_FADE_DP * pd);
+	if (band > sg->body_h / 2)
+		band = sg->body_h / 2;
+	int x = 0, w = screen->w;
+	for (int r = 0; r < band; r++) {
+		float a = Stack_edgeAlpha((r + 0.5f) / pd, sg->body_h_dp, STACK_EDGE_FADE_DP);
+		Uint8 dim = (Uint8)((1.0f - a) * 255.0f + 0.5f);
+		if (dim == 0)
+			continue;
+		UI_dimRect(screen, &(SDL_Rect){x, sg->body_top + r, w, 1}, dim);
+		UI_dimRect(screen, &(SDL_Rect){x, sg->body_top + sg->body_h - 1 - r, w, 1}, dim);
+	}
+}
+
+// A list, tab, screen size, scale or kind change (or a forgotten list): start over with the stack snapped.
+static bool syncList(SDL_Surface* screen, int n, int lastScreen, StackKind kind) {
+	bool changed = seen_top == 0 || top->serial != seen_top || MenuTabs_generation() != seen_gen || n != seen_n ||
+				   screen->w != seen_screen_w || (int)FIXED_SCALE != seen_scale || (int)kind != seen_kind ||
+				   lastScreen != SCREEN_GAMELIST;
+	if (!changed)
+		return false;
+	seen_top = top->serial;
+	seen_gen = MenuTabs_generation();
+	seen_n = n;
+	seen_screen_w = screen->w;
+	seen_scale = (int)FIXED_SCALE;
+	seen_kind = (int)kind;
+	return true;
+}
+
+// What the next step either way draws first: the neighbours at the selected size (they grow into the selection; a
+// Carousel tile plain and lit), and at a neighbour's size the items that step brings into the body. Builds at most
+// one; true when it stopped with more.
+static bool prefetchItems(const StackGeo* sg, int n, int sel) {
+	unsigned start = RowView_itemBuilds();
+	static const struct {
+		int di;
+		bool side, lit;
+	} jobs[] = {{1, false, false}, {1, false, true}, {-1, false, false}, {-1, false, true}, {2, true, false}, {-2, true, false}, {3, true, false}, {-3, true, false}, {4, true, false}, {-4, true, false}};
+	for (size_t j = 0; j < sizeof(jobs) / sizeof(jobs[0]); j++) {
+		int i = sel + jobs[j].di;
+		if (i < 0 || i >= n)
+			continue;
+		if (jobs[j].side) {
+			int f, l;
+			Stack_visibleRange(&sg->ss, n, (float)(sel + (jobs[j].di > 0 ? 1 : -1)), sg->body_h_dp, &f, &l);
+			if (i < f || i > l)
+				continue;
+		}
+		if (RowView_itemBuilds() != start)
+			return true;
+		Entry* e = top->entries->items[i];
+		RowView_prefetchItem(&sg->g, e, RowView_kindFor(i, e), jobs[j].side, jobs[j].lit);
+	}
+	return false;
+}
+
+bool StackView_active(void) {
+	// the main menu's Carousel, or a game list's Carousel or Backdrop (RowView_active: the style), stood on end
+	return top && stack && RowView_active() && GameList_currentOrientation() == MENU_ORIENT_VERTICAL;
+}
+
+void StackView_render(SDL_Surface* screen, int lastScreen) {
+	prefetch_pending = false;
+	if (!screen || !top)
+		return;
+	StackKind kind = currentKind();
+	int n = top->entries->count;
+	RowView_syncKinds(n);
+	bool snap = syncList(screen, n, lastScreen, kind) || snap_next;
+	snap_next = false;
+	if (n <= 0 || screen->h - 2 * barPx() <= 0) {
+		slide_tw.active = false;
+		pos_from = pos_to = 0;
+		UI_renderCenteredMessage(screen, "Empty folder");
+		return;
+	}
+
+	int sel = selectedIndex(n);
+	// the slide toward the selection, retargeted from where the stack is now
+	if (snap || !animationsOn()) {
+		pos_from = pos_to = (float)sel;
+		slide_tw.active = false;
+	} else if ((float)sel != pos_to) {
+		pos_from = currentPos();
+		pos_to = (float)sel;
+		slide_tw.active = true;
+		slide_tw.start = SDL_GetTicks();
+	}
+	float pos = currentPos();
+
+	StackGeo sg;
+	computeGeo(screen, kind, &sg);
+
+	SDL_Rect prev_clip;
+	SDL_GetClipRect(screen, &prev_clip);
+	SDL_SetClipRect(screen, &(SDL_Rect){0, sg.body_top, screen->w, sg.body_h});
+
+	// far to near (the largest d first), so the nearer item lands on top where a grown name reaches a neighbour
+	int first, last;
+	Stack_visibleRange(&sg.ss, n, pos, sg.body_h_dp, &first, &last);
+	int order[16], count = 0;
+	for (int i = first; i <= last && count < 16; i++)
+		order[count++] = i;
+	for (int a = 0; a < count; a++) {
+		for (int b = a + 1; b < count; b++) {
+			if (fabsf(order[b] - pos) > fabsf(order[a] - pos)) {
+				int t = order[a];
+				order[a] = order[b];
+				order[b] = t;
+			}
+		}
+	}
+	for (int j = 0; j < count; j++) {
+		int i = order[j];
+		StackItem it = Stack_item(&sg.ss, (float)i, pos);
+		if (!it.visible)
+			continue;
+		Entry* e = top->entries->items[i];
+		drawItem(screen, &sg, e, RowView_kindFor(i, e), &it);
+	}
+
+	// "N games". Consoles': on its own item, under that logo as drawn at the item's live place and scale, on the items
+	// within a step of the position (the outgoing selection's fading out as the incoming one's fades in), so a logo
+	// sliding through the selection never runs under a count left in the slot (device fix round 2). Collections': on
+	// the selected item itself (RowView_drawCount, fading in); nothing in a game list. A game list's caption sits
+	// beside the stack, centred on the selection (its game info requested last: GameInfo's queue keeps the latest).
+	Entry* e = top->entries->items[sel];
+	if (kind == STACK_MAIN_CONSOLES) {
+		for (int i = first; i <= last; i++) {
+			StackItem it = Stack_item(&sg.ss, (float)i, pos);
+			if (it.d >= 1.0f)
+				continue;
+			Entry* ie = top->entries->items[i];
+			RowView_drawItemCount(screen, &sg.g, ie, RowView_kindFor(i, ie), sg.g.cx, itemCy(&sg, &it), it.scale,
+								  it.d);
+		}
+	} else {
+		StackItem sit = Stack_item(&sg.ss, (float)sel, pos);
+		RowPlace at = {0, itemCy(&sg, &sit) - sg.g.cy, sit.scale, sit.alpha, sit.visible};
+		RowView_drawCount(screen, &sg.g, e, RowView_kindFor(sel, e), sel, &at, snap);
+	}
+	if (gameStack(kind))
+		RowView_drawSideCaption(screen, &sg.g, e, RowView_kindFor(sel, e), sg.cap_x, sg.cap_w, sg.g.cy, sg.body_top,
+								sg.body_h);
+
+	edgeFade(screen, &sg);
+	SDL_SetClipRect(screen, &prev_clip);
+
+	// settled, and the picture's crossfade and B's exit fade done: build ahead what the next step needs (one item a
+	// frame; RowView_animating keeps asking while there's more)
+	prefetch_pending = !slide_tw.active && !RowView_pictureBusy() && prefetchItems(&sg, n, sel);
+}
+
+///////////////////////////////////////
+// Input
+
+// The selection moves to i; the List window follows (the selection at its top, clamped), as the row keeps it.
+static void selectItem(int i) {
+	int n = top->entries->count;
+	top->selected = i;
+	int rows = GameList_rowCount();
+	top->start = i;
+	top->end = top->start + rows < n ? top->start + rows : n;
+	if (top->end - top->start < rows) {
+		top->start = top->end - rows;
+		if (top->start < 0)
+			top->start = 0;
+	}
+}
+
+bool StackView_handleInput(bool* dirty) {
+	static const struct {
+		int btn;
+		StackKey key;
+	} keys[] = {{BTN_UP, STACK_KEY_UP}, {BTN_DOWN, STACK_KEY_DOWN}, {BTN_LEFT, STACK_KEY_LEFT}, {BTN_RIGHT, STACK_KEY_RIGHT}};
+	for (size_t k = 0; k < sizeof(keys) / sizeof(keys[0]); k++) {
+		if (!PAD_justRepeated(keys[k].btn))
+			continue;
+		int n = top->entries->count;
+		StackNav nav = Stack_navigate(n, n > 0 ? selectedIndex(n) : 0, keys[k].key, PAD_justPressed(keys[k].btn),
+									  stack->count == 1);
+		switch (nav.action) {
+		case STACK_NAV_MOVE:
+			selectItem(nav.sel);
+			*dirty = true;
+			break;
+		case STACK_NAV_TAB_ROW:
+			MenuTabs_setFocused(true);
+			*dirty = true;
+			break;
+		case STACK_NAV_SWITCH_TAB:
+			GameList_switchTab(nav.dir, dirty);
+			break;
+		case STACK_NAV_NONE:
+			break; // a held key at an end, or LEFT/RIGHT held: still the stack's (the List's moves don't run)
+		}
+		return true;
+	}
+	return false;
+}
+
+void StackView_focusBottom(void) {
+	int n = top ? top->entries->count : 0;
+	if (n <= 0)
+		return;
+	selectItem(Stack_fromTabRow(n));
+	snap_next = true;
+}
+
+bool StackView_animating(void) {
+	bool sliding = slide_tw.active;
+	if (sliding && SDL_GetTicks() - slide_tw.start >= STACK_SLIDE_MS) {
+		slide_tw.active = false; // one settled frame as it clears
+		pos_from = pos_to;
+	}
+	return sliding || prefetch_pending;
+}
+
+void StackView_forget(void) {
+	seen_top = 0;
+	slide_tw.active = false;
+	pos_from = pos_to;
+	snap_next = false;
+	prefetch_pending = false;
+}

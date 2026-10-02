@@ -71,11 +71,18 @@ RowItem Row_item(const RowSizes* s, RowKind k, float index, float pos) {
 		if (d > 3) // fade toward black over 3..4
 			it.darken += (1 - it.darken) * clampf(d - 3, 0, 1);
 	} else {
-		it.alpha = d <= 1 ? 1 - 0.5f * t : maxf(0.2f, 0.5f - 0.12f * (d - 1));
-		if (d > 3)
-			it.alpha *= clampf(ROW_HIDE_D - d, 0, 1);
+		it.alpha = Row_slotAlpha(d);
 	}
 	return it;
+}
+
+float Row_slotAlpha(float d) {
+	d = fabsf(d);
+	float t = minf(d, 1.0f);
+	float a = d <= 1 ? 1 - 0.5f * t : maxf(0.2f, 0.5f - 0.12f * (d - 1));
+	if (d > 3)
+		a *= clampf(ROW_HIDE_D - d, 0, 1);
+	return a;
 }
 
 void Row_visibleRange(int n, float pos, int* first, int* last) {
@@ -133,6 +140,21 @@ RowCollText Row_collText(int slot_h, int lines, int line_h, int gap, int count_h
 	return t;
 }
 
+int Row_collBlockH(int font_px, int lines, int gap, int count_h) {
+	lines = lines < 1 ? 1 : (lines > ROW_COLL_LINES ? ROW_COLL_LINES : lines);
+	return lines * Row_lineStep(font_px, ROW_COLL_LINE) + gap + count_h;
+}
+
+float Row_collFitSlotSp(float sp, float min_sp, float px_per_sp, int slot_h, int gap, int count_h,
+						int (*lines_at)(float sp, void* ctx), void* ctx) {
+	for (float s = sp; s >= min_sp; s = (s == sp) ? ceilf(sp) - 1.0f : s - 1.0f) {
+		int lines = lines_at ? lines_at(s, ctx) : 1;
+		if (Row_collBlockH((int)floorf(s * px_per_sp + 0.5f), lines, gap, count_h) <= slot_h)
+			return s;
+	}
+	return min_sp;
+}
+
 // Fritsch–Carlson monotone cubic through the shade keys.
 #define SHADE_N 6
 static const float shade_x[SHADE_N] = {0, .12f, .32f, .55f, .82f, 1};
@@ -170,6 +192,10 @@ float Row_shade(float y_frac) {
 	float h = shade_x[k + 1] - shade_x[k], t = (x - shade_x[k]) / h, t2 = t * t, t3 = t2 * t;
 	return (2 * t3 - 3 * t2 + 1) * shade_y[k] + (t3 - 2 * t2 + t) * h * m[k] + (-2 * t3 + 3 * t2) * shade_y[k + 1] +
 		   (t3 - t2) * h * m[k + 1];
+}
+
+float Row_backdropGain(float y_frac) {
+	return (1.0f - ROW_BACKDROP_DIM) * (1.0f - Row_shade(y_frac));
 }
 
 // One running-sum box pass along a line of `len` samples spaced `stride` apart; zero outside the edges.

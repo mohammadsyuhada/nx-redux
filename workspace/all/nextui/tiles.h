@@ -31,8 +31,8 @@ typedef struct {
 } TileSpec;
 
 // lit 0..1 crossfades plain → lit: GAME/TITLE get the 3 dp accent ring + caption; the Grid's LOGO/TOOL/COLLECTION the
-// "Logo" look (a 1.5 dp outline at 70% accent, the content in the accent, the count); the Carousel's fill (white, black
-// content).
+// "Logo" look (a 1.5 dp outline at 70% accent, the content in the accent, the count); the Carousel's fill (the opaque
+// accent, the content in its ink: white and black by default).
 // Everything is blitted, so it honours dst's clip rect. The game ring sits 3 dp outside r.
 void Tiles_draw(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float lit);
 // Only the lit caption of a game or title tile (not the Carousel's) at r, at the lit amount: the cached caption
@@ -60,6 +60,9 @@ int Tiles_textBlock(SDL_Surface* dst, TTF_Font* f, const char* text, int cx, int
 // (Collections' 1.15). Returns lines × line_h.
 int Tiles_textBlockStep(SDL_Surface* dst, TTF_Font* f, const char* text, int cx, int y, int max_w, int max_lines,
 						bool camel_split, Uint8 grey, Uint8 alpha, bool shadow, int line_h);
+// Tiles_textBlock left-aligned: every line's left edge at x (the game lists' side caption, §8f.4), opaque.
+int Tiles_textBlockLeft(SDL_Surface* dst, TTF_Font* f, const char* text, int x, int y, int max_w, int max_lines,
+						Uint8 grey, bool shadow);
 // Free the cached shape masks, captions and scratch surface.
 void Tiles_quit(void);
 

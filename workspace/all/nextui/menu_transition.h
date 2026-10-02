@@ -37,4 +37,26 @@ void MenuTransition_exitCancel(MenuTransitionExit* x);
 // the first frame took at most `cap` ms, else `now - cap`, so the glide shows `cap` ms of progress now.
 uint32_t MenuTransition_rebaseStart(uint32_t start, uint32_t now, uint32_t cap);
 
+// Tab-focus dim (LIST-LAYOUT §5): while the tab row has the d-pad, the whole content below it dims to 40% over 180 ms,
+// eased with UI_easeStandard, and back when focus returns to the content. A zeroed struct is lit and idle.
+#define MENU_TRANSITION_DIM_MS 180
+#define MENU_TRANSITION_DIM_ALPHA 0.4f
+
+typedef struct {
+	float from, to; // the dim amount, 0 (lit) .. 1 (dimmed): the tween runs from `from` to `to`
+	uint32_t start; // ms
+	bool active;	// the tween is running
+} MenuTransitionDim;
+
+// Aim the dim at dimmed (on) or lit. A change of aim starts from where the dim is now, so a reversal mid-way never
+// jumps; animate false (animations off, or off the main menu) snaps it. The same aim again changes nothing.
+void MenuTransition_dimAim(MenuTransitionDim* d, bool on, uint32_t now, bool animate);
+
+// The content's opacity now: 1 lit .. 0.4 dimmed.
+float MenuTransition_dimAlpha(const MenuTransitionDim* d, uint32_t now);
+
+// Once per frame: true while the tween runs, and once more on the frame its time is up (that frame draws the settled
+// value); false after that, until the next change of aim.
+bool MenuTransition_dimStep(MenuTransitionDim* d, uint32_t now);
+
 #endif // MENU_TRANSITION_H

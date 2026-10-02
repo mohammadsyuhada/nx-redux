@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "content.h"
+#include "contentdim.h"
 #include "desktop_update.h"
 #include "display_helper.h"
 #include "collcount.h"
@@ -415,10 +416,11 @@ int main(int argc, char* argv[]) {
 
 		// Keep redrawing while the selection pill glides to its new row, the
 		// tab underline to its new tab, a Grid slides or crossfades its lit tile,
-		// or a Carousel/Backdrop row slides or crossfades its picture.
+		// a Carousel/Backdrop row slides or crossfades its picture, or the content
+		// dims for (or lights up from) tab-row focus. Settled, nothing redraws.
 		if (currentScreen == SCREEN_GAMELIST && !ContextMenu_isOpen() &&
 			(GameList_pillAnimating() || MenuTabs_animating() || Home_animating() || GridView_animating() ||
-			 RowView_animating()))
+			 RowView_animating() || MenuTabs_dimAnimating()))
 			dirty = true;
 
 		// Search's dirty signal comes entirely from sr.dirty above
@@ -721,6 +723,7 @@ int main(int argc, char* argv[]) {
 	// Cleanup scroll text state
 	GameList_clearScroll();
 	Home_quit();
+	ContentDim_quit();
 	GridView_quit();
 	RowView_quit();
 	Tiles_quit();

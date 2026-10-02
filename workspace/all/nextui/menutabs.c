@@ -159,21 +159,43 @@ bool MenuTabs_focused(void) {
 	return focused; // a pure read: whatever pushes a list clears the focus (see menutabs.h)
 }
 
-void MenuTabs_setFocused(bool on) {
-	focused = on && stack && stack->count == 1;
+// The tab-focus dim, aimed eagerly wherever the focus changes: a d-pad move, A or B on or off the row tweens it (180 ms),
+// any other way out (SELECT, START, MENU, the F keys, a launch or a list opened, a context menu) snaps it lit, so a
+// screen that slides in or a menu that opens over the content never shows it part-dimmed.
+static MenuTransitionDim dim;
+
+static void aimDim(bool animate) {
+	bool root = stack && stack->count == 1;
+	MenuTransition_dimAim(&dim, focused && root, SDL_GetTicks(), animate && root && CFG_getMenuAnimations());
 }
 
-float MenuTabs_contentLit(void) {
-	return MenuTabs_focused() ? 0.4f : 1.0f;
+void MenuTabs_setFocused(bool on) {
+	focused = on && stack && stack->count == 1;
+	aimDim(true);
+}
+
+void MenuTabs_leaveFocus(void) {
+	focused = false;
+	aimDim(false);
+}
+
+float MenuTabs_contentAlpha(void) {
+	if (!stack || stack->count != 1)
+		aimDim(false); // off the main menu the content is lit, whatever path got there
+	return MenuTransition_dimAlpha(&dim, SDL_GetTicks());
+}
+
+bool MenuTabs_dimAnimating(void) {
+	return MenuTransition_dimStep(&dim, SDL_GetTicks());
 }
 
 unsigned MenuTabs_generation(void) {
 	return generation;
 }
 
-void MenuTabs_openRoot(MenuTabId id) {
+// stack[0] for `id`, replacing the whole stack; the focus and the dim are the caller's.
+static void openRootKeepFocus(MenuTabId id) {
 	generation++;
-	focused = false; // boot, a launch return, a tab opened from Home: the content has focus
 	current = id;
 	Directory* dir = remembered[id].valid
 						 ? buildRoot(id, remembered[id].selected, remembered[id].start, remembered[id].end)
@@ -184,14 +206,18 @@ void MenuTabs_openRoot(MenuTabId id) {
 	top = dir;
 }
 
+void MenuTabs_openRoot(MenuTabId id) {
+	openRootKeepFocus(id);
+	MenuTabs_leaveFocus(); // boot, a launch return, a tab opened from Home: the content has focus, lit at once
+}
+
 bool MenuTabs_step(int delta) {
 	if (tab_count < 2 || stack->count != 1)
 		return false;
 	rememberCurrent();
 	int i = MenuTabs_indexOf(tabs, tab_count, current);
-	bool keep = focused; // LEFT/RIGHT (and L1/R1) on the tab row stay on it
-	MenuTabs_openRoot(tabs[MenuTabs_wrap(tab_count, i < 0 ? 0 : i, delta)]);
-	focused = keep;
+	// LEFT/RIGHT (and L1/R1) on the tab row stay on it, and the dim stays as it is
+	openRootKeepFocus(tabs[MenuTabs_wrap(tab_count, i < 0 ? 0 : i, delta)]);
 	return true;
 }
 

@@ -26,12 +26,16 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 					 IndicatorType show_setting, SDL_Surface* blackBG);
 
 // Draw the info band (fade, scroll arrows, the selected row's info text) onto LAYER_OVERLAY (above the
-// thumbnail layer). GameList_render calls it; the main loop calls it again after a page slide, which clears
-// that layer. Skipped while the context menu is open.
+// thumbnail layer). GameList_render draws the band itself (inside the tab-focus dim); the main loop calls this
+// after a page slide, which clears that layer. Draws nothing while the content is dimmed or the context menu is open.
 void GameList_renderInfoLayer(void);
 // The current screen's main menu style (MENU_STYLE_*): a root tab's Layouts row, or the game lists' row. Home →
 // MENU_STYLE_LIST (Home draws itself).
 int GameList_currentStyle(void);
+// The current screen's effective orientation (MENU_ORIENT_*), alongside GameList_currentStyle: a root tab's
+// orientation row while that tab is Carousel, the game lists' row while they are Carousel or Backdrop, otherwise
+// (List, Grid, Home) Horizontal. Vertical draws the stack (stackview.h), on the main menu and in game lists.
+int GameList_currentOrientation(void);
 // A folder game: an ENTRY_DIR under Roms holding its folder-named .cue/.m3u (stats the disk: cache the answer).
 bool GameList_entryIsFolderGame(Entry* entry);
 // The List rows' text start: the 24 dp gutter on the main menu, the 14 dp list inset in game lists.

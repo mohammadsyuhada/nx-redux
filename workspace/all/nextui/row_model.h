@@ -25,10 +25,18 @@ typedef struct {
 // never below the spec-scaled size (a block that still doesn't fit clamps under the header, see Row_top).
 void Row_fitBoxSlot(RowSizes* s, RowKind k, float body_h, float room, float caption_gap, float caption_h);
 RowItem Row_item(const RowSizes* s, RowKind k, float index, float pos);
+// A frameless item's alpha d steps from the selection (Backdrop's and the main-menu Carousel's, both orientations):
+// 1 − 0.5·d up to one step, then max(0.2, 0.5 − 0.12·(d − 1)), faded out over 3..4 steps (0 from 4 on).
+float Row_slotAlpha(float d);
 void Row_visibleRange(int n, float pos, int* first, int* last); // items with d < 4, clamped; last < first when n == 0
 // Block placement: returns the row's top y (dp). caption_h 0 = no caption reserved. room = ring/shadow room under/over.
 float Row_top(float body_top, float body_h, float row_h, float room, float caption_gap, float caption_h);
 float Row_shade(float y_frac); // the monotone cubic through the six keys
+// The Backdrop picture (§8b.4, Horizontal and Vertical): a uniform black layer at ROW_BACKDROP_DIM over the
+// screenshot, inside the crossfade (each layer carries it), then the shade on top. Row_backdropGain is what's left of
+// the screenshot's brightness at y_frac: (1 − dim) · (1 − shade), so at least 72% dark everywhere (0.35 × 0.8).
+#define ROW_BACKDROP_DIM 0.65f // was 0.5 until 2026-10-02
+float Row_backdropGain(float y_frac);
 
 // The main-menu Carousel's "N games" line (sub-project 8). It has no caption block: each row is centred alone between
 // the tab row and the hint bar (Row_top with no caption).
@@ -64,6 +72,14 @@ typedef struct {
 	int name_y, name_h, count_y, block_h;
 } RowCollText;
 RowCollText Row_collText(int slot_h, int lines, int line_h, int gap, int count_h);
+// The Vertical stack's Collections slot (§8f.3): nothing spills out of it. A name block of `lines` (clamped to
+// 1..ROW_COLL_LINES) at the 1.15 step of a font_px font, plus the reserved count line (gap + count_h), in px.
+int Row_collBlockH(int font_px, int lines, int gap, int count_h);
+// The name's size (sp) that fits: from `sp` down in whole sp (sp itself, then ceil(sp) − 1, …), the first whose block
+// (lines_at(size, ctx) lines, measured as wrapped, at floor(size · px_per_sp + 0.5) px) fits slot_h with the count
+// line; below the name's usual floor if needed, never below min_sp (returned when nothing fits).
+float Row_collFitSlotSp(float sp, float min_sp, float px_per_sp, int slot_h, int gap, int count_h,
+						int (*lines_at)(float sp, void* ctx), void* ctx);
 // Separable box blur of an 8-bit alpha buffer, `passes` times with radius r (in px). In place via tmp (same size).
 void Row_boxBlurAlpha(unsigned char* a, unsigned char* tmp, int w, int h, int r, int passes);
 

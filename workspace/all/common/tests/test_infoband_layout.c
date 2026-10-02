@@ -1,4 +1,5 @@
 #include "../../nextui/infoband_layout.h"
+#include "ui_hintbar_layout.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -17,65 +18,96 @@ static void brick_3x(void) { // 768 px tall, bar 84, rows 90 px, text 36 px, dp2
 #define BAR(s) ((16 + 6 * 2) * (s))		// the hint bar and the tab row: SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2)
 #define GLYPH_TOP(s) (BAR(s) - 6 * (s)) // the hint glyphs' top, from the screen bottom (UI_buttonHintIconTop)
 
-// The main-menu List on one screen: the list 12 dp under the tab row, a 26 dp band (18 dp line, 4 dp each side) with
-// its bottom 12 dp inside the hint bar, whole rows only. `font_h` is font.small's height (the old band's text line).
-static void main_menu_screen(int screen_h, int s, int font_h, int rows_before, int rows_after) {
-	int bar = BAR(s), row_h = 30 * s; // SCALE1(PILL_SIZE)
-	InfoBandLayout l = InfoBand_fixedLayout(screen_h, bar, bar + DP(12, s), row_h, DP(18, s), DP(4, s), DP(12, s));
-	assert(l.list_top == bar + DP(12, s));							// 12 dp below the tab row
-	assert(l.fill_bottom == screen_h - bar);						// the 80% fill stops at the bar's edge
-	assert(l.band_bottom == screen_h - bar + DP(12, s));			// 12 dp inside the bar
+#define INK_TOP(s) InfoBand_hintInkTop(BAR(s), 16 * (s)) // the real helper, as gamelist.c calls it
+
+// nxListFit: n = max(2, floor(slot / (0.95 * pitch))), rows of floor(slot / n) whole px, the leftover below the last
+// row. A row shrinks by up to 5% rather than lose a row to a pixel-level shortfall, and grows as needed otherwise.
+static void list_fit(void) {
+	int row = 0;
+	assert(InfoBand_listFit(535, 90, &row) == 6 && row == 89);	// 535 / 85.5 = 6.26: 6 rows, 1 px left (was 5)
+	assert(InfoBand_listFit(561, 90, &row) == 6 && row == 93);	// 6.56: 6, 3 px left
+	assert(InfoBand_listFit(565, 60, &row) == 9 && row == 62);	// 565 / 57 = 9.91: 9, 7 px left
+	assert(InfoBand_listFit(582, 60, &row) == 10 && row == 58); // 10.21: 10, 2 px left (was 9)
+	assert(InfoBand_listFit(540, 90, &row) == 6 && row == 90);	// an exact fit keeps the pitch
+	// the 5% boundary: exactly 0.95 pitch per row still fits, one px less drops the row
+	assert(InfoBand_listFit(342, 60, &row) == 6 && row == 57); // 6 x 57 = 6 x 0.95 x 60
+	assert(InfoBand_listFit(341, 60, &row) == 5 && row == 68);
+	assert(InfoBand_listFit(513, 90, &row) == 6 && row == 85); // 6 x 85.5 = 513: rows of 85 px, 3 px left
+	assert(InfoBand_listFit(512, 90, &row) == 5 && row == 102);
+	assert(InfoBand_listFit(100, 90, &row) == 2 && row == 50); // at least 2, even when they shrink further
+	assert(InfoBand_listFit(0, 90, &row) == 2 && row == 0);
+	for (int slot = 120; slot <= 800; slot++)
+		for (int pitch = 40; pitch <= 100; pitch += 10) {
+			int n = InfoBand_listFit(slot, pitch, &row);
+			assert(n >= 2 && n * row <= slot && slot - n * row < n); // whole px, never past the slot, under n left
+			if (slot * 20 >= 2 * pitch * 19) {
+				assert(row * 20 >= pitch * 19 - 20);	  // never more than 5% (and the floor's px) short of the pitch
+				assert((n + 1) * pitch * 19 > slot * 20); // and one more row would shrink them past 5%
+			}
+		}
+}
+
+// The band's bottom reaches into the bar only down to the glyphs' ink: min(12 dp, ink top).
+static void overlap_from_ink_top(void) {
+	// the ink top is the bar's padding over its centred BUTTON_SIZE icons, plus the glyphs' (zero) margin
+	assert(INFOBAND_HINT_GLYPH_INK_MARGIN == 0);
+	// one centring for the bar's icons (UI_hintBarIconOffset): the ink top and UI_buttonHintIconTop agree by construction
+	assert(UI_hintBarIconOffset(BAR(3), 16 * 3) == BAR(3) - GLYPH_TOP(3));
+	assert(UI_hintBarIconOffset(BAR(2), 16 * 2) == BAR(2) - GLYPH_TOP(2));
+	assert(InfoBand_hintInkTop(BAR(3), 16 * 3) == UI_hintBarIconOffset(BAR(3), 16 * 3) + INFOBAND_HINT_GLYPH_INK_MARGIN);
+	assert(InfoBand_hintInkTop(84, 48) == 18 && InfoBand_hintInkTop(56, 32) == 12);
+	assert(InfoBand_hintInkTop(BAR(3), 16 * 3) == 6 * 3 && InfoBand_hintInkTop(BAR(2), 16 * 2) == 6 * 2); // BUTTON_MARGIN
+	assert(INK_TOP(3) == 18 && InfoBand_overlap(DP(12, 3), INK_TOP(3)) == 18);							  // Brick: ink 18 px < 12 dp (26 px)
+	assert(INK_TOP(2) == 12 && InfoBand_overlap(DP(12, 2), INK_TOP(2)) == 12);							  // Smart Pro S: ink 12 px < 12 dp (17)
+	assert(InfoBand_overlap(26, 40) == 26);																  // a deep bar: the 12 dp cap
+	assert(InfoBand_overlap(26, -3) == 0);
+}
+
+// One List screen (list_top: 12 dp under the tab row on the main menu, right under the header on a game list): a 26 dp
+// band (18 dp line, 4 dp each side) its bottom min(12 dp, ink top) inside the hint bar, whole px rows above it.
+// `rows_before` is the former count: whole PILL_SIZE rows down to a band whose bottom sat a flat 12 dp inside the bar.
+static InfoBandLayout list_screen(const char* what, int screen_h, int s, int list_top, int rows_before, int rows_after,
+								  int row_after) {
+	int bar = BAR(s), pitch = 30 * s; // SCALE1(PILL_SIZE)
+	int overlap = InfoBand_overlap(DP(12, s), INK_TOP(s));
+	InfoBandLayout l = InfoBand_fixedLayout(screen_h, bar, list_top, pitch, DP(18, s), DP(4, s), overlap);
+	assert(l.list_top == list_top);
+	assert(l.fill_bottom == screen_h - bar);						// the 80% fill covers only the part above the bar
+	assert(l.band_bottom == screen_h - bar + overlap);				// the band reaches into the bar to the ink top
 	assert(l.band_bottom - l.band_top == DP(18, s) + 2 * DP(4, s)); // 26 dp tall
 	assert(l.text_top == l.band_top + DP(4, s) && l.text_h == DP(18, s));
-	assert(l.text_top + l.text_h + DP(4, s) == l.band_bottom);
-	// the text line stays clear of the hint glyphs (they start BUTTON_MARGIN below the bar's top)
-	assert(l.text_top + l.text_h <= screen_h - GLYPH_TOP(s));
-	// whole rows only: the last row ends at or above the band's top, and one more would cross it
-	assert(l.rows == (l.band_top - l.list_top) / row_h);
-	assert(l.list_top + l.rows * row_h <= l.band_top);
-	assert(l.list_top + (l.rows + 1) * row_h > l.band_top);
-	assert(l.rows == rows_after);
-	// before: rows under the tab row, ending on the band's text line, the band sitting on the bar
-	InfoBandLayout b = InfoBand_layout(screen_h, bar, bar, row_h, font_h, DP(2, s), DP(12, s));
-	assert(b.rows == rows_before);
-	assert(b.fill_bottom == b.band_bottom && b.band_bottom == screen_h - bar);
-	printf("  %dpx tall at %dx: main-menu rows %d -> %d (list %d..%d, band %d..%d, fill to %d)\n", screen_h, s,
-		   b.rows, l.rows, l.list_top, l.list_top + l.rows * row_h, l.band_top, l.band_bottom, l.fill_bottom);
+	assert(l.band_bottom <= screen_h - GLYPH_TOP(s)); // never past the glyphs' ink
+	// whole px rows filling the slot down to the band's top, the leftover (under one px per row) below the last
+	int slot = l.band_top - l.list_top;
+	assert(l.rows >= 2 && l.rows == slot * 20 / (pitch * 19));
+	assert(l.row_h == slot / l.rows && l.list_top + l.rows * l.row_h <= l.band_top);
+	assert(slot - l.rows * l.row_h < l.rows);
+	assert(l.rows == rows_after && l.row_h == row_after);
+	// before: PILL_SIZE rows down to a band 12 dp inside the bar
+	int old_top = screen_h - bar + DP(12, s) - (DP(18, s) + 2 * DP(4, s));
+	assert((old_top - list_top) / pitch == rows_before);
+	printf("  %dpx tall at %dx, %s: rows %d -> %d (row %d -> %d px, list %d..%d + %d px left, band %d..%d, fill to "
+		   "%d, overlap %d)\n",
+		   screen_h, s, what, rows_before, l.rows, pitch, l.row_h, l.list_top, l.list_top + l.rows * l.row_h,
+		   slot - l.rows * l.row_h, l.band_top, l.band_bottom, l.fill_bottom, overlap);
+	return l;
 }
 
-static void main_menu_fixed_band(void) {
-	// Brick 1024x768 at 3x: bar 84, list 110, band 653..710 (text 662..701, glyphs from 702), rows 6 -> 6
-	main_menu_screen(768, 3, 48, 6, 6);
-	InfoBandLayout brick = InfoBand_fixedLayout(768, 84, 110, 90, 39, 9, 26);
-	assert(brick.band_top == 653 && brick.band_bottom == 710 && brick.text_top == 662 && brick.rows == 6);
-	// Smart Pro S 1280x720 at 2x: bar 56, list 73, band 643..681 (text 649..675, glyphs from 676), rows 9 -> 9
-	main_menu_screen(720, 2, 32, 9, 9);
-	InfoBandLayout sps = InfoBand_fixedLayout(720, 56, 73, 60, 26, 6, 17);
-	assert(sps.band_top == 643 && sps.band_bottom == 681 && sps.text_top == 649 && sps.rows == 9);
+static void list_screens(void) {
+	// Brick 1024x768 at 3x: bar 84, ink 18, band 645..702 (text 654..693, glyphs from 702)
+	InfoBandLayout bm = list_screen("main menu", 768, 3, BAR(3) + DP(12, 3), 6, 6, 89); // slot 535: 6.26 at 95%
+	assert(bm.band_top == 645 && bm.band_bottom == 702 && bm.text_top == 654 && bm.list_top == 110);
+	InfoBandLayout bg = list_screen("game list", 768, 3, BAR(3), 6, 6, 93); // slot 561
+	assert(bg.band_top == 645 && bg.list_top == 84);
+	// Smart Pro S 1280x720 at 2x: bar 56, ink 12, band 638..676 (text 644..670, glyphs from 676)
+	InfoBandLayout sm = list_screen("main menu", 720, 2, BAR(2) + DP(12, 2), 9, 9, 62); // slot 565
+	assert(sm.band_top == 638 && sm.band_bottom == 676 && sm.text_top == 644 && sm.list_top == 73);
+	list_screen("game list", 720, 2, BAR(2), 9, 10, 58); // slot 582: 10.21 at 95%
 	// the band never depends on the list length: the same inputs, the same band (no count argument at all)
-	InfoBandLayout again = InfoBand_fixedLayout(720, 56, 73, 60, 26, 6, 17);
-	assert(again.band_top == sps.band_top && again.rows == sps.rows);
-	// at least one row on a cramped screen
-	assert(InfoBand_fixedLayout(200, 56, 73, 60, 26, 6, 17).rows == 1);
-}
-
-// A game-list List: rows right under the header (as before), down to the same fixed band in whole rows.
-static void game_list_screen(int screen_h, int s, int font_h, int rows_before, int rows_after) {
-	int bar = BAR(s), row_h = 30 * s;
-	InfoBandLayout l = InfoBand_fixedLayout(screen_h, bar, bar, row_h, DP(18, s), DP(4, s), DP(12, s));
-	assert(l.list_top == bar); // the list top is unchanged
-	assert(l.band_bottom == screen_h - bar + DP(12, s) && l.fill_bottom == screen_h - bar);
-	assert(l.list_top + l.rows * row_h <= l.band_top && l.list_top + (l.rows + 1) * row_h > l.band_top);
-	assert(l.rows == rows_after);
-	InfoBandLayout b = InfoBand_layout(screen_h, bar, bar, row_h, font_h, DP(2, s), DP(12, s));
-	assert(b.rows == rows_before);
-	printf("  %dpx tall at %dx: game-list rows %d -> %d (list %d..%d, band %d..%d)\n", screen_h, s, b.rows, l.rows,
-		   l.list_top, l.list_top + l.rows * row_h, l.band_top, l.band_bottom);
-}
-
-static void game_list_fixed_band(void) {
-	game_list_screen(768, 3, 48, 6, 6); // Brick: list 84..624, band 653..710
-	game_list_screen(720, 2, 32, 9, 9); // SPS: list 56..596, band 643..681
+	InfoBandLayout again = InfoBand_fixedLayout(720, 56, 73, 60, 26, 6, 12);
+	assert(again.band_top == sm.band_top && again.rows == sm.rows && again.row_h == sm.row_h);
+	// at least two rows on a cramped screen
+	assert(InfoBand_fixedLayout(200, 56, 73, 60, 26, 6, 12).rows == 2);
 }
 
 static void layout_independent_of_text(void) {
@@ -203,8 +235,9 @@ int main(void) {
 	fit_next_gives_way_before_the_time();
 	fit_count_line_is_cut();
 	brick_3x();
-	main_menu_fixed_band();
-	game_list_fixed_band();
+	list_fit();
+	overlap_from_ink_top();
+	list_screens();
 	layout_independent_of_text();
 	at_least_one_row();
 	cut_whole_code_points();

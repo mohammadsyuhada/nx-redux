@@ -306,6 +306,60 @@ static void collections_text(void) {
 	}
 }
 
+// The Vertical stack's Collections slot (§8f.3, 100 dp): the name shrinks in whole sp until its block and the reserved
+// count line fit. Brick (scale 3): slot 214 px, 6 dp gap 13 px, 2.571 px/sp, the 14 sp count's line ~50 px (36 px
+// font). SPS (scale 2): slot 143 px, gap 9 px, 1.714 px/sp, count line ~34 px (24 px font).
+static int two_lines(float sp, void* ctx) {
+	(void)sp, (void)ctx;
+	return 2;
+}
+static int one_line(float sp, void* ctx) {
+	(void)sp, (void)ctx;
+	return 1;
+}
+static int wraps_above(float sp, void* ctx) { // a name on two lines above *ctx sp, one line at or below it
+	return sp > *(float*)ctx ? 2 : 1;
+}
+#define BRICK_PX_SP (3 * 12.0f / 14.0f)
+#define SPS_PX_SP (2 * 12.0f / 14.0f)
+
+static void collections_fit_slot(void) {
+	// the block: lines × round(font × 1.15), the gap, the count line
+	assert(Row_collBlockH(77, 2, 13, 50) == 2 * 89 + 13 + 50); // 30 sp on the Brick: 241 > 214, it spills
+	assert(Row_collBlockH(77, 1, 13, 50) == 89 + 13 + 50);
+	assert(Row_collBlockH(77, 5, 13, 50) == Row_collBlockH(77, 2, 13, 50)); // at most two lines
+	// a long two-line name on the Brick: 30 → 25 sp (64 px, step 74: 148 + 13 + 50 = 211 ≤ 214; 26 sp is 217)
+	float sp = Row_collFitSlotSp(30, 10, BRICK_PX_SP, 214, 13, 50, two_lines, NULL);
+	assert(near(sp, 25, 1e-4f));
+	assert(Row_collBlockH((int)floorf(sp * BRICK_PX_SP + 0.5f), 2, 13, 50) <= 214);
+	assert(Row_collBlockH((int)floorf(26 * BRICK_PX_SP + 0.5f), 2, 13, 50) > 214);
+	// with a 48 px count line (the other system font): still within 214
+	sp = Row_collFitSlotSp(30, 10, BRICK_PX_SP, 214, 13, 48, two_lines, NULL);
+	assert(Row_collBlockH((int)floorf(sp * BRICK_PX_SP + 0.5f), 2, 13, 48) <= 214 && sp >= 25);
+	// a one-line name keeps its 30 sp (89 + 13 + 50 = 152)
+	assert(near(Row_collFitSlotSp(30, 10, BRICK_PX_SP, 214, 13, 50, one_line, NULL), 30, 1e-4f));
+	// a name that drops to one line as it shrinks stops there: two lines at 28+ (166 + 63 > 214), one at 27
+	float at = 27.5f;
+	assert(near(Row_collFitSlotSp(30, 10, BRICK_PX_SP, 214, 13, 50, wraps_above, &at), 27, 1e-4f));
+	// SPS: a two-line name 30 → 25 sp (43 px, step 49: 98 + 9 + 34 = 141 ≤ 143; 26 sp is 147)
+	sp = Row_collFitSlotSp(30, 10, SPS_PX_SP, 143, 9, 34, two_lines, NULL);
+	assert(near(sp, 25, 1e-4f) && Row_collBlockH((int)floorf(sp * SPS_PX_SP + 0.5f), 2, 9, 34) <= 143);
+	assert(near(Row_collFitSlotSp(30, 10, SPS_PX_SP, 143, 9, 34, one_line, NULL), 30, 1e-4f)); // 59 + 43 = 102
+	// a fractional start steps to whole sp; nothing fits → the minimum
+	assert(near(Row_collFitSlotSp(25.5f, 10, BRICK_PX_SP, 214, 13, 50, two_lines, NULL), 25, 1e-4f));
+	assert(near(Row_collFitSlotSp(30, 10, BRICK_PX_SP, 60, 13, 50, two_lines, NULL), 10, 1e-4f));
+}
+
+// The Backdrop picture's dim is 65% (2026-10-02, was 50%), under the shade: at least 72% dark everywhere.
+static void backdrop_dim(void) {
+	assert(near(ROW_BACKDROP_DIM, 0.65f, 1e-6f));
+	assert(near(Row_backdropGain(0.32f), 0.35f * 0.8f, 1e-4f)); // the shade's lightest key (0.20)
+	assert(near(Row_backdropGain(0.0f), 0.35f * 0.15f, 1e-4f));
+	assert(near(Row_backdropGain(1.0f), 0.35f * 0.2f, 1e-4f));
+	for (int i = 0; i <= 100; i++)
+		assert(Row_backdropGain(i / 100.0f) <= 0.28f + 1e-4f);
+}
+
 int main(void) {
 	box_slot_fits_caption();
 	sizes();
@@ -313,6 +367,7 @@ int main(void) {
 	visible_range_small();
 	placement();
 	shade_monotone();
+	backdrop_dim();
 	blur();
 	main_menu_sizes();
 	main_menu_centring();
@@ -320,6 +375,7 @@ int main(void) {
 	collections_name_size();
 	collections_long_name();
 	collections_text();
+	collections_fit_slot();
 	printf("test_row_model: ok\n");
 	return 0;
 }

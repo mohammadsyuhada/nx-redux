@@ -75,7 +75,62 @@ static void rebase(void) {
 	assert(MenuTransition_rebaseStart(0xFFFFFFF0u, 0x00000005u, 33) == 0xFFFFFFF0u);
 }
 
+// Tab focus: the content dims 1 -> 0.4 over 180 ms with UI_easeStandard, and back the same way.
+static void dim_in_and_out(void) {
+	MenuTransitionDim d = {0};
+	assert(near(MenuTransition_dimAlpha(&d, 0), 1.0f, 1e-6f) && !MenuTransition_dimStep(&d, 0)); // zeroed: lit, idle
+	MenuTransition_dimAim(&d, true, 1000, true);
+	assert(near(MenuTransition_dimAlpha(&d, 1000), 1.0f, 1e-4f));
+	assert(near(MenuTransition_dimAlpha(&d, 1090), 1.0f - 0.6f * UI_easeStandard(0.5f), 1e-4f));
+	assert(near(MenuTransition_dimAlpha(&d, 1180), 0.4f, 1e-6f));
+	float prev = 1.0f;
+	for (uint32_t t = 1000; t <= 1180; t += 5) { // monotonic down
+		float a = MenuTransition_dimAlpha(&d, t);
+		assert(a <= prev + 1e-6f && a >= 0.4f - 1e-6f);
+		prev = a;
+	}
+	// the keep-alive: true while it runs, once more on the frame its time is up, then false
+	assert(MenuTransition_dimStep(&d, 1100));
+	assert(MenuTransition_dimStep(&d, 1180));
+	assert(!MenuTransition_dimStep(&d, 1196));
+	assert(near(MenuTransition_dimAlpha(&d, 5000), 0.4f, 1e-6f)); // settled: stays at 40%
+	// the same aim again changes nothing
+	MenuTransition_dimAim(&d, true, 6000, true);
+	assert(!d.active && near(MenuTransition_dimAlpha(&d, 6000), 0.4f, 1e-6f));
+	// back to the content: 0.4 -> 1 over 180 ms, the same curve
+	MenuTransition_dimAim(&d, false, 7000, true);
+	assert(near(MenuTransition_dimAlpha(&d, 7000), 0.4f, 1e-4f));
+	assert(near(MenuTransition_dimAlpha(&d, 7090), 0.4f + 0.6f * UI_easeStandard(0.5f), 1e-4f));
+	assert(near(MenuTransition_dimAlpha(&d, 7180), 1.0f, 1e-6f));
+}
+
+// A reversal mid-way starts from where the dim is (no jump); animations off snaps.
+static void dim_reverse_and_snap(void) {
+	MenuTransitionDim d = {0};
+	MenuTransition_dimAim(&d, true, 0, true);
+	float mid = MenuTransition_dimAlpha(&d, 60);
+	MenuTransition_dimAim(&d, false, 60, true);
+	assert(near(MenuTransition_dimAlpha(&d, 60), mid, 1e-4f));
+	assert(MenuTransition_dimAlpha(&d, 100) > mid);
+	assert(near(MenuTransition_dimAlpha(&d, 240), 1.0f, 1e-6f));
+	MenuTransitionDim s = {0};
+	MenuTransition_dimAim(&s, true, 0, false);
+	assert(!s.active && near(MenuTransition_dimAlpha(&s, 0), 0.4f, 1e-6f) && !MenuTransition_dimStep(&s, 0));
+	// snapping a running tween to the aim it already has
+	MenuTransitionDim r = {0};
+	MenuTransition_dimAim(&r, true, 0, true);
+	MenuTransition_dimAim(&r, true, 50, false);
+	assert(!r.active && near(MenuTransition_dimAlpha(&r, 50), 0.4f, 1e-6f));
+	// across a tick wrap
+	MenuTransitionDim w = {0};
+	MenuTransition_dimAim(&w, true, 0xFFFFFFA0u, true);
+	assert(MenuTransition_dimAlpha(&w, 0x00000014u) > 0.4f);			 // 116 ms in, across the wrap: still moving
+	assert(near(MenuTransition_dimAlpha(&w, 0x00000054u), 0.4f, 1e-6f)); // 180 ms in
+}
+
 int main(void) {
+	dim_in_and_out();
+	dim_reverse_and_snap();
 	exit_begin();
 	exit_runs_out();
 	exit_key_finishes();

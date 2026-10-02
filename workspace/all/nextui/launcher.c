@@ -510,7 +510,7 @@ void openDirectory(char* path, int auto_launch) {
 		openRom(auto_path, path);
 		return;
 	}
-	MenuTabs_setFocused(false); // a list opens (pushed or rebuilt): B back to the root returns to the content
+	MenuTabs_leaveFocus(); // a list opens (pushed or rebuilt): B back to the root returns to the lit content
 
 	char m3u_path[MAX_PATH];
 	if (hasFolderM3u(path, m3u_path) && auto_launch) {
@@ -592,7 +592,7 @@ void closeDirectory(void) {
 }
 
 void Entry_open(Entry* self) {
-	MenuTabs_setFocused(false); // any launch or open: the content has focus when the menu shows again
+	MenuTabs_leaveFocus(); // any launch or open: the content has focus, lit, when the menu shows again
 	Recents_setAlias(self->name);
 	if (self->type == ENTRY_ROM) {
 		startgame = true;

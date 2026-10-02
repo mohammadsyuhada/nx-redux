@@ -32,7 +32,6 @@ enum { KIND_CONTINUE,
 	   KIND_BOXART,
 	   KIND_BACKDROP };
 
-#define BACKDROP_DIM 0.5f // black over the screenshot before the shade
 #define SHADOW_ALPHA 0.5f // the shadow is the art's alpha at 50%
 #define SHADOW_OFFSET_DP 4
 #define SHADOW_BLUR_DP 8 // ~ Gaussian extent, as 3 box passes of radius blur/3
@@ -270,8 +269,8 @@ static SDL_Surface* buildBoxart(const char* rom, int w, int h, int* ox, int* oy)
 	return out;
 }
 
-// The Backdrop picture: the screenshot cropped to fill w×h (centred), dimmed 50%, then each row darkened by the shade
-// curve. Opaque.
+// The Backdrop picture: the screenshot cropped to fill w×h (centred), dimmed 65% (ROW_BACKDROP_DIM), then each row
+// darkened by the shade curve (Row_backdropGain). Opaque.
 static SDL_Surface* buildBackdrop(const char* rom, int w, int h) {
 	HomeArtRect keep = {0};
 	SDL_Surface* src = screenshotFor(rom, &keep);
@@ -283,8 +282,7 @@ static SDL_Surface* buildBackdrop(const char* rom, int w, int h) {
 	Uint32* dp = out->pixels;
 	int dpitch = out->pitch / 4;
 	for (int y = 0; y < h; y++) {
-		float shade = Row_shade(h > 1 ? (float)y / (h - 1) : 0.0f); // once per row
-		int k = (int)((1.0f - BACKDROP_DIM) * (1.0f - shade) * 256.0f + 0.5f);
+		int k = (int)(Row_backdropGain(h > 1 ? (float)y / (h - 1) : 0.0f) * 256.0f + 0.5f); // once per row
 		Uint32* row = dp + y * dpitch;
 		for (int x = 0; x < w; x++) {
 			Uint32 px = row[x];

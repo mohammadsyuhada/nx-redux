@@ -396,9 +396,6 @@ static bool drawTile(SDL_Surface* screen, const char* path, SDL_Rect r, const Ti
 	const SDL_Rect* clip = &screen->clip_rect;
 	if (x >= clip->x + clip->w || x + sw <= clip->x || y >= clip->y + clip->h || y + sh <= clip->y)
 		return false;
-	float cap = lit; // the lit caption stays as it is while the tab row has focus; the lit look shows at 40%
-	if (stack && stack->count == 1)
-		lit *= MenuTabs_contentLit();
 	SDL_Surface* plain = lit < 1.0f ? cachedTile(path, r.w, r.h, t, false) : NULL;
 	SDL_Surface* lit_s = lit > 0.0f ? cachedTile(path, r.w, r.h, t, true) : NULL;
 	if ((lit < 1.0f && !plain) || (lit > 0.0f && !lit_s)) {
@@ -413,8 +410,8 @@ static bool drawTile(SDL_Surface* screen, const char* path, SDL_Rect r, const Ti
 		UI_blitOpaque(lit_s, NULL, 0, 0, sw, sh, screen, x, y, 255);
 	else
 		UI_blitOpaque(lit_s, plain, 0, 0, sw, sh, screen, x, y, (int)(lit * 255.0f + 0.5f));
-	if (cap > 0.0f)
-		Tiles_drawCaption(screen, r, t, cap);
+	if (lit > 0.0f)
+		Tiles_drawCaption(screen, r, t, lit);
 	return true;
 }
 
