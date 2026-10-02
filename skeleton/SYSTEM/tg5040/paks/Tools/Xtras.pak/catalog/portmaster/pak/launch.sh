@@ -11,11 +11,13 @@
 #   - NxRedux patches re-applied BEFORE and AFTER every run (pugwash's
 #     first_run / self-update overwrite them): control.txt, device_info.txt
 #     and hardware.py (Smart Pro S + Brick Pro detection), platform.py
-#     (paths + portmaster_install disabled), mod_TrimUI.txt (HOME)
+#     (paths + portmaster_install disabled), mod_TrimUI.txt (HOME),
+#     pugwash (800x600 UI on the Brick / Brick Pro)
 #   - pugwash loop: honours .pugwash-reboot, retries once when a fresh
 #     pylibs extraction crashed it before the patches landed
-#   - Xbox pad map while pugwash runs (its XBOX FIXER assumes it), the
-#     user's Button layout setting restored afterwards
+#   - pad map while pugwash runs is the opposite of the Button layout
+#     setting (its XBOX FIXER swaps A/B and X/Y on TrimUI), the user's
+#     setting restored afterwards
 #   - post-run: fix installed port scripts, apply patchedScripts/, recreate
 #     busybox wrappers, sync cover art to .media/, drop the launcher's list
 #     caches
@@ -174,11 +176,110 @@ patch_mod_trimui() {
     sed -i "s|/mnt/SDCARD/Data/home|$SHARED_USERDATA_PATH/PORTS-portmaster|g" "$PM_DIR/mod_TrimUI.txt"
 }
 
+# PortMaster 2026.09.19+ rewrote device_info.txt's host probe and dropped the
+# TrimUI firmware branch (`[ -d /usr/trimui ]` -> CFW_NAME=TrimUI). On TrimUI
+# CFW_NAME stays "Unknown": pugwash falls back to its default platform (no
+# Xbox A/B fix, so the PortMaster app's buttons come out inverted) and port
+# scripts skip mod_TrimUI.txt. Re-add it ahead of the os-release fallback,
+# naming the model from the launcher's $DEVICE and taking the firmware
+# version from /etc/version (as the old upstream probe did). No-op on
+# device_info files without those fallbacks (the older ones still detect
+# TrimUI themselves).
+# PortMaster caches the probe as device_info_<cfw>_<device>.env and reads a
+# cache before re-running the script, so a probe cached as "unknown" is
+# dropped, and the TrimUI caches are dropped whenever the script is patched.
+patch_device_info_trimui() { # $1 = device_info.txt
+    [ -d /usr/trimui ] || return 0
+    rm -f "${1%/*}"/device_info_unknown_*.env
+    grep -q 'NX Redux: TrimUI version' "$1" 2>/dev/null && return 0
+    grep -q '^if \[ "\$CFW_NAME" = "Unknown" \] && {' "$1" 2>/dev/null || return 0
+    grep -q '^if \[ "\$CFW_VERSION" = "Unknown" \] && {' "$1" 2>/dev/null || return 0
+    _nxname=0
+    grep -q 'NX Redux: TrimUI firmware' "$1" && _nxname=1
+    awk -v name="$_nxname" '
+        !name && /^if \[ "\$CFW_NAME" = "Unknown" \] && \{/ {
+            print "# NX Redux: TrimUI firmware (dropped from the upstream probe)"
+            print "if [ \"$CFW_NAME\" = \"Unknown\" ] && [ -d \"/usr/trimui\" ]; then"
+            print "    export CFW_NAME=\"TrimUI\""
+            print "    case \"$DEVICE\" in"
+            print "        brickpro) export DEVICE_NAME=\"TrimUI Brick Pro\" ;;"
+            print "        brick) export DEVICE_NAME=\"TrimUI Brick\" ;;"
+            print "        smartpros) export DEVICE_NAME=\"TrimUI Smart Pro S\" ;;"
+            print "        *) export DEVICE_NAME=\"TrimUI Smart Pro\" ;;"
+            print "    esac"
+            print "fi"
+            print ""
+            name = 1
+        }
+        !ver && /^if \[ "\$CFW_VERSION" = "Unknown" \] && \{/ {
+            print "# NX Redux: TrimUI version"
+            print "if [ \"$CFW_NAME\" = \"TrimUI\" ] && [ \"$CFW_VERSION\" = \"Unknown\" ] && [ -f /etc/version ]; then"
+            print "    export CFW_VERSION=\"$(tr -d \x27\\r\\n\x27 < /etc/version)\""
+            print "fi"
+            print ""
+            ver = 1
+        }
+        { print }
+    ' "$1" >"$1.nxtmp" && mv -f "$1.nxtmp" "$1"
+    rm -f "${1%/*}"/device_info_trimui_*.env
+}
+
+# The 2026.09.19+ probe counts analog sticks from the input devices and, on
+# device-tree systems, ignores virtual ones. TrimUI's pad is the virtual
+# "TRIMUI Player1" from trimui_inputd, so the Brick Pro's two sticks came out
+# as 0 (analog_0: stick ports flagged, ports set up without sticks); the older
+# "# GLIBC" hook for this no longer matches. Set them right after the probe's
+# own detection, before DEVICE_CAPABILITIES is built. The TrimUI probe cache
+# is dropped only when the script is patched.
+patch_device_info_brickpro_sticks() { # $1 = device_info.txt
+    [ -d /usr/trimui ] || return 0
+    grep -q 'NX Redux: Brick Pro sticks' "$1" 2>/dev/null && return 0
+    awk '
+        !done && prev ~ /^ *export ANALOG_STICKS$/ && /^ *export ANALOG_TRIGGERS$/ {
+            print
+            print "    # NX Redux: Brick Pro sticks (its pad is virtual, so the probe counts 0)"
+            print "    if [ \"$DEVICE\" = \"brickpro\" ] && [ -d /usr/trimui ]; then"
+            print "        export ANALOG_STICKS=2"
+            print "    fi"
+            done = 1; prev = $0; next
+        }
+        { print; prev = $0 }
+    ' "$1" >"$1.nxtmp" && mv -f "$1.nxtmp" "$1"
+    grep -q 'NX Redux: Brick Pro sticks' "$1" && rm -f "${1%/*}"/device_info_trimui_*.env
+}
+
+# pugwash runs device_info.txt itself when no probe cache exists, but gives
+# it 5 s; the 2026.09.19+ probe takes ~17 s on the Smart Pro S, so pugwash
+# gave up and ran as "unknown" (no Xbox A/B fix). Write the cache here first;
+# later runs read it in well under a second.
+warm_device_info_cache() {
+    [ -d /usr/trimui ] || return 0
+    grep -q 'NX Redux: TrimUI firmware' "$DI" 2>/dev/null || return 0
+    ls "$PM_DIR"/device_info_trimui_*.env >/dev/null 2>&1 && return 0
+    (cd "$PM_DIR" && controlfolder="$PM_DIR" NO_SDL_RESOLUTION=1 \
+        "$PM_DIR/bin/bash" "$DI" -f >/dev/null 2>&1)
+}
+
+# The theme's font sizes are pixels for a 640x480 screen and pugwash draws at
+# the native resolution, so on the Brick's 1024x768 3.2" panel text came out
+# at 62% of the intended size. Draw at 800x600 and let SDL scale the frame:
+# 1.28x larger text and layout, still clear of the overlaps the theme has at
+# 640x480 (long Runtime lines run into the port description).
+patch_pugwash_scale() {
+    case "$DEVICE" in brick|brickpro) ;; *) return 0 ;; esac
+    grep -q 'NX Redux: UI scale' "$PM_DIR/pugwash" 2>/dev/null && return 0
+    sed -i 's|^\( *\)renderer = sdl2.ext.Renderer(self.window, flags=sdl2.SDL_RENDERER_ACCELERATED)$|&\n\1renderer.logical_size = (800, 600)  # NX Redux: UI scale|' "$PM_DIR/pugwash"
+}
+
 apply_patches() {
+    patch_device_info_trimui "$DI"
+    patch_device_info_brickpro_sticks "$DI"
     patch_control_txt
     patch_device_info
     patch_platform_py
     patch_mod_trimui
+    patch_pugwash_scale
+    warm_device_info_cache
 }
 
 set_controller_layout() { # $1 = nintendo|xbox
@@ -247,8 +348,15 @@ sync_port_artwork() {
 
 # ---- run pugwash ----------------------------------------------------------
 
-apply_patches
-set_controller_layout xbox
+# pugwash's TrimUI XBOX FIXER swaps A/B and X/Y on top of the pad map, so it
+# gets the opposite map: Xbox map -> right button confirms (Nintendo),
+# Nintendo map -> bottom button confirms (Xbox).
+. "$SYSTEM_PATH/bin/nx_button_layout.sh"
+if [ "$NX_BUTTON_LAYOUT" = "xbox" ]; then
+    PUGWASH_LAYOUT=nintendo
+else
+    PUGWASH_LAYOUT=xbox
+fi
 
 export LD_LIBRARY_PATH="$SYSTEM_PATH/lib:$PM_DIR/lib:/usr/trimui/lib:/usr/lib:$LD_LIBRARY_PATH"
 export PATH="$SYSTEM_PATH/bin:$PM_DIR/bin:$SHARED_SYSTEM_PATH/bin:/usr/trimui/bin:$PATH"
@@ -266,9 +374,11 @@ cd "$PM_DIR" || exit 1
 rm -f .pugwash-reboot
 RETRIES=0
 while true; do
-    # platform.py before EVERY run: covers first_run (pylibs just
-    # extracted) and a self-update.
-    patch_platform_py
+    # Patches and pad map before EVERY run: first_run (pylibs just
+    # extracted) and a self-update replace platform.py, device_info.txt and
+    # gamecontrollerdb.txt, and pugwash restarts itself straight after.
+    apply_patches
+    set_controller_layout "$PUGWASH_LAYOUT"
     # The splash drew its frame; it must not keep painting over pugwash.
     # -9: show2 never drains SDL events, so SIGTERM is swallowed (see MinUI.pak/launch.sh)
     killall -9 show2.elf >/dev/null 2>&1
@@ -289,7 +399,6 @@ done
 # ---- after pugwash --------------------------------------------------------
 
 apply_patches
-. "$SYSTEM_PATH/bin/nx_button_layout.sh"
 set_controller_layout "$NX_BUTTON_LAYOUT"
 fix_port_scripts
 apply_patched_scripts

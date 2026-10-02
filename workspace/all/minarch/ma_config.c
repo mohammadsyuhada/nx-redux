@@ -881,7 +881,7 @@ void setOverclock(int i) {
 		// The hardware bounds span every online cpufreq policy, so a big-core cap
 		// on tg5050 isn't truncated to the little cluster's ceiling.
 		int hw_min, hw_max;
-		if (!PLAT_getCPUHwRangeKhz(&hw_min, &hw_max)) { // no cpufreq (desktop)
+		if (!PLAT_getCPUHwRangeKhz(&hw_min, &hw_max)) { // no cpufreq
 			PWR_setCPUSpeedAuto();
 			break;
 		}

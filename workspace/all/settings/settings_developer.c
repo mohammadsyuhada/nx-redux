@@ -209,9 +209,7 @@ static void* dotclean_thread(void* arg) {
 	// Build and run a shell command that finds and deletes macOS dot files
 	// Matches: .Spotlight-V100, .apDisk, .fseventsd, .TemporaryItems,
 	//          .Trash, .Trashes, ._*, .DS_Store, *_cache[0-9].db, __MACOSX
-	// The card root is a runtime value on desktop ($HOME/NXRedux, or
-	// NXREDUX_SDCARD), so a home folder with a space or apostrophe must be
-	// quoted for the shell like any other user-controlled path.
+	// The card root is quoted for the shell like any other path.
 	char sd_q[MAX_PATH * 4];
 	strncpy(sd_q, SDCARD_PATH, sizeof(sd_q) - 1);
 	sd_q[sizeof(sd_q) - 1] = '\0';

@@ -1126,8 +1126,6 @@ static int run_headless_scan(void) {
 }
 
 int main(int argc, char* argv[]) {
-	PATHS_init(PLATFORM);
-
 	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--fetch") == 0)
 			return run_headless_fetch(argc, argv);

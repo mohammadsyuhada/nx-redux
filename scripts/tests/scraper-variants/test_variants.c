@@ -4,9 +4,9 @@
 // the two device TUs are compiled with the host SDL2 + SDL2_image and driven
 // directly.
 //
-// SHARED_USERDATA_PATH is the PATHS_SHARED_USERDATA runtime array under
-// HAS_RUNTIME_PATHS (paths.c, linked in); main() points it at the scratch
-// directory this test is handed.
+// SHARED_USERDATA_PATH resolves under the scratch card the test script bakes
+// in with -DHOSTTEST_SDCARD (scripts/tests/hostplat/platform.h); the script
+// passes that directory in.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,7 +14,6 @@
 
 #include "scraper_core.h"		// Scraper_variantPath
 #include "scraper_compositor.h" // Compositor_create, Compositor_createSingle
-#include "paths.h"				// PATHS_SHARED_USERDATA
 
 static int failures = 0;
 #define CHECK(cond, msg)                \
@@ -47,12 +46,11 @@ int main(int argc, char** argv) {
 		return 2;
 	}
 	const char* dir = argv[1];
-	snprintf(PATHS_SHARED_USERDATA, sizeof(PATHS_SHARED_USERDATA), "%s", dir);
 
 	SDL_Init(0); // headless: no video, like run_headless_fetch
 
 	// --- 1. Variant paths ---
-	char vp[PATHS_MAX];
+	char vp[512];
 	Scraper_variantPath("/a/b/.media/Game Name.png", "screenshot", vp, sizeof(vp));
 	CHECK(strcmp(vp, "/a/b/.media/screenshot/Game Name.png") == 0,
 		  "variantPath screenshot splices the subfolder");
@@ -67,7 +65,7 @@ int main(int argc, char** argv) {
 	CHECK(strcmp(vp, "screenshot/Game.png") == 0, "variantPath without a slash");
 
 	// --- 2. Compositor_createSingle ---
-	char land[PATHS_MAX], port[PATHS_MAX];
+	char land[512], port[512];
 	snprintf(land, sizeof(land), "%s/land.png", dir);
 	snprintf(port, sizeof(port), "%s/port.png", dir);
 	if (!make_png(land, 800, 600) || !make_png(port, 300, 600)) {

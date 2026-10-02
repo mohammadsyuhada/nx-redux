@@ -23,11 +23,9 @@
 
 static void rat_badge_path(const char* badge_name, bool locked, char* buf, size_t n) {
 	// naming matches ra_badges.c: <name>.png / <name>_lock.png
-	// RA_BADGE_CACHE_DIR (ra_badges.h) is SHARED_USERDATA_PATH "/.ra/badges",
-	// which is no longer adjacent-string-literal-concatenable now that
-	// SHARED_USERDATA_PATH is a runtime array on desktop builds -- spell the
-	// same path out with snprintf instead (byte-identical to the macro on
-	// device, mirroring how ra_badges.c itself builds this same directory).
+	// RA_BADGE_CACHE_DIR (ra_badges.h) is SHARED_USERDATA_PATH "/.ra/badges";
+	// spell the same path out with snprintf, mirroring how ra_badges.c itself
+	// builds this same directory.
 	if (locked)
 		snprintf(buf, n, "%s/.ra/badges/%s_lock.png", SHARED_USERDATA_PATH, badge_name);
 	else

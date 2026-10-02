@@ -32,9 +32,19 @@ export PYSDL2_DLL_PATH="/usr/trimui/lib"
 export HOME="$SHARED_USERDATA_PATH/PORTS-portmaster"
 # Copy audio config so ALSA finds Bluetooth/USB DAC routing (audiomon writes to USERDATA_PATH)
 [ -f "$USERDATA_PATH/.asoundrc" ] && cp "$USERDATA_PATH/.asoundrc" "$HOME/.asoundrc"
-# Point XDG_DATA_HOME to PortMaster's parent so port scripts find it directly
-# (port scripts check: elif [ -d "$XDG_DATA_HOME/PortMaster/" ])
-export XDG_DATA_HOME="$SDCARD_PATH/Emus/shared"
+# The standard XDG data home, as on other PortMaster platforms: games inherit it
+# and keep their data under ~/.local/share/<game>, which is where port scripts
+# bind_directories their save/config folders. Port scripts find PortMaster via
+# their fallback path, rewritten to $EMU_DIR before launch (see main).
+export XDG_DATA_HOME="$HOME/.local/share"
+# Port scripts take $XDG_DATA_HOME/PortMaster over their fallback whenever
+# that directory exists, so a stray one (some cards carry an empty leftover)
+# hides the real install and the port dies sourcing control.txt. Remove it
+# when empty; a non-empty one without control.txt is left alone and logged.
+if [ -d "$XDG_DATA_HOME/PortMaster" ] && [ ! -f "$XDG_DATA_HOME/PortMaster/control.txt" ]; then
+    rmdir "$XDG_DATA_HOME/PortMaster" 2>/dev/null \
+        || echo "warning: $XDG_DATA_HOME/PortMaster has no control.txt; port scripts will use it over $EMU_DIR"
+fi
 
 [ -z "$1" ] && exit 1
 ROM_PATH="$1"
@@ -93,6 +103,77 @@ set_controller_layout() {
     esac
 }
 
+# Ports on PortMaster's Weston runtime (weston_pkg) need udev to label input
+# devices (ID_INPUT): libinput skips unlabelled devices and Weston exits with no
+# input, so the game gets no X display (black screen, "GLFW library is not
+# initialized"). The stock firmware's udev ships no input_id rule, so add one in
+# udev's runtime rules dir (RAM, gone at reboot) and re-scan the input devices.
+# Once per boot; virtual pads gptokeyb creates later are labelled by the rule.
+add_input_udev_rule() {
+    command -v udevadm >/dev/null 2>&1 || return 0
+    for d in /run/udev /tmp/run/udev; do
+        [ -d "$d/data" ] || continue
+        [ -f "$d/rules.d/60-nx-input-id.rules" ] && return 0
+        mkdir -p "$d/rules.d" || return 0
+        printf '%s\n' \
+            'ACTION=="remove", GOTO="nx_input_id_end"' \
+            'SUBSYSTEM=="input", ENV{ID_INPUT}=="", IMPORT{builtin}="input_id"' \
+            'LABEL="nx_input_id_end"' >"$d/rules.d/60-nx-input-id.rules"
+        udevadm control --reload 2>/dev/null
+        udevadm trigger --action=add --subsystem-match=input 2>/dev/null
+        udevadm settle -t 3 2>/dev/null
+        return 0
+    done
+}
+
+# PortMaster 2026.09.19+ rewrote device_info.txt's host probe and dropped the
+# TrimUI firmware branch (`[ -d /usr/trimui ]` -> CFW_NAME=TrimUI). On TrimUI
+# CFW_NAME stays "Unknown": pugwash falls back to its default platform (no
+# Xbox A/B fix, so the PortMaster app's buttons come out inverted) and port
+# scripts skip mod_TrimUI.txt. Re-add it ahead of the os-release fallback,
+# naming the model from the launcher's $DEVICE and taking the firmware
+# version from /etc/version (as the old upstream probe did). No-op on
+# device_info files without those fallbacks (the older ones still detect
+# TrimUI themselves).
+# PortMaster caches the probe as device_info_<cfw>_<device>.env and reads a
+# cache before re-running the script, so a probe cached as "unknown" is
+# dropped, and the TrimUI caches are dropped whenever the script is patched.
+patch_device_info_trimui() { # $1 = device_info.txt
+    [ -d /usr/trimui ] || return 0
+    rm -f "${1%/*}"/device_info_unknown_*.env
+    grep -q 'NX Redux: TrimUI version' "$1" 2>/dev/null && return 0
+    grep -q '^if \[ "\$CFW_NAME" = "Unknown" \] && {' "$1" 2>/dev/null || return 0
+    grep -q '^if \[ "\$CFW_VERSION" = "Unknown" \] && {' "$1" 2>/dev/null || return 0
+    _nxname=0
+    grep -q 'NX Redux: TrimUI firmware' "$1" && _nxname=1
+    awk -v name="$_nxname" '
+        !name && /^if \[ "\$CFW_NAME" = "Unknown" \] && \{/ {
+            print "# NX Redux: TrimUI firmware (dropped from the upstream probe)"
+            print "if [ \"$CFW_NAME\" = \"Unknown\" ] && [ -d \"/usr/trimui\" ]; then"
+            print "    export CFW_NAME=\"TrimUI\""
+            print "    case \"$DEVICE\" in"
+            print "        brickpro) export DEVICE_NAME=\"TrimUI Brick Pro\" ;;"
+            print "        brick) export DEVICE_NAME=\"TrimUI Brick\" ;;"
+            print "        smartpros) export DEVICE_NAME=\"TrimUI Smart Pro S\" ;;"
+            print "        *) export DEVICE_NAME=\"TrimUI Smart Pro\" ;;"
+            print "    esac"
+            print "fi"
+            print ""
+            name = 1
+        }
+        !ver && /^if \[ "\$CFW_VERSION" = "Unknown" \] && \{/ {
+            print "# NX Redux: TrimUI version"
+            print "if [ \"$CFW_NAME\" = \"TrimUI\" ] && [ \"$CFW_VERSION\" = \"Unknown\" ] && [ -f /etc/version ]; then"
+            print "    export CFW_VERSION=\"$(tr -d \x27\\r\\n\x27 < /etc/version)\""
+            print "fi"
+            print ""
+            ver = 1
+        }
+        { print }
+    ' "$1" >"$1.nxtmp" && mv -f "$1.nxtmp" "$1"
+    rm -f "${1%/*}"/device_info_trimui_*.env
+}
+
 main() {
     echo "1" >/tmp/stay_awake
     trap "cleanup" EXIT INT TERM HUP QUIT
@@ -127,12 +208,16 @@ main() {
 
     # Fix hardcoded paths and shebangs
     sed -i -e "s|/roms/ports/PortMaster|$EMU_DIR|g" \
+           -e "s|/mnt/SDCARD/Emus/tg50[45]0/PORTS.pak/PortMaster|$EMU_DIR|g" \
            -e '1s|^#!/bin/bash|#!/usr/bin/env bash|' "$ROM_PATH"
 
     # Apply the global button layout (Settings > System > Button layout).
     # Replaces the old per-runtime xbox_layout marker; the marker is ignored.
     . "$SYSTEM_PATH/bin/nx_button_layout.sh"
     set_controller_layout "$NX_BUTTON_LAYOUT"
+
+    add_input_udev_rule
+    patch_device_info_trimui "$EMU_DIR/device_info.txt"
 
     # Start power button sleep/poweroff handler
     sleepmon.elf &

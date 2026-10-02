@@ -7,9 +7,9 @@ cd "$(dirname "$0")/../.."
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 PREFIX="${PREFIX:-/opt/homebrew}"
-cc -std=gnu99 -Wall -Wextra -Werror -O1 -DUSE_SDL2 -DPLATFORM=\"desktop\" -DHAS_RUNTIME_PATHS -DMA_BENCH_NO_SYSFS \
+cc -std=gnu99 -Wall -Wextra -Werror -O1 -DUSE_SDL2 -DPLATFORM=\"tg5040\" -DMA_BENCH_NO_SYSFS \
     -I workspace/all/minarch -I workspace/all/common -I workspace/all/common/ui \
-    -I workspace/desktop/platform -I workspace/desktop/libmsettings \
+    -I scripts/tests/hostplat -I workspace/tg5040/platform -I workspace/tg5040/libmsettings \
     -I "$PREFIX/include" -I "$PREFIX/include/SDL2" \
     -o "$TMP/bench_format_test" \
     workspace/all/minarch/ma_bench.c scripts/tests/minarch_bench/bench_format_test.c

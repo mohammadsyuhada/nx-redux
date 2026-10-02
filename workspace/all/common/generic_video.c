@@ -354,7 +354,7 @@ int PLAT_HWR_readAverage(void* rgba, int w, int h) {
 	if (!hwr.avg_fbo) {
 		glGenTextures(1, &hwr.avg_tex);
 		glBindTexture(GL_TEXTURE_2D, hwr.avg_tex);
-		// levels 0..level (glTexStorage2D is GL 4.2; the desktop build is GL 4.1)
+		// levels 0..level, allocated one glTexImage2D per mip
 		for (int l = 0; l <= level; l++)
 			glTexImage2D(GL_TEXTURE_2D, l, GL_RGBA, HWR_AVG_BASE >> l, HWR_AVG_BASE >> l, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, level);
@@ -884,13 +884,11 @@ SDL_Surface* PLAT_initVideo(void) {
 		vid.renderer = SDL_CreateRenderer(vid.window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 	}
 	if (!vid.renderer) {
-		// v1.9.0's AppImage died right here on every Mesa >= 25 host: the
-		// bundled libstdc++ shadowed the driver's, no GLX visual/context could
-		// be had, and the NULL window/renderer got used regardless (issue #86).
-		// Say why, then bring the UI up on a plain window + software renderer
-		// (what that issue's SDL_VIDEO_X11_VISUALID= / SDL_RENDER_DRIVER=software
-		// workaround did by hand), so a broken GL stack is a logged fact rather
-		// than a silent crash: the menu and the non-shader game path still work.
+		// A broken GL stack used to leave a NULL window/renderer that got used
+		// regardless (issue #86). Say why, then bring the UI up on a plain
+		// window + software renderer, so a broken GL stack is a logged fact
+		// rather than a silent crash: the menu and the non-shader game path
+		// still work.
 		LOG_error("%s failed: %s -- falling back to software rendering\n", vid.window ? "SDL_CreateRenderer" : "SDL_CreateWindow", SDL_GetError());
 		if (vid.window) {
 			SDL_DestroyWindow(vid.window);
@@ -917,15 +915,9 @@ SDL_Surface* PLAT_initVideo(void) {
 		LOG_info("- %s\n", SDL_GetPixelFormatName(info.texture_formats[i]));
 	}
 
-	if (strcmp("Desktop", PLAT_getModel()) == 0) {
-		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
-		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
-		SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-	} else {
-		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
-		SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-	}
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
 
 	vid.gl_context = SDL_GL_CreateContext(vid.window);
 	if (!vid.gl_context) {
@@ -1470,10 +1462,9 @@ static void compositeLayers(void) {
 void PLAT_clearLayers(int layer) {
 	// Layers composite with per-pixel alpha ABOVE the UI stream (layers 3-5),
 	// so they must be cleared to TRANSPARENT black. RenderClear uses the
-	// renderer's current draw color, which on desktop is opaque black after
-	// every PLAT_flip (its backbuffer clear) — inheriting that here turned a
-	// cleared thumbnail/transition layer into an opaque black sheet that
-	// blacked out the whole UI the moment anything was drawn onto that layer.
+	// renderer's current draw color, which may have been left opaque by an
+	// earlier draw — inheriting that here would turn a cleared
+	// thumbnail/transition layer into an opaque black sheet.
 	SDL_SetRenderDrawColor(vid.renderer, 0, 0, 0, 0);
 	if (layer == 0 || layer == 1) {
 		SDL_SetRenderTarget(vid.renderer, vid.target_layer1);
@@ -2294,18 +2285,6 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 	capture_check();
 	// dont think we need this here tbh
 	// SDL_RenderClear(vid.renderer);
-#if defined(HAS_RUNTIME_PATHS)
-	// Desktop's SDL_Renderer double-buffers, and the UI (nextui + every tool) is
-	// uploaded with a TRANSPARENT background (GFX_clear -> SDL_transparentBlack)
-	// and composited with BLEND (compositeLayers below). Without clearing the
-	// backbuffer each present, this frame's UI blends over the OTHER buffer's
-	// stale content, so a gliding selection pill smears into a trail of stacked
-	// pills. Clear the backbuffer to OPAQUE black first. Device presents
-	// single-buffered and kept the original no-clear path, so this compiles out
-	// there.
-	SDL_SetRenderDrawColor(vid.renderer, 0, 0, 0, 255);
-	SDL_RenderClear(vid.renderer);
-#endif
 	if (!vid.blit) {
 		resizeVideo(device_width, device_height, FIXED_PITCH); // !!!???
 		SDL_UpdateTexture(vid.stream_layer1, NULL, vid.screen->pixels, vid.screen->pitch);
@@ -2693,21 +2672,6 @@ void PLAT_GL_Swap() {
 	}
 
 	SDL_GL_MakeCurrent(vid.window, vid.gl_context);
-
-#if defined(HAS_RUNTIME_PATHS)
-	// Desktop runs this game GL context on the SAME window as the SDL_Renderer
-	// that draws the menu/UI. The clear cadence far above runs BEFORE this
-	// MakeCurrent, so on desktop it lands on whatever context was current (the
-	// menu's SDL_Renderer GL context) and never touches the game framebuffer --
-	// which is why the last menu frame (top bar + hint bar) stays composited
-	// around the letterboxed game after the menu closes. Now that the game
-	// context is current, clear ITS default framebuffer to OPAQUE black every
-	// frame so the border is solid and nothing ghosts. Device has a single
-	// surface plus a bezel overlay, so this is desktop-only.
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-#endif
 
 	static GLuint effect_tex = 0;
 	static int effect_w = 0, effect_h = 0;

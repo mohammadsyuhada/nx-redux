@@ -37,14 +37,6 @@ def mark(size, fit_w, bg, color, mode):
     draw_mark(d, s*SS, ox*SS, oy*SS, color)
     return im.resize(size, Image.LANCZOS)
 
-def icon(px):
-    s = px/512
-    im = Image.new("RGBA", (px*SS, px*SS), (0,0,0,0))
-    d = ImageDraw.Draw(im)
-    d.rounded_rectangle([0,0,px*SS-1,px*SS-1], radius=120*s*SS, fill=(0x1F,0x1F,0x1F,255))
-    draw_mark(d, s*SS, 0, 0, (255,255,255,255))
-    return im.resize((px,px), Image.LANCZOS)
-
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 
 def out(rel):
@@ -66,6 +58,3 @@ for plat in ("tg5040", "tg5050"):
     base = f"skeleton/SYSTEM/{plat}/paks/Tools/Settings.pak/bootlogo"
     brick.save(out(f"{base}/brick/bootlogo.bmp"))
     smartpro.save(out(f"{base}/smartpro/bootlogo.bmp"))
-
-# desktop app icon (AppImage / macOS .icns): the full icon.svg
-icon(1024).save(out("scripts/desktop/nxredux-icon.png"), optimize=True)

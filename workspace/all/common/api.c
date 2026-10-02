@@ -489,7 +489,7 @@ int GFX_updateColors(void) {
 // Boost the cpufreq policy the platform actually caps (platform.h CPU_FREQ_BASE):
 // on tg5050 that is the big cluster's cpu4, and cpu0's little cluster already sits
 // at its ceiling, so a hardcoded cpu0 path was a silent no-op there. Platforms
-// without a define (desktop) fall back to cpu0, where the W_OK check bails anyway.
+// without a define fall back to cpu0.
 #ifndef CPU_FREQ_BASE
 #define CPU_FREQ_BASE "/sys/devices/system/cpu/cpu0/cpufreq"
 #endif
@@ -2740,16 +2740,11 @@ void SND_quit(void) {
 }
 
 // Weak reference: resolves to NULL if -lasound is not linked.
-// (No ALSA on macOS, and Mach-O rejects undefined weak refs at link time.)
-#ifndef __APPLE__
 extern int snd_config_update_free_global(void) __attribute__((weak));
-#endif
 
 void SND_flushALSAConfig(void) {
-#ifndef __APPLE__
 	if (snd_config_update_free_global)
 		snd_config_update_free_global();
-#endif
 }
 
 void SND_resetAudio(double sample_rate, double frame_rate) {
@@ -2790,22 +2785,6 @@ FALLBACK_IMPLEMENTATION int PLAT_lidChanged(int* state) {
 ///////////////////////////////
 
 PAD_Context pad;
-
-#ifdef HAS_GAMECONTROLLER
-// Desktop external-controller support. The handle is opened/closed in PAD_poll
-// on SDL_CONTROLLERDEVICEADDED/REMOVED. Triggers are analog (0..32767); treat
-// one past the half-way point as a digital L2/R2 press.
-static SDL_GameController* gamecontroller = NULL;
-#define GAMECONTROLLER_TRIGGER_THRESHOLD 16384
-// Select+Start pressed together act as MENU: modern macOS reserves the
-// Guide/Home button system-wide (opens the Games app) and offers no way to
-// remap it, so pads need a menu chord that never leaves the app. Tracks the
-// raw held state of both halves; while the chord is latched the raw
-// Select/Start events are swallowed so cores don't see them held.
-static int gc_select_down = 0;
-static int gc_start_down = 0;
-static int gc_menu_chord = 0;
-#endif
 
 #define AXIS_DEADZONE 0x4000
 void PAD_setAnalog(int neg_id, int pos_id, int value, int repeat_at) {
@@ -2865,18 +2844,18 @@ void PAD_reset(void) {
 
 FALLBACK_IMPLEMENTATION void PLAT_pokeCapture(void) {}
 FALLBACK_IMPLEMENTATION void PLAT_setBigCoreOnline(bool online) {
-	(void)online; // single cluster (tg5040, desktop): nothing to hotplug
+	(void)online; // single cluster (tg5040): nothing to hotplug
 }
 FALLBACK_IMPLEMENTATION void PLAT_setCPUSpeedRange(int min_khz, int max_khz) {
 	(void)min_khz;
-	(void)max_khz; // no cpufreq on this platform (desktop)
+	(void)max_khz; // platform has no cpufreq range control
 }
-// tg5040 and desktop: cpu0's cpufreq policy is the only one. tg5050 overrides
+// tg5040: cpu0's cpufreq policy is the only one. tg5050 overrides
 // this to also span the big cluster's policy4 when cpu4 is online.
 FALLBACK_IMPLEMENTATION bool PLAT_getCPUHwRangeKhz(int* min_khz, int* max_khz) {
 	int lo = getInt("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq");
 	int hi = getInt("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq");
-	if (lo <= 0 || hi <= 0) // no cpufreq (desktop)
+	if (lo <= 0 || hi <= 0) // no cpufreq
 		return false;
 	*min_khz = lo;
 	*max_khz = hi;
@@ -3285,167 +3264,7 @@ FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 				// LOG_info("cancel: %i\n", axis);
 				btn = BTN_NONE;
 			}
-		}
-#ifdef HAS_GAMECONTROLLER
-		// Desktop external controller (SDL_GameController). Face buttons map by
-		// physical position to the Nintendo/device layout: right face =
-		// A/confirm, bottom = B/back. Keyboard (CODE_*) stays live alongside.
-		else if (event.type == SDL_CONTROLLERBUTTONDOWN || event.type == SDL_CONTROLLERBUTTONUP) {
-			pressed = event.type == SDL_CONTROLLERBUTTONDOWN;
-			switch (event.cbutton.button) {
-			case SDL_CONTROLLER_BUTTON_A:
-				btn = BTN_B;
-				id = BTN_ID_B;
-				break; // bottom
-			case SDL_CONTROLLER_BUTTON_B:
-				btn = BTN_A;
-				id = BTN_ID_A;
-				break; // right (confirm)
-			case SDL_CONTROLLER_BUTTON_X:
-				btn = BTN_Y;
-				id = BTN_ID_Y;
-				break; // left
-			case SDL_CONTROLLER_BUTTON_Y:
-				btn = BTN_X;
-				id = BTN_ID_X;
-				break; // top
-			case SDL_CONTROLLER_BUTTON_DPAD_UP:
-				btn = BTN_DPAD_UP;
-				id = BTN_ID_DPAD_UP;
-				break;
-			case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
-				btn = BTN_DPAD_DOWN;
-				id = BTN_ID_DPAD_DOWN;
-				break;
-			case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
-				btn = BTN_DPAD_LEFT;
-				id = BTN_ID_DPAD_LEFT;
-				break;
-			case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
-				btn = BTN_DPAD_RIGHT;
-				id = BTN_ID_DPAD_RIGHT;
-				break;
-			case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
-				btn = BTN_L1;
-				id = BTN_ID_L1;
-				break;
-			case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:
-				btn = BTN_R1;
-				id = BTN_ID_R1;
-				break;
-			case SDL_CONTROLLER_BUTTON_LEFTSTICK:
-				btn = BTN_L3;
-				id = BTN_ID_L3;
-				break;
-			case SDL_CONTROLLER_BUTTON_RIGHTSTICK:
-				btn = BTN_R3;
-				id = BTN_ID_R3;
-				break;
-			case SDL_CONTROLLER_BUTTON_BACK:
-				btn = BTN_SELECT;
-				id = BTN_ID_SELECT;
-				break;
-			case SDL_CONTROLLER_BUTTON_START:
-				btn = BTN_START;
-				id = BTN_ID_START;
-				break;
-			case SDL_CONTROLLER_BUTTON_GUIDE:
-				btn = BTN_MENU;
-				id = BTN_ID_MENU;
-				break; // Home/Guide opens the menu
-			default:
-				break;
-			}
-
-			// Select+Start chord -> MENU (see gc_menu_chord above).
-			if (btn == BTN_SELECT)
-				gc_select_down = pressed;
-			else if (btn == BTN_START)
-				gc_start_down = pressed;
-			if (btn == BTN_SELECT || btn == BTN_START) {
-				if (pressed && gc_select_down && gc_start_down && !gc_menu_chord) {
-					// second half just went down: latch the chord, retract the
-					// first half from pad state (it was delivered when pressed
-					// alone), and deliver this event as a MENU press instead
-					gc_menu_chord = 1;
-					int other = (btn == BTN_SELECT) ? BTN_START : BTN_SELECT;
-					pad.is_pressed &= ~other;
-					pad.just_pressed &= ~other;
-					pad.just_repeated &= ~other;
-					btn = BTN_MENU;
-					id = BTN_ID_MENU;
-				} else if (gc_menu_chord) {
-					if (pressed) {
-						btn = BTN_NONE; // half re-pressed while latched: swallow
-					} else if (pad.is_pressed & BTN_MENU) {
-						btn = BTN_MENU; // first half released: release MENU
-						id = BTN_ID_MENU;
-					} else {
-						btn = BTN_NONE; // second half released: already done
-					}
-					if (!gc_select_down && !gc_start_down)
-						gc_menu_chord = 0;
-				}
-			}
-		} else if (event.type == SDL_CONTROLLERAXISMOTION) {
-			int val = event.caxis.value;
-			// Left stick: analog passthrough to cores (pad.laxis, read by
-			// minarch for RETRO_DEVICE_ANALOG) AND digital d-pad via
-			// PAD_setAnalog so menus and non-analog cores stay usable. Right
-			// stick: analog passthrough only. Triggers: digital past a threshold.
-			switch (event.caxis.axis) {
-			case SDL_CONTROLLER_AXIS_LEFTX:
-				pad.laxis.x = val;
-				PAD_setAnalog(BTN_ID_ANALOG_LEFT, BTN_ID_ANALOG_RIGHT, val, tick + PAD_REPEAT_DELAY);
-				break;
-			case SDL_CONTROLLER_AXIS_LEFTY:
-				pad.laxis.y = val;
-				PAD_setAnalog(BTN_ID_ANALOG_UP, BTN_ID_ANALOG_DOWN, val, tick + PAD_REPEAT_DELAY);
-				break;
-			case SDL_CONTROLLER_AXIS_RIGHTX:
-				pad.raxis.x = val;
-				break;
-			case SDL_CONTROLLER_AXIS_RIGHTY:
-				pad.raxis.y = val;
-				break;
-			case SDL_CONTROLLER_AXIS_TRIGGERLEFT:
-				btn = BTN_L2;
-				id = BTN_ID_L2;
-				pressed = val > GAMECONTROLLER_TRIGGER_THRESHOLD;
-				break;
-			case SDL_CONTROLLER_AXIS_TRIGGERRIGHT:
-				btn = BTN_R2;
-				id = BTN_ID_R2;
-				pressed = val > GAMECONTROLLER_TRIGGER_THRESHOLD;
-				break;
-			default:
-				break;
-			}
-			// same guard as the joystick axis path: a sub-threshold reading
-			// isn't a release unless the button was actually held
-			if (!pressed && btn != BTN_NONE && !(pad.is_pressed & btn))
-				btn = BTN_NONE;
-		} else if (event.type == SDL_CONTROLLERDEVICEADDED) {
-			// covers controllers present at startup and hot-plugged later
-			if (!gamecontroller && SDL_IsGameController(event.cdevice.which))
-				gamecontroller = SDL_GameControllerOpen(event.cdevice.which);
-		} else if (event.type == SDL_CONTROLLERDEVICEREMOVED) {
-			if (gamecontroller && event.cdevice.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(gamecontroller))) {
-				SDL_GameControllerClose(gamecontroller);
-				gamecontroller = NULL;
-				// Release everything the now-gone controller was holding.
-				// pad.laxis/raxis are written ONLY by the controller axis path
-				// on desktop, so without this an off-center stick at unplug
-				// stays latched with no way to clear it; held buttons/dpad bits
-				// would likewise stick until a matching keyboard event.
-				pad.laxis.x = pad.laxis.y = 0;
-				pad.raxis.x = pad.raxis.y = 0;
-				gc_select_down = gc_start_down = gc_menu_chord = 0;
-				PAD_reset();
-			}
-		}
-#endif
-		else if (event.type == SDL_QUIT) {
+		} else if (event.type == SDL_QUIT) {
 			PWR_powerOff(0);
 		} else if (event.type == SDL_JOYDEVICEADDED || event.type == SDL_JOYDEVICEREMOVED) {
 			PAD_update(&event);
@@ -3454,8 +3273,8 @@ FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 		if (btn == BTN_NONE)
 			continue;
 
-		// One place all three translation branches (keyboard CODE_*, joystick
-		// JOY_*, desktop SDL_CONTROLLER_*) converge to apply btn/id to the pad,
+		// One place both translation branches (keyboard CODE_*, joystick
+		// JOY_*) converge to apply btn/id to the pad,
 		// so a single swap here covers them all. Placed after the BTN_NONE guard
 		// so the hat branch — which exits its loop with id == BTN_ID_A and forces
 		// btn = BTN_NONE — can't be resurrected into a phantom face press.
@@ -3970,7 +3789,7 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 		}
 	}
 
-	const int screenOffDelay = HAS_SLEEP ? CFG_getScreenTimeoutSecs() * 1000 : 0;
+	const int screenOffDelay = CFG_getScreenTimeoutSecs() * 1000;
 	if (screenOffDelay == 0 || (now - last_input_at >= screenOffDelay && PWR_preventAutosleep()))
 		last_input_at = now;
 
@@ -3978,7 +3797,7 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 	const bool explicit_sleep = pwr.requested_sleep ||
 								(pwr.can_sleep && PAD_justReleased(BTN_SLEEP) && power_pressed_at);
 
-	if (HAS_SLEEP && (explicit_sleep || autosleep_expired)) {
+	if (explicit_sleep || autosleep_expired) {
 		pwr.requested_sleep = 0;
 		if (before_sleep)
 			before_sleep();
@@ -4233,7 +4052,7 @@ int PWR_deepSleep(void) {
 	if (exists(suspend_path)) {
 		LOG_info("suspending using platform suspend executable\n");
 
-		// BIN_PATH is a runtime value on desktop; quote it for the shell.
+		// Quote the path for the shell.
 		char suspend_q[MAX_PATH * 4];
 		strncpy(suspend_q, suspend_path, sizeof(suspend_q) - 1);
 		suspend_q[sizeof(suspend_q) - 1] = '\0';

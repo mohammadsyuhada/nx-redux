@@ -18,8 +18,7 @@ typedef enum {
 	PLAT_UNKNOWN = 0,
 	PLAT_TG5040,
 	PLAT_TG5050,
-	PLAT_MY355,
-	PLAT_DESKTOP
+	PLAT_MY355
 } DevicePlatform;
 
 // ============================================

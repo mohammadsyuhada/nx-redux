@@ -218,6 +218,12 @@ cp -f "$PM_FILES/disable_python_function.py" "$PM_DIR/disable_python_function.py
 echo "@90 Configuring PortMaster..."
 echo "Configuring PortMaster..."
 
+# The bundle's lib/libEGL.so.1 is gl4es's EGL shim: it only works next to a
+# gl4es libGL, and lib/ is on every port's LD_LIBRARY_PATH, so Xwayland in
+# PortMaster's Weston runtime loaded it and aborted (undefined symbol hardext).
+# gl4es finds the system EGL itself, so drop the shim.
+rm -f "$PM_DIR/lib/libEGL.so.1"
+
 # Quarantine compat libs (newer glib, fontconfig, freetype, brotli) into
 # lib/compat/. These override system libs and break pugwash's SDL2 stack, so
 # they must only be in the LD_LIBRARY_PATH for port launches (set in

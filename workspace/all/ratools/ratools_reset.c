@@ -8,12 +8,7 @@
 
 #include "defines.h"
 
-// SHARED_USERDATA_PATH is a runtime array (not a string literal) on desktop
-// builds (see paths.h), so it can no longer be adjacent-string-literal
-// concatenated at compile time like the old RA_ROOT macro did; build the
-// same "<SHARED_USERDATA_PATH>/.ra" path with snprintf instead (byte-
-// identical to the old macro on device, where SHARED_USERDATA_PATH is still
-// a compile-time literal).
+// "<SHARED_USERDATA_PATH>/.ra" (the old RA_ROOT macro), built with snprintf.
 static const char* ra_root(void) {
 	static char buf[MAX_PATH];
 	snprintf(buf, sizeof(buf), "%s/.ra", SHARED_USERDATA_PATH);

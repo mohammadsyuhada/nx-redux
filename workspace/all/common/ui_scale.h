@@ -34,7 +34,7 @@ static inline int UIScale_nativeForDevice(const char* device) {
 	return (device && strcmp(device, "brick") == 0) ? 3 : 2;
 }
 
-// 768 rows are the Brick / Brick Pro / desktop panels, 720 the Smart Pro family.
+// 768 rows are the Brick / Brick Pro panels, 720 the Smart Pro family.
 // `scale` is a resolved value (2 or 3); anything other than 3 is treated as 2.
 static inline UIScaleLayout UIScale_layout(int panel_h, int scale) {
 	if (panel_h >= 768)

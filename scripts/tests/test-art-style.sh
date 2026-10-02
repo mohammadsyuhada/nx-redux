@@ -18,28 +18,28 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 PREFIX="${PREFIX:-/opt/homebrew}"
 
-CFLAGS=(-std=gnu99 -O1 -DUSE_SDL2 -DPLATFORM=\"desktop\" -DHAS_RUNTIME_PATHS
+CFLAGS=(-std=gnu99 -O1 -DUSE_SDL2 -DPLATFORM=\"tg5040\" -DHOSTTEST_SDCARD=\"$TMP/sd\"
     -I workspace/all/common -I workspace/all/common/ui
-    -I workspace/desktop/platform -I workspace/desktop/libmsettings
+    -I scripts/tests/hostplat -I workspace/tg5040/platform -I workspace/tg5040/libmsettings
     -I "$PREFIX/include" -I "$PREFIX/include/SDL2")
 
 # ---------------------------------------------------------------------------
 # 1. Config round-trip (no SDL needed)
 # ---------------------------------------------------------------------------
 echo "== config round-trip =="
-for src in config paths utils; do
+for src in config utils; do
     cc "${CFLAGS[@]}" -w -c -o "$TMP/$src.o" "workspace/all/common/$src.c"
 done
 cc "${CFLAGS[@]}" -Wall -Wextra -Werror -c -o "$TMP/cfg_test.o" \
     scripts/tests/artstyle/art_style_cfg_test.c
-cc -o "$TMP/art_style_cfg_test" "$TMP"/config.o "$TMP"/paths.o "$TMP"/utils.o "$TMP/cfg_test.o"
-mkdir -p "$TMP/userdata"
-"$TMP/art_style_cfg_test" "$TMP/userdata"
+cc -o "$TMP/art_style_cfg_test" "$TMP"/config.o "$TMP"/utils.o "$TMP/cfg_test.o"
+mkdir -p "$TMP/sd/.userdata/shared"
+"$TMP/art_style_cfg_test" "$TMP/sd/.userdata/shared"
 
 echo "== art path resolution =="
 cc "${CFLAGS[@]}" -Wall -Wextra -Werror -c -o "$TMP/path_test.o" \
     scripts/tests/artstyle/art_path_test.c
-cc -o "$TMP/art_path_test" "$TMP"/utils.o "$TMP"/paths.o "$TMP/path_test.o"
+cc -o "$TMP/art_path_test" "$TMP"/utils.o "$TMP/path_test.o"
 mkdir -p "$TMP/rom"
 "$TMP/art_path_test" "$TMP/rom"
 

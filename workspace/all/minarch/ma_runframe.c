@@ -10,16 +10,7 @@ _Static_assert(SYNC_SRC_AUTO == AVSYNC_AUTO && SYNC_SRC_SCREEN == AVSYNC_SCREEN 
 			   "ma_avinfo.h sync values must match SYNC_SRC_*");
 
 void chooseSyncRef(void) {
-#if defined(HAS_RUNTIME_PATHS)
-	// Desktop always paces video to the core's own fps in software (see
-	// screen_flip in ma_video.c): there is no display clock for audio to sync
-	// to, and the measured loop fps is too jittery to drive the dynamic
-	// resample ratio (it warbles pitch ~1% peak-to-peak). Always take the
-	// fixed-rate audio path; its buffer-occupancy modes absorb clock drift.
-	use_core_fps = 1;
-#else
 	use_core_fps = SyncRef_useCoreFps(sync_ref, core.get_region() == RETRO_REGION_PAL, core.fps, SCREEN_FPS);
-#endif
 }
 
 static void limitFF(void) {

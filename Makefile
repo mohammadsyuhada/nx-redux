@@ -41,11 +41,7 @@ ifeq ($(BUILD_BRANCH),main)
 else
   RELEASE_BETA := -$(BUILD_BRANCH)
 endif
-ifeq ($(PLATFORM), desktop)
-	TOOLCHAIN_FILE := Makefile.native
-else
-	TOOLCHAIN_FILE := Makefile.toolchain
-endif
+TOOLCHAIN_FILE := Makefile.toolchain
 RELEASE_NAME ?= NXRedux-$(RELEASE_TIME)$(RELEASE_BETA)
 
 # Extra paks to ship
@@ -99,39 +95,6 @@ build:
 	make build -f $(TOOLCHAIN_FILE) PLATFORM=$(PLATFORM) COMPILE_CORES=$(COMPILE_CORES)
 	# ----------------------------------------------------
 
-# Per-OS desktop build subdir (see workspace/all/*/Makefile BUILD_SUBDIR):
-# macOS host builds land in build/desktop-macos-<arch>; the Linux docker flow
-# sets its own (desktop-linux-<arch>) in package-appimage.sh, so the two
-# flows never touch each other's app-binary artifacts and can run
-# concurrently. Only meaningful on macOS (package-macos is mac-only).
-DESKTOP_BUILD_SUBDIR := desktop-macos-$(shell uname -m)
-
-package-macos: # macOS desktop bundle (arm64, unsigned); needs brew deps + gmake
-	./scripts/desktop/setup-macos-toolchain.sh
-	cd workspace/desktop/libmsettings && $(MAKE) build CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux BUILD_SUBDIR=$(DESKTOP_BUILD_SUBDIR)
-	cd workspace/all/libgametimedb && $(MAKE) build PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin BUILD_SUBDIR=$(DESKTOP_BUILD_SUBDIR)
-	cd workspace/all/nextui && $(MAKE) PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin BUILD_TAG=$(BUILD_TAG) BUILD_SUBDIR=$(DESKTOP_BUILD_SUBDIR)
-	cd workspace/all/minarch && $(MAKE) PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin BUILD_SUBDIR=$(DESKTOP_BUILD_SUBDIR)
-	# The 7 Tools paks' binaries (+ gametimectl's daemon copy) and the netplay
-	# pre-launch wizard (netplay.elf, run bare off PATH by the Emus paks'
-	# launch.sh). Same recipe as nextui/minarch above; nextui/gametime/
-	# gametimectl's libgametimedb.h dep is already satisfied by the explicit
-	# rebuild above (their Makefiles no-op it).
-	for t in settings emu-options ratools scraper sync extras gametime gametimectl netplay-wizard; do \
-		(cd workspace/all/$$t && $(MAKE) PLATFORM=desktop CROSS_COMPILE=/var/tmp/nxredux/bin/ PREFIX=/opt/homebrew PREFIX_LOCAL=/var/tmp/nxredux UNAME_S=Darwin BUILD_SUBDIR=$(DESKTOP_BUILD_SUBDIR)) || exit 1; \
-	done
-	# Build every core in the desktop cores Makefile's CORES list. Incremental:
-	# make skips a core whose output .so is already up to date, so repeat
-	# packages are fast. macOS and Linux (docker) builds are fully separated
-	# per host triple (src/macos-arm64 + output/macos-arm64 here vs
-	# linux-x86_64 in the container), so interleaving `make package-linux`
-	# can't poison this step.
-	cd workspace/desktop/cores && gmake cores PLATFORM=desktop
-	TAG=$(BUILD_TAG) ./scripts/desktop/package-macos.sh
-
-package-linux: # Linux AppImage (x86_64) via in-repo docker compose env
-	docker compose run --rm -e TAG=$(BUILD_TAG) -e HASH=$(BUILD_HASH) appimage
-
 build-cores:
 	make build-cores -f $(TOOLCHAIN_FILE) PLATFORM=$(PLATFORM) COMPILE_CORES=true
 	# ----------------------------------------------------
@@ -149,7 +112,6 @@ system:
 	make -f ./workspace/$(PLATFORM)/platform/Makefile.copy PLATFORM=$(PLATFORM)
 	
 	# populate system
-ifneq ($(PLATFORM), desktop)
 	cp ./workspace/$(PLATFORM)/keymon/keymon.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/$(PLATFORM)/sleepmon/sleepmon.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/syncsettings/build/$(PLATFORM)/syncsettings.elf ./build/SYSTEM/$(PLATFORM)/bin/
@@ -167,7 +129,6 @@ ifneq ($(PLATFORM), desktop)
 	cp ./workspace/all/libgametimedb/build/$(PLATFORM)/libgametimedb.so ./build/SYSTEM/$(PLATFORM)/lib
 	cp ./workspace/all/gametimectl/build/$(PLATFORM)/gametimectl.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/gametime/build/$(PLATFORM)/gametime.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Game\ Tracker.pak/
-endif
 	cp ./workspace/$(PLATFORM)/libmsettings/libmsettings.so ./build/SYSTEM/$(PLATFORM)/lib
 	cp ./workspace/all/nextui/build/$(PLATFORM)/nextui.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/minarch/build/$(PLATFORM)/minarch.elf ./build/SYSTEM/$(PLATFORM)/bin/
@@ -230,13 +191,6 @@ ifeq ($(PLATFORM), tg5040)
 endif
 endif
 
-ifeq ($(PLATFORM), desktop)
-cores:
-	# stock cores
-	#cp ./workspace/$(PLATFORM)/cores/output/gambatte_libretro.so ./build/SYSTEM/$(PLATFORM)/cores
-	#cp ./workspace/$(PLATFORM)/cores/output/gpsp_libretro.so ./build/SYSTEM/$(PLATFORM)/cores
-	#cp ./workspace/$(PLATFORM)/cores/output/mgba_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/MGBA.pak
-else
 cores: # TODO: can't assume every platform will have the same stock cores (platform should be responsible for copy too)
 	# stock cores
 	cp ./workspace/$(PLATFORM)/cores/output/fceumm_libretro.so ./build/SYSTEM/$(PLATFORM)/cores
@@ -278,7 +232,6 @@ cores: # TODO: can't assume every platform will have the same stock cores (platf
 	cp ./workspace/$(PLATFORM)/cores/output/vice_xvic_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/VIC.pak
 	cp ./workspace/$(PLATFORM)/cores/output/bluemsx_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/MSX.pak
 	cp ./workspace/$(PLATFORM)/cores/output/gearcoleco_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/COLECO.pak
-endif
 
 common: build system cores
 	
@@ -341,10 +294,10 @@ compile-commands:
 				;; \
 		esac; \
 		if [ "$$first" = "1" ]; then first=0; else echo ',' >> compile_commands.json; fi; \
-		printf '  {"directory": "%s", "file": "%s/%s", "arguments": ["clang", "-std=gnu99", "-DUSE_SDL2", "-DUSE_GLES", "-DGL_GLEXT_PROTOTYPES", "-DPLATFORM=\\"tg5040\\"", "-DHAS_CHEEVOS", "-DRC_CLIENT_SUPPORTS_HASH", "-DRC_DISABLE_LUA", "-DBUILD_DATE=\\"dev\\"", "-DBUILD_HASH=\\"dev\\"", %s"-I%s/workspace/all/common", "-I%s/workspace/all/common/ui", "-I%s/workspace/all/nextui", "-I%s/workspace/all/minarch", "-I%s/workspace/all/minarch/libretro-common/include", "-I%s/workspace/all/netplay", "-I%s/workspace/all/settings", "-I%s/workspace/all/libgametimedb", "-I%s/.clangd-shim", "-I%s/scripts/clangd/include", "-I%s/workspace/tg5040/platform", "-I%s/workspace/tg5050/platform", "-I%s/workspace/desktop/platform", "-I%s/workspace/tg5040/libmsettings", "-I%s/workspace/tg5050/libmsettings", "-I%s/workspace/desktop/libmsettings", "-I/opt/homebrew/include", "-c", "%s/%s"]}' \
+		printf '  {"directory": "%s", "file": "%s/%s", "arguments": ["clang", "-std=gnu99", "-DUSE_SDL2", "-DUSE_GLES", "-DGL_GLEXT_PROTOTYPES", "-DPLATFORM=\\"tg5040\\"", "-DHAS_CHEEVOS", "-DRC_CLIENT_SUPPORTS_HASH", "-DRC_DISABLE_LUA", "-DBUILD_DATE=\\"dev\\"", "-DBUILD_HASH=\\"dev\\"", %s"-I%s/workspace/all/common", "-I%s/workspace/all/common/ui", "-I%s/workspace/all/nextui", "-I%s/workspace/all/minarch", "-I%s/workspace/all/minarch/libretro-common/include", "-I%s/workspace/all/netplay", "-I%s/workspace/all/settings", "-I%s/workspace/all/libgametimedb", "-I%s/.clangd-shim", "-I%s/scripts/clangd/include", "-I%s/workspace/tg5040/platform", "-I%s/workspace/tg5050/platform", "-I%s/workspace/tg5040/libmsettings", "-I%s/workspace/tg5050/libmsettings", "-I/opt/homebrew/include", "-c", "%s/%s"]}' \
 			"$(CURDIR)" "$(CURDIR)" "$$file" \
 			"$$extra_flags" \
-			"$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" \
+			"$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" "$(CURDIR)" \
 			"$(CURDIR)" "$$file" >> compile_commands.json; \
 	done
 	@echo '' >> compile_commands.json

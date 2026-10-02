@@ -1,13 +1,12 @@
 # Developer Guide
 
 NX-Redux is built with Docker cross-toolchains for two device platforms
-(`tg5040`, `tg5050`) plus a native desktop debug build, and is developed
-against real TrimUI hardware over adb. The developer documentation lives in
+(`tg5040`, `tg5050`) and is developed against real TrimUI hardware over adb. The developer documentation lives in
 [`.dev/`](.dev/), organized by topic:
 
 | Doc | Covers |
 |---|---|
-| [.dev/BUILD.md](.dev/BUILD.md) | Build targets, desktop setup, full & per-component builds, deploy, IDE/clangd, formatting, build gotchas |
+| [.dev/BUILD.md](.dev/BUILD.md) | Build targets, full & per-component builds, deploy, IDE/clangd, formatting, build gotchas |
 | [.dev/DEVICES.md](.dev/DEVICES.md) | Per-device hardware facts: platforms, panels/scaling, display topology, CPU tables, firmware minimums, filesystem & shell quirks |
 | [.dev/ARCHITECTURE.md](.dev/ARCHITECTURE.md) | Launch loop, dirty-flag rendering, config system, UI conventions, storage formats, RetroAchievements |
 | [.dev/TESTING.md](.dev/TESTING.md) | adb deploy rules, headless launch & input injection, screenshots, CPU profiling |

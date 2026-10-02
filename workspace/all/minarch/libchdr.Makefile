@@ -5,16 +5,11 @@ ifeq (,$(PLATFORM))
 	$(error please specify PLATFORM, eg. PLATFORM=tg5040 make)
 endif
 
-# Per-OS build outputs for desktop (see workspace/all/minarch/Makefile);
-# devices keep the default.
-BUILD_SUBDIR ?= $(PLATFORM)
-BUILD_DIR = build/$(BUILD_SUBDIR)
+BUILD_DIR = build/$(PLATFORM)
 
-# Cross-compilation settings (only for non-desktop platforms)
+# Cross-compilation settings
 # Uses the toolchain file provided by the build container
-ifneq ($(PLATFORM),desktop)
 CMAKE_EXTRA = -DCMAKE_TOOLCHAIN_FILE=$(CMAKE_TOOLCHAIN_FILE)
-endif
 
 .PHONY: all build clean
 

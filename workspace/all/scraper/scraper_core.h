@@ -7,13 +7,10 @@
 
 #define TMP_DIR "/tmp/scraper"
 
-// SHARED_USERDATA_PATH is a runtime array (not a string literal) on desktop
-// builds (see paths.h), so it can no longer be adjacent-string-literal
-// concatenated at compile time like the old CREDS_DIR/CREDS_USER/CREDS_PASS
-// macros did; build the same paths with snprintf instead (byte-identical to
-// the old macros on device, where SHARED_USERDATA_PATH is still a
-// compile-time literal). static inline so each TU that doesn't call one
-// doesn't warn about an unused static function.
+// Credential paths under SHARED_USERDATA_PATH, built with snprintf (the
+// values match the old CREDS_DIR/CREDS_USER/CREDS_PASS macros). static
+// inline so each TU that doesn't call one doesn't warn about an unused static
+// function.
 static inline char* creds_dir(void) {
 	static char buf[MAX_PATH];
 	snprintf(buf, sizeof(buf), "%s/.scraper", SHARED_USERDATA_PATH);

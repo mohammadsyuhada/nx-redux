@@ -16,33 +16,21 @@ endif
 
 include ../../$(PLATFORM)/platform/Makefile.env
 
-# Per-OS build outputs for desktop: macOS (host) and Linux (docker) share
-# this checkout, so packaging passes BUILD_SUBDIR=desktop-<os>-<arch> to keep
-# their artifacts apart. Devices never pass it: the default keeps their
-# build/<platform> paths byte-identical.
-BUILD_SUBDIR ?= $(PLATFORM)
-
 SDL?=SDL
 
 ###########################################################
 
 TARGET = minarch
-PRODUCT= build/$(BUILD_SUBDIR)/$(TARGET).elf
+PRODUCT= build/$(PLATFORM)/$(TARGET).elf
 INCDIR = -I. -I./libretro-common/include/ -I../common/ -I../../$(PLATFORM)/platform/ -I../netplay/
 include ../common/ui/ui.mk
 SOURCE = $(TARGET).c ma_hwrender.c ma_avinfo.c ma_emutime.c ma_game.c ma_cheats.c ma_cheat_match.c ma_saves.c ma_rewind.c ma_config.c ma_shaders.c ma_options.c \
          ma_input.c ma_turbo.c ma_bench.c ma_cpu_profile.c ma_cpu_affinity.c ma_environment.c ma_video.c ma_audio.c ma_core.c ma_menu.c ma_frontend_opts.c ma_runframe.c \
          ma_opts_schema.c ma_opts_dump.c ../common/cjson/cJSON.c \
-         ../common/scaler.c ../common/utils.c ../common/config.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/notification.c ../common/arcade_names.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c ../../$(PLATFORM)/platform/platform.c ../netplay/netplay.c ../netplay/gbalink.c ../netplay/gblink.c ../netplay/network_common.c ../netplay/netplay_helper.c ../netplay/core_netplay.c ../netplay/netplay_boot.c ../common/paths.c
-
-# Desktop's platform.c backs PLAT_wifiConnected with a real reachability probe
-# (device platform.c doesn't; it uses generic_wifi.c) -- desktop-only source.
-ifeq ($(PLATFORM), desktop)
-SOURCE += ../common/desktop_probe.c
-endif
+         ../common/scaler.c ../common/utils.c ../common/config.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/notification.c ../common/arcade_names.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c ../../$(PLATFORM)/platform/platform.c ../netplay/netplay.c ../netplay/gbalink.c ../netplay/gblink.c ../netplay/network_common.c ../netplay/netplay_helper.c ../netplay/core_netplay.c ../netplay/netplay_boot.c
 
 # RA support
-ifneq (,$(filter $(PLATFORM),tg5040 tg5050 my355 desktop))
+ifneq (,$(filter $(PLATFORM),tg5040 tg5050 my355))
 # RA source files
 SOURCE += ../common/http.c ../common/ra_badges.c ../common/ra_badge_sets.c ../common/ra_offline.c ../common/ra_offline_net.c ../common/ra_hash_cdreader.c ra_integration.c chd_reader.c
 endif
@@ -75,39 +63,14 @@ endif
 LDFLAGS  += -llz4
 
 # SaveRAM support
-ifeq ($(PLATFORM), desktop)
-ifeq ($(UNAME_S),Linux)
-CFLAGS += `pkg-config --cflags libzip`
-LDFLAGS += `pkg-config --libs libzip` -lz
-else
-LDFLAGS += -lzip -lz
-endif # Linux
-else # all handheld platforms
 LDFLAGS	 +=  -Llibretro-common -lsrm -lzip -lz
 CFLAGS   += -DHAS_SRM
 LDFLAGS +=  -lasound
-endif
 
 # RA support: rcheevos and libchdr linking
-ifneq (,$(filter $(PLATFORM),tg5040 tg5050 my355 desktop))
+ifneq (,$(filter $(PLATFORM),tg5040 tg5050 my355))
 LDFLAGS += -lrcheevos -lchdr
 CFLAGS += -DRC_CLIENT_SUPPORTS_HASH -DHAS_CHEEVOS -DHAS_CHDR
-ifeq ($(PLATFORM), desktop)
-# Desktop needs rpath for local shared library lookup
-LDFLAGS += -Wl,-rpath,'$$ORIGIN'
-endif
-endif
-
-# Sanitizers
-ifeq ($(PLATFORM), desktop)
-ifeq ($(TSAN), 1)
-CFLAGS  += -fsanitize=thread
-LDFLAGS += -ltsan
-endif
-ifeq ($(ASAN), 1)
-CFLAGS  += -fsanitize=address -fno-common -fno-omit-frame-pointer
-LDFLAGS += -lasan
-endif
 endif
 
 AR=$(CROSS_COMPILE)ar
@@ -117,29 +80,25 @@ BUILD_DATE!=date +%Y.%m.%d
 BUILD_HASH!=cat ../../hash.txt
 CFLAGS += -DBUILD_DATE=\"${BUILD_DATE}\" -DBUILD_HASH=\"${BUILD_HASH}\"
 
-ifeq ($(PLATFORM), desktop)
-all: clean libretro-common rcheevos libchdr $(PREFIX_LOCAL)/include/msettings.h
-	mkdir -p build/$(BUILD_SUBDIR)
-	$(CC) $(SOURCE) -o $(PRODUCT) $(CFLAGS) $(LDFLAGS)
-else ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
+ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
 # Platforms with RA support
 all: clean libretro-common libsrm.a rcheevos libchdr $(PREFIX_LOCAL)/include/msettings.h
-	mkdir -p build/$(BUILD_SUBDIR)
-	cp -L $(PREFIX)/lib/libsamplerate.so.* build/$(BUILD_SUBDIR)
+	mkdir -p build/$(PLATFORM)
+	cp -L $(PREFIX)/lib/libsamplerate.so.* build/$(PLATFORM)
 	# This is a bandaid fix, needs to be cleaned up if/when we expand to other platforms.
 ifeq ($(PLATFORM), my355)
-	cp -L $(PREFIX)/lib/libcrypto.so.3 build/$(BUILD_SUBDIR)
-	cp -L $(PREFIX)/lib/libsqlite3.so build/$(BUILD_SUBDIR)
-	cp -L $(PREFIX)/lib/libffi.so.7 build/$(BUILD_SUBDIR)
-	cp -L $(PREFIX)/lib/libtinyalsa.so.2 build/$(BUILD_SUBDIR)
+	cp -L $(PREFIX)/lib/libcrypto.so.3 build/$(PLATFORM)
+	cp -L $(PREFIX)/lib/libsqlite3.so build/$(PLATFORM)
+	cp -L $(PREFIX)/lib/libffi.so.7 build/$(PLATFORM)
+	cp -L $(PREFIX)/lib/libtinyalsa.so.2 build/$(PLATFORM)
 endif
-	cp -L $(PREFIX)/lib/libsamplerate.so.0 build/$(BUILD_SUBDIR)
-	cp -L $(PREFIX)/lib/libzip.so.5 build/$(BUILD_SUBDIR)
-	cp -L $(PREFIX)/lib/libbz2.so.1.0 build/$(BUILD_SUBDIR)
-	cp -L $(PREFIX)/lib/liblzma.so.5 build/$(BUILD_SUBDIR)
-	cp -L $(PREFIX)/lib/libzstd.so.1 build/$(BUILD_SUBDIR)
-	cp -L $(PREFIX)/lib/liblz4.so.1 build/$(BUILD_SUBDIR)
-	cp -L libchdr/build/$(BUILD_SUBDIR)/libchdr.so.0 build/$(BUILD_SUBDIR)
+	cp -L $(PREFIX)/lib/libsamplerate.so.0 build/$(PLATFORM)
+	cp -L $(PREFIX)/lib/libzip.so.5 build/$(PLATFORM)
+	cp -L $(PREFIX)/lib/libbz2.so.1.0 build/$(PLATFORM)
+	cp -L $(PREFIX)/lib/liblzma.so.5 build/$(PLATFORM)
+	cp -L $(PREFIX)/lib/libzstd.so.1 build/$(PLATFORM)
+	cp -L $(PREFIX)/lib/liblz4.so.1 build/$(PLATFORM)
+	cp -L libchdr/build/$(PLATFORM)/libchdr.so.0 build/$(PLATFORM)
 	$(CC) $(SOURCE) -o $(PRODUCT) $(CFLAGS) $(LDFLAGS)
 endif
 

@@ -28,10 +28,7 @@
 #include "ratools_reset.h"
 #include "ratools_sync.h"
 
-// SHARED_USERDATA_PATH is a runtime array (not a string literal) on desktop
-// builds (see paths.h), so it can no longer be adjacent-string-literal
-// concatenated at compile time; build the same "<SHARED_USERDATA_PATH>/.ra"
-// path with snprintf instead (byte-identical to the old macro on device).
+// "<SHARED_USERDATA_PATH>/.ra", built with snprintf.
 static const char* ra_root_dir(void) {
 	static char buf[MAX_PATH];
 	snprintf(buf, sizeof(buf), "%s/.ra", SHARED_USERDATA_PATH);
@@ -505,8 +502,6 @@ static void run_settings_menu(SDL_Surface** screen_ptr) {
 int main(int argc, char* argv[]) {
 	(void)argc;
 	(void)argv;
-	PATHS_init(PLATFORM);
-
 	SDL_Surface* screen = GFX_init(MODE_MAIN);
 	g_screen = screen;
 	UI_showSplashScreen(screen, "RetroAchievements");

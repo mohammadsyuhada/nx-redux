@@ -33,15 +33,13 @@ static const int SSID_CHARSET_LEN = 32;
 //////////////////////////////////////////////////////////////////////////////
 
 // Interface-selection core behind NET_getLocalIP and the directed broadcast
-// in NET_sendDiscoveryBroadcast. Skips loopback by FLAG, not name — macOS calls
-// it lo0, which the old strcmp("lo") let straight through — plus interfaces
-// that are down and the virtual links a desktop host carries (VPN tunnels,
-// VM/container bridges, Apple peer-to-peer). Advertising one of those
-// addresses sends the peer's connect somewhere unreachable; same ruling and
-// same prefix list as Device Sync's get_own_ip (sync.c). wlan* still wins
-// outright so a device with a second link keeps advertising the radio;
-// otherwise the FIRST real interface is kept (the old loop kept the LAST,
-// which on a Mac with a VM bridge was the NAT bridge).
+// in NET_sendDiscoveryBroadcast. Skips loopback by FLAG, not name, plus
+// interfaces that are down and virtual links (VPN tunnels, VM/container
+// bridges, peer-to-peer). Advertising one of those addresses sends the peer's
+// connect somewhere unreachable; same ruling and same prefix list as Device
+// Sync's get_own_ip (sync.c). wlan* still wins outright so a device with a
+// second link keeps advertising the radio; otherwise the FIRST real interface
+// is kept.
 //
 // ip_out and bcast_out are each optional; bcast_out gets the subnet-directed
 // broadcast (ip | ~mask) of the selected interface. Returns 0 when a usable
@@ -313,10 +311,9 @@ void NET_sendDiscoveryBroadcast(int udp_fd, uint32_t magic, uint32_t protocol_ve
 	// hotspot host's state: WIFI_direct_startHotspot takes wlan0 down and
 	// re-adds 10.0.0.1/24, leaving only the connected route. Devices used to
 	// keep the limited broadcast, so a hotspot host never advertised at all
-	// and the joiner's title peek (wizard_net.c) heard silence. Desktop had
-	// the opposite failure — a VPN's default route swallowed it. The directed
+	// and the joiner's title peek (wizard_net.c) heard silence. The directed
 	// address rides the connected route and reaches the same peers over the
-	// right link in both cases. The limited broadcast stays as the fallback
+	// right link. The limited broadcast stays as the fallback
 	// for an interface that has no address yet.
 	struct sockaddr_in bcast = {0};
 	bcast.sin_family = AF_INET;

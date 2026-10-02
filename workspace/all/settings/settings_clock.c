@@ -265,8 +265,7 @@ void clock_adjustment_run(SDL_Surface* screen) {
 				select_cursor -= option_count;
 
 			// Marker file under USERDATA_PATH. Touched/removed directly rather
-			// than through `touch`/`rm` in a shell: the path is a runtime value
-			// on desktop and was passed unquoted.
+			// than through `touch`/`rm` in a shell.
 			if (show_24hour) {
 				FILE* f = fopen(show_24hour_path, "a");
 				if (f)

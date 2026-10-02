@@ -32,9 +32,9 @@ trap 'rm -rf "$TMP"' EXIT
 read -ra SDL_CFLAGS_ARR <<<"$SDL_CFLAGS"
 read -ra SDL_LIBS_ARR <<<"$SDL_LIBS"
 
-CFLAGS=(-std=gnu99 -O1 -DUSE_SDL2 -DPLATFORM=\"desktop\" -DHAS_RUNTIME_PATHS
+CFLAGS=(-std=gnu99 -O1 -DUSE_SDL2 -DPLATFORM=\"tg5040\" -DHOSTTEST_SDCARD=\"$TMP/sd\"
 	-I workspace/all/scraper -I workspace/all/common -I workspace/all/common/ui
-	-I workspace/desktop/platform -I workspace/desktop/libmsettings
+	-I scripts/tests/hostplat -I workspace/tg5040/platform -I workspace/tg5040/libmsettings
 	"${SDL_CFLAGS_ARR[@]}")
 
 # Device sources: their own known host warnings are silenced (-w), like the
@@ -42,8 +42,7 @@ CFLAGS=(-std=gnu99 -O1 -DUSE_SDL2 -DPLATFORM=\"desktop\" -DHAS_RUNTIME_PATHS
 for src in \
 	workspace/all/scraper/scraper_compositor.c \
 	workspace/all/scraper/scraper_paths.c \
-	workspace/all/common/utils.c \
-	workspace/all/common/paths.c; do
+	workspace/all/common/utils.c; do
 	"$CC" "${CFLAGS[@]}" -w -c -o "$TMP/$(basename "${src%.c}").o" "$src"
 done
 
@@ -52,7 +51,7 @@ done
 
 "$CC" -o "$TMP/test_variants" "$TMP"/*.o "${SDL_LIBS_ARR[@]}"
 
-mkdir -p "$TMP/userdata"
-"$TMP/test_variants" "$TMP/userdata"
+mkdir -p "$TMP/sd/.userdata/shared"
+"$TMP/test_variants" "$TMP/sd/.userdata/shared"
 
 echo "PASS: test-scraper-variants"

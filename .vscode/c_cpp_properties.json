@@ -9,10 +9,8 @@
                 "${workspaceFolder}/workspace/all/minarch/libretro-common/include",
                 "${workspaceFolder}/workspace/tg5040/platform",
                 "${workspaceFolder}/workspace/tg5050/platform",
-                "${workspaceFolder}/workspace/desktop/platform",
                 "${workspaceFolder}/workspace/tg5040/libmsettings",
                 "${workspaceFolder}/workspace/tg5050/libmsettings",
-                "${workspaceFolder}/workspace/desktop/libmsettings",
                 "/opt/homebrew/include"
             ],
             "defines": [
@@ -35,10 +33,8 @@
                 "${workspaceFolder}/workspace/all/minarch/libretro-common/include",
                 "${workspaceFolder}/workspace/tg5040/platform",
                 "${workspaceFolder}/workspace/tg5050/platform",
-                "${workspaceFolder}/workspace/desktop/platform",
                 "${workspaceFolder}/workspace/tg5040/libmsettings",
                 "${workspaceFolder}/workspace/tg5050/libmsettings",
-                "${workspaceFolder}/workspace/desktop/libmsettings",
                 "/usr/include"
             ],
             "defines": [

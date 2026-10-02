@@ -246,7 +246,6 @@ static void status_screen(void) {
 int main(int argc, char* argv[]) {
 	(void)argc;
 	(void)argv;
-	PATHS_init(PLATFORM);
 	Cheatdb_initPaths(&P);
 
 	screen = GFX_init(MODE_MAIN);
