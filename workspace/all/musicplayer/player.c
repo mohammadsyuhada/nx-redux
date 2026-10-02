@@ -1756,6 +1756,20 @@ static int open_and_restart_audio_device(int requested_rate) {
 	// hotplug thread while the PCM is closed. Re-init it here so every reopen
 	// path (play after pause, wake from sleep, radio restart, sample-rate reset)
 	// has a live subsystem before SDL_OpenAudioDevice.
+	//
+	// libasound parses .asoundrc once per process and never notices audiomon
+	// rewriting it, so a sink that changed while no PCM was open (a USB DAC
+	// plugged in at boot or while idle) would still resolve nx_music to the
+	// speaker. Drop the cached config before opening from a closed state, with
+	// the subsystem down so SDL's ALSA hotplug thread isn't reading it.
+	pthread_mutex_lock(&player.mutex);
+	bool device_closed = player.audio_device == 0;
+	pthread_mutex_unlock(&player.mutex);
+	if (device_closed) {
+		if (SDL_WasInit(SDL_INIT_AUDIO))
+			SDL_QuitSubSystem(SDL_INIT_AUDIO);
+		SND_flushALSAConfig();
+	}
 	if (!SDL_WasInit(SDL_INIT_AUDIO) && SDL_InitSubSystem(SDL_INIT_AUDIO) < 0) {
 		LOG_error("Failed to init SDL audio: %s\n", SDL_GetError());
 		return -1;
@@ -1826,9 +1840,7 @@ int Player_reopenAudioDevice(void) {
 	pthread_mutex_lock(&player.mutex);
 	device_resume_on_open = resume_device;
 	pthread_mutex_unlock(&player.mutex);
-	SDL_QuitSubSystem(SDL_INIT_AUDIO);
-	SND_flushALSAConfig();
-	int result = SDL_InitSubSystem(SDL_INIT_AUDIO) < 0 ? -1 : open_and_restart_audio_device(requested_rate);
+	int result = open_and_restart_audio_device(requested_rate); // flushes the ALSA config
 	if (result != 0) {
 		pthread_mutex_lock(&player.mutex);
 		device_resume_on_open = false;
