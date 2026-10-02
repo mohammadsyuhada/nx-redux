@@ -165,6 +165,30 @@ patch_device_info_trimui() { # $1 = device_info.txt
     rm -f "${1%/*}"/device_info_trimui_*.env
 }
 
+# The 2026.09.19+ probe counts analog sticks from the input devices and, on
+# device-tree systems, ignores virtual ones. TrimUI's pad is the virtual
+# "TRIMUI Player1" from trimui_inputd, so the Brick Pro's two sticks came out
+# as 0 (analog_0: stick ports flagged, ports set up without sticks); the older
+# "# GLIBC" hook for this no longer matches. Set them right after the probe's
+# own detection, before DEVICE_CAPABILITIES is built. The TrimUI probe cache
+# is dropped only when the script is patched.
+patch_device_info_brickpro_sticks() { # $1 = device_info.txt
+    [ -d /usr/trimui ] || return 0
+    grep -q 'NX Redux: Brick Pro sticks' "$1" 2>/dev/null && return 0
+    awk '
+        !done && prev ~ /^ *export ANALOG_STICKS$/ && /^ *export ANALOG_TRIGGERS$/ {
+            print
+            print "    # NX Redux: Brick Pro sticks (its pad is virtual, so the probe counts 0)"
+            print "    if [ \"$DEVICE\" = \"brickpro\" ] && [ -d /usr/trimui ]; then"
+            print "        export ANALOG_STICKS=2"
+            print "    fi"
+            done = 1; prev = $0; next
+        }
+        { print; prev = $0 }
+    ' "$1" >"$1.nxtmp" && mv -f "$1.nxtmp" "$1"
+    grep -q 'NX Redux: Brick Pro sticks' "$1" && rm -f "${1%/*}"/device_info_trimui_*.env
+}
+
 main() {
     echo "1" >/tmp/stay_awake
     trap "cleanup" EXIT INT TERM HUP QUIT
@@ -204,6 +228,7 @@ main() {
 
     add_input_udev_rule
     patch_device_info_trimui "$EMU_DIR/device_info.txt"
+    patch_device_info_brickpro_sticks "$EMU_DIR/device_info.txt"
 
     # Start power button sleep/poweroff handler
     sleepmon.elf &
