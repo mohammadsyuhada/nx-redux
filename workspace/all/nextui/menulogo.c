@@ -21,6 +21,7 @@ static const struct {
 	{"SUPA", "sfc"},
 	{"N64", "n64"},
 	{"NDS", "nds"},
+	{"3DS", "3ds"},
 	{"VB", "vb"},
 	{"PKM", "pkm"},
 	{"MD", "md"},

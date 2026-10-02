@@ -13,6 +13,7 @@ int main(void) {
 	assert(is("Game Boy Advance (MGBA)", "gba"));
 	assert(is("Super Nintendo ES (SUPA)", "sfc"));
 	assert(is("Sega 32X (32X)", "s32x"));
+	assert(is("Nintendo 3DS (3DS)", "3ds"));
 	assert(is("Sony PlayStation (PS)", "ps"));
 	assert(is("Sega Genesis (GPGX)", "md"));
 	assert(is("Sega Master System (GPGX)", "sms"));
