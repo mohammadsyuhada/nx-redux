@@ -14,8 +14,9 @@
 #     (paths + portmaster_install disabled), mod_TrimUI.txt (HOME)
 #   - pugwash loop: honours .pugwash-reboot, retries once when a fresh
 #     pylibs extraction crashed it before the patches landed
-#   - Xbox pad map while pugwash runs (its XBOX FIXER assumes it), the
-#     user's Button layout setting restored afterwards
+#   - pad map while pugwash runs is the opposite of the Button layout
+#     setting (its XBOX FIXER swaps A/B and X/Y on TrimUI), the user's
+#     setting restored afterwards
 #   - post-run: fix installed port scripts, apply patchedScripts/, recreate
 #     busybox wrappers, sync cover art to .media/, drop the launcher's list
 #     caches
@@ -297,7 +298,15 @@ sync_port_artwork() {
 # ---- run pugwash ----------------------------------------------------------
 
 apply_patches
-set_controller_layout xbox
+# pugwash's TrimUI XBOX FIXER swaps A/B and X/Y on top of the pad map, so it
+# gets the opposite map: Xbox map -> right button confirms (Nintendo),
+# Nintendo map -> bottom button confirms (Xbox).
+. "$SYSTEM_PATH/bin/nx_button_layout.sh"
+if [ "$NX_BUTTON_LAYOUT" = "xbox" ]; then
+    set_controller_layout nintendo
+else
+    set_controller_layout xbox
+fi
 
 export LD_LIBRARY_PATH="$SYSTEM_PATH/lib:$PM_DIR/lib:/usr/trimui/lib:/usr/lib:$LD_LIBRARY_PATH"
 export PATH="$SYSTEM_PATH/bin:$PM_DIR/bin:$SHARED_SYSTEM_PATH/bin:/usr/trimui/bin:$PATH"
@@ -338,7 +347,6 @@ done
 # ---- after pugwash --------------------------------------------------------
 
 apply_patches
-. "$SYSTEM_PATH/bin/nx_button_layout.sh"
 set_controller_layout "$NX_BUTTON_LAYOUT"
 fix_port_scripts
 apply_patched_scripts
