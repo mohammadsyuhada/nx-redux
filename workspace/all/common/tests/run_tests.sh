@@ -6,6 +6,8 @@ cd "$(dirname "$0")"
 # fails to compile would otherwise be skipped silently.
 cc -std=gnu99 -Wall -Werror -o /tmp/nx_test_xtras_compat ../../extras/xtras_compat.c test_xtras_compat.c
 /tmp/nx_test_xtras_compat
+cc -std=gnu99 -Wall -Werror -Wno-deprecated-declarations -fsanitize=address -g -I.. -I../../../tg5040/platform -DPLATFORM=\"tg5040\" -o /tmp/nx_test_art_path ../utils.c test_art_path.c
+/tmp/nx_test_art_path
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_text_wrap test_text_wrap.c
 /tmp/nx_test_text_wrap
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_title_fit test_title_fit.c

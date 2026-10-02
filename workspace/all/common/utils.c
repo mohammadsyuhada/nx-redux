@@ -894,6 +894,18 @@ bool ROM_findArt(const char* rom_path, char* out, size_t out_size) {
 	return exists(out);
 }
 
+bool ROM_findScreenshot(const char* rom_path, char* out, size_t out_size) {
+	ROM_mediaArtVariantPath(rom_path, "screenshot", out, out_size);
+	if (exists(out))
+		return true;
+	char mix[MAX_PATH];
+	ROM_mediaArtPath(rom_path, mix, sizeof(mix));
+	if (!exists(mix))
+		return false; // out stays the screenshot path
+	snprintf(out, out_size, "%s", mix);
+	return true;
+}
+
 bool M3U_findForRom(const char* rom_path, char* m3u_path, size_t m3u_size) {
 	char work[MAX_PATH];
 	strncpy(work, rom_path, sizeof(work) - 1);

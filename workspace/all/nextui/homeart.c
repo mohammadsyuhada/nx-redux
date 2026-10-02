@@ -166,7 +166,7 @@ static SDL_Surface* cropFill(SDL_Surface* src, HomeArtRect keep, int w, int h, f
 
 static SDL_Surface* screenshotFor(const char* rom, HomeArtRect* keep) {
 	char path[MAX_PATH];
-	ROM_displayArtPath(rom, ART_TYPE_SCREENSHOT, false, path, sizeof(path));
+	ROM_findScreenshot(rom, path, sizeof(path)); // the scraped screenshot, else the root .media picture (Ports)
 	SDL_Surface* s = loadArgb(path);
 	if (s)
 		*keep = (HomeArtRect){0, 0, s->w, s->h};

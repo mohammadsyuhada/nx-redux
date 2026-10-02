@@ -310,11 +310,10 @@ static bool entryArtInfo(Entry* entry, char* rom_to_hash, char* out_png, char* t
 	return true;
 }
 
-// A game has scraped art: its screenshot or its box art (.media/screenshot/, .media/boxart/).
+// A game has art: its screenshot (scraped, or the root .media picture a Port ships) or its box art.
 static bool entryHasArt(const char* path) {
 	char p[MAX_PATH];
-	ROM_displayArtPath(path, ART_TYPE_SCREENSHOT, false, p, sizeof(p));
-	if (exists(p))
+	if (ROM_findScreenshot(path, p, sizeof(p)))
 		return true;
 	ROM_displayArtPath(path, ART_TYPE_BOXART, false, p, sizeof(p));
 	return exists(p);
@@ -2225,7 +2224,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		// nothing. It paints behind the rows, so the title runs the full screen width (matching an art-less row);
 		// a long title may reach over the image's bright side.
 		char thumbpath[1024];
-		ROM_displayArtPath(entry->path, ART_TYPE_SCREENSHOT, false, thumbpath, sizeof(thumbpath));
+		ROM_findScreenshot(entry->path, thumbpath, sizeof(thumbpath)); // scraped, else the root .media picture
 		had_thumb = startLoadThumb(thumbpath);
 		// The consumers add SCALE1(BUTTON_MARGIN) back to ox, so this yields the same available width as the
 		// art-less full-width row.
