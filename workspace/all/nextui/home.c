@@ -94,15 +94,20 @@ static void tintLit(SDL_Surface* art) {
 ///////////////////////////////////////
 // State
 
-static bool need_rebuild = true;
-static unsigned built_gen = 0;
+static bool need_rebuild = true; // Home_reset: the pins or Continue may have changed
+// The stats are asked for each time Home becomes the shown view (boot into Home, a tab step onto it, a list popped
+// back to it), so a midnight rollover or an RA sync is picked up on the next show. Not on boot before a show nor on
+// Home_reset (a pin from inside Home): the pins and Continue don't feed the stats. A request is cheap when nothing
+// changed (home_stats.c compares its input key off the UI thread; a miss re-parses every cached RA game).
+static bool was_active = false; // Home_active()'s last answer: the false → true edge sets stats_due
+static bool stats_due = false;
 static unsigned built_root = 0; // the root Directory's serial (0 = none)
 static int built_w = 0, built_h = 0, built_scale = 0;
 
 static HomeLayout layout;
 static Entry* cont = NULL; // owned; NULL = no Continue (the Pick-a-game card takes its slot)
 static char cont_preview[MAX_PATH];
-static Entry* pins[HOME_MAX_PINS];		  // borrowed from stack[0], valid for built_gen
+static Entry* pins[HOME_MAX_PINS];		  // borrowed from stack[0], valid while its serial is built_root
 static bool pin_plain_dir[HOME_MAX_PINS]; // a legacy pinned folder (no cue/m3u): A opens it
 static int npins = 0;
 
@@ -419,7 +424,12 @@ static bool signedIn(void) {
 // Data
 
 bool Home_active(void) {
-	return stack && stack->count == 1 && MenuTabs_current() == MENU_TAB_HOME;
+	bool active = stack && stack->count == 1 && MenuTabs_current() == MENU_TAB_HOME;
+	// gamelist.c asks every frame (input and render), so this sees every show; main thread only
+	if (active && !was_active)
+		stats_due = true;
+	was_active = active;
+	return active;
 }
 
 static void ensureBuilt(void);
@@ -465,7 +475,6 @@ static void rebuild(void) {
 	if (!screen || !stack || stack->count < 1)
 		return;
 	need_rebuild = false;
-	built_gen = MenuTabs_generation();
 	built_root = ((Directory*)stack->items[0])->serial;
 	built_w = screen->w;
 	built_h = screen->h;
@@ -517,22 +526,28 @@ static void rebuild(void) {
 	scroll_from = scroll_to;
 	scroll_tw.active = false;
 	sel_tw.active = false;
-	cardCacheClear(); // the pins and Continue may have changed; the keys would catch it, this frees the memory
+	// the card cache is kept: each card's key carries a stamp of everything it shows (cardStamp), so a changed pin or
+	// Continue recomposes on its own, and a card unchanged since the last visit is blitted without being composed again
 	readyFocus();
 }
 
 static void ensureBuilt(void) {
 	if (!screen || !Home_active())
 		return;
-	if (!need_rebuild && built_gen == MenuTabs_generation() && built_root == ((Directory*)stack->items[0])->serial &&
-		built_w == screen->w && built_h == screen->h && built_scale == FIXED_SCALE)
+	if (stats_due) {
+		stats_due = false;
+		HomeStats_request();
+	}
+	// Home's own inputs only: a reset, the root list (the pins are borrowed from it) and the screen. Not the tab
+	// generation: stepping tabs alone changes nothing Home shows.
+	if (!need_rebuild && built_root == ((Directory*)stack->items[0])->serial && built_w == screen->w &&
+		built_h == screen->h && built_scale == FIXED_SCALE)
 		return;
 	rebuild();
 }
 
 void Home_reset(void) {
 	need_rebuild = true;
-	HomeStats_request();
 }
 
 void Home_quit(void) {
@@ -1084,8 +1099,10 @@ static Uint32 segsStamp(Uint32 h, const InfoSeg* segs, int n) {
 	return h;
 }
 
-static Uint32 artStamp(Uint32 h, HomeArtState st, SDL_Surface* pic) {
+// gen = HomeArt_lastGen() of pic's lookup: a re-decoded art (after HomeArt_forget) may reuse the old pointer
+static Uint32 artStamp(Uint32 h, HomeArtState st, SDL_Surface* pic, unsigned gen) {
 	h = fnv(h, &st, sizeof(st));
+	h = fnv(h, &gen, sizeof(gen));
 	return fnv(h, &pic, sizeof(pic));
 }
 
@@ -1105,16 +1122,24 @@ static Uint32 statsStamp(Uint32 h, const HomeStats* st) {
 	return h;
 }
 
-// A stamp of the data a card's composition reads (the same lookups compose does, all cached and cheap).
+// A stamp of the data a card's composition reads (the same lookups compose does, all cached and cheap). The cache
+// outlives rebuilds (and so Home visits), so this must cover every input compose reads beyond the slot's key (kind, pin
+// index, w, h, FIXED_SCALE, lit, face).
 static Uint32 cardStamp(CardKind kind, int pin, int w, int h, bool lit, const HomeStats* st) {
 	Uint32 hs = 2166136261u;
 	InfoSeg segs[3];
 	SDL_Surface* pic = NULL;
+	if (lit) { // the lit look's ground and ink (the theme's accent); plain cards use fixed colours
+		SDL_Color bg = cardBg(true), ink = cardInk(true);
+		hs = fnv(hs, &bg, sizeof(bg));
+		hs = fnv(hs, &ink, sizeof(ink));
+	}
 	switch (kind) {
 	case CARD_CONTINUE: {
 		HomeArtState as = HomeArt_continue(cont->path, cont_preview[0] ? cont_preview : NULL, w, h, 0, &pic);
-		hs = artStamp(hs, as, pic);
+		hs = artStamp(hs, as, pic, HomeArt_lastGen()); // right after the lookup it describes
 		hs = fnvStr(hs, cont->path);
+		hs = fnvStr(hs, cont_preview);
 		hs = fnvStr(hs, displayName(cont));
 		hs = segsStamp(hs, segs, infoSegs(cont->path, false, true, true, segs));
 		hs = segsStamp(hs, segs, infoSegs(cont->path, true, false, false, segs));
@@ -1124,11 +1149,15 @@ static Uint32 cardStamp(CardKind kind, int pin, int w, int h, bool lit, const Ho
 		break;
 	case CARD_STATS:
 		hs = statsStamp(hs, st);
+		// canFlip and cellDp read the layout (dp), which the pixel size alone doesn't pin down
+		hs = fnv(hs, &layout.mode, sizeof(layout.mode));
+		hs = fnv(hs, &layout.card.w, sizeof(layout.card.w));
+		hs = fnv(hs, &layout.card.h, sizeof(layout.card.h));
 		break;
 	case CARD_GAME: {
 		Entry* e = pins[pin];
 		HomeArtState as = HomeArt_pin(e->path, w, h, 0, &pic);
-		hs = artStamp(hs, as, pic);
+		hs = artStamp(hs, as, pic, HomeArt_lastGen()); // right after the lookup it describes
 		hs = fnvStr(hs, e->path);
 		hs = fnvStr(hs, displayName(e));
 		if (lit)

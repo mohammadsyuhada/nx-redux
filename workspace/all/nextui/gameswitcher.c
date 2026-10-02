@@ -5,6 +5,7 @@
 #include "imgloader.h"
 #include "gameinfo.h"
 #include "gameinfo_text.h"
+#include "home.h"
 #include "infoband.h"
 #include "launcher.h"
 #include "recents.h"
@@ -144,6 +145,7 @@ GameSwitcherResult GameSwitcher_handleInput(unsigned long now) {
 		}
 	} else if (gs_count > 0 && PAD_justReleased(BTN_Y)) {
 		Recents_removeAt(gs_indices[switcher_selected]);
+		Home_reset(); // Continue may have been the removed game
 		gs_rebuildIndices();
 		if (switcher_selected >= gs_count)
 			switcher_selected = gs_count - 1;
