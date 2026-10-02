@@ -174,7 +174,56 @@ patch_mod_trimui() {
     sed -i "s|/mnt/SDCARD/Data/home|$SHARED_USERDATA_PATH/PORTS-portmaster|g" "$PM_DIR/mod_TrimUI.txt"
 }
 
+# PortMaster 2026.09.19+ rewrote device_info.txt's host probe and dropped the
+# TrimUI firmware branch (`[ -d /usr/trimui ]` -> CFW_NAME=TrimUI). On TrimUI
+# CFW_NAME stays "Unknown": pugwash falls back to its default platform (no
+# Xbox A/B fix, so the PortMaster app's buttons come out inverted) and port
+# scripts skip mod_TrimUI.txt. Re-add it ahead of the os-release fallback,
+# naming the model from the launcher's $DEVICE and taking the firmware
+# version from /etc/version (as the old upstream probe did). No-op on
+# device_info files without those fallbacks (the older ones still detect
+# TrimUI themselves).
+# PortMaster caches the probe as device_info_<cfw>_<device>.env and reads a
+# cache before re-running the script, so a probe cached as "unknown" is
+# dropped, and the TrimUI caches are dropped whenever the script is patched.
+patch_device_info_trimui() { # $1 = device_info.txt
+    [ -d /usr/trimui ] || return 0
+    rm -f "${1%/*}"/device_info_unknown_*.env
+    grep -q 'NX Redux: TrimUI version' "$1" 2>/dev/null && return 0
+    grep -q '^if \[ "\$CFW_NAME" = "Unknown" \] && {' "$1" 2>/dev/null || return 0
+    grep -q '^if \[ "\$CFW_VERSION" = "Unknown" \] && {' "$1" 2>/dev/null || return 0
+    _nxname=0
+    grep -q 'NX Redux: TrimUI firmware' "$1" && _nxname=1
+    awk -v name="$_nxname" '
+        !name && /^if \[ "\$CFW_NAME" = "Unknown" \] && \{/ {
+            print "# NX Redux: TrimUI firmware (dropped from the upstream probe)"
+            print "if [ \"$CFW_NAME\" = \"Unknown\" ] && [ -d \"/usr/trimui\" ]; then"
+            print "    export CFW_NAME=\"TrimUI\""
+            print "    case \"$DEVICE\" in"
+            print "        brickpro) export DEVICE_NAME=\"TrimUI Brick Pro\" ;;"
+            print "        brick) export DEVICE_NAME=\"TrimUI Brick\" ;;"
+            print "        smartpros) export DEVICE_NAME=\"TrimUI Smart Pro S\" ;;"
+            print "        *) export DEVICE_NAME=\"TrimUI Smart Pro\" ;;"
+            print "    esac"
+            print "fi"
+            print ""
+            name = 1
+        }
+        !ver && /^if \[ "\$CFW_VERSION" = "Unknown" \] && \{/ {
+            print "# NX Redux: TrimUI version"
+            print "if [ \"$CFW_NAME\" = \"TrimUI\" ] && [ \"$CFW_VERSION\" = \"Unknown\" ] && [ -f /etc/version ]; then"
+            print "    export CFW_VERSION=\"$(tr -d \x27\\r\\n\x27 < /etc/version)\""
+            print "fi"
+            print ""
+            ver = 1
+        }
+        { print }
+    ' "$1" >"$1.nxtmp" && mv -f "$1.nxtmp" "$1"
+    rm -f "${1%/*}"/device_info_trimui_*.env
+}
+
 apply_patches() {
+    patch_device_info_trimui "$DI"
     patch_control_txt
     patch_device_info
     patch_platform_py
