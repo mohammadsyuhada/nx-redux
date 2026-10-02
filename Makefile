@@ -92,6 +92,8 @@ name:
 
 build:
 	# ----------------------------------------------------
+	# ScreenScraper dev credentials from .env / environment (skipped if unset)
+	sh ./scripts/gen-ss-credentials.sh --optional
 	make build -f $(TOOLCHAIN_FILE) PLATFORM=$(PLATFORM) COMPILE_CORES=$(COMPILE_CORES)
 	# ----------------------------------------------------
 

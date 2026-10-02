@@ -15,14 +15,12 @@
 #define SS_SOFTNAME "nxredux-scraper"
 #define SS_RATE_LIMIT_MS 1200 // 1.2 seconds between requests
 
-// Obfuscated dev credentials (XOR key 0x5A)
-// Replace these arrays with your actual obfuscated credentials.
-// To generate: for each char c in your string, store c ^ 0x5A
+// Dev credentials (XOR key 0x5A) come from the git-ignored ss_credentials.h,
+// generated at build time by scripts/gen-ss-credentials.sh from the
+// SS_DEV_ID / SS_DEV_PASSWORD secrets.
 #define SS_XOR_KEY 0x5A
-static const unsigned char ss_devid_enc[] = {
-	0x31, 0x35, 0x2e, 0x3b, 0x31, 0x29, 0x3f, 0x37, 0x2a, 0x33, 0x2e};
-static const unsigned char ss_devpass_enc[] = {
-	0x12, 0x1e, 0x6f, 0x33, 0x19, 0x12, 0x3b, 0x39, 0x0a, 0x1b, 0x0d};
+#ifdef HAVE_SS_CREDENTIALS
+#include "ss_credentials.h"
 
 static void ss_decode(const unsigned char* enc, int len, char* out) {
 	for (int i = 0; i < len; i++)
@@ -35,6 +33,13 @@ static void ss_decodeDevCredentials(char* devid, char* devpass) {
 	ss_decode(ss_devid_enc, sizeof(ss_devid_enc), devid);
 	ss_decode(ss_devpass_enc, sizeof(ss_devpass_enc), devpass);
 }
+#else
+#warning "ss_credentials.h missing: building without ScreenScraper dev credentials (run scripts/gen-ss-credentials.sh)"
+static void ss_decodeDevCredentials(char* devid, char* devpass) {
+	devid[0] = '\0';
+	devpass[0] = '\0';
+}
+#endif
 
 static uint64_t last_request_time = 0;
 static char ss_username[64] = "";
@@ -413,7 +418,9 @@ bool ScraperAPI_downloadFile(const char* url, const char* dest_path) {
 	free(escaped_url);
 	free(escaped_path);
 
-	LOG_info("Scraper download: %s\n", cmd);
+	// Log only the destination: ScreenScraper media URLs carry the dev and
+	// user passwords as query parameters.
+	LOG_info("Scraper download: %s\n", dest_path);
 	int ret = system(cmd);
 	if (ret != 0) {
 		LOG_error("Scraper download failed: curl exit=%d\n", ret);
