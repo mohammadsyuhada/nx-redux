@@ -34,7 +34,8 @@ RowSizes Row_sizes(RowKind k, float body_w, float body_h) {
 		break;
 	}
 	case ROW_BACKDROP_LOGO: // the main-menu Consoles' logo slot: side logos shrink further, so the selected one stands out
-		s.item_w = 330 * f, s.item_h = 130 * f, s.scale = 0.45f, s.gap = 28 * f;
+		// (415 x 164, about 26% over the spec's 330 x 130 for the handhelds; sides at 0.40 of it)
+		s.item_w = 415 * f, s.item_h = 164 * f, s.scale = 0.40f, s.gap = 28 * f;
 		break;
 	case ROW_BACKDROP_TOOL:
 		s.item_w = 150 * f, s.item_h = 160 * f, s.gap = 14 * f;
@@ -72,6 +73,8 @@ RowItem Row_item(const RowSizes* s, RowKind k, float index, float pos) {
 			it.darken += (1 - it.darken) * clampf(d - 3, 0, 1);
 	} else {
 		it.alpha = Row_slotAlpha(d);
+		if (k == ROW_BACKDROP_LOGO) // Consoles' side logos a step dimmer than the curve, eased in over the first step
+			it.alpha *= 1 - (1 - ROW_LOGO_SIDE_ALPHA) * t;
 	}
 	return it;
 }

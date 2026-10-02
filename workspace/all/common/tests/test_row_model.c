@@ -20,7 +20,7 @@ static void sizes(void) {
 	assert(near(b.item_w / b.item_h, 170.0f / 150, 1e-3f));
 	assert(b.item_h <= (504 - 2 * BAR) - 32 + 0.01f);
 	RowSizes l = Row_sizes(ROW_BACKDROP_LOGO, 896, 504 - 2 * BAR);
-	assert(near(l.scale, 0.45f, 1e-4f) && near(l.item_w, 330 * l.f, 0.01f));
+	assert(near(l.scale, 0.40f, 1e-4f) && near(l.item_w, 415 * l.f, 0.01f));
 	RowSizes t = Row_sizes(ROW_BACKDROP_TOOL, 896, 504 - 2 * BAR);
 	assert(near(t.gap, 14 * t.f, 0.01f) && near(t.item_h, 160 * t.f, 0.01f));
 }
@@ -132,13 +132,13 @@ static int spPx(const Screen* s, float sp) { // NX_SP
 	return (int)(sp * s->scale * 12.0f / 14.0f + 0.5f);
 }
 
-// Main-menu Carousel (sub-project 8): Consoles' logo slot 330 x 130 (sides 0.45), Collections' tool slot with sides at
+// Main-menu Carousel (sub-project 8): Consoles' logo slot 415 x 164 (sides 0.40), Collections' tool slot with sides at
 // 0.5, Tools' tool slot unchanged.
 static void main_menu_sizes(void) {
 	float bh = 504 - 2 * BAR;
 	RowSizes l = Row_sizes(ROW_BACKDROP_LOGO, 896, bh);
 	assert(near(l.f, 896.0f / 960, 1e-4f));
-	assert(near(l.item_w, 330 * l.f, 0.01f) && near(l.item_h, 130 * l.f, 0.01f) && near(l.scale, 0.45f, 1e-4f));
+	assert(near(l.item_w, 415 * l.f, 0.01f) && near(l.item_h, 164 * l.f, 0.01f) && near(l.scale, 0.40f, 1e-4f));
 	assert(near(l.gap, 28 * l.f, 0.01f));
 	RowSizes c = Row_sizes(ROW_BACKDROP_COLL, 896, bh);
 	assert(near(c.item_w, 150 * c.f, 0.01f) && near(c.item_h, 160 * c.f, 0.01f) && near(c.gap, 14 * c.f, 0.01f));
@@ -152,6 +152,11 @@ static void main_menu_sizes(void) {
 	RowItem far = Row_item(&c, ROW_BACKDROP_COLL, 6.5f, 3); // d = 3.5: the 3-4 step fade
 	assert(far.visible && near(far.alpha, fmaxf(0.2f, 0.5f - 0.12f * 2.5f) * 0.5f, 1e-4f));
 	assert(!Row_item(&c, ROW_BACKDROP_COLL, 7, 3).visible);
+	// Consoles' side logos: 0.8 x the curve (0.4 one step out), the selected one unchanged, eased in over the step
+	assert(near(Row_item(&l, ROW_BACKDROP_LOGO, 3, 3).alpha, 1.0f, 1e-6f));
+	assert(near(Row_item(&l, ROW_BACKDROP_LOGO, 4, 3).alpha, 0.4f, 1e-4f));
+	assert(near(Row_item(&l, ROW_BACKDROP_LOGO, 3.5f, 3).alpha, 0.75f * 0.9f, 1e-4f));
+	assert(near(Row_item(&l, ROW_BACKDROP_LOGO, 5, 3).alpha, 0.38f * 0.8f, 1e-4f));
 }
 
 // Each main-menu Carousel row is centred alone between the tab row and the hint bar: no caption block, Consoles' logo
@@ -173,11 +178,11 @@ static void main_menu_centring(void) {
 			assert(near(Row_top(BAR, bh, z.item_h, 0, 18 * z.f, 0), top, 1e-4f));
 		}
 	}
-	// the logo slot exactly: Brick f = 477.87 / 960, 64.71 dp tall, its top at 146.84 dp; SPS 121.33 dp at 191.33 dp
+	// the logo slot exactly: Brick f = 477.87 / 960, 81.64 dp tall, its top at 138.38 dp; SPS 153.07 dp at 175.47 dp
 	RowSizes l = Row_sizes(ROW_BACKDROP_LOGO, 1024 / pdOf(&SCREENS[0]), 280);
-	assert(near(l.item_h, 64.71f, 0.01f) && near(Row_top(BAR, 280, l.item_h, 0, 0, 0), 146.84f, 0.01f));
+	assert(near(l.item_h, 81.64f, 0.01f) && near(Row_top(BAR, 280, l.item_h, 0, 0, 0), 138.38f, 0.01f));
 	RowSizes ls = Row_sizes(ROW_BACKDROP_LOGO, 896, 504 - 2 * BAR);
-	assert(near(ls.item_h, 121.33f, 0.01f) && near(Row_top(BAR, 504 - 2 * BAR, ls.item_h, 0, 0, 0), 191.33f, 0.01f));
+	assert(near(ls.item_h, 153.07f, 0.01f) && near(Row_top(BAR, 504 - 2 * BAR, ls.item_h, 0, 0, 0), 175.47f, 0.01f));
 }
 
 // Consoles: "N games" 8 dp under the logo as drawn, its height from the logo's aspect in the slot.
@@ -187,10 +192,10 @@ static void consoles_count_y(void) {
 	assert(near(Row_containH(330, 130, 0), 130, 1e-4f));		   // no aspect: the slot
 	assert(near(Row_logoCountY(100, 40, 8), 128, 1e-4f));
 	const float centre[2] = {179.2f, 252.0f};
-	// Mega Drive (4.20: the width binds), PrBoom (1.93, the squarest bundled logo: the slot's 130 f height binds), a
+	// Mega Drive (4.20: the width binds), PrBoom (1.93, the squarest bundled logo: the slot's 164 f height binds), a
 	// square logo (the height binds too)
 	const float aspects[3] = {4.20f, 1.93f, 1.0f};
-	const float brick_y[3] = {206.76f, 219.56f, 219.56f}, sps_y[3] = {296.67f, 320.67f, 320.67f};
+	const float brick_y[3] = {211.79f, 228.02f, 228.02f}, sps_y[3] = {306.11f, 336.53f, 336.53f};
 	for (int s = 0; s < 2; s++) {
 		const Screen* sc = &SCREENS[s];
 		float sw = sc->w / pdOf(sc), bh = sc->h / pdOf(sc) - 2 * BAR;

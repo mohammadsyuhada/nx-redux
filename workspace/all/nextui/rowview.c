@@ -78,6 +78,7 @@
 #define SLOT_TOOL_GAP_DP 12.0f
 #define SLOT_TOOL_NAME_SP 17.0f
 #define SLOT_LOGO_NAME_SP 24.0f
+#define SLOT_LOGO_GREY 224 // Consoles' logos at #E0E0E0
 #define TOOL_LONGEST_WORD "Achievements"
 
 // the placeholder box (§8b.4)
@@ -85,9 +86,7 @@
 #define PH_PLATE_ALPHA 217 // black at 85%
 #define PH_BORDER_ALPHA 31 // white at 12%
 #define PH_SPINE_ALPHA 26  // white at 10%
-#define PH_LOGO_ALPHA 178  // white at 70%
 #define PH_SPINE_SHARE 0.06f
-#define PH_LOGO_SHARE 0.14f
 #define PH_TITLE_LINES 3
 #define SHADOW_OFF_DP 4.0f // the box-art shadow (homeart.c bakes the same for real box art)
 #define SHADOW_BLUR_DP 8.0f
@@ -354,20 +353,6 @@ static const char* consoleLogoFile(const char* folder_name, char* out, size_t si
 static const char* entryLogoFile(Entry* e, char* out, size_t size) {
 	const char* slash = strrchr(e->path, '/');
 	return consoleLogoFile(slash ? slash + 1 : e->path, out, size);
-}
-
-// A game's console logo: the Roms folder its path sits under (a collection's games live in their console's folder).
-static const char* gameLogoFile(const char* path, char* out, size_t size) {
-	size_t root = strlen(ROMS_PATH);
-	if (strncmp(path, ROMS_PATH, root) != 0 || path[root] != '/')
-		return NULL;
-	char folder[MAX_PATH];
-	snprintf(folder, sizeof(folder), "%s", path + root + 1);
-	char* slash = strchr(folder, '/');
-	if (!slash)
-		return NULL;
-	*slash = '\0';
-	return consoleLogoFile(folder, out, size);
 }
 
 static const char* toolIconFile(Entry* e, const char* name) {
@@ -726,7 +711,11 @@ static SDL_Surface* buildSlot(Entry* e, TileKind kind, int w, int h, float k, fl
 		const char* file = entryLogoFile(e, logo, sizeof(logo));
 		SDL_Surface* art = file ? MenuArt_get(file, w, h) : NULL;
 		if (art) {
+			// off-white, not the art's pure white (too harsh on black); the ground matches so the edges stay that grey
+			SDL_FillRect(s, NULL, SDL_MapRGBA(s->format, SLOT_LOGO_GREY, SLOT_LOGO_GREY, SLOT_LOGO_GREY, 0));
+			SDL_SetSurfaceColorMod(art, SLOT_LOGO_GREY, SLOT_LOGO_GREY, SLOT_LOGO_GREY);
 			SDL_BlitSurface(art, NULL, s, &(SDL_Rect){(w - art->w) / 2, (h - art->h) / 2, art->w, art->h});
+			SDL_SetSurfaceColorMod(art, 255, 255, 255); // MenuArt's copy is shared
 			break;
 		}
 		// no logo: the name is the item (24 sp, two lines)
@@ -819,7 +808,7 @@ static SDL_Surface* slotItem(const RowGeo* g, Entry* e, TileKind kind, bool side
 }
 
 // The placeholder box (§8b.4) fitted in a slot_w×slot_h slot, over the soft shadow, padded for it on every side.
-static SDL_Surface* buildPlaceholder(int slot_w, int slot_h, float lvl, const char* title, const char* logo_file) {
+static SDL_Surface* buildPlaceholder(int slot_w, int slot_h, float lvl, const char* title) {
 	int bw = slot_w, bh;
 	if ((float)slot_h * PH_ASPECT < (float)slot_w)
 		bw = (int)(slot_h * PH_ASPECT + 0.5f);
@@ -872,25 +861,13 @@ static SDL_Surface* buildPlaceholder(int slot_w, int slot_h, float lvl, const ch
 	// the content box: past the spine, 6% side and 7% top/bottom margins
 	int x0 = pad + (int)(bw * (PH_SPINE_SHARE + 0.06f) + 0.5f), x1 = pad + bw - (int)(bw * 0.06f + 0.5f);
 	int y0 = pad + (int)(bh * 0.07f + 0.5f), y1 = pad + bh - (int)(bh * 0.07f + 0.5f);
-	int title_top = y0;
-	if (logo_file && x1 > x0) {
-		int logo_h = (int)(bh * PH_LOGO_SHARE + 0.5f);
-		SDL_Surface* logo = MenuArt_get(logo_file, x1 - x0, logo_h);
-		if (logo) {
-			SDL_SetSurfaceAlphaMod(logo, PH_LOGO_ALPHA);
-			SDL_BlitSurface(logo, NULL, s,
-							&(SDL_Rect){x0 + (x1 - x0 - logo->w) / 2, y0 + (logo_h - logo->h) / 2, logo->w, logo->h});
-			SDL_SetSurfaceAlphaMod(logo, 255);
-		}
-		title_top = y0 + logo_h;
-	}
-	// the title: 13% of the box's width, 10 to 20 sp, up to three lines, centred in what's left
+	// only the title (no console logo, 2026-10-02): 13% of the box's width, 10 to 20 sp, up to three lines, centred
 	float sp = 0.13f * (bw / pxPerDp());
 	sp = sp < 10.0f ? 10.0f : (sp > 20.0f ? 20.0f : sp);
 	TTF_Font* f = UIFont_get(sp, false);
 	if (f && title && x1 > x0) {
 		int th = Tiles_textBlock(NULL, f, title, (x0 + x1) / 2, 0, x1 - x0, PH_TITLE_LINES, false, 255, 255, false);
-		Tiles_textBlock(s, f, title, (x0 + x1) / 2, title_top + (y1 - title_top - th) / 2, x1 - x0, PH_TITLE_LINES,
+		Tiles_textBlock(s, f, title, (x0 + x1) / 2, y0 + (y1 - y0 - th) / 2, x1 - x0, PH_TITLE_LINES,
 						false, 255, 255, false);
 	}
 	return s;
@@ -901,11 +878,8 @@ static SDL_Surface* placeholderItem(const RowGeo* g, Entry* e, TileKind kind, bo
 	char key[ITEM_KEY];
 	snprintf(key, sizeof(key), "P|%d|%d|%s|%s", g->full_w, g->full_h, e->path, displayName(e));
 	SDL_Surface* full;
-	if (!itemFind(key, &full)) {
-		char logo[64];
-		const char* logo_file = kind == TILE_GAME ? gameLogoFile(e->path, logo, sizeof(logo)) : NULL;
-		full = itemStore(key, buildPlaceholder(g->full_w, g->full_h, 1.0f, displayName(e), logo_file));
-	}
+	if (!itemFind(key, &full))
+		full = itemStore(key, buildPlaceholder(g->full_w, g->full_h, 1.0f, displayName(e)));
 	return side ? sideCopy(key, full, g->sz.scale) : full;
 }
 
