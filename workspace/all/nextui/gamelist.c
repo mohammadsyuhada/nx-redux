@@ -37,6 +37,7 @@
 #include "home.h"
 #include "infoband.h"
 #include "launcher.h"
+#include "list_window.h"
 #include "menuart.h"
 #include "menulogo.h"
 #include "menutabs.h"
@@ -227,21 +228,8 @@ static void reloadDirectoryAt(int idx, int keep_selected) {
 	path[sizeof(path) - 1] = '\0';
 
 	Directory* fresh = Directory_new(path, 0);
-	int n = fresh->entries->count;
-	int sel = keep_selected;
-	if (sel >= n)
-		sel = n > 0 ? n - 1 : 0;
-	if (sel < 0)
-		sel = 0;
-	fresh->selected = sel;
-
-	int rc = GameList_rowCountAt(idx == 0);
-	fresh->start = 0;
-	fresh->end = (n < rc) ? n : rc;
-	if (sel >= fresh->end && n > rc) {
-		fresh->end = sel + 1;
-		fresh->start = fresh->end - rc;
-	}
+	fresh->selected = ListWindow_reload(fresh->entries->count, GameList_rowCountAt(idx == 0), keep_selected,
+										&fresh->start, &fresh->end);
 
 	Directory_free(old);
 	stack->items[idx] = fresh;
@@ -883,19 +871,12 @@ static bool doRenameCollection(Entry* entry, int root_sel) {
 	CollCount_invalidate(new_path);
 
 	// the highlight follows the renamed row (the list is sorted by name, so it can move)
-	MenuTabs_reload(root_sel);
+	MenuTabs_reload(root_sel, MENU_RELOAD_PINS | MENU_RELOAD_COLLECTIONS);
 	int row = rootRowFor(new_path);
 	Directory* root = stack->items[0];
 	if (row >= 0 && row != root->selected) { // windowed as reloadDirectoryAt
-		int total = root->entries->count, rc = GameList_rowCountAt(true);
 		root->selected = row;
-		if (row >= root->end) { // below the window: it ends on the row
-			root->end = row + 1;
-			root->start = root->end > rc ? root->end - rc : 0;
-		} else if (row < root->start) { // above it: it starts on the row
-			root->start = row;
-			root->end = row + rc < total ? row + rc : total;
-		}
+		ListWindow_reveal(root->entries->count, GameList_rowCountAt(true), row, &root->start, &root->end);
 	}
 	free(newname);
 	return true;
@@ -921,7 +902,7 @@ static void doDeleteCollection(Entry* entry, int root_sel) {
 	dropMapKey(coll_map, strrchr(path, '/') + 1);
 	Shortcuts_remove(entry);
 	CollCount_invalidate(path);
-	MenuTabs_reload(root_sel); // entry is freed from here on
+	MenuTabs_reload(root_sel, MENU_RELOAD_PINS | MENU_RELOAD_COLLECTIONS); // entry is freed from here on
 }
 
 // Resolve <emu-pak-dir>/<marker> for `entry` — the marker file an emu pak ships
@@ -1162,6 +1143,170 @@ void GameList_contextMenuClosed(void) {
 	ctx_target = NULL;
 }
 
+// Refresh Roms: rescan the emulator list and rebuild every tab
+static void ctxRefresh(int root_sel) {
+	Content_invalidateEmulist();
+	MenuTabs_reload(root_sel, MENU_RELOAD_ALL);
+}
+
+// Pin Tool / Pin Item: add a shortcut and refresh the pins
+static void ctxPin(Entry* entry, int root_sel, int sel) {
+	if (entry) {
+		Shortcuts_add(entry);
+		MenuTabs_reload(root_sel, MENU_RELOAD_PINS);
+		if (stack->count > 1)
+			reloadDirectoryAt(stack->count - 1, sel);
+	}
+}
+
+// Unpin (root row, Tool or Item): drop the shortcut and refresh the pins
+static void ctxUnpin(Entry* entry, int root_sel, int sel) {
+	if (entry) {
+		Shortcuts_remove(entry);
+		MenuTabs_reload(root_sel, MENU_RELOAD_PINS);
+		if (stack->count > 1)
+			reloadDirectoryAt(stack->count - 1, sel);
+	}
+}
+
+// Delete Rom: confirm, remove the file/folder, prune collections, aliases and the rom index
+static void ctxDeleteRom(Entry* entry, int root_sel, int sel) {
+	if (entry) {
+		char game_file[MAX_PATH];
+		char parent_dir[MAX_PATH];
+		bool folder_game = entryFolderGame(entry, game_file);
+		if (entry->type != ENTRY_ROM && !folder_game)
+			return;
+		if (confirmModal("Delete ROM?", entry->name)) {
+			bool caches_fresh = Content_romCachesFresh();
+			const char* removed = entry->path;
+			if (folder_game)
+				removeRecursive(entry->path);
+			else if (isFolderGameFile(entry->path, parent_dir)) {
+				// the folder-named cue/m3u IS the game (eg. selected from a
+				// collection): take the whole folder, don't orphan the discs
+				removeRecursive(parent_dir);
+				removed = parent_dir;
+			} else
+				unlink(entry->path);
+			// the index, collection and alias drops only follow a delete that happened (a read-only
+			// card or a busy file leaves the game listed, so it must stay counted and named)
+			if (!exists((char*)removed)) {
+				// prune the deleted game from any collection that lists it
+				// (folder games are stored as their resolved cue/m3u path)
+				const char* del_line = folder_game ? game_file : entry->path;
+				if (prefixMatch(SDCARD_PATH, del_line))
+					removeCollectionLines(del_line + strlen(SDCARD_PATH));
+				// drop its display alias too, so a future file that reuses the
+				// name doesn't inherit the dead entry's alias (mirrors rename)
+				{
+					char adir[MAX_PATH];
+					strncpy(adir, entry->path, sizeof(adir) - 1);
+					adir[sizeof(adir) - 1] = '\0';
+					char* aslash = strrchr(adir, '/');
+					const char* home_key = aslash ? aslash + 1 : adir;
+					const char* gslash = strrchr(del_line, '/');
+					const char* coll_key = gslash ? gslash + 1 : del_line;
+					char amap[MAX_PATH];
+					if (aslash) {
+						*aslash = '\0'; // adir -> parent dir; home_key still valid
+						snprintf(amap, sizeof(amap), "%s/map.txt", adir);
+						dropMapKey(amap, home_key);
+					}
+					snprintf(amap, sizeof(amap), "%s/map.txt", COLLECTIONS_PATH);
+					dropMapKey(amap, coll_key);
+				}
+				// drop it from the rom index so console counts and Search follow (after the
+				// map.txt clean-up: both feed the index fingerprint)
+				Content_forgetRom(removed, caches_fresh);
+			}
+			// root too: a pinned copy of the deleted rom must not linger
+			// as a dead shortcut (mirrors pin/unpin)
+			MenuTabs_reload(root_sel, MENU_RELOAD_ALL);
+			if (stack->count > 1)
+				reloadDirectoryAt(stack->count - 1, sel);
+		}
+	}
+}
+
+// Rename Rom: rename a rom or folder game, then refresh pins and recents
+static void ctxRenameRom(Entry* entry, int root_sel, int sel) {
+	if (entry) {
+		char game_file[MAX_PATH];
+		if (entry->type == ENTRY_ROM || entryFolderGame(entry, game_file))
+			if (doRename(entry, sel))
+				// root too: refresh any pinned copy (mirrors pin/unpin); the recents carry the new alias
+				MenuTabs_reload(root_sel, MENU_RELOAD_PINS | MENU_RELOAD_RECENTS);
+	}
+}
+
+// Add to Collection: add the rom (or a folder game's resolved cue/m3u)
+static void ctxAddToCollection(Entry* entry) {
+	if (entry) {
+		char game_file[MAX_PATH];
+		if (entry->type == ENTRY_ROM)
+			doAddToCollection(entry->path);
+		else if (entryFolderGame(entry, game_file))
+			// collections hold file paths: write the resolved cue/m3u
+			doAddToCollection(game_file);
+	}
+}
+
+// Launch with Netplay: arm the netplay flag and launch, disarming it if nothing was queued
+static void ctxNetplay(Entry* entry, bool from_home) {
+	if (entry && entryNetplayCapable(entry)) {
+		putFile(NETPLAY_LAUNCH_PATH, "1\n");
+		if (from_home)
+			MenuTabs_markHomeLaunch(); // Entry_open clears it
+		Entry_open(entry);
+		// if no launch was queued (folder auto-launch fell through, or any
+		// early-out in the rom path) the flag would stay armed and turn the
+		// next unrelated launch into a netplay launch — disarm it
+		if (!quit)
+			unlink(NETPLAY_LAUNCH_PATH);
+	}
+}
+
+// Emulator Options: run the pak's pre-launch options.sh for this rom
+static void ctxEmuOptions(Entry* entry, bool from_home) {
+	if (entry && entryEmuOptionsCapable(entry)) {
+		// folder games: hand options.sh the resolved cue/m3u, not the
+		// folder (a dotted folder name would derive a different rom key),
+		// but keep last_path on the folder so loadLast reselects it
+		char game_file[MAX_PATH];
+		char* rom_arg = entry->path;
+		if (entry->type == ENTRY_DIR && entryFolderGame(entry, game_file))
+			rom_arg = game_file;
+		char pak_path[MAX_PATH];
+		if (entryEmuMarkerPath(entry, "options.sh", pak_path)) {
+			// options.sh cd's to its own dir, so it must be invoked by the
+			// absolute path getEmuPath already produced.
+			// From Home (Continue or a pin) the return must open Home, as for its own launches;
+			// saveLast consumes the mark, and a script that never launched must not leave it set.
+			if (from_home)
+				MenuTabs_markHomeLaunch();
+			openScript(pak_path, rom_arg, entry->path);
+			MenuTabs_clearHomeLaunch();
+		}
+	}
+}
+
+// Fetch Artwork: spawn the scraper for this rom behind a blocking progress modal
+static void ctxFetchArt(Entry* entry) {
+	if (entry) {
+		char af_rom[MAX_PATH], af_out[MAX_PATH], af_tag[MAX_PATH];
+		if (!entryArtInfo(entry, af_rom, af_out, af_tag))
+			return;
+		if (!Wifi_isConnected()) {
+			artFetchNotice(entry->name, "Connect to WiFi to fetch art");
+			return;
+		}
+		putFile(ARTFETCH_STATUS_PATH, "starting");
+		openArtFetch(af_rom, af_out, af_tag, ARTFETCH_STATUS_PATH);
+		artFetchModal(entry->name, entry->path, af_out); // blocking modal until done/cancel/timeout
+	}
+}
+
 // Dispatch a selected context-menu item (ids assigned in GameList_handleInput).
 // Runs in nextui.c's main loop; blocking modals here are safe (the flip is
 // synchronous, and UIKeyboard_open already blocks mid-loop from Search).
@@ -1176,8 +1321,7 @@ void GameList_runContextAction(int id) {
 
 	switch (id) {
 	case 1: // Refresh Roms (root)
-		Content_invalidateEmulist();
-		MenuTabs_reload(root_sel);
+		ctxRefresh(root_sel);
 		break;
 	case 2: // Tools (root, offered while the Tools tab is hidden)
 		// Push the Tools folder over the current tab so B comes back to it.
@@ -1187,89 +1331,18 @@ void GameList_runContextAction(int id) {
 		break;
 	case 20: // Pin Tool
 	case 30: // Pin Item
-		if (entry) {
-			Shortcuts_add(entry);
-			MenuTabs_reload(root_sel);
-			if (stack->count > 1)
-				reloadDirectoryAt(stack->count - 1, sel);
-		}
+		ctxPin(entry, root_sel, sel);
 		break;
 	case 3:	 // Unpin (root pinned row)
 	case 21: // Unpin Tool
 	case 31: // Unpin Item
-		if (entry) {
-			Shortcuts_remove(entry);
-			MenuTabs_reload(root_sel);
-			if (stack->count > 1)
-				reloadDirectoryAt(stack->count - 1, sel);
-		}
+		ctxUnpin(entry, root_sel, sel);
 		break;
 	case 32: // Delete Rom
-		if (entry) {
-			char game_file[MAX_PATH];
-			char parent_dir[MAX_PATH];
-			bool folder_game = entryFolderGame(entry, game_file);
-			if (entry->type != ENTRY_ROM && !folder_game)
-				break;
-			if (confirmModal("Delete ROM?", entry->name)) {
-				bool caches_fresh = Content_romCachesFresh();
-				const char* removed = entry->path;
-				if (folder_game)
-					removeRecursive(entry->path);
-				else if (isFolderGameFile(entry->path, parent_dir)) {
-					// the folder-named cue/m3u IS the game (eg. selected from a
-					// collection): take the whole folder, don't orphan the discs
-					removeRecursive(parent_dir);
-					removed = parent_dir;
-				} else
-					unlink(entry->path);
-				// the index, collection and alias drops only follow a delete that happened (a read-only
-				// card or a busy file leaves the game listed, so it must stay counted and named)
-				if (!exists((char*)removed)) {
-					// prune the deleted game from any collection that lists it
-					// (folder games are stored as their resolved cue/m3u path)
-					const char* del_line = folder_game ? game_file : entry->path;
-					if (prefixMatch(SDCARD_PATH, del_line))
-						removeCollectionLines(del_line + strlen(SDCARD_PATH));
-					// drop its display alias too, so a future file that reuses the
-					// name doesn't inherit the dead entry's alias (mirrors rename)
-					{
-						char adir[MAX_PATH];
-						strncpy(adir, entry->path, sizeof(adir) - 1);
-						adir[sizeof(adir) - 1] = '\0';
-						char* aslash = strrchr(adir, '/');
-						const char* home_key = aslash ? aslash + 1 : adir;
-						const char* gslash = strrchr(del_line, '/');
-						const char* coll_key = gslash ? gslash + 1 : del_line;
-						char amap[MAX_PATH];
-						if (aslash) {
-							*aslash = '\0'; // adir -> parent dir; home_key still valid
-							snprintf(amap, sizeof(amap), "%s/map.txt", adir);
-							dropMapKey(amap, home_key);
-						}
-						snprintf(amap, sizeof(amap), "%s/map.txt", COLLECTIONS_PATH);
-						dropMapKey(amap, coll_key);
-					}
-					// drop it from the rom index so console counts and Search follow (after the
-					// map.txt clean-up: both feed the index fingerprint)
-					Content_forgetRom(removed, caches_fresh);
-				}
-				// root too: a pinned copy of the deleted rom must not linger
-				// as a dead shortcut (mirrors pin/unpin)
-				MenuTabs_reload(root_sel);
-				if (stack->count > 1)
-					reloadDirectoryAt(stack->count - 1, sel);
-			}
-		}
+		ctxDeleteRom(entry, root_sel, sel);
 		break;
 	case 33: // Rename Rom
-		if (entry) {
-			char game_file[MAX_PATH];
-			if (entry->type == ENTRY_ROM || entryFolderGame(entry, game_file))
-				if (doRename(entry, sel))
-					// root too: refresh any pinned copy (mirrors pin/unpin)
-					MenuTabs_reload(root_sel);
-		}
+		ctxRenameRom(entry, root_sel, sel);
 		break;
 	case 40: // Rename (a Collections-tab row)
 		if (isCollectionRow(entry))
@@ -1280,63 +1353,16 @@ void GameList_runContextAction(int id) {
 			doDeleteCollection(entry, root_sel);
 		break;
 	case 34: // Add to Collection
-		if (entry) {
-			char game_file[MAX_PATH];
-			if (entry->type == ENTRY_ROM)
-				doAddToCollection(entry->path);
-			else if (entryFolderGame(entry, game_file))
-				// collections hold file paths: write the resolved cue/m3u
-				doAddToCollection(game_file);
-		}
+		ctxAddToCollection(entry);
 		break;
 	case 35: // Launch with Netplay
-		if (entry && entryNetplayCapable(entry)) {
-			putFile(NETPLAY_LAUNCH_PATH, "1\n");
-			if (from_home)
-				MenuTabs_markHomeLaunch(); // Entry_open clears it
-			Entry_open(entry);
-			// if no launch was queued (folder auto-launch fell through, or any
-			// early-out in the rom path) the flag would stay armed and turn the
-			// next unrelated launch into a netplay launch — disarm it
-			if (!quit)
-				unlink(NETPLAY_LAUNCH_PATH);
-		}
+		ctxNetplay(entry, from_home);
 		break;
 	case 36: // Emulator Options (pre-launch editor)
-		if (entry && entryEmuOptionsCapable(entry)) {
-			// folder games: hand options.sh the resolved cue/m3u, not the
-			// folder (a dotted folder name would derive a different rom key),
-			// but keep last_path on the folder so loadLast reselects it
-			char game_file[MAX_PATH];
-			char* rom_arg = entry->path;
-			if (entry->type == ENTRY_DIR && entryFolderGame(entry, game_file))
-				rom_arg = game_file;
-			char pak_path[MAX_PATH];
-			if (entryEmuMarkerPath(entry, "options.sh", pak_path)) {
-				// options.sh cd's to its own dir, so it must be invoked by the
-				// absolute path getEmuPath already produced.
-				// From Home (Continue or a pin) the return must open Home, as for its own launches;
-				// saveLast consumes the mark, and a script that never launched must not leave it set.
-				if (from_home)
-					MenuTabs_markHomeLaunch();
-				openScript(pak_path, rom_arg, entry->path);
-				MenuTabs_clearHomeLaunch();
-			}
-		}
+		ctxEmuOptions(entry, from_home);
 		break;
 	case 37: // Fetch Artwork
-		if (entry) {
-			char af_rom[MAX_PATH], af_out[MAX_PATH], af_tag[MAX_PATH];
-			if (!entryArtInfo(entry, af_rom, af_out, af_tag))
-				break;
-			if (!Wifi_isConnected()) {
-				artFetchNotice(entry->name, "Connect to WiFi to fetch art");
-				break;
-			}
-			putFile(ARTFETCH_STATUS_PATH, "starting");
-			openArtFetch(af_rom, af_out, af_tag, ARTFETCH_STATUS_PATH);
-			artFetchModal(entry->name, entry->path, af_out); // blocking modal until done/cancel/timeout
-		}
+		ctxFetchArt(entry);
 		break;
 	default:
 		break;
@@ -1512,10 +1538,8 @@ static void contentToBottom(void) {
 	} else if (GridView_active()) {
 		GridView_focusBottom();
 	} else { // List: the last row, windowed as the List's own wrap to the bottom
-		int rc = GameList_rowCount();
 		top->selected = total - 1;
-		top->start = total > rc ? total - rc : 0;
-		top->end = total;
+		ListWindow_toBottom(total, GameList_rowCount(), &top->start, &top->end);
 	}
 	readyResume(top->entries->items[top->selected]);
 }
@@ -1739,61 +1763,16 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 		}
 		return result;
 	} else if (total > 0) {
-		if (PAD_justRepeated(BTN_UP)) {
-			if (selected == 0 && !PAD_justPressed(BTN_UP)) {
-			} else {
-				selected -= 1;
-				if (selected < 0) {
-					selected = total - 1;
-					int start = total - row_count;
-					top->start = (start < 0) ? 0 : start;
-					top->end = total;
-				} else if (selected < top->start) {
-					top->start -= 1;
-					top->end -= 1;
-				}
-			}
-		} else if (PAD_justRepeated(BTN_DOWN)) {
-			if (selected == total - 1 && !PAD_justPressed(BTN_DOWN)) {
-			} else {
-				selected += 1;
-				if (selected >= total) {
-					selected = 0;
-					top->start = 0;
-					top->end = (total < row_count) ? total : row_count;
-				} else if (selected >= top->end) {
-					top->start += 1;
-					top->end += 1;
-				}
-			}
-		}
+		// one row; a held key stops at the edge, a fresh press wraps
+		if (PAD_justRepeated(BTN_UP))
+			ListWindow_step(total, row_count, -1, PAD_justPressed(BTN_UP), &selected, &top->start, &top->end);
+		else if (PAD_justRepeated(BTN_DOWN))
+			ListWindow_step(total, row_count, 1, PAD_justPressed(BTN_DOWN), &selected, &top->start, &top->end);
 		// page jump in game lists only (the root's LEFT/RIGHT switch tabs above; a held one does nothing)
-		if (stack->count > 1 && PAD_justRepeated(BTN_LEFT)) {
-			selected -= row_count;
-			if (selected < 0) {
-				selected = 0;
-				top->start = 0;
-				top->end = (total < row_count) ? total : row_count;
-			} else if (selected < top->start) {
-				top->start -= row_count;
-				if (top->start < 0)
-					top->start = 0;
-				top->end = top->start + row_count;
-			}
-		} else if (stack->count > 1 && PAD_justRepeated(BTN_RIGHT)) {
-			selected += row_count;
-			if (selected >= total) {
-				selected = total - 1;
-				int start = total - row_count;
-				top->start = (start < 0) ? 0 : start;
-				top->end = total;
-			} else if (selected >= top->end) {
-				top->end += row_count;
-				if (top->end > total)
-					top->end = total;
-				top->start = top->end - row_count;
-			}
-		}
+		if (stack->count > 1 && PAD_justRepeated(BTN_LEFT))
+			ListWindow_page(total, row_count, -1, &selected, &top->start, &top->end);
+		else if (stack->count > 1 && PAD_justRepeated(BTN_RIGHT))
+			ListWindow_page(total, row_count, 1, &selected, &top->start, &top->end);
 	}
 
 	// L1/R1 at the root switch tabs (no repeat); in lists they jump by letter
@@ -1810,13 +1789,8 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 		int i = entry->alpha - 1;
 		if (i >= 0) {
 			selected = top->alphas.items[i];
-			if (total > row_count) {
-				top->start = selected;
-				top->end = top->start + row_count;
-				if (top->end > total)
-					top->end = total;
-				top->start = top->end - row_count;
-			}
+			if (total > row_count)
+				ListWindow_selectAtTop(total, row_count, selected, &top->start, &top->end);
 		}
 	} else if (stack->count > 1 && total > 0 && PAD_justRepeated(BTN_R1) &&
 			   !PAD_isPressed(BTN_L1) &&
@@ -1825,13 +1799,8 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 		int i = entry->alpha + 1;
 		if (i < top->alphas.count) {
 			selected = top->alphas.items[i];
-			if (total > row_count) {
-				top->start = selected;
-				top->end = top->start + row_count;
-				if (top->end > total)
-					top->end = total;
-				top->start = top->end - row_count;
-			}
+			if (total > row_count)
+				ListWindow_selectAtTop(total, row_count, selected, &top->start, &top->end);
 		}
 	}
 

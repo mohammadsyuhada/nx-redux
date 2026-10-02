@@ -19,6 +19,7 @@
 #include "gamelist.h"
 #include "home.h"
 #include "launcher.h"
+#include "list_window.h"
 #include "menu_transition.h"
 #include "recents.h"
 #include "shortcuts.h"
@@ -34,7 +35,7 @@ static bool simple_mode = false;
 // Parked roots (T1-1, menutabs_model.h): L1/R1 parks the outgoing tab's stack[0] here and takes the incoming
 // one's, so a tab switch costs no card I/O. Only tabs that are NOT current have a root here (the stack owns
 // stack[0]), so every existing free of stack[0] stays correct. A slot's hint keeps its selection after the root
-// is dropped. Dropped by MenuTabs_reload (all), MenuTabs_setCurrent and MenuTabs_dropCached (one).
+// is dropped. Dropped by MenuTabs_reload (the tabs in its plan's stale_tabs), MenuTabs_setCurrent and MenuTabs_dropCached (one).
 static MenuTabSlot slots[MENU_TAB_COUNT];
 // Content_libraryGen() when stack[0] was built, and when the parked Consoles root was: a Consoles root built
 // against an older emulist (a refresh, a delete, a Search rescan) is rebuilt instead of reused.
@@ -61,24 +62,40 @@ static bool settingsPakExists(void) {
 	return exists(path);
 }
 
-void MenuTabs_init(void) {
-	simple_mode = exists(SIMPLE_MODE_PATH);
-	if (Shortcuts_getCount() > 0)
+// What the visible tabs are computed from, kept between reloads (T2-11): a reload re-reads only the inputs its
+// mask says may have changed (MenuTabs_reloadPlan), and recomputes the tabs from the rest as last read.
+static MenuTabInputs last_in;
+
+// Re-read what `plan` asks for, then recompute the visible tabs. The CFG flags, simple mode, Tools and the
+// Settings pak change only outside nextui (Settings, a card edit), so only the full pass (boot, MENU_RELOAD_ALL)
+// reads them.
+static void refreshInputs(const MenuReloadPlan* plan) {
+	if (plan->check_all)
+		simple_mode = exists(SIMPLE_MODE_PATH);
+	if (plan->validate_pins && Shortcuts_getCount() > 0)
 		Shortcuts_validate();
 	// No tab lists recents any more, but this is what fills the Game
 	// Switcher's list (and applies a pending disc change).
-	Recents_load();
-	MenuTabInputs in = {
-		.show_consoles = CFG_getShowEmulators(),
-		.has_consoles = Content_hasConsoles() != 0,
-		.show_collections = CFG_getShowCollections(),
-		.has_collections = hasCollections() != 0,
-		.show_tools = CFG_getShowTools(),
-		.has_tools = hasTools() != 0,
-		.simple_mode = simple_mode,
-		.has_settings = settingsPakExists(),
-	};
-	tab_count = MenuTabs_visible(&in, tabs);
+	if (plan->load_recents)
+		Recents_load();
+	if (plan->check_all) {
+		last_in.show_consoles = CFG_getShowEmulators();
+		last_in.show_collections = CFG_getShowCollections();
+		last_in.show_tools = CFG_getShowTools();
+		last_in.has_tools = hasTools() != 0;
+		last_in.simple_mode = simple_mode;
+		last_in.has_settings = settingsPakExists();
+	}
+	if (plan->check_consoles)
+		last_in.has_consoles = Content_hasConsoles() != 0;
+	if (plan->check_collections)
+		last_in.has_collections = hasCollections() != 0;
+	tab_count = MenuTabs_visible(&last_in, tabs);
+}
+
+void MenuTabs_init(void) {
+	MenuReloadPlan full = MenuTabs_reloadPlan(MENU_RELOAD_ALL);
+	refreshInputs(&full);
 }
 
 int MenuTabs_count(void) {
@@ -261,41 +278,51 @@ bool MenuTabs_step(int delta) {
 	return true;
 }
 
-void MenuTabs_reload(int keep_selected) {
-	generation++;
-	// the global invalidation: whatever changed (a pin, a delete, a rename, a refresh) may show in any tab's
-	// root, so every parked root is rebuilt on its next visit (from its hint)
-	dropAllSlots();
-	MenuTabs_init();
+void MenuTabs_reload(int keep_selected, unsigned what) {
+	MenuReloadPlan plan = MenuTabs_reloadPlan(what);
+	generation++; // per-view state resets as for a fresh root, whether or not stack[0] is rebuilt
+	// only a tab the change can show in has an out-of-date parked root; it is rebuilt on its next visit (from its
+	// hint). The others stay parked: they equal a rebuild (and a Consoles root parked before an emulist refill is
+	// still caught by openRootKeepFocus's consoles_gen check).
+	for (int id = 0; id < MENU_TAB_COUNT; id++) {
+		if (plan.stale_tabs & (1u << id))
+			dropSlot((MenuTabId)id);
+	}
+	refreshInputs(&plan);
 	MenuTabId next = tabs[MenuTabs_resolve(tabs, tab_count, current)];
 	MenuTabId old_tab = current;
 	Directory* old = stack->items[0];
-	int sel = (next == current) ? keep_selected : (slots[next].hint ? slots[next].selected : 0);
-	current = next;
-	Directory* fresh = buildRoot(next, 0, 0, 0);
-	int n = fresh->entries->count;
-	if (sel >= n)
-		sel = n > 0 ? n - 1 : 0;
-	fresh->selected = sel < 0 ? 0 : sel;
-	int rc = GameList_rowCountAt(true);
-	if (fresh->selected >= fresh->end && n > rc) { // same windowing as reloadDirectoryAt
-		fresh->end = fresh->selected + 1;
-		fresh->start = fresh->end - rc;
+	// the current tab's root, when the change can't show in it, is what a rebuild would give: kept, but
+	// re-windowed exactly as a rebuild is (ListWindow_reload ignores the old window)
+	bool keep_root = next == old_tab && !(plan.stale_tabs & (1u << old_tab)) &&
+					 exactMatch(old->path, MenuTabs_path(old_tab)) &&
+					 (old_tab != MENU_TAB_CONSOLES || root_gen == Content_libraryGen());
+	if (keep_root) {
+		old->selected =
+			ListWindow_reload(old->entries->count, GameList_rowCountAt(true), keep_selected, &old->start, &old->end);
+	} else {
+		int sel = (next == old_tab) ? keep_selected : (slots[next].hint ? slots[next].selected : 0);
+		dropSlot(next); // a parked copy would be a second root for this tab (its hint stays)
+		current = next; // before anything reads the row count (it depends on the tab's style)
+		Directory* fresh = buildRoot(next, 0, 0, 0);
+		// buildRoot's window from the top, re-windowed so the kept selection shows (as reloadDirectoryAt)
+		fresh->selected =
+			ListWindow_reload(fresh->entries->count, GameList_rowCountAt(true), sel, &fresh->start, &fresh->end);
+		if (next != old_tab) {
+			// the current tab vanished (e.g. its last ROM was deleted from inside Consoles › GBA): a list pushed
+			// over it belongs to that tab, so it can't stay over another tab's root -- B would land on the wrong
+			// tab, and the caller's reloadDirectoryAt would rebuild it there. Back to the new root.
+			while (stack->count > 1)
+				DirectoryArray_pop(stack);
+		}
+		Directory_free(old);
+		stack->items[0] = fresh;
+		if (stack->count == 1)
+			top = fresh;
+		if (next != old_tab)
+			MenuTabs_leaveFocus(); // a different tab's content: lit, with focus
 	}
-	if (next != old_tab) {
-		// the current tab vanished (e.g. its last ROM was deleted from inside Consoles › GBA): a list pushed
-		// over it belongs to that tab, so it can't stay over another tab's root -- B would land on the wrong
-		// tab, and the caller's reloadDirectoryAt would rebuild it there. Back to the new root.
-		while (stack->count > 1)
-			DirectoryArray_pop(stack);
-	}
-	Directory_free(old);
-	stack->items[0] = fresh;
-	if (stack->count == 1)
-		top = fresh;
-	if (next != old_tab)
-		MenuTabs_leaveFocus(); // a different tab's content: lit, with focus
-	Home_reset();			   // the pins or what Continue shows may have changed
+	Home_reset(); // the pins or what Continue shows may have changed
 }
 
 // MENU_TAB_PATH: the tab key, plus a second line "launch" when the game was
@@ -417,14 +444,13 @@ MenuTabId MenuTabs_initialTab(const char* last_path) {
 
 // The tab row keeps the device's default size whatever the UI scale (UI scale enlarges the content, not the tabs):
 // its measures in dp at NATIVE_SCALE, its font at NATIVE_SCALE too (tabFont)
-#define TAB_DP(x) ((int)((x) * NATIVE_SCALE * 30.0f / 42.0f + 0.5f))
-#define TAB_LABEL_GAP TAB_DP(20)   // pixels between labels
-#define TAB_UNDERLINE_H TAB_DP(3)  // underline height in pixels
-#define TAB_EDGE TAB_DP(16)		   // scroll margin + edge fade width
-#define TAB_PLATE_PAD_X TAB_DP(12) // the plate past the word, each side
-#define TAB_PLATE_PAD_Y TAB_DP(5)  // and above and below
-#define TAB_DIM_ALPHA 97		   // 38%: labels of the other tabs
-#define TAB_GLIDE_MS 240		   // underline glide, eased with UI_easeStandard
+#define TAB_LABEL_GAP NX_NATIVE_DP(20)	 // pixels between labels
+#define TAB_UNDERLINE_H NX_NATIVE_DP(3)	 // underline height in pixels
+#define TAB_EDGE NX_NATIVE_DP(16)		 // scroll margin + edge fade width
+#define TAB_PLATE_PAD_X NX_NATIVE_DP(12) // the plate past the word, each side
+#define TAB_PLATE_PAD_Y NX_NATIVE_DP(5)	 // and above and below
+#define TAB_DIM_ALPHA 97				 // 38%: labels of the other tabs
+#define TAB_GLIDE_MS 240				 // underline glide, eased with UI_easeStandard
 
 // Underline glide (strip coordinates). Position = lerp(from, to, UI_easeStandard(elapsed / 240 ms)).
 static struct {
@@ -663,7 +689,7 @@ void MenuTabs_renderRow(SDL_Surface* screen, int ow) {
 
 	int bar_h = SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2);
 	// the row's own height at the default scale, centred in the (UI-scaled) top bar
-	int row_h = NATIVE_SCALE * (BUTTON_SIZE + BUTTON_MARGIN * 2);
+	int row_h = NATIVE1(BUTTON_SIZE + BUTTON_MARGIN * 2);
 	if (row_h > bar_h)
 		row_h = bar_h;
 	int row_y = (bar_h - row_h) / 2;
@@ -677,7 +703,7 @@ void MenuTabs_renderRow(SDL_Surface* screen, int ow) {
 
 	int xs[MENU_TAB_COUNT], ws[MENU_TAB_COUNT];
 	// font.medium's size at the default scale; labels that don't fit scroll (never a smaller font)
-	TTF_Font* f = UIFont_getPx(NATIVE_SCALE * FONT_MEDIUM, false);
+	TTF_Font* f = UIFont_getPx(NATIVE1(FONT_MEDIUM), false);
 	if (!f)
 		f = font.medium;
 	int labels_w = layoutLabels(f, xs, ws);
@@ -757,7 +783,7 @@ void MenuTabs_renderRow(SDL_Surface* screen, int ow) {
 	} else {
 		int ux, uw;
 		underlineNow(&ux, &uw);
-		SDL_FillRect(screen, &(SDL_Rect){base + ux, row_y + row_h - TAB_UNDERLINE_H - NATIVE_SCALE * 2, uw, TAB_UNDERLINE_H},
+		SDL_FillRect(screen, &(SDL_Rect){base + ux, row_y + row_h - TAB_UNDERLINE_H - NATIVE1(2), uw, TAB_UNDERLINE_H},
 					 accentOpaque(screen->format));
 	}
 

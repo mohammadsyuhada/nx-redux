@@ -29,10 +29,12 @@ void MenuTabs_openRoot(MenuTabId id);
 // L1/R1 at the root: park the current tab's root, move by delta (wrapping), open it.
 // Returns true when the tab changed.
 bool MenuTabs_step(int delta);
-// Something changed what the tabs hold (pin, unpin, delete, refresh). Drop every parked root, recompute the
-// visible tabs and rebuild stack[0]; if the current tab vanished, open the resolved neighbour at its root (the
-// lists pushed over the old tab are popped). keep_selected clamps.
-void MenuTabs_reload(int keep_selected);
+// Something changed what the tabs hold (pin, unpin, delete, rename, refresh); `what` is a mask of MENU_RELOAD_*
+// bits naming what may have changed (MenuTabs_reloadPlan). Drops the parked roots of the tabs it can show in,
+// re-reads only those inputs, recomputes the visible tabs and rebuilds stack[0] when the change can show in the
+// current tab (else keeps it, re-windowed as a rebuild would be); if the current tab vanished, opens the resolved
+// neighbour at its root (the lists pushed over the old tab are popped). keep_selected clamps.
+void MenuTabs_reload(int keep_selected, unsigned what);
 // Bumped whenever MenuTabs_openRoot/MenuTabs_reload replace stack[0] (a tab switch or reload). Readers use it
 // to tell a tab change from a push/pop; per-list caches key on Directory.serial (which also changes on a
 // push, pop or openDirectory stack rebuild) alongside it.
