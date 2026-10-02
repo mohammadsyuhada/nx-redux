@@ -67,7 +67,11 @@ void PinDialog_render(SDL_Surface* screen) {
 	int gap = SCALE1(BUTTON_MARGIN * 2);
 	int total_w = PINDIALOG_PIN_LEN * slot_w + (PINDIALOG_PIN_LEN - 1) * gap;
 	int x = (screen->w - total_w) / 2;
-	int y = (screen->h - slot_h) / 2 - SCALE1(BUTTON_SIZE);
+	// the slots (their spinner arrows sit symmetrically above and below) centred between the title's letters
+	// and the hint icons (LIST-LAYOUT §10.2's optical centre), not the screen
+	int band_top = UI_pageTitleBandTop();
+	int band_bottom = UI_buttonHintIconTop(screen->h);
+	int y = band_top + (band_bottom - band_top - slot_h) / 2;
 
 	for (int i = 0; i < PINDIALOG_PIN_LEN; i++) {
 		int focused = (i == pin_focus);

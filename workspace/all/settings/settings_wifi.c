@@ -7,6 +7,7 @@
 #include "settings_wifi.h"
 #include "defines.h"
 #include "api.h"
+#include "ui_accent.h"
 #include "ui_list.h"
 #include "ui_keyboard.h"
 #include "ui_confirmdialog.h"
@@ -364,7 +365,7 @@ static void wifi_network_draw(SDL_Surface* screen, SettingItem* item,
 		GFX_measureText(f, truncated, &text_w_px, &text_h_px);
 		int label_pill_w = text_w_px + SCALE1(BUTTON_PADDING * 2);
 		SDL_Rect label_rect = {x, y, label_pill_w, h};
-		GFX_blitRectColor(ASSET_BUTTON, screen, &label_rect, THEME_COLOR1);
+		GFX_blitRectColor(ASSET_BUTTON, screen, &label_rect, UI_accentMapped(screen->format));
 	}
 
 	int text_x = x + SCALE1(BUTTON_PADDING);

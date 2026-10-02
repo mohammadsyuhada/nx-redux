@@ -17,6 +17,9 @@ void UI_fillRoundedRect(SDL_Surface* dst, int x, int y, int w, int h,
 // surface is (re)created when the requested size changes. Returns NULL on
 // allocation failure.
 SDL_Surface* UI_getScrim(SDL_Surface** cache, int w, int h);
+// The same with a chosen alpha. The cache is keyed on size only, so keep one
+// static slot per alpha.
+SDL_Surface* UI_getScrimAlpha(SDL_Surface** cache, int w, int h, Uint8 alpha);
 
 // Render a horizontally centered row of button hints at `y`.
 // `pairs` is a NULL-terminated {button, label} array, e.g.

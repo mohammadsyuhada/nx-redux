@@ -2,6 +2,7 @@
 #define __gametime_db_h__
 
 #include <sqlite3.h>
+#include <stdbool.h>
 
 typedef struct ROM ROM;
 typedef struct PlayActivity PlayActivity;
@@ -37,6 +38,11 @@ PlayActivities* play_activity_find_all(void);
 //int play_activity_get_play_time(const char *rom_path);
 
 // Main interface functions for write access
+// PortMaster's launcher (Roms/Ports/…Portmaster.sh, Tools/PortMaster.pak) isn't a game: never timed, and its older
+// rows are left out of every list and total (an SQL condition on the `rom` table's file_path).
+#define GAMETIME_NOT_EXCLUDED_SQL \
+	"(lower(rom.file_path) NOT LIKE '%portmaster.sh' AND lower(rom.file_path) NOT LIKE '%portmaster.pak%')"
+bool play_activity_is_excluded(const char* rom_file_path);
 void play_activity_start(char* rom_file_path);
 void play_activity_resume(void);
 void play_activity_stop(char* rom_file_path);

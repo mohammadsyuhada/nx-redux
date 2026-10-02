@@ -51,6 +51,7 @@ typedef struct SettingItem {
 	int (*get_value)(void);		// returns current value
 	void (*set_value)(int val); // sets value
 	int* values;				// maps idx -> actual value (NULL means idx=value)
+	int a_cycles;				// 1 = A also steps to the next value (a two-value flip row)
 
 	// ITEM_BUTTON
 	void (*on_press)(void);

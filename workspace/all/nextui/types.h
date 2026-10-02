@@ -89,6 +89,9 @@ typedef struct Directory {
 	int selected;
 	int start;
 	int end;
+	// Unique per Directory_new (never 0): per-list caches key on it, not on the pointer, since a freed
+	// Directory's address is often reused by the next one (a tab switch, openDirectory's stack rebuild).
+	unsigned serial;
 } Directory;
 
 void Directory_free(Directory* self);

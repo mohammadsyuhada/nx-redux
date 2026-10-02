@@ -792,7 +792,7 @@ static void render_role_menu(const char* game) {
 static void render_mode_menu(void) {
 	GFX_clear(wiz_screen);
 	ListView* v = &wiz_menu_view;
-	v->title = "Connection";
+	v->title = "Netplay | Connection"; // a page inside the tool names it (LIST-LAYOUT §10.1)
 	v->font = font.large;
 	v->count = WIZ_MENU_ITEMS;
 	v->get_row = wiz_menu_get_row;

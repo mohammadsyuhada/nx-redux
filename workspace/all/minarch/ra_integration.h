@@ -34,6 +34,13 @@ void RA_quit(void);
 void RA_loadGame(const char* rom_path, const uint8_t* rom_data, size_t rom_size, const char* emu_tag);
 
 /**
+ * Path to record in the offline cache's rom.txt for the next RA_loadGame (the
+ * launcher's ROM path). Needed when RA_loadGame gets an archive's extracted tmp
+ * copy; when unset, rom.txt records RA_loadGame's rom_path.
+ */
+void RA_setRecordedRomPath(const char* path);
+
+/**
  * Unload the current game from achievement tracking.
  * Should be called when a game is closed/unloaded.
  */

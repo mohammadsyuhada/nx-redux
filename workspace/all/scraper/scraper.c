@@ -85,8 +85,8 @@ typedef struct {
 	char filename[256];	 // ROM filename (basename; folder games: the .cue/.m3u)
 	char path[512];		 // Full path to ROM file
 	char label[256];	 // Display name, relative to the system folder
-	char art_png[512];	 // Mix image path (nextui ROM_mediaArtPath convention)
-	bool has_artwork;	 // Whether the mix image (art_png) exists
+	char art_png[512];	 // .media/<name>.png (nextui ROM_mediaArtPath): the base the variant paths derive from
+	bool has_artwork;	 // a screenshot or box art variant exists (the mix composite is no longer made)
 	bool has_screenshot; // Whether the .media/screenshot/ variant exists
 	bool has_boxart;	 // Whether the .media/boxart/ variant exists
 } ROMEntry;
@@ -103,7 +103,7 @@ typedef enum {
 	SCRAPE_STATUS_IDLE,
 	SCRAPE_STATUS_SEARCHING,
 	SCRAPE_STATUS_DOWNLOADING,
-	SCRAPE_STATUS_COMPOSITING,
+	SCRAPE_STATUS_SAVING,
 	SCRAPE_STATUS_DONE,
 	SCRAPE_STATUS_NOT_FOUND,
 	SCRAPE_STATUS_ERROR,
@@ -209,13 +209,20 @@ typedef struct {
 static bool count_game_cb(const ScanGame* g, void* ud) {
 	GameCounts* c = ud;
 	c->roms++;
-	if (exists((char*)g->art_png))
+	char variant[512];
+	Scraper_variantPath(g->art_png, "screenshot", variant, sizeof(variant));
+	bool art = exists(variant);
+	if (!art) {
+		Scraper_variantPath(g->art_png, "boxart", variant, sizeof(variant));
+		art = exists(variant);
+	}
+	if (art)
 		c->scraped++;
 	return true;
 }
 
 // Count games the way nextui lists them (any non-hidden file, folder games
-// as one, nested folders included) and how many already have a mix image.
+// as one, nested folders included) and how many already have a screenshot or box art.
 static GameCounts countGames(const char* dirpath) {
 	GameCounts c = {0, 0};
 	Scan_walk(dirpath, count_game_cb, &c);
@@ -401,16 +408,15 @@ static bool scan_rom_cb(const ScanGame* g, void* ud) {
 	const char* alias = mapAliasFor(map_dir, map_key);
 	snprintf(rom->label, sizeof(rom->label), "%s", (alias && alias[0]) ? alias : g->label);
 	snprintf(rom->art_png, sizeof(rom->art_png), "%s", g->art_png);
-	rom->has_artwork = exists(rom->art_png);
-	// The scraper stores three images per game (mix + screenshot + boxart);
-	// the single-image variants live under .media/<variant>/ and are only
-	// written when ScreenScraper actually had that image, so a game with a
-	// mix can still be missing one of them.
+	// The scraper stores a screenshot and a box art per game, under .media/<variant>/, each only when
+	// ScreenScraper had it. A game with either counts as scraped; an old mix composite alone doesn't (a re-scrape
+	// adds the images the menus use).
 	char variant[512];
 	Scraper_variantPath(rom->art_png, "screenshot", variant, sizeof(variant));
 	rom->has_screenshot = exists(variant);
 	Scraper_variantPath(rom->art_png, "boxart", variant, sizeof(variant));
 	rom->has_boxart = exists(variant);
+	rom->has_artwork = rom->has_screenshot || rom->has_boxart;
 	return true;
 }
 
@@ -666,8 +672,8 @@ static void scrape_status_cb(const char* stage, void* userdata) {
 	ScrapeStatus s = SCRAPE_STATUS_SEARCHING;
 	if (strcmp(stage, "downloading") == 0)
 		s = SCRAPE_STATUS_DOWNLOADING;
-	else if (strcmp(stage, "compositing") == 0)
-		s = SCRAPE_STATUS_COMPOSITING;
+	else if (strcmp(stage, "saving") == 0)
+		s = SCRAPE_STATUS_SAVING;
 	pthread_mutex_lock(&queue_mutex);
 	item->status = s;
 	queue_dirty = true;
@@ -725,8 +731,8 @@ static const char* scrapeStatusText(ScrapeStatus status) {
 		return "Searching...";
 	case SCRAPE_STATUS_DOWNLOADING:
 		return "Downloading...";
-	case SCRAPE_STATUS_COMPOSITING:
-		return "Compositing...";
+	case SCRAPE_STATUS_SAVING:
+		return "Saving...";
 	case SCRAPE_STATUS_DONE:
 		return "Done";
 	case SCRAPE_STATUS_NOT_FOUND:
@@ -739,12 +745,10 @@ static const char* scrapeStatusText(ScrapeStatus status) {
 
 static const char* romStatusLabel(ROMEntry* rom) {
 	if (rom->has_artwork) {
-		// Complete only when all three stored images are present; otherwise
-		// name which one is missing so it is clear what a re-scrape would add.
+		// Complete only when both stored images are present; otherwise name the missing one, so it is clear
+		// what a re-scrape would add.
 		if (rom->has_screenshot && rom->has_boxart)
 			return "Done";
-		if (!rom->has_screenshot && !rom->has_boxart)
-			return "Mix only";
 		if (!rom->has_screenshot)
 			return "No screenshot";
 		return "No box art";
@@ -851,7 +855,7 @@ static void renderROMList(void) {
 	GFX_clear(screen);
 
 	SystemEntry* sys = &systems[systems_view.selected];
-	UI_renderMenuBar(screen, sys->name);
+	UI_renderMenuBarPage(screen, "Artwork Manager", sys->name);
 
 	if (rom_count == 0) {
 		UI_renderEmptyState(screen, "No ROMs found", NULL, NULL);

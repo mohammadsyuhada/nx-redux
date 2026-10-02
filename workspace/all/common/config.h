@@ -56,10 +56,13 @@ enum {
 
 // Game art presentation style: a thumbnail floating on the right, or a
 // full-height background image that fades diagonally into the list.
-typedef enum {
-	ART_STYLE_THUMBNAIL = 0,
-	ART_STYLE_BACKGROUND = 1
-} ArtStyle;
+// Main menu tab and game list layout styles (MENU_STYLE_*), their defaults and the stored-value mapping.
+#include "menustyle_model.h"
+// Main menu style categories; MenuTabs_styleCategory (menutabs.h) maps a tab to one (Home has none).
+enum { MENU_CAT_CONSOLES = 0,
+	   MENU_CAT_COLLECTIONS,
+	   MENU_CAT_TOOLS,
+	   MENU_CAT_COUNT };
 
 // Which stored art variant the game lists display. The scraper writes a mix
 // composite to <console>/.media/<game>.png and, when available, screenshot-
@@ -98,18 +101,18 @@ typedef struct
 {
 	// Theme
 	int font;
-	uint32_t color1_255; // not screen mapped
-	uint32_t color2_255; // not screen mapped
-	uint32_t color3_255; // not screen mapped
-	uint32_t color4_255; // not screen mapped
-	uint32_t color5_255; // not screen mapped
-	uint32_t color6_255; // not screen mapped
-	uint32_t color7_255; // not screen mapped
-	int thumbRadius;
-	int gameSwitcherScaling; // enum
-	double gameArtWidth;	 // [0,1] -> 0-100% of screen width
-	int gameArtStyle;		 // ArtStyle: thumbnail on the right, or faded background
-	int gameArtType;		 // ArtType: which stored art variant (mix/screenshot/boxart) to show
+	uint32_t color1_255;			// not screen mapped
+	uint32_t color2_255;			// not screen mapped
+	uint32_t color3_255;			// not screen mapped
+	uint32_t color4_255;			// not screen mapped
+	uint32_t color5_255;			// not screen mapped
+	uint32_t color6_255;			// not screen mapped
+	uint32_t color7_255;			// not screen mapped
+	int gameSwitcherScaling;		// enum
+	int menuStyle[MENU_CAT_COUNT];	// MENU_STYLE_* per main menu tab (MENU_CAT_*)
+	int gameListStyle;				// MENU_STYLE_* for game lists
+	int menuOrient[MENU_CAT_COUNT]; // MENU_ORIENT_* per main menu tab (MENU_CAT_*), stored whatever the style
+	int gameListOrient;				// MENU_ORIENT_* for game lists, stored whatever the style
 
 	// font loading/unloading callback
 	FontLoad_callback_t onFontChange;
@@ -127,10 +130,8 @@ typedef struct
 	bool showRecents;
 	bool showTools;
 	bool showCollections;
-	bool showGameArt;
 	bool showEmulators;
 	bool showFolderNamesAtRoot;
-	bool romsUseFolderBackground;
 	int defaultView;
 	bool gameSwitcherResumableOnly;
 
@@ -200,23 +201,21 @@ typedef struct
 } NextUISettings;
 
 #define CFG_DEFAULT_FONT_ID 1 // Next
-#define CFG_DEFAULT_COLOR1 0xffffffffU
+#define CFG_DEFAULT_COLOR1 0xdcdcdcffU
 #define CFG_DEFAULT_COLOR2 0x006666ffU
 #define CFG_DEFAULT_COLOR3 0x1e2329ffU
-#define CFG_DEFAULT_COLOR4 0xffffffffU
+#define CFG_DEFAULT_COLOR4 0xdcdcdcffU
 #define CFG_DEFAULT_COLOR5 0x000000ffU
-#define CFG_DEFAULT_COLOR6 0xffffffffU
+#define CFG_DEFAULT_COLOR6 0xdcdcdcffU
 #define CFG_DEFAULT_COLOR7 0x000000ffU
-#define CFG_DEFAULT_THUMBRADIUS 0 // unscaled!
 #define CFG_DEFAULT_SHOWCLOCK false
 #define CFG_DEFAULT_CLOCK24H true
 #define CFG_DEFAULT_SHOWBATTERYPERCENT false
 #define CFG_DEFAULT_SHOWSEARCHHINT true
 #define CFG_DEFAULT_SHOWMENUANIMATIONS true
 #define CFG_DEFAULT_SHOWMENUTRANSITIONS true
-#define CFG_DEFAULT_SHOWRECENTS true
+#define CFG_DEFAULT_SHOWRECENTS false // unused since the tab set lost Recent; kept so the key round-trips
 #define CFG_DEFAULT_SHOWCOLLECTIONS true
-#define CFG_DEFAULT_SHOWGAMEART true
 #define CFG_DEFAULT_SHOWEMULATORS true
 #define CFG_DEFAULT_SHOWFOLDERNAMESATROOT true
 #define CFG_DEFAULT_GAMESWITCHERSCALING GFX_SCALE_FULLSCREEN
@@ -225,14 +224,14 @@ typedef struct
 #define CFG_DEFAULT_SUSPENDTIMEOUTSECS 30
 #define CFG_DEFAULT_POWEROFFPROTECTION true
 #define CFG_DEFAULT_HAPTICS true
-#define CFG_DEFAULT_ROMSUSEFOLDERBACKGROUND true
 #define CFG_DEFAULT_SAVEFORMAT SAVE_FORMAT_SRM_UNCOMPRESSED
 #define CFG_DEFAULT_STATEFORMAT STATE_FORMAT_SRM_UNCOMPRESSED
 #define CFG_DEFAULT_EXTRACTEDFILENAME false
 #define CFG_DEFAULT_FNLEDS false
-#define CFG_DEFAULT_GAMEARTWIDTH 0.45
-#define CFG_DEFAULT_GAMEARTSTYLE ART_STYLE_THUMBNAIL
-#define CFG_DEFAULT_GAMEARTTYPE ART_TYPE_MIX
+#define CFG_DEFAULT_MENUSTYLE MENUSTYLE_MAIN_DEFAULT		 // Carousel
+#define CFG_DEFAULT_GAMELISTSTYLE MENUSTYLE_GAMELIST_DEFAULT // Grid
+#define CFG_DEFAULT_MENUORIENT MENUSTYLE_ORIENT_DEFAULT		 // Horizontal
+#define CFG_DEFAULT_GAMELISTORIENT MENUSTYLE_ORIENT_DEFAULT	 // Horizontal
 #define CFG_DEFAULT_WIFI false
 #define CFG_DEFAULT_VIEW SCREEN_GAMELIST
 #define CFG_DEFAULT_WIFI_DIAG false
@@ -322,9 +321,6 @@ void CFG_setMenuAnimations(bool show);
 // Show/hide menu transitions between screens in main menu.
 bool CFG_getMenuTransitions(void);
 void CFG_setMenuTransitions(bool show);
-// Set thumbnail rounding radius.
-int CFG_getThumbnailRadius(void);
-void CFG_setThumbnailRadius(int radius);
 // Show/hide recently played in the main menu.
 bool CFG_getShowRecents(void);
 void CFG_setShowRecents(bool show);
@@ -337,12 +333,6 @@ void CFG_setShowCollections(bool show);
 // Show/hide emulators in the main menu.
 bool CFG_getShowEmulators(void);
 void CFG_setShowEmulators(bool show);
-// Show/hide game art in the main menu.
-bool CFG_getShowGameArt(void);
-void CFG_setShowGameArt(bool show);
-// Use folder background or default background for roms
-bool CFG_getRomsUseFolderBackground(void);
-void CFG_setRomsUseFolderBackground(bool);
 // The scaling algorithm used for the game switcher preview image.
 int CFG_getGameSwitcherScaling(void);
 void CFG_setGameSwitcherScaling(int enumValue);
@@ -374,21 +364,23 @@ void CFG_setUseExtractedFileName(bool);
 // Enable/disable FN mode also shutting off LEDs.
 bool CFG_getFnLEDs(void);
 void CFG_setFnLEDs(bool);
-// Set game art width percentage.
-double CFG_getGameArtWidth(void);
-void CFG_setGameArtWidth(double zeroToOne);
-// Game art presentation style (ArtStyle): 0 = thumbnail on the right,
-// 1 = full-height background that fades into the list.
-int CFG_getGameArtStyle(void);
-void CFG_setGameArtStyle(int style);
-// Which stored art variant (ArtType) the game lists display: 0 = mix
-// composite, 1 = screenshot only, 2 = box art only.
-int CFG_getGameArtType(void);
-void CFG_setGameArtType(int type);
-// The art variant actually shown: the background style always uses the
-// screenshot (a mix composite's floating box art and logo read as clutter
-// behind a game list), otherwise the user's CFG_getGameArtType choice.
-int CFG_getEffectiveArtType(void);
+// Main menu tab layout per category (MENU_CAT_*): List, Grid or Carousel. A stored Backdrop (from an
+// older build) reads as Carousel without rewriting the stored value; an out-of-range category reads as List.
+int CFG_getMenuStyle(int category);
+void CFG_setMenuStyle(int category, int style);
+// Game list layout (MENU_STYLE_*: List, Grid, Carousel or Backdrop), whichever tab opened the list.
+int CFG_getGameListStyle(void);
+void CFG_setGameListStyle(int style);
+// Stored orientation (MENU_ORIENT_*) per main menu tab (MENU_CAT_*) and for game lists, kept whatever the style
+// (the Layouts page rows). An out-of-range category or value reads as Horizontal.
+int CFG_getMenuOrient(int category);
+void CFG_setMenuOrient(int category, int orient);
+int CFG_getGameListOrient(void);
+void CFG_setGameListOrient(int orient);
+// Effective orientation: Vertical only while the tab is Carousel, or the game lists are Carousel or Backdrop;
+// List and Grid always read Horizontal (menustyle_model.h).
+int CFG_getMenuOrientEffective(int category);
+int CFG_getGameListOrientEffective(void);
 // Show/hide folder names at root directory.
 bool CFG_getShowFolderNamesAtRoot(void);
 void CFG_setShowFolderNamesAtRoot(bool show);

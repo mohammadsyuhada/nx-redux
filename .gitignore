@@ -73,3 +73,7 @@ workspace/all/n64-netplay-server/tests/test_client
 workspace/all/n64-netplay-server/**/*.dSYM/
 .clangd-shim
 scripts/bench/results/**/*.log
+
+# ScreenScraper dev credentials (scripts/gen-ss-credentials.sh)
+workspace/all/scraper/ss_credentials.h
+.env

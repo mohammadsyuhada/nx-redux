@@ -46,9 +46,12 @@
 #define ART_BG_EDGE_FADE 0.06f
 // How much of the drawn art hangs off the right edge of the screen. Pushing
 // the image right brings its centre into the visible strip, so more of the
-// screenshot reads, and guarantees the art covers the whole ramp (a 16:9
-// panel would otherwise run out of image partway through the fade).
-#define ART_BG_OVERFLOW 0.30f
+// screenshot reads. Tall stacked shots, and landscape art that, scaled to the
+// full screen height, is at least as wide as the screen, get the larger push;
+// narrower landscape art (4:3 and smaller on a wide panel) only a small one,
+// so it is not pushed off the visible strip.
+#define ART_BG_OVERFLOW_WIDE 0.20f
+#define ART_BG_OVERFLOW_NARROW 0.07f
 // Peak opacity reached to the right of the ramp.
 #define ART_BG_MAX_ALPHA 1.0f
 
@@ -101,25 +104,34 @@ SDL_Surface* ArtBg_compose(SDL_Surface* art, int screen_w, int screen_h, Uint32 
 	const int H = screen_h;
 
 	// A landscape image is scaled so its HEIGHT equals the screen height, aspect
-	// kept and nothing cropped, then pushed right by ART_BG_OVERFLOW of its
-	// width so more of its middle lands in the visible strip. Wherever that
-	// leaves the image starting later than the nominal fade boundary, the fade
-	// simply begins at the image's own left edge (see ramp_start below), so
-	// there is never a hard vertical cut and the shift never has to be given up.
+	// kept and nothing cropped, then pushed right by a fraction of its width
+	// (ART_BG_OVERFLOW_WIDE or _NARROW, see below) so more of its middle lands
+	// in the visible strip. Wherever that leaves the image starting later than
+	// the nominal fade boundary, the fade simply begins at the image's own left
+	// edge (see ramp_start below), so there is never a hard vertical cut and the
+	// shift never has to be given up.
 	const int x0 = ArtBg_originX(W, H);
 	const int out_w = W - x0;
 	if (out_w <= 0)
 		return NULL;
 
+	// Push-right fraction: the larger one for a tall stacked source, or when
+	// landscape art scaled to the full screen height covers the screen width;
+	// the small one otherwise.
+	const bool tall = (float)art->w < ART_BG_TALL_ASPECT * (float)art->h;
+	const double full_w = (double)art->w * (double)H / (double)art->h;
+	const float overflow = (tall || full_w >= (double)W) ? ART_BG_OVERFLOW_WIDE
+														 : ART_BG_OVERFLOW_NARROW;
+
 	// Box the art is drawn into: the visible strip plus the overflow that hangs
 	// off the right edge.
-	int box_w = (int)((float)out_w / (1.0f - ART_BG_OVERFLOW) + 0.5f);
+	int box_w = (int)((float)out_w / (1.0f - overflow) + 0.5f);
 	if (box_w < 1)
 		box_w = 1;
 
 	SDL_Rect crop = {0, 0, art->w, art->h};
 	int draw_w;
-	if ((float)art->w < ART_BG_TALL_ASPECT * (float)art->h) {
+	if (tall) {
 		// Stacked source: scale it to the box width and keep the top band that
 		// fills the screen height, so as much of the top screen as fits shows.
 		int band = (int)((double)H * (double)art->w / (double)box_w + 0.5);
@@ -138,7 +150,7 @@ SDL_Surface* ArtBg_compose(SDL_Surface* art, int screen_w, int screen_h, Uint32 
 		if (draw_w < 1)
 			draw_w = 1;
 	}
-	const int shift = (int)(ART_BG_OVERFLOW * (float)draw_w + 0.5f);
+	const int shift = (int)(overflow * (float)draw_w + 0.5f);
 	const int draw_left = W - draw_w + shift;
 
 	// Render the art at final scale into a matching-format buffer. Copy (blend

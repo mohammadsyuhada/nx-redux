@@ -64,7 +64,7 @@ void render_radio_list(SDL_Surface* screen, IndicatorType show_setting,
 	int hw = screen->w;
 	int hh = screen->h;
 
-	UI_renderMenuBar(screen, "Online Radio");
+	UI_renderMenuBar(screen, "Music Player | Online Radio");
 
 	// Station list
 	RadioStation* stations;
@@ -337,7 +337,7 @@ void render_radio_add(SDL_Surface* screen, IndicatorType show_setting,
 	(void)show_setting;
 	GFX_clear(screen);
 
-	UI_renderMenuBar(screen, "Manage Stations");
+	UI_renderMenuBar(screen, "Music Player | Manage Stations");
 
 	// Country list
 	int country_count = Radio_getCuratedCountryCount();
@@ -380,7 +380,7 @@ void render_radio_add_stations(SDL_Surface* screen, IndicatorType show_setting,
 		}
 	}
 
-	UI_renderMenuBar(screen, country_name);
+	UI_renderMenuBarPage(screen, "Music Player", country_name);
 
 	// Get stations for selected country
 	int station_count = 0;
@@ -425,10 +425,10 @@ void render_radio_add_stations(SDL_Surface* screen, IndicatorType show_setting,
 		int pill_width = MIN(layout.max_width, prefix_width + text_width + SCALE1(BUTTON_PADDING));
 
 		// Background pill
-		SDL_Rect pill_rect = {SCALE1(PADDING), y, pill_width, layout.item_h};
+		SDL_Rect pill_rect = {UI_listPillX(), y, pill_width, layout.item_h};
 		Fonts_drawListItemBg(screen, &pill_rect, selected);
 
-		int text_x = SCALE1(PADDING) + SCALE1(BUTTON_PADDING);
+		int text_x = UI_listTextX();
 		int text_y = y + (layout.item_h - TTF_FontHeight(font.medium)) / 2;
 
 		// Added indicator prefix
@@ -456,7 +456,7 @@ void render_radio_add_stations(SDL_Surface* screen, IndicatorType show_setting,
 		}
 	}
 
-	UI_renderScrollIndicators(screen, *add_station_scroll, layout.items_per_page, sorted_count);
+	UI_renderScrollIndicatorsAt(screen, &layout, *add_station_scroll, layout.items_per_page, sorted_count);
 
 	// Toast notification
 	UI_renderToast(screen, toast_message, toast_time);
@@ -472,19 +472,20 @@ void render_radio_help(SDL_Surface* screen, IndicatorType show_setting, int* hel
 	int hw = screen->w;
 	int hh = screen->h;
 
-	UI_renderMenuBar(screen, "How to Add Stations");
+	UI_renderMenuBar(screen, "Music Player | Add Stations");
 
-	// Content padding (aligned with title pill)
-	int left_padding = SCALE1(PADDING) + SCALE1(BUTTON_PADDING);
+	// Content padding (aligned with the page title)
+	int left_padding = UI_listTextX();
 	int right_padding = SCALE1(PADDING);
-	int bottom_padding = SCALE1(PADDING);
 	int max_content_width = hw - left_padding - right_padding;
 
-	// Instructions text
-	int content_start_y = SCALE1(PADDING + PILL_SIZE + BUTTON_MARGIN);
+	// Instructions text: a detail page (LIST-LAYOUT §10.2), so the text band has a 16 dp arrow strip above and
+	// below it, between the title's letters and the hint icons; lines scroll inside the band (clipped).
+	int strip = NX_DP(16);
+	int content_start_y = UI_pageTitleBandTop() + strip;
+	int content_end_y = UI_buttonHintIconTop(hh) - strip;
 	int line_h = SCALE1(18);
-	int button_area_h = SCALE1(PADDING + BUTTON_SIZE + BUTTON_MARGIN);
-	int visible_height = hh - content_start_y - button_area_h - bottom_padding;
+	int visible_height = content_end_y - content_start_y;
 
 	const char* lines[] = {
 		"To add custom radio stations:",
@@ -527,6 +528,9 @@ void render_radio_help(SDL_Surface* screen, IndicatorType show_setting, int* hel
 		*help_scroll = 0;
 
 	// Render lines with scroll offset
+	SDL_Rect old_clip;
+	SDL_GetClipRect(screen, &old_clip);
+	SDL_SetClipRect(screen, &(SDL_Rect){0, content_start_y, hw, visible_height});
 	int text_y = content_start_y - *help_scroll;
 	for (int i = 0; i < num_lines; i++) {
 		int current_line_h = (lines[i][0] == '\0') ? line_h / 2 : line_h;
@@ -538,7 +542,7 @@ void render_radio_help(SDL_Surface* screen, IndicatorType show_setting, int* hel
 		}
 
 		// Stop if we're below visible area
-		if (text_y >= hh - button_area_h) {
+		if (text_y >= content_end_y) {
 			break;
 		}
 
@@ -566,16 +570,12 @@ void render_radio_help(SDL_Surface* screen, IndicatorType show_setting, int* hel
 		text_y += line_h;
 	}
 
-	// Scroll indicators
-	if (max_scroll > 0) {
-		int ox = (hw - SCALE1(24)) / 2;
-		if (*help_scroll > 0) {
-			GFX_blitAsset(ASSET_SCROLL_UP, NULL, screen, &(SDL_Rect){ox, content_start_y - SCALE1(12)});
-		}
-		if (*help_scroll < max_scroll) {
-			GFX_blitAsset(ASSET_SCROLL_DOWN, NULL, screen, &(SDL_Rect){ox, hh - button_area_h - bottom_padding - SCALE1(4)});
-		}
-	}
+	SDL_SetClipRect(screen, &old_clip);
+
+	// Scroll indicators, centred in the strips
+	if (max_scroll > 0)
+		UI_renderScrollArrows(screen, content_start_y - strip / 2, content_end_y + strip / 2,
+							  *help_scroll > 0, *help_scroll < max_scroll);
 
 	// Button hints
 	UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", NULL});

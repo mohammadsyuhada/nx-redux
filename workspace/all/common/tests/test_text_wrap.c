@@ -52,9 +52,94 @@ static void test_first_word_wider_than_line(void) {
 	assert(strncmp(str, "supercalifragilistic", 20) == 0);
 }
 
+// Regression (device, title tiles and the Backdrop placeholder): a name needing 3+ lines lost a line and the next
+// line's first letter ("Pasta La" / "" / "ista Sup..."). After a break the "previous space" pointed at the new
+// line's first character, so the next break overwrote that letter with '\n'.
+static void test_three_lines_keep_every_word(void) {
+	char str[64] = "Pasta La Vista Super Mario Bros";
+	// 10 px a byte, 90 px lines: "Pasta La" (80) fits, "Pasta La Vista" (140) doesn't
+	TextWrap_wrap(measure_10px, NULL, str, 90, 3);
+	assert(count_lines(str) == 3);
+	char* l1 = str;
+	char* l2 = strchr(l1, '\n') + 1;
+	char* l3 = strchr(l2, '\n') + 1;
+	assert(strncmp(l1, "Pasta La\n", 9) == 0);
+	assert(strncmp(l2, "Vista\n", 6) == 0);
+	assert(strncmp(l3, "Super", 5) == 0 && strstr(l3, "...")); // "Super Mario Bros" cut to 90 px
+	assert(measure_10px(NULL, l3) <= 90);
+}
+
+// Unlimited lines: every word lands on a line of its own or with neighbours, none is lost or cut.
+static void test_unlimited_lines_lose_nothing(void) {
+	char str[128] = "Digimon Digital Monsters Anode Cathode Tamer";
+	TextWrap_wrap(measure_10px, NULL, str, 100, 0);
+	char joined[128];
+	snprintf(joined, sizeof(joined), "%s", str);
+	for (char* p = joined; *p; p++)
+		if (*p == '\n')
+			*p = ' ';
+	assert(strcmp(joined, "Digimon Digital Monsters Anode Cathode Tamer") == 0);
+	for (char* line = str; line;) {
+		char* nl = strchr(line, '\n');
+		int len = nl ? (int)(nl - line) : (int)strlen(line);
+		assert(len > 0);		 // no blank line
+		assert(len * 10 <= 100); // every word fits on its own here
+		line = nl ? nl + 1 : NULL;
+	}
+}
+
+// A word wider than the line in the middle of a 3-line block: it takes a line of its own and the rest follows.
+static void test_wide_middle_word(void) {
+	char str[64] = "ab supercalifragilistic cd ef";
+	TextWrap_wrap(measure_10px, NULL, str, 60, 4);
+	assert(strncmp(str, "ab\nsupercalifragilistic\ncd ef", 30) == 0);
+}
+
+// True when every multi-byte UTF-8 sequence in s is complete (no orphan lead byte, no stray continuation).
+static int utf8_whole(const char* s) {
+	const unsigned char* p = (const unsigned char*)s;
+	while (*p) {
+		int n = *p < 0x80 ? 0 : (*p & 0xE0) == 0xC0 ? 1
+							: (*p & 0xF0) == 0xE0	? 2
+							: (*p & 0xF8) == 0xF0	? 3
+													: -1;
+		if (n < 0)
+			return 0;
+		p++;
+		for (int i = 0; i < n; i++, p++)
+			if ((*p & 0xC0) != 0x80)
+				return 0;
+	}
+	return 1;
+}
+
+// The ellipsis pass drops whole code points: "Pokémon Red" cut where the old byte-wise loop kept only
+// the lead byte of "é" ("Pok\xC3...") now gives "Pok...". Every width keeps the output whole UTF-8.
+static void test_truncate_keeps_whole_code_points(void) {
+	const char* in = "Pok\xC3\xA9mon Red";
+	char out[32];
+	TextWrap_truncate(measure_10px, NULL, in, out, sizeof(out), 75, 0);
+	assert(strcmp(out, "Pok...") == 0);
+
+	const char* cjk = "\xE3\x83\x9D\xE3\x82\xB1\xE3\x83\xA2\xE3\x83\xB3 Red"; // "ポケモン Red"
+	for (int w = 0; w <= 200; w += 5) {
+		TextWrap_truncate(measure_10px, NULL, in, out, sizeof(out), w, 0);
+		assert(utf8_whole(out));
+		TextWrap_truncate(measure_10px, NULL, cjk, out, sizeof(out), w, 0);
+		assert(utf8_whole(out));
+	}
+	// fits whole: unchanged
+	TextWrap_truncate(measure_10px, NULL, in, out, sizeof(out), 1000, 0);
+	assert(strcmp(out, in) == 0);
+}
+
 int main(void) {
 	test_long_tail_does_not_overflow();
 	test_first_word_wider_than_line();
+	test_three_lines_keep_every_word();
+	test_unlimited_lines_lose_nothing();
+	test_wide_middle_word();
+	test_truncate_keeps_whole_code_points();
 	printf("test_text_wrap: OK\n");
 	return 0;
 }

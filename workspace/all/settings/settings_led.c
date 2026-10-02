@@ -413,7 +413,7 @@ SettingsPage* led_page_create(void) {
 		}
 
 		snprintf(zone_title_bufs[z], sizeof(zone_title_bufs[z]),
-				 "Settings | LED Control | %s", zone_titles[z]);
+				 "LED Control | %s", zone_titles[z]);
 		led_build_zone_page(z, zone_title_bufs[z], eff_names, eff_values, eff_count);
 	}
 

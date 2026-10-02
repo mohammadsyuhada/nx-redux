@@ -170,11 +170,13 @@ static void render_preview_pane(void) {
 static void render_browser(void) {
 	GFX_clear(screen);
 
+	// "Images" at the root, "Images | <folder>" deeper (LIST-LAYOUT §10.1)
 	const char* title = "Images";
+	char folder_title[300];
 	if (strcmp(browser.current_path, IMAGES_ROOT) != 0) {
 		const char* slash = strrchr(browser.current_path, '/');
 		if (slash && slash[1] != '\0')
-			title = slash + 1;
+			title = UI_pageTitle(folder_title, sizeof(folder_title), "Images", slash + 1);
 	}
 	UI_renderMenuBar(screen, title);
 
@@ -188,8 +190,10 @@ static void render_browser(void) {
 	v->empty_title = "No images found";
 	v->empty_subtitle = "Screenshots you take will appear here";
 	v->max_width_override = (int)(screen->w * 0.55); // leave room for the preview pane
-	static char* hints[] = {"B", "BACK", "A", "OPEN", NULL};
-	v->hint_pairs = hints;
+	// B leaves the tool at its top folder (a tool's first level says EXIT), else goes up a folder
+	static char* hints_root[] = {"B", "EXIT", "A", "OPEN", NULL};
+	static char* hints_sub[] = {"B", "BACK", "A", "OPEN", NULL};
+	v->hint_pairs = strcmp(browser.current_path, IMAGES_ROOT) == 0 ? hints_root : hints_sub;
 	UI_listViewRender(v, screen);
 
 	render_preview_pane();

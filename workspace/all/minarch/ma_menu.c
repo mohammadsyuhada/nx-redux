@@ -984,6 +984,8 @@ int Menu_options(MenuList* list) {
 		;
 	int selected = 0;
 	ListLayout layout = UI_calcListLayout(screen);
+	// an untitled options page keeps the pill list's top gutter (LIST-LAYOUT §10.2)
+	layout.titled = (list->title && list->title[0]) || (list->desc && list->desc[0]);
 	int scroll = 0;
 
 	OptionSaveChanges_updateDesc();
@@ -1120,8 +1122,12 @@ int Menu_options(MenuList* list) {
 				GFX_drawOnLayer(menu.bitmap, 0, 0, DEVICE_WIDTH, DEVICE_HEIGHT, 0.15f, 1, 0);
 
 			// Top bar with category/list name (legacy lists without a title
-			// keep showing their desc there)
-			UI_renderMenuBar(screen, list->title ? list->title : (list->desc ? list->desc : ""));
+			// keep showing their desc there). A page inside Options names it (LIST-LAYOUT §10.1):
+			// "Options | Core Options"; the Options page itself is plain "Options".
+			if (list->title && strcmp(list->title, "Options") != 0)
+				UI_renderMenuBarPage(screen, "Options", list->title);
+			else
+				UI_renderMenuBar(screen, list->title ? list->title : (list->desc ? list->desc : ""));
 
 			// Build UISettingsItem array from MenuItems
 			UISettingsItem settings_items[count];
@@ -1720,8 +1726,10 @@ void Menu_loop(void) {
 			else
 				UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "SELECT", NULL});
 
-			// list
+			// list: the text on the 14 dp list inset under the title, the pill edge 14 dp left of it (LIST-LAYOUT §10.1)
 			int oy = (((DEVICE_HEIGHT / FIXED_SCALE) - PADDING * 2) - (MENU_ITEM_COUNT * PILL_SIZE)) / 2;
+			int pill_x = UI_listPillX();
+			int text_x = UI_listTextX();
 			for (int i = 0; i < MENU_ITEM_COUNT; i++) {
 				char* item = menu.items[i];
 				SDL_Color text_color = COLOR_WHITE;
@@ -1731,7 +1739,7 @@ void Menu_loop(void) {
 
 					// disc change
 					if (menu.total_discs > 1 && i == ITEM_CONT) {
-						GFX_blitPillDark(ASSET_WHITE_PILL, screen, &(SDL_Rect){SCALE1(PADDING), SCALE1(oy + PADDING), screen->w - SCALE1(PADDING * 2), SCALE1(PILL_SIZE)});
+						GFX_blitPillDark(ASSET_WHITE_PILL, screen, &(SDL_Rect){pill_x, SCALE1(oy + PADDING), screen->w - SCALE1(PADDING) - pill_x, SCALE1(PILL_SIZE)});
 						SDL_Surface* disc_text = GFX_renderText(font.large, disc_name, text_color);
 						if (disc_text) {
 							SDL_BlitSurface(disc_text, NULL, screen, &(SDL_Rect){screen->w - SCALE1(PADDING + BUTTON_PADDING) - disc_text->w, SCALE1(oy + PADDING + 4)});
@@ -1744,13 +1752,13 @@ void Menu_loop(void) {
 					ow += SCALE1(BUTTON_PADDING * 2);
 
 					// pill
-					GFX_blitPillDark(ASSET_WHITE_PILL, screen, &(SDL_Rect){SCALE1(PADDING), SCALE1(oy + PADDING + (i * PILL_SIZE)), ow, SCALE1(PILL_SIZE)});
+					GFX_blitPillDark(ASSET_WHITE_PILL, screen, &(SDL_Rect){pill_x, SCALE1(oy + PADDING + (i * PILL_SIZE)), ow, SCALE1(PILL_SIZE)});
 				}
 
 				// text
 				SDL_Surface* text = GFX_renderText(font.large, item, text_color);
 				if (text) {
-					SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){SCALE1(PADDING + BUTTON_PADDING), SCALE1(oy + PADDING + (i * PILL_SIZE) + 4)});
+					SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){text_x, SCALE1(oy + PADDING + (i * PILL_SIZE) + 4)});
 					SDL_FreeSurface(text);
 				}
 			}

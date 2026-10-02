@@ -225,15 +225,22 @@ void UI_listViewRender(ListView* v, SDL_Surface* screen) {
 	}
 	v->input_pending = false;
 
-	ListLayout layout = UI_calcListLayout(screen);
-	if (v->list_y_override > 0) {
-		layout.list_y = v->list_y_override;
-		layout.list_h = screen->h - layout.list_y -
-						SCALE1(PADDING + BUTTON_SIZE + BUTTON_MARGIN);
-		layout.items_per_page = layout.list_h / layout.item_h;
-	}
+	// list_y_override: the band starts under the caller's own header (its up arrow strip included)
+	ListLayout layout = v->list_y_override > 0
+							? UI_calcListLayoutEx(screen, v->list_y_override, -1, SCALE1(PILL_SIZE), 0)
+							: UI_calcListLayout(screen);
 	if (v->max_width_override > 0)
 		layout.max_width = v->max_width_override;
+	// the rows against the caller's header instead of centred in the band (the half of the leftover above them
+	// read as a gap under a header such as Xtras' tabs, a wide one at a large UI scale)
+	if (v->list_anchor_top && v->list_y_override > 0) {
+		int shift = layout.list_y - layout.strip - v->list_y_override;
+		if (shift > 0) {
+			layout.list_y -= shift;
+			layout.up_y -= shift;
+			layout.down_y -= shift;
+		}
+	}
 
 	if (v->title)
 		UI_renderMenuBar(screen, v->title);
@@ -244,9 +251,22 @@ void UI_listViewRender(ListView* v, SDL_Surface* screen) {
 			if (v->empty_btn_pairs)
 				UI_renderEmptyStateButtons(screen, v->empty_title,
 										   v->empty_subtitle, v->empty_btn_pairs);
-			else
-				UI_renderEmptyState(screen, v->empty_title, v->empty_subtitle,
-									v->empty_y_label);
+			else {
+				// B's label as the screen's hints have it (EXIT at a tool's first level, BACK deeper)
+				const char* b_label = "BACK";
+				for (int i = 0; v->hint_pairs && v->hint_pairs[i] && v->hint_pairs[i + 1]; i += 2) {
+					if (strcmp(v->hint_pairs[i], "B") == 0) {
+						b_label = v->hint_pairs[i + 1];
+						break;
+					}
+				}
+				if (v->empty_y_label)
+					UI_renderEmptyStateButtons(screen, v->empty_title, v->empty_subtitle,
+											   (char*[]){"B", (char*)b_label, "Y", (char*)v->empty_y_label, NULL});
+				else
+					UI_renderEmptyStateButtons(screen, v->empty_title, v->empty_subtitle,
+											   (char*[]){"B", (char*)b_label, NULL});
+			}
 		}
 		if (v->hint_pairs)
 			UI_renderButtonHintBar(screen, v->hint_pairs);
@@ -373,7 +393,7 @@ void UI_listViewRender(ListView* v, SDL_Surface* screen) {
 			SDL_Surface* surf =
 				GFX_renderText(font.small, row.label, COLOR_GRAY);
 			if (surf) {
-				int x = SCALE1(PADDING) + SCALE1(BUTTON_PADDING);
+				int x = UI_listTextX();
 				SDL_BlitSurface(surf, NULL, screen,
 								&(SDL_Rect){x, label_y + (h - surf->h) / 2, 0, 0});
 				SDL_FreeSurface(surf);
@@ -451,14 +471,14 @@ void UI_listViewRender(ListView* v, SDL_Surface* screen) {
 		if (row.badge && row.badge[0]) {
 			// Scraper convention preserved verbatim: in-pill, right-aligned.
 			SDL_Color badge_color = row_sel ? COLOR_BLACK : COLOR_GRAY;
-			int badge_x = pos.pill_width - SCALE1(PADDING) - b_tw;
+			int badge_x = UI_listPillX() + pos.pill_width - SCALE1(PADDING * 2) - b_tw;
 			GFX_blitText(font.tiny, (char*)row.badge, 0, badge_color, screen,
 						 &(SDL_Rect){badge_x, pos.text_y + SCALE1(2), b_tw, b_th});
 		}
 	}
 
 	// 5. Chrome.
-	UI_renderScrollIndicators(screen, first, visible, v->count);
+	UI_renderScrollIndicatorsAt(screen, &layout, first, visible, v->count);
 	if (v->hint_pairs)
 		UI_renderButtonHintBar(screen, v->hint_pairs);
 }

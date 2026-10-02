@@ -269,41 +269,12 @@ static int thumbLoadWorker(void* arg) {
 		if (!dequeueAndDecode(q, &task, &result))
 			break;
 
-		if (result && CFG_getGameArtStyle() == ART_STYLE_BACKGROUND) {
-			// Background style: compose a right-aligned, full-height surface
-			// that fades diagonally into the list instead of the small
-			// rounded thumbnail. ArtBg_compose is pure SDL (thread-safe).
-			SDL_Surface* composed = ArtBg_compose(result, cachedScreenW, cachedScreenH,
-												  cachedScreenFormat);
+		if (result) {
+			// the List's game art (the background style, the only one): a right-aligned, full-height surface that
+			// fades diagonally into the list. ArtBg_compose is pure SDL (thread-safe).
+			SDL_Surface* composed = ArtBg_compose(result, cachedScreenW, cachedScreenH, cachedScreenFormat);
 			SDL_FreeSurface(result);
 			result = composed; // NULL falls through to the no-thumb path below
-		} else if (result) {
-			// Downscale to display dimensions before processing
-			int img_w = result->w;
-			int img_h = result->h;
-			int max_w = (int)(cachedScreenW * CFG_getGameArtWidth());
-			int max_h = (int)(cachedScreenH * 0.6);
-			int new_w, new_h;
-			UI_calcImageFit(img_w, img_h, max_w, max_h, &new_w, &new_h);
-
-			if (new_w > 0 && new_h > 0 &&
-				(new_w < img_w || new_h < img_h)) {
-				SDL_Surface* downscaled = SDL_CreateRGBSurfaceWithFormat(
-					0, new_w, new_h,
-					result->format->BitsPerPixel,
-					result->format->format);
-				if (downscaled) {
-					SDL_BlitScaled(result, NULL, downscaled, NULL);
-					SDL_FreeSurface(result);
-					result = downscaled;
-				}
-			}
-
-			// Apply rounded corners at display resolution (much faster)
-			GFX_ApplyRoundedCorners_8888(
-				result,
-				&(SDL_Rect){0, 0, result->w, result->h},
-				SCALE1(CFG_getThumbnailRadius()));
 		}
 
 		// Cache result and conditionally update thumbbmp
@@ -438,7 +409,7 @@ void requestBackgroundReupload(void) {
 }
 
 void updateBackgroundLayer(SDL_Surface* blackBG) {
-	bool art_bg = CFG_getGameArtStyle() == ART_STYLE_BACKGROUND;
+	const bool art_bg = true; // the game art is always drawn as the background (no thumbnail style any more)
 	SDL_LockMutex(bgMutex);
 	// Background art style paints the game art onto this layer too (below the
 	// UI stream, so the status bar, pills and titles draw over the fade), so a
@@ -497,29 +468,10 @@ void renderThumbnail(int reset_changed, bool hide) {
 	if (hide) {
 		GFX_clearLayers(LAYER_THUMBNAIL);
 		GFX_clearLayers(LAYER_SCROLLTEXT);
-	} else if (CFG_getGameArtStyle() == ART_STYLE_BACKGROUND) {
-		// Background style: the art lives on LAYER_BACKGROUND and is uploaded
-		// by updateBackgroundLayer, which runs first and consumes thumbchanged
-		// (art present or gone alike), so the thumbnail layer stays empty.
-	} else if (thumbbmp && thumbchanged) {
-		int max_w = (int)(screen->w * CFG_getGameArtWidth());
-		int max_h = (int)(screen->h * 0.6);
-		int new_w, new_h;
-		UI_calcImageFit(thumbbmp->w, thumbbmp->h, max_w, max_h, &new_w, &new_h);
-
-		int target_x = screen->w - (new_w + SCALE1(BUTTON_MARGIN * 3));
-		int target_y = (int)(screen->h * 0.50);
-		int center_y = target_y - (new_h / 2);
-		GFX_clearLayers(LAYER_THUMBNAIL);
-		GFX_drawOnLayer(thumbbmp, target_x, center_y, new_w, new_h, 1.0f, 0,
-						LAYER_THUMBNAIL);
-		if (reset_changed)
-			thumbchanged = 0;
-	} else if (thumbchanged) {
-		GFX_clearLayers(LAYER_THUMBNAIL);
-		if (reset_changed)
-			thumbchanged = 0;
 	}
+	// otherwise nothing: the art lives on LAYER_BACKGROUND, uploaded by updateBackgroundLayer (which runs first and
+	// consumes thumbchanged), so the thumbnail layer stays empty
+	(void)reset_changed;
 	SDL_UnlockMutex(thumbMutex);
 }
 

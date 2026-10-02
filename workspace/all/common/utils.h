@@ -96,6 +96,10 @@ void ROM_displayArtPath(const char* rom_path, int art_type, bool fallback_to_mix
 // ROM_mediaArtPath, existence-checked, with multi-disc fallback to
 // <parent>/.media/<containing-folder>.png. Returns whether the path in `out` exists.
 bool ROM_findArt(const char* rom_path, char* out, size_t out_size);
+// The game's screenshot for the views: .media/screenshot/<name>.png (scraped), else the root
+// .media/<name>.png (PortMaster's convention, hand-made art, older libraries). false = neither
+// exists; out then names the screenshot path, so a caller can still key a cache on it.
+bool ROM_findScreenshot(const char* rom_path, char* out, size_t out_size);
 
 // Folder-named .m3u: /Roms/PSX/Game/disc1.bin -> /Roms/PSX/Game/Game.m3u.
 // Writes the candidate path to m3u_path; returns whether it exists.

@@ -203,7 +203,8 @@ head -1 "$ROMS/Apotris.sh" | grep -q '^#!/usr/bin/env bash$' && pass "post: port
 grep -q 'echo patched' "$ROMS/Celeste.sh" && pass "post: patchedScripts applied" || fail "post: patchedScripts not applied"
 [ "$(cat "$ROMS/.media/Apotris.png" 2>/dev/null)" = 'cover-bytes' ] && pass "post: cover art synced to .media" || fail "post: cover art missing"
 [ ! -e "$SD/.userdata/tg5040/emulist_cache.txt" ] && [ ! -e "$SD/.userdata/tg5040/romindex_cache.txt" ] && pass "post: launcher caches invalidated" || fail "post: launcher caches survived"
-[ "$(cat "$SD/.userdata/shared/xtras/portmaster.version" 2>/dev/null)" = '2026.09.08-0809' ] && pass "post: xtras version marker synced" || fail "post: xtras marker '$(cat "$SD/.userdata/shared/xtras/portmaster.version" 2>/dev/null)'"
+# no Xtras version marker since #108 (version_source=internal: PortMaster updates itself)
+[ ! -e "$SD/.userdata/shared/xtras/portmaster.version" ] && pass "post: no xtras version marker" || fail "post: xtras marker written '$(cat "$SD/.userdata/shared/xtras/portmaster.version" 2>/dev/null)'"
 [ -x "$PM/bin/ls" ] && grep -q 'busybox ls' "$PM/bin/ls" && [ ! -e "$PM/bin/sh" ] && [ -f "$PM/bin/busybox_wrappers.done" ] && pass "post: busybox wrappers recreated" || fail "post: busybox wrappers missing"
 
 # ---- 3. second run is idempotent (patches not duplicated) ----------------

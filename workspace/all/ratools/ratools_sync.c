@@ -27,7 +27,7 @@ typedef struct {
 static void rat_sync_render(SDL_Surface* screen, const char* status, const char* detail,
 							int done, int total) {
 	GFX_clear(screen);
-	UI_renderMenuBar(screen, "Sync now");
+	UI_renderMenuBar(screen, "RetroAchievements | Sync now");
 
 	char detail_buf[192];
 	if (total > 0)

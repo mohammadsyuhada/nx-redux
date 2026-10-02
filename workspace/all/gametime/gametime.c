@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <stdbool.h>
@@ -10,6 +11,9 @@
 #include "ui_confirmdialog.h"
 #include "ui_emptystate.h"
 #include "ui_menubar.h"
+#include "ui_list.h"
+#include "ui_list_layout.h"
+#include "ui_font.h"
 #include "ui_splash.h"
 #include "ui_quitrequest.h"
 #include "utils.h"
@@ -29,6 +33,8 @@ struct ListLayout {
 
 	int items_per_page;
 	int num_pages;
+
+	int up_y, down_y; // arrow strip centres (UI_listBlock)
 } layout = {0};
 
 
@@ -129,6 +135,53 @@ void renderRoundedRectangle(SDL_Rect rect, Uint32 color, int radius) {
 	_drawFilledCircle(screen, rect.x + rect.w - radius - 1, rect.y + rect.h - radius - 1, radius, color); // Bottom-right
 }
 
+// Mask s (32-bit with an alpha channel, any channel order) to the circle inscribed in it: each pixel's alpha times how
+// much of it lies inside (anti-aliased over a px), the real row pitch used (GFX_ApplyRoundedCorners indexed rows by the
+// scaled image's width, which left fill-scaled art's corners unmasked, and had no anti-aliasing). A surface without
+// alpha can't hold the mask (SDL_MapRGBA drops it): callers convert to ARGB8888 first.
+static void maskCircle(SDL_Surface* s) {
+	if (!s)
+		return;
+	if (s->format->BytesPerPixel != 4 || s->format->Amask == 0) {
+		LOG_warn("gametime: maskCircle needs a 32-bit surface with alpha (format %s)\n",
+				 SDL_GetPixelFormatName(s->format->format));
+		return;
+	}
+	float r = (s->w < s->h ? s->w : s->h) / 2.0f, cx = s->w / 2.0f, cy = s->h / 2.0f;
+	if (SDL_MUSTLOCK(s))
+		SDL_LockSurface(s);
+	for (int y = 0; y < s->h; y++) {
+		Uint32* row = (Uint32*)((Uint8*)s->pixels + y * s->pitch);
+		float dy = y + 0.5f - cy;
+		for (int x = 0; x < s->w; x++) {
+			float dx = x + 0.5f - cx;
+			float cover = r - sqrtf(dx * dx + dy * dy) + 0.5f;
+			if (cover >= 1.0f)
+				continue;
+			Uint8 cr, cg, cb, ca;
+			SDL_GetRGBA(row[x], s->format, &cr, &cg, &cb, &ca);
+			ca = cover <= 0.0f ? 0 : (Uint8)(ca * cover + 0.5f);
+			row[x] = SDL_MapRGBA(s->format, cr, cg, cb, ca);
+		}
+	}
+	if (SDL_MUSTLOCK(s))
+		SDL_UnlockSurface(s);
+}
+
+// The dark grey circle behind a game without a picture, built once (anti-aliased) at the thumbnail size.
+static SDL_Surface* blankCircle(void) {
+	static SDL_Surface* s = NULL;
+	if (!s) {
+		s = SDL_CreateRGBSurfaceWithFormat(0, SCALE1(IMG_MAX_WIDTH), SCALE1(IMG_MAX_HEIGHT), 32, SDL_PIXELFORMAT_RGBA32);
+		if (s) {
+			SDL_FillRect(s, NULL, SDL_MapRGBA(s->format, TRIAD_DARK_GRAY, 255));
+			maskCircle(s);
+			SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
+		}
+	}
+	return s;
+}
+
 SDL_Surface* loadRomImage(char* image_path) {
 	if (!exists(image_path))
 		return NULL;
@@ -137,16 +190,23 @@ SDL_Surface* loadRomImage(char* image_path) {
 	if (!img)
 		return NULL;
 
-	if (img->format->format != SDL_PIXELFORMAT_RGBA32) {
-		SDL_Surface* optimized = SDL_ConvertSurfaceFormat(img, SDL_PIXELFORMAT_RGBA32, 0);
+	// ARGB8888 whatever the file holds (24-bit PNG, JPEG, paletted): the circle mask needs an alpha channel
+	if (img->format->format != SDL_PIXELFORMAT_ARGB8888) {
+		SDL_Surface* argb = SDL_ConvertSurfaceFormat(img, SDL_PIXELFORMAT_ARGB8888, 0);
 		SDL_FreeSurface(img);
-		img = optimized;
+		img = argb;
+		if (!img)
+			return NULL;
 	}
 
-	SDL_PixelFormat* ft = img->format;
-	SDL_Surface* dst = SDL_CreateRGBSurface(0, SCALE1(IMG_MAX_WIDTH), SCALE1(IMG_MAX_HEIGHT), ft->BitsPerPixel, ft->Rmask, ft->Gmask, ft->Bmask, ft->Amask);
-	SDL_Rect imgRect = GFX_blitScaled(GFX_SCALE_FILL, img, dst);
-	GFX_ApplyRoundedCorners(dst, &imgRect, SCALE1(16));
+	SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, SCALE1(IMG_MAX_WIDTH), SCALE1(IMG_MAX_HEIGHT), 32, SDL_PIXELFORMAT_ARGB8888);
+	if (!dst) {
+		SDL_FreeSurface(img);
+		return NULL;
+	}
+	GFX_blitScaled(GFX_SCALE_FILL, img, dst);
+	maskCircle(dst);
+	SDL_SetSurfaceBlendMode(dst, SDL_BLENDMODE_BLEND);
 	SDL_FreeSurface(img);
 
 	return dst;
@@ -181,6 +241,30 @@ void renderList(int count, int start, int end, int selected) {
 	const int thumbMargin = SCALE1(IMG_MARGIN);
 	const int textHeight = (elemHeight - thumbMargin) / 2;
 
+	// Row text (LIST-LAYOUT §10.3/§10.6): the game name is the list label (UI_TEXT_LABEL, 16 logical) and the
+	// stats line its secondary text (UI_TEXT_SECONDARY, 0.8 x). Line boxes are 1.2 x their size with the
+	// glyphs centred, and the pair is centred in the row (as on the rich rows).
+	const int label_px = UI_textRolePx(UI_TEXT_LABEL);
+	const int detail_px = UI_textRolePx(UI_TEXT_SECONDARY);
+	const int title_box = (int)(label_px * 1.2f + 0.5f);
+	const int detail_box = (int)(detail_px * 1.2f + 0.5f);
+	const int pair_top = (elemHeight - title_box - detail_box) / 2;
+	// each role font is fetched, measured and dropped before the next UIFont_get
+	int title_h = label_px;
+	{
+		TTF_Font* f = UI_textRole(UI_TEXT_LABEL, false);
+		if (f)
+			title_h = TTF_FontHeight(f);
+	}
+	const int title_y = pair_top + (title_box - title_h) / 2;
+	int detail_h = detail_px;
+	{
+		TTF_Font* f = UI_textRole(UI_TEXT_SECONDARY, false);
+		if (f)
+			detail_h = TTF_FontHeight(f);
+	}
+	const int detail_y = pair_top + title_box + (detail_box - detail_h) / 2;
+
 	int selected_row = selected - start;
 	for (int index = start, row = 0; index < end; index++, row++) {
 		bool isSelected = selected_row == row;
@@ -210,7 +294,9 @@ void renderList(int count, int start, int end, int selected) {
 				SCALE1(IMG_MAX_WIDTH),
 				SCALE1(IMG_MAX_HEIGHT)};
 
-			renderRoundedRectangle(rectRomImage, RGB_DARK_GRAY, SCALE1(16));
+			SDL_Surface* blank = blankCircle();
+			if (blank)
+				SDL_BlitSurface(blank, NULL, screen, &(SDL_Rect){rectRomImage.x, rectRomImage.y});
 
 			// TODO: no getter exposed for this right now
 			//SDL_Rect rect = asset_rects[ASSET_GAMEPAD];
@@ -229,7 +315,19 @@ void renderList(int count, int start, int end, int selected) {
 			//textColor = colorFromUint(THEME_COLOR1);
 			textColor = COLOR_BLACK;
 		}
-		renderText(rom_name, font.medium, textColor, &(SDL_Rect){layout.list_display_start_x + num_width + thumbMargin + SCALE1(IMG_MAX_WIDTH), layout.list_display_start_y + thumbMargin / 2 + elemHeight * row, layout.list_display_size_x, textHeight});
+		int row_y = layout.list_display_start_y + elemHeight * row;
+		// 14 dp between the thumbnail and its text (the rich list's gap, LIST-LAYOUT §10.2)
+		int text_x = layout.list_display_start_x + num_width + thumbMargin / 2 + SCALE1(IMG_MAX_WIDTH) + NX_DP(14);
+		// the name ends half a row before the capsule's right end, with an ellipsis when it is longer
+		{
+			TTF_Font* nameFont = UI_textRole(UI_TEXT_LABEL, false);
+			if (!nameFont)
+				nameFont = font.large;
+			int name_max_w = layout.list_display_start_x + layout.list_display_size_x - elemHeight / 2 - text_x;
+			char name_fit[sizeof(rom_name)];
+			GFX_truncateText(nameFont, rom_name, name_fit, name_max_w, 0);
+			renderText(name_fit, nameFont, textColor, &(SDL_Rect){text_x, row_y + title_y, layout.list_display_size_x, textHeight});
+		}
 
 		serializeTime(total, entry->play_time_total);
 		serializeTime(average, entry->play_time_average);
@@ -237,29 +335,34 @@ void renderList(int count, int start, int end, int selected) {
 
 		// values first in the accent color, lowercase labels in muted gray
 		const char* details[] = {total, " total  ·  ", average, " avg  ·  ", plays, entry->play_count == 1 ? " play" : " plays"};
-		SDL_Rect detailsRect = {
-			layout.list_display_start_x + num_width + thumbMargin + SCALE1(IMG_MAX_WIDTH),
-			layout.list_display_start_y + thumbMargin / 2 + textHeight + elemHeight * row,
-			layout.list_display_size_x,
-			textHeight};
+		SDL_Rect detailsRect = {text_x, row_y + detail_y, layout.list_display_size_x, textHeight};
 		// accent only reads well on the selected white pill; use light gray on dark rows
 		SDL_Color valueCol = isSelected ? uintToColour(THEME_COLOR2_255) : COLOR_LIGHT_TEXT;
+		// fetched right before use (a UIFont pointer is only valid until the next UIFont_get)
+		TTF_Font* detailFont = UI_textRole(UI_TEXT_SECONDARY, false);
+		if (!detailFont)
+			detailFont = font.small;
+		// clipped like the name: the segment that crosses the limit is ellipsised and the rest dropped
+		int details_end = layout.list_display_start_x + layout.list_display_size_x - elemHeight / 2;
 		for (int i = 0; i < 6; i++) {
 			SDL_Color detailCol = i % 2 == 0 ? valueCol : COLOR_DARK_TEXT;
-			detailsRect.x += renderText(details[i], font.small, detailCol, &detailsRect);
+			int room = details_end - detailsRect.x;
+			int seg_w = 0;
+			GFX_measureText(detailFont, details[i], &seg_w, NULL);
+			if (seg_w <= room) {
+				detailsRect.x += renderText(details[i], detailFont, detailCol, &detailsRect);
+				continue;
+			}
+			char seg_fit[64];
+			snprintf(seg_fit, sizeof(seg_fit), "%s", details[i]);
+			if (room > 0 && GFX_truncateText(detailFont, details[i], seg_fit, room, 0) <= room)
+				renderText(seg_fit, detailFont, detailCol, &detailsRect);
+			break;
 		}
 	}
 
-	if (count > layout.items_per_page) {
-#define SCROLL_WIDTH 24
-#define SCROLL_HEIGHT 4
-		int ox = (screen->w - SCALE1(SCROLL_WIDTH)) / 2;
-		int oy = SCALE1((PILL_SIZE - SCROLL_HEIGHT) / 2);
-		if (start > 0)
-			GFX_blitAsset(ASSET_SCROLL_UP, NULL, screen, &(SDL_Rect){ox, SCALE1(PADDING + PILL_SIZE)});
-		if (end < count)
-			GFX_blitAsset(ASSET_SCROLL_DOWN, NULL, screen, &(SDL_Rect){ox, screen->h - SCALE1(PADDING + PILL_SIZE + BUTTON_SIZE) + oy});
-	}
+	if (count > layout.items_per_page)
+		UI_renderScrollArrows(screen, layout.up_y, layout.down_y, start > 0, end < count);
 }
 
 void initLayout() {
@@ -271,22 +374,27 @@ void initLayout() {
 	layout.sub_title_x = SCALE1(PADDING);
 	layout.sub_title_y = SCALE1(PADDING);
 
-	// the main list.
-	// x: start inside the default padding, and align with the title pill.
-	// y: default padding, below the title pill and some additional padding to leave some breathing room (BUTTON_MARGIN).
-	layout.list_display_start_x = SCALE1(PADDING);
-	layout.list_display_start_y = SCALE1(PADDING + PILL_SIZE + BUTTON_MARGIN);
-	// x: stretch whole width inside default padding + extra margin (see above).
-	// y: stretch whole height below list_display_start_y, leaving room at the bottom for padding and button hints.
-	layout.list_display_size_x = hw - SCALE1(PADDING * 2);
-	layout.list_display_size_y = hh - SCALE1(PADDING * 2 + PILL_SIZE * 2 + BUTTON_MARGIN * 2);
+	// the main list (LIST-LAYOUT §10.1/§10.2): a rich list, so the thumbnail's left edge sits on the list text
+	// start (14 dp, the title's x) with the capsule its image margin left of that; the row ends PADDING short
+	// of the right edge. Rows sit in the standard block: equal half-row arrow strips above and below, centred
+	// between the title's letters and the hint icons.
+	int row_h = SCALE1(BIG_PILL_SIZE);
+	UIListBlock block = UI_listBlock(UI_pageTitleBandTop(), UI_buttonHintIconTop(hh), row_h, 0);
+	layout.list_display_start_x = UI_listTextX() - SCALE1(IMG_MARGIN) / 2;
+	if (layout.list_display_start_x < 0)
+		layout.list_display_start_x = 0;
+	layout.list_display_start_y = block.top;
+	layout.list_display_size_x = hw - SCALE1(PADDING) - layout.list_display_start_x;
+	layout.list_display_size_y = block.rows * row_h;
+	layout.up_y = block.up_y;
+	layout.down_y = block.down_y;
 
 	layout.list_display_rect.x = layout.list_display_start_x,
 	layout.list_display_rect.y = layout.list_display_start_y,
 	layout.list_display_rect.w = layout.list_display_size_x,
 	layout.list_display_rect.h = layout.list_display_size_y;
 
-	layout.items_per_page = layout.list_display_size_y / SCALE1(BIG_PILL_SIZE);
+	layout.items_per_page = block.rows > 0 ? block.rows : 1;
 	layout.num_pages = (int)ceil((double)play_activities->count / (double)layout.items_per_page);
 }
 
@@ -393,7 +501,8 @@ int main(int argc, char* argv[]) {
 
 			if (count == 0) {
 				UI_renderMenuBar(screen, "Game Time");
-				UI_renderEmptyState(screen, "No play activity", "Play some games to track your time", NULL);
+				UI_renderEmptyStateButtons(screen, "No play activity", "Play some games to track your time",
+										   (char*[]){"B", "EXIT", NULL}); // the tool's first level
 			} else {
 				char play_time_total_formatted[255];
 				serializeTime(play_time_total_formatted, play_activities->play_time_total);

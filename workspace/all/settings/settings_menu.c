@@ -289,6 +289,10 @@ void settings_menu_handle_input(bool* quit, bool* dirty) {
 			cycle_item_prev(sel, step);
 			changed = 1;
 		}
+		if (sel->a_cycles && PAD_justPressed(BTN_A)) {
+			cycle_item_next(sel, 1);
+			changed = 1;
+		}
 	}
 
 	// Snapshot the selected item before releasing the lock: on scanner
@@ -522,6 +526,12 @@ static void render_hints_for_page(SDL_Surface* screen, SettingsPage* page) {
 		switch (sel->type) {
 		case ITEM_CYCLE:
 		case ITEM_COLOR: {
+			if (sel->a_cycles) {
+				// a two-value flip row: A steps the value too
+				char* h[] = {"LEFT/RIGHT", "CHANGE", "B", back_label, "A", "CHANGE", NULL};
+				memcpy(hints, h, sizeof(h));
+				break;
+			}
 			char* h[] = {"LEFT/RIGHT", "CHANGE", "B", back_label, NULL};
 			memcpy(hints, h, sizeof(h));
 			break;
@@ -565,8 +575,9 @@ void settings_menu_render(SDL_Surface* screen, IndicatorType show_setting) {
 
 	UI_renderMenuBar(screen, page->title);
 
-	// Calculate list layout
+	// Calculate list layout (an untitled options page keeps the pill list's top gutter)
 	ListLayout layout = UI_calcListLayout(screen);
+	layout.titled = page->title && page->title[0];
 
 	int has_lock = (page->dynamic_start >= 0);
 	if (has_lock)

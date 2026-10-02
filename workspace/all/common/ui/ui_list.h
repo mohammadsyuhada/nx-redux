@@ -7,15 +7,17 @@
 
 // Scrolling text state for marquee animation
 typedef struct {
-	char text[512];						// Text to display
-	int text_width;						// Full text width in pixels
-	int max_width;						// Maximum display width
-	uint32_t start_time;				// Animation start time
-	bool needs_scroll;					// True if text is wider than max_width
-	int scroll_offset;					// Current pixel offset for smooth scrolling
-	bool use_gpu_scroll;				// True = use GPU layer (for lists), False = software (for player)
-	int last_x, last_y;					// Last render position (for animate-only mode)
-	TTF_Font* last_font;				// Last font used (for animate-only mode)
+	char text[512];		 // Text to display
+	int text_width;		 // Full text width in pixels
+	int max_width;		 // Maximum display width
+	uint32_t start_time; // Animation start time
+	bool needs_scroll;	 // True if text is wider than max_width
+	int scroll_offset;	 // Current pixel offset for smooth scrolling
+	bool use_gpu_scroll; // True = use GPU layer (for lists), False = software (for player)
+	int last_x, last_y;	 // Last render position (for animate-only mode)
+	// Last font used (for animate-only mode, which draws with it on later frames): must be a long-lived font
+	// (font.* from api.h), never a UIFont_get / UI_textRole pointer, which a later UIFont_get may evict and close.
+	TTF_Font* last_font;
 	SDL_Color last_color;				// Last color used (for animate-only mode)
 	SDL_Surface* cached_scroll_surface; // Cached surface for GPU scroll (no bg)
 	bool scroll_active;					// True once GPU scroll has actually started (after delay)
@@ -46,15 +48,42 @@ void ScrollText_renderGPU_NoBg(ScrollTextState* state, TTF_Font* font,
 
 // ---- List Layout ----
 
+// LIST-LAYOUT §10.2: a list is a block of whole rows with an arrow strip of equal height (half a row) directly
+// above the first row and below the last; the arrows are centred in their strips, and the block is centred
+// between the page title's letters (UI_pageTitleBandTop) and the hint bar's icons (UI_buttonHintIconTop). The
+// math is the pure UI_listBlock (common/ui_list_layout.h).
 typedef struct {
-	int list_y;			// Y where list starts
-	int list_h;			// Height available for list
+	int list_y;			// Y of the first row
+	int list_h;			// Height of the rows (items_per_page * item_h)
 	int item_h;			// Height per item
 	int items_per_page; // Visible item count
-	int max_width;		// Max content width
+	int max_width;		// Max content width (the pill from UI_listPillX to PADDING short of the right edge)
+	int avail_top;		// band the block is centred in (kept so a caller can re-block, see
+	int avail_bottom;	//   UI_listLayoutSetRowHeight)
+	int strip;			// height of each arrow strip (0: none, an options page that fits)
+	int up_y;			// centre y of the up arrow's strip
+	int down_y;			// centre y of the down arrow's strip
+	bool titled;		// the page has a title (true from UI_calcListLayout*); an untitled options page
+						//   (UI_renderSettingsPage) keeps the pill list's top gutter instead of centring
 } ListLayout;
 
+// The standard pill list: SCALE1(PILL_SIZE) rows, as many as fit, under a page title and over a hint bar.
 ListLayout UI_calcListLayout(SDL_Surface* screen);
+// The same in a chosen band: avail_top < 0 is the title's letters, avail_bottom < 0 the hint icons. Rows of
+// row_h; rows_wanted > 0 caps the count. For a list under its own header (ratools, Xtras tabs) pass the
+// header's bottom as avail_top: the up strip then sits between the header and the first row.
+ListLayout UI_calcListLayoutEx(SDL_Surface* screen, int avail_top, int avail_bottom, int row_h, int rows_wanted);
+// Re-block an existing layout's band for another row height (rich rows: SCALE1(PILL_SIZE) * 3 / 2).
+void UI_listLayoutSetRowHeight(ListLayout* layout, int row_h, int rows_wanted);
+
+// LIST-LAYOUT §1/§10.1: a list row's text starts at UI_listTextX() (the 14 dp inset); its selection pill's edge is
+// at UI_listPillX(), 14 dp (SCALE1(BUTTON_PADDING)) left of the text. Every shared renderer below uses them, and
+// the default page title x (UI_pageTitleX) is the same text start.
+int UI_listTextX(void);
+int UI_listPillX(void);
+// The pill edge for a row whose text starts at text_x (14 dp left of it, never off screen): the main menu's 24 dp
+// List rows use it too.
+int UI_listPillXFor(int text_x);
 
 // ---- Pill Rendering (stateless) ----
 
@@ -109,7 +138,8 @@ typedef struct {
 } ListItemBadgedPos;
 
 // Render a two-row list item pill with optional right-side badge area.
-// Item height is 1.5x PILL_SIZE. Title (title_font) + subtitle (subtitle_font).
+// Item height is layout->item_h when taller than PILL_SIZE (fitted rows), else 1.5x PILL_SIZE.
+// Title (title_font) + subtitle (subtitle_font).
 // When badge_width > 0 and selected: THEME_COLOR2 outer capsule + THEME_COLOR1 inner.
 // When badge_width == 0: single THEME_COLOR1 capsule.
 // Caller renders badge content at badge_x, badge_y.
@@ -132,9 +162,12 @@ typedef struct {
 	void* custom_draw_ctx;
 } UISettingsItem;
 
-// Render a compact settings page. Handles layout calculation, scrolling, item
+// Render a compact settings (options) page. Handles layout calculation, scrolling, item
 // rendering, scroll indicators, status message, and description text.
-// Reserves two rows below the list for the selected item's description.
+// LIST-LAYOUT §10.2 options pages: rows at 0.75 x the pill list pitch (UI_optionsRowHeight); a titled page that
+// fits is centred with no arrow strips, one that scrolls has arrow-height + 2 dp strips; an untitled page
+// (layout->titled = false) keeps the pill list's first-row y. Reserves 1.5 rows below the list for the selected
+// item's description (two lines).
 void UI_renderSettingsPage(SDL_Surface* screen, ListLayout* layout,
 						   UISettingsItem* items, int count,
 						   int selected, int* scroll,
@@ -163,8 +196,11 @@ int UI_renderSettingsRow(SDL_Surface* screen, ListLayout* layout,
 // ---- Scroll Helpers ----
 
 void UI_adjustListScroll(int selected, int* scroll, int items_per_page);
-void UI_renderScrollIndicators(SDL_Surface* screen, int scroll,
-							   int items_per_page, int total_count);
+// Arrows centred in a layout's strips (layout->up_y / down_y): up when scroll > 0, down when rows follow.
+void UI_renderScrollIndicatorsAt(SDL_Surface* screen, const ListLayout* layout, int scroll,
+								 int items_per_page, int total_count);
+// The arrow assets centred horizontally on the screen with their centres at up_y / down_y.
+void UI_renderScrollArrows(SDL_Surface* screen, int up_y, int down_y, bool show_up, bool show_down);
 
 // ---- Pill Animation (non-threaded, for main-loop driven apps) ----
 
@@ -233,7 +269,8 @@ typedef struct {
 } ListItemRichPos;
 
 // Render a 2-row list item pill with image area on the left
-// Height is 1.5x PILL_SIZE. Image is square, vertically centered.
+// Height is layout->item_h when taller than PILL_SIZE (fitted rows), else 1.5x PILL_SIZE. Image is square,
+// vertically centered (item_h - 2 x SCALE1(4)).
 // Row 1: title (medium font), Row 2: subtitle (small font)
 // Caller renders image at image_x/image_y and text via UI_renderListItemText()
 ListItemRichPos UI_renderListItemPillRich(SDL_Surface* screen, ListLayout* layout,
@@ -241,6 +278,31 @@ ListItemRichPos UI_renderListItemPillRich(SDL_Surface* screen, ListLayout* layou
 										  char* truncated,
 										  int y, bool selected, bool has_image,
 										  int extra_subtitle_width);
+
+// ---- Rich Row (LIST-LAYOUT §10.2 / §10.6) ----
+
+// A thumbnail row: a full-round capsule whose left end holds a circular thumbnail 4 dp in from its left, top and
+// bottom edges, with the thumbnail's left edge on the list text start (UI_listTextX, the page title's x), so the
+// capsule edge sits 4 dp left of that. The text starts 14 dp after the thumbnail and ends half a row before the
+// capsule's right end. Title = the secondary role (0.8 x the list label) capped at row / 2.16, second line 0.8 x
+// the title (the caption role); each line's box is 1.2 x its size, the pair centred in the row (UI_richRowText).
+// Row height: layout->item_h (use UI_listFitRowHeight for whole rows).
+typedef struct {
+	int capsule_x, capsule_w;	// the capsule (drawn when selected)
+	int image_x, image_y;		// thumbnail top-left
+	int image_size;				// thumbnail diameter (row - 2 x 4 dp); load it round (radius image_size / 2)
+	int text_x, text_max_width; // both lines
+	int title_y, second_y;		// glyph tops (the font height centred in its line box)
+	int title_px, second_px;	// font sizes: fetch each with UIFont_getPx(px, false) right where it's drawn (a
+								//   UIFont pointer is only valid until the next UIFont_get)
+} RichRowPos;
+
+// Thumbnail diameter for rows of row_h (load the images at this size).
+int UI_richRowImageSize(int row_h);
+// Draw the capsule when selected and return the positions; the caller blits the thumbnail and draws the text
+// (UI_renderListItemText with UIFont_getPx(pos.title_px), then the second line in UIFont_getPx(pos.second_px)).
+RichRowPos UI_renderRichRow(SDL_Surface* screen, const ListLayout* layout, const char* title,
+							const char* second, int y, bool selected);
 
 // ---- Menu Item Pill Rendering ----
 

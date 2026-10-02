@@ -52,6 +52,7 @@ static int s_scale = 2;
 #define FONT_SIZE_LARGE (16 * s_scale)
 #define FONT_SIZE_SMALL (12 * s_scale)
 #define FONT_SIZE_TINY (10 * s_scale)
+#define FONT_SIZE_TITLE ((int)(16 * s_scale * 12.0f / 14.0f + 0.5f)) // NX_SP(16), as the UI's page title
 
 // ---------------------------------------------------------------------------
 // State
@@ -60,7 +61,7 @@ static int s_scale = 2;
 static int s_screenW = 0;
 static int s_screenH = 0;
 
-static TTF_Font* s_fonts[3] = {NULL, NULL, NULL}; // LARGE, SMALL, TINY
+static TTF_Font* s_fonts[EMU_OVL_FONT_COUNT] = {NULL, NULL, NULL, NULL}; // LARGE, SMALL, TINY, TITLE
 
 static SDL_Surface* s_renderSurface = NULL;	 // ARGB8888 compositing surface
 static SDL_Surface* s_captureSurface = NULL; // Captured game frame (ARGB8888)
@@ -206,8 +207,8 @@ static int ovl_sdl_init(int screen_w, int screen_h) {
 		return -1;
 	}
 
-	int font_sizes[3] = {FONT_SIZE_LARGE, FONT_SIZE_SMALL, FONT_SIZE_TINY};
-	for (int i = 0; i < 3; i++) {
+	int font_sizes[EMU_OVL_FONT_COUNT] = {FONT_SIZE_LARGE, FONT_SIZE_SMALL, FONT_SIZE_TINY, FONT_SIZE_TITLE};
+	for (int i = 0; i < EMU_OVL_FONT_COUNT; i++) {
 		s_fonts[i] = TTF_OpenFont(font_path, font_sizes[i]);
 		if (!s_fonts[i]) {
 			fprintf(stderr, "[OverlaySDL] TTF_OpenFont(%s, %d) failed: %s\n",
@@ -219,6 +220,7 @@ static int ovl_sdl_init(int screen_w, int screen_h) {
 			return -1;
 		}
 	}
+	// the title in the regular face too: TTF_STYLE_BOLD's synthetic emboldening reads heavy with rough edges
 
 	// Create render surface (ARGB8888)
 	s_renderSurface = SDL_CreateRGBSurfaceWithFormat(
@@ -318,7 +320,7 @@ static int ovl_sdl_init(int screen_w, int screen_h) {
 }
 
 static void ovl_sdl_destroy(void) {
-	for (int i = 0; i < 3; i++) {
+	for (int i = 0; i < EMU_OVL_FONT_COUNT; i++) {
 		if (s_fonts[i]) {
 			TTF_CloseFont(s_fonts[i]);
 			s_fonts[i] = NULL;
@@ -485,7 +487,7 @@ static void ovl_sdl_draw_rect(int x, int y, int w, int h, uint32_t color) {
 // ---------------------------------------------------------------------------
 
 static TTF_Font* get_font(int font_id) {
-	if (font_id >= 0 && font_id <= 2 && s_fonts[font_id])
+	if (font_id >= 0 && font_id < EMU_OVL_FONT_COUNT && s_fonts[font_id])
 		return s_fonts[font_id];
 	// Fallback to small
 	return s_fonts[EMU_OVL_FONT_SMALL];

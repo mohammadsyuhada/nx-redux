@@ -88,7 +88,6 @@ NX Redux is developed with the help of [Claude](https://claude.ai), Anthropic's 
 - [sinedied](https://github.com/sinedied/perfect-retroshaders) for the shaders that were originally proposed for NextUI in [LoveRetro/NextUI#796](https://github.com/LoveRetro/NextUI/pull/796).
 - [KrutzOtrem](https://github.com/KrutzOtrem/Trimui-Brick-Overlays) for the overlays
 - [timbueno](https://github.com/timbueno/ArtBookNextUI.theme) for the Artbook theme
-- [anthonycaccese](https://github.com/anthonycaccese/art-book-next-es.git) for the Artbook artwork
 - [ben16w](https://github.com/ben16w/minui-portmaster) for the Minui-Portmaster
 
 ## License

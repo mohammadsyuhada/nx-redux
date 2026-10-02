@@ -31,7 +31,7 @@ static void library_get_row(void* ctx, int i, bool selected, ListViewRow* out) {
 static void render_library_menu(SDL_Surface* screen) {
 	GFX_clear(screen);
 	ListView* v = &library_view;
-	v->title = "Library";
+	v->title = "Music Player | Library";
 	v->count = LIBRARY_ITEM_COUNT;
 	v->get_row = library_get_row;
 	v->ctx = (void*)library_items;

@@ -161,6 +161,73 @@ SDL_Surface* UI_circleFromSurface(SDL_Surface* raw, int size) {
 	return maskedFromSurface(raw, size, 0, true);
 }
 
+SDL_Surface* UI_circleThumbFromSurface(SDL_Surface* raw, int size, SDL_Color backdrop) {
+	if (!raw || size <= 0)
+		return NULL;
+	SDL_Surface* converted = SDL_ConvertSurfaceFormat(raw, SDL_PIXELFORMAT_ARGB8888, 0);
+	if (!converted)
+		return NULL;
+	SDL_Surface* out = SDL_CreateRGBSurfaceWithFormat(0, size, size, 32, SDL_PIXELFORMAT_ARGB8888);
+	if (!out) {
+		SDL_FreeSurface(converted);
+		return NULL;
+	}
+
+	// The opaque disc first, so art with transparent areas (a "mix": screenshot + box) still reads as a whole
+	// circle; then the art centre-cropped to a square (aspect kept) and scaled over it.
+	SDL_FillRect(out, NULL, SDL_MapRGBA(out->format, backdrop.r, backdrop.g, backdrop.b, 255));
+	int side = converted->w < converted->h ? converted->w : converted->h;
+	SDL_Rect src = {(converted->w - side) / 2, (converted->h - side) / 2, side, side};
+	SDL_SetSurfaceBlendMode(converted, SDL_BLENDMODE_BLEND);
+	SDL_BlitScaled(converted, &src, out, &(SDL_Rect){0, 0, size, size});
+	SDL_FreeSurface(converted);
+
+	// Anti-aliased circular mask on the final surface: each edge pixel's alpha is its coverage, from a 4 x 4
+	// sample grid (no libm). Coordinates are in quarter pixels; the circle fills the square.
+	if (SDL_MUSTLOCK(out))
+		SDL_LockSurface(out);
+	uint32_t* pixels = (uint32_t*)out->pixels;
+	int pitch = out->pitch / 4;
+	long long c = 2LL * size;									 // centre and radius, quarter px
+	long long in2 = (c - 3) * (c - 3), out2 = (c + 3) * (c + 3); // a pixel reaches < 3 quarter px from its centre
+	for (int y = 0; y < size; y++) {
+		for (int x = 0; x < size; x++) {
+			long long dx = 4LL * x + 2 - c, dy = 4LL * y + 2 - c;
+			long long d2 = dx * dx + dy * dy;
+			if (d2 <= in2)
+				continue; // fully inside
+			if (d2 >= out2) {
+				pixels[y * pitch + x] = 0;
+				continue;
+			}
+			// samples at quarter-pixel centres (doubled coordinates keep them integral)
+			int cover = 0;
+			for (int sy = 0; sy < 4; sy++)
+				for (int sx = 0; sx < 4; sx++) {
+					long long ex = 2 * (4LL * x + sx - c) + 1, ey = 2 * (4LL * y + sy - c) + 1;
+					if (ex * ex + ey * ey <= 4 * c * c)
+						cover++;
+				}
+			uint32_t p = pixels[y * pitch + x];
+			uint32_t a = (p >> 24) * (uint32_t)cover / 16;
+			pixels[y * pitch + x] = (p & 0x00FFFFFF) | (a << 24);
+		}
+	}
+	if (SDL_MUSTLOCK(out))
+		SDL_UnlockSurface(out);
+	SDL_SetSurfaceBlendMode(out, SDL_BLENDMODE_BLEND);
+	return out;
+}
+
+SDL_Surface* UI_loadCircleThumb(const char* path, int size, SDL_Color backdrop) {
+	SDL_Surface* raw = IMG_Load(path);
+	if (!raw)
+		return NULL;
+	SDL_Surface* result = UI_circleThumbFromSurface(raw, size, backdrop);
+	SDL_FreeSurface(raw);
+	return result;
+}
+
 SDL_Surface* UI_loadRoundedImage(const char* path, int size, int radius) {
 	SDL_Surface* raw = IMG_Load(path);
 	if (!raw)

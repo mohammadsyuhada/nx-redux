@@ -1,5 +1,6 @@
 #include "ui_listdialog.h"
 #include "ui_list.h"
+#include "ui_accent.h"
 #include "ui_buttonhintbar.h"
 #include "ui_menubar.h"
 #include "ui_draw.h"
@@ -123,14 +124,14 @@ static void render_item(SDL_Surface* screen, ListLayout* layout,
 
 	// Draw rounded rect background for selected item
 	if (selected) {
-		UI_fillRoundedRect(screen, SCALE1(PADDING), y, pill_width,
-						   layout->item_h, layout->item_h / 3, THEME_COLOR1);
+		UI_fillRoundedRect(screen, UI_listPillX(), y, pill_width,
+						   layout->item_h, layout->item_h / 3, UI_accentMapped(GFX_getScreen()->format));
 	}
 
-	int text_x = SCALE1(PADDING) + SCALE1(BUTTON_PADDING);
+	int text_x = UI_listPillX() + SCALE1(BUTTON_PADDING);
 	int text_y = y + (layout->item_h - TTF_FontHeight(font.small)) / 2;
 	int center_y_pos = y + layout->item_h / 2;
-	uint32_t icon_color = selected ? THEME_COLOR5 : THEME_COLOR4;
+	uint32_t icon_color = selected ? UI_onAccentMapped(GFX_getScreen()->format) : THEME_COLOR4;
 
 	// Prepend icons (left side, before title)
 	if (prepend_w > 0) {
@@ -150,7 +151,7 @@ static void render_item(SDL_Surface* screen, ListLayout* layout,
 	}
 
 	// Append icons or detail text (right-aligned)
-	int right_x = SCALE1(PADDING) + pill_width - SCALE1(BUTTON_PADDING) - suffix_w;
+	int right_x = UI_listPillX() + pill_width - SCALE1(BUTTON_PADDING) - suffix_w;
 
 	if (has_append) {
 		render_icons(screen, item->append_icons, right_x, center_y_pos, icon_color);
@@ -195,12 +196,8 @@ void ListDialog_render(SDL_Surface* screen) {
 	}
 
 	// Calculate layout
-	ListLayout layout;
-	layout.list_y = SCALE1(PADDING + PILL_SIZE) + 10;
-	layout.item_h = SCALE1(PILL_SIZE) * 3 / 4;
-	layout.list_h = screen->h - layout.list_y - SCALE1(PADDING + BUTTON_SIZE + BUTTON_MARGIN);
-	layout.items_per_page = layout.list_h / layout.item_h;
-	layout.max_width = hw - SCALE1(PADDING * 2);
+	// compact rows (3/4 pill) in the standard block: equal arrow strips, centred under the title
+	ListLayout layout = UI_calcListLayoutEx(screen, -1, -1, SCALE1(PILL_SIZE) * 3 / 4, 0);
 
 	UI_adjustListScroll(dialog_selected, &dialog_scroll, layout.items_per_page);
 
@@ -216,7 +213,7 @@ void ListDialog_render(SDL_Surface* screen) {
 		render_item(screen, &layout, item, y, selected);
 	}
 
-	UI_renderScrollIndicators(screen, dialog_scroll, layout.items_per_page, dialog_count);
+	UI_renderScrollIndicatorsAt(screen, &layout, dialog_scroll, layout.items_per_page, dialog_count);
 	UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "SELECT", NULL});
 }
 

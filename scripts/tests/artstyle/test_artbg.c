@@ -250,33 +250,36 @@ int main(void) {
 		SDL_FreeSurface(a3);
 	}
 
-	// 8. The full 30% shift is applied on both resolutions: a marker column at
-	// the source's right edge lands 30% of the drawn width off screen, i.e.
-	// the drawn image's right edge sits at W + 0.30 * drawn width.
+	// 8. The push-right (LIST-LAYOUT §6): art that, fitted to the screen height,
+	// covers the screen width is pushed 20% of its drawn width off the right
+	// edge, narrower art only 7%. A 640x480 source is 1024 wide on 1024x768
+	// (covers: 20%) and 960 on 1280x720 (narrower: 7%).
 	{
 		int wide_rw[2] = {1280, 1024};
 		int wide_rh[2] = {720, 768};
 		int ok_res = 0;
 		for (int k = 0; k < 2; k++) {
 			int Wk = wide_rw[k], Hk = wide_rh[k];
-			// Source with a distinct column 1/4 of the way in.
+			// Source with a distinct column 3/4 of the way in (in the visible strip on both screens: at 1/4 the
+			// 7% push leaves it under the fade on 16:9).
 			SDL_Surface* a4 = make_art(640, 480, 255);
 			SDL_LockSurface(a4);
 			Uint32* p4 = (Uint32*)a4->pixels;
 			int p4pitch = a4->pitch / 4;
 			Uint32 mark = SDL_MapRGBA(a4->format, 5, 5, 250, 255);
 			for (int y = 0; y < a4->h; y++)
-				p4[(size_t)y * p4pitch + (a4->w / 4)] = mark;
+				p4[(size_t)y * p4pitch + (a4->w * 3 / 4)] = mark;
 			SDL_UnlockSurface(a4);
 
 			SDL_Surface* o = ArtBg_compose(a4, Wk, Hk, FMT);
 			if (o) {
 				SDL_LockSurface(o);
 				int xk = ArtBg_originX(Wk, Hk);
-				// Expected geometry: height fit, then shifted right 30%.
+				// Expected geometry: height fit, then shifted right 20% or 7%.
 				double drawn_w = 640.0 * (double)Hk / 480.0;
-				double left = (double)Wk - drawn_w + 0.30 * drawn_w;
-				int want = (int)(left + drawn_w * 0.25 + 0.5);
+				double push = drawn_w >= (double)Wk ? 0.20 : 0.07;
+				double left = (double)Wk - drawn_w + push * drawn_w;
+				int want = (int)(left + drawn_w * 0.75 + 0.5);
 				int found = -1;
 				for (int x = xk; x < Wk; x++) {
 					Uint8 r, g, b, a;
@@ -293,7 +296,7 @@ int main(void) {
 			}
 			SDL_FreeSurface(a4);
 		}
-		CHECK(ok_res == 2, "full 30% shift applied on both 16:9 and 4:3");
+		CHECK(ok_res == 2, "20%/7% push-right on 4:3 and 16:9");
 	}
 
 	// 9. A stacked dual-screen source (DS: 320x480) contributes only its top

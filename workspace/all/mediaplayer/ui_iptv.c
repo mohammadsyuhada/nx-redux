@@ -47,7 +47,7 @@ void render_iptv_user_channels(SDL_Surface* screen, IndicatorType show_setting,
 	(void)show_setting;
 	GFX_clear(screen);
 
-	UI_renderMenuBar(screen, "Online TV");
+	UI_renderMenuBar(screen, "Media Player | Online TV");
 
 	int channel_count = IPTV_getUserChannelCount();
 	const IPTVChannel* channels = IPTV_getUserChannels();
@@ -79,7 +79,7 @@ void render_iptv_curated_countries(SDL_Surface* screen, IndicatorType show_setti
 	(void)show_setting;
 	GFX_clear(screen);
 
-	UI_renderMenuBar(screen, "Browse Channels");
+	UI_renderMenuBar(screen, "Media Player | Browse Channels");
 
 	int country_count = IPTV_curated_get_country_count();
 	const CuratedTVCountry* countries = IPTV_curated_get_countries();
@@ -123,7 +123,7 @@ void render_iptv_curated_channels(SDL_Surface* screen, IndicatorType show_settin
 		}
 	}
 
-	UI_renderMenuBar(screen, country_name);
+	UI_renderMenuBarPage(screen, "Media Player", country_name);
 
 	int channel_count = 0;
 	const CuratedTVChannel* channels = IPTV_curated_get_channels(country_code, &channel_count);
@@ -162,10 +162,10 @@ void render_iptv_curated_channels(SDL_Surface* screen, IndicatorType show_settin
 		int text_width = GFX_truncateText(font.medium, channel->name, truncated, name_max_width, SCALE1(BUTTON_PADDING * 2));
 		int pill_width = MIN(layout.max_width, prefix_width + text_width + SCALE1(BUTTON_PADDING));
 
-		SDL_Rect pill_rect = {SCALE1(PADDING), y, pill_width, layout.item_h};
+		SDL_Rect pill_rect = {UI_listPillX(), y, pill_width, layout.item_h};
 		Fonts_drawListItemBg(screen, &pill_rect, is_selected);
 
-		int text_x = SCALE1(PADDING) + SCALE1(BUTTON_PADDING);
+		int text_x = UI_listTextX();
 		int text_y = y + (layout.item_h - TTF_FontHeight(font.medium)) / 2;
 
 		// Added indicator prefix
@@ -193,7 +193,7 @@ void render_iptv_curated_channels(SDL_Surface* screen, IndicatorType show_settin
 		}
 	}
 
-	UI_renderScrollIndicators(screen, *scroll_offset, layout.items_per_page, sorted_count);
+	UI_renderScrollIndicatorsAt(screen, &layout, *scroll_offset, layout.items_per_page, sorted_count);
 
 	// Toast notification
 	UI_renderToast(screen, toast_message, toast_time);

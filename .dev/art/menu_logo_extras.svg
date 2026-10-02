@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 120">
+  <defs>
+    <!-- two speed stripes cut through the heavy word -->
+    <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="400" height="120">
+      <rect x="0" y="0" width="400" height="120" fill="#fff"/>
+      <rect x="0" y="44" width="400" height="4" fill="#000"/>
+      <rect x="0" y="54" width="400" height="2.5" fill="#000"/>
+    </mask>
+  </defs>
+  <g fill="#fff" transform="translate(14 0) skewX(-14)">
+    <g mask="url(#cut)">
+      <!-- X -->
+      <polygon points="20,8 44,8 62,32 80,8 104,8 74,40 104,72 80,72 62,48 44,72 20,72 50,40"/>
+      <!-- T -->
+      <polygon points="110,8 186,8 186,24 158,24 158,72 138,72 138,24 110,24"/>
+      <!-- R: squared bowl with a chamfer, diagonal leg -->
+      <path fill-rule="evenodd" d="M192,8 H254 L266,20 V38 L256,46 L270,72 H248 L236,50 H212 V72 H192 Z M212,22 V36 H244 L246,34 V24 L244,22 Z"/>
+      <!-- A: blocky, chamfered apex -->
+      <path fill-rule="evenodd" d="M286,8 H332 L352,72 H330 L326,58 H292 L288,72 H266 Z M296,44 H322 L314,22 H304 Z"/>
+    </g>
+  </g>
+  <!-- GAMES: thin, wide-tracked, slanted the same -->
+  <g fill="none" stroke="#fff" stroke-width="5" stroke-linejoin="miter" stroke-linecap="square" transform="translate(-14 0) skewX(-14)">
+    <path d="M150,84 H124 V108 H150 V97 H140"/>
+    <path d="M164,108 L174,84 H180 L190,108 M168,99 H186"/>
+    <path d="M204,108 V84 L216,98 L228,84 V108"/>
+    <path d="M266,84 H244 V108 H266 M244,96 H260"/>
+    <path d="M304,84 H280 V96 H304 V108 H280"/>
+  </g>
+</svg>

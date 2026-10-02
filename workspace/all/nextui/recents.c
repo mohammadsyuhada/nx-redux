@@ -316,6 +316,24 @@ Array* Recents_getEntries(void) {
 	return entries;
 }
 
+// The newest recent the Continue card can resume: the first available one that is not a .pak (a tool), built with
+// the same constructor Recents_getEntries uses. NULL when there is none. The caller owns the Entry.
+Entry* Recents_firstRom(void) {
+	if (!recents)
+		return NULL;
+	for (int i = 0; i < recents->count; i++) {
+		Recent* recent = recents->items[i];
+		if (!recent || !recent->available)
+			continue;
+		char sd_path[MAX_PATH]; // the same full path (and .pak test) Recents_entryFromRecent uses
+		snprintf(sd_path, sizeof(sd_path), "%s%s", SDCARD_PATH, recent->path);
+		if (suffixMatch(".pak", sd_path))
+			continue;
+		return Recents_entryFromRecent(recent);
+	}
+	return NULL;
+}
+
 ///////////////////////////////////////
 // Alias management
 

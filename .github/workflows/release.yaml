@@ -155,6 +155,12 @@ jobs:
       - name: Setup
         run: make setup
 
+      - name: Generate ScreenScraper credentials
+        env:
+          SS_DEV_ID: ${{ vars.SS_DEV_ID || secrets.SS_DEV_ID }}
+          SS_DEV_PASSWORD: ${{ secrets.SS_DEV_PASSWORD }}
+        run: sh scripts/gen-ss-credentials.sh
+
       - name: Download Cores (tg5040)
         uses: actions/download-artifact@v7.0.0
         with:

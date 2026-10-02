@@ -42,6 +42,7 @@ void Recents_updateAlias(char* path, char* alias);
 // Entry conversion
 Entry* Recents_entryFromRecent(Recent* recent);
 Array* Recents_getEntries(void);
+Entry* Recents_firstRom(void); // first available non-.pak recent as a fresh Entry, or NULL
 
 // Recent struct methods
 void RecentArray_free(Array* self);

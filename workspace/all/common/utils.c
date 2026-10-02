@@ -864,6 +864,14 @@ void ROM_displayArtPath(const char* rom_path, int art_type, bool fallback_to_mix
 	// No variant requested, or the scraper never wrote one for this game
 	// (older libraries only have the mix composite).
 	ROM_mediaArtPath(rom_path, out, out_size);
+	// The mix asked for but never made (the scraper no longer composes it):
+	// the screenshot instead, when there is one.
+	if (!variant && !exists(out)) {
+		char shot[MAX_PATH];
+		ROM_mediaArtVariantPath(rom_path, "screenshot", shot, sizeof(shot));
+		if (exists(shot))
+			snprintf(out, out_size, "%s", shot);
+	}
 }
 
 bool ROM_findArt(const char* rom_path, char* out, size_t out_size) {
@@ -884,6 +892,18 @@ bool ROM_findArt(const char* rom_path, char* out, size_t out_size) {
 	*parent_slash = '\0';
 	snprintf(out, out_size, "%s/.media/%s.png", dir, parent_slash + 1);
 	return exists(out);
+}
+
+bool ROM_findScreenshot(const char* rom_path, char* out, size_t out_size) {
+	ROM_mediaArtVariantPath(rom_path, "screenshot", out, out_size);
+	if (exists(out))
+		return true;
+	char mix[MAX_PATH];
+	ROM_mediaArtPath(rom_path, mix, sizeof(mix));
+	if (!exists(mix))
+		return false; // out stays the screenshot path
+	snprintf(out, out_size, "%s", mix);
+	return true;
 }
 
 bool M3U_findForRom(const char* rom_path, char* m3u_path, size_t m3u_size) {

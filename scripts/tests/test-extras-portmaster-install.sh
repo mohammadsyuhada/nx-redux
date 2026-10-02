@@ -226,8 +226,10 @@ cmp -s "$TOOLS_PAK/launch.sh" "$ENTRY/pak/launch.sh" \
   && pass "Ports Roms folder created" || fail "Ports Roms folder missing"
 [ ! -e "$CACHE" ] \
   && pass "emu list cache invalidated" || fail "emu list cache survived"
-[ "$(cat "$VER" 2>/dev/null)" = "2026.01.01-0000" ] \
-  && pass "resolved tag written to version record" || fail "version record wrong: '$(cat "$VER" 2>/dev/null)'"
+# the catalog's version is internal (meta.txt version_source=internal, #108): PortMaster updates itself, so the
+# installer keeps no version record
+[ ! -e "$VER" ] \
+  && pass "no version record (version_source=internal)" || fail "version record written: '$(cat "$VER" 2>/dev/null)'"
 grep -q '@90 ' "$TMP/log1.txt" \
   && pass "install emits @NN progress hints" || fail "no @NN progress hint found"
 grep -q 'Latest release: 2026.01.01-0000' "$TMP/log1.txt" \

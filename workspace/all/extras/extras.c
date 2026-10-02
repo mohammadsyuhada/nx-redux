@@ -27,6 +27,7 @@
 #include "defines.h"
 #include "api.h"
 #include "wget_fetch.h" // latest-release API queries (settings_updater's helper)
+#include "ui_accent.h"
 #include "ui_buttonhintbar.h"
 #include "ui_confirmdialog.h"
 #include "ui_downloadprogress.h"
@@ -402,9 +403,10 @@ static void build_tab_rows(AddonTab tab, TabRows* rows) {
 // and switched via L1/R1 in run_list() below. One rounded THEME_COLOR2
 // "container" strip holds both segments, left-aligned and only as wide as
 // the segments themselves (not full screen width); the active segment is a
-// smaller THEME_COLOR1 pill inset within the strip, same "bright selection"
-// family + text color (UI_getListTextColor) an entry row's own selected
-// pill uses; the inactive segment is plain text in the dim gray the shared
+// smaller pill in the accent token (UI_accentMapped: Color 1 unless an
+// accent override is set) inset within the strip, with the accent's ink as
+// its text color (UI_getListTextColor), same as an entry row's own selected
+// pill; the inactive segment is plain text in the dim gray the shared
 // ListView's section-header rows use for "Installed", sitting directly on
 // the strip with no background of its own.
 //
@@ -418,11 +420,14 @@ static void build_tab_rows(AddonTab tab, TabRows* rows) {
 //
 // Local to extras.c - promote to common/ui if a second pak ever needs a
 // segmented control. The reserved vertical band (and so the returned y) is
-// deliberately kept at the ORIGINAL item_h-based height even though the
-// strip itself only draws at ~0.75x that - same contract as the pre-13c
-// pill-button version, so nothing below this call has to move.
+// the strip's own height (it once reserved a whole row height above the
+// list's top, which read as a gap under the title).
 static int render_tab_bar(SDL_Surface* screen, ListLayout* layout, AddonTab active_tab) {
-	int y = layout->list_y;
+	// just under the page title (6 dp below its text), not at the list's own top, which left a wide gap at any UI
+	// scale; the list's rows then start right under it (list_anchor_top)
+	int y = UI_pageTitleBandTop() + NX_DP(6);
+	if (y > layout->list_y)
+		y = layout->list_y;
 	int strip_h = (layout->item_h * 3) / 4;
 	int inset = SCALE1(3);
 	int x = SCALE1(PADDING);
@@ -450,7 +455,7 @@ static int render_tab_bar(SDL_Surface* screen, ListLayout* layout, AddonTab acti
 		if (selected) {
 			UI_renderRoundedRectBg(screen, cx + inset, y + inset,
 								   cell_w[t] - inset * 2, strip_h - inset * 2,
-								   THEME_COLOR1);
+								   UI_accentMapped(screen->format));
 		}
 
 		// Active label: same bright "selected" text color an entry row's own
@@ -470,7 +475,7 @@ static int render_tab_bar(SDL_Surface* screen, ListLayout* layout, AddonTab acti
 		cx += cell_w[t];
 	}
 
-	return y + layout->item_h + SCALE1(PADDING);
+	return y + strip_h;
 }
 
 // Shared-ListView row model (Task 17): the widget's rows are the TabRows
@@ -576,6 +581,7 @@ static void render_extras_list(SDL_Surface* screen, AddonTab active_tab, const T
 	extras_view.list_id = TAB_LABEL[active_tab];
 	extras_view.empty_title = "Nothing here yet";
 	extras_view.list_y_override = render_tab_bar(screen, &layout, active_tab);
+	extras_view.list_anchor_top = true; // the rows right under the tabs (their arrow strip between)
 	// L1/R1 leads the bar (user preference 2026-08-08), then B, then A.
 	// Always shown, even on an empty tab (v1 ships with TOOLS empty) -
 	// otherwise the tab switcher's only remaining discoverability hint (see
@@ -884,7 +890,7 @@ static void draw_result_dialog(const char* title, const char* subtitle, const ch
 static void draw_progress_screen(const char* menu_title, const char* status,
 								 const char* detail, int progress) {
 	GFX_clear(screen);
-	UI_renderMenuBar(screen, menu_title);
+	UI_renderMenuBarPage(screen, "Xtras", menu_title); // "Xtras | <entry>" (LIST-LAYOUT §10.1)
 	UI_renderDownloadProgress(screen, &(UIDownloadProgress){
 										  .status = status,
 										  .detail = detail,
@@ -1410,9 +1416,9 @@ static int run_detail(AddonEntry* e) {
 			// Same menu bar as the list screen (status icons/battery/clock
 			// live there); layout.list_y below already reserves its band, the
 			// bar just wasn't drawn here (user-reported 2026-08-09).
-			UI_renderMenuBar(screen, "Xtras");
+			UI_renderMenuBarPage(screen, "Xtras", e->name); // a page inside the tool names it (LIST-LAYOUT §10.1)
 			ListLayout layout = UI_calcListLayout(screen);
-			int x = SCALE1(PADDING);
+			int x = UI_listTextX(); // under the title's first letter
 			int y = layout.list_y;
 
 			// Title: the same font a selectable list row uses, so the

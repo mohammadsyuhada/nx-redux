@@ -173,9 +173,7 @@ extern int ui_scale;
 
 // Per-scale layout tables live in ui_scale.h, keyed on panel height: at 2x the
 // Brick Pro's taller panel (768 vs 720) fits one extra main-menu row (11 vs 10).
-// Settings/padding stay on the shared 2x values.
 #define MAIN_ROW_COUNT (UIScale_layout(FIXED_HEIGHT, FIXED_SCALE).main_rows)
-#define SETTINGS_ROW_COUNT (UIScale_layout(FIXED_HEIGHT, FIXED_SCALE).settings_rows)
 #define PADDING (UIScale_layout(FIXED_HEIGHT, FIXED_SCALE).padding)
 
 ///////////////////////////////

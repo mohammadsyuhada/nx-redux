@@ -134,7 +134,22 @@ if [ -f "$UPDATE_PATH" ]; then
 	# every later boot then powered off with no feedback. Keeping the zip
 	# makes the failure visible and the next boot retry after the user
 	# replaces the file.
-	if ./unzip -o "$UPDATE_PATH" -d "$SDCARD_PATH"; then # &> /mnt/SDCARD/unzip.txt
+	#
+	# .tmp_update/updater is the stock firmware's entry script and is still
+	# running (it waits on this one), so this card's filesystem refuses to
+	# delete it: unzip's overwrite of it failed ("Device or resource busy"),
+	# which turned every update into "Install failed" with the zip kept and
+	# reinstalled on each boot. Extract everything else, then swap a changed
+	# updater in by rename (allowed while it runs; the running copy keeps its
+	# old file).
+	if ./unzip -o "$UPDATE_PATH" -x .tmp_update/updater -d "$SDCARD_PATH"; then # &> /mnt/SDCARD/unzip.txt
+		UPDATER="$SDCARD_PATH/.tmp_update/updater"
+		if ./unzip -p "$UPDATE_PATH" .tmp_update/updater > "$UPDATER.new" 2>/dev/null &&
+			[ -s "$UPDATER.new" ] && ! cmp -s "$UPDATER.new" "$UPDATER"; then
+			chmod +x "$UPDATER.new"
+			mv -f "$UPDATER.new" "$UPDATER"
+		fi
+		rm -f "$UPDATER.new"
 		rm -f "$UPDATE_PATH"
 	else
 		echo "TEXT:Install failed: MinUI.zip is corrupt or the card is full. Re-copy MinUI.zip to the card." > /tmp/show2.fifo
