@@ -86,6 +86,29 @@ set_controller_layout() {
     esac
 }
 
+# Ports on PortMaster's Weston runtime (weston_pkg) need udev to label input
+# devices (ID_INPUT): libinput skips unlabelled devices and Weston exits with no
+# input, so the game gets no X display (black screen, "GLFW library is not
+# initialized"). The stock firmware's udev ships no input_id rule, so add one in
+# udev's runtime rules dir (RAM, gone at reboot) and re-scan the input devices.
+# Once per boot; virtual pads gptokeyb creates later are labelled by the rule.
+add_input_udev_rule() {
+    command -v udevadm >/dev/null 2>&1 || return 0
+    for d in /run/udev /tmp/run/udev; do
+        [ -d "$d/data" ] || continue
+        [ -f "$d/rules.d/60-nx-input-id.rules" ] && return 0
+        mkdir -p "$d/rules.d" || return 0
+        printf '%s\n' \
+            'ACTION=="remove", GOTO="nx_input_id_end"' \
+            'SUBSYSTEM=="input", ENV{ID_INPUT}=="", IMPORT{builtin}="input_id"' \
+            'LABEL="nx_input_id_end"' >"$d/rules.d/60-nx-input-id.rules"
+        udevadm control --reload 2>/dev/null
+        udevadm trigger --action=add --subsystem-match=input 2>/dev/null
+        udevadm settle -t 3 2>/dev/null
+        return 0
+    done
+}
+
 main() {
     echo "1" >/tmp/stay_awake
     trap "cleanup" EXIT INT TERM HUP QUIT
@@ -122,6 +145,8 @@ main() {
     # Replaces the old per-runtime xbox_layout marker; the marker is ignored.
     . "$SYSTEM_PATH/bin/nx_button_layout.sh"
     set_controller_layout "$NX_BUTTON_LAYOUT"
+
+    add_input_udev_rule
 
     # Start power button sleep/poweroff handler
     sleepmon.elf &
