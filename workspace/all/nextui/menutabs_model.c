@@ -114,3 +114,56 @@ MenuTabId MenuTabs_pickInitial(const MenuTabId* tabs, int count, bool saved_vali
 		return path_tab;
 	return MENU_TAB_HOME; // always visible; also the cold-boot tab
 }
+
+void MenuTabs_clampWindow(int count, int rows, int* selected, int* start, int* end) {
+	int sel = *selected, first = *start, last = *end;
+	if (count < 0)
+		count = 0;
+	if (rows < 1)
+		rows = 1;
+	// buildRoot's rule: a hint that no longer fits the list starts over at the top
+	if (sel < 0 || sel >= count || last > count || first < 0 || first > sel || (last && sel >= last)) {
+		sel = 0;
+		first = 0;
+		last = 0;
+	}
+	int visible = count < rows ? count : rows;
+	if (last == 0 || last - first != visible) {
+		// rows changed (a layout or scale switch while the root was parked): same first row where it
+		// still fits, else the window ends on the selection; never past the list's end
+		if (sel >= first + visible)
+			first = sel - visible + 1;
+		if (first > count - visible)
+			first = count - visible;
+		if (first < 0)
+			first = 0;
+		last = first + visible;
+	}
+	*selected = sel;
+	*start = first;
+	*end = last;
+}
+
+static bool slotIdOk(MenuTabSlot* slots, MenuTabId id) {
+	return slots && (int)id >= 0 && id < MENU_TAB_COUNT;
+}
+
+void* MenuTabs_slotPark(MenuTabSlot* slots, MenuTabId id, void* root, int selected, int start, int end) {
+	if (!slotIdOk(slots, id))
+		return root; // nowhere to keep it: the caller frees it
+	void* displaced = slots[id].root;
+	slots[id] = (MenuTabSlot){root, true, selected, start, end};
+	return displaced == root ? NULL : displaced;
+}
+
+void* MenuTabs_slotTake(MenuTabSlot* slots, MenuTabId id) {
+	if (!slotIdOk(slots, id))
+		return NULL;
+	void* root = slots[id].root;
+	slots[id].root = NULL;
+	return root;
+}
+
+void* MenuTabs_slotDrop(MenuTabSlot* slots, MenuTabId id) {
+	return MenuTabs_slotTake(slots, id); // the same move; named for what the caller means
+}

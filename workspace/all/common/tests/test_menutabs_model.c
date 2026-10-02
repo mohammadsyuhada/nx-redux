@@ -168,6 +168,81 @@ static void home_launch_owns_path(void) {
 		   MENU_TAB_CONSOLES);
 }
 
+static void clamp_window_cases(void) {
+	int sel, start, end;
+	// empty list
+	sel = 3, start = 1, end = 5;
+	MenuTabs_clampWindow(0, 6, &sel, &start, &end);
+	assert(sel == 0 && start == 0 && end == 0);
+	// a fresh root (no hint): the first page
+	sel = 0, start = 0, end = 0;
+	MenuTabs_clampWindow(20, 6, &sel, &start, &end);
+	assert(sel == 0 && start == 0 && end == 6);
+	// a valid hint is kept as is
+	sel = 9, start = 5, end = 11;
+	MenuTabs_clampWindow(20, 6, &sel, &start, &end);
+	assert(sel == 9 && start == 5 && end == 11);
+	// list shrank under the window: back to the top, as buildRoot always did
+	sel = 9, start = 5, end = 11;
+	MenuTabs_clampWindow(10, 6, &sel, &start, &end);
+	assert(sel == 0 && start == 0 && end == 6);
+	// rows grew: same first row, a longer window
+	sel = 9, start = 5, end = 11;
+	MenuTabs_clampWindow(20, 8, &sel, &start, &end);
+	assert(sel == 9 && start == 5 && end == 13);
+	// rows grew past the list's end: the window slides back, the selection stays visible
+	sel = 18, start = 14, end = 20;
+	MenuTabs_clampWindow(20, 9, &sel, &start, &end);
+	assert(sel == 18 && start == 11 && end == 20);
+	// rows shrank: the window ends on the selection
+	sel = 10, start = 5, end = 11;
+	MenuTabs_clampWindow(20, 4, &sel, &start, &end);
+	assert(sel == 10 && start == 7 && end == 11);
+	// selection on the last row, rows shrank
+	sel = 19, start = 14, end = 20;
+	MenuTabs_clampWindow(20, 3, &sel, &start, &end);
+	assert(sel == 19 && start == 17 && end == 20);
+	// a selection-only hint (no window yet) on a list shorter than the rows
+	sel = 2, start = 0, end = 0;
+	MenuTabs_clampWindow(4, 6, &sel, &start, &end);
+	assert(sel == 2 && start == 0 && end == 4);
+}
+
+static void slots_park_take_round_trip(void) {
+	MenuTabSlot slots[MENU_TAB_COUNT] = {{0}};
+	int a, b;
+	assert(MenuTabs_slotTake(slots, MENU_TAB_CONSOLES) == NULL); // empty
+	assert(MenuTabs_slotPark(slots, MENU_TAB_CONSOLES, &a, 4, 2, 8) == NULL);
+	assert(MenuTabs_slotPark(slots, MENU_TAB_TOOLS, &b, 1, 0, 6) == NULL);
+	assert(MenuTabs_slotTake(slots, MENU_TAB_HOME) == NULL); // never another tab's root
+	assert(MenuTabs_slotTake(slots, MENU_TAB_TOOLS) == &b);
+	assert(MenuTabs_slotTake(slots, MENU_TAB_TOOLS) == NULL); // taken once
+	assert(MenuTabs_slotTake(slots, MENU_TAB_CONSOLES) == &a);
+	assert(slots[MENU_TAB_CONSOLES].hint && slots[MENU_TAB_CONSOLES].selected == 4 &&
+		   slots[MENU_TAB_CONSOLES].start == 2 && slots[MENU_TAB_CONSOLES].end == 8);
+}
+
+static void slots_park_full_returns_old(void) {
+	MenuTabSlot slots[MENU_TAB_COUNT] = {{0}};
+	int a, b;
+	MenuTabs_slotPark(slots, MENU_TAB_COLLECTIONS, &a, 0, 0, 0);
+	assert(MenuTabs_slotPark(slots, MENU_TAB_COLLECTIONS, &b, 3, 0, 6) == &a);	 // the caller frees it: no leak
+	assert(MenuTabs_slotPark(slots, MENU_TAB_COLLECTIONS, &b, 3, 0, 6) == NULL); // the same root: nothing to free
+	assert(MenuTabs_slotTake(slots, MENU_TAB_COLLECTIONS) == &b);
+}
+
+static void slots_drop_keeps_hint(void) {
+	MenuTabSlot slots[MENU_TAB_COUNT] = {{0}};
+	int a;
+	MenuTabs_slotPark(slots, MENU_TAB_HOME, &a, 5, 3, 9);
+	assert(MenuTabs_slotDrop(slots, MENU_TAB_HOME) == &a);
+	assert(slots[MENU_TAB_HOME].root == NULL);
+	assert(slots[MENU_TAB_HOME].hint && slots[MENU_TAB_HOME].selected == 5 && slots[MENU_TAB_HOME].start == 3 &&
+		   slots[MENU_TAB_HOME].end == 9);
+	assert(MenuTabs_slotDrop(slots, MENU_TAB_HOME) == NULL); // already empty
+	assert(MenuTabs_slotTake(slots, MENU_TAB_HOME) == NULL);
+}
+
 int main(void) {
 	visible_fixed_order_and_toggles();
 	home_always_first_and_visible();
@@ -183,6 +258,10 @@ int main(void) {
 	pick_initial_saved_tab_must_own_path();
 	cold_boot_opens_home();
 	home_launch_owns_path();
+	clamp_window_cases();
+	slots_park_take_round_trip();
+	slots_park_full_returns_old();
+	slots_drop_keeps_hint();
 	printf("test_menutabs_model: ok\n");
 	return 0;
 }

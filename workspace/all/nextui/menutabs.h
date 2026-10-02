@@ -10,21 +10,28 @@ void MenuTabs_init(void); // compute the visible tabs from settings + content
 int MenuTabs_count(void);
 MenuTabId MenuTabs_at(int index);
 MenuTabId MenuTabs_current(void);
-// Only assigns the current tab (pathToStack builds stack[0] itself).
+// Only assigns the current tab (pathToStack builds stack[0] itself); drops id's parked root.
 void MenuTabs_setCurrent(MenuTabId id);
+// Something changed what a tab that isn't current lists, without a MenuTabs_reload (a new collection from Add to
+// Collection): its parked root is dropped and rebuilt on its next visit. No-op for the current tab.
+void MenuTabs_dropCached(MenuTabId id);
+// Menu_quit: free the parked roots.
+void MenuTabs_quit(void);
 bool MenuTabs_isVisible(MenuTabId id);
 const char* MenuTabs_path(MenuTabId id);			 // the stack[0] path for a tab
 MenuTabId MenuTabs_forPathVisible(const char* path); // MenuTabs_forPath, then Home
 // The tab's main menu style category (MENU_CAT_* in config.h), or -1 for Home.
 int MenuTabs_styleCategory(MenuTabId id);
-// Make `id` current and put a fresh Directory for it at stack[0], replacing the whole stack.
-// Restores the tab's remembered selection. Sets `top` when the stack ends up with one entry.
+// Make `id` current with its root at stack[0], replacing the whole stack and setting `top`. The outgoing root is
+// parked and id's parked root reused (re-windowed for today's row count); with none parked a fresh Directory is
+// built on the tab's remembered selection.
 void MenuTabs_openRoot(MenuTabId id);
-// L1/R1 at the root: remember the current tab's selection, move by delta (wrapping), open it.
+// L1/R1 at the root: park the current tab's root, move by delta (wrapping), open it.
 // Returns true when the tab changed.
 bool MenuTabs_step(int delta);
-// Something changed what the tabs hold (pin, unpin, delete, refresh). Recompute the visible tabs and
-// rebuild stack[0]; if the current tab vanished, open the resolved neighbour. keep_selected clamps.
+// Something changed what the tabs hold (pin, unpin, delete, refresh). Drop every parked root, recompute the
+// visible tabs and rebuild stack[0]; if the current tab vanished, open the resolved neighbour at its root (the
+// lists pushed over the old tab are popped). keep_selected clamps.
 void MenuTabs_reload(int keep_selected);
 // Bumped whenever MenuTabs_openRoot/MenuTabs_reload replace stack[0] (a tab switch or reload). Readers use it
 // to tell a tab change from a push/pop; per-list caches key on Directory.serial (which also changes on a

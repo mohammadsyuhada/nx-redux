@@ -18,7 +18,13 @@ int hasM3u(char* rom_path, char* m3u_path);
 int dirGameFile(const char* dir_path, char* out_path);
 int hasTools(void);
 int hasCollections(void);
-// True when the Consoles tab has anything to list (reads the cached emulist).
+// How many rows the Consoles tab lists. The emulist is validated against the card once per process and kept
+// in memory (cleared by Content_invalidateEmulist / Content_forgetRom), so this costs no I/O after the first call.
+int Content_consoleCount(void);
+// Bumped each time that in-memory emulist is dropped or refilled: a Consoles root built at an older generation is
+// stale.
+unsigned Content_libraryGen(void);
+// True when the Consoles tab has anything to list (Content_consoleCount() > 0).
 int Content_hasConsoles(void);
 int canPinEntry(Entry* entry);
 int isConsoleDir(char* path);
@@ -37,11 +43,12 @@ Array* getCollections(void);
 int getFirstDisc(char* m3u_path, char* disc_path);
 Array* getTools(void);
 
-// What opening this Consoles row lists, over every folder the row merges; -1 when unknown (no rom index yet).
-// Counted from the rom index cache (one read on first use, then a table lookup).
+// What opening this Consoles row lists, over every folder the row merges (the emulist's count column, a table
+// lookup); a folder the Consoles tab doesn't list counts as the row that collates it, else 0. -1 for a row
+// that isn't a console folder.
 int Content_consoleGameCount(const Entry* console_row);
-// The romindex fp (16 hex digits); "empty" when the index has no rows (or can't be read: an empty library is
-// still a library); "" only when the index has rows but no fp header.
+// The rom caches' fp (16 hex digits); "empty" when the Consoles tab lists nothing (an empty library is still
+// a library).
 const char* Content_libraryFingerprint(void);
 // Calls cb (may be NULL) with the SD path of each line of the collection file at `path` that resolves to an
 // existing file -- the rows opening the collection lists -- until cb returns false. Returns how many resolved,

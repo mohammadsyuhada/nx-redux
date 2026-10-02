@@ -13,6 +13,8 @@
 #include "config.h"
 #include "arcade_names.h"
 #include "collname.h"
+#include "emulist_model.h"
+#include "api.h"
 
 static bool _simple_mode = false;
 
@@ -554,7 +556,7 @@ int isConsoleDir(char* path) {
 
 // Bump this whenever the index-building logic changes, so existing caches are
 // rebuilt once after an upgrade without users clearing them.
-#define CACHE_SCHEMA_TAG "romindex-v5"
+#define CACHE_SCHEMA_TAG "romindex-v6"
 static uint64_t fnv1a64(const char* str) {
 	uint64_t h = 0xCBF29CE484222325ULL;
 	for (; *str; str++)
@@ -570,6 +572,9 @@ static void fingerprintMix(uint64_t* fp, const char* path) {
 }
 
 static uint64_t cacheSourcesFingerprint(void) {
+	// one line per walk: a boot into Consoles should log exactly one (the emulist memo), so a second
+	// one on a tab switch or a reload is a regression
+	LOG_info("content: rom cache fingerprint\n");
 	uint64_t fp = fnv1a64(CACHE_SCHEMA_TAG);
 	char roms_map_path[MAX_PATH];
 	snprintf(roms_map_path, sizeof(roms_map_path), "%s/map.txt", ROMS_PATH);
@@ -674,8 +679,9 @@ static int forEachEntryCacheLine(const char* cache_path, const uint64_t* expect_
 		return -1;
 
 	int count = 0;
-	// sized to what writeEntryCache can emit: two MAX_PATH strings + tab + newline
-	char line[MAX_PATH * 2 + 8];
+	// sized to what writeEntryCache can emit (two MAX_PATH strings + tab + newline), plus the
+	// emulist's count column
+	char line[MAX_PATH * 2 + 24];
 	bool first = true;
 	while (fgets(line, sizeof(line), file) != NULL) {
 		normalizeNewline(line);
@@ -736,111 +742,140 @@ static Array* readEntryCacheFile(const char* cache_path, int type, const uint64_
 }
 
 ///////////////////////////////////////
-// Console row game counts
+// The Consoles list memo and its cache (emulist_model.h)
 
-// Per console folder (the first path segment under ROMS_PATH), how many rom-index rows it holds.
-// Built lazily from ROMINDEX_CACHE_PATH with one read; dropped whenever getRoms rewrites the index
-// or it is invalidated. UI thread only.
-typedef struct {
-	char folder[256];
-	int count;
-} ConsoleCount;
-
-static ConsoleCount* console_counts = NULL;
-static int console_counts_len = 0;
-static int console_counts_cap = 0;
-static bool console_counts_built = false;
-static bool console_counts_ok = false; // the index was readable
+// The Consoles rows, validated against the card once per process (T1-4): the fingerprint walks every
+// Roms folder (~100 stats on a stock card), and the boot, each tab switch onto Consoles and every
+// MenuTabs_reload used to pay it again. In-app changes clear the memo (Content_invalidateEmulist,
+// Content_forgetRom, a stale Search index); out-of-band card edits are picked up at the next nextui
+// start, which follows every game. UI thread only.
+static Array* emu_memo = NULL; // Entries as the Consoles tab lists them (path, type, name)
+static int* emu_counts = NULL; // per memo row: the games opening it lists (the cache's third column)
+static uint64_t emu_fp = 0;	   // the fingerprint the rows were read or scanned against
+static bool emu_valid = false;
+static unsigned lib_gen = 0; // bumped on every drop and refill, so cached Consoles roots know they are stale
 static char library_fp[32] = "";
 
-static void dropConsoleCounts(void) {
-	free(console_counts);
-	console_counts = NULL;
-	console_counts_len = console_counts_cap = 0;
-	console_counts_built = console_counts_ok = false;
+static void dropEmulistMemo(void) {
+	if (emu_valid)
+		lib_gen++; // a Consoles root built on these rows is stale from now, refilled or not
+	if (emu_memo)
+		EntryArray_free(emu_memo);
+	emu_memo = NULL;
+	free(emu_counts);
+	emu_counts = NULL;
+	emu_fp = 0;
+	emu_valid = false;
 	library_fp[0] = '\0';
 }
 
-static void consoleCountCb(char* path, char* name, void* ctx) {
-	(void)name;
-	(void)ctx;
-	size_t root_len = strlen(ROMS_PATH);
-	if (strncmp(path, ROMS_PATH, root_len) != 0 || path[root_len] != '/')
+static void ensureEmulist(void);
+
+// "path\tname\tcount\n" rows after the "#fp=" header. Like writeEntryCache it refuses an empty list.
+static void writeEmulistCache(Array* entries, const int* counts, uint64_t fp) {
+	if (entries->count == 0)
 		return;
-	const char* folder = path + root_len + 1;
-	size_t len = strcspn(folder, "/");
-	if (len == 0 || len >= sizeof(console_counts[0].folder))
+	size_t cap = 16384, len = 0;
+	char* buf = malloc(cap);
+	if (!buf)
 		return;
-	// rows arrive sorted by label, not folder: check the last hit first, then scan (few folders)
-	static int last = -1;
-	if (last >= console_counts_len)
-		last = -1;
-	int found = -1;
-	if (last >= 0 && strncmp(console_counts[last].folder, folder, len) == 0 && !console_counts[last].folder[len])
-		found = last;
-	for (int i = 0; found < 0 && i < console_counts_len; i++) {
-		if (strncmp(console_counts[i].folder, folder, len) == 0 && !console_counts[i].folder[len])
-			found = i;
-	}
-	if (found < 0) {
-		if (console_counts_len == console_counts_cap) {
-			int cap = console_counts_cap ? console_counts_cap * 2 : 32;
-			ConsoleCount* grown = realloc(console_counts, cap * sizeof(ConsoleCount));
-			if (!grown)
+	len += snprintf(buf, cap, CACHE_FP_PREFIX "%016" PRIx64 "\n", fp);
+	for (int i = 0; i < entries->count; i++) {
+		Entry* entry = entries->items[i];
+		size_t need = strlen(entry->path) + strlen(entry->name) + 16;
+		while (len + need + 1 > cap) {
+			cap *= 2;
+			char* grown = realloc(buf, cap);
+			if (!grown) {
+				free(buf);
 				return;
-			console_counts = grown;
-			console_counts_cap = cap;
+			}
+			buf = grown;
 		}
-		found = console_counts_len++;
-		memcpy(console_counts[found].folder, folder, len);
-		console_counts[found].folder[len] = '\0';
-		console_counts[found].count = 0;
+		len += Emulist_formatRow(entry->path, entry->name, counts[i], buf + len, cap - len);
 	}
-	console_counts[found].count++;
-	last = found;
+	writeFileAtomic(EMULIST_CACHE_PATH, buf, len);
+	free(buf);
 }
 
-static void buildConsoleCounts(void) {
-	if (console_counts_built)
+typedef struct {
+	Array* entries;
+	int* counts;
+	int cap;
+	bool bad;
+} EmulistRead;
+
+static void readEmulistCb(char* path, char* name, void* ctx) {
+	EmulistRead* read = ctx;
+	if (read->bad)
 		return;
-	console_counts_built = true;
-	uint64_t fp = 0;
-	// no staleness gate: getRoms already validated (or rebuilt) the index this boot, and a
-	// rewrite drops this table
-	console_counts_ok = forEachEntryCacheLine(ROMINDEX_CACHE_PATH, NULL, &fp, consoleCountCb, NULL) > 0;
-	if (console_counts_ok && fp)
-		snprintf(library_fp, sizeof(library_fp), "%016" PRIx64, fp);
-	else if (!console_counts_ok)
-		// no rows (writeEntryCache never writes an empty index): an empty library is still a
-		// library, so counts of pak-only collections stay cacheable
-		snprintf(library_fp, sizeof(library_fp), "empty");
+	// forEachEntryCacheLine split at the first tab, so `name` is "name\tcount": rejoin and parse the row
+	char line[MAX_PATH * 2 + 24];
+	char *row_path, *row_name;
+	int count;
+	if ((size_t)snprintf(line, sizeof(line), "%s\t%s", path, name) >= sizeof(line) ||
+		!Emulist_parseRow(line, &row_path, &row_name, &count)) {
+		read->bad = true; // a pre-count cache or a damaged row: rescan
+		return;
+	}
+	if (read->entries->count == read->cap) {
+		int cap = read->cap ? read->cap * 2 : 64;
+		int* grown = realloc(read->counts, cap * sizeof(int));
+		if (!grown) {
+			read->bad = true;
+			return;
+		}
+		read->counts = grown;
+		read->cap = cap;
+	}
+	read->counts[read->entries->count] = count;
+	Array_push(read->entries, Entry_newNamed(row_path, ENTRY_DIR, row_name));
+}
+
+// The emulist rows recorded against fp, or NULL (forcing a rescan) when the file is missing, stale,
+// empty, or has any row that isn't "path\tname\tcount".
+static Array* readEmulistCache(uint64_t fp, int** counts_out) {
+	EmulistRead read = {Array_new(), NULL, 0, false};
+	int rows = forEachEntryCacheLine(EMULIST_CACHE_PATH, &fp, NULL, readEmulistCb, &read);
+	if (rows <= 0 || read.bad) {
+		EntryArray_free(read.entries);
+		free(read.counts);
+		return NULL;
+	}
+	*counts_out = read.counts;
+	return read.entries;
 }
 
 const char* Content_libraryFingerprint(void) {
-	buildConsoleCounts();
+	ensureEmulist();
+	if (!library_fp[0]) {
+		// an empty library is still a library, so counts of pak-only collections stay cacheable
+		if (emu_memo->count == 0)
+			snprintf(library_fp, sizeof(library_fp), "empty");
+		else
+			snprintf(library_fp, sizeof(library_fp), "%016" PRIx64, emu_fp);
+	}
 	return library_fp;
 }
 
 int Content_consoleGameCount(const Entry* console_row) {
 	if (!console_row || !console_row->path || !isConsoleDir(console_row->path))
 		return -1;
-	buildConsoleCounts();
-	if (!console_counts_ok)
-		return -1;
-	// the folders opening this row collates: getEntries' rule (path prefix up to and including the last '(')
-	char collated[MAX_PATH];
-	snprintf(collated, sizeof(collated), "%s", console_row->path);
-	char* paren = strrchr(collated, '(');
-	if (paren)
-		paren[1] = '\0';
-	int total = 0;
-	char folder_path[MAX_PATH];
-	for (int i = 0; i < console_counts_len; i++) {
-		snprintf(folder_path, sizeof(folder_path), "%s/%s", ROMS_PATH, console_counts[i].folder);
-		if (prefixMatch(collated, folder_path))
-			total += console_counts[i].count;
+	ensureEmulist();
+	for (int i = 0; i < emu_memo->count; i++) {
+		if (exactMatch(((Entry*)emu_memo->items[i])->path, console_row->path))
+			return emu_counts ? emu_counts[i] : 0;
 	}
-	return total;
+	// a console folder that lost the display-name dedupe (a pinned "(MD)" beside a listed "(GPGX)") opens
+	// the same merged list as the row that won it: getEntries collates by prefix (Emulist_collates)
+	char want[MAX_PATH], have[MAX_PATH];
+	Emulist_collatedPrefix(console_row->path, want, sizeof(want));
+	for (int i = 0; i < emu_memo->count; i++) {
+		Emulist_collatedPrefix(((Entry*)emu_memo->items[i])->path, have, sizeof(have));
+		if (strcasecmp(want, have) == 0)
+			return emu_counts ? emu_counts[i] : 0;
+	}
+	return 0; // not listed under Consoles: no emulator, or no roms
 }
 
 // readEntryCacheFile plus the staleness gate: NULL (forcing a rescan) when any
@@ -850,17 +885,6 @@ static Array* readEntryCache(const char* cache_path, int type) {
 	return readEntryCacheFile(cache_path, type, &fp);
 }
 
-static Array* readRomsCache(void) {
-	// Both caches are written together by getRoms; a missing rom index with a
-	// valid emulist would satisfy the menu but leave Search permanently empty,
-	// so force the full rebuild that restores both. (Ordering vs the staleness
-	// check inside readEntryCache is irrelevant — both are read-only and both
-	// short-circuit to NULL.)
-	if (!exists(ROMINDEX_CACHE_PATH))
-		return NULL;
-	return readEntryCache(EMULIST_CACHE_PATH, ENTRY_DIR);
-}
-
 static Array* readRomIndexCache(void) {
 	return readEntryCache(ROMINDEX_CACHE_PATH, ENTRY_ROM);
 }
@@ -868,7 +892,7 @@ static Array* readRomIndexCache(void) {
 void Content_invalidateEmulist(void) {
 	unlink(EMULIST_CACHE_PATH);
 	unlink(ROMINDEX_CACHE_PATH);
-	dropConsoleCounts();
+	dropEmulistMemo();
 }
 
 // The "#fp=" header of a cache file; false when the file is missing or has none.
@@ -893,7 +917,11 @@ typedef struct {
 	size_t len, cap;
 	const char* drop; // rows at or below this path are left out; NULL keeps all
 	size_t drop_len;
-	int kept;
+	int kept, dropped;
+	// emulist rows ("name\tcount" after the first tab): lower each count by adjust_dropped when the row
+	// collates adjust_folder (Emulist_adjustCount); NULL copies rows through untouched
+	const char* adjust_folder;
+	int adjust_dropped;
 	bool failed;
 } CacheRewrite;
 
@@ -902,8 +930,26 @@ static void rewriteCacheCb(char* path, char* name, void* ctx) {
 	if (rw->failed)
 		return;
 	if (rw->drop && strncmp(path, rw->drop, rw->drop_len) == 0 &&
-		(path[rw->drop_len] == '\0' || path[rw->drop_len] == '/'))
+		(path[rw->drop_len] == '\0' || path[rw->drop_len] == '/')) {
+		rw->dropped++;
 		return;
+	}
+	char row[MAX_PATH * 2 + 24];
+	if (rw->adjust_folder) {
+		char* row_path;
+		char* row_name;
+		int count;
+		if ((size_t)snprintf(row, sizeof(row), "%s\t%s", path, name) >= sizeof(row) ||
+			!Emulist_parseRow(row, &row_path, &row_name, &count)) {
+			rw->failed = true; // not a counted row: let the caller invalidate rather than guess
+			return;
+		}
+		Emulist_adjustCount(row_path, rw->adjust_folder, rw->adjust_dropped, &count);
+		// re-emit as "path\tname\tcount": the copy below writes "path\t<name>"
+		char* tail = row_name + strlen(row_name);
+		snprintf(tail, sizeof(row) - (tail - row), "\t%d", count);
+		name = row_name;
+	}
 	size_t need = strlen(path) + strlen(name) + 2;
 	while (rw->len + need + 1 > rw->cap) {
 		char* grown = realloc(rw->buf, rw->cap * 2);
@@ -918,14 +964,21 @@ static void rewriteCacheCb(char* path, char* name, void* ctx) {
 	rw->kept++;
 }
 
-// Rewrite cache_path stamped with new_fp, leaving out the rows at or below `drop`. Returns the rows kept,
-// or -1 (file untouched) when it can't be read or written; an empty result is not written (see writeEntryCache).
-static int rewriteEntryCache(const char* cache_path, uint64_t new_fp, const char* drop) {
-	CacheRewrite rw = {malloc(16384), 0, 16384, drop, drop ? strlen(drop) : 0, 0, false};
+// Rewrite cache_path stamped with new_fp, leaving out the rows at or below `drop` (*dropped, may be NULL,
+// gets how many) and, with adjust_folder set, lowering emulist counts by adjust_dropped (CacheRewrite).
+// Returns the rows kept, or -1 (file untouched) when it can't be read or written; an empty result is not
+// written (see writeEntryCache).
+static int rewriteEntryCache(const char* cache_path, uint64_t new_fp, const char* drop, int* dropped,
+							 const char* adjust_folder, int adjust_dropped) {
+	CacheRewrite rw = {malloc(16384), 0, 16384, drop, drop ? strlen(drop) : 0, 0, 0, adjust_folder, adjust_dropped, false};
+	if (dropped)
+		*dropped = 0;
 	if (!rw.buf)
 		return -1;
 	rw.len = snprintf(rw.buf, rw.cap, CACHE_FP_PREFIX "%016" PRIx64 "\n", new_fp);
 	int rows = forEachEntryCacheLine(cache_path, NULL, NULL, rewriteCacheCb, &rw);
+	if (dropped)
+		*dropped = rw.dropped;
 	int kept = rw.kept;
 	if (rows < 0 || rw.failed || (kept > 0 && !writeFileAtomic(cache_path, rw.buf, rw.len)))
 		kept = -1;
@@ -945,7 +998,7 @@ void Content_forgetRom(const char* removed_path, bool caches_were_fresh) {
 	if (!caches_were_fresh || !removed_path || strncmp(removed_path, ROMS_PATH, root_len) != 0 ||
 		removed_path[root_len] != '/') {
 		// a stale index is rebuilt by the next getRoms (its fingerprint no longer matches)
-		dropConsoleCounts();
+		dropEmulistMemo();
 		return;
 	}
 	// the console folder: a deletion that empties it changes what the Consoles tab lists, so rescan
@@ -960,13 +1013,18 @@ void Content_forgetRom(const char* removed_path, bool caches_were_fresh) {
 	// change since, so the index minus the removed rows, stamped with today's fingerprint, is what a
 	// rescan would produce. The index goes first: a crash in between leaves the emulist stale, and a
 	// stale emulist forces the full rescan.
+	// The emulist's count column drops by the index rows removed, on every row that collates the folder
+	// (Emulist_adjustCount), so the counts stay what a rescan would write.
 	uint64_t fp = cacheSourcesFingerprint();
-	if (!fp || rewriteEntryCache(ROMINDEX_CACHE_PATH, fp, removed_path) <= 0 ||
-		rewriteEntryCache(EMULIST_CACHE_PATH, fp, NULL) <= 0) {
+	char folder_path[MAX_PATH];
+	snprintf(folder_path, sizeof(folder_path), "%s/%s", ROMS_PATH, folder);
+	int dropped = 0;
+	if (!fp || rewriteEntryCache(ROMINDEX_CACHE_PATH, fp, removed_path, &dropped, NULL, 0) <= 0 ||
+		rewriteEntryCache(EMULIST_CACHE_PATH, fp, NULL, NULL, folder_path, dropped) <= 0) {
 		Content_invalidateEmulist();
 		return;
 	}
-	dropConsoleCounts();
+	dropEmulistMemo(); // the next read takes the restamped emulist (lib_gen moves on)
 }
 
 // Byte length of the rom-label part of an indexed name ("Zelda (GBA)" -> 5):
@@ -982,7 +1040,11 @@ int Content_romLabelLen(const char* indexed_name) {
 Array* Content_searchRoms(const char* query) {
 	Array* all_roms = readRomIndexCache();
 	if (!all_roms) {
-		// Force a build by calling getRoms() (which populates both caches)
+		// Force a build by calling getRoms() (which populates both caches). The memo must go first: it
+		// was validated earlier this process, and an in-app ROM rename since (an edited map.txt, part of
+		// the fingerprint) leaves it looking valid while the index is stale -- getRoms would then return
+		// the memo, never rescan, and Search would keep the old label.
+		dropEmulistMemo();
 		Array* consoles = getRoms();
 		EntryArray_free(consoles);
 		// Read the index we just wrote WITHOUT the staleness gate. The gate
@@ -1166,16 +1228,36 @@ static void indexRomDir(Array* rom_index, const char* dir_path) {
 		Hash_free(rom_map);
 }
 
-static Array* getRoms(void) {
-	// Try loading from cache first
-	Array* entries = readRomsCache();
-	if (entries)
-		return entries;
+// Records how many rom-index rows one indexRomDir call added for a folder (scanRoms' count tally).
+typedef struct {
+	const char** paths;
+	int* counts;
+	int len, cap;
+} FolderTally;
 
-	// Cache miss: full filesystem scan. Fingerprint the sources BEFORE
-	// scanning so anything that changes mid-scan mismatches on the next read.
-	uint64_t fp = cacheSourcesFingerprint();
-	entries = Array_new();
+static void tallyFolder(FolderTally* tally, const char* path, int added) {
+	if (tally->len == tally->cap) {
+		int cap = tally->cap ? tally->cap * 2 : 64;
+		const char** paths = realloc(tally->paths, cap * sizeof(*paths));
+		if (!paths)
+			return;
+		tally->paths = paths;
+		int* counts = realloc(tally->counts, cap * sizeof(*counts));
+		if (!counts)
+			return;
+		tally->counts = counts;
+		tally->cap = cap;
+	}
+	tally->paths[tally->len] = path;
+	tally->counts[tally->len] = added;
+	tally->len++;
+}
+
+// The full filesystem scan behind a stale emulist: builds the Consoles rows, rewrites both caches stamped
+// with fp and returns the rows; *counts_out (caller frees) gets each row's game count, aligned with the rows.
+// fp must be taken BEFORE the scan, so anything that changes mid-scan mismatches on the next read.
+static Array* scanRoms(uint64_t fp, int** counts_out) {
+	Array* entries = Array_new();
 	// declared outside the if so it survives an opendir failure; freed after
 	// the ROM-index block below
 	Array* sibling_dirs = Array_new();
@@ -1241,14 +1323,23 @@ static Array* getRoms(void) {
 		Hash_free(map);
 	}
 
+	// one count per row, written as the emulist's third column (never NULL, even for no rows)
+	int* counts = calloc(entries->count + 1, sizeof(int));
+	*counts_out = counts;
+
 	// Build ROM index: scan every console dir for individual ROMs. indexRomDir
 	// pushes one entry per rom, named "<rom label> (<TAG>)".
 	{
 		Array* rom_index = Array_new();
+		// rows added per indexed folder; a sibling indexed under two survivors is tallied twice, so the
+		// collated counts match the index rows exactly (what the old per-folder index read summed)
+		FolderTally tally = {NULL, NULL, 0, 0};
 		for (int i = 0; i < entries->count; i++) {
 			Entry* console_entry = entries->items[i];
 
+			int before = rom_index->count;
 			indexRomDir(rom_index, console_entry->path);
+			tallyFolder(&tally, console_entry->path, rom_index->count - before);
 
 			// Sibling folders that lost the display-name dedupe belong to this
 			// console in the game list too, so index them under the same label.
@@ -1257,37 +1348,83 @@ static Array* getRoms(void) {
 			// '('. Doing it here keeps search and the list agreeing on which
 			// ROMs belong to a console. (A loser folder matches at most one
 			// survivor prefix in practice, so no marking is needed.)
-			char collated[MAX_PATH];
-			strncpy(collated, console_entry->path, MAX_PATH - 1);
-			collated[MAX_PATH - 1] = '\0';
-			char* p = strrchr(collated, '(');
-			if (p)
-				p[1] = '\0';
 			for (int j = 0; j < sibling_dirs->count; j++) {
 				Entry* sib = sibling_dirs->items[j];
-				if (prefixMatch(collated, sib->path))
+				if (Emulist_collates(console_entry->path, sib->path)) {
+					before = rom_index->count;
 					indexRomDir(rom_index, sib->path);
+					tallyFolder(&tally, sib->path, rom_index->count - before);
+				}
 			}
 		}
+		if (counts && entries->count > 0) {
+			const char** console_paths = malloc(entries->count * sizeof(*console_paths));
+			if (console_paths) {
+				for (int i = 0; i < entries->count; i++)
+					console_paths[i] = ((Entry*)entries->items[i])->path;
+				Emulist_collateCounts(console_paths, entries->count, tally.paths, tally.counts, tally.len, counts);
+				free(console_paths);
+			}
+		}
+		free(tally.paths);
+		free(tally.counts);
 		EntryArray_sort(rom_index);
 		writeEntryCache(ROMINDEX_CACHE_PATH, rom_index, fp);
-		dropConsoleCounts(); // counts and the library fingerprint follow the new index
 		EntryArray_free(rom_index);
 	}
 	EntryArray_free(sibling_dirs);
 
-	// Write cache for next launch (refused for an empty scan — see writeEntryCache)
-	writeEntryCache(EMULIST_CACHE_PATH, entries, fp);
+	// Write cache for next launch (refused for an empty scan — see writeEntryCache); without counts
+	// (out of memory) it is left unwritten, so the next start rescans
+	if (counts)
+		writeEmulistCache(entries, counts, fp);
 
 	return entries;
 }
 
-// True when the Consoles tab has anything to list (reads the cached emulist).
+static void ensureEmulist(void) {
+	if (emu_valid)
+		return;
+	dropEmulistMemo();
+	uint64_t fp = cacheSourcesFingerprint();
+	// Both caches are written together by scanRoms; a missing rom index with a valid emulist would
+	// satisfy the menu but leave Search permanently empty, so force the full rebuild that restores both.
+	int* counts = NULL;
+	Array* entries = exists(ROMINDEX_CACHE_PATH) ? readEmulistCache(fp, &counts) : NULL;
+	if (!entries)
+		entries = scanRoms(fp, &counts); // the fingerprint just taken, before the scan
+	if (!counts)
+		counts = calloc(entries->count + 1, sizeof(int)); // out of memory in the scan: counts read 0
+	emu_memo = entries;
+	emu_counts = counts;
+	emu_fp = fp;
+	emu_valid = true;
+	lib_gen++;
+}
+
+static Array* getRoms(void) {
+	ensureEmulist();
+	// a deep copy: the caller owns (and Directory_index annotates) its Entries; unique/alpha are
+	// recomputed by Directory_index, so only what the cache holds is copied
+	Array* entries = Array_new();
+	for (int i = 0; i < emu_memo->count; i++) {
+		Entry* entry = emu_memo->items[i];
+		Array_push(entries, Entry_newNamed(entry->path, entry->type, entry->name));
+	}
+	return entries;
+}
+
+int Content_consoleCount(void) {
+	ensureEmulist();
+	return emu_memo->count;
+}
+
+unsigned Content_libraryGen(void) {
+	return lib_gen;
+}
+
 int Content_hasConsoles(void) {
-	Array* roms = getRoms();
-	int has = roms->count > 0;
-	EntryArray_free(roms);
-	return has;
+	return Content_consoleCount() > 0;
 }
 
 // A case-only collection rename goes old -> <new>.txt.part -> <new>.txt (gamelist.c). A "<name>.txt.part" left by a
@@ -1489,20 +1626,13 @@ static void addEntries(Array* entries, char* path) {
 static Array* getEntries(char* path) {
 	Array* entries = Array_new();
 
-	if (isConsoleDir(path)) { // top-level console folder, might collate
-		char collated_path[MAX_PATH];
-		strncpy(collated_path, path, MAX_PATH - 1);
-		collated_path[MAX_PATH - 1] = '\0';
-		char* tmp = strrchr(collated_path, '(');
-		if (tmp)
-			tmp[1] = '\0';
-
+	if (isConsoleDir(path)) { // top-level console folder, might collate (Emulist_collates)
 		DIR* dh = opendir(ROMS_PATH);
 		if (dh != NULL) {
 			struct dirent* dp;
 			char full_path[MAX_PATH];
 			snprintf(full_path, sizeof(full_path), "%s/", ROMS_PATH);
-			tmp = full_path + strlen(full_path);
+			char* tmp = full_path + strlen(full_path);
 			size_t remaining = sizeof(full_path) - (tmp - full_path);
 			while ((dp = readdir(dh)) != NULL) {
 				if (hide(dp->d_name))
@@ -1512,7 +1642,7 @@ static Array* getEntries(char* path) {
 				strncpy(tmp, dp->d_name, remaining - 1);
 				full_path[MAX_PATH - 1] = '\0';
 
-				if (!prefixMatch(collated_path, full_path))
+				if (!Emulist_collates(path, full_path))
 					continue;
 				addEntries(entries, full_path);
 			}

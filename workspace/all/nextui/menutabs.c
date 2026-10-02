@@ -31,12 +31,26 @@ static int tab_count = 0;
 static MenuTabId current = MENU_TAB_HOME;
 static bool simple_mode = false;
 
-// Per-tab remembered selection, restored on L1/R1 back to a tab.
-typedef struct {
-	bool valid;
-	int selected, start, end;
-} TabMemory;
-static TabMemory remembered[MENU_TAB_COUNT];
+// Parked roots (T1-1, menutabs_model.h): L1/R1 parks the outgoing tab's stack[0] here and takes the incoming
+// one's, so a tab switch costs no card I/O. Only tabs that are NOT current have a root here (the stack owns
+// stack[0]), so every existing free of stack[0] stays correct. A slot's hint keeps its selection after the root
+// is dropped. Dropped by MenuTabs_reload (all), MenuTabs_setCurrent and MenuTabs_dropCached (one).
+static MenuTabSlot slots[MENU_TAB_COUNT];
+// Content_libraryGen() when stack[0] was built, and when the parked Consoles root was: a Consoles root built
+// against an older emulist (a refresh, a delete, a Search rescan) is rebuilt instead of reused.
+static unsigned root_gen = 0;
+static unsigned consoles_gen = 0;
+
+static void dropSlot(MenuTabId id) {
+	Directory* root = MenuTabs_slotDrop(slots, id);
+	if (root)
+		Directory_free(root);
+}
+
+static void dropAllSlots(void) {
+	for (int id = 0; id < MENU_TAB_COUNT; id++)
+		dropSlot((MenuTabId)id);
+}
 
 static bool settingsPakExists(void) {
 	char path[MAX_PATH];
@@ -82,7 +96,19 @@ MenuTabId MenuTabs_current(void) {
 }
 
 void MenuTabs_setCurrent(MenuTabId id) {
+	// pathToStack just built a fresh stack[0] for id: a parked copy would be a second root for one tab
+	dropSlot(id);
 	current = id;
+	root_gen = Content_libraryGen();
+}
+
+void MenuTabs_dropCached(MenuTabId id) {
+	if (id != current) // the current tab's root is the stack's: its caller reloads it if it must
+		dropSlot(id);
+}
+
+void MenuTabs_quit(void) {
+	dropAllSlots();
 }
 
 bool MenuTabs_isVisible(MenuTabId id) {
@@ -127,28 +153,16 @@ MenuTabId MenuTabs_forPathVisible(const char* path) {
 	return MenuTabs_isVisible(id) ? id : MENU_TAB_HOME;
 }
 
-// Build the Directory for a tab with a clamped selection window.
+// Build the Directory for a tab with a clamped selection window. `current` must already be id: the row count
+// depends on the tab's style.
 static Directory* buildRoot(MenuTabId id, int selected, int start, int end) {
 	Directory* dir = Directory_new((char*)MenuTabs_path(id), 0);
-	int count = dir->entries->count;
-	int rc = GameList_rowCountAt(true);
-	if (selected < 0 || selected >= count || end > count || start < 0 || start > selected ||
-		(end && selected >= end)) {
-		selected = 0;
-		start = 0;
-		end = 0;
-	}
+	root_gen = Content_libraryGen(); // after Directory_new: listing Consoles may have refilled the emulist
+	MenuTabs_clampWindow(dir->entries->count, GameList_rowCountAt(true), &selected, &start, &end);
 	dir->selected = selected;
 	dir->start = start;
-	dir->end = end ? end : ((count < rc) ? count : rc);
+	dir->end = end;
 	return dir;
-}
-
-static void rememberCurrent(void) {
-	if (!stack || stack->count == 0)
-		return;
-	Directory* root = stack->items[0];
-	remembered[current] = (TabMemory){true, root->selected, root->start, root->end};
 }
 
 static unsigned generation = 0;
@@ -194,15 +208,41 @@ unsigned MenuTabs_generation(void) {
 	return generation;
 }
 
-// stack[0] for `id`, replacing the whole stack; the focus and the dim are the caller's.
+// stack[0] for `id`, replacing the whole stack; the focus and the dim are the caller's. The outgoing root is
+// parked (when it is the current tab's plain root) and id's parked root reused, so a switch reads nothing from
+// the card; generation still moves, so per-view state resets as for a fresh root.
 static void openRootKeepFocus(MenuTabId id) {
 	generation++;
-	current = id;
-	Directory* dir = remembered[id].valid
-						 ? buildRoot(id, remembered[id].selected, remembered[id].start, remembered[id].end)
-						 : buildRoot(id, 0, 0, 0);
-	DirectoryArray_free(stack);
-	stack = Array_new();
+	if (!stack)
+		stack = Array_new();
+	while (stack->count > 1)
+		DirectoryArray_pop(stack); // lists pushed over the old root belong to it
+	Directory* old = stack->count ? Array_pop(stack) : NULL;
+	if (old && exactMatch(old->path, MenuTabs_path(current))) {
+		// not a PLATFORM-merged root (pathToStack): those are rebuilt, never parked
+		Directory* displaced = MenuTabs_slotPark(slots, current, old, old->selected, old->start, old->end);
+		if (displaced)
+			Directory_free(displaced);
+		if (current == MENU_TAB_CONSOLES)
+			consoles_gen = root_gen;
+	} else if (old)
+		Directory_free(old);
+
+	current = id; // before anything reads the row count
+	Directory* dir = MenuTabs_slotTake(slots, id);
+	if (dir && id == MENU_TAB_CONSOLES && consoles_gen != Content_libraryGen()) {
+		Directory_free(dir);
+		dir = NULL;
+	}
+	if (dir) {
+		// the rows depend on the layout and scale, which may have changed while it was parked
+		MenuTabs_clampWindow(dir->entries->count, GameList_rowCountAt(true), &dir->selected, &dir->start, &dir->end);
+		if (id == MENU_TAB_CONSOLES)
+			root_gen = consoles_gen;
+	} else {
+		const MenuTabSlot* hint = &slots[id];
+		dir = hint->hint ? buildRoot(id, hint->selected, hint->start, hint->end) : buildRoot(id, 0, 0, 0);
+	}
 	Array_push(stack, dir);
 	top = dir;
 }
@@ -215,7 +255,6 @@ void MenuTabs_openRoot(MenuTabId id) {
 bool MenuTabs_step(int delta) {
 	if (tab_count < 2 || stack->count != 1)
 		return false;
-	rememberCurrent();
 	int i = MenuTabs_indexOf(tabs, tab_count, current);
 	// LEFT/RIGHT (and L1/R1) on the tab row stay on it, and the dim stays as it is
 	openRootKeepFocus(tabs[MenuTabs_wrap(tab_count, i < 0 ? 0 : i, delta)]);
@@ -224,10 +263,14 @@ bool MenuTabs_step(int delta) {
 
 void MenuTabs_reload(int keep_selected) {
 	generation++;
+	// the global invalidation: whatever changed (a pin, a delete, a rename, a refresh) may show in any tab's
+	// root, so every parked root is rebuilt on its next visit (from its hint)
+	dropAllSlots();
 	MenuTabs_init();
 	MenuTabId next = tabs[MenuTabs_resolve(tabs, tab_count, current)];
+	MenuTabId old_tab = current;
 	Directory* old = stack->items[0];
-	int sel = (next == current) ? keep_selected : (remembered[next].valid ? remembered[next].selected : 0);
+	int sel = (next == current) ? keep_selected : (slots[next].hint ? slots[next].selected : 0);
 	current = next;
 	Directory* fresh = buildRoot(next, 0, 0, 0);
 	int n = fresh->entries->count;
@@ -239,11 +282,20 @@ void MenuTabs_reload(int keep_selected) {
 		fresh->end = fresh->selected + 1;
 		fresh->start = fresh->end - rc;
 	}
+	if (next != old_tab) {
+		// the current tab vanished (e.g. its last ROM was deleted from inside Consoles › GBA): a list pushed
+		// over it belongs to that tab, so it can't stay over another tab's root -- B would land on the wrong
+		// tab, and the caller's reloadDirectoryAt would rebuild it there. Back to the new root.
+		while (stack->count > 1)
+			DirectoryArray_pop(stack);
+	}
 	Directory_free(old);
 	stack->items[0] = fresh;
 	if (stack->count == 1)
 		top = fresh;
-	Home_reset(); // the pins or what Continue shows may have changed
+	if (next != old_tab)
+		MenuTabs_leaveFocus(); // a different tab's content: lit, with focus
+	Home_reset();			   // the pins or what Continue shows may have changed
 }
 
 // MENU_TAB_PATH: the tab key, plus a second line "launch" when the game was
@@ -393,18 +445,37 @@ static struct {
 	bool focused; // the current label is left out (the plate draws it)
 } strip;
 
+// The last layoutLabels result, so a dirty frame doesn't re-measure the labels: keyed on the font, the visible tabs
+// (each id's label is a fixed string) and FIXED_SCALE (a system-font reload follows a scale change).
+static struct {
+	TTF_Font* font;
+	int count, scale, width;
+	MenuTabId ids[MENU_TAB_COUNT];
+	int xs[MENU_TAB_COUNT], ws[MENU_TAB_COUNT];
+} label_layout;
+
 // Label strip layout for one font: label x/width per visible tab (strip x 0
 // = the first label's left edge); returns the strip's width.
 static int layoutLabels(TTF_Font* f, int xs[MENU_TAB_COUNT], int ws[MENU_TAB_COUNT]) {
-	int x = 0;
-	for (int i = 0; i < tab_count; i++) {
-		int w = 0;
-		TTF_SizeUTF8(f, MenuTabs_label(tabs[i]), &w, NULL);
-		xs[i] = x;
-		ws[i] = w;
-		x += w + (i + 1 < tab_count ? TAB_LABEL_GAP : 0);
+	if (label_layout.font != f || label_layout.count != tab_count || label_layout.scale != FIXED_SCALE ||
+		memcmp(label_layout.ids, tabs, sizeof(MenuTabId) * tab_count) != 0) {
+		int x = 0;
+		for (int i = 0; i < tab_count; i++) {
+			int w = 0;
+			TTF_SizeUTF8(f, MenuTabs_label(tabs[i]), &w, NULL);
+			label_layout.xs[i] = x;
+			label_layout.ws[i] = w;
+			x += w + (i + 1 < tab_count ? TAB_LABEL_GAP : 0);
+		}
+		label_layout.font = f;
+		label_layout.count = tab_count;
+		label_layout.scale = FIXED_SCALE;
+		label_layout.width = x;
+		memcpy(label_layout.ids, tabs, sizeof(MenuTabId) * tab_count);
 	}
-	return x;
+	memcpy(xs, label_layout.xs, sizeof(int) * tab_count);
+	memcpy(ws, label_layout.ws, sizeof(int) * tab_count);
+	return label_layout.width;
 }
 
 // Multiply the alpha of columns [x0, x0 + n) by a linear ramp (rising: 0 -> 1 left to right, else 1 -> 0).

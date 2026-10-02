@@ -50,4 +50,28 @@ int MenuTabs_scrollOffset(int content_w, int view_w, int cur_x, int cur_w, int m
 MenuTabId MenuTabs_pickInitial(const MenuTabId* tabs, int count, bool saved_valid, MenuTabId saved,
 							   bool has_path, MenuTabId path_tab, bool saved_owns_path);
 
+// A tab root's selection window for a list of `count` rows shown `rows` at a time (rows >= 1). A selection that
+// doesn't fit the list (out of range, or outside a stale window) resets to the top, as a fresh root does; a window
+// whose size isn't min(count, rows) -- the list or the row count changed since it was set -- is rebuilt around
+// the selection, kept visible and inside the list. An empty list ends up 0/0/0.
+void MenuTabs_clampWindow(int count, int rows, int* selected, int* start, int* end);
+
+// Parked tab roots (T1-1): a tab switch parks the outgoing tab's root Directory and takes the incoming one's, so
+// L1/R1 costs no card I/O. The stack owns stack[0]; a slot holds only a tab that is NOT current, so no root is
+// ever reachable from both. `root` is opaque here (a Directory* in menutabs.c). hint/selected/start/end outlive a
+// dropped root, so a rebuilt one reopens on the same row.
+typedef struct {
+	void* root;
+	bool hint;
+	int selected, start, end;
+} MenuTabSlot;
+
+// Park root (with its selection as the hint) in slots[id]. Returns the root it displaced, for the caller to
+// free (NULL when the slot was empty).
+void* MenuTabs_slotPark(MenuTabSlot* slots, MenuTabId id, void* root, int selected, int start, int end);
+// Take slots[id]'s root out (NULL when none is parked); the hint stays.
+void* MenuTabs_slotTake(MenuTabSlot* slots, MenuTabId id);
+// Empty slots[id] for a rebuild, keeping its hint. Returns the root for the caller to free (or NULL).
+void* MenuTabs_slotDrop(MenuTabSlot* slots, MenuTabId id);
+
 #endif
