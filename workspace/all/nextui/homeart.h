@@ -31,6 +31,10 @@ HomeArtState HomeArt_boxPlaceholder(const char* rom_path, int w, int h, SDL_Surf
 // The full-screen Backdrop picture: the screenshot cropped (centred) to fill screen_w×screen_h, a 50% black dim and
 // the Row_shade curve baked in per row. Opaque (blend mode NONE). NONE when the game has no screenshot.
 HomeArtState HomeArt_backdrop(const char* rom_path, int screen_w, int screen_h, SDL_Surface** out);
+// The generation of the cache slot the most recent HomeArt_continue/pin/boxart/boxPlaceholder/backdrop call returned,
+// 0 when it returned no slot. Fresh for every new slot, so it changes after HomeArt_forget even when the new surface
+// reuses the old pointer: put it in render-cache keys. UI thread only; read it right after the call it describes.
+unsigned HomeArt_lastGen(void);
 // True once after any load finished since the last call (the caller redraws).
 bool HomeArt_checkAsyncLoaded(void);
 // Drop every cached picture of rom_path (after its art was fetched): the next request loads it afresh.

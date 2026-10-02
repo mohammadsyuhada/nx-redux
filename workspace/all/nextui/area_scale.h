@@ -14,4 +14,11 @@
 // bad sizes or no memory.
 int AreaScale_argb(const uint32_t* src, int sw, int sh, int spitch, uint32_t* dst, int dw, int dh, int dpitch);
 
+// Bilinear crop-to-cover: dst pixel (x, y) samples src at ((x + 0.5 + ox) / s - 0.5, (y + 0.5 + oy) / s - 0.5),
+// clamped to the edges, per channel (c0*(256-t) + c1*t + 128) >> 8 with t the 8-bit fraction (straight alpha, no
+// premultiply). For s >= 0.5 (shrink further in 2x steps first, or source pixels get skipped). NEON on ARM, a
+// two-channels-per-word scalar path elsewhere; both give the same result. Returns 0, or -1 on bad sizes or no memory.
+int AreaScale_bilinearCover(const uint32_t* src, int sw, int sh, int spitch, uint32_t* dst, int dw, int dh, int dpitch,
+							float s, float ox, float oy);
+
 #endif

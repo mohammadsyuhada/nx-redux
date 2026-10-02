@@ -135,12 +135,18 @@ void renderRoundedRectangle(SDL_Rect rect, Uint32 color, int radius) {
 	_drawFilledCircle(screen, rect.x + rect.w - radius - 1, rect.y + rect.h - radius - 1, radius, color); // Bottom-right
 }
 
-// Mask s (32-bit, any channel order) to the circle inscribed in it: each pixel's alpha times how much of it lies inside
-// (anti-aliased over a px), the real row pitch used (GFX_ApplyRoundedCorners indexed rows by the scaled image's width,
-// which left fill-scaled art's corners unmasked, and had no anti-aliasing).
+// Mask s (32-bit with an alpha channel, any channel order) to the circle inscribed in it: each pixel's alpha times how
+// much of it lies inside (anti-aliased over a px), the real row pitch used (GFX_ApplyRoundedCorners indexed rows by the
+// scaled image's width, which left fill-scaled art's corners unmasked, and had no anti-aliasing). A surface without
+// alpha can't hold the mask (SDL_MapRGBA drops it): callers convert to ARGB8888 first.
 static void maskCircle(SDL_Surface* s) {
-	if (!s || s->format->BytesPerPixel != 4)
+	if (!s)
 		return;
+	if (s->format->BytesPerPixel != 4 || s->format->Amask == 0) {
+		LOG_warn("gametime: maskCircle needs a 32-bit surface with alpha (format %s)\n",
+				 SDL_GetPixelFormatName(s->format->format));
+		return;
+	}
 	float r = (s->w < s->h ? s->w : s->h) / 2.0f, cx = s->w / 2.0f, cy = s->h / 2.0f;
 	if (SDL_MUSTLOCK(s))
 		SDL_LockSurface(s);
@@ -184,14 +190,20 @@ SDL_Surface* loadRomImage(char* image_path) {
 	if (!img)
 		return NULL;
 
-	if (img->format->format != SDL_PIXELFORMAT_RGBA32) {
-		SDL_Surface* optimized = SDL_ConvertSurfaceFormat(img, SDL_PIXELFORMAT_RGBA32, 0);
+	// ARGB8888 whatever the file holds (24-bit PNG, JPEG, paletted): the circle mask needs an alpha channel
+	if (img->format->format != SDL_PIXELFORMAT_ARGB8888) {
+		SDL_Surface* argb = SDL_ConvertSurfaceFormat(img, SDL_PIXELFORMAT_ARGB8888, 0);
 		SDL_FreeSurface(img);
-		img = optimized;
+		img = argb;
+		if (!img)
+			return NULL;
 	}
 
-	SDL_PixelFormat* ft = img->format;
-	SDL_Surface* dst = SDL_CreateRGBSurface(0, SCALE1(IMG_MAX_WIDTH), SCALE1(IMG_MAX_HEIGHT), ft->BitsPerPixel, ft->Rmask, ft->Gmask, ft->Bmask, ft->Amask);
+	SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, SCALE1(IMG_MAX_WIDTH), SCALE1(IMG_MAX_HEIGHT), 32, SDL_PIXELFORMAT_ARGB8888);
+	if (!dst) {
+		SDL_FreeSurface(img);
+		return NULL;
+	}
 	GFX_blitScaled(GFX_SCALE_FILL, img, dst);
 	maskCircle(dst);
 	SDL_SetSurfaceBlendMode(dst, SDL_BLENDMODE_BLEND);
