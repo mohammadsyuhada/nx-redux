@@ -126,10 +126,12 @@ static int barPx(void) {
 static void computeLayout(SDL_Surface* screen, int n, GridLayout* g) {
 	float pd = pxPerDp();
 	float sw = screen->w / pd, sh = screen->h / pd;
-	// tiles twice as wide everywhere but the Tools tab: wide logos (4-8:1), long names and screenshots read small in
-	// the spec shape
-	bool wide = !(stack->count == 1 && MenuTabs_current() == MENU_TAB_TOOLS);
-	GridLayout_computeWide(sw, BAR_DP, sh - 2 * BAR_DP, n, wide ? 2.0f : 1.0f, g);
+	// wider tiles than the spec shape: the Consoles and Collections tabs twice as wide (wide logos 4-8:1, long names),
+	// game lists 1.5x (their screenshots), the Tools tab as specced
+	bool root = stack->count == 1;
+	MenuTabId tab = MenuTabs_current();
+	float mul = !root ? 1.5f : (tab == MENU_TAB_TOOLS ? 1.0f : 2.0f);
+	GridLayout_computeWide(sw, BAR_DP, sh - 2 * BAR_DP, n, mul, g);
 }
 
 static int selectedIndex(int n) {

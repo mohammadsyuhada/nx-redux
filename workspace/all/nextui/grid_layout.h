@@ -7,7 +7,7 @@
 typedef struct {
 	float screen_w, body_top, body_h; // body = between the header and the hint bar
 	float tile_w, tile_h, gap, gutter;
-	float width_mul; // tile_w over the spec shape's (2 but on the Tools tab); text scales by the spec
+	float width_mul; // tile_w over the spec shape's (Consoles and Collections 2, game lists 1.5); text scales by the spec
 	int cols, n;
 	bool sliding;
 	int rows;		// the rows in use: a sliding grid 2; a still one 1 (n <= cols) or 2
