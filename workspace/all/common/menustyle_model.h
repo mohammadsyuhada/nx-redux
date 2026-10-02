@@ -2,6 +2,7 @@
 #define MENUSTYLE_MODEL_H
 
 // Main menu tab and game list layout styles, their defaults and how a stored value reads.
+// Also the Carousel / Backdrop orientation (Horizontal or Vertical) and its effective value per style.
 // Pure (no SDL, no settings file) so the mapping is host-tested (tests/test_menustyle.c).
 
 // Main menu tab and game list layout styles. The values are stored in minuisettings.txt, so never renumber.
@@ -43,6 +44,42 @@ static inline int MenuStyle_storeGameList(int style) {
 // How a stored game list value reads: all four styles stay, an out-of-range value reads as the default.
 static inline int MenuStyle_gameList(int stored) {
 	return MenuStyle_storeGameList(stored);
+}
+
+// Orientation of a Carousel (main-menu tab) or a Carousel / Backdrop (game lists). Stored in minuisettings.txt, so
+// never renumber. Stored per main-menu tab and once for game lists, independent of the style, so it is kept when the
+// style changes away and back.
+enum { MENU_ORIENT_HORIZONTAL = 0,
+	   MENU_ORIENT_VERTICAL,
+	   MENU_ORIENT_COUNT };
+#define MENUSTYLE_ORIENT_DEFAULT MENU_ORIENT_HORIZONTAL
+
+// The value to store (and how a stored value reads): an out-of-range value becomes Horizontal.
+static inline int MenuStyle_storeOrient(int orient) {
+	if (orient < MENU_ORIENT_HORIZONTAL || orient >= MENU_ORIENT_COUNT)
+		return MENUSTYLE_ORIENT_DEFAULT;
+	return orient;
+}
+
+// Whether a main-menu tab's stored style has an orientation: only Carousel (a stored Backdrop reads as Carousel).
+static inline int MenuStyle_mainMenuHasOrient(int stored_style) {
+	return MenuStyle_mainMenu(stored_style) == MENU_STYLE_CAROUSEL;
+}
+
+// Whether the stored game-list style has an orientation: Carousel or Backdrop.
+static inline int MenuStyle_gameListHasOrient(int stored_style) {
+	int style = MenuStyle_gameList(stored_style);
+	return style == MENU_STYLE_CAROUSEL || style == MENU_STYLE_BACKDROP;
+}
+
+// The effective orientation of a main-menu tab: List and Grid always read Horizontal, whatever is stored.
+static inline int MenuStyle_mainMenuOrient(int stored_style, int stored_orient) {
+	return MenuStyle_mainMenuHasOrient(stored_style) ? MenuStyle_storeOrient(stored_orient) : MENU_ORIENT_HORIZONTAL;
+}
+
+// The effective orientation of the game lists: List and Grid always read Horizontal, whatever is stored.
+static inline int MenuStyle_gameListOrient(int stored_style, int stored_orient) {
+	return MenuStyle_gameListHasOrient(stored_style) ? MenuStyle_storeOrient(stored_orient) : MENU_ORIENT_HORIZONTAL;
 }
 
 #endif

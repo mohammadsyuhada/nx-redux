@@ -23,6 +23,9 @@ NextUISettings settings = {0};
 // minuisettings.txt keys for the per-tab main menu styles, indexed by MENU_CAT_*.
 static const char* menu_style_keys[MENU_CAT_COUNT] = {
 	"menuStyleConsoles", "menuStyleCollections", "menuStyleTools"};
+// minuisettings.txt keys for the per-tab main menu orientations, indexed by MENU_CAT_*.
+static const char* menu_orient_keys[MENU_CAT_COUNT] = {
+	"menuOrientConsoles", "menuOrientCollections", "menuOrientTools"};
 
 // deprecated
 uint32_t THEME_COLOR1_255;
@@ -51,6 +54,8 @@ void CFG_defaults(NextUISettings* cfg) {
 		.gameArtStyle = CFG_DEFAULT_GAMEARTSTYLE,
 		.menuStyle = {CFG_DEFAULT_MENUSTYLE, CFG_DEFAULT_MENUSTYLE, CFG_DEFAULT_MENUSTYLE},
 		.gameListStyle = CFG_DEFAULT_GAMELISTSTYLE,
+		.menuOrient = {CFG_DEFAULT_MENUORIENT, CFG_DEFAULT_MENUORIENT, CFG_DEFAULT_MENUORIENT},
+		.gameListOrient = CFG_DEFAULT_GAMELISTORIENT,
 		.gameArtType = CFG_DEFAULT_GAMEARTTYPE,
 		.showFolderNamesAtRoot = CFG_DEFAULT_SHOWFOLDERNAMESATROOT,
 
@@ -279,6 +284,24 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 			}
 			if (sscanf(line, "gameListStyle=%i", &temp_value) == 1) {
 				CFG_setGameListStyle(temp_value);
+				continue;
+			}
+			{
+				bool matched = false;
+				for (int c = 0; c < MENU_CAT_COUNT; c++) {
+					char fmt[48];
+					snprintf(fmt, sizeof(fmt), "%s=%%i", menu_orient_keys[c]);
+					if (sscanf(line, fmt, &temp_value) == 1) {
+						CFG_setMenuOrient(c, temp_value);
+						matched = true;
+						break;
+					}
+				}
+				if (matched)
+					continue;
+			}
+			if (sscanf(line, "gameListOrient=%i", &temp_value) == 1) {
+				CFG_setGameListOrient(temp_value);
 				continue;
 			}
 			if (sscanf(line, "artType=%i", &temp_value) == 1) {
@@ -808,6 +831,40 @@ void CFG_setGameListStyle(int style) {
 	CFG_sync();
 }
 
+// Orientation: stored independently of the style (MenuStyle_storeOrient: out of range → Horizontal); the
+// effective getters read Horizontal for List and Grid (menustyle_model.h, host-tested).
+int CFG_getMenuOrient(int category) {
+	if (category < 0 || category >= MENU_CAT_COUNT)
+		return MENU_ORIENT_HORIZONTAL;
+	return MenuStyle_storeOrient(settings.menuOrient[category]);
+}
+
+void CFG_setMenuOrient(int category, int orient) {
+	if (category < 0 || category >= MENU_CAT_COUNT)
+		return;
+	settings.menuOrient[category] = MenuStyle_storeOrient(orient);
+	CFG_sync();
+}
+
+int CFG_getGameListOrient(void) {
+	return MenuStyle_storeOrient(settings.gameListOrient);
+}
+
+void CFG_setGameListOrient(int orient) {
+	settings.gameListOrient = MenuStyle_storeOrient(orient);
+	CFG_sync();
+}
+
+int CFG_getMenuOrientEffective(int category) {
+	if (category < 0 || category >= MENU_CAT_COUNT)
+		return MENU_ORIENT_HORIZONTAL;
+	return MenuStyle_mainMenuOrient(settings.menuStyle[category], settings.menuOrient[category]);
+}
+
+int CFG_getGameListOrientEffective(void) {
+	return MenuStyle_gameListOrient(settings.gameListStyle, settings.gameListOrient);
+}
+
 int CFG_getGameArtType(void) {
 	return settings.gameArtType;
 }
@@ -1135,6 +1192,10 @@ void CFG_get(const char* key, char* value) {
 			sprintf(value, "%i", CFG_getMenuStyle(c));
 			return;
 		}
+		if (strcmp(key, menu_orient_keys[c]) == 0) {
+			sprintf(value, "%i", CFG_getMenuOrient(c));
+			return;
+		}
 	}
 
 	if (strcmp(key, "font") == 0) {
@@ -1205,6 +1266,8 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", CFG_getGameArtStyle());
 	} else if (strcmp(key, "gameListStyle") == 0) {
 		sprintf(value, "%i", CFG_getGameListStyle());
+	} else if (strcmp(key, "gameListOrient") == 0) {
+		sprintf(value, "%i", CFG_getGameListOrient());
 	} else if (strcmp(key, "artType") == 0) {
 		sprintf(value, "%i", CFG_getGameArtType());
 	} else if (strcmp(key, "wifi") == 0) {
@@ -1301,6 +1364,9 @@ static int CFG_serialize(char* buf, size_t cap) {
 	for (int c = 0; c < MENU_CAT_COUNT; c++)
 		EMIT("%s=%i\n", menu_style_keys[c], settings.menuStyle[c]);
 	EMIT("gameListStyle=%i\n", settings.gameListStyle);
+	for (int c = 0; c < MENU_CAT_COUNT; c++)
+		EMIT("%s=%i\n", menu_orient_keys[c], settings.menuOrient[c]);
+	EMIT("gameListOrient=%i\n", settings.gameListOrient);
 	EMIT("artType=%i\n", settings.gameArtType);
 	EMIT("wifi=%i\n", settings.wifi);
 	EMIT("defaultView=%i\n", settings.defaultView);
@@ -1540,6 +1606,9 @@ void CFG_print(void) {
 	for (int c = 0; c < MENU_CAT_COUNT; c++)
 		printf("\t\"%s\": %i,\n", menu_style_keys[c], settings.menuStyle[c]);
 	printf("\t\"gameListStyle\": %i,\n", settings.gameListStyle);
+	for (int c = 0; c < MENU_CAT_COUNT; c++)
+		printf("\t\"%s\": %i,\n", menu_orient_keys[c], settings.menuOrient[c]);
+	printf("\t\"gameListOrient\": %i,\n", settings.gameListOrient);
 	printf("\t\"artType\": %i,\n", settings.gameArtType);
 	printf("\t\"wifi\": %i,\n", settings.wifi);
 	printf("\t\"defaultView\": %i,\n", settings.defaultView);

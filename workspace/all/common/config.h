@@ -114,12 +114,14 @@ typedef struct
 	uint32_t color6_255; // not screen mapped
 	uint32_t color7_255; // not screen mapped
 	int thumbRadius;
-	int gameSwitcherScaling;	   // enum
-	double gameArtWidth;		   // [0,1] -> 0-100% of screen width
-	int gameArtStyle;			   // ArtStyle: thumbnail on the right, or faded background
-	int menuStyle[MENU_CAT_COUNT]; // MENU_STYLE_* per main menu tab (MENU_CAT_*)
-	int gameListStyle;			   // MENU_STYLE_* for game lists
-	int gameArtType;			   // ArtType: which stored art variant (mix/screenshot/boxart) to show
+	int gameSwitcherScaling;		// enum
+	double gameArtWidth;			// [0,1] -> 0-100% of screen width
+	int gameArtStyle;				// ArtStyle: thumbnail on the right, or faded background
+	int menuStyle[MENU_CAT_COUNT];	// MENU_STYLE_* per main menu tab (MENU_CAT_*)
+	int gameListStyle;				// MENU_STYLE_* for game lists
+	int menuOrient[MENU_CAT_COUNT]; // MENU_ORIENT_* per main menu tab (MENU_CAT_*), stored whatever the style
+	int gameListOrient;				// MENU_ORIENT_* for game lists, stored whatever the style
+	int gameArtType;				// ArtType: which stored art variant (mix/screenshot/boxart) to show
 
 	// font loading/unloading callback
 	FontLoad_callback_t onFontChange;
@@ -244,6 +246,8 @@ typedef struct
 #define CFG_DEFAULT_GAMEARTSTYLE ART_STYLE_THUMBNAIL
 #define CFG_DEFAULT_MENUSTYLE MENUSTYLE_MAIN_DEFAULT		 // Carousel
 #define CFG_DEFAULT_GAMELISTSTYLE MENUSTYLE_GAMELIST_DEFAULT // Grid
+#define CFG_DEFAULT_MENUORIENT MENUSTYLE_ORIENT_DEFAULT		 // Horizontal
+#define CFG_DEFAULT_GAMELISTORIENT MENUSTYLE_ORIENT_DEFAULT	 // Horizontal
 #define CFG_DEFAULT_GAMEARTTYPE ART_TYPE_MIX
 #define CFG_DEFAULT_WIFI false
 #define CFG_DEFAULT_VIEW SCREEN_GAMELIST
@@ -400,6 +404,16 @@ void CFG_setMenuStyle(int category, int style);
 // Game list layout (MENU_STYLE_*: List, Grid, Carousel or Backdrop), whichever tab opened the list.
 int CFG_getGameListStyle(void);
 void CFG_setGameListStyle(int style);
+// Stored orientation (MENU_ORIENT_*) per main menu tab (MENU_CAT_*) and for game lists, kept whatever the style
+// (the Layouts page rows). An out-of-range category or value reads as Horizontal.
+int CFG_getMenuOrient(int category);
+void CFG_setMenuOrient(int category, int orient);
+int CFG_getGameListOrient(void);
+void CFG_setGameListOrient(int orient);
+// Effective orientation: Vertical only while the tab is Carousel, or the game lists are Carousel or Backdrop;
+// List and Grid always read Horizontal (menustyle_model.h).
+int CFG_getMenuOrientEffective(int category);
+int CFG_getGameListOrientEffective(void);
 // Which stored art variant (ArtType) the game lists display: 0 = mix
 // composite, 1 = screenshot only, 2 = box art only.
 int CFG_getGameArtType(void);

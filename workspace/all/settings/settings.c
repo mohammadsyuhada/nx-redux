@@ -296,6 +296,13 @@ static int art_style_values[] = {ART_STYLE_THUMBNAIL, ART_STYLE_BACKGROUND};
    MENUSTYLE_MAIN_COUNT (List, Grid, Carousel), game lists all MENUSTYLE_GAMELIST_COUNT (+ Backdrop) */
 static const char* menu_style_labels[] = {"List", "Grid", "Carousel", "Backdrop"};
 static int menu_style_values[] = {MENU_STYLE_LIST, MENU_STYLE_GRID, MENU_STYLE_CAROUSEL, MENU_STYLE_BACKDROP};
+/* Carousel / Backdrop orientation rows: each sits directly under its style row and shows only while that style
+   has an orientation (sync_layouts_orient_rows) */
+static const char* orient_labels[] = {"Horizontal", "Vertical"};
+static int orient_values[] = {MENU_ORIENT_HORIZONTAL, MENU_ORIENT_VERTICAL};
+static SettingItem* menu_orient_items[MENU_CAT_COUNT] = {NULL};
+static SettingsPage layouts_page; // defined with the page below (sync_layouts_orient_rows clamps its scroll)
+static SettingItem* game_list_orient_item = NULL;
 static const char* hide_show_labels[] = {"Hide", "Show"};
 
 /* Game art type: which stored variant the game lists show */
@@ -699,30 +706,80 @@ static void reset_ui_scale(void) {
 	set_ui_scale(CFG_DEFAULT_UI_SCALE);
 }
 
-/* Main menu tab styles, one getter/setter/reset triple per category */
-#define MENU_STYLE_CALLBACKS(_name, _cat)              \
-	static int get_menu_style_##_name(void) {          \
-		return CFG_getMenuStyle(_cat);                 \
-	}                                                  \
-	static void set_menu_style_##_name(int v) {        \
-		CFG_setMenuStyle(_cat, v);                     \
-	}                                                  \
-	static void reset_menu_style_##_name(void) {       \
-		CFG_setMenuStyle(_cat, CFG_DEFAULT_MENUSTYLE); \
+/* Show each orientation row only while its style has an orientation (a main-menu Carousel; a game-list Carousel or
+   Backdrop). The row sits directly under its style row and the page selection is a visible index, so a row that
+   appears or disappears under the style row being cycled leaves the highlight on that style row. */
+static int layouts_orient_rows_shown(void) {
+	int n = game_list_orient_item && game_list_orient_item->visible ? 1 : 0;
+	for (int c = 0; c < MENU_CAT_COUNT; c++)
+		n += menu_orient_items[c] && menu_orient_items[c]->visible ? 1 : 0;
+	return n;
+}
+
+/* Rows that disappear shorten the page: a window scrolled to its end would end past the last row (an empty slot under
+   it). Moving the window up by the rows gone keeps it within the list (it ended at or before the old last row); the
+   list's own scroll (UI_adjustListScroll) then keeps the highlight in view, which never ends it past the last row
+   either. The page selection is a visible index and a cycled style row's orientation row sits under it, so the
+   highlight stays on that style row. Rows that appear leave no gap: nothing to do. */
+static void sync_layouts_orient_rows(void) {
+	int before = layouts_orient_rows_shown();
+	for (int c = 0; c < MENU_CAT_COUNT; c++) {
+		if (menu_orient_items[c])
+			menu_orient_items[c]->visible = MenuStyle_mainMenuHasOrient(CFG_getMenuStyle(c)) ? 1 : 0;
+	}
+	if (game_list_orient_item)
+		game_list_orient_item->visible = MenuStyle_gameListHasOrient(CFG_getGameListStyle()) ? 1 : 0;
+	int gone = before - layouts_orient_rows_shown();
+	if (gone > 0 && layouts_page.scroll > 0)
+		layouts_page.scroll = layouts_page.scroll > gone ? layouts_page.scroll - gone : 0;
+}
+
+/* Main menu tab styles and orientations, getter/setter/reset triples per category */
+#define MENU_STYLE_CALLBACKS(_name, _cat)                \
+	static int get_menu_style_##_name(void) {            \
+		return CFG_getMenuStyle(_cat);                   \
+	}                                                    \
+	static void set_menu_style_##_name(int v) {          \
+		CFG_setMenuStyle(_cat, v);                       \
+		sync_layouts_orient_rows();                      \
+	}                                                    \
+	static void reset_menu_style_##_name(void) {         \
+		CFG_setMenuStyle(_cat, CFG_DEFAULT_MENUSTYLE);   \
+		sync_layouts_orient_rows();                      \
+	}                                                    \
+	static int get_menu_orient_##_name(void) {           \
+		return CFG_getMenuOrient(_cat);                  \
+	}                                                    \
+	static void set_menu_orient_##_name(int v) {         \
+		CFG_setMenuOrient(_cat, v);                      \
+	}                                                    \
+	static void reset_menu_orient_##_name(void) {        \
+		CFG_setMenuOrient(_cat, CFG_DEFAULT_MENUORIENT); \
 	}
 MENU_STYLE_CALLBACKS(consoles, MENU_CAT_CONSOLES)
 MENU_STYLE_CALLBACKS(collections, MENU_CAT_COLLECTIONS)
 MENU_STYLE_CALLBACKS(tools, MENU_CAT_TOOLS)
 
-/* Game list style */
+/* Game list style and orientation */
 static int get_game_list_style(void) {
 	return CFG_getGameListStyle();
 }
 static void set_game_list_style(int v) {
 	CFG_setGameListStyle(v);
+	sync_layouts_orient_rows();
 }
 static void reset_game_list_style(void) {
 	CFG_setGameListStyle(CFG_DEFAULT_GAMELISTSTYLE);
+	sync_layouts_orient_rows();
+}
+static int get_game_list_orient(void) {
+	return CFG_getGameListOrient();
+}
+static void set_game_list_orient(int v) {
+	CFG_setGameListOrient(v);
+}
+static void reset_game_list_orient(void) {
+	CFG_setGameListOrient(CFG_DEFAULT_GAMELISTORIENT);
 }
 
 /* Show Tools */
@@ -1362,7 +1419,7 @@ static void init_about_info(void) {
 // ============================================
 
 #define MAX_APPEARANCE_ITEMS 28
-#define MAX_LAYOUTS_ITEMS 12
+#define MAX_LAYOUTS_ITEMS 16
 #define MAX_DISPLAY_ITEMS 8
 #define MAX_SYSTEM_ITEMS 24
 #define MAX_FN_ITEMS 20
@@ -1603,12 +1660,30 @@ static void reset_fn_keys_page(void) {
 // Reset button callbacks (reference pages)
 // ============================================
 
+// Reset the Layouts page. Defaults can show or hide orientation rows above the selected row, so the highlight is
+// kept on the same item (the "Reset to defaults" row when pressed there) by re-mapping it to its new visible index.
+// When the reset hides that row, the highlight goes to the nearest visible row above it (the first row if none).
+static void reset_layouts_items(void) {
+	SettingItem* sel = settings_page_visible_item(&layouts_page, layouts_page.selected);
+	settings_page_reset_all(&layouts_page); // style resets re-sync the orientation rows
+	sync_layouts_orient_rows();
+	if (sel) {
+		int vis = -1;
+		for (int actual = (int)(sel - layouts_page.items); actual >= 0 && vis < 0; actual--)
+			vis = settings_page_actual_to_visible(&layouts_page, actual);
+		layouts_page.selected = vis >= 0 ? vis : 0;
+	}
+	// rows came and went: the old window could now end past the last row (an empty slot under it). From the top,
+	// the list's own scroll (UI_adjustListScroll) brings the highlight into view with the window ending on it at
+	// the latest, never past the last row.
+	layouts_page.scroll = 0;
+}
 static void reset_appearance_page(void) {
 	settings_page_reset_all(&appearance_page);
-	settings_page_reset_all(&layouts_page); // reset does not recurse into submenus
+	reset_layouts_items(); // reset does not recurse into submenus
 }
 static void reset_layouts_page(void) {
-	settings_page_reset_all(&layouts_page);
+	reset_layouts_items();
 }
 static void reset_display_page(void) {
 	settings_page_reset_all(&display_page);
@@ -1699,18 +1774,40 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	// Layouts page (Appearance submenu)
 	// ============================
 	idx = 0;
+	// Each "<tab> orientation" row sits directly under its style row (sync_layouts_orient_rows shows it)
+#define LAYOUTS_ORIENT_ROW(_slot, _label, _desc, _get, _set, _reset)                                       \
+	do {                                                                                                   \
+		_slot = &layouts_items[idx];                                                                       \
+		layouts_items[idx] = (SettingItem)ITEM_CYCLE_INIT(_label, _desc, orient_labels, MENU_ORIENT_COUNT, \
+														  orient_values, _get, _set, _reset);              \
+		layouts_items[idx++].a_cycles = 1;                                                                 \
+	} while (0)
 	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Consoles", "How the Consoles tab draws.",
 		menu_style_labels, MENUSTYLE_MAIN_COUNT, menu_style_values, get_menu_style_consoles, set_menu_style_consoles, reset_menu_style_consoles);
+	LAYOUTS_ORIENT_ROW(menu_orient_items[MENU_CAT_CONSOLES], "Consoles orientation",
+					   "Whether the Consoles carousel runs across or down.",
+					   get_menu_orient_consoles, set_menu_orient_consoles, reset_menu_orient_consoles);
 	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Collections", "How the Collections tab draws.",
 		menu_style_labels, MENUSTYLE_MAIN_COUNT, menu_style_values, get_menu_style_collections, set_menu_style_collections, reset_menu_style_collections);
+	LAYOUTS_ORIENT_ROW(menu_orient_items[MENU_CAT_COLLECTIONS], "Collections orientation",
+					   "Whether the Collections carousel runs across or down.",
+					   get_menu_orient_collections, set_menu_orient_collections, reset_menu_orient_collections);
 	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Tools", "How the Tools tab draws.",
 		menu_style_labels, MENUSTYLE_MAIN_COUNT, menu_style_values, get_menu_style_tools, set_menu_style_tools, reset_menu_style_tools);
+	LAYOUTS_ORIENT_ROW(menu_orient_items[MENU_CAT_TOOLS], "Tools orientation",
+					   "Whether the Tools carousel runs across or down.",
+					   get_menu_orient_tools, set_menu_orient_tools, reset_menu_orient_tools);
 	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Game lists", "How a console's or collection's games draw.",
 		menu_style_labels, MENUSTYLE_GAMELIST_COUNT, menu_style_values, get_game_list_style, set_game_list_style, reset_game_list_style);
+	LAYOUTS_ORIENT_ROW(game_list_orient_item, "Game lists orientation",
+					   "Whether a game list's carousel or backdrop runs across or down.",
+					   get_game_list_orient, set_game_list_orient, reset_game_list_orient);
+#undef LAYOUTS_ORIENT_ROW
+	sync_layouts_orient_rows();
 	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Consoles tab", "Show the Consoles tab.",
 		hide_show_labels, 2, on_off_values, get_show_emulators, set_show_emulators, reset_show_emulators);
