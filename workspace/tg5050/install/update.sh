@@ -131,6 +131,9 @@ if [ -d "$PM_CATALOG" ] && [ -f "$SDCARD_PATH/Emus/shared/PortMaster/version" ];
 			&& chmod +x "$PM_PORTS/launch.sh" 2>/dev/null \
 			&& echo "refreshed $PM_PORTS/launch.sh from the Xtras catalog"
 	fi
+	# gl4es's EGL shim in PortMaster/lib broke Xwayland for Weston ports (the
+	# catalog install.sh no longer keeps it); remove it from existing installs.
+	rm -f "$SDCARD_PATH/Emus/shared/PortMaster/lib/libEGL.so.1" 2>/dev/null
 	# PortMaster is now version_source=internal; refresh the pak-code marker to
 	# the catalog version so Xtras does not show a phantom "update available"
 	# against an old upstream tag left by a pre-migration install (PM_CATALOG is
