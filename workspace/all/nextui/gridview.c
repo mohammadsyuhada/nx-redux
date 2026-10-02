@@ -30,8 +30,10 @@
 #include "homeart.h"
 #include "imgloader.h" // screen
 #include "launcher.h"
+#include "list_window.h"
 #include "menulogo.h"
 #include "menutabs.h"
+#include "rowview_shared.h" // the tile kinds, and view_common.h
 #include "tiles.h"
 #include "types.h"
 #include "ui_fade.h"
@@ -43,15 +45,9 @@
 
 #define SLIDE_MS 260
 #define LIT_MS 120
-#define CUT_SHADE_ALPHA 179			   // black at 70% over a column cut by a screen edge
-#define EDGE_FADE_SHARE 0.20f		   // the edge fade's width, of the screen's
-#define BAR_DP (28.0f * 42.0f / 30.0f) // the header and the hint bar: 28 logical each
-#define PREFETCH_TWEEN_SHARE 0.6f	   // a single move's slide and crossfade this far through let prefetch run
-
-typedef struct {
-	bool active;
-	Uint32 start;
-} Tween;
+#define CUT_SHADE_ALPHA 179		  // black at 70% over a column cut by a screen edge
+#define EDGE_FADE_SHARE 0.20f	  // the edge fade's width, of the screen's
+#define PREFETCH_TWEEN_SHARE 0.6f // a single move's slide and crossfade this far through let prefetch run
 
 // the slide: the content offset (dp) eases from `off_from` to `off_to`
 static float off_from = 0, off_to = 0;
@@ -67,38 +63,9 @@ static unsigned seen_gen = 0;
 static int seen_n = -1;
 static int seen_screen_w = 0, seen_scale = 0;
 
-// Tile kinds per index of the current list, worked out on first sight (a folder game stats the disk).
-static signed char* kinds = NULL;
-static int kinds_cap = 0;
-
 
 ///////////////////////////////////////
 // Timing
-
-static bool animationsOn(void) {
-	return CFG_getMenuAnimations();
-}
-
-static float tweenProgress(const Tween* t, Uint32 ms) {
-	if (!t->active)
-		return 1.0f;
-	Uint32 elapsed = SDL_GetTicks() - t->start;
-	return elapsed >= ms ? 1.0f : (float)elapsed / (float)ms;
-}
-
-static void tweenStart(Tween* t) {
-	t->active = animationsOn();
-	t->start = SDL_GetTicks();
-}
-
-// One settled frame: a finished tween reports true once more as it clears.
-static bool tweenTick(Tween* t, Uint32 ms) {
-	if (!t->active)
-		return false;
-	if (SDL_GetTicks() - t->start >= ms)
-		t->active = false;
-	return true;
-}
 
 static float currentOffset(void) {
 	if (!slide_tw.active)
@@ -118,14 +85,6 @@ static float litAmount(int index) {
 ///////////////////////////////////////
 // Geometry
 
-static float pxPerDp(void) {
-	return FIXED_SCALE * 30.0f / 42.0f;
-}
-
-static int barPx(void) {
-	return SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2);
-}
-
 static void computeLayout(SDL_Surface* screen, int n, GridLayout* g) {
 	float pd = pxPerDp();
 	float sw = screen->w / pd, sh = screen->h / pd;
@@ -138,58 +97,8 @@ static void computeLayout(SDL_Surface* screen, int n, GridLayout* g) {
 	GridLayout_computeEx(sw, BAR_DP, sh - 2 * BAR_DP, n, mul, (float)NATIVE_SCALE / (float)FIXED_SCALE, g);
 }
 
-static int selectedIndex(int n) {
-	int s = top->selected;
-	if (s >= n)
-		s = n - 1;
-	return s < 0 ? 0 : s;
-}
-
 ///////////////////////////////////////
-// Tiles
-
-static void resetKinds(int n) {
-	if (n > kinds_cap) {
-		signed char* k = realloc(kinds, (size_t)n);
-		if (!k) {
-			free(kinds);
-			kinds = NULL;
-			kinds_cap = 0;
-			return;
-		}
-		kinds = k;
-		kinds_cap = n;
-	}
-	if (kinds && n > 0)
-		memset(kinds, -1, (size_t)n);
-}
-
-static TileKind kindFor(int index, Entry* e) {
-	if (kinds && index < kinds_cap && kinds[index] >= 0)
-		return (TileKind)kinds[index];
-	bool at_root = stack->count == 1;
-	MenuTabId tab = MenuTabs_current();
-	TileKind k;
-	if ((at_root && tab == MENU_TAB_TOOLS) || e->type == ENTRY_PAK)
-		k = TILE_TOOL;
-	else if (at_root && tab == MENU_TAB_COLLECTIONS)
-		k = TILE_COLLECTION;
-	else if (at_root && tab == MENU_TAB_CONSOLES && e->type == ENTRY_DIR)
-		k = TILE_LOGO;
-	else if (e->type == ENTRY_ROM || (e->type == ENTRY_DIR && GameList_entryIsFolderGame(e)))
-		k = TILE_GAME;
-	else
-		k = TILE_TITLE; // a subfolder: its name, no screenshot
-	if (kinds && index < kinds_cap)
-		kinds[index] = (signed char)k;
-	return k;
-}
-
-static char* displayName(Entry* e) {
-	char* name = e->unique ? e->unique : e->name;
-	trimSortingMeta(&name);
-	return name;
-}
+// Tiles (their kinds: rowview.c's per-list cache, RowView_syncKinds / RowView_kindFor)
 
 // The count-only info (time, "n of m") of a game tile. Requests it when it isn't ready (latest request wins: call
 // it for the tile that matters most last).
@@ -209,7 +118,7 @@ static void tileCount(int i, char* out, size_t size) {
 	if (stack->count != 1 || i < 0 || i >= top->entries->count)
 		return;
 	Entry* e = top->entries->items[i];
-	TileKind k = kindFor(i, e);
+	TileKind k = RowView_kindFor(i, e);
 	if (k == TILE_LOGO)
 		GameInfo_gamesLabel(Content_consoleGameCount(e), out, size);
 	else if (k == TILE_COLLECTION)
@@ -222,7 +131,7 @@ static const char* plainCount(int i, char* out, size_t size, bool* asked) {
 	if (stack->count != 1 || i < 0 || i >= top->entries->count)
 		return NULL;
 	Entry* e = top->entries->items[i];
-	TileKind k = kindFor(i, e);
+	TileKind k = RowView_kindFor(i, e);
 	if (k == TILE_LOGO) {
 		GameInfo_gamesLabel(Content_consoleGameCount(e), out, size);
 		return out;
@@ -268,35 +177,24 @@ static int ringRoom(void) {
 	return NX_DPF(TILE_RING_DP) + 1;
 }
 
-static Uint32 fnv(Uint32 h, const void* data, size_t n) {
-	const unsigned char* p = data;
-	for (size_t i = 0; i < n; i++)
-		h = (h ^ p[i]) * 16777619u;
-	return h;
-}
-
-static Uint32 fnvStr(Uint32 h, const char* s) {
-	return s ? fnv(h, s, strlen(s) + 1) : fnv(h, "\xff", 1); // NULL (no name while loading) differs from ""
-}
-
 // Everything Tiles_draw reads for a cached look (the lit caption, with the info, is drawn per frame instead). The lit
 // look also shows the accent (the ring, or the Logo look's outline and content) and the count.
 static Uint32 tileStamp(const TileSpec* t, bool lit) {
 	Uint32 h = 2166136261u;
-	h = fnv(h, &t->kind, sizeof(t->kind));
-	h = fnv(h, &t->scale, sizeof(t->scale));
-	h = fnvStr(h, t->name);
-	h = fnvStr(h, t->logo_file);
-	h = fnvStr(h, t->icon_file);
-	h = fnv(h, &t->picture, sizeof(t->picture));
-	h = fnv(h, &t->picture_gen, sizeof(t->picture_gen)); // a re-decoded art may reuse the old pointer
+	h = View_fnv(h, &t->kind, sizeof(t->kind));
+	h = View_fnv(h, &t->scale, sizeof(t->scale));
+	h = View_fnvStr(h, t->name);
+	h = View_fnvStr(h, t->logo_file);
+	h = View_fnvStr(h, t->icon_file);
+	h = View_fnv(h, &t->picture, sizeof(t->picture));
+	h = View_fnv(h, &t->picture_gen, sizeof(t->picture_gen)); // a re-decoded art may reuse the old pointer
 	if (lit) {
 		SDL_Color ac = UI_accent();
 		Uint8 rgb[3] = {ac.r, ac.g, ac.b};
-		h = fnv(h, rgb, sizeof(rgb));
+		h = View_fnv(h, rgb, sizeof(rgb));
 	}
 	if (lit || t->kind == TILE_COLLECTION || t->kind == TILE_LOGO) // consoles and collections: on the plain look too
-		h = fnvStr(h, t->count && t->count[0] ? t->count : "");
+		h = View_fnvStr(h, t->count && t->count[0] ? t->count : "");
 	return h;
 }
 
@@ -454,8 +352,8 @@ static bool drawTile(SDL_Surface* screen, const char* path, SDL_Rect r, const Ti
 // What tile i shows (its art requested at tw×th). logo: the caller's buffer for the logo file name.
 static void tileSpec(int i, int tw, int th, float scale, TileSpec* t, char logo[64]) {
 	Entry* e = top->entries->items[i];
-	TileKind kind = kindFor(i, e);
-	*t = (TileSpec){.kind = kind, .name = displayName(e), .scale = scale};
+	TileKind kind = RowView_kindFor(i, e);
+	*t = (TileSpec){.kind = kind, .name = View_displayName(e), .scale = scale};
 	if (kind == TILE_LOGO) {
 		const char* slash = strrchr(e->path, '/');
 		const char* id = MenuLogo_idForFolder(slash ? slash + 1 : e->path);
@@ -494,12 +392,13 @@ bool GridView_active(void) {
 
 // A list, tab, screen size or scale change: start over with the grid snapped to the selection.
 static bool syncList(SDL_Surface* screen, int n, int lastScreen) {
+	// the kinds are shared with the Carousel and Backdrop, which may have keyed them to another list since: re-key them
+	// on every frame (a no-op while they're this list's), not only when the Grid's own key changes
+	RowView_syncKinds(n);
 	bool changed = top->serial != seen_top || MenuTabs_generation() != seen_gen || n != seen_n ||
 				   screen->w != seen_screen_w || (int)FIXED_SCALE != seen_scale || lastScreen != SCREEN_GAMELIST;
 	if (!changed)
 		return false;
-	if (top->serial != seen_top || MenuTabs_generation() != seen_gen || n != seen_n)
-		resetKinds(n);
 	seen_top = top->serial;
 	seen_gen = MenuTabs_generation();
 	seen_n = n;
@@ -529,7 +428,7 @@ void GridView_render(SDL_Surface* screen, int lastScreen) {
 
 	GridLayout g;
 	computeLayout(screen, n, &g);
-	int sel = selectedIndex(n);
+	int sel = View_selectedIndex(n);
 	int sel_col, sel_row;
 	GridLayout_cell(&g, sel, &sel_col, &sel_row);
 
@@ -566,12 +465,12 @@ void GridView_render(SDL_Surface* screen, int lastScreen) {
 	int prev_n = 0, sel_n = 0;
 	if (lit_tw.active && lit_prev >= 0 && lit_prev < n) {
 		Entry* e = top->entries->items[lit_prev];
-		if (kindFor(lit_prev, e) == TILE_GAME)
+		if (RowView_kindFor(lit_prev, e) == TILE_GAME)
 			prev_n = gameInfo(e, prev_segs);
 	}
 	{
 		Entry* e = top->entries->items[sel];
-		if (kindFor(sel, e) == TILE_GAME)
+		if (RowView_kindFor(sel, e) == TILE_GAME)
 			sel_n = gameInfo(e, sel_segs);
 	}
 	// the main menu's "N games" on the lit tiles, the selection's last (CollCount's queue keeps the latest request)
@@ -739,7 +638,7 @@ bool GridView_prefetchStep(Uint32 deadline) {
 	// selection): nothing until the next render re-arms it
 	if (!GridView_active() || !top || !screen || top->serial != seen_top || MenuTabs_generation() != seen_gen ||
 		top->entries->count != pf.n || screen->w != seen_screen_w || (int)FIXED_SCALE != seen_scale ||
-		selectedIndex(pf.n) != pf.sel) {
+		View_selectedIndex(pf.n) != pf.sel) {
 		pf.armed = false;
 		return false;
 	}
@@ -758,14 +657,7 @@ bool GridView_prefetchStep(Uint32 deadline) {
 // Select `index` and keep the List window consistent for a later switch back to List: the selection at the top, clamped.
 static void selectTile(int index, int n) {
 	top->selected = index;
-	int rows = GameList_rowCount();
-	top->start = index;
-	top->end = top->start + rows < n ? top->start + rows : n;
-	if (top->end - top->start < rows) {
-		top->start = top->end - rows;
-		if (top->start < 0)
-			top->start = 0;
-	}
+	ListWindow_selectAtTop(n, GameList_rowCount(), index, &top->start, &top->end);
 }
 
 void GridView_focusBottom(void) {
@@ -774,7 +666,7 @@ void GridView_focusBottom(void) {
 		return;
 	GridLayout g;
 	computeLayout(screen, n, &g);
-	selectTile(GridLayout_bottomOf(&g, selectedIndex(n)), n);
+	selectTile(GridLayout_bottomOf(&g, View_selectedIndex(n)), n);
 }
 
 bool GridView_handleInput(unsigned long now, bool* dirty, bool* switched_tab) {
@@ -802,7 +694,7 @@ bool GridView_handleInput(unsigned long now, bool* dirty, bool* switched_tab) {
 	int n = top->entries->count;
 	GridLayout g;
 	computeLayout(screen, n, &g);
-	int index = n > 0 ? selectedIndex(n) : 0;
+	int index = n > 0 ? View_selectedIndex(n) : 0;
 	if (dir == GRID_DIR_UP && stack->count == 1 && GridLayout_isTopRow(&g, index)) {
 		// the main menu: UP from the top row focuses the tab row (a fresh press; a held one stops, no wrap)
 		if (PAD_justPressed(btn)) {
@@ -841,8 +733,5 @@ bool GridView_animating(void) {
 
 void GridView_quit(void) {
 	pf.armed = false;
-	free(kinds);
-	kinds = NULL;
-	kinds_cap = 0;
-	tileCacheClear();
+	tileCacheClear(); // the tile kinds are rowview.c's: RowView_quit frees them
 }

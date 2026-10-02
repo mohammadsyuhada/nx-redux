@@ -44,6 +44,7 @@
 #include "ui_buttonhintbar.h"
 #include "ui_ease.h"
 #include "ui_fade.h"
+#include "view_common.h"
 
 #define RADIUS_DP 14.0f
 #define RING_DP 3.0f
@@ -115,11 +116,6 @@ static HomeFocus focus = {HOME_FOCUS_CONTINUE, 0};
 static HomeFocusMemory mem = {HOME_FOCUS_CONTINUE, 0};
 static bool focus_can_resume = false;
 
-typedef struct {
-	bool active;
-	Uint32 start;
-} Tween;
-
 static HomeFocus prev_focus = {HOME_FOCUS_CONTINUE, 0};
 static Tween sel_tw;
 static float scroll_from = 0, scroll_to = 0; // dp
@@ -134,39 +130,6 @@ static void cardCacheClear(void);
 
 ///////////////////////////////////////
 // Units and timing
-
-static float pxPerDp(void) {
-	return FIXED_SCALE * 30.0f / 42.0f;
-}
-
-static int barPx(void) {
-	return SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2);
-}
-
-static bool animationsOn(void) {
-	return CFG_getMenuAnimations();
-}
-
-static float tweenProgress(const Tween* t, Uint32 ms) {
-	if (!t->active)
-		return 1.0f;
-	Uint32 elapsed = SDL_GetTicks() - t->start;
-	return elapsed >= ms ? 1.0f : (float)elapsed / (float)ms;
-}
-
-static void tweenStart(Tween* t) {
-	t->active = animationsOn();
-	t->start = SDL_GetTicks();
-}
-
-// One settled frame: a finished tween reports true once more as it clears.
-static bool tweenTick(Tween* t, Uint32 ms) {
-	if (!t->active)
-		return false;
-	if (SDL_GetTicks() - t->start >= ms)
-		t->active = false;
-	return true;
-}
 
 static float currentScroll(void) {
 	if (!scroll_tw.active)
@@ -410,12 +373,6 @@ static int wrapLines(TTF_Font* f, const char* text, int max_w, int max_lines, ch
 	return n;
 }
 
-static const char* displayName(Entry* e) {
-	char* name = e->unique ? e->unique : e->name;
-	trimSortingMeta(&name);
-	return name;
-}
-
 static bool signedIn(void) {
 	return CFG_getRAEnable() && CFG_getRAAuthenticated();
 }
@@ -634,12 +591,12 @@ static void composeContinue(SDL_Surface* s, int w, int h) {
 	if (title_card) {
 		TTF_Font* f = UIFont_get(24, false);
 		char lines[2][LINE_MAX];
-		int nl = wrapLines(f, displayName(cont), w - 2 * side, 2, lines);
+		int nl = wrapLines(f, View_displayName(cont), w - 2 * side, 2, lines);
 		drawCentredLines(s, f, lines, nl, (int)(NX_SP(24) * 1.15f + 0.5f), C_WHITE, w, 0, y);
 	} else {
 		TTF_Font* f = UIFont_get(20, false);
 		char name[LINE_MAX];
-		ellipsize(f, displayName(cont), name, w - 2 * side);
+		ellipsize(f, View_displayName(cont), name, w - 2 * side);
 		if (f && name[0])
 			drawText(s, f, name, C_WHITE, side, y - TTF_FontHeight(f), 255);
 	}
@@ -697,7 +654,7 @@ static void composeGame(SDL_Surface* s, int w, int h, bool lit, int i) {
 	if (title_tile) {
 		// the name above the fade, centred in the tile less the caption room; 15 sp, smaller (to 11) until its
 		// longest word fits
-		float sp = Tiles_fitWordsSp(displayName(e), 15, 11, false, w - 2 * side);
+		float sp = Tiles_fitWordsSp(View_displayName(e), 15, 11, false, w - 2 * side);
 		TTF_Font* f = UIFont_get(sp, false);
 		if (f) {
 			int caption = nseg > 0 ? NX_DPF(14 + 8) : 0;
@@ -707,7 +664,7 @@ static void composeGame(SDL_Surface* s, int w, int h, bool lit, int i) {
 			if (max_lines < 1)
 				max_lines = 1;
 			char lines[3][LINE_MAX];
-			int nl = wrapLines(f, displayName(e), w - 2 * side, max_lines, lines);
+			int nl = wrapLines(f, View_displayName(e), w - 2 * side, max_lines, lines);
 			drawCentredLines(s, f, lines, nl, (int)(lh + 0.5f), C_WHITE, w, 0, h - caption);
 		}
 	}
@@ -721,7 +678,7 @@ static void composeGame(SDL_Surface* s, int w, int h, bool lit, int i) {
 		if (!title_tile) {
 			TTF_Font* f = UIFont_get(13, false);
 			char name[LINE_MAX];
-			ellipsize(f, displayName(e), name, w - 2 * side);
+			ellipsize(f, View_displayName(e), name, w - 2 * side);
 			if (f && name[0])
 				drawText(s, f, name, C_WHITE, side, y - TTF_FontHeight(f), 255);
 		}
@@ -732,7 +689,7 @@ static void composeGame(SDL_Surface* s, int w, int h, bool lit, int i) {
 // The tool's bundled icon (the one mapping, in tiles.c): by its shown name, else its pak's file name, else the
 // unknown-tool icon.
 static const char* toolIcon(Entry* e) {
-	const char* file = Tiles_toolIcon(displayName(e));
+	const char* file = Tiles_toolIcon(View_displayName(e));
 	if (!file) {
 		const char* slash = strrchr(e->path, '/');
 		file = Tiles_toolIcon(slash ? slash + 1 : e->path);
@@ -759,7 +716,7 @@ static void composeTool(SDL_Surface* s, int w, int h, bool lit, int i) {
 	// A one-word name too wide at 15 sp first breaks at its lowercase→uppercase boundary ("Retro / Achievements").
 	int pad = NX_DPF(12);
 	char name[LINE_MAX];
-	snprintf(name, sizeof(name), "%s", displayName(e));
+	snprintf(name, sizeof(name), "%s", View_displayName(e));
 	TTF_Font* f = UIFont_get(15, true);
 	if (f && textW(f, name) > w - 2 * pad)
 		Tiles_camelSplit(name, sizeof(name));
@@ -1079,21 +1036,16 @@ static int cardCacheLimit(void) {
 	return n < CARD_CACHE_MAX ? n : CARD_CACHE_MAX;
 }
 
-static Uint32 fnv(Uint32 h, const void* data, size_t n) {
-	const unsigned char* p = data;
-	for (size_t i = 0; i < n; i++)
-		h = (h ^ p[i]) * 16777619u;
-	return h;
-}
-
+// Home's stamps hash a NULL string as "" (View_fnvStr's Grid rule hashes it apart): kept, so the card stamps don't
+// change.
 static Uint32 fnvStr(Uint32 h, const char* s) {
-	return s ? fnv(h, s, strlen(s) + 1) : fnv(h, "", 1);
+	return View_fnvStr(h, s ? s : "");
 }
 
 static Uint32 segsStamp(Uint32 h, const InfoSeg* segs, int n) {
-	h = fnv(h, &n, sizeof(n));
+	h = View_fnv(h, &n, sizeof(n));
 	for (int i = 0; i < n; i++) {
-		h = fnv(h, &segs[i].kind, sizeof(segs[i].kind));
+		h = View_fnv(h, &segs[i].kind, sizeof(segs[i].kind));
 		h = fnvStr(h, segs[i].text);
 	}
 	return h;
@@ -1101,22 +1053,22 @@ static Uint32 segsStamp(Uint32 h, const InfoSeg* segs, int n) {
 
 // gen = HomeArt_lastGen() of pic's lookup: a re-decoded art (after HomeArt_forget) may reuse the old pointer
 static Uint32 artStamp(Uint32 h, HomeArtState st, SDL_Surface* pic, unsigned gen) {
-	h = fnv(h, &st, sizeof(st));
-	h = fnv(h, &gen, sizeof(gen));
-	return fnv(h, &pic, sizeof(pic));
+	h = View_fnv(h, &st, sizeof(st));
+	h = View_fnv(h, &gen, sizeof(gen));
+	return View_fnv(h, &pic, sizeof(pic));
 }
 
 static Uint32 statsStamp(Uint32 h, const HomeStats* st) {
-	h = fnv(h, &st->ready, sizeof(st->ready));
+	h = View_fnv(h, &st->ready, sizeof(st->ready));
 	if (!st->ready)
 		return h;
-	h = fnv(h, &st->today, sizeof(st->today));
-	h = fnv(h, st->days, sizeof(st->days));
-	h = fnv(h, &st->total, sizeof(st->total));
-	h = fnv(h, &st->unlocks, sizeof(st->unlocks));
-	h = fnv(h, &st->ntop, sizeof(st->ntop));
+	h = View_fnv(h, &st->today, sizeof(st->today));
+	h = View_fnv(h, st->days, sizeof(st->days));
+	h = View_fnv(h, &st->total, sizeof(st->total));
+	h = View_fnv(h, &st->unlocks, sizeof(st->unlocks));
+	h = View_fnv(h, &st->ntop, sizeof(st->ntop));
 	for (int i = 0; i < st->ntop && i < 3; i++) {
-		h = fnv(h, &st->top[i].seconds, sizeof(st->top[i].seconds));
+		h = View_fnv(h, &st->top[i].seconds, sizeof(st->top[i].seconds));
 		h = fnvStr(h, st->top[i].title);
 	}
 	return h;
@@ -1131,8 +1083,8 @@ static Uint32 cardStamp(CardKind kind, int pin, int w, int h, bool lit, const Ho
 	SDL_Surface* pic = NULL;
 	if (lit) { // the lit look's ground and ink (the theme's accent); plain cards use fixed colours
 		SDL_Color bg = cardBg(true), ink = cardInk(true);
-		hs = fnv(hs, &bg, sizeof(bg));
-		hs = fnv(hs, &ink, sizeof(ink));
+		hs = View_fnv(hs, &bg, sizeof(bg));
+		hs = View_fnv(hs, &ink, sizeof(ink));
 	}
 	switch (kind) {
 	case CARD_CONTINUE: {
@@ -1140,7 +1092,7 @@ static Uint32 cardStamp(CardKind kind, int pin, int w, int h, bool lit, const Ho
 		hs = artStamp(hs, as, pic, HomeArt_lastGen()); // right after the lookup it describes
 		hs = fnvStr(hs, cont->path);
 		hs = fnvStr(hs, cont_preview);
-		hs = fnvStr(hs, displayName(cont));
+		hs = fnvStr(hs, View_displayName(cont));
 		hs = segsStamp(hs, segs, infoSegs(cont->path, false, true, true, segs));
 		hs = segsStamp(hs, segs, infoSegs(cont->path, true, false, false, segs));
 		break;
@@ -1150,23 +1102,23 @@ static Uint32 cardStamp(CardKind kind, int pin, int w, int h, bool lit, const Ho
 	case CARD_STATS:
 		hs = statsStamp(hs, st);
 		// canFlip and cellDp read the layout (dp), which the pixel size alone doesn't pin down
-		hs = fnv(hs, &layout.mode, sizeof(layout.mode));
-		hs = fnv(hs, &layout.card.w, sizeof(layout.card.w));
-		hs = fnv(hs, &layout.card.h, sizeof(layout.card.h));
+		hs = View_fnv(hs, &layout.mode, sizeof(layout.mode));
+		hs = View_fnv(hs, &layout.card.w, sizeof(layout.card.w));
+		hs = View_fnv(hs, &layout.card.h, sizeof(layout.card.h));
 		break;
 	case CARD_GAME: {
 		Entry* e = pins[pin];
 		HomeArtState as = HomeArt_pin(e->path, w, h, 0, &pic);
 		hs = artStamp(hs, as, pic, HomeArt_lastGen()); // right after the lookup it describes
 		hs = fnvStr(hs, e->path);
-		hs = fnvStr(hs, displayName(e));
+		hs = fnvStr(hs, View_displayName(e));
 		if (lit)
 			hs = segsStamp(hs, segs, infoSegs(e->path, true, true, false, segs));
 		break;
 	}
 	case CARD_TOOL:
 		hs = fnvStr(hs, pins[pin]->path);
-		hs = fnvStr(hs, displayName(pins[pin]));
+		hs = fnvStr(hs, View_displayName(pins[pin]));
 		break;
 	}
 	return hs;

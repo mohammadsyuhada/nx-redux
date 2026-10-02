@@ -33,6 +33,7 @@
 #include "imgloader.h" // screen
 #include "infoband.h"
 #include "launcher.h"
+#include "list_window.h"
 #include "menuart.h"
 #include "area_scale.h"
 #include "menulogo.h"
@@ -56,7 +57,6 @@
 
 #define SLIDE_MS 300					// the row's slide (§8b.2)
 #define FADE_MS MENU_TRANSITION_FADE_MS // the Backdrop picture's crossfade, and its fade in from black (§8b.4)
-#define BAR_DP (28.0f * 42.0f / 30.0f)	// the header and the hint bar: 28 logical each
 #define ROOM_DP 4.0f					// ring/shadow room above and below the row: the 3 dp ring + 1
 #define RING_DP 3.0f
 #define SCALE_EPS 0.004f // an item this close to a rest size is drawn 1:1 from that size's surface
@@ -174,27 +174,6 @@ static struct {
 ///////////////////////////////////////
 // Timing
 
-static float tweenProgress(const Tween* t, Uint32 ms) {
-	if (!t->active)
-		return 1.0f;
-	Uint32 elapsed = SDL_GetTicks() - t->start;
-	return elapsed >= ms ? 1.0f : (float)elapsed / (float)ms;
-}
-
-static void tweenStart(Tween* t) {
-	t->active = animationsOn();
-	t->start = SDL_GetTicks();
-}
-
-// One settled frame: a finished tween reports true once more as it clears.
-static bool tweenTick(Tween* t, Uint32 ms) {
-	if (!t->active)
-		return false;
-	if (SDL_GetTicks() - t->start >= ms)
-		t->active = false;
-	return true;
-}
-
 static float currentPos(void) {
 	if (!slide_tw.active)
 		return pos_to;
@@ -203,10 +182,6 @@ static float currentPos(void) {
 
 ///////////////////////////////////////
 // Units
-
-static float pxPerSp(void) {
-	return FIXED_SCALE * 12.0f / 14.0f;
-}
 
 static int dpToPx(float dp) {
 	return (int)floorf(dp * pxPerDp() + 0.5f);
@@ -313,13 +288,6 @@ static void computeGeo(SDL_Surface* screen, RowKind kind, RowGeo* g) {
 		g->k *= ROWVIEW_TOOLROW_CONTENT;
 }
 
-static int selectedIndex(int n) {
-	int s = top->selected;
-	if (s >= n)
-		s = n - 1;
-	return s < 0 ? 0 : s;
-}
-
 ///////////////////////////////////////
 // Entries
 
@@ -363,12 +331,6 @@ static TileKind kindFor(int index, Entry* e) {
 	if (kinds && index < kinds_cap)
 		kinds[index] = (signed char)k;
 	return k;
-}
-
-static char* displayName(Entry* e) {
-	char* name = e->unique ? e->unique : e->name;
-	trimSortingMeta(&name);
-	return name;
 }
 
 static const char* consoleLogoFile(const char* folder_name, char* out, size_t size) {
@@ -599,7 +561,7 @@ static SDL_Surface* carouselTile(const RowGeo* g, Entry* e, TileKind kind, int w
 	SDL_Color ac = lit ? UI_accent() : (SDL_Color){0, 0, 0, 0};
 	SDL_Color ink = lit ? UI_onAccent() : (SDL_Color){0, 0, 0, 0};
 	snprintf(key, sizeof(key), "C|%d|%d|%d|%d|%02x%02x%02x%02x%02x%02x|%d|%u|%s|%s", w, h, (int)kind, lit, ac.r,
-			 ac.g, ac.b, ink.r, ink.g, ink.b, state, gen, e->path, displayName(e));
+			 ac.g, ac.b, ink.r, ink.g, ink.b, state, gen, e->path, View_displayName(e));
 	SDL_Surface* s;
 	if (itemFind(key, &s))
 		return s;
@@ -613,7 +575,7 @@ static SDL_Surface* carouselTile(const RowGeo* g, Entry* e, TileKind kind, int w
 		SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_NONE);
 		char logo[64];
 		float tile_dp = w / pxPerDp();
-		TileSpec t = {.kind = kind, .name = displayName(e), .carousel = true};
+		TileSpec t = {.kind = kind, .name = View_displayName(e), .carousel = true};
 		t.scale = tile_dp / TILE_W_SPEC > 1.0f ? 1.0f : tile_dp / TILE_W_SPEC;
 		if (kind == TILE_LOGO)
 			t.logo_file = entryLogoFile(e, logo, sizeof(logo));
@@ -652,30 +614,6 @@ static TTF_Font* fitFont(float sp, float min_sp, const char* word, int avail) {
 	return f;
 }
 
-// The widest whitespace-separated word of name (measured in f) into out.
-static void longestWord(TTF_Font* f, const char* name, char* out, size_t size) {
-	out[0] = '\0';
-	int best = -1;
-	const char* p = name;
-	while (*p) {
-		while (*p == ' ' || *p == '\t')
-			p++;
-		const char* q = p;
-		while (*q && *q != ' ' && *q != '\t')
-			q++;
-		if (q > p) {
-			char word[256];
-			snprintf(word, sizeof(word), "%.*s", (int)(q - p), p);
-			int w = textW(f, word);
-			if (w > best) {
-				best = w;
-				snprintf(out, size, "%s", word);
-			}
-		}
-		p = q;
-	}
-}
-
 // A collection item's text at w×h px, a side item at lvl of the selected size (k_full: the selected size's slot
 // content scale). The name size is worked out at the selected size, so a side item is the same item smaller: 30 sp ×
 // k_full, shrunk in whole sp until its longest word fits the slot less 8 dp each side, never below max(0.75 × that,
@@ -708,17 +646,8 @@ static CollLayout collLayout(const char* name, int w, int h, float k_full, float
 	CollLayout c;
 	int full_avail = (int)(w / lvl + 0.5f) - 2 * NX_DPF(SLOT_PAD_DP);
 	float start = ROW_COLL_NAME_SP * k_full;
-	char word[256];
-	TTF_Font* f = UIFont_get(start, false);
-	longestWord(f, name, word, sizeof(word));
 	float count_sp = Row_countSp(k_full);
-	float sp = Row_collNameSp(start, (float)textW(f, word), (float)full_avail, count_sp);
-	// widths don't scale exactly with the size (hinting, NX_SP's rounding): a whole sp more while it still overflows
-	float floor_sp = Row_collNameFloor(start, count_sp);
-	while (sp > floor_sp && textW(UIFont_get(sp, false), word) > full_avail) {
-		float next = sp == start ? ceilf(start) - 1.0f : sp - 1.0f;
-		sp = next > floor_sp ? next : floor_sp;
-	}
+	float sp = Tiles_collNameSp(name, start, count_sp, full_avail);
 	c.avail = w - 2 * NX_DPF(SLOT_PAD_DP * lvl);
 	TTF_Font* fc = UIFont_get(count_sp * lvl, false);
 	int count_h = fc ? TTF_FontHeight(fc) : 0;
@@ -729,7 +658,7 @@ static CollLayout collLayout(const char* name, int w, int h, float k_full, float
 	}
 	c.sp = sp * lvl;
 	c.step = Row_lineStep(NX_SP(c.sp), ROW_COLL_LINE);
-	f = UIFont_get(c.sp, false);
+	TTF_Font* f = UIFont_get(c.sp, false);
 	int nh = Tiles_textBlockStep(NULL, f, name, 0, 0, c.avail, ROW_COLL_LINES, false, 255, 255, false, c.step);
 	int lines = c.step > 0 && nh > 0 ? nh / c.step : 1;
 	c.t = Row_collText(h, lines, c.step, NX_DPF(ROW_COLL_COUNT_GAP_DP * lvl), count_h);
@@ -795,7 +724,7 @@ static SDL_Surface* buildSlot(Entry* e, TileKind kind, int w, int h, float k, fl
 	SDL_Surface* s = newSurface(w, h, true);
 	if (!s)
 		return NULL;
-	const char* name = displayName(e);
+	const char* name = View_displayName(e);
 	char logo[64];
 	switch (kind) {
 	case TILE_LOGO: {
@@ -894,7 +823,7 @@ static SDL_Surface* slotItem(const RowGeo* g, Entry* e, TileKind kind, bool side
 	char key[ITEM_KEY];
 	// a Vertical stack's slots have their own sizes and content scale: their own keys, never a horizontal one's
 	snprintf(key, sizeof(key), "%s|%d|%d|%d|%s|%s", g->vertical ? "V" : "S", g->full_w, g->full_h, (int)kind, e->path,
-			 displayName(e));
+			 View_displayName(e));
 	SDL_Surface* full;
 	if (!itemFind(key, &full))
 		full = itemStore(key, buildSlot(e, kind, g->full_w, g->full_h, g->k, 1.0f, g->vertical));
@@ -990,7 +919,7 @@ static SDL_Surface* placeholderItem(const RowGeo* g, Entry* e, TileKind kind, bo
 	(void)kind;
 	char key[ITEM_KEY];
 	SDL_Surface* full;
-	snprintf(key, sizeof(key), "PA|%d|%d|%s|%s", g->full_w, g->full_h, e->path, displayName(e));
+	snprintf(key, sizeof(key), "PA|%d|%d|%s|%s", g->full_w, g->full_h, e->path, View_displayName(e));
 	if (itemFind(key, &full))
 		return side ? sideCopy(key, full, g->sz.scale) : full;
 	int bw, bh;
@@ -1000,12 +929,12 @@ static SDL_Surface* placeholderItem(const RowGeo* g, Entry* e, TileKind kind, bo
 	if (st == HOMEART_LOADING)
 		return NULL;
 	if (st == HOMEART_READY && plate) {
-		full = itemStore(key, buildPlaceholder(g->full_w, g->full_h, 1.0f, displayName(e), plate));
+		full = itemStore(key, buildPlaceholder(g->full_w, g->full_h, 1.0f, View_displayName(e), plate));
 		return side ? sideCopy(key, full, g->sz.scale) : full;
 	}
-	snprintf(key, sizeof(key), "P|%d|%d|%s|%s", g->full_w, g->full_h, e->path, displayName(e));
+	snprintf(key, sizeof(key), "P|%d|%d|%s|%s", g->full_w, g->full_h, e->path, View_displayName(e));
 	if (!itemFind(key, &full))
-		full = itemStore(key, buildPlaceholder(g->full_w, g->full_h, 1.0f, displayName(e), NULL));
+		full = itemStore(key, buildPlaceholder(g->full_w, g->full_h, 1.0f, View_displayName(e), NULL));
 	return side ? sideCopy(key, full, g->sz.scale) : full;
 }
 
@@ -1324,7 +1253,7 @@ static void drawCaption(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind
 				   0,
 				   false,
 				   true};
-	SDL_Surface* s = captionSurface(&cs, displayName(e), rows, nrows);
+	SDL_Surface* s = captionSurface(&cs, View_displayName(e), rows, nrows);
 	blitCaption(screen, s, g->cx - cs.w / 2, g->cap_y);
 }
 
@@ -1337,7 +1266,7 @@ static void drawSideCaption(SDL_Surface* screen, const RowGeo* g, Entry* e, Tile
 	SegRow rows[2];
 	int nrows = captionRows(e, kind, false, rows);
 	CapStyle cs = {w, body_h, 0, 2, NX_DPF(STACK_CAPTION_LINE_GAP_DP), true, g->kind == ROW_BACKDROP_BOX};
-	SDL_Surface* s = captionSurface(&cs, displayName(e), rows, nrows);
+	SDL_Surface* s = captionSurface(&cs, View_displayName(e), rows, nrows);
 	if (!s)
 		return;
 	int top = cy - caption.content_h / 2;
@@ -1385,7 +1314,7 @@ static SDL_Surface* logoArt(const RowGeo* g, Entry* e, TileKind kind) {
 // Consoles: the count line's top (px), 8 dp under what the selected item draws in its slot: the logo `art` (its own
 // aspect in the slot), or a logo-less console's name.
 static int logoCountTop(const RowGeo* g, Entry* e, const SDL_Surface* art) {
-	int drawn = art ? art->h : logoNameHeight(displayName(e), g->full_w, g->full_h, g->k);
+	int drawn = art ? art->h : logoNameHeight(View_displayName(e), g->full_w, g->full_h, g->k);
 	return (int)floorf(Row_logoCountY((float)g->cy, (float)drawn, (float)NX_DPF(ROW_LOGO_COUNT_GAP_DP)) + 0.5f);
 }
 
@@ -1448,7 +1377,7 @@ static void drawItemCount(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKi
 	if (!text[0])
 		return;
 	SDL_Surface* art = logoArt(g, e, kind);
-	int drawn = art ? art->h : logoNameHeight(displayName(e), g->full_w, g->full_h, g->k);
+	int drawn = art ? art->h : logoNameHeight(View_displayName(e), g->full_w, g->full_h, g->k);
 	if (!art && g->vertical && drawn < g->full_h / 2)
 		drawn = g->full_h / 2;
 	StackCount c = Stack_countOn((float)cy, scale, (float)drawn, (float)NX_DPF(ROW_LOGO_COUNT_GAP_DP), d);
@@ -1479,7 +1408,7 @@ static int collCountOff(const RowGeo* g, Entry* e) {
 			strcmp(side_offs[i].path, e->path) == 0)
 			return side_offs[i].off;
 	}
-	CollLayout c = collLayout(displayName(e), g->full_w, g->full_h, g->k, 1.0f, g->vertical);
+	CollLayout c = collLayout(View_displayName(e), g->full_w, g->full_h, g->k, 1.0f, g->vertical);
 	TTF_Font* fc = UIFont_get(Row_countSp(g->k), false);
 	int off = c.t.count_y + (fc ? TTF_FontHeight(fc) : 0) / 2 - g->full_h / 2;
 	int i = side_off_next;
@@ -1507,7 +1436,7 @@ static void drawSideCount(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKi
 	int centre;
 	if (g->kind == ROW_BACKDROP_LOGO) {
 		SDL_Surface* art = logoArt(g, e, kind);
-		int drawn = art ? art->h : logoNameHeight(displayName(e), g->full_w, g->full_h, g->k);
+		int drawn = art ? art->h : logoNameHeight(View_displayName(e), g->full_w, g->full_h, g->k);
 		SDL_Surface* s = itemCountSurface(text, Row_countSp(g->k) * ROW_SIDE_COUNT_SCALE);
 		if (!s)
 			return;
@@ -1552,7 +1481,7 @@ static void placeCount(const RowGeo* g, Entry* e, TileKind kind, int sel, bool s
 	} else {
 		if (!snap && sel == cnt.sel)
 			return;
-		CollLayout c = collLayout(displayName(e), g->full_w, g->full_h, g->k, 1.0f, g->vertical);
+		CollLayout c = collLayout(View_displayName(e), g->full_w, g->full_h, g->k, 1.0f, g->vertical);
 		TTF_Font* fc = UIFont_get(Row_countSp(g->k), false);
 		int ch = fc ? TTF_FontHeight(fc) : 0;
 		cnt.off = c.t.count_y + ch / 2 - g->full_h / 2;
@@ -1699,7 +1628,7 @@ bool RowView_renderPicture(SDL_Surface* screen) {
 	}
 	const char* want = "";
 	if (n > 0) {
-		int sel = selectedIndex(n);
+		int sel = View_selectedIndex(n);
 		Entry* e = top->entries->items[sel];
 		if (kindFor(sel, e) == TILE_GAME)
 			want = e->path;
@@ -1863,7 +1792,7 @@ void RowView_render(SDL_Surface* screen, int lastScreen) {
 		return;
 	}
 
-	int sel = selectedIndex(n);
+	int sel = View_selectedIndex(n);
 	// the slide toward the selection, retargeted from where the row is now
 	if (snap || !animationsOn()) {
 		pos_from = pos_to = (float)sel;
@@ -1976,19 +1905,12 @@ bool RowView_handleInput(unsigned long now, bool* dirty) {
 	}
 
 	int n = top->entries->count;
-	int sel = n > 0 ? selectedIndex(n) : 0;
+	int sel = n > 0 ? View_selectedIndex(n) : 0;
 	int next = sel + dir;
 	if (n > 0 && next >= 0 && next < n) {
 		top->selected = next;
 		// keep the List window consistent for a later switch back to List: the selection at the top, clamped
-		int rows = GameList_rowCount();
-		top->start = next;
-		top->end = top->start + rows < n ? top->start + rows : n;
-		if (top->end - top->start < rows) {
-			top->start = top->end - rows;
-			if (top->start < 0)
-				top->start = 0;
-		}
+		ListWindow_selectAtTop(n, GameList_rowCount(), next, &top->start, &top->end);
 		*dirty = true;
 	} else if (stack->count == 1 && PAD_justPressed(btn)) {
 		// the main menu: past an end, a fresh press switches tab; a held key stops (game lists always stop)
@@ -2038,7 +1960,7 @@ bool RowView_prefetchStep(Uint32 deadline) {
 	// selection): nothing until the next render re-arms it
 	if (!RowView_active() || !top || !screen || top->serial != seen_top || MenuTabs_generation() != seen_gen ||
 		top->entries->count != pf.n || screen->w != seen_screen_w || (int)FIXED_SCALE != seen_scale ||
-		(int)currentKind() != seen_kind || selectedIndex(pf.n) != pf.sel) {
+		(int)currentKind() != seen_kind || View_selectedIndex(pf.n) != pf.sel) {
 		pf.armed = false;
 		return false;
 	}

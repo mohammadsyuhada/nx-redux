@@ -36,6 +36,8 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_core_netplay .
 /tmp/nx_test_core_netplay
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_menutabs_model ../../nextui/menutabs_model.c test_menutabs_model.c
 /tmp/nx_test_menutabs_model
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_list_window ../../nextui/list_window.c test_list_window.c
+/tmp/nx_test_list_window
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_emulist_model ../../nextui/emulist_model.c test_emulist_model.c
 /tmp/nx_test_emulist_model
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_gameinfo_text ../../nextui/gameinfo_text.c test_gameinfo_text.c

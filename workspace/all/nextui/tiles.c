@@ -371,20 +371,50 @@ static void drawCount(SDL_Surface* dst, const char* count, float sp, int cx, int
 	blitTextColor(dst, f, count, cx - textWidth(f, count) / 2, y, (SDL_Color){c.r, c.g, c.b, 255}, a);
 }
 
-// The widest space-separated word of name in f.
-static void longestWord(TTF_Font* f, const char* name, char* out, size_t size) {
+// textWidth that measures 0 for a NULL font or text (rowview.c's textW).
+static int textWidthOrZero(TTF_Font* f, const char* t) {
+	int w = 0;
+	if (f && t && t[0])
+		GFX_measureText(f, t, &w, NULL);
+	return w;
+}
+
+void Tiles_longestWord(TTF_Font* f, const char* name, char* out, size_t size) {
 	out[0] = '\0';
 	int best = -1;
-	char work[LINE_MAX];
-	snprintf(work, sizeof(work), "%s", name);
-	char* save = NULL;
-	for (char* tok = strtok_r(work, " ", &save); tok; tok = strtok_r(NULL, " ", &save)) {
-		int w = textWidth(f, tok);
-		if (w > best) {
-			best = w;
-			snprintf(out, size, "%s", tok);
+	const char* p = name;
+	while (*p) {
+		while (*p == ' ' || *p == '\t')
+			p++;
+		const char* q = p;
+		while (*q && *q != ' ' && *q != '\t')
+			q++;
+		if (q > p) {
+			char word[256];
+			snprintf(word, sizeof(word), "%.*s", (int)(q - p), p);
+			int w = textWidthOrZero(f, word);
+			if (w > best) {
+				best = w;
+				snprintf(out, size, "%s", word);
+			}
 		}
+		p = q;
 	}
+}
+
+float Tiles_collNameSp(const char* name, float start, float count_sp, int avail) {
+	char word[256];
+	TTF_Font* f = UIFont_get(start, false);
+	Tiles_longestWord(f, name, word, sizeof(word));
+	float sp = Row_collNameSp(start, (float)textWidthOrZero(f, word), (float)avail, count_sp);
+	// widths don't scale exactly with the size (hinting, NX_SP's rounding): a whole sp more while it still overflows
+	float floor_sp = Row_collNameFloor(start, count_sp);
+	TTF_Font* fs;
+	while (sp > floor_sp && (fs = UIFont_get(sp, false)) && textWidthOrZero(fs, word) > avail) {
+		float next = sp == start ? ceilf(start) - 1.0f : sp - 1.0f;
+		sp = next > floor_sp ? next : floor_sp;
+	}
+	return sp;
 }
 
 static int textBlockStepColor(SDL_Surface* dst, TTF_Font* f, const char* text, int cx, int y, int max_w,
@@ -413,18 +443,10 @@ static void drawNameTile(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float 
 	int avail = r.w - 2 * pad;
 	float start = GRID_COLL_NAME_SP * s;
 	float count_sp = GridLayout_countSp(count_spec_sp, s);
-	char word[LINE_MAX];
 	TTF_Font* f = UIFont_get(start, false);
 	if (!f)
 		return;
-	longestWord(f, name, word, sizeof(word));
-	float sp = Row_collNameSp(start, (float)textWidth(f, word), (float)avail, count_sp);
-	// widths don't scale exactly with the size (hinting, NX_SP's rounding): a whole sp more while it still overflows
-	float floor_sp = Row_collNameFloor(start, count_sp);
-	while (sp > floor_sp && (f = UIFont_get(sp, false)) && textWidth(f, word) > avail) {
-		float next = sp == start ? ceilf(start) - 1.0f : sp - 1.0f;
-		sp = next > floor_sp ? next : floor_sp;
-	}
+	float sp = Tiles_collNameSp(name, start, count_sp, avail);
 	// fonts last: a font pointer is only good until the next UIFont_get
 	TTF_Font* fc = UIFont_get(count_sp, false);
 	int count_h = fc ? TTF_FontHeight(fc) : 0;

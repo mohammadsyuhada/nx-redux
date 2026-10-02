@@ -14,26 +14,8 @@
 #include "row_model.h"
 #include "tiles.h"
 #include "types.h"
+#include "view_common.h" // the timing and units both views use
 #include <stdbool.h>
-
-// The timing and units both views use.
-typedef struct {
-	bool active;
-	Uint32 start;
-} Tween;
-
-static inline bool animationsOn(void) {
-	return CFG_getMenuAnimations();
-}
-
-static inline float pxPerDp(void) {
-	return FIXED_SCALE * 30.0f / 42.0f;
-}
-
-// The tab row's (or the game list's title's) and the hint bar's height: 28 logical each.
-static inline int barPx(void) {
-	return SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2);
-}
 
 // Prefetch (built between frames, never forcing one): it may run through a single step's slide once the slide is this
 // far through, and stops at the caller's deadline (SDL ticks, wrap-safe).

@@ -60,6 +60,15 @@ bool Tiles_camelSplit(char* buf, size_t size);
 // max_w px (in the regular or SemiBold face); sp_min when none does (the caller then cuts per line). Names on tiles
 // shrink before they lose letters (Home's tiles and the Grid's tool names).
 float Tiles_fitWordsSp(const char* text, float sp_max, float sp_min, bool bold, int max_w);
+// The widest word of name (split on spaces and tabs; each word cut to 255 bytes) as measured in f (0 wide when f is
+// NULL) into out. The Carousel/Backdrop collection slot and the Grid's name tile share it. The Grid's old copy split on
+// spaces only and read the name through a 255-byte buffer: the same word for any name a FAT or exFAT card holds within
+// 255 bytes (neither allows control characters, so no tabs; every ASCII name, at most 255 characters, qualifies).
+void Tiles_longestWord(TTF_Font* f, const char* name, char* out, size_t size);
+// A collection name's size (sp) in avail px: from start, Row_collNameSp on the longest word's width at start, then
+// down in whole sp while that word still overflows, never below Row_collNameFloor(start, count_sp). A NULL font at a
+// size stops the shrink there.
+float Tiles_collNameSp(const char* name, float start, float count_sp, int avail);
 // Word-wrapped text, each line centred on cx, the block's top at y: at most max_lines (the last one ellipsised; a
 // word wider than max_w too). camel_split: a one-word name that doesn't fit breaks at its first lower→upper case
 // boundary ("RetroAchievements" → "Retro" / "Achievements"). White tinted to grey level `grey` at `alpha`, with the

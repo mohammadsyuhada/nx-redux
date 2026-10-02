@@ -14,6 +14,7 @@
 #include "content.h"
 #include "gamelist.h"
 #include "launcher.h"
+#include "list_window.h"
 #include "menutabs.h"
 #include "shortcuts.h"
 
@@ -440,10 +441,9 @@ static Array* pathToStack(const char* path) {
 
 	// Always include the tab's root directory
 	Directory* root_dir = Directory_new((char*)MenuTabs_path(tab), 0);
-	root_dir->start = 0;
 	int root_rows = GameList_rowCountAt(true);
 	int list_rows = GameList_rowCountAt(false); // a directory below the root is a game list (its own header)
-	root_dir->end = (root_dir->entries->count < root_rows) ? root_dir->entries->count : root_rows;
+	ListWindow_fromTop(root_dir->entries->count, root_rows, &root_dir->start, &root_dir->end);
 	Array_push(array, root_dir);
 	MenuTabs_setCurrent(tab);
 
@@ -493,14 +493,12 @@ static Array* pathToStack(const char* path) {
 				// Replace with updated one using combined path (the root's rows when it replaces the root)
 				Directory* merged = Directory_new(temp_path, 0);
 				int rows = array->count == 0 ? root_rows : list_rows;
-				merged->start = 0;
-				merged->end = (merged->entries->count < rows) ? merged->entries->count : rows;
+				ListWindow_fromTop(merged->entries->count, rows, &merged->start, &merged->end);
 				Array_push(array, merged);
 			}
 		} else {
 			Directory* dir = Directory_new(temp_path, 0);
-			dir->start = 0;
-			dir->end = (dir->entries->count < list_rows) ? dir->entries->count : list_rows;
+			ListWindow_fromTop(dir->entries->count, list_rows, &dir->start, &dir->end);
 			Array_push(array, dir);
 		}
 
@@ -559,8 +557,7 @@ void openDirectory(char* path, int auto_launch) {
 			// deleted, or map.txt re-filtering) — a stale window here means
 			// the render indexes past entries: fall back to the top
 			top->selected = 0;
-			top->start = 0;
-			top->end = (count < rc) ? count : rc;
+			ListWindow_fromTop(count, rc, &top->start, &top->end);
 		} else {
 			top->start = start;
 			top->end = end ? end : ((count < rc) ? count : rc);
@@ -711,15 +708,8 @@ void loadLast(void) { // call after loading root directory
 			Entry* entry = top->entries->items[i];
 			if (exactMatch(entry->path, last_path)) {
 				top->selected = i;
-				if (i >= top->end) {
-					int lrc = GameList_rowCount();
-					top->start = i;
-					top->end = top->start + lrc;
-					if (top->end > top->entries->count) {
-						top->end = top->entries->count;
-						top->start = top->end - lrc;
-					}
-				}
+				if (i >= top->end)
+					ListWindow_selectAtTop(top->entries->count, GameList_rowCount(), i, &top->start, &top->end);
 				readyResume(entry);
 				return;
 			}
@@ -775,15 +765,8 @@ void loadLast(void) { // call after loading root directory
 				// NOTE: strlen() is required for collated_path, '\0' wasn't reading as NULL for some reason
 				if (exactMatch(entry->path, path) || (strlen(collated_path) && prefixMatch(collated_path, entry->path) && isConsoleDir(entry->path)) || (prefixMatch(COLLECTIONS_PATH, full_path) && suffixMatch(filename, entry->path)) || (prefixMatch(paks_tools_path, entry->path) && suffixMatch(slash_name, entry->path))) {
 					top->selected = i;
-					if (i >= top->end) {
-						int lrc = GameList_rowCount();
-						top->start = i;
-						top->end = top->start + lrc;
-						if (top->end > top->entries->count) {
-							top->end = top->entries->count;
-							top->start = top->end - lrc;
-						}
-					}
+					if (i >= top->end)
+						ListWindow_selectAtTop(top->entries->count, GameList_rowCount(), i, &top->start, &top->end);
 					if (last->count == 0 && !exactMatch(entry->path, FAUX_RECENT_PATH) && !(!exactMatch(entry->path, COLLECTIONS_PATH) && prefixMatch(COLLECTIONS_PATH, entry->path)))
 						break; // don't show contents of auto-launch dirs
 

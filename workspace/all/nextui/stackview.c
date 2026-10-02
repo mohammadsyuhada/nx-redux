@@ -19,6 +19,7 @@
 #include "gamelist.h"
 #include "imgloader.h" // screen
 #include "launcher.h"
+#include "list_window.h"
 #include "menutabs.h"
 #include "rowview.h"
 #include "rowview_shared.h"
@@ -80,13 +81,6 @@ static StackKind currentKind(void) {
 // The game lists' stacks: the side arrangement with the caption (the others centre their slots, captionless).
 static bool gameStack(StackKind k) {
 	return k == STACK_GAME_BACKDROP || k == STACK_GAME_CAROUSEL;
-}
-
-static int selectedIndex(int n) {
-	int s = top->selected;
-	if (s >= n)
-		s = n - 1;
-	return s < 0 ? 0 : s;
 }
 
 // The frame's geometry: the stack's sizes (dp), and for rowview's slots their px sizes and the selection's centre.
@@ -265,7 +259,7 @@ void StackView_render(SDL_Surface* screen, int lastScreen) {
 		return;
 	}
 
-	int sel = selectedIndex(n);
+	int sel = View_selectedIndex(n);
 	// the slide toward the selection, retargeted from where the stack is now
 	if (snap || !animationsOn()) {
 		pos_from = pos_to = (float)sel;
@@ -351,7 +345,7 @@ bool StackView_prefetchStep(Uint32 deadline) {
 	// selection, or a forgotten stack): nothing until the next render re-arms it
 	if (!StackView_active() || !screen || seen_top == 0 || top->serial != seen_top ||
 		MenuTabs_generation() != seen_gen || top->entries->count != pf.n || screen->w != seen_screen_w ||
-		(int)FIXED_SCALE != seen_scale || (int)currentKind() != seen_kind || selectedIndex(pf.n) != pf.sel) {
+		(int)FIXED_SCALE != seen_scale || (int)currentKind() != seen_kind || View_selectedIndex(pf.n) != pf.sel) {
 		pf.armed = false;
 		return false;
 	}
@@ -372,14 +366,7 @@ bool StackView_prefetchStep(Uint32 deadline) {
 static void selectItem(int i) {
 	int n = top->entries->count;
 	top->selected = i;
-	int rows = GameList_rowCount();
-	top->start = i;
-	top->end = top->start + rows < n ? top->start + rows : n;
-	if (top->end - top->start < rows) {
-		top->start = top->end - rows;
-		if (top->start < 0)
-			top->start = 0;
-	}
+	ListWindow_selectAtTop(n, GameList_rowCount(), i, &top->start, &top->end);
 }
 
 bool StackView_handleInput(bool* dirty) {
@@ -391,7 +378,7 @@ bool StackView_handleInput(bool* dirty) {
 		if (!PAD_justRepeated(keys[k].btn))
 			continue;
 		int n = top->entries->count;
-		StackNav nav = Stack_navigate(n, n > 0 ? selectedIndex(n) : 0, keys[k].key, PAD_justPressed(keys[k].btn),
+		StackNav nav = Stack_navigate(n, n > 0 ? View_selectedIndex(n) : 0, keys[k].key, PAD_justPressed(keys[k].btn),
 									  stack->count == 1);
 		switch (nav.action) {
 		case STACK_NAV_MOVE:
