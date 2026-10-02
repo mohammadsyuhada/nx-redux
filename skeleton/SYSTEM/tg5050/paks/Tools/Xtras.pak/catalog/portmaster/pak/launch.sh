@@ -223,12 +223,25 @@ patch_device_info_trimui() { # $1 = device_info.txt
     rm -f "${1%/*}"/device_info_trimui_*.env
 }
 
+# pugwash runs device_info.txt itself when no probe cache exists, but gives
+# it 5 s; the 2026.09.19+ probe takes ~17 s on the Smart Pro S, so pugwash
+# gave up and ran as "unknown" (no Xbox A/B fix). Write the cache here first;
+# later runs read it in well under a second.
+warm_device_info_cache() {
+    [ -d /usr/trimui ] || return 0
+    grep -q 'NX Redux: TrimUI firmware' "$DI" 2>/dev/null || return 0
+    ls "$PM_DIR"/device_info_trimui_*.env >/dev/null 2>&1 && return 0
+    (cd "$PM_DIR" && controlfolder="$PM_DIR" NO_SDL_RESOLUTION=1 \
+        "$PM_DIR/bin/bash" "$DI" -f >/dev/null 2>&1)
+}
+
 apply_patches() {
     patch_device_info_trimui "$DI"
     patch_control_txt
     patch_device_info
     patch_platform_py
     patch_mod_trimui
+    warm_device_info_cache
 }
 
 set_controller_layout() { # $1 = nintendo|xbox
@@ -297,15 +310,14 @@ sync_port_artwork() {
 
 # ---- run pugwash ----------------------------------------------------------
 
-apply_patches
 # pugwash's TrimUI XBOX FIXER swaps A/B and X/Y on top of the pad map, so it
 # gets the opposite map: Xbox map -> right button confirms (Nintendo),
 # Nintendo map -> bottom button confirms (Xbox).
 . "$SYSTEM_PATH/bin/nx_button_layout.sh"
 if [ "$NX_BUTTON_LAYOUT" = "xbox" ]; then
-    set_controller_layout nintendo
+    PUGWASH_LAYOUT=nintendo
 else
-    set_controller_layout xbox
+    PUGWASH_LAYOUT=xbox
 fi
 
 export LD_LIBRARY_PATH="$SYSTEM_PATH/lib:$PM_DIR/lib:/usr/trimui/lib:/usr/lib:$LD_LIBRARY_PATH"
@@ -324,9 +336,11 @@ cd "$PM_DIR" || exit 1
 rm -f .pugwash-reboot
 RETRIES=0
 while true; do
-    # platform.py before EVERY run: covers first_run (pylibs just
-    # extracted) and a self-update.
-    patch_platform_py
+    # Patches and pad map before EVERY run: first_run (pylibs just
+    # extracted) and a self-update replace platform.py, device_info.txt and
+    # gamecontrollerdb.txt, and pugwash restarts itself straight after.
+    apply_patches
+    set_controller_layout "$PUGWASH_LAYOUT"
     # The splash drew its frame; it must not keep painting over pugwash.
     # -9: show2 never drains SDL events, so SIGTERM is swallowed (see MinUI.pak/launch.sh)
     killall -9 show2.elf >/dev/null 2>&1

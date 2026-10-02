@@ -11,7 +11,8 @@
 #   - NxRedux patches re-applied BEFORE and AFTER every run (pugwash's
 #     first_run / self-update overwrite them): control.txt, device_info.txt
 #     and hardware.py (Smart Pro S + Brick Pro detection), platform.py
-#     (paths + portmaster_install disabled), mod_TrimUI.txt (HOME)
+#     (paths + portmaster_install disabled), mod_TrimUI.txt (HOME),
+#     pugwash (800x600 UI on the Brick / Brick Pro)
 #   - pugwash loop: honours .pugwash-reboot, retries once when a fresh
 #     pylibs extraction crashed it before the patches landed
 #   - pad map while pugwash runs is the opposite of the Button layout
@@ -223,12 +224,37 @@ patch_device_info_trimui() { # $1 = device_info.txt
     rm -f "${1%/*}"/device_info_trimui_*.env
 }
 
+# pugwash runs device_info.txt itself when no probe cache exists, but gives
+# it 5 s; the 2026.09.19+ probe takes ~17 s on the Smart Pro S, so pugwash
+# gave up and ran as "unknown" (no Xbox A/B fix). Write the cache here first;
+# later runs read it in well under a second.
+warm_device_info_cache() {
+    [ -d /usr/trimui ] || return 0
+    grep -q 'NX Redux: TrimUI firmware' "$DI" 2>/dev/null || return 0
+    ls "$PM_DIR"/device_info_trimui_*.env >/dev/null 2>&1 && return 0
+    (cd "$PM_DIR" && controlfolder="$PM_DIR" NO_SDL_RESOLUTION=1 \
+        "$PM_DIR/bin/bash" "$DI" -f >/dev/null 2>&1)
+}
+
+# The theme's font sizes are pixels for a 640x480 screen and pugwash draws at
+# the native resolution, so on the Brick's 1024x768 3.2" panel text came out
+# at 62% of the intended size. Draw at 800x600 and let SDL scale the frame:
+# 1.28x larger text and layout, still clear of the overlaps the theme has at
+# 640x480 (long Runtime lines run into the port description).
+patch_pugwash_scale() {
+    case "$DEVICE" in brick|brickpro) ;; *) return 0 ;; esac
+    grep -q 'NX Redux: UI scale' "$PM_DIR/pugwash" 2>/dev/null && return 0
+    sed -i 's|^\( *\)renderer = sdl2.ext.Renderer(self.window, flags=sdl2.SDL_RENDERER_ACCELERATED)$|&\n\1renderer.logical_size = (800, 600)  # NX Redux: UI scale|' "$PM_DIR/pugwash"
+}
+
 apply_patches() {
     patch_device_info_trimui "$DI"
     patch_control_txt
     patch_device_info
     patch_platform_py
     patch_mod_trimui
+    patch_pugwash_scale
+    warm_device_info_cache
 }
 
 set_controller_layout() { # $1 = nintendo|xbox
@@ -297,15 +323,14 @@ sync_port_artwork() {
 
 # ---- run pugwash ----------------------------------------------------------
 
-apply_patches
 # pugwash's TrimUI XBOX FIXER swaps A/B and X/Y on top of the pad map, so it
 # gets the opposite map: Xbox map -> right button confirms (Nintendo),
 # Nintendo map -> bottom button confirms (Xbox).
 . "$SYSTEM_PATH/bin/nx_button_layout.sh"
 if [ "$NX_BUTTON_LAYOUT" = "xbox" ]; then
-    set_controller_layout nintendo
+    PUGWASH_LAYOUT=nintendo
 else
-    set_controller_layout xbox
+    PUGWASH_LAYOUT=xbox
 fi
 
 export LD_LIBRARY_PATH="$SYSTEM_PATH/lib:$PM_DIR/lib:/usr/trimui/lib:/usr/lib:$LD_LIBRARY_PATH"
@@ -324,9 +349,11 @@ cd "$PM_DIR" || exit 1
 rm -f .pugwash-reboot
 RETRIES=0
 while true; do
-    # platform.py before EVERY run: covers first_run (pylibs just
-    # extracted) and a self-update.
-    patch_platform_py
+    # Patches and pad map before EVERY run: first_run (pylibs just
+    # extracted) and a self-update replace platform.py, device_info.txt and
+    # gamecontrollerdb.txt, and pugwash restarts itself straight after.
+    apply_patches
+    set_controller_layout "$PUGWASH_LAYOUT"
     # The splash drew its frame; it must not keep painting over pugwash.
     # -9: show2 never drains SDL events, so SIGTERM is swallowed (see MinUI.pak/launch.sh)
     killall -9 show2.elf >/dev/null 2>&1

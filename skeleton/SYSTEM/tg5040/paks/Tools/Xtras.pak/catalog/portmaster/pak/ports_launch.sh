@@ -28,6 +28,14 @@ export HOME="$SHARED_USERDATA_PATH/PORTS-portmaster"
 # bind_directories their save/config folders. Port scripts find PortMaster via
 # their fallback path, rewritten to $EMU_DIR before launch (see main).
 export XDG_DATA_HOME="$HOME/.local/share"
+# Port scripts take $XDG_DATA_HOME/PortMaster over their fallback whenever
+# that directory exists, so a stray one (some cards carry an empty leftover)
+# hides the real install and the port dies sourcing control.txt. Remove it
+# when empty; a non-empty one without control.txt is left alone and logged.
+if [ -d "$XDG_DATA_HOME/PortMaster" ] && [ ! -f "$XDG_DATA_HOME/PortMaster/control.txt" ]; then
+    rmdir "$XDG_DATA_HOME/PortMaster" 2>/dev/null \
+        || echo "warning: $XDG_DATA_HOME/PortMaster has no control.txt; port scripts will use it over $EMU_DIR"
+fi
 
 [ -z "$1" ] && exit 1
 ROM_PATH="$1"
