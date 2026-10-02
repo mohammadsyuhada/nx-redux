@@ -499,6 +499,66 @@ current**, so `slots[current].root == NULL` always and no pointer is shared betw
 
 ---
 
+## Refactor wave plan (planned 2026-10-03 03:14, zero behaviour change, base 44d9f5f1 + the Ports art fix)
+
+**Verdicts.** DO: C-2h helpers (tween/units/displayName/selectedIndex/fnv/kinds/longestWord/collection-name shrink/
+window clamp); C-2i shared native-size macros; T2-11 reload mask; ListWindow model (biggest test gap);
+`GameList_runContextAction` split; `Recents_firstRom`; InfoBand text-cache fix (it does use the shared LRU).
+DEFER: tile kind in `Directory_index` (would stat folder games up front); `fitFont`/`carouselToolFont` merge (different
+floors → font sizes would change); C-2i draw-context struct (both risks already closed by C-2c and the wrap-and-restore
+structure; real version needs context variants of ~8 helpers + notification.c); `ListIdentity` (8 sites key on
+different field sets); generic worker (CollCount/HomeStats/HomeArt have diverged); render-function splits (untested
+visual churn); shared LRU (C-1 already fixed by `HomeArt_lastGen`).
+
+**Waves.** W1 parallel: C1, A, E1, F, G, D1. W2 parallel: C2a, C2b (need C1; C2a needs A). W3: D2 (needs C2b, D1,
+E1). W4: H (needs D2).
+
+- **C1 ListWindow model** — new `nextui/list_window.c/.h`, `tests/test_list_window.c`, run_tests.sh, Makefile.
+  `fromTop/toBottom/selectAtTop/reveal/reload/step(may_wrap)/page`; each body a verbatim copy of the inline block it
+  replaces; test carries pasted `legacy_*` copies and checks every (total 0..12, rows 1..8, sel, window) + named cases
+  (wrap both ways, stop-at-edge while held, page at ends/mid, letter jump, reload clamp keep>n / n<rows / n=0).
+- **A C-2h helpers** — new `view_common.h` (Tween, animationsOn, tweenProgress/Start/Tick, pxPerDp/pxPerSp/barPx/
+  BAR_DP, View_displayName, View_selectedIndex, View_fnv/fnvStr with NULL→"\xff" Grid rule); rowview_shared.h includes
+  it; byte-identical copies removed from gridview.c (48, 51-54, 78-102, 121-127, 141-146, 188-192, 271-280), home.c
+  (118-121, 138-171, 413-417), rowview.c (59, 177-197, 207-209, 316-321, 368-372), stackview.c (85-90). Reconciled:
+  home.c `fnvStr` hashes NULL as "" → keep a 1-line local wrapper (stamps unchanged); content.c `fnv1a64` and
+  placeholder_art.c `fnv` untouched (persisted hashes); Grid's kinds cache dropped for `RowView_syncKinds/kindFor`
+  (same body, same reset key (serial, generation, n); remove Grid's `free(kinds)`); `Tiles_longestWord` with rowview's
+  rules (space+tab split; equivalent for any FAT/exFAT name); `Tiles_collNameSp(name, start, count_sp, avail)` for the
+  two shrink loops. No host test (SDL) → both builds + device pixel check.
+- **E1 native-size macros** — defines.h `NATIVE1(a)`, `NX_NATIVE_DP(x)` (= TAB_DP's exact expression
+  `(int)(x*NATIVE_SCALE*30/42+0.5)`), `NX_NATIVE_SP(x)`; sites ui_buttonhintbar.c 37/43/47/68/71/78, api.c 2261 +
+  font opens 459/479/2245-2247, ui_menubar.c 16. Same operand order (do NOT fold into pxPerDp: rounds differently).
+  api.c is shared → every app rebuilt; check hint bar/status group/titles at native + non-native scale.
+- **F InfoBand** — infoband.c:68 `drawShadowedText` → `GFX_renderText` + free (baked into cached surfaces by tiles,
+  Home, rowview; only per-frame caller is the Game Switcher, already uncached).
+- **G Recents_firstRom** — recents.c/h; `Home_continueEntry` (homeart.c 647-660) becomes a wrapper; same pick (first
+  available non-.pak recent).
+- **D1 reload plan model** — menutabs_model: `MENU_RELOAD_{PINS,RECENTS,ROMS,COLLECTIONS,TOOLS,ALL}`,
+  `MenuReloadPlan MenuTabs_reloadPlan(unsigned what)` {validate_pins, load_recents, check_consoles,
+  check_collections, check_all, stale_tabs}; tests.
+- **C2a** — view clamps (gridview `selectTile` 760-768, rowview 1985-1990, stackview `selectItem` 376-381) →
+  `selectAtTop`; launcher.c `pathToStack` 443-446/496-497/502-503 + `openDirectory` 562-563 → `fromTop`; `loadLast`
+  714-720/778-784 → `selectAtTop` (old code never clamped start at 0; unreachable with same row count).
+- **C2b** — gamelist.c `reloadDirectoryAt` 230-243 + menutabs.c `MenuTabs_reload` 276-284 → `reload`;
+  `doRenameCollection` 891-899 → `reveal`; `contentToBottom` 1517-1519 → `toBottom`; `GameList_handleInput` up/down
+  1743-1768 → `step(may_wrap = PAD_justPressed)`, pages 1771-1797 → `page`, letter jumps 1815-1819/1830-1834 →
+  `selectAtTop`.
+- **D2 reload mask applied** — `MenuTabs_reload(int keep, unsigned what)`: generation++ always; drop only
+  `stale_tabs` slots; `MenuTabs_init` work split behind `static MenuTabInputs last_in`; if next==current and not stale,
+  keep stack[0] but re-run `ListWindow_reload` (today's rebuild re-centres); `Home_reset()` always. Masks: Refresh
+  ROMs ALL (1181); Pin/Unpin PINS (1193/1203); Delete ROM ALL (1260); Rename ROM PINS|RECENTS (1272); Rename/Delete
+  collection PINS|COLLECTIONS (887/925). Invariants: only a masked tab's root can change; visibility inputs outside the
+  mask don't change; without RECENTS recent.txt/CHANGE_DISC_PATH untouched; every mask includes PINS so
+  `Shortcuts_validate` always runs; a kept parked root == one rebuilt from its hint. Also `TAB_DP` → `NX_NATIVE_DP`
+  (menutabs.c:420), `NATIVE_SCALE*…` → `NATIVE1` (666/680/760).
+- **H** — `GameList_runContextAction` 1169-1365 → one static per case (`ctxRefresh/Pin/Unpin/DeleteRom/RenameRom/
+  AddToCollection/Netplay/EmuOptions/FetchArt`); `break` → `return`; switch + epilogue stay.
+- **Already done / no longer applies:** refactor items 5, 8 (consoleCount), C-2g, buildRoot windowing, C-2j,
+  prefetch out of render, C-1, item 9; C-2i's two stated risks.
+
+---
+
 ## Cache keying notes (per-list serial from 44ced9c0) — verified OK
 - The serial is assigned inside `Directory_new` (`content.c:362`), so every rebuild path (reload, tab
   switch, `pathToStack`, push) gets a new one automatically; no path can forget to bump it.
@@ -590,6 +650,40 @@ current**, so `slots[current].root == NULL` always and no pointer is shared betw
 ---
 
 ## Execution ledger
+
+**2026-10-03 03:35 — REFACTOR WAVE IMPLEMENTED, UNCOMMITTED (27 files, +647/−724 incl. the Ports art fix).** All
+chunks landed as planned; host suite 36 green (new `test_list_window` = 620,828 legacy-equivalence comparisons,
+`test_menutabs_model` +4 reload-plan cases, `test_art_path`). Chunk notes beyond the plan:
+- A: Grid now calls `RowView_syncKinds(n)` at the top of `syncList` every frame (the cache is shared, so it must be
+  keyed to Grid's list — a no-op when the key matches); shared shrink loop stops on a NULL font (tiles' rule; same as
+  rowview whenever avail ≥ 0, always true); `Tiles_longestWord` vs Grid's old 255-byte copy only differ for multibyte
+  names > 255 bytes. `view_common.h`: unused `api.h` include dropped (orchestrator).
+- E1: `NATIVE1(a)` is `((NATIVE_SCALE) * (a))` to keep the sites' operand order. 16 apps compile api.c.
+- C1/C2: only reconciled difference is `loadLast` clamping `start` at 0 where the old code could go negative
+  (unreachable with the same row count). Not modelled, left inline: root UP-at-row-0 → tab row, `openDirectory`'s
+  restore branch, `MenuTabs_clampWindow`, `pushToolsOverTab`.
+- D2: `MenuTabs_reload(keep, what)`; `refreshInputs(plan)` behind `static MenuTabInputs last_in`; a current root is
+  kept only if next==current ∧ not stale ∧ path matches ∧ (Consoles: `root_gen == Content_libraryGen()`), then
+  `ListWindow_reload` re-windows it; `dropSlot(next)` before a rebuild; row count read after `current = next`.
+  Masks: Refresh/Delete ROM ALL; Pin/Unpin PINS; Rename ROM PINS|RECENTS; Rename/Delete collection PINS|COLLECTIONS.
+  Theoretical gap noted: a ROM file named exactly like a collection (`X.txt`) would alias that collection's row.
+- H: ids 2/40/41 left inline (single calls); three `break`→`return`; all helpers `void`, no shared state.
+Device: Brick full OTA 03:39 (every app rebuilt, 0 errors), harness 03:43 GREEN (elf md5 cc05eb5c… = local build,
+`stats: cache hit`, 12 tab switches = 0 I/O, Settings open/quit via B with the rebuilt api.c, no crash); Home/Tools/
+Settings screenshots match the pre-refactor ones. Manual checks still owed (see each chunk's list above): held D-pad
+edge/wrap, L/R page, letter jump, collection rename highlight, every context action once, Grid↔Carousel kinds, Vertical
+stacks. SPS off adb → not updated since the Tier-2 build.
+
+**2026-10-03 03:13 — Ports art regression (user report, not from the review), FIXED, UNCOMMITTED:** commit d28e69cd
+("retire the mix and game-art settings") replaced `ROM_displayArtPath(path, CFG_getEffectiveArtType(), fallback_to_mix
+= true, …)` with hard-coded `ART_TYPE_SCREENSHOT, false` in the List thumbnail (gamelist.c), `entryHasArt` and HomeArt's
+`screenshotFor`, so art living only at the root `.media/<name>.png` (PortMaster's convention, hand-made art, older
+scrapes) was never found — Ports showed placeholders and the Home Continue card for a Port had no picture. Fix: new
+`ROM_findScreenshot()` in common/utils.c/h (`.media/screenshot/<name>.png`, else root `.media/<name>.png`, else miss
+with out = the screenshot path) used by those three sites; box art stays strict (`.media/boxart/` only, placeholder box
+otherwise). Host test `test_art_path.c` (utils.c compiled on the host with the tg5040 platform include;
+`-Wno-deprecated-declarations` for macOS sprintf). Brick-verified by screenshot (StardewValley card has its art);
+SPS pending (off adb).
 
 **2026-10-03 02:56 — BRICK (tg5040, `5c000c8997414781d1d`) DEVICE-VERIFIED by the automated harness** after the full
 OTA (`ANDROID_SERIAL=… make deploy DEVICE=brick`, MinUI-brick.zip 251,450,205 B; card was on main dbfdc9fc → now
