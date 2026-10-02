@@ -203,10 +203,11 @@ static void navigation(void) {
 // The game-list side arrangement (§8f.4, landscape family): the doc's worked tables, then both screens.
 static void side_geometry(void) {
 	StackSide d;
-	// 960 × 432 (body 344): Backdrop 150 × 200, x 307, caption 414 … 24 (522); Carousel 268 × 189 with 48 dp side margins
-	// (x 182), caption 348 (564)
+	// 960 × 432 (body 344), both with 48 dp side margins: Backdrop 150 × 200, x 123, caption 230 (682); Carousel
+	// 268 × 189, x 182, caption 348 (564)
 	StackSizes s = Stack_gameSizes(STACK_GAME_BACKDROP, 344, 960, &d);
-	assert(d.item_w == 150 && d.item_h == 200 && d.x == 307 && d.cap_x == 414 && d.cap_w == 522 && !d.guarded);
+	assert(d.item_w == 150 && d.item_h == 200 && d.x == 123 && d.cap_x == 230 && d.cap_w == 682 && d.margin == 48);
+	assert(!d.guarded);
 	assert(near(s.scale, 0.5f, 1e-6f) && s.gap == 16 && s.cap == 0 && s.item_w == 150 && s.item_h == 200);
 	assert(near(344 / 2.0f - s.item_h / 2 - s.gap, 56, 1e-4f)); // neighbour 1's peek, of its 100
 	s = Stack_gameSizes(STACK_GAME_CAROUSEL, 344, 960, &d);
@@ -214,11 +215,11 @@ static void side_geometry(void) {
 	assert(near(s.scale, 0.62f, 1e-6f) && s.gap == 16 && s.cap == 0);
 	// 840 × 336 (body 248) and 933 × 704 (body 616: the 320 and 240 caps)
 	Stack_gameSizes(STACK_GAME_BACKDROP, 248, 840, &d);
-	assert(d.item_w == 108 && d.item_h == 144 && d.x == 269 && d.cap_x == 355 && d.cap_w == 461);
+	assert(d.item_w == 108 && d.item_h == 144 && d.x == 102 && d.cap_x == 188 && d.cap_w == 604);
 	Stack_gameSizes(STACK_GAME_CAROUSEL, 248, 840, &d);
 	assert(d.item_w == 193 && d.item_h == 136 && near(d.cap_x, 273, 1e-4f) && near(d.cap_w, 519, 1e-4f));
 	Stack_gameSizes(STACK_GAME_BACKDROP, 616, 933, &d);
-	assert(d.item_w == 240 && d.item_h == 320 && d.x == 299 && d.cap_x == 451 && d.cap_w == 458);
+	assert(d.item_w == 240 && d.item_h == 320 && d.x == 168 && d.cap_x == 320 && d.cap_w == 565);
 	Stack_gameSizes(STACK_GAME_CAROUSEL, 616, 933, &d);
 	assert(d.item_w == 340 && d.item_h == 240 && d.cap_x == 420 && d.cap_w == 465);
 	// want: the clamps
@@ -227,17 +228,19 @@ static void side_geometry(void) {
 	assert(near(Stack_gameWant(STACK_GAME_CAROUSEL, 100), 100, 1e-4f));
 	assert(near(Stack_gameWant(STACK_GAME_CAROUSEL, 1000), 240, 1e-4f));
 
-	// Brick (body 280 dp, 477.9 dp wide). Backdrop: want 162.4 → 122 × 162, x 153, caption 246 (207.9 dp, 43.5%)
+	// Brick (body 280 dp, 477.9 dp wide). Backdrop: want 162.4 → 122 × 162, 48 dp side margins: x 109, caption 202
+	// (227.9 dp, 47.7%)
 	s = Stack_gameSizes(STACK_GAME_BACKDROP, BRICK_BODY, BRICK_W, &d);
 	assert(near(Stack_gameWant(STACK_GAME_BACKDROP, BRICK_BODY), 162.4f, 1e-3f));
-	assert(d.item_w == 122 && d.item_h == 162 && d.x == 153 && d.cap_x == 246 && !d.guarded);
-	assert(near(d.cap_w, 207.87f, 0.01f) && d.cap_w >= 0.4f * BRICK_W);
-	// in px: 261 × 347 (neighbour 131 × 174), x 328, caption 527 … 973 (446 px)
+	assert(d.item_w == 122 && d.item_h == 162 && d.x == 109 && d.cap_x == 202 && d.margin == 48 && !d.guarded);
+	assert(near(d.cap_w, 227.87f, 0.01f) && d.cap_w >= 0.4f * BRICK_W);
+	// in px: 261 × 347 (neighbour 131 × 174), x 234, caption 433 … 921 (488 px)
 	assert(px(d.item_w, BRICK_PD) == 261 && px(d.item_h, BRICK_PD) == 347);
-	// the caption's left edge from the drawn stack (px): 328 + 261/2 + 32 dp (68.57 px) = 527.07 → 527
-	assert(Stack_capXPx(328, 261, BRICK_PD) == 527);
+	// the caption's left edge from the drawn stack (px): 234 + 261/2 + 32 dp (68.57 px) = 433.07 → 433
+	assert(Stack_capXPx(234, 261, BRICK_PD) == 433);
 	assert(px(d.item_w * s.scale, BRICK_PD) == 131 && px(d.item_h * s.scale, BRICK_PD) == 174);
-	assert(px(d.x, BRICK_PD) == 328 && px(d.cap_x, BRICK_PD) == 527 && 1024 - px(24, BRICK_PD) == 973);
+	assert(px(d.x, BRICK_PD) == 234 && px(d.cap_x, BRICK_PD) == 433 && 1024 - px(d.margin, BRICK_PD) == 921);
+	assert(px(d.x - d.item_w / 2, BRICK_PD) == px(d.margin, BRICK_PD)); // left margin == the caption's right margin
 	// Carousel: want 154 → 218 × 154 is wider than R − gutter (206.7): the guard takes it to 206 × 145, its side
 	// margins only 24.36 dp each (48 would take the caption under 40%): x 127.36, caption 262.36 (exactly 40%)
 	s = Stack_gameSizes(STACK_GAME_CAROUSEL, BRICK_BODY, BRICK_W, &d);
@@ -251,13 +254,15 @@ static void side_geometry(void) {
 	assert(px(d.x, BRICK_PD) == 273 && px(d.cap_x, BRICK_PD) == 562 && 973 - px(d.cap_x, BRICK_PD) == 411);
 	assert(Stack_capXPx(274, 441, BRICK_PD) == 563); // 274 + 220.5 + 68.57
 
-	// SPS (body 425.6 dp, 896 dp wide). Backdrop: want 246.85 → 185 × 247, x 287, caption 411.5 (460.5 dp, 51%)
+	// SPS (body 425.6 dp, 896 dp wide). Backdrop: want 246.85 → 185 × 247, 48 dp side margins: x 140.5, caption 265
+	// (583 dp, 65%)
 	s = Stack_gameSizes(STACK_GAME_BACKDROP, SPS_BODY, SPS_W, &d);
-	assert(d.item_w == 185 && d.item_h == 247 && d.x == 287 && near(d.cap_x, 411.5f, 1e-3f) && !d.guarded);
-	assert(near(d.cap_w, 460.5f, 0.01f));
+	assert(d.item_w == 185 && d.item_h == 247 && near(d.x, 140.5f, 1e-3f) && d.cap_x == 265 && d.margin == 48);
+	assert(near(d.cap_w, 583, 0.01f) && !d.guarded);
 	assert(px(d.item_w, SPS_PD) == 264 && px(d.item_h, SPS_PD) == 353);
-	assert(px(d.x, SPS_PD) == 410 && px(d.cap_x, SPS_PD) == 588 && 1280 - px(24, SPS_PD) == 1246);
-	assert(Stack_capXPx(410, 264, SPS_PD) == 588); // 410 + 132 + 45.71 = 587.71
+	assert(px(d.x, SPS_PD) == 201 && px(d.cap_x, SPS_PD) == 379 && 1280 - px(d.margin, SPS_PD) == 1211);
+	assert(px(d.x - d.item_w / 2, SPS_PD) == px(d.margin, SPS_PD)); // left margin == the caption's right margin
+	assert(Stack_capXPx(201, 264, SPS_PD) == 379);					// 201 + 132 + 45.71 = 378.71
 	// Carousel: want 234.08 → 234, w = 234 · 340/240 = 331.5 → 332 (rounded up, in double), 48 dp side margins
 	// (x 214, was 287 at 0.32 of the width), caption 412 (436 dp, 49%)
 	s = Stack_gameSizes(STACK_GAME_CAROUSEL, SPS_BODY, SPS_W, &d);

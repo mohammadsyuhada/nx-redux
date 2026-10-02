@@ -68,6 +68,20 @@ static float clampf(float v, float lo, float hi) {
 	return v < lo ? lo : (v > hi ? hi : v);
 }
 
+void Stack_equalMargins(StackSide* sd, float width) {
+	// the stack's left = the caption's right, 48 dp where the caption keeps 40% of the width with it, less (never
+	// under the 24 dp gutter) where it wouldn't
+	double room = (double)width - sd->item_w - STACK_SIDE_CAP_GAP_DP - STACK_SIDE_CAP_MIN_SHARE * width;
+	double m = room / 2 < STACK_CAROUSEL_MARGIN_DP ? room / 2 : STACK_CAROUSEL_MARGIN_DP;
+	if (m < STACK_GUTTER_DP)
+		m = STACK_GUTTER_DP;
+	double x = m + sd->item_w / 2.0;
+	sd->x = (float)x;
+	sd->cap_x = (float)(x + sd->item_w / 2.0 + STACK_SIDE_CAP_GAP_DP);
+	sd->cap_w = (float)(width - m - sd->cap_x);
+	sd->margin = (float)m;
+}
+
 float Stack_gameWant(StackKind k, float body_h) {
 	if (k == STACK_GAME_CAROUSEL)
 		return clampf(0.55f * body_h, 100, 240);
@@ -77,19 +91,7 @@ float Stack_gameWant(StackKind k, float body_h) {
 StackSizes Stack_gameSizes(StackKind k, float body_h, float width, StackSide* side) {
 	bool carousel = k == STACK_GAME_CAROUSEL;
 	StackSide sd = Stack_sideGeom(Stack_gameWant(k, body_h), carousel ? 340 : 3, carousel ? 240 : 4, width);
-	if (carousel) {
-		// equal side margins: the stack's left = the caption's right, 48 dp where the caption keeps 40% of the width
-		// with it, less (never under the 24 dp gutter) where it wouldn't
-		double room = (double)width - sd.item_w - STACK_SIDE_CAP_GAP_DP - STACK_SIDE_CAP_MIN_SHARE * width;
-		double m = room / 2 < STACK_CAROUSEL_MARGIN_DP ? room / 2 : STACK_CAROUSEL_MARGIN_DP;
-		if (m < STACK_GUTTER_DP)
-			m = STACK_GUTTER_DP;
-		double x = m + sd.item_w / 2.0;
-		sd.x = (float)x;
-		sd.cap_x = (float)(x + sd.item_w / 2.0 + STACK_SIDE_CAP_GAP_DP);
-		sd.cap_w = (float)(width - m - sd.cap_x);
-		sd.margin = (float)m;
-	}
+	Stack_equalMargins(&sd, width);
 	if (side)
 		*side = sd;
 	StackSizes s = {sd.item_w, sd.item_h, carousel ? 0.62f : 0.5f, 16, 0};
