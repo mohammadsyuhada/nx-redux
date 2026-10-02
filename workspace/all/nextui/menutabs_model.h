@@ -74,4 +74,26 @@ void* MenuTabs_slotTake(MenuTabSlot* slots, MenuTabId id);
 // Empty slots[id] for a rebuild, keeping its hint. Returns the root for the caller to free (or NULL).
 void* MenuTabs_slotDrop(MenuTabSlot* slots, MenuTabId id);
 
+// What a reload re-reads (T2-11): callers pass a mask of MENU_RELOAD_* bits; MENU_RELOAD_ALL is every bit. Every
+// caller's mask includes PINS.
+enum {
+	MENU_RELOAD_PINS = 1,
+	MENU_RELOAD_RECENTS = 2,
+	MENU_RELOAD_ROMS = 4,
+	MENU_RELOAD_COLLECTIONS = 8,
+	MENU_RELOAD_TOOLS = 16,
+	MENU_RELOAD_ALL = 31
+};
+typedef struct {
+	bool validate_pins;		// PINS: re-check the pinned entries
+	bool load_recents;		// RECENTS: re-read the recents list
+	bool check_consoles;	// ROMS: re-check whether the Consoles tab has content
+	bool check_collections; // COLLECTIONS: re-check whether the Collections tab has content
+	bool check_all;			// ALL: the full visibility pass
+	unsigned stale_tabs;	// bitmask of (1u << MenuTabId) whose parked roots are out of date
+} MenuReloadPlan;
+// The reload plan for a mask of MENU_RELOAD_* bits. Tabs: PINS->Home, ROMS->Consoles, COLLECTIONS->Collections,
+// TOOLS->Tools; RECENTS marks no tab. Pure.
+MenuReloadPlan MenuTabs_reloadPlan(unsigned what);
+
 #endif

@@ -63,11 +63,9 @@ static int drawShadowedText(TTF_Font* f, SDL_Surface* dst, const char* text, SDL
 							int line_h, bool shadowed) {
 	if (!text[0])
 		return 0;
-	// the cached surface is shared: blit it as is, never change its alpha or format
-	SDL_Surface* owned = NULL;
-	SDL_Surface* surf = GFX_getCachedText(f, text, color);
-	if (!surf)
-		surf = owned = GFX_renderText(f, text, color);
+	// Rendered fresh, not from the shared text cache: callers bake the result into their own cached surfaces, and
+	// the one per-frame caller (the Game Switcher) already renders the shadow fresh every frame.
+	SDL_Surface* surf = GFX_renderText(f, text, color);
 	if (!surf)
 		return 0;
 	int ty = line_y + (line_h - surf->h) / 2;
@@ -78,8 +76,7 @@ static int drawShadowedText(TTF_Font* f, SDL_Surface* dst, const char* text, SDL
 		SDL_FreeSurface(shadow);
 	}
 	SDL_BlitSurface(surf, NULL, dst, &(SDL_Rect){x, ty});
-	if (owned)
-		SDL_FreeSurface(owned);
+	SDL_FreeSurface(surf);
 	return textWidthFor(f, text);
 }
 

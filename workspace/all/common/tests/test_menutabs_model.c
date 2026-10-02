@@ -243,6 +243,39 @@ static void slots_drop_keeps_hint(void) {
 	assert(MenuTabs_slotTake(slots, MENU_TAB_HOME) == NULL);
 }
 
+static void reload_plan_all_sets_everything(void) {
+	MenuReloadPlan p = MenuTabs_reloadPlan(MENU_RELOAD_ALL);
+	assert(p.validate_pins && p.load_recents && p.check_consoles && p.check_collections && p.check_all);
+	assert(p.stale_tabs == ((1u << MENU_TAB_HOME) | (1u << MENU_TAB_CONSOLES) | (1u << MENU_TAB_COLLECTIONS) |
+							(1u << MENU_TAB_TOOLS)));
+	assert(MENU_RELOAD_ALL == (MENU_RELOAD_PINS | MENU_RELOAD_RECENTS | MENU_RELOAD_ROMS | MENU_RELOAD_COLLECTIONS |
+							   MENU_RELOAD_TOOLS));
+}
+
+static void reload_plan_pins_marks_only_home(void) {
+	MenuReloadPlan p = MenuTabs_reloadPlan(MENU_RELOAD_PINS);
+	assert(p.validate_pins);
+	assert(!p.load_recents && !p.check_consoles && !p.check_collections && !p.check_all);
+	assert(p.stale_tabs == (1u << MENU_TAB_HOME));
+}
+
+static void reload_plan_collections_bit(void) {
+	MenuReloadPlan p = MenuTabs_reloadPlan(MENU_RELOAD_PINS | MENU_RELOAD_COLLECTIONS);
+	assert(p.validate_pins && p.check_collections);
+	assert(!p.check_consoles && !p.load_recents && !p.check_all);
+	assert(p.stale_tabs == ((1u << MENU_TAB_HOME) | (1u << MENU_TAB_COLLECTIONS)));
+	MenuReloadPlan t = MenuTabs_reloadPlan(MENU_RELOAD_PINS | MENU_RELOAD_TOOLS | MENU_RELOAD_ROMS);
+	assert(t.check_consoles && !t.check_collections && !t.check_all);
+	assert(t.stale_tabs == ((1u << MENU_TAB_HOME) | (1u << MENU_TAB_CONSOLES) | (1u << MENU_TAB_TOOLS)));
+}
+
+static void reload_plan_recents_marks_no_tab(void) {
+	MenuReloadPlan p = MenuTabs_reloadPlan(MENU_RELOAD_RECENTS);
+	assert(p.load_recents);
+	assert(!p.validate_pins && !p.check_consoles && !p.check_collections && !p.check_all);
+	assert(p.stale_tabs == 0);
+}
+
 int main(void) {
 	visible_fixed_order_and_toggles();
 	home_always_first_and_visible();
@@ -262,6 +295,10 @@ int main(void) {
 	slots_park_take_round_trip();
 	slots_park_full_returns_old();
 	slots_drop_keeps_hint();
+	reload_plan_all_sets_everything();
+	reload_plan_pins_marks_only_home();
+	reload_plan_collections_bit();
+	reload_plan_recents_marks_no_tab();
 	printf("test_menutabs_model: ok\n");
 	return 0;
 }

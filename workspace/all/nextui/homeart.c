@@ -645,16 +645,5 @@ void HomeArt_quit(void) {
 // Continue entry
 
 Entry* Home_continueEntry(void) {
-	// Recents_getEntries() hands back fresh Entries in a fresh Array; keep the first ROM, free the rest.
-	Array* entries = Recents_getEntries();
-	Entry* found = NULL;
-	for (int i = 0; i < entries->count; i++) {
-		Entry* e = entries->items[i];
-		if (!found && e->type == ENTRY_ROM) {
-			found = e;
-			entries->items[i] = NULL;
-		}
-	}
-	EntryArray_free(entries); // Entry_free skips the NULL left where `found` was
-	return found;
+	return Recents_firstRom();
 }

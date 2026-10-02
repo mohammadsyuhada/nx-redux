@@ -167,3 +167,21 @@ void* MenuTabs_slotTake(MenuTabSlot* slots, MenuTabId id) {
 void* MenuTabs_slotDrop(MenuTabSlot* slots, MenuTabId id) {
 	return MenuTabs_slotTake(slots, id); // the same move; named for what the caller means
 }
+
+MenuReloadPlan MenuTabs_reloadPlan(unsigned what) {
+	MenuReloadPlan plan = {0};
+	plan.validate_pins = (what & MENU_RELOAD_PINS) != 0;
+	plan.load_recents = (what & MENU_RELOAD_RECENTS) != 0;
+	plan.check_consoles = (what & MENU_RELOAD_ROMS) != 0;
+	plan.check_collections = (what & MENU_RELOAD_COLLECTIONS) != 0;
+	plan.check_all = (what & MENU_RELOAD_ALL) == MENU_RELOAD_ALL;
+	if (what & MENU_RELOAD_PINS)
+		plan.stale_tabs |= 1u << MENU_TAB_HOME;
+	if (what & MENU_RELOAD_ROMS)
+		plan.stale_tabs |= 1u << MENU_TAB_CONSOLES;
+	if (what & MENU_RELOAD_COLLECTIONS)
+		plan.stale_tabs |= 1u << MENU_TAB_COLLECTIONS;
+	if (what & MENU_RELOAD_TOOLS)
+		plan.stale_tabs |= 1u << MENU_TAB_TOOLS;
+	return plan;
+}
