@@ -651,6 +651,11 @@ E1). W4: H (needs D2).
 
 ## Execution ledger
 
+**2026-10-03 04:22 — USER SIGN-OFF: all manual checks done ("all test done. ok").** Tier 1 + Tier 2 + Ports art fix +
+refactor wave are committed and PUSHED to origin/main-menu-tabs (0c2c5d9a..179e1ea9, PR #139). Nothing outstanding
+from this review except the DEFERRED items listed in the refactor plan (draw-context struct, ListIdentity, generic
+worker, shared LRU, render-function splits, T2-13 Backdrop frame cost — all profiling- or payoff-gated).
+
 **2026-10-03 03:35 — REFACTOR WAVE IMPLEMENTED, UNCOMMITTED (27 files, +647/−724 incl. the Ports art fix).** All
 chunks landed as planned; host suite 36 green (new `test_list_window` = 620,828 legacy-equivalence comparisons,
 `test_menutabs_model` +4 reload-plan cases, `test_art_path`). Chunk notes beyond the plan:
