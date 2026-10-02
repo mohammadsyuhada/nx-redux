@@ -15,7 +15,7 @@ int UI_menuBarHeight(void) {
 }
 
 int UI_pageTitleBaseline(void) {
-	TTF_Font* f = UIFont_get(UI_PAGE_TITLE_SP, true);
+	TTF_Font* f = UIFont_get(UI_PAGE_TITLE_SP, false);
 	if (!f)
 		return UI_menuBarHeight();
 	// the title surface is TTF_FontHeight tall, centred in the strip (UI_renderPageTitleEx)
@@ -24,7 +24,7 @@ int UI_pageTitleBaseline(void) {
 
 int UI_pageTitleBandTop(void) {
 	int base = UI_pageTitleBaseline();
-	TTF_Font* f = UIFont_get(UI_PAGE_TITLE_SP, true);
+	TTF_Font* f = UIFont_get(UI_PAGE_TITLE_SP, false);
 	if (!f)
 		return base;
 	// the deepest descender of the title's likely letters (and the separator's bar), from the glyph metrics
@@ -96,7 +96,7 @@ static void blitTitlePiece(SDL_Surface* dst, SDL_Surface* text, int x, int y, bo
 int UI_renderPageTitleEx(SDL_Surface* dst, int x, const char* title, const char* suffix, int max_w, bool shadow) {
 	if (!dst || !title || !title[0])
 		return 0;
-	TTF_Font* f = UIFont_get(UI_PAGE_TITLE_SP, true);
+	TTF_Font* f = UIFont_get(UI_PAGE_TITLE_SP, false);
 	if (!f)
 		return 0;
 	if (max_w <= 0 || max_w > dst->w - x)

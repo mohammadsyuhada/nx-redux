@@ -7,6 +7,7 @@
 typedef struct {
 	float screen_w, body_top, body_h; // body = between the header and the hint bar
 	float tile_w, tile_h, gap, gutter;
+	float width_mul; // tile_w over the spec shape's (2 but on the Tools tab); text scales by the spec
 	int cols, n;
 	bool sliding;
 	int rows;		// the rows in use: a sliding grid 2; a still one 1 (n <= cols) or 2
@@ -14,6 +15,8 @@ typedef struct {
 	float frame_x0; // still: x of column 0 (frame centred); sliding: unused
 } GridLayout;
 void GridLayout_compute(float screen_w, float body_top, float body_h, int n, GridLayout* out);
+// The same with tiles width_mul times the spec shape's width (height unchanged).
+void GridLayout_computeWide(float screen_w, float body_top, float body_h, int n, float width_mul, GridLayout* out);
 void GridLayout_cell(const GridLayout* g, int index, int* col, int* row); // still: row-major; sliding: column-major
 int GridLayout_index(const GridLayout* g, int col, int row);			  // -1 when empty
 int GridLayout_columnCount(const GridLayout* g);						  // sliding: ceil(n/2); still: cols

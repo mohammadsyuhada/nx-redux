@@ -13,7 +13,7 @@
 #include <stdbool.h>
 
 #include "scraper_core.h"		// Scraper_variantPath
-#include "scraper_compositor.h" // Compositor_create, Compositor_createSingle
+#include "scraper_compositor.h" // Compositor_createSingle
 
 static int failures = 0;
 #define CHECK(cond, msg)                \
@@ -89,12 +89,6 @@ int main(int argc, char** argv) {
 	CHECK(single_missing == NULL, "createSingle nonexistent -> NULL");
 	if (single_missing)
 		SDL_FreeSurface(single_missing);
-
-	// --- 3. Mix compositor unchanged (always the padded 640x480 canvas) ---
-	SDL_Surface* mix = Compositor_create(land, NULL, NULL);
-	CHECK(mix && mix->w == 640 && mix->h == 480, "Compositor_create -> 640x480");
-	if (mix)
-		SDL_FreeSurface(mix);
 
 	printf("%s\n", failures ? "FAILED" : "ALL PASSED");
 	return failures ? 1 : 0;

@@ -3,6 +3,7 @@
 // screen live here; nextui.c only dispatches to it. (split from nextui.c)
 
 #include "gamelist.h"
+#include "homeart.h"
 
 #include "api.h"
 #include "config.h"
@@ -156,13 +157,6 @@ static void resolveAndLoadBackground(Entry* entry, const char* rompath,
 	if (entry && (entry->type == ENTRY_DIR || entry->type == ENTRY_ROM) &&
 		Shortcuts_exists(entry->path + strlen(SDCARD_PATH))) {
 		cmpPath = entry->path;
-	} else if (entry && (entry->type == ENTRY_DIR || entry->type == ENTRY_ROM) &&
-			   CFG_getRomsUseFolderBackground()) {
-		cmpPath = entry->type == ENTRY_DIR ? entry->path : rompath;
-		snprintf(bgPath, sizeof(bgPath), "%s/.media/%s.png", cmpPath,
-				 entry->type == ENTRY_DIR ? "bg" : "bglist");
-		if (!exists(bgPath))
-			strncpy(bgPath, defaultBgPath, sizeof(bgPath) - 1);
 	} else if (entry && entry->type == ENTRY_PAK && suffixMatch(".pak", entry->path)) {
 		cmpPath = entry->path;
 		snprintf(bgPath, sizeof(bgPath), "%s/.media/%s/bg.png", TOOLS_PATH,
@@ -302,6 +296,16 @@ static bool entryArtInfo(Entry* entry, char* rom_to_hash, char* out_png, char* t
 	// where the list looks for it.
 	ROM_mediaArtPath(entry->path, out_png, MAX_PATH);
 	return true;
+}
+
+// A game has scraped art: its screenshot or its box art (.media/screenshot/, .media/boxart/).
+static bool entryHasArt(const char* path) {
+	char p[MAX_PATH];
+	ROM_displayArtPath(path, ART_TYPE_SCREENSHOT, false, p, sizeof(p));
+	if (exists(p))
+		return true;
+	ROM_displayArtPath(path, ART_TYPE_BOXART, false, p, sizeof(p));
+	return exists(p);
 }
 
 // True when `path` is the folder-named .cue/.m3u of its parent dir (basename
@@ -1038,6 +1042,7 @@ typedef struct {
 	unsigned long result_until;
 	const char* title;
 	const char* out_png;
+	const char* rom; // the entry's path: HomeArt's key for its pictures
 } ArtFetchModalCtx;
 
 static void artFetchModal_render(SDL_Surface* screen, void* vctx) {
@@ -1048,7 +1053,7 @@ static void artFetchModal_render(SDL_Surface* screen, void* vctx) {
 			sub = "Searching...";
 		else if (strcmp(ctx->stage, "downloading") == 0)
 			sub = "Downloading...";
-		else if (strcmp(ctx->stage, "compositing") == 0)
+		else if (strcmp(ctx->stage, "saving") == 0)
 			sub = "Adding art...";
 		else
 			sub = "Starting...";
@@ -1072,8 +1077,16 @@ static int artFetchModal_handle(void* vctx) {
 				*nl = '\0';
 
 			if (strcmp(status, "done") == 0) {
+				// the List's thumbnails (by its art type: the mix path, or the screenshot or box art) and the
+				// Carousel, Grid and Backdrop pictures (HomeArt, which may hold a placeholder or a miss for it)
+				char variant[MAX_PATH];
 				thumbCacheInvalidate(ctx->out_png);
-				ctx->result = "Box art added";
+				ROM_displayArtPath(ctx->rom, ART_TYPE_SCREENSHOT, false, variant, sizeof(variant));
+				thumbCacheInvalidate(variant);
+				ROM_displayArtPath(ctx->rom, ART_TYPE_BOXART, false, variant, sizeof(variant));
+				thumbCacheInvalidate(variant);
+				HomeArt_forget(ctx->rom);
+				ctx->result = "Artwork added";
 			} else if (strcmp(status, "notfound") == 0) {
 				ctx->result = "No art found";
 			} else if (strcmp(status, "error") == 0) {
@@ -1101,7 +1114,7 @@ static int artFetchModal_handle(void* vctx) {
 // the game list reloads the new art when the modal closes (nextui.c marks the
 // list dirty after runContextAction). Mirrors the blocking-modal idiom used by
 // Delete/Rename in this same dispatcher.
-static void artFetchModal(const char* game_name, const char* out_png) {
+static void artFetchModal(const char* game_name, const char* rom, const char* out_png) {
 	char title[256];
 	artFetchTitle(game_name, title, sizeof(title));
 	ArtFetchModalCtx ctx = {
@@ -1109,6 +1122,7 @@ static void artFetchModal(const char* game_name, const char* out_png) {
 		.stage = "starting",
 		.title = title,
 		.out_png = out_png,
+		.rom = rom,
 	};
 	UI_ModalOpts opts = {
 		.screen = screen,
@@ -1304,7 +1318,7 @@ void GameList_runContextAction(int id) {
 			}
 		}
 		break;
-	case 37: // Fetch Box Art
+	case 37: // Fetch Artwork
 		if (entry) {
 			char af_rom[MAX_PATH], af_out[MAX_PATH], af_tag[MAX_PATH];
 			if (!entryArtInfo(entry, af_rom, af_out, af_tag))
@@ -1315,7 +1329,7 @@ void GameList_runContextAction(int id) {
 			}
 			putFile(ARTFETCH_STATUS_PATH, "starting");
 			openArtFetch(af_rom, af_out, af_tag, ARTFETCH_STATUS_PATH);
-			artFetchModal(entry->name, af_out); // blocking modal until done/cancel/timeout
+			artFetchModal(entry->name, entry->path, af_out); // blocking modal until done/cancel/timeout
 		}
 		break;
 	default:
@@ -1396,11 +1410,11 @@ static void romItems(Entry* entry, bool allow_pin, ContextMenuItem* items, int* 
 		// shared launch path the Y handler documents.
 		if (entryEmuOptionsCapable(entry))
 			addItem(items, idx, "Emulator Options", 36);
-		// the fetched .media mix only shows in the List style, so the item is offered only there (never on Home)
+		// offered (in any style, never on Home) while the game has neither a screenshot nor a box art: the scraper
+		// saves both (no mix composite any more)
 		char af_rom[MAX_PATH], af_out[MAX_PATH], af_tag[MAX_PATH];
-		if (!Home_active() && GameList_currentStyle() == MENU_STYLE_LIST &&
-			entryArtInfo(entry, af_rom, af_out, af_tag) && !exists(af_out))
-			addItem(items, idx, "Fetch Box Art", 37);
+		if (!Home_active() && entryArtInfo(entry, af_rom, af_out, af_tag) && !entryHasArt(entry->path))
+			addItem(items, idx, "Fetch Artwork", 37);
 	}
 }
 
@@ -2177,28 +2191,15 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		}
 	} else if (total > 0) {
 		list_art_cleared = false;
-		if (CFG_getShowGameArt()) {
-			char thumbpath[1024];
-			// The background style shows the screenshot or nothing: a mix
-			// composite behind the list is the look it exists to replace.
-			ROM_displayArtPath(entry->path, CFG_getEffectiveArtType(),
-							   CFG_getGameArtStyle() != ART_STYLE_BACKGROUND,
-							   thumbpath, sizeof(thumbpath));
-			had_thumb = startLoadThumb(thumbpath);
-			// "Game art width" reserves a column for the thumbnail style only.
-			// The background style paints the art behind the list, so the title
-			// runs the full screen width (matching an art-less row); a long
-			// title may reach over the image's bright side.
-			int max_w = (int)(screen->w - (screen->w * CFG_getGameArtWidth()));
-			if (!had_thumb)
-				ox = screen->w;
-			else if (CFG_getGameArtStyle() == ART_STYLE_BACKGROUND)
-				// The consumers add SCALE1(BUTTON_MARGIN) back to ox, so this
-				// yields the same available width as the art-less full-width row.
-				ox = screen->w - SCALE1(BUTTON_MARGIN * 2);
-			else
-				ox = (int)(max_w)-SCALE1(BUTTON_MARGIN * 5);
-		}
+		// The game's screenshot as the background art behind the list (LIST-LAYOUT §6: the only game-art look), or
+		// nothing. It paints behind the rows, so the title runs the full screen width (matching an art-less row);
+		// a long title may reach over the image's bright side.
+		char thumbpath[1024];
+		ROM_displayArtPath(entry->path, ART_TYPE_SCREENSHOT, false, thumbpath, sizeof(thumbpath));
+		had_thumb = startLoadThumb(thumbpath);
+		// The consumers add SCALE1(BUTTON_MARGIN) back to ox, so this yields the same available width as the
+		// art-less full-width row.
+		ox = had_thumb ? screen->w - SCALE1(BUTTON_MARGIN * 2) : screen->w;
 	}
 
 	renderHints(screen, show_setting);

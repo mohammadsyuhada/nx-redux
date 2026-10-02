@@ -42,10 +42,10 @@ float Row_backdropGain(float y_frac);
 // the tab row and the hint bar (Row_top with no caption).
 #define ROW_COUNT_SP 14.0f			   // "N games", in the accent: × the slot content scale (Row_countSp)
 #define ROW_COUNT_MIN_SP 10.0f		   // ...never below the caption floor
-#define ROW_LOGO_SIDE_ALPHA 0.8f	   // Consoles (Horizontal): its side logos at 0.8 x Row_slotAlpha
+#define ROW_LOGO_SIDE_ALPHA 0.65f	   // Consoles (Horizontal): its side logos at 0.65 x Row_slotAlpha
 #define ROW_LOGO_COUNT_GAP_DP 8.0f	   // Consoles: under the logo as drawn (unscaled)
 #define ROW_COUNT_GLIDE_MS 300		   // Consoles: the count's y glides as logo heights differ (UI_easeStandard)
-#define ROW_COLL_NAME_SP 30.0f		   // Collections: the name starts here × the slot content scale
+#define ROW_COLL_NAME_SP 36.0f		   // Collections: the name starts here × the slot content scale
 #define ROW_COLL_NAME_FLOOR 0.75f	   // ...and shrinks (whole sp) until its longest word fits, never below 0.75 × start
 #define ROW_COLL_NAME_OVER_COUNT 1.25f // ...nor below 1.25 × the count: the name always reads larger than its count
 #define ROW_COLL_LINE 1.15f			   // its line height, × the font size

@@ -11,7 +11,8 @@
 #   - NxRedux patches re-applied BEFORE and AFTER every run (pugwash's
 #     first_run / self-update overwrite them): control.txt, device_info.txt
 #     and hardware.py (Smart Pro S + Brick Pro detection), platform.py
-#     (paths + portmaster_install disabled), mod_TrimUI.txt (HOME)
+#     (paths + portmaster_install disabled), mod_TrimUI.txt (HOME),
+#     pugwash (800x600 UI on the Brick / Brick Pro)
 #   - pugwash loop: honours .pugwash-reboot, retries once when a fresh
 #     pylibs extraction crashed it before the patches landed
 #   - pad map while pugwash runs is the opposite of the Button layout
@@ -223,6 +224,30 @@ patch_device_info_trimui() { # $1 = device_info.txt
     rm -f "${1%/*}"/device_info_trimui_*.env
 }
 
+# The 2026.09.19+ probe counts analog sticks from the input devices and, on
+# device-tree systems, ignores virtual ones. TrimUI's pad is the virtual
+# "TRIMUI Player1" from trimui_inputd, so the Brick Pro's two sticks came out
+# as 0 (analog_0: stick ports flagged, ports set up without sticks); the older
+# "# GLIBC" hook for this no longer matches. Set them right after the probe's
+# own detection, before DEVICE_CAPABILITIES is built. The TrimUI probe cache
+# is dropped only when the script is patched.
+patch_device_info_brickpro_sticks() { # $1 = device_info.txt
+    [ -d /usr/trimui ] || return 0
+    grep -q 'NX Redux: Brick Pro sticks' "$1" 2>/dev/null && return 0
+    awk '
+        !done && prev ~ /^ *export ANALOG_STICKS$/ && /^ *export ANALOG_TRIGGERS$/ {
+            print
+            print "    # NX Redux: Brick Pro sticks (its pad is virtual, so the probe counts 0)"
+            print "    if [ \"$DEVICE\" = \"brickpro\" ] && [ -d /usr/trimui ]; then"
+            print "        export ANALOG_STICKS=2"
+            print "    fi"
+            done = 1; prev = $0; next
+        }
+        { print; prev = $0 }
+    ' "$1" >"$1.nxtmp" && mv -f "$1.nxtmp" "$1"
+    grep -q 'NX Redux: Brick Pro sticks' "$1" && rm -f "${1%/*}"/device_info_trimui_*.env
+}
+
 # pugwash runs device_info.txt itself when no probe cache exists, but gives
 # it 5 s; the 2026.09.19+ probe takes ~17 s on the Smart Pro S, so pugwash
 # gave up and ran as "unknown" (no Xbox A/B fix). Write the cache here first;
@@ -235,12 +260,25 @@ warm_device_info_cache() {
         "$PM_DIR/bin/bash" "$DI" -f >/dev/null 2>&1)
 }
 
+# The theme's font sizes are pixels for a 640x480 screen and pugwash draws at
+# the native resolution, so on the Brick's 1024x768 3.2" panel text came out
+# at 62% of the intended size. Draw at 800x600 and let SDL scale the frame:
+# 1.28x larger text and layout, still clear of the overlaps the theme has at
+# 640x480 (long Runtime lines run into the port description).
+patch_pugwash_scale() {
+    case "$DEVICE" in brick|brickpro) ;; *) return 0 ;; esac
+    grep -q 'NX Redux: UI scale' "$PM_DIR/pugwash" 2>/dev/null && return 0
+    sed -i 's|^\( *\)renderer = sdl2.ext.Renderer(self.window, flags=sdl2.SDL_RENDERER_ACCELERATED)$|&\n\1renderer.logical_size = (800, 600)  # NX Redux: UI scale|' "$PM_DIR/pugwash"
+}
+
 apply_patches() {
     patch_device_info_trimui "$DI"
+    patch_device_info_brickpro_sticks "$DI"
     patch_control_txt
     patch_device_info
     patch_platform_py
     patch_mod_trimui
+    patch_pugwash_scale
     warm_device_info_cache
 }
 

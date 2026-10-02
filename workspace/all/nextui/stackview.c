@@ -139,7 +139,7 @@ static void computeGeo(SDL_Surface* screen, StackKind kind, StackGeo* sg) {
 	float spec_w = kind == STACK_MAIN_CONSOLES ? ROWVIEW_LOGO_SLOT_W_SPEC : ROWVIEW_TOOL_SLOT_W_SPEC;
 	g->k = game ? 1.0f : fminf(1.0f, sg->ss.item_w / spec_w);
 	sg->cap_x = game ? Stack_capXPx(g->cx, g->full_w, pd) : 0; // from the drawn item (px), not rounded from dp
-	sg->cap_w = game ? screen->w - Stack_round(STACK_SIDE_CAP_MARGIN_DP * pd) - sg->cap_x : 0;
+	sg->cap_w = game ? screen->w - Stack_round(sg->side.margin * pd) - sg->cap_x : 0;
 }
 
 // An item's centre on screen (px).

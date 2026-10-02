@@ -20,4 +20,8 @@ HomeArtRect HomeArt_trimLetterbox(const unsigned* px, int w, int h, int pitch_wo
 // treated as missing, so Continue falls back to the screenshot.
 bool HomeArt_isBlankFrame(const unsigned* px, HomeArtRect keep, int pitch_words);
 
+// Where a crop-to-fill frames a w×h picture (0 = its top, 1 = its bottom): a picture taller than wide (a Nintendo DS
+// screenshot stacks its two screens, 256×384) shows its top, so the top screen fills the tile; any other keeps dflt.
+float HomeArt_frameY(int w, int h, float dflt);
+
 #endif // HOMEART_MODEL_H

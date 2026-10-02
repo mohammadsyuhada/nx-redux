@@ -5,7 +5,8 @@
 #include <stddef.h>
 #include "sdl.h"
 
-// Page title (LIST-LAYOUT §10.1): one look everywhere. UIFont_get(UI_PAGE_TITLE_SP, bold) in COLOR_GRAY,
+// Page title (LIST-LAYOUT §10.1): one look everywhere. UIFont_get(UI_PAGE_TITLE_SP, regular: the UI font has no bold
+// face, and TTF_STYLE_BOLD's synthetic emboldening reads heavy with rough edges) in COLOR_GRAY,
 // vertically centred in the top strip (UI_menuBarHeight()). The part up to and including the first " | " and
 // the optional suffix (e.g. the RA count " (12/39)") never truncate; only the middle ellipsizes
 // (UI_titleFit, common/ui_title_fit.h).
@@ -19,7 +20,7 @@ int UI_pageTitleBaseline(void);
 // 2 dp (LIST-LAYOUT §10.2: a list is centred between the title's letters and the hint bar's icons, not the
 // boxes), so a block that fills the band never touches the title.
 int UI_pageTitleBandTop(void);
-// Default title x: the standard pill list's text start, the 14 dp list inset (NX_DP(NX_LIST_INSET_DP)).
+// Default title x: the standard pill list's text start, the list inset (NX_DP(NX_LIST_INSET_DP)), 24 dp.
 int UI_pageTitleX(void);
 // Draw a page title at x in the top strip, fitted into max_w px (<= 0: no limit beyond the screen). suffix
 // may be NULL. Returns the drawn width.

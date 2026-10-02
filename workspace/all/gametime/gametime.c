@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <stdbool.h>
@@ -134,6 +135,47 @@ void renderRoundedRectangle(SDL_Rect rect, Uint32 color, int radius) {
 	_drawFilledCircle(screen, rect.x + rect.w - radius - 1, rect.y + rect.h - radius - 1, radius, color); // Bottom-right
 }
 
+// Mask s (32-bit, any channel order) to the circle inscribed in it: each pixel's alpha times how much of it lies inside
+// (anti-aliased over a px), the real row pitch used (GFX_ApplyRoundedCorners indexed rows by the scaled image's width,
+// which left fill-scaled art's corners unmasked, and had no anti-aliasing).
+static void maskCircle(SDL_Surface* s) {
+	if (!s || s->format->BytesPerPixel != 4)
+		return;
+	float r = (s->w < s->h ? s->w : s->h) / 2.0f, cx = s->w / 2.0f, cy = s->h / 2.0f;
+	if (SDL_MUSTLOCK(s))
+		SDL_LockSurface(s);
+	for (int y = 0; y < s->h; y++) {
+		Uint32* row = (Uint32*)((Uint8*)s->pixels + y * s->pitch);
+		float dy = y + 0.5f - cy;
+		for (int x = 0; x < s->w; x++) {
+			float dx = x + 0.5f - cx;
+			float cover = r - sqrtf(dx * dx + dy * dy) + 0.5f;
+			if (cover >= 1.0f)
+				continue;
+			Uint8 cr, cg, cb, ca;
+			SDL_GetRGBA(row[x], s->format, &cr, &cg, &cb, &ca);
+			ca = cover <= 0.0f ? 0 : (Uint8)(ca * cover + 0.5f);
+			row[x] = SDL_MapRGBA(s->format, cr, cg, cb, ca);
+		}
+	}
+	if (SDL_MUSTLOCK(s))
+		SDL_UnlockSurface(s);
+}
+
+// The dark grey circle behind a game without a picture, built once (anti-aliased) at the thumbnail size.
+static SDL_Surface* blankCircle(void) {
+	static SDL_Surface* s = NULL;
+	if (!s) {
+		s = SDL_CreateRGBSurfaceWithFormat(0, SCALE1(IMG_MAX_WIDTH), SCALE1(IMG_MAX_HEIGHT), 32, SDL_PIXELFORMAT_RGBA32);
+		if (s) {
+			SDL_FillRect(s, NULL, SDL_MapRGBA(s->format, TRIAD_DARK_GRAY, 255));
+			maskCircle(s);
+			SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
+		}
+	}
+	return s;
+}
+
 SDL_Surface* loadRomImage(char* image_path) {
 	if (!exists(image_path))
 		return NULL;
@@ -150,8 +192,9 @@ SDL_Surface* loadRomImage(char* image_path) {
 
 	SDL_PixelFormat* ft = img->format;
 	SDL_Surface* dst = SDL_CreateRGBSurface(0, SCALE1(IMG_MAX_WIDTH), SCALE1(IMG_MAX_HEIGHT), ft->BitsPerPixel, ft->Rmask, ft->Gmask, ft->Bmask, ft->Amask);
-	SDL_Rect imgRect = GFX_blitScaled(GFX_SCALE_FILL, img, dst);
-	GFX_ApplyRoundedCorners(dst, &imgRect, SCALE1(16));
+	GFX_blitScaled(GFX_SCALE_FILL, img, dst);
+	maskCircle(dst);
+	SDL_SetSurfaceBlendMode(dst, SDL_BLENDMODE_BLEND);
 	SDL_FreeSurface(img);
 
 	return dst;
@@ -239,7 +282,9 @@ void renderList(int count, int start, int end, int selected) {
 				SCALE1(IMG_MAX_WIDTH),
 				SCALE1(IMG_MAX_HEIGHT)};
 
-			renderRoundedRectangle(rectRomImage, RGB_DARK_GRAY, SCALE1(16));
+			SDL_Surface* blank = blankCircle();
+			if (blank)
+				SDL_BlitSurface(blank, NULL, screen, &(SDL_Rect){rectRomImage.x, rectRomImage.y});
 
 			// TODO: no getter exposed for this right now
 			//SDL_Rect rect = asset_rects[ASSET_GAMEPAD];
@@ -259,7 +304,8 @@ void renderList(int count, int start, int end, int selected) {
 			textColor = COLOR_BLACK;
 		}
 		int row_y = layout.list_display_start_y + elemHeight * row;
-		int text_x = layout.list_display_start_x + num_width + thumbMargin + SCALE1(IMG_MAX_WIDTH);
+		// 14 dp between the thumbnail and its text (the rich list's gap, LIST-LAYOUT §10.2)
+		int text_x = layout.list_display_start_x + num_width + thumbMargin / 2 + SCALE1(IMG_MAX_WIDTH) + NX_DP(14);
 		// the name ends half a row before the capsule's right end, with an ellipsis when it is longer
 		{
 			TTF_Font* nameFont = UI_textRole(UI_TEXT_LABEL, false);
@@ -443,7 +489,8 @@ int main(int argc, char* argv[]) {
 
 			if (count == 0) {
 				UI_renderMenuBar(screen, "Game Time");
-				UI_renderEmptyState(screen, "No play activity", "Play some games to track your time", NULL);
+				UI_renderEmptyStateButtons(screen, "No play activity", "Play some games to track your time",
+										   (char*[]){"B", "EXIT", NULL}); // the tool's first level
 			} else {
 				char play_time_total_formatted[255];
 				serializeTime(play_time_total_formatted, play_activities->play_time_total);

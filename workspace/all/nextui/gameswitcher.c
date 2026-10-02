@@ -21,6 +21,10 @@
 
 #define GS_SCRIM_ALPHA 230 // the switcher's hint bar: 90%
 
+// A resumable game's box art (no resume preview): fitted in this share of the screen width and 60% of its height
+// (the retired "Game art width" setting's default).
+#define GS_BOXART_WIDTH 0.45f
+
 static int switcher_selected = 0;
 
 // Filtered view of the recents list: gs_indices[i] holds the recents index of
@@ -60,7 +64,6 @@ static char gs_img_path[MAX_PATH] = {0};
 static SDL_Surface* gs_img_surf = NULL;
 // rounded corners mutate the cached surface, so apply them once per cache fill
 // (the render runs every dirty frame — battery ticks included)
-static bool gs_img_rounded = false;
 
 static SDL_Surface* gs_get_cached_image(const char* path) {
 	if (gs_img_surf && strcmp(gs_img_path, path) == 0)
@@ -73,7 +76,6 @@ static SDL_Surface* gs_get_cached_image(const char* path) {
 	if (raw)
 		raw = UI_convertSurface(raw, screen);
 	gs_img_surf = raw;
-	gs_img_rounded = false;
 	strncpy(gs_img_path, path, sizeof(gs_img_path) - 1);
 	gs_img_path[sizeof(gs_img_path) - 1] = '\0';
 	return gs_img_surf;
@@ -320,18 +322,11 @@ void GameSwitcher_render(int lastScreen, SDL_Surface* blackBG,
 		if (boxart) {
 			int img_w = boxart->w;
 			int img_h = boxart->h;
-			int max_w = (int)(screen->w * CFG_getGameArtWidth());
+			int max_w = (int)(screen->w * GS_BOXART_WIDTH);
 			int max_h = (int)(screen->h * 0.6);
 			int new_w, new_h;
 			UI_calcImageFit(img_w, img_h, max_w, max_h, &new_w, &new_h);
 
-			if (!gs_img_rounded) {
-				GFX_ApplyRoundedCorners_8888(
-					boxart, &(SDL_Rect){0, 0, boxart->w, boxart->h},
-					SCALE1((float)CFG_getThumbnailRadius() *
-						   ((float)img_w / (float)new_w)));
-				gs_img_rounded = true;
-			}
 
 			int ax = (screen->w - new_w) / 2;
 			int ay = (screen->h - new_h) / 2;

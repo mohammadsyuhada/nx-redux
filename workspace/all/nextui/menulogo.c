@@ -46,6 +46,16 @@ static const struct {
 	{"PRBOOM", "prboom"},
 	{"FBN", "fbn"},
 	{"PORTS", "ports"},
+	{"EXTRAS", "extras"},
+	{"PUAE", "amiga"},
+	{"CPC", "cpc"},
+	{"C64", "c64"},
+	{"C128", "c128"},
+	{"PET", "pet"},
+	{"PLUS4", "plus4"},
+	{"VIC", "vic20"},
+	{"MSX", "msx"},
+	{"DOS", "dos"},
 };
 
 // GPGX serves several Sega systems from one tag: pick by the display name.

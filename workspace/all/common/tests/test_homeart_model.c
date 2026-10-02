@@ -114,6 +114,9 @@ static void blank_frames(void) {
 }
 
 int main(void) {
+	// a tall picture (a DS screenshot, 256×384) frames its top; a wide or square one keeps the default
+	assert(HomeArt_frameY(256, 384, 0.5f) == 0.0f && HomeArt_frameY(256, 384, 0.4f) == 0.0f);
+	assert(HomeArt_frameY(320, 240, 0.5f) == 0.5f && HomeArt_frameY(256, 256, 0.4f) == 0.4f);
 	symmetric_rows_trimmed();
 	asymmetric_kept();
 	near_black_is_bar_but_5_is_not();

@@ -71,3 +71,7 @@ bool HomeArt_isBlankFrame(const unsigned* px, HomeArtRect keep, int pitch_words)
 	}
 	return true;
 }
+
+float HomeArt_frameY(int w, int h, float dflt) {
+	return h > w ? 0.0f : dflt;
+}

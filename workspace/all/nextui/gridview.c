@@ -126,7 +126,10 @@ static int barPx(void) {
 static void computeLayout(SDL_Surface* screen, int n, GridLayout* g) {
 	float pd = pxPerDp();
 	float sw = screen->w / pd, sh = screen->h / pd;
-	GridLayout_compute(sw, BAR_DP, sh - 2 * BAR_DP, n, g);
+	// tiles twice as wide everywhere but the Tools tab: wide logos (4-8:1), long names and screenshots read small in
+	// the spec shape
+	bool wide = !(stack->count == 1 && MenuTabs_current() == MENU_TAB_TOOLS);
+	GridLayout_computeWide(sw, BAR_DP, sh - 2 * BAR_DP, n, wide ? 2.0f : 1.0f, g);
 }
 
 static int selectedIndex(int n) {
@@ -207,6 +210,26 @@ static void tileCount(int i, char* out, size_t size) {
 		GameInfo_gamesLabel(CollCount_get(e->path), out, size);
 }
 
+// A console or collection tile's count for its plain look (NULL for other kinds). *asked is set when a collection
+// queued a count, so the caller can re-ask for the selection last (CollCount's queue keeps the latest request).
+static const char* plainCount(int i, char* out, size_t size, bool* asked) {
+	if (stack->count != 1 || i < 0 || i >= top->entries->count)
+		return NULL;
+	Entry* e = top->entries->items[i];
+	TileKind k = kindFor(i, e);
+	if (k == TILE_LOGO) {
+		GameInfo_gamesLabel(Content_consoleGameCount(e), out, size);
+		return out;
+	}
+	if (k != TILE_COLLECTION)
+		return NULL;
+	int n = CollCount_get(e->path);
+	if (n < 0)
+		*asked = true;
+	GameInfo_gamesLabel(n, out, size);
+	return out;
+}
+
 ///////////////////////////////////////
 // The tile cache
 
@@ -258,8 +281,9 @@ static Uint32 tileStamp(const TileSpec* t, bool lit) {
 		SDL_Color ac = UI_accent();
 		Uint8 rgb[3] = {ac.r, ac.g, ac.b};
 		h = fnv(h, rgb, sizeof(rgb));
-		h = fnvStr(h, t->count && t->count[0] ? t->count : "");
 	}
+	if (lit || t->kind == TILE_COLLECTION || t->kind == TILE_LOGO) // consoles and collections: on the plain look too
+		h = fnvStr(h, t->count && t->count[0] ? t->count : "");
 	return h;
 }
 
@@ -272,8 +296,8 @@ static void composeTile(SDL_Surface* s, int w, int h, const TileSpec* t, bool li
 	look.no_caption = true;
 	look.info = NULL;
 	look.ninfo = 0;
-	if (!lit)
-		look.count = NULL; // only the lit look shows it (a collection reserves its line either way)
+	if (!lit && t->kind != TILE_COLLECTION && t->kind != TILE_LOGO)
+		look.count = NULL; // a console's and a collection's count is on both looks
 	Tiles_draw(s, (SDL_Rect){room, room, w, h}, &look, lit ? 1.0f : 0.0f);
 }
 
@@ -433,13 +457,15 @@ static void tileSpec(int i, int tw, int th, float scale, TileSpec* t, char logo[
 			const char* slash = strrchr(e->path, '/');
 			t->icon_file = Tiles_toolIcon(slash ? slash + 1 : e->path);
 		}
+		if (!t->icon_file)
+			t->icon_file = TILE_UNKNOWN_TOOL_ICON;
 	} else if (kind == TILE_GAME) {
 		SDL_Surface* pic = NULL;
 		HomeArtState st = HomeArt_pin(e->path, tw, th, 0, &pic); // valid until the next HomeArt_* call
 		if (st == HOMEART_READY && pic)
-			t->picture = pic;
+			t->picture = pic; // its screenshot, or its abstract picture (HomeArt_pin's fallback)
 		else
-			t->kind = TILE_TITLE; // no screenshot: a title tile
+			t->kind = TILE_TITLE; // none at all (HomeArt couldn't make one): a title tile
 		if (st == HOMEART_LOADING)
 			t->name = NULL; // still loading: the black base only, no title flashing in and out
 	}
@@ -545,6 +571,7 @@ void GridView_render(SDL_Surface* screen, int lastScreen) {
 	int first, last;
 	GridLayout_visibleColumns(&g, off, &first, &last);
 	int room = ringRoom();
+	bool asked = false;		// a plain collection tile queued its count: the selection asks again, last
 	int cursor[2] = {0, 0}; // per row: where the black fill between the painted tiles resumes
 	for (int col = first; col <= last; col++) {
 		int x = NX_DPF(GridLayout_columnX(&g, col, off));
@@ -564,12 +591,17 @@ void GridView_render(SDL_Surface* screen, int lastScreen) {
 				t.ninfo = prev_n;
 				t.count = prev_count;
 			}
+			char plain[32];
+			if (i != sel && i != lit_prev)
+				t.count = plainCount(i, plain, sizeof(plain), &asked);
 			if (drawTile(screen, ((Entry*)top->entries->items[i])->path, (SDL_Rect){x, row_y[row], tw, th}, &t, litAmount(i))) {
 				fillBlack(screen, cursor[row], row_y[row] - room, x - room - cursor[row], th + 2 * room);
 				cursor[row] = x + tw + room;
 			}
 		}
 	}
+	if (asked)
+		tileCount(sel, sel_count, sizeof(sel_count)); // the selection's count stays the latest request
 	// the black between and around the tiles: the bands above, between and under the rows, and each row's gaps
 	int r0 = row_y[0] - room, r0b = row_y[0] + th + room, r1 = row_y[1] - room, r1b = row_y[1] + th + room;
 	fillBlack(screen, 0, bar, screen->w, r0 - bar);
@@ -596,9 +628,10 @@ void GridView_render(SDL_Surface* screen, int lastScreen) {
 					more = true;
 					break;
 				}
-				char logo[64];
+				char logo[64], plain[32];
 				TileSpec t;
 				tileSpec(i, tw, th, scale, &t, logo);
+				t.count = plainCount(i, plain, sizeof(plain), &asked);
 				cachedTile(((Entry*)top->entries->items[i])->path, tw, th, &t, false);
 			}
 		}
@@ -629,7 +662,7 @@ void GridView_render(SDL_Surface* screen, int lastScreen) {
 			t.count = count;
 			cachedTile(path, tw, th, &t, true);
 		}
-		if (counted)
+		if (counted || asked)
 			tileCount(sel, sel_count, sizeof(sel_count)); // the selection's count stays the latest request
 		prefetch_pending = more;
 	}

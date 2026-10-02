@@ -518,17 +518,23 @@ static Uint32 accentOpaque(const SDL_PixelFormat* fmt) {
 	return SDL_MapRGB(fmt, ac.r, ac.g, ac.b);
 }
 
+// A glyph's height above the baseline (px) in f: its maxy, or `fallback` when the font can't tell.
+static int glyphTop(TTF_Font* f, Uint16 ch, int fallback) {
+	int minx, maxx, miny, maxy, adv;
+	return f && TTF_GlyphMetrics(f, ch, &minx, &maxx, &miny, &maxy, &adv) == 0 && maxy > 0 ? maxy : fallback;
+}
+
 // The selection plate around the current label (pw x ph px): an accent pill (radius = half its height, anti-aliased by
 // coverage) with the label in the accent's ink, composed once and cached per label, size, font and accent.
 static struct {
 	SDL_Surface* surf;
 	TTF_Font* font;
 	MenuTabId id;
-	int w, h, scale;
+	int w, h, scale, text_y;
 	uint64_t key; // the accent and its ink
 } plate;
 
-static SDL_Surface* plateSurface(TTF_Font* f, MenuTabId id, int pw, int ph, int pad_y) {
+static SDL_Surface* plateSurface(TTF_Font* f, MenuTabId id, int pw, int ph, int text_y) {
 	SDL_Color ac = UI_accent(), ink = UI_onAccent(); // opaque here: only the List pill wears Color 1's opacity
 	uint32_t accent = ((uint32_t)ac.r << 16) | ((uint32_t)ac.g << 8) | ac.b;
 	// GFX_getCachedText keys its cache on the colour including alpha, so the ink is forced to a=255: one cached label
@@ -536,7 +542,7 @@ static SDL_Surface* plateSurface(TTF_Font* f, MenuTabId id, int pw, int ph, int 
 	ink.a = 255;
 	uint64_t key = ((uint64_t)accent << 24) | ((uint32_t)ink.r << 16) | ((uint32_t)ink.g << 8) | ink.b;
 	if (plate.surf && plate.font == f && plate.id == id && plate.w == pw && plate.h == ph && plate.scale == FIXED_SCALE &&
-		plate.key == key)
+		plate.text_y == text_y && plate.key == key)
 		return plate.surf;
 	if (plate.surf)
 		SDL_FreeSurface(plate.surf);
@@ -564,12 +570,13 @@ static SDL_Surface* plateSurface(TTF_Font* f, MenuTabId id, int pw, int ph, int 
 	SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
 	SDL_Surface* text = GFX_getCachedText(f, MenuTabs_label(id), ink);
 	if (text)
-		SDL_BlitSurface(text, NULL, s, &(SDL_Rect){TAB_PLATE_PAD_X, pad_y});
+		SDL_BlitSurface(text, NULL, s, &(SDL_Rect){TAB_PLATE_PAD_X, text_y}); // its line box may overhang: clipped
 	plate.surf = s;
 	plate.font = f;
 	plate.id = id;
 	plate.w = pw;
 	plate.h = ph;
+	plate.text_y = text_y;
 	plate.scale = FIXED_SCALE;
 	plate.key = key;
 	return s;
@@ -641,17 +648,20 @@ void MenuTabs_renderRow(SDL_Surface* screen, int ow) {
 		SDL_Surface* text = GFX_getCachedText(f, MenuTabs_label(current), COLOR_WHITE);
 		int th = text ? text->h : TTF_FontHeight(f);
 		int ty = (band_h - th) / 2;
-		// 5 dp above and below, less where the bar has no room (the label box nearly fills the 28-unit strip at
-		// 3x): the plate stays whole and centred on the word instead of being cut by the screen's top edge
-		int pad_y = TAB_PLATE_PAD_Y;
-		if (pad_y > ty)
-			pad_y = ty;
-		if (pad_y > bar_h - ty - th)
-			pad_y = bar_h - ty - th;
-		if (pad_y < 0)
-			pad_y = 0;
-		int px = base + cur_x - TAB_PLATE_PAD_X, py = ty - pad_y;
-		SDL_Surface* p = plateSurface(f, current, cur_w + 2 * TAB_PLATE_PAD_X, th + 2 * pad_y, pad_y);
+		// Sized and centred on the word as seen, not on its line box (which carries the descender room and nearly
+		// fills the strip): the capital height plus 5 dp each side, centred halfway between the cap and the
+		// lowercase midlines, where a mostly lowercase label's weight sits. Clamped inside the bar.
+		int base_y = ty + TTF_FontAscent(f);
+		int cap_h = glyphTop(f, 'H', TTF_FontAscent(f) * 7 / 10), x_h = glyphTop(f, 'x', cap_h * 7 / 10);
+		int centre = base_y - (cap_h + x_h) / 4;
+		int ph = cap_h + 2 * TAB_PLATE_PAD_Y;
+		int py = centre - ph / 2;
+		if (py < 0)
+			py = 0;
+		if (py + ph > bar_h)
+			py = bar_h - ph;
+		int px = base + cur_x - TAB_PLATE_PAD_X;
+		SDL_Surface* p = plateSurface(f, current, cur_w + 2 * TAB_PLATE_PAD_X, ph, ty - py);
 		int cl = band_x - TAB_PLATE_PAD_X, cr = right_limit + TAB_PLATE_PAD_X;
 		if (cl < 0)
 			cl = 0;

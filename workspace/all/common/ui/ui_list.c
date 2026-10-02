@@ -1120,7 +1120,7 @@ RichRowPos UI_renderRichRow(SDL_Surface* screen, const ListLayout* layout, const
 		pos.capsule_x = 0;
 	pos.image_y = y + pad;
 	pos.image_size = UI_richRowImageSize(row_h);
-	pos.text_x = pos.image_x + pos.image_size + NX_DP(NX_LIST_INSET_DP);
+	pos.text_x = pos.image_x + pos.image_size + NX_DP(NX_RICH_LIST_GAP_DP);
 
 	pos.title_px = t.title_px;
 	pos.second_px = t.second_px;

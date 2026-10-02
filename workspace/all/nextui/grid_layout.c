@@ -19,7 +19,12 @@ static float minf(float a, float b) {
 }
 
 void GridLayout_compute(float screen_w, float body_top, float body_h, int n, GridLayout* out) {
+	GridLayout_computeWide(screen_w, body_top, body_h, n, 1.0f, out);
+}
+
+void GridLayout_computeWide(float screen_w, float body_top, float body_h, int n, float width_mul, GridLayout* out) {
 	GridLayout* g = out;
+	g->width_mul = width_mul > 0 ? width_mul : 1.0f;
 	g->screen_w = screen_w;
 	g->body_top = body_top;
 	g->body_h = body_h;
@@ -27,7 +32,7 @@ void GridLayout_compute(float screen_w, float body_top, float body_h, int n, Gri
 	g->gutter = GUTTER;
 	g->n = n < 0 ? 0 : n;
 	g->tile_h = maxf(1.0f, minf(TILE_H_CAP, (body_h - 2 * RING_ROOM - GAP) / 2));
-	g->tile_w = g->tile_h * TILE_W_CAP / TILE_H_CAP;
+	g->tile_w = g->tile_h * TILE_W_CAP / TILE_H_CAP * g->width_mul;
 	int cols = (int)floorf((screen_w - 2 * GUTTER + GAP) / (g->tile_w + GAP));
 	g->cols = cols < 1 ? 1 : cols;
 	g->sliding = g->n > 2 * g->cols;
@@ -185,7 +190,7 @@ int GridLayout_bottomOf(const GridLayout* g, int index) {
 }
 
 float GridLayout_tileK(const GridLayout* g) {
-	return minf(1.0f, g->tile_w / TILE_W_CAP);
+	return minf(1.0f, g->tile_w / g->width_mul / TILE_W_CAP); // the spec shape's width: a wide tile's text doesn't grow
 }
 
 float GridLayout_countSp(float spec_sp, float tile_k) {

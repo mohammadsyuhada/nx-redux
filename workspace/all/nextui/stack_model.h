@@ -36,16 +36,21 @@ StackSizes Stack_mainSizes(StackKind k, float body_w);
 // the caption at least 40% of the width: with R = width − 24 − 32 − 0.4 · width, a w > R − gutter becomes
 // floor(R − gutter) and h = round(w / ar); x is clamped to [gutter + w/2, R − w/2]. All dp; ar = ar_w : ar_h (worked
 // in double, as the mockup's JavaScript: 234 · 340/240 = 331.5 rounds up).
+// Stack_gameSizes then gives the Carousel equal side margins M = STACK_CAROUSEL_MARGIN_DP (48), held to what keeps the
+// caption at 40% of the width and never under the 24 dp gutter: the stack's left edge at M (x = M + w/2), the
+// caption's right margin M.
 #define STACK_SIDE_X_SHARE 0.32f
 #define STACK_SIDE_CAP_GAP_DP 32.0f
 #define STACK_SIDE_CAP_MARGIN_DP 24.0f
 #define STACK_SIDE_CAP_MIN_SHARE 0.4f
+#define STACK_CAROUSEL_MARGIN_DP 48.0f // the Carousel's stack left margin = its caption's right margin, at most
 #define STACK_CAPTION_LINE_GAP_DP 3.0f // between the side caption's rows
 typedef struct {
 	float item_w, item_h; // the selected item
 	float x;			  // the stack's centre, from the screen's left
-	float cap_x, cap_w;	  // the caption's left edge and width (to the 24 dp right margin)
+	float cap_x, cap_w;	  // the caption's left edge and width (to the right margin)
 	bool guarded;		  // the 40% guard took the width
+	float margin;		  // the caption's right margin (dp): 24, the Carousel's its stack's left margin
 } StackSide;
 StackSide Stack_sideGeom(float want, int ar_w, int ar_h, float width);
 // The caption's left edge on screen (px), from the drawn stack: the stack's centre cx_px + its selected item's half

@@ -45,7 +45,7 @@ static bool loadSessions(long long window_start, HomeSession** out, int* count) 
 	const char* sql =
 		"SELECT rom.id, rom.name, rom.file_path, pa.created_at, pa.play_time"
 		" FROM play_activity pa JOIN rom ON rom.id = pa.rom_id"
-		" WHERE pa.created_at >= ?1 - 86400;";
+		" WHERE pa.created_at >= ?1 - 86400 AND " GAMETIME_NOT_EXCLUDED_SQL ";";
 	sqlite3_stmt* stmt = NULL;
 	int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
 	HomeSession* rows = NULL;

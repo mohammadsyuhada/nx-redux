@@ -4,6 +4,16 @@
 #include "gameinfo_text.h"
 #include "sdl.h"
 
+// The main menu's Grid tiles (logo, icon, name and count) and the Carousel's console logos and count: a fixed
+// off-white (#E0E0E0), not the theme or accent colours
+#define TILE_MENU_GREY 0xE0
+// The main menu's "N games" lines (Grid and Carousel, Consoles and Collections): a dimmer grey than the logo or name
+#define TILE_COUNT_GREY 0x80
+// A console without a bundled logo: this emblem over its name (Grid and Carousel)
+#define TILE_UNKNOWN_CONSOLE_ICON "menu_icon_unknown.png"
+// A tool without a mapped icon (Tiles_toolIcon misses on its name and its folder): this one
+#define TILE_UNKNOWN_TOOL_ICON "menu_icon_tool_unknown.png"
+
 // One main-menu tile (Grid and Carousel), drawn into `dst` at px rect r.
 typedef enum { TILE_LOGO,
 			   TILE_TOOL,

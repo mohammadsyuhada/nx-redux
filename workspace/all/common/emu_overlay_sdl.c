@@ -220,7 +220,7 @@ static int ovl_sdl_init(int screen_w, int screen_h) {
 			return -1;
 		}
 	}
-	TTF_SetFontStyle(s_fonts[EMU_OVL_FONT_TITLE], TTF_STYLE_BOLD);
+	// the title in the regular face too: TTF_STYLE_BOLD's synthetic emboldening reads heavy with rough edges
 
 	// Create render surface (ARGB8888)
 	s_renderSurface = SDL_CreateRGBSurfaceWithFormat(

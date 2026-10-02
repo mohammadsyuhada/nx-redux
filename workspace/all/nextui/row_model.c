@@ -37,11 +37,12 @@ RowSizes Row_sizes(RowKind k, float body_w, float body_h) {
 		// (415 x 164, about 26% over the spec's 330 x 130 for the handhelds; sides at 0.40 of it)
 		s.item_w = 415 * f, s.item_h = 164 * f, s.scale = 0.40f, s.gap = 28 * f;
 		break;
-	case ROW_BACKDROP_TOOL:
-		s.item_w = 150 * f, s.item_h = 160 * f, s.gap = 14 * f;
+	case ROW_BACKDROP_TOOL: // 1.6x the spec's 150 wide (long names) and 1.3x its 160 tall, its icon and name 1.3x
+		s.item_w = 240 * f, s.item_h = 208 * f, s.gap = 14 * f;
 		break;
-	case ROW_BACKDROP_COLL: // the tool slot, with side items at half size: the selected name reads 2x its neighbours
-		s.item_w = 150 * f, s.item_h = 160 * f, s.scale = 0.5f, s.gap = 14 * f;
+	case ROW_BACKDROP_COLL: // the tool slot twice as wide (long names), with side items at half size: the selected name
+		// reads 2x its neighbours
+		s.item_w = 300 * f, s.item_h = 160 * f, s.scale = 0.5f, s.gap = 14 * f;
 		break;
 	}
 	return s;

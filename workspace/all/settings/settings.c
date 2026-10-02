@@ -272,23 +272,9 @@ static const char* exposure_labels[] = {"-4", "-3", "-2", "-1", "0", "1", "2", "
 static int exposure_values[] = {-4, -3, -2, -1, 0, 1, 2, 3, 4, 5};
 #define EXPOSURE_LABEL_COUNT 10
 
-/* Thumbnail radius (0-24): direct index mapping */
-static char thumb_radius_label_buf[25][4];
-static const char* thumb_radius_labels[25];
-#define THUMB_RADIUS_LABEL_COUNT 25
-
-/* Game art width (5-100%): 96 labels, values start at 5 */
-#define GAME_ART_WIDTH_COUNT 96
-static char game_art_width_label_buf[GAME_ART_WIDTH_COUNT][5];
-static const char* game_art_width_labels[GAME_ART_WIDTH_COUNT];
-static int game_art_width_values[GAME_ART_WIDTH_COUNT];
-
 /* On/off as int values 0,1 */
 static int on_off_values[] = {0, 1};
 
-/* Game art style: thumbnail on the right, or full-height faded background */
-static const char* art_style_labels[] = {"Thumbnail", "Background"};
-static int art_style_values[] = {ART_STYLE_THUMBNAIL, ART_STYLE_BACKGROUND};
 
 /* Main menu tab and game list styles for the Layouts page: the main-menu tabs offer the first
    MENUSTYLE_MAIN_COUNT (List, Grid, Carousel), game lists all MENUSTYLE_GAMELIST_COUNT (+ Backdrop) */
@@ -303,9 +289,6 @@ static SettingsPage layouts_page; // defined with the page below (sync_layouts_o
 static SettingItem* game_list_orient_item = NULL;
 static const char* hide_show_labels[] = {"Hide", "Show"};
 
-/* Game art type: which stored variant the game lists show */
-static const char* art_type_labels[] = {"Mix", "Screenshot", "Box art"};
-static int art_type_values[] = {ART_TYPE_MIX, ART_TYPE_SCREENSHOT, ART_TYPE_BOXART};
 // "Vibration strength": values are libmsettings rumble_strength levels
 // (vib_levels.h); 0 = Normal is the default and sits in the middle of the UI.
 static const char* rumble_strength_labels[] = {"Light", "Normal", "Strong"};
@@ -389,19 +372,6 @@ static void init_dynamic_labels(void) {
 	for (i = 0; i < COLORTEMP_LABEL_COUNT; i++) {
 		snprintf(colortemp_label_buf[i], sizeof(colortemp_label_buf[i]), "%d", i);
 		colortemp_labels[i] = colortemp_label_buf[i];
-	}
-
-	/* Thumbnail radius labels 0-24 */
-	for (i = 0; i < THUMB_RADIUS_LABEL_COUNT; i++) {
-		snprintf(thumb_radius_label_buf[i], sizeof(thumb_radius_label_buf[i]), "%d", i);
-		thumb_radius_labels[i] = thumb_radius_label_buf[i];
-	}
-
-	/* Game art width labels 5-100 */
-	for (i = 0; i < GAME_ART_WIDTH_COUNT; i++) {
-		game_art_width_values[i] = i + 5;
-		snprintf(game_art_width_label_buf[i], sizeof(game_art_width_label_buf[i]), "%d%%", i + 5);
-		game_art_width_labels[i] = game_art_width_label_buf[i];
 	}
 
 	/* FN volume: Unchanged, Muted, 5%, 10%, ... 100% */
@@ -644,50 +614,6 @@ static void reset_menu_transitions(void) {
 	CFG_setMenuTransitions(CFG_DEFAULT_SHOWMENUTRANSITIONS);
 }
 
-/* Game art corner radius */
-static int get_thumb_radius(void) {
-	return CFG_getThumbnailRadius();
-}
-static void set_thumb_radius(int v) {
-	CFG_setThumbnailRadius(v);
-}
-static void reset_thumb_radius(void) {
-	CFG_setThumbnailRadius(CFG_DEFAULT_THUMBRADIUS);
-}
-
-/* Game art width */
-static int get_game_art_width(void) {
-	return (int)(CFG_getGameArtWidth() * 100);
-}
-static void set_game_art_width(int val) {
-	CFG_setGameArtWidth((double)val / 100.0);
-}
-static void reset_game_art_width(void) {
-	CFG_setGameArtWidth(CFG_DEFAULT_GAMEARTWIDTH);
-}
-
-/* Game art style */
-static int get_game_art_style(void) {
-	return CFG_getGameArtStyle();
-}
-static void set_game_art_style(int v) {
-	CFG_setGameArtStyle(v);
-}
-static void reset_game_art_style(void) {
-	CFG_setGameArtStyle(CFG_DEFAULT_GAMEARTSTYLE);
-}
-
-/* Game art type */
-static int get_game_art_type(void) {
-	return CFG_getGameArtType();
-}
-static void set_game_art_type(int v) {
-	CFG_setGameArtType(v);
-}
-static void reset_game_art_type(void) {
-	CFG_setGameArtType(CFG_DEFAULT_GAMEARTTYPE);
-}
-
 /* UI scale: applies to Settings immediately, to everything else on next start */
 static int get_ui_scale(void) {
 	return CFG_getUIScale();
@@ -791,17 +717,6 @@ static void reset_show_tools(void) {
 	CFG_setShowTools(CFG_DEFAULT_SHOWTOOLS);
 }
 
-/* Show game art */
-static int get_show_game_art(void) {
-	return CFG_getShowGameArt() ? 1 : 0;
-}
-static void set_show_game_art(int v) {
-	CFG_setShowGameArt(v != 0);
-}
-static void reset_show_game_art(void) {
-	CFG_setShowGameArt(CFG_DEFAULT_SHOWGAMEART);
-}
-
 /* Show collection */
 static int get_show_collections(void) {
 	return CFG_getShowCollections() ? 1 : 0;
@@ -824,16 +739,6 @@ static void reset_show_emulators(void) {
 	CFG_setShowEmulators(CFG_DEFAULT_SHOWEMULATORS);
 }
 
-/* Use folder background for ROMs */
-static int get_roms_use_folder_bg(void) {
-	return CFG_getRomsUseFolderBackground() ? 1 : 0;
-}
-static void set_roms_use_folder_bg(int v) {
-	CFG_setRomsUseFolderBackground(v != 0);
-}
-static void reset_roms_use_folder_bg(void) {
-	CFG_setRomsUseFolderBackground(CFG_DEFAULT_ROMSUSEFOLDERBACKGROUND);
-}
 
 // ============================================
 // Display callbacks
@@ -1870,24 +1775,6 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Show menu transitions", "Enable or disable animated transitions",
 		on_off_labels, 2, on_off_values, get_menu_transitions, set_menu_transitions, reset_menu_transitions);
-	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Game art visible", "Show game artwork in the main menu",
-		on_off_labels, 2, on_off_values, get_show_game_art, set_show_game_art, reset_show_game_art);
-	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Game art corner radius", "Set the radius for the rounded corners of game art",
-		thumb_radius_labels, THUMB_RADIUS_LABEL_COUNT, NULL, get_thumb_radius, set_thumb_radius, reset_thumb_radius);
-	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Game art width", "Set the percentage of screen width used for game art.",
-		game_art_width_labels, GAME_ART_WIDTH_COUNT, game_art_width_values, get_game_art_width, set_game_art_width, reset_game_art_width);
-	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Game art style", "Thumbnail on the right, or full-height background that fades into the list",
-		art_style_labels, 2, art_style_values, get_game_art_style, set_game_art_style, reset_game_art_style);
-	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Game art type", "Which fetched image to show. The background style always uses the screenshot.",
-		art_type_labels, 3, art_type_values, get_game_art_type, set_game_art_type, reset_game_art_type);
-	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-		"Use folder background for ROMs", "If enabled, used the emulator background image.",
-		on_off_labels, 2, on_off_values, get_roms_use_folder_bg, set_roms_use_folder_bg, reset_roms_use_folder_bg);
 	appearance_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
 		"Bootlogo", "Change the device boot logo.",
 		launch_bootlogo);

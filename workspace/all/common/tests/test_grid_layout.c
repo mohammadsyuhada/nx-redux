@@ -190,6 +190,21 @@ static void counts_and_names(void) {
 	assert(GridLayout_logoCountY(0, 129, 40, 6) > GridLayout_logoCountY(0, 129, 20, 6));
 }
 
+// The Consoles tab: tiles twice the spec width, the same height, the text scale (k) still the spec shape's.
+static void consoles_wide(void) {
+	GridLayout n, w;
+	make(BRICK_W, BRICK_H, 9, &n);
+	GridLayout_computeWide(BRICK_W, BAR, BRICK_H - 2 * BAR, 9, 2.0f, &w);
+	assert(near(w.tile_w, 2 * n.tile_w) && near(w.tile_h, n.tile_h) && w.sliding && w.cols == 1);
+	assert(fabsf(GridLayout_tileK(&w) - GridLayout_tileK(&n)) < 1e-4f);
+	make(SPS_W, SPS_H, 9, &n);
+	GridLayout_computeWide(SPS_W, BAR, SPS_H - 2 * BAR, 9, 2.0f, &w);
+	assert(near(w.tile_w, 280) && near(w.tile_h, n.tile_h) && w.sliding && w.cols == 2);
+	assert(near(GridLayout_tileK(&w), 1.0f));
+	GridLayout_computeWide(SPS_W, BAR, SPS_H - 2 * BAR, 3, 2.0f, &w); // a still row of three: two columns, two rows
+	assert(!w.sliding && w.cols == 2 && w.rows == 2);
+}
+
 // A console without a logo draws as a collection tile (§8.4): the name from 20 sp × k, its count at Consoles' 13 sp × k
 // (floored at 10 sp) 4 dp under it, so the name's floor follows that smaller count.
 static void logoless_console(void) {
@@ -296,6 +311,7 @@ int main(void) {
 	still_centring();
 	counts_and_names();
 	logoless_console();
+	consoles_wide();
 	collection_text();
 	game_list_centring();
 	count_fits_tile();

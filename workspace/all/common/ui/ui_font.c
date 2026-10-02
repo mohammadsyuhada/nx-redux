@@ -60,8 +60,6 @@ static TTF_Font* arabicFor(TTF_Font* primary) {
 			e->ar = TTF_OpenFont(path, e->px);
 			if (!e->ar)
 				LOG_warn("UIFont: can't open %s at %dpx: %s\n", path, e->px, TTF_GetError());
-			else if (e->bold)
-				TTF_SetFontStyle(e->ar, TTF_STYLE_BOLD);
 		}
 		return e->ar;
 	}
@@ -106,8 +104,8 @@ TTF_Font* UIFont_getPx(int px, bool bold) {
 		LOG_warn("UIFont_get: can't open %s at %dpx: %s\n", path, px, TTF_GetError());
 		return NULL;
 	}
-	if (bold)
-		TTF_SetFontStyle(f, TTF_STYLE_BOLD);
+	// `bold` is kept in the key but draws the regular face: the UI font ships one weight, and TTF_STYLE_BOLD's
+	// synthetic emboldening reads heavy with rough edges
 	cache[cache_count++] = (UIFontEntry){px, bold, f, NULL, false, ++cache_tick};
 	return f;
 }

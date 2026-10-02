@@ -714,14 +714,15 @@ static void composeGame(SDL_Surface* s, int w, int h, bool lit, int i) {
 	tileBorder(s, w, h);
 }
 
-// The tool's bundled icon (the one mapping, in tiles.c): by its shown name, else its pak's file name.
+// The tool's bundled icon (the one mapping, in tiles.c): by its shown name, else its pak's file name, else the
+// unknown-tool icon.
 static const char* toolIcon(Entry* e) {
 	const char* file = Tiles_toolIcon(displayName(e));
 	if (!file) {
 		const char* slash = strrchr(e->path, '/');
 		file = Tiles_toolIcon(slash ? slash + 1 : e->path);
 	}
-	return file;
+	return file ? file : TILE_UNKNOWN_TOOL_ICON;
 }
 
 static void composeTool(SDL_Surface* s, int w, int h, bool lit, int i) {

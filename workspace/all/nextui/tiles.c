@@ -41,6 +41,8 @@
 #define CAROUSEL_TILE_W_SPEC 340.0f
 #define TOOL_LONGEST_WORD "Achievements"
 #define WORD_PAD_DP 14.0f
+#define GRID_EMBLEM_DP 36.0f // a logo-less console's emblem over its name, × the tile scale
+#define GRID_EMBLEM_GAP_DP 6.0f
 #define WORD_TEXT_SP 17.0f
 #define WORD_MAX_LINES 4
 
@@ -51,6 +53,9 @@
 #define CAPTION_INFO_SP 11.0f
 #define CAPTION_FADE_EDGE 0.85f
 #define CAPTION_FADE_SHARE 0.55f
+#define CAPTION_FADE_OVER_DP 48.0f	  // the fade starts at least this far over the label's top (× the tile scale)
+#define CAPTION_FADE_OVER_LABELS 2.0f // ...and at least twice the label's height over it: a long, soft ramp
+#define CAPTION_FADE_HOLD_PAD_DP 4.0f // ...and is at its darkest from this far over the label's top down
 
 #define MAX_LINES 4
 #define TEXT_SHADOW_ALPHA 153 // black at 60%
@@ -360,15 +365,14 @@ static int drawWord(SDL_Surface* dst, SDL_Rect r, const char* name, float s, SDL
 	return y + l.n * lh;
 }
 
-// The selected main-menu tile's "N games" (Grid): centred on cx, its top at y, in the opaque accent at alpha a.
-static void drawCount(SDL_Surface* dst, const char* count, float sp, int cx, int y, Uint8 a) {
+// The selected main-menu tile's "N games" (Grid): centred on cx, its top at y, in colour c (opaque) at alpha a.
+static void drawCount(SDL_Surface* dst, const char* count, float sp, int cx, int y, SDL_Color c, Uint8 a) {
 	if (!count || !count[0] || a == 0)
 		return;
 	TTF_Font* f = UIFont_get(sp, false);
 	if (!f)
 		return;
-	SDL_Color ac = UI_accent();
-	blitTextColor(dst, f, count, cx - textWidth(f, count) / 2, y, (SDL_Color){ac.r, ac.g, ac.b, 255}, a);
+	blitTextColor(dst, f, count, cx - textWidth(f, count) / 2, y, (SDL_Color){c.r, c.g, c.b, 255}, a);
 }
 
 // The widest space-separated word of name in f.
@@ -390,15 +394,25 @@ static void longestWord(TTF_Font* f, const char* name, char* out, size_t size) {
 static int textBlockStepColor(SDL_Surface* dst, TTF_Font* f, const char* text, int cx, int y, int max_w,
 							  int max_lines, bool camel_split, SDL_Color c, Uint8 alpha, bool shadow, int line_h);
 
-// A collection (Grid), and a console without a logo (§8.4): the name in full white (the accent when selected) at 20 sp
+// A collection (Grid), and a console without a logo (§8.4): the name in the off-white (TILE_MENU_GREY) at 20 sp
 // × the tile scale, shrinking in whole sp until its longest word fits, never below max(0.75 × start, 1.25 × the
 // count), then up to 3 lines with "…" at a 1.15 line height; under it (4 dp) the reserved "N games" line at
-// max(10, count_spec_sp × the tile scale), drawn on the selected tile only (count_a).
+// max(10, count_spec_sp × the tile scale), at count_a.
+// With an emblem (a logo-less console's, MenuArt file), it sits over the name (36 dp × the tile scale, at most 30% of
+// the tile, 6 dp above the name) and the whole block is centred.
 static void drawNameTile(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float s, SDL_Color c, Uint8 a,
-						 float count_spec_sp, Uint8 count_a) {
+						 float count_spec_sp, Uint8 count_a, const char* emblem) {
 	const char* name = t->name;
 	if (!name || !name[0])
 		return;
+	SDL_Surface* icon = NULL;
+	if (emblem) {
+		int box = NX_DPF(GRID_EMBLEM_DP * s);
+		if (box > (int)(r.h * 0.3f))
+			box = (int)(r.h * 0.3f);
+		icon = box > 0 ? MenuArt_get(emblem, box, box) : NULL;
+	}
+	int top = icon ? icon->h + NX_DPF(GRID_EMBLEM_GAP_DP * s) : 0; // the room over the name
 	int pad = NX_DPF(WORD_PAD_DP * s);
 	int avail = r.w - 2 * pad;
 	float start = GRID_COLL_NAME_SP * s;
@@ -420,14 +434,24 @@ static void drawNameTile(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float 
 	int count_h = fc ? TTF_FontHeight(fc) : 0;
 	int step = Row_lineStep(NX_SP(sp), GRID_COLL_LINE);
 	int gap = NX_DPF(GRID_COLL_COUNT_GAP_DP);
-	int max_lines = GridLayout_collMaxLines(r.h - 2 * pad, step, gap, count_h);
+	int max_lines = GridLayout_collMaxLines(r.h - 2 * pad - top, step, gap, count_h);
 	f = UIFont_get(sp, false);
 	if (!f)
 		return;
 	int nh = textBlockStepColor(NULL, f, name, 0, 0, avail, max_lines, false, c, a, false, step);
-	GridCollText lay = GridLayout_collText(r.h, step > 0 && nh > 0 ? nh / step : 1, step, gap, count_h);
-	textBlockStepColor(dst, f, name, r.x + r.w / 2, r.y + lay.name_y, avail, max_lines, false, c, a, false, step);
-	drawCount(dst, t->count, count_sp, r.x + r.w / 2, r.y + lay.count_y, count_a);
+	// the text block centred in what's left under the emblem: the emblem's top then lands on name_y, so emblem, name
+	// and count are centred together
+	GridCollText lay = GridLayout_collText(r.h - top, step > 0 && nh > 0 ? nh / step : 1, step, gap, count_h);
+	if (icon) {
+		SDL_SetSurfaceColorMod(icon, c.r, c.g, c.b);
+		SDL_SetSurfaceAlphaMod(icon, a);
+		SDL_BlitSurface(icon, NULL, dst, &(SDL_Rect){r.x + (r.w - icon->w) / 2, r.y + lay.name_y, icon->w, icon->h});
+		SDL_SetSurfaceColorMod(icon, 255, 255, 255);
+		SDL_SetSurfaceAlphaMod(icon, 255);
+	}
+	textBlockStepColor(dst, f, name, r.x + r.w / 2, r.y + top + lay.name_y, avail, max_lines, false, c, a, false,
+					   step);
+	drawCount(dst, t->count, count_sp, r.x + r.w / 2, r.y + top + lay.count_y, greyColor(TILE_COUNT_GREY), count_a);
 }
 
 // The Carousel's tool name font: 20 sp at the full-size tile, scaled with the tile's width, shrunk (never grown)
@@ -489,7 +513,7 @@ static void drawTool(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float s, S
 }
 
 // Console logo, inset 22 dp at the sides and 30 dp top and bottom (scaled with the tile); the name when
-// there's no logo (the Grid's as a collection tile, the Carousel's as a word). The Grid's selected tile adds "N games" 6 dp under what's drawn (count_a), the logo staying centred.
+// there's no logo (the Grid's as a collection tile, the Carousel's as a word). A Grid tile adds "N games" 6 dp under what's drawn (count_a), the logo staying centred.
 static void drawLogo(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float s, SDL_Color c, Uint8 a, Uint8 count_a) {
 	int box_w = r.w - 2 * NX_DPF(LOGO_INSET_X_DP * s);
 	int box_h = r.h - 2 * NX_DPF(LOGO_INSET_Y_DP * s);
@@ -497,9 +521,10 @@ static void drawLogo(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float s, S
 	int gap = NX_DPF(GRID_LOGO_COUNT_GAP_DP);
 	float count_sp = GridLayout_countSp(GRID_LOGO_COUNT_SP, s);
 	if (!logo && !t->carousel) {
-		// the Grid: drawn like a collection tile, its name in full white (the accent when selected) and its 13 sp count
+		// the Grid: drawn like a collection tile with the unknown-console emblem over its name, in the off-white at full
+		// alpha, and its 13 sp count
 		// 4 dp under the name, the count line reserved unlit
-		drawNameTile(dst, r, t, s, c, 255, GRID_LOGO_COUNT_SP, count_a);
+		drawNameTile(dst, r, t, s, c, 255, GRID_LOGO_COUNT_SP, count_a, TILE_UNKNOWN_CONSOLE_ICON);
 		return;
 	}
 	if (!logo) {
@@ -507,21 +532,23 @@ static void drawLogo(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float s, S
 		TTF_Font* fc = (t->count && t->count[0]) ? UIFont_get(count_sp, false) : NULL;
 		int count_h = fc ? TTF_FontHeight(fc) : 0;
 		int bottom = drawWord(dst, r, t->name, s, c, a, gap, count_h);
-		drawCount(dst, t->count, count_sp, r.x + r.w / 2, bottom + gap, count_a);
+		drawCount(dst, t->count, count_sp, r.x + r.w / 2, bottom + gap, UI_accent(), count_a);
 		return;
 	}
 	int lw = logo->w, lh = logo->h;
-	SDL_SetSurfaceColorMod(logo, c.r, c.g, c.b);
+	// the logo art is always the fixed off-white; only its alpha follows the selection
+	SDL_SetSurfaceColorMod(logo, TILE_MENU_GREY, TILE_MENU_GREY, TILE_MENU_GREY);
 	SDL_SetSurfaceAlphaMod(logo, a);
 	SDL_BlitSurface(logo, NULL, dst, &(SDL_Rect){r.x + (r.w - lw) / 2, r.y + (r.h - lh) / 2, lw, lh});
 	SDL_SetSurfaceColorMod(logo, 255, 255, 255);
 	SDL_SetSurfaceAlphaMod(logo, 255);
 	int y = (int)floorf(GridLayout_logoCountY((float)r.y, (float)r.h, (float)lh, (float)gap) + 0.5f);
-	drawCount(dst, t->count, count_sp, r.x + r.w / 2, y, count_a);
+	// "N games" in the count grey, a step under the logo
+	drawCount(dst, t->count, count_sp, r.x + r.w / 2, y, greyColor(TILE_COUNT_GREY), count_a);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// The lit game caption: a black fade 0 → 85% over the lower 55%, the name (game tiles only: a title tile
+// The lit game caption: a black fade, 85% under the label and ramping from clear above it (at least the lower 55%), the name (game tiles only: a title tile
 // already shows its name) and the count-only info line, built once into a tile-sized surface and blitted
 // at the lit alpha. Two slots: the tile fading out and the one fading in.
 
@@ -553,43 +580,64 @@ static SDL_Surface* buildCaption(int w, int h, int rad, const TileSpec* t, float
 	SDL_FillRect(cap, NULL, SDL_MapRGBA(cap->format, 0, 0, 0, 0));
 	SDL_SetSurfaceBlendMode(cap, SDL_BLENDMODE_BLEND);
 
-	// the fade backs the name over a screenshot; a title tile's ground is already black and its own (white) name sits
-	// in the lower half, where the fade would grey its later lines
+	int pad_x = NX_DPF(CAPTION_PAD_X_DP * s);
+	int max_w = w - 2 * pad_x;
+	int bottom = h - NX_DPF(CAPTION_PAD_B_DP * s);
+	// measure first: the fade has to reach over the label's top
+	TTF_Font* f_info = (max_w > 0 && t->info && t->ninfo > 0) ? UIFont_get(CAPTION_INFO_SP, false) : NULL;
+	int info_h = f_info ? TTF_FontHeight(f_info) : 0;
+	TTF_Font* f = (max_w > 0 && t->kind == TILE_GAME && t->name && t->name[0]) ? UIFont_get(CAPTION_NAME_SP * s, false)
+																			   : NULL;
+	Lines l = {.n = 0};
+	if (f)
+		layoutLines(f, t->name, max_w, 2, false, &l);
+	int lh = f ? TTF_FontHeight(f) : 0;
+	int gap = (info_h && l.n) ? NX_DPF(CAPTION_GAP_DP * s) : 0;
+	int label_top = bottom - info_h - gap - l.n * lh;
+
+	// the fade backs the label over a screenshot: from twice the label's height (at least CAPTION_FADE_OVER_DP) above
+	// the label's top down to the bottom, never less than CAPTION_FADE_SHARE of the tile. A title tile's ground is
+	// already black and its own (white) name sits in the lower half, where the fade would grey its later lines.
 	if (t->kind == TILE_GAME) {
-		int fade_h = (int)(h * CAPTION_FADE_SHARE + 0.5f);
+		int over = (int)((bottom - label_top) * CAPTION_FADE_OVER_LABELS + 0.5f);
+		int min_over = NX_DPF(CAPTION_FADE_OVER_DP * s);
+		if (over < min_over)
+			over = min_over;
+		int fade_h = h - (label_top - over);
+		int share_h = (int)(h * CAPTION_FADE_SHARE + 0.5f);
+		if (fade_h < share_h)
+			fade_h = share_h;
+		if (fade_h > h)
+			fade_h = h;
 		// the fade's rows are uniform, so its width only has to cover the tile: ask for it in 64 px buckets and
 		// blit the tile's part, so tiles of nearby widths (the lit one, a scale step) share one cached fade
 		int fade_w = (w + 63) & ~63;
-		SDL_Surface* fade = UI_bandFadeSurface(fade_w, fade_h, CAPTION_FADE_EDGE, 0); // linear 0 → 85%, cache-owned
-		if (fade)																	  // over clear pixels: black at the row's alpha, as SDL's blend
+		// held at the full 85% under the label (and a few dp over it), ramping from clear only above that
+		int hold = h - label_top + NX_DPF(CAPTION_FADE_HOLD_PAD_DP * s);
+		if (hold > fade_h - 1)
+			hold = fade_h - 1;
+		SDL_Surface* fade = UI_bandFadeSurface(fade_w, fade_h, CAPTION_FADE_EDGE, hold); // cache-owned
+		if (fade)																		 // over clear pixels: black at the row's alpha, as SDL's blend
 			UI_blitFade(fade, &(SDL_Rect){0, 0, w, fade_h}, cap, 0, h - fade_h);
 	}
-
-	int pad_x = NX_DPF(CAPTION_PAD_X_DP * s);
-	int max_w = w - 2 * pad_x;
-	int y = h - NX_DPF(CAPTION_PAD_B_DP * s);
 	if (max_w <= 0) {
 		cutCorners(cap, rad);
 		return cap;
 	}
-	TTF_Font* f_info = (t->info && t->ninfo > 0) ? UIFont_get(CAPTION_INFO_SP, false) : NULL;
-	if (f_info) {
-		y -= TTF_FontHeight(f_info);
+	int y = bottom;
+	if (f_info && (f_info = UIFont_get(CAPTION_INFO_SP, false))) { // again: the name font was fetched after it
+		y -= info_h;
 		if (InfoBand_drawSegments(cap, t->info, t->ninfo, pad_x, false, y, max_w, f_info) > 0)
-			y -= NX_DPF(CAPTION_GAP_DP * s);
+			y -= gap;
 		else
-			y += TTF_FontHeight(f_info);
+			y += info_h;
 	}
-	if (t->kind == TILE_GAME && t->name && t->name[0]) {
-		TTF_Font* f = UIFont_get(CAPTION_NAME_SP * s, false);
-		if (f) {
-			Lines l;
-			layoutLines(f, t->name, max_w, 2, false, &l);
-			int lh = TTF_FontHeight(f);
-			y -= l.n * lh;
-			for (int i = 0; i < l.n; i++)
-				blitText(cap, f, l.line[i], pad_x, y + i * lh, 255, 255);
-		}
+	if (f) {
+		// fonts: InfoBand may have opened others; f is the caption name's, fetched again in case it was evicted
+		f = UIFont_get(CAPTION_NAME_SP * s, false);
+		y -= l.n * lh;
+		for (int i = 0; f && i < l.n; i++)
+			blitText(cap, f, l.line[i], pad_x, y + i * lh, 255, 255);
 	}
 	cutCorners(cap, rad); // the fade is darkest at the bottom corners: keep it inside the tile
 	return cap;
@@ -684,17 +732,16 @@ void Tiles_draw(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float lit) {
 		blitShapeColor(dst, SHAPE_FILL, r.x, r.y, r.w, r.h, rad, 0, (SDL_Color){ac.r, ac.g, ac.b, 255}, lit_a);
 	}
 
-	// content: white at 82% (a Grid collection's name at 100%, as a logo-less console's: drawLogo) → the Logo look's
-	// accent at 100%, the Carousel's fill kinds the accent's ink (Color 5; black by default) at 100%, the game kinds
-	// white at 100%
+	// content: at 82% (a Grid collection's name at 100%, as a logo-less console's: drawLogo) → 100% lit; the Grid's in
+	// the fixed off-white (TILE_MENU_GREY), the Carousel's fill kinds white → the accent's ink (Color 5; black by
+	// default), the game kinds white
 	Uint8 plain_a = (t->kind == TILE_COLLECTION && logo_look) ? 255 : TILE_PLAIN_ALPHA;
 	Uint8 a = (Uint8)(plain_a + (255 - plain_a) * lit + 0.5f);
 	SDL_Color c;
 	if (game)
 		c = greyColor(255);
 	else if (logo_look)
-		c = (SDL_Color){(Uint8)(255 + (ac.r - 255) * lit + 0.5f), (Uint8)(255 + (ac.g - 255) * lit + 0.5f),
-						(Uint8)(255 + (ac.b - 255) * lit + 0.5f), 255};
+		c = greyColor(TILE_MENU_GREY); // the Grid: the fixed off-white, lit or not (the alpha marks the selection)
 	else {
 		// white → the ink; written so the default black ink gives exactly the former 255 · (1 − lit) grey
 		SDL_Color ink = UI_onAccent();
@@ -702,7 +749,8 @@ void Tiles_draw(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float lit) {
 						(Uint8)(ink.g * lit + 255.0f * (1.0f - lit) + 0.5f),
 						(Uint8)(ink.b * lit + 255.0f * (1.0f - lit) + 0.5f), 255};
 	}
-	Uint8 count_a = logo_look ? lit_a : 0; // "N games": the Grid's selected console or collection only
+	// "N games": on every Grid console and collection tile
+	Uint8 count_a = logo_look ? 255 : 0;
 	switch (t->kind) {
 	case TILE_LOGO:
 		drawLogo(dst, r, t, s, c, a, count_a);
@@ -711,7 +759,7 @@ void Tiles_draw(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float lit) {
 		drawTool(dst, r, t, s, c, a);
 		break;
 	case TILE_COLLECTION:
-		drawNameTile(dst, r, t, s, c, a, GRID_COLL_COUNT_SP, count_a);
+		drawNameTile(dst, r, t, s, c, a, GRID_COLL_COUNT_SP, count_a, NULL);
 		break;
 	case TILE_GAME:
 		if (t->picture) {
@@ -820,6 +868,15 @@ const char* Tiles_toolIcon(const char* pak_name) {
 		{"Artwork Manager", "menu_icon_artwork.png"},
 		{"Game Tracker", "menu_icon_gametime.png"},
 		{"Settings", "menu_icon_settings.png"},
+		{"Device Sync", "menu_icon_sync.png"},
+		{"Emulator Settings", "menu_icon_emulator.png"},
+		{"Files", "menu_icon_files.png"},
+		{"Image Viewer", "menu_icon_images.png"},
+		{"Media Player", "menu_icon_media.png"},
+		{"Music Player", "menu_icon_music.png"},
+		{"Xtras", "menu_icon_xtras.png"},
+		{"PortMaster", "menu_icon_portmaster.png"},
+		{"Cheat Database", "menu_icon_cheats.png"},
 	};
 	if (!pak_name)
 		return NULL;

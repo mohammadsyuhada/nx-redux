@@ -49,14 +49,10 @@ void CFG_defaults(NextUISettings* cfg) {
 		.color5_255 = CFG_DEFAULT_COLOR5,
 		.color6_255 = CFG_DEFAULT_COLOR6,
 		.color7_255 = CFG_DEFAULT_COLOR7,
-		.thumbRadius = CFG_DEFAULT_THUMBRADIUS,
-		.gameArtWidth = CFG_DEFAULT_GAMEARTWIDTH,
-		.gameArtStyle = CFG_DEFAULT_GAMEARTSTYLE,
 		.menuStyle = {CFG_DEFAULT_MENUSTYLE, CFG_DEFAULT_MENUSTYLE, CFG_DEFAULT_MENUSTYLE},
 		.gameListStyle = CFG_DEFAULT_GAMELISTSTYLE,
 		.menuOrient = {CFG_DEFAULT_MENUORIENT, CFG_DEFAULT_MENUORIENT, CFG_DEFAULT_MENUORIENT},
 		.gameListOrient = CFG_DEFAULT_GAMELISTORIENT,
-		.gameArtType = CFG_DEFAULT_GAMEARTTYPE,
 		.showFolderNamesAtRoot = CFG_DEFAULT_SHOWFOLDERNAMESATROOT,
 
 		.showClock = CFG_DEFAULT_SHOWCLOCK,
@@ -68,7 +64,6 @@ void CFG_defaults(NextUISettings* cfg) {
 		.showRecents = CFG_DEFAULT_SHOWRECENTS,
 		.showTools = CFG_DEFAULT_SHOWTOOLS,
 		.showCollections = CFG_DEFAULT_SHOWCOLLECTIONS,
-		.showGameArt = CFG_DEFAULT_SHOWGAMEART,
 		.showEmulators = CFG_DEFAULT_SHOWEMULATORS,
 		.gameSwitcherScaling = CFG_DEFAULT_GAMESWITCHERSCALING,
 		.gameSwitcherResumableOnly = CFG_DEFAULT_GAMESWITCHERRESUMABLEONLY,
@@ -83,7 +78,6 @@ void CFG_defaults(NextUISettings* cfg) {
 		.powerOffProtection = CFG_DEFAULT_POWEROFFPROTECTION,
 
 		.haptics = CFG_DEFAULT_HAPTICS,
-		.romsUseFolderBackground = CFG_DEFAULT_ROMSUSEFOLDERBACKGROUND,
 		.saveFormat = CFG_DEFAULT_SAVEFORMAT,
 		.stateFormat = CFG_DEFAULT_STATEFORMAT,
 		.useExtractedFileName = CFG_DEFAULT_EXTRACTEDFILENAME,
@@ -151,10 +145,6 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 				CFG_setColor(line[5] - '0', RGBA_parseHex(line + 7));
 				continue;
 			}
-			if (sscanf(line, "radius=%i", &temp_value) == 1) {
-				CFG_setThumbnailRadius(temp_value);
-				continue;
-			}
 			if (sscanf(line, "showclock=%i", &temp_value) == 1) {
 				CFG_setShowClock((bool)temp_value);
 				continue;
@@ -193,10 +183,6 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 			}
 			if (sscanf(line, "emulators=%i", &temp_value) == 1) {
 				CFG_setShowEmulators((bool)temp_value);
-				continue;
-			}
-			if (sscanf(line, "gameart=%i", &temp_value) == 1) {
-				CFG_setShowGameArt((bool)temp_value);
 				continue;
 			}
 			if (sscanf(line, "screentimeout=%i", &temp_value) == 1) {
@@ -239,10 +225,6 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 				CFG_setHaptics((bool)temp_value);
 				continue;
 			}
-			if (sscanf(line, "romfolderbg=%i", &temp_value) == 1) {
-				CFG_setRomsUseFolderBackground((bool)temp_value);
-				continue;
-			}
 			if (sscanf(line, "saveFormat=%i", &temp_value) == 1) {
 				CFG_setSaveFormat(temp_value);
 				continue;
@@ -258,14 +240,6 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 			// accept the new key and the legacy muteLeds= spelling
 			if (sscanf(line, "fnLeds=%i", &temp_value) == 1 || sscanf(line, "muteLeds=%i", &temp_value) == 1) {
 				CFG_setFnLEDs(temp_value);
-				continue;
-			}
-			if (sscanf(line, "artWidth=%i", &temp_value) == 1) {
-				CFG_setGameArtWidth((double)temp_value / 100.0);
-				continue;
-			}
-			if (sscanf(line, "artStyle=%i", &temp_value) == 1) {
-				CFG_setGameArtStyle(temp_value);
 				continue;
 			}
 			{
@@ -302,10 +276,6 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 			}
 			if (sscanf(line, "gameListOrient=%i", &temp_value) == 1) {
 				CFG_setGameListOrient(temp_value);
-				continue;
-			}
-			if (sscanf(line, "artType=%i", &temp_value) == 1) {
-				CFG_setGameArtType(temp_value);
 				continue;
 			}
 			if (sscanf(line, "wifi=%i", &temp_value) == 1) {
@@ -631,15 +601,6 @@ void CFG_setMenuTransitions(bool show) {
 	CFG_sync();
 }
 
-int CFG_getThumbnailRadius(void) {
-	return settings.thumbRadius;
-}
-
-void CFG_setThumbnailRadius(int radius) {
-	settings.thumbRadius = clamp(radius, 0, 24);
-	CFG_sync();
-}
-
 bool CFG_getShowRecents(void) {
 	return settings.showRecents;
 }
@@ -667,30 +628,12 @@ void CFG_setShowCollections(bool show) {
 	CFG_sync();
 }
 
-bool CFG_getShowGameArt(void) {
-	return settings.showGameArt;
-}
-
-void CFG_setShowGameArt(bool show) {
-	settings.showGameArt = show;
-	CFG_sync();
-}
-
 bool CFG_getShowEmulators(void) {
 	return settings.showEmulators;
 }
 
 void CFG_setShowEmulators(bool show) {
 	settings.showEmulators = show;
-	CFG_sync();
-}
-
-bool CFG_getRomsUseFolderBackground(void) {
-	return settings.romsUseFolderBackground;
-}
-
-void CFG_setRomsUseFolderBackground(bool folder) {
-	settings.romsUseFolderBackground = folder;
 	CFG_sync();
 }
 
@@ -785,28 +728,6 @@ void CFG_setFnLEDs(bool on) {
 	CFG_sync();
 }
 
-double CFG_getGameArtWidth(void) {
-	return settings.gameArtWidth;
-}
-
-void CFG_setGameArtWidth(double zeroToOne) {
-	settings.gameArtWidth = clampd(zeroToOne, 0.0, 1.0);
-	CFG_sync();
-}
-
-int CFG_getGameArtStyle(void) {
-	return settings.gameArtStyle;
-}
-
-void CFG_setGameArtStyle(int style) {
-	if (style < ART_STYLE_THUMBNAIL)
-		style = ART_STYLE_THUMBNAIL;
-	else if (style > ART_STYLE_BACKGROUND)
-		style = ART_STYLE_BACKGROUND;
-	settings.gameArtStyle = style;
-	CFG_sync();
-}
-
 // The mapping lives in menustyle_model.h (host-tested): the setters store the value (out of range → the
 // default; a main-menu Backdrop is kept as written), the getters map it (main-menu Backdrop → Carousel).
 int CFG_getMenuStyle(int category) {
@@ -863,25 +784,6 @@ int CFG_getMenuOrientEffective(int category) {
 
 int CFG_getGameListOrientEffective(void) {
 	return MenuStyle_gameListOrient(settings.gameListStyle, settings.gameListOrient);
-}
-
-int CFG_getGameArtType(void) {
-	return settings.gameArtType;
-}
-
-void CFG_setGameArtType(int type) {
-	if (type < ART_TYPE_MIX)
-		type = ART_TYPE_MIX;
-	else if (type > ART_TYPE_BOXART)
-		type = ART_TYPE_BOXART;
-	settings.gameArtType = type;
-	CFG_sync();
-}
-
-int CFG_getEffectiveArtType(void) {
-	if (settings.gameArtStyle == ART_STYLE_BACKGROUND)
-		return ART_TYPE_SCREENSHOT;
-	return settings.gameArtType;
 }
 
 bool CFG_getWifi(void) {
@@ -1214,8 +1116,6 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "\"0x%08X\"", CFG_getColor(6));
 	} else if (strcmp(key, "color7") == 0) {
 		sprintf(value, "\"0x%08X\"", CFG_getColor(7));
-	} else if (strcmp(key, "radius") == 0) {
-		sprintf(value, "%i", CFG_getThumbnailRadius());
 	} else if (strcmp(key, "showclock") == 0) {
 		sprintf(value, "%i", CFG_getShowClock());
 	} else if (strcmp(key, "clock24h") == 0) {
@@ -1236,8 +1136,6 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", CFG_getShowCollections());
 	} else if (strcmp(key, "emulators") == 0) {
 		sprintf(value, "%i", CFG_getShowEmulators());
-	} else if (strcmp(key, "gameart") == 0) {
-		sprintf(value, "%i", CFG_getShowGameArt());
 	} else if (strcmp(key, "showfoldernamesatroot") == 0) {
 		sprintf(value, "%i", CFG_getShowFolderNamesAtRoot());
 	} else if (strcmp(key, "screentimeout") == 0) {
@@ -1250,8 +1148,6 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", CFG_getGameSwitcherScaling());
 	} else if (strcmp(key, "switcherresumableonly") == 0) {
 		sprintf(value, "%i", CFG_getGameSwitcherResumableOnly());
-	} else if (strcmp(key, "romfolderbg") == 0) {
-		sprintf(value, "%i", CFG_getRomsUseFolderBackground());
 	} else if (strcmp(key, "saveFormat") == 0) {
 		sprintf(value, "%i", CFG_getSaveFormat());
 	} else if (strcmp(key, "stateFormat") == 0) {
@@ -1260,16 +1156,10 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", CFG_getUseExtractedFileName());
 	} else if (strcmp(key, "fnLeds") == 0 || strcmp(key, "muteLeds") == 0) {
 		sprintf(value, "%i", CFG_getFnLEDs());
-	} else if (strcmp(key, "artWidth") == 0) {
-		sprintf(value, "%i", (int)(CFG_getGameArtWidth() * 100));
-	} else if (strcmp(key, "artStyle") == 0) {
-		sprintf(value, "%i", CFG_getGameArtStyle());
 	} else if (strcmp(key, "gameListStyle") == 0) {
 		sprintf(value, "%i", CFG_getGameListStyle());
 	} else if (strcmp(key, "gameListOrient") == 0) {
 		sprintf(value, "%i", CFG_getGameListOrient());
-	} else if (strcmp(key, "artType") == 0) {
-		sprintf(value, "%i", CFG_getGameArtType());
 	} else if (strcmp(key, "wifi") == 0) {
 		sprintf(value, "%i", (int)(CFG_getWifi()));
 	} else if (strcmp(key, "defaultView") == 0) {
@@ -1333,7 +1223,6 @@ static int CFG_serialize(char* buf, size_t cap) {
 	EMIT("color5=0x%08X\n", settings.color5_255);
 	EMIT("color6=0x%08X\n", settings.color6_255);
 	EMIT("color7=0x%08X\n", settings.color7_255);
-	EMIT("radius=%i\n", settings.thumbRadius);
 	EMIT("showclock=%i\n", settings.showClock);
 	EMIT("clock24h=%i\n", settings.clock24h);
 	EMIT("batteryperc=%i\n", settings.showBatteryPercent);
@@ -1344,7 +1233,6 @@ static int CFG_serialize(char* buf, size_t cap) {
 	EMIT("tools=%i\n", settings.showTools);
 	EMIT("collections=%i\n", settings.showCollections);
 	EMIT("emulators=%i\n", settings.showEmulators);
-	EMIT("gameart=%i\n", settings.showGameArt);
 	EMIT("showfoldernamesatroot=%i\n", settings.showFolderNamesAtRoot);
 	EMIT("screentimeout=%i\n", settings.screenTimeoutSecs);
 	EMIT("suspendTimeout=%i\n", settings.suspendTimeoutSecs);
@@ -1354,20 +1242,16 @@ static int CFG_serialize(char* buf, size_t cap) {
 	EMIT("fn1Tool=%s\n", settings.fn1Tool);
 	EMIT("fn2Tool=%s\n", settings.fn2Tool);
 	EMIT("haptics=%i\n", settings.haptics);
-	EMIT("romfolderbg=%i\n", settings.romsUseFolderBackground);
 	EMIT("saveFormat=%i\n", settings.saveFormat);
 	EMIT("stateFormat=%i\n", settings.stateFormat);
 	EMIT("useExtractedFileName=%i\n", settings.useExtractedFileName);
 	EMIT("fnLeds=%i\n", settings.fnLeds);
-	EMIT("artWidth=%i\n", (int)(settings.gameArtWidth * 100));
-	EMIT("artStyle=%i\n", settings.gameArtStyle);
 	for (int c = 0; c < MENU_CAT_COUNT; c++)
 		EMIT("%s=%i\n", menu_style_keys[c], settings.menuStyle[c]);
 	EMIT("gameListStyle=%i\n", settings.gameListStyle);
 	for (int c = 0; c < MENU_CAT_COUNT; c++)
 		EMIT("%s=%i\n", menu_orient_keys[c], settings.menuOrient[c]);
 	EMIT("gameListOrient=%i\n", settings.gameListOrient);
-	EMIT("artType=%i\n", settings.gameArtType);
 	EMIT("wifi=%i\n", settings.wifi);
 	EMIT("defaultView=%i\n", settings.defaultView);
 	EMIT("wifiDiagnostics=%i\n", settings.wifiDiagnostics);
@@ -1578,7 +1462,6 @@ void CFG_print(void) {
 	printf("\t\"color5\": \"0x%08X\",\n", settings.color5_255);
 	printf("\t\"color6\": \"0x%08X\",\n", settings.color6_255);
 	printf("\t\"color7\": \"0x%08X\",\n", settings.color7_255);
-	printf("\t\"radius\": %i,\n", settings.thumbRadius);
 	printf("\t\"showclock\": %i,\n", settings.showClock);
 	printf("\t\"clock24h\": %i,\n", settings.clock24h);
 	printf("\t\"batteryperc\": %i,\n", settings.showBatteryPercent);
@@ -1588,7 +1471,6 @@ void CFG_print(void) {
 	printf("\t\"recents\": %i,\n", settings.showRecents);
 	printf("\t\"tools\": %i,\n", settings.showTools);
 	printf("\t\"collections\": %i,\n", settings.showCollections);
-	printf("\t\"gameart\": %i,\n", settings.showGameArt);
 	printf("\t\"showfoldernamesatroot\": %i,\n", settings.showFolderNamesAtRoot);
 	printf("\t\"screentimeout\": %i,\n", settings.screenTimeoutSecs);
 	printf("\t\"suspendTimeout\": %i,\n", settings.suspendTimeoutSecs);
@@ -1596,20 +1478,16 @@ void CFG_print(void) {
 	printf("\t\"switcherscale\": %i,\n", settings.gameSwitcherScaling);
 	printf("\t\"switcherresumableonly\": %i,\n", settings.gameSwitcherResumableOnly);
 	printf("\t\"haptics\": %i,\n", settings.haptics);
-	printf("\t\"romfolderbg\": %i,\n", settings.romsUseFolderBackground);
 	printf("\t\"saveFormat\": %i,\n", settings.saveFormat);
 	printf("\t\"stateFormat\": %i,\n", settings.stateFormat);
 	printf("\t\"useExtractedFileName\": %i,\n", settings.useExtractedFileName);
 	printf("\t\"fnLeds\": %i,\n", settings.fnLeds);
-	printf("\t\"artWidth\": %i,\n", (int)(settings.gameArtWidth * 100));
-	printf("\t\"artStyle\": %i,\n", settings.gameArtStyle);
 	for (int c = 0; c < MENU_CAT_COUNT; c++)
 		printf("\t\"%s\": %i,\n", menu_style_keys[c], settings.menuStyle[c]);
 	printf("\t\"gameListStyle\": %i,\n", settings.gameListStyle);
 	for (int c = 0; c < MENU_CAT_COUNT; c++)
 		printf("\t\"%s\": %i,\n", menu_orient_keys[c], settings.menuOrient[c]);
 	printf("\t\"gameListOrient\": %i,\n", settings.gameListOrient);
-	printf("\t\"artType\": %i,\n", settings.gameArtType);
 	printf("\t\"wifi\": %i,\n", settings.wifi);
 	printf("\t\"defaultView\": %i,\n", settings.defaultView);
 	printf("\t\"wifiDiagnostics\": %i,\n", settings.wifiDiagnostics);

@@ -11,6 +11,7 @@
 #include "homeart.h"
 #include "homeart_model.h"
 #include "row_model.h"
+#include "placeholder_art.h"
 
 // One worker thread decodes and shapes pictures into a small cache. The UI thread only looks slots up, queues misses
 // and evicts; the worker fills a queued slot under the mutex, and a generation number drops a result whose slot was
@@ -30,7 +31,8 @@
 enum { KIND_CONTINUE,
 	   KIND_PIN,
 	   KIND_BOXART,
-	   KIND_BACKDROP };
+	   KIND_BACKDROP,
+	   KIND_BOXPH }; // the placeholder case's abstract plate (box-art pool)
 
 #define SHADOW_ALPHA 0.5f // the shadow is the art's alpha at 50%
 #define SHADOW_OFFSET_DP 4
@@ -174,6 +176,50 @@ static SDL_Surface* screenshotFor(const char* rom, HomeArtRect* keep) {
 	return s;
 }
 
+// A game without a screenshot (the Carousel's and Grid's tiles) or box art (the Backdrop's placeholder case): its
+// abstract picture (placeholder_art.c, seeded by
+// the ROM's file name), generated once at PLACEHOLDER_W×H on this worker (~50 ms on the Smart Pro S) and kept as a
+// PNG under PLACEHOLDER_DIR, so a later view only loads it. Not in the game's .media: the Artwork Manager still sees
+// the game as missing art, and a real screenshot, once fetched, is found first.
+#define PLACEHOLDER_DIR SHARED_USERDATA_PATH "/.minui/placeholders"
+#define PLACEHOLDER_W 640 // a tile's (landscape)
+#define PLACEHOLDER_H 360
+#define PLACEHOLDER_BOX_W 360 // a box art's (the placeholder case's 0.72 portrait), saved as <hash>_box.png
+#define PLACEHOLDER_BOX_H 500
+
+static SDL_Surface* placeholderFor(const char* rom, bool box, HomeArtRect* keep) {
+	const char* base = strrchr(rom, '/');
+	base = base ? base + 1 : rom;
+	char seed[MAX_PATH];
+	snprintf(seed, sizeof(seed), "%s", base);
+	char* dot = strrchr(seed, '.');
+	if (dot && dot != seed)
+		*dot = '\0';
+	uint32_t hash = 2166136261u;
+	for (const char* c = seed; *c; c++)
+		hash = (hash ^ (uint8_t)*c) * 16777619u;
+	char path[MAX_PATH];
+	snprintf(path, sizeof(path), "%s/%08x%s.png", PLACEHOLDER_DIR, hash, box ? "_box" : "");
+	SDL_Surface* s = loadArgb(path);
+	if (!s) {
+		s = SDL_CreateRGBSurfaceWithFormat(0, box ? PLACEHOLDER_BOX_W : PLACEHOLDER_W, box ? PLACEHOLDER_BOX_H : PLACEHOLDER_H,
+										   32, SDL_PIXELFORMAT_ARGB8888);
+		if (!s)
+			return NULL;
+		PlaceholderArt_render(s->pixels, s->w, s->h, s->pitch / 4, seed);
+		// written whole, then renamed in: a half-written file is never loaded
+		char tmp[MAX_PATH + 8];
+		snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+		mkdir_p(PLACEHOLDER_DIR);
+		if (IMG_SavePNG(s, tmp) == 0)
+			rename(tmp, path);
+		else
+			unlink(tmp);
+	}
+	*keep = (HomeArtRect){0, 0, s->w, s->h};
+	return s;
+}
+
 // Black-with-alpha shadow of `art` under the art itself, in a surface padded by `pad` px on every side (the art's
 // top-left sits at (pad, pad)). The shadow is the art's alpha at 50%, `off` px down, box-blurred SHADOW_PASSES times
 // with radius r. `pad` >= off + r*passes keeps the blur's support inside the buffer (it treats outside as zero).
@@ -276,7 +322,7 @@ static SDL_Surface* buildBackdrop(const char* rom, int w, int h) {
 	SDL_Surface* src = screenshotFor(rom, &keep);
 	if (!src)
 		return NULL;
-	SDL_Surface* out = cropFill(src, keep, w, h, 1.0f, 0.5f);
+	SDL_Surface* out = cropFill(src, keep, w, h, 1.0f, HomeArt_frameY(keep.w, keep.h, 0.5f));
 	if (!out)
 		return NULL;
 	Uint32* dp = out->pixels;
@@ -302,6 +348,11 @@ static SDL_Surface* buildPicture(int kind, const char* rom, const char* preview,
 		return buildBoxart(rom, w, h, ox, oy);
 	if (kind == KIND_BACKDROP)
 		return buildBackdrop(rom, w, h);
+	if (kind == KIND_BOXPH) {
+		HomeArtRect keep = {0};
+		SDL_Surface* src = placeholderFor(rom, true, &keep);
+		return src ? cropFill(src, keep, w, h, 1.0f, 0.5f) : NULL;
+	}
 	HomeArtRect keep = {0};
 	SDL_Surface* src = NULL;
 	if (kind == KIND_CONTINUE) {
@@ -319,10 +370,13 @@ static SDL_Surface* buildPicture(int kind, const char* rom, const char* preview,
 	}
 	if (!src)
 		src = screenshotFor(rom, &keep);
+	if (!src && kind == KIND_PIN)
+		src = placeholderFor(rom, false, &keep);
 	if (!src)
 		return NULL;
 	bool cont = kind == KIND_CONTINUE;
-	SDL_Surface* out = cropFill(src, keep, w, h, cont ? CONTINUE_ZOOM : 1.0f, cont ? CONTINUE_FRAME_Y : 0.5f);
+	SDL_Surface* out = cropFill(src, keep, w, h, cont ? CONTINUE_ZOOM : 1.0f,
+								HomeArt_frameY(keep.w, keep.h, cont ? CONTINUE_FRAME_Y : 0.5f));
 	if (out && radius > 0)
 		GFX_ApplyRoundedCorners_8888(out, NULL, radius);
 	return out;
@@ -391,7 +445,7 @@ static bool ensureStarted(void) {
 
 // Each kind evicts within its own pool: [first, first + count).
 static void poolFor(int kind, int* first, int* count) {
-	if (kind == KIND_BOXART) {
+	if (kind == KIND_BOXART || kind == KIND_BOXPH) {
 		*first = POOL_PICTURE_SIZE;
 		*count = POOL_BOXART_SIZE;
 	} else if (kind == KIND_BACKDROP) {
@@ -472,12 +526,33 @@ HomeArtState HomeArt_boxart(const char* rom_path, int w, int h, SDL_Surface** ou
 	return lookup(KIND_BOXART, rom_path, NULL, w, h, 0, out, ox, oy);
 }
 
+HomeArtState HomeArt_boxPlaceholder(const char* rom_path, int w, int h, SDL_Surface** out) {
+	return lookup(KIND_BOXPH, rom_path, NULL, w, h, 0, out, NULL, NULL);
+}
+
 HomeArtState HomeArt_backdrop(const char* rom_path, int screen_w, int screen_h, SDL_Surface** out) {
 	return lookup(KIND_BACKDROP, rom_path, NULL, screen_w, screen_h, 0, out, NULL, NULL);
 }
 
 bool HomeArt_checkAsyncLoaded(void) {
 	return SDL_AtomicCAS(&loadedFlag, 1, 0);
+}
+
+void HomeArt_forget(const char* rom_path) {
+	if (!rom_path || !mutex)
+		return;
+	SDL_LockMutex(mutex);
+	for (int i = 0; i < HOMEART_CACHE_SIZE; i++) {
+		Slot* s = &slots[i];
+		if (!s->used || strcmp(s->rom, rom_path) != 0)
+			continue;
+		if (s->surface)
+			SDL_FreeSurface(s->surface);
+		s->surface = NULL;
+		s->used = false; // a result the worker is still building is dropped (its slot no longer matches)
+		s->gen = ++genCounter;
+	}
+	SDL_UnlockMutex(mutex);
 }
 
 void HomeArt_quit(void) {

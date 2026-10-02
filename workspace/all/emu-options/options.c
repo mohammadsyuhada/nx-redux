@@ -309,7 +309,7 @@ static int run_picker(int argc, char** argv, const char** out_path) {
 
 		if (dirty) {
 			render_list("Emulator Settings", names, count, selected, &scroll,
-						(char*[]){"A", "SELECT", "B", "BACK", NULL});
+						(char*[]){"A", "SELECT", "B", "EXIT", NULL}); // the tool's first level
 			dirty = false;
 		} else {
 			GFX_sync();

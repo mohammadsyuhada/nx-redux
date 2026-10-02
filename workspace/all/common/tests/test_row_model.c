@@ -22,7 +22,7 @@ static void sizes(void) {
 	RowSizes l = Row_sizes(ROW_BACKDROP_LOGO, 896, 504 - 2 * BAR);
 	assert(near(l.scale, 0.40f, 1e-4f) && near(l.item_w, 415 * l.f, 0.01f));
 	RowSizes t = Row_sizes(ROW_BACKDROP_TOOL, 896, 504 - 2 * BAR);
-	assert(near(t.gap, 14 * t.f, 0.01f) && near(t.item_h, 160 * t.f, 0.01f));
+	assert(near(t.gap, 14 * t.f, 0.01f) && near(t.item_h, 208 * t.f, 0.01f) && near(t.item_w, 240 * t.f, 0.01f));
 }
 
 static void item_layout(void) {
@@ -132,8 +132,8 @@ static int spPx(const Screen* s, float sp) { // NX_SP
 	return (int)(sp * s->scale * 12.0f / 14.0f + 0.5f);
 }
 
-// Main-menu Carousel (sub-project 8): Consoles' logo slot 415 x 164 (sides 0.40), Collections' tool slot with sides at
-// 0.5, Tools' tool slot unchanged.
+// Main-menu Carousel (sub-project 8): Consoles' logo slot 415 x 164 (sides 0.40), Collections' tool slot twice as
+// wide with sides at 0.5, Tools' 240 x 208.
 static void main_menu_sizes(void) {
 	float bh = 504 - 2 * BAR;
 	RowSizes l = Row_sizes(ROW_BACKDROP_LOGO, 896, bh);
@@ -141,10 +141,10 @@ static void main_menu_sizes(void) {
 	assert(near(l.item_w, 415 * l.f, 0.01f) && near(l.item_h, 164 * l.f, 0.01f) && near(l.scale, 0.40f, 1e-4f));
 	assert(near(l.gap, 28 * l.f, 0.01f));
 	RowSizes c = Row_sizes(ROW_BACKDROP_COLL, 896, bh);
-	assert(near(c.item_w, 150 * c.f, 0.01f) && near(c.item_h, 160 * c.f, 0.01f) && near(c.gap, 14 * c.f, 0.01f));
+	assert(near(c.item_w, 300 * c.f, 0.01f) && near(c.item_h, 160 * c.f, 0.01f) && near(c.gap, 14 * c.f, 0.01f));
 	assert(near(c.scale, 0.5f, 1e-4f));
 	RowSizes t = Row_sizes(ROW_BACKDROP_TOOL, 896, bh);
-	assert(near(t.item_w, c.item_w, 1e-4f) && near(t.item_h, c.item_h, 1e-4f) && near(t.scale, 0.62f, 1e-4f));
+	assert(near(t.item_w, 240 * t.f, 0.01f) && near(t.item_h, 208 * t.f, 0.01f) && near(t.scale, 0.62f, 1e-4f));
 	// the selected collection reads 2x its neighbours: half size one step out, the frameless alpha fades
 	RowItem side = Row_item(&c, ROW_BACKDROP_COLL, 4, 3);
 	assert(near(side.scale, 0.5f, 1e-4f) && near(side.alpha, 0.5f, 1e-4f) && near(side.darken, 0, 1e-6f));
@@ -152,11 +152,11 @@ static void main_menu_sizes(void) {
 	RowItem far = Row_item(&c, ROW_BACKDROP_COLL, 6.5f, 3); // d = 3.5: the 3-4 step fade
 	assert(far.visible && near(far.alpha, fmaxf(0.2f, 0.5f - 0.12f * 2.5f) * 0.5f, 1e-4f));
 	assert(!Row_item(&c, ROW_BACKDROP_COLL, 7, 3).visible);
-	// Consoles' side logos: 0.8 x the curve (0.4 one step out), the selected one unchanged, eased in over the step
+	// Consoles' side logos: 0.65 x the curve (0.325 one step out), the selected one unchanged, eased in over the step
 	assert(near(Row_item(&l, ROW_BACKDROP_LOGO, 3, 3).alpha, 1.0f, 1e-6f));
-	assert(near(Row_item(&l, ROW_BACKDROP_LOGO, 4, 3).alpha, 0.4f, 1e-4f));
-	assert(near(Row_item(&l, ROW_BACKDROP_LOGO, 3.5f, 3).alpha, 0.75f * 0.9f, 1e-4f));
-	assert(near(Row_item(&l, ROW_BACKDROP_LOGO, 5, 3).alpha, 0.38f * 0.8f, 1e-4f));
+	assert(near(Row_item(&l, ROW_BACKDROP_LOGO, 4, 3).alpha, 0.325f, 1e-4f));
+	assert(near(Row_item(&l, ROW_BACKDROP_LOGO, 3.5f, 3).alpha, 0.75f * 0.825f, 1e-4f));
+	assert(near(Row_item(&l, ROW_BACKDROP_LOGO, 5, 3).alpha, 0.38f * 0.65f, 1e-4f));
 }
 
 // Each main-menu Carousel row is centred alone between the tab row and the hint bar: no caption block, Consoles' logo
@@ -234,13 +234,16 @@ static void collections_name_size(void) {
 // "My Favourite Handheld Games" at 3x (the Brick) and 2x (SPS). The word widths are the system font's (font1.ttf,
 // measured with PIL) at the start size, 38 px on the Brick and 48 px on the SPS, and scale with the size.
 static void collections_long_name(void) {
-	const float brick_w[4] = {57, 178, 179, 129}, sps_w[4] = {72, 224, 226, 162}; // My, Favourite, Handheld, Games
-	const float brick_space = 11, sps_space = 14;
+	// My, Favourite, Handheld, Games: px measured at the 30 sp start (Brick 14.93 sp, SPS 28 sp), scaled to the start
+	const float at30 = ROW_COLL_NAME_SP / 30.0f;
+	const float brick_w[4] = {57 * at30, 178 * at30, 179 * at30, 129 * at30};
+	const float sps_w[4] = {72 * at30, 224 * at30, 226 * at30, 162 * at30};
+	const float brick_space = 11 * at30, sps_space = 14 * at30;
 	for (int s = 0; s < 2; s++) {
 		const Screen* sc = &SCREENS[s];
 		float sw = sc->w / pdOf(sc), bh = sc->h / pdOf(sc) - 2 * BAR;
 		RowSizes c = Row_sizes(ROW_BACKDROP_COLL, sw, bh);
-		float k = fminf(1.0f, c.item_w / 150.0f), start = ROW_COLL_NAME_SP * k;
+		float k = fminf(1.0f, c.item_w / 300.0f), start = ROW_COLL_NAME_SP * k;
 		int avail = dpPx(sc, c.item_w) - 2 * dpPx(sc, 8);
 		const float* w = s == 0 ? brick_w : sps_w;
 		float longest = 0;
@@ -250,13 +253,12 @@ static void collections_long_name(void) {
 		float sp = Row_collNameSp(start, longest, (float)avail, count_sp);
 		float r = sp / start; // the widths at the chosen size
 		if (s == 0) {
-			// Brick: avail 126 px, count 10 sp; "Handheld" is 179 px at 14.9 sp and still 150 px at the 12.5 sp floor
-			// (1.25 x the count, above 0.75 x the start): line 2 ends mid-word with "…" (accepted; Task 7 checks it)
-			assert(avail == 126 && near(start, 14.93f, 0.01f) && near(count_sp, 10, 1e-4f) && near(sp, 12.5f, 1e-4f));
+			// Brick: avail 286 px (the slot twice the tool slot's width), count 10 sp; "Handheld" (215 px) fits at the
+			// 17.9 sp start
+			assert(avail == 286 && near(start, 17.92f, 0.01f) && near(count_sp, 10, 1e-4f) && near(sp, start, 1e-4f));
 		} else {
-			// SPS: avail 178 px; 28 sp -> 22 sp, where "Handheld" scales to 177.6 px (rowview then measures the rounded
-			// 38 px font, 179 px, and takes one more step: 21 sp, 170 px)
-			assert(avail == 178 && near(start, 28, 1e-3f) && near(count_sp, 13.07f, 0.01f) && near(sp, 22, 1e-4f));
+			// SPS: avail 378 px; "Handheld" (271 px) fits at the 33.6 sp start
+			assert(avail == 378 && near(start, 33.6f, 1e-3f) && near(count_sp, 13.07f, 0.01f) && near(sp, start, 1e-4f));
 		}
 		assert(sp >= ROW_COLL_NAME_FLOOR * start - 1e-4f && sp <= start);
 		// the name never reads smaller than its count: name_sp >= 1.25 x count_sp, for this long name and for a short
@@ -265,8 +267,8 @@ static void collections_long_name(void) {
 		float short_sp = Row_collNameSp(start, 40, (float)avail, count_sp);
 		assert(near(short_sp, start, 1e-4f) && short_sp >= 1.25f * count_sp);
 		assert(spPx(sc, sp) > spPx(sc, count_sp));
-		// the first line, filled greedily with whole words: "My" fits whole, "My Favourite" doesn't, so line 1 is the
-		// whole word "My" (it never opens mid-word); the rest goes to line 2
+		// the first line, filled greedily with whole words (it never opens mid-word): the Brick fits "My" only (with
+		// "Favourite", 295 px > 286), the SPS "My Favourite" (372 px of 378); the rest goes to the next lines
 		float space = (s == 0 ? brick_space : sps_space) * r, x = 0;
 		int n = 0;
 		for (int i = 0; i < 4; i++) {
@@ -275,14 +277,14 @@ static void collections_long_name(void) {
 				break;
 			x += add, n++;
 		}
-		assert(n == 1 && x <= avail);
+		assert(n == (s == 0 ? 1 : 2) && x <= avail);
 	}
 }
 
 static void collections_text(void) {
 	assert(Row_lineStep(32, ROW_COLL_LINE) == 37 && Row_lineStep(38, ROW_COLL_LINE) == 44);
-	// slot px, the name sp (collections_long_name's), its font px, line step, gap px, count font px, then the 2-line
-	// and 1-line name/count tops
+	// slot px, a shrunk name's sp (the old narrow slot's long name), its font px, line step, gap px, count font px,
+	// then the 2-line and 1-line name/count tops
 	const struct {
 		int slot_h;
 		float sp;
@@ -294,7 +296,7 @@ static void collections_text(void) {
 		RowSizes c = Row_sizes(ROW_BACKDROP_COLL, sw, bh);
 		int slot_h = dpPx(sc, c.item_h), name_px = spPx(sc, want[s].sp);
 		int step = Row_lineStep(name_px, ROW_COLL_LINE), gap = dpPx(sc, ROW_COLL_COUNT_GAP_DP);
-		int count_px = spPx(sc, Row_countSp(fminf(1.0f, c.item_w / 150.0f))), count_h = (int)(count_px * 1.2f + 0.5f); // ~ the font height
+		int count_px = spPx(sc, Row_countSp(fminf(1.0f, c.item_w / 300.0f))), count_h = (int)(count_px * 1.2f + 0.5f); // ~ the font height
 		assert(slot_h == want[s].slot_h && name_px == want[s].name_px && step == want[s].step);
 		assert(gap == want[s].gap && count_px == want[s].count_px);
 		RowCollText two = Row_collText(slot_h, 2, step, gap, count_h);

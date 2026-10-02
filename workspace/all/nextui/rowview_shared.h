@@ -64,6 +64,9 @@ typedef struct {
 // The spec slot widths a slot's content scale k divides by (min(1, slot_w / spec)).
 #define ROWVIEW_LOGO_SLOT_W_SPEC 330.0f
 #define ROWVIEW_TOOL_SLOT_W_SPEC 150.0f
+#define ROWVIEW_COLL_SLOT_W_SPEC 300.0f	   // Horizontal Collections: twice the tool slot, the text scale unchanged
+#define ROWVIEW_TOOLROW_SLOT_W_SPEC 240.0f // Horizontal Tools: the wider slot, its content scaled by the factor below
+#define ROWVIEW_TOOLROW_CONTENT 1.3f
 
 // Tile kinds per index of the current list (worked out on first sight, kept per list and tab generation).
 void RowView_syncKinds(int n);

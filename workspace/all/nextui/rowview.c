@@ -70,7 +70,6 @@
 #define TILE_W_SPEC 140.0f // the Grid tile's width: tiles.c's insets scale by tile_w / 140 (never above 1)
 #define BOX_SLOT_W_SPEC 170.0f
 #define LOGO_SLOT_W_SPEC ROWVIEW_LOGO_SLOT_W_SPEC
-#define TOOL_SLOT_W_SPEC ROWVIEW_TOOL_SLOT_W_SPEC
 
 #define SLOT_PAD_DP 8.0f		// tool and collection names in a Backdrop slot
 #define SLOT_TEXT_PAD_DP 12.0f	// a logo-less console's name in the logo slot
@@ -78,14 +77,17 @@
 #define SLOT_TOOL_GAP_DP 12.0f
 #define SLOT_TOOL_NAME_SP 17.0f
 #define SLOT_LOGO_NAME_SP 24.0f
-#define SLOT_LOGO_GREY 224 // Consoles' logos at #E0E0E0
+#define SLOT_UNKNOWN_ICON_DP 44.0f // a logo-less console's emblem, × the slot content scale
+#define SLOT_UNKNOWN_GAP_DP 8.0f
+
 #define TOOL_LONGEST_WORD "Achievements"
 
 // the placeholder box (§8b.4)
 #define PH_ASPECT 0.72f
-#define PH_PLATE_ALPHA 217 // black at 85%
-#define PH_BORDER_ALPHA 31 // white at 12%
-#define PH_SPINE_ALPHA 26  // white at 10%
+#define PH_PLATE_ALPHA 217	// black at 85%
+#define PH_ART_DIM_ALPHA 77 // black at 30% over the abstract plate
+#define PH_BORDER_ALPHA 31	// white at 12%
+#define PH_SPINE_ALPHA 26	// white at 10%
 #define PH_SPINE_SHARE 0.06f
 #define PH_TITLE_LINES 3
 #define SHADOW_OFF_DP 4.0f // the box-art shadow (homeart.c bakes the same for real box art)
@@ -136,7 +138,7 @@ static unsigned item_clock = 0;
 static unsigned item_builds = 0;	  // items built so far (the settled prefetch's budget counts them)
 static bool prefetch_pending = false; // the settled prefetch stopped at its budget: one more frame to continue
 
-// The main-menu Carousel's "N games" line in the accent: Consoles' 8 dp under the selected logo as drawn, its y
+// The main-menu Carousel's "N games" line, in the count grey: Consoles' 8 dp under the selected logo as drawn, its y
 // gliding as logo heights differ; Collections' on the selected item (its line is reserved in every item), fading in.
 // The text surface is rebuilt only when its text, size or colour changes, the line's place on a new selection (and,
 // for Consoles, when the selected logo's surface changes).
@@ -237,16 +239,24 @@ static CapKind captionKind(RowKind k) {
 	return k == ROW_CAROUSEL || k == ROW_BACKDROP_BOX ? CAP_GAME : CAP_NONE;
 }
 
-// The caption's reserved height (px): the Carousel's 2 name lines + the info line; the Backdrop's name's one line +
+// The caption name's lines at most: the Carousel's two on a 4:3 screen, one on a 16:9 one (its wide caption fits a
+// name on one line, so the reserve matches what's drawn and the block centres); the Backdrop's one.
+static int captionNameLines(const SDL_Surface* screen, RowKind k) {
+	if (k != ROW_CAROUSEL)
+		return 1;
+	return screen && screen->w * 2 > screen->h * 3 ? 1 : 2;
+}
+
+// The caption's reserved height (px): the Carousel's name lines + the info line; the Backdrop's name's one line +
 // two info rows.
-static int captionReserve(RowKind k, CapKind c) {
+static int captionReserve(const SDL_Surface* screen, RowKind k, CapKind c) {
 	if (c == CAP_NONE)
 		return 0;
 	TTF_Font* fn = UIFont_get(CAPTION_NAME_SP, false);
 	int nh = fn ? TTF_FontHeight(fn) : 0;
 	TTF_Font* fi = UIFont_get(CAPTION_INFO_SP, false);
 	int ih = fi ? TTF_FontHeight(fi) : 0;
-	return k == ROW_CAROUSEL ? 2 * nh + ih : nh + 2 * ih;
+	return k == ROW_CAROUSEL ? captionNameLines(screen, k) * nh + ih : nh + 2 * ih;
 }
 
 static void computeGeo(SDL_Surface* screen, RowKind kind, RowGeo* g) {
@@ -257,7 +267,7 @@ static void computeGeo(SDL_Surface* screen, RowKind kind, RowGeo* g) {
 	g->vertical = false;
 	g->cap = captionKind(kind);
 	g->sz = Row_sizes(kind, sw, body_h);
-	g->cap_h = captionReserve(kind, g->cap); // 0: the row alone is centred between the tab row and the hint bar
+	g->cap_h = captionReserve(screen, kind, g->cap); // 0: the row alone is centred between the tab row and the hint bar
 	float gap = (kind == ROW_CAROUSEL ? CAROUSEL_CAPTION_GAP_DP : BACKDROP_CAPTION_GAP_DP) * g->sz.f;
 	// the box slot gives way to its caption (a px of slack for the rounding to px below), so the block fits the body
 	float cap_dp = g->cap_h > 0 ? (g->cap_h + 1) / pd : 0;
@@ -277,10 +287,13 @@ static void computeGeo(SDL_Surface* screen, RowKind kind, RowGeo* g) {
 	g->full_h = dpToPx(g->sz.item_h);
 	g->side_w = dpToPx(g->sz.item_w * g->sz.scale);
 	g->side_h = dpToPx(g->sz.item_h * g->sz.scale);
-	float spec_w = kind == ROW_BACKDROP_LOGO								? LOGO_SLOT_W_SPEC
-				   : kind == ROW_BACKDROP_TOOL || kind == ROW_BACKDROP_COLL ? TOOL_SLOT_W_SPEC
-																			: BOX_SLOT_W_SPEC;
+	float spec_w = kind == ROW_BACKDROP_LOGO   ? LOGO_SLOT_W_SPEC
+				   : kind == ROW_BACKDROP_COLL ? ROWVIEW_COLL_SLOT_W_SPEC
+				   : kind == ROW_BACKDROP_TOOL ? ROWVIEW_TOOLROW_SLOT_W_SPEC
+											   : BOX_SLOT_W_SPEC;
 	g->k = fminf(1.0f, g->sz.item_w / spec_w);
+	if (kind == ROW_BACKDROP_TOOL) // the bigger slot's icon and name
+		g->k *= ROWVIEW_TOOLROW_CONTENT;
 }
 
 static int selectedIndex(int n) {
@@ -361,7 +374,7 @@ static const char* toolIconFile(Entry* e, const char* name) {
 		const char* slash = strrchr(e->path, '/');
 		icon = Tiles_toolIcon(slash ? slash + 1 : e->path);
 	}
-	return icon;
+	return icon ? icon : TILE_UNKNOWN_TOOL_ICON;
 }
 
 // "N games" for a Consoles or Collections row ("" while unknown).
@@ -577,9 +590,9 @@ static SDL_Surface* carouselTile(const RowGeo* g, Entry* e, TileKind kind, int w
 			t.icon_file = toolIconFile(e, t.name);
 		else if (kind == TILE_GAME) {
 			if (state == 2)
-				t.picture = pic;
+				t.picture = pic; // its screenshot, or its abstract picture (HomeArt_pin's fallback)
 			else
-				t.kind = TILE_TITLE; // no screenshot: a title tile
+				t.kind = TILE_TITLE; // none at all (HomeArt couldn't make one): a title tile
 			if (state == 1)
 				t.name = NULL; // still loading: the black base only
 		}
@@ -692,10 +705,25 @@ static CollLayout collLayout(const char* name, int w, int h, float k_full, float
 	return c;
 }
 
-// A logo-less console's name in the logo slot (24 sp × k, two lines): its height measured, or drawn at y.
-static int logoName(SDL_Surface* s, const char* name, int w, int y, float k, float lvl) {
+// A logo-less console in a w×h logo slot: the unknown-console emblem (SLOT_UNKNOWN_ICON_DP × k, at most 36% of h) over
+// its name (24 sp × k, two lines), both in the logo off-white, the block's top at y. Returns the block's height; a NULL
+// s only measures.
+static int logoName(SDL_Surface* s, const char* name, int w, int h, int y, float k, float lvl) {
+	int box = NX_DPF(SLOT_UNKNOWN_ICON_DP * k);
+	if (box > (int)(h * 0.36f))
+		box = (int)(h * 0.36f);
+	SDL_Surface* icon = box > 0 ? MenuArt_get(TILE_UNKNOWN_CONSOLE_ICON, box, box) : NULL;
+	int ih = icon ? icon->h : 0, gap = icon ? NX_DPF(SLOT_UNKNOWN_GAP_DP * k) : 0;
+	if (s && icon) {
+		SDL_SetSurfaceColorMod(icon, TILE_MENU_GREY, TILE_MENU_GREY, TILE_MENU_GREY);
+		SDL_BlitSurface(icon, NULL, s, &(SDL_Rect){(w - icon->w) / 2, y, icon->w, icon->h});
+		SDL_SetSurfaceColorMod(icon, 255, 255, 255); // MenuArt's copy is shared
+	}
+	// fonts after MenuArt_get: a font pointer is only good until the next UIFont_get
 	TTF_Font* f = UIFont_get(SLOT_LOGO_NAME_SP * k, false);
-	return Tiles_textBlock(s, f, name, w / 2, y, w - 2 * NX_DPF(SLOT_TEXT_PAD_DP * lvl), 2, false, 255, 255, false);
+	int nh = Tiles_textBlock(s, f, name, w / 2, y + ih + gap, w - 2 * NX_DPF(SLOT_TEXT_PAD_DP * lvl), 2, false,
+							 TILE_MENU_GREY, 255, false);
+	return ih + gap + nh;
 }
 
 // A Backdrop slot item at w×h px (pad none, transparent white ground): content scale k already includes the size's
@@ -711,15 +739,18 @@ static SDL_Surface* buildSlot(Entry* e, TileKind kind, int w, int h, float k, fl
 		const char* file = entryLogoFile(e, logo, sizeof(logo));
 		SDL_Surface* art = file ? MenuArt_get(file, w, h) : NULL;
 		if (art) {
-			// off-white, not the art's pure white (too harsh on black); the ground matches so the edges stay that grey
-			SDL_FillRect(s, NULL, SDL_MapRGBA(s->format, SLOT_LOGO_GREY, SLOT_LOGO_GREY, SLOT_LOGO_GREY, 0));
-			SDL_SetSurfaceColorMod(art, SLOT_LOGO_GREY, SLOT_LOGO_GREY, SLOT_LOGO_GREY);
+			// the fixed off-white (TILE_MENU_GREY), not the art's pure white; the ground matches so the
+			// anti-aliased edges keep that grey
+			const Uint8 v = TILE_MENU_GREY;
+			SDL_FillRect(s, NULL, SDL_MapRGBA(s->format, v, v, v, 0));
+			SDL_SetSurfaceColorMod(art, v, v, v);
 			SDL_BlitSurface(art, NULL, s, &(SDL_Rect){(w - art->w) / 2, (h - art->h) / 2, art->w, art->h});
 			SDL_SetSurfaceColorMod(art, 255, 255, 255); // MenuArt's copy is shared
 			break;
 		}
-		// no logo: the name is the item (24 sp, two lines)
-		logoName(s, name, w, (h - logoName(NULL, name, w, 0, k, lvl)) / 2, k, lvl);
+		// no logo: the unknown-console emblem over the name, centred as one block (on the off-white ground)
+		SDL_FillRect(s, NULL, SDL_MapRGBA(s->format, TILE_MENU_GREY, TILE_MENU_GREY, TILE_MENU_GREY, 0));
+		logoName(s, name, w, h, (h - logoName(NULL, name, w, h, 0, k, lvl)) / 2, k, lvl);
 		break;
 	}
 	case TILE_TOOL: {
@@ -807,14 +838,22 @@ static SDL_Surface* slotItem(const RowGeo* g, Entry* e, TileKind kind, bool side
 	return side ? sideCopy(key, full, g->sz.scale) : full;
 }
 
-// The placeholder box (§8b.4) fitted in a slot_w×slot_h slot, over the soft shadow, padded for it on every side.
-static SDL_Surface* buildPlaceholder(int slot_w, int slot_h, float lvl, const char* title) {
-	int bw = slot_w, bh;
+// The placeholder box's size (px) in a slot_w×slot_h slot: the 0.72 portrait case, fitted.
+static void placeholderBox(int slot_w, int slot_h, int* bw, int* bh) {
+	*bw = slot_w;
 	if ((float)slot_h * PH_ASPECT < (float)slot_w)
-		bw = (int)(slot_h * PH_ASPECT + 0.5f);
-	bh = (int)(bw / PH_ASPECT + 0.5f);
-	if (bh > slot_h)
-		bh = slot_h;
+		*bw = (int)(slot_h * PH_ASPECT + 0.5f);
+	*bh = (int)(*bw / PH_ASPECT + 0.5f);
+	if (*bh > slot_h)
+		*bh = slot_h;
+}
+
+// The placeholder box (§8b.4) fitted in a slot_w×slot_h slot, over the soft shadow, padded for it on every side. With
+// `plate` (the game's abstract picture at the box's size, HomeArt_boxPlaceholder) the case shows it under a light dim
+// instead of the plain dark plate.
+static SDL_Surface* buildPlaceholder(int slot_w, int slot_h, float lvl, const char* title, SDL_Surface* plate) {
+	int bw, bh;
+	placeholderBox(slot_w, slot_h, &bw, &bh);
 	if (bw <= 0 || bh <= 0)
 		return NULL;
 	int off = NX_DPF(SHADOW_OFF_DP * lvl);
@@ -851,7 +890,15 @@ static SDL_Surface* buildPlaceholder(int slot_w, int slot_h, float lvl, const ch
 	int b = NX_DPF(1.0f * lvl);
 	if (b < 1)
 		b = 1;
-	overRect(s, pad, pad, bw, bh, 0, PH_PLATE_ALPHA);
+	if (plate && plate->w == bw && plate->h == bh) {
+		// the abstract picture, opaque, then a light dim so the title reads over its glows
+		SDL_SetSurfaceBlendMode(plate, SDL_BLENDMODE_NONE);
+		SDL_BlitSurface(plate, NULL, s, &(SDL_Rect){pad, pad, bw, bh});
+		SDL_SetSurfaceBlendMode(plate, SDL_BLENDMODE_BLEND);
+		overRect(s, pad, pad, bw, bh, 0, PH_ART_DIM_ALPHA);
+	} else {
+		overRect(s, pad, pad, bw, bh, 0, PH_PLATE_ALPHA);
+	}
 	overRect(s, pad, pad, bw, b, 255, PH_BORDER_ALPHA);
 	overRect(s, pad, pad + bh - b, bw, b, 255, PH_BORDER_ALPHA);
 	overRect(s, pad, pad + b, b, bh - 2 * b, 255, PH_BORDER_ALPHA);
@@ -874,12 +921,28 @@ static SDL_Surface* buildPlaceholder(int slot_w, int slot_h, float lvl, const ch
 }
 
 // The placeholder box: composed once at the selected size (its title fitted there); a neighbour is that scaled.
+// The case with the game's abstract plate once HomeArt has it ("PA" key); blank (NULL) while it's being made, so
+// nothing flashes in; the plain dark case ("P") when it can't be made.
 static SDL_Surface* placeholderItem(const RowGeo* g, Entry* e, TileKind kind, bool side) {
+	(void)kind;
 	char key[ITEM_KEY];
-	snprintf(key, sizeof(key), "P|%d|%d|%s|%s", g->full_w, g->full_h, e->path, displayName(e));
 	SDL_Surface* full;
+	snprintf(key, sizeof(key), "PA|%d|%d|%s|%s", g->full_w, g->full_h, e->path, displayName(e));
+	if (itemFind(key, &full))
+		return side ? sideCopy(key, full, g->sz.scale) : full;
+	int bw, bh;
+	placeholderBox(g->full_w, g->full_h, &bw, &bh);
+	SDL_Surface* plate = NULL;
+	HomeArtState st = bw > 0 && bh > 0 ? HomeArt_boxPlaceholder(e->path, bw, bh, &plate) : HOMEART_NONE;
+	if (st == HOMEART_LOADING)
+		return NULL;
+	if (st == HOMEART_READY && plate) {
+		full = itemStore(key, buildPlaceholder(g->full_w, g->full_h, 1.0f, displayName(e), plate));
+		return side ? sideCopy(key, full, g->sz.scale) : full;
+	}
+	snprintf(key, sizeof(key), "P|%d|%d|%s|%s", g->full_w, g->full_h, e->path, displayName(e));
 	if (!itemFind(key, &full))
-		full = itemStore(key, buildPlaceholder(g->full_w, g->full_h, 1.0f, displayName(e)));
+		full = itemStore(key, buildPlaceholder(g->full_w, g->full_h, 1.0f, displayName(e), NULL));
 	return side ? sideCopy(key, full, g->sz.scale) : full;
 }
 
@@ -1191,7 +1254,7 @@ static void drawCaption(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind
 	CapStyle cs = {g->cx * 2 - 2 * NX_DPF(CAPTION_GUTTER_DP),
 				   g->cap_draw_h + free_lines * ih,
 				   g->cap_h,
-				   carousel ? 2 : 1,
+				   captionNameLines(screen, g->kind),
 				   0,
 				   false,
 				   true};
@@ -1222,12 +1285,16 @@ static void drawSideCaption(SDL_Surface* screen, const RowGeo* g, Entry* e, Tile
 ///////////////////////////////////////
 // The main-menu count line
 
-// The "N games" text in the accent (opaque) at sp: the one cached surface, rebuilt when the text, size or colour
+// The "N games" grey (TILE_COUNT_GREY), a step under the logo and the name, not the accent.
+static SDL_Color countGrey(void) {
+	return (SDL_Color){TILE_COUNT_GREY, TILE_COUNT_GREY, TILE_COUNT_GREY, 255};
+}
+
+// The "N games" text in colour ac (opaque) at sp: the one cached surface, rebuilt when the text, size or colour
 // changes. NULL for an empty text.
-static SDL_Surface* countSurface(const char* text, float sp) {
+static SDL_Surface* countSurface(const char* text, float sp, SDL_Color ac) {
 	if (!text || !text[0])
 		return NULL;
-	SDL_Color ac = UI_accent();
 	char key[sizeof(cnt.key)];
 	snprintf(key, sizeof(key), "%d|%02x%02x%02x|%s", NX_SP(sp), ac.r, ac.g, ac.b, text);
 	if (cnt.s && strcmp(cnt.key, key) == 0)
@@ -1252,14 +1319,14 @@ static SDL_Surface* logoArt(const RowGeo* g, Entry* e, TileKind kind) {
 // Consoles: the count line's top (px), 8 dp under what the selected item draws in its slot: the logo `art` (its own
 // aspect in the slot), or a logo-less console's name.
 static int logoCountTop(const RowGeo* g, Entry* e, const SDL_Surface* art) {
-	int drawn = art ? art->h : logoName(NULL, displayName(e), g->full_w, 0, g->k, 1.0f);
+	int drawn = art ? art->h : logoName(NULL, displayName(e), g->full_w, g->full_h, 0, g->k, 1.0f);
 	return (int)floorf(Row_logoCountY((float)g->cy, (float)drawn, (float)NX_DPF(ROW_LOGO_COUNT_GAP_DP)) + 0.5f);
 }
 
 // A Vertical stack's Consoles count belongs to its item (stackview.c, device fix round 2): up to two items show one
 // at once (the outgoing and incoming selection), so their texts are kept apart, a few at a time, never re-rendered per
 // frame while the stack slides.
-#define ITEM_COUNT_SLOTS 4
+#define ITEM_COUNT_SLOTS 16 // the Vertical stack's two, and a Horizontal row's visible neighbours
 static struct {
 	char key[96];
 	SDL_Surface* s;
@@ -1270,7 +1337,7 @@ static unsigned item_count_clock = 0;
 static SDL_Surface* itemCountSurface(const char* text, float sp) {
 	if (!text || !text[0])
 		return NULL;
-	SDL_Color ac = UI_accent();
+	SDL_Color ac = countGrey();
 	char key[sizeof(item_counts[0].key)];
 	snprintf(key, sizeof(key), "%d|%02x%02x%02x|%s", NX_SP(sp), ac.r, ac.g, ac.b, text);
 	int victim = 0;
@@ -1315,7 +1382,7 @@ static void drawItemCount(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKi
 	if (!text[0])
 		return;
 	SDL_Surface* art = logoArt(g, e, kind);
-	int drawn = art ? art->h : logoName(NULL, displayName(e), g->full_w, 0, g->k, 1.0f);
+	int drawn = art ? art->h : logoName(NULL, displayName(e), g->full_w, g->full_h, 0, g->k, 1.0f);
 	if (!art && g->vertical && drawn < g->full_h / 2)
 		drawn = g->full_h / 2;
 	StackCount c = Stack_countOn((float)cy, scale, (float)drawn, (float)NX_DPF(ROW_LOGO_COUNT_GAP_DP), d);
@@ -1327,6 +1394,65 @@ static void drawItemCount(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKi
 	int h = exact ? s->h : (int)(s->h * scale + 0.5f);
 	// blitCentred puts the top at centre − h/2: the line's top lands exactly on c.top (settled: logoCountTop's value)
 	blitCentred(screen, s, cx, Stack_round(c.top) + h / 2, scale, a, 255);
+}
+
+// A Horizontal Collections item's count-line centre below its slot centre (px at the full size): collLayout's, kept
+// per item so the neighbours don't re-measure their names every frame.
+#define SIDE_OFF_SLOTS 16
+static struct {
+	char path[MAX_PATH];
+	int w, h;
+	float k;
+	int off;
+} side_offs[SIDE_OFF_SLOTS];
+static int side_off_next = 0;
+
+static int collCountOff(const RowGeo* g, Entry* e) {
+	for (int i = 0; i < SIDE_OFF_SLOTS; i++) {
+		if (side_offs[i].w == g->full_w && side_offs[i].h == g->full_h && side_offs[i].k == g->k &&
+			strcmp(side_offs[i].path, e->path) == 0)
+			return side_offs[i].off;
+	}
+	CollLayout c = collLayout(displayName(e), g->full_w, g->full_h, g->k, 1.0f, g->vertical);
+	TTF_Font* fc = UIFont_get(Row_countSp(g->k), false);
+	int off = c.t.count_y + (fc ? TTF_FontHeight(fc) : 0) / 2 - g->full_h / 2;
+	int i = side_off_next;
+	side_off_next = (side_off_next + 1) % SIDE_OFF_SLOTS;
+	snprintf(side_offs[i].path, sizeof(side_offs[i].path), "%s", e->path);
+	side_offs[i].w = g->full_w, side_offs[i].h = g->full_h, side_offs[i].k = g->k, side_offs[i].off = off;
+	return off;
+}
+
+// A Horizontal Consoles or Collections neighbour's "N games" (every visible item but the selection, which drawCount
+// draws): at ROW_SIDE_COUNT_SCALE of the selection's text size (rendered at that size, never scaled down to the item's
+// 0.4-0.5), riding with its item at its alpha: 8 dp × scale under a console's logo as drawn, on a collection's line.
+#define ROW_SIDE_COUNT_SCALE 0.75f
+static void drawSideCount(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind kind, int cx, float scale,
+						  float alpha) {
+	if (g->vertical || (g->kind != ROW_BACKDROP_LOGO && g->kind != ROW_BACKDROP_COLL))
+		return;
+	Uint8 a = (Uint8)(255.0f * alpha + 0.5f);
+	if (!a)
+		return;
+	char text[32];
+	countLabel(e, kind, text, sizeof(text));
+	if (!text[0])
+		return;
+	int centre;
+	if (g->kind == ROW_BACKDROP_LOGO) {
+		SDL_Surface* art = logoArt(g, e, kind);
+		int drawn = art ? art->h : logoName(NULL, displayName(e), g->full_w, g->full_h, 0, g->k, 1.0f);
+		SDL_Surface* s = itemCountSurface(text, Row_countSp(g->k) * ROW_SIDE_COUNT_SCALE);
+		if (!s)
+			return;
+		int top = g->cy + (int)((drawn / 2.0f + NX_DPF(ROW_LOGO_COUNT_GAP_DP)) * scale + 0.5f);
+		blitCentred(screen, s, cx, top + s->h / 2, 1.0f, a, 255);
+		return;
+	}
+	centre = g->cy + (int)(collCountOff(g, e) * scale + 0.5f);
+	SDL_Surface* s = itemCountSurface(text, Row_countSp(g->k) * ROW_SIDE_COUNT_SCALE);
+	if (s)
+		blitCentred(screen, s, cx, centre, 1.0f, a, 255);
 }
 
 // Consoles: send the line's top to y, gliding from where it is now (at once when `at_once`).
@@ -1390,7 +1516,7 @@ static void drawCount(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind k
 		tweenStart(&cnt.fade); // animations off: inactive, so it shows at once
 	}
 	if (g->kind == ROW_BACKDROP_LOGO) {
-		SDL_Surface* s = countSurface(text, Row_countSp(g->k));
+		SDL_Surface* s = countSurface(text, Row_countSp(g->k), countGrey());
 		if (!s)
 			return;
 		float p = cnt.glide.active ? UI_easeStandard(tweenProgress(&cnt.glide, ROW_COUNT_GLIDE_MS)) : 1.0f;
@@ -1399,7 +1525,7 @@ static void drawCount(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind k
 		return;
 	}
 	// Collections: on the selected item, wherever the slide has it, at its scale and alpha
-	SDL_Surface* s = countSurface(text, Row_countSp(g->k));
+	SDL_Surface* s = countSurface(text, Row_countSp(g->k), countGrey());
 	if (!s || !at->visible)
 		return;
 	float fade = cnt.fade.active ? UI_easeStandard(tweenProgress(&cnt.fade, ROW_COUNT_FADE_MS)) : 1.0f;
@@ -1714,8 +1840,11 @@ void RowView_render(SDL_Surface* screen, int lastScreen) {
 		int cx = g.cx + dpToPx(it.dx);
 		if (kind == ROW_CAROUSEL)
 			drawCarouselItem(screen, &g, e, k, cx, g.cy, it.scale, it.darken, d);
-		else
+		else {
 			drawBackdropItem(screen, &g, e, k, cx, g.cy, it.scale, it.alpha);
+			if (i != sel)
+				drawSideCount(screen, &g, e, k, cx, it.scale, it.alpha);
+		}
 	}
 
 	// the selection's caption (its game info requested last: GameInfo's queue keeps the latest request)

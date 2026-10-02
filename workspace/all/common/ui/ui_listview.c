@@ -241,9 +241,22 @@ void UI_listViewRender(ListView* v, SDL_Surface* screen) {
 			if (v->empty_btn_pairs)
 				UI_renderEmptyStateButtons(screen, v->empty_title,
 										   v->empty_subtitle, v->empty_btn_pairs);
-			else
-				UI_renderEmptyState(screen, v->empty_title, v->empty_subtitle,
-									v->empty_y_label);
+			else {
+				// B's label as the screen's hints have it (EXIT at a tool's first level, BACK deeper)
+				const char* b_label = "BACK";
+				for (int i = 0; v->hint_pairs && v->hint_pairs[i] && v->hint_pairs[i + 1]; i += 2) {
+					if (strcmp(v->hint_pairs[i], "B") == 0) {
+						b_label = v->hint_pairs[i + 1];
+						break;
+					}
+				}
+				if (v->empty_y_label)
+					UI_renderEmptyStateButtons(screen, v->empty_title, v->empty_subtitle,
+											   (char*[]){"B", (char*)b_label, "Y", (char*)v->empty_y_label, NULL});
+				else
+					UI_renderEmptyStateButtons(screen, v->empty_title, v->empty_subtitle,
+											   (char*[]){"B", (char*)b_label, NULL});
+			}
 		}
 		if (v->hint_pairs)
 			UI_renderButtonHintBar(screen, v->hint_pairs);

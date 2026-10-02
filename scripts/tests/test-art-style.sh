@@ -24,17 +24,11 @@ CFLAGS=(-std=gnu99 -O1 -DUSE_SDL2 -DPLATFORM=\"tg5040\" -DHOSTTEST_SDCARD=\"$TMP
     -I "$PREFIX/include" -I "$PREFIX/include/SDL2")
 
 # ---------------------------------------------------------------------------
-# 1. Config round-trip (no SDL needed)
+# 1. Art paths (no SDL needed)
 # ---------------------------------------------------------------------------
-echo "== config round-trip =="
-for src in config utils; do
-    cc "${CFLAGS[@]}" -w -c -o "$TMP/$src.o" "workspace/all/common/$src.c"
-done
-cc "${CFLAGS[@]}" -Wall -Wextra -Werror -c -o "$TMP/cfg_test.o" \
-    scripts/tests/artstyle/art_style_cfg_test.c
-cc -o "$TMP/art_style_cfg_test" "$TMP"/config.o "$TMP"/utils.o "$TMP/cfg_test.o"
-mkdir -p "$TMP/sd/.userdata/shared"
-"$TMP/art_style_cfg_test" "$TMP/sd/.userdata/shared"
+# (the "Game art style" setting is retired: the List always draws the background style, so there is no config
+# round-trip to check any more)
+cc "${CFLAGS[@]}" -w -c -o "$TMP/utils.o" "workspace/all/common/utils.c"
 
 echo "== art path resolution =="
 cc "${CFLAGS[@]}" -Wall -Wextra -Werror -c -o "$TMP/path_test.o" \

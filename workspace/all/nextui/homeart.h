@@ -25,11 +25,16 @@ HomeArtState HomeArt_pin(const char* rom_path, int w, int h, int radius_px, SDL_
 // *ox = *oy = pad is where the art's own top-left sits: art size = (surface->w - 2 * *ox) × (surface->h - 2 * *oy).
 // NONE when the game has no box art. ox/oy may be NULL; they are 0 unless READY.
 HomeArtState HomeArt_boxart(const char* rom_path, int w, int h, SDL_Surface** out, int* ox, int* oy);
+// The Backdrop placeholder case's plate for a game without box art: its abstract picture (portrait, the same seed as
+// the tiles' placeholder) cropped to fill w×h, generated once and kept on disk. Same ownership.
+HomeArtState HomeArt_boxPlaceholder(const char* rom_path, int w, int h, SDL_Surface** out);
 // The full-screen Backdrop picture: the screenshot cropped (centred) to fill screen_w×screen_h, a 50% black dim and
 // the Row_shade curve baked in per row. Opaque (blend mode NONE). NONE when the game has no screenshot.
 HomeArtState HomeArt_backdrop(const char* rom_path, int screen_w, int screen_h, SDL_Surface** out);
 // True once after any load finished since the last call (the caller redraws).
 bool HomeArt_checkAsyncLoaded(void);
+// Drop every cached picture of rom_path (after its art was fetched): the next request loads it afresh.
+void HomeArt_forget(const char* rom_path);
 // Stop the worker and free the cache. Safe to call when nothing was loaded.
 void HomeArt_quit(void);
 
