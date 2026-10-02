@@ -30,10 +30,37 @@ static void collcount_stamps(void) {
 	assert(!CollCount_matches(&c, 100, 50, ""));	// fingerprint unknown: never trust
 }
 
+static void collcount_stamp_cache(void) {
+	CollCountStamps s = {0};
+	assert(!CollCount_stampFind(&s, "Faves.txt", 0)); // empty
+	assert(CollCount_stampPut(&s, "Faves.txt", true, 100, 50, 3));
+	const CollCountStamp* st = CollCount_stampFind(&s, "Faves.txt", 3);
+	assert(st && st->ok && st->mtime == 100 && st->size == 50);
+	assert(!CollCount_stampFind(&s, "Faves.txt", 4)); // generation moved: stat again
+	assert(!CollCount_stampFind(&s, "Other.txt", 3));
+	assert(CollCount_stampPut(&s, "Faves.txt", false, 0, 0, 4)); // re-stamped, now missing: same slot
+	st = CollCount_stampFind(&s, "Faves.txt", 4);
+	assert(st && !st->ok && s.len == 1);
+	for (int i = 0; i < 40; i++) { // growth keeps earlier stamps
+		char name[32];
+		snprintf(name, sizeof(name), "C%d.txt", i);
+		assert(CollCount_stampPut(&s, name, true, i, i, 4));
+	}
+	st = CollCount_stampFind(&s, "C7.txt", 4);
+	assert(s.len == 41 && st && st->mtime == 7 && CollCount_stampFind(&s, "Faves.txt", 4));
+	char big[300];
+	memset(big, 'a', sizeof(big) - 1);
+	big[sizeof(big) - 1] = '\0';
+	assert(!CollCount_stampPut(&s, big, true, 1, 1, 4)); // name too long
+	CollCount_stampsFree(&s);
+	assert(!s.items && s.len == 0);
+}
+
 int main(void) {
 	collcount_roundtrip();
 	collcount_rejects_corrupt();
 	collcount_stamps();
+	collcount_stamp_cache();
 	printf("test_collcount_model: ok\n");
 	return 0;
 }

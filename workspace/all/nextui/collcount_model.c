@@ -67,3 +67,50 @@ bool CollCount_matches(const CollCountLine* cached, long long mtime, long long s
 	return libfp && libfp[0] && cached->mtime == mtime && cached->size == size &&
 		   strcmp(cached->libfp, libfp) == 0;
 }
+
+static CollCountStamp* stampSlot(const CollCountStamps* stamps, const char* name) {
+	for (int i = 0; i < stamps->len; i++) {
+		if (strcmp(stamps->items[i].name, name) == 0)
+			return &stamps->items[i];
+	}
+	return NULL;
+}
+
+const CollCountStamp* CollCount_stampFind(const CollCountStamps* stamps, const char* name, unsigned gen) {
+	if (!stamps || !name)
+		return NULL;
+	const CollCountStamp* slot = stampSlot(stamps, name);
+	return slot && slot->gen == gen ? slot : NULL;
+}
+
+bool CollCount_stampPut(CollCountStamps* stamps, const char* name, bool ok, long long mtime, long long size,
+						unsigned gen) {
+	if (!stamps || !name || strlen(name) >= sizeof(stamps->items[0].name))
+		return false;
+	CollCountStamp* slot = stampSlot(stamps, name);
+	if (!slot) { // one per collection file name: bounded by the Collections folder, never pruned
+		if (stamps->len == stamps->cap) {
+			int cap = stamps->cap ? stamps->cap * 2 : 16;
+			CollCountStamp* grown = realloc(stamps->items, (size_t)cap * sizeof(CollCountStamp));
+			if (!grown)
+				return false;
+			stamps->items = grown;
+			stamps->cap = cap;
+		}
+		slot = &stamps->items[stamps->len++];
+		snprintf(slot->name, sizeof(slot->name), "%s", name);
+	}
+	slot->ok = ok;
+	slot->mtime = ok ? mtime : 0;
+	slot->size = ok ? size : 0;
+	slot->gen = gen;
+	return true;
+}
+
+void CollCount_stampsFree(CollCountStamps* stamps) {
+	if (!stamps)
+		return;
+	free(stamps->items);
+	stamps->items = NULL;
+	stamps->len = stamps->cap = 0;
+}
