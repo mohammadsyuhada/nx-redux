@@ -37,6 +37,8 @@
 #include "menuart.h"
 #include "area_scale.h"
 #include "menulogo.h"
+#include "controller_art.h"
+#include "controller_art_model.h"
 #include "menu_transition.h"
 #include "menutabs.h"
 #include "ui_font.h"
@@ -339,6 +341,13 @@ static const char* consoleLogoFile(const char* folder_name, char* out, size_t si
 		return NULL;
 	snprintf(out, size, "menu_logo_%s.png", id);
 	return out;
+}
+
+const char* RowView_padId(Entry* e, TileKind kind) {
+	if (kind != TILE_LOGO || !e || !CFG_getMenuControllerArt())
+		return NULL;
+	const char* slash = strrchr(e->path, '/');
+	return Pad_idForFolder(slash ? slash + 1 : e->path);
 }
 
 // A console row's logo file (its folder's id), or NULL.
@@ -1759,6 +1768,28 @@ static void prefetchOne(const RowGeo* g, Entry* e, TileKind k, bool side, bool l
 	}
 }
 
+void RowView_prefetchPad(Entry* e, TileKind kind, int box_w, int box_h) {
+	const char* id = RowView_padId(e, kind);
+	if (id)
+		ControllerArt_carousel(id, box_w, box_h);
+}
+
+int RowView_countLineH(const RowGeo* g) {
+	TTF_Font* f = UIFont_get(Row_countSp(g->k), false);
+	return f ? TTF_FontHeight(f) : 0;
+}
+
+void RowView_drawPad(SDL_Surface* screen, Entry* e, TileKind kind, int box_w, int box_h, int cx, int cy, float scale,
+					 float d) {
+	float a = Pad_alpha(d);
+	const char* id = a > 0 ? RowView_padId(e, kind) : NULL;
+	if (!id)
+		return;
+	SDL_Surface* s = ControllerArt_carousel(id, box_w, box_h);
+	if (s)
+		blitCentred(screen, s, cx, cy, scale, (Uint8)(a * 255.0f + 0.5f), 255);
+}
+
 void RowView_render(SDL_Surface* screen, int lastScreen) {
 	pf.armed = false;
 	if (!screen || !top)
@@ -1811,6 +1842,8 @@ void RowView_render(SDL_Surface* screen, int lastScreen) {
 	SDL_Rect prev_clip;
 	SDL_GetClipRect(screen, &prev_clip);
 	SDL_SetClipRect(screen, &(SDL_Rect){0, bar, screen->w, body_h});
+	PadSize pad_box = Pad_rowBox((float)g.full_h); // 2.8 x 1.8 the logo slot's height
+	int pad_w = (int)(pad_box.w + 0.5f), pad_h = (int)(pad_box.h + 0.5f);
 
 	// far to near (the largest d first), so the centre lands on top
 	int first, last;
@@ -1839,6 +1872,8 @@ void RowView_render(SDL_Surface* screen, int lastScreen) {
 		if (kind == ROW_CAROUSEL)
 			drawCarouselItem(screen, &g, e, k, cx, g.cy, it.scale, it.darken, d);
 		else {
+			if (kind == ROW_BACKDROP_LOGO) // the focused console's controller, under its logo
+				RowView_drawPad(screen, e, k, pad_w, pad_h, cx, g.cy, it.scale, d);
 			drawBackdropItem(screen, &g, e, k, cx, g.cy, it.scale, it.alpha);
 			if (i != sel)
 				drawSideCount(screen, &g, e, k, cx, it.scale, it.alpha);
@@ -1877,6 +1912,18 @@ static bool prefetchItems(const RowGeo* g, int n, int sel, Uint32 deadline) {
 			return true;
 		Entry* e = top->entries->items[i];
 		prefetchOne(g, e, kindFor(i, e), jobs[j].side, jobs[j].lit);
+	}
+	if (g->kind == ROW_BACKDROP_LOGO) { // the neighbours' controllers, which show as soon as a step starts
+		PadSize box = Pad_rowBox((float)g->full_h);
+		for (int di = -1; di <= 1; di += 2) {
+			int i = sel + di;
+			if (i < 0 || i >= n)
+				continue;
+			if (RowView_pastDeadline(deadline))
+				return true;
+			Entry* e = top->entries->items[i];
+			RowView_prefetchPad(e, kindFor(i, e), (int)(box.w + 0.5f), (int)(box.h + 0.5f));
+		}
 	}
 	return false;
 }

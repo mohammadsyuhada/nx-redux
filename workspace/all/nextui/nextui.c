@@ -26,6 +26,7 @@
 #include "imgloader.h"
 #include "launcher.h"
 #include "menuart.h"
+#include "controller_art.h"
 #include "menutabs.h"
 #include "ui_font.h"
 #include "search.h"
@@ -93,6 +94,7 @@ static void Menu_quit(void) {
 	InfoBand_quit();
 	UI_fadeCacheClear();
 	MenuArt_quit();
+	ControllerArt_quit();
 }
 
 ///////////////////////////////////////

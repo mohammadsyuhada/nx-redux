@@ -83,6 +83,26 @@ static void offsets_on_y(void) {
 	assert(near(Stack_item(&l, 3, 1).dy, 89 + 64, 1e-3f) && near(Stack_item(&l, 0, 1).dy, -89, 1e-3f));
 }
 
+// The Consoles stack with a pad behind the selection (docs/controller-art.md): its reach is the larger of the item's
+// own and the pad's half ± its offset plus 10 dp; only the steps next to the selection grow, further steps don't.
+static void pad_reach(void) {
+	StackSizes c = Stack_mainSizes(STACK_MAIN_CONSOLES, SPS_W); // h 100, s 0.5, g 16, cap 26
+	assert(c.extra_up == 0 && c.extra_down == 0);				// no pad: today's offsets (offsets_on_y)
+	// a 2:1 pad in 2.6 h x 1.7 h (260 x 170) draws 260 x 130; centred 13 below the item (the logo and its count)
+	float up, down;
+	Stack_padExtra(&c, 130, 13, 10, &up, &down);
+	assert(near(up, 65 - 13 + 10 - 50, 1e-4f) && near(down, 65 + 13 + 10 - 76, 1e-4f)); // 12 and 12
+	// a pad inside the item's own reach adds nothing
+	Stack_padExtra(&c, 60, 13, 10, &up, &down);
+	assert(up == 0 && down == 0);
+	Stack_padExtra(&c, 130, 13, 10, &c.extra_up, &c.extra_down);
+	float first = 50 + 16 + 25, step = 50 + 16;
+	assert(near(Stack_item(&c, 4, 5).dy, -(first + 12), 1e-3f) && near(Stack_item(&c, 3, 5).dy, -(first + 12 + step), 1e-3f));
+	assert(near(Stack_item(&c, 6, 5).dy, first + 12 + 26, 1e-3f) && near(Stack_item(&c, 7, 5).dy, first + 12 + step + 26, 1e-3f));
+	// half a step in: the room eases in with the offset, as the cap's
+	assert(near(Stack_item(&c, 5.5f, 5).dy, (first + 12) / 2 + 13, 1e-3f));
+}
+
 static void fades(void) {
 	StackSizes c = Stack_mainSizes(STACK_MAIN_CONSOLES, BRICK_W);
 	assert(near(Stack_item(&c, 1, 0).alpha, 0.5f, 1e-5f));			 // neighbour 1 at 50%
@@ -350,6 +370,7 @@ static void count_on_item(void) {
 int main(void) {
 	slot_tables();
 	offsets_on_y();
+	pad_reach();
 	fades();
 	selection_centre();
 	visible_range();

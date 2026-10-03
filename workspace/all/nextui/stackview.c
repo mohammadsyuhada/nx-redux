@@ -25,6 +25,7 @@
 #include "rowview_shared.h"
 #include "shortcuts.h"
 #include "stack_model.h"
+#include "controller_art_model.h"
 
 #include <math.h>
 #include <string.h>
@@ -175,6 +176,29 @@ static void drawItem(SDL_Surface* screen, const StackGeo* sg, Entry* e, TileKind
 		RowView_blitItem(screen, RowView_slotItem(&sg->g, e, kind, false), sg->g.cx, cy, it->scale, a);
 }
 
+// The Consoles tab's controller art (docs/controller-art.md): a console's pad in 2.6 h x 1.7 h, centred on its logo
+// and "N games" line (the block's centre sits half the gap and the line below the item's: the logo's own height
+// cancels), and the extra room it takes above and below when it is the selection (dp). No pad: 0 room.
+typedef struct {
+	const char* id;
+	PadSize box;  // dp
+	float off;	  // the block centre below the item centre (dp)
+	float up, dn; // the selection's extra reach (dp)
+} StackPad;
+
+static StackPad padFor(const StackGeo* sg, Entry* e, TileKind kind) {
+	StackPad p = {RowView_padId(e, kind), Pad_stackBox(sg->ss.item_h), 0, 0, 0};
+	const PadTableRow* row = p.id ? Pad_row(p.id) : NULL;
+	if (!row) {
+		p.id = NULL;
+		return p;
+	}
+	p.off = (ROW_LOGO_COUNT_GAP_DP + RowView_countLineH(&sg->g) / pxPerDp()) / 2;
+	PadSize drawn = Pad_fit(row->aspect, p.box.w, p.box.h);
+	Stack_padExtra(&sg->ss, drawn.h, p.off, PAD_CLEAR_DP, &p.up, &p.dn);
+	return p;
+}
+
 // The 20 dp fade to the black ground at the body's top and bottom, row by row, across the body's whole width (a game
 // list's side caption is outside the stack's column). The plain-black stacks only: never over a Backdrop-Vertical's
 // picture, which runs behind the edges.
@@ -235,6 +259,19 @@ static bool prefetchItems(const StackGeo* sg, int n, int sel, Uint32 deadline) {
 		Entry* e = top->entries->items[i];
 		RowView_prefetchItem(&sg->g, e, RowView_kindFor(i, e), jobs[j].side, jobs[j].lit);
 	}
+	if (sg->kind == STACK_MAIN_CONSOLES) { // the neighbours' controllers, which show as soon as a step starts
+		PadSize box = Pad_stackBox(sg->ss.item_h);
+		float pd = pxPerDp();
+		for (int di = -1; di <= 1; di += 2) {
+			int i = sel + di;
+			if (i < 0 || i >= n)
+				continue;
+			if (RowView_pastDeadline(deadline))
+				return true;
+			Entry* e = top->entries->items[i];
+			RowView_prefetchPad(e, RowView_kindFor(i, e), Stack_round(box.w * pd), Stack_round(box.h * pd));
+		}
+	}
 	return false;
 }
 
@@ -275,6 +312,18 @@ void StackView_render(SDL_Surface* screen, int lastScreen) {
 
 	StackGeo sg;
 	computeGeo(screen, kind, &sg);
+	if (kind == STACK_MAIN_CONSOLES) {
+		// the selection's pad room, easing linearly between the two items the position sits between
+		int a = (int)floorf(pos), b = a + 1;
+		float t = pos - a;
+		StackPad pa = {0}, pb = {0};
+		if (a >= 0 && a < n)
+			pa = padFor(&sg, top->entries->items[a], RowView_kindFor(a, top->entries->items[a]));
+		if (t > 0 && b < n)
+			pb = padFor(&sg, top->entries->items[b], RowView_kindFor(b, top->entries->items[b]));
+		sg.ss.extra_up = pa.up + (pb.up - pa.up) * t;
+		sg.ss.extra_down = pa.dn + (pb.dn - pa.dn) * t;
+	}
 
 	SDL_Rect prev_clip;
 	SDL_GetClipRect(screen, &prev_clip);
@@ -301,7 +350,16 @@ void StackView_render(SDL_Surface* screen, int lastScreen) {
 		if (!it.visible)
 			continue;
 		Entry* e = top->entries->items[i];
-		drawItem(screen, &sg, e, RowView_kindFor(i, e), &it);
+		TileKind k = RowView_kindFor(i, e);
+		if (kind == STACK_MAIN_CONSOLES && it.d < 1.0f) { // the focused console's controller, under its logo
+			StackPad p = padFor(&sg, e, k);
+			if (p.id) {
+				float pd = pxPerDp();
+				RowView_drawPad(screen, e, k, Stack_round(p.box.w * pd), Stack_round(p.box.h * pd), sg.g.cx,
+								itemCy(&sg, &it) + Stack_round(p.off * it.scale * pd), it.scale, it.d);
+			}
+		}
+		drawItem(screen, &sg, e, k, &it);
 	}
 
 	// "N games". Consoles': on its own item, under that logo as drawn at the item's live place and scale, on the items

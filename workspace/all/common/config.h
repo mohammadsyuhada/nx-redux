@@ -129,6 +129,7 @@ typedef struct
 	bool showMenuTransitions;
 	bool showRecents;
 	bool showTools;
+	bool menuControllerArt;
 	bool showCollections;
 	bool showEmulators;
 	bool showFolderNamesAtRoot;
@@ -236,6 +237,7 @@ typedef struct
 #define CFG_DEFAULT_VIEW SCREEN_GAMELIST
 #define CFG_DEFAULT_WIFI_DIAG false
 #define CFG_DEFAULT_SHOWTOOLS true
+#define CFG_DEFAULT_MENUCONTROLLERART true
 #define CFG_DEFAULT_FN1_TOOL ""
 #define CFG_DEFAULT_FN2_TOOL ""
 #define CFG_DEFAULT_BLUETOOTH false
@@ -327,6 +329,9 @@ void CFG_setShowRecents(bool show);
 // Show/hide tools folder in the main menu.
 bool CFG_getShowTools(void);
 void CFG_setShowTools(bool show);
+// Show/hide each console's controller art in the Consoles tab (Layouts > Controller).
+bool CFG_getMenuControllerArt(void);
+void CFG_setMenuControllerArt(bool show);
 // Show/hide collections in the main menu.
 bool CFG_getShowCollections(void);
 void CFG_setShowCollections(bool show);

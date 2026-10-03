@@ -717,6 +717,17 @@ static void reset_show_tools(void) {
 	CFG_setShowTools(CFG_DEFAULT_SHOWTOOLS);
 }
 
+/* Controller art */
+static int get_menu_controller_art(void) {
+	return CFG_getMenuControllerArt() ? 1 : 0;
+}
+static void set_menu_controller_art(int v) {
+	CFG_setMenuControllerArt(v != 0);
+}
+static void reset_menu_controller_art(void) {
+	CFG_setMenuControllerArt(CFG_DEFAULT_MENUCONTROLLERART);
+}
+
 /* Show collection */
 static int get_show_collections(void) {
 	return CFG_getShowCollections() ? 1 : 0;
@@ -1720,6 +1731,10 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Tools tab", "Show the Tools tab.",
 		hide_show_labels, 2, on_off_values, get_show_tools, set_show_tools, reset_show_tools);
+	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Controller", "Show each console's controller behind it in the Consoles tab.",
+		hide_show_labels, 2, on_off_values, get_menu_controller_art, set_menu_controller_art, reset_menu_controller_art);
+	layouts_items[idx - 1].a_cycles = 1; // A flips it too, as LEFT and RIGHT
 	layouts_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
 		"Reset to defaults", "Resets all options in this menu to their default values.",
 		reset_layouts_page);

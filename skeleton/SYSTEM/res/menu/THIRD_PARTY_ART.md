@@ -14,3 +14,8 @@ Exceptions: these were drawn for this project and are not third-party art (sourc
 `menu_icon_files.png`, `menu_icon_images.png`, `menu_icon_media.png`, `menu_icon_music.png`, `menu_icon_xtras.png` and
 `menu_icon_unknown.png` (a console without a logo) and `menu_icon_tool_unknown.png` (a tool without an icon).
 `menu_icon_portmaster.png` is the emblem of `menu_logo_ports.png` without its lettering.
+
+The controller art (`menu_pad_*.png`, the Consoles tab's) comes from ScreenScraper's console hardware images
+(https://www.screenscraper.fr). These files are not under the project's licence. Changes, made by
+`tools/controller-art/make_pads.py`: cables cut, cropped, resized, recoloured and dimmed; the List images
+(`menu_pad_*_list_*.png`) also rotated, placed for their screen size and made translucent.

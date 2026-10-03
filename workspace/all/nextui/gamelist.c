@@ -39,6 +39,8 @@
 #include "launcher.h"
 #include "list_window.h"
 #include "menuart.h"
+#include "controller_art.h"
+#include "controller_art_model.h"
 #include "menulogo.h"
 #include "menutabs.h"
 #include "recents.h"
@@ -2206,12 +2208,19 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 	InfoBandLayout rows_layout = listLayout();
 	int row_h = rows_layout.row_h;
 
-	// Consoles tab: the selected console's logo, dimmed, on the right behind the rows (the page background: it stays
-	// lit under the tab-focus dim)
-	if (total > 0 && at_root && tab == MENU_TAB_CONSOLES) {
+	// Consoles tab: the selected console's controller (Layouts > Controller), else its logo, dimmed, on the right
+	// behind the rows (the page background: it stays lit under the tab-focus dim, cropped only by the screen edges).
+	// Hidden, the right side stays empty for every console.
+	if (total > 0 && at_root && tab == MENU_TAB_CONSOLES && CFG_getMenuControllerArt()) {
 		const char* slash = strrchr(entry->path, '/');
-		const char* logo_id = MenuLogo_idForFolder(slash ? slash + 1 : entry->path);
-		if (logo_id) {
+		const char* folder = slash ? slash + 1 : entry->path;
+		const char* pad_id = Pad_idForFolder(folder);
+		const char* logo_id = MenuLogo_idForFolder(folder);
+		int pad_x, pad_y;
+		SDL_Surface* pad = pad_id ? ControllerArt_list(pad_id, screen->w, screen->h, &pad_x, &pad_y) : NULL;
+		if (pad) // baked at its 35%, placed and rotated for this screen
+			SDL_BlitSurface(pad, NULL, screen, &(SDL_Rect){pad_x, pad_y});
+		else if (logo_id) {
 			char file[64];
 			snprintf(file, sizeof(file), "menu_logo_%s.png", logo_id);
 			int band_y = listTop();

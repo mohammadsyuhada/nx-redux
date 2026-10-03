@@ -87,6 +87,18 @@ void RowView_prefetchItem(const RowGeo* g, Entry* e, TileKind kind, bool side, b
 void RowView_drawSideCaption(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind kind, int x, int w, int cy,
 							 int body_top, int body_h);
 
+// The Consoles tab's controller art (Layouts > Controller): console e's pad fitted in box_w x box_h px, centred on
+// (cx, cy), scaled with its item, at Pad_alpha(d) (0.6 focused, gone a step away). Nothing for other kinds, a console
+// without a pad, or the setting off. Drawn just before the item's logo.
+void RowView_drawPad(SDL_Surface* screen, Entry* e, TileKind kind, int box_w, int box_h, int cx, int cy, float scale,
+					 float d);
+// Console e's pad id (Pad_idForFolder), or NULL; for a stack's spacing.
+const char* RowView_padId(Entry* e, TileKind kind);
+// Load ahead (a cache hit loads nothing) the pad RowView_drawPad would draw for console e in box_w x box_h px.
+void RowView_prefetchPad(Entry* e, TileKind kind, int box_w, int box_h);
+// The Consoles "N games" line's height (px) for this geometry's text scale.
+int RowView_countLineH(const RowGeo* g);
+
 // A Vertical stack's Consoles "N games" on its own item e (centre cx, cy px, live scale, d steps from the position):
 // 8 dp under the item's logo as drawn, scaled with it, fading 1 − d (Stack_countOn). Nothing for other kinds. The
 // stack draws it on the items within a step of the position, instead of RowView_drawCount's fixed-slot glide.

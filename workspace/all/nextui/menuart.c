@@ -24,7 +24,7 @@ typedef struct {
 static MenuArtSlot slots[MENUART_SLOTS];
 static unsigned int next_stamp = 0;
 
-static SDL_Surface* loadScaled(const char* file, int box_w, int box_h) {
+SDL_Surface* MenuArt_load(const char* file, int box_w, int box_h) {
 	char path[MAX_PATH];
 	snprintf(path, sizeof(path), "%s/menu/%s", RES_PATH, file);
 	SDL_Surface* raw = IMG_Load(path);
@@ -35,6 +35,10 @@ static SDL_Surface* loadScaled(const char* file, int box_w, int box_h) {
 	if (!src)
 		return NULL;
 
+	if (box_w <= 0 && box_h <= 0) { // its own size
+		SDL_SetSurfaceBlendMode(src, SDL_BLENDMODE_BLEND);
+		return src;
+	}
 	double sx = (double)box_w / src->w;
 	double sy = (double)box_h / src->h;
 	double scale = sx < sy ? sx : sy;
@@ -86,7 +90,7 @@ SDL_Surface* MenuArt_get(const char* file, int box_w, int box_h) {
 	snprintf(slot->file, sizeof(slot->file), "%s", file);
 	slot->box_w = box_w;
 	slot->box_h = box_h;
-	slot->surface = loadScaled(file, box_w, box_h);
+	slot->surface = MenuArt_load(file, box_w, box_h);
 	slot->stamp = ++next_stamp;
 	slot->used = true;
 	return slot->surface;

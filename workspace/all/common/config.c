@@ -63,6 +63,7 @@ void CFG_defaults(NextUISettings* cfg) {
 		.showMenuTransitions = CFG_DEFAULT_SHOWMENUTRANSITIONS,
 		.showRecents = CFG_DEFAULT_SHOWRECENTS,
 		.showTools = CFG_DEFAULT_SHOWTOOLS,
+		.menuControllerArt = CFG_DEFAULT_MENUCONTROLLERART,
 		.showCollections = CFG_DEFAULT_SHOWCOLLECTIONS,
 		.showEmulators = CFG_DEFAULT_SHOWEMULATORS,
 		.gameSwitcherScaling = CFG_DEFAULT_GAMESWITCHERSCALING,
@@ -175,6 +176,10 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 			}
 			if (sscanf(line, "tools=%i", &temp_value) == 1) {
 				CFG_setShowTools((bool)temp_value);
+				continue;
+			}
+			if (sscanf(line, "menucontrollerart=%i", &temp_value) == 1) {
+				CFG_setMenuControllerArt((bool)temp_value);
 				continue;
 			}
 			if (sscanf(line, "collections=%i", &temp_value) == 1) {
@@ -616,6 +621,15 @@ bool CFG_getShowTools(void) {
 
 void CFG_setShowTools(bool show) {
 	settings.showTools = show;
+	CFG_sync();
+}
+
+bool CFG_getMenuControllerArt(void) {
+	return settings.menuControllerArt;
+}
+
+void CFG_setMenuControllerArt(bool show) {
+	settings.menuControllerArt = show;
 	CFG_sync();
 }
 
@@ -1132,6 +1146,8 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", CFG_getShowRecents());
 	} else if (strcmp(key, "tools") == 0) {
 		sprintf(value, "%i", CFG_getShowTools());
+	} else if (strcmp(key, "menucontrollerart") == 0) {
+		sprintf(value, "%i", CFG_getMenuControllerArt());
 	} else if (strcmp(key, "collections") == 0) {
 		sprintf(value, "%i", CFG_getShowCollections());
 	} else if (strcmp(key, "emulators") == 0) {
@@ -1231,6 +1247,7 @@ static int CFG_serialize(char* buf, size_t cap) {
 	EMIT("menutransitions=%i\n", settings.showMenuTransitions);
 	EMIT("recents=%i\n", settings.showRecents);
 	EMIT("tools=%i\n", settings.showTools);
+	EMIT("menucontrollerart=%i\n", settings.menuControllerArt);
 	EMIT("collections=%i\n", settings.showCollections);
 	EMIT("emulators=%i\n", settings.showEmulators);
 	EMIT("showfoldernamesatroot=%i\n", settings.showFolderNamesAtRoot);
@@ -1470,6 +1487,7 @@ void CFG_print(void) {
 	printf("\t\"menutransitions\": %i,\n", settings.showMenuTransitions);
 	printf("\t\"recents\": %i,\n", settings.showRecents);
 	printf("\t\"tools\": %i,\n", settings.showTools);
+	printf("\t\"menucontrollerart\": %i,\n", settings.menuControllerArt);
 	printf("\t\"collections\": %i,\n", settings.showCollections);
 	printf("\t\"showfoldernamesatroot\": %i,\n", settings.showFolderNamesAtRoot);
 	printf("\t\"screentimeout\": %i,\n", settings.screenTimeoutSecs);

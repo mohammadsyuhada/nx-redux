@@ -44,6 +44,8 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_gameinfo_text 
 /tmp/nx_test_gameinfo_text
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_menulogo ../../nextui/menulogo.c test_menulogo.c
 /tmp/nx_test_menulogo
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_controller_art_model ../../nextui/controller_art_model.c ../../nextui/menulogo.c test_controller_art_model.c -lm
+/tmp/nx_test_controller_art_model
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_ui_ease ../ui/ui_ease.c test_ui_ease.c -lm
 /tmp/nx_test_ui_ease
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -DUI_ACCENT_NO_SDL -o /tmp/nx_test_accent ../ui/ui_accent.c test_accent.c -lm

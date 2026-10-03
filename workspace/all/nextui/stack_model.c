@@ -102,10 +102,15 @@ float Stack_selectionY(float body_h, float cap) {
 	return body_h / 2 - cap / 2;
 }
 
+void Stack_padExtra(const StackSizes* s, float pad_h, float off, float clear, float* up, float* down) {
+	*up = maxf(0.0f, pad_h / 2 - off + clear - s->item_h / 2);
+	*down = maxf(0.0f, pad_h / 2 + off + clear - (s->item_h / 2 + s->cap));
+}
+
 StackItem Stack_item(const StackSizes* s, float index, float pos) {
 	StackItem it;
 	float diff = index - pos, d = fabsf(diff), t = minf(d, 1.0f);
-	float first = s->item_h / 2 + s->gap + s->item_h * s->scale / 2;
+	float first = s->item_h / 2 + (diff < 0 ? s->extra_up : s->extra_down) + s->gap + s->item_h * s->scale / 2;
 	float off = t * first + maxf(0.0f, d - 1) * (s->item_h * s->scale + s->gap);
 	it.dy = diff < 0 ? -off : off + s->cap * t; // below the selection: the cap's room too, eased in over a step
 	it.scale = 1 + (s->scale - 1) * t;

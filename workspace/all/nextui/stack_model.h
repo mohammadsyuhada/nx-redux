@@ -21,9 +21,12 @@ typedef enum { STACK_MAIN_CONSOLES, // the logo slot
 #define STACK_HIDE_D 4.0f		 // items fade out over 3..4 steps and are hidden from 4 on
 
 // One stack's sizes (dp): the selected slot w × h, the neighbour scale, the gap between slots, and cap, the room kept
-// under the selection (the selection and what hangs under it centred as one block).
+// under the selection (the selection and what hangs under it centred as one block). extra_up and extra_down: the
+// selection's further reach above and below (a Consoles pad, Stack_padExtra; 0 for every other stack), which only the
+// steps next to the selection make room for.
 typedef struct {
 	float item_w, item_h, scale, gap, cap;
+	float extra_up, extra_down;
 } StackSizes;
 
 // The main-menu Carousel-Vertical's slots (§8f.3), unscaled (no small-screen factor), the width held to
@@ -71,10 +74,15 @@ StackSizes Stack_gameSizes(StackKind k, float body_h, float width, StackSide* si
 // The selected slot's centre, from the body's top: body_h/2 − cap/2.
 float Stack_selectionY(float body_h, float cap);
 
+// The selection's extra reach (dp) for a pad of drawn height pad_h centred `off` below its item's centre (on the logo
+// and its count line): the larger of its own reach (item_h/2 above, item_h/2 + cap below) and the pad's half ± off plus
+// clear, minus its own; 0 when the pad stays inside it.
+void Stack_padExtra(const StackSizes* s, float pad_h, float off, float clear, float* up, float* down);
+
 // An item at `index` with the stack at `pos`: its centre's offset from the selection's centre (dy, down positive), its
 // size (1 → scale over the first step), its alpha (Row_slotAlpha: the frameless fade) and whether it shows (d < 4).
-// The step to neighbour 1 is h/2 + g + h·s/2, then h·s + g per further step; items below the selection sit a further
-// cap · min(1, index − pos) lower.
+// The step to neighbour 1 is h/2 + g + h·s/2 (plus extra_up above, extra_down below), then h·s + g per further step;
+// items below the selection sit a further cap · min(1, index − pos) lower.
 // darken: the game-list Carousel's black layer over a tile (Row_item's: 0.6·t up to one step, then min(0.85, 0.45 +
 // 0.15·d), toward 1 over 3..4 steps); the frameless stacks use alpha instead.
 typedef struct {
