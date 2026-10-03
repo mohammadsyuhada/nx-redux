@@ -129,6 +129,9 @@ extern int ui_scale;
 
 #define NATIVE_SCALE 2
 #define FIXED_SCALE (ui_scale ? ui_scale : NATIVE_SCALE)
+// Panel pixel density: the Smart Pro S's 4.96" 1280x720 is 296 ppi. Sizes the hint bar and page titles (CHROME_SCALE
+// in defines.h).
+#define PANEL_PPI 296
 #define FIXED_WIDTH 1280
 #define FIXED_HEIGHT 720
 #define FIXED_BPP 2

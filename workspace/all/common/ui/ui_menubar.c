@@ -10,10 +10,10 @@
 #include <stdio.h>
 #include <string.h>
 
-// The page title keeps the device's default size whatever the UI scale (like the main menu's tabs): UI_PAGE_TITLE_SP at
-// NATIVE_SCALE, not FIXED_SCALE.
+// The page title keeps the Brick's physical size on every device whatever the UI scale: UI_PAGE_TITLE_SP at
+// CHROME_SCALE, not FIXED_SCALE.
 static TTF_Font* titleFont(void) {
-	return UIFont_getPx(NX_NATIVE_SP(UI_PAGE_TITLE_SP), false);
+	return UIFont_getPx(NX_CHROME_SP(UI_PAGE_TITLE_SP), false);
 }
 
 int UI_menuBarHeight(void) {

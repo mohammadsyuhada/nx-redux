@@ -162,6 +162,9 @@ extern int ui_scale;
 
 #define NATIVE_SCALE (is_brick ? 3 : 2) // Brick Pro defaults to 2x (see the panel note above)
 #define FIXED_SCALE (ui_scale ? ui_scale : NATIVE_SCALE)
+// Panel pixel density (diagonal pixels / diagonal inches): the Brick's 3.2" is 400 ppi, the Brick Pro's 3.95" 324
+// (same 1024x768), the Smart Pro's 4.96" 1280x720 296. Sizes the hint bar and page titles (CHROME_SCALE in defines.h).
+#define PANEL_PPI (is_brick ? 400 : (is_brickpro ? 324 : 296))
 #define FIXED_WIDTH (is_brick || is_brickpro ? 1024 : 1280)
 #define FIXED_HEIGHT (is_brick || is_brickpro ? 768 : 720)
 #define FIXED_BPP 2

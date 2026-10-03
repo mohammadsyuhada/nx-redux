@@ -1916,7 +1916,7 @@ static InfoBandLayout listLayoutAt(bool root) {
 	int screen_h = screen ? screen->h : FIXED_HEIGHT;
 	int bar_h = SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2); // the hint bar (UI_buttonHintBarTop)
 	// the bar's ink top: the padding over its centred BUTTON_SIZE icons, plus the glyphs' margin (host-tested)
-	int overlap = InfoBand_overlap(NX_DP(12), InfoBand_hintInkTop(bar_h, SCALE1(BUTTON_SIZE)));
+	int overlap = InfoBand_overlap(NX_DP(12), InfoBand_hintInkTop(bar_h, CHROME1(BUTTON_SIZE)));
 	return InfoBand_fixedLayout(screen_h, bar_h, listTopAt(root), SCALE1(PILL_SIZE), NX_DP(18), NX_DP(4), overlap);
 }
 

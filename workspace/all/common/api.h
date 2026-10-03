@@ -393,9 +393,9 @@ void GFX_fillRectColor(SDL_Surface* dst, const SDL_Rect* rect, uint32_t mapped_c
 void GFX_blitBatteryAtPosition(SDL_Surface* dst, int x, int y);
 int GFX_getButtonWidth(char* hint, char* button);
 void GFX_blitButton(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_rect);
-// The same at the device's default scale (NATIVE_SCALE) whatever the UI scale: the button hint bar's.
-int GFX_getButtonWidthNative(char* hint, char* button);
-void GFX_blitButtonNative(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_rect);
+// The same at CHROME_SCALE (the Brick's physical size on every panel) whatever the UI scale: the button hint bar's.
+int GFX_getButtonWidthChrome(char* hint, char* button);
+void GFX_blitButtonChrome(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_rect);
 // "Button layout" (Settings > System), read once per process at first poll.
 int PAD_layoutIsXbox(void);
 // Display label for a logical face/chord label ("A", "MENU+X", ...): the

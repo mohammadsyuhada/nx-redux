@@ -112,14 +112,14 @@ const char* GFX_getArabicFontPath(void) {
 
 // The Arabic-font counterpart of a primary size-font, or of a font the registered resolver knows (NULL if
 // the Arabic font failed to load or `primary` is unknown).
-// The button hint bar's label font at the device's default scale (it keeps that size whatever the UI scale), and its
+// The button hint bar's label font at CHROME_SCALE (the Brick's physical size, whatever the UI scale), and its
 // Arabic counterpart; opened with the other system fonts.
-static TTF_Font* hint_tiny_native = NULL;
-static TTF_Font* hint_tiny_native_ar = NULL;
+static TTF_Font* hint_tiny_chrome = NULL;
+static TTF_Font* hint_tiny_chrome_ar = NULL;
 
 TTF_Font* GFX_fallbackFontFor(TTF_Font* primary) {
-	if (primary && primary == hint_tiny_native)
-		return hint_tiny_native_ar;
+	if (primary && primary == hint_tiny_chrome)
+		return hint_tiny_chrome_ar;
 	if (primary == font.xlarge)
 		return font_ar.xlarge;
 	if (primary == font.title)
@@ -453,10 +453,10 @@ int GFX_loadSystemFont(const char* fontPath) {
 	font.small = TTF_OpenFont(fontPath, SCALE1(FONT_SMALL));
 	font.tiny = TTF_OpenFont(fontPath, SCALE1(FONT_TINY));
 	font.micro = TTF_OpenFont(fontPath, SCALE1(FONT_MICRO));
-	// the hint bar's native-size face is only used when the UI scale differs from the device's (hintTinyNative);
+	// the hint bar's chrome-size face is only used when CHROME_SCALE differs from the UI scale (hintTinyChrome);
 	// a scale change reloads the system fonts, so this re-decides then
-	TTF_CloseFont(hint_tiny_native);
-	hint_tiny_native = NATIVE_SCALE != FIXED_SCALE ? TTF_OpenFont(fontPath, NATIVE1(FONT_TINY)) : NULL;
+	TTF_CloseFont(hint_tiny_chrome);
+	hint_tiny_chrome = CHROME_SCALE != FIXED_SCALE ? TTF_OpenFont(fontPath, CHROME1(FONT_TINY)) : NULL;
 
 	// Secondary Arabic font (fixed path — independent of the primary UI font).
 	// Missing file => NULL entries => Arabic falls back to primary (tofu), no crash.
@@ -475,8 +475,8 @@ int GFX_loadSystemFont(const char* fontPath) {
 	font_ar.small = TTF_OpenFont(arPath, SCALE1(FONT_SMALL));
 	font_ar.tiny = TTF_OpenFont(arPath, SCALE1(FONT_TINY));
 	font_ar.micro = TTF_OpenFont(arPath, SCALE1(FONT_MICRO));
-	TTF_CloseFont(hint_tiny_native_ar);
-	hint_tiny_native_ar = NATIVE_SCALE != FIXED_SCALE ? TTF_OpenFont(arPath, NATIVE1(FONT_TINY)) : NULL;
+	TTF_CloseFont(hint_tiny_chrome_ar);
+	hint_tiny_chrome_ar = CHROME_SCALE != FIXED_SCALE ? TTF_OpenFont(arPath, CHROME1(FONT_TINY)) : NULL;
 
 	return 0;
 }
@@ -803,10 +803,10 @@ void GFX_quit(void) {
 	TTF_CloseFont(font_ar.tiny);
 	TTF_CloseFont(font_ar.micro);
 	memset(&font_ar, 0, sizeof(font_ar));
-	TTF_CloseFont(hint_tiny_native);
-	hint_tiny_native = NULL;
-	TTF_CloseFont(hint_tiny_native_ar);
-	hint_tiny_native_ar = NULL;
+	TTF_CloseFont(hint_tiny_chrome);
+	hint_tiny_chrome = NULL;
+	TTF_CloseFont(hint_tiny_chrome_ar);
+	hint_tiny_chrome_ar = NULL;
 
 	SDL_FreeSurface(gfx.assets);
 	gfx.assets = NULL;
@@ -1657,7 +1657,7 @@ static struct NavGlyph {
 	NavGlyphStyle style;
 	SDL_Surface* surf;
 	uint8_t tried;
-	SDL_Surface* nsurf; // at NATIVE_SCALE (the hint bar's), when it differs from FIXED_SCALE
+	SDL_Surface* nsurf; // at CHROME_SCALE (the hint bar's), when it differs from FIXED_SCALE
 	uint8_t ntried;
 } nav_glyphs[] = {
 	{"A", "nav_button_a", NAV_DISC, NULL, 0, NULL, 0},
@@ -1691,9 +1691,48 @@ static void GFX_resetNavGlyphs(void) {
 		nav_glyphs[i].ntried = 0;
 	}
 }
-// The glyph surface for `button` at `scale` (FIXED_SCALE's cache, or the NATIVE_SCALE one when they differ), or NULL
-// when the button has no art (the drawn fallback).
-static SDL_Surface* GFX_getNavGlyphAt(const char* button, int scale) {
+// `src` area-averaged down to w x h (alpha-weighted, so the glyphs' transparent edges don't darken): the glyph art
+// exists at @2x/@3x only, and CHROME_SCALE falls between them. A new ARGB8888 surface, or NULL.
+static SDL_Surface* GFX_downscaleArea(SDL_Surface* src, int w, int h) {
+	SDL_Surface* s = SDL_ConvertSurfaceFormat(src, SDL_PIXELFORMAT_ARGB8888, 0);
+	SDL_Surface* d = s && w > 0 && h > 0 ? SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888) : NULL;
+	if (!d) {
+		SDL_FreeSurface(s);
+		return NULL;
+	}
+	float fx = (float)s->w / w, fy = (float)s->h / h;
+	for (int y = 0; y < h; y++) {
+		float y0 = y * fy, y1 = y0 + fy;
+		uint32_t* out = (uint32_t*)((uint8_t*)d->pixels + y * d->pitch);
+		for (int x = 0; x < w; x++) {
+			float x0 = x * fx, x1 = x0 + fx;
+			float a = 0, r = 0, g = 0, b = 0, area = 0;
+			for (int sy = (int)y0; sy < s->h && sy < y1; sy++) {
+				float wy = SDL_min(y1, sy + 1.0f) - SDL_max(y0, (float)sy);
+				const uint32_t* row = (const uint32_t*)((const uint8_t*)s->pixels + sy * s->pitch);
+				for (int sx = (int)x0; sx < s->w && sx < x1; sx++) {
+					float wgt = wy * (SDL_min(x1, sx + 1.0f) - SDL_max(x0, (float)sx));
+					uint32_t p = row[sx];
+					float pa = (float)(p >> 24) * wgt;
+					a += pa;
+					r += (float)((p >> 16) & 0xff) * pa;
+					g += (float)((p >> 8) & 0xff) * pa;
+					b += (float)(p & 0xff) * pa;
+					area += wgt;
+				}
+			}
+			uint32_t oa = area > 0 ? (uint32_t)(a / area + 0.5f) : 0;
+			out[x] = a > 0 ? (oa << 24) | ((uint32_t)(r / a + 0.5f) << 16) | ((uint32_t)(g / a + 0.5f) << 8) |
+								 (uint32_t)(b / a + 0.5f)
+						   : 0;
+		}
+	}
+	SDL_FreeSurface(s);
+	return d;
+}
+// The glyph surface for `button` at `scale` (FIXED_SCALE's cache, or the CHROME_SCALE one when they differ), or NULL
+// when the button has no art (the drawn fallback). A fractional scale loads the @3x art and downscales it.
+static SDL_Surface* GFX_getNavGlyphAt(const char* button, float scale) {
 	if (!button || !button[0])
 		return NULL;
 	bool native = scale != FIXED_SCALE;
@@ -1709,8 +1748,14 @@ static SDL_Surface* GFX_getNavGlyphAt(const char* button, int scale) {
 			return NULL; // asset absent on device — use the drawn fallback
 		*tried = 1;
 		char path[MAX_PATH];
-		sprintf(path, "%s/%s@%ix.png", RES_PATH, g->file, scale);
+		int art = scale == (int)scale ? (int)scale : 3;
+		sprintf(path, "%s/%s@%ix.png", RES_PATH, g->file, art);
 		SDL_Surface* s = IMG_Load(path);
+		if (s && art != scale) {
+			SDL_Surface* d = GFX_downscaleArea(s, (int)(s->w * scale / art + 0.5f), (int)(s->h * scale / art + 0.5f));
+			SDL_FreeSurface(s);
+			s = d;
+		}
 		if (s) {
 			SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
 			*surf = s;
@@ -1719,11 +1764,12 @@ static SDL_Surface* GFX_getNavGlyphAt(const char* button, int scale) {
 	}
 	return NULL;
 }
-// A button hint drawn at `scale`: its glyphs, sizes and label font (`tiny`, FONT_TINY at that scale).
-static int GFX_getButtonWidthAt(char* hint, char* button, int scale, TTF_Font* tiny) {
+// A button hint drawn at `scale` (FIXED_SCALE, or the fractional CHROME_SCALE): its glyphs, sizes and label font
+// (`tiny`, FONT_TINY at that scale).
+static int GFX_getButtonWidthAt(char* hint, char* button, float scale, TTF_Font* tiny) {
 	int button_width = 0;
 	int width;
-	int btn_sz = scale * BUTTON_SIZE;
+	int btn_sz = (int)(scale * BUTTON_SIZE + 0.5f);
 
 	button = (char*)PAD_buttonLabel(button);
 
@@ -1737,7 +1783,7 @@ static int GFX_getButtonWidthAt(char* hint, char* button, int scale, TTF_Font* t
 		GFX_measureText(tiny, button, &width, NULL);
 		button_width += width;
 	}
-	button_width += scale * BUTTON_TEXT_GAP;
+	button_width += (int)(scale * BUTTON_TEXT_GAP + 0.5f);
 
 	GFX_measureText(tiny, hint, &width, NULL);
 	button_width += width;
@@ -1746,13 +1792,13 @@ static int GFX_getButtonWidthAt(char* hint, char* button, int scale, TTF_Font* t
 int GFX_getButtonWidth(char* hint, char* button) {
 	return GFX_getButtonWidthAt(hint, button, FIXED_SCALE, font.tiny);
 }
-// The hint bar's own size: the device's default scale whatever the UI scale.
-static TTF_Font* hintTinyNative(void) {
-	return (NATIVE_SCALE == FIXED_SCALE || !hint_tiny_native) ? font.tiny : hint_tiny_native;
+// The hint bar's own size: CHROME_SCALE whatever the UI scale (the UI scale's font when they match).
+static TTF_Font* hintTinyChrome(void) {
+	return (CHROME_SCALE == FIXED_SCALE || !hint_tiny_chrome) ? font.tiny : hint_tiny_chrome;
 }
-int GFX_getButtonWidthNative(char* hint, char* button) {
-	TTF_Font* tiny = hintTinyNative();
-	return GFX_getButtonWidthAt(hint, button, tiny == font.tiny ? FIXED_SCALE : NATIVE_SCALE, tiny);
+int GFX_getButtonWidthChrome(char* hint, char* button) {
+	TTF_Font* tiny = hintTinyChrome();
+	return GFX_getButtonWidthAt(hint, button, tiny == font.tiny ? FIXED_SCALE : CHROME_SCALE, tiny);
 }
 static uint32_t gfx_px_get(SDL_Surface* s, int x, int y) {
 	uint8_t* p = (uint8_t*)s->pixels + y * s->pitch + x * s->format->BytesPerPixel;
@@ -1831,11 +1877,11 @@ static void GFX_drawFilledRoundedRect(SDL_Surface* sur, int x, int y, int w, int
 	if (SDL_MUSTLOCK(sur))
 		SDL_UnlockSurface(sur);
 }
-static void GFX_blitButtonAt(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_rect, int scale,
+static void GFX_blitButtonAt(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_rect, float scale,
 							 TTF_Font* tiny) {
 	SDL_Surface* text;
 	int ox = 0;
-	int btn_sz = scale * BUTTON_SIZE;
+	int btn_sz = (int)(scale * BUTTON_SIZE + 0.5f);
 
 	button = (char*)PAD_buttonLabel(button);
 	// Drawn fallback (any button with no nav_*.png glyph, e.g. "L1/R1" combo
@@ -1875,7 +1921,7 @@ static void GFX_blitButtonAt(char* hint, char* button, SDL_Surface* dst, SDL_Rec
 		ox += btn_sz / 4;
 	}
 
-	ox += scale * BUTTON_TEXT_GAP;
+	ox += (int)(scale * BUTTON_TEXT_GAP + 0.5f);
 
 	// hint text (cached; colour is part of the cache key so theme changes are safe)
 	SDL_Color text_color = uintToColour(THEME_COLOR6_255);
@@ -1886,9 +1932,9 @@ static void GFX_blitButtonAt(char* hint, char* button, SDL_Surface* dst, SDL_Rec
 void GFX_blitButton(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_rect) {
 	GFX_blitButtonAt(hint, button, dst, dst_rect, FIXED_SCALE, font.tiny);
 }
-void GFX_blitButtonNative(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_rect) {
-	TTF_Font* tiny = hintTinyNative();
-	GFX_blitButtonAt(hint, button, dst, dst_rect, tiny == font.tiny ? FIXED_SCALE : NATIVE_SCALE, tiny);
+void GFX_blitButtonChrome(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_rect) {
+	TTF_Font* tiny = hintTinyChrome();
+	GFX_blitButtonAt(hint, button, dst, dst_rect, tiny == font.tiny ? FIXED_SCALE : CHROME_SCALE, tiny);
 }
 void GFX_blitMessage(TTF_Font* font, char* msg, SDL_Surface* dst, SDL_Rect* dst_rect) {
 	if (!dst_rect)
