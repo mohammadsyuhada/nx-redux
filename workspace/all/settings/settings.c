@@ -301,11 +301,10 @@ static int hint_labels_values[] = {0, 1};
 // The "Hint labels" row only matters under the Xbox layout; hidden otherwise.
 static SettingItem* hint_labels_item = NULL;
 
-/* UI scale: 0 follows the device; label filled in build_menu_tree. Labels
- * count from the smallest scale the UI offers, so internal 2x shows as "1x"
- * and 3x as "2x"; stored values stay 0/2/3. */
-static char ui_scale_default_label[16];
-static const char* ui_scale_labels[] = {ui_scale_default_label, "1x", "2x"};
+/* UI scale: 0 follows the device; label filled in build_menu_tree. Internal
+ * 2x shows as "Small" and 3x as "Large"; stored values stay 0/2/3. */
+static char ui_scale_default_label[24];
+static const char* ui_scale_labels[] = {ui_scale_default_label, "Small", "Large"};
 static int ui_scale_values[] = {0, 2, 3};
 
 /* Dpad mode: Dpad, Joystick, Both */
@@ -1743,7 +1742,8 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	// ============================
 	// Appearance page
 	// ============================
-	snprintf(ui_scale_default_label, sizeof(ui_scale_default_label), "Default (%ix)", NATIVE_SCALE - 1);
+	snprintf(ui_scale_default_label, sizeof(ui_scale_default_label), "Default (%s)",
+			 NATIVE_SCALE == 3 ? "Large" : "Small");
 	idx = 0;
 	// Font selection removed — the UI always uses the MiSans-based font.
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
