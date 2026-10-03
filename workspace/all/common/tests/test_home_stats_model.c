@@ -16,24 +16,25 @@ static long long localTime(int y, int m, int d, int H, int M) {
 	return (long long)mktime(&tm);
 }
 
-static void window_starts_monday_four_weeks_back(void) {
-	long long now = localTime(2026, 10, 1, 15, 0); // Thursday
-	long long ws = HomeStats_windowStart(now);
-	assert(ws == localTime(2026, 8, 31, 0, 0)); // this week's Monday 2026-09-28, minus 4 weeks
+static void window_starts_on_the_first(void) {
+	assert(HomeStats_windowStart(localTime(2026, 10, 1, 15, 0)) == localTime(2026, 10, 1, 0, 0));
+	assert(HomeStats_windowStart(localTime(2026, 10, 31, 23, 59)) == localTime(2026, 10, 1, 0, 0)); // past the DST day
+	assert(HomeStats_windowStart(localTime(2026, 10, 1, 0, 0)) == localTime(2026, 10, 1, 0, 0));
+	assert(HomeStats_windowStart(localTime(2027, 1, 15, 8, 0)) == localTime(2027, 1, 1, 0, 0));
 }
 
 static void midnight_split_and_clip(void) {
-	long long now = localTime(2026, 10, 1, 15, 0);
+	long long now = localTime(2026, 10, 20, 15, 0);
 	HomeSession s[] = {
-		{1, "A", localTime(2026, 9, 30, 23, 30), localTime(2026, 10, 1, 0, 30)}, // 30 min each side of midnight
-		{2, "B", localTime(2026, 8, 30, 23, 0), localTime(2026, 8, 31, 1, 0)},	 // starts before the window: 1 h in
-		{3, "C", localTime(2026, 10, 1, 14, 0), 0},								 // open: clamps to now (1 h)
-		{4, "D", localTime(2026, 9, 2, 10, 0), localTime(2026, 9, 3, 12, 0)},	 // 26 h: ignored
+		{1, "A", localTime(2026, 10, 9, 23, 30), localTime(2026, 10, 10, 0, 30)}, // 30 min each side of midnight
+		{2, "B", localTime(2026, 9, 30, 23, 0), localTime(2026, 10, 1, 1, 0)},	  // starts last month: 1 h in
+		{3, "C", localTime(2026, 10, 20, 14, 0), 0},							  // open: clamps to now (1 h)
+		{4, "D", localTime(2026, 10, 2, 10, 0), localTime(2026, 10, 3, 12, 0)},	  // 26 h: ignored
 	};
 	HomeStats st;
 	HomeStats_compute(s, 4, now, &st);
-	assert(st.ready && st.today == 31); // 2026-10-01 is the 32nd day from 2026-08-31
-	assert(st.days[30] == 1800 && st.days[31] == 1800 + 3600);
+	assert(st.ready && st.today == 19); // 2026-10-20 is the 20th day of the month
+	assert(st.days[8] == 1800 && st.days[9] == 1800 && st.days[19] == 3600);
 	assert(st.days[0] == 3600);
 	assert(st.total == 1800 + 1800 + 3600 + 3600);
 	// A, B and C all have 3600 s in the window; ties go to the more recent last play: C (now), A, B
@@ -64,17 +65,17 @@ static void bad_lengths_ignored(void) {
 }
 
 static void exactly_one_day_kept(void) {
-	long long now = localTime(2026, 10, 1, 15, 0);
+	long long now = localTime(2026, 9, 30, 15, 0);
 	HomeSession s[] = {{1, "A", localTime(2026, 9, 10, 12, 0), localTime(2026, 9, 11, 12, 0)}};
 	HomeStats st;
 	HomeStats_compute(s, 1, now, &st);
 	assert(st.total == 86400);
-	assert(st.days[10] == 43200 && st.days[11] == 43200); // 2026-09-10 is day 10 from 2026-08-31
+	assert(st.days[9] == 43200 && st.days[10] == 43200); // 2026-09-10 is day 9 from 2026-09-01
 	assert(st.ntop == 1 && st.top[0].seconds == 86400);
 }
 
 static void group_title_from_latest_session(void) {
-	long long now = localTime(2026, 10, 1, 15, 0);
+	long long now = localTime(2026, 9, 30, 15, 0);
 	HomeSession s[] = {
 		{7, "New", localTime(2026, 9, 20, 10, 0), localTime(2026, 9, 20, 11, 0)},
 		{7, "Old", localTime(2026, 9, 5, 10, 0), localTime(2026, 9, 5, 10, 30)},
@@ -104,11 +105,11 @@ static HomeStatsKey sampleKey(void) {
 }
 
 static HomeStats sampleStats(void) {
-	long long now = localTime(2026, 10, 1, 15, 0);
+	long long now = localTime(2026, 9, 30, 23, 0);
 	HomeSession s[] = {
 		{1, "Alpha", localTime(2026, 9, 30, 20, 0), localTime(2026, 9, 30, 21, 30)},
 		{2, "Beta: Two\nLines", localTime(2026, 9, 1, 10, 0), localTime(2026, 9, 1, 10, 20)},
-		{3, "", localTime(2026, 10, 1, 9, 0), localTime(2026, 10, 1, 9, 5)},
+		{3, "", localTime(2026, 9, 15, 9, 0), localTime(2026, 9, 15, 9, 5)},
 	};
 	HomeStats st;
 	HomeStats_compute(s, 3, now, &st);
@@ -240,7 +241,7 @@ static void day_rolls_at_local_midnight(void) {
 int main(void) {
 	setenv("TZ", "Europe/Berlin", 1);
 	tzset();
-	window_starts_monday_four_weeks_back();
+	window_starts_on_the_first();
 	midnight_split_and_clip();
 	dst_day_is_split_by_calendar();
 	bad_lengths_ignored();

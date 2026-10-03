@@ -1,7 +1,7 @@
 #ifndef HOME_STATS_MODEL_H
 #define HOME_STATS_MODEL_H
 
-// SDL-free math for the Home stats card (host-tested).
+// SDL-free math for the Home stats strip (host-tested): this calendar month's play time, achievements and most played.
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -23,16 +23,16 @@ typedef struct {
 
 typedef struct {
 	bool ready;				// false until the first result
-	long long window_start; // local Monday 00:00, four weeks before this week's Monday
-	int today;				// 0..34, index of today in days[]
-	int days[HOME_DAYS];	// seconds per local day; days[0] = window_start's day; row = i / 7, col = i % 7 (Mon first)
+	long long window_start; // local midnight on the 1st of this month
+	int today;				// index of today in days[] (0 = the 1st)
+	int days[HOME_DAYS];	// seconds per local day; days[0] = the 1st (a month has at most 31)
 	int total;
 	int ntop;
 	HomeTop top[3];
 	int unlocks; // -1 = signed out
 } HomeStats;
 
-// Local Monday 00:00 four weeks before the Monday of now's week (localtime_r/mktime, TZ-aware).
+// Local midnight on the 1st of now's month (localtime_r/mktime, TZ-aware: calendar days, so a DST day is 23 or 25 h).
 long long HomeStats_windowStart(long long now);
 // Sessions are clipped to [window_start, now]; open sessions end at now; sessions with a
 // non-positive or > 24 h length are ignored; a session is split at every local midnight it crosses.

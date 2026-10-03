@@ -22,8 +22,7 @@ long long HomeStats_windowStart(long long now) {
 	time_t tt = (time_t)now;
 	struct tm tm;
 	localtime_r(&tt, &tm);
-	int days_since_monday = (tm.tm_wday + 6) % 7;
-	tm.tm_mday -= days_since_monday + 28;
+	tm.tm_mday = 1;
 	tm.tm_hour = tm.tm_min = tm.tm_sec = 0;
 	tm.tm_isdst = -1;
 	return (long long)mktime(&tm);
@@ -129,10 +128,10 @@ bool HomeStats_keyEqual(const HomeStatsKey* x, const HomeStatsKey* y) {
 		   sigEqual(x->games, y->games) && sigEqual(x->sessions, y->sessions);
 }
 
-#define HOME_CACHE_MAGIC "homestats 1"
+#define HOME_CACHE_MAGIC "homestats 2" // 2: the calendar month (1: the 35-day heatmap window)
 
 // Format, one item per line:
-//   homestats 1
+//   homestats 2
 //   key <day> <signed_in> <db> <journal> <confirmed> <games> <sessions>   (each sig = two numbers)
 //   stats <window_start> <today> <total> <unlocks> <ntop>
 //   days <35 numbers>

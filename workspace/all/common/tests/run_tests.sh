@@ -61,6 +61,8 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_homeart_model 
 /tmp/nx_test_homeart_model
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_home_stats_model ../../nextui/home_stats_model.c test_home_stats_model.c
 /tmp/nx_test_home_stats_model
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_home_strip ../../nextui/home_strip.c ../../nextui/gameinfo_text.c test_home_strip.c
+/tmp/nx_test_home_strip
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_grid_layout ../../nextui/grid_layout.c ../../nextui/row_model.c test_grid_layout.c -lm
 /tmp/nx_test_grid_layout
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_row_model ../../nextui/row_model.c test_row_model.c -lm

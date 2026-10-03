@@ -1,246 +1,293 @@
-// Home's landscape split: Continue + stats card on top, pins (games 1x2 first, tools 1x1) in a grid below.
-// All values in dp. Pure, host-tested.
+// Home B2's geometry and D-pad (see home_layout.h). Pure, host-tested by common/tests/test_home_layout.c. The numbers
+// are the mockup's (nx-mobile .local/main-menu-mockup/brick-home-stats.html, variant 3; the D-pad from
+// nx-showcase.html's pressHome), in Brick px.
 
 #include "home_layout.h"
+
+#include <math.h>
 #include <string.h>
 
-#define GUTTER 24.0f
-#define GAP 14.0f
-#define RING 3.0f
-#define PAD_TOP 52.0f
-#define PAD_BOTTOM 52.0f
-#define TOP_FLOOR 165.0f
-#define MIN_COL 90.0f
-#define START_COLS 6
-#define MIN_TILE 40.0f
-#define SCROLL_PAD 8.0f
-
-static float maxf(float a, float b) {
-	return a > b ? a : b;
-}
 static float minf(float a, float b) {
 	return a < b ? a : b;
 }
 
-void HomeLayout_compute(float screen_w, float screen_h, bool has_continue, const HomePinKind* kinds, int npins,
-						HomeLayout* out) {
+static HomeRect rect(float x, float y, float w, float h) {
+	return (HomeRect){x, y, w, h};
+}
+
+static void addTop(HomeLayout* l, HomeTileKind kind, int ref, HomeRect r) {
+	if (l->ntop < HOME_MAX_TOP)
+		l->top[l->ntop++] = (HomeTile){kind, ref, r};
+}
+
+// The pins' rows from y: k a row, pw wide, games first..ngames−1.
+static void addRows(HomeLayout* l, float y, float pw, int first, int ngames) {
+	for (int g = first; g < ngames && l->npins < HOME_MAX_PINS; g++) {
+		int i = l->npins, r = i / l->k, c = i % l->k;
+		l->pins[l->npins++] =
+			(HomeTile){HOME_TILE_GAME, g, rect(HOME_EDGE + c * (pw + HOME_GAP), y + r * (HOME_PIN_H + HOME_GAP), pw, HOME_PIN_H)};
+	}
+}
+
+void HomeLayout_compute(float W, float H, float bar, int strip_lines, int ngames, int ntools, HomeLayout* out) {
 	memset(out, 0, sizeof(*out));
-	if (npins < 0 || !kinds)
-		npins = 0;
-	if (npins > HOME_MAX_PINS)
-		npins = HOME_MAX_PINS;
-	out->gutter = GUTTER;
-	out->gap = GAP;
+	HomeLayout* l = out;
+	float L = HOME_EDGE, R = W - HOME_EDGE, bottom = H - bar - HOME_BOTTOM;
+	if (ngames < 0)
+		ngames = 0;
+	if (ntools < 0)
+		ntools = 0;
+	l->wide = W >= 1.6f * H;
+	l->strip_lines = strip_lines < 0 ? 0 : strip_lines > 2 ? 2
+														   : strip_lines;
+	// the strip: 27 px text from x 54, baselines 121 / 157 (two lines) or 124 (one) on the Brick (bar 84); the top
+	// section from 187 / 155, or 111 without a strip
+	l->strip_x = L + 3;
+	l->strip_right = R - 1;
+	l->strip_base[0] = bar + (l->strip_lines == 2 ? 37 : 40);
+	l->strip_base[1] = bar + 73;
+	float y0 = bar + (l->strip_lines == 2 ? 103 : l->strip_lines == 1 ? 71
+																	  : 27);
+	l->top_y = y0;
+	float page_bottom = bottom;
 
-	float inner = screen_w - 2 * GUTTER;
-	int cols = START_COLS;
-	float tw = (inner - (cols - 1) * GAP) / cols;
-	while (tw < MIN_COL && cols > 2) {
-		cols--;
-		tw = (inner - (cols - 1) * GAP) / cols;
-	}
-	out->cols = cols;
-	out->tw = tw;
-
-	if (!has_continue && npins == 0) { // nothing played, no pins: one wide Pick-a-game card
-		out->mode = HOME_MODE_FRESH;
-		out->top_h = screen_h - (PAD_TOP + PAD_BOTTOM);
-		out->cont = (HomeRect){GUTTER, PAD_TOP, inner, out->top_h};
-		out->page_h = screen_h;
-		return;
-	}
-
-	float room = screen_h - (PAD_TOP + GAP + RING + PAD_BOTTOM);
-	float tile = minf(tw, maxf(tw * 0.75f, 0.4f * room));
-	float top = maxf(TOP_FLOOR, room - tile);
-	tile = maxf(MIN_TILE, room - top);
-	if (npins == 0) {
-		out->mode = HOME_MODE_NO_PINS;
-		top = screen_h - (PAD_TOP + PAD_BOTTOM);
-	} else {
-		out->mode = HOME_MODE_FULL;
-	}
-	out->top_h = top;
-	out->tile_h = tile;
-
-	float card_w = 2 * tw + GAP;
-	out->card = (HomeRect){screen_w - GUTTER - card_w, PAD_TOP, card_w, top};
-	out->cont = (HomeRect){GUTTER, PAD_TOP, out->card.x - GAP - GUTTER, top};
-
-	if (npins == 0) {
-		out->page_h = screen_h;
-		return;
-	}
-
-	// Games take two columns and start a new row when they don't fit (the gap stays empty); tools take one.
-	float y0 = PAD_TOP + top + GAP;
-	int row = 0, col = 0;
-	for (int i = 0; i < npins; i++) {
-		int span = kinds[i] == HOME_PIN_GAME ? 2 : 1;
-		if (col + span > cols) {
-			row++;
-			col = 0;
+	if (!l->wide) {
+		// the Brick: one row of two pins over the hint bar (more go below, the page scrolls), the top section down to
+		// 30 above it; no pins: the top section runs on down
+		l->k = 2;
+		float row_y = bottom - HOME_PIN_H;
+		float h = (ngames > 0 ? row_y - HOME_GAP : bottom) - y0;
+		l->top_h = h;
+		// a column of 3 squares flush right: side round((h − 40) / 3), the gaps sharing the rest; more than 3 tools:
+		// the first two and "+N"
+		float cont_w = R - L;
+		if (ntools > 0) {
+			float sq = roundf((h - 40) / 3), gap = (h - 3 * sq) / 2, x = R - sq;
+			l->square = sq;
+			l->glyph = minf(46, roundf(sq * 0.58f));
+			cont_w = x - HOME_GAP - L;
+			addTop(l, HOME_TILE_CONTINUE, 0, rect(L, y0, cont_w, h));
+			int shown = ntools > 3 ? 2 : ntools;
+			for (int i = 0; i < shown; i++)
+				addTop(l, HOME_TILE_TOOL, i, rect(x, y0 + i * (sq + gap), sq, sq));
+			if (ntools > 3)
+				addTop(l, HOME_TILE_MORE, ntools - 2, rect(x, y0 + 2 * (sq + gap), sq, sq));
+		} else {
+			addTop(l, HOME_TILE_CONTINUE, 0, rect(L, y0, cont_w, h));
 		}
-		HomePinSlot* s = &out->pins[i];
-		s->row = row;
-		s->col = col;
-		s->span = span;
-		s->r = (HomeRect){GUTTER + col * (tw + GAP), y0 + row * (tile + GAP), span * tw + (span - 1) * GAP, tile};
-		col += span;
+		addRows(l, row_y, (R - L - HOME_GAP) / 2, 0, ngames);
+	} else {
+		// the Smart Pro S: 8 columns; two rows of four 2-column pins over the hint bar, the top section what they leave
+		// (at most 372; a short screen keeps one row)
+		l->k = 4;
+		float col = (R - L - 7 * HOME_GAP) / 8;
+#define SPAN(n) ((n) * col + ((n) - 1) * HOME_GAP)
+		int rows = 2;
+		float h = minf(HOME_TOP_MAX, bottom - rows * HOME_PIN_H - rows * HOME_GAP - y0);
+		if (h < 2 * HOME_PIN_H) {
+			rows = 1;
+			h = minf(HOME_TOP_MAX, bottom - HOME_PIN_H - HOME_GAP - y0);
+		}
+		l->top_h = h;
+		// Continue from the left edge to 30 before the squares (no tools: the full width); the squares flush right in
+		// reading order: up to 4 tools a 2 x 2 block, 5 or more a 3 x 2 block (its third column taken from Continue),
+		// more than 6 tools five and "+N". Every pinned game goes in the rows (docs/home-b2.md: no large first game).
+		float cont_w = R - L;
+		if (ntools > 0) {
+			int cols = ntools <= 4 ? 2 : 3, slots = 2 * cols;
+			float sq = (h - HOME_GAP) / 2, bx = R - cols * sq - (cols - 1) * HOME_GAP;
+			l->square = sq;
+			l->glyph = minf(46, roundf(sq * 0.58f));
+			cont_w = bx - HOME_GAP - L;
+			addTop(l, HOME_TILE_CONTINUE, 0, rect(L, y0, cont_w, h));
+			int shown = ntools > slots ? slots - 1 : ntools;
+			for (int i = 0; i <= shown && i < slots; i++) {
+				HomeRect r = rect(bx + (float)(i % cols) * (sq + HOME_GAP), y0 + (float)(i / cols) * (sq + HOME_GAP), sq, sq);
+				if (i < shown)
+					addTop(l, HOME_TILE_TOOL, i, r);
+				else if (ntools > slots)
+					addTop(l, HOME_TILE_MORE, ntools - shown, r);
+			}
+		} else {
+			addTop(l, HOME_TILE_CONTINUE, 0, rect(L, y0, cont_w, h));
+		}
+		addRows(l, y0 + h + HOME_GAP, SPAN(2), 0, ngames);
+#undef SPAN
 	}
-	out->npins = npins;
-	out->rows = row + 1;
-	out->page_h = PAD_TOP + top + GAP + out->rows * tile + (out->rows - 1) * GAP + RING + PAD_BOTTOM;
+	if (l->npins > 0) {
+		HomeRect last = l->pins[l->npins - 1].r;
+		if (last.y + last.h > page_bottom)
+			page_bottom = last.y + last.h;
+	}
+	l->page_h = page_bottom + HOME_BOTTOM + bar;
+	if (l->page_h < H)
+		l->page_h = H;
 }
 
-static void rememberFocus(const HomeFocus* f, HomeFocusMemory* mem) {
-	if (f->area == HOME_FOCUS_PIN)
-		mem->last_pin = f->pin;
-	else
-		mem->last_top = f->area;
-}
+///////////////////////////////////////
+// The D-pad
 
-// The pin in `row` covering `col`, else that row's last pin; -1 if the row has no pins.
-static int pinInRow(const HomeLayout* l, int row, int col) {
-	int last = -1;
-	for (int i = 0; i < l->npins; i++) {
-		const HomePinSlot* s = &l->pins[i];
-		if (s->row != row)
+#define EPS 0.5f
+
+// The nearest top tile on that side overlapping the current one across the move; ties to prev, else the top-left.
+static int topMove(const HomeLayout* l, int cur, int prev, HomeDir dir) {
+	if (cur < 0 || cur >= l->ntop)
+		return -1;
+	HomeRect c = l->top[cur].r;
+	bool side = dir == HOME_DIR_LEFT || dir == HOME_DIR_RIGHT;
+	float best = 0;
+	int n = 0, cand[HOME_MAX_TOP];
+	float dist[HOME_MAX_TOP];
+	for (int i = 0; i < l->ntop; i++) {
+		if (i == cur)
 			continue;
-		if (col >= s->col && col < s->col + s->span)
+		HomeRect t = l->top[i].r;
+		float ov = side ? minf(c.y + c.h, t.y + t.h) - fmaxf(c.y, t.y) : minf(c.x + c.w, t.x + t.w) - fmaxf(c.x, t.x);
+		float d = dir == HOME_DIR_RIGHT	 ? t.x - (c.x + c.w)
+				  : dir == HOME_DIR_LEFT ? c.x - (t.x + t.w)
+				  : dir == HOME_DIR_DOWN ? t.y - (c.y + c.h)
+										 : c.y - (t.y + t.h);
+		if (ov <= EPS || d <= -EPS)
+			continue;
+		if (n == 0 || d < best)
+			best = d;
+		cand[n] = i, dist[n] = d, n++;
+	}
+	int pick = -1;
+	for (int j = 0; j < n; j++) {
+		if (dist[j] >= best + EPS)
+			continue;
+		int i = cand[j];
+		if (i == prev)
 			return i;
-		last = i;
+		if (pick < 0 || l->top[i].r.y < l->top[pick].r.y ||
+			(l->top[i].r.y == l->top[pick].r.y && l->top[i].r.x < l->top[pick].r.x))
+			pick = i;
 	}
-	return last;
+	return pick;
 }
 
-HomeMoveResult HomeLayout_move(const HomeLayout* l, HomeFocus* f, HomeFocusMemory* mem, HomeDir dir) {
+// The first-row pin whose centre is nearest the tile's centre across.
+static int rowUnder(const HomeLayout* l, HomeRect c) {
+	float mid = c.x + c.w / 2;
+	int best = 0;
+	for (int j = 1; j < l->k && j < l->npins; j++) {
+		HomeRect p = l->pins[j].r, b = l->pins[best].r;
+		if (fabsf(p.x + p.w / 2 - mid) < fabsf(b.x + b.w / 2 - mid))
+			best = j;
+	}
+	return best;
+}
+
+HomeMoveResult HomeLayout_move(const HomeLayout* l, HomeFocus* f, HomeDir dir) {
 	*f = HomeLayout_clampFocus(l, *f);
-	rememberFocus(f, mem);
-	HomeMoveResult res = HOME_MOVE_STAY;
-
-	if (f->area != HOME_FOCUS_PIN) {
-		bool on_card = f->area == HOME_FOCUS_CARD;
+	if (f->sec == HOME_SEC_PINS) {
+		int k = l->k, n = l->npins, i = f->pin, c = i % k;
 		switch (dir) {
 		case HOME_DIR_LEFT:
-			if (on_card) {
-				f->area = HOME_FOCUS_CONTINUE;
-				res = HOME_MOVE_MOVED;
-			} else {
-				res = HOME_MOVE_EDGE_PREV;
-			}
-			break;
+			if (c == 0)
+				return HOME_MOVE_EDGE_PREV;
+			f->pin = i - 1;
+			return HOME_MOVE_MOVED;
 		case HOME_DIR_RIGHT:
-			if (!on_card && l->mode != HOME_MODE_FRESH) {
-				f->area = HOME_FOCUS_CARD;
-				res = HOME_MOVE_MOVED;
-			} else {
-				res = HOME_MOVE_EDGE_NEXT;
-			}
-			break;
+			if (c == k - 1 || i + 1 >= n)
+				return HOME_MOVE_EDGE_NEXT;
+			f->pin = i + 1;
+			return HOME_MOVE_MOVED;
 		case HOME_DIR_DOWN:
-			if (l->npins > 0) {
-				int p = mem->last_pin;
-				if (p < 0)
-					p = 0;
-				if (p >= l->npins)
-					p = l->npins - 1;
-				f->area = HOME_FOCUS_PIN;
-				f->pin = p;
-				res = HOME_MOVE_MOVED;
-			}
-			break;
+			if (i + k < n)
+				f->pin = i + k;
+			else if (i / k < (n - 1) / k)
+				f->pin = n - 1; // a shorter last row: its last pin
+			else
+				return HOME_MOVE_STAY;
+			return HOME_MOVE_MOVED;
 		case HOME_DIR_UP:
-			break;
+			if (i >= k)
+				f->pin = i - k;
+			else
+				f->sec = HOME_SEC_TOP; // the top tile last on
+			return HOME_MOVE_MOVED;
 		}
-	} else {
-		const HomePinSlot* s = &l->pins[f->pin];
-		switch (dir) {
-		case HOME_DIR_LEFT:
-			if (f->pin > 0 && l->pins[f->pin - 1].row == s->row) {
-				f->pin--;
-				res = HOME_MOVE_MOVED;
-			} else {
-				res = HOME_MOVE_EDGE_PREV;
-			}
-			break;
-		case HOME_DIR_RIGHT:
-			if (f->pin + 1 < l->npins && l->pins[f->pin + 1].row == s->row) {
-				f->pin++;
-				res = HOME_MOVE_MOVED;
-			} else {
-				res = HOME_MOVE_EDGE_NEXT;
-			}
-			break;
-		case HOME_DIR_DOWN: {
-			int p = s->row + 1 < l->rows ? pinInRow(l, s->row + 1, s->col) : -1;
-			if (p >= 0) {
-				f->pin = p;
-				res = HOME_MOVE_MOVED;
-			}
-			break;
-		}
-		case HOME_DIR_UP:
-			if (s->row == 0) {
-				f->area = mem->last_top;
-				if (f->area == HOME_FOCUS_CARD && l->mode == HOME_MODE_FRESH)
-					f->area = HOME_FOCUS_CONTINUE;
-				res = HOME_MOVE_MOVED;
-			} else {
-				int p = pinInRow(l, s->row - 1, s->col);
-				if (p >= 0) {
-					f->pin = p;
-					res = HOME_MOVE_MOVED;
-				}
-			}
-			break;
-		}
+		return HOME_MOVE_STAY;
 	}
-
-	rememberFocus(f, mem);
-	return res;
+	int m = topMove(l, f->top, f->prev, dir);
+	if (m >= 0) {
+		f->prev = f->top;
+		f->top = m;
+		return HOME_MOVE_MOVED;
+	}
+	switch (dir) {
+	case HOME_DIR_LEFT:
+		return HOME_MOVE_EDGE_PREV;
+	case HOME_DIR_RIGHT:
+		return HOME_MOVE_EDGE_NEXT;
+	case HOME_DIR_UP:
+		return HOME_MOVE_TABS;
+	case HOME_DIR_DOWN:
+		if (l->npins <= 0)
+			return HOME_MOVE_STAY;
+		f->prev = f->top;
+		f->sec = HOME_SEC_PINS;
+		f->pin = rowUnder(l, l->top[f->top].r);
+		return HOME_MOVE_MOVED;
+	}
+	return HOME_MOVE_STAY;
 }
 
-HomeFocus HomeLayout_bottomFrom(const HomeLayout* l, HomeFocus from, HomeFocusMemory* mem) {
-	from = HomeLayout_clampFocus(l, from);
-	if (l->npins <= 0)
-		return from;
-	if (from.area != HOME_FOCUS_PIN)
-		mem->last_top = from.area; // UP from the first pin row comes back to the item the tab row was entered from
-	HomeFocus f = {HOME_FOCUS_PIN, l->npins - 1};
-	mem->last_pin = f.pin;
-	return f;
+void HomeLayout_fromTabs(const HomeLayout* l, HomeFocus* f) {
+	*f = HomeLayout_clampFocus(l, *f);
+	if (l->npins <= 0) {
+		f->sec = HOME_SEC_TOP;
+		return;
+	}
+	int n = l->npins, k = l->k;
+	f->prev = f->top;
+	f->pin = f->top == 0 ? (n - 1) / k * k : n - 1;
+	f->sec = HOME_SEC_PINS;
 }
 
 HomeFocus HomeLayout_clampFocus(const HomeLayout* l, HomeFocus f) {
-	if (f.area == HOME_FOCUS_PIN) {
-		if (l->npins <= 0) {
-			f.area = HOME_FOCUS_CONTINUE;
-			f.pin = 0;
-		} else if (f.pin >= l->npins) {
-			f.pin = l->npins - 1;
-		} else if (f.pin < 0) {
-			f.pin = 0;
-		}
-	} else if (f.area == HOME_FOCUS_CARD && l->mode == HOME_MODE_FRESH) {
-		f.area = HOME_FOCUS_CONTINUE;
-	}
+	if (f.top < 0)
+		f.top = 0;
+	if (f.top >= l->ntop)
+		f.top = l->ntop > 0 ? l->ntop - 1 : 0;
+	if (f.prev >= l->ntop)
+		f.prev = -1;
+	if (f.pin < 0)
+		f.pin = 0;
+	if (f.pin >= l->npins)
+		f.pin = l->npins > 0 ? l->npins - 1 : 0;
+	if (l->npins <= 0)
+		f.sec = HOME_SEC_TOP;
 	return f;
 }
 
-float HomeLayout_scrollFor(const HomeLayout* l, HomeFocus f, float screen_h, float bar_dp, float current) {
+HomeRect HomeLayout_focusRect(const HomeLayout* l, HomeFocus f) {
 	f = HomeLayout_clampFocus(l, f);
-	if (f.area != HOME_FOCUS_PIN)
-		return 0;
-	HomeRect r = l->pins[f.pin].r;
-	float margin = RING + SCROLL_PAD;
-	float lo = r.y + r.h + margin - (screen_h - bar_dp);
-	float hi = r.y - margin - bar_dp;
-	float off = current;
-	if (lo > hi)
-		off = hi;
-	else
-		off = minf(maxf(off, lo), hi);
-	float max_off = maxf(0, l->page_h - screen_h);
-	return minf(maxf(off, 0), max_off);
+	if (f.sec == HOME_SEC_PINS)
+		return l->pins[f.pin].r;
+	return l->ntop > 0 ? l->top[f.top].r : rect(0, 0, 0, 0);
+}
+
+float HomeLayout_scrollFor(const HomeLayout* l, HomeFocus f, float H, float bar, float current) {
+	float max = l->page_h - H;
+	if (max < 0)
+		max = 0;
+	float s = current;
+	if (HomeLayout_clampFocus(l, f).sec == HOME_SEC_TOP) {
+		s = 0;
+	} else {
+		HomeRect r = HomeLayout_focusRect(l, f);
+		// scrolled further, the pin's ring would pass under the tab row; scrolled less, its bottom would sit closer to
+		// the hint bar than the first row does (a scrolled-to row lands where the rows rest)
+		float lo = r.y - (HOME_RING + 8) - bar;
+		float hi = r.y + r.h + HOME_BOTTOM - (H - bar);
+		if (s > lo)
+			s = lo;
+		if (s < hi)
+			s = hi;
+	}
+	return s < 0 ? 0 : s > max ? max
+							   : s;
 }

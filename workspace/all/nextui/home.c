@@ -1,15 +1,15 @@
-// The Home tab (see home.h and §9 of the layout reference): Continue and the stats card on top, the pins in rows
-// under them. home_layout.c owns the geometry in dp; this file turns it into pixels, draws and handles input.
+// The Home tab, B2 (docs/home-b2.md; home.h): the stats strip under the tab row, the top section (Continue and the tool
+// squares) and the pinned games in rows under it. home_layout.c owns the geometry and the D-pad in Brick px,
+// home_strip.c the strip's text; this file turns them into pixels, draws and handles input.
 //
 // Drawing: the page is painted straight onto the screen, clipped to the band between the tab strip and the hint bar
-// so scrolled cards are cut at both bars. Each card is composed once into its own surface (base, picture, fade, text,
-// border, anti-aliased corners) and cached under a key of its kind, size, look (plain/lit, stats face) and a stamp of
-// what it shows; a frame only blits cached cards, and a card is recomposed only when its key changes. A selection
-// crossfade blends the cached lit look over the plain one (the ring at the same alpha); the stats card's flip blends
-// its two cached faces.
+// so scrolled tiles are cut at both bars. Each tile is composed once into its own surface (base, picture, fade, text,
+// edge, anti-aliased corners) and cached under a key of its kind, size, look (plain/lit) and a stamp of what it shows;
+// a frame only blits cached tiles (and the strip, cached whole), and a tile is recomposed only when its key changes. A
+// selection crossfade blends the cached lit look over the plain one (the ring at the same alpha).
 //
 // Frame cost (the Brick's A133 draws the UI in software): SDL's per-pixel-alpha blit runs ~20 ns a pixel there, so a
-// card goes through it only for its four anti-aliased corners. Everything else in a card is opaque and is copied, or
+// tile goes through it only for its four anti-aliased corners. Everything else in a tile is opaque and is copied, or
 // for a crossfade lerped, by UI_blitOpaque; the hint bar is cached whole and the fades use UI_blitFade.
 
 #include "home.h"
@@ -32,6 +32,7 @@
 #include "gamelist.h"
 #include "home_layout.h"
 #include "home_stats.h"
+#include "home_strip.h"
 #include "homeart.h"
 #include "imgloader.h" // screen
 #include "infoband.h"
@@ -46,21 +47,32 @@
 #include "ui_fade.h"
 #include "view_common.h"
 
-#define RADIUS_DP 14.0f
-#define RING_DP 3.0f
 #define BORDER_ALPHA 20 // white at 8%
 #define SEL_MS 120		// selection crossfade
-#define FLIP_MS 200		// stats card face crossfade
 #define SCROLL_MS 320	// page scroll, UI_easeStandard
-#define CARD_PAD_DP 16.0f
-#define TILE_SIDE_DP 12.0f	 // pin tile caption insets
-#define TILE_BOTTOM_DP 10.0f // (Continue uses 16 / 12)
 #define ELLIPSIS "\xE2\x80\xA6"
 #define LINE_MAX 256
 
+// The B2 type (Brick px; docs/home-b2.md)
+#define STRIP_PX 27.0f
+#define CONT_TITLE_PX 44.0f
+#define CONT_SUB_PX 31.0f
+#define CONT_INSET 29.0f
+#define CONT_TITLE_UP 74.0f // the title's baseline above the card's bottom
+#define CONT_SUB_UP 31.0f
+#define PIN_NAME_PX 33.8f
+#define PIN_NAME_LH 41.6f
+#define PIN_INFO_PX 28.6f
+#define PIN_INFO_LH 36.4f
+#define PIN_SIDE 20.0f
+#define PIN_UP 16.0f
+#define PIN_LINE_GAP 4.0f
+#define MORE_PX 30.0f
+
 static const SDL_Color C_WHITE = {255, 255, 255, 255};
 static const SDL_Color C_BLACK = {0, 0, 0, 255};
-static const SDL_Color C_GREY = {0x99, 0x99, 0x99, 255}; // COLOR_GRAY
+static const SDL_Color C_GREY = {0x99, 0x99, 0x99, 255}; // COLOR_GRAY, the hint grey
+static const SDL_Color C_DOT = {0x55, 0x55, 0x55, 255};	 // the strip's middle dot
 #define LIT_DIM_ALPHA 140								 // the lit card's secondary text: its ink at 140/255 over the accent (black on white = 0x73)
 
 // A card's ground and ink: black / white plain, the accent / its ink lit (selected), opaque (only the List pill wears
@@ -86,7 +98,7 @@ static SDL_Color cardDim(bool lit) {
 					   (Uint8)((ink.g * a + bg.g * (255 - a) + 127) / 255),
 					   (Uint8)((ink.b * a + bg.b * (255 - a) + 127) / 255), 255};
 }
-// A watermark lit: tinted to the ink (black at the default theme), its alpha unchanged.
+// An icon or mark lit: tinted to the ink (black at the default theme), its alpha unchanged.
 static void tintLit(SDL_Surface* art) {
 	SDL_Color ink = cardInk(true);
 	SDL_SetSurfaceColorMod(art, ink.r, ink.g, ink.b);
@@ -103,33 +115,44 @@ static bool need_rebuild = true; // Home_reset: the pins or Continue may have ch
 static bool was_active = false; // Home_active()'s last answer: the false → true edge sets stats_due
 static bool stats_due = false;
 static unsigned built_root = 0; // the root Directory's serial (0 = none)
-static int built_w = 0, built_h = 0, built_scale = 0;
+static int built_w = 0, built_h = 0, built_scale = 0, built_lines = -1;
 
 static HomeLayout layout;
 static Entry* cont = NULL; // owned; NULL = no Continue (the Pick-a-game card takes its slot)
 static char cont_preview[MAX_PATH];
-static Entry* pins[HOME_MAX_PINS];		  // borrowed from stack[0], valid while its serial is built_root
-static bool pin_plain_dir[HOME_MAX_PINS]; // a legacy pinned folder (no cue/m3u): A opens it
-static int npins = 0;
+static Entry* games[HOME_MAX_PINS];		   // borrowed from stack[0], valid while its serial is built_root
+static bool game_plain_dir[HOME_MAX_PINS]; // a legacy pinned folder (no cue/m3u): A opens it
+static int ngames = 0;
+static Entry* tools[HOME_MAX_PINS];
+static int ntools = 0;
 
-static HomeFocus focus = {HOME_FOCUS_CONTINUE, 0};
-static HomeFocusMemory mem = {HOME_FOCUS_CONTINUE, 0};
+static HomeFocus focus = {HOME_SEC_TOP, 0, 0, -1};
 static bool focus_can_resume = false;
 
-static HomeFocus prev_focus = {HOME_FOCUS_CONTINUE, 0};
+static int prev_id = -1; // the tile the selection crossfades from (tileId)
 static Tween sel_tw;
-static float scroll_from = 0, scroll_to = 0; // dp
+static float scroll_from = 0, scroll_to = 0; // Brick px
 static Tween scroll_tw;
-static bool face_activity = false; // the stats card's face, kept for the session
-static Tween flip_tw;
 
 static SDL_Surface* hint_bar = NULL; // the rendered hint bar (see renderHints)
 static char hint_key[128];
+static SDL_Surface* strip_surf = NULL; // the strip, rendered whole (see drawStrip)
+static Uint32 strip_key = 0;
+static int strip_top = 0; // the surface's top on the unscrolled page (px)
 
 static void cardCacheClear(void);
 
 ///////////////////////////////////////
 // Units and timing
+
+// Screen px per Brick px: the Brick draws at 3x, the Smart Pro S at 2x.
+static float unitPx(void) {
+	return FIXED_SCALE / 3.0f;
+}
+
+static int px(float bpx) {
+	return (int)floorf(bpx * unitPx() + 0.5f);
+}
 
 static float currentScroll(void) {
 	if (!scroll_tw.active)
@@ -138,10 +161,15 @@ static float currentScroll(void) {
 }
 
 static SDL_Rect toScreen(HomeRect r, int scroll_px) {
-	int x0 = NX_DPF(r.x), x1 = NX_DPF(r.x + r.w);
-	int y0 = NX_DPF(r.y), y1 = NX_DPF(r.y + r.h);
+	int x0 = px(r.x), x1 = px(r.x + r.w);
+	int y0 = px(r.y), y1 = px(r.y + r.h);
 	return (SDL_Rect){x0, y0 - scroll_px, x1 - x0, y1 - y0};
 }
+
+static int radiusPx(void) {
+	return px(HOME_RADIUS);
+}
+
 
 ///////////////////////////////////////
 // Pixels (ARGB8888 surfaces this file creates; software, no locking)
@@ -373,9 +401,6 @@ static int wrapLines(TTF_Font* f, const char* text, int max_w, int max_lines, ch
 	return n;
 }
 
-static bool signedIn(void) {
-	return CFG_getRAEnable() && CFG_getRAAuthenticated();
-}
 
 ///////////////////////////////////////
 // Data
@@ -391,41 +416,91 @@ bool Home_active(void) {
 
 static void ensureBuilt(void);
 
-static bool isGamePin(int i) {
-	return i >= 0 && i < npins && layout.pins[i].span == 2;
+static const HomeTile* focusedTile(void) {
+	if (focus.sec == HOME_SEC_PINS && focus.pin >= 0 && focus.pin < layout.npins)
+		return &layout.pins[focus.pin];
+	if (focus.top >= 0 && focus.top < layout.ntop)
+		return &layout.top[focus.top];
+	return NULL;
 }
 
-// The heatmap cell (dp): the largest whole size up to 20 that fits the card's height and width.
-static float cellDp(void) {
-	float by_h = floorf((layout.card.h - 2 * CARD_PAD_DP - 15 - 16 - 16) / 5);
-	float by_w = floorf((layout.card.w - 2 * CARD_PAD_DP - 24) / 7);
-	return fminf(20, fminf(by_h, by_w));
+static Entry* tileEntry(const HomeTile* t) {
+	if (!t)
+		return NULL;
+	switch (t->kind) {
+	case HOME_TILE_CONTINUE:
+		return cont;
+	case HOME_TILE_GAME:
+		return t->ref >= 0 && t->ref < ngames ? games[t->ref] : NULL;
+	case HOME_TILE_TOOL:
+		return t->ref >= 0 && t->ref < ntools ? tools[t->ref] : NULL;
+	case HOME_TILE_MORE:
+		return NULL;
+	}
+	return NULL;
 }
 
-// The 12 dp rule: smaller cells mean the card shows only the stats face.
-static bool canFlip(void) {
-	return layout.mode != HOME_MODE_FRESH && layout.card.w > 0 && cellDp() >= 12;
+static bool plainDir(const HomeTile* t) {
+	return t && t->kind == HOME_TILE_GAME && t->ref >= 0 && t->ref < ngames && game_plain_dir[t->ref];
 }
 
 Entry* Home_focusedEntry(void) {
 	if (!Home_active())
 		return NULL;
 	ensureBuilt(); // the pins are borrowed from stack[0]: never hand out one from a replaced list
-	if (focus.area == HOME_FOCUS_CONTINUE)
-		return cont;
-	if (focus.area == HOME_FOCUS_PIN && focus.pin >= 0 && focus.pin < npins)
-		return pins[focus.pin];
-	return NULL;
+	return tileEntry(focusedTile());
 }
 
 // The focused game's resume state for the hint (readyResume stats the SD card: once per focus change).
 static void readyFocus(void) {
-	Entry* e = Home_focusedEntry();
+	const HomeTile* t = focusedTile();
+	Entry* e = tileEntry(t);
 	focus_can_resume = false;
-	if (!e || e->type == ENTRY_PAK || (focus.area == HOME_FOCUS_PIN && pin_plain_dir[focus.pin]))
+	if (!e || e->type == ENTRY_PAK || plainDir(t))
 		return;
 	readyResume(e);
 	focus_can_resume = resume.can_resume;
+}
+
+// The strip's input from the latest stats (not ready before the first result).
+static StripInput stripInput(const HomeStats* st) {
+	StripInput in = {0};
+	in.fresh = !cont && ngames == 0 && ntools == 0;
+	in.ready = st->ready;
+	in.signed_in = CFG_getRAEnable() && CFG_getRAAuthenticated();
+	in.total = st->total;
+	in.unlocks = st->unlocks < 0 ? 0 : st->unlocks;
+	if (st->ready && st->ntop > 0) {
+		in.top_title = st->top[0].title;
+		in.top_seconds = st->top[0].seconds;
+	}
+	return in;
+}
+
+static bool currentStats(HomeStats* st) {
+	memset(st, 0, sizeof(*st));
+	if (!HomeStats_get(st))
+		st->ready = false;
+	return st->ready;
+}
+
+static int stripLines(void) {
+	HomeStats st;
+	currentStats(&st);
+	StripInput in = stripInput(&st);
+	return HomeStrip_lineCount(&in);
+}
+
+// The geometry for this screen and strip; the focus kept in range, the scroll kept, clamped (no tween across it).
+static void relayout(int lines) {
+	float u = unitPx();
+	built_lines = lines;
+	HomeLayout_compute(screen->w / u, screen->h / u, barPx() / u, lines, ngames, ntools, &layout);
+	focus = HomeLayout_clampFocus(&layout, focus);
+	scroll_to = HomeLayout_scrollFor(&layout, focus, screen->h / u, barPx() / u, scroll_to);
+	scroll_from = scroll_to;
+	scroll_tw.active = false;
+	sel_tw.active = false;
 }
 
 static void rebuild(void) {
@@ -447,42 +522,23 @@ static void rebuild(void) {
 			snprintf(cont_preview, sizeof(cont_preview), "%s", resume.preview_path);
 	}
 
-	// games (ROMs, folder games, legacy folders) in stored order, then tools; a missing tool and the
-	// Continue game are skipped (both stay pinned)
+	// games (ROMs, folder games, legacy folders) and tools, each in stored order; a missing tool and the Continue game
+	// are skipped (both stay pinned)
 	Directory* root = stack->items[0];
-	HomePinKind kinds[HOME_MAX_PINS];
-	npins = 0;
-	for (int pass = 0; pass < 2; pass++) {
-		for (int i = 0; i < root->entries->count && npins < HOME_MAX_PINS; i++) {
-			Entry* e = root->entries->items[i];
-			bool tool = e->type == ENTRY_PAK;
-			if (tool != (pass == 1))
-				continue;
-			if (tool && !exists(e->path))
-				continue;
-			if (!tool && cont && exactMatch(e->path, cont->path))
-				continue;
-			pins[npins] = e;
-			pin_plain_dir[npins] = e->type == ENTRY_DIR && !canPinEntry(e);
-			kinds[npins] = tool ? HOME_PIN_TOOL : HOME_PIN_GAME;
-			npins++;
+	ngames = ntools = 0;
+	for (int i = 0; i < root->entries->count; i++) {
+		Entry* e = root->entries->items[i];
+		if (e->type == ENTRY_PAK) {
+			if (ntools < HOME_MAX_PINS && exists(e->path))
+				tools[ntools++] = e;
+			continue;
 		}
+		if (ngames >= HOME_MAX_PINS || (cont && exactMatch(e->path, cont->path)))
+			continue;
+		game_plain_dir[ngames] = e->type == ENTRY_DIR && !canPinEntry(e);
+		games[ngames++] = e;
 	}
-
-	float dp = pxPerDp();
-	float sh = screen->h / dp;
-	HomeLayout_compute(screen->w / dp, sh, cont != NULL, kinds, npins, &layout);
-	focus = HomeLayout_clampFocus(&layout, focus);
-	if (mem.last_pin >= npins)
-		mem.last_pin = npins > 0 ? npins - 1 : 0;
-	if (mem.last_top == HOME_FOCUS_CARD && layout.mode == HOME_MODE_FRESH)
-		mem.last_top = HOME_FOCUS_CONTINUE;
-
-	// keep the scroll, clamped, and the focused pin in view; no tween across a rebuild
-	scroll_to = HomeLayout_scrollFor(&layout, focus, sh, barPx() / dp, scroll_to);
-	scroll_from = scroll_to;
-	scroll_tw.active = false;
-	sel_tw.active = false;
+	relayout(stripLines());
 	// the card cache is kept: each card's key carries a stamp of everything it shows (cardStamp), so a changed pin or
 	// Continue recomposes on its own, and a card unchanged since the last visit is blitted without being composed again
 	readyFocus();
@@ -497,10 +553,15 @@ static void ensureBuilt(void) {
 	}
 	// Home's own inputs only: a reset, the root list (the pins are borrowed from it) and the screen. Not the tab
 	// generation: stepping tabs alone changes nothing Home shows.
-	if (!need_rebuild && built_root == ((Directory*)stack->items[0])->serial && built_w == screen->w &&
-		built_h == screen->h && built_scale == FIXED_SCALE)
+	if (need_rebuild || built_root != ((Directory*)stack->items[0])->serial || built_w != screen->w ||
+		built_h != screen->h || built_scale != FIXED_SCALE) {
+		rebuild();
 		return;
-	rebuild();
+	}
+	// the stats' first result (or a month with no play) changes the strip's line count, and with it the top section
+	int lines = stripLines();
+	if (lines != built_lines)
+		relayout(lines);
 }
 
 void Home_reset(void) {
@@ -511,11 +572,15 @@ void Home_quit(void) {
 	if (cont)
 		Entry_free(cont);
 	cont = NULL;
-	npins = 0;
+	ngames = ntools = 0;
 	if (hint_bar)
 		SDL_FreeSurface(hint_bar);
 	hint_bar = NULL;
 	hint_key[0] = '\0';
+	if (strip_surf)
+		SDL_FreeSurface(strip_surf);
+	strip_surf = NULL;
+	strip_key = 0;
 	cardCacheClear();
 	need_rebuild = true;
 }
@@ -523,27 +588,27 @@ void Home_quit(void) {
 ///////////////////////////////////////
 // Game info
 
-// Time segment (and, signed in, the achievement segments) for a game. full adds Next.
-static int infoSegs(const char* path, bool want_time, bool want_ach, bool full, InfoSeg segs[3]) {
+// The time segment ("Today - 18m 37s") for a game; "" without one.
+static void timeText(const char* path, char* out, size_t size) {
+	out[0] = '\0';
 	GameInfo info;
-	if (!path || !GameInfo_get(path, &info))
-		return 0;
-	bool ach = want_ach && info.has_ra && signedIn();
-	bool tm = want_time && info.has_time;
-	if (!ach && !tm)
-		return 0;
-	return GameInfo_segments(time(NULL), tm ? info.last_played : 0, tm ? info.seconds : -1, ach ? info.unlocked : 0,
-							 ach ? info.total : 0, ach && full ? info.next : NULL, full, segs);
+	if (!path || !GameInfo_get(path, &info) || !info.has_time)
+		return;
+	InfoSeg segs[3];
+	int n = GameInfo_segments(time(NULL), info.last_played, info.seconds, 0, 0, NULL, false, segs);
+	if (n > 0)
+		snprintf(out, size, "%s", segs[0].text);
 }
 
 ///////////////////////////////////////
-// Cards (each composed at 0,0 into its cached surface)
+// Tiles (each composed at 0,0 into its cached surface)
 
 static void tileBorder(SDL_Surface* s, int w, int h) {
-	int t = NX_DPF(1) > 0 ? NX_DPF(1) : 1;
-	strokeRounded(s, 0, 0, w, h, NX_DPF(RADIUS_DP), t, C_WHITE, BORDER_ALPHA);
+	int t = px(HOME_EDGE_W) > 0 ? px(HOME_EDGE_W) : 1;
+	strokeRounded(s, 0, 0, w, h, radiusPx(), t, C_WHITE, BORDER_ALPHA);
 }
 
+// The eased black gradient over the bottom 80%: 0.92 · (1 − t³)³, t = 0 at the bottom edge.
 static void captionFade(SDL_Surface* s, int w, int h) {
 	int fh = (int)(h * 0.8f + 0.5f);
 	SDL_Surface* fade = UI_easedFadeSurface(w, fh, 0.92f, 3.0f, false);
@@ -563,42 +628,43 @@ static void drawCentredLines(SDL_Surface* s, TTF_Font* f, char lines[][LINE_MAX]
 	}
 }
 
+// Text in a line box of lh px whose top is y, centred in it.
+static void drawInLine(SDL_Surface* s, TTF_Font* f, const char* text, SDL_Color c, int x, int y, int lh) {
+	if (f)
+		drawText(s, f, text, c, x, y + (lh - TTF_FontHeight(f)) / 2, 255);
+}
+
+// Continue: the art full-bleed under the caption fade; the title (44, one line with "…") and the time (31, grey), 29
+// in, baselines 74 and 31 above the bottom. No art: the name centred (up to 2 lines) over the time.
 static void composeContinue(SDL_Surface* s, int w, int h) {
 	SDL_FillRect(s, &(SDL_Rect){0, 0, w, h}, SDL_MapRGBA(s->format, 0, 0, 0, 255));
 	SDL_Surface* pic = NULL;
 	HomeArtState st = HomeArt_continue(cont->path, cont_preview[0] ? cont_preview : NULL, w, h, 0, &pic);
-	bool title_card = st == HOMEART_NONE;
 	if (pic) {
 		SDL_BlitSurface(pic, NULL, s, &(SDL_Rect){0, 0});
 		captionFade(s, w, h);
 	}
-
-	// bottom-up: trophy row, time row, the name (a title card has its name centred instead)
-	int side = NX_DPF(16);
-	int y = h - NX_DPF(12);
-	int line_h = font.small ? TTF_FontHeight(font.small) : 0;
-	InfoSeg segs[3];
-	int n = infoSegs(cont->path, false, true, true, segs);
-	if (n > 0) {
-		y -= line_h;
-		InfoBand_drawSegments(s, segs, n, side, false, y, w - 2 * side, font.small);
+	int inset = px(CONT_INSET);
+	char when[160];
+	timeText(cont->path, when, sizeof(when));
+	TTF_Font* f = UIFont_getPx(px(CONT_SUB_PX), false);
+	if (f && when[0]) {
+		char line[LINE_MAX];
+		ellipsize(f, when, line, w - 2 * inset);
+		drawTextBaseline(s, f, line, C_GREY, inset, h - px(CONT_SUB_UP), 255);
 	}
-	n = infoSegs(cont->path, true, false, false, segs);
-	if (n > 0) {
-		y -= line_h;
-		InfoBand_drawSegments(s, segs, n, side, false, y, w - 2 * side, font.small);
-	}
-	if (title_card) {
-		TTF_Font* f = UIFont_get(24, false);
+	f = UIFont_getPx(px(CONT_TITLE_PX), false);
+	if (!f)
+		return;
+	if (st == HOMEART_NONE) { // a title card
 		char lines[2][LINE_MAX];
-		int nl = wrapLines(f, View_displayName(cont), w - 2 * side, 2, lines);
-		drawCentredLines(s, f, lines, nl, (int)(NX_SP(24) * 1.15f + 0.5f), C_WHITE, w, 0, y);
+		int nl = wrapLines(f, View_displayName(cont), w - 2 * inset, 2, lines);
+		int lh = (int)(TTF_FontHeight(f) * 1.1f + 0.5f);
+		drawCentredLines(s, f, lines, nl, lh, C_WHITE, w, 0, h - px(CONT_TITLE_UP));
 	} else {
-		TTF_Font* f = UIFont_get(20, false);
 		char name[LINE_MAX];
-		ellipsize(f, View_displayName(cont), name, w - 2 * side);
-		if (f && name[0])
-			drawText(s, f, name, C_WHITE, side, y - TTF_FontHeight(f), 255);
+		ellipsize(f, View_displayName(cont), name, w - 2 * inset);
+		drawTextBaseline(s, f, name, C_WHITE, inset, h - px(CONT_TITLE_UP), 255);
 	}
 	tileBorder(s, w, h);
 }
@@ -637,27 +703,38 @@ static void composePick(SDL_Surface* s, int w, int h, bool lit) {
 		tileBorder(s, w, h);
 }
 
-static void composeGame(SDL_Surface* s, int w, int h, bool lit, int i) {
-	Entry* e = pins[i];
+// A pinned game: its art; lit, the caption fade and the name (33.8 on a 41.6 line, white)
+// over the time (28.6 on a 36.4 line, grey), 20 in, 16 up, 4 apart. No art: the name centred (lit: the time alone
+// under it).
+static void composeGame(SDL_Surface* s, int w, int h, bool lit, int g) {
+	Entry* e = games[g];
 	SDL_FillRect(s, &(SDL_Rect){0, 0, w, h}, SDL_MapRGBA(s->format, 0, 0, 0, 255));
 	SDL_Surface* pic = NULL;
 	HomeArtState st = HomeArt_pin(e->path, w, h, 0, &pic);
 	bool title_tile = st == HOMEART_NONE;
 	if (pic)
 		SDL_BlitSurface(pic, NULL, s, &(SDL_Rect){0, 0});
-
-	InfoSeg segs[3];
-	int nseg = lit ? infoSegs(e->path, true, true, false, segs) : 0; // count only: time + "n of m"
-	int side = NX_DPF(TILE_SIDE_DP);
-	if (lit)
+	char when[160] = "";
+	if (lit) {
 		captionFade(s, w, h);
+		timeText(e->path, when, sizeof(when));
+	}
+	int side = px(PIN_SIDE);
+	int info_lh = px(PIN_INFO_LH), name_lh = px(PIN_NAME_LH);
+	int info_top = h - px(PIN_UP) - info_lh;
+	int name_top = (when[0] ? info_top : h - px(PIN_UP)) - px(PIN_LINE_GAP) - name_lh;
+	if (lit && when[0]) {
+		TTF_Font* f = UIFont_getPx(px(PIN_INFO_PX), false);
+		char line[LINE_MAX];
+		ellipsize(f, when, line, w - 2 * side);
+		drawInLine(s, f, line, C_GREY, side, info_top, info_lh);
+	}
 	if (title_tile) {
-		// the name above the fade, centred in the tile less the caption room; 15 sp, smaller (to 11) until its
-		// longest word fits
+		// the name above the caption, centred; 15 sp, smaller (to 11) until its longest word fits
 		float sp = Tiles_fitWordsSp(View_displayName(e), 15, 11, false, w - 2 * side);
 		TTF_Font* f = UIFont_get(sp, false);
 		if (f) {
-			int caption = nseg > 0 ? NX_DPF(14 + 8) : 0;
+			int caption = lit && when[0] ? h - info_top : 0;
 			float lh = NX_SP(sp) * 1.15f;
 			int lines_fit = (int)floorf((h - caption) / lh);
 			int max_lines = lines_fit < 3 ? lines_fit : 3;
@@ -667,21 +744,11 @@ static void composeGame(SDL_Surface* s, int w, int h, bool lit, int i) {
 			int nl = wrapLines(f, View_displayName(e), w - 2 * side, max_lines, lines);
 			drawCentredLines(s, f, lines, nl, (int)(lh + 0.5f), C_WHITE, w, 0, h - caption);
 		}
-	}
-	if (lit) {
-		int y = h - NX_DPF(TILE_BOTTOM_DP);
-		TTF_Font* f_info = nseg > 0 ? UIFont_get(11, false) : NULL; // fetched here: only good until the next get
-		if (f_info) {
-			y -= TTF_FontHeight(f_info);
-			InfoBand_drawSegments(s, segs, nseg, side, false, y, w - 2 * side, f_info);
-		}
-		if (!title_tile) {
-			TTF_Font* f = UIFont_get(13, false);
-			char name[LINE_MAX];
-			ellipsize(f, View_displayName(e), name, w - 2 * side);
-			if (f && name[0])
-				drawText(s, f, name, C_WHITE, side, y - TTF_FontHeight(f), 255);
-		}
+	} else if (lit) {
+		TTF_Font* f = UIFont_getPx(px(PIN_NAME_PX), false);
+		char name[LINE_MAX];
+		ellipsize(f, View_displayName(e), name, w - 2 * side);
+		drawInLine(s, f, name, C_WHITE, side, name_top, name_lh);
 	}
 	tileBorder(s, w, h);
 }
@@ -697,287 +764,111 @@ static const char* toolIcon(Entry* e) {
 	return file ? file : TILE_UNKNOWN_TOOL_ICON;
 }
 
-static void composeTool(SDL_Surface* s, int w, int h, bool lit, int i) {
-	Entry* e = pins[i];
+// A tool's square: its icon centred as a white mask (no label); lit, the accent fills the plate and the icon turns to
+// its ink (black), with no ring and no edge.
+static void composeTool(SDL_Surface* s, int w, int h, bool lit, int t) {
 	SDL_Color bg = cardBg(lit);
 	SDL_FillRect(s, &(SDL_Rect){0, 0, w, h}, SDL_MapRGBA(s->format, bg.r, bg.g, bg.b, 255));
-	const char* file = toolIcon(e);
-	SDL_Surface* icon = file ? MenuArt_get(file, (int)(w * 0.72f), (int)(h * 0.72f)) : NULL;
+	int g = px(layout.glyph);
+	SDL_Surface* icon = g > 0 ? MenuArt_get(toolIcon(tools[t]), g, g) : NULL;
 	if (icon) {
 		if (lit)
 			tintLit(icon);
-		SDL_SetSurfaceAlphaMod(icon, lit ? 36 : 41); // the ink (default black) at 14% / white at 16%
 		SDL_BlitSurface(icon, NULL, s, &(SDL_Rect){(w - icon->w) / 2, (h - icon->h) / 2});
 		SDL_SetSurfaceColorMod(icon, 255, 255, 255);
-		SDL_SetSurfaceAlphaMod(icon, 255);
 	}
-	// SemiBold 15 sp, smaller (to 11) until the longest word fits inside the 12 dp padding, one word per line, as
-	// many lines as fit; extra words end the last line in an ellipsis, and a word still too wide at 11 is cut
-	// A one-word name too wide at 15 sp first breaks at its lowercase→uppercase boundary ("Retro / Achievements").
-	int pad = NX_DPF(12);
-	char name[LINE_MAX];
-	snprintf(name, sizeof(name), "%s", View_displayName(e));
-	TTF_Font* f = UIFont_get(15, true);
-	if (f && textW(f, name) > w - 2 * pad)
-		Tiles_camelSplit(name, sizeof(name));
-	float sp = Tiles_fitWordsSp(name, 15, 11, true, w - 2 * pad);
-	f = UIFont_get(sp, true);
+	if (!lit)
+		tileBorder(s, w, h);
+}
+
+// "+N": the tools past the squares (A opens the Tools tab), 30 px grey; lit, the ink dimmed over the accent.
+static void composeMore(SDL_Surface* s, int w, int h, bool lit, int n) {
+	SDL_Color bg = cardBg(lit);
+	SDL_FillRect(s, &(SDL_Rect){0, 0, w, h}, SDL_MapRGBA(s->format, bg.r, bg.g, bg.b, 255));
+	TTF_Font* f = UIFont_getPx(px(MORE_PX), false);
 	if (f) {
-		int lh = (int)(NX_SP(sp) * 1.2f + 0.5f);
-		int max_lines = lh > 0 ? (h - 2 * pad) / lh : 1;
-		if (max_lines < 1)
-			max_lines = 1;
-		if (max_lines > 8)
-			max_lines = 8;
-		char words[8][LINE_MAX];
-		int nw = 0;
-		char work[LINE_MAX];
-		snprintf(work, sizeof(work), "%s", name);
-		char* save = NULL;
-		for (char* tok = strtok_r(work, " ", &save); tok; tok = strtok_r(NULL, " ", &save)) {
-			if (nw < max_lines) {
-				snprintf(words[nw++], LINE_MAX, "%s", tok);
-			} else { // more words than lines: the last line ends in an ellipsis
-				char more[LINE_MAX];
-				snprintf(more, sizeof(more), "%.*s" ELLIPSIS, LINE_MAX - 8, words[max_lines - 1]);
-				snprintf(words[max_lines - 1], LINE_MAX, "%s", more);
-				break;
-			}
-		}
-		char lines[8][LINE_MAX];
-		int nl = 0;
-		for (int k = 0; k < nw; k++) {
-			ellipsize(f, words[k], lines[nl], w - 2 * pad);
-			if (lines[nl][0])
-				nl++;
-		}
-		drawCentredLines(s, f, lines, nl, lh, cardInk(lit), w, 0, h);
+		char text[16];
+		snprintf(text, sizeof(text), "+%d", n);
+		drawText(s, f, text, cardDim(lit), (w - textW(f, text)) / 2, (h - TTF_FontHeight(f)) / 2, 255);
 	}
 	if (!lit)
 		tileBorder(s, w, h);
 }
 
 ///////////////////////////////////////
-// Stats card
+// The stats strip
 
-// Fonts are kept as sizes (sp, regular) and fetched at each use: a UIFont is only good until the next UIFont_get.
-typedef struct {
-	float lf;
-	char ltext[LINE_MAX];
-	SDL_Color lc;
-	float rf;
-	char rtext[64];
-	SDL_Color rc;
-	bool list;	  // a Most played line: the title is cut to leave room for the time
-	int top, bot; // ink above (+) / below (−) the shared baseline
-} StatLine;
-
-static TTF_Font* statFont(float sp) {
-	return sp > 0 ? UIFont_get(sp, false) : NULL;
+static SDL_Color runColour(StripTone t) {
+	return t == STRIP_WHITE ? C_WHITE : t == STRIP_DOT ? C_DOT
+													   : C_GREY;
 }
 
-static void measureLine(StatLine* l) {
-	int lt = 0, lb = 0, rt = 0, rb = 0;
-	UIFont_inkBounds(statFont(l->lf), l->ltext, &lt, &lb);
-	if (l->rtext[0])
-		UIFont_inkBounds(statFont(l->rf), l->rtext, &rt, &rb);
-	l->top = lt > rt ? lt : rt;
-	l->bot = lb < rb ? lb : rb;
+// One line's runs from x on baseline y; the run that gives way is cut with "…" so the line ends by right.
+static void drawStripLine(SDL_Surface* s, TTF_Font* f, StripLine* l, int x, int right, int baseline) {
+	float em = (float)px(STRIP_PX);
+	int fixed = 0, give = -1;
+	for (int i = 0; i < l->n; i++) {
+		StripRun* r = &l->runs[i];
+		fixed += (int)(em * (r->pad_l + r->pad_r) + 0.5f);
+		if (r->gives_way)
+			give = i;
+		else
+			fixed += textW(f, r->text);
+	}
+	if (give >= 0) {
+		char cut[LINE_MAX];
+		ellipsize(f, l->runs[give].text, cut, right - x - fixed);
+		snprintf(l->runs[give].text, sizeof(l->runs[give].text), "%s", cut);
+	}
+	for (int i = 0; i < l->n; i++) {
+		StripRun* r = &l->runs[i];
+		x += (int)(em * r->pad_l + 0.5f);
+		drawTextBaseline(s, f, r->text, runColour(r->tone), x, baseline, 255);
+		x += textW(f, r->text) + (int)(em * r->pad_r + 0.5f);
+	}
 }
 
-typedef struct {
-	StatLine header;
-	StatLine lines[6]; // Achievements, Total played, Most played, up to 3 games
-	int nlines;		   // rows before the list (3) + list lines kept
-	int gaps[3];	   // header→Achievements, →Total played, →Most played (px)
-	int lv_gap;		   // label to value on the three rows (px): 12 dp, 6 when tight
-	int height;		   // ink top of the header to the lowest ink of the last line
-} StatsBlock;
-
-static int blockHeight(const StatsBlock* b, int nlist) {
-	int h = b->header.top - b->header.bot;
-	for (int i = 0; i < 3 + nlist; i++) {
-		const StatLine* l = &b->lines[i];
-		h += (i < 3 ? b->gaps[i] : NX_DPF(4)) + (l->top - l->bot);
-	}
-	return h;
-}
-
-// narrow: the reference's narrow-card sizes (labels 11 sp, large values 14 sp, grey words 10 sp).
-static void buildStatsSized(StatsBlock* b, const HomeStats* st, bool lit, int avail, bool narrow) {
-	memset(b, 0, sizeof(*b));
-	SDL_Color ink = cardInk(lit);
-	SDL_Color dim = cardDim(lit);
-	float f_head = 12;
-	float f_label = narrow ? 11 : 13;
-	float f_value = narrow ? 14 : 22;
-	float f_word = narrow ? 10 : 16;
-	float f_title = 14;
-	float f_time = 12;
-
-	b->header = (StatLine){.lf = f_head, .lc = dim};
-	snprintf(b->header.ltext, LINE_MAX, "Monthly Activities");
-	measureLine(&b->header);
-
-	// value: a large white number, or a grey word ("…", "None", "Sign in")
-	StatLine* l = &b->lines[0];
-	*l = (StatLine){.lf = f_label, .lc = dim, .rf = f_value, .rc = ink};
-	snprintf(l->ltext, LINE_MAX, "Achievements");
-	if (st->ready && st->unlocks == -1) {
-		l->rf = f_word;
-		l->rc = dim;
-		snprintf(l->rtext, sizeof(l->rtext), "Sign in");
-	} else if (!st->ready) {
-		l->rf = f_word;
-		l->rc = dim;
-		snprintf(l->rtext, sizeof(l->rtext), ELLIPSIS);
-	} else {
-		snprintf(l->rtext, sizeof(l->rtext), "%d", st->unlocks);
-	}
-
-	l = &b->lines[1];
-	*l = (StatLine){.lf = f_label, .lc = dim, .rf = f_value, .rc = ink};
-	snprintf(l->ltext, LINE_MAX, "Total played");
-	if (!st->ready || st->total <= 0) {
-		l->rf = f_word;
-		l->rc = dim;
-		snprintf(l->rtext, sizeof(l->rtext), "%s", st->ready ? "None" : ELLIPSIS);
-	} else {
-		GameInfo_durationText(st->total, l->rtext, sizeof(l->rtext));
-	}
-
-	l = &b->lines[2];
-	*l = (StatLine){.lf = f_label, .lc = dim, .rf = f_word, .rc = dim};
-	snprintf(l->ltext, LINE_MAX, "Most played");
-	int ntop = st->ready ? st->ntop : 0;
-	if (!st->ready || ntop <= 0)
-		snprintf(l->rtext, sizeof(l->rtext), "%s", st->ready ? "None" : ELLIPSIS);
-	for (int i = 0; i < ntop && i < 3; i++) {
-		l = &b->lines[3 + i];
-		*l = (StatLine){.lf = f_title, .lc = ink, .rf = f_time, .rc = dim, .list = true};
-		snprintf(l->ltext, LINE_MAX, "%s", st->top[i].title);
-		GameInfo_durationText(st->top[i].seconds, l->rtext, sizeof(l->rtext));
-	}
-	for (int i = 0; i < 3 + ntop && i < 6; i++)
-		measureLine(&b->lines[i]);
-
-	// as many games as fit at the fixed gaps, at least one; then the gaps shrink together (floor 6)
-	b->gaps[0] = NX_DPF(12);
-	b->gaps[1] = NX_DPF(12);
-	b->gaps[2] = NX_DPF(16);
-	int k = ntop;
-	while (k > 1 && blockHeight(b, k) > avail)
-		k--;
-	int over = blockHeight(b, k) - avail;
-	if (over > 0) {
-		int d = (over + 2) / 3;
-		int floor6 = NX_DPF(6);
-		for (int g = 0; g < 3; g++)
-			b->gaps[g] = b->gaps[g] - d > floor6 ? b->gaps[g] - d : floor6;
-	}
-	b->nlines = 3 + k;
-	b->height = blockHeight(b, k);
-	b->lv_gap = NX_DPF(12);
-}
-
-// Whether every label and its value fit inner_w with `gap` between them.
-static bool rowsFit(const StatsBlock* b, int inner_w, int gap) {
-	for (int i = 0; i < 3; i++) {
-		const StatLine* l = &b->lines[i];
-		int lw = textW(statFont(l->lf), l->ltext);
-		int rw = l->rtext[0] ? gap + textW(statFont(l->rf), l->rtext) : 0;
-		if (lw + rw > inner_w)
-			return false;
-	}
-	return true;
-}
-
-// A label that doesn't fit next to its value: first the gap drops to 6 dp, then the narrow sizes, and only then is
-// the label cut (drawStatsFace).
-static void buildStats(StatsBlock* b, const HomeStats* st, bool lit, int avail, int inner_w) {
-	buildStatsSized(b, st, lit, avail, false);
-	if (rowsFit(b, inner_w, b->lv_gap))
+// The strip under the tab row (not selectable), rendered whole into its own surface when its text changes.
+static void drawStrip(SDL_Surface* dst, const HomeStats* st, int scroll_px) {
+	if (layout.strip_lines <= 0)
 		return;
-	b->lv_gap = NX_DPF(6);
-	if (rowsFit(b, inner_w, b->lv_gap))
+	StripInput in = stripInput(st);
+	StripLine l1, l2;
+	HomeStrip_build(&in, &l1, &l2);
+	TTF_Font* f = UIFont_getPx(px(STRIP_PX), false);
+	if (!f)
 		return;
-	buildStatsSized(b, st, lit, avail, true);
-	b->lv_gap = NX_DPF(6);
-}
-
-static void drawStatsFace(SDL_Surface* s, const StatsBlock* b, int w, int top, int alpha) {
-	int pad = NX_DPF(CARD_PAD_DP);
-	int prev_bottom = top + (b->header.top - b->header.bot);
-	for (int i = 0; i < b->nlines; i++) {
-		const StatLine* l = &b->lines[i];
-		int baseline = prev_bottom + (i < 3 ? b->gaps[i] : NX_DPF(4)) + l->top;
-		TTF_Font* rf = statFont(l->rf);
-		int rw = textW(rf, l->rtext);
-		if (l->rtext[0])
-			drawTextBaseline(s, rf, l->rtext, l->rc, w - pad - rw, baseline, alpha);
-		char left[LINE_MAX];
-		int room = w - 2 * pad - (l->rtext[0] ? rw + (i < 3 ? b->lv_gap : NX_DPF(12)) : 0);
-		TTF_Font* lf = statFont(l->lf);
-		ellipsize(lf, l->ltext, left, room);
-		drawTextBaseline(s, lf, left, l->lc, pad, baseline, alpha);
-		prev_bottom = baseline - l->bot;
-	}
-}
-
-static void drawActivityFace(SDL_Surface* s, const HomeStats* st, bool lit, int w, int top, int alpha) {
-	int cell = NX_DPF(cellDp());
-	int gap = NX_DPF(4);
-	int grid_w = 7 * cell + 6 * gap;
-	int grid_h = 5 * cell + 4 * gap;
-	int x0 = (w - grid_w) / 2;
-	int y0 = top + NX_DPF(15 + 16);
-	SDL_Color ink = cardInk(lit);
-	int radius = NX_DPF(4);
-	for (int i = 0; i < HOME_DAYS; i++) {
-		if (st->ready && i > st->today)
-			continue; // days after today are blank
-		int x = x0 + (i % 7) * (cell + gap);
-		int y = y0 + (i / 7) * (cell + gap);
-		int shade = HomeStats_shadeAlpha(st->ready ? st->days[i] : 0);
-		fillRounded(s, x, y, cell, cell, radius, ink, shade * alpha / 255);
-		if (st->ready && i == st->today) {
-			int o = 2 * NX_DPF(1); // a 1 dp ring, 1 dp outside the cell
-			strokeRounded(s, x - o, y - o, cell + 2 * o, cell + 2 * o, radius + o, NX_DPF(1) > 0 ? NX_DPF(1) : 1, ink,
-						  alpha);
+	Uint32 key = 2166136261u;
+	key = View_fnv(key, &dst->w, sizeof(dst->w));
+	key = View_fnv(key, &layout.strip_lines, sizeof(layout.strip_lines));
+	int scale = FIXED_SCALE;
+	key = View_fnv(key, &scale, sizeof(scale));
+	for (int i = 0; i < l1.n; i++)
+		key = View_fnvStr(key, l1.runs[i].text);
+	for (int i = 0; i < l2.n; i++)
+		key = View_fnvStr(key, l2.runs[i].text);
+	int top = px(layout.strip_base[0]) - TTF_FontAscent(f);
+	int last = layout.strip_lines == 2 ? 1 : 0;
+	int h = px(layout.strip_base[last]) - TTF_FontDescent(f) - top + 1;
+	if (!strip_surf || strip_key != key || strip_surf->w != dst->w || strip_surf->h != h) {
+		if (strip_surf && (strip_surf->w != dst->w || strip_surf->h != h)) {
+			SDL_FreeSurface(strip_surf);
+			strip_surf = NULL;
 		}
+		if (!strip_surf)
+			strip_surf = SDL_CreateRGBSurfaceWithFormat(0, dst->w, h, 32, SDL_PIXELFORMAT_ARGB8888);
+		if (!strip_surf)
+			return;
+		SDL_FillRect(strip_surf, NULL, 0);
+		int x = px(layout.strip_x), right = px(layout.strip_right);
+		drawStripLine(strip_surf, f, &l1, x, right, px(layout.strip_base[0]) - top);
+		if (l2.n > 0)
+			drawStripLine(strip_surf, f, &l2, x, right, px(layout.strip_base[1]) - top);
+		SDL_SetSurfaceBlendMode(strip_surf, SDL_BLENDMODE_BLEND);
+		strip_key = key;
+		strip_top = top;
 	}
-	if (st->ready && st->total <= 0) {
-		TTF_Font* f = UIFont_get(13, false);
-		const char* text = "No play yet";
-		if (f)
-			drawText(s, f, text, cardDim(lit), (w - textW(f, text)) / 2,
-					 y0 + (grid_h - TTF_FontHeight(f)) / 2, alpha);
-	}
-}
-
-// One face of the card (the flip blends the two cached faces; the header is identical in both, so it never fades).
-static void composeCard(SDL_Surface* s, int w, int h, bool lit, bool activity, const HomeStats* st) {
-	SDL_Color bg = cardBg(lit);
-	SDL_FillRect(s, &(SDL_Rect){0, 0, w, h}, SDL_MapRGBA(s->format, bg.r, bg.g, bg.b, 255));
-	int pad = NX_DPF(CARD_PAD_DP);
-	StatsBlock b;
-	buildStats(&b, st, lit, h - 2 * pad, w - 2 * pad);
-	bool flips = canFlip();
-	// the activity block: header line 15, 16, then 5 cells and 4 gaps of 4
-	int act_h = flips ? NX_DPF(15 + 16) + 5 * NX_DPF(cellDp()) + 4 * NX_DPF(4) : 0;
-	int block = b.height > act_h ? b.height : act_h;
-	int top = (h - block) / 2;
-	if (top < pad)
-		top = pad;
-
-	// both faces start under the same header, at the taller block's centred top
-	drawTextBaseline(s, statFont(b.header.lf), b.header.ltext, b.header.lc, pad, top + b.header.top, 255);
-	if (flips && activity)
-		drawActivityFace(s, st, lit, w, top, 255);
-	else
-		drawStatsFace(s, &b, w, top, 255);
-	if (!lit)
-		tileBorder(s, w, h);
+	SDL_BlitSurface(strip_surf, NULL, dst, &(SDL_Rect){0, strip_top - scroll_px});
 }
 
 ///////////////////////////////////////
@@ -985,21 +876,23 @@ static void composeCard(SDL_Surface* s, int w, int h, bool lit, bool activity, c
 
 typedef enum { CARD_CONTINUE,
 			   CARD_PICK,
-			   CARD_STATS,
 			   CARD_GAME,
-			   CARD_TOOL } CardKind;
+			   CARD_TOOL,
+			   CARD_MORE } CardKind;
 
-static bool sameFocus(HomeFocus a, HomeFocus b) {
-	return a.area == b.area && (a.area != HOME_FOCUS_PIN || a.pin == b.pin);
+// A tile's identity across frames (the selection crossfade): a top tile by its index, a row pin past them.
+static int tileId(HomeFocus f) {
+	f = HomeLayout_clampFocus(&layout, f);
+	return f.sec == HOME_SEC_PINS ? HOME_MAX_TOP + f.pin : f.top;
 }
 
-// How lit a card is (0..1): the focused card fades in, the previous one out. (While the tab row has focus the whole
+// How lit a tile is (0..1): the focused tile fades in, the previous one out. (While the tab row has focus the whole
 // page dims as one layer: contentdim.c.)
-static float litAmount(HomeFocus f) {
+static float litAmount(int id) {
 	float p = tweenProgress(&sel_tw, SEL_MS);
-	if (sameFocus(f, focus))
+	if (id == tileId(focus))
 		return p;
-	if (sel_tw.active && sameFocus(f, prev_focus))
+	if (sel_tw.active && id == prev_id)
 		return 1.0f - p;
 	return 0.0f;
 }
@@ -1007,13 +900,13 @@ static float litAmount(HomeFocus f) {
 ///////////////////////////////////////
 // Card cache
 
-#define CARD_CACHE_MAX 40
+#define CARD_CACHE_MAX 48
 
 typedef struct {
 	bool used;
 	CardKind kind;
-	int pin, w, h, scale;
-	bool lit, activity;
+	int ref, w, h, scale;
+	bool lit;
 	Uint32 stamp; // what the card shows (see cardStamp)
 	unsigned lru;
 	SDL_Surface* surf;
@@ -1030,9 +923,9 @@ static void cardCacheClear(void) {
 	}
 }
 
-// Every visible card in both looks, plus the stats card's second face.
+// Every visible tile in both looks.
 static int cardCacheLimit(void) {
-	int n = 2 * (npins + 2) + 2;
+	int n = 2 * (layout.ntop + layout.npins) + 2;
 	return n < CARD_CACHE_MAX ? n : CARD_CACHE_MAX;
 }
 
@@ -1042,14 +935,6 @@ static Uint32 fnvStr(Uint32 h, const char* s) {
 	return View_fnvStr(h, s ? s : "");
 }
 
-static Uint32 segsStamp(Uint32 h, const InfoSeg* segs, int n) {
-	h = View_fnv(h, &n, sizeof(n));
-	for (int i = 0; i < n; i++) {
-		h = View_fnv(h, &segs[i].kind, sizeof(segs[i].kind));
-		h = fnvStr(h, segs[i].text);
-	}
-	return h;
-}
 
 // gen = HomeArt_lastGen() of pic's lookup: a re-decoded art (after HomeArt_forget) may reuse the old pointer
 static Uint32 artStamp(Uint32 h, HomeArtState st, SDL_Surface* pic, unsigned gen) {
@@ -1057,30 +942,13 @@ static Uint32 artStamp(Uint32 h, HomeArtState st, SDL_Surface* pic, unsigned gen
 	h = View_fnv(h, &gen, sizeof(gen));
 	return View_fnv(h, &pic, sizeof(pic));
 }
-
-static Uint32 statsStamp(Uint32 h, const HomeStats* st) {
-	h = View_fnv(h, &st->ready, sizeof(st->ready));
-	if (!st->ready)
-		return h;
-	h = View_fnv(h, &st->today, sizeof(st->today));
-	h = View_fnv(h, st->days, sizeof(st->days));
-	h = View_fnv(h, &st->total, sizeof(st->total));
-	h = View_fnv(h, &st->unlocks, sizeof(st->unlocks));
-	h = View_fnv(h, &st->ntop, sizeof(st->ntop));
-	for (int i = 0; i < st->ntop && i < 3; i++) {
-		h = View_fnv(h, &st->top[i].seconds, sizeof(st->top[i].seconds));
-		h = fnvStr(h, st->top[i].title);
-	}
-	return h;
-}
-
 // A stamp of the data a card's composition reads (the same lookups compose does, all cached and cheap). The cache
-// outlives rebuilds (and so Home visits), so this must cover every input compose reads beyond the slot's key (kind, pin
-// index, w, h, FIXED_SCALE, lit, face).
-static Uint32 cardStamp(CardKind kind, int pin, int w, int h, bool lit, const HomeStats* st) {
+// outlives rebuilds (and so Home visits), so this must cover every input compose reads beyond the slot's key (kind, ref,
+// w, h, FIXED_SCALE, lit).
+static Uint32 cardStamp(CardKind kind, int ref, int w, int h, bool lit) {
 	Uint32 hs = 2166136261u;
-	InfoSeg segs[3];
 	SDL_Surface* pic = NULL;
+	char when[160];
 	if (lit) { // the lit look's ground and ink (the theme's accent); plain cards use fixed colours
 		SDL_Color bg = cardBg(true), ink = cardInk(true);
 		hs = View_fnv(hs, &bg, sizeof(bg));
@@ -1093,39 +961,36 @@ static Uint32 cardStamp(CardKind kind, int pin, int w, int h, bool lit, const Ho
 		hs = fnvStr(hs, cont->path);
 		hs = fnvStr(hs, cont_preview);
 		hs = fnvStr(hs, View_displayName(cont));
-		hs = segsStamp(hs, segs, infoSegs(cont->path, false, true, true, segs));
-		hs = segsStamp(hs, segs, infoSegs(cont->path, true, false, false, segs));
+		timeText(cont->path, when, sizeof(when));
+		hs = fnvStr(hs, when);
 		break;
 	}
 	case CARD_PICK:
 		break;
-	case CARD_STATS:
-		hs = statsStamp(hs, st);
-		// canFlip and cellDp read the layout (dp), which the pixel size alone doesn't pin down
-		hs = View_fnv(hs, &layout.mode, sizeof(layout.mode));
-		hs = View_fnv(hs, &layout.card.w, sizeof(layout.card.w));
-		hs = View_fnv(hs, &layout.card.h, sizeof(layout.card.h));
-		break;
 	case CARD_GAME: {
-		Entry* e = pins[pin];
+		Entry* e = games[ref];
 		HomeArtState as = HomeArt_pin(e->path, w, h, 0, &pic);
 		hs = artStamp(hs, as, pic, HomeArt_lastGen()); // right after the lookup it describes
 		hs = fnvStr(hs, e->path);
 		hs = fnvStr(hs, View_displayName(e));
-		if (lit)
-			hs = segsStamp(hs, segs, infoSegs(e->path, true, true, false, segs));
+		if (lit) {
+			timeText(e->path, when, sizeof(when));
+			hs = fnvStr(hs, when);
+		}
 		break;
 	}
 	case CARD_TOOL:
-		hs = fnvStr(hs, pins[pin]->path);
-		hs = fnvStr(hs, View_displayName(pins[pin]));
+		hs = fnvStr(hs, tools[ref]->path);
+		hs = fnvStr(hs, View_displayName(tools[ref]));
+		hs = View_fnv(hs, &layout.glyph, sizeof(layout.glyph));
+		break;
+	case CARD_MORE:
 		break;
 	}
 	return hs;
 }
 
-static void composeCardKind(SDL_Surface* s, CardKind kind, int w, int h, bool lit, bool activity, int pin,
-							const HomeStats* st) {
+static void composeCardKind(SDL_Surface* s, CardKind kind, int w, int h, bool lit, int ref) {
 	SDL_SetClipRect(s, &(SDL_Rect){0, 0, w, h});
 	switch (kind) {
 	case CARD_CONTINUE:
@@ -1134,29 +999,27 @@ static void composeCardKind(SDL_Surface* s, CardKind kind, int w, int h, bool li
 	case CARD_PICK:
 		composePick(s, w, h, lit);
 		break;
-	case CARD_STATS:
-		composeCard(s, w, h, lit, activity, st);
-		break;
 	case CARD_GAME:
-		composeGame(s, w, h, lit, pin);
+		composeGame(s, w, h, lit, ref);
 		break;
 	case CARD_TOOL:
-		composeTool(s, w, h, lit, pin);
+		composeTool(s, w, h, lit, ref);
+		break;
+	case CARD_MORE:
+		composeMore(s, w, h, lit, ref);
 		break;
 	}
-	maskCorners(s, w, h, NX_DPF(RADIUS_DP));
+	maskCorners(s, w, h, radiusPx());
 	SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
 }
 
 // The card's cached surface for this look, recomposed only when its key changed.
-static SDL_Surface* cachedCard(CardKind kind, int pin, int w, int h, bool lit, bool activity, const HomeStats* st) {
+static SDL_Surface* cachedCard(CardKind kind, int ref, int w, int h, bool lit) {
 	if (kind == CARD_CONTINUE)
 		lit = false; // Continue lights with its ring only
-	if (kind != CARD_STATS)
-		activity = false;
-	if (kind != CARD_GAME && kind != CARD_TOOL)
-		pin = -1;
-	Uint32 stamp = cardStamp(kind, pin, w, h, lit, st);
+	if (kind == CARD_PICK)
+		ref = -1;
+	Uint32 stamp = cardStamp(kind, ref, w, h, lit);
 	CardSlot* victim = NULL;
 	int used = 0;
 	for (int i = 0; i < CARD_CACHE_MAX; i++) {
@@ -1167,11 +1030,10 @@ static SDL_Surface* cachedCard(CardKind kind, int pin, int w, int h, bool lit, b
 			continue;
 		}
 		used++;
-		if (c->kind == kind && c->pin == pin && c->w == w && c->h == h && c->scale == FIXED_SCALE && c->lit == lit &&
-			c->activity == activity) {
+		if (c->kind == kind && c->ref == ref && c->w == w && c->h == h && c->scale == FIXED_SCALE && c->lit == lit) {
 			if (c->stamp != stamp) { // same card, new content: recompose in place
 				c->stamp = stamp;
-				composeCardKind(c->surf, kind, w, h, lit, activity, pin, st);
+				composeCardKind(c->surf, kind, w, h, lit, ref);
 			}
 			c->lru = ++card_lru;
 			return c->surf;
@@ -1199,8 +1061,8 @@ static SDL_Surface* cachedCard(CardKind kind, int pin, int w, int h, bool lit, b
 		return NULL;
 	}
 	SDL_Surface* surf = victim->surf;
-	*victim = (CardSlot){.used = true, .kind = kind, .pin = pin, .w = w, .h = h, .scale = FIXED_SCALE, .lit = lit, .activity = activity, .stamp = stamp, .lru = ++card_lru, .surf = surf};
-	composeCardKind(surf, kind, w, h, lit, activity, pin, st);
+	*victim = (CardSlot){.used = true, .kind = kind, .ref = ref, .w = w, .h = h, .scale = FIXED_SCALE, .lit = lit, .stamp = stamp, .lru = ++card_lru, .surf = surf};
+	composeCardKind(surf, kind, w, h, lit, ref);
 	return surf;
 }
 
@@ -1215,7 +1077,7 @@ static void blitCardOver(SDL_Surface* dst, SDL_Surface* surf, SDL_Surface* under
 	if (alpha > 255)
 		alpha = 255;
 	int w = surf->w, h = surf->h;
-	int rad = clampRadius(NX_DPF(RADIUS_DP), w, h);
+	int rad = clampRadius(radiusPx(), w, h);
 	if (rad > 0) {
 		if (under)
 			for (int j = 0; j < 2; j++)
@@ -1238,42 +1100,41 @@ static void blitCardOver(SDL_Surface* dst, SDL_Surface* surf, SDL_Surface* under
 static void blitCard(SDL_Surface* dst, SDL_Surface* surf, SDL_Rect r, int alpha) {
 	blitCardOver(dst, surf, NULL, r, alpha);
 }
-
-// One look of a card at alpha; the stats card mid-flip blends its incoming face over the outgoing one.
-static void drawLook(SDL_Surface* dst, CardKind kind, SDL_Rect r, int pin, bool lit, int alpha, const HomeStats* st) {
-	if (kind == CARD_STATS && canFlip()) {
-		float p = tweenProgress(&flip_tw, FLIP_MS);
-		if (p < 1.0f)
-			blitCard(dst, cachedCard(kind, pin, r.w, r.h, lit, !face_activity, st), r, alpha);
-		blitCard(dst, cachedCard(kind, pin, r.w, r.h, lit, face_activity, st), r, (int)(alpha * p + 0.5f));
-		return;
+static CardKind cardKind(const HomeTile* t) {
+	switch (t->kind) {
+	case HOME_TILE_CONTINUE:
+		return cont ? CARD_CONTINUE : CARD_PICK;
+	case HOME_TILE_GAME:
+		return CARD_GAME;
+	case HOME_TILE_TOOL:
+		return CARD_TOOL;
+	case HOME_TILE_MORE:
+		return CARD_MORE;
 	}
-	blitCard(dst, cachedCard(kind, pin, r.w, r.h, lit, false, st), r, alpha);
+	return CARD_PICK;
 }
 
-// dst's clip rect is the page band: a card wholly outside it costs nothing.
-static void drawCard(SDL_Surface* dst, CardKind kind, SDL_Rect r, HomeFocus which, int pin, const HomeStats* st) {
-	int ring = NX_DPF(RING_DP);
+// dst's clip rect is the page band: a tile wholly outside it costs nothing. A lit game (Continue, a pin) wears the
+// 6 px ring outside it; a lit tool square (and Pick a game, "+N") its filled look instead.
+static void drawTile(SDL_Surface* dst, const HomeTile* t, int id, int scroll_px) {
+	SDL_Rect r = toScreen(t->r, scroll_px);
+	int ring = px(HOME_RING);
 	const SDL_Rect* band = &dst->clip_rect;
 	if (r.w <= 0 || r.h <= 0 || r.y + r.h + ring <= band->y || r.y - ring >= band->y + band->h)
 		return; // outside the band
-	float lit = litAmount(which);
+	CardKind kind = cardKind(t);
+	float lit = litAmount(id);
 	bool ringed = kind == CARD_CONTINUE || kind == CARD_GAME;
 	bool lit_differs = kind != CARD_CONTINUE; // Continue lights with its ring only
 	if (ringed && lit > 0.0f)
-		strokeRounded(dst, r.x - ring, r.y - ring, r.w + 2 * ring, r.h + 2 * ring, NX_DPF(RADIUS_DP) + ring, ring,
+		strokeRounded(dst, r.x - ring, r.y - ring, r.w + 2 * ring, r.h + 2 * ring, radiusPx() + ring, ring,
 					  cardBg(true), (int)(lit * 255 + 0.5f));
-	bool flipping = kind == CARD_STATS && canFlip() && tweenProgress(&flip_tw, FLIP_MS) < 1.0f;
-	if (lit > 0.0f && lit < 1.0f && lit_differs && !flipping) { // a plain crossfade: both looks in one pass
-		bool face = kind == CARD_STATS && canFlip() && face_activity;
-		blitCardOver(dst, cachedCard(kind, pin, r.w, r.h, true, face, st),
-					 cachedCard(kind, pin, r.w, r.h, false, face, st), r, (int)(lit * 255 + 0.5f));
+	if (lit > 0.0f && lit < 1.0f && lit_differs) { // a crossfade: both looks in one pass
+		blitCardOver(dst, cachedCard(kind, t->ref, r.w, r.h, true), cachedCard(kind, t->ref, r.w, r.h, false), r,
+					 (int)(lit * 255 + 0.5f));
 		return;
 	}
-	if (lit < 1.0f || !lit_differs)
-		drawLook(dst, kind, r, pin, false, 255, st);
-	if (lit > 0.0f && lit_differs)
-		drawLook(dst, kind, r, pin, true, (int)(lit * 255 + 0.5f), st);
+	blitCard(dst, cachedCard(kind, t->ref, r.w, r.h, lit >= 1.0f && lit_differs), r, 255);
 }
 
 static void renderHints(SDL_Surface* dst) {
@@ -1281,14 +1142,16 @@ static void renderHints(SDL_Surface* dst) {
 	int p = 0;
 	pairs[p++] = "SELECT";
 	pairs[p++] = "RECENT";
-	Entry* e = Home_focusedEntry();
-	if (MenuTabs_focused()) { // the tab row has focus: exactly SELECT RECENT and A OPEN (A returns to Home)
+	const HomeTile* t = focusedTile();
+	Entry* e = tileEntry(t);
+	static char tool_name[64]; // the A label on a tool square: its name in capitals
+	if (MenuTabs_focused()) {  // the tab row has focus: exactly SELECT RECENT and A OPEN (A returns to Home)
 		pairs[p++] = "A";
 		pairs[p++] = "OPEN";
-	} else if (focus.area == HOME_FOCUS_CARD) {
-		if (canFlip()) {
+	} else if (t && t->kind == HOME_TILE_MORE) { // "+N": A opens the Tools tab
+		if (MenuTabs_isVisible(MENU_TAB_TOOLS)) {
 			pairs[p++] = "A";
-			pairs[p++] = face_activity ? "STATS" : "ACTIVITY";
+			pairs[p++] = "OPEN";
 		}
 	} else if (!e) { // Pick a game: A opens the Consoles tab, when there is one
 		if (MenuTabs_isVisible(MENU_TAB_CONSOLES)) {
@@ -1298,10 +1161,17 @@ static void renderHints(SDL_Surface* dst) {
 	} else {
 		pairs[p++] = "MENU";
 		pairs[p++] = "OPTIONS";
-		bool opens = e->type == ENTRY_PAK || (focus.area == HOME_FOCUS_PIN && pin_plain_dir[focus.pin]);
 		pairs[p++] = "A";
-		pairs[p++] = opens ? "OPEN" : focus_can_resume ? "RESUME"
-													   : "PLAY";
+		if (t->kind == HOME_TILE_TOOL) {
+			size_t i = 0;
+			for (const char* c = View_displayName(e); *c && i + 1 < sizeof(tool_name); c++)
+				tool_name[i++] = (char)toupper((unsigned char)*c);
+			tool_name[i] = '\0';
+			pairs[p++] = tool_name;
+		} else {
+			pairs[p++] = plainDir(t) ? "OPEN" : focus_can_resume ? "RESUME"
+																 : "PLAY";
+		}
 	}
 	// The bar sits on cleared (transparent) screen and changes only with the focus: render it once into its own
 	// surface and copy it (the scrim alone blends ~100k pixels a frame). A hardware hint (volume, brightness) is
@@ -1333,7 +1203,6 @@ static void renderHints(SDL_Surface* dst) {
 	SDL_SetSurfaceBlendMode(hint_bar, SDL_BLENDMODE_NONE);
 	SDL_BlitSurface(hint_bar, NULL, dst, &(SDL_Rect){0, dst->h - bar_h});
 }
-
 void Home_render(SDL_Surface* dst, int lastScreen) {
 	(void)lastScreen;
 	if (!dst || !Home_active())
@@ -1342,23 +1211,19 @@ void Home_render(SDL_Surface* dst, int lastScreen) {
 	int bar_h = barPx();
 	int body_h = dst->h - 2 * bar_h;
 	if (body_h > 0) {
-		// the screen under the band is still clear here (nextui.c drew only the bars), so cards go straight on
+		// the screen under the band is still clear here (nextui.c drew only the bars), so tiles go straight on
 		SDL_SetClipRect(dst, &(SDL_Rect){0, bar_h, dst->w, body_h});
-		int scroll_px = NX_DPF(currentScroll());
+		int scroll_px = px(currentScroll());
 		HomeStats st;
-		memset(&st, 0, sizeof(st));
-		if (!HomeStats_get(&st))
-			st.ready = false;
+		currentStats(&st);
 
 		// the page as one layer for the tab-focus dim (contentdim.h); the top band's fade and the hints stay lit
 		ContentDim_begin(dst, (SDL_Rect){0, bar_h, dst->w, body_h});
-		HomeFocus top_focus = {HOME_FOCUS_CONTINUE, 0};
-		drawCard(dst, cont ? CARD_CONTINUE : CARD_PICK, toScreen(layout.cont, scroll_px), top_focus, 0, &st);
-		if (layout.mode != HOME_MODE_FRESH)
-			drawCard(dst, CARD_STATS, toScreen(layout.card, scroll_px), (HomeFocus){HOME_FOCUS_CARD, 0}, 0, &st);
+		drawStrip(dst, &st, scroll_px);
+		for (int i = 0; i < layout.ntop; i++)
+			drawTile(dst, &layout.top[i], i, scroll_px);
 		for (int i = 0; i < layout.npins; i++)
-			drawCard(dst, isGamePin(i) ? CARD_GAME : CARD_TOOL, toScreen(layout.pins[i].r, scroll_px),
-					 (HomeFocus){HOME_FOCUS_PIN, i}, i, &st);
+			drawTile(dst, &layout.pins[i], HOME_MAX_TOP + i, scroll_px);
 		ContentDim_end(dst);
 		// scrolled: the top band's part below the tab strip goes over the page (nextui.c drew the strip's part)
 		if (scroll_px > 0) {
@@ -1374,31 +1239,30 @@ void Home_render(SDL_Surface* dst, int lastScreen) {
 
 bool Home_animating(void) {
 	if (!Home_active()) {
-		scroll_tw.active = sel_tw.active = flip_tw.active = false;
+		scroll_tw.active = sel_tw.active = false;
 		scroll_from = scroll_to;
 		return false;
 	}
 	bool a = tweenTick(&scroll_tw, SCROLL_MS);
 	bool b = tweenTick(&sel_tw, SEL_MS);
-	bool c = tweenTick(&flip_tw, FLIP_MS);
 	if (a && !scroll_tw.active)
 		scroll_from = scroll_to;
-	return a || b || c;
+	return a || b;
 }
 
 bool Home_scrolled(void) {
-	return Home_active() && NX_DPF(currentScroll()) > 0;
+	return Home_active() && px(currentScroll()) > 0;
 }
 
 ///////////////////////////////////////
 // Input
 
 static void setFocus(HomeFocus f) {
-	prev_focus = focus;
+	prev_id = tileId(focus);
 	focus = f;
 	tweenStart(&sel_tw);
-	float dp = pxPerDp();
-	float target = HomeLayout_scrollFor(&layout, focus, screen->h / dp, barPx() / dp, scroll_to);
+	float u = unitPx();
+	float target = HomeLayout_scrollFor(&layout, focus, screen->h / u, barPx() / u, scroll_to);
 	if (fabsf(target - scroll_to) > 0.001f) {
 		scroll_from = currentScroll();
 		scroll_to = target;
@@ -1419,45 +1283,52 @@ static void launchGame(Entry* e) {
 
 static void activate(bool* dirty) {
 	*dirty = true;
-	switch (focus.area) {
-	case HOME_FOCUS_CONTINUE:
+	const HomeTile* t = focusedTile();
+	if (!t)
+		return;
+	Entry* e = tileEntry(t);
+	switch (t->kind) {
+	case HOME_TILE_CONTINUE:
 		if (cont)
 			launchGame(cont);
 		else
 			GameList_openTab(MENU_TAB_CONSOLES, dirty); // Pick a game
 		break;
-	case HOME_FOCUS_CARD:
-		if (canFlip()) {
-			face_activity = !face_activity;
-			tweenStart(&flip_tw);
+	case HOME_TILE_MORE: // every tool is listed in the Tools tab
+		if (MenuTabs_isVisible(MENU_TAB_TOOLS))
+			GameList_openTab(MENU_TAB_TOOLS, dirty);
+		break;
+	case HOME_TILE_TOOL:
+		if (e && GameList_settingsPinAllows(e)) { // simple mode's Settings PIN
+			MenuTabs_markHomeLaunch();
+			Entry_open(e);
 		}
 		break;
-	case HOME_FOCUS_PIN: {
-		if (focus.pin < 0 || focus.pin >= npins)
+	case HOME_TILE_GAME:
+		if (!e)
 			break;
-		Entry* e = pins[focus.pin];
-		if (e->type == ENTRY_PAK) {
-			if (GameList_settingsPinAllows(e)) { // simple mode's Settings PIN
-				MenuTabs_markHomeLaunch();
-				Entry_open(e);
-			}
-		} else if (pin_plain_dir[focus.pin]) {
+		if (plainDir(t))
 			Entry_open(e); // a legacy pinned folder opens as a list
-		} else {
+		else
 			launchGame(e);
-		}
 		break;
 	}
-	}
+}
+
+static bool sameFocus(HomeFocus a, HomeFocus b) {
+	return tileId(a) == tileId(b);
 }
 
 void Home_focusBottom(void) {
 	if (!screen || !Home_active())
 		return;
 	ensureBuilt();
-	HomeFocus f = HomeLayout_bottomFrom(&layout, focus, &mem);
+	HomeFocus f = focus;
+	HomeLayout_fromTabs(&layout, &f);
 	if (!sameFocus(f, focus))
 		setFocus(f);
+	else
+		focus = f;
 }
 
 bool Home_handleInput(unsigned long now, bool* dirty) {
@@ -1466,12 +1337,13 @@ bool Home_handleInput(unsigned long now, bool* dirty) {
 	ensureBuilt();
 
 	if (PAD_tappedMenu(now)) {
-		Entry* e = Home_focusedEntry();
+		const HomeTile* t = focusedTile();
+		Entry* e = tileEntry(t);
 		if (e) {
-			GameList_openContextMenuFor(e, focus.area == HOME_FOCUS_PIN, focus.area == HOME_FOCUS_CONTINUE);
+			GameList_openContextMenuFor(e, t->kind != HOME_TILE_CONTINUE, t->kind == HOME_TILE_CONTINUE);
 			*dirty = true;
 		}
-		return true; // nothing for the stats card or Pick a game
+		return true; // nothing for Pick a game or "+N"
 	}
 
 	static const struct {
@@ -1481,22 +1353,21 @@ bool Home_handleInput(unsigned long now, bool* dirty) {
 	for (size_t i = 0; i < sizeof(dpad) / sizeof(dpad[0]); i++) {
 		if (!PAD_justRepeated(dpad[i].btn))
 			continue;
-		if (dpad[i].dir == HOME_DIR_UP && focus.area != HOME_FOCUS_PIN) {
-			// the top row (Continue, the stats card, Pick a game): a fresh UP focuses the tab row; a held one stops
-			if (PAD_justPressed(BTN_UP)) {
+		HomeFocus f = focus;
+		HomeMoveResult res = HomeLayout_move(&layout, &f, dpad[i].dir);
+		if (res == HOME_MOVE_MOVED) {
+			if (!sameFocus(f, focus))
+				setFocus(f);
+			else
+				focus = f; // the memory moved (the section's own tile is the same)
+			*dirty = true;
+		} else if (PAD_justPressed(dpad[i].btn)) { // a fresh press only: a held key stops at the edge
+			if (res == HOME_MOVE_TABS) {
 				MenuTabs_setFocused(true);
 				*dirty = true;
+			} else if (res == HOME_MOVE_EDGE_PREV || res == HOME_MOVE_EDGE_NEXT) {
+				GameList_switchTab(res == HOME_MOVE_EDGE_PREV ? -1 : 1, dirty);
 			}
-			return true;
-		}
-		HomeFocus f = focus;
-		HomeMoveResult res = HomeLayout_move(&layout, &f, &mem, dpad[i].dir);
-		if (res == HOME_MOVE_MOVED && !sameFocus(f, focus)) {
-			setFocus(f);
-			*dirty = true;
-		} else if ((res == HOME_MOVE_EDGE_PREV || res == HOME_MOVE_EDGE_NEXT) && PAD_justPressed(dpad[i].btn)) {
-			// a fresh press only: a held key stops at the edge
-			GameList_switchTab(res == HOME_MOVE_EDGE_PREV ? -1 : 1, dirty);
 		}
 		return true;
 	}
