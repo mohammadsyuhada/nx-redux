@@ -391,9 +391,7 @@ void GFX_blitRectColor(int asset, SDL_Surface* dst, SDL_Rect* dst_rect, uint32_t
 // SDL_FillRect; lower alpha is blended over the existing pixels.
 void GFX_fillRectColor(SDL_Surface* dst, const SDL_Rect* rect, uint32_t mapped_color);
 void GFX_blitBatteryAtPosition(SDL_Surface* dst, int x, int y);
-int GFX_getButtonWidth(char* hint, char* button);
-void GFX_blitButton(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_rect);
-// The same at CHROME_SCALE (the Brick's physical size on every panel) whatever the UI scale: the button hint bar's.
+// A button hint (glyph + label) at CHROME_SCALE (the Brick's physical size on every panel) whatever the UI scale: the button hint bar's.
 int GFX_getButtonWidthChrome(char* hint, char* button);
 void GFX_blitButtonChrome(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_rect);
 // "Button layout" (Settings > System), read once per process at first poll.
@@ -420,6 +418,10 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, IndicatorType show_setting);
  * @return The width of the rendered indicator
  */
 int GFX_blitHardwareIndicator(SDL_Surface* dst, int x, int y, IndicatorType indicator_type);
+// The same at INDICATOR_SCALE (defines.h), its fixed size whatever the UI scale: the top bar's and the in-game popup's.
+// GFX_hardwareIndicatorSize gives the box it fills.
+void GFX_hardwareIndicatorSize(int* w, int* h);
+int GFX_blitHardwareIndicatorFixed(SDL_Surface* dst, int x, int y, IndicatorType indicator_type);
 
 /**
  * Create a surface with the same pixel format as gfx.screen.

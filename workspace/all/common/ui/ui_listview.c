@@ -424,14 +424,14 @@ void UI_listViewRender(ListView* v, SDL_Surface* screen) {
 		}
 
 		int text_x = pos.text_x + icon_offset;
-		int text_w = pos.pill_width - SCALE1(BUTTON_PADDING * 2) - prefix;
+		int text_w = pos.pill_width - NATIVE1(BUTTON_PADDING * 2) - prefix;
 		// Keep the selected row's marquee band clear of the annotation.
 		if (row.annotation && row.annotation[0] && row_sel) {
 			int ann_w = 0;
 			GFX_measureText(font.tiny, row.annotation, &ann_w, NULL);
 			int ann_x = screen->w - ann_w - SCALE1(PADDING * 2);
-			if (text_x + text_w > ann_x - SCALE1(BUTTON_PADDING))
-				text_w = ann_x - SCALE1(BUTTON_PADDING) - text_x;
+			if (text_x + text_w > ann_x - NATIVE1(BUTTON_PADDING))
+				text_w = ann_x - NATIVE1(BUTTON_PADDING) - text_x;
 		}
 		// Marquee only on the settled selected row; one state per widget.
 		// Static rows draw the ellipsis-truncated label.

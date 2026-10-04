@@ -128,7 +128,7 @@ static void render_item(SDL_Surface* screen, ListLayout* layout,
 						   layout->item_h, layout->item_h / 3, UI_accentMapped(GFX_getScreen()->format));
 	}
 
-	int text_x = UI_listPillX() + SCALE1(BUTTON_PADDING);
+	int text_x = UI_listPillX() + NATIVE1(BUTTON_PADDING);
 	int text_y = y + (layout->item_h - TTF_FontHeight(font.small)) / 2;
 	int center_y_pos = y + layout->item_h / 2;
 	uint32_t icon_color = selected ? UI_onAccentMapped(GFX_getScreen()->format) : THEME_COLOR4;
@@ -141,7 +141,7 @@ static void render_item(SDL_Surface* screen, ListLayout* layout,
 
 	// Title text
 	SDL_Color text_color = UI_getListTextColor(selected);
-	int max_text_w = pill_width - SCALE1(BUTTON_PADDING * 2) - extra;
+	int max_text_w = pill_width - NATIVE1(BUTTON_PADDING * 2) - extra;
 	SDL_Surface* text_surf = GFX_renderText(font.small, truncated, text_color);
 	if (text_surf) {
 		SDL_Rect src = {0, 0, text_surf->w > max_text_w ? max_text_w : text_surf->w, text_surf->h};
@@ -151,7 +151,7 @@ static void render_item(SDL_Surface* screen, ListLayout* layout,
 	}
 
 	// Append icons or detail text (right-aligned)
-	int right_x = UI_listPillX() + pill_width - SCALE1(BUTTON_PADDING) - suffix_w;
+	int right_x = UI_listPillX() + pill_width - NATIVE1(BUTTON_PADDING) - suffix_w;
 
 	if (has_append) {
 		render_icons(screen, item->append_icons, right_x, center_y_pos, icon_color);

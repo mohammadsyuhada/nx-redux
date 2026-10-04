@@ -14,11 +14,12 @@ typedef enum { HOMEART_NONE,
 			   HOMEART_LOADING,
 			   HOMEART_READY } HomeArtState;
 
-// Continue's picture: resume frame (trimmed) → screenshot → none. Cropped to fill w×h px, framed at 40% from the
-// top, zoomed 1.15x about that line, corners rounded to radius_px. Async; the returned surface is owned by the cache.
+// Continue's picture: resume frame (trimmed) → screenshot → the game's abstract picture (as a pin's). Cropped to fill
+// w×h px; a resume frame or screenshot is framed at 40% from the top and zoomed 1.15x about that line, the abstract one
+// centred. Corners rounded to radius_px. Async; the returned surface is owned by the cache.
 HomeArtState HomeArt_continue(const char* rom_path, const char* preview_path, int w, int h, int radius_px,
 							  SDL_Surface** out);
-// A pin's screenshot, cropped to fill w×h, corners rounded. Same ownership.
+// A pin's screenshot, else its abstract picture, cropped to fill w×h, corners rounded. Same ownership.
 HomeArtState HomeArt_pin(const char* rom_path, int w, int h, int radius_px, SDL_Surface** out);
 // Box art (.media/boxart) fitted (contain, aspect kept) into w×h px with its soft shadow baked in. The returned surface
 // is the fitted art plus the same padding `pad` on every side (room for the 4 dp offset and the 8 dp blur), and

@@ -13,7 +13,6 @@
 #include "config.h"
 #include "defines.h"
 #include "utils.h"
-#include "ui_font.h"
 
 #include "content.h"
 #include "gamelist.h"
@@ -26,6 +25,7 @@
 #include "ui_accent.h"
 #include "ui_ease.h"
 #include "ui_list.h"
+#include "ui_menubar.h"
 
 static MenuTabId tabs[MENU_TAB_COUNT];
 static int tab_count = 0;
@@ -437,18 +437,18 @@ MenuTabId MenuTabs_initialTab(const char* last_path) {
 // ---- Tab row ----
 // Drawn in the menu-bar strip at the root: the labels, left-aligned on the
 // title's edge, clipped to the width left of the status group. When they don't
-// fit they scroll (current tab kept NX_DP(16) clear of the edges), with a 16 dp
+// fit they scroll (current tab kept 16 dp clear of the edges), with a 16 dp
 // fade on each side that has more to scroll. While the row has focus the
 // current label wears the selection plate (12 dp past the word each side, 5 dp
 // above and below) and the underline hides; the words keep their positions.
 
-// The tab row keeps the device's default size whatever the UI scale (UI scale enlarges the content, not the tabs):
-// its measures in dp at NATIVE_SCALE, its font at NATIVE_SCALE too (tabFont)
-#define TAB_LABEL_GAP NX_NATIVE_DP(20)	 // pixels between labels
-#define TAB_UNDERLINE_H NX_NATIVE_DP(3)	 // underline height in pixels
-#define TAB_EDGE NX_NATIVE_DP(16)		 // scroll margin + edge fade width
-#define TAB_PLATE_PAD_X NX_NATIVE_DP(12) // the plate past the word, each side
-#define TAB_PLATE_PAD_Y NX_NATIVE_DP(5)	 // and above and below
+// The tab row keeps the page title's size whatever the UI scale (UI scale enlarges the content, not the tabs): its
+// font is the page title's (UI_pageTitleFont) and its measures dp at CHROME_SCALE, the Brick's physical size on every panel
+#define TAB_LABEL_GAP NX_CHROME_DP(20)	 // pixels between labels
+#define TAB_UNDERLINE_H NX_CHROME_DP(3)	 // underline height in pixels
+#define TAB_EDGE NX_CHROME_DP(16)		 // scroll margin + edge fade width
+#define TAB_PLATE_PAD_X NX_CHROME_DP(12) // the plate past the word, each side
+#define TAB_PLATE_PAD_Y NX_CHROME_DP(5)	 // and above and below
 #define TAB_DIM_ALPHA 97				 // 38%: labels of the other tabs
 #define TAB_GLIDE_MS 240				 // underline glide, eased with UI_easeStandard
 
@@ -687,14 +687,12 @@ void MenuTabs_renderRow(SDL_Surface* screen, int ow) {
 	if (tab_count <= 0)
 		return;
 
-	int bar_h = SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2);
-	// the row's own height at the default scale, centred in the (UI-scaled) top bar
-	int row_h = NATIVE1(BUTTON_SIZE + BUTTON_MARGIN * 2);
-	if (row_h > bar_h)
-		row_h = bar_h;
-	int row_y = (bar_h - row_h) / 2;
-	int band_h = row_h - TAB_UNDERLINE_H * 2; // labels centre above the underline
-	int left = NX_DP(NX_MENU_GUTTER_DP);	  // the first label on the 24 dp gutter (§5), where the List rows' text starts
+	// the row fills the top bar: both the default scale's height whatever the UI scale
+	int bar_h = BAR_HEIGHT;
+	int row_h = bar_h;
+	int row_y = 0;
+	int band_h = row_h - TAB_UNDERLINE_H * 2;	// labels centre above the underline
+	int left = NX_NATIVE_DP(NX_MENU_GUTTER_DP); // the first label on the 24 dp gutter (§5), where the List rows' text starts
 	int right_limit = screen->w - ow - SCALE1(PADDING);
 	int band_w = right_limit - left;
 	if (band_w <= 0)
@@ -702,8 +700,8 @@ void MenuTabs_renderRow(SDL_Surface* screen, int ow) {
 	bool tf = MenuTabs_focused();
 
 	int xs[MENU_TAB_COUNT], ws[MENU_TAB_COUNT];
-	// font.medium's size at the default scale; labels that don't fit scroll (never a smaller font)
-	TTF_Font* f = UIFont_getPx(NATIVE1(FONT_MEDIUM), false);
+	// the page title's font; labels that don't fit scroll (never a smaller font)
+	TTF_Font* f = UI_pageTitleFont();
 	if (!f)
 		f = font.medium;
 	int labels_w = layoutLabels(f, xs, ws);
@@ -783,7 +781,7 @@ void MenuTabs_renderRow(SDL_Surface* screen, int ow) {
 	} else {
 		int ux, uw;
 		underlineNow(&ux, &uw);
-		SDL_FillRect(screen, &(SDL_Rect){base + ux, row_y + row_h - TAB_UNDERLINE_H - NATIVE1(2), uw, TAB_UNDERLINE_H},
+		SDL_FillRect(screen, &(SDL_Rect){base + ux, row_y + row_h - TAB_UNDERLINE_H - CHROME1(2), uw, TAB_UNDERLINE_H},
 					 accentOpaque(screen->format));
 	}
 

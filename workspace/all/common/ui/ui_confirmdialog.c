@@ -58,7 +58,7 @@ void UI_renderConfirmDialogHints(SDL_Surface* dst, const char* title,
 	GFX_clearLayers(LAYER_SCROLLTEXT);
 	SDL_FillRect(dst, NULL, SDL_MapRGB(dst->format, 0, 0, 0));
 
-	int btn_sz = SCALE1(BUTTON_SIZE);
+	int btn_sz = CHROME1(BUTTON_SIZE); // the centred button row (UI_renderCenteredButtons)
 
 	// Wrap the subtitle ourselves into centered lines so a long subtitle
 	// (a) leaves room for the buttons below it and (b) stays horizontally

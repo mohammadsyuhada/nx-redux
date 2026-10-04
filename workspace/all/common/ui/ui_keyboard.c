@@ -68,7 +68,7 @@ static void kb_draw(SDL_Surface* screen, const char* title, const char* input,
 	// and derive the row height from what's left, so 6 rows always fit above the
 	// hint bar even on the Brick's short 768px panel. Clamp so proportions stay
 	// sane on taller/low-scale screens.
-	int hint_h = SCALE1(BUTTON_SIZE) + SCALE1(BUTTON_MARGIN * 2);
+	int hint_h = BAR_HEIGHT;
 	int avail_h = screen->h - hint_h;
 	int cell_h = (avail_h - title_h - input_h - gap * 3) / KB_ROWS;
 	if (cell_h > SCALE1(44))

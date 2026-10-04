@@ -312,7 +312,7 @@ void InfoBand_render(const InfoBandLayout* layout, const InfoSeg* segs, int nseg
 	int h = l.band_bottom - l.band_top;
 	int fill_h = (l.fill_bottom < l.band_bottom ? l.fill_bottom : l.band_bottom) - l.band_top;
 	int text_off = l.text_top - l.band_top;
-	int arrow_x = l.arrow_x > 0 ? l.arrow_x : NX_DP(NX_LIST_INSET_DP);
+	int arrow_x = l.arrow_x > 0 ? l.arrow_x : NX_NATIVE_DP(NX_LIST_INSET_DP);
 	if (w <= 0 || h <= 0)
 		return;
 

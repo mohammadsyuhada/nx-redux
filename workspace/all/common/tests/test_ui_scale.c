@@ -48,6 +48,13 @@ static void test_layout(void) {
 	assert(l.main_rows == 6 && l.padding == 10 && l.overlay_items == 5);
 }
 
+// PADDING keeps the device default's pixel size at the other scale
+static void test_padding(void) {
+	assert(UIScale_padding(768, 3, 3) == 5 && UIScale_padding(768, 2, 3) == 8);	 // Brick: 15 px, 16 px
+	assert(UIScale_padding(768, 2, 2) == 10 && UIScale_padding(768, 3, 2) == 7); // Brick Pro: 20 px, 21 px
+	assert(UIScale_padding(720, 2, 2) == 10 && UIScale_padding(720, 3, 2) == 7); // Smart Pro family: 20 px, 21 px
+}
+
 static void test_parse_line(void) {
 	int v = -1;
 	assert(UIScale_parseLine("uiscale=3\n", &v) == 1 && v == 3);
@@ -108,6 +115,7 @@ int main(void) {
 	test_sanitize_resolve();
 	test_native();
 	test_layout();
+	test_padding();
 	test_parse_line();
 	test_read_file();
 	test_from_environment();

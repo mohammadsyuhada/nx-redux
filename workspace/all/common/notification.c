@@ -15,7 +15,7 @@
 #define NOTIF_STACK_GAP 6 // Gap between stacked notifications
 #define NOTIF_ICON_GAP 4  // Gap between icon and text
 
-// System indicator sizing (must match GFX_blitHardwareIndicator dimensions)
+// System indicator sizing: GFX_hardwareIndicatorSize (INDICATOR_SCALE)
 
 ///////////////////////////////
 // Internal state
@@ -250,8 +250,9 @@ void Notification_update(uint32_t now) {
 
 // Render system indicator (top-right)
 static void render_system_indicator(void) {
-	int indicator_width = SCALE1(HW_INDICATOR_WIDTH);
-	int indicator_height = SCALE1(PILL_SIZE);
+	// the indicator's fixed size (INDICATOR_SCALE), whatever the UI scale
+	int indicator_width, indicator_height;
+	GFX_hardwareIndicatorSize(&indicator_width, &indicator_height);
 	int indicator_x = screen_width - SCALE1(PADDING) - indicator_width;
 	int indicator_y = SCALE1(PADDING);
 
@@ -262,7 +263,7 @@ static void render_system_indicator(void) {
 	SDL_Surface* indicator_surface = GFX_createScreenFormatSurface(indicator_width, indicator_height);
 	if (indicator_surface) {
 		SDL_FillRect(indicator_surface, NULL, 0);
-		GFX_blitHardwareIndicator(indicator_surface, 0, 0, (IndicatorType)system_indicator_type);
+		GFX_blitHardwareIndicatorFixed(indicator_surface, 0, 0, (IndicatorType)system_indicator_type);
 
 		// Convert to RGBA for the notification overlay
 		SDL_Surface* converted = SDL_ConvertSurfaceFormat(indicator_surface, SDL_PIXELFORMAT_ABGR8888, 0);

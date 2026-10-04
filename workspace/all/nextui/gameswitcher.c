@@ -202,7 +202,7 @@ static void drawSubtitle(const char* rom_path) {
 	GFX_truncateText(font.tiny, line, cut, screen->w - x - SCALE1(PADDING), 0);
 	SDL_Surface* text = GFX_getCachedText(font.tiny, cut, COLOR_GRAY);
 	if (text)
-		SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){x, SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2)});
+		SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){x, BAR_HEIGHT});
 }
 
 // The selected game's one-line info (time, achievements, Next), bottom-left over an eased fade that rises
@@ -217,7 +217,7 @@ static void drawInfo(const char* rom_path) {
 							  info.has_ra ? info.next : NULL, true, segs);
 	if (n <= 0)
 		return;
-	int bar_top = screen->h - SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2);
+	int bar_top = screen->h - BAR_HEIGHT;
 	int text_h = TTF_FontHeight(font.small);
 	int fade_h = NX_DP(64) + text_h;
 	SDL_Surface* fade = UI_easedFadeSurface(screen->w, fade_h, 0.9f, 2.0f, false);

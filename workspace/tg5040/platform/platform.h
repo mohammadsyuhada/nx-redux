@@ -162,9 +162,9 @@ extern int ui_scale;
 
 #define NATIVE_SCALE (is_brick ? 3 : 2) // Brick Pro defaults to 2x (see the panel note above)
 #define FIXED_SCALE (ui_scale ? ui_scale : NATIVE_SCALE)
-// Panel pixel density (diagonal pixels / diagonal inches): the Brick's 3.2" is 400 ppi, the Brick Pro's 3.95" 324
-// (same 1024x768), the Smart Pro's 4.96" 1280x720 296. Sizes the hint bar and page titles (CHROME_SCALE in defines.h).
-#define PANEL_PPI (is_brick ? 400 : (is_brickpro ? 324 : 296))
+// The hint bar's size (CHROME_SCALE in defines.h): the Brick's 3.2" panel is 400 ppi, the Brick Pro's 3.95" 324 (same
+// 1024x768: 3 * 324 / 400 = 2.43, a 312 px sheet at 2.4375), the Smart Pro's 4.96" 1280x720 296 (2.22, 288 px at 2.25).
+#define CHROME_SCALE (is_brick ? 3.0f : (is_brickpro ? 2.4375f : 2.25f))
 #define FIXED_WIDTH (is_brick || is_brickpro ? 1024 : 1280)
 #define FIXED_HEIGHT (is_brick || is_brickpro ? 768 : 720)
 #define FIXED_BPP 2
@@ -177,7 +177,7 @@ extern int ui_scale;
 // Per-scale layout tables live in ui_scale.h, keyed on panel height: at 2x the
 // Brick Pro's taller panel (768 vs 720) fits one extra main-menu row (11 vs 10).
 #define MAIN_ROW_COUNT (UIScale_layout(FIXED_HEIGHT, FIXED_SCALE).main_rows)
-#define PADDING (UIScale_layout(FIXED_HEIGHT, FIXED_SCALE).padding)
+#define PADDING (UIScale_padding(FIXED_HEIGHT, FIXED_SCALE, NATIVE_SCALE))
 
 ///////////////////////////////
 

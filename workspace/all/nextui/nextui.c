@@ -474,7 +474,7 @@ int main(int argc, char* argv[]) {
 			int ow;
 			if (currentScreen == SCREEN_GAMELIST || currentScreen == SCREEN_GAMESWITCHER) {
 				// an eased fade from the top edge replaces the bar's flat scrim: over the art, under the text
-				int bar_h = SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2);
+				int bar_h = BAR_HEIGHT;
 				int fade_h = currentScreen == SCREEN_GAMESWITCHER
 								 ? bar_h + (font.tiny ? TTF_FontHeight(font.tiny) : 0) + NX_DP(64) // 64 dp below the subtitle
 								 : bar_h + NX_DP(48);
@@ -491,7 +491,7 @@ int main(int argc, char* argv[]) {
 				// a game list's title starts where its content does: the List rows' 14 dp inset, the 24 dp gutter of
 				// Grid, Carousel and Backdrop (LIST-LAYOUT §10.1)
 				int title_x = currentScreen == SCREEN_GAMELIST && GameList_currentStyle() != MENU_STYLE_LIST
-								  ? NX_DP(NX_MENU_GUTTER_DP)
+								  ? NX_NATIVE_DP(NX_MENU_GUTTER_DP)
 								  : -1;
 				ow = UI_renderMenuBarAt(screen, menu_title, NULL, title_x, false, over_art);
 			} else {

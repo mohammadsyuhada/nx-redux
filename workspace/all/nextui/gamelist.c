@@ -1900,7 +1900,7 @@ static bool atRoot(void) {
 // Top of the first row (no arrow gutter; the arrows live in the info band): game lists right under their header;
 // the main menu 12 dp below the tab row.
 static int listTopAt(bool root) {
-	int strip = SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2); // the header / tab row (MenuTabs_renderRow's bar_h)
+	int strip = BAR_HEIGHT; // the header / tab row (MenuTabs_renderRow's bar_h)
 	return root ? strip + NX_DP(12) : strip;
 }
 
@@ -1914,7 +1914,7 @@ static int listTop(void) {
 // differs (listTopAt).
 static InfoBandLayout listLayoutAt(bool root) {
 	int screen_h = screen ? screen->h : FIXED_HEIGHT;
-	int bar_h = SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2); // the hint bar (UI_buttonHintBarTop)
+	int bar_h = BAR_HEIGHT; // the hint bar (UI_buttonHintBarTop)
 	// the bar's ink top: the padding over its centred BUTTON_SIZE icons, plus the glyphs' margin (host-tested)
 	int overlap = InfoBand_overlap(NX_DP(12), InfoBand_hintInkTop(bar_h, CHROME1(BUTTON_SIZE)));
 	return InfoBand_fixedLayout(screen_h, bar_h, listTopAt(root), SCALE1(PILL_SIZE), NX_DP(18), NX_DP(4), overlap);
@@ -1925,7 +1925,7 @@ static InfoBandLayout listLayout(void) {
 }
 
 int GameList_textX(void) {
-	return stack && stack->count == 1 ? NX_DP(NX_MENU_GUTTER_DP) : UI_listTextX();
+	return stack && stack->count == 1 ? NX_NATIVE_DP(NX_MENU_GUTTER_DP) : UI_listTextX();
 }
 
 int GameList_rowCount(void) {
@@ -2128,7 +2128,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 
 	// the content below the tab row: one layer for the tab-focus dim (contentdim.h); the tab row, the hint bar and the
 	// page background (the List's art and console logo, a Backdrop picture) are drawn outside it and stay lit
-	int bar_h = SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2);
+	int bar_h = BAR_HEIGHT;
 	// Grid and rows: the body between the tab row and the hint bar (a List's reaches into the bar with its band)
 	SDL_Rect content = {0, bar_h, screen->w, screen->h - 2 * bar_h};
 
@@ -2251,7 +2251,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 	if (total > 0) {
 		int selected_row = top->selected - top->start;
 		// Row text start (LIST-LAYOUT §1): the main menu's List rows on the tab row's 24 dp gutter, game lists on
-		// the 14 dp list inset; the pill keeps its 14 dp (SCALE1(BUTTON_PADDING)) round the text either way.
+		// the 14 dp list inset; the pill keeps its 14 dp (NATIVE1(BUTTON_PADDING)) round the text either way.
 		int row_text_x = GameList_textX();
 		int row_pill_x = UI_listPillXFor(row_text_x);
 
@@ -2366,7 +2366,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 					screen, &item_layout, font.large,
 					display_text, truncated, y, false, 0);
 				pos.text_x = row_text_x; // the shared renderer's x is the 14 dp inset; the main menu sits on 24 dp
-				int text_width = pos.pill_width - SCALE1(BUTTON_PADDING * 2);
+				int text_width = pos.pill_width - NATIVE1(BUTTON_PADDING * 2);
 				// This call site is the only place list_scroll resyncs (via
 				// ScrollText_update's strcmp), so while it's gated off below a
 				// context action that changes the selection (Delete/Rename Rom,

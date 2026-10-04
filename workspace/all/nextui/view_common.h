@@ -51,7 +51,8 @@ static inline bool tweenTick(Tween* t, Uint32 ms) {
 ///////////////////////////////////////
 // Units
 
-#define BAR_DP (28.0f * 42.0f / 30.0f) // the header and the hint bar: 28 logical each
+// the header and the hint bar: 28 logical each at the default scale whatever the UI scale (BAR_HEIGHT), in dp
+#define BAR_DP (28.0f * 42.0f / 30.0f * NATIVE_SCALE / FIXED_SCALE)
 
 static inline float pxPerDp(void) {
 	return FIXED_SCALE * 30.0f / 42.0f;
@@ -61,9 +62,9 @@ static inline float pxPerSp(void) {
 	return FIXED_SCALE * 12.0f / 14.0f;
 }
 
-// The tab row's (or the game list's title's) and the hint bar's height: 28 logical each.
+// The tab row's (or the game list's title's) and the hint bar's height: 28 logical each at the default scale.
 static inline int barPx(void) {
-	return SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2);
+	return BAR_HEIGHT;
 }
 
 ///////////////////////////////////////

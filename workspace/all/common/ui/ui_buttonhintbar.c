@@ -42,10 +42,10 @@ int UI_renderButtonHintBarEx(SDL_Surface* dst, char** pairs, Uint8 scrim_alpha) 
 		return 0;
 	total_w += CHROME1(BUTTON_MARGIN);
 
-	// Full-width semi-transparent black bar (keep in step with UI_buttonHintIconTop): its height follows the UI scale
-	// (the space every screen reserves), the hints in it keep the Brick's physical size (CHROME_SCALE), centred
+	// Full-width semi-transparent black bar (keep in step with UI_buttonHintIconTop): BAR_HEIGHT whatever the UI scale
+	// (the space every screen reserves), the hints in it the Brick's physical size (CHROME_SCALE), centred
 	int btn_sz = CHROME1(BUTTON_SIZE);
-	int bar_h = SCALE1(BUTTON_SIZE) + SCALE1(BUTTON_MARGIN * 2);
+	int bar_h = BAR_HEIGHT;
 	int oy = dst->h - bar_h;
 
 	// one cached scrim per alpha (the cache is keyed on size only)
@@ -76,10 +76,10 @@ int UI_renderButtonHintBarEx(SDL_Surface* dst, char** pairs, Uint8 scrim_alpha) 
 
 int UI_buttonHintIconTop(int screen_h) {
 	int btn_sz = CHROME1(BUTTON_SIZE);
-	int bar_h = SCALE1(BUTTON_SIZE) + SCALE1(BUTTON_MARGIN * 2);
+	int bar_h = BAR_HEIGHT;
 	return screen_h - bar_h + UI_hintBarIconOffset(bar_h, btn_sz);
 }
 
 int UI_buttonHintBarTop(int screen_h) {
-	return screen_h - (SCALE1(BUTTON_SIZE) + SCALE1(BUTTON_MARGIN * 2));
+	return screen_h - BAR_HEIGHT;
 }

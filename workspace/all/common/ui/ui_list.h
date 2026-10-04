@@ -77,7 +77,7 @@ ListLayout UI_calcListLayoutEx(SDL_Surface* screen, int avail_top, int avail_bot
 void UI_listLayoutSetRowHeight(ListLayout* layout, int row_h, int rows_wanted);
 
 // LIST-LAYOUT §1/§10.1: a list row's text starts at UI_listTextX() (the 14 dp inset); its selection pill's edge is
-// at UI_listPillX(), 14 dp (SCALE1(BUTTON_PADDING)) left of the text. Every shared renderer below uses them, and
+// at UI_listPillX(), 14 dp (NATIVE1(BUTTON_PADDING)) left of the text. Every shared renderer below uses them, and
 // the default page title x (UI_pageTitleX) is the same text start.
 int UI_listTextX(void);
 int UI_listPillX(void);

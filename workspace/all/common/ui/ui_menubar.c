@@ -12,16 +12,16 @@
 
 // The page title keeps the Brick's physical size on every device whatever the UI scale: UI_PAGE_TITLE_SP at
 // CHROME_SCALE, not FIXED_SCALE.
-static TTF_Font* titleFont(void) {
+TTF_Font* UI_pageTitleFont(void) {
 	return UIFont_getPx(NX_CHROME_SP(UI_PAGE_TITLE_SP), false);
 }
 
 int UI_menuBarHeight(void) {
-	return SCALE1(BUTTON_SIZE) + SCALE1(BUTTON_MARGIN * 2);
+	return BAR_HEIGHT;
 }
 
 int UI_pageTitleBaseline(void) {
-	TTF_Font* f = titleFont();
+	TTF_Font* f = UI_pageTitleFont();
 	if (!f)
 		return UI_menuBarHeight();
 	// the title surface is TTF_FontHeight tall, centred in the strip (UI_renderPageTitleEx)
@@ -30,7 +30,7 @@ int UI_pageTitleBaseline(void) {
 
 int UI_pageTitleBandTop(void) {
 	int base = UI_pageTitleBaseline();
-	TTF_Font* f = titleFont();
+	TTF_Font* f = UI_pageTitleFont();
 	if (!f)
 		return base;
 	// the deepest descender of the title's likely letters (and the separator's bar), from the glyph metrics
@@ -40,12 +40,12 @@ int UI_pageTitleBandTop(void) {
 		if (TTF_GlyphMetrics(f, (Uint16)*c, &minx, &maxx, &miny, &maxy, &adv) == 0 && -miny > desc)
 			desc = -miny;
 	}
-	return base + desc + NX_DP(2);
+	return base + desc + NX_NATIVE_DP(2);
 }
 
 int UI_pageTitleX(void) {
 	// the list label inset (LIST-LAYOUT §10.1): == UI_listTextX(), the shared list rows' text start
-	return NX_DP(NX_LIST_INSET_DP);
+	return NX_NATIVE_DP(NX_LIST_INSET_DP);
 }
 
 // A title with Arabic text is drawn with the Arabic fallback face, which has no "|" (U+007C): when the part
@@ -102,7 +102,7 @@ static void blitTitlePiece(SDL_Surface* dst, SDL_Surface* text, int x, int y, bo
 int UI_renderPageTitleEx(SDL_Surface* dst, int x, const char* title, const char* suffix, int max_w, bool shadow) {
 	if (!dst || !title || !title[0])
 		return 0;
-	TTF_Font* f = titleFont();
+	TTF_Font* f = UI_pageTitleFont();
 	if (!f)
 		return 0;
 	if (max_w <= 0 || max_w > dst->w - x)

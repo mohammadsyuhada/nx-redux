@@ -34,7 +34,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RES_DIR = os.path.join(REPO, "skeleton", "SYSTEM", "res")
 
 BUTTON_SIZE = 16            # logical px, must match defines.h
-SCALES = (2, 3)            # FIXED_SCALE values shipped on device
+SCALES = (3, 2.25, 2.4375)  # the hint bar's CHROME_SCALEs (platform.h): the Brick, the 1280x720 panels, the Brick Pro
 MASTER_PREFIX = "nav_"      # 128x128 masters (buttons, triggers, dpad)
 
 
@@ -69,10 +69,10 @@ def main():
         bbox = img.getbbox()
         content = img.crop(bbox) if bbox else img
         for scale in SCALES:
-            target_h = BUTTON_SIZE * scale                     # 32 @2x, 48 @3x
+            target_h = round(BUTTON_SIZE * scale)              # 48 @3x, 36 @2.25x, 39 @2.4375x
             ratio = target_h / content.height
             target_w = max(1, round(content.width * ratio))
-            out = os.path.join(RES_DIR, f"{stem}@{scale}x.png")
+            out = os.path.join(RES_DIR, f"{stem}@{scale:g}x.png")
             if check_only:
                 if not os.path.exists(out):
                     stale.append(os.path.basename(out))

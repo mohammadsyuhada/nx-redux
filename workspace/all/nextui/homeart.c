@@ -404,7 +404,7 @@ static SDL_Surface* buildPicture(int kind, const char* rom, const char* preview,
 			keep = HomeArt_trimLetterbox(src->pixels, src->w, src->h, src->pitch / 4);
 			bool blank = HomeArt_isBlankFrame(src->pixels, keep, src->pitch / 4);
 			SDL_UnlockSurface(src);
-			if (blank) { // a black resume frame shows nothing: the screenshot instead (else the title card)
+			if (blank) { // a black resume frame shows nothing: the screenshot instead (else the abstract picture)
 				SDL_FreeSurface(src);
 				src = NULL;
 			}
@@ -412,11 +412,12 @@ static SDL_Surface* buildPicture(int kind, const char* rom, const char* preview,
 	}
 	if (!src)
 		src = screenshotFor(rom, &keep);
-	if (!src && kind == KIND_PIN)
+	bool abstract = !src; // no screenshot either: the game's abstract picture, for a pin and for Continue alike
+	if (abstract)
 		src = placeholderFor(rom, false, &keep);
 	if (!src || dropIfCancelled(src))
 		return NULL;
-	bool cont = kind == KIND_CONTINUE;
+	bool cont = kind == KIND_CONTINUE && !abstract; // the resume frame's zoom and framing are for a game's own picture
 	SDL_Surface* out = cropFill(src, keep, w, h, cont ? CONTINUE_ZOOM : 1.0f,
 								HomeArt_frameY(keep.w, keep.h, cont ? CONTINUE_FRAME_Y : 0.5f));
 	if (out && radius > 0)

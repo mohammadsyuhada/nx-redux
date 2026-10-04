@@ -11,7 +11,7 @@
 // vertically centred in the top strip (UI_menuBarHeight()). The part up to and including the first " | " and
 // the optional suffix (e.g. the RA count " (12/39)") never truncate; only the middle ellipsizes
 // (UI_titleFit, common/ui_title_fit.h).
-#define UI_PAGE_TITLE_SP 16
+#define UI_PAGE_TITLE_SP 12
 
 // Height of the top strip (SCALE1(28)).
 int UI_menuBarHeight(void);
@@ -21,8 +21,11 @@ int UI_pageTitleBaseline(void);
 // 2 dp (LIST-LAYOUT §10.2: a list is centred between the title's letters and the hint bar's icons, not the
 // boxes), so a block that fills the band never touches the title.
 int UI_pageTitleBandTop(void);
-// Default title x: the standard pill list's text start, the list inset (NX_DP(NX_LIST_INSET_DP)), 24 dp.
+// Default title x: the standard pill list's text start, the list inset (NX_NATIVE_DP(NX_LIST_INSET_DP)), 24 dp.
 int UI_pageTitleX(void);
+// The page title's font: UI_PAGE_TITLE_SP at CHROME_SCALE (the Brick's physical size on every panel), whatever the UI scale.
+// NULL if the font fails to open.
+TTF_Font* UI_pageTitleFont(void);
 // Draw a page title at x in the top strip, fitted into max_w px (<= 0: no limit beyond the screen). suffix
 // may be NULL. Returns the drawn width.
 int UI_renderPageTitle(SDL_Surface* dst, int x, const char* title, const char* suffix, int max_w);

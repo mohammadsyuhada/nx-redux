@@ -42,6 +42,13 @@ static inline UIScaleLayout UIScale_layout(int panel_h, int scale) {
 	return scale == 3 ? (UIScaleLayout){6, 10, 5} : (UIScaleLayout){10, 10, 8};
 }
 
+// PADDING (units) at `scale`, kept at the device's default scale's size in pixels so the screen-edge gaps don't move
+// with the UI scale: the Brick's 15 px (5 at 3x) is 8 at 2x (16 px), the others' 20 px (10 at 2x) is 7 at 3x (21 px).
+static inline int UIScale_padding(int panel_h, int scale, int native) {
+	int px = UIScale_layout(panel_h, native).padding * native;
+	return (px + scale / 2) / scale;
+}
+
 // Parses one minuisettings.txt line. Returns 1 and stores the sanitized value
 // when the line is "uiscale=<n>", else 0 and leaves *out untouched.
 static inline int UIScale_parseLine(const char* line, int* out) {

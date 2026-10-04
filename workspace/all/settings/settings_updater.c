@@ -613,7 +613,7 @@ static int show_update_info(SDL_Surface* screen, ReleaseInfo* release) {
 		UI_renderMenuBar(screen, "Update Available");
 		UI_renderButtonHintBar(screen, (char*[]){"B", "CANCEL", "A", "INSTALL", NULL});
 
-		int bar_h = SCALE1(BUTTON_SIZE) + SCALE1(BUTTON_MARGIN * 2);
+		int bar_h = BAR_HEIGHT;
 		int y = bar_h + SCALE1(PADDING * 2);
 
 		SDL_Surface* tag_surf = GFX_renderText(font.large, release->tag_name, COLOR_WHITE);

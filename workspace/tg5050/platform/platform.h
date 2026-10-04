@@ -129,9 +129,9 @@ extern int ui_scale;
 
 #define NATIVE_SCALE 2
 #define FIXED_SCALE (ui_scale ? ui_scale : NATIVE_SCALE)
-// Panel pixel density: the Smart Pro S's 4.96" 1280x720 is 296 ppi. Sizes the hint bar and page titles (CHROME_SCALE
-// in defines.h).
-#define PANEL_PPI 296
+// The hint bar's size (CHROME_SCALE in defines.h): the Smart Pro S's 4.96" 1280x720 is 296 ppi against the Brick's
+// 400, so 3 * 296 / 400 = 2.22, baked at 2.25 for a whole 288 px sheet.
+#define CHROME_SCALE 2.25f
 #define FIXED_WIDTH 1280
 #define FIXED_HEIGHT 720
 #define FIXED_BPP 2
@@ -142,7 +142,7 @@ extern int ui_scale;
 ///////////////////////////////
 
 #define MAIN_ROW_COUNT (UIScale_layout(FIXED_HEIGHT, FIXED_SCALE).main_rows)
-#define PADDING (UIScale_layout(FIXED_HEIGHT, FIXED_SCALE).padding)
+#define PADDING (UIScale_padding(FIXED_HEIGHT, FIXED_SCALE, NATIVE_SCALE))
 
 ///////////////////////////////
 

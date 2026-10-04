@@ -635,7 +635,8 @@ static void drawInLine(SDL_Surface* s, TTF_Font* f, const char* text, SDL_Color 
 }
 
 // Continue: the art full-bleed under the caption fade; the title (44, one line with "…") and the time (31, grey), 29
-// in, baselines 74 and 31 above the bottom. No art: the name centred (up to 2 lines) over the time.
+// in, baselines 74 and 31 above the bottom (the art: the game's own, else its abstract picture). No picture at all: the
+// name centred (up to 2 lines) over the time.
 static void composeContinue(SDL_Surface* s, int w, int h) {
 	SDL_FillRect(s, &(SDL_Rect){0, 0, w, h}, SDL_MapRGBA(s->format, 0, 0, 0, 255));
 	SDL_Surface* pic = NULL;
