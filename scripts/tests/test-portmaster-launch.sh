@@ -24,7 +24,12 @@ fi
 
 L40="$ROOT/skeleton/SYSTEM/tg5040/paks/Tools/Xtras.pak/catalog/portmaster/pak/launch.sh"
 L50="$ROOT/skeleton/SYSTEM/tg5050/paks/Tools/Xtras.pak/catalog/portmaster/pak/launch.sh"
-cmp -s "$L40" "$L50" && pass "tg5040/tg5050 launch.sh identical" || fail "tg5040/tg5050 launch.sh differ"
+# tg5040 carries Brick-only patches (Brick Pro sticks, pugwash UI scale);
+# otherwise the two must match, so tg5050 may add nothing of its own.
+[ -z "$(diff "$L40" "$L50" | grep '^>' | grep -v 'mod_TrimUI.txt (HOME)$')" ] \
+  && pass "tg5050 launch.sh is tg5040 minus the Brick-only patches" || fail "tg5040/tg5050 launch.sh diverge beyond the Brick-only patches"
+grep -q 'NX Redux: Brick Pro sticks' "$L50" || grep -q 'NX Redux: UI scale' "$L50" \
+  && fail "tg5050 launch.sh carries a Brick-only patch" || pass "Brick-only patches stay out of tg5050"
 grep -q 'portmaster.elf' "$L40" && fail "launch.sh still references portmaster.elf" || pass "launch.sh has no elf reference"
 
 TMP="$(mktemp -d)"
@@ -34,7 +39,7 @@ PM="$SD/Emus/shared/PortMaster"
 ROMS="$SD/Roms/Ports (PORTS)"
 LOGS="$SD/.userdata/tg5040/logs"
 BIN="$TMP/bin"
-mkdir -p "$BIN" "$PM/bin" "$PM/files" "$PM/pylibs/harbourmaster" "$PM/patchedScripts" \
+mkdir -p "$BIN" "$PM/bin" "$PM/files" "$PM/pylibs/harbourmaster" \
          "$ROMS/.ports/apotris" "$LOGS" "$SD/.system/bin" "$SD/.userdata/shared" \
          "$SD/Tools/PortMaster.pak"
 ln -sf "$GSED" "$BIN/sed"
@@ -92,26 +97,22 @@ chmod +x "$BIN/show2.elf" "$BIN/nextval.elf" "$BIN/killall" "$PM/bin/python3"
 seed_runtime() {
   echo 'pugwash-gui' > "$PM/pugwash"
   printf '2026.09.08-0809\n' > "$PM/version"
+  # The 2026.09.19+ probe, cut down to the lines the NX Redux patches anchor on.
   cat > "$PM/device_info.txt" <<'EOF'
-if [[ $CFW_NAME == "TrimUI" ]]; then
-DEVICE_NAME="TrimUI Smart Pro"
+export CFW_NAME="Unknown"
+if [ "$CFW_NAME" = "Unknown" ] && { [ -f "/etc/os-release" ] || [ -f "/usr/lib/os-release" ]; }; then
+    export CFW_NAME="os-release"
 fi
-case "$DEVICE_NAME" in
-    "trimui smart pro"|"trimui-smart-pro")
-        DEVICE_CPU="a133plus"
-        ;;
-esac
-# GLIBC
-GLIBC=2.33
-EOF
-  cat > "$PM/pylibs/harbourmaster/hardware.py" <<'EOF'
-        ('sun50iw10', 'trimui-smart-pro'),
-    "TrimUI Smart Pro": {"device": "trimui-smart-pro", "manufacturer": "TrimUI", "cfw": ["TrimUI"]},
-    "TrimUI Brick": {"device": "trimui-brick", "manufacturer": "TrimUI", "cfw": ["TrimUI"]},
-    "trimui-smart-pro": {"resolution": (1280, 720), "analogsticks": 2, "cpu": "a133plus", "capabilities": ["power"], "ram": 1024},
-    "trimui-brick": {"resolution": (1024, 768), "analogsticks": 0, "cpu": "a133plus", "capabilities": ["power"], "ram": 1024},
-    "trimui-*": "2.33",
-    expand_info(info, override_resolution, override_ram)
+if [ "$CFW_VERSION" = "Unknown" ] && { [ -f "/etc/os-release" ] || [ -f "/usr/lib/os-release" ]; }; then
+    export CFW_VERSION="os-release"
+fi
+detect_dynamic_controls() {
+    ANALOG_STICKS=0
+    export ANALOG_STICKS
+    export ANALOG_TRIGGERS
+}
+CAPS=()
+export DEVICE_CAPABILITIES="$(echo "${CAPS[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/[ \t]*$//')"
 EOF
   printf 'PORTS = "/mnt/SDCARD/Roms/PORTS"\nIMGS = "/mnt/SDCARD/Imgs/PORTS"\n' > "$PM/pylibs/harbourmaster/platform.py"
   mkdir -p "$PM/pylibs/harbourmaster/__pycache__"; touch "$PM/pylibs/harbourmaster/__pycache__/stale.pyc"
@@ -130,9 +131,14 @@ EOF
   # ports on the card
   printf '#!/bin/bash\ncd /roms/ports/PortMaster\n' > "$ROMS/Apotris.sh"
   printf '#!/bin/bash\necho stock\n' > "$ROMS/Celeste.sh"
-  printf '#!/usr/bin/env bash\necho patched\n' > "$PM/patchedScripts/Celeste.sh"
+  mkdir -p "$PM/patchedScripts"; printf '#!/usr/bin/env bash\necho patched\n' > "$PM/patchedScripts/Celeste.sh"
   printf '{"items": ["Apotris.sh", "apotris/"]}\n' > "$ROMS/.ports/apotris/port.json"
   echo 'cover-bytes' > "$ROMS/.ports/apotris/cover.png"
+  # a third-party port with no art of its own: PortMaster's cached screenshot
+  mkdir -p "$ROMS/.ports/nxgame" "$PM/config/images_nextos" "$PM/lib"
+  printf '{"items": ["NX Game.sh", "nxgame/"], "name": "nxgame.zip"}\n' > "$ROMS/.ports/nxgame/port.json"
+  echo 'shot-bytes' > "$PM/config/images_nextos/NXGame.screenshot.jpg"
+  echo 'gles1' > "$PM/lib/libGLESv1_CM.so.1"; rm -f "$PM/lib/libGLESv1_CM.so"
   rm -rf "$ROMS/.media"
   echo 'cache' > "$SD/.userdata/tg5040/emulist_cache.txt"
   echo 'cache' > "$SD/.userdata/tg5040/romindex_cache.txt"
@@ -150,7 +156,7 @@ run_launcher() {
   USERDATA_PATH="$SD/.userdata/tg5040" \
   SHARED_USERDATA_PATH="$SD/.userdata/shared" \
   LOGS_PATH="$LOGS" \
-  sh "$L40"
+  sh "$L40" "$@"
 }
 
 # ---- 1. not installed -----------------------------------------------------
@@ -178,17 +184,6 @@ grep -q "^SSL_CERT_FILE=$PM/ssl/certs/ca-certificates.crt$" "$TMP/env_seen_by_pu
 grep -q 'pugwash run 1' "$LOGS/portmaster_pugwash.txt" 2>/dev/null && pass "run: pugwash log tee'd" || fail "run: pugwash log missing"
 grep -q '"disclaimer": true' "$PM/config/config.json" 2>/dev/null && pass "run: default config written" || fail "run: default config missing"
 # patches
-grep -q 'sun55iw3' "$PM/device_info.txt" && pass "patch: device_info Smart Pro S detect" || fail "patch: device_info Smart Pro S detect missing"
-grep -q '"trimui smart pro s"|"trimui-smart-pro-s")' "$PM/device_info.txt" && pass "patch: device_info Smart Pro S case" || fail "patch: device_info Smart Pro S case missing"
-grep -q 'DEVICE_NAME="TrimUI Brick Pro"; ANALOG_STICKS=2' "$PM/device_info.txt" && pass "patch: device_info Brick Pro" || fail "patch: device_info Brick Pro missing"
-[ "$(grep -c 'Smart Pro S' "$PM/device_info.txt")" -ge 1 ] && [ "$(grep -c 'TrimUI Brick Pro' "$PM/device_info.txt")" = 1 ] && pass "patch: device_info applied once (idempotent guard)" || fail "patch: device_info duplicated"
-grep -q "('sun55iw3',  'trimui-smart-pro-s')," "$PM/pylibs/harbourmaster/hardware.py" && pass "patch: hardware.py sun55iw3" || fail "patch: hardware.py sun55iw3 missing"
-grep -q '"TrimUI Smart Pro S": {"device": "trimui-smart-pro-s"' "$PM/pylibs/harbourmaster/hardware.py" && pass "patch: hardware.py SPS nice name" || fail "patch: hardware.py SPS nice name missing"
-grep -q '"trimui-smart-pro-s": {"resolution": (1280, 720)' "$PM/pylibs/harbourmaster/hardware.py" && pass "patch: hardware.py SPS device" || fail "patch: hardware.py SPS device missing"
-grep -q '"trimui-smart-pro-s\*": "2.33"' "$PM/pylibs/harbourmaster/hardware.py" && pass "patch: hardware.py SPS glibc" || fail "patch: hardware.py SPS glibc missing"
-grep -q '"TrimUI Brick Pro": {"device": "trimui-brick-pro"' "$PM/pylibs/harbourmaster/hardware.py" && pass "patch: hardware.py Brick Pro nice name" || fail "patch: hardware.py Brick Pro nice name missing"
-grep -q '"trimui-brick-pro": {"resolution": (1024, 768), "analogsticks": 2' "$PM/pylibs/harbourmaster/hardware.py" && pass "patch: hardware.py Brick Pro device" || fail "patch: hardware.py Brick Pro device missing"
-grep -q 'Path("/mnt/SDCARD/tg5040-brickpro").exists(): info\["device"\] = "trimui-brick-pro"' "$PM/pylibs/harbourmaster/hardware.py" && pass "patch: hardware.py Brick Pro override" || fail "patch: hardware.py Brick Pro override missing"
 [ ! -e "$PM/pylibs/harbourmaster/__pycache__/stale.pyc" ] && pass "patch: pycache cleared" || fail "patch: pycache kept"
 grep -q "\"$ROMS\"" "$PM/pylibs/harbourmaster/platform.py" && pass "patch: platform.py PORTS path" || fail "patch: platform.py PORTS path missing"
 grep -q "\"$ROMS/.media\"" "$PM/pylibs/harbourmaster/platform.py" && pass "patch: platform.py IMGS path" || fail "patch: platform.py IMGS path missing"
@@ -200,18 +195,18 @@ grep -q 'export GPTOKEYB2="$ESUDO env LD_PRELOAD=$controlfolder/libinterpose.aar
 # post-run sync
 grep -q "^cd $PM$" "$ROMS/Apotris.sh" && pass "post: port script path fixed" || fail "post: port script path not fixed"
 head -1 "$ROMS/Apotris.sh" | grep -q '^#!/usr/bin/env bash$' && pass "post: port script shebang fixed" || fail "post: shebang not fixed"
-grep -q 'echo patched' "$ROMS/Celeste.sh" && pass "post: patchedScripts applied" || fail "post: patchedScripts not applied"
+grep -q 'echo stock' "$ROMS/Celeste.sh" && [ ! -e "$PM/patchedScripts" ] && pass "post: patchedScripts retired, port script left alone" || fail "post: patchedScripts still applied or kept"
 [ "$(cat "$ROMS/.media/Apotris.png" 2>/dev/null)" = 'cover-bytes' ] && pass "post: cover art synced to .media" || fail "post: cover art missing"
+[ "$(cat "$ROMS/.media/NX Game.png" 2>/dev/null)" = 'shot-bytes' ] && pass "post: no port art -> PortMaster's cached screenshot" || fail "post: catalog screenshot fallback missing"
+[ "$(cat "$PM/lib/libGLESv1_CM.so" 2>/dev/null)" = 'gles1' ] && pass "post: unversioned libGLESv1_CM.so made (tg5040)" || fail "post: libGLESv1_CM.so missing"
 [ ! -e "$SD/.userdata/tg5040/emulist_cache.txt" ] && [ ! -e "$SD/.userdata/tg5040/romindex_cache.txt" ] && pass "post: launcher caches invalidated" || fail "post: launcher caches survived"
-# no Xtras version marker since #108 (version_source=internal: PortMaster updates itself)
-[ ! -e "$SD/.userdata/shared/xtras/portmaster.version" ] && pass "post: no xtras version marker" || fail "post: xtras marker written '$(cat "$SD/.userdata/shared/xtras/portmaster.version" 2>/dev/null)'"
+# extras.elf owns the version record (catalog version, #108); the launcher must not touch it.
+[ ! -e "$SD/.userdata/shared/xtras/portmaster.version" ] && pass "post: xtras version marker left to extras.elf" || fail "post: launcher wrote xtras marker '$(cat "$SD/.userdata/shared/xtras/portmaster.version" 2>/dev/null)'"
 [ -x "$PM/bin/ls" ] && grep -q 'busybox ls' "$PM/bin/ls" && [ ! -e "$PM/bin/sh" ] && [ -f "$PM/bin/busybox_wrappers.done" ] && pass "post: busybox wrappers recreated" || fail "post: busybox wrappers missing"
 
 # ---- 3. second run is idempotent (patches not duplicated) ----------------
 rc=0; run_launcher || rc=$?
-[ "$(grep -c '"trimui smart pro s"|"trimui-smart-pro-s")' "$PM/device_info.txt")" = 1 ] && pass "idempotent: device_info case once" || fail "idempotent: device_info case duplicated"
-[ "$(grep -c '"trimui-brick-pro": {' "$PM/pylibs/harbourmaster/hardware.py")" = 1 ] && pass "idempotent: hardware.py Brick Pro once" || fail "idempotent: hardware.py Brick Pro duplicated"
-[ "$(grep -c '"trimui-smart-pro-s": {' "$PM/pylibs/harbourmaster/hardware.py")" = 1 ] && pass "idempotent: hardware.py SPS once" || fail "idempotent: hardware.py SPS duplicated"
+[ "$(grep -c '^ln() {' "$PM/control.txt")" = 1 ] && [ "$(grep -c 'NX Redux: UI scale' "$PM/pugwash")" -le 1 ] && pass "idempotent: control.txt and pugwash patched once" || fail "idempotent: patches duplicated"
 
 # ---- 4. xbox layout restored after pugwash --------------------------------
 echo 1 > "$TMP/layout"
@@ -231,6 +226,119 @@ seed_runtime; touch "$TMP/simulate_reboot"
 run_launcher >/dev/null 2>&1
 [ "$(cat "$TMP/runs")" = 2 ] && pass "reboot marker: pugwash restarted" || fail "reboot marker: ran $(cat "$TMP/runs") times"
 [ ! -e "$PM/.pugwash-reboot" ] && pass "reboot marker: consumed" || fail "reboot marker: left behind"
+
+# ---- 7. --patch-only (ports_launch.sh after an install / self-update) -----
+# PortMaster's install and self-update put back the stock control.txt; the Ports launcher runs the tool's patch-only
+# mode before a port when control.txt isn't the patched one.
+seed_runtime
+printf 'controlfolder=/roms/ports/PortMaster\nsource /roms/ports/PortMaster/device_info.txt\n' > "$PM/control.txt"
+rm -f "$LOGS/portmaster.txt"
+out="$(run_launcher --patch-only 2>&1)"; rc=$?
+[ "$rc" = 0 ] && pass "patch-only: exits 0" || fail "patch-only: exit $rc"
+grep -q 'Patched for NxRedux' "$PM/control.txt" && grep -q "^export controlfolder=\"$PM\"$" "$PM/control.txt" \
+  && pass "patch-only: control.txt patched" || fail "patch-only: control.txt left stock"
+grep -q 'NX Redux: exFAT/FAT32 compat' "$PM/control.txt" && pass "patch-only: control.txt carries the ln fallback" || fail "patch-only: ln fallback missing"
+grep -q 'portmaster_install disabled' "$PM/pylibs/harbourmaster/platform.py" \
+  && pass "patch-only: the other patches applied" || fail "patch-only: other patches missing"
+[ ! -e "$PM/patchedScripts" ] && pass "patch-only: patchedScripts retired" || fail "patch-only: patchedScripts kept"
+printf '%s' "$out" | grep -q 'not found' && fail "patch-only: called an undefined function: $(printf '%s' "$out" | grep 'not found')" \
+  || pass "patch-only: every patch step defined before use"
+[ ! -f "$TMP/runs" ] && pass "patch-only: pugwash not run" || fail "patch-only: pugwash ran"
+[ ! -f "$TMP/show2.log" ] && pass "patch-only: no splash" || fail "patch-only: splash shown"
+[ ! -f "$LOGS/portmaster.txt" ] && printf '%s' "$out" | grep -q 'NxRedux patches applied' \
+  && pass "patch-only: output to the caller, not portmaster.txt" || fail "patch-only: log redirected"
+seed_runtime; rm -f "$PM/pugwash"
+rc=0; run_launcher --patch-only >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] && [ ! -f "$TMP/show2.log" ] && pass "patch-only: not installed exits quietly" || fail "patch-only: not installed rc $rc"
+for P in "$ROOT"/skeleton/SYSTEM/tg50?0/paks/Tools/Xtras.pak/catalog/portmaster/pak/ports_launch.sh; do
+  grep -q "grep -q 'NX Redux: exFAT/FAT32 compat' \"\$EMU_DIR/control.txt\"" "$P" && grep -q 'sh "$PM_TOOL" --patch-only' "$P" \
+    && grep -q "grep -q 'NX Redux: TrimUI capability' \"\$DI\"" "$P" \
+    && grep -q "grep -q -- '--patch-only' \"\$PM_TOOL\"" "$P" && ! grep -q 'patch_device_info' "$P" \
+    && pass "ports_launch: patches an unpatched control.txt ($(printf '%s' "$P" | grep -o 'tg50[45]0'))" \
+    || fail "ports_launch: no patch guard in $P"
+done
+
+# ---- 8. device_info.txt patches (2026.09.19+ probe) -------------------------
+# They only act on TrimUI (/usr/trimui), so run them here as functions cut out
+# of launch.sh with that guard dropped.
+DIT="$TMP/di"; mkdir -p "$DIT"
+for plat in tg5040 tg5050; do
+  L="$ROOT/skeleton/SYSTEM/$plat/paks/Tools/Xtras.pak/catalog/portmaster/pak/launch.sh"
+  awk '/^patch_device_info_(trimui|brickpro_sticks|trimui_cap)\(\) \{/,/^}$/' "$L" \
+    | sed 's#\[ -d /usr/trimui \] || return 0#:#' > "$DIT/fns.$plat.sh"
+  cp "$PM/device_info.txt" "$DIT/device_info.txt"
+  echo cached > "$DIT/device_info_trimui_trimui_brick.env"
+  echo cached > "$DIT/device_info_unknown_unknown.env"
+  (cd "$DIT" && . "./fns.$plat.sh" && for i in 1 2; do
+     patch_device_info_trimui "$DIT/device_info.txt"
+     type patch_device_info_brickpro_sticks >/dev/null 2>&1 && patch_device_info_brickpro_sticks "$DIT/device_info.txt"
+     patch_device_info_trimui_cap "$DIT/device_info.txt"
+   done)
+  D="$DIT/device_info.txt"
+  grep -q 'smartpros) export DEVICE_NAME="TrimUI Smart Pro S"' "$D" && pass "di $plat: TrimUI model" || fail "di $plat: TrimUI model missing"
+  grep -B1 '^export DEVICE_CAPABILITIES=' "$D" | grep -q 'CAPS+=("trimui")' && pass "di $plat: trimui capability" || fail "di $plat: trimui capability missing"
+  [ "$(grep -c 'NX Redux: TrimUI capability' "$D")" = 1 ] && [ "$(grep -c 'NX Redux: TrimUI firmware' "$D")" = 1 ] \
+    && pass "di $plat: applied once" || fail "di $plat: duplicated"
+  [ ! -e "$DIT/device_info_trimui_trimui_brick.env" ] && [ ! -e "$DIT/device_info_unknown_unknown.env" ] \
+    && pass "di $plat: stale probe caches dropped" || fail "di $plat: stale probe cache kept"
+  if [ "$plat" = tg5040 ]; then
+    grep -q 'NX Redux: Brick Pro sticks' "$D" && pass "di $plat: Brick Pro sticks" || fail "di $plat: Brick Pro sticks missing"
+  fi
+  grep -c 'hardware.py' "$L" | grep -qx 0 && pass "launch.sh $plat: no hardware.py patches left" || fail "launch.sh $plat: hardware.py still patched"
+done
+
+# ---- 9. ports_launch.sh calls --patch-only only when something is unpatched ---
+# Runs the real ports_launch.sh with no ROM (it stops right after the guard)
+# against a stub tool that records each call.
+G="$TMP/guard"
+guard_run() { # $1 = platform; prints how many times the tool ran
+  rm -f "$G/tool.calls"
+  SDCARD_PATH="$G/sd" USERDATA_PATH="$G/sd/.userdata/$1" SHARED_USERDATA_PATH="$G/sd/.userdata/shared" \
+  SHARED_SYSTEM_PATH="$G/sd/.system/shared" LOGS_PATH="$G/logs" \
+    sh "$G/sd/Emus/PORTS.pak/launch.sh" >/dev/null 2>&1
+  [ -f "$G/tool.calls" ] && wc -l < "$G/tool.calls" | tr -d ' ' || echo 0
+}
+for plat in tg5040 tg5050; do
+  rm -rf "${G:?}"; mkdir -p "$G/sd/Emus/PORTS.pak" "$G/sd/Emus/shared/PortMaster" "$G/sd/Tools/PortMaster.pak" "$G/logs"
+  cp "$ROOT/skeleton/SYSTEM/$plat/paks/Tools/Xtras.pak/catalog/portmaster/pak/ports_launch.sh" "$G/sd/Emus/PORTS.pak/launch.sh"
+  printf '#!/bin/sh\n# supports --patch-only\necho "$*" >> "%s"\n' "$G/tool.calls" > "$G/sd/Tools/PortMaster.pak/launch.sh"
+  GPM="$G/sd/Emus/shared/PortMaster"
+  printf '# ---- NX Redux: exFAT/FAT32 compat for port scripts ----\n' > "$GPM/control.txt"
+  printf '# NX Redux: TrimUI capability\nexport DEVICE_CAPABILITIES="x"\n' > "$GPM/device_info.txt"
+  mkdir -p "$G/sd/.userdata/$plat"; echo 'pcm.nx_game {}' > "$G/sd/.userdata/$plat/.asoundrc"
+  [ "$(guard_run $plat)" = 0 ] && pass "guard $plat: all patched -> tool not run" || fail "guard $plat: ran with everything patched"
+  cmp -s "$G/sd/.userdata/$plat/.asoundrc" "$G/sd/.userdata/shared/PORTS-portmaster/.asoundrc" \
+    && pass "ports_launch $plat: audiomon's .asoundrc copied into the port HOME" || fail "ports_launch $plat: .asoundrc not copied"
+  grep -q "can't stat\|No such file" "$G/logs/PORTS.txt" && fail "ports_launch $plat: errors in the log: $(grep "can't stat\|No such file" "$G/logs/PORTS.txt" | head -2)" \
+    || pass "ports_launch $plat: clean log up to the guard"
+  printf 'controlfolder=/roms/ports/PortMaster\n' > "$GPM/control.txt"
+  [ "$(guard_run $plat)" = 1 ] && pass "guard $plat: stock control.txt -> --patch-only" || fail "guard $plat: stock control.txt not repaired"
+  printf '# ---- NX Redux: exFAT/FAT32 compat for port scripts ----\n' > "$GPM/control.txt"
+  printf 'export DEVICE_CAPABILITIES="x"\n' > "$GPM/device_info.txt"
+  [ "$(guard_run $plat)" = 1 ] && pass "guard $plat: stock device_info.txt -> --patch-only" || fail "guard $plat: stock device_info.txt not repaired"
+  printf 'GLIBC=2.33\n' > "$GPM/device_info.txt"
+  [ "$(guard_run $plat)" = 0 ] && pass "guard $plat: device_info.txt without the probe anchor left alone" || fail "guard $plat: ran on an unpatchable device_info.txt"
+  printf 'controlfolder=/roms/ports/PortMaster\n' > "$GPM/control.txt"
+  printf '#!/bin/sh\necho "$*" >> "%s"\n' "$G/tool.calls" > "$G/sd/Tools/PortMaster.pak/launch.sh"
+  [ "$(guard_run $plat)" = 0 ] && pass "guard $plat: tool without --patch-only not run" || fail "guard $plat: old tool would open the GUI"
+done
+
+# ---- 10. ports_launch.sh: /roms/ports/<dir> rewrite and ALSA config ------
+# main() needs root (mounts, sysfs), so the rewrite runs as extracted: the
+# same sed expressions on a third-party wrapper's lines.
+for plat in tg5040 tg5050; do
+  P="$ROOT/skeleton/SYSTEM/$plat/paks/Tools/Xtras.pak/catalog/portmaster/pak/ports_launch.sh"
+  printf '#!/bin/bash\ncontrolfolder="/roms/ports/PortMaster"\n[ -f "/roms/ports/castle/run.sh" ] && RUN="/roms/ports/castle/run.sh"\n' > "$TMP/wrap.sh"
+  PATH="$BIN:$PATH" EMU_DIR=/E TEMP_DATA_DIR=/T bash -c "$(grep -A3 '^    sed -i -e "s|/roms/ports/PortMaster|' "$P" | sed 's/"\$ROM_PATH"$/"$1"/')" _ "$TMP/wrap.sh"
+  grep -q '^controlfolder="/E"$' "$TMP/wrap.sh" && grep -q '"/T/ports/castle/run.sh" ] && RUN="/T/ports/castle/run.sh"$' "$TMP/wrap.sh" \
+    && pass "ports_launch $plat: /roms/ports/<dir> -> the .ports bind mount, PortMaster path first" || fail "ports_launch $plat: rewrite wrong: $(tr '\n' ' ' < "$TMP/wrap.sh")"
+  # Audio routing: bound over /etc/asound.conf only once cleanup is trapped, and unbound by cleanup.
+  awk '/trap "cleanup"/ { t = NR } /^    bind_audio_routing$/ { b = NR } END { exit !(t && b > t) }' "$P" \
+    && grep -q 'cat "$NX_ASOUND_DEST" "$HOME/.asoundrc" > "$NX_ASOUND"' "$P" \
+    && awk '/^cleanup\(\)/,/^}/' "$P" | grep -q 'umount "$NX_ASOUND_DEST"' \
+    && pass "ports_launch $plat: .asoundrc bound over /etc/asound.conf for the session, unbound by cleanup" \
+    || fail "ports_launch $plat: audio routing bind missing or not cleaned up"
+done
 
 pkill -f "$BIN/show2.elf" >/dev/null 2>&1
 [ "$FAILS" = 0 ] && say "test-portmaster-launch: OK" || say "test-portmaster-launch: $FAILS FAILURE(S)"

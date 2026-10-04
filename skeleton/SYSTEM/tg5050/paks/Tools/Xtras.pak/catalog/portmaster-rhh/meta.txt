@@ -1,0 +1,8 @@
+name=RHH Ports
+category=TOOL
+platforms=tg5040 tg5050
+version_source=internal
+version=2026-10-04
+desc=Adds Jeod's Retro Handheld Ports (RHH) catalog to PortMaster: GameMaker, RPG Maker, Solarus and other ports, many of them fan games. Open PortMaster to browse them; new ports appear there as RHH publishes them. Where a game is also in PortMaster's own catalog, PortMaster offers its own build. Also installs gmtoolkit, which the GameMaker ports need on first launch. Needs PortMaster installed. Download ~10 MB.
+size_mb=20
+done_msg=Added. Open PortMaster to browse the RHH ports.

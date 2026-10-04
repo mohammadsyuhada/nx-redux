@@ -9,23 +9,30 @@
 #   - "not installed" pointer at Xtras when the runtime is missing
 #   - "Launching PortMaster..." frame while Python starts
 #   - NxRedux patches re-applied BEFORE and AFTER every run (pugwash's
-#     first_run / self-update overwrite them): control.txt, device_info.txt
-#     and hardware.py (Smart Pro S + Brick Pro detection), platform.py
-#     (paths + portmaster_install disabled), mod_TrimUI.txt (HOME),
-#     pugwash (800x600 UI on the Brick / Brick Pro)
+#     first_run / self-update overwrite them): control.txt (plus the
+#     exFAT `ln -s` fallback and curl stand-in port scripts get),
+#     device_info.txt (TrimUI model, Brick Pro sticks and the trimui
+#     capability on the 2026.09.19+ probe), platform.py
+#     (paths + portmaster_install disabled), mod_TrimUI.txt (HOME)
 #   - pugwash loop: honours .pugwash-reboot, retries once when a fresh
 #     pylibs extraction crashed it before the patches landed
 #   - pad map while pugwash runs is the opposite of the Button layout
 #     setting (its XBOX FIXER swaps A/B and X/Y on TrimUI), the user's
 #     setting restored afterwards
-#   - post-run: fix installed port scripts, apply patchedScripts/, recreate
+#   - post-run: fix installed port scripts, recreate
 #     busybox wrappers, sync cover art to .media/, drop the launcher's list
 #     caches
 # Busybox sh + busybox/GNU sed only. Runs with the pak env from
 # MinUI.pak/launch.sh (SDCARD_PATH, SYSTEM_PATH, LOGS_PATH, ...).
 
-rm -f "$LOGS_PATH/portmaster.txt"
-exec >"$LOGS_PATH/portmaster.txt" 2>&1
+# --patch-only (ports_launch.sh, when PortMaster's install or self-update left its stock control.txt): apply the
+# NxRedux patches and exit - no GUI, splash or CPU profile, the output going to the caller's log.
+PATCH_ONLY=0
+[ "${1:-}" = "--patch-only" ] && PATCH_ONLY=1
+if [ "$PATCH_ONLY" = 0 ]; then
+    rm -f "$LOGS_PATH/portmaster.txt"
+    exec >"$LOGS_PATH/portmaster.txt" 2>&1
+fi
 echo "$0 $*"
 
 PM_DIR="$SDCARD_PATH/Emus/shared/PortMaster"
@@ -35,7 +42,6 @@ XTRAS_STATE_DIR="$SHARED_USERDATA_PATH/xtras"
 PY="$PM_DIR/bin/python3"
 PP="$PM_DIR/pylibs/harbourmaster/platform.py"
 DI="$PM_DIR/device_info.txt"
-HW="$PM_DIR/pylibs/harbourmaster/hardware.py"
 
 splash() { # $1 = text, $2 = extra show2 args
     killall -9 show2.elf >/dev/null 2>&1
@@ -45,33 +51,36 @@ splash() { # $1 = text, $2 = extra show2 args
 }
 
 if [ ! -f "$PM_DIR/pugwash" ]; then
+    [ "$PATCH_ONLY" = 1 ] && exit 0
     echo "PortMaster runtime not found at $PM_DIR"
     splash "PortMaster is not installed. Install it from Xtras." "--timeout=4"
     wait
     exit 0
 fi
 
-splash "Launching PortMaster..." ""
+if [ "$PATCH_ONLY" = 0 ]; then
+    splash "Launching PortMaster..." ""
 
-# Same CPU profile ports get (ports_launch.sh). The old 600 MHz / idle-core
-# cap was for the elf's menu, which no longer exists; pugwash is a Python
-# GUI that downloads and unpacks zips.
-case "$PLATFORM" in
-    tg5050)
-        for i in 2 3 5 6 7; do echo 1 > /sys/devices/system/cpu/cpu$i/online 2>/dev/null; done
-        echo schedutil > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null
-        echo 408000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq 2>/dev/null
-        echo 1416000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null
-        echo schedutil > /sys/devices/system/cpu/cpu4/cpufreq/scaling_governor 2>/dev/null
-        echo 408000 > /sys/devices/system/cpu/cpu4/cpufreq/scaling_min_freq 2>/dev/null
-        echo 2160000 > /sys/devices/system/cpu/cpu4/cpufreq/scaling_max_freq 2>/dev/null
-        ;;
-    *)
-        echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null
-        echo 2000000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null
-        echo 2000000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq 2>/dev/null
-        ;;
-esac
+    # Same CPU profile ports get (ports_launch.sh). The old 600 MHz / idle-core
+    # cap was for the elf's menu, which no longer exists; pugwash is a Python
+    # GUI that downloads and unpacks zips.
+    case "$PLATFORM" in
+        tg5050)
+            for i in 2 3 5 6 7; do echo 1 > /sys/devices/system/cpu/cpu$i/online 2>/dev/null; done
+            echo schedutil > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null
+            echo 408000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq 2>/dev/null
+            echo 1416000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null
+            echo schedutil > /sys/devices/system/cpu/cpu4/cpufreq/scaling_governor 2>/dev/null
+            echo 408000 > /sys/devices/system/cpu/cpu4/cpufreq/scaling_min_freq 2>/dev/null
+            echo 2160000 > /sys/devices/system/cpu/cpu4/cpufreq/scaling_max_freq 2>/dev/null
+            ;;
+        *)
+            echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null
+            echo 2000000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null
+            echo 2000000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq 2>/dev/null
+            ;;
+    esac
+fi
 
 # Many port scripts use #!/bin/bash; the firmware has no /bin/bash.
 [ -e /bin/bash ] || ln -sf "$PM_DIR/bin/bash" /bin/bash
@@ -130,42 +139,123 @@ get_controls() {
 export GPTOKEYB2="\$ESUDO env LD_PRELOAD=\$controlfolder/libinterpose.aarch64.so \$controlfolder/gptokeyb2 \$ESUDOKILL"
 export GPTOKEYB="\$ESUDO \$controlfolder/gptokeyb \$ESUDOKILL"
 EOF
+    cat >> "$PM_DIR/control.txt" <<'EOF'
+
+# ---- NX Redux: exFAT/FAT32 compat for port scripts ----
+# HOME and GAMEDIR live on the card, which can hold no symlinks. A port
+# script's `ln -s` that fails there becomes what upstream's bind_directories
+# does: a bind mount of the target onto the link path (folders and files),
+# a copy when the mount fails. Links that work (/tmp, /dev) are untouched.
+ln() {
+  command ln "$@" 2>/dev/null && return 0
+  local a sym=0 noderef=0 args=()
+  for a in "$@"; do
+    case "$a" in
+      --symbolic) sym=1 ;;
+      --no-dereference|--no-target-directory) noderef=1 ;;
+      --*) ;;
+      -*) case "$a" in *s*) sym=1 ;; esac; case "$a" in *[nT]*) noderef=1 ;; esac ;;
+      *) args+=("$a") ;;
+    esac
+  done
+  [ "$sym" = 1 ] && [ "${#args[@]}" -le 2 ] || { command ln "$@"; return; }
+  local target="${args[0]}" link="${args[1]:-.}"
+  if [ "$noderef" = 0 ] && [ -d "$link" ] && ! mountpoint -q "$link" 2>/dev/null; then
+    link="${link%/}/${target##*/}"
+  fi
+  case "$target" in /*) ;; *) target="$(dirname -- "$link")/$target" ;; esac
+  if [ -d "$target" ]; then
+    rm -f "$link" 2>/dev/null
+    mkdir -p "$link" && { umount "$link" 2>/dev/null; mount --bind "$target" "$link"; } && return 0
+    cp -rf "$target/." "$link/" && return 0
+  elif [ -f "$target" ]; then
+    [ -d "$link" ] || { umount "$link" 2>/dev/null; touch "$link"; } && mount --bind "$target" "$link" && return 0
+    cp -f "$target" "$link" && return 0
+  fi
+  echo "ln: cannot link $link -> ${args[0]} on this filesystem" >&2
+  return 1
+}
+# curl is not on every firmware (the Brick has an old one in /usr/bin) or in
+# PortMaster's bin; PortMaster's wget is (with HTTPS). Covers what port scripts
+# use: -o FILE / -O, -I, -L, -s, -S, -f, -k, -C -, -H, -A, -m /
+# --connect-timeout, --retry. Without -o or -O the body goes to stdout, as
+# with curl; -I prints the response headers there instead.
+if ! command -v curl >/dev/null 2>&1; then
+curl() {
+  # Verify TLS like curl does, whatever the wget build's default; -k turns it off.
+  local a c rest out="" remote=0 head=0 next="" urls=() w=(-q --check-certificate=on) url rc=0
+  for a in "$@"; do
+    case "$next" in
+      o) out="$a"; next=""; continue ;;
+      H) w+=("--header=$a"); next=""; continue ;;
+      A) w+=("--user-agent=$a"); next=""; continue ;;
+      m) w+=("--timeout=$a"); next=""; continue ;;
+      r) w+=("--tries=$((a + 1))"); next=""; continue ;;
+      skip) next=""; continue ;;
+    esac
+    case "$a" in
+      --output) next=o ;;
+      --output=*) out="${a#*=}" ;;
+      --remote-name) remote=1 ;;
+      --head) head=1 ;;
+      --header) next=H ;;
+      --user-agent) next=A ;;
+      --max-time|--connect-timeout) next=m ;;
+      --retry) next=r ;;
+      --insecure) w+=(--no-check-certificate) ;;
+      --continue-at) w+=(-c); next=skip ;;
+      --request|--referer|--user|--retry-delay|--retry-max-time) next=skip ;;
+      --*) ;;
+      -?*)
+        rest="${a#-}"
+        while [ -n "$rest" ]; do
+          c="${rest:0:1}"; rest="${rest:1}"
+          case "$c" in
+            o) if [ -n "$rest" ]; then out="$rest"; else next=o; fi; rest="" ;;
+            O) remote=1 ;;
+            I) head=1 ;;
+            k) w+=(--no-check-certificate) ;;
+            C) w+=(-c); [ -n "$rest" ] || next=skip; rest="" ;;
+            H) if [ -n "$rest" ]; then w+=("--header=$rest"); else next=H; fi; rest="" ;;
+            A) if [ -n "$rest" ]; then w+=("--user-agent=$rest"); else next=A; fi; rest="" ;;
+            m) if [ -n "$rest" ]; then w+=("--timeout=$rest"); else next=m; fi; rest="" ;;
+            X|e|u) [ -n "$rest" ] || next=skip; rest="" ;;
+          esac
+        done ;;
+      *) urls+=("$a") ;;
+    esac
+  done
+  [ -n "${SSL_CERT_FILE:-}" ] && [ -f "$SSL_CERT_FILE" ] && w+=("--ca-certificate=$SSL_CERT_FILE")
+  [ "${#urls[@]}" -gt 0 ] || { echo "curl (NX Redux stand-in): no URL" >&2; return 2; }
+  for url in "${urls[@]}"; do
+    if [ "$head" = 1 ]; then
+      # wget -S writes the headers to stderr, two spaces in; -q would hide them.
+      command wget "${w[@]:1}" -S --spider "$url" 2>&1 | sed -n 's/^  //p'
+      a="${PIPESTATUS[0]}"; [ "$a" = 0 ] || rc="$a"
+    elif [ -n "$out" ]; then
+      command wget "${w[@]}" -O "$out" "$url" || rc=$?
+    elif [ "$remote" = 1 ]; then
+      a="${url%%[?#]*}"; command wget "${w[@]}" -O "${a##*/}" "$url" || rc=$?
+    else
+      command wget "${w[@]}" -O - "$url" || rc=$?
+    fi
+  done
+  return "$rc"
+}
+fi
+EOF
 }
 
-patch_device_info() {
-    # Smart Pro S (tg5050, sun55iw3) vs Smart Pro / Brick (tg5040): stock
-    # PortMaster hardcodes "TrimUI Smart Pro". Patch 1 makes the CFW_NAME
-    # block probe the device tree; patch 2 adds the FIXES case.
-    if ! grep -q 'Smart Pro S' "$DI" 2>/dev/null; then
-        sed -i '/\$CFW_NAME.*TrimUI/{n;s|DEVICE_NAME="TrimUI Smart Pro"|if grep -q sun55iw3 /proc/device-tree/model 2>/dev/null; then DEVICE_NAME="TrimUI Smart Pro S"; else DEVICE_NAME="TrimUI Smart Pro"; fi|;}' "$DI"
-        sed -i '/"trimui smart pro"|"trimui-smart-pro")/i\    "trimui smart pro s"|"trimui-smart-pro-s")\n        DEVICE_CPU="t527"\n        DEVICE_NAME="TrimUI Smart Pro S"\n        ;;' "$DI"
-    fi
-    # hardware.py (pugwash's own detection): sun55iw3 -> trimui-smart-pro-s
-    if ! grep -q 'smart-pro-s' "$HW" 2>/dev/null; then
-        sed -i "s|('sun50iw10', 'trimui-smart-pro'),|('sun55iw3',  'trimui-smart-pro-s'),\n        ('sun50iw10', 'trimui-smart-pro'),|" "$HW"
-        sed -i '/"TrimUI Smart Pro":.*trimui-smart-pro/a\    "TrimUI Smart Pro S": {"device": "trimui-smart-pro-s", "manufacturer": "TrimUI", "cfw": ["TrimUI"]},' "$HW"
-        sed -i '/"trimui-smart-pro":.*a133plus/a\    "trimui-smart-pro-s": {"resolution": (1280, 720), "analogsticks": 2, "cpu": "t527", "capabilities": ["power"], "ram": 1024},' "$HW"
-        sed -i '/"trimui-\*":/i\    "trimui-smart-pro-s*": "2.33",' "$HW"
-        rm -rf "$PM_DIR/pylibs/harbourmaster/__pycache__"
-    fi
-    # Brick Pro: same resolution AND SoC as the Brick, so both detection
-    # paths collapse it into trimui-brick (0 sticks). The redux SD marker
-    # /mnt/SDCARD/tg5040-brickpro tells them apart.
-    if ! grep -q 'TrimUI Brick Pro' "$DI" 2>/dev/null; then
-        sed -i '/^# GLIBC$/i\if [ -e "/mnt/SDCARD/tg5040-brickpro" ] && [ "$DEVICE_NAME" = "TrimUI Brick" ]; then DEVICE_NAME="TrimUI Brick Pro"; ANALOG_STICKS=2; fi' "$DI"
-    fi
-    if ! grep -q 'trimui-brick-pro' "$HW" 2>/dev/null; then
-        sed -i '/"TrimUI Brick": .*"trimui-brick",/a\    "TrimUI Brick Pro": {"device": "trimui-brick-pro", "manufacturer": "TrimUI", "cfw": ["TrimUI"]},' "$HW"
-        sed -i '/"trimui-brick": .*"analogsticks": 0/a\    "trimui-brick-pro": {"resolution": (1024, 768), "analogsticks": 2, "cpu": "a133plus", "capabilities": ["power"], "ram": 1024},' "$HW"
-        sed -i '/    expand_info(info, override_resolution, override_ram)/i\    if info["device"] == "trimui-brick" and Path("/mnt/SDCARD/tg5040-brickpro").exists(): info["device"] = "trimui-brick-pro"' "$HW"
-        rm -rf "$PM_DIR/pylibs/harbourmaster/__pycache__"
-    fi
-}
 
 patch_platform_py() {
     [ -f "$PP" ] || return 0
-    # portmaster_install crashes on TrimUI; NxRedux names the Ports folder
-    # differently from what PortMaster hardcodes.
+    # NxRedux names the Ports folder differently from what PortMaster
+    # hardcodes. PlatformTrimUI.portmaster_install (first run, self-update)
+    # copies the stock TrimUI control.txt over ours and into /roms/ports/
+    # PortMaster on the internal storage, drops its own launch.sh into
+    # Emus/shared and empties tasksetter: none of that fits NX Redux. A
+    # self-update still runs it once with the fresh code, before this patch
+    # is back; ports_launch.sh repairs control.txt before the next port.
     sed -i "s|/mnt/SDCARD/Roms/PORTS|$PORTS_ROM_DIR|g;s|/mnt/SDCARD/Imgs/PORTS|$PORTS_ROM_DIR/.media|g" "$PP"
     "$PY" "$PM_DIR/disable_python_function.py" "$PP" portmaster_install 2>/dev/null
     rm -rf "$PM_DIR/pylibs/harbourmaster/__pycache__"
@@ -224,28 +314,22 @@ patch_device_info_trimui() { # $1 = device_info.txt
     rm -f "${1%/*}"/device_info_trimui_*.env
 }
 
-# The 2026.09.19+ probe counts analog sticks from the input devices and, on
-# device-tree systems, ignores virtual ones. TrimUI's pad is the virtual
-# "TRIMUI Player1" from trimui_inputd, so the Brick Pro's two sticks came out
-# as 0 (analog_0: stick ports flagged, ports set up without sticks); the older
-# "# GLIBC" hook for this no longer matches. Set them right after the probe's
-# own detection, before DEVICE_CAPABILITIES is built. The TrimUI probe cache
-# is dropped only when the script is patched.
-patch_device_info_brickpro_sticks() { # $1 = device_info.txt
+# The 2026.09.19+ probe no longer lists the firmware among the capabilities,
+# so a port its porter marked "!trimui" (known broken on TrimUI) showed up
+# here anyway. Add "trimui" back right before the capability list is
+# exported. The TrimUI probe cache is dropped only when the script is patched.
+patch_device_info_trimui_cap() { # $1 = device_info.txt
     [ -d /usr/trimui ] || return 0
-    grep -q 'NX Redux: Brick Pro sticks' "$1" 2>/dev/null && return 0
+    grep -q 'NX Redux: TrimUI capability' "$1" 2>/dev/null && return 0
     awk '
-        !done && prev ~ /^ *export ANALOG_STICKS$/ && /^ *export ANALOG_TRIGGERS$/ {
-            print
-            print "    # NX Redux: Brick Pro sticks (its pad is virtual, so the probe counts 0)"
-            print "    if [ \"$DEVICE\" = \"brickpro\" ] && [ -d /usr/trimui ]; then"
-            print "        export ANALOG_STICKS=2"
-            print "    fi"
-            done = 1; prev = $0; next
+        !done && /^export DEVICE_CAPABILITIES=/ {
+            print "# NX Redux: TrimUI capability (ports opt out with !trimui)"
+            print "[ \"$CFW_NAME\" = \"TrimUI\" ] && CAPS+=(\"trimui\")"
+            done = 1
         }
-        { print; prev = $0 }
+        { print }
     ' "$1" >"$1.nxtmp" && mv -f "$1.nxtmp" "$1"
-    grep -q 'NX Redux: Brick Pro sticks' "$1" && rm -f "${1%/*}"/device_info_trimui_*.env
+    grep -q 'NX Redux: TrimUI capability' "$1" && rm -f "${1%/*}"/device_info_trimui_*.env
 }
 
 # pugwash runs device_info.txt itself when no probe cache exists, but gives
@@ -260,27 +344,29 @@ warm_device_info_cache() {
         "$PM_DIR/bin/bash" "$DI" -f >/dev/null 2>&1)
 }
 
-# The theme's font sizes are pixels for a 640x480 screen and pugwash draws at
-# the native resolution, so on the Brick's 1024x768 3.2" panel text came out
-# at 62% of the intended size. Draw at 800x600 and let SDL scale the frame:
-# 1.28x larger text and layout, still clear of the overlaps the theme has at
-# 640x480 (long Runtime lines run into the port description).
-patch_pugwash_scale() {
-    case "$DEVICE" in brick|brickpro) ;; *) return 0 ;; esac
-    grep -q 'NX Redux: UI scale' "$PM_DIR/pugwash" 2>/dev/null && return 0
-    sed -i 's|^\( *\)renderer = sdl2.ext.Renderer(self.window, flags=sdl2.SDL_RENDERER_ACCELERATED)$|&\n\1renderer.logical_size = (800, 600)  # NX Redux: UI scale|' "$PM_DIR/pugwash"
+# NX Redux used to ship replacement launch scripts in patchedScripts/ and copy
+# them over installed ports after every PortMaster run. control.txt's ln
+# fallback covers what they fixed, and the copies overwrote newer upstream
+# scripts, so the folder goes.
+retire_patched_scripts() {
+    rm -rf "$PM_DIR/patchedScripts"
 }
 
 apply_patches() {
     patch_device_info_trimui "$DI"
-    patch_device_info_brickpro_sticks "$DI"
+    patch_device_info_trimui_cap "$DI"
     patch_control_txt
-    patch_device_info
     patch_platform_py
     patch_mod_trimui
-    patch_pugwash_scale
     warm_device_info_cache
+    retire_patched_scripts
 }
+
+if [ "$PATCH_ONLY" = 1 ]; then
+    apply_patches
+    echo "NxRedux patches applied"
+    exit 0
+fi
 
 set_controller_layout() { # $1 = nintendo|xbox
     [ -f "$PM_FILES/gamecontrollerdb_$1.txt" ] && cp -f "$PM_FILES/gamecontrollerdb_$1.txt" "$PM_DIR/gamecontrollerdb.txt"
@@ -297,14 +383,6 @@ fix_port_scripts() {
         if head -1 "$f" | grep -q '^#!/bin/bash'; then
             sed -i '1s|#!/bin/bash|#!/usr/bin/env bash|' "$f"
         fi
-    done
-}
-
-apply_patched_scripts() {
-    [ -d "$PM_DIR/patchedScripts" ] || return 0
-    for f in "$PM_DIR/patchedScripts"/*.sh; do
-        [ -f "$f" ] || continue
-        [ -f "$PORTS_ROM_DIR/$(basename "$f")" ] && cp -f "$f" "$PORTS_ROM_DIR/$(basename "$f")"
     done
 }
 
@@ -343,6 +421,14 @@ sync_port_artwork() {
                 break
             fi
         done
+        [ -e "$media/$base.png" ] && continue
+        # Ports that ship no art (third-party sources such as NextOS): the
+        # screenshot PortMaster cached for the catalog, config/images_<source>/
+        # <zip name>.screenshot.<ext>.
+        zip="$(grep -o '"name": *"[^"]*\.zip"' "$dir/port.json" | head -n 1 | sed 's/.*"\([^"]*\)\.zip"$/\1/')"
+        [ -n "$zip" ] || zip="$(basename "$dir")"
+        shot="$(find "$PM_DIR/config" -path '*/images_*/*' -iname "$zip.screenshot.*" 2>/dev/null | head -n 1)"
+        [ -n "$shot" ] && cp -f "$shot" "$media/$base.png"
     done
 }
 
@@ -401,7 +487,6 @@ done
 apply_patches
 set_controller_layout "$NX_BUTTON_LAYOUT"
 fix_port_scripts
-apply_patched_scripts
 create_busybox_wrappers
 sync_port_artwork
 rm -f "$USERDATA_PATH/emulist_cache.txt" "$USERDATA_PATH/romindex_cache.txt"

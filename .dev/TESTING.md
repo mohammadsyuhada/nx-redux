@@ -295,6 +295,33 @@ during menu rendering — useless as a first-frame/boot proxy.
   retired) under `sh` against a fake card with stub `python3`, `show2.elf`
   and `nextval.elf`: not-installed screen, patches applied idempotently
   before/after pugwash, Xbox pad map during pugwash and the Button layout
-  setting restored after, port-script fixes, patchedScripts, cover-art
-  sync, cache invalidation, Xtras version marker, first-run retry and
-  self-update reboot loop. Needs GNU sed (`brew install gnu-sed`).
+  setting restored after, port-script fixes, patchedScripts/ retired,
+  --patch-only, cover-art
+  sync (and the catalog-screenshot fallback for ports with no art), the
+  tg5040 `libGLESv1_CM.so` alias, cache invalidation, the Xtras version
+  marker left to extras.elf, first-run retry and self-update reboot loop;
+  plus `ports_launch.sh`'s patch guard, `.asoundrc` copy, `/roms/ports/<dir>`
+  rewrite and the session bind of the audio routing over `/etc/asound.conf`.
+  Needs GNU sed (`brew install gnu-sed`).
+- PortMaster community catalogs: `scripts/tests/test-extras-portmaster-catalogs.sh`
+  runs the real `portmaster-nextos` / `portmaster-rhh` Xtras `install.sh` and
+  `uninstall.sh` against a fake card with a wget shim: refusal without
+  PortMaster (and, for RHH, without its CA bundle) before any network,
+  source file dropped into `config/` and reset on reinstall, gmtoolkit
+  fetched digest-verified with TLS checked against PortMaster's CA bundle,
+  uninstall removing catalog, cached images, gmtoolkit and markers while
+  installed ports stay. Run every script with its shebang (`./script`), not
+  `sh script`: macOS `sh` is bash in POSIX mode, where `VAR=x func` leaks.
+- TLS verification: `scripts/tests/test-tls-verify.sh` runs the PortMaster
+  and gen1recomp installers' real TLS block (both platforms) against a fake
+  card with and without the system CA bundle: with one, wget must get
+  `--check-certificate=on --ca-certificate=<bundle>` (the vendored GNU wget
+  defaults to no checks, and `--ca-certificate` alone doesn't turn them on);
+  without one, the legacy `--no-check-certificate`. It also checks every
+  installer wget call goes through that flag, RHH's two calls verify,
+  `wget_fetch.c` (system updater, Cheat Database download, network cache)
+  forces checks with a bundle, `cheatdb.c` hands the bundle to its
+  Last-Modified probe, and no other source spells the skip flag. The probe
+  itself is exercised by `scripts/tests/test-cheatdb-data.sh`. Device check
+  (not automatable): an `https://self-signed.badssl.com/` fetch with the
+  same flags must fail (rc 5).

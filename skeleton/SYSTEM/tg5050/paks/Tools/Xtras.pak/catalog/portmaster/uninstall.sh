@@ -6,7 +6,7 @@
 # console launcher. PRESERVES user data: installed ports and their saves in
 # Roms/Ports (PORTS) are never touched (they need the runtime to run, but a
 # reinstall brings them all straight back), and the BASE-shipped
-# Emus/shared/PortMaster/{files,patchedScripts}/ stay - they belong to the
+# Emus/shared/PortMaster/files/ stays - it belongs to the
 # card, not this entry (the old elf's cleanup_portmaster() kept them too).
 # Idempotent (safe on an already/partially/never-installed entry - every
 # removal is a no-op-safe rm -f/-rf). Needs no network access at all.
@@ -33,13 +33,15 @@ rmdir "$SDCARD_PATH/Tools/$PLATFORM" 2>/dev/null || true
 echo "@30 Removing version marker..."
 echo "Removing version marker..."
 rm -f "$XTRAS_STATE_DIR/portmaster.version"
+# The third-party catalog entries live in the runtime's config/, removed below.
+rm -f "$XTRAS_STATE_DIR/portmaster-nextos.version" "$XTRAS_STATE_DIR/portmaster-rhh.version"
 
 echo "@50 Removing runtime..."
 echo "Removing runtime..."
 for entry in "$PM_DIR"/* "$PM_DIR"/.[!.]*; do
     [ -e "$entry" ] || continue
     case "$(basename "$entry")" in
-        files|patchedScripts) ;;
+        files) ;;
         *) rm -rf "$entry" ;;
     esac
 done
