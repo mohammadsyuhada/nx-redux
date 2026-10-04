@@ -197,14 +197,28 @@ void Cheatdb_removeAll(const CheatdbPaths* p) {
 	remove(p->dbver);
 }
 
+// wget TLS flags: verify against ca_bundle when given (--check-certificate=on
+// is required: the vendored wget defaults to no checks, and --ca-certificate
+// alone doesn't turn them on), else no verification. A path holding a quote
+// can't be passed safely inside the single-quoted shell word, so it counts
+// as no bundle.
+static void wget_tls_flags(const char* ca_bundle, char* out, size_t n) {
+	if (ca_bundle && *ca_bundle && !strchr(ca_bundle, '\''))
+		snprintf(out, n, "--check-certificate=on --ca-certificate='%s'", ca_bundle);
+	else
+		snprintf(out, n, "--no-check-certificate");
+}
+
 // Probe remote Last-Modified via `wget -S --spider`. Returns length (0 = unknown).
-int Cheatdb_remoteLastModified(char* out, size_t n) {
+int Cheatdb_remoteLastModified(const char* ca_bundle, char* out, size_t n) {
 	out[0] = '\0';
-	char cmd[1024];
+	char tls[640];
+	wget_tls_flags(ca_bundle, tls, sizeof(tls));
+	char cmd[1536];
 	snprintf(cmd, sizeof(cmd),
-			 "wget -S --spider --no-check-certificate --timeout=30 --tries=1 '%s' 2>&1 "
+			 "wget -S --spider %s --timeout=30 --tries=1 '%s' 2>&1 "
 			 "| sed -n 's/.*[Ll]ast-[Mm]odified: *//p' | head -1 | tr -d '\\r'",
-			 CHEATDB_URL);
+			 tls, CHEATDB_URL);
 	FILE* in = popen(cmd, "r");
 	if (!in)
 		return 0;

@@ -73,10 +73,13 @@ WILDS_ASSET="[Ww]ilds[.-]of[.-][Kk]anto*.zip"
 # fallback) and exports SSL_CERT_FILE for wget's OpenSSL backend. Verified TLS
 # also protects the release-API JSON (which carries the asset digests),
 # closing the digest-over-unverified-channel loop the sha256 check alone can't.
+# --check-certificate=on is required: the vendored wget is built with
+# certificate checks OFF by default, and neither SSL_CERT_FILE nor
+# --ca-certificate turns them on.
 _nx_ca_helper="$SDCARD_PATH/.system/shared/bin/nx_ca_bundle.sh"
 [ -f "$_nx_ca_helper" ] && . "$_nx_ca_helper"
 if [ -n "${NX_CA_BUNDLE:-}" ]; then
-    NX_WGET_TLS=""
+    NX_WGET_TLS="--check-certificate=on --ca-certificate=$NX_CA_BUNDLE"
 else
     NX_WGET_TLS="--no-check-certificate"
 fi
@@ -137,10 +140,11 @@ fetch() { # url dest sha256(""=skip) label
     # stdout indefinitely. Single-token --flag=value form so a naive "skip
     # any -* token" arg shim (see the host test) can't mis-eat a detached
     # value as the next positional arg. $NX_WGET_TLS (see its definition):
-    # empty when a CA bundle was found (full TLS verification), otherwise
-    # --no-check-certificate with the sha256 check below failing closed on a
-    # corrupted download. Deliberately unquoted - "" must expand to no
-    # argument. An empty sha (an asset the API ships no digest for, e.g. the
+    # --check-certificate=on --ca-certificate=<bundle> when a CA bundle was
+    # found (full TLS verification), otherwise --no-check-certificate with the
+    # sha256 check below failing closed on a corrupted download. Deliberately
+    # unquoted so it splits into its flags (the bundle paths have no spaces).
+    # An empty sha (an asset the API ships no digest for, e.g. the
     # raw-hosted yellow manifest) skips the check.
     # shellcheck disable=SC2086
     wget $NX_WGET_TLS -q --timeout=30 --tries=2 -O "$2" "$1" || fail "download failed: $4 (check WiFi)"
@@ -169,7 +173,7 @@ fetch() { # url dest sha256(""=skip) label
 # contract, so it is duplicated rather than shared.
 resolve_latest() {
     _rl_json="$TMPDIR_NX/release.json"
-    # shellcheck disable=SC2086  # $NX_WGET_TLS: "" must expand to no argument
+    # shellcheck disable=SC2086  # $NX_WGET_TLS splits into its flags
     wget $NX_WGET_TLS -q --timeout=30 --tries=2 -O "$_rl_json" \
         "https://api.github.com/repos/$1/releases/latest" \
         || { RL_ERR="could not check the latest version (check WiFi)"; return 1; }

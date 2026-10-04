@@ -42,8 +42,8 @@ set -u
 # Latest-install model (2026-08-10 spec): the release to install is resolved
 # from the GitHub latest-release API at install time - no pinned tag/URL/sha
 # constants. Integrity comes from the per-asset sha256 digest the same API
-# response carries (settings_updater.c's posture: an integrity check, not
-# authentication - trust rests on the upstream project's GitHub account).
+# response carries, which verified TLS (below) makes trustworthy - trust
+# rests on GitHub's TLS and the upstream project's account.
 PM_REPO="PortsMaster/PortMaster-GUI"
 PM_ASSET="PortMaster.zip"
 
@@ -51,6 +51,23 @@ PM_ASSET="PortMaster.zip"
 # settings_updater.c extracts system updates with). PortMaster's own
 # vendored copy can't be used: it is part of what this script installs.
 : "${NX_EXTRAS_UNZIP:=$SDCARD_PATH/.system/shared/bin/7zzs.aarch64}"
+
+# TLS: verify against the CA bundle NX Redux ships in SYSTEM (resolved by the
+# shared helper, same as gen1recomp/install.sh); only a card without any
+# bundle falls back to the system updater's --no-check-certificate
+# convention (common/wget_fetch.c). Verified TLS is what makes the sha256
+# digest mean something: it arrives in the same API response as the URL.
+# --check-certificate=on is required: the vendored wget is built with
+# certificate checks OFF by default, and --ca-certificate alone doesn't turn
+# them on. Unquoted where used so it splits into its flags (the bundle paths
+# have no spaces).
+_nx_ca_helper="$SDCARD_PATH/.system/shared/bin/nx_ca_bundle.sh"
+[ -f "$_nx_ca_helper" ] && . "$_nx_ca_helper"
+if [ -n "${NX_CA_BUNDLE:-}" ]; then
+    NX_WGET_TLS="--check-certificate=on --ca-certificate=$NX_CA_BUNDLE"
+else
+    NX_WGET_TLS="--no-check-certificate"
+fi
 
 TMPDIR_NX="$SDCARD_PATH/.extras_tmp"
 SHARED_EMUS="$SDCARD_PATH/Emus/shared"
@@ -109,12 +126,12 @@ fetch() { # url dest sha256(""=skip) label
     # --timeout=30 bounds dns/connect/read all at once (GNU wget); --tries=2
     # caps retries, so a stalled/half-open connection gives up in ~60s
     # instead of hanging the popen'd read loop that streams this script's
-    # stdout indefinitely. --no-check-certificate is the system updater's own
-    # convention (common/wget_fetch.c): the firmware ships no CA bundle and
-    # the sha256 digest check below fails closed on a corrupted download. An
-    # empty sha (an asset the API ships no digest for) skips the check -
-    # TLS-only, same as the updater when a release carries no hash.
-    wget --no-check-certificate -q --timeout=30 --tries=2 -O "$2" "$1" || fail "download failed: $4 (check WiFi)"
+    # stdout indefinitely. $NX_WGET_TLS: see its definition. The sha256
+    # digest check below fails closed on a corrupted download. An empty sha
+    # (an asset the API ships no digest for) skips the check - TLS-only, same
+    # as the updater when a release carries no hash.
+    # shellcheck disable=SC2086  # $NX_WGET_TLS splits into its flags
+    wget $NX_WGET_TLS -q --timeout=30 --tries=2 -O "$2" "$1" || fail "download failed: $4 (check WiFi)"
     if [ -n "$3" ]; then
         got="$(sha256sum "$2" | cut -d' ' -f1)"
         [ "$got" = "$3" ] || fail "checksum mismatch on $4 - aborting"
@@ -130,7 +147,8 @@ fetch() { # url dest sha256(""=skip) label
 # settings_updater.c uses). Fails closed when unreachable or unparseable.
 resolve_latest() {
     _rl_json="$TMPDIR_NX/release.json"
-    wget --no-check-certificate -q --timeout=30 --tries=2 -O "$_rl_json" \
+    # shellcheck disable=SC2086  # $NX_WGET_TLS splits into its flags
+    wget $NX_WGET_TLS -q --timeout=30 --tries=2 -O "$_rl_json" \
         "https://api.github.com/repos/$1/releases/latest" \
         || fail "could not check the latest version (check WiFi)"
     RL_TAG="$(sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' "$_rl_json" | head -1)"

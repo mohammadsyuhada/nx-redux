@@ -312,3 +312,16 @@ during menu rendering — useless as a first-frame/boot proxy.
   uninstall removing catalog, cached images, gmtoolkit and markers while
   installed ports stay. Run every script with its shebang (`./script`), not
   `sh script`: macOS `sh` is bash in POSIX mode, where `VAR=x func` leaks.
+- TLS verification: `scripts/tests/test-tls-verify.sh` runs the PortMaster
+  and gen1recomp installers' real TLS block (both platforms) against a fake
+  card with and without the system CA bundle: with one, wget must get
+  `--check-certificate=on --ca-certificate=<bundle>` (the vendored GNU wget
+  defaults to no checks, and `--ca-certificate` alone doesn't turn them on);
+  without one, the legacy `--no-check-certificate`. It also checks every
+  installer wget call goes through that flag, RHH's two calls verify,
+  `wget_fetch.c` (system updater, Cheat Database download, network cache)
+  forces checks with a bundle, `cheatdb.c` hands the bundle to its
+  Last-Modified probe, and no other source spells the skip flag. The probe
+  itself is exercised by `scripts/tests/test-cheatdb-data.sh`. Device check
+  (not automatable): an `https://self-signed.badssl.com/` fetch with the
+  same flags must fail (rc 5).

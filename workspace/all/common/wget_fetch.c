@@ -48,9 +48,13 @@ static void shell_escape_single(const char* src, char* dst, int dst_size) {
 
 // TLS verification argument for wget. NX Redux ships a CA bundle (the
 // firmware carries none), so when nx_ca_bundle_path() finds one we verify
-// against it (--ca-certificate=); on a card without any bundle we keep the
-// historical skip-verification flag (--no-check-certificate). Written into a caller-provided buffer so the
-// download threads never share state.
+// against it; on a card without any bundle we keep the historical
+// skip-verification flag (--no-check-certificate). --check-certificate=on is
+// required: the vendored wget is built with certificate checks OFF by
+// default, and --ca-certificate alone does not turn them on (verified on the
+// Brick, 2026-10-04: it accepted self-signed and wrong-host certificates).
+// Written into a caller-provided buffer so the download threads never share
+// state.
 static void fetch_tls_arg(char* buf, int buf_size) {
 	const char* ca = nx_ca_bundle_path();
 	if (!ca) {
@@ -59,7 +63,7 @@ static void fetch_tls_arg(char* buf, int buf_size) {
 	}
 	char esc[MAX_PATH * 4];
 	shell_escape_single(ca, esc, sizeof(esc));
-	snprintf(buf, buf_size, "--ca-certificate='%s'", esc);
+	snprintf(buf, buf_size, "--check-certificate=on --ca-certificate='%s'", esc);
 }
 
 int wget_fetch(const char* url, uint8_t* buffer, int buffer_size) {
@@ -79,7 +83,7 @@ int wget_fetch(const char* url, uint8_t* buffer, int buffer_size) {
 	if (!wget_available())
 		return -1;
 
-	char tls_arg[MAX_PATH * 4 + 32];
+	char tls_arg[MAX_PATH * 4 + 64];
 	fetch_tls_arg(tls_arg, sizeof(tls_arg));
 
 	char cmd[8192];
@@ -138,7 +142,7 @@ int wget_fetch_headers_noredirect(const char* url, char* buffer, int buffer_size
 	if (!wget_available())
 		return -1;
 
-	char tls_arg[MAX_PATH * 4 + 32];
+	char tls_arg[MAX_PATH * 4 + 64];
 	fetch_tls_arg(tls_arg, sizeof(tls_arg));
 
 	char cmd[8192];
@@ -210,7 +214,7 @@ int wget_download_file(const char* url, const char* filepath,
 	// correctly.
 	if (!wget_available())
 		return -1;
-	char tls_arg[MAX_PATH * 4 + 32];
+	char tls_arg[MAX_PATH * 4 + 64];
 	fetch_tls_arg(tls_arg, sizeof(tls_arg));
 	snprintf(cmd, sizeof(cmd),
 			 "(%s %s -S -T 30 -t 2"

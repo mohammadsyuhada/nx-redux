@@ -19,6 +19,7 @@
 #include "ui_menubar.h"
 #include "ui_message.h"
 #include "wget_fetch.h"
+#include "ca_bundle.h"
 
 #define TITLE "Cheat Database"
 // Truncation buffer for a rendered row's text. Matches options.c's row buffer.
@@ -134,7 +135,7 @@ static bool do_download(void) {
 	}
 
 	char lm[128];
-	if (Cheatdb_remoteLastModified(lm, sizeof(lm)) <= 0)
+	if (Cheatdb_remoteLastModified(nx_ca_bundle_path(), lm, sizeof(lm)) <= 0)
 		snprintf(lm, sizeof(lm), "installed");
 	Cheatdb_writeDbVersion(&P, lm);
 	char rm[600];
@@ -147,7 +148,7 @@ static bool do_download(void) {
 static void do_update(void) {
 	render_progress("Checking for updates...", -1, "", 0);
 	char remote[128];
-	int n = Cheatdb_remoteLastModified(remote, sizeof(remote));
+	int n = Cheatdb_remoteLastModified(nx_ca_bundle_path(), remote, sizeof(remote));
 	if (n <= 0) {
 		UI_showMessage(screen, "Could not check (WiFi?)", 3000);
 		return;

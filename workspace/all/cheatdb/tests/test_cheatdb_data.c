@@ -67,6 +67,47 @@ int main(void) {
 			wsc = CHEATDB_MAP[i].folder;
 	CHECK(wsc && strcmp(wsc, "Bandai - WonderSwan Color") == 0, "WSC -> Bandai - WonderSwan Color");
 
+	// Last-Modified probe: TLS verified against the CA bundle when one is
+	// given (the vendored wget needs --check-certificate=on, --ca-certificate
+	// alone doesn't verify); no bundle, or one whose path holds a quote, keeps
+	// the no-verification fallback. The wget shim logs each call's argv
+	// (one line per call) to $WGET_ARGS_LOG.
+	const char* log = getenv("WGET_ARGS_LOG");
+	char lm[128], line[1024] = {0};
+	if (log) {
+		remove(log);
+		int got = Cheatdb_remoteLastModified("/sd/.system/shared/ssl/ca-certificates.crt", lm, sizeof(lm));
+		CHECK(got > 0 && strcmp(lm, "Mon, 14 Sep 2026 18:05:15 GMT") == 0, "Last-Modified parsed");
+		FILE* lf = fopen(log, "r");
+		if (lf && fgets(line, sizeof(line), lf)) {}
+		if (lf)
+			fclose(lf);
+		CHECK(strstr(line, "--check-certificate=on --ca-certificate=/sd/.system/shared/ssl/ca-certificates.crt") &&
+				  !strstr(line, "--no-check-certificate"),
+			  "Last-Modified probe verifies TLS against the bundle");
+
+		remove(log);
+		Cheatdb_remoteLastModified(NULL, lm, sizeof(lm));
+		line[0] = '\0';
+		lf = fopen(log, "r");
+		if (lf && fgets(line, sizeof(line), lf)) {}
+		if (lf)
+			fclose(lf);
+		CHECK(strstr(line, "--no-check-certificate") && !strstr(line, "--check-certificate=on"),
+			  "no bundle -> no-verification fallback");
+
+		remove(log);
+		Cheatdb_remoteLastModified("/sd/it's.crt", lm, sizeof(lm));
+		line[0] = '\0';
+		lf = fopen(log, "r");
+		if (lf && fgets(line, sizeof(line), lf)) {}
+		if (lf)
+			fclose(lf);
+		CHECK(strstr(line, "--no-check-certificate") != NULL, "bundle path with a quote is not spliced into the shell");
+	} else {
+		CHECK(0, "WGET_ARGS_LOG not set (run via scripts/tests/test-cheatdb-data.sh)");
+	}
+
 	printf(fails ? "\n%d FAILURE(S)\n" : "\nALL PASS\n", fails);
 	return fails ? 1 : 0;
 }

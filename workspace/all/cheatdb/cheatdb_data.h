@@ -31,4 +31,6 @@ void Cheatdb_truncateManifest(const CheatdbPaths* p);
 int Cheatdb_extractFolder(const CheatdbPaths* p, const char* folder, const char* destdir);
 int Cheatdb_appendManifest(const CheatdbPaths* p, const char* folder, const char* destdir);
 void Cheatdb_removeAll(const CheatdbPaths* p);
-int Cheatdb_remoteLastModified(char* out, size_t n);
+// ca_bundle: CA bundle to verify TLS against (nx_ca_bundle_path()), or NULL
+// on a card without one (falls back to no verification, like wget_fetch.c).
+int Cheatdb_remoteLastModified(const char* ca_bundle, char* out, size_t n);
