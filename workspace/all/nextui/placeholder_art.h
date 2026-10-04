@@ -9,5 +9,8 @@
 
 // Fill w×h opaque ARGB8888 pixels (`pitch` pixels per row) for `seed` (any string; NULL = "").
 void PlaceholderArt_render(uint32_t* px, int w, int h, int pitch, const char* seed);
+// The same shapes (placed by `seed`) in one colour: rgb's (0xRRGGBB) hue, its saturation scaling the picture's (a grey
+// or white rgb gives a neutral one), the same dark values. Home's "Pick a game" card in the accent.
+void PlaceholderArt_renderRgb(uint32_t* px, int w, int h, int pitch, const char* seed, uint32_t rgb);
 
 #endif

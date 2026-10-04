@@ -113,6 +113,7 @@ typedef struct
 	int gameListStyle;				// MENU_STYLE_* for game lists
 	int menuOrient[MENU_CAT_COUNT]; // MENU_ORIENT_* per main menu tab (MENU_CAT_*), stored whatever the style
 	int gameListOrient;				// MENU_ORIENT_* for game lists, stored whatever the style
+	int gameListVAlign;				// MENU_VALIGN_* for game lists' vertical stacks, stored whatever the style
 
 	// font loading/unloading callback
 	FontLoad_callback_t onFontChange;
@@ -229,10 +230,14 @@ typedef struct
 #define CFG_DEFAULT_STATEFORMAT STATE_FORMAT_SRM_UNCOMPRESSED
 #define CFG_DEFAULT_EXTRACTEDFILENAME false
 #define CFG_DEFAULT_FNLEDS false
-#define CFG_DEFAULT_MENUSTYLE MENUSTYLE_MAIN_DEFAULT		 // Carousel
-#define CFG_DEFAULT_GAMELISTSTYLE MENUSTYLE_GAMELIST_DEFAULT // Grid
-#define CFG_DEFAULT_MENUORIENT MENUSTYLE_ORIENT_DEFAULT		 // Horizontal
-#define CFG_DEFAULT_GAMELISTORIENT MENUSTYLE_ORIENT_DEFAULT	 // Horizontal
+#define CFG_DEFAULT_MENUSTYLE MENUSTYLE_MAIN_DEFAULT		 // Carousel (Consoles and Collections)
+#define CFG_DEFAULT_MENUSTYLE_TOOLS MENU_STYLE_GRID			 // the Tools tab's own default
+#define CFG_DEFAULT_GAMELISTSTYLE MENUSTYLE_GAMELIST_DEFAULT // Carousel
+// A main-menu tab's default style: Grid for Tools, Carousel for the others.
+#define CFG_DEFAULT_MENUSTYLE_FOR(cat) ((cat) == MENU_CAT_TOOLS ? CFG_DEFAULT_MENUSTYLE_TOOLS : CFG_DEFAULT_MENUSTYLE)
+#define CFG_DEFAULT_MENUORIENT MENUSTYLE_ORIENT_DEFAULT		// Horizontal
+#define CFG_DEFAULT_GAMELISTORIENT MENUSTYLE_ORIENT_DEFAULT // Horizontal
+#define CFG_DEFAULT_GAMELISTVALIGN MENUSTYLE_VALIGN_DEFAULT // Left
 #define CFG_DEFAULT_WIFI false
 #define CFG_DEFAULT_VIEW SCREEN_GAMELIST
 #define CFG_DEFAULT_WIFI_DIAG false
@@ -382,6 +387,10 @@ int CFG_getMenuOrient(int category);
 void CFG_setMenuOrient(int category, int orient);
 int CFG_getGameListOrient(void);
 void CFG_setGameListOrient(int orient);
+// The game lists' Vertical alignment (MENU_VALIGN_*), the Layouts page's "Game lists alignment"; it applies only while
+// they draw Vertical (CFG_getGameListOrientEffective). An out-of-range value reads as Left.
+int CFG_getGameListVAlign(void);
+void CFG_setGameListVAlign(int valign);
 // Effective orientation: Vertical only while the tab is Carousel, or the game lists are Carousel or Backdrop;
 // List and Grid always read Horizontal (menustyle_model.h).
 int CFG_getMenuOrientEffective(int category);

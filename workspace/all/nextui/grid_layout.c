@@ -28,6 +28,11 @@ void GridLayout_computeWide(float screen_w, float body_top, float body_h, int n,
 
 void GridLayout_computeEx(float screen_w, float body_top, float body_h, int n, float width_mul, float gap_mul,
 						  GridLayout* out) {
+	GridLayout_computeSized(screen_w, body_top, body_h, n, width_mul, gap_mul, 1.0f, out);
+}
+
+void GridLayout_computeSized(float screen_w, float body_top, float body_h, int n, float width_mul, float gap_mul,
+							 float size_mul, GridLayout* out) {
 	GridLayout* g = out;
 	g->width_mul = width_mul > 0 ? width_mul : 1.0f;
 	g->screen_w = screen_w;
@@ -36,9 +41,19 @@ void GridLayout_computeEx(float screen_w, float body_top, float body_h, int n, f
 	g->gap = GAP * (gap_mul > 0 ? gap_mul : 1.0f);
 	g->gutter = GUTTER;
 	g->n = n < 0 ? 0 : n;
-	g->tile_h = maxf(1.0f, minf(TILE_H_CAP, (body_h - 2 * RING_ROOM - g->gap) / 2));
+	g->tile_h = maxf(1.0f, minf(TILE_H_CAP, (body_h - 2 * RING_ROOM - g->gap) / 2) * (size_mul > 0 ? size_mul : 1.0f));
 	g->tile_w = g->tile_h * TILE_W_CAP / TILE_H_CAP * g->width_mul;
 	int cols = (int)floorf((screen_w - 2 * GUTTER + g->gap) / (g->tile_w + g->gap));
+	// never one column for two or more items: a wide tile (Consoles, Collections) on a tall body would stack them,
+	// on one panel and not on another (their bars' height differs in dp). The tile shrinks, its shape kept, to two across.
+	if (cols < 2 && g->n >= 2) {
+		float two_w = (screen_w - 2 * GUTTER - g->gap) / 2;
+		if (two_w > 0 && two_w < g->tile_w) {
+			g->tile_h *= two_w / g->tile_w;
+			g->tile_w = two_w;
+		}
+		cols = 2;
+	}
 	g->cols = cols < 1 ? 1 : cols;
 	g->sliding = g->n > 2 * g->cols;
 	// a still grid centres the rows it fills (one row of tools sits at the body's centre); a sliding one keeps both

@@ -362,6 +362,8 @@ static SDL_Surface* buildBoxart(const char* rom, int w, int h, int* ox, int* oy)
 static SDL_Surface* buildBackdrop(const char* rom, int w, int h) {
 	HomeArtRect keep = {0};
 	SDL_Surface* src = screenshotFor(rom, &keep);
+	if (!src) // no screenshot: the game's abstract picture (a pin's and a tile's), under the same shade
+		src = placeholderFor(rom, false, &keep);
 	if (!src || dropIfCancelled(src))
 		return NULL;
 	SDL_Surface* out = cropFill(src, keep, w, h, 1.0f, HomeArt_frameY(keep.w, keep.h, 0.5f));

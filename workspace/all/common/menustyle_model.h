@@ -17,7 +17,7 @@ enum { MENU_STYLE_LIST = 0,
 #define MENUSTYLE_MAIN_DEFAULT MENU_STYLE_CAROUSEL
 // Game lists choose List, Grid, Carousel or Backdrop.
 #define MENUSTYLE_GAMELIST_COUNT MENU_STYLE_COUNT
-#define MENUSTYLE_GAMELIST_DEFAULT MENU_STYLE_GRID
+#define MENUSTYLE_GAMELIST_DEFAULT MENU_STYLE_CAROUSEL
 
 // The value to store for a main-menu tab: an out-of-range value becomes the default. A Backdrop (3) is kept as
 // written, so a file from an older build is left alone; MenuStyle_mainMenu reads it as Carousel.
@@ -59,6 +59,21 @@ static inline int MenuStyle_storeOrient(int orient) {
 	if (orient < MENU_ORIENT_HORIZONTAL || orient >= MENU_ORIENT_COUNT)
 		return MENUSTYLE_ORIENT_DEFAULT;
 	return orient;
+}
+
+// The game lists' Vertical alignment (Carousel and Backdrop, Vertical): Left, the stack left of centre with the caption
+// on its right; Right, the same mirrored about the screen's centre (the caption's text still left-aligned). Stored values
+// (minuisettings.txt): never renumber. Kept whatever the style and orientation.
+enum { MENU_VALIGN_LEFT = 0,
+	   MENU_VALIGN_RIGHT,
+	   MENU_VALIGN_COUNT };
+#define MENUSTYLE_VALIGN_DEFAULT MENU_VALIGN_LEFT
+
+// The value to store (and how a stored value reads): an out-of-range value becomes Left.
+static inline int MenuStyle_storeVAlign(int valign) {
+	if (valign < MENU_VALIGN_LEFT || valign >= MENU_VALIGN_COUNT)
+		return MENUSTYLE_VALIGN_DEFAULT;
+	return valign;
 }
 
 // Whether a main-menu tab's stored style has an orientation: only Carousel (a stored Backdrop reads as Carousel).

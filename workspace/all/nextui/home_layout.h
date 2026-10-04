@@ -45,6 +45,7 @@ typedef struct {
 	int ntop;
 	HomeTile top[HOME_MAX_TOP]; // Continue first, then the squares in reading order
 	int k;						// pins per row
+	float pin_h;				// a pin row's height: HOME_PIN_H, more at the Small UI scale (the room the squares free)
 	int npins;
 	HomeTile pins[HOME_MAX_PINS]; // the rows' games, row by row
 	float page_h;
@@ -53,6 +54,13 @@ typedef struct {
 // W x H: the screen (Brick px); bar: the tab row's and the hint bar's height. ngames: the pinned games (Continue's own
 // excluded), ntools: the pinned tools.
 void HomeLayout_compute(float W, float H, float bar, int strip_lines, int ngames, int ntools, HomeLayout* out);
+// The same with the stats strip's offsets (its baselines and the top section's start under it) strip_k times their
+// size: Home passes 3 / the UI scale, so the strip keeps the Large scale's size whatever the UI scale. strip_k > 1 (the
+// Small scale) with tools also keeps the tool squares' glyph at the Large size (46 × strip_k) and sizes the squares from
+// it (the glyph 58% of the side), so the top section is just their column (the Brick) or three-row block (the Smart Pro
+// S, filled a column at a time) tall and one pin row takes the rest.
+void HomeLayout_computeStrip(float W, float H, float bar, int strip_lines, float strip_k, int ngames, int ntools,
+							 HomeLayout* out);
 
 typedef enum { HOME_SEC_TOP,
 			   HOME_SEC_PINS } HomeSection;

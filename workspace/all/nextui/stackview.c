@@ -1,5 +1,6 @@
 // The Vertical orientation (§8f): render and D-pad input for the main-menu Carousel-Vertical (§8f.3) and the game
-// lists' Backdrop-Vertical and Carousel-Vertical (§8f.4–6: the stack left of centre, the caption to its right).
+// lists' Backdrop-Vertical and Carousel-Vertical (§8f.4–6: the stack left of centre, the caption to its right; with
+// Vertical alignment Right, mirrored: the stack right of centre, the caption, still left-aligned, to its left).
 // Geometry and the d-pad's rules come from stack_model.c (dp, host-tested); the items are rowview.c's (rowview_shared.h):
 // the frameless slots and the "N games" line, the Carousel's game tiles, the Backdrop's box art and placeholder box,
 // and the game caption, all cached there per rest size (the caption per text), so nothing is rendered per frame but
@@ -91,7 +92,8 @@ typedef struct {
 	StackSide side; // the game lists' side arrangement (dp)
 	RowGeo g;
 	int body_top, body_h; // px
-	int cap_x, cap_w;	  // the side caption's column (px): from its left edge to the 24 dp right margin
+	int cap_x, cap_w;	  // the side caption's column (px): from its left edge to the 24 dp right margin (Right: mirrored)
+	bool right;			  // Vertical alignment Right (a game list): mirrored, the caption right-aligned
 	float body_h_dp, sel_y_dp;
 } StackGeo;
 
@@ -149,6 +151,14 @@ static void computeGeo(SDL_Surface* screen, StackKind kind, StackGeo* sg) {
 	g->k = game ? 1.0f : fminf(1.0f, sg->ss.item_w / spec_w);
 	sg->cap_x = game ? Stack_capXPx(g->cx, g->full_w, pd) : 0; // from the drawn item (px), not rounded from dp
 	sg->cap_w = game ? screen->w - Stack_round(sg->side.margin * pd) - sg->cap_x : 0;
+	sg->right = game && CFG_getGameListVAlign() == MENU_VALIGN_RIGHT;
+	if (sg->right) { // Vertical alignment Right: the arrangement mirrored, the caption right-aligned against the stack
+		// Backdrop: the caption's left edge where Left's selected box is drawn (the placeholder's 0.72 case stands
+		// for the box art, which varies per game), so its outer margin matches Left's
+		int box_w = g->full_w < (int)(g->full_h * 0.72f + 0.5f) ? g->full_w : (int)(g->full_h * 0.72f + 0.5f);
+		int start = kind == STACK_GAME_BACKDROP ? g->cx - box_w / 2 : 0;
+		Stack_mirrorSide(screen->w, &g->cx, &sg->cap_x, &sg->cap_w, start);
+	}
 }
 
 // An item's centre on screen (px).
@@ -384,7 +394,7 @@ void StackView_render(SDL_Surface* screen, int lastScreen) {
 	}
 	if (gameStack(kind))
 		RowView_drawSideCaption(screen, &sg.g, e, RowView_kindFor(sel, e), sg.cap_x, sg.cap_w, sg.g.cy, sg.body_top,
-								sg.body_h);
+								sg.body_h, sg.right);
 
 	edgeFade(screen, &sg);
 	SDL_SetClipRect(screen, &prev_clip);

@@ -59,6 +59,11 @@ StackSide Stack_sideGeom(float want, int ar_w, int ar_h, float width);
 // The caption's left edge on screen (px), from the drawn stack: the stack's centre cx_px + its selected item's half
 // width item_w_px / 2 + 32 dp (at pd px a dp), rounded once (Stack_round).
 int Stack_capXPx(int cx_px, int item_w_px, float pd);
+// Vertical alignment Right: the stack's centre and the caption's column mirrored about the screen's centre (px), the
+// column ending the same 32 dp short of the stack as it starts past it on the left (its text right-aligned against
+// it). start_px > 0 (Backdrop: where Left's selected box is drawn) moves the column's left edge there, so the outer
+// margin matches Left's, unless that leaves under 40% of the mirrored column's width.
+void Stack_mirrorSide(int screen_w, int* cx_px, int* cap_x_px, int* cap_w_px, int start_px);
 
 // Equal side margins M (the game lists' Carousel and Backdrop): the stack's left edge at M (x = M + w/2), the
 // caption's right margin M; M = STACK_CAROUSEL_MARGIN_DP, held to what keeps the caption at 40% of the width and

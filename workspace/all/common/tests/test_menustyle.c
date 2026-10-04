@@ -14,14 +14,19 @@ static int loadGameList(int stored) {
 	return MenuStyle_gameList(MenuStyle_storeGameList(stored));
 }
 
-static void unset_main_menu_is_carousel(void) {
+// Consoles and Collections start on Carousel, Tools on Grid.
+static void unset_main_menu_defaults(void) {
 	assert(CFG_DEFAULT_MENUSTYLE == MENU_STYLE_CAROUSEL);
-	assert(MenuStyle_mainMenu(CFG_DEFAULT_MENUSTYLE) == MENU_STYLE_CAROUSEL);
+	assert(CFG_DEFAULT_MENUSTYLE_FOR(MENU_CAT_CONSOLES) == MENU_STYLE_CAROUSEL);
+	assert(CFG_DEFAULT_MENUSTYLE_FOR(MENU_CAT_COLLECTIONS) == MENU_STYLE_CAROUSEL);
+	assert(CFG_DEFAULT_MENUSTYLE_FOR(MENU_CAT_TOOLS) == MENU_STYLE_GRID);
+	for (int c = 0; c < MENU_CAT_COUNT; c++)
+		assert(MenuStyle_mainMenu(CFG_DEFAULT_MENUSTYLE_FOR(c)) == CFG_DEFAULT_MENUSTYLE_FOR(c));
 }
 
-static void unset_game_list_is_grid(void) {
-	assert(CFG_DEFAULT_GAMELISTSTYLE == MENU_STYLE_GRID);
-	assert(MenuStyle_gameList(CFG_DEFAULT_GAMELISTSTYLE) == MENU_STYLE_GRID);
+static void unset_game_list_is_carousel(void) {
+	assert(CFG_DEFAULT_GAMELISTSTYLE == MENU_STYLE_CAROUSEL);
+	assert(MenuStyle_gameList(CFG_DEFAULT_GAMELISTSTYLE) == MENU_STYLE_CAROUSEL);
 }
 
 static void stored_values_win(void) {
@@ -51,9 +56,9 @@ static void out_of_range_is_the_default(void) {
 		assert(MenuStyle_storeMainMenu(bad[i]) == MENU_STYLE_CAROUSEL);
 		assert(MenuStyle_mainMenu(bad[i]) == MENU_STYLE_CAROUSEL);
 		assert(loadMain(bad[i]) == MENU_STYLE_CAROUSEL);
-		assert(MenuStyle_storeGameList(bad[i]) == MENU_STYLE_GRID);
-		assert(MenuStyle_gameList(bad[i]) == MENU_STYLE_GRID);
-		assert(loadGameList(bad[i]) == MENU_STYLE_GRID);
+		assert(MenuStyle_storeGameList(bad[i]) == MENU_STYLE_CAROUSEL);
+		assert(MenuStyle_gameList(bad[i]) == MENU_STYLE_CAROUSEL);
+		assert(loadGameList(bad[i]) == MENU_STYLE_CAROUSEL);
 	}
 }
 
@@ -104,12 +109,12 @@ static void game_list_orientation_by_style(void) {
 	assert(!MenuStyle_gameListHasOrient(MENU_STYLE_GRID));
 	assert(MenuStyle_gameListHasOrient(MENU_STYLE_CAROUSEL));
 	assert(MenuStyle_gameListHasOrient(MENU_STYLE_BACKDROP));
-	assert(!MenuStyle_gameListHasOrient(99)); // out of range reads as Grid (the default)
+	assert(MenuStyle_gameListHasOrient(99)); // out of range reads as Carousel (the default)
 	assert(MenuStyle_gameListOrient(MENU_STYLE_LIST, MENU_ORIENT_VERTICAL) == MENU_ORIENT_HORIZONTAL);
 	assert(MenuStyle_gameListOrient(MENU_STYLE_GRID, MENU_ORIENT_VERTICAL) == MENU_ORIENT_HORIZONTAL);
 	assert(MenuStyle_gameListOrient(MENU_STYLE_CAROUSEL, MENU_ORIENT_VERTICAL) == MENU_ORIENT_VERTICAL);
 	assert(MenuStyle_gameListOrient(MENU_STYLE_BACKDROP, MENU_ORIENT_VERTICAL) == MENU_ORIENT_VERTICAL);
-	assert(MenuStyle_gameListOrient(-1, MENU_ORIENT_VERTICAL) == MENU_ORIENT_HORIZONTAL);
+	assert(MenuStyle_gameListOrient(-1, MENU_ORIENT_VERTICAL) == MENU_ORIENT_VERTICAL); // reads as Carousel
 }
 
 // The stored orientation is independent of the style: switching to List/Grid and back keeps Vertical.
@@ -127,9 +132,20 @@ static void orientation_kept_across_style_changes(void) {
 	assert(orient == MENU_ORIENT_VERTICAL); // never rewritten by a style change
 }
 
+// Vertical alignment: Left by default and for anything out of range; the stored values are fixed.
+static void valign_store_and_out_of_range(void) {
+	assert(MENU_VALIGN_LEFT == 0 && MENU_VALIGN_RIGHT == 1 && MENU_VALIGN_COUNT == 2);
+	assert(MENUSTYLE_VALIGN_DEFAULT == MENU_VALIGN_LEFT);
+	assert(MenuStyle_storeVAlign(MENU_VALIGN_LEFT) == MENU_VALIGN_LEFT);
+	assert(MenuStyle_storeVAlign(MENU_VALIGN_RIGHT) == MENU_VALIGN_RIGHT);
+	int bad[] = {-1, 2, 99};
+	for (int i = 0; i < 3; i++)
+		assert(MenuStyle_storeVAlign(bad[i]) == MENU_VALIGN_LEFT);
+}
+
 int main(void) {
-	unset_main_menu_is_carousel();
-	unset_game_list_is_grid();
+	unset_main_menu_defaults();
+	unset_game_list_is_carousel();
 	stored_values_win();
 	main_menu_backdrop_reads_as_carousel();
 	game_list_backdrop_stays();
@@ -137,6 +153,7 @@ int main(void) {
 	choice_counts();
 	orientation_default_is_horizontal();
 	orientation_store_and_out_of_range();
+	valign_store_and_out_of_range();
 	main_menu_orientation_by_style();
 	game_list_orientation_by_style();
 	orientation_kept_across_style_changes();

@@ -25,12 +25,19 @@ static void addRows(HomeLayout* l, float y, float pw, int first, int ngames) {
 	for (int g = first; g < ngames && l->npins < HOME_MAX_PINS; g++) {
 		int i = l->npins, r = i / l->k, c = i % l->k;
 		l->pins[l->npins++] =
-			(HomeTile){HOME_TILE_GAME, g, rect(HOME_EDGE + c * (pw + HOME_GAP), y + r * (HOME_PIN_H + HOME_GAP), pw, HOME_PIN_H)};
+			(HomeTile){HOME_TILE_GAME, g, rect(HOME_EDGE + c * (pw + HOME_GAP), y + r * (l->pin_h + HOME_GAP), pw, l->pin_h)};
 	}
 }
 
 void HomeLayout_compute(float W, float H, float bar, int strip_lines, int ngames, int ntools, HomeLayout* out) {
+	HomeLayout_computeStrip(W, H, bar, strip_lines, 1.0f, ngames, ntools, out);
+}
+
+void HomeLayout_computeStrip(float W, float H, float bar, int strip_lines, float strip_k, int ngames, int ntools,
+							 HomeLayout* out) {
 	memset(out, 0, sizeof(*out));
+	if (strip_k <= 0)
+		strip_k = 1.0f;
 	HomeLayout* l = out;
 	float L = HOME_EDGE, R = W - HOME_EDGE, bottom = H - bar - HOME_BOTTOM;
 	if (ngames < 0)
@@ -41,15 +48,19 @@ void HomeLayout_compute(float W, float H, float bar, int strip_lines, int ngames
 	l->strip_lines = strip_lines < 0 ? 0 : strip_lines > 2 ? 2
 														   : strip_lines;
 	// the strip: 27 px text from x 54, baselines 121 / 157 (two lines) or 124 (one) on the Brick (bar 84); the top
-	// section from 187 / 155, or 111 without a strip
+	// section from 187 / 155, or 111 without a strip. The strip's own offsets × strip_k (its text keeps one size)
 	l->strip_x = L + 3;
 	l->strip_right = R - 1;
-	l->strip_base[0] = bar + (l->strip_lines == 2 ? 37 : 40);
-	l->strip_base[1] = bar + 73;
-	float y0 = bar + (l->strip_lines == 2 ? 103 : l->strip_lines == 1 ? 71
-																	  : 27);
+	l->strip_base[0] = bar + (l->strip_lines == 2 ? 37 : 40) * strip_k;
+	l->strip_base[1] = bar + 73 * strip_k;
+	float y0 = bar + (l->strip_lines == 2 ? 103 * strip_k : l->strip_lines == 1 ? 71 * strip_k
+																				: 27);
 	l->top_y = y0;
+	l->pin_h = HOME_PIN_H;
 	float page_bottom = bottom;
+	// the Small UI scale with tools: the glyph at the Large size, the squares sized from it (the glyph 58% of a side)
+	bool small = strip_k > 1.0f && ntools > 0;
+	float small_glyph = 46 * strip_k, small_sq = roundf(small_glyph / 0.58f);
 
 	if (!l->wide) {
 		// the Brick: one row of two pins over the hint bar (more go below, the page scrolls), the top section down to
@@ -57,14 +68,21 @@ void HomeLayout_compute(float W, float H, float bar, int strip_lines, int ngames
 		l->k = 2;
 		float row_y = bottom - HOME_PIN_H;
 		float h = (ngames > 0 ? row_y - HOME_GAP : bottom) - y0;
+		if (small) { // the column of squares (20 Large px apart) sets the top's height; the pin row takes the rest
+			h = 3 * small_sq + 2 * 20 * strip_k;
+			if (ngames > 0) {
+				row_y = y0 + h + HOME_GAP;
+				l->pin_h = bottom - row_y;
+			}
+		}
 		l->top_h = h;
 		// a column of 3 squares flush right: side round((h − 40) / 3), the gaps sharing the rest; more than 3 tools:
 		// the first two and "+N"
 		float cont_w = R - L;
 		if (ntools > 0) {
-			float sq = roundf((h - 40) / 3), gap = (h - 3 * sq) / 2, x = R - sq;
+			float sq = small ? small_sq : roundf((h - 40) / 3), gap = (h - 3 * sq) / 2, x = R - sq;
 			l->square = sq;
-			l->glyph = minf(46, roundf(sq * 0.58f));
+			l->glyph = small ? small_glyph : minf(46, roundf(sq * 0.58f));
 			cont_w = x - HOME_GAP - L;
 			addTop(l, HOME_TILE_CONTINUE, 0, rect(L, y0, cont_w, h));
 			int shown = ntools > 3 ? 2 : ntools;
@@ -88,21 +106,31 @@ void HomeLayout_compute(float W, float H, float bar, int strip_lines, int ngames
 			rows = 1;
 			h = minf(HOME_TOP_MAX, bottom - HOME_PIN_H - HOME_GAP - y0);
 		}
+		float rows_y = y0 + h + HOME_GAP;
+		if (small) { // the squares three rows tall set the top's height; one pin row takes the rest
+			h = 3 * small_sq + 2 * HOME_GAP;
+			rows_y = y0 + h + HOME_GAP;
+			l->pin_h = bottom - rows_y;
+		}
 		l->top_h = h;
 		// Continue from the left edge to 30 before the squares (no tools: the full width); the squares flush right in
 		// reading order: up to 4 tools a 2 x 2 block, 5 or more a 3 x 2 block (its third column taken from Continue),
 		// more than 6 tools five and "+N". Every pinned game goes in the rows (docs/home-b2.md: no large first game).
 		float cont_w = R - L;
+		// The Small UI scale: three rows of squares, filled a column at a time (one column for up to 3 tools, two for
+		// up to 6, more: five and "+N").
 		if (ntools > 0) {
-			int cols = ntools <= 4 ? 2 : 3, slots = 2 * cols;
-			float sq = (h - HOME_GAP) / 2, bx = R - cols * sq - (cols - 1) * HOME_GAP;
+			int srows = small ? 3 : 2;
+			int cols = small ? (ntools <= 3 ? 1 : 2) : (ntools <= 4 ? 2 : 3), slots = srows * cols;
+			float sq = small ? small_sq : (h - HOME_GAP) / 2, bx = R - cols * sq - (cols - 1) * HOME_GAP;
 			l->square = sq;
-			l->glyph = minf(46, roundf(sq * 0.58f));
+			l->glyph = small ? small_glyph : minf(46, roundf(sq * 0.58f));
 			cont_w = bx - HOME_GAP - L;
 			addTop(l, HOME_TILE_CONTINUE, 0, rect(L, y0, cont_w, h));
 			int shown = ntools > slots ? slots - 1 : ntools;
 			for (int i = 0; i <= shown && i < slots; i++) {
-				HomeRect r = rect(bx + (float)(i % cols) * (sq + HOME_GAP), y0 + (float)(i / cols) * (sq + HOME_GAP), sq, sq);
+				int c = small ? i / srows : i % cols, rr = small ? i % srows : i / cols;
+				HomeRect r = rect(bx + (float)c * (sq + HOME_GAP), y0 + (float)rr * (sq + HOME_GAP), sq, sq);
 				if (i < shown)
 					addTop(l, HOME_TILE_TOOL, i, r);
 				else if (ntools > slots)
@@ -111,7 +139,7 @@ void HomeLayout_compute(float W, float H, float bar, int strip_lines, int ngames
 		} else {
 			addTop(l, HOME_TILE_CONTINUE, 0, rect(L, y0, cont_w, h));
 		}
-		addRows(l, y0 + h + HOME_GAP, SPAN(2), 0, ngames);
+		addRows(l, rows_y, SPAN(2), 0, ngames);
 #undef SPAN
 	}
 	if (l->npins > 0) {

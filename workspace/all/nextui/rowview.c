@@ -66,7 +66,11 @@
 #define CAROUSEL_CAPTION_GAP_DP 16.0f // × f, under the row
 #define BACKDROP_CAPTION_GAP_DP 18.0f // × f, under the row
 #define CAPTION_NAME_SP 18.0f
+#define CAPTION_SIDE_NAME_SP 16.0f // beside a Vertical stack: a column, not the row's full width under it
 #define CAPTION_INFO_SP 14.0f
+// ...and at the Small UI scale (2x), where those read small: the name back at the row's 18, the info a step up
+#define CAPTION_SIDE_NAME_SP_SMALL 18.0f
+#define CAPTION_SIDE_INFO_SP_SMALL 15.0f
 #define CAPTION_GUTTER_DP 24.0f
 
 #define TILE_W_SPEC 140.0f // the Grid tile's width: tiles.c's insets scale by tile_w / 140 (never above 1)
@@ -92,7 +96,6 @@
 #define PH_BORDER_ALPHA 31	// white at 12%
 #define PH_SPINE_ALPHA 26	// white at 10%
 #define PH_SPINE_SHARE 0.06f
-#define PH_TITLE_LINES 3
 #define SHADOW_OFF_DP 4.0f // the box-art shadow (homeart.c bakes the same for real box art)
 #define SHADOW_BLUR_DP 8.0f
 #define SHADOW_ALPHA 128 // black at 50%
@@ -625,7 +628,7 @@ static TTF_Font* fitFont(float sp, float min_sp, const char* word, int avail) {
 
 // A collection item's text at w×h px, a side item at lvl of the selected size (k_full: the selected size's slot
 // content scale). The name size is worked out at the selected size, so a side item is the same item smaller: 30 sp ×
-// k_full, shrunk in whole sp until its longest word fits the slot less 8 dp each side, never below max(0.75 × that,
+// k_full (× ROW_COLL_NAME_VERTICAL in a Vertical stack), shrunk in whole sp until its longest word fits the slot less 8 dp each side, never below max(0.75 × that,
 // 1.25 × the count); then the count line (max(10, 14 × k_full) sp, 6 dp unscaled under the name; × lvl on a side
 // item) reserved under it. In a Vertical stack (fit) the slot holds it all: the name then shrinks on in whole sp, below
 // that floor if needed, until its block and the count line fit the slot's height (Row_collFitSlotSp).
@@ -654,7 +657,7 @@ static int collLinesAt(float sp, void* ctx) {
 static CollLayout collLayout(const char* name, int w, int h, float k_full, float lvl, bool fit) {
 	CollLayout c;
 	int full_avail = (int)(w / lvl + 0.5f) - 2 * NX_DPF(SLOT_PAD_DP);
-	float start = ROW_COLL_NAME_SP * k_full;
+	float start = ROW_COLL_NAME_SP * k_full * (fit ? ROW_COLL_NAME_VERTICAL : 1.0f);
 	float count_sp = Row_countSp(k_full);
 	float sp = Tiles_collNameSp(name, start, count_sp, full_avail);
 	c.avail = w - 2 * NX_DPF(SLOT_PAD_DP * lvl);
@@ -852,7 +855,7 @@ static void placeholderBox(int slot_w, int slot_h, int* bw, int* bh) {
 // The placeholder box (§8b.4) fitted in a slot_w×slot_h slot, over the soft shadow, padded for it on every side. With
 // `plate` (the game's abstract picture at the box's size, HomeArt_boxPlaceholder) the case shows it under a light dim
 // instead of the plain dark plate.
-static SDL_Surface* buildPlaceholder(int slot_w, int slot_h, float lvl, const char* title, SDL_Surface* plate) {
+static SDL_Surface* buildPlaceholder(int slot_w, int slot_h, float lvl, SDL_Surface* plate) {
 	int bw, bh;
 	placeholderBox(slot_w, slot_h, &bw, &bh);
 	if (bw <= 0 || bh <= 0)
@@ -892,7 +895,7 @@ static SDL_Surface* buildPlaceholder(int slot_w, int slot_h, float lvl, const ch
 	if (b < 1)
 		b = 1;
 	if (plate && plate->w == bw && plate->h == bh) {
-		// the abstract picture, opaque, then a light dim so the title reads over its glows
+		// the abstract picture, opaque, then a light dim (the case's tone over its glows)
 		SDL_SetSurfaceBlendMode(plate, SDL_BLENDMODE_NONE);
 		SDL_BlitSurface(plate, NULL, s, &(SDL_Rect){pad, pad, bw, bh});
 		SDL_SetSurfaceBlendMode(plate, SDL_BLENDMODE_BLEND);
@@ -906,29 +909,18 @@ static SDL_Surface* buildPlaceholder(int slot_w, int slot_h, float lvl, const ch
 	overRect(s, pad + bw - b, pad + b, b, bh - 2 * b, 255, PH_BORDER_ALPHA);
 	overRect(s, pad + b, pad + b, (int)(bw * PH_SPINE_SHARE + 0.5f), bh - 2 * b, 255, PH_SPINE_ALPHA);
 
-	// the content box: past the spine, 6% side and 7% top/bottom margins
-	int x0 = pad + (int)(bw * (PH_SPINE_SHARE + 0.06f) + 0.5f), x1 = pad + bw - (int)(bw * 0.06f + 0.5f);
-	int y0 = pad + (int)(bh * 0.07f + 0.5f), y1 = pad + bh - (int)(bh * 0.07f + 0.5f);
-	// only the title (no console logo, 2026-10-02): 13% of the box's width, 10 to 20 sp, up to three lines, centred
-	float sp = 0.13f * (bw / pxPerDp());
-	sp = sp < 10.0f ? 10.0f : (sp > 20.0f ? 20.0f : sp);
-	TTF_Font* f = UIFont_get(sp, false);
-	if (f && title && x1 > x0) {
-		int th = Tiles_textBlock(NULL, f, title, (x0 + x1) / 2, 0, x1 - x0, PH_TITLE_LINES, false, 255, 255, false);
-		Tiles_textBlock(s, f, title, (x0 + x1) / 2, y0 + (y1 - y0 - th) / 2, x1 - x0, PH_TITLE_LINES,
-						false, 255, 255, false);
-	}
 	return s;
 }
 
-// The placeholder box: composed once at the selected size (its title fitted there); a neighbour is that scaled.
+// The placeholder box: composed once at the selected size, no title (the caption names the game); a neighbour is that
+// scaled.
 // The case with the game's abstract plate once HomeArt has it ("PA" key); blank (NULL) while it's being made, so
 // nothing flashes in; the plain dark case ("P") when it can't be made.
 static SDL_Surface* placeholderItem(const RowGeo* g, Entry* e, TileKind kind, bool side) {
 	(void)kind;
 	char key[ITEM_KEY];
 	SDL_Surface* full;
-	snprintf(key, sizeof(key), "PA|%d|%d|%s|%s", g->full_w, g->full_h, e->path, View_displayName(e));
+	snprintf(key, sizeof(key), "PA|%d|%d|%s", g->full_w, g->full_h, e->path);
 	if (itemFind(key, &full))
 		return side ? sideCopy(key, full, g->sz.scale) : full;
 	int bw, bh;
@@ -938,12 +930,12 @@ static SDL_Surface* placeholderItem(const RowGeo* g, Entry* e, TileKind kind, bo
 	if (st == HOMEART_LOADING)
 		return NULL;
 	if (st == HOMEART_READY && plate) {
-		full = itemStore(key, buildPlaceholder(g->full_w, g->full_h, 1.0f, View_displayName(e), plate));
+		full = itemStore(key, buildPlaceholder(g->full_w, g->full_h, 1.0f, plate));
 		return side ? sideCopy(key, full, g->sz.scale) : full;
 	}
-	snprintf(key, sizeof(key), "P|%d|%d|%s|%s", g->full_w, g->full_h, e->path, View_displayName(e));
+	snprintf(key, sizeof(key), "P|%d|%d|%s", g->full_w, g->full_h, e->path);
 	if (!itemFind(key, &full))
-		full = itemStore(key, buildPlaceholder(g->full_w, g->full_h, 1.0f, View_displayName(e), NULL));
+		full = itemStore(key, buildPlaceholder(g->full_w, g->full_h, 1.0f, NULL));
 	return side ? sideCopy(key, full, g->sz.scale) : full;
 }
 
@@ -1085,7 +1077,8 @@ static int gameSegments(Entry* e, InfoSeg segs[3]) {
 							 info.has_ra ? info.next : NULL, true, segs);
 }
 
-// The caption's look: under the row (centred, in its reserve) or beside a Vertical stack (left-aligned, §8f.4).
+// The caption's look: under the row (centred, in its reserve) or beside a Vertical stack (left-aligned, §8f.4; with
+// Vertical alignment Right, right-aligned against the stack).
 typedef struct {
 	int w;			// the text column (px)
 	int max_h;		// the most it may take (px): the reserve and the whole free lines under it, or the body
@@ -1094,6 +1087,7 @@ typedef struct {
 	int gap;		// between rows (px): 0 under the row, 3 dp beside a stack
 	bool left;		// left-aligned from the column's left edge, else centred
 	bool shadow;	// the name's dark shadow
+	bool right;		// beside a stack (left): right-aligned to the column's right edge instead
 } CapStyle;
 
 #define CAP_LINES (2 + CAPTION_FIT_NEXT_LINES) // info lines: time, trophy and Next's own lines
@@ -1104,8 +1098,21 @@ static int captionMeasure(void* ctx, const char* text) {
 
 // The info rows as drawn lines: a row ending in a Next too long for the column gives Next its own lines, out of the
 // whole free lines past the reserve (caption_fit.h). Returns the line count; *h the block's height with the name's.
+// The caption's name and info sizes (sp): the row's under it; beside a stack (left) a step smaller at the Large UI scale
+// and a step larger at the Small one.
+static float capNameSp(const CapStyle* cs) {
+	if (!cs->left)
+		return CAPTION_NAME_SP;
+	return FIXED_SCALE >= 3 ? CAPTION_SIDE_NAME_SP : CAPTION_SIDE_NAME_SP_SMALL;
+}
+static float capInfoSp(const CapStyle* cs) {
+	if (!cs->left)
+		return CAPTION_INFO_SP;
+	return FIXED_SCALE >= 3 ? CAPTION_INFO_SP : CAPTION_SIDE_INFO_SP_SMALL;
+}
+
 static int captionLines(const CapStyle* cs, int name_h, const SegRow* rows, int nrows, SegRow* out, int* h) {
-	TTF_Font* fi = UIFont_get(CAPTION_INFO_SP, false);
+	TTF_Font* fi = UIFont_get(capInfoSp(cs), false);
 	int ih = fi ? TTF_FontHeight(fi) : 0;
 	int n = 0, base = name_h;
 	for (int r = 0; r < nrows; r++) {
@@ -1143,8 +1150,8 @@ static int captionLines(const CapStyle* cs, int name_h, const SegRow* rows, int 
 
 static SDL_Surface* captionSurface(const CapStyle* cs, const char* name, const SegRow* rows, int nrows) {
 	char key[CAPTION_KEY];
-	int n = snprintf(key, sizeof(key), "%d|%d|%d|%d|%d|%d|%d|%d|%s|", (int)FIXED_SCALE, cs->w, cs->max_h,
-					 cs->reserve_h, cs->name_lines, cs->gap, cs->left, cs->shadow, name ? name : "");
+	int n = snprintf(key, sizeof(key), "%d|%d|%d|%d|%d|%d|%d|%d|%d|%s|", (int)FIXED_SCALE, cs->w, cs->max_h,
+					 cs->reserve_h, cs->name_lines, cs->gap, cs->left, cs->shadow, cs->right, name ? name : "");
 	for (int r = 0; r < nrows && n > 0 && (size_t)n < sizeof(key); r++) {
 		for (int i = 0; i < rows[r].n && n > 0 && (size_t)n < sizeof(key); i++)
 			n += snprintf(key + n, sizeof(key) - n, "%d:%s|", (int)rows[r].segs[i].kind, rows[r].segs[i].text);
@@ -1163,7 +1170,8 @@ static SDL_Surface* captionSurface(const CapStyle* cs, const char* name, const S
 	// the layout first (a font is only good until a later UIFont_get: each is fetched where it's used)
 	int w = cs->w;
 	bool has_name = name && name[0];
-	TTF_Font* fn = UIFont_get(CAPTION_NAME_SP, false);
+	float name_sp = capNameSp(cs);
+	TTF_Font* fn = UIFont_get(name_sp, false);
 	int name_h = fn && has_name ? (cs->left ? Tiles_textBlockLeft(NULL, fn, name, 0, 0, w, cs->name_lines, 255, false)
 											: Tiles_textBlock(NULL, fn, name, w / 2, 0, w, cs->name_lines, false,
 															  255, 255, false))
@@ -1178,12 +1186,14 @@ static SDL_Surface* captionSurface(const CapStyle* cs, const char* name, const S
 		return NULL;
 
 	int y = 0;
-	fn = UIFont_get(CAPTION_NAME_SP, false);
+	fn = UIFont_get(name_sp, false);
 	if (fn && has_name) {
-		y += cs->left ? Tiles_textBlockLeft(caption.s, fn, name, 0, 0, w, cs->name_lines, 255, cs->shadow)
-					  : Tiles_textBlock(caption.s, fn, name, w / 2, 0, w, cs->name_lines, false, 255, 255, cs->shadow);
+		y += cs->left && cs->right ? Tiles_textBlockRight(caption.s, fn, name, w, 0, w, cs->name_lines, 255, cs->shadow)
+			 : cs->left			   ? Tiles_textBlockLeft(caption.s, fn, name, 0, 0, w, cs->name_lines, 255, cs->shadow)
+								   : Tiles_textBlock(caption.s, fn, name, w / 2, 0, w, cs->name_lines, false, 255, 255,
+													 cs->shadow);
 	}
-	TTF_Font* fi = UIFont_get(CAPTION_INFO_SP, false);
+	TTF_Font* fi = UIFont_get(capInfoSp(cs), false);
 	for (int l = 0; fi && l < nlines; l++) {
 		int ly = y + (y > 0 ? cs->gap : 0);
 		if (ly + TTF_FontHeight(fi) > h)
@@ -1192,7 +1202,8 @@ static SDL_Surface* captionSurface(const CapStyle* cs, const char* name, const S
 		if (tw <= 0)
 			continue;
 		// under the row the info keeps its shadow; beside the stack it follows the name's (Backdrop-Vertical only)
-		InfoBand_drawSegmentsEx(caption.s, lines[l].segs, lines[l].n, cs->left ? 0 : (w - tw) / 2, false, ly, w, fi,
+		int lx = cs->left ? (cs->right ? w - tw : 0) : (w - tw) / 2;
+		InfoBand_drawSegmentsEx(caption.s, lines[l].segs, lines[l].n, lx, false, ly, w, fi,
 								!cs->left || cs->shadow);
 		y = ly + TTF_FontHeight(fi);
 	}
@@ -1269,12 +1280,12 @@ static void drawCaption(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind
 // Beside a Vertical stack (§8f.4): Backdrop's three rows for both renderings, 3 dp apart, the name on up to two lines;
 // it grows with a long Next (up to the body) and stays centred on the selection.
 static void drawSideCaption(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind kind, int x, int w, int cy,
-							int body_top, int body_h) {
+							int body_top, int body_h, bool right) {
 	if (w <= 0 || body_h <= 0)
 		return;
 	SegRow rows[2];
 	int nrows = captionRows(e, kind, false, rows);
-	CapStyle cs = {w, body_h, 0, 2, NX_DPF(STACK_CAPTION_LINE_GAP_DP), true, g->kind == ROW_BACKDROP_BOX};
+	CapStyle cs = {w, body_h, 0, 2, NX_DPF(STACK_CAPTION_LINE_GAP_DP), true, g->kind == ROW_BACKDROP_BOX, right};
 	SDL_Surface* s = captionSurface(&cs, View_displayName(e), rows, nrows);
 	if (!s)
 		return;
@@ -2060,8 +2071,8 @@ void RowView_prefetchItem(const RowGeo* g, Entry* e, TileKind kind, bool side, b
 }
 
 void RowView_drawSideCaption(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind kind, int x, int w, int cy,
-							 int body_top, int body_h) {
-	drawSideCaption(screen, g, e, kind, x, w, cy, body_top, body_h);
+							 int body_top, int body_h, bool right) {
+	drawSideCaption(screen, g, e, kind, x, w, cy, body_top, body_h, right);
 }
 
 void RowView_drawItemCount(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind kind, int cx, int cy, float scale,

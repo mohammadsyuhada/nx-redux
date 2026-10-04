@@ -221,6 +221,26 @@ static void navigation(void) {
 }
 
 // The game-list side arrangement (§8f.4, landscape family): the doc's worked tables, then both screens.
+// Vertical alignment Right (px at 1 px a dp): the 960 dp Backdrop's stack (150 wide at x 123, its caption 230 + 682,
+// 48 dp margins) mirrored: the stack's right edge 48 from the screen's, the caption from the left margin 48 to 32 short
+// of the stack. A start (where Left's box is drawn) moves its left edge in, unless that leaves under 40% of its width.
+static void mirror_side(void) {
+	int cx = 123, item_w = 150, cap_x = Stack_capXPx(cx, item_w, 1.0f), cap_w = 960 - 48 - cap_x;
+	assert(cap_x == 230 && cap_w == 682);
+	Stack_mirrorSide(960, &cx, &cap_x, &cap_w, 0);
+	assert(cx == 837 && cap_x == 48 && cap_w == 682);
+	assert((cx - item_w / 2) - (cap_x + cap_w) == 32); // the caption-to-stack gap, as on the left
+	assert(960 - (cx + item_w / 2) == 48);			   // the stack's margin, as the left one
+	// a start at 52 (the 144-wide box in the 150 slot): the left edge moves in, the right end stays
+	cx = 123, cap_x = 230, cap_w = 682;
+	Stack_mirrorSide(960, &cx, &cap_x, &cap_w, 52);
+	assert(cap_x == 52 && cap_x + cap_w == 730);
+	// a start that would leave under 40%: the plain mirror
+	cx = 123, cap_x = 230, cap_w = 682;
+	Stack_mirrorSide(960, &cx, &cap_x, &cap_w, 500);
+	assert(cap_x == 48 && cap_w == 682);
+}
+
 static void side_geometry(void) {
 	StackSide d;
 	// 960 × 432 (body 344), both with 48 dp side margins: Backdrop 150 × 200, x 123, caption 230 (682); Carousel
@@ -379,6 +399,7 @@ int main(void) {
 	navigation();
 	count_on_item();
 	side_geometry();
+	mirror_side();
 	carousel_darken();
 	printf("test_stack_model: all passed\n");
 	return 0;

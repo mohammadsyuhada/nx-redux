@@ -21,6 +21,9 @@ void GridLayout_computeWide(float screen_w, float body_top, float body_h, int n,
 // px whatever the UI scale: NATIVE_SCALE / FIXED_SCALE).
 void GridLayout_computeEx(float screen_w, float body_top, float body_h, int n, float width_mul, float gap_mul,
 						  GridLayout* out);
+// The same with tiles size_mul times the size they would take (both sides, and so their content: GridLayout_tileK).
+void GridLayout_computeSized(float screen_w, float body_top, float body_h, int n, float width_mul, float gap_mul,
+							 float size_mul, GridLayout* out);
 void GridLayout_cell(const GridLayout* g, int index, int* col, int* row); // still: row-major; sliding: column-major
 int GridLayout_index(const GridLayout* g, int col, int row);			  // -1 when empty
 int GridLayout_columnCount(const GridLayout* g);						  // sliding: ceil(n/2); still: cols

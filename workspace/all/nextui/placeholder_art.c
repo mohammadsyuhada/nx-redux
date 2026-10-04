@@ -24,17 +24,13 @@ static float smooth(float x) {
 	return x * x * (3 - 2 * x);
 }
 
-void PlaceholderArt_render(uint32_t* px, int w, int h, int pitch, const char* seed) {
-	if (!px || w <= 0 || h <= 0)
-		return;
-	uint32_t hs = fnv(seed);
-	float hue = (hs % 360) / 360.0f;
-	float hue2 = fmodf(hue + (40 + (hs >> 9) % 60) / 360.0f, 1.0f);
+// The picture for the shapes' seed hs in hue (and hue2, the second; equal for one hue), saturation × sat.
+static void render(uint32_t* px, int w, int h, int pitch, uint32_t hs, float hue, float hue2, float sat) {
 	float c1[3], c2[3], g1[3], g2[3];
-	hsv(hue, 0.62f, 0.40f, c1);	 // the gradient's start
-	hsv(hue2, 0.58f, 0.24f, c2); // ...and its darker end
-	hsv(hue2, 0.50f, 0.66f, g1); // a glow in the second hue
-	hsv(hue, 0.42f, 0.72f, g2);	 // a lighter glow in the main hue
+	hsv(hue, 0.62f * sat, 0.40f, c1);  // the gradient's start
+	hsv(hue2, 0.58f * sat, 0.24f, c2); // ...and its darker end
+	hsv(hue2, 0.50f * sat, 0.66f, g1); // a glow in the second hue
+	hsv(hue, 0.42f * sat, 0.72f, g2);  // a lighter glow in the main hue
 	float gx[2], gy[2], gr[2];
 	for (int k = 0; k < 2; k++) {
 		gx[k] = ((hs >> (3 + k * 7)) % 100) / 100.0f;
@@ -88,4 +84,33 @@ void PlaceholderArt_render(uint32_t* px, int w, int h, int pitch, const char* se
 			row[x] = o;
 		}
 	}
+}
+
+void PlaceholderArt_render(uint32_t* px, int w, int h, int pitch, const char* seed) {
+	if (!px || w <= 0 || h <= 0)
+		return;
+	uint32_t hs = fnv(seed);
+	float hue = (hs % 360) / 360.0f;
+	render(px, w, h, pitch, hs, hue, fmodf(hue + (40 + (hs >> 9) % 60) / 360.0f, 1.0f), 1.0f);
+}
+
+void PlaceholderArt_renderRgb(uint32_t* px, int w, int h, int pitch, const char* seed, uint32_t rgb) {
+	if (!px || w <= 0 || h <= 0)
+		return;
+	float r = ((rgb >> 16) & 0xFF) / 255.0f, g = ((rgb >> 8) & 0xFF) / 255.0f, b = (rgb & 0xFF) / 255.0f;
+	float mx = fmaxf(r, fmaxf(g, b)), mn = fminf(r, fminf(g, b)), d = mx - mn;
+	float hue = 0;
+	if (d > 0) {
+		if (mx == r)
+			hue = fmodf((g - b) / d, 6.0f);
+		else if (mx == g)
+			hue = (b - r) / d + 2.0f;
+		else
+			hue = (r - g) / d + 4.0f;
+		hue /= 6.0f;
+		if (hue < 0)
+			hue += 1.0f;
+	}
+	float sat = mx > 0 ? d / mx : 0; // a grey or white accent: a neutral picture
+	render(px, w, h, pitch, fnv(seed), hue, hue, sat);
 }

@@ -816,7 +816,8 @@ void Tiles_drawCaption(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float li
 }
 
 // x: each line's centre, or (left) every line's left edge.
-static int textBlockAligned(SDL_Surface* dst, TTF_Font* f, const char* text, int x0, bool left, int y, int max_w,
+// align: -1 every line's left edge at x0, 0 centred on x0, 1 its right edge at x0.
+static int textBlockAligned(SDL_Surface* dst, TTF_Font* f, const char* text, int x0, int align, int y, int max_w,
 							int max_lines, bool camel_split, SDL_Color c, Uint8 alpha, bool shadow, int line_h) {
 	if (!f || !text || !text[0])
 		return 0;
@@ -827,7 +828,8 @@ static int textBlockAligned(SDL_Surface* dst, TTF_Font* f, const char* text, int
 	if (dst) {
 		int lead = (lh - fh) / 2; // the glyphs centred in their line box (0 at the font's own height)
 		for (int i = 0; i < l.n; i++) {
-			int x = left ? x0 : x0 - textWidth(f, l.line[i]) / 2, ly = y + i * lh + lead;
+			int lw = align < 0 ? 0 : textWidth(f, l.line[i]);
+			int x = align < 0 ? x0 : (align > 0 ? x0 - lw : x0 - lw / 2), ly = y + i * lh + lead;
 			if (shadow)
 				blitTextShadow(dst, f, l.line[i], x, ly, alpha);
 			blitTextColor(dst, f, l.line[i], x, ly, c, alpha);
@@ -838,7 +840,7 @@ static int textBlockAligned(SDL_Surface* dst, TTF_Font* f, const char* text, int
 
 static int textBlockStepColor(SDL_Surface* dst, TTF_Font* f, const char* text, int cx, int y, int max_w,
 							  int max_lines, bool camel_split, SDL_Color c, Uint8 alpha, bool shadow, int line_h) {
-	return textBlockAligned(dst, f, text, cx, false, y, max_w, max_lines, camel_split, c, alpha, shadow, line_h);
+	return textBlockAligned(dst, f, text, cx, 0, y, max_w, max_lines, camel_split, c, alpha, shadow, line_h);
 }
 
 int Tiles_textBlockStep(SDL_Surface* dst, TTF_Font* f, const char* text, int cx, int y, int max_w, int max_lines,
@@ -854,7 +856,12 @@ int Tiles_textBlock(SDL_Surface* dst, TTF_Font* f, const char* text, int cx, int
 
 int Tiles_textBlockLeft(SDL_Surface* dst, TTF_Font* f, const char* text, int x, int y, int max_w, int max_lines,
 						Uint8 grey, bool shadow) {
-	return textBlockAligned(dst, f, text, x, true, y, max_w, max_lines, false, greyColor(grey), 255, shadow, 0);
+	return textBlockAligned(dst, f, text, x, -1, y, max_w, max_lines, false, greyColor(grey), 255, shadow, 0);
+}
+
+int Tiles_textBlockRight(SDL_Surface* dst, TTF_Font* f, const char* text, int x, int y, int max_w, int max_lines,
+						 Uint8 grey, bool shadow) {
+	return textBlockAligned(dst, f, text, x, 1, y, max_w, max_lines, false, greyColor(grey), 255, shadow, 0);
 }
 
 // Letters and digits only, lower case: "Artwork Manager", "ArtworkManager" and "artwork-manager" compare equal.

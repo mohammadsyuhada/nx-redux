@@ -39,6 +39,7 @@
 #include "launcher.h"
 #include "menuart.h"
 #include "menutabs.h"
+#include "placeholder_art.h"
 #include "ui_accent.h"
 #include "ui_font.h"
 #include "tiles.h"
@@ -152,6 +153,11 @@ static float unitPx(void) {
 
 static int px(float bpx) {
 	return (int)floorf(bpx * unitPx() + 0.5f);
+}
+
+// The stats strip keeps the Large scale's size whatever the UI scale: its Brick px at 1:1 (× this in px()).
+static float stripK(void) {
+	return 3.0f / FIXED_SCALE;
 }
 
 static float currentScroll(void) {
@@ -495,7 +501,7 @@ static int stripLines(void) {
 static void relayout(int lines) {
 	float u = unitPx();
 	built_lines = lines;
-	HomeLayout_compute(screen->w / u, screen->h / u, barPx() / u, lines, ngames, ntools, &layout);
+	HomeLayout_computeStrip(screen->w / u, screen->h / u, barPx() / u, lines, stripK(), ngames, ntools, &layout);
 	focus = HomeLayout_clampFocus(&layout, focus);
 	scroll_to = HomeLayout_scrollFor(&layout, focus, screen->h / u, barPx() / u, scroll_to);
 	scroll_from = scroll_to;
@@ -670,17 +676,46 @@ static void composeContinue(SDL_Surface* s, int w, int h) {
 	tileBorder(s, w, h);
 }
 
-static void composePick(SDL_Surface* s, int w, int h, bool lit) {
-	SDL_Color bg = cardBg(lit);
-	SDL_FillRect(s, &(SDL_Rect){0, 0, w, h}, SDL_MapRGBA(s->format, bg.r, bg.g, bg.b, 255));
+// The accent as 0xRRGGBB (the theme's alpha dropped).
+static Uint32 accentRgb(void) {
+	SDL_Color a = UI_accent();
+	return (Uint32)a.r << 16 | (Uint32)a.g << 8 | a.b;
+}
+
+// Pick a game's background: an abstract picture (placeholder_art.c) in the accent's hue, made once per size and accent
+// and kept (the card itself is cached too, so this runs on a size or accent change only).
+static SDL_Surface* pickArt(int w, int h) {
+	static SDL_Surface* art = NULL;
+	static Uint32 art_rgb = 0;
+	Uint32 rgb = accentRgb();
+	if (art && art->w == w && art->h == h && art_rgb == rgb)
+		return art;
+	if (art)
+		SDL_FreeSurface(art);
+	art = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888);
+	if (!art)
+		return NULL;
+	SDL_LockSurface(art);
+	PlaceholderArt_renderRgb(art->pixels, w, h, art->pitch / 4, "nx-pick-a-game", rgb);
+	SDL_UnlockSurface(art);
+	SDL_SetSurfaceBlendMode(art, SDL_BLENDMODE_NONE);
+	art_rgb = rgb;
+	return art;
+}
+
+// Pick a game (nothing played yet): the accent's abstract picture full-bleed, the mark over it at 10%, the title and
+// its line in white and grey; it lights with Continue's ring (drawTile), so it has one look.
+static void composePick(SDL_Surface* s, int w, int h) {
+	SDL_Surface* art = pickArt(w, h);
+	if (art)
+		SDL_BlitSurface(art, NULL, s, &(SDL_Rect){0, 0, w, h});
+	else
+		SDL_FillRect(s, &(SDL_Rect){0, 0, w, h}, SDL_MapRGBA(s->format, 0, 0, 0, 255));
 	// the mark's ink (the PNG is cropped to it) 60% of the card tall, its width following
 	SDL_Surface* mark = MenuArt_get("nx_mark.png", w, (int)(h * 0.6f));
 	if (mark) {
-		if (lit)
-			tintLit(mark);
-		SDL_SetSurfaceAlphaMod(mark, lit ? 20 : 26); // the ink (default black) at 8% / white at 10%
+		SDL_SetSurfaceAlphaMod(mark, 26); // white at 10%
 		SDL_BlitSurface(mark, NULL, s, &(SDL_Rect){(w - mark->w) / 2, (h - mark->h) / 2});
-		SDL_SetSurfaceColorMod(mark, 255, 255, 255);
 		SDL_SetSurfaceAlphaMod(mark, 255);
 	}
 	// heights first, then each font fetched again right before it draws (a font is only good until the next
@@ -695,13 +730,12 @@ static void composePick(SDL_Surface* s, int w, int h, bool lit) {
 		int gap = NX_DPF(4);
 		int y = (h - (big_h + gap + small_h)) / 2;
 		big = UIFont_get(24, false);
-		drawText(s, big, title, cardInk(lit), (w - textW(big, title)) / 2, y, 255);
+		drawText(s, big, title, C_WHITE, (w - textW(big, title)) / 2, y, 255);
 		y += big_h + gap;
 		small = UIFont_get(14, false);
-		drawText(s, small, sub, cardDim(lit), (w - textW(small, sub)) / 2, y, 255);
+		drawText(s, small, sub, C_GREY, (w - textW(small, sub)) / 2, y, 255);
 	}
-	if (!lit)
-		tileBorder(s, w, h);
+	tileBorder(s, w, h);
 }
 
 // A pinned game: its art; lit, the caption fade and the name (33.8 on a 41.6 line, white)
@@ -806,7 +840,7 @@ static SDL_Color runColour(StripTone t) {
 
 // One line's runs from x on baseline y; the run that gives way is cut with "…" so the line ends by right.
 static void drawStripLine(SDL_Surface* s, TTF_Font* f, StripLine* l, int x, int right, int baseline) {
-	float em = (float)px(STRIP_PX);
+	float em = (float)px(STRIP_PX * stripK());
 	int fixed = 0, give = -1;
 	for (int i = 0; i < l->n; i++) {
 		StripRun* r = &l->runs[i];
@@ -836,7 +870,7 @@ static void drawStrip(SDL_Surface* dst, const HomeStats* st, int scroll_px) {
 	StripInput in = stripInput(st);
 	StripLine l1, l2;
 	HomeStrip_build(&in, &l1, &l2);
-	TTF_Font* f = UIFont_getPx(px(STRIP_PX), false);
+	TTF_Font* f = UIFont_getPx(px(STRIP_PX * stripK()), false);
 	if (!f)
 		return;
 	Uint32 key = 2166136261u;
@@ -966,8 +1000,11 @@ static Uint32 cardStamp(CardKind kind, int ref, int w, int h, bool lit) {
 		hs = fnvStr(hs, when);
 		break;
 	}
-	case CARD_PICK:
+	case CARD_PICK: {
+		Uint32 rgb = accentRgb(); // its picture is in the accent
+		hs = View_fnv(hs, &rgb, sizeof(rgb));
 		break;
+	}
 	case CARD_GAME: {
 		Entry* e = games[ref];
 		HomeArtState as = HomeArt_pin(e->path, w, h, 0, &pic);
@@ -998,7 +1035,7 @@ static void composeCardKind(SDL_Surface* s, CardKind kind, int w, int h, bool li
 		composeContinue(s, w, h);
 		break;
 	case CARD_PICK:
-		composePick(s, w, h, lit);
+		composePick(s, w, h);
 		break;
 	case CARD_GAME:
 		composeGame(s, w, h, lit, ref);
@@ -1016,8 +1053,8 @@ static void composeCardKind(SDL_Surface* s, CardKind kind, int w, int h, bool li
 
 // The card's cached surface for this look, recomposed only when its key changed.
 static SDL_Surface* cachedCard(CardKind kind, int ref, int w, int h, bool lit) {
-	if (kind == CARD_CONTINUE)
-		lit = false; // Continue lights with its ring only
+	if (kind == CARD_CONTINUE || kind == CARD_PICK)
+		lit = false; // Continue and Pick a game light with their ring only
 	if (kind == CARD_PICK)
 		ref = -1;
 	Uint32 stamp = cardStamp(kind, ref, w, h, lit);
@@ -1115,8 +1152,8 @@ static CardKind cardKind(const HomeTile* t) {
 	return CARD_PICK;
 }
 
-// dst's clip rect is the page band: a tile wholly outside it costs nothing. A lit game (Continue, a pin) wears the
-// 6 px ring outside it; a lit tool square (and Pick a game, "+N") its filled look instead.
+// dst's clip rect is the page band: a tile wholly outside it costs nothing. A lit game (Continue, a pin) and Pick a
+// game wear the 6 px ring outside it; a lit tool square (and "+N") its filled look instead.
 static void drawTile(SDL_Surface* dst, const HomeTile* t, int id, int scroll_px) {
 	SDL_Rect r = toScreen(t->r, scroll_px);
 	int ring = px(HOME_RING);
@@ -1125,8 +1162,8 @@ static void drawTile(SDL_Surface* dst, const HomeTile* t, int id, int scroll_px)
 		return; // outside the band
 	CardKind kind = cardKind(t);
 	float lit = litAmount(id);
-	bool ringed = kind == CARD_CONTINUE || kind == CARD_GAME;
-	bool lit_differs = kind != CARD_CONTINUE; // Continue lights with its ring only
+	bool ringed = kind == CARD_CONTINUE || kind == CARD_PICK || kind == CARD_GAME;
+	bool lit_differs = kind != CARD_CONTINUE && kind != CARD_PICK; // Continue and Pick a game light with their ring only
 	if (ringed && lit > 0.0f)
 		strokeRounded(dst, r.x - ring, r.y - ring, r.w + 2 * ring, r.h + 2 * ring, radiusPx() + ring, ring,
 					  cardBg(true), (int)(lit * 255 + 0.5f));

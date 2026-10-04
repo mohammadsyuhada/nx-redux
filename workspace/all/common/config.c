@@ -49,10 +49,12 @@ void CFG_defaults(NextUISettings* cfg) {
 		.color5_255 = CFG_DEFAULT_COLOR5,
 		.color6_255 = CFG_DEFAULT_COLOR6,
 		.color7_255 = CFG_DEFAULT_COLOR7,
-		.menuStyle = {CFG_DEFAULT_MENUSTYLE, CFG_DEFAULT_MENUSTYLE, CFG_DEFAULT_MENUSTYLE},
+		.menuStyle = {CFG_DEFAULT_MENUSTYLE_FOR(MENU_CAT_CONSOLES), CFG_DEFAULT_MENUSTYLE_FOR(MENU_CAT_COLLECTIONS),
+					  CFG_DEFAULT_MENUSTYLE_FOR(MENU_CAT_TOOLS)},
 		.gameListStyle = CFG_DEFAULT_GAMELISTSTYLE,
 		.menuOrient = {CFG_DEFAULT_MENUORIENT, CFG_DEFAULT_MENUORIENT, CFG_DEFAULT_MENUORIENT},
 		.gameListOrient = CFG_DEFAULT_GAMELISTORIENT,
+		.gameListVAlign = CFG_DEFAULT_GAMELISTVALIGN,
 		.showFolderNamesAtRoot = CFG_DEFAULT_SHOWFOLDERNAMESATROOT,
 
 		.showClock = CFG_DEFAULT_SHOWCLOCK,
@@ -281,6 +283,10 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 			}
 			if (sscanf(line, "gameListOrient=%i", &temp_value) == 1) {
 				CFG_setGameListOrient(temp_value);
+				continue;
+			}
+			if (sscanf(line, "gameListVerticalAlign=%i", &temp_value) == 1) {
+				CFG_setGameListVAlign(temp_value);
 				continue;
 			}
 			if (sscanf(line, "wifi=%i", &temp_value) == 1) {
@@ -790,6 +796,15 @@ void CFG_setGameListOrient(int orient) {
 	CFG_sync();
 }
 
+int CFG_getGameListVAlign(void) {
+	return MenuStyle_storeVAlign(settings.gameListVAlign);
+}
+
+void CFG_setGameListVAlign(int valign) {
+	settings.gameListVAlign = MenuStyle_storeVAlign(valign);
+	CFG_sync();
+}
+
 int CFG_getMenuOrientEffective(int category) {
 	if (category < 0 || category >= MENU_CAT_COUNT)
 		return MENU_ORIENT_HORIZONTAL;
@@ -1176,6 +1191,8 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", CFG_getGameListStyle());
 	} else if (strcmp(key, "gameListOrient") == 0) {
 		sprintf(value, "%i", CFG_getGameListOrient());
+	} else if (strcmp(key, "gameListVerticalAlign") == 0) {
+		sprintf(value, "%i", CFG_getGameListVAlign());
 	} else if (strcmp(key, "wifi") == 0) {
 		sprintf(value, "%i", (int)(CFG_getWifi()));
 	} else if (strcmp(key, "defaultView") == 0) {
@@ -1269,6 +1286,7 @@ static int CFG_serialize(char* buf, size_t cap) {
 	for (int c = 0; c < MENU_CAT_COUNT; c++)
 		EMIT("%s=%i\n", menu_orient_keys[c], settings.menuOrient[c]);
 	EMIT("gameListOrient=%i\n", settings.gameListOrient);
+	EMIT("gameListVerticalAlign=%i\n", settings.gameListVAlign);
 	EMIT("wifi=%i\n", settings.wifi);
 	EMIT("defaultView=%i\n", settings.defaultView);
 	EMIT("wifiDiagnostics=%i\n", settings.wifiDiagnostics);
@@ -1506,6 +1524,7 @@ void CFG_print(void) {
 	for (int c = 0; c < MENU_CAT_COUNT; c++)
 		printf("\t\"%s\": %i,\n", menu_orient_keys[c], settings.menuOrient[c]);
 	printf("\t\"gameListOrient\": %i,\n", settings.gameListOrient);
+	printf("\t\"gameListVerticalAlign\": %i,\n", settings.gameListVAlign);
 	printf("\t\"wifi\": %i,\n", settings.wifi);
 	printf("\t\"defaultView\": %i,\n", settings.defaultView);
 	printf("\t\"wifiDiagnostics\": %i,\n", settings.wifiDiagnostics);

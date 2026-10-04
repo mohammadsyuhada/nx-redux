@@ -46,6 +46,7 @@ float Row_backdropGain(float y_frac);
 #define ROW_LOGO_COUNT_GAP_DP 8.0f	   // Consoles: under the logo as drawn (unscaled)
 #define ROW_COUNT_GLIDE_MS 300		   // Consoles: the count's y glides as logo heights differ (UI_easeStandard)
 #define ROW_COLL_NAME_SP 36.0f		   // Collections: the name starts here × the slot content scale
+#define ROW_COLL_NAME_VERTICAL 0.75f   // ...× this in a Vertical stack, whose one-item-wide column reads it larger
 #define ROW_COLL_NAME_FLOOR 0.75f	   // ...and shrinks (whole sp) until its longest word fits, never below 0.75 × start
 #define ROW_COLL_NAME_OVER_COUNT 1.25f // ...nor below 1.25 × the count: the name always reads larger than its count
 #define ROW_COLL_LINE 1.15f			   // its line height, × the font size

@@ -81,11 +81,12 @@ bool RowView_pictureBusy(void);
 // Build one item ahead at the selected size (side false; `lit`: a Carousel tile's lit look) or a neighbour's (a cache
 // hit builds nothing).
 void RowView_prefetchItem(const RowGeo* g, Entry* e, TileKind kind, bool side, bool lit);
-// The game caption beside a stack (§8f.4): the name (18 sp, 2 lines), the time row and the trophy row (14 sp; a long
-// Next on its own lines, caption_fit.h), 3 dp apart, left-aligned from x in w px, centred on cy and kept inside the
-// body (body_top, body_h). Backdrop's (g->kind ROW_BACKDROP_BOX) keeps the text shadow. One cached surface.
+// The game caption beside a stack (§8f.4): the name (16 sp, 18 at the Small UI scale; 2 lines), the time row and the
+// trophy row (14 sp, 15 at Small; a long Next on its own lines, caption_fit.h), 3 dp apart, left-aligned from x in w px
+// (right: right-aligned to x + w, Vertical alignment Right), centred on cy and kept inside the body (body_top, body_h).
+// Backdrop's (g->kind ROW_BACKDROP_BOX) keeps the text shadow. One cached surface.
 void RowView_drawSideCaption(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind kind, int x, int w, int cy,
-							 int body_top, int body_h);
+							 int body_top, int body_h, bool right);
 
 // The Consoles tab's controller art (Layouts > Controller): console e's pad fitted in box_w x box_h px, centred on
 // (cx, cy), scaled with its item, at Pad_alpha(d) (0.6 focused, gone a step away). Nothing for other kinds, a console

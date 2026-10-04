@@ -29,8 +29,8 @@ HomeArtState HomeArt_boxart(const char* rom_path, int w, int h, SDL_Surface** ou
 // The Backdrop placeholder case's plate for a game without box art: its abstract picture (portrait, the same seed as
 // the tiles' placeholder) cropped to fill w×h, generated once and kept on disk. Same ownership.
 HomeArtState HomeArt_boxPlaceholder(const char* rom_path, int w, int h, SDL_Surface** out);
-// The full-screen Backdrop picture: the screenshot cropped (centred) to fill screen_w×screen_h, a 50% black dim and
-// the Row_shade curve baked in per row. Opaque (blend mode NONE). NONE when the game has no screenshot.
+// The full-screen Backdrop picture: the screenshot (else the game's abstract picture, as a pin's) cropped (centred) to
+// fill screen_w×screen_h, a 50% black dim and the Row_shade curve baked in per row. Opaque (blend mode NONE).
 HomeArtState HomeArt_backdrop(const char* rom_path, int screen_w, int screen_h, SDL_Surface** out);
 // The generation of the cache slot the most recent HomeArt_continue/pin/boxart/boxPlaceholder/backdrop call returned,
 // 0 when it returned no slot. Fresh for every new slot, so it changes after HomeArt_forget even when the new surface

@@ -64,6 +64,15 @@ int Stack_capXPx(int cx_px, int item_w_px, float pd) {
 	return Stack_round((float)cx_px + item_w_px / 2.0f + STACK_SIDE_CAP_GAP_DP * pd);
 }
 
+void Stack_mirrorSide(int screen_w, int* cx_px, int* cap_x_px, int* cap_w_px, int start_px) {
+	*cx_px = screen_w - *cx_px;
+	int right = screen_w - *cap_x_px; // the column's right end, 32 dp short of the stack
+	*cap_x_px = right - *cap_w_px;
+	if (start_px > *cap_x_px && right - start_px >= 0.4f * *cap_w_px)
+		*cap_x_px = start_px;
+	*cap_w_px = right - *cap_x_px;
+}
+
 static float clampf(float v, float lo, float hi) {
 	return v < lo ? lo : (v > hi ? hi : v);
 }

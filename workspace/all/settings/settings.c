@@ -287,6 +287,10 @@ static int orient_values[] = {MENU_ORIENT_HORIZONTAL, MENU_ORIENT_VERTICAL};
 static SettingItem* menu_orient_items[MENU_CAT_COUNT] = {NULL};
 static SettingsPage layouts_page; // defined with the page below (sync_layouts_orient_rows clamps its scroll)
 static SettingItem* game_list_orient_item = NULL;
+/* Game lists' Vertical alignment: under their orientation row, shown only while they draw Vertical */
+static const char* valign_labels[] = {"Left", "Right"};
+static int valign_values[] = {MENU_VALIGN_LEFT, MENU_VALIGN_RIGHT};
+static SettingItem* game_list_valign_item = NULL;
 static const char* hide_show_labels[] = {"Hide", "Show"};
 
 // "Vibration strength": values are libmsettings rumble_strength levels
@@ -634,6 +638,7 @@ static void reset_ui_scale(void) {
    appears or disappears under the style row being cycled leaves the highlight on that style row. */
 static int layouts_orient_rows_shown(void) {
 	int n = game_list_orient_item && game_list_orient_item->visible ? 1 : 0;
+	n += game_list_valign_item && game_list_valign_item->visible ? 1 : 0;
 	for (int c = 0; c < MENU_CAT_COUNT; c++)
 		n += menu_orient_items[c] && menu_orient_items[c]->visible ? 1 : 0;
 	return n;
@@ -652,32 +657,34 @@ static void sync_layouts_orient_rows(void) {
 	}
 	if (game_list_orient_item)
 		game_list_orient_item->visible = MenuStyle_gameListHasOrient(CFG_getGameListStyle()) ? 1 : 0;
+	if (game_list_valign_item)
+		game_list_valign_item->visible = CFG_getGameListOrientEffective() == MENU_ORIENT_VERTICAL ? 1 : 0;
 	int gone = before - layouts_orient_rows_shown();
 	if (gone > 0 && layouts_page.scroll > 0)
 		layouts_page.scroll = layouts_page.scroll > gone ? layouts_page.scroll - gone : 0;
 }
 
 /* Main menu tab styles and orientations, getter/setter/reset triples per category */
-#define MENU_STYLE_CALLBACKS(_name, _cat)                \
-	static int get_menu_style_##_name(void) {            \
-		return CFG_getMenuStyle(_cat);                   \
-	}                                                    \
-	static void set_menu_style_##_name(int v) {          \
-		CFG_setMenuStyle(_cat, v);                       \
-		sync_layouts_orient_rows();                      \
-	}                                                    \
-	static void reset_menu_style_##_name(void) {         \
-		CFG_setMenuStyle(_cat, CFG_DEFAULT_MENUSTYLE);   \
-		sync_layouts_orient_rows();                      \
-	}                                                    \
-	static int get_menu_orient_##_name(void) {           \
-		return CFG_getMenuOrient(_cat);                  \
-	}                                                    \
-	static void set_menu_orient_##_name(int v) {         \
-		CFG_setMenuOrient(_cat, v);                      \
-	}                                                    \
-	static void reset_menu_orient_##_name(void) {        \
-		CFG_setMenuOrient(_cat, CFG_DEFAULT_MENUORIENT); \
+#define MENU_STYLE_CALLBACKS(_name, _cat)                        \
+	static int get_menu_style_##_name(void) {                    \
+		return CFG_getMenuStyle(_cat);                           \
+	}                                                            \
+	static void set_menu_style_##_name(int v) {                  \
+		CFG_setMenuStyle(_cat, v);                               \
+		sync_layouts_orient_rows();                              \
+	}                                                            \
+	static void reset_menu_style_##_name(void) {                 \
+		CFG_setMenuStyle(_cat, CFG_DEFAULT_MENUSTYLE_FOR(_cat)); \
+		sync_layouts_orient_rows();                              \
+	}                                                            \
+	static int get_menu_orient_##_name(void) {                   \
+		return CFG_getMenuOrient(_cat);                          \
+	}                                                            \
+	static void set_menu_orient_##_name(int v) {                 \
+		CFG_setMenuOrient(_cat, v);                              \
+	}                                                            \
+	static void reset_menu_orient_##_name(void) {                \
+		CFG_setMenuOrient(_cat, CFG_DEFAULT_MENUORIENT);         \
 	}
 MENU_STYLE_CALLBACKS(consoles, MENU_CAT_CONSOLES)
 MENU_STYLE_CALLBACKS(collections, MENU_CAT_COLLECTIONS)
@@ -700,9 +707,20 @@ static int get_game_list_orient(void) {
 }
 static void set_game_list_orient(int v) {
 	CFG_setGameListOrient(v);
+	sync_layouts_orient_rows();
 }
 static void reset_game_list_orient(void) {
 	CFG_setGameListOrient(CFG_DEFAULT_GAMELISTORIENT);
+	sync_layouts_orient_rows();
+}
+static int get_game_list_valign(void) {
+	return CFG_getGameListVAlign();
+}
+static void set_game_list_valign(int v) {
+	CFG_setGameListVAlign(v);
+}
+static void reset_game_list_valign(void) {
+	CFG_setGameListVAlign(CFG_DEFAULT_GAMELISTVALIGN);
 }
 
 /* Show Tools */
@@ -1720,6 +1738,12 @@ static void build_menu_tree(const DeviceInfo* dev) {
 					   "Whether a game list's carousel or backdrop runs across or down.",
 					   get_game_list_orient, set_game_list_orient, reset_game_list_orient);
 #undef LAYOUTS_ORIENT_ROW
+	game_list_valign_item = &layouts_items[idx];
+	layouts_items[idx] = (SettingItem)ITEM_CYCLE_INIT(
+		"Vertical alignment", "Which side a vertical game list's stack sits on; its details take the other side.",
+		valign_labels, MENU_VALIGN_COUNT, valign_values, get_game_list_valign, set_game_list_valign,
+		reset_game_list_valign);
+	layouts_items[idx++].a_cycles = 1;
 	sync_layouts_orient_rows();
 	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Consoles tab", "Show the Consoles tab.",

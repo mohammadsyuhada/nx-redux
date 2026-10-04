@@ -168,8 +168,56 @@ static void scroll(void) {
 	assert(near(HomeLayout_scrollFor(&l, f, 768, BAR, s), 0));
 }
 
+// The strip at Large's size on a Small screen (strip_k 1.5, Home's 3 / 2): its baselines and the top section's start
+// under it 1.5x their Brick px offsets from the bar, so they stay the Large px apart once scaled by 2/3; the rest as
+// without; strip_k 1 is HomeLayout_compute.
+static void strip_keeps_large_size(void) {
+	HomeLayout a, b;
+	HomeLayout_compute(1024, 768, BAR, 2, 2, 3, &a);
+	HomeLayout_computeStrip(1024, 768, BAR, 2, 1.0f, 2, 3, &b);
+	assert(near(a.strip_base[0], b.strip_base[0]) && near(a.top_y, b.top_y) && near(a.top_h, b.top_h));
+	HomeLayout_computeStrip(1024, 768, BAR, 2, 1.5f, 2, 3, &b);
+	assert(near(b.strip_base[0], BAR + 37 * 1.5f) && near(b.strip_base[1], BAR + 73 * 1.5f));
+	assert(near(b.top_y, BAR + 103 * 1.5f) && near(b.strip_x, a.strip_x));
+	HomeLayout_computeStrip(1024, 768, BAR, 1, 1.5f, 2, 3, &b); // one line
+	assert(near(b.strip_base[0], BAR + 40 * 1.5f) && near(b.top_y, BAR + 71 * 1.5f));
+	HomeLayout_computeStrip(1024, 768, BAR, 0, 1.5f, 2, 3, &b); // no strip: the top section's start unchanged
+	assert(near(b.top_y, BAR + 27));
+}
+
+// The Small UI scale with tools (strip_k 1.5): the glyph at the Large 46 px (69 Brick px), the squares sized from it
+// (round(69 / 0.58) = 119), the top section just the squares tall, the pin rows taking the rest.
+static void small_scale_tools_and_pins(void) {
+	HomeLayout l;
+	// the Brick at 2x: 1536 x 1152 Brick px, bar 126; strip top 280.5; a column of 3 squares 30 apart = 417 tall;
+	// the pin row from 727.5 to the bottom (992): 264.5 tall (155 at Large)
+	HomeLayout_computeStrip(1536, 1152, 126, 2, 1.5f, 2, 3, &l);
+	assert(near(l.glyph, 69) && near(l.square, 119) && near(l.top_y, 280.5f) && near(l.top_h, 417));
+	assert(rectIs(l.top[1].r, 1536 - 51 - 119, 280.5f, 119, 119) && near(l.top[2].r.y, 280.5f + 149));
+	assert(near(l.pin_h, 264.5f) && near(l.pins[0].r.y, 727.5f) && near(l.pins[0].r.h, 264.5f));
+	// the Smart Pro S at 2x: 1920 x 1080, bar 84; 3 tools one column of 3 (417 tall, 30 apart) flush right; one pin row
+	// from 685.5 to the bottom (962): 276.5 tall
+	HomeLayout_computeStrip(1920, 1080, 84, 2, 1.5f, 8, 3, &l);
+	assert(near(l.glyph, 69) && near(l.square, 119) && near(l.top_h, 417));
+	assert(rectIs(l.top[1].r, 1920 - 51 - 119, 238.5f, 119, 119) && rectIs(l.top[3].r, 1920 - 51 - 119, 238.5f + 298, 119, 119));
+	assert(near(l.pin_h, 276.5f) && near(l.pins[0].r.y, 685.5f) && near(l.pins[4].r.y, 685.5f + 276.5f + 30));
+	// 4 tools: two columns, the first full (3), the second from the top
+	HomeLayout_computeStrip(1920, 1080, 84, 2, 1.5f, 8, 4, &l);
+	float bx = 1920 - 51 - 2 * 119 - 30;
+	assert(rectIs(l.top[1].r, bx, 238.5f, 119, 119) && rectIs(l.top[3].r, bx, 238.5f + 298, 119, 119));
+	assert(rectIs(l.top[4].r, bx + 149, 238.5f, 119, 119) && l.ntop == 5);
+	// 7 tools: five and "+N" in the 6 slots
+	HomeLayout_computeStrip(1920, 1080, 84, 2, 1.5f, 8, 7, &l);
+	assert(l.ntop == 7 && l.top[6].kind == HOME_TILE_MORE && l.top[6].ref == 2 && rectIs(l.top[6].r, bx + 149, 238.5f + 298, 119, 119));
+	// no tools: as before (the fixed pin rows)
+	HomeLayout_computeStrip(1920, 1080, 84, 2, 1.5f, 8, 0, &l);
+	assert(near(l.pin_h, HOME_PIN_H));
+}
+
 int main(void) {
 	brick_strip_and_tools();
+	strip_keeps_large_size();
+	small_scale_tools_and_pins();
 	sps_grid();
 	top_moves();
 	pin_moves();

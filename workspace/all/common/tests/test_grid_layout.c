@@ -195,8 +195,13 @@ static void consoles_wide(void) {
 	GridLayout n, w;
 	make(BRICK_W, BRICK_H, 9, &n);
 	GridLayout_computeWide(BRICK_W, BAR, BRICK_H - 2 * BAR, 9, 2.0f, &w);
-	assert(near(w.tile_w, 2 * n.tile_w) && near(w.tile_h, n.tile_h) && w.sliding && w.cols == 1);
-	assert(fabsf(GridLayout_tileK(&w) - GridLayout_tileK(&n)) < 1e-4f);
+	// two wide tiles don't fit across the Brick at 3x: never one column, the tile shrinks (shape kept) to two across
+	assert(w.cols == 2 && w.sliding && near(w.tile_w, (BRICK_W - 2 * 24 - 14) / 2));
+	assert(near(w.tile_w / w.tile_h, 2 * n.tile_w / n.tile_h) && w.tile_w < 2 * n.tile_w);
+	assert(GridLayout_tileK(&w) < GridLayout_tileK(&n));
+	// the Brick Pro at 3x (its bars 2x-sized, so a taller body), two collections: side by side, not stacked
+	GridLayout_computeSized(BRICK_W, BAR * 2 / 3, BRICK_H - 2 * BAR * 2 / 3, 2, 2.0f, 2.0f / 3.0f, 0.85f, &w);
+	assert(w.cols == 2 && w.rows == 1 && !w.sliding);
 	make(SPS_W, SPS_H, 9, &n);
 	GridLayout_computeWide(SPS_W, BAR, SPS_H - 2 * BAR, 9, 2.0f, &w);
 	assert(near(w.tile_w, 280) && near(w.tile_h, n.tile_h) && w.sliding && w.cols == 2);

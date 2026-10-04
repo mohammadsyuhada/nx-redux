@@ -30,6 +30,19 @@ int main(void) {
 			assert(p[y * (W + 8) + x] == 0xABABABABu);
 	PlaceholderArt_render(NULL, W, H, W, "x"); // refused, no crash
 	PlaceholderArt_render(a, 0, H, W, NULL);
+
+	// one colour (Home's Pick a game, in the accent): opaque, dark, in rgb's hue; a grey rgb gives a neutral picture
+	PlaceholderArt_renderRgb(a, W, H, W, "nx-pick-a-game", 0xE60012); // red
+	unsigned long r = 0, g = 0, bl = 0;
+	for (int i = 0; i < W * H; i++) {
+		assert((a[i] >> 24) == 0xFF);
+		r += (a[i] >> 16) & 0xFF, g += (a[i] >> 8) & 0xFF, bl += a[i] & 0xFF;
+	}
+	assert(2 * r > 3 * g && 2 * r > 3 * bl && (r + g + bl) / (3UL * W * H) < 128); // red-led, dark
+	PlaceholderArt_renderRgb(b, W, H, W, "nx-pick-a-game", 0x808080);			   // grey: every pixel neutral
+	for (int i = 0; i < W * H; i++)
+		assert(((b[i] >> 16) & 0xFF) == ((b[i] >> 8) & 0xFF) && ((b[i] >> 8) & 0xFF) == (b[i] & 0xFF));
+	PlaceholderArt_renderRgb(NULL, W, H, W, "x", 0xFFFFFF); // refused, no crash
 	printf("test_placeholder_art: all passed\n");
 	return 0;
 }

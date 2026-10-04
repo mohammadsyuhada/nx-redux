@@ -83,6 +83,9 @@ int Tiles_textBlockStep(SDL_Surface* dst, TTF_Font* f, const char* text, int cx,
 // Tiles_textBlock left-aligned: every line's left edge at x (the game lists' side caption, §8f.4), opaque.
 int Tiles_textBlockLeft(SDL_Surface* dst, TTF_Font* f, const char* text, int x, int y, int max_w, int max_lines,
 						Uint8 grey, bool shadow);
+// ...and right-aligned: every line's right edge at x (the side caption with Vertical alignment Right).
+int Tiles_textBlockRight(SDL_Surface* dst, TTF_Font* f, const char* text, int x, int y, int max_w, int max_lines,
+						 Uint8 grey, bool shadow);
 // Free the cached shape masks, captions and scratch surface.
 void Tiles_quit(void);
 
