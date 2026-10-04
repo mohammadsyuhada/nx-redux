@@ -131,6 +131,18 @@ stop_bt() {
 	[ -n "$t" ] && {
 		killall hcidump
 	}
+	# A stop that lands while hciattach is still attaching (Bluetooth switched off right after on) must not kill it
+	# before hci0 is registered and opened: that frees the hci_uart under the tty close (the Brick Pro's Oops in
+	# hci_uart_flush, then a panic or a watchdog reset). Let it register hci0 first (start_hci_attach's 7 s), so the
+	# down below serialises with its open and the kill comes after.
+	h=`ps | grep "$bt_hciattach" | grep -v grep`
+	if [ -n "$h" ]; then
+		wait_hci0_count=0
+		while [ ! -d /sys/class/bluetooth/hci0 ] && [ $wait_hci0_count -lt 70 ]; do
+			usleep 100000
+			wait_hci0_count=$((wait_hci0_count + 1))
+		done
+	fi
 	# xr819s_stop
 	hciconfig hci0 down
 	h=`ps | grep "$bt_hciattach" | grep -v grep`

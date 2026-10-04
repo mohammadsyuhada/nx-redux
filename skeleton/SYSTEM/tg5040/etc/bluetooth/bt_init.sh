@@ -117,6 +117,20 @@ stop_bt() {
 		sleep 1
 	}
 
+	# The stock S80hciattach starts hciattach at every boot, Bluetooth on or off, and launch.sh's stop lands while
+	# it is still attaching (~10 s in). Killing it before hci0 is registered and opened frees the hci_uart under the
+	# tty close (Oops in hci_uart_flush, then a panic or a watchdog reset): let it register hci0 first (the start
+	# path's 7 s), so the down below serialises with its open and the kill comes after.
+	h=`ps | grep "$bt_hciattach" | grep -v grep`
+	[ -n "$h" ] && {
+		wait_hci0_count=0
+		while [ ! -d /sys/class/bluetooth/hci0 ] && [ $wait_hci0_count -lt 70 ]
+		do
+			usleep 100000
+			let wait_hci0_count++
+		done
+	}
+
 	hciconfig hci0 down
 	t=`ps | grep hcidump | grep -v grep`
 	[ -n "$t" ] && {
