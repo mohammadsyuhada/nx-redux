@@ -1,0 +1,9 @@
+{
+    "prefix": "rhh",
+    "api": "PortMasterV3",
+    "name": "RHH-Ports",
+    "url": "https://github.com/JeodC/RHH-Ports/releases/download/ports-latest/ports.json",
+    "last_checked": null,
+    "version": 1,
+    "data": {}
+}

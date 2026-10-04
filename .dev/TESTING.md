@@ -295,6 +295,20 @@ during menu rendering — useless as a first-frame/boot proxy.
   retired) under `sh` against a fake card with stub `python3`, `show2.elf`
   and `nextval.elf`: not-installed screen, patches applied idempotently
   before/after pugwash, Xbox pad map during pugwash and the Button layout
-  setting restored after, port-script fixes, patchedScripts, cover-art
-  sync, cache invalidation, Xtras version marker, first-run retry and
-  self-update reboot loop. Needs GNU sed (`brew install gnu-sed`).
+  setting restored after, port-script fixes, patchedScripts/ retired,
+  --patch-only, cover-art
+  sync (and the catalog-screenshot fallback for ports with no art), the
+  tg5040 `libGLESv1_CM.so` alias, cache invalidation, the Xtras version
+  marker left to extras.elf, first-run retry and self-update reboot loop;
+  plus `ports_launch.sh`'s patch guard, `.asoundrc` copy, `/roms/ports/<dir>`
+  rewrite and the session bind of the audio routing over `/etc/asound.conf`.
+  Needs GNU sed (`brew install gnu-sed`).
+- PortMaster community catalogs: `scripts/tests/test-extras-portmaster-catalogs.sh`
+  runs the real `portmaster-nextos` / `portmaster-rhh` Xtras `install.sh` and
+  `uninstall.sh` against a fake card with a wget shim: refusal without
+  PortMaster (and, for RHH, without its CA bundle) before any network,
+  source file dropped into `config/` and reset on reinstall, gmtoolkit
+  fetched digest-verified with TLS checked against PortMaster's CA bundle,
+  uninstall removing catalog, cached images, gmtoolkit and markers while
+  installed ports stay. Run every script with its shebang (`./script`), not
+  `sh script`: macOS `sh` is bash in POSIX mode, where `VAR=x func` leaks.

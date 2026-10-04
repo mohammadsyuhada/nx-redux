@@ -86,11 +86,10 @@ EOF
 # ---- sandbox SD card ----------------------------------------------------
 SD="$TMP/sd"
 seed_base_files() {
-  mkdir -p "$SD/Emus/shared/PortMaster/files" "$SD/Emus/shared/PortMaster/patchedScripts"
+  mkdir -p "$SD/Emus/shared/PortMaster/files"
   cp "$TMP/bin.zip" "$TMP/lib.zip" "$TMP/libs.zip" "$TMP/pylibs.zip" "$SD/Emus/shared/PortMaster/files/"
   echo 'certs'    > "$SD/Emus/shared/PortMaster/files/ca-certificates.crt"
   echo 'py-patch' > "$SD/Emus/shared/PortMaster/files/disable_python_function.py"
-  echo 'patched'  > "$SD/Emus/shared/PortMaster/patchedScripts/SteelAssault.sh"
 }
 mkdir -p "$SD/.userdata/tg5050/logs"
 seed_base_files
@@ -226,8 +225,9 @@ cmp -s "$TOOLS_PAK/launch.sh" "$ENTRY/pak/launch.sh" \
   && pass "Ports Roms folder created" || fail "Ports Roms folder missing"
 [ ! -e "$CACHE" ] \
   && pass "emu list cache invalidated" || fail "emu list cache survived"
-[ "$(cat "$VER" 2>/dev/null)" = "2026.01.01-0000" ] \
-  && pass "resolved tag written to version record" || fail "version record wrong: '$(cat "$VER" 2>/dev/null)'"
+# extras.elf writes the version record from the catalog version (#108).
+[ ! -e "$VER" ] \
+  && pass "version record left to extras.elf" || fail "install.sh wrote the version record: '$(cat "$VER" 2>/dev/null)'"
 grep -q '@90 ' "$TMP/log1.txt" \
   && pass "install emits @NN progress hints" || fail "no @NN progress hint found"
 grep -q 'Latest release: 2026.01.01-0000' "$TMP/log1.txt" \
@@ -268,8 +268,8 @@ if run_install > "$TMP/log3b.txt" 2>&1; then
 else pass "corrupt dep zip aborts"; fi
 [ ! -e "$PM/pugwash" ] \
   && pass "failed install: half-written runtime removed" || fail "failed install: runtime left launchable"
-[ -f "$PM/files/lib.zip" ] && [ -f "$PM/patchedScripts/SteelAssault.sh" ] \
-  && pass "failed install: BASE files/ + patchedScripts/ kept" || fail "failed install: BASE payload lost"
+[ -f "$PM/files/lib.zip" ] \
+  && pass "failed install: BASE files/ kept" || fail "failed install: BASE payload lost"
 [ ! -d "$TOOLS_PAK" ] && [ ! -d "$PORTS_PAK" ] \
   && pass "failed install: launchers pulled" || fail "failed install: launchers left behind"
 cp "$TMP/bin.zip" "$PM/files/bin.zip"
@@ -282,6 +282,7 @@ echo 'port-script' > "$SD/Roms/Ports (PORTS)/SomePort.sh"
 echo 'legacy'      > "$SD/Emus/tg5050/PORTS.pak/launch.sh"
 echo 'n64'         > "$SD/Emus/tg5050/N64.pak/launch.sh"
 echo 'stale'       > "$CACHE"
+mkdir -p "${VER%/*}" && echo '2026.01.01-0000' > "$VER"
 if run_uninstall > "$TMP/log4.txt" 2>&1; then pass "uninstall exits 0"
 else fail "uninstall exited non-zero: $(tail -3 "$TMP/log4.txt")"; fi
 [ ! -d "$TOOLS_PAK" ]  && pass "uninstall: Tools pak removed"      || fail "uninstall: Tools pak still present"
@@ -290,8 +291,8 @@ else fail "uninstall exited non-zero: $(tail -3 "$TMP/log4.txt")"; fi
 [ ! -e "$VER" ]        && pass "uninstall: version marker removed" || fail "uninstall: version marker still present"
 [ ! -e "$PM/pugwash" ] && [ ! -d "$PM/bin" ] && [ ! -f "$PM/config/config.json" ] \
   && pass "uninstall: runtime removed" || fail "uninstall: runtime remnants left"
-[ -f "$PM/files/bin.zip" ] && [ -f "$PM/patchedScripts/SteelAssault.sh" ] \
-  && pass "uninstall: BASE files/ + patchedScripts/ kept" || fail "uninstall: BASE payload lost"
+[ -f "$PM/files/bin.zip" ] \
+  && pass "uninstall: BASE files/ kept" || fail "uninstall: BASE payload lost"
 [ ! -d "$PORTS_PAK" ]  && pass "uninstall: PORTS.pak removed"      || fail "uninstall: PORTS.pak still present"
 [ ! -d "$SD/Emus/tg5050/PORTS.pak" ] \
   && pass "uninstall: legacy platform PORTS.pak removed" || fail "uninstall: legacy PORTS.pak still present"

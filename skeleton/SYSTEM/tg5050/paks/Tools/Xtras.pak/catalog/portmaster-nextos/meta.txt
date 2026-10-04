@@ -1,0 +1,8 @@
+name=NextOS Ports
+category=TOOL
+platforms=tg5040 tg5050
+version_source=internal
+version=2026-10-04
+desc=Adds the NextOS Universal Ports catalog to PortMaster: Android and iOS games wrapped to run on handhelds. You supply your own copy of each game. Open PortMaster to browse them; new ports appear there as NextOS publishes them. Needs PortMaster installed. Some ports need a few GB free on the card while they unpack on first launch.
+size_mb=1
+done_msg=Added. Open PortMaster to browse the NextOS ports.

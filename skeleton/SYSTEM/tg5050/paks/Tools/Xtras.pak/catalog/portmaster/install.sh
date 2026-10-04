@@ -71,7 +71,7 @@ USERDATA_DIR="$SDCARD_PATH/.userdata/$PLATFORM"
 # failure leaves any prior successful install fully untouched. From then on
 # a failure may leave the runtime half-written - a truncated pugwash must
 # not stay launchable - so fail() strips the runtime back to the BASE-
-# shipped files/ + patchedScripts/ and pulls both launchers (same shape as
+# shipped files/ and pulls both launchers (same shape as
 # uninstall.sh; ports/saves in Roms are never touched). Re-running install
 # recovers cleanly.
 TARGET_DIRTY=0
@@ -80,7 +80,7 @@ cleanup_runtime() {
     for entry in "$PM_DIR"/* "$PM_DIR"/.[!.]*; do
         [ -e "$entry" ] || continue
         case "$(basename "$entry")" in
-            files|patchedScripts) ;;
+            files) ;;
             *) rm -rf "$entry" ;;
         esac
     done

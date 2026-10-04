@@ -46,6 +46,23 @@ if [ -d "$XDG_DATA_HOME/PortMaster" ] && [ ! -f "$XDG_DATA_HOME/PortMaster/contr
         || echo "warning: $XDG_DATA_HOME/PortMaster has no control.txt; port scripts will use it over $EMU_DIR"
 fi
 
+# PortMaster's install (Xtras) and its self-update put back the stock control.txt, whose paths point at
+# /roms/ports/PortMaster: a port then can't load device_info.txt and dies ("Game files are not installed
+# correctly"), and the stock device_info.txt, which no longer recognises TrimUI. The PortMaster tool re-applies the
+# NxRedux patches each time it opens, so a port launched before the tool's next run used the stock files; apply
+# them here too (the tool's launch.sh keeps the one copy of every patch). Checked by each file's newest NX Redux
+# marker, so a card patched by an older build is refreshed too; device_info.txt only when it has the
+# 2026.09.19+ probe's capability line the patches anchor on. Only a tool with --patch-only is called: an older
+# one would ignore the flag and open the PortMaster GUI.
+PM_TOOL="$SDCARD_PATH/Tools/PortMaster.pak/launch.sh"
+DI="$EMU_DIR/device_info.txt"
+if { { [ -f "$EMU_DIR/control.txt" ] && ! grep -q 'NX Redux: exFAT/FAT32 compat' "$EMU_DIR/control.txt"; } \
+     || { grep -q '^export DEVICE_CAPABILITIES=' "$DI" 2>/dev/null && ! grep -q 'NX Redux: TrimUI capability' "$DI"; }; } \
+    && [ -f "$PM_TOOL" ] && grep -q -- '--patch-only' "$PM_TOOL"; then
+    echo "PortMaster files are unpatched: applying the NxRedux patches"
+    sh "$PM_TOOL" --patch-only
+fi
+
 [ -z "$1" ] && exit 1
 ROM_PATH="$1"
 ROM_DIR="$(dirname "$ROM_PATH")"
@@ -65,11 +82,39 @@ cleanup() {
     killall show2.elf 2>/dev/null || true
     kill $SYNC_PID 2>/dev/null || true
 
+    # Mounts the port left under HOME or the ports dir (bind_directories,
+    # control.txt's ln fallback, runtime squashfs), deepest first. Left mounted, the next run's
+    # `rm -rf ~/.config/<game>` would empty the save folder through them.
+    awk -v h="$HOME/" -v t="$TEMP_DATA_DIR/ports/" '
+        { gsub(/\\040/, " ", $2) }
+        index($2, h) == 1 || index($2, t) == 1 { print $2 }
+    ' /proc/mounts 2>/dev/null | sort -r | while IFS= read -r m; do
+        umount "$m" 2>/dev/null || umount -l "$m" 2>/dev/null
+    done
+
     umount "$TEMP_DATA_DIR/ports" 2>/dev/null || umount -l "$TEMP_DATA_DIR/ports" 2>/dev/null || true
     # Use rmdir (not rm -rf) so a still-mounted bind mount can't delete .ports game data
     rmdir "$TEMP_DATA_DIR/ports" 2>/dev/null
     rmdir "$TEMP_DATA_DIR" 2>/dev/null
     rm -f "$HOME/.asoundrc" 2>/dev/null
+    # The audio routing bound over /etc/asound.conf in main()
+    umount "$NX_ASOUND_DEST" 2>/dev/null
+    rm -f "$NX_ASOUND"
+}
+
+# ALSA reads ~/.asoundrc, and some ports move HOME into their game folder
+# (every NextOS port, a few official ones), which lost the Bluetooth/USB DAC
+# routing and the Game Volume control. ALSA_CONFIG_PATH can't add it (this
+# alsa-lib, 1.1.8, ignores definitions in extra files listed there), but
+# /etc/asound.conf is always read: for the port session, bind a copy with the
+# routing appended over it. cleanup() unmounts it; a reboot drops it too.
+NX_ASOUND="/tmp/nx_ports_asound.conf"
+NX_ASOUND_DEST="/etc/asound.conf"
+bind_audio_routing() {
+    [ -f "$HOME/.asoundrc" ] && [ -f "$NX_ASOUND_DEST" ] || return 0
+    umount "$NX_ASOUND_DEST" 2>/dev/null
+    cat "$NX_ASOUND_DEST" "$HOME/.asoundrc" > "$NX_ASOUND" \
+        && mount --bind "$NX_ASOUND" "$NX_ASOUND_DEST"
 }
 
 set_controller_layout() {
@@ -126,57 +171,10 @@ add_input_udev_rule() {
     done
 }
 
-# PortMaster 2026.09.19+ rewrote device_info.txt's host probe and dropped the
-# TrimUI firmware branch (`[ -d /usr/trimui ]` -> CFW_NAME=TrimUI). On TrimUI
-# CFW_NAME stays "Unknown": pugwash falls back to its default platform (no
-# Xbox A/B fix, so the PortMaster app's buttons come out inverted) and port
-# scripts skip mod_TrimUI.txt. Re-add it ahead of the os-release fallback,
-# naming the model from the launcher's $DEVICE and taking the firmware
-# version from /etc/version (as the old upstream probe did). No-op on
-# device_info files without those fallbacks (the older ones still detect
-# TrimUI themselves).
-# PortMaster caches the probe as device_info_<cfw>_<device>.env and reads a
-# cache before re-running the script, so a probe cached as "unknown" is
-# dropped, and the TrimUI caches are dropped whenever the script is patched.
-patch_device_info_trimui() { # $1 = device_info.txt
-    [ -d /usr/trimui ] || return 0
-    rm -f "${1%/*}"/device_info_unknown_*.env
-    grep -q 'NX Redux: TrimUI version' "$1" 2>/dev/null && return 0
-    grep -q '^if \[ "\$CFW_NAME" = "Unknown" \] && {' "$1" 2>/dev/null || return 0
-    grep -q '^if \[ "\$CFW_VERSION" = "Unknown" \] && {' "$1" 2>/dev/null || return 0
-    _nxname=0
-    grep -q 'NX Redux: TrimUI firmware' "$1" && _nxname=1
-    awk -v name="$_nxname" '
-        !name && /^if \[ "\$CFW_NAME" = "Unknown" \] && \{/ {
-            print "# NX Redux: TrimUI firmware (dropped from the upstream probe)"
-            print "if [ \"$CFW_NAME\" = \"Unknown\" ] && [ -d \"/usr/trimui\" ]; then"
-            print "    export CFW_NAME=\"TrimUI\""
-            print "    case \"$DEVICE\" in"
-            print "        brickpro) export DEVICE_NAME=\"TrimUI Brick Pro\" ;;"
-            print "        brick) export DEVICE_NAME=\"TrimUI Brick\" ;;"
-            print "        smartpros) export DEVICE_NAME=\"TrimUI Smart Pro S\" ;;"
-            print "        *) export DEVICE_NAME=\"TrimUI Smart Pro\" ;;"
-            print "    esac"
-            print "fi"
-            print ""
-            name = 1
-        }
-        !ver && /^if \[ "\$CFW_VERSION" = "Unknown" \] && \{/ {
-            print "# NX Redux: TrimUI version"
-            print "if [ \"$CFW_NAME\" = \"TrimUI\" ] && [ \"$CFW_VERSION\" = \"Unknown\" ] && [ -f /etc/version ]; then"
-            print "    export CFW_VERSION=\"$(tr -d \x27\\r\\n\x27 < /etc/version)\""
-            print "fi"
-            print ""
-            ver = 1
-        }
-        { print }
-    ' "$1" >"$1.nxtmp" && mv -f "$1.nxtmp" "$1"
-    rm -f "${1%/*}"/device_info_trimui_*.env
-}
-
 main() {
     echo "1" >/tmp/stay_awake
     trap "cleanup" EXIT INT TERM HUP QUIT
+    bind_audio_routing
 
     # Bring all cores online for multi-threaded ports
     for i in 2 3 5 6 7; do
@@ -207,7 +205,10 @@ main() {
     fi
 
     # Fix hardcoded paths and shebangs
+    # /roms/ports/<dir> (other firmwares' ports folder, which some third-party
+    # wrappers look in for their game folder) -> the .ports bind mount above.
     sed -i -e "s|/roms/ports/PortMaster|$EMU_DIR|g" \
+           -e "s|/roms/ports/|$TEMP_DATA_DIR/ports/|g" \
            -e "s|/mnt/SDCARD/Emus/tg50[45]0/PORTS.pak/PortMaster|$EMU_DIR|g" \
            -e '1s|^#!/bin/bash|#!/usr/bin/env bash|' "$ROM_PATH"
 
@@ -217,7 +218,6 @@ main() {
     set_controller_layout "$NX_BUTTON_LAYOUT"
 
     add_input_udev_rule
-    patch_device_info_trimui "$EMU_DIR/device_info.txt"
 
     # Start power button sleep/poweroff handler
     sleepmon.elf &
