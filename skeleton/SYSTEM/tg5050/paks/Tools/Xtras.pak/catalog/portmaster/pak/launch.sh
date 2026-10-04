@@ -182,7 +182,8 @@ ln() {
 # with curl; -I prints the response headers there instead.
 if ! command -v curl >/dev/null 2>&1; then
 curl() {
-  local a c rest out="" remote=0 head=0 next="" urls=() w=(-q) url rc=0
+  # Verify TLS like curl does, whatever the wget build's default; -k turns it off.
+  local a c rest out="" remote=0 head=0 next="" urls=() w=(-q --check-certificate=on) url rc=0
   for a in "$@"; do
     case "$next" in
       o) out="$a"; next=""; continue ;;

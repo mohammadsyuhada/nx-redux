@@ -114,17 +114,17 @@ run "ln '$TMP/hf' '$TMP/hf2'"; rc=$?
 wg() { : > "$TMP/wget.log"; rm -f "$TMP/wget_rc"; SSL_CERT_FILE="$TMP/ca.crt" run "$1"; }
 touch "$TMP/ca.crt"
 wg "curl https://x.test/mlox_base.txt -o mlox_base.txt"
-[ "$(cat "$TMP/wget.log")" = "-q|--ca-certificate=$TMP/ca.crt|-O|mlox_base.txt|https://x.test/mlox_base.txt" ] \
+[ "$(cat "$TMP/wget.log")" = "-q|--check-certificate=on|--ca-certificate=$TMP/ca.crt|-O|mlox_base.txt|https://x.test/mlox_base.txt" ] \
   && pass "curl -o: wget -O file, CA bundle" || fail "curl -o: '$(cat "$TMP/wget.log")'"
 wg "curl -fsSL https://x.test/a.sh"
-[ "$(cat "$TMP/wget.log")" = "-q|--ca-certificate=$TMP/ca.crt|-O|-|https://x.test/a.sh" ] \
+[ "$(cat "$TMP/wget.log")" = "-q|--check-certificate=on|--ca-certificate=$TMP/ca.crt|-O|-|https://x.test/a.sh" ] \
   && pass "curl -fsSL: body to stdout" || fail "curl -fsSL: '$(cat "$TMP/wget.log")'"
 wg "curl -sLo out.bin https://x.test/f.bin"
 grep -q '|-O|out.bin|https://x.test/f.bin$' "$TMP/wget.log" && pass "curl -sLo FILE: attached -o value" || fail "curl -sLo: '$(cat "$TMP/wget.log")'"
 wg "curl -O 'https://x.test/dir/pkg.zip?token=1'"
 grep -q '|-O|pkg.zip|https://x.test/dir/pkg.zip?token=1$' "$TMP/wget.log" && pass "curl -O: remote name, query dropped" || fail "curl -O: '$(cat "$TMP/wget.log")'"
 wg "curl -k -H 'Accept: x' -A ua -m 30 --retry 2 -C - -o f https://x.test/f"
-[ "$(cat "$TMP/wget.log")" = "-q|--no-check-certificate|--header=Accept: x|--user-agent=ua|--timeout=30|--tries=3|-c|--ca-certificate=$TMP/ca.crt|-O|f|https://x.test/f" ] \
+[ "$(cat "$TMP/wget.log")" = "-q|--check-certificate=on|--no-check-certificate|--header=Accept: x|--user-agent=ua|--timeout=30|--tries=3|-c|--ca-certificate=$TMP/ca.crt|-O|f|https://x.test/f" ] \
   && pass "curl options: -k -H -A -m --retry -C mapped" || fail "curl options: '$(cat "$TMP/wget.log")'"
 : > "$TMP/wget.log"; echo 8 > "$TMP/wget_rc"
 run "curl -o f https://x.test/missing"; rc=$?
@@ -134,7 +134,7 @@ rm -f "$TMP/wget_rc"
 printf 'Spider mode enabled. Check if remote file exists.\n  HTTP/1.1 200 OK\n  ETag: "abc"\nRemote file exists.\n' > "$TMP/wget_err"
 : > "$TMP/wget.log"
 out="$(SSL_CERT_FILE="$TMP/ca.crt" run "curl -sI https://x.test/game.pck")"
-[ "$(cat "$TMP/wget.log")" = "--ca-certificate=$TMP/ca.crt|-S|--spider|https://x.test/game.pck" ] \
+[ "$(cat "$TMP/wget.log")" = "--check-certificate=on|--ca-certificate=$TMP/ca.crt|-S|--spider|https://x.test/game.pck" ] \
   && pass "curl -I: wget -S --spider, no -q" || fail "curl -I: '$(cat "$TMP/wget.log")'"
 [ "$out" = "$(printf 'HTTP/1.1 200 OK\nETag: "abc"')" ] \
   && pass "curl -I: only the headers, on stdout" || fail "curl -I output: '$out'"
