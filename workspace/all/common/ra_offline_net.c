@@ -73,6 +73,12 @@ static int ra_net_submit(const RA_PendingUnlock* e, uint32_t seconds_since_unloc
 		}
 		rc_api_destroy_award_achievement_response(&award);
 	}
+	// the achievement was removed server-side: drop it instead of
+	// resubmitting it on every sync
+	if (result != 0 && resp->data && !resp->error &&
+		RA_Offline_classifyAwardResponse(resp->http_status, resp->data, resp->size) ==
+			RA_AWARD_REJECTED)
+		result = 1;
 	HTTP_freeResponse(resp);
 	return result;
 }

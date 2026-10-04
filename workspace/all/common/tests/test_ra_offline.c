@@ -458,6 +458,118 @@ static void test_online_award_journal(void) {
 	printf("ok test_online_award_journal\n");
 }
 
+// 777 rejected for good, everything else accepted
+static int stub_submit_reject_777(const RA_PendingUnlock* e, uint32_t secs, void* ud) {
+	(void)secs;
+	(void)ud;
+	return e->achievement_id == 777 ? 1 : 0;
+}
+
+static void test_award_rejection(void) {
+	// real server bodies (probed 2026-10-05)
+	const char* ok = "{\"Success\":true,\"Score\":10,\"SoftcoreScore\":5,\"AchievementID\":46828}";
+	const char* has = "{\"Success\":false,\"Error\":\"User already has this achievement awarded.\"}";
+	const char* gone = "{\"Success\":false,\"Status\":404,\"Code\":\"not_found\",\"Error\":\"Unknown achievement.\"}";
+	const char* auth = "{\"Success\":false,\"Status\":401,\"Code\":\"invalid_credentials\",\"Error\":\"Invalid user\\/token combination.\"}";
+	const char* html = "<html><body>Hotel WiFi login</body></html>";
+	assert(RA_Offline_classifyAwardResponse(200, ok, strlen(ok)) == RA_AWARD_ACCEPTED);
+	assert(RA_Offline_classifyAwardResponse(200, has, strlen(has)) == RA_AWARD_ACCEPTED);
+	assert(RA_Offline_classifyAwardResponse(404, gone, strlen(gone)) == RA_AWARD_REJECTED);
+	assert(RA_Offline_classifyAwardResponse(401, auth, strlen(auth)) == RA_AWARD_RETRY);
+	assert(RA_Offline_classifyAwardResponse(200, html, strlen(html)) == RA_AWARD_RETRY);
+	assert(RA_Offline_classifyAwardResponse(503, ok, strlen(ok)) == RA_AWARD_RETRY);
+	assert(RA_Offline_classifyAwardResponse(200, NULL, 0) == RA_AWARD_RETRY);
+	// length-bounded: the match must lie inside body_len
+	assert(RA_Offline_classifyAwardResponse(200, ok, 5) == RA_AWARD_RETRY);
+
+	// sync: a rejected entry is dropped but neither counted nor confirmed
+	reset_root();
+	assert(RA_Offline_journalAward("r=awardachievement&u=bob&t=tok&a=777&h=0&m=dddd4444"));
+	assert(RA_Offline_journalAward("r=awardachievement&u=bob&t=tok&a=888&h=0&m=dddd4444"));
+	time_t now = time(NULL);
+	assert(RA_Offline_sync("bob", now, stub_submit_reject_777, NULL, NULL) == 1);
+	assert(RA_Offline_pendingCount() == 0);
+	RA_PendingUnlock c[4];
+	assert(RA_Offline_readConfirmed(c, 4) == 1 && c[0].achievement_id == 888);
+
+	// only rejections: journal still rewritten, lastsync not advanced
+	reset_root();
+	assert(RA_Offline_journalAward("r=awardachievement&u=bob&t=tok&a=777&h=0&m=dddd4444"));
+	assert(RA_Offline_sync("bob", now, stub_submit_reject_777, NULL, NULL) == 0);
+	assert(RA_Offline_pendingCount() == 0);
+	assert(RA_Offline_lastSyncTime() == 0);
+	assert(RA_Offline_readConfirmed(c, 4) == 0);
+	printf("ok test_award_rejection\n");
+}
+
+static int count_lines(const char* rel) {
+	char p[512];
+	snprintf(p, sizeof(p), ROOT "/%s", rel);
+	FILE* f = fopen(p, "r");
+	if (!f)
+		return 0;
+	int n = 0;
+	char line[512];
+	while (fgets(line, sizeof(line), f))
+		n++;
+	fclose(f);
+	return n;
+}
+
+static void test_confirmed_growth(void) {
+	reset_root();
+	// a long-lived confirmed file: more old lines (other game) than the
+	// per-read cap, then one newer entry for the game being played
+	{
+		FILE* f = fopen(ROOT "/pending/confirmed.jsonl", "w");
+		assert(f);
+		for (int i = 0; i < RA_OFFLINE_MAX_PENDING + 100; i++)
+			fprintf(f, "{\"u\":\"bob\",\"a\":%d,\"m\":\"eeee5555\",\"t\":1}\n", 100000 + i);
+		fputs("{\"u\":\"bob\",\"a\":4242,\"m\":\"ffff6666\",\"t\":2}\n", f);
+		fputs("{\"u\":\"alice\",\"a\":4242,\"m\":\"ffff6666\",\"t\":2}\n", f);
+		fputs("not json\n", f);
+		fclose(f);
+	}
+	char* body;
+	size_t len;
+	int status;
+	RA_Offline_setMode(RA_NET_OFFLINE);
+	RA_Offline_handleRequest("r=achievementsets&u=bob&t=tok&m=ffff6666", &body, &len, &status);
+	free(body);
+	// the newer entry past the cap still reaches the offline session
+	assert(RA_Offline_handleRequest("r=startsession&u=bob&t=tok&g=8001", &body, &len, &status));
+	assert(strstr(body, "\"ID\":4242"));
+	free(body);
+	RA_Offline_setMode(RA_NET_ONLINE);
+
+	int before = count_lines("pending/confirmed.jsonl");
+	// a fresh online session that lists 4242 + one of the old ids prunes
+	// exactly bob's copies of those two; alice's and the malformed line stay
+	const char* sess = "{\"Success\":true,\"Unlocks\":[{\"ID\":4242,\"When\":5},{\"ID\":100003,\"When\":5}],\"HardcoreUnlocks\":[]}";
+	RA_Offline_cacheResponse("r=startsession&u=bob&t=tok&g=8001", sess, strlen(sess));
+	assert(count_lines("pending/confirmed.jsonl") == before - 2);
+	RA_PendingUnlock* c = malloc(sizeof(RA_PendingUnlock) * (RA_OFFLINE_MAX_PENDING + 200));
+	assert(c);
+	char* cbody = NULL;
+	size_t clen = 0;
+	assert(RA_Offline_readCacheFile("pending/confirmed.jsonl", &cbody, &clen));
+	assert(!strstr(cbody, "\"u\":\"bob\",\"a\":4242,"));
+	assert(!strstr(cbody, "\"a\":100003,"));
+	assert(strstr(cbody, "\"u\":\"alice\",\"a\":4242,"));
+	assert(strstr(cbody, "not json"));
+	free(cbody);
+	free(c);
+
+	// non-session responses and failure bodies never prune
+	before = count_lines("pending/confirmed.jsonl");
+	const char* sets = "{\"Success\":true,\"ID\":100004}";
+	RA_Offline_cacheResponse("r=achievementsets&u=bob&t=tok&m=eeee5555", sets, strlen(sets));
+	const char* fail = "{\"Success\":false,\"Unlocks\":[{\"ID\":100005}]}";
+	RA_Offline_cacheResponse("r=startsession&u=bob&t=tok&g=8001", fail, strlen(fail));
+	assert(count_lines("pending/confirmed.jsonl") == before);
+	printf("ok test_confirmed_growth\n");
+}
+
 int main(void) {
 	test_get_param();
 	test_cache_classification();
@@ -468,6 +580,8 @@ int main(void) {
 	test_game_rom_path();
 	test_update_cached_scores();
 	test_online_award_journal();
+	test_award_rejection();
+	test_confirmed_growth();
 	printf("ALL TESTS PASSED\n");
 	return 0;
 }
