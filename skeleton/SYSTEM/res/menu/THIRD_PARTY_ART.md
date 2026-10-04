@@ -5,7 +5,8 @@ modified from Dan Patrick's professionally redrawn console logos:
 https://archive.org/details/console-logos-professionally-redrawn-plus-official-versions
 
 These files are not under the project's licence. Changes: converted from SVG to white-on-transparent PNG, the logos
-fitted in 1024 x 256 px and the icons in 128 x 128 px.
+fitted in 1024 x 256 px and the icons in 128 x 128 px. Most logos are his v2.1 SVG set's "Light - Just White" variants
+(the same SVGs as the NX Mobile menu's; their pack members are listed in nx-mobile's `tools/console-logos/mapping.tsv`).
 
 Console and tool names and logos are trademarks of their owners.
 
