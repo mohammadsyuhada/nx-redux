@@ -21,6 +21,7 @@
 #include <rcheevos/rc_client.h>
 #include <rcheevos/rc_libretro.h>
 #include <rcheevos/rc_hash.h>
+#include <rcheevos/rc_api_runtime.h>
 
 // Logging macros - use NextUI log levels
 #define RA_LOG_DEBUG(fmt, ...) LOG_debug("[RA] " fmt, ##__VA_ARGS__)
@@ -86,15 +87,24 @@ typedef struct {
 	uint32_t next_time; // SDL_GetTicks() timestamp for next retry
 	bool pending;
 	bool notified_connecting; // Track if we showed "Connecting..." notification
+	bool notified_failed;	  // "Connection failed" shown once per session
+	bool gave_up;			  // launch retries exhausted; next try on menu open
 } RALoginRetry;
 
 static RALoginRetry ra_login_retry = {0};
 
-// Background journal sync (runs once after a successful online login)
+// Background journal sync: after the first online login, and - for an
+// offline session with WiFi connected - when the in-game menu opens and when
+// the game quits. No timer: nothing polls the network during play.
 static SDL_Thread* ra_sync_thread = NULL;
 static volatile bool ra_sync_done = false;
 static volatile int ra_sync_synced = 0;
+static volatile bool ra_sync_cancel = false;
 static bool ra_sync_started = false;
+static char ra_sync_user[64]; // the worker's own copies: RA_quit may detach it
+static char ra_sync_token[64];
+// how long quitting the game may wait for its final upload
+#define RA_QUIT_SYNC_WAIT_MS 3000
 
 /*****************************************************************************
  * Thread-safe response queue
@@ -138,6 +148,7 @@ static void RA_setAchievementMuted(uint32_t achievement_id, bool muted);
 static uint32_t ra_get_retry_delay_ms(int attempt);
 static void ra_login_callback(int result, const char* error_message, rc_client_t* client, void* userdata);
 static int ra_sync_thread_fn(void* data);
+static bool ra_try_sync(const char* reason);
 
 /*****************************************************************************
  * Helper: Get retry delay for login attempts
@@ -157,6 +168,8 @@ static void ra_reset_login_state(void) {
 	ra_login_retry.pending = false;
 	ra_login_retry.next_time = 0;
 	ra_login_retry.notified_connecting = false;
+	ra_login_retry.notified_failed = false;
+	ra_login_retry.gave_up = false;
 }
 
 /*****************************************************************************
@@ -656,6 +669,31 @@ static void ra_http_callback(HTTP_Response* response, void* userdata) {
 	free(data);
 }
 
+typedef struct {
+	rc_client_server_callback_t callback; // rc_client's own award callback
+	void* callback_data;
+	char user[64];
+	char hash[64];
+	uint32_t achievement_id;
+} RA_AwardCall;
+
+// Runs on the main thread (queued like every other response). A parsed
+// server answer - accepted, already unlocked, or rejected - is final, so the
+// journal entry goes; no response, an HTTP error or a non-JSON body (captive
+// portal) keeps it for the next sync.
+static void ra_award_callback(const rc_api_server_response_t* server_response,
+							  void* callback_data) {
+	RA_AwardCall* award = (RA_AwardCall*)callback_data;
+	if (server_response->http_status_code == 200) {
+		rc_api_award_achievement_response_t response;
+		if (rc_api_process_award_achievement_server_response(&response, server_response) == RC_OK)
+			RA_Offline_removePending(award->user, award->achievement_id, award->hash);
+		rc_api_destroy_award_achievement_response(&response);
+	}
+	award->callback(server_response, award->callback_data);
+	free(award);
+}
+
 static void ra_server_call(const rc_api_request_t* request,
 						   rc_client_server_callback_t callback,
 						   void* callback_data, rc_client_t* client) {
@@ -675,6 +713,24 @@ static void ra_server_call(const rc_api_request_t* request,
 				ra_queue_push(body, body_len, status, callback, callback_data);
 			free(body);
 			return;
+		}
+	}
+
+	// Online unlock: journal it before sending so it survives a quit while
+	// the connection is down (rc_client only retries in memory), and clear
+	// the entry once the server has answered it
+	if (RA_Offline_journalAward(request->post_data)) {
+		RA_AwardCall* award = (RA_AwardCall*)calloc(1, sizeof(RA_AwardCall));
+		if (award) {
+			char a[16] = {0};
+			RA_Offline_getParam(request->post_data, "u", award->user, sizeof(award->user));
+			RA_Offline_getParam(request->post_data, "m", award->hash, sizeof(award->hash));
+			RA_Offline_getParam(request->post_data, "a", a, sizeof(a));
+			award->achievement_id = (uint32_t)strtoul(a, NULL, 10);
+			award->callback = callback;
+			award->callback_data = callback_data;
+			callback = ra_award_callback;
+			callback_data = award;
 		}
 	}
 
@@ -824,7 +880,7 @@ static void ra_event_handler(const rc_client_event_t* event, rc_client_t* client
 
 	case RC_CLIENT_EVENT_DISCONNECTED:
 		RA_LOG_WARN("Disconnected - unlocks pending\n");
-		Notification_push(NOTIFICATION_ACHIEVEMENT, "RetroAchievements: Offline mode", NULL);
+		Notification_push(NOTIFICATION_ACHIEVEMENT, "RetroAchievements: offline, unlocks will sync later", NULL);
 		break;
 
 	case RC_CLIENT_EVENT_RECONNECTED:
@@ -841,13 +897,27 @@ static void ra_event_handler(const rc_client_event_t* event, rc_client_t* client
 /*****************************************************************************
  * Background journal sync (after online login)
  *****************************************************************************/
+static int ra_sync_cancelled(void* userdata) {
+	(void)userdata;
+	return ra_sync_cancel;
+}
+
 static int ra_sync_thread_fn(void* data) {
 	PWR_pinHelperThread(); // minarch_cpu_affinity=big -> SLOW set (no-op otherwise)
 	(void)data;
-	int synced = RA_OfflineNet_syncAll(CFG_getRAUsername(), CFG_getRAToken(), NULL, NULL);
+	int synced = RA_OfflineNet_syncAllEx(ra_sync_user, ra_sync_token, NULL, ra_sync_cancelled, NULL);
 	ra_sync_synced = synced;
 	ra_sync_done = true; // picked up on the main thread in RA_idle
 	return 0;
+}
+
+static bool ra_start_sync(void) {
+	snprintf(ra_sync_user, sizeof(ra_sync_user), "%s", CFG_getRAUsername());
+	snprintf(ra_sync_token, sizeof(ra_sync_token), "%s", CFG_getRAToken());
+	ra_sync_cancel = false;
+	ra_sync_done = false;
+	ra_sync_thread = SDL_CreateThread(ra_sync_thread_fn, "ra_offline_sync", NULL);
+	return ra_sync_thread != NULL;
 }
 
 /*****************************************************************************
@@ -890,12 +960,9 @@ static void ra_login_callback(int result, const char* error_message,
 
 		// First online login of the session: flush any journaled offline
 		// unlocks in the background
-		if (RA_Offline_getMode() == RA_NET_ONLINE && !ra_sync_started &&
+		if (RA_Offline_getMode() == RA_NET_ONLINE && !ra_sync_started && !ra_sync_thread &&
 			RA_Offline_pendingCount() > 0) {
-			ra_sync_started = true;
-			ra_sync_thread = SDL_CreateThread(ra_sync_thread_fn, "ra_offline_sync", NULL);
-			if (!ra_sync_thread)
-				ra_sync_started = false;
+			ra_sync_started = ra_start_sync();
 		}
 	} else {
 		// Failure - attempt retry or give up
@@ -928,8 +995,20 @@ static void ra_login_callback(int result, const char* error_message,
 		} else {
 			// All retries exhausted
 			RA_LOG_ERROR("All login retries exhausted\n");
+			bool rejected = result == RC_INVALID_CREDENTIALS || result == RC_EXPIRED_TOKEN ||
+							result == RC_ACCESS_DENIED;
 			if (RA_Offline_getMode() == RA_NET_ONLINE && RA_Offline_hasLoginCache()) {
 				ra_fallback_to_offline();
+			} else if (RA_Offline_getMode() == RA_NET_ONLINE && !rejected) {
+				// Nothing cached to fall back on (never logged in on this
+				// device): keep the deferred game, and try once more when
+				// the in-game menu opens (RA_onMenuOpen) instead of polling
+				if (!ra_login_retry.notified_failed) {
+					ra_login_retry.notified_failed = true;
+					Notification_push(NOTIFICATION_ACHIEVEMENT,
+									  "RetroAchievements: Connection failed", NULL);
+				}
+				ra_login_retry.gave_up = true;
 			} else {
 				Notification_push(NOTIFICATION_ACHIEVEMENT,
 								  "RetroAchievements: Connection failed", NULL);
@@ -1181,10 +1260,24 @@ void RA_quit(void) {
 	// and must not outlive the client or the state torn down below
 	ra_bg_quit();
 
-	// Wait for a background journal sync to finish (it holds no RA state,
-	// but must not outlive HTTP/config teardown)
+	// Last chance to upload unlocks still in the journal (an offline
+	// session's, or an online award that never got through), so they don't
+	// wait for the next launch. If it can't finish in RA_QUIT_SYNC_WAIT_MS
+	// it is cancelled and detached: it holds no RA state, works on its own
+	// credential copies, and entries it didn't confirm stay journaled for the
+	// next launch or a manual sync in the RetroAchievements pak.
+	if (ra_logged_in)
+		ra_try_sync("quitting");
 	if (ra_sync_thread) {
-		SDL_WaitThread(ra_sync_thread, NULL);
+		uint32_t start = SDL_GetTicks();
+		while (!ra_sync_done && SDL_GetTicks() - start < RA_QUIT_SYNC_WAIT_MS)
+			SDL_Delay(10);
+		if (ra_sync_done) {
+			SDL_WaitThread(ra_sync_thread, NULL);
+		} else {
+			ra_sync_cancel = true;
+			SDL_DetachThread(ra_sync_thread);
+		}
 		ra_sync_thread = NULL;
 	}
 	ra_sync_started = false;
@@ -1468,27 +1561,11 @@ void RA_unloadGame(void) {
 	}
 }
 
-void RA_doFrame(void) {
-	// Process any pending HTTP responses before checking achievements
-	// This ensures game load completes and achievements are active
-	ra_process_queued_responses();
-	RA_Badges_update();
-
-	if (ra_client && ra_game_loaded) {
-		rc_client_do_frame(ra_client);
-	}
-}
-
-void RA_idle(void) {
-	// Process queued HTTP responses on main thread
-	// This must happen even if ra_client is NULL (e.g., during shutdown)
-	// to avoid memory leaks from pending responses
-	ra_process_queued_responses();
-
-	if (!ra_client) {
-		return;
-	}
-
+// Main-thread work that must not wait for the in-game menu (RA_idle only
+// runs when it closes): a login that failed before WiFi came up, e.g. the
+// auto-resume launch after a sleep that ended in power-off, must keep
+// retrying during gameplay or RA stays dead for the whole session.
+static void ra_service_main_thread(void) {
 	// Check for pending login retry
 	if (ra_login_retry.pending && SDL_GetTicks() >= ra_login_retry.next_time) {
 		ra_login_retry.pending = false;
@@ -1511,6 +1588,60 @@ void RA_idle(void) {
 		if (remaining > 0)
 			RA_LOG_WARN("%d journaled unlock(s) still pending after sync\n", remaining);
 	}
+}
+
+// Upload journaled unlocks in the background if there are any and WiFi is
+// connected. Online sessions only need it for unlocks whose award request
+// never got through; offline sessions for everything earned so far.
+static bool ra_try_sync(const char* reason) {
+	if (ra_sync_thread || !CFG_getRAAuthenticated() || !CFG_getRAToken()[0])
+		return false;
+	if (!PLAT_wifiConnected() || RA_Offline_pendingCount() <= 0)
+		return false;
+	RA_LOG_INFO("Syncing journaled unlocks (%s)\n", reason);
+	return ra_start_sync();
+}
+
+void RA_onMenuOpen(void) {
+	if (!ra_client)
+		return;
+	if (ra_login_retry.gave_up && !ra_logged_in) {
+		// one attempt; a failure lands back in the exhausted branch
+		ra_login_retry.gave_up = false;
+		RA_LOG_INFO("Retrying login (menu opened)\n");
+		ra_start_login();
+	} else if (ra_logged_in && RA_Offline_getMode() == RA_NET_OFFLINE) {
+		ra_try_sync("menu opened");
+	}
+}
+
+void RA_doFrame(void) {
+	// Process any pending HTTP responses before checking achievements
+	// This ensures game load completes and achievements are active
+	ra_process_queued_responses();
+	RA_Badges_update();
+
+	if (!ra_client)
+		return;
+
+	ra_service_main_thread();
+
+	if (ra_game_loaded) {
+		rc_client_do_frame(ra_client);
+	}
+}
+
+void RA_idle(void) {
+	// Process queued HTTP responses on main thread
+	// This must happen even if ra_client is NULL (e.g., during shutdown)
+	// to avoid memory leaks from pending responses
+	ra_process_queued_responses();
+
+	if (!ra_client) {
+		return;
+	}
+
+	ra_service_main_thread();
 
 	rc_client_idle(ra_client);
 

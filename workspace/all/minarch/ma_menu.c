@@ -1554,6 +1554,7 @@ void Menu_netplayNotice(const char* title, const char* subtitle, int hold_ms) {
 }
 
 void Menu_loop(void) {
+	RA_onMenuOpen();
 	// the slot previews below are read back from disk
 	Menu_waitScreenshotSave();
 	menu.bitmap = Menu_captureScreenSurface(SDL_PIXELFORMAT_ARGB8888);
@@ -1632,6 +1633,10 @@ void Menu_loop(void) {
 		if (Netplay_isConnected()) {
 			Netplay_pollWhilePaused();
 		}
+		// keep RA moving while paused (login retries, server replies). Not
+		// in the achievements page: its list points into the game data a
+		// finishing load would replace.
+		RA_idle();
 		int mp_active = Multiplayer_isActive();
 
 		if (PAD_justPressed(BTN_UP)) {

@@ -60,6 +60,13 @@ void RA_doFrame(void);
 void RA_idle(void);
 
 /**
+ * The in-game menu just opened: one more login attempt if the launch-time
+ * retries gave up, or a background upload of journaled unlocks if the
+ * session is offline and WiFi is connected. Nothing polls during play.
+ */
+void RA_onMenuOpen(void);
+
+/**
  * Check if a game is currently loaded and being tracked.
  * @return true if a game is loaded and RA is active
  */
