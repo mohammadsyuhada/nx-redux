@@ -94,6 +94,21 @@ bool RA_Offline_readCacheFile(const char* relpath, char** out_body,
 bool RA_Offline_handleRequest(const char* post_data, char** out_body,
 							  size_t* out_len, int* out_status);
 
+/**
+ * Online path: journal an awardachievement request (u/a/m params) before it
+ * is sent, so an unlock earned while the connection is flaky survives a quit
+ * before rc_client's in-memory retries get through. Returns false if the
+ * request is not an award or lacks a usable user/achievement/hash.
+ */
+bool RA_Offline_journalAward(const char* post_data);
+
+/**
+ * Drop one entry from the journal once the server has answered it for good
+ * (online award accepted, already unlocked, or rejected). No-op on a miss.
+ */
+void RA_Offline_removePending(const char* user, uint32_t achievement_id,
+							  const char* game_hash);
+
 /** Hash of the game most recently seen in a gameid/achievementsets request. */
 const char* RA_Offline_currentGameHash(void);
 

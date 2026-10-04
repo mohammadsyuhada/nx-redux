@@ -420,6 +420,44 @@ static void test_update_cached_scores(void) {
 	printf("ok test_update_cached_scores\n");
 }
 
+static void test_online_award_journal(void) {
+	reset_root();
+	// online mode: awards are journaled before sending, regardless of mode
+	assert(RA_Offline_getMode() == RA_NET_ONLINE);
+	assert(RA_Offline_journalAward("r=awardachievement&u=bob&t=tok&a=777&h=0&m=aaaa1111&v=x"));
+	assert(RA_Offline_journalAward("r=awardachievement&u=bob&t=tok&a=888&h=0&m=aaaa1111&v=x"));
+	// rc_client retry of the same unlock is deduped
+	assert(RA_Offline_journalAward("r=awardachievement&u=bob&t=tok&a=777&h=0&m=aaaa1111&o=5&v=x"));
+	assert(RA_Offline_pendingCount() == 2);
+
+	// not an award / missing or unsafe params: rejected, journal untouched
+	assert(!RA_Offline_journalAward("r=ping&u=bob&t=tok&g=1"));
+	assert(!RA_Offline_journalAward("r=awardachievement&u=bob&t=tok&a=999&h=0"));
+	assert(!RA_Offline_journalAward("r=awardachievement&u=bob&t=tok&a=0&h=0&m=aaaa1111"));
+	assert(!RA_Offline_journalAward("r=awardachievement&u=bob&t=tok&a=5&h=0&m=../../x"));
+	assert(!RA_Offline_journalAward(NULL));
+	assert(RA_Offline_pendingCount() == 2);
+
+	// server answered 777: only that entry goes
+	RA_Offline_removePending("bob", 777, "aaaa1111");
+	RA_PendingUnlock e[4];
+	assert(RA_Offline_readJournal(e, 4) == 1);
+	assert(e[0].achievement_id == 888);
+	// misses (other user / hash / id) are no-ops
+	RA_Offline_removePending("alice", 888, "aaaa1111");
+	RA_Offline_removePending("bob", 888, "bbbb2222");
+	RA_Offline_removePending("bob", 999, "aaaa1111");
+	assert(RA_Offline_pendingCount() == 1);
+	RA_Offline_removePending("bob", 888, "aaaa1111");
+	assert(RA_Offline_pendingCount() == 0);
+
+	// no journal file at all: clean no-op
+	reset_root();
+	RA_Offline_removePending("bob", 777, "aaaa1111");
+	assert(RA_Offline_pendingCount() == 0);
+	printf("ok test_online_award_journal\n");
+}
+
 int main(void) {
 	test_get_param();
 	test_cache_classification();
@@ -429,6 +467,7 @@ int main(void) {
 	test_confirmed();
 	test_game_rom_path();
 	test_update_cached_scores();
+	test_online_award_journal();
 	printf("ALL TESTS PASSED\n");
 	return 0;
 }

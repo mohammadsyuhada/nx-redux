@@ -818,6 +818,38 @@ bool RA_Offline_handleRequest(const char* post_data, char** out_body,
 						out_body, out_len, out_status);
 }
 
+bool RA_Offline_journalAward(const char* post_data) {
+	char r[32], u[64], a[16], m[64];
+	if (!post_data || !RA_Offline_getParam(post_data, "r", r, sizeof(r)) ||
+		strcmp(r, "awardachievement") != 0)
+		return false;
+	if (!RA_Offline_getParam(post_data, "u", u, sizeof(u)) ||
+		!RA_Offline_getParam(post_data, "a", a, sizeof(a)) ||
+		!RA_Offline_getParam(post_data, "m", m, sizeof(m)) || !ra_off_safe_component(m))
+		return false;
+	uint32_t aid = (uint32_t)strtoul(a, NULL, 10);
+	if (aid == 0 || !u[0])
+		return false;
+	ra_off_journal_append(u, aid, m, time(NULL));
+	return true;
+}
+
+static void ra_off_journal_rewrite(const RA_PendingUnlock* entries, const bool* synced,
+								   int count);
+
+void RA_Offline_removePending(const char* user, uint32_t achievement_id,
+							  const char* game_hash) {
+	if (!ra_root[0] || !user || !*user || achievement_id == 0 || !game_hash || !*game_hash)
+		return;
+	RA_PendingUnlock e;
+	memset(&e, 0, sizeof(e));
+	snprintf(e.username, sizeof(e.username), "%s", user);
+	snprintf(e.game_hash, sizeof(e.game_hash), "%s", game_hash);
+	e.achievement_id = achievement_id;
+	bool drop = true;
+	ra_off_journal_rewrite(&e, &drop, 1);
+}
+
 /*****************************************************************************
  * Sync engine
  *****************************************************************************/
