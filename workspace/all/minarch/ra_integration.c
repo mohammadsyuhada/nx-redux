@@ -677,17 +677,26 @@ typedef struct {
 	uint32_t achievement_id;
 } RA_AwardCall;
 
-// Runs on the main thread (queued like every other response). A parsed
-// server answer - accepted, already unlocked, or rejected - is final, so the
-// journal entry goes; no response, an HTTP error or a non-JSON body (captive
-// portal) keeps it for the next sync.
+// Runs on the main thread (queued like every other response). Accepted,
+// already unlocked, or the achievement removed server-side is final, so the
+// journal entry goes; anything else (no response, auth failure, 5xx, a
+// captive-portal page) keeps it for the next sync.
 static void ra_award_callback(const rc_api_server_response_t* server_response,
 							  void* callback_data) {
 	RA_AwardCall* award = (RA_AwardCall*)callback_data;
-	if (server_response->http_status_code == 200) {
+	RA_AwardOutcome outcome = RA_Offline_classifyAwardResponse(
+		server_response->http_status_code, server_response->body, server_response->body_length);
+	if (outcome != RA_AWARD_RETRY)
+		RA_Offline_removePending(award->user, award->achievement_id, award->hash);
+	if (outcome == RA_AWARD_ACCEPTED) {
+		// keep the cached login's totals current so the RetroAchievements
+		// pak doesn't show the pre-session score until the next login.
+		// "already unlocked" answers omit them (parsed as 0): skip those.
 		rc_api_award_achievement_response_t response;
-		if (rc_api_process_award_achievement_server_response(&response, server_response) == RC_OK)
-			RA_Offline_removePending(award->user, award->achievement_id, award->hash);
+		if (rc_api_process_award_achievement_server_response(&response, server_response) == RC_OK &&
+			(response.new_player_score || response.new_player_score_softcore))
+			RA_Offline_updateCachedScores(response.new_player_score,
+										  response.new_player_score_softcore);
 		rc_api_destroy_award_achievement_response(&response);
 	}
 	award->callback(server_response, award->callback_data);
