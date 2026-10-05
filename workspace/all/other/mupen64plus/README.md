@@ -752,7 +752,7 @@ on both for consistency.
   `--set Video-GLideN64[txHiresEnable]=False` (hi-res texture packs off — the single biggest
   win; the `.hts` packs are far heavier than native N64 textures). **Video settings are local
   and are never synced by the netplay protocol** (only core CPU/RSP timing is), so they
-  **cannot desync** the session — they just cut Mali/GPU load, which is the real bottleneck
+  **cannot desync** the session — they just cut GPU load, which is the real bottleneck
   on the Brick (measured under netplay: cpu0/cpu1 ~70 % with **cpu2/cpu3 idle** → GPU-bound,
   not CPU-bound). 2× proved too heavy even with hi-res off — the Brick fell **seconds** behind
   during busy races — so netplay forces 1×. These `--set`s are **last** on the command line,
@@ -787,8 +787,8 @@ on both for consistency.
   lobby and the server's `--players N` gate support 2–4 devices, and the path is hardware-
   tested to 3. **2-player is smooth and verified** (Brick as host *or* joiner, ≤~0.5 s felt
   latency). **3-player is limited by GPU, not the netplay path**: N64 split-screen renders one
-  3D viewport *per seat*, so a 3-player game draws **3× the viewports**. The Brick's Mali
-  cannot hold 60 fps on a 3-way split and drifts seconds behind — measured on device, it
+  3D viewport *per seat*, so a 3-player game draws **3× the viewports**. The Brick's PowerVR
+  GE8300 cannot hold 60 fps on a 3-way split and drifts seconds behind — measured on device, it
   renders **~45 fps while the host feeds 60**, with its **cpu2/cpu3 idle** (ruling out CPU),
   and the relay ruled out too (server ~6 % CPU, ~68 s input ring, ~1–2 ms RTT on a clean
   link). Stripping GPU features further (framebuffer readbacks, etc.) did **not** recover it.

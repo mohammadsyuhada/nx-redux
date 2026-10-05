@@ -2,8 +2,8 @@
 // from DRM/KMS: GETFB2 + PRIME export + mmap. Needs only root
 // (CAP_SYS_ADMIN), not DRM master, so it captures ANY app — including
 // third-party paks that don't publish the GPU mirror. Works on tg5050
-// (sunxi-drm, linear XR24 scanout); on tg5040 the DRM node is just the Mali
-// render device with no KMS planes, so calls fail fast and the caller's
+// (sunxi-drm, linear XR24 scanout); on tg5040 the DRM node is just the PowerVR
+// GE8300 render device with no KMS planes, so calls fail fast and the caller's
 // fallback source takes over.
 //
 // Standalone: libc + kernel DRM UAPI headers only (no api.h/defines.h), so

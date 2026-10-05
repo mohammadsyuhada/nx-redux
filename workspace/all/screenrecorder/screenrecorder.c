@@ -60,7 +60,7 @@ static int64_t mono_ns(void) {
 }
 
 // --- fbdev source (tg5040) ------------------------------------------------
-// On tg5040 the Mali fbdev EGL renders straight into fb0, so the visible
+// On tg5040 the PowerVR fbdev EGL (SDL's "mali" fbdev backend) renders straight into fb0, so the visible
 // pane IS the screen. On tg5050 fb0 is never scanned out (stays black) —
 // never use this source there.
 static int fbdev_usable(void) {
