@@ -245,6 +245,20 @@ curl() {
 }
 fi
 EOF
+    cat >> "$PM_DIR/control.txt" <<'EOF'
+
+# ---- NX Redux: PowerVR SDL contexts for NextOS ports ----
+# The Bricks' GPU is a PowerVR GE8300, but TrimUI's SDL names its fbdev EGL
+# backend "mali". The NextOS Universal Ports' Unity loaders read that name as
+# real Mali fbdev and create raw EGL contexts outside SDL's window: audio and
+# input work, the picture stays black. Each loader has a switch to keep the
+# contexts SDL-owned (Horizon Chase verified on the Brick Pro). Remove once
+# NextOS picks SDL contexts on PowerVR by itself:
+# https://github.com/NextOs-Ports/nextos-universal-ports/issues/1
+export HC_PURE_SDL_CONTEXTS=1 HD_PURE_SDL_CONTEXTS=1 BC_PURE_SDL_CONTEXTS=1 \
+  FP2_PURE_SDL_CONTEXTS=1 PF2_PURE_SDL_CONTEXTS=1 HGO_PURE_SDL_CONTEXTS=1 \
+  ST_PURE_SDL_CONTEXTS=1 SF_PURE_SDL_CONTEXTS=1 SC_PURE_SDL_CONTEXTS=1
+EOF
 }
 
 

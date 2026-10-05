@@ -238,6 +238,9 @@ out="$(run_launcher --patch-only 2>&1)"; rc=$?
 grep -q 'Patched for NxRedux' "$PM/control.txt" && grep -q "^export controlfolder=\"$PM\"$" "$PM/control.txt" \
   && pass "patch-only: control.txt patched" || fail "patch-only: control.txt left stock"
 grep -q 'NX Redux: exFAT/FAT32 compat' "$PM/control.txt" && pass "patch-only: control.txt carries the ln fallback" || fail "patch-only: ln fallback missing"
+grep -q 'NX Redux: PowerVR SDL contexts' "$PM/control.txt" && grep -q '^export HC_PURE_SDL_CONTEXTS=1 ' "$PM/control.txt" \
+  && pass "patch-only: control.txt keeps NextOS GL contexts SDL-owned (tg5040)" || fail "patch-only: PowerVR SDL contexts block missing"
+grep -q 'PowerVR SDL contexts' "$L50" && fail "tg5050 launch.sh carries the PowerVR block (its GPU is Mali)" || pass "tg5050 launch.sh has no PowerVR block"
 grep -q 'portmaster_install disabled' "$PM/pylibs/harbourmaster/platform.py" \
   && pass "patch-only: the other patches applied" || fail "patch-only: other patches missing"
 [ ! -e "$PM/patchedScripts" ] && pass "patch-only: patchedScripts retired" || fail "patch-only: patchedScripts kept"
@@ -250,8 +253,10 @@ printf '%s' "$out" | grep -q 'not found' && fail "patch-only: called an undefine
 seed_runtime; rm -f "$PM/pugwash"
 rc=0; run_launcher --patch-only >/dev/null 2>&1 || rc=$?
 [ "$rc" = 0 ] && [ ! -f "$TMP/show2.log" ] && pass "patch-only: not installed exits quietly" || fail "patch-only: not installed rc $rc"
+# The guard checks control.txt's newest marker: tg5040 adds the PowerVR block.
+cmark() { [ "$1" = tg5040 ] && echo 'NX Redux: PowerVR SDL contexts' || echo 'NX Redux: exFAT/FAT32 compat'; }
 for P in "$ROOT"/skeleton/SYSTEM/tg50?0/paks/Tools/Xtras.pak/catalog/portmaster/pak/ports_launch.sh; do
-  grep -q "grep -q 'NX Redux: exFAT/FAT32 compat' \"\$EMU_DIR/control.txt\"" "$P" && grep -q 'sh "$PM_TOOL" --patch-only' "$P" \
+  grep -q "grep -q '$(cmark "$(printf '%s' "$P" | grep -o 'tg50[45]0')")' \"\$EMU_DIR/control.txt\"" "$P" && grep -q 'sh "$PM_TOOL" --patch-only' "$P" \
     && grep -q "grep -q 'NX Redux: TrimUI capability' \"\$DI\"" "$P" \
     && grep -q "grep -q -- '--patch-only' \"\$PM_TOOL\"" "$P" && ! grep -q 'patch_device_info' "$P" \
     && pass "ports_launch: patches an unpatched control.txt ($(printf '%s' "$P" | grep -o 'tg50[45]0'))" \
@@ -303,7 +308,7 @@ for plat in tg5040 tg5050; do
   cp "$ROOT/skeleton/SYSTEM/$plat/paks/Tools/Xtras.pak/catalog/portmaster/pak/ports_launch.sh" "$G/sd/Emus/PORTS.pak/launch.sh"
   printf '#!/bin/sh\n# supports --patch-only\necho "$*" >> "%s"\n' "$G/tool.calls" > "$G/sd/Tools/PortMaster.pak/launch.sh"
   GPM="$G/sd/Emus/shared/PortMaster"
-  printf '# ---- NX Redux: exFAT/FAT32 compat for port scripts ----\n' > "$GPM/control.txt"
+  printf '# ---- NX Redux: exFAT/FAT32 compat for port scripts ----\n# ---- %s ----\n' "$(cmark $plat)" > "$GPM/control.txt"
   printf '# NX Redux: TrimUI capability\nexport DEVICE_CAPABILITIES="x"\n' > "$GPM/device_info.txt"
   mkdir -p "$G/sd/.userdata/$plat"; echo 'pcm.nx_game {}' > "$G/sd/.userdata/$plat/.asoundrc"
   [ "$(guard_run $plat)" = 0 ] && pass "guard $plat: all patched -> tool not run" || fail "guard $plat: ran with everything patched"
@@ -313,7 +318,11 @@ for plat in tg5040 tg5050; do
     || pass "ports_launch $plat: clean log up to the guard"
   printf 'controlfolder=/roms/ports/PortMaster\n' > "$GPM/control.txt"
   [ "$(guard_run $plat)" = 1 ] && pass "guard $plat: stock control.txt -> --patch-only" || fail "guard $plat: stock control.txt not repaired"
-  printf '# ---- NX Redux: exFAT/FAT32 compat for port scripts ----\n' > "$GPM/control.txt"
+  if [ "$plat" = tg5040 ]; then
+    printf '# ---- NX Redux: exFAT/FAT32 compat for port scripts ----\n' > "$GPM/control.txt"
+    [ "$(guard_run $plat)" = 1 ] && pass "guard $plat: control.txt from before the PowerVR block -> --patch-only" || fail "guard $plat: pre-PowerVR control.txt not refreshed"
+  fi
+  printf '# ---- NX Redux: exFAT/FAT32 compat for port scripts ----\n# ---- %s ----\n' "$(cmark $plat)" > "$GPM/control.txt"
   printf 'export DEVICE_CAPABILITIES="x"\n' > "$GPM/device_info.txt"
   [ "$(guard_run $plat)" = 1 ] && pass "guard $plat: stock device_info.txt -> --patch-only" || fail "guard $plat: stock device_info.txt not repaired"
   printf 'GLIBC=2.33\n' > "$GPM/device_info.txt"

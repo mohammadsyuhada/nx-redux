@@ -47,7 +47,7 @@ fi
 # one would ignore the flag and open the PortMaster GUI.
 PM_TOOL="$SDCARD_PATH/Tools/PortMaster.pak/launch.sh"
 DI="$EMU_DIR/device_info.txt"
-if { { [ -f "$EMU_DIR/control.txt" ] && ! grep -q 'NX Redux: exFAT/FAT32 compat' "$EMU_DIR/control.txt"; } \
+if { { [ -f "$EMU_DIR/control.txt" ] && ! grep -q 'NX Redux: PowerVR SDL contexts' "$EMU_DIR/control.txt"; } \
      || { grep -q '^export DEVICE_CAPABILITIES=' "$DI" 2>/dev/null && ! grep -q 'NX Redux: TrimUI capability' "$DI"; }; } \
     && [ -f "$PM_TOOL" ] && grep -q -- '--patch-only' "$PM_TOOL"; then
     echo "PortMaster files are unpatched: applying the NxRedux patches"
