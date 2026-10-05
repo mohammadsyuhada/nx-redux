@@ -171,9 +171,21 @@ static int rat_pending_for_hash(const char* hash, RA_PendingUnlock** out) {
 	return rat_entries_for_hash(RA_Offline_readJournal, hash, out);
 }
 
-// synced offline unlocks the stale session cache does not know about yet
+// synced offline unlocks the stale session cache does not know about yet.
+// Filtered while reading: the confirmed file outgrows the per-read cap.
 static int rat_confirmed_for_hash(const char* hash, RA_PendingUnlock** out) {
-	return rat_entries_for_hash(RA_Offline_readConfirmed, hash, out);
+	*out = NULL;
+	RA_PendingUnlock* all = (RA_PendingUnlock*)malloc(
+		sizeof(RA_PendingUnlock) * RA_OFFLINE_MAX_PENDING);
+	if (!all)
+		return 0;
+	int kept = RA_Offline_readConfirmedFor(NULL, hash, all, RA_OFFLINE_MAX_PENDING);
+	if (kept == 0) {
+		free(all);
+		return 0;
+	}
+	*out = all;
+	return kept;
 }
 
 static int rat_game_cmp(const void* a, const void* b) {

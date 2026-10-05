@@ -542,6 +542,29 @@ static void test_confirmed_growth(void) {
 	free(body);
 	RA_Offline_setMode(RA_NET_ONLINE);
 
+	// whole-file read past the cap keeps the NEWEST entries (oldest first)
+	{
+		RA_PendingUnlock* all = malloc(sizeof(RA_PendingUnlock) * RA_OFFLINE_MAX_PENDING);
+		assert(all);
+		int n = RA_Offline_readConfirmed(all, RA_OFFLINE_MAX_PENDING);
+		assert(n == RA_OFFLINE_MAX_PENDING);
+		assert(all[n - 1].achievement_id == 4242 && !strcmp(all[n - 1].username, "alice"));
+		assert(all[n - 2].achievement_id == 4242 && !strcmp(all[n - 2].username, "bob"));
+		assert(all[0].achievement_id == 100000 + 102); // 1124 parsed lines, newest 1024 kept
+		for (int i = 1; i < n - 2; i++)
+			assert(all[i].achievement_id == all[i - 1].achievement_id + 1);
+		// small max: still the newest, in order
+		RA_PendingUnlock few[3];
+		assert(RA_Offline_readConfirmed(few, 3) == 3);
+		assert(few[0].achievement_id == 100000 + RA_OFFLINE_MAX_PENDING + 99);
+		assert(!strcmp(few[1].username, "bob") && !strcmp(few[2].username, "alice"));
+		// per-hash read: any user (NULL) vs one user
+		assert(RA_Offline_readConfirmedFor(NULL, "ffff6666", all, RA_OFFLINE_MAX_PENDING) == 2);
+		assert(RA_Offline_readConfirmedFor("bob", "ffff6666", all, RA_OFFLINE_MAX_PENDING) == 1);
+		assert(RA_Offline_readConfirmedFor("bob", "eeee5555", all, 10) == 10); // bounded by max
+		free(all);
+	}
+
 	int before = count_lines("pending/confirmed.jsonl");
 	// a fresh online session that lists 4242 + one of the old ids prunes
 	// exactly bob's copies of those two; alice's and the malformed line stay

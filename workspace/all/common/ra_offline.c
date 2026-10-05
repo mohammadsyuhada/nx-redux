@@ -494,6 +494,7 @@ static int ra_off_journal_entries_for(const char* user, const char* hash,
 	return kept;
 }
 
+// Keeps the newest `max` entries (ring buffer), returned oldest first.
 static int ra_off_read_confirmed(RA_PendingUnlock* out, int max) {
 	if (!ra_root[0] || !out || max <= 0)
 		return 0;
@@ -501,17 +502,31 @@ static int ra_off_read_confirmed(RA_PendingUnlock* out, int max) {
 	char path[RA_OFFLINE_MAX_PATH];
 	ra_off_confirmed_path(path, sizeof(path));
 	FILE* f = fopen(path, "r");
-	int count = 0;
+	long total = 0;
 	if (f) {
 		char line[512];
-		while (count < max && fgets(line, sizeof(line), f)) {
-			if (ra_off_journal_parse_line(line, &out[count]))
-				count++;
+		RA_PendingUnlock e;
+		while (fgets(line, sizeof(line), f)) {
+			if (ra_off_journal_parse_line(line, &e))
+				out[total++ % max] = e;
 		}
 		fclose(f);
 	}
 	pthread_mutex_unlock(&ra_off_mutex);
-	return count;
+	if (total <= max)
+		return (int)total;
+	// wrapped: rotate so the oldest kept entry comes first
+	int head = (int)(total % max);
+	if (head) {
+		RA_PendingUnlock* tmp = (RA_PendingUnlock*)malloc(sizeof(RA_PendingUnlock) * head);
+		if (tmp) {
+			memcpy(tmp, out, sizeof(RA_PendingUnlock) * head);
+			memmove(out, out + head, sizeof(RA_PendingUnlock) * (max - head));
+			memcpy(out + (max - head), tmp, sizeof(RA_PendingUnlock) * head);
+			free(tmp);
+		}
+	}
+	return max;
 }
 
 // confirmed entries for a specific (user, hash) — used by the session merge.
@@ -576,9 +591,10 @@ int RA_Offline_readConfirmed(RA_PendingUnlock* out, int max) {
 
 // Filters while reading, so `max` bounds this game's matches rather than the
 // whole file: an old file past `max` lines must not hide newer entries.
+// NULL user matches any user.
 static int ra_off_confirmed_entries_for(const char* user, const char* hash,
 										RA_PendingUnlock* out, int max) {
-	if (!ra_root[0] || !out || max <= 0)
+	if (!ra_root[0] || !hash || !out || max <= 0)
 		return 0;
 	pthread_mutex_lock(&ra_off_mutex);
 	char path[RA_OFFLINE_MAX_PATH];
@@ -589,7 +605,8 @@ static int ra_off_confirmed_entries_for(const char* user, const char* hash,
 		char line[512];
 		while (kept < max && fgets(line, sizeof(line), f)) {
 			if (ra_off_journal_parse_line(line, &out[kept]) &&
-				strcmp(out[kept].username, user) == 0 && strcmp(out[kept].game_hash, hash) == 0)
+				(!user || strcmp(out[kept].username, user) == 0) &&
+				strcmp(out[kept].game_hash, hash) == 0)
 				kept++;
 		}
 		fclose(f);
@@ -638,6 +655,11 @@ static bool ra_off_id_in_body(const char* body, uint32_t id) {
 		p += patlen;
 	}
 	return false;
+}
+
+int RA_Offline_readConfirmedFor(const char* user, const char* hash,
+								RA_PendingUnlock* out, int max) {
+	return ra_off_confirmed_entries_for(user, hash, out, max);
 }
 
 // Drop confirmed entries for `user` whose achievement the server's session

@@ -142,11 +142,18 @@ int RA_Offline_pendingCount(void);
 /** Read journal entries into out (up to max). Returns count. */
 int RA_Offline_readJournal(RA_PendingUnlock* out, int max);
 
-/** Read confirmed (synced offline) unlocks into out (up to max). Returns
- *  count. These are already on the server; they are kept so offline replays
- *  and the tools pak keep showing them as unlocked until a fresh online
- *  session cache supersedes them. */
+/** Read confirmed (synced offline) unlocks into out. Returns count. These
+ *  are already on the server; they are kept so offline replays and the tools
+ *  pak keep showing them as unlocked until a fresh online session cache
+ *  supersedes them (and prunes them). Past `max` entries the NEWEST are
+ *  kept: older ones are the likeliest to be covered by a session cache. */
 int RA_Offline_readConfirmed(RA_PendingUnlock* out, int max);
+
+/** Confirmed unlocks for one game hash (any user when `user` is NULL),
+ *  filtered while reading so `max` bounds this game's matches, not the
+ *  whole file. Returns count. */
+int RA_Offline_readConfirmedFor(const char* user, const char* hash,
+								RA_PendingUnlock* out, int max);
 
 /**
  * Submit callback for RA_Offline_sync. Return 0 on success (entry is
