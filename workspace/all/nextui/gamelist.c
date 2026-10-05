@@ -2283,7 +2283,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 			int band_h = rows_layout.rows * row_h;
 			SDL_Surface* logo = MenuArt_get(file, screen->w * 40 / 100, band_h * 60 / 100);
 			if (logo) {
-				SDL_SetSurfaceAlphaMod(logo, 41); // white at 16%
+				SDL_SetSurfaceAlphaMod(logo, 47); // white at 16%: the PNG's off-white (0xE0) at 18.4%
 				SDL_BlitSurface(logo, NULL, screen,
 								&(SDL_Rect){screen->w - SCALE1(23) - logo->w, band_y + (band_h - logo->h) / 2});
 				SDL_SetSurfaceAlphaMod(logo, 255);

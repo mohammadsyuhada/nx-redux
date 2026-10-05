@@ -8,6 +8,7 @@
 // scaled, as on the row). A Backdrop-Vertical's picture (the crossfading screenshot layers with their 65% dim and the
 // shade, its fade in and out) is the row's own, drawn under the body before RowView_render (RowView_renderPicture).
 
+#include "ui_contextmenu.h"
 #include "stackview.h"
 
 #include "api.h"
@@ -30,6 +31,14 @@
 
 #include <math.h>
 #include <string.h>
+
+// a surface out with its GPU texture, if it ever got one (the Carousel's sprite mode)
+static void freeSurfTex(SDL_Surface* s) {
+	if (!s)
+		return;
+	PLAT_freeSurfaceTexture(s);
+	SDL_FreeSurface(s);
+}
 
 #define SCALE_EPS 0.004f // an item this close to its neighbour size is drawn 1:1 from that size's surface
 
@@ -171,7 +180,8 @@ static int itemCy(const StackGeo* sg, const StackItem* it) {
 
 // An item from its two rest-size surfaces: the neighbour's 1:1 at that size, else the selected one's scaled. A game
 // list's Carousel tile darkens toward the black ground; its Backdrop box art, and every frameless slot, fade.
-static void drawItem(SDL_Surface* screen, const StackGeo* sg, Entry* e, TileKind kind, const StackItem* it) {
+static void drawItem(SDL_Surface* screen, const StackGeo* sg, Entry* e, TileKind kind, const StackItem* it,
+					 bool selected) {
 	int cy = itemCy(sg, it);
 	if (gameStack(sg->kind)) {
 		RowView_drawGameItem(screen, &sg->g, e, kind, sg->g.cx, cy, it->scale, it->alpha, it->darken, it->d);
@@ -180,7 +190,11 @@ static void drawItem(SDL_Surface* screen, const StackGeo* sg, Entry* e, TileKind
 	Uint8 a = (Uint8)(it->alpha * 255.0f + 0.5f);
 	if (a == 0)
 		return;
-	if (fabsf(it->scale - sg->ss.scale) < SCALE_EPS)
+	if (RowView_drawConsoleLogo(screen, &sg->g, e, kind, sg->g.cx, cy, it->scale, a, selected))
+		return;													  // a Consoles logo as a GPU sprite (sprite mode)
+	if (sg->kind == STACK_MAIN_CONSOLES && !ContextMenu_isOpen()) // GPU sprites: the full surface, scaled by the GPU
+		RowView_blitItem(screen, RowView_slotItem(&sg->g, e, kind, false), sg->g.cx, cy, it->scale, a);
+	else if (fabsf(it->scale - sg->ss.scale) < SCALE_EPS)
 		RowView_blitItem(screen, RowView_slotItem(&sg->g, e, kind, true), sg->g.cx, cy, 1.0f, a);
 	else
 		RowView_blitItem(screen, RowView_slotItem(&sg->g, e, kind, false), sg->g.cx, cy, it->scale, a);
@@ -227,6 +241,40 @@ static void edgeFade(SDL_Surface* screen, const StackGeo* sg) {
 			continue;
 		UI_dimRect(screen, &(SDL_Rect){x, sg->body_top + r, w, 1}, dim);
 		UI_dimRect(screen, &(SDL_Rect){x, sg->body_top + sg->body_h - 1 - r, w, 1}, dim);
+	}
+}
+
+// edgeFade as two GPU sprites (sprite mode): black at the same per-row alpha, in a 1-px-wide strip per edge stretched
+// across the width, made once per band and body.
+static void edgeFadeSprites(SDL_Surface* screen, const StackGeo* sg) {
+	static SDL_Surface* strips[2]; // top, bottom
+	static int strip_band = -1;
+	static float strip_body = -1;
+	float pd = pxPerDp();
+	int band = (int)ceilf(STACK_EDGE_FADE_DP * pd);
+	if (band > sg->body_h / 2)
+		band = sg->body_h / 2;
+	if (band <= 0)
+		return;
+	if (band != strip_band || sg->body_h_dp != strip_body) {
+		for (int k = 0; k < 2; k++) {
+			freeSurfTex(strips[k]);
+			strips[k] = SDL_CreateRGBSurfaceWithFormat(0, 1, band, 32, SDL_PIXELFORMAT_ARGB8888);
+		}
+		strip_band = band, strip_body = sg->body_h_dp;
+		for (int r = 0; r < band && strips[0] && strips[1]; r++) {
+			float a = Stack_edgeAlpha((r + 0.5f) / pd, sg->body_h_dp, STACK_EDGE_FADE_DP);
+			Uint32 dim = (Uint32)((1.0f - a) * 255.0f + 0.5f);
+			*((Uint32*)((Uint8*)strips[0]->pixels + r * strips[0]->pitch)) = dim << 24;
+			*((Uint32*)((Uint8*)strips[1]->pixels + (band - 1 - r) * strips[1]->pitch)) = dim << 24;
+		}
+	}
+	SDL_Rect clip = {0, sg->body_top, screen->w, sg->body_h};
+	SDL_Rect where[2] = {{0, sg->body_top, screen->w, band}, {0, sg->body_top + sg->body_h - band, screen->w, band}};
+	for (int k = 0; k < 2; k++) {
+		SDL_Texture* t = strips[k] ? PLAT_textureForSurface(strips[k]) : NULL;
+		if (t)
+			PLAT_spriteAdd(t, NULL, &where[k], 255, &clip);
 	}
 }
 
@@ -335,9 +383,20 @@ void StackView_render(SDL_Surface* screen, int lastScreen) {
 		sg.ss.extra_down = pa.dn + (pb.dn - pa.dn) * t;
 	}
 
+	if (kind == STACK_MAIN_CONSOLES) {
+		PadSize box = Pad_stackBox(sg.ss.item_h);
+		float pd = pxPerDp();
+		RowView_warmConsoleArt(sg.g.full_w, sg.g.full_h, Stack_round(box.w * pd), Stack_round(box.h * pd), sel);
+	}
+
 	SDL_Rect prev_clip;
 	SDL_GetClipRect(screen, &prev_clip);
 	SDL_SetClipRect(screen, &(SDL_Rect){0, sg.body_top, screen->w, sg.body_h});
+
+	// Consoles: its pictures, counts and edge fade go to the GPU (RowView_beginSprites), the screen's body stays black
+	// (not under a context menu: it draws over the body on the screen, under the sprites)
+	bool sprites = kind == STACK_MAIN_CONSOLES && !ContextMenu_isOpen();
+	RowView_beginSprites(sprites);
 
 	// far to near (the largest d first), so the nearer item lands on top where a grown name reaches a neighbour
 	int first, last;
@@ -369,7 +428,7 @@ void StackView_render(SDL_Surface* screen, int lastScreen) {
 								itemCy(&sg, &it) + Stack_round(p.off * it.scale * pd), it.scale, it.d);
 			}
 		}
-		drawItem(screen, &sg, e, k, &it);
+		drawItem(screen, &sg, e, k, &it, i == sel);
 	}
 
 	// "N games". Consoles': on its own item, under that logo as drawn at the item's live place and scale, on the items
@@ -396,7 +455,11 @@ void StackView_render(SDL_Surface* screen, int lastScreen) {
 		RowView_drawSideCaption(screen, &sg.g, e, RowView_kindFor(sel, e), sg.cap_x, sg.cap_w, sg.g.cy, sg.body_top,
 								sg.body_h, sg.right);
 
-	edgeFade(screen, &sg);
+	if (sprites)
+		edgeFadeSprites(screen, &sg);
+	else
+		edgeFade(screen, &sg);
+	RowView_beginSprites(false);
 	SDL_SetClipRect(screen, &prev_clip);
 
 	// what's ahead of this stack is built between frames (StackView_prefetchStep), for this geometry and selection

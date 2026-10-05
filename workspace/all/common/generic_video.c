@@ -1445,12 +1445,118 @@ static bool layer_has_content[6] = {true, true, true, true, true, true};
 
 // Composite the UI layers into the backbuffer, skipping layers known to be
 // empty. The stream layer (the app's software screen) is always copied.
+// ---- GPU sprites (api.h) ----
+#define MAX_SPRITES 64
+typedef struct {
+	SDL_Texture* tex;
+	SDL_Rect src, dst, clip;
+	bool has_src, has_clip;
+	Uint8 alpha;
+} Sprite;
+static Sprite sprites[MAX_SPRITES];
+static int sprite_count = 0;
+
+void PLAT_spritesClear(void) {
+	sprite_count = 0;
+}
+
+void PLAT_spriteAdd(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, const SDL_Rect* clip) {
+	if (!tex || !dst || alpha == 0 || sprite_count >= MAX_SPRITES)
+		return;
+	Sprite* s = &sprites[sprite_count++];
+	s->tex = tex;
+	s->has_src = src != NULL;
+	if (src)
+		s->src = *src;
+	s->dst = *dst;
+	s->has_clip = clip != NULL;
+	if (clip)
+		s->clip = *clip;
+	s->alpha = alpha;
+}
+
+SDL_Texture* PLAT_textureForSurface(SDL_Surface* s) {
+	if (!s || !vid.renderer)
+		return NULL;
+	if (s->userdata)
+		return (SDL_Texture*)s->userdata;
+	SDL_Texture* t = SDL_CreateTextureFromSurface(vid.renderer, s);
+	if (!t)
+		return NULL;
+	SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+	s->userdata = t;
+	return t;
+}
+
+void PLAT_freeSurfaceTexture(SDL_Surface* s) {
+	if (s && s->userdata) {
+		SDL_DestroyTexture((SDL_Texture*)s->userdata);
+		s->userdata = NULL;
+	}
+}
+
+// screen px to output px (the window is the screen's size on our devices: 1, but kept exact if it is not)
+static void drawSprites(void) {
+	if (sprite_count == 0 || !vid.screen)
+		return;
+	int ow = 0, oh = 0;
+	SDL_GetRendererOutputSize(vid.renderer, &ow, &oh);
+	float sx = vid.screen->w > 0 ? (float)ow / vid.screen->w : 1.0f;
+	float sy = vid.screen->h > 0 ? (float)oh / vid.screen->h : 1.0f;
+	bool unit = ow == vid.screen->w && oh == vid.screen->h;
+	for (int i = 0; i < sprite_count; i++) {
+		Sprite* s = &sprites[i];
+		SDL_Rect d = s->dst, c = s->clip;
+		if (!unit) {
+			d = (SDL_Rect){(int)(d.x * sx), (int)(d.y * sy), (int)(d.w * sx + 0.5f), (int)(d.h * sy + 0.5f)};
+			c = (SDL_Rect){(int)(c.x * sx), (int)(c.y * sy), (int)(c.w * sx + 0.5f), (int)(c.h * sy + 0.5f)};
+		}
+		SDL_RenderSetClipRect(vid.renderer, s->has_clip ? &c : NULL);
+		SDL_SetTextureAlphaMod(s->tex, s->alpha);
+		SDL_RenderCopy(vid.renderer, s->tex, s->has_src ? &s->src : NULL, &d);
+	}
+	SDL_RenderSetClipRect(vid.renderer, NULL);
+}
+
+static int upload_band_y[2], upload_band_h[2];
+static int upload_band_n = 0;
+
+void PLAT_setUploadBands(const int* y, const int* h, int n) {
+	if (n > 2)
+		n = 2;
+	upload_band_n = n > 0 && y && h ? n : 0;
+	for (int i = 0; i < upload_band_n; i++)
+		upload_band_y[i] = y[i], upload_band_h[i] = h[i];
+}
+
+// The screen into its texture: all of it, or just the bands set for this flip (the screen's size unchanged).
+static void uploadScreen(bool size_kept) {
+	int n = upload_band_n;
+	upload_band_n = 0;
+	if (n <= 0 || !size_kept) {
+		SDL_UpdateTexture(vid.stream_layer1, NULL, vid.screen->pixels, vid.screen->pitch);
+		return;
+	}
+	for (int i = 0; i < n; i++) {
+		int y = upload_band_y[i], h = upload_band_h[i];
+		if (y < 0)
+			h += y, y = 0;
+		if (y + h > vid.screen->h)
+			h = vid.screen->h - y;
+		if (h <= 0)
+			continue;
+		SDL_Rect r = {0, y, vid.screen->w, h};
+		SDL_UpdateTexture(vid.stream_layer1, &r, (Uint8*)vid.screen->pixels + y * vid.screen->pitch, vid.screen->pitch);
+	}
+}
+
 static void compositeLayers(void) {
 	if (layer_has_content[1])
 		SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
 	if (layer_has_content[2])
 		SDL_RenderCopy(vid.renderer, vid.target_layer2, NULL, NULL);
 	SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
+	drawSprites();
 	if (layer_has_content[3])
 		SDL_RenderCopy(vid.renderer, vid.target_layer3, NULL, NULL);
 	if (layer_has_content[4])
@@ -2286,8 +2392,9 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 	// dont think we need this here tbh
 	// SDL_RenderClear(vid.renderer);
 	if (!vid.blit) {
+		int kept_w = vid.width, kept_h = vid.height;
 		resizeVideo(device_width, device_height, FIXED_PITCH); // !!!???
-		SDL_UpdateTexture(vid.stream_layer1, NULL, vid.screen->pixels, vid.screen->pitch);
+		uploadScreen(kept_w == vid.width && kept_h == vid.height);
 		compositeLayers();
 		capture_write();
 		SDL_RenderPresent(vid.renderer);
@@ -2298,6 +2405,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 	if (vid.width != vid.blit->true_w || vid.height != vid.blit->true_h) {
 		// Texture size doesn't match buffer, clear blit and use screen buffer instead
 		vid.blit = NULL;
+		upload_band_n = 0;
 		resizeVideo(device_width, device_height, FIXED_PITCH);
 		SDL_UpdateTexture(vid.stream_layer1, NULL, vid.screen->pixels, vid.screen->pitch);
 		compositeLayers();
@@ -2306,6 +2414,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 		return;
 	}
 
+	upload_band_n = 0; // a core's frame: always whole
 	SDL_UpdateTexture(vid.stream_layer1, NULL, vid.blit->src, vid.blit->src_p);
 
 	SDL_Texture* target = vid.stream_layer1;

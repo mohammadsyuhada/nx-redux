@@ -36,6 +36,7 @@
 #include "ui_listview.h"
 #include "recents.h"
 #include "rowview.h"
+#include "artloader.h"
 #include "types.h"
 #include "cpu_policy.h"
 
@@ -93,6 +94,7 @@ static void Menu_quit(void) {
 	Search_quit();
 	InfoBand_quit();
 	UI_fadeCacheClear();
+	ArtLoader_quit(); // the worker first: it decodes into surfaces the caches below would otherwise never see freed
 	MenuArt_quit();
 	ControllerArt_quit();
 }
@@ -433,11 +435,15 @@ int main(int argc, char* argv[]) {
 
 		if (dirty) {
 			SDL_Surface* tmpOldScreen = NULL;
+			bool frame_animated = animationdirection != ANIM_NONE;
 			if (animationdirection != ANIM_NONE) {
 				tmpOldScreen = GFX_captureRendererToSurface();
 				if (tmpOldScreen)
 					SDL_SetSurfaceBlendMode(tmpOldScreen, SDL_BLENDMODE_BLEND);
 			}
+			// the GPU sprites are this frame's to add (the Consoles carousel, RowView_beginSprites); a frame that adds
+			// none leaves none over the screen. After the capture above: the outgoing frame keeps its sprites.
+			PLAT_spritesClear();
 
 			if (lastScreen == SCREEN_GAME || lastScreen == SCREEN_OFF) {
 				GFX_clearLayers(LAYER_ALL);
@@ -630,6 +636,16 @@ int main(int argc, char* argv[]) {
 			}
 			if (!startgame) {								  // dont flip if game gonna start
 				unsigned long work_ms = SDL_GetTicks() - now; // this frame's input and render
+				// The Consoles carousel drew its pictures as GPU sprites and nothing into the screen's body (black):
+				// only the bars' rows need uploading. Not on the first such frame (the texture's body may hold the last
+				// screen), nor under a context menu or a transition (both draw over the body).
+				static bool sprites_last = false;
+				bool sprites_now = RowView_takeSpritesUsed() && currentScreen == SCREEN_GAMELIST;
+				if (sprites_now && sprites_last && !frame_animated && !ContextMenu_isOpen()) {
+					int ys[2] = {0, screen->h - BAR_HEIGHT}, hs[2] = {BAR_HEIGHT, BAR_HEIGHT};
+					PLAT_setUploadBands(ys, hs, 2);
+				}
+				sprites_last = sprites_now;
 				GFX_flip(screen);
 				static bool first_frame_stamped = false;
 				if (!first_frame_stamped) {

@@ -554,11 +554,10 @@ static void drawLogo(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float s, S
 		return;
 	}
 	int lw = logo->w, lh = logo->h;
-	// the logo art is always the fixed off-white; only its alpha follows the selection
-	SDL_SetSurfaceColorMod(logo, TILE_MENU_GREY, TILE_MENU_GREY, TILE_MENU_GREY);
+	// the logo art is always the fixed off-white (TILE_MENU_GREY, baked into the PNGs); only its alpha follows the
+	// selection
 	SDL_SetSurfaceAlphaMod(logo, a);
 	SDL_BlitSurface(logo, NULL, dst, &(SDL_Rect){r.x + (r.w - lw) / 2, r.y + (r.h - lh) / 2, lw, lh});
-	SDL_SetSurfaceColorMod(logo, 255, 255, 255);
 	SDL_SetSurfaceAlphaMod(logo, 255);
 	int y = (int)floorf(GridLayout_logoCountY((float)r.y, (float)r.h, (float)lh, (float)gap) + 0.5f);
 	// "N games" in the count grey, a step under the logo

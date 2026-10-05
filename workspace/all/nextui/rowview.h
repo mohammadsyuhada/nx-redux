@@ -44,6 +44,11 @@ bool RowView_beginExit(void);
 bool RowView_exiting(void);
 bool RowView_exitStep(bool key_pressed);
 void RowView_renderExit(SDL_Surface* screen);
+// GPU sprite mode for the Consoles carousel (both orientations): while on, the row's pictures become GPU sprites
+// (PLAT_spriteAdd) instead of software blits. RowView_takeSpritesUsed: whether this frame drew any (then cleared), so
+// the host can upload only the screen rows that changed.
+void RowView_beginSprites(bool on);
+bool RowView_takeSpritesUsed(void);
 // Free the cached surfaces and the per-list item kinds.
 void RowView_quit(void);
 

@@ -7,6 +7,8 @@
 // The Carousel pad of console `id` (Pad_idForFolder) fitted in box_w x box_h; NULL when missing. Cached (the last
 // few id+box pairs); do not free. Shared: restore any alpha mod after blitting it.
 SDL_Surface* ControllerArt_carousel(const char* id, int box_w, int box_h);
+// The last ControllerArt_carousel returned NULL because its image is still on the art loader's thread (not missing).
+bool ControllerArt_pending(void);
 // The List pad of console `id` for this screen, already placed: its top-left in *x, *y. NULL when there is no image
 // for this screen size. One cached (the selected console's); do not free.
 SDL_Surface* ControllerArt_list(const char* id, int screen_w, int screen_h, int* x, int* y);

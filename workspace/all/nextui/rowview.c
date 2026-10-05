@@ -11,6 +11,8 @@
 // shape mask is ever made at a tweened size (the font, MenuArt and mask caches key on the size), and a Carousel
 // tile's darkening is a colour mod over the plain black background (the whole tile, border included).
 
+#include "ui_contextmenu.h"
+#include "artloader.h"
 #include "rowview.h"
 #include "rowview_shared.h"
 #include "stackview.h"
@@ -56,6 +58,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+// a cached surface out: its GPU texture (sprite mode, PLAT_textureForSurface) goes with it
+static void freeSurf(SDL_Surface* s) {
+	if (!s)
+		return;
+	PLAT_freeSurfaceTexture(s);
+	SDL_FreeSurface(s);
+}
 
 #define SLIDE_MS 300					// the row's slide (§8b.2)
 #define FADE_MS MENU_TRANSITION_FADE_MS // the Backdrop picture's crossfade, and its fade in from black (§8b.4)
@@ -161,10 +171,11 @@ static struct {
 	SDL_Surface* s;
 	int sel;				// the selection the place was worked out for (-1 = none)
 	int y_from, y_to;		// Consoles: the line's top (px), gliding from → to
-	const SDL_Surface* art; // Consoles: the logo surface y_to was worked out for (NULL = none, the name)
-	int art_w, art_h;		// and its size
+	const SDL_Surface* art; // unused (the logo is now known by its height: art_h)
+	int art_w, art_h;		// Consoles: art_h the logo height y_to was worked out for (-1 = none, the name)
 	int off;				// Collections: the line's centre below the item's centre, at the selected size (px)
 	bool fade_pending;		// Collections: the fade starts when the selection's count is first known
+	bool pending;			// Consoles: the selected logo is still being decoded (no line until it lands)
 	Tween glide, fade;
 } cnt = {.sel = -1};
 
@@ -438,7 +449,7 @@ static SDL_Surface* stretchScratch(int w, int h) {
 			w = stretch_scratch->w;
 		if (stretch_scratch->h > h)
 			h = stretch_scratch->h;
-		SDL_FreeSurface(stretch_scratch);
+		freeSurf(stretch_scratch);
 	}
 	stretch_scratch = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888);
 	if (stretch_scratch)
@@ -450,6 +461,28 @@ static SDL_Surface* stretchScratch(int w, int h) {
 // (every caller's is: the screen's body is the picture or plain black, and the from picture is opaque). At grey 255
 // it is UI_blitBlendOpaque (scaled: SDL's fast nearest stretch into a scratch first, no blending); a grey level goes
 // through SDL. The surface's mods and blend mode are restored (HomeArt's and the cache's surfaces are shared).
+// GPU sprite mode (RowView_beginSprites): the Consoles carousel's pictures go to the GPU as sprites (PLAT_spriteAdd)
+// instead of being blended into the screen, so a slide neither blends them on the CPU nor re-uploads the screen.
+static bool sprite_mode = false;
+static bool sprites_used = false;
+static bool draw_selected = false; // the item RowView_render is drawing is the selection (its crisp logo)
+// a Consoles logo or controller was still on the art loader's thread in the last render: redraw until it lands
+static bool art_waiting = false;
+
+void RowView_beginSprites(bool on) {
+	sprite_mode = on;
+	if (on) {
+		sprites_used = true;
+		art_waiting = false;
+	}
+}
+
+bool RowView_takeSpritesUsed(void) {
+	bool used = sprites_used;
+	sprites_used = false;
+	return used;
+}
+
 static void blitCentred(SDL_Surface* dst, SDL_Surface* s, int cx, int cy, float factor, Uint8 a, Uint8 c) {
 	if (!s || a == 0 || !(factor > 0.0f))
 		return;
@@ -459,6 +492,15 @@ static void blitCentred(SDL_Surface* dst, SDL_Surface* s, int cx, int cy, float 
 	if (w <= 0 || h <= 0)
 		return;
 	SDL_Rect r = {cx - w / 2, cy - h / 2, w, h};
+	// sprite mode: the GPU draws it, scaled (linear) and blended over the screen, clipped as the screen is, at the
+	// tab-focus dim (the body under it is black)
+	if (sprite_mode) {
+		Uint8 dim = (Uint8)(a * MenuTabs_contentAlpha() + 0.5f);
+		SDL_Texture* t = PLAT_textureForSurface(s);
+		if (t)
+			PLAT_spriteAdd(t, NULL, &r, dim, &dst->clip_rect);
+		return;
+	}
 	Uint8 oa, orr, og, ob;
 	SDL_BlendMode bm;
 	SDL_GetSurfaceAlphaMod(s, &oa);
@@ -534,7 +576,7 @@ static SDL_Surface* itemStore(const char* key, SDL_Surface* s) {
 			victim = &items[i];
 	}
 	if (victim->s)
-		SDL_FreeSurface(victim->s);
+		freeSurf(victim->s);
 	snprintf(victim->key, sizeof(victim->key), "%s", key);
 	victim->hash = keyHash(victim->key); // of the stored (possibly truncated) key, as itemFind compares it
 	victim->s = s;
@@ -548,7 +590,7 @@ static void logoNamesClear(void);
 static void itemsClear(void) {
 	for (int i = 0; i < ITEM_SLOTS; i++) {
 		if (items[i].s)
-			SDL_FreeSurface(items[i].s);
+			freeSurf(items[i].s);
 	}
 	memset(items, 0, sizeof(items));
 	item_clock = 0;
@@ -744,13 +786,11 @@ static SDL_Surface* buildSlot(Entry* e, TileKind kind, int w, int h, float k, fl
 		const char* file = entryLogoFile(e, logo, sizeof(logo));
 		SDL_Surface* art = file ? MenuArt_get(file, w, h) : NULL;
 		if (art) {
-			// the fixed off-white (TILE_MENU_GREY), not the art's pure white; the ground matches so the
+			// the fixed off-white (TILE_MENU_GREY, baked into the logo PNGs); the ground matches so the
 			// anti-aliased edges keep that grey
 			const Uint8 v = TILE_MENU_GREY;
 			SDL_FillRect(s, NULL, SDL_MapRGBA(s->format, v, v, v, 0));
-			SDL_SetSurfaceColorMod(art, v, v, v);
 			SDL_BlitSurface(art, NULL, s, &(SDL_Rect){(w - art->w) / 2, (h - art->h) / 2, art->w, art->h});
-			SDL_SetSurfaceColorMod(art, 255, 255, 255); // MenuArt's copy is shared
 			break;
 		}
 		// no logo: the unknown-console emblem over the name, centred as one block (on the off-white ground)
@@ -838,8 +878,20 @@ static SDL_Surface* slotItem(const RowGeo* g, Entry* e, TileKind kind, bool side
 	snprintf(key, sizeof(key), "%s|%d|%d|%d|%s|%s", g->vertical ? "V" : "S", g->full_w, g->full_h, (int)kind, e->path,
 			 View_displayName(e));
 	SDL_Surface* full;
-	if (!itemFind(key, &full))
+	if (!itemFind(key, &full)) {
+		// Consoles: a logo still on the art loader's thread is not waited for; the item shows once it lands
+		if (g->kind == ROW_BACKDROP_LOGO && kind == TILE_LOGO) {
+			char logo[64];
+			bool pending = false;
+			if (entryLogoFile(e, logo, sizeof(logo)))
+				MenuArt_peek(logo, g->full_w, g->full_h, &pending);
+			if (pending) {
+				art_waiting = true;
+				return NULL;
+			}
+		}
 		full = itemStore(key, buildSlot(e, kind, g->full_w, g->full_h, g->k, 1.0f, g->vertical));
+	}
 	return side ? sideCopy(key, full, g->sz.scale) : full;
 }
 
@@ -946,7 +998,9 @@ static SDL_Surface* placeholderItem(const RowGeo* g, Entry* e, TileKind kind, bo
 // An item drawn from its two rest-size surfaces: 1:1 at a rest size, else the centre one scaled.
 static void drawRested(SDL_Surface* screen, SDL_Surface* (*get)(const RowGeo*, Entry*, TileKind, bool),
 					   const RowGeo* g, Entry* e, TileKind kind, float s, int cx, int cy, Uint8 a) {
-	if (fabsf(s - g->sz.scale) < SCALE_EPS)
+	if (sprite_mode) // the GPU scales the full surface: no area-averaged side copy to make or keep
+		blitCentred(screen, get(g, e, kind, false), cx, cy, s, a, 255);
+	else if (fabsf(s - g->sz.scale) < SCALE_EPS)
 		blitCentred(screen, get(g, e, kind, true), cx, cy, 1.0f, a, 255);
 	else
 		blitCentred(screen, get(g, e, kind, false), cx, cy, s, a, 255);
@@ -1058,7 +1112,10 @@ static void drawBackdropItem(SDL_Surface* screen, const RowGeo* g, Entry* e, Til
 		drawRested(screen, placeholderItem, g, e, kind, scale, cx, cy, a);
 		return;
 	}
-	drawRested(screen, slotItem, g, e, kind, scale, cx, cy, (Uint8)(alpha * 255.0f + 0.5f));
+	Uint8 a8 = (Uint8)(alpha * 255.0f + 0.5f);
+	if (RowView_drawConsoleLogo(screen, g, e, kind, cx, cy, scale, a8, draw_selected))
+		return; // a Consoles logo as a GPU sprite (sprite mode)
+	drawRested(screen, slotItem, g, e, kind, scale, cx, cy, a8);
 }
 
 ///////////////////////////////////////
@@ -1162,7 +1219,7 @@ static SDL_Surface* captionSurface(const CapStyle* cs, const char* name, const S
 	if (caption.s && strcmp(caption.key, key) == 0)
 		return caption.s;
 	if (caption.s)
-		SDL_FreeSurface(caption.s);
+		freeSurf(caption.s);
 	caption.s = NULL;
 	caption.content_h = 0;
 	caption.ink = (SDL_Rect){0, 0, 0, 0};
@@ -1316,7 +1373,7 @@ static SDL_Surface* countSurface(const char* text, float sp, SDL_Color ac) {
 	if (cnt.s && strcmp(cnt.key, key) == 0)
 		return cnt.s;
 	if (cnt.s)
-		SDL_FreeSurface(cnt.s);
+		freeSurf(cnt.s);
 	snprintf(cnt.key, sizeof(cnt.key), "%s", key);
 	TTF_Font* f = UIFont_get(sp, false);
 	cnt.s = f ? GFX_renderText(f, text, (SDL_Color){ac.r, ac.g, ac.b, 255}) : NULL;
@@ -1325,17 +1382,126 @@ static SDL_Surface* countSurface(const char* text, float sp, SDL_Color ac) {
 	return cnt.s;
 }
 
-// Consoles: the selected console's logo as buildSlot draws it in its slot (MenuArt's fit), or NULL (no logo).
-static SDL_Surface* logoArt(const RowGeo* g, Entry* e, TileKind kind) {
-	char logo[64];
-	const char* file = kind == TILE_LOGO ? entryLogoFile(e, logo, sizeof(logo)) : NULL;
-	return file ? MenuArt_get(file, g->full_w, g->full_h) : NULL;
+// Consoles' logos as GPU sprites (sprite mode): each logo decoded at half its own size on the art loader's thread
+// (MenuArt_loadHalf, no resampling) and a quarter-size level halved from that here, the GPU scaling whichever is the
+// smallest still as big as the drawn logo. Only the selected console's logo is the area-averaged one (MenuArt_peek at
+// the slot's size, decoded when it is selected); the rest are in the background, where the softer edge doesn't show.
+#define LOGO_MIPS 24
+typedef struct {
+	char file[64];
+	SDL_Surface *half, *quarter;
+	unsigned stamp;
+	bool used, failed;
+} LogoMip;
+static LogoMip mips[LOGO_MIPS];
+static unsigned mip_clock = 0;
+
+// file's levels, or NULL: none (a failed decode) or still decoding (*pending; queued first in line)
+static LogoMip* logoMip(const char* file, bool* pending) {
+	*pending = false;
+	for (int i = 0; i < LOGO_MIPS; i++) {
+		if (mips[i].used && strcmp(mips[i].file, file) == 0) {
+			mips[i].stamp = ++mip_clock;
+			return mips[i].failed ? NULL : &mips[i];
+		}
+	}
+	bool failed = false;
+	SDL_Surface* half = ArtLoader_take(file, 0, 0, &failed);
+	if (!half && !failed) {
+		ArtLoader_request(file, 0, 0, 0);
+		*pending = true;
+		art_waiting = true;
+		return NULL;
+	}
+	LogoMip* m = &mips[0];
+	for (int i = 0; i < LOGO_MIPS; i++) {
+		if (!mips[i].used) {
+			m = &mips[i];
+			break;
+		}
+		if (mips[i].stamp < m->stamp)
+			m = &mips[i];
+	}
+	freeSurf(m->half);
+	freeSurf(m->quarter);
+	memset(m, 0, sizeof(*m));
+	snprintf(m->file, sizeof(m->file), "%s", file);
+	m->half = half;
+	m->quarter = half ? MenuArt_halve(half) : NULL;
+	m->failed = !half;
+	m->used = true;
+	m->stamp = ++mip_clock;
+	return m->failed ? NULL : m;
 }
 
-// Consoles: the count line's top (px), 8 dp under what the selected item draws in its slot: the logo `art` (its own
-// aspect in the slot), or a logo-less console's name.
-static int logoCountTop(const RowGeo* g, Entry* e, const SDL_Surface* art) {
-	int drawn = art ? art->h : logoNameHeight(View_displayName(e), g->full_w, g->full_h, g->k);
+static void mipsClear(void) {
+	for (int i = 0; i < LOGO_MIPS; i++) {
+		freeSurf(mips[i].half);
+		freeSurf(mips[i].quarter);
+	}
+	memset(mips, 0, sizeof(mips));
+}
+
+// The logo's size in a slot_w x slot_h slot as MenuArt fits it (its own size: twice the half level's)
+static void logoFit(const LogoMip* m, int slot_w, int slot_h, int* w, int* h) {
+	double sw = 2.0 * m->half->w, sh = 2.0 * m->half->h;
+	double s = slot_w / sw < slot_h / sh ? slot_w / sw : slot_h / sh;
+	*w = (int)(sw * s);
+	*h = (int)(sh * s);
+}
+
+// Consoles: the height (px) its logo draws at in the slot, -1 for no logo (a logo-less console: its name). Never
+// decoded here: while it is on the art loader's thread, *pending, and the caller leaves that console's count out.
+static int logoHeight(const RowGeo* g, Entry* e, TileKind kind, bool* pending) {
+	char logo[64];
+	const char* file = kind == TILE_LOGO ? entryLogoFile(e, logo, sizeof(logo)) : NULL;
+	*pending = false;
+	LogoMip* m = file ? logoMip(file, pending) : NULL;
+	if (!m)
+		return -1;
+	int w, h;
+	logoFit(m, g->full_w, g->full_h, &w, &h);
+	return h;
+}
+
+bool RowView_drawConsoleLogo(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind kind, int cx, int cy, float scale,
+							 Uint8 a, bool selected) {
+	if (!sprite_mode || g->kind != ROW_BACKDROP_LOGO || kind != TILE_LOGO)
+		return false;
+	char logo[64];
+	const char* file = entryLogoFile(e, logo, sizeof(logo));
+	if (!file)
+		return false; // a logo-less console: its name slot, as before
+	if (selected) {	  // the crisp one once it lands (asked for here, first in line); the half level until then
+		bool pending;
+		if (MenuArt_peek(file, g->full_w, g->full_h, &pending)) {
+			blitCentred(screen, slotItem(g, e, kind, false), cx, cy, scale, a, 255);
+			return true;
+		}
+		if (pending)
+			art_waiting = true;
+	}
+	bool pending;
+	LogoMip* m = logoMip(file, &pending);
+	if (!m)
+		return true; // decoding (it shows once it lands) or nothing to show
+	int lw, lh;
+	logoFit(m, g->full_w, g->full_h, &lw, &lh);
+	int dw = (int)(lw * scale + 0.5f), dh = (int)(lh * scale + 0.5f);
+	if (dw <= 0 || dh <= 0 || a == 0)
+		return true;
+	SDL_Surface* src = m->quarter && m->quarter->w >= dw && m->quarter->h >= dh ? m->quarter : m->half;
+	SDL_Texture* t = PLAT_textureForSurface(src);
+	if (t) // the off-white is in the PNG; the tab-focus dim, clipped as the screen is
+		PLAT_spriteAdd(t, NULL, &(SDL_Rect){cx - dw / 2, cy - dh / 2, dw, dh}, (Uint8)(a * MenuTabs_contentAlpha() + 0.5f),
+					   &screen->clip_rect);
+	return true;
+}
+
+// Consoles: the count line's top (px), 8 dp under what the selected item draws in its slot: its logo (lh: its height,
+// logoHeight) or, with none (lh < 0), its name.
+static int logoCountTop(const RowGeo* g, Entry* e, int lh) {
+	int drawn = lh >= 0 ? lh : logoNameHeight(View_displayName(e), g->full_w, g->full_h, g->k);
 	return (int)floorf(Row_logoCountY((float)g->cy, (float)drawn, (float)NX_DPF(ROW_LOGO_COUNT_GAP_DP)) + 0.5f);
 }
 
@@ -1366,7 +1532,7 @@ static SDL_Surface* itemCountSurface(const char* text, float sp) {
 			victim = i;
 	}
 	if (item_counts[victim].s)
-		SDL_FreeSurface(item_counts[victim].s);
+		freeSurf(item_counts[victim].s);
 	snprintf(item_counts[victim].key, sizeof(item_counts[victim].key), "%s", key);
 	TTF_Font* f = UIFont_get(sp, false);
 	SDL_Surface* t = f ? GFX_renderText(f, text, (SDL_Color){ac.r, ac.g, ac.b, 255}) : NULL;
@@ -1380,7 +1546,7 @@ static SDL_Surface* itemCountSurface(const char* text, float sp) {
 static void itemCountsClear(void) {
 	for (int i = 0; i < ITEM_COUNT_SLOTS; i++) {
 		if (item_counts[i].s)
-			SDL_FreeSurface(item_counts[i].s);
+			freeSurf(item_counts[i].s);
 	}
 	memset(item_counts, 0, sizeof(item_counts));
 	item_count_clock = 0;
@@ -1397,9 +1563,12 @@ static void drawItemCount(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKi
 	countLabel(e, kind, text, sizeof(text));
 	if (!text[0])
 		return;
-	SDL_Surface* art = logoArt(g, e, kind);
-	int drawn = art ? art->h : logoNameHeight(View_displayName(e), g->full_w, g->full_h, g->k);
-	if (!art && g->vertical && drawn < g->full_h / 2)
+	bool pending;
+	int lh = logoHeight(g, e, kind, &pending);
+	if (pending)
+		return;
+	int drawn = lh >= 0 ? lh : logoNameHeight(View_displayName(e), g->full_w, g->full_h, g->k);
+	if (lh < 0 && g->vertical && drawn < g->full_h / 2)
 		drawn = g->full_h / 2;
 	StackCount c = Stack_countOn((float)cy, scale, (float)drawn, (float)NX_DPF(ROW_LOGO_COUNT_GAP_DP), d);
 	Uint8 a = (Uint8)(255.0f * c.alpha + 0.5f);
@@ -1456,8 +1625,11 @@ static void drawSideCount(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKi
 		return;
 	int centre;
 	if (g->kind == ROW_BACKDROP_LOGO) {
-		SDL_Surface* art = logoArt(g, e, kind);
-		int drawn = art ? art->h : logoNameHeight(View_displayName(e), g->full_w, g->full_h, g->k);
+		bool pending;
+		int lh = logoHeight(g, e, kind, &pending);
+		if (pending)
+			return;
+		int drawn = lh >= 0 ? lh : logoNameHeight(View_displayName(e), g->full_w, g->full_h, g->k);
 		SDL_Surface* s = itemCountSurface(text, Row_countSp(g->k) * ROW_SIDE_COUNT_SCALE);
 		if (!s)
 			return;
@@ -1491,14 +1663,17 @@ static void retargetCount(int y, bool at_once) {
 // Collections' fades in on the selected item once its count is known (`known`: it is this frame).
 static void placeCount(const RowGeo* g, Entry* e, TileKind kind, int sel, bool snap, bool known) {
 	if (g->kind == ROW_BACKDROP_LOGO) {
-		SDL_Surface* art = logoArt(g, e, kind);
-		bool art_changed = art != cnt.art || (art && (art->w != cnt.art_w || art->h != cnt.art_h));
-		if (!snap && sel == cnt.sel && !art_changed)
+		bool pending;
+		int lh = logoHeight(g, e, kind, &pending);
+		if (pending) { // placed once its logo lands (sel differs from cnt.sel until then); drawCount shows none
+			cnt.pending = true;
 			return;
-		retargetCount(logoCountTop(g, e, art), snap || cnt.sel < 0);
-		cnt.art = art;
-		cnt.art_w = art ? art->w : 0;
-		cnt.art_h = art ? art->h : 0;
+		}
+		cnt.pending = false;
+		if (!snap && sel == cnt.sel && lh == cnt.art_h)
+			return;
+		retargetCount(logoCountTop(g, e, lh), snap || cnt.sel < 0);
+		cnt.art_h = lh;
 	} else {
 		if (!snap && sel == cnt.sel)
 			return;
@@ -1532,6 +1707,8 @@ static void drawCount(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind k
 		tweenStart(&cnt.fade); // animations off: inactive, so it shows at once
 	}
 	if (g->kind == ROW_BACKDROP_LOGO) {
+		if (cnt.pending)
+			return;
 		SDL_Surface* s = countSurface(text, Row_countSp(g->k), countGrey());
 		if (!s)
 			return;
@@ -1570,7 +1747,7 @@ static void resetPicture(void) {
 	to_path[0] = '\0';
 	pic_top = 0;
 	if (pic_from) { // 3-4 MB: only held on a Backdrop game row
-		SDL_FreeSurface(pic_from);
+		freeSurf(pic_from);
 		pic_from = NULL;
 	}
 }
@@ -1594,7 +1771,7 @@ static void settlePicture(SDL_Surface* screen) {
 	}
 	if (!pic_from || pic_from->w != screen->w || pic_from->h != screen->h) {
 		if (pic_from)
-			SDL_FreeSurface(pic_from);
+			freeSurf(pic_from);
 		pic_from = SDL_CreateRGBSurfaceWithFormat(0, screen->w, screen->h, 32, SDL_PIXELFORMAT_ARGB8888);
 		from_valid = false;
 		if (!pic_from)
@@ -1775,15 +1952,69 @@ static void prefetchOne(const RowGeo* g, Entry* e, TileKind k, bool side, bool l
 		} else if (st != HOMEART_LOADING) {
 			placeholderItem(g, e, k, side);
 		}
+	} else if (g->kind == ROW_BACKDROP_LOGO) {
+		// Consoles draws as GPU sprites (RowView_beginSprites): its logos are the half and quarter levels scaled by the
+		// GPU (RowView_drawConsoleLogo), so no slot or side copy; their textures are made here, between frames, not in
+		// the frame that first shows them
+		char logo[64];
+		bool pending;
+		LogoMip* m = k == TILE_LOGO && entryLogoFile(e, logo, sizeof(logo)) ? logoMip(logo, &pending) : NULL;
+		if (m) {
+			PLAT_textureForSurface(m->half);
+			if (m->quarter)
+				PLAT_textureForSurface(m->quarter);
+		} else if (k != TILE_LOGO && !side) {
+			slotItem(g, e, k, false); // a logo-less console's name slot
+		}
 	} else {
 		slotItem(g, e, k, side);
 	}
 }
 
+// Consoles: the logos and controllers within ART_WARM_RADIUS of the selection, queued on the art loader's thread
+// (nearest first, the controllers a step ahead of the logos), once per selection, list or size. The draw and the
+// item builds then find them decoded, so a slide never stops for a PNG.
+#define ART_WARM_RADIUS 6
+void RowView_warmConsoleArt(int slot_w, int slot_h, int pad_w, int pad_h, int sel) {
+	static unsigned seen_serial;
+	static unsigned seen_gen;
+	static int seen_sel = -1, seen_n, seen_sw, seen_sh, seen_pw, seen_ph;
+	int n = top->entries->count;
+	if (top->serial == seen_serial && MenuTabs_generation() == seen_gen && sel == seen_sel && n == seen_n &&
+		slot_w == seen_sw && slot_h == seen_sh && pad_w == seen_pw && pad_h == seen_ph)
+		return;
+	seen_serial = top->serial, seen_gen = MenuTabs_generation(), seen_sel = sel, seen_n = n;
+	seen_sw = slot_w, seen_sh = slot_h, seen_pw = pad_w, seen_ph = pad_h;
+	for (int d = 0; d <= ART_WARM_RADIUS; d++) {
+		for (int side = -1; side <= 1; side += 2) {
+			int i = sel + side * d;
+			if (i < 0 || i >= n || (d == 0 && side > 0))
+				continue;
+			Entry* e = top->entries->items[i];
+			TileKind k = kindFor(i, e);
+			if (k != TILE_LOGO)
+				continue;
+			const char* pad = RowView_padId(e, k);
+			if (pad && pad_w > 0 && pad_h > 0) {
+				char file[64];
+				snprintf(file, sizeof(file), "menu_pad_%s.png", pad);
+				ArtLoader_request(file, pad_w, pad_h, 2 * d);
+			}
+			char logo[64];
+			if (entryLogoFile(e, logo, sizeof(logo))) {
+				ArtLoader_request(logo, 0, 0, 2 * d + 1); // the half level (RowView_drawConsoleLogo)
+				if (d == 0)								  // and the selection's crisp one
+					ArtLoader_request(logo, slot_w, slot_h, 0);
+			}
+		}
+	}
+}
+
 void RowView_prefetchPad(Entry* e, TileKind kind, int box_w, int box_h) {
 	const char* id = RowView_padId(e, kind);
-	if (id)
-		ControllerArt_carousel(id, box_w, box_h);
+	SDL_Surface* s = id ? ControllerArt_carousel(id, box_w, box_h) : NULL;
+	if (s) // its texture between frames too (the pad draws as a GPU sprite)
+		PLAT_textureForSurface(s);
 }
 
 int RowView_countLineH(const RowGeo* g) {
@@ -1800,6 +2031,8 @@ void RowView_drawPad(SDL_Surface* screen, Entry* e, TileKind kind, int box_w, in
 	SDL_Surface* s = ControllerArt_carousel(id, box_w, box_h);
 	if (s)
 		blitCentred(screen, s, cx, cy, scale, (Uint8)(a * 255.0f + 0.5f), 255);
+	else if (ControllerArt_pending())
+		art_waiting = true;
 }
 
 void RowView_render(SDL_Surface* screen, int lastScreen) {
@@ -1856,6 +2089,12 @@ void RowView_render(SDL_Surface* screen, int lastScreen) {
 	SDL_SetClipRect(screen, &(SDL_Rect){0, bar, screen->w, body_h});
 	PadSize pad_box = Pad_rowBox((float)g.full_h); // 3.0 x 1.95 the logo slot's height
 	int pad_w = (int)(pad_box.w + 0.5f), pad_h = (int)(pad_box.h + 0.5f);
+	if (kind == ROW_BACKDROP_LOGO)
+		RowView_warmConsoleArt(g.full_w, g.full_h, pad_w, pad_h, sel);
+
+	// Consoles: its pictures, counts included, go to the GPU (RowView_beginSprites), the screen's body stays black
+	// (not under a context menu: it draws over the body on the screen, under the sprites)
+	RowView_beginSprites(kind == ROW_BACKDROP_LOGO && !ContextMenu_isOpen());
 
 	// far to near (the largest d first), so the centre lands on top
 	int first, last;
@@ -1886,7 +2125,9 @@ void RowView_render(SDL_Surface* screen, int lastScreen) {
 		else {
 			if (kind == ROW_BACKDROP_LOGO) // the focused console's controller, under its logo
 				RowView_drawPad(screen, e, k, pad_w, pad_h, cx, g.cy, it.scale, d);
+			draw_selected = i == sel;
 			drawBackdropItem(screen, &g, e, k, cx, g.cy, it.scale, it.alpha);
+			draw_selected = false;
 			if (i != sel)
 				drawSideCount(screen, &g, e, k, cx, it.scale, it.alpha);
 		}
@@ -1898,6 +2139,7 @@ void RowView_render(SDL_Surface* screen, int lastScreen) {
 	RowItem sel_it = Row_item(&g.sz, kind, (float)sel, pos);
 	RowPlace at = {dpToPx(sel_it.dx), 0, sel_it.scale, sel_it.alpha, sel_it.visible};
 	drawCount(screen, &g, e, kindFor(sel, e), sel, &at, snap);
+	sprite_mode = false;
 
 	SDL_SetClipRect(screen, &prev_clip);
 
@@ -1999,7 +2241,7 @@ bool RowView_animating(void) {
 		bool c = tweenTick(&cnt.glide, ROW_COUNT_GLIDE_MS);
 		bool d = tweenTick(&cnt.fade, ROW_COUNT_FADE_MS);
 		bool s = StackView_animating();
-		return b || c || d || s || RowView_exiting();
+		return b || c || d || s || art_waiting || RowView_exiting();
 	}
 	bool a = tweenTick(&slide_tw, SLIDE_MS);
 	bool b = tweenTick(&fade_tw, FADE_MS);
@@ -2007,7 +2249,7 @@ bool RowView_animating(void) {
 	bool d = tweenTick(&cnt.fade, ROW_COUNT_FADE_MS);
 	if (a && !slide_tw.active)
 		pos_from = pos_to;
-	return a || b || c || d || RowView_exiting();
+	return a || b || c || d || art_waiting || RowView_exiting();
 }
 
 bool RowView_prefetchStep(Uint32 deadline) {
@@ -2089,17 +2331,18 @@ void RowView_quit(void) {
 	kinds_top = 0;
 	kinds_n = -1;
 	itemsClear();
+	mipsClear();
 	if (caption.s)
-		SDL_FreeSurface(caption.s);
+		freeSurf(caption.s);
 	memset(&caption, 0, sizeof(caption));
 	if (cnt.s)
-		SDL_FreeSurface(cnt.s);
+		freeSurf(cnt.s);
 	memset(&cnt, 0, sizeof(cnt));
 	cnt.sel = -1;
 	resetPicture();
 	MenuTransition_exitCancel(&exit_fade);
 	if (stretch_scratch)
-		SDL_FreeSurface(stretch_scratch);
+		freeSurf(stretch_scratch);
 	stretch_scratch = NULL;
 	StackView_forget();
 	itemCountsClear();

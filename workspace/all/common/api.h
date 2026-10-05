@@ -748,6 +748,18 @@ void PLAT_GL_Swap();
 void GFX_GL_Swap();
 unsigned char* PLAT_GL_screenCapture(int* outWidth, int* outHeight);
 void PLAT_GPU_Flip();
+
+// GPU sprites over the screen layer (a frame's moving pictures drawn by the GPU instead of blended into the screen):
+// the list is drawn right above the screen texture on every composite until it is cleared. dst and clip are in screen
+// px; src NULL = the whole texture. The texture is the surface's own (PLAT_textureForSurface, kept in s->userdata);
+// free such a surface with PLAT_freeSurfaceTexture first.
+void PLAT_spritesClear(void);
+void PLAT_spriteAdd(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, const SDL_Rect* clip);
+SDL_Texture* PLAT_textureForSurface(SDL_Surface* s);
+void PLAT_freeSurfaceTexture(SDL_Surface* s);
+// Upload only these row bands of the screen on the next PLAT_flip (the rest of the screen texture keeps what it had):
+// for frames whose other rows are known unchanged. Consumed by that flip; n <= 0 = the whole screen.
+void PLAT_setUploadBands(const int* y, const int* h, int n);
 void PLAT_setShaders(int nr);
 void PLAT_resetShaders();
 void PLAT_clearShaders();

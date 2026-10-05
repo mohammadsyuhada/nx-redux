@@ -96,6 +96,12 @@ void RowView_drawPad(SDL_Surface* screen, Entry* e, TileKind kind, int box_w, in
 // Console e's pad id (Pad_idForFolder), or NULL; for a stack's spacing.
 const char* RowView_padId(Entry* e, TileKind kind);
 // Load ahead (a cache hit loads nothing) the pad RowView_drawPad would draw for console e in box_w x box_h px.
+// Consoles: queue the logos and controllers around sel on the art loader (artloader.h), nearest first.
+// Consoles in sprite mode: its logo as a GPU sprite (the selection's crisp one once decoded, else the half/quarter level
+// scaled by the GPU). False when it is not that case (draw as before).
+bool RowView_drawConsoleLogo(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind kind, int cx, int cy, float scale,
+							 Uint8 a, bool selected);
+void RowView_warmConsoleArt(int slot_w, int slot_h, int pad_w, int pad_h, int sel);
 void RowView_prefetchPad(Entry* e, TileKind kind, int box_w, int box_h);
 // The Consoles "N games" line's height (px) for this geometry's text scale.
 int RowView_countLineH(const RowGeo* g);
