@@ -333,7 +333,7 @@ int main(int argc, char* argv[]) {
 	{
 		char* rom_path_for_ra = game.tmp_path[0] ? game.tmp_path : game.path;
 		RA_setRecordedRomPath(game.path);
-		RA_loadGame(rom_path_for_ra, game.data, game.size, core.tag);
+		RA_loadGame(rom_path_for_ra, game.data, game.size, core.tag, core.name);
 	}
 
 	// a netplay session starts from a clean boot on both sides

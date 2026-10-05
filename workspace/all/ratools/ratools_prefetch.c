@@ -111,35 +111,52 @@ static bool rat_dir_has_disc_index(const char* dir) {
 	return found;
 }
 
-static int rat_adjust_cd_console(int console_id, const char* path) {
-	const char* ext = strrchr(path, '.');
-	bool is_cd = ext && (!strcasecmp(ext, ".chd") || !strcasecmp(ext, ".cue") ||
-						 !strcasecmp(ext, ".ccd") || !strcasecmp(ext, ".toc") ||
-						 !strcasecmp(ext, ".m3u"));
-	if (console_id == RC_CONSOLE_PC_ENGINE && is_cd)
-		return RC_CONSOLE_PC_ENGINE_CD;
-	if (console_id == RC_CONSOLE_MEGA_DRIVE) {
-		// The GPGX tag serves every Sega system; mirror minarch's
-		// ra_do_load_game so prefetch hashes each ROM under the right console.
-		if (is_cd)
-			return RC_CONSOLE_SEGA_CD;
-		if (ext && !strcasecmp(ext, ".sms"))
-			return RC_CONSOLE_MASTER_SYSTEM;
-		if (ext && !strcasecmp(ext, ".gg"))
-			return RC_CONSOLE_GAME_GEAR;
-		if (ext && !strcasecmp(ext, ".sg"))
-			return RC_CONSOLE_SG1000;
+// The libretro core a system's pak launches, as minarch's core.name: the
+// EMU_EXE= value (stock and most community paks), else the name in front of
+// the first "_libretro.so". Empty when the pak names neither (e.g. a
+// standalone emulator) - RA_detectConsole then goes by tag and extension.
+static void rat_pak_core(const char* tag, char* out, size_t n) {
+	out[0] = '\0';
+	char launch[512];
+	getEmuPath((char*)tag, launch);
+	FILE* f = fopen(launch, "r");
+	if (!f)
+		return;
+	char line[512];
+	char fallback[64] = {0};
+	while (fgets(line, sizeof(line), f)) {
+		const char* p = line;
+		while (*p == ' ' || *p == '\t')
+			p++;
+		if (strncmp(p, "EMU_EXE=", 8) == 0) {
+			p += 8;
+			if (*p == '"' || *p == '\'')
+				p++;
+			size_t len = strcspn(p, "\"' \t\r\n;");
+			if (len && len < n && !memchr(p, '$', len)) {
+				memcpy(out, p, len);
+				out[len] = '\0';
+				break;
+			}
+		}
+		const char* so = strstr(line, "_libretro.so");
+		if (so && !fallback[0]) {
+			const char* b = so;
+			while (b > line && b[-1] != '/' && b[-1] != '"' && b[-1] != '\'' && b[-1] != ' ')
+				b--;
+			size_t len = (size_t)(so - b);
+			if (len && len < sizeof(fallback) && !memchr(b, '$', len)) {
+				memcpy(fallback, b, len);
+				fallback[len] = '\0';
+			}
+		}
 	}
-	if (console_id == RC_CONSOLE_DREAMCAST && ext &&
-		(!strcasecmp(ext, ".zip") || !strcasecmp(ext, ".7z"))) {
-		// The Dreamcast folder also holds NAOMI/Atomiswave MAME sets; RA hashes
-		// those by their zip name under the "Arcade" console (like FBN).
-		return RC_CONSOLE_ARCADE;
-	}
-	return console_id;
+	fclose(f);
+	if (!out[0] && fallback[0])
+		snprintf(out, n, "%s", fallback);
 }
 
-static void rat_scan_dir(const char* dir, int console_id, int depth,
+static void rat_scan_dir(const char* dir, const char* tag, const char* core, int depth,
 						 RAT_RomFile* roms, int* count) {
 	if (depth > 2 || *count >= RAT_MAX_ROMS)
 		return;
@@ -160,12 +177,17 @@ static void rat_scan_dir(const char* dir, int console_id, int depth,
 		if (stat(path, &st) != 0)
 			continue;
 		if (S_ISDIR(st.st_mode)) {
-			rat_scan_dir(path, console_id, depth + 1, roms, count);
+			rat_scan_dir(path, tag, core, depth + 1, roms, count);
 		} else if (!rat_skip_extension(ent->d_name) &&
 				   !(has_disc_index && rat_is_track_file(ent->d_name))) {
+			// same resolver as minarch, so prefetch hashes each ROM under
+			// the console the game will be loaded with
+			int console_id = RA_detectConsole(tag, core, path);
+			if (console_id == RC_CONSOLE_UNKNOWN)
+				continue;
 			RAT_RomFile* r = &roms[(*count)++];
 			snprintf(r->path, sizeof(r->path), "%s", path);
-			r->console_id = rat_adjust_cd_console(console_id, path);
+			r->console_id = console_id;
 		}
 	}
 	closedir(d);
@@ -190,14 +212,17 @@ static int rat_collect_roms(RAT_RomFile** out) {
 		char tag[16];
 		if (!rat_dir_tag(ent->d_name, tag, sizeof(tag)))
 			continue;
-		int console_id = RA_getConsoleId(tag);
-		if (console_id == RC_CONSOLE_UNKNOWN)
-			continue;
 		if (!rat_has_emu(tag))
 			continue; // no emulator installed for this system
+		// a stock RA tag, or any pak whose core RA_detectConsole knows
+		// (custom paks); other folders (Ports, Extras...) aren't scanned
+		char core[64];
+		rat_pak_core(tag, core, sizeof(core));
+		if (RA_getConsoleId(tag) == RC_CONSOLE_UNKNOWN && !ra_core_family(core))
+			continue;
 		char dir[512];
 		snprintf(dir, sizeof(dir), "%s/%s", ROMS_PATH, ent->d_name);
-		rat_scan_dir(dir, console_id, 0, roms, &count);
+		rat_scan_dir(dir, tag, core, 0, roms, &count);
 	}
 	closedir(d);
 

@@ -75,6 +75,7 @@ typedef struct {
 	uint8_t* rom_data;
 	size_t rom_size;
 	char emu_tag[16];
+	char core_name[64];
 	bool active;
 } RAPendingLoad;
 
@@ -138,7 +139,8 @@ static void ra_process_queued_responses(void);
 
 // Forward declarations for helper functions
 static void ra_clear_pending_game(void);
-static void ra_do_load_game(const char* rom_path, const uint8_t* rom_data, size_t rom_size, const char* emu_tag);
+static void ra_do_load_game(const char* rom_path, const uint8_t* rom_data, size_t rom_size, const char* emu_tag,
+							const char* core_name);
 static void ra_load_muted_achievements(void);
 static void ra_save_muted_achievements(void);
 static void ra_clear_muted_achievements(void);
@@ -963,7 +965,7 @@ static void ra_login_callback(int result, const char* error_message,
 		if (ra_pending_load.active) {
 			RA_LOG_DEBUG("Processing deferred game load: %s\n", ra_pending_load.rom_path);
 			ra_do_load_game(ra_pending_load.rom_path, ra_pending_load.rom_data,
-							ra_pending_load.rom_size, ra_pending_load.emu_tag);
+							ra_pending_load.rom_size, ra_pending_load.emu_tag, ra_pending_load.core_name);
 			ra_clear_pending_game();
 		}
 
@@ -1402,71 +1404,25 @@ static void ra_clear_pending_game(void) {
 	ra_pending_load.rom_size = 0;
 	ra_pending_load.rom_path[0] = '\0';
 	ra_pending_load.emu_tag[0] = '\0';
+	ra_pending_load.core_name[0] = '\0';
 	ra_pending_load.active = false;
-}
-
-/*****************************************************************************
- * Helper: Check if a file extension indicates a CD image
- *****************************************************************************/
-static int ra_is_cd_extension(const char* path) {
-	if (!path)
-		return 0;
-
-	const char* ext = strrchr(path, '.');
-	if (!ext)
-		return 0;
-	ext++; // skip the dot
-
-	// Common CD image extensions
-	return (strcasecmp(ext, "chd") == 0 ||
-			strcasecmp(ext, "cue") == 0 ||
-			strcasecmp(ext, "ccd") == 0 ||
-			strcasecmp(ext, "toc") == 0 ||
-			strcasecmp(ext, "m3u") == 0);
 }
 
 /*****************************************************************************
  * Helper: Actually load the game (internal, assumes logged in)
  *****************************************************************************/
-static void ra_do_load_game(const char* rom_path, const uint8_t* rom_data, size_t rom_size, const char* emu_tag) {
+static void ra_do_load_game(const char* rom_path, const uint8_t* rom_data, size_t rom_size, const char* emu_tag,
+							const char* core_name) {
 	strncpy(ra_current_rom_path, rom_path, sizeof(ra_current_rom_path) - 1);
 	ra_current_rom_path[sizeof(ra_current_rom_path) - 1] = '\0';
 
-	int console_id = RA_getConsoleId(emu_tag);
+	// core + ROM extension + tag (ra_consoles.h): resolved before the load so
+	// the memory regions below exist when rcheevos validates addresses
+	int console_id = RA_detectConsole(emu_tag, core_name, rom_path);
 	if (console_id == RC_CONSOLE_UNKNOWN) {
-		RA_LOG_WARN("Unknown console for tag '%s' - achievements disabled\n", emu_tag);
+		RA_LOG_WARN("Can't tell the console for tag '%s', core '%s' - achievements disabled\n",
+					emu_tag ? emu_tag : "", core_name ? core_name : "");
 		return;
-	}
-
-	// Handle consoles that have separate CD variants
-	// PCE tag is used for both HuCard and CD games in NextUI
-	if (console_id == RC_CONSOLE_PC_ENGINE && ra_is_cd_extension(rom_path)) {
-		console_id = RC_CONSOLE_PC_ENGINE_CD;
-		RA_LOG_DEBUG("Detected PC Engine CD image, using console ID %d\n", console_id);
-	}
-	// MD serves cartridge and Sega CD games, and the GPGX tag (Genesis Plus GX)
-	// serves every Sega system under one tag. RA hashes per console, so refine a
-	// Mega Drive base by ROM extension — the same content-based trick as the CD
-	// upgrade above, and the way Genesis Plus GX itself picks the system. This
-	// lets one "GPGX" tag cover Mega Drive/Master System/Game Gear/SG-1000/CD.
-	else if (console_id == RC_CONSOLE_MEGA_DRIVE) {
-		if (ra_is_cd_extension(rom_path)) {
-			console_id = RC_CONSOLE_SEGA_CD;
-			RA_LOG_DEBUG("Detected Sega CD image, using console ID %d\n", console_id);
-		} else {
-			const char* ext = strrchr(rom_path, '.');
-			if (ext) {
-				ext++; // skip the dot
-				if (strcasecmp(ext, "sms") == 0)
-					console_id = RC_CONSOLE_MASTER_SYSTEM;
-				else if (strcasecmp(ext, "gg") == 0)
-					console_id = RC_CONSOLE_GAME_GEAR;
-				else if (strcasecmp(ext, "sg") == 0)
-					console_id = RC_CONSOLE_SG1000;
-			}
-			if (console_id != RC_CONSOLE_MEGA_DRIVE)
-				RA_LOG_DEBUG("Refined Sega console by extension, using console ID %d\n", console_id);
-		}
 	}
 
 	RA_LOG_INFO("Loading game: %s (console: %s, ID: %d)\n",
@@ -1491,7 +1447,8 @@ void RA_setRecordedRomPath(const char* path) {
 	snprintf(ra_record_rom_path, sizeof(ra_record_rom_path), "%s", path ? path : "");
 }
 
-void RA_loadGame(const char* rom_path, const uint8_t* rom_data, size_t rom_size, const char* emu_tag) {
+void RA_loadGame(const char* rom_path, const uint8_t* rom_data, size_t rom_size, const char* emu_tag,
+				 const char* core_name) {
 	if (!ra_client || !CFG_getRAEnable()) {
 		return;
 	}
@@ -1517,6 +1474,8 @@ void RA_loadGame(const char* rom_path, const uint8_t* rom_data, size_t rom_size,
 		// Store the emu tag
 		strncpy(ra_pending_load.emu_tag, emu_tag, sizeof(ra_pending_load.emu_tag) - 1);
 		ra_pending_load.emu_tag[sizeof(ra_pending_load.emu_tag) - 1] = '\0';
+		snprintf(ra_pending_load.core_name, sizeof(ra_pending_load.core_name), "%s",
+				 core_name ? core_name : "");
 
 		// Copy ROM data if provided (some cores need it)
 		if (rom_data && rom_size > 0) {
@@ -1535,7 +1494,7 @@ void RA_loadGame(const char* rom_path, const uint8_t* rom_data, size_t rom_size,
 	}
 
 	// Already logged in - load immediately
-	ra_do_load_game(rom_path, rom_data, rom_size, emu_tag);
+	ra_do_load_game(rom_path, rom_data, rom_size, emu_tag, core_name);
 }
 
 void RA_unloadGame(void) {
