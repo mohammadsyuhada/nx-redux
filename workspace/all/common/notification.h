@@ -42,8 +42,9 @@ typedef struct {
 	NotificationType type;
 	char message[NOTIFICATION_MAX_MESSAGE];
 	SDL_Surface* icon;	  // Optional, NULL for text-only (future use)
-	uint32_t start_time;  // SDL_GetTicks() when notification started
+	uint32_t start_time;  // SDL_GetTicks() of the first frame it was shown
 	uint32_t duration_ms; // How long to stay visible
+	bool shown;			  // false until the first Notification_update()
 	NotificationState state;
 } Notification;
 
