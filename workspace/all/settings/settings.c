@@ -595,6 +595,17 @@ static void reset_show_search_hint(void) {
 	CFG_setShowSearchHint(CFG_DEFAULT_SHOWSEARCHHINT);
 }
 
+/* Show recent hint */
+static int get_show_recent_hint(void) {
+	return CFG_getShowRecentHint() ? 1 : 0;
+}
+static void set_show_recent_hint(int v) {
+	CFG_setShowRecentHint(v != 0);
+}
+static void reset_show_recent_hint(void) {
+	CFG_setShowRecentHint(CFG_DEFAULT_SHOWRECENTHINT);
+}
+
 /* Show menu animations */
 static int get_menu_animations(void) {
 	return CFG_getMenuAnimations() ? 1 : 0;
@@ -754,6 +765,17 @@ static void set_menu_controller_art(int v) {
 }
 static void reset_menu_controller_art(void) {
 	CFG_setMenuControllerArt(CFG_DEFAULT_MENUCONTROLLERART);
+}
+
+/* Page title */
+static int get_page_title(void) {
+	return CFG_getPageTitle() ? 1 : 0;
+}
+static void set_page_title(int v) {
+	CFG_setPageTitle(v != 0);
+}
+static void reset_page_title(void) {
+	CFG_setPageTitle(CFG_DEFAULT_PAGETITLE);
 }
 
 /* Button hints */
@@ -1787,6 +1809,10 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		hide_show_labels, 2, on_off_values, get_menu_controller_art, set_menu_controller_art, reset_menu_controller_art);
 	layouts_items[idx - 1].a_cycles = 1; // A flips it too, as LEFT and RIGHT
 	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Page title", "The tabs and a game list's title. Hidden, L1/R1 still switch tabs.",
+		hide_show_labels, 2, on_off_values, get_page_title, set_page_title, reset_page_title);
+	layouts_items[idx - 1].a_cycles = 1;
+	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Button hints", "Hidden, List game lists show play time and achievements.",
 		hide_show_labels, 2, on_off_values, get_button_hints, set_button_hints, reset_button_hints);
 	layouts_items[idx - 1].a_cycles = 1;
@@ -1838,6 +1864,9 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Show search hint", "Show the START search button hint on the main menu",
 		on_off_labels, 2, on_off_values, get_show_search_hint, set_show_search_hint, reset_show_search_hint);
+	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Show recent hint", "Show the SELECT recent games button hint on the main menu",
+		on_off_labels, 2, on_off_values, get_show_recent_hint, set_show_recent_hint, reset_show_recent_hint);
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Show menu animations", "Enable or disable menu animations",
 		on_off_labels, 2, on_off_values, get_menu_animations, set_menu_animations, reset_menu_animations);

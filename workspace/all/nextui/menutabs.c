@@ -229,8 +229,9 @@ static void aimDim(bool animate) {
 }
 
 void MenuTabs_setFocused(bool on) {
-	// a lone tab draws no row (MenuTabs_renderRow), so there is nothing to focus: UP from the content's top stops
-	focused = on && stack && stack->count == 1 && tab_count > 1;
+	// a lone tab draws no row (MenuTabs_renderRow), nor does a hidden page title (Layouts > Page title), so there is
+	// nothing to focus: UP from the content's top stops
+	focused = on && stack && stack->count == 1 && tab_count > 1 && CFG_getPageTitle();
 	aimDim(true);
 }
 

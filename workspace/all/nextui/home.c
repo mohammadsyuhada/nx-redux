@@ -1159,8 +1159,10 @@ static void renderHints(SDL_Surface* dst) {
 		return;
 	char* pairs[10] = {NULL};
 	int p = 0;
-	pairs[p++] = "SELECT";
-	pairs[p++] = "RECENT";
+	if (CFG_getShowRecentHint()) { // Appearance > Show recent hint (SELECT still opens the Game Switcher)
+		pairs[p++] = "SELECT";
+		pairs[p++] = "RECENT";
+	}
 	const HomeTile* t = focusedTile();
 	Entry* e = tileEntry(t);
 	static char tool_name[64]; // the A label on a tool square: its name in capitals

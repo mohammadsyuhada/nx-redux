@@ -85,6 +85,10 @@ static void Menu_init(void) {
 	Search_init();
 	GameList_init(simple_mode);
 }
+// The last frame drew its moving pictures as GPU sprites (the Consoles carousel, the Grid) and nothing into the
+// screen's body: the body is still black, and only the bars' rows changed.
+static bool sprites_last = false;
+
 static void Menu_quit(void) {
 	Recents_quit();
 	Shortcuts_quit();
@@ -173,40 +177,13 @@ static SDL_Surface* cropBelowMenuBar(SDL_Surface* src, int bar_h) {
 	return out;
 }
 
-// A game list's title names its parent (LIST-LAYOUT §10.1): a console's list "Consoles | <console>", a
-// collection's "Collections | <name>", a folder deeper in a console "<console> | <folder>"; any other list (Tools,
-// a folder outside Roms) keeps its plain name.
+// A game list's title (LIST-LAYOUT §10.1): its own name alone (2026-10-06: no "Consoles |", "Collections |" or
+// "<console> |" before it), less the sorting prefix.
 static const char* listTitle(char* out, size_t size) {
 	char* name = top->name;
 	trimSortingMeta(&name);
-	if (prefixMatch(COLLECTIONS_PATH, top->path) && !exactMatch(COLLECTIONS_PATH, top->path))
-		return UI_pageTitle(out, size, "Collections", name);
-	size_t roms_len = strlen(ROMS_PATH);
-	if (strncmp(top->path, ROMS_PATH, roms_len) != 0 || top->path[roms_len] != '/') {
-		snprintf(out, size, "%s", name);
-		return out;
-	}
-	const char* seg = top->path + roms_len + 1;
-	const char* slash = strchr(seg, '/');
-	if (!slash)
-		return UI_pageTitle(out, size, "Consoles", name);
-
-	// deeper: the console is the stack's ROMS_PATH/<console> entry (its display name), else that path's name
-	char console_path[MAX_PATH];
-	snprintf(console_path, sizeof(console_path), "%.*s", (int)(slash - top->path), top->path);
-	char console_buf[MAX_PATH];
-	char* console = NULL;
-	for (int i = 0; i < stack->count && !console; i++) {
-		Directory* d = stack->items[i];
-		if (exactMatch(d->path, console_path))
-			console = d->name;
-	}
-	if (!console) {
-		getDisplayName(console_path, console_buf);
-		console = console_buf;
-	}
-	trimSortingMeta(&console);
-	return UI_pageTitle(out, size, console, name);
+	snprintf(out, size, "%s", name);
+	return out;
 }
 
 int main(int argc, char* argv[]) {
@@ -457,9 +434,16 @@ int main(int argc, char* argv[]) {
 				GFX_clearLayers(LAYER_SCROLLTEXT);
 				GFX_clearLayers(LAYER_OVERLAY);
 			}
-			// a Backdrop game row's picture paints every pixel: no clear under it
-			if (!(currentScreen == SCREEN_GAMELIST && !startgame && RowView_paintsScreen()))
-				GFX_clear(screen);
+			// a Backdrop game row's picture paints every pixel: no clear under it. After a sprite frame the screen's body
+			// is still black (that frame drew it nowhere but on the GPU): only the bars' rows need clearing.
+			if (!(currentScreen == SCREEN_GAMELIST && !startgame && RowView_paintsScreen())) {
+				if (sprites_last && screen->h > 2 * BAR_HEIGHT) {
+					SDL_FillRect(screen, &(SDL_Rect){0, 0, screen->w, BAR_HEIGHT}, 0);
+					SDL_FillRect(screen, &(SDL_Rect){0, screen->h - BAR_HEIGHT, screen->w, BAR_HEIGHT}, 0);
+				} else {
+					GFX_clear(screen);
+				}
+			}
 
 			// A Backdrop game list's picture: the bottom-most layer, under the band and the bar. With it on screen
 			// the eased top band is skipped and the bar's text gets the dark "over art" shadows. (Never at the root:
@@ -473,8 +457,12 @@ int main(int argc, char* argv[]) {
 				menu_title = GameSwitcher_getSelectedName();
 			else if (currentScreen == SCREEN_SEARCH)
 				menu_title = "Search";
+			else if (!CFG_getPageTitle())
+				menu_title = NULL; // Layouts > Page title: Hide (no tab row either, below); the status icons stay
 			else if (stack->count > 1)
 				menu_title = listTitle(list_title, sizeof(list_title));
+			else if (MenuTabs_count() <= 1)
+				menu_title = "NX Redux"; // a lone tab draws no row (MenuTabs_renderRow): the bar shows the name instead
 			else
 				menu_title = NULL; // the root draws the tab row in the bar instead
 			int ow;
@@ -496,14 +484,15 @@ int main(int argc, char* argv[]) {
 					UI_blitFade(fade, strip_only ? &(SDL_Rect){0, 0, screen->w, bar_h} : NULL, screen, 0, 0);
 				// a game list's title starts where its content does: the List rows' 14 dp inset, the 24 dp gutter of
 				// Grid, Carousel and Backdrop (LIST-LAYOUT §10.1)
-				int title_x = currentScreen == SCREEN_GAMELIST && GameList_currentStyle() != MENU_STYLE_LIST
-								  ? NX_NATIVE_DP(NX_MENU_GUTTER_DP)
+				int title_x = currentScreen == SCREEN_GAMELIST &&
+									  (GameList_currentStyle() != MENU_STYLE_LIST || stack->count == 1)
+								  ? NX_NATIVE_DP(NX_MENU_GUTTER_DP) // the root's: where the tab row starts
 								  : -1;
 				ow = UI_renderMenuBarAt(screen, menu_title, NULL, title_x, false, over_art);
 			} else {
 				ow = UI_renderMenuBar(screen, menu_title);
 			}
-			if (currentScreen == SCREEN_GAMELIST && stack->count == 1)
+			if (currentScreen == SCREEN_GAMELIST && stack->count == 1 && CFG_getPageTitle())
 				MenuTabs_renderRow(screen, ow); // the root has no picture: the plain tab row
 
 			// capture menu bar for fixed overlay during animation
@@ -639,7 +628,6 @@ int main(int argc, char* argv[]) {
 				// The Consoles carousel drew its pictures as GPU sprites and nothing into the screen's body (black):
 				// only the bars' rows need uploading. Not on the first such frame (the texture's body may hold the last
 				// screen), nor under a context menu or a transition (both draw over the body).
-				static bool sprites_last = false;
 				bool sprites_now = RowView_takeSpritesUsed() && currentScreen == SCREEN_GAMELIST;
 				if (sprites_now && sprites_last && !frame_animated && !ContextMenu_isOpen()) {
 					int ys[2] = {0, screen->h - BAR_HEIGHT}, hs[2] = {BAR_HEIGHT, BAR_HEIGHT};

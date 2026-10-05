@@ -137,15 +137,20 @@ StackItem Stack_item(const StackSizes* s, float index, float pos) {
 	return it;
 }
 
-static bool inBody(const StackSizes* s, float index, float pos, float body_h) {
+static bool inBody(const StackSizes* s, float index, float pos, float body_h, float above, float below) {
 	StackItem it = Stack_item(s, index, pos);
 	if (!it.visible)
 		return false;
 	float cy = Stack_selectionY(body_h, s->cap) + it.dy, half = s->item_h * it.scale / 2;
-	return cy + half > 0 && cy - half < body_h;
+	return cy + half > -above && cy - half < body_h + below;
 }
 
 void Stack_visibleRange(const StackSizes* s, int n, float pos, float body_h, int* first, int* last) {
+	Stack_visibleRangeIn(s, n, pos, body_h, 0, 0, first, last);
+}
+
+void Stack_visibleRangeIn(const StackSizes* s, int n, float pos, float body_h, float above, float below, int* first,
+						  int* last) {
 	*first = 0;
 	*last = -1;
 	if (n <= 0)
@@ -153,9 +158,9 @@ void Stack_visibleRange(const StackSizes* s, int n, float pos, float body_h, int
 	// the candidates (d < 4), then trimmed from both ends to what reaches the body (offsets grow with the distance)
 	int f, l;
 	Row_visibleRange(n, pos, &f, &l);
-	while (f <= l && !inBody(s, (float)f, pos, body_h))
+	while (f <= l && !inBody(s, (float)f, pos, body_h, above, below))
 		f++;
-	while (l >= f && !inBody(s, (float)l, pos, body_h))
+	while (l >= f && !inBody(s, (float)l, pos, body_h, above, below))
 		l--;
 	if (f > l)
 		return;
@@ -202,12 +207,14 @@ StackNav Stack_navigate(int n, int sel, StackKey key, bool fresh, bool main_menu
 	case STACK_KEY_UP:
 		if (sel > 0)
 			nav.action = STACK_NAV_MOVE, nav.sel = sel - 1;
-		else if (main_menu && fresh)
-			nav.action = STACK_NAV_TAB_ROW;
+		else if (fresh && n > 1) // the first item: a fresh press wraps to the last (never the tab row, as the List)
+			nav.action = STACK_NAV_MOVE, nav.sel = n - 1;
 		break;
 	case STACK_KEY_DOWN:
 		if (sel < n - 1)
 			nav.action = STACK_NAV_MOVE, nav.sel = sel + 1;
+		else if (fresh && n > 1) // the last item: a fresh press wraps to the first
+			nav.action = STACK_NAV_MOVE, nav.sel = 0;
 		break;
 	case STACK_KEY_LEFT:
 	case STACK_KEY_RIGHT:

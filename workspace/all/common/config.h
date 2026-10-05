@@ -126,6 +126,7 @@ typedef struct
 	bool clock24h;
 	bool showBatteryPercent;
 	bool showSearchHint;
+	bool showRecentHint;
 	bool showMenuAnimations;
 	bool showMenuTransitions;
 	bool showRecents;
@@ -133,6 +134,7 @@ typedef struct
 	bool showHome; // the Home tab (Layouts > Home tab)
 	bool menuControllerArt;
 	bool buttonHints; // the launcher lists' bottom button hint bar (Layouts > Button hints)
+	bool pageTitle;	  // the main menu's tab row and a game list's title (Layouts > Page title)
 	bool showCollections;
 	bool showEmulators;
 	bool showFolderNamesAtRoot;
@@ -216,6 +218,7 @@ typedef struct
 #define CFG_DEFAULT_CLOCK24H true
 #define CFG_DEFAULT_SHOWBATTERYPERCENT false
 #define CFG_DEFAULT_SHOWSEARCHHINT true
+#define CFG_DEFAULT_SHOWRECENTHINT true
 #define CFG_DEFAULT_SHOWMENUANIMATIONS true
 #define CFG_DEFAULT_SHOWMENUTRANSITIONS true
 #define CFG_DEFAULT_SHOWRECENTS false // unused since the tab set lost Recent; kept so the key round-trips
@@ -244,9 +247,10 @@ typedef struct
 #define CFG_DEFAULT_VIEW SCREEN_GAMELIST
 #define CFG_DEFAULT_WIFI_DIAG false
 #define CFG_DEFAULT_SHOWTOOLS true
-#define CFG_DEFAULT_SHOWHOME true
+#define CFG_DEFAULT_SHOWHOME false
 #define CFG_DEFAULT_MENUCONTROLLERART true
 #define CFG_DEFAULT_BUTTONHINTS true
+#define CFG_DEFAULT_PAGETITLE false
 #define CFG_DEFAULT_FN1_TOOL ""
 #define CFG_DEFAULT_FN2_TOOL ""
 #define CFG_DEFAULT_BLUETOOTH false
@@ -326,6 +330,9 @@ void CFG_setShowBatteryPercent(bool show);
 // itself stays reachable either way).
 bool CFG_getShowSearchHint(void);
 void CFG_setShowSearchHint(bool show);
+// Appearance > Show recent hint: the SELECT RECENT hint on the main menu (SELECT still opens the Game Switcher)
+bool CFG_getShowRecentHint(void);
+void CFG_setShowRecentHint(bool show);
 // Show/hide menu animations in main menu.
 bool CFG_getMenuAnimations(void);
 void CFG_setMenuAnimations(bool show);
@@ -347,6 +354,10 @@ void CFG_setMenuControllerArt(bool show);
 // Show/hide the bottom button hint bar on the launcher's Home, tab and game list screens (Layouts > Button hints).
 bool CFG_getButtonHints(void);
 void CFG_setButtonHints(bool show);
+// Show/hide the page title: the main menu's tab row (or a lone tab's "NX Redux") and a game list's title (Layouts >
+// Page title). Hidden, the bar keeps its room and the status icons; L1/R1 still switch tabs.
+bool CFG_getPageTitle(void);
+void CFG_setPageTitle(bool show);
 // Show/hide collections in the main menu.
 bool CFG_getShowCollections(void);
 void CFG_setShowCollections(bool show);

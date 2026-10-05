@@ -190,28 +190,30 @@ static void rounding(void) {
 
 static void navigation(void) {
 	StackNav v;
-	// UP/DOWN step and stop at the ends, held or fresh (no wrap)
+	// UP/DOWN step; past an end a fresh press wraps, a held one stops
 	v = Stack_navigate(5, 2, STACK_KEY_UP, false, true);
 	assert(v.action == STACK_NAV_MOVE && v.sel == 1);
 	v = Stack_navigate(5, 2, STACK_KEY_DOWN, false, false);
 	assert(v.action == STACK_NAV_MOVE && v.sel == 3);
 	v = Stack_navigate(5, 4, STACK_KEY_DOWN, true, true);
-	assert(v.action == STACK_NAV_NONE && v.sel == 4);
+	assert(v.action == STACK_NAV_MOVE && v.sel == 0);
 	v = Stack_navigate(5, 4, STACK_KEY_DOWN, false, false);
 	assert(v.action == STACK_NAV_NONE && v.sel == 4);
-	// main menu: UP on the first item goes to the tab row on a fresh press; held, it stops
+	// UP on the first item wraps to the last on a fresh press (main menu too: never the tab row); held, it stops
 	v = Stack_navigate(5, 0, STACK_KEY_UP, true, true);
-	assert(v.action == STACK_NAV_TAB_ROW && v.sel == 0);
+	assert(v.action == STACK_NAV_MOVE && v.sel == 4);
 	v = Stack_navigate(5, 0, STACK_KEY_UP, false, true);
 	assert(v.action == STACK_NAV_NONE && v.sel == 0);
+	v = Stack_navigate(1, 0, STACK_KEY_UP, true, true); // one item: nothing to wrap to
+	assert(v.action == STACK_NAV_NONE);
 	// an empty tab: UP goes to the tab row; DOWN does nothing
 	v = Stack_navigate(0, 0, STACK_KEY_UP, true, true);
 	assert(v.action == STACK_NAV_TAB_ROW);
 	v = Stack_navigate(0, 0, STACK_KEY_DOWN, true, true);
 	assert(v.action == STACK_NAV_NONE);
-	// game list: UP on the first item does nothing, fresh or held
+	// game list: UP on the first item wraps too (fresh)
 	v = Stack_navigate(5, 0, STACK_KEY_UP, true, false);
-	assert(v.action == STACK_NAV_NONE && v.sel == 0);
+	assert(v.action == STACK_NAV_MOVE && v.sel == 4);
 	v = Stack_navigate(0, 0, STACK_KEY_UP, true, false);
 	assert(v.action == STACK_NAV_NONE);
 	// main menu: LEFT/RIGHT switch tab on a fresh press only, from any item (empty tab too)

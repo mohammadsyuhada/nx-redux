@@ -57,12 +57,15 @@ typedef struct {
 void HomeLayout_compute(float W, float H, float bar, int strip_lines, int ngames, int ntools, HomeLayout* out);
 // The same with the stats strip's offsets (its baselines and the top section's start under it) strip_k times their
 // size: Home passes 3 / the UI scale, so the strip keeps the Large scale's size whatever the UI scale. strip_k > 1 (the
-// Small scale) with tools also keeps the tool squares' glyph at the Large size (46 × strip_k) and sizes the squares from
-// it (the glyph 58% of the side), so the top section is just their three rows (filled a column at a time, a column per 3
-// tools) tall and one pin row takes the rest.
-// With no games (on a wide screen, up to HOME_WIDE_COL_GAMES) there are no pin rows: the top section runs down to the
-// hint bar, the tools are four rows of squares filling it (a column per 4 tools), a wide screen's games a column three
-// squares wide left of them (stacked, top tiles: npins 0), and Continue the rest.
+// Small scale) with tools on a wide screen with pin rows also keeps the tool squares' glyph at the Large size (46 ×
+// strip_k) and sizes the squares from it (the glyph 58% of the side), so the top section is just their three rows
+// (filled a column at a time, a column per 3 tools) tall and one pin row takes the rest.
+// A screen under 1.6:1 (the Brick, the Brick Pro) always has the top section down to the hint bar, its pinned games in
+// rows of two below it, past the screen's end (the page scrolls to them; at the Small scale they keep the height a row
+// had when it shared the screen with three Large squares). On a wide screen, with no games (or up to
+// HOME_WIDE_COL_GAMES) there are no pin rows: the top section runs down to the hint bar. Down to the hint bar, the
+// tools are four rows of squares filling it (a column per 4 tools), a wide screen's games a column three squares wide
+// left of them (stacked, top tiles: npins 0), and Continue the rest.
 void HomeLayout_computeStrip(float W, float H, float bar, int strip_lines, float strip_k, int ngames, int ntools,
 							 HomeLayout* out);
 

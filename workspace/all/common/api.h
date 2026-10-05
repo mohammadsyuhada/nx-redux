@@ -757,6 +757,9 @@ void PLAT_spritesClear(void);
 void PLAT_spriteAdd(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, const SDL_Rect* clip);
 SDL_Texture* PLAT_textureForSurface(SDL_Surface* s);
 void PLAT_freeSurfaceTexture(SDL_Surface* s);
+// Re-upload a surface's pixels into its texture (one it already has; a no-op otherwise): for a small surface redrawn
+// every frame (the Grid's edge shade), without making a new texture each time.
+void PLAT_textureRefresh(SDL_Surface* s);
 // Upload only these row bands of the screen on the next PLAT_flip (the rest of the screen texture keeps what it had):
 // for frames whose other rows are known unchanged. Consumed by that flip; n <= 0 = the whole screen.
 void PLAT_setUploadBands(const int* y, const int* h, int n);

@@ -11,6 +11,7 @@
 #include "display_helper.h"
 #include "shortcuts.h"
 #include "ui_buttonhintbar.h"
+#include "ui_draw.h"
 #include "ui_confirmdialog.h"
 #include "ui_loadingoverlay.h"
 #include "ui_message.h"
@@ -1801,8 +1802,9 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 		// Root, List style: LEFT/RIGHT switch tabs like L1/R1 (fresh press only, so holding doesn't cycle)
 		switchTab(PAD_justPressed(BTN_LEFT) ? -1 : 1, &result, dirty);
 		return result;
-	} else if (stack->count == 1 && PAD_justRepeated(BTN_UP) && (total == 0 || selected == 0)) {
-		// Root, List style: UP from the first row focuses the tab row (a fresh press; a held one stops, no wrap)
+	} else if (stack->count == 1 && PAD_justRepeated(BTN_UP) && total == 0) {
+		// Root, List style, an empty tab: UP focuses the tab row (a fresh press). With rows, UP on the first one wraps
+		// to the last below, as in a game list (it never goes to the tab row)
 		if (PAD_justPressed(BTN_UP)) {
 			MenuTabs_setFocused(true);
 			*dirty = true;
@@ -1958,15 +1960,16 @@ static int listTop(void) {
 // differs (listTopAt).
 static InfoBandLayout listLayoutAt(bool root) {
 	int screen_h = screen ? screen->h : FIXED_HEIGHT;
-	// Button hints hidden (Layouts > Button hints): no bar, so the band sits on the screen's bottom edge, its fade
-	// reaching it, and the rows take the bar's height; 8 dp each side of the line: the text off the edge, and the
-	// fade above it (infoband.c holds the 80% from the text line down)
-	if (!CFG_getButtonHints())
-		return InfoBand_fixedLayout(screen_h, 0, listTopAt(root), SCALE1(PILL_SIZE), NX_DP(18), NX_DP(8), 0);
 	int bar_h = BAR_HEIGHT; // the hint bar (UI_buttonHintBarTop)
 	// the bar's ink top: the padding over its centred BUTTON_SIZE icons, plus the glyphs' margin (host-tested)
 	int overlap = InfoBand_overlap(NX_DP(12), InfoBand_hintInkTop(bar_h, CHROME1(BUTTON_SIZE)));
-	return InfoBand_fixedLayout(screen_h, bar_h, listTopAt(root), SCALE1(PILL_SIZE), NX_DP(18), NX_DP(4), overlap);
+	InfoBandLayout l =
+		InfoBand_fixedLayout(screen_h, bar_h, listTopAt(root), SCALE1(PILL_SIZE), NX_DP(18), NX_DP(4), overlap);
+	// The band paints no fade of its own, only its arrows (and text): with the hints shown the bar's scrim is under it
+	// and a game's info is off; hidden (Layouts > Button hints), the same rows and band, a game list keeping the bar's
+	// scrim alone (renderHintScrim) with the info line moved into its row
+	l.fill_bottom = l.band_top;
+	return l;
 }
 
 static InfoBandLayout listLayout(void) {
@@ -1985,9 +1988,22 @@ int GameList_rowCountAt(bool root) {
 	return listLayoutAt(root).rows;
 }
 
+int GameList_lookTab(void) {
+	if (!stack || !top)
+		return -1;
+	if (stack->count == 1)
+		return MenuTabs_current();
+	if (stack->count == 2) // a hidden tab's list pushed over a tab
+		for (int id = MENU_TAB_CONSOLES; id < MENU_TAB_COUNT; id++)
+			if (exactMatch(top->path, (char*)MenuTabs_path((MenuTabId)id)))
+				return id;
+	return -1;
+}
+
 int GameList_currentOrientation(void) {
-	if (stack->count == 1) {
-		int cat = MenuTabs_styleCategory(MenuTabs_current());
+	int tab = GameList_lookTab();
+	if (tab >= 0) {
+		int cat = MenuTabs_styleCategory((MenuTabId)tab);
 		if (cat < 0)
 			return MENU_ORIENT_HORIZONTAL; // Home draws itself
 		return CFG_getMenuOrientEffective(cat);
@@ -1997,8 +2013,9 @@ int GameList_currentOrientation(void) {
 
 int GameList_currentStyle(void) {
 	int style;
-	if (stack->count == 1) {
-		int cat = MenuTabs_styleCategory(MenuTabs_current());
+	int tab = GameList_lookTab();
+	if (tab >= 0) {
+		int cat = MenuTabs_styleCategory((MenuTabId)tab);
 		if (cat < 0)
 			return MENU_STYLE_LIST;	   // Home draws itself
 		style = CFG_getMenuStyle(cat); // List, Grid or Carousel (a stored Backdrop reads as Carousel)
@@ -2029,6 +2046,16 @@ static void renderInfoBand(void) {
 	// nextui.c clears that layer at the start of every dirty pass, so this is redrawn with the list.
 	// While the tab-focus dim is layered, onto the screen instead: it dims with the rows (contentdim.h).
 	SDL_Surface* dst = ContentDim_layered() ? screen : NULL;
+	// Layouts > Page title: Hide: the up arrow moves above the first row, as far above it as the band's down arrow sits
+	// below the last (at the rows' text start), so the List has one at each end, mirrored; the band keeps the down one
+	if (!CFG_getPageTitle()) {
+		if (up) {
+			// the down arrow's centre under the last row's bottom (the rows may leave a few px above the band)
+			int below = layout.text_top + layout.text_h / 2 - (layout.list_top + layout.rows * layout.row_h);
+			InfoBand_renderUpArrow(layout.arrow_x, layout.list_top - below, LAYER_OVERLAY, dst);
+		}
+		up = false;
+	}
 	// The band is always there (fade + arrows), with or without text, so rows never move.
 	Entry* entry = total > 0 ? top->entries->items[top->selected] : NULL;
 	MenuTabId tab = MenuTabs_current();
@@ -2044,15 +2071,18 @@ static void renderInfoBand(void) {
 			n = GameInfo_segments(time(NULL), info.has_time ? info.last_played : 0,
 								  info.has_time ? info.seconds : -1, info.has_ra ? info.unlocked : 0,
 								  info.has_ra ? info.total : 0, info.has_ra ? info.next : NULL, true, segs);
+		// the hint bar's row is empty (only its scrim): the info line moves down into it, centred, the arrows stay
+		if (n > 0) {
+			int bar_top = UI_buttonHintBarTop(screen->h);
+			layout.info_top = bar_top + (screen->h - bar_top - layout.text_h) / 2;
+		}
 		InfoBand_render(&layout, segs, n, up, down, LAYER_OVERLAY, dst);
 		return;
 	}
-	// Consoles and Collections rows (their tab, or its list pushed over a tab while hidden): "N games" (nothing while
-	// unknown); Tools and folders show no text.
+	// Collections rows (their tab, or its list pushed over a tab while hidden): "N games" (nothing while unknown).
+	// Consoles, Tools and folders show no text.
 	char games[32] = "";
-	if (entry && exactMatch(top->path, ROMS_PATH))
-		GameInfo_gamesLabel(Content_consoleGameCount(entry), games, sizeof(games));
-	else if (entry && exactMatch(top->path, COLLECTIONS_PATH))
+	if (entry && exactMatch(top->path, COLLECTIONS_PATH))
 		GameInfo_gamesLabel(CollCount_get(entry->path), games, sizeof(games));
 	InfoBand_renderText(&layout, games[0] ? games : NULL, up, down, LAYER_OVERLAY, dst);
 }
@@ -2066,6 +2096,14 @@ void GameList_renderInfoLayer(void) {
 	renderInfoBand();
 }
 
+// Button hints hidden, on a game list's List: the hint bar's 80% scrim alone, no hints (a game's info line sits in it)
+static void renderHintScrim(SDL_Surface* screen) {
+	static SDL_Surface* scrim = NULL;
+	SDL_Surface* s = UI_getScrimAlpha(&scrim, screen->w, BAR_HEIGHT, 204);
+	if (s)
+		SDL_BlitSurface(s, NULL, screen, &(SDL_Rect){0, UI_buttonHintBarTop(screen->h)});
+}
+
 // The hint bar of a List or Grid screen (main-menu tabs and game lists): one copy of the pairs, the four-pair cap
 // and the START drop rule.
 static void renderHints(SDL_Surface* screen, IndicatorType show_setting) {
@@ -2077,14 +2115,16 @@ static void renderHints(SDL_Surface* screen, IndicatorType show_setting) {
 	char* right_pairs[16] = {NULL};
 	int p = 0;
 
-	// the tab row has focus: exactly SELECT RECENT and A OPEN (A returns to the content)
+	// the tab row has focus: exactly SELECT RECENT and A OPEN (A returns to the content); SELECT RECENT only with
+	// Appearance > Show recent hint (SELECT still opens the Game Switcher without it)
 	if (stack->count == 1 && MenuTabs_focused()) {
-		UI_renderButtonHintBar(screen, (char*[]){"SELECT", "RECENT", "A", "OPEN", NULL});
+		UI_renderButtonHintBar(screen, CFG_getShowRecentHint() ? (char*[]){"SELECT", "RECENT", "A", "OPEN", NULL}
+															   : (char*[]){"A", "OPEN", NULL});
 		return;
 	}
 
 	// main menu tabs: the Game Switcher first
-	if (stack->count == 1) {
+	if (stack->count == 1 && CFG_getShowRecentHint()) {
 		right_pairs[p++] = "SELECT";
 		right_pairs[p++] = "RECENT";
 	}
@@ -2220,8 +2260,10 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 	// at root" = Off behind a global bg.png) would blank the whole main menu.
 	bool list_show_entry_names = true;
 
-	bool at_root = stack->count == 1;
-	MenuTabId tab = MenuTabs_current();
+	// the root tab, or a hidden tab's list pushed over it (its own tab's backgrounds and art)
+	int look = GameList_lookTab();
+	bool at_root = look >= 0;
+	MenuTabId tab = at_root ? (MenuTabId)look : MenuTabs_current();
 	// Home holds games; Consoles, Collections and Tools draw no game art (only a user's own
 	// .media background, below; plain lists for Collections and Tools)
 	bool game_art = !at_root || tab == MENU_TAB_HOME;
@@ -2293,7 +2335,10 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 
 	// after the controller art: its bottom reaches into the hint bar, and blitted over the bar's 80% scrim it showed
 	// undimmed there, a hard edge under the band's fade (which ends at the bar's 80%)
-	renderHints(screen, show_setting);
+	if (CFG_getButtonHints())
+		renderHints(screen, show_setting);
+	else if (stack->count > 1) // a game list: its info line sits in the bar's row; the main menu's tabs: no shade
+		renderHintScrim(screen);
 
 	// the List's content: the rows and the band, down to the band's bottom (inside the hint bar)
 	content.h = rows_layout.band_bottom - content.y;

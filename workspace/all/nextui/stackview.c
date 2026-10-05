@@ -72,14 +72,15 @@ static float currentPos(void) {
 // What the stack shows
 
 static StackKind currentKind(void) {
-	if (stack->count > 1) { // a game list in Carousel or Backdrop
+	int tab = GameList_lookTab(); // the root tab, or a hidden tab's list pushed over it
+	if (tab < 0) {				  // a game list in Carousel or Backdrop
 		if (GameList_currentStyle() == MENU_STYLE_CAROUSEL)
 			return STACK_GAME_CAROUSEL;
 		if (Shortcuts_isInToolsFolder(top->path))
 			return STACK_MAIN_TOOLS; // a Tools listing in Backdrop: its slots, centred, as the Tools tab's
 		return STACK_GAME_BACKDROP;
 	}
-	switch (MenuTabs_current()) {
+	switch (tab) {
 	case MENU_TAB_CONSOLES:
 		return STACK_MAIN_CONSOLES;
 	case MENU_TAB_COLLECTIONS:
@@ -101,6 +102,7 @@ typedef struct {
 	StackSide side; // the game lists' side arrangement (dp)
 	RowGeo g;
 	int body_top, body_h; // px
+	int vis_top, vis_h;	  // px: the body grown into a hidden page title's row and hint bar, where the items still show
 	int cap_x, cap_w;	  // the side caption's column (px): from its left edge to the 24 dp right margin (Right: mirrored)
 	bool right;			  // Vertical alignment Right (a game list): mirrored, the caption right-aligned
 	float body_h_dp, sel_y_dp;
@@ -121,6 +123,8 @@ static void computeGeo(SDL_Surface* screen, StackKind kind, StackGeo* sg) {
 	sg->kind = kind;
 	sg->body_top = bar;
 	sg->body_h = screen->h - 2 * bar;
+	sg->vis_top = CFG_getPageTitle() ? bar : 0;
+	sg->vis_h = (CFG_getButtonHints() ? screen->h - bar : screen->h) - sg->vis_top;
 	sg->body_h_dp = sg->body_h / pd;
 	memset(&sg->side, 0, sizeof(sg->side));
 	sg->ss = game ? Stack_gameSizes(kind, sg->body_h_dp, screen->w / pd, &sg->side) : Stack_mainSizes(kind, screen->w / pd);
@@ -168,6 +172,14 @@ static void computeGeo(SDL_Surface* screen, StackKind kind, StackGeo* sg) {
 		int start = kind == STACK_GAME_BACKDROP ? g->cx - box_w / 2 : 0;
 		Stack_mirrorSide(screen->w, &g->cx, &sg->cap_x, &sg->cap_w, start);
 	}
+}
+
+// Stack_visibleRange over the visible area (the body and any hidden title row or hint bar).
+static void visibleRange(const StackGeo* sg, int n, float pos, int* first, int* last) {
+	float pd = pxPerDp();
+	float above = (sg->body_top - sg->vis_top) / pd;
+	float below = (sg->vis_top + sg->vis_h - sg->body_top - sg->body_h) / pd;
+	Stack_visibleRangeIn(&sg->ss, n, pos, sg->body_h_dp, above, below, first, last);
 }
 
 // An item's centre on screen (px).
@@ -223,58 +235,73 @@ static StackPad padFor(const StackGeo* sg, Entry* e, TileKind kind) {
 	return p;
 }
 
-// The 20 dp fade to the black ground at the body's top and bottom, row by row, across the body's whole width (a game
-// list's side caption is outside the stack's column). The plain-black stacks only: never over a Backdrop-Vertical's
-// picture, which runs behind the edges.
+// The 20 dp fade to the black ground at the visible area's top and bottom, row by row. Across the screen's whole width
+// at the body's edges (a game list's side caption is outside the stack's column); grown into a hidden page title's row
+// or hint bar, only across the stack's column, so it never dims the status group. The plain-black stacks only: never
+// over a Backdrop-Vertical's picture, which runs behind the edges.
+typedef struct {
+	int band;
+	SDL_Rect where[2]; // top, bottom
+} EdgeFade;
+
+static EdgeFade edgeFadeGeo(SDL_Surface* screen, const StackGeo* sg) {
+	EdgeFade f;
+	float pd = pxPerDp();
+	f.band = (int)ceilf(STACK_EDGE_FADE_DP * pd);
+	if (f.band > sg->vis_h / 2)
+		f.band = sg->vis_h / 2;
+	int half = sg->g.full_w / 2 + NX_DP(16);
+	int col_x = sg->g.cx - half < 0 ? 0 : sg->g.cx - half;
+	int col_w = (sg->g.cx + half > screen->w ? screen->w : sg->g.cx + half) - col_x;
+	bool top_grown = sg->vis_top<sg->body_top, bottom_grown = sg->vis_top + sg->vis_h> sg->body_top + sg->body_h;
+	f.where[0] = (SDL_Rect){top_grown ? col_x : 0, sg->vis_top, top_grown ? col_w : screen->w, f.band};
+	f.where[1] = (SDL_Rect){bottom_grown ? col_x : 0, sg->vis_top + sg->vis_h - f.band, bottom_grown ? col_w : screen->w,
+							f.band};
+	return f;
+}
+
 static void edgeFade(SDL_Surface* screen, const StackGeo* sg) {
 	if (sg->kind == STACK_GAME_BACKDROP)
 		return;
 	float pd = pxPerDp();
-	int band = (int)ceilf(STACK_EDGE_FADE_DP * pd);
-	if (band > sg->body_h / 2)
-		band = sg->body_h / 2;
-	int x = 0, w = screen->w;
-	for (int r = 0; r < band; r++) {
-		float a = Stack_edgeAlpha((r + 0.5f) / pd, sg->body_h_dp, STACK_EDGE_FADE_DP);
+	EdgeFade f = edgeFadeGeo(screen, sg);
+	for (int r = 0; r < f.band; r++) {
+		float a = Stack_edgeAlpha((r + 0.5f) / pd, sg->vis_h / pd, STACK_EDGE_FADE_DP);
 		Uint8 dim = (Uint8)((1.0f - a) * 255.0f + 0.5f);
 		if (dim == 0)
 			continue;
-		UI_dimRect(screen, &(SDL_Rect){x, sg->body_top + r, w, 1}, dim);
-		UI_dimRect(screen, &(SDL_Rect){x, sg->body_top + sg->body_h - 1 - r, w, 1}, dim);
+		UI_dimRect(screen, &(SDL_Rect){f.where[0].x, f.where[0].y + r, f.where[0].w, 1}, dim);
+		UI_dimRect(screen, &(SDL_Rect){f.where[1].x, f.where[1].y + f.band - 1 - r, f.where[1].w, 1}, dim);
 	}
 }
 
 // edgeFade as two GPU sprites (sprite mode): black at the same per-row alpha, in a 1-px-wide strip per edge stretched
-// across the width, made once per band and body.
+// across its width, made once per band and visible height.
 static void edgeFadeSprites(SDL_Surface* screen, const StackGeo* sg) {
 	static SDL_Surface* strips[2]; // top, bottom
-	static int strip_band = -1;
-	static float strip_body = -1;
+	static int strip_band = -1, strip_vis = -1;
 	float pd = pxPerDp();
-	int band = (int)ceilf(STACK_EDGE_FADE_DP * pd);
-	if (band > sg->body_h / 2)
-		band = sg->body_h / 2;
-	if (band <= 0)
+	EdgeFade f = edgeFadeGeo(screen, sg);
+	if (f.band <= 0)
 		return;
-	if (band != strip_band || sg->body_h_dp != strip_body) {
+	if (f.band != strip_band || sg->vis_h != strip_vis) {
 		for (int k = 0; k < 2; k++) {
 			freeSurfTex(strips[k]);
-			strips[k] = SDL_CreateRGBSurfaceWithFormat(0, 1, band, 32, SDL_PIXELFORMAT_ARGB8888);
+			strips[k] = SDL_CreateRGBSurfaceWithFormat(0, 1, f.band, 32, SDL_PIXELFORMAT_ARGB8888);
 		}
-		strip_band = band, strip_body = sg->body_h_dp;
-		for (int r = 0; r < band && strips[0] && strips[1]; r++) {
-			float a = Stack_edgeAlpha((r + 0.5f) / pd, sg->body_h_dp, STACK_EDGE_FADE_DP);
+		strip_band = f.band, strip_vis = sg->vis_h;
+		for (int r = 0; r < f.band && strips[0] && strips[1]; r++) {
+			float a = Stack_edgeAlpha((r + 0.5f) / pd, sg->vis_h / pd, STACK_EDGE_FADE_DP);
 			Uint32 dim = (Uint32)((1.0f - a) * 255.0f + 0.5f);
 			*((Uint32*)((Uint8*)strips[0]->pixels + r * strips[0]->pitch)) = dim << 24;
-			*((Uint32*)((Uint8*)strips[1]->pixels + (band - 1 - r) * strips[1]->pitch)) = dim << 24;
+			*((Uint32*)((Uint8*)strips[1]->pixels + (f.band - 1 - r) * strips[1]->pitch)) = dim << 24;
 		}
 	}
-	SDL_Rect clip = {0, sg->body_top, screen->w, sg->body_h};
-	SDL_Rect where[2] = {{0, sg->body_top, screen->w, band}, {0, sg->body_top + sg->body_h - band, screen->w, band}};
+	SDL_Rect clip = {0, sg->vis_top, screen->w, sg->vis_h};
 	for (int k = 0; k < 2; k++) {
 		SDL_Texture* t = strips[k] ? PLAT_textureForSurface(strips[k]) : NULL;
 		if (t)
-			PLAT_spriteAdd(t, NULL, &where[k], 255, &clip);
+			PLAT_spriteAdd(t, NULL, &f.where[k], 255, &clip);
 	}
 }
 
@@ -308,7 +335,7 @@ static bool prefetchItems(const StackGeo* sg, int n, int sel, Uint32 deadline) {
 			continue;
 		if (jobs[j].side) {
 			int f, l;
-			Stack_visibleRange(&sg->ss, n, (float)(sel + (jobs[j].di > 0 ? 1 : -1)), sg->body_h_dp, &f, &l);
+			visibleRange(sg, n, (float)(sel + (jobs[j].di > 0 ? 1 : -1)), &f, &l);
 			if (i < f || i > l)
 				continue;
 		}
@@ -391,7 +418,7 @@ void StackView_render(SDL_Surface* screen, int lastScreen) {
 
 	SDL_Rect prev_clip;
 	SDL_GetClipRect(screen, &prev_clip);
-	SDL_SetClipRect(screen, &(SDL_Rect){0, sg.body_top, screen->w, sg.body_h});
+	SDL_SetClipRect(screen, &(SDL_Rect){0, sg.vis_top, screen->w, sg.vis_h});
 
 	// Consoles: its pictures, counts and edge fade go to the GPU (RowView_beginSprites), the screen's body stays black
 	// (not under a context menu: it draws over the body on the screen, under the sprites)
@@ -400,7 +427,7 @@ void StackView_render(SDL_Surface* screen, int lastScreen) {
 
 	// far to near (the largest d first), so the nearer item lands on top where a grown name reaches a neighbour
 	int first, last;
-	Stack_visibleRange(&sg.ss, n, pos, sg.body_h_dp, &first, &last);
+	visibleRange(&sg, n, pos, &first, &last);
 	int order[16], count = 0;
 	for (int i = first; i <= last && count < 16; i++)
 		order[count++] = i;

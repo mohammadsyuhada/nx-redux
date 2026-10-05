@@ -29,6 +29,10 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 // thumbnail layer). GameList_render draws the band itself (inside the tab-focus dim); the main loop calls this
 // after a page slide, which clears that layer. Draws nothing while the content is dimmed or the context menu is open.
 void GameList_renderInfoLayer(void);
+// The main-menu tab whose look the current list takes (MenuTabId), or -1 for a game list (or folder): the current tab
+// at the root, or the hidden tab whose list the context menu pushed over it (launcher.c pushTabOverTab), which keeps
+// its own tab's layout, slots and tiles.
+int GameList_lookTab(void);
 // The current screen's main menu style (MENU_STYLE_*): a root tab's Layouts row, or the game lists' row. Home →
 // MENU_STYLE_LIST (Home draws itself).
 int GameList_currentStyle(void);

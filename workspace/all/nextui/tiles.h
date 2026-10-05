@@ -49,6 +49,18 @@ void Tiles_draw(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float lit);
 // Only the lit caption of a game or title tile (not the Carousel's) at r, at the lit amount: the cached caption
 // surface blended over dst, which must be opaque under r (UI_blitBlendOpaque). Nothing for other kinds.
 void Tiles_drawCaption(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float lit);
+// GPU pieces of a game tile drawn as sprites (no composed look): a w x h mask, black where the rounded tile isn't (its
+// corners, over a picture drawn square), and the lit ring as it shows around the tile: the accent rounded rect TILE_RING
+// px bigger each side, less the tile's own rounded rect ((w + 2 ring) x (h + 2 ring)). The caller owns both.
+SDL_Surface* Tiles_cornerMask(int w, int h);
+SDL_Surface* Tiles_ringOverlay(int w, int h, SDL_Color c);
+// The plain look's inset border at full alpha (draw it at Tiles_borderAlpha() x (1 - lit)), w x h; the caller owns it.
+SDL_Surface* Tiles_borderOverlay(int w, int h);
+Uint8 Tiles_borderAlpha(void);
+// The box a tile_w x tile_h tile's console logo is fitted in (MenuArt_get's), at tile scale s.
+void Tiles_logoBox(int tile_w, int tile_h, float s, int* box_w, int* box_h);
+// The caption surface Tiles_drawCaption blends at r (tile-sized, cached; do not free), or NULL when it draws none.
+SDL_Surface* Tiles_captionSurface(SDL_Rect r, const TileSpec* t, float lit);
 // The bundled icon for a tool name ("Settings", "Settings.pak", "Artwork-Manager", ...): the four bundled mappings,
 // matched on letters and digits only, case-insensitive (a trailing ".pak" ignored); else NULL. The single mapping
 // (Home and the tiles).

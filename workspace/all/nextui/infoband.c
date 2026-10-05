@@ -150,15 +150,15 @@ static struct {
 	InfoSeg segs[MAX_SEGS];
 	int nsegs;
 	bool up, down;
-	int w, h, fill_h, text_off, text_h, arrow_x;
+	int w, h, fill_h, text_off, info_off, text_h, arrow_x;
 	float scale;
 	TTF_Font* font;
 } block;
 
 static bool keyMatches(const InfoSeg* segs, int nsegs, bool up, bool down, int w, int h, int fill_h, int text_off,
-					   int text_h, int arrow_x) {
+					   int info_off, int text_h, int arrow_x) {
 	if (!block.surf || block.nsegs != nsegs || block.up != up || block.down != down || block.w != w ||
-		block.h != h || block.fill_h != fill_h || block.text_off != text_off || block.text_h != text_h || block.arrow_x != arrow_x ||
+		block.h != h || block.fill_h != fill_h || block.text_off != text_off || block.info_off != info_off || block.text_h != text_h || block.arrow_x != arrow_x ||
 		block.scale != (float)FIXED_SCALE || block.font != font.small)
 		return false;
 	for (int i = 0; i < nsegs; i++)
@@ -265,7 +265,7 @@ static void unpremultiply(SDL_Surface* s) {
 }
 
 static SDL_Surface* buildBlock(const InfoSeg* in, int nsegs, bool up, bool down, int w, int h, int fill_h,
-							   int text_off, int text_h, int arrow_x) {
+							   int text_off, int info_off, int text_h, int arrow_x) {
 	SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888);
 	if (!s)
 		return NULL;
@@ -273,9 +273,9 @@ static SDL_Surface* buildBlock(const InfoSeg* in, int nsegs, bool up, bool down,
 	SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
 
 	// the fade: ground at 80% across the 2 dp above the hint bar's top, linear to 0 at the band's top; below the
-	// bar's top (the band reaches into it) nothing, the bar's own 80% shows. With the button hints hidden there is
-	// no bar (the fill reaches the band's bottom, the screen's edge): the 80% holds from the text line down instead,
-	// or light art would show through under the text.
+	// bar's top (the band reaches into it) nothing, the bar's own 80% shows. A fill that reaches the band's
+	// bottom (no bar under it) holds the 80% from the text line down instead, or light art would show through under
+	// the text.
 	int hold = fill_h >= h ? h - text_off : NX_DP(2);
 	SDL_Surface* fade = fill_h > 0 ? UI_bandFadeSurface(w, fill_h, 0.8f, hold) : NULL;
 	if (fade)
@@ -293,10 +293,10 @@ static SDL_Surface* buildBlock(const InfoSeg* in, int nsegs, bool up, bool down,
 
 	if (nsegs > 0 && font.small) {
 		// the text: reserved room for both arrows + a gap on the left (fixed, so the text never moves),
-		// right-aligned at w - 24 dp
-		int left = arrow_x + ARROW_W * 2 + NX_DP(1) + NX_DP(12);
+		// right-aligned at w - 24 dp; on its own line (info_off) from the arrows' x
+		int left = info_off != text_off ? arrow_x : arrow_x + ARROW_W * 2 + NX_DP(1) + NX_DP(12);
 		int right = w - NX_DP(24);
-		InfoBand_drawSegments(s, in, nsegs, right, true, text_off, right - left, font.small);
+		InfoBand_drawSegments(s, in, nsegs, right, true, info_off, right - left, font.small);
 	}
 	unpremultiply(s); // once per content change (the block is cached)
 	return s;
@@ -315,14 +315,17 @@ void InfoBand_render(const InfoBandLayout* layout, const InfoSeg* segs, int nseg
 	int h = l.band_bottom - l.band_top;
 	int fill_h = (l.fill_bottom < l.band_bottom ? l.fill_bottom : l.band_bottom) - l.band_top;
 	int text_off = l.text_top - l.band_top;
+	int info_off = (l.info_top > 0 ? l.info_top : l.text_top) - l.band_top;
+	if (nsegs > 0 && info_off + l.text_h > h) // the info's own line below the band: the block reaches the screen's
+		h = screen->h - l.band_top;			  // bottom (the glyphs' descenders and shadow run past text_h)
 	int arrow_x = l.arrow_x > 0 ? l.arrow_x : NX_NATIVE_DP(NX_LIST_INSET_DP);
 	if (w <= 0 || h <= 0)
 		return;
 
-	if (!keyMatches(segs, nsegs, up, down, w, h, fill_h, text_off, l.text_h, arrow_x)) {
+	if (!keyMatches(segs, nsegs, up, down, w, h, fill_h, text_off, info_off, l.text_h, arrow_x)) {
 		if (block.surf)
 			SDL_FreeSurface(block.surf);
-		block.surf = buildBlock(segs, nsegs, up, down, w, h, fill_h, text_off, l.text_h, arrow_x);
+		block.surf = buildBlock(segs, nsegs, up, down, w, h, fill_h, text_off, info_off, l.text_h, arrow_x);
 		if (nsegs)
 			memcpy(block.segs, segs, sizeof(InfoSeg) * nsegs);
 		block.nsegs = nsegs;
@@ -332,6 +335,7 @@ void InfoBand_render(const InfoBandLayout* layout, const InfoSeg* segs, int nseg
 		block.h = h;
 		block.fill_h = fill_h;
 		block.text_off = text_off;
+		block.info_off = info_off;
 		block.text_h = l.text_h;
 		block.arrow_x = arrow_x;
 		block.scale = (float)FIXED_SCALE;
@@ -341,6 +345,40 @@ void InfoBand_render(const InfoBandLayout* layout, const InfoSeg* segs, int nseg
 		SDL_BlitSurface(block.surf, NULL, dst, &(SDL_Rect){0, l.band_top});
 	else if (block.surf)
 		GFX_drawOnLayer(block.surf, 0, l.band_top, w, h, 1.0f, 0, layer);
+}
+
+void InfoBand_renderUpArrow(int x, int cy, int layer, SDL_Surface* dst) {
+	static SDL_Surface* baked = NULL; // the arrow at its 20% (ARROW_ALPHA), as the band bakes it into its block
+	static float baked_scale = 0;
+	ensureArrows();
+	if (!arrow_up)
+		return;
+	if (!baked || baked_scale != (float)FIXED_SCALE) {
+		if (baked)
+			SDL_FreeSurface(baked);
+		baked = SDL_CreateRGBSurfaceWithFormat(0, arrow_up->w, arrow_up->h, 32, SDL_PIXELFORMAT_ARGB8888);
+		if (!baked)
+			return;
+		SDL_SetSurfaceBlendMode(baked, SDL_BLENDMODE_BLEND);
+		// a straight copy, only its alpha scaled to ARROW_ALPHA (a blend onto clear would darken the colour too:
+		// the band undoes that with unpremultiply)
+		SDL_Surface* src = SDL_ConvertSurfaceFormat(arrow_up, SDL_PIXELFORMAT_ARGB8888, 0);
+		if (!src)
+			return;
+		for (int y = 0; y < src->h; y++) {
+			const Uint32* in = (const Uint32*)((const Uint8*)src->pixels + y * src->pitch);
+			Uint32* out = (Uint32*)((Uint8*)baked->pixels + y * baked->pitch);
+			for (int x = 0; x < src->w; x++)
+				out[x] = (((in[x] >> 24) * ARROW_ALPHA + 127) / 255) << 24 | (in[x] & 0x00FFFFFF);
+		}
+		SDL_FreeSurface(src);
+		baked_scale = (float)FIXED_SCALE;
+	}
+	int y = cy - baked->h / 2;
+	if (dst)
+		SDL_BlitSurface(baked, NULL, dst, &(SDL_Rect){x, y});
+	else
+		GFX_drawOnLayer(baked, x, y, baked->w, baked->h, 1.0f, 0, layer);
 }
 
 void InfoBand_renderText(const InfoBandLayout* layout, const char* text, bool up, bool down, int layer,

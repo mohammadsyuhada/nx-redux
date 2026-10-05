@@ -101,6 +101,10 @@ StackItem Stack_item(const StackSizes* s, float index, float pos);
 // The items to draw: d < 4 and some of the item (at its size) inside the body [0, body_h], with the selection at
 // Stack_selectionY. last < first when none (n == 0).
 void Stack_visibleRange(const StackSizes* s, int n, float pos, float body_h, int* first, int* last);
+// The same over the body grown by `above` and `below` (dp): the room of a hidden page title or hint bar, which the
+// items run into.
+void Stack_visibleRangeIn(const StackSizes* s, int n, float pos, float body_h, float above, float below, int* first,
+						  int* last);
 
 // Consoles' "N games" on an item (§8f.3; device fix: the count belongs to its item, so it never sits over a logo
 // sliding through the selection). Its top is `gap` under the item's logo as drawn (drawn_h at the selected size), both
@@ -118,10 +122,10 @@ float Stack_edgeAlpha(float y, float body_h, float fade);
 // The mockup's rounding (JavaScript Math.round): floor(v + 0.5), so 196.5 → 197.
 int Stack_round(float v);
 
-// The d-pad (§8f.2). UP/DOWN step one item and stop at the ends (a held key too: no wrap). On the main menu, UP on
-// the first item (or on an empty tab) goes to the tab row on a fresh press only (held, it stops), and LEFT/RIGHT
-// switch tab on a fresh press (held: nothing; L1/R1 stay the root's own). In a game list LEFT/RIGHT do nothing and UP
-// on the first item does nothing.
+// The d-pad (§8f.2). UP/DOWN step one item; past an end a fresh press wraps around (UP on the first item to the last,
+// DOWN on the last to the first, as the List; 2026-10-06, UP no longer goes to the tab row), a held key stops. On the
+// main menu an empty tab's UP goes to the tab row on a fresh press, and LEFT/RIGHT switch tab on a fresh press (held:
+// nothing; L1/R1 stay the root's own). In a game list LEFT/RIGHT do nothing.
 typedef enum { STACK_KEY_UP,
 			   STACK_KEY_DOWN,
 			   STACK_KEY_LEFT,

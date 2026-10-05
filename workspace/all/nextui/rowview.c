@@ -216,8 +216,9 @@ static int textW(TTF_Font* f, const char* t) {
 static RowKind currentKind(void) {
 	// A main-menu tab is only ever Carousel here (CFG_getMenuStyle reads a stored Backdrop as Carousel; Home draws
 	// itself): the frameless row on black, never the tile row.
-	if (stack->count == 1) {
-		switch (MenuTabs_current()) {
+	int tab = GameList_lookTab(); // the root tab, or a hidden tab's list pushed over it
+	if (tab >= 0) {
+		switch (tab) {
 		case MENU_TAB_CONSOLES:
 			return ROW_BACKDROP_LOGO;
 		case MENU_TAB_COLLECTIONS:
@@ -332,8 +333,8 @@ static void syncKinds(int n) {
 static TileKind kindFor(int index, Entry* e) {
 	if (kinds && index < kinds_cap && kinds[index] >= 0)
 		return (TileKind)kinds[index];
-	bool at_root = stack->count == 1;
-	MenuTabId tab = MenuTabs_current();
+	int tab = GameList_lookTab(); // the root tab, or a hidden tab's list pushed over it (-1: a game list)
+	bool at_root = tab >= 0;
 	TileKind k;
 	if ((at_root && tab == MENU_TAB_TOOLS) || e->type == ENTRY_PAK)
 		k = TILE_TOOL;
@@ -383,7 +384,7 @@ static const char* toolIconFile(Entry* e, const char* name) {
 // "N games" for a Consoles or Collections row ("" while unknown).
 static void countLabel(Entry* e, TileKind kind, char* out, size_t size) {
 	out[0] = '\0';
-	if (stack->count != 1)
+	if (GameList_lookTab() < 0)
 		return;
 	if (kind == TILE_LOGO)
 		GameInfo_gamesLabel(Content_consoleGameCount(e), out, size);
@@ -2086,7 +2087,9 @@ void RowView_render(SDL_Surface* screen, int lastScreen) {
 
 	SDL_Rect prev_clip;
 	SDL_GetClipRect(screen, &prev_clip);
-	SDL_SetClipRect(screen, &(SDL_Rect){0, bar, screen->w, body_h});
+	// a hidden page title's row and hint bar stay open: what reaches into them still shows
+	int vis_top = CFG_getPageTitle() ? bar : 0, vis_bottom = CFG_getButtonHints() ? screen->h - bar : screen->h;
+	SDL_SetClipRect(screen, &(SDL_Rect){0, vis_top, screen->w, vis_bottom - vis_top});
 	PadSize pad_box = Pad_rowBox((float)g.full_h); // 3.0 x 1.95 the logo slot's height
 	int pad_w = (int)(pad_box.w + 0.5f), pad_h = (int)(pad_box.h + 0.5f);
 	if (kind == ROW_BACKDROP_LOGO)

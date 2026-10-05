@@ -30,5 +30,8 @@ int InfoBand_segmentsWidth(const InfoSeg* segs, int n, int max_w, TTF_Font* font
 // One separator's width and the trophy's with its gap, in `font`: the row as drawn, for caption_fit.h's measure.
 int InfoBand_separatorWidth(TTF_Font* font);
 int InfoBand_trophyWidth(TTF_Font* font);
+// The up arrow alone, at x, centred on row cy: above a List's first row when the page title is hidden (Layouts > Page
+// title), mirroring the band's down arrow. Same look and destination as the band's (layer, or dst while it is set).
+void InfoBand_renderUpArrow(int x, int cy, int layer, SDL_Surface* dst);
 void InfoBand_quit(void); // free the cached block
 #endif

@@ -68,7 +68,8 @@ void HomeStrip_build(const StripInput* in, StripLine* l1, StripLine* l2) {
 	bool none = in->ready && in->total <= 0;
 	char buf[64];
 
-	// line 1: This month <time | No play yet | …> · <n achievements | Sign in>
+	// line 1: This month <time | No play yet | …> · <n achievements>; not signed in to RetroAchievements, the line ends
+	// with the time
 	add(l1, STRIP_GREY, "This month");
 	StripRun* v;
 	if (none) {
@@ -82,18 +83,16 @@ void HomeStrip_build(const StripInput* in, StripLine* l1, StripLine* l2) {
 	}
 	if (v)
 		v->pad_l = ENSP_EM;
-	StripRun* dot = add(l1, STRIP_DOT, "\xC2\xB7");
-	if (dot)
-		dot->pad_l = dot->pad_r = 0.28f;
 	if (in->signed_in) {
+		StripRun* dot = add(l1, STRIP_DOT, "\xC2\xB7");
+		if (dot)
+			dot->pad_l = dot->pad_r = 0.28f;
 		if (in->ready)
 			snprintf(buf, sizeof(buf), "%d", none ? 0 : in->unlocks);
 		else
 			snprintf(buf, sizeof(buf), ELLIPSIS);
 		add(l1, STRIP_WHITE, buf);
 		add(l1, STRIP_GREY, " achievements");
-	} else {
-		add(l1, STRIP_GREY, "Sign in");
 	}
 	if (lines < 2)
 		return;

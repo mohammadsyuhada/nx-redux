@@ -28,6 +28,8 @@
 #include <sys/mman.h>
 #include <sys/file.h>
 
+static void bandShadowInvalidate(void);
+
 
 #if defined(__has_feature)
 #if __has_feature(thread_sanitizer)
@@ -930,6 +932,7 @@ SDL_Surface* PLAT_initVideo(void) {
 	}
 
 	vid.stream_layer1 = SDL_CreateTexture(vid.renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
+	bandShadowInvalidate(); // the texture no longer matches the bars' last copies
 	vid.target_layer1 = SDL_CreateTexture(vid.renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, w, h);
 	vid.target_layer2 = SDL_CreateTexture(vid.renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, w, h);
 	vid.target_layer3 = SDL_CreateTexture(vid.renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, w, h);
@@ -1082,6 +1085,7 @@ void PLAT_setShaders(int nr) {
 static void clearVideo(void) {
 	SDL_FillRect(vid.screen, NULL, SDL_transparentBlack);
 	SDL_UpdateTexture(vid.stream_layer1, NULL, vid.screen->pixels, vid.screen->pitch);
+	bandShadowInvalidate(); // the texture no longer matches the bars' last copies
 	SDL_SetRenderTarget(vid.renderer, NULL);
 	SDL_SetRenderDrawColor(vid.renderer, 0, 0, 0, 255);
 	for (int i = 0; i < 3; i++) {
@@ -1244,6 +1248,7 @@ static void resizeVideo(int w, int h, int p) {
 
 	// SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, vid.sharpness==SHARPNESS_SOFT?"1":"0", SDL_HINT_OVERRIDE);
 	vid.stream_layer1 = SDL_CreateTexture(vid.renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
+	bandShadowInvalidate(); // the texture no longer matches the bars' last copies
 	SDL_SetTextureBlendMode(vid.stream_layer1, SDL_BLENDMODE_BLEND);
 
 	if (vid.sharpness == SHARPNESS_CRISP) {
@@ -1446,7 +1451,7 @@ static bool layer_has_content[6] = {true, true, true, true, true, true};
 // Composite the UI layers into the backbuffer, skipping layers known to be
 // empty. The stream layer (the app's software screen) is always copied.
 // ---- GPU sprites (api.h) ----
-#define MAX_SPRITES 64
+#define MAX_SPRITES 128
 typedef struct {
 	SDL_Texture* tex;
 	SDL_Rect src, dst, clip;
@@ -1495,6 +1500,11 @@ void PLAT_freeSurfaceTexture(SDL_Surface* s) {
 	}
 }
 
+void PLAT_textureRefresh(SDL_Surface* s) {
+	if (s && s->userdata)
+		SDL_UpdateTexture((SDL_Texture*)s->userdata, NULL, s->pixels, s->pitch);
+}
+
 // screen px to output px (the window is the screen's size on our devices: 1, but kept exact if it is not)
 static void drawSprites(void) {
 	if (sprite_count == 0 || !vid.screen)
@@ -1529,12 +1539,23 @@ void PLAT_setUploadBands(const int* y, const int* h, int n) {
 		upload_band_y[i] = y[i], upload_band_h[i] = h[i];
 }
 
-// The screen into its texture: all of it, or just the bands set for this flip (the screen's size unchanged).
+// The band rows as last uploaded (a copy per band), so a band whose pixels didn't change since (the bars, through a
+// slide) isn't uploaded again. Invalid after a whole-screen upload, which doesn't keep a copy.
+static Uint8* band_shadow[2];
+static size_t band_shadow_size[2];
+static int band_shadow_y[2] = {-1, -1}, band_shadow_h[2];
+
+static void bandShadowInvalidate(void) {
+	band_shadow_y[0] = band_shadow_y[1] = -1;
+}
+
+// The screen into its texture: all of it, or just the bands set for this flip that changed (the screen's size kept).
 static void uploadScreen(bool size_kept) {
 	int n = upload_band_n;
 	upload_band_n = 0;
 	if (n <= 0 || !size_kept) {
 		SDL_UpdateTexture(vid.stream_layer1, NULL, vid.screen->pixels, vid.screen->pitch);
+		bandShadowInvalidate();
 		return;
 	}
 	for (int i = 0; i < n; i++) {
@@ -1545,8 +1566,23 @@ static void uploadScreen(bool size_kept) {
 			h = vid.screen->h - y;
 		if (h <= 0)
 			continue;
+		const Uint8* rows = (const Uint8*)vid.screen->pixels + y * vid.screen->pitch;
+		size_t bytes = (size_t)h * vid.screen->pitch;
+		if (band_shadow_y[i] == y && band_shadow_h[i] == h && band_shadow[i] && memcmp(band_shadow[i], rows, bytes) == 0)
+			continue; // what the texture already holds
 		SDL_Rect r = {0, y, vid.screen->w, h};
-		SDL_UpdateTexture(vid.stream_layer1, &r, (Uint8*)vid.screen->pixels + y * vid.screen->pitch, vid.screen->pitch);
+		SDL_UpdateTexture(vid.stream_layer1, &r, rows, vid.screen->pitch);
+		if (band_shadow_size[i] < bytes) {
+			free(band_shadow[i]);
+			band_shadow[i] = malloc(bytes);
+			band_shadow_size[i] = band_shadow[i] ? bytes : 0;
+		}
+		if (band_shadow[i]) {
+			memcpy(band_shadow[i], rows, bytes);
+			band_shadow_y[i] = y, band_shadow_h[i] = h;
+		} else {
+			band_shadow_y[i] = -1;
+		}
 	}
 }
 
@@ -2382,6 +2418,7 @@ void PLAT_flipHidden() {
 	SDL_RenderClear(vid.renderer);
 	resizeVideo(device_width, device_height, FIXED_PITCH); // !!!???
 	SDL_UpdateTexture(vid.stream_layer1, NULL, vid.screen->pixels, vid.screen->pitch);
+	bandShadowInvalidate(); // the texture no longer matches the bars' last copies
 	compositeLayers();
 	//  SDL_RenderPresent(vid.renderer); // no present want to flip  hidden
 }
@@ -2408,6 +2445,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 		upload_band_n = 0;
 		resizeVideo(device_width, device_height, FIXED_PITCH);
 		SDL_UpdateTexture(vid.stream_layer1, NULL, vid.screen->pixels, vid.screen->pitch);
+		bandShadowInvalidate(); // the texture no longer matches the bars' last copies
 		compositeLayers();
 		capture_write();
 		SDL_RenderPresent(vid.renderer);
@@ -2416,6 +2454,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 
 	upload_band_n = 0; // a core's frame: always whole
 	SDL_UpdateTexture(vid.stream_layer1, NULL, vid.blit->src, vid.blit->src_p);
+	bandShadowInvalidate(); // the texture no longer matches the bars' last copies
 
 	SDL_Texture* target = vid.stream_layer1;
 	int x = vid.blit->src_x;

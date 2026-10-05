@@ -21,6 +21,14 @@
 #include <string.h>
 #include <strings.h>
 
+// a cached surface out with its GPU texture, if it got one (the Grid's sprites)
+static void freeSurfTex(SDL_Surface* s) {
+	if (!s)
+		return;
+	PLAT_freeSurfaceTexture(s);
+	SDL_FreeSurface(s);
+}
+
 #define TILE_RADIUS_DP 14.0f
 #define TILE_RING_DP 3.0f
 #define TILE_BORDER_DP 1.0f
@@ -149,7 +157,7 @@ static SDL_Surface* getMask(ShapeKind kind, int w, int h, int rad, int inset) {
 			victim = &masks[i];
 	}
 	if (victim->surface)
-		SDL_FreeSurface(victim->surface);
+		freeSurfTex(victim->surface);
 	*victim = (MaskSlot){kind, w, h, rad, inset, s, ++mask_clock};
 	return s;
 }
@@ -209,7 +217,7 @@ static void cutCorners(SDL_Surface* s, int rad) {
 static void drawPicture(SDL_Surface* dst, SDL_Rect r, int rad, SDL_Surface* pic) {
 	if (!scratch || scratch->w != r.w || scratch->h != r.h) {
 		if (scratch)
-			SDL_FreeSurface(scratch);
+			freeSurfTex(scratch);
 		scratch = SDL_CreateRGBSurfaceWithFormat(0, r.w, r.h, 32, SDL_PIXELFORMAT_ARGB8888);
 		if (!scratch)
 			return;
@@ -315,7 +323,7 @@ static void blitTextColor(SDL_Surface* dst, TTF_Font* f, const char* text, int x
 	SDL_SetSurfaceColorMod(s, c.r, c.g, c.b);
 	SDL_SetSurfaceAlphaMod(s, a);
 	SDL_BlitSurface(s, NULL, dst, &(SDL_Rect){x, y, s->w, s->h});
-	SDL_FreeSurface(s);
+	freeSurfTex(s);
 }
 
 static SDL_Color greyColor(Uint8 c) {
@@ -532,9 +540,76 @@ static void drawTool(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float s, S
 
 // Console logo, inset 22 dp at the sides and 30 dp top and bottom (scaled with the tile); the name when
 // there's no logo (the Grid's as a collection tile, the Carousel's as a word). A Grid tile adds "N games" 6 dp under what's drawn (count_a), the logo staying centred.
+SDL_Surface* Tiles_cornerMask(int w, int h) {
+	SDL_Surface* s = w > 0 && h > 0 ? SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888) : NULL;
+	if (!s)
+		return NULL;
+	SDL_FillRect(s, NULL, 0);
+	SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
+	int rad = clampRadius(NX_DPF(TILE_RADIUS_DP), w, h);
+	int xs[2] = {0, w - rad}, ys[2] = {0, h - rad};
+	for (int cy = 0; cy < 2 && rad > 0; cy++) {
+		for (int cx = 0; cx < 2; cx++) {
+			for (int y = ys[cy]; y < ys[cy] + rad; y++) {
+				Uint32* row = (Uint32*)((Uint8*)s->pixels + y * s->pitch);
+				for (int x = xs[cx]; x < xs[cx] + rad; x++) {
+					float cov = roundedCoverage(x, y, w, h, (float)rad);
+					row[x] = (Uint32)((1.0f - cov) * 255.0f + 0.5f) << 24; // black, where the tile isn't
+				}
+			}
+		}
+	}
+	return s;
+}
+
+SDL_Surface* Tiles_borderOverlay(int w, int h) {
+	SDL_Surface* s = w > 0 && h > 0 ? SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888) : NULL;
+	if (!s)
+		return NULL;
+	SDL_FillRect(s, NULL, 0);
+	SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
+	int b = NX_DPF(TILE_BORDER_DP);
+	blitShape(s, SHAPE_OUTLINE, 0, 0, w, h, NX_DPF(TILE_RADIUS_DP), b < 1 ? 1 : b, 255, 255);
+	return s;
+}
+
+Uint8 Tiles_borderAlpha(void) {
+	return (Uint8)TILE_BORDER_ALPHA;
+}
+
+SDL_Surface* Tiles_ringOverlay(int w, int h, SDL_Color c) {
+	int ring = NX_DPF(TILE_RING_DP);
+	int W = w + 2 * ring, H = h + 2 * ring;
+	SDL_Surface* s = w > 0 && h > 0 ? SDL_CreateRGBSurfaceWithFormat(0, W, H, 32, SDL_PIXELFORMAT_ARGB8888) : NULL;
+	if (!s)
+		return NULL;
+	SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
+	int rad = NX_DPF(TILE_RADIUS_DP);
+	float orad = (float)clampRadius(rad + ring, W, H), irad = (float)clampRadius(rad, w, h);
+	Uint32 rgb = (Uint32)c.r << 16 | (Uint32)c.g << 8 | c.b;
+	for (int y = 0; y < H; y++) {
+		Uint32* row = (Uint32*)((Uint8*)s->pixels + y * s->pitch);
+		for (int x = 0; x < W; x++) {
+			float outer = roundedCoverage(x, y, W, H, orad);
+			float inner = x >= ring && x < ring + w && y >= ring && y < ring + h
+							  ? roundedCoverage(x - ring, y - ring, w, h, irad)
+							  : 0.0f;
+			row[x] = (Uint32)(outer * (1.0f - inner) * 255.0f + 0.5f) << 24 | rgb;
+		}
+	}
+	return s;
+}
+
+void Tiles_logoBox(int tile_w, int tile_h, float s, int* box_w, int* box_h) {
+	if (!(s > 0.0f) || s > 1.0f)
+		s = 1.0f;
+	*box_w = tile_w - 2 * NX_DPF(LOGO_INSET_X_DP * s);
+	*box_h = tile_h - 2 * NX_DPF(LOGO_INSET_Y_DP * s);
+}
+
 static void drawLogo(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float s, SDL_Color c, Uint8 a, Uint8 count_a) {
-	int box_w = r.w - 2 * NX_DPF(LOGO_INSET_X_DP * s);
-	int box_h = r.h - 2 * NX_DPF(LOGO_INSET_Y_DP * s);
+	int box_w, box_h;
+	Tiles_logoBox(r.w, r.h, s, &box_w, &box_h);
 	SDL_Surface* logo = (t->logo_file && box_w > 0 && box_h > 0) ? MenuArt_get(t->logo_file, box_w, box_h) : NULL;
 	int gap = NX_DPF(GRID_LOGO_COUNT_GAP_DP);
 	float count_sp = GridLayout_countSp(GRID_LOGO_COUNT_SP, s);
@@ -683,7 +758,7 @@ static SDL_Surface* getCaption(int w, int h, int rad, const TileSpec* t, float s
 			victim = &captions[i];
 	}
 	if (victim->surface)
-		SDL_FreeSurface(victim->surface);
+		freeSurfTex(victim->surface);
 	snprintf(victim->key, sizeof(victim->key), "%s", key);
 	victim->w = w;
 	victim->h = h;
@@ -799,6 +874,17 @@ void Tiles_draw(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float lit) {
 			SDL_SetSurfaceAlphaMod(cap, 255);
 		}
 	}
+}
+
+SDL_Surface* Tiles_captionSurface(SDL_Rect r, const TileSpec* t, float lit) {
+	if (!t || r.w <= 0 || r.h <= 0 || t->carousel || !(lit > 0.0f))
+		return NULL;
+	if (t->kind != TILE_GAME && t->kind != TILE_TITLE)
+		return NULL;
+	float s = t->scale;
+	if (!(s > 0.0f) || s > 1.0f)
+		s = 1.0f;
+	return litCaption(r, t, s);
 }
 
 void Tiles_drawCaption(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float lit) {
@@ -917,15 +1003,15 @@ const char* Tiles_toolIcon(const char* pak_name) {
 void Tiles_quit(void) {
 	for (int i = 0; i < MASK_SLOTS; i++) {
 		if (masks[i].surface)
-			SDL_FreeSurface(masks[i].surface);
+			freeSurfTex(masks[i].surface);
 	}
 	memset(masks, 0, sizeof(masks));
 	for (int i = 0; i < CAPTION_SLOTS; i++) {
 		if (captions[i].surface)
-			SDL_FreeSurface(captions[i].surface);
+			freeSurfTex(captions[i].surface);
 	}
 	memset(captions, 0, sizeof(captions));
 	if (scratch)
-		SDL_FreeSurface(scratch);
+		freeSurfTex(scratch);
 	scratch = NULL;
 }

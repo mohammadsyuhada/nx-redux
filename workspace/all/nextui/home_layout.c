@@ -84,11 +84,13 @@ void HomeLayout_computeStrip(float W, float H, float bar, int strip_lines, float
 	HomeTile tiles[HOME_MAX_TOP]; // the squares, added after Continue (and the game column)
 	int nt = 0;
 
-	if (ngames == 0 || (l->wide && ngames <= HOME_WIDE_COL_GAMES)) {
-		// no pin rows (no games; on a wide screen up to 2): the top section down to the bottom. The tools four rows of
-		// squares filling it, a column per 4, flush right; on a wide screen the games a column three squares wide left of
-		// them, stacked; Continue the rest, from the left edge
+	if (!l->wide || ngames == 0 || ngames <= HOME_WIDE_COL_GAMES) {
+		// the top section down to the bottom: no pin rows (no games; on a wide screen up to 2), or the Brick, whose pin
+		// rows sit below it, past the screen's end (the page scrolls to them). The tools four rows of squares filling
+		// it, a column per 4, flush right; on a wide screen the games a column three squares wide left of them,
+		// stacked; Continue the rest, from the left edge
 		const int srows = 4;
+		int colgames = l->wide ? ngames : 0;
 		float h = bottom - y0;
 		l->top_h = h;
 		float sq = roundf((h - (srows - 1) * HOME_GAP) / srows), vgap = (h - srows * sq) / (srows - 1);
@@ -102,36 +104,20 @@ void HomeLayout_computeStrip(float W, float H, float bar, int strip_lines, float
 			x = bx - HOME_GAP;
 		}
 		float gw = 3 * sq + 2 * HOME_GAP;
-		if (ngames > 0)
+		if (colgames > 0)
 			x -= gw;
-		addTop(l, HOME_TILE_CONTINUE, 0, rect(L, y0, (ngames > 0 ? x - HOME_GAP : x) - L, h));
-		float gh = (h - (ngames - 1) * HOME_GAP) / (ngames > 0 ? ngames : 1);
-		for (int g = 0; g < ngames; g++)
+		addTop(l, HOME_TILE_CONTINUE, 0, rect(L, y0, (colgames > 0 ? x - HOME_GAP : x) - L, h));
+		float gh = (h - (colgames - 1) * HOME_GAP) / (colgames > 0 ? colgames : 1);
+		for (int g = 0; g < colgames; g++)
 			addTop(l, HOME_TILE_GAME, g, rect(x, y0 + g * (gh + HOME_GAP), gw, gh));
-	} else if (!l->wide) {
-		// the Brick: one row of two pins over the hint bar (more go below, the page scrolls), the top section down to
-		// 30 above it
-		float row_y = bottom - HOME_PIN_H;
-		float h = row_y - HOME_GAP - y0;
-		if (small) { // three squares (20 Large px apart) set the top's height; the pin row takes the rest
-			h = 3 * small_sq + 2 * 20 * strip_k;
-			row_y = y0 + h + HOME_GAP;
-			l->pin_h = bottom - row_y;
+		if (!l->wide && ngames > 0) {
+			// the Brick's pins: rows of two from the hint bar's top (HOME_BOTTOM under the top section), where Home's page
+			// clip ends, so none of them peeks in under it. Their height as when one row shared the
+			// screen with the top: at the Small scale, what three squares (20 Large px apart) leave of it
+			if (strip_k > 1.0f)
+				l->pin_h = bottom - (y0 + 3 * small_sq + 2 * 20 * strip_k + HOME_GAP);
+			addRows(l, bottom + HOME_BOTTOM, (R - L - HOME_GAP) / 2, 0, ngames);
 		}
-		l->top_h = h;
-		// columns of 3 squares flush right, a column per 3 tools: side round((h − 40) / 3), the gaps sharing the rest
-		float cont_w = R - L;
-		if (ntools > 0) {
-			float sq = small ? small_sq : roundf((h - 40) / 3), gap = (h - 3 * sq) / 2;
-			int cols = toolCols(ntools, 3);
-			float bx = R - cols * sq - (cols - 1) * HOME_GAP;
-			l->square = sq;
-			l->glyph = small ? small_glyph : minf(46, roundf(sq * 0.58f));
-			cont_w = bx - HOME_GAP - L;
-			placeTools(l, tiles, &nt, bx, y0, sq, gap, 3, cols, true, ntools);
-		}
-		addTop(l, HOME_TILE_CONTINUE, 0, rect(L, y0, cont_w, h));
-		addRows(l, row_y, (R - L - HOME_GAP) / 2, 0, ngames);
 	} else {
 		// the Smart Pro S: 8 columns; two rows of four 2-column pins over the hint bar, the top section what they leave
 		// (at most 372; a short screen keeps one row)

@@ -11,6 +11,7 @@ typedef struct {
 	int band_bottom; // the band's bottom edge (fixed: inside the bar; InfoBand_layout: the hint bar's top)
 	int fill_bottom; // where the band's 80% fill stops: always the hint bar's top (screen_h - bar_h)
 	int arrow_x;	 // the arrows' x: the rows' text start (0 = the 14 dp list inset)
+	int info_top;	 // y of the info text when not on the arrows' line (0 = text_top): the empty hint-bar row, hints hidden
 } InfoBandLayout;
 
 // The former game-list geometry, no longer used by nextui (game lists now use InfoBand_fixedLayout too); kept as the

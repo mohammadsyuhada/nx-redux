@@ -87,6 +87,23 @@ int GridLayout_index(const GridLayout* g, int col, int row) {
 	return i < g->n ? i : -1;
 }
 
+int GridLayout_wrap(const GridLayout* g, int index, GridMove edge) {
+	int n = g->n;
+	if (n <= 0)
+		return 0;
+	if (!g->sliding)
+		return edge == GRID_MOVE_EDGE_PREV ? n - 1 : 0;
+	if (index < 0)
+		index = 0;
+	if (index >= n)
+		index = n - 1;
+	int col, row;
+	GridLayout_cell(g, index, &col, &row);
+	int tc = edge == GRID_MOVE_EDGE_PREV ? GridLayout_columnCount(g) - 1 : 0;
+	int t = GridLayout_index(g, tc, row);
+	return t >= 0 ? t : GridLayout_index(g, tc, 0);
+}
+
 int GridLayout_columnCount(const GridLayout* g) {
 	return g->sliding ? (g->n + 1) / 2 : g->cols;
 }

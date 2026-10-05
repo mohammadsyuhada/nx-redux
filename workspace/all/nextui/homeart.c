@@ -550,8 +550,10 @@ static HomeArtState lookup(int kind, const char* rom, const char* preview, int w
 	}
 	if (!hit) {
 		hit = victim;
-		if (hit->surface)
+		if (hit->surface) {
+			PLAT_freeSurfaceTexture(hit->surface); // a Grid draws pictures as GPU sprites (UI thread: here)
 			SDL_FreeSurface(hit->surface);
+		}
 		*hit = (Slot){.used = true, .kind = kind, .w = w, .h = h, .radius = radius, .state = HOMEART_LOADING, .queued = true, .gen = ++genCounter};
 		snprintf(hit->rom, sizeof(hit->rom), "%s", rom);
 		snprintf(hit->preview, sizeof(hit->preview), "%s", preview);
@@ -609,8 +611,10 @@ void HomeArt_forget(const char* rom_path) {
 		Slot* s = &slots[i];
 		if (!s->used || strcmp(s->rom, rom_path) != 0)
 			continue;
-		if (s->surface)
+		if (s->surface) {
+			PLAT_freeSurfaceTexture(s->surface);
 			SDL_FreeSurface(s->surface);
+		}
 		s->surface = NULL;
 		s->used = false; // a result the worker is still building is dropped (its slot no longer matches)
 		s->gen = ++genCounter;
@@ -628,8 +632,10 @@ void HomeArt_quit(void) {
 		worker = NULL;
 	}
 	for (int i = 0; i < HOMEART_CACHE_SIZE; i++) {
-		if (slots[i].surface)
+		if (slots[i].surface) {
+			PLAT_freeSurfaceTexture(slots[i].surface);
 			SDL_FreeSurface(slots[i].surface);
+		}
 		slots[i] = (Slot){0};
 	}
 	lruCounter = 0;

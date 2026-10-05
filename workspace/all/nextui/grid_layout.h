@@ -42,6 +42,9 @@ typedef enum { GRID_MOVE_STAY,
 			   GRID_MOVE_EDGE_PREV,
 			   GRID_MOVE_EDGE_NEXT } GridMove;
 GridMove GridLayout_move(const GridLayout* g, int* index, GridDir dir);
+// Past an end (GRID_MOVE_EDGE_PREV / _NEXT) with no tab to switch to: the tile at the other end. Still: the last or the
+// first tile; sliding: the same row in the last or the first column (its top when that row is empty). 0 with no tiles.
+int GridLayout_wrap(const GridLayout* g, int index, GridMove edge);
 // The tile is in the top row (row 0; a sliding grid's column top). True with no tiles: the main menu's UP from the top of
 // a tab's content focuses the tab row.
 bool GridLayout_isTopRow(const GridLayout* g, int index);
