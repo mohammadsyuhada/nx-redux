@@ -851,14 +851,46 @@ static const char* artVariantFolder(int art_type) {
 	}
 }
 
+// A disc of a folder game (/Roms/PS/Game/Game.m3u, or the .cue or a disc beside
+// it) as Home's recents and pins store it: the game's art beside the folder,
+// where the scraper and the game list put it (/Roms/PS/.media/<variant>/Game.png;
+// NULL variant = the root picture). false when the ROM's folder is not a folder
+// game (no folder-named .m3u or .cue in it) or that art is missing; out untouched.
+static bool folderGameArtPath(const char* rom_path, const char* variant, char* out, size_t out_size) {
+	char dir[MAX_PATH];
+	snprintf(dir, sizeof(dir), "%s", rom_path);
+	char* slash = strrchr(dir, '/');
+	if (!slash || slash == dir)
+		return false;
+	*slash = '\0';
+	const char* name = strrchr(dir, '/');
+	if (!name)
+		return false;
+	char game[MAX_PATH];
+	snprintf(game, sizeof(game), "%s/%s.m3u", dir, name + 1);
+	if (!exists(game)) {
+		snprintf(game, sizeof(game), "%s/%s.cue", dir, name + 1);
+		if (!exists(game))
+			return false;
+	}
+	char path[MAX_PATH];
+	ROM_mediaArtVariantPath(dir, variant, path, sizeof(path));
+	if (!exists(path))
+		return false;
+	snprintf(out, out_size, "%s", path);
+	return true;
+}
+
 void ROM_displayArtPath(const char* rom_path, int art_type, bool fallback_to_mix,
 						char* out, size_t out_size) {
 	const char* variant = artVariantFolder(art_type);
 	if (variant) {
 		ROM_mediaArtVariantPath(rom_path, variant, out, out_size);
+		if (exists(out) || folderGameArtPath(rom_path, variant, out, out_size))
+			return;
 		// Caller asked for this variant only: leave the missing path in place
 		// so nothing is drawn, rather than substituting a different image.
-		if (!fallback_to_mix || exists(out))
+		if (!fallback_to_mix)
 			return;
 	}
 	// No variant requested, or the scraper never wrote one for this game
@@ -900,10 +932,13 @@ bool ROM_findScreenshot(const char* rom_path, char* out, size_t out_size) {
 		return true;
 	char mix[MAX_PATH];
 	ROM_mediaArtPath(rom_path, mix, sizeof(mix));
-	if (!exists(mix))
-		return false; // out stays the screenshot path
-	snprintf(out, out_size, "%s", mix);
-	return true;
+	if (exists(mix)) {
+		snprintf(out, out_size, "%s", mix);
+		return true;
+	}
+	// a folder game's disc: the same two, beside the folder (a miss: out stays the screenshot path)
+	return folderGameArtPath(rom_path, "screenshot", out, out_size) ||
+		   folderGameArtPath(rom_path, NULL, out, out_size);
 }
 
 bool M3U_findForRom(const char* rom_path, char* m3u_path, size_t m3u_size) {

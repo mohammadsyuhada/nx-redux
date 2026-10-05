@@ -54,6 +54,73 @@ int main(void) {
 	assert(ROM_findScreenshot(rom2, out, sizeof(out)));
 	assert(strcmp(out, want) == 0);
 
+	// 5. a folder game's .m3u (as Home's recents and pins store it): art beside the folder
+	char ps[512], game[512], m3u[512], disc[512], ps_media[512];
+	snprintf(ps, sizeof(ps), "%s/Roms/Sony PlayStation (PS)", root);
+	snprintf(ps_media, sizeof(ps_media), "%s/.media", ps);
+	snprintf(game, sizeof(game), "%s/Final Fantasy VII", ps);
+	snprintf(mk, sizeof(mk), "mkdir -p '%s' '%s/screenshot' '%s/boxart'", game, ps_media, ps_media);
+	assert(system(mk) == 0);
+	snprintf(m3u, sizeof(m3u), "%s/Final Fantasy VII.m3u", game);
+	snprintf(disc, sizeof(disc), "%s/Final Fantasy VII (Disc 2).chd", game);
+	mkfile(m3u);
+	mkfile(disc);
+
+	// nothing yet: a miss, out still the disc's own screenshot path
+	assert(!ROM_findScreenshot(m3u, out, sizeof(out)));
+	snprintf(want, sizeof(want), "%s/.media/screenshot/Final Fantasy VII.png", game);
+	assert(strcmp(out, want) == 0);
+	ROM_displayArtPath(m3u, 2, false, out, sizeof(out));
+	snprintf(want, sizeof(want), "%s/.media/boxart/Final Fantasy VII.png", game);
+	assert(strcmp(out, want) == 0);
+
+	// the root picture beside the folder
+	snprintf(want, sizeof(want), "%s/Final Fantasy VII.png", ps_media);
+	mkfile(want);
+	assert(ROM_findScreenshot(m3u, out, sizeof(out)));
+	assert(strcmp(out, want) == 0);
+
+	// the scraped screenshot beside the folder wins, for the .m3u and any disc in the folder
+	snprintf(want, sizeof(want), "%s/screenshot/Final Fantasy VII.png", ps_media);
+	mkfile(want);
+	assert(ROM_findScreenshot(m3u, out, sizeof(out)));
+	assert(strcmp(out, want) == 0);
+	assert(ROM_findScreenshot(disc, out, sizeof(out)));
+	assert(strcmp(out, want) == 0);
+
+	// box art beside the folder (the Backdrop's box)
+	snprintf(want, sizeof(want), "%s/boxart/Final Fantasy VII.png", ps_media);
+	mkfile(want);
+	ROM_displayArtPath(m3u, 2, false, out, sizeof(out));
+	assert(strcmp(out, want) == 0);
+	ROM_displayArtPath(game, 2, false, out, sizeof(out)); // the game list's folder entry: unchanged
+	assert(strcmp(out, want) == 0);
+
+	// 6. a plain subfolder (no folder-named .m3u/.cue) never borrows the folder's art
+	char sub[512], subrom[512];
+	snprintf(sub, sizeof(sub), "%s/RPG", ps);
+	snprintf(mk, sizeof(mk), "mkdir -p '%s'", sub);
+	assert(system(mk) == 0);
+	snprintf(subrom, sizeof(subrom), "%s/Xenogears.chd", sub);
+	mkfile(subrom);
+	snprintf(want, sizeof(want), "%s/screenshot/RPG.png", ps_media);
+	mkfile(want);
+	assert(!ROM_findScreenshot(subrom, out, sizeof(out)));
+	snprintf(want, sizeof(want), "%s/.media/screenshot/Xenogears.png", sub);
+	assert(strcmp(out, want) == 0);
+
+	// 7. a .cue folder game counts too
+	char cuegame[512], cue[512];
+	snprintf(cuegame, sizeof(cuegame), "%s/Vagrant Story", ps);
+	snprintf(mk, sizeof(mk), "mkdir -p '%s'", cuegame);
+	assert(system(mk) == 0);
+	snprintf(cue, sizeof(cue), "%s/Vagrant Story.cue", cuegame);
+	mkfile(cue);
+	snprintf(want, sizeof(want), "%s/boxart/Vagrant Story.png", ps_media);
+	mkfile(want);
+	ROM_displayArtPath(cue, 2, false, out, sizeof(out));
+	assert(strcmp(out, want) == 0);
+
 	snprintf(mk, sizeof(mk), "rm -rf '%s'", root);
 	assert(system(mk) == 0);
 	printf("test_art_path: ok\n");
