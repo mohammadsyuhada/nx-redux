@@ -17,6 +17,10 @@ static int near(float a, float b, float e) {
 #define SPS_W (1280 / SPS_PD)
 #define SPS_BODY (608 / SPS_PD)
 
+// The stack math cases below use the former fixed Consoles stack (330 x 100, s 0.5, gap 16, cap 26, no side fade) as
+// their example; the Consoles stack itself is now sized by the screen (slot_tables).
+static const StackSizes OLD_CONSOLES = {330, 100, 0.5f, 16, 26, 0, 0, 0};
+
 static int px(float dp, float pd) {
 	return Stack_round(dp * pd);
 }
@@ -25,9 +29,10 @@ static void slot_tables(void) {
 	// both screens are wide enough: every slot keeps its spec size
 	const float ws[2] = {BRICK_W, SPS_W};
 	for (int i = 0; i < 2; i++) {
-		StackSizes c = Stack_mainSizes(STACK_MAIN_CONSOLES, ws[i]);
-		assert(near(c.item_w, 330, 1e-4f) && near(c.item_h, 100, 1e-4f) && near(c.scale, 0.5f, 1e-6f));
-		assert(near(c.gap, 16, 1e-6f) && near(c.cap, 26, 1e-6f));
+		StackSizes c = Stack_mainSizes(STACK_MAIN_CONSOLES, ws[i]); // by the screen: u = width / 960
+		float u = ws[i] / 960;
+		assert(near(c.item_w, 490 * u, 1e-3f) && near(c.item_h, 149 * u, 1e-3f) && near(c.scale, 0.5f, 1e-6f));
+		assert(near(c.gap, fmaxf(30 * u, 16), 1e-4f) && near(c.cap, 26, 1e-6f) && near(c.side_alpha, 0.65f, 1e-6f));
 		StackSizes l = Stack_mainSizes(STACK_MAIN_COLLECTIONS, ws[i]);
 		assert(near(l.item_w, 400, 1e-4f) && near(l.item_h, 100, 1e-4f) && near(l.scale, 0.5f, 1e-6f));
 		assert(near(l.gap, 14, 1e-6f) && near(l.cap, 0, 1e-6f));
@@ -35,12 +40,15 @@ static void slot_tables(void) {
 		assert(near(t.item_w, 150, 1e-4f) && near(t.item_h, 140, 1e-4f) && near(t.scale, 0.6f, 1e-6f));
 		assert(near(t.gap, 10, 1e-6f) && near(t.cap, 0, 1e-6f));
 	}
-	// in px, selected and neighbour (Brick, then SPS)
+	// in px, selected and neighbour (Brick, then SPS): the same at any UI scale
 	StackSizes c = Stack_mainSizes(STACK_MAIN_CONSOLES, BRICK_W);
-	assert(px(c.item_w, BRICK_PD) == 707 && px(c.item_h, BRICK_PD) == 214);
-	assert(px(c.item_w * c.scale, BRICK_PD) == 354 && px(c.item_h * c.scale, BRICK_PD) == 107);
-	assert(px(c.item_w, SPS_PD) == 471 && px(c.item_h, SPS_PD) == 143);
-	assert(px(c.item_w * c.scale, SPS_PD) == 236 && px(c.item_h * c.scale, SPS_PD) == 71);
+	assert(px(c.item_w, BRICK_PD) == 523 && px(c.item_h, BRICK_PD) == 159);
+	assert(px(c.item_w * c.scale, BRICK_PD) == 261 && px(c.item_h * c.scale, BRICK_PD) == 79);
+	StackSizes c2 = Stack_mainSizes(STACK_MAIN_CONSOLES, 1024 / (2 * 30.0f / 42.0f)); // the Brick screen at scale 2
+	assert(px(c2.item_w, 2 * 30.0f / 42.0f) == 523 && px(c2.item_h, 2 * 30.0f / 42.0f) == 159);
+	StackSizes cs = Stack_mainSizes(STACK_MAIN_CONSOLES, SPS_W);
+	assert(px(cs.item_w, SPS_PD) == 653 && px(cs.item_h, SPS_PD) == 199);
+	assert(px(cs.item_w * cs.scale, SPS_PD) == 327 && px(cs.item_h * cs.scale, SPS_PD) == 99);
 	StackSizes l = Stack_mainSizes(STACK_MAIN_COLLECTIONS, BRICK_W);
 	assert(px(l.item_w, BRICK_PD) == 857 && px(l.item_w * l.scale, BRICK_PD) == 429);
 	assert(px(l.item_w, SPS_PD) == 571 && px(l.item_w * l.scale, SPS_PD) == 286);
@@ -50,8 +58,8 @@ static void slot_tables(void) {
 	assert(px(t.item_w, SPS_PD) == 214 && px(t.item_h, SPS_PD) == 200);
 	assert(px(t.item_w * t.scale, SPS_PD) == 129 && px(t.item_h * t.scale, SPS_PD) == 120);
 	// a narrow window: the width is held to body − 2 · 24 dp (the height and the rest stay)
-	StackSizes nc = Stack_mainSizes(STACK_MAIN_CONSOLES, 300);
-	assert(near(nc.item_w, 252, 1e-4f) && near(nc.item_h, 100, 1e-4f));
+	StackSizes nc = Stack_mainSizes(STACK_MAIN_CONSOLES, 60);
+	assert(near(nc.item_w, 12, 1e-4f) && near(nc.item_h, 149 * 60 / 960.0f, 1e-4f));
 	StackSizes nl = Stack_mainSizes(STACK_MAIN_COLLECTIONS, 400);
 	assert(near(nl.item_w, 352, 1e-4f));
 	StackSizes nt = Stack_mainSizes(STACK_MAIN_TOOLS, 190);
@@ -60,8 +68,8 @@ static void slot_tables(void) {
 }
 
 static void offsets_on_y(void) {
-	StackSizes c = Stack_mainSizes(STACK_MAIN_CONSOLES, SPS_W); // h 100, s 0.5, g 16, cap 26
-	float first = 50 + 16 + 25, step = 50 + 16;					// 91, then 66
+	StackSizes c = OLD_CONSOLES;				// h 100, s 0.5, g 16, cap 26
+	float first = 50 + 16 + 25, step = 50 + 16; // 91, then 66
 	StackItem a = Stack_item(&c, 5, 5);
 	assert(near(a.dy, 0, 1e-4f) && near(a.scale, 1, 1e-6f) && near(a.alpha, 1, 1e-6f) && a.visible);
 	StackItem up1 = Stack_item(&c, 4, 5), up2 = Stack_item(&c, 3, 5);
@@ -86,8 +94,8 @@ static void offsets_on_y(void) {
 // The Consoles stack with a pad behind the selection (docs/controller-art.md): its reach is the larger of the item's
 // own and the pad's half ± its offset plus 10 dp; only the steps next to the selection grow, further steps don't.
 static void pad_reach(void) {
-	StackSizes c = Stack_mainSizes(STACK_MAIN_CONSOLES, SPS_W); // h 100, s 0.5, g 16, cap 26
-	assert(c.extra_up == 0 && c.extra_down == 0);				// no pad: today's offsets (offsets_on_y)
+	StackSizes c = OLD_CONSOLES;				  // h 100, s 0.5, g 16, cap 26
+	assert(c.extra_up == 0 && c.extra_down == 0); // no pad: today's offsets (offsets_on_y)
 	// a 2:1 pad in 2.6 h x 1.7 h (260 x 170) draws 260 x 130; centred 13 below the item (the logo and its count)
 	float up, down;
 	Stack_padExtra(&c, 130, 13, 10, &up, &down);
@@ -104,7 +112,7 @@ static void pad_reach(void) {
 }
 
 static void fades(void) {
-	StackSizes c = Stack_mainSizes(STACK_MAIN_CONSOLES, BRICK_W);
+	StackSizes c = OLD_CONSOLES;
 	assert(near(Stack_item(&c, 1, 0).alpha, 0.5f, 1e-5f));			 // neighbour 1 at 50%
 	assert(near(Stack_item(&c, 2, 0).alpha, 0.38f, 1e-5f));			 // then 0.12 less per step
 	assert(near(Stack_item(&c, 3, 0).alpha, 0.26f, 1e-5f));			 //
@@ -116,13 +124,18 @@ static void fades(void) {
 	assert(near(Stack_item(&c, 0, 2).alpha, Stack_item(&c, 4, 2).alpha, 1e-6f)); // the same both ways
 	StackSizes t = Stack_mainSizes(STACK_MAIN_TOOLS, SPS_W);
 	assert(near(Stack_item(&t, 6, 0).alpha, 0, 1e-6f) && !Stack_item(&t, 6, 0).visible); // d 6: hidden, alpha 0
+	// Consoles: its neighbours at 0.65 x the curve (0.325 one step out), the selection unchanged, eased in over the step
+	StackSizes cc = Stack_mainSizes(STACK_MAIN_CONSOLES, SPS_W);
+	assert(near(Stack_item(&cc, 0, 0).alpha, 1, 1e-6f));
+	assert(near(Stack_item(&cc, 1, 0).alpha, 0.325f, 1e-5f) && near(Stack_item(&cc, 2, 0).alpha, 0.38f * 0.65f, 1e-5f));
+	assert(near(Stack_item(&cc, 0.5f, 0).alpha, 0.75f * 0.825f, 1e-5f));
 }
 
 static void selection_centre(void) {
 	// y = body/2 − cap/2 (dp from the body top), and its px on each screen (floor(v + 0.5))
 	assert(near(Stack_selectionY(280, 26), 127, 1e-4f));
 	assert(near(Stack_selectionY(280, 0), 140, 1e-4f));
-	StackSizes c = Stack_mainSizes(STACK_MAIN_CONSOLES, BRICK_W);
+	StackSizes c = OLD_CONSOLES;
 	assert(84 + px(Stack_selectionY(BRICK_BODY, c.cap), BRICK_PD) == 356); // Brick: 84 + 272
 	assert(56 + px(Stack_selectionY(SPS_BODY, c.cap), SPS_PD) == 341);	   // SPS: 56 + 285
 	StackSizes t = Stack_mainSizes(STACK_MAIN_TOOLS, BRICK_W);
@@ -134,7 +147,7 @@ static void selection_centre(void) {
 
 static void visible_range(void) {
 	int f, l;
-	StackSizes c = Stack_mainSizes(STACK_MAIN_CONSOLES, BRICK_W);
+	StackSizes c = OLD_CONSOLES;
 	Stack_visibleRange(&c, 0, 0, BRICK_BODY, &f, &l);
 	assert(l < f);
 	Stack_visibleRange(&c, 1, 0, BRICK_BODY, &f, &l);
@@ -143,7 +156,7 @@ static void visible_range(void) {
 	Stack_visibleRange(&c, 10, 5, BRICK_BODY, &f, &l);
 	assert(f == 4 && l == 6);
 	// SPS (425.6 dp, selection at 199.8): 2 (−23.2, its lower edge 1.8 inside) to 8 (448.8, its top 423.8 inside)
-	StackSizes cs = Stack_mainSizes(STACK_MAIN_CONSOLES, SPS_W);
+	StackSizes cs = OLD_CONSOLES;
 	Stack_visibleRange(&cs, 10, 5, SPS_BODY, &f, &l);
 	assert(f == 2 && l == 8);
 	// at the ends: clamped to the list
@@ -357,9 +370,10 @@ static void count_on_item(void) {
 	assert(near(Stack_countOn(0, 0.5f, 60, 8, 1.5f).alpha, 0, 1e-6f));
 
 	const float screens[2][2] = {{BRICK_W, BRICK_BODY}, {SPS_W, SPS_BODY}};
-	const float drawn[3] = {100, 60, 30}; // a logo filling the slot's height, a mid one, a wide one
+	const float share[3] = {1, 0.6f, 0.3f}; // a logo filling the slot's height, a mid one, a wide one
 	for (int sc = 0; sc < 2; sc++) {
 		StackSizes c = Stack_mainSizes(STACK_MAIN_CONSOLES, screens[sc][0]);
+		const float drawn[3] = {c.item_h * share[0], c.item_h * share[1], c.item_h * share[2]};
 		float sel_y = Stack_selectionY(screens[sc][1], c.cap);
 		for (int a = 0; a < 3; a++) {
 			for (int b = 0; b < 3; b++) {
@@ -374,7 +388,7 @@ static void count_on_item(void) {
 					assert(near(co.top, out_cy + (drawn[a] / 2 + 8) * out.scale, 1e-3f));
 					assert(near(ci.top, in_cy + (drawn[b] / 2 + 8) * in.scale, 1e-3f));
 					float in_logo_top = in_cy - drawn[b] * in.scale / 2;
-					float next_logo_top = next_cy - 100 * next.scale / 2; // the tallest logo below
+					float next_logo_top = next_cy - c.item_h * next.scale / 2; // the tallest logo below
 					if (co.alpha > 0)
 						assert(co.top + COUNT_LINE_DP * co.scale <= in_logo_top + 1e-3f);
 					if (ci.alpha > 0)

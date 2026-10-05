@@ -20,7 +20,7 @@ static void sizes(void) {
 	assert(near(b.item_w / b.item_h, 170.0f / 150, 1e-3f));
 	assert(b.item_h <= (504 - 2 * BAR) - 32 + 0.01f);
 	RowSizes l = Row_sizes(ROW_BACKDROP_LOGO, 896, 504 - 2 * BAR);
-	assert(near(l.scale, 0.40f, 1e-4f) && near(l.item_w, 415 * l.f, 0.01f));
+	assert(near(l.scale, 0.40f, 1e-4f) && near(l.item_w, 460 * l.f, 0.01f));
 	RowSizes t = Row_sizes(ROW_BACKDROP_TOOL, 896, 504 - 2 * BAR);
 	assert(near(t.gap, 14 * t.f, 0.01f) && near(t.item_h, 208 * t.f, 0.01f) && near(t.item_w, 240 * t.f, 0.01f));
 }
@@ -132,14 +132,20 @@ static int spPx(const Screen* s, float sp) { // NX_SP
 	return (int)(sp * s->scale * 12.0f / 14.0f + 0.5f);
 }
 
-// Main-menu Carousel (sub-project 8): Consoles' logo slot 415 x 164 (sides 0.40), Collections' tool slot twice as
+// Main-menu Carousel (sub-project 8): Consoles' logo slot 460 x 182 (sides 0.40, 48 apart), Collections' tool slot twice as
 // wide with sides at 0.5, Tools' 240 x 208.
 static void main_menu_sizes(void) {
 	float bh = 504 - 2 * BAR;
 	RowSizes l = Row_sizes(ROW_BACKDROP_LOGO, 896, bh);
-	assert(near(l.f, 896.0f / 960, 1e-4f));
-	assert(near(l.item_w, 415 * l.f, 0.01f) && near(l.item_h, 164 * l.f, 0.01f) && near(l.scale, 0.40f, 1e-4f));
-	assert(near(l.gap, 28 * l.f, 0.01f));
+	assert(near(l.f, bh / 500, 1e-4f)); // the SPS body's height binds (425.6 / 500 under 896 / 960)
+	assert(near(l.item_w, 460 * l.f, 0.01f) && near(l.item_h, 182 * l.f, 0.01f) && near(l.scale, 0.40f, 1e-4f));
+	assert(near(l.gap, 48 * l.f, 0.01f));
+	// sized by the screen alone: no 1.0 cap, so a roomy body (a small UI scale on a big panel) still scales it
+	RowSizes big = Row_sizes(ROW_BACKDROP_LOGO, 1920, 1000);
+	assert(near(big.f, 2.0f, 1e-4f) && near(big.item_w, 920, 0.01f));
+	// the Brick's body is tall enough: the width binds there
+	RowSizes br = Row_sizes(ROW_BACKDROP_LOGO, 1024 / (3 * 30.0f / 42.0f), 280);
+	assert(near(br.f, 1024 / (3 * 30.0f / 42.0f) / 960, 1e-4f));
 	RowSizes c = Row_sizes(ROW_BACKDROP_COLL, 896, bh);
 	assert(near(c.item_w, 300 * c.f, 0.01f) && near(c.item_h, 160 * c.f, 0.01f) && near(c.gap, 14 * c.f, 0.01f));
 	assert(near(c.scale, 0.5f, 1e-4f));
@@ -178,11 +184,12 @@ static void main_menu_centring(void) {
 			assert(near(Row_top(BAR, bh, z.item_h, 0, 18 * z.f, 0), top, 1e-4f));
 		}
 	}
-	// the logo slot exactly: Brick f = 477.87 / 960, 81.64 dp tall, its top at 138.38 dp; SPS 153.07 dp at 175.47 dp
+	// the logo slot exactly: Brick f = 477.87 / 960, 90.60 dp tall, its top at 133.90 dp; SPS f = 425.6 / 500, 154.92 dp
+	// at 174.54 dp
 	RowSizes l = Row_sizes(ROW_BACKDROP_LOGO, 1024 / pdOf(&SCREENS[0]), 280);
-	assert(near(l.item_h, 81.64f, 0.01f) && near(Row_top(BAR, 280, l.item_h, 0, 0, 0), 138.38f, 0.01f));
+	assert(near(l.item_h, 90.60f, 0.01f) && near(Row_top(BAR, 280, l.item_h, 0, 0, 0), 133.90f, 0.01f));
 	RowSizes ls = Row_sizes(ROW_BACKDROP_LOGO, 896, 504 - 2 * BAR);
-	assert(near(ls.item_h, 153.07f, 0.01f) && near(Row_top(BAR, 504 - 2 * BAR, ls.item_h, 0, 0, 0), 175.47f, 0.01f));
+	assert(near(ls.item_h, 154.92f, 0.01f) && near(Row_top(BAR, 504 - 2 * BAR, ls.item_h, 0, 0, 0), 174.54f, 0.01f));
 }
 
 // Consoles: "N games" 8 dp under the logo as drawn, its height from the logo's aspect in the slot.
@@ -192,10 +199,10 @@ static void consoles_count_y(void) {
 	assert(near(Row_containH(330, 130, 0), 130, 1e-4f));		   // no aspect: the slot
 	assert(near(Row_logoCountY(100, 40, 8), 128, 1e-4f));
 	const float centre[2] = {179.2f, 252.0f};
-	// Mega Drive (4.20: the width binds), PrBoom (1.93, the squarest bundled logo: the slot's 164 f height binds), a
+	// Mega Drive (4.20: the width binds), PrBoom (1.93, the squarest bundled logo: the slot's 182 f height binds), a
 	// square logo (the height binds too)
 	const float aspects[3] = {4.20f, 1.93f, 1.0f};
-	const float brick_y[3] = {211.79f, 228.02f, 228.02f}, sps_y[3] = {306.11f, 336.53f, 336.53f};
+	const float brick_y[3] = {214.46f, 232.50f, 232.50f}, sps_y[3] = {306.61f, 337.46f, 337.46f};
 	for (int s = 0; s < 2; s++) {
 		const Screen* sc = &SCREENS[s];
 		float sw = sc->w / pdOf(sc), bh = sc->h / pdOf(sc) - 2 * BAR;

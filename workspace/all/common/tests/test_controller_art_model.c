@@ -57,9 +57,9 @@ int main(void) {
 
 	// boxes and fit: a wide pad fills the width, a tall one the height
 	PadSize b = Pad_rowBox(100);
-	assert(near(b.w, 280) && near(b.h, 180));
+	assert(near(b.w, 300) && near(b.h, 195));
 	b = Pad_stackBox(100);
-	assert(near(b.w, 260) && near(b.h, 170));
+	assert(near(b.w, 280) && near(b.h, 185));
 	PadSize f = Pad_fit(2.0f, 280, 180);
 	assert(near(f.w, 280) && near(f.h, 140));
 	f = Pad_fit(1.0f, 280, 180);

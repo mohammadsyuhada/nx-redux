@@ -83,7 +83,7 @@
 #define SLOT_TOOL_GAP_DP 12.0f
 #define SLOT_TOOL_NAME_SP 17.0f
 #define SLOT_LOGO_NAME_SP 24.0f
-#define ROW_BIG_UI_SHRINK 0.85f	   // the Consoles/Collections slots at a UI scale above the default
+#define ROW_BIG_UI_SHRINK 0.85f	   // the Collections slots at a UI scale above the default
 #define SLOT_UNKNOWN_ICON_DP 44.0f // a logo-less console's emblem, × the slot content scale
 #define SLOT_UNKNOWN_GAP_DP 8.0f
 
@@ -256,9 +256,10 @@ static void computeGeo(SDL_Surface* screen, RowKind kind, RowGeo* g) {
 	g->vertical = false;
 	g->cap = captionKind(kind);
 	g->sz = Row_sizes(kind, sw, body_h);
-	// a UI scale above the device's default: the main-menu Carousel's Consoles and Collections slots at 85% (their
-	// logo and name too, through the slot content scale), else they take most of the smaller body
-	if (FIXED_SCALE > NATIVE_SCALE && (kind == ROW_BACKDROP_LOGO || kind == ROW_BACKDROP_COLL)) {
+	// a UI scale above the device's default: the main-menu Carousel's Collections slots at 85% (their name too, through
+	// the slot content scale), else they take most of the smaller body. Consoles' logo slot is sized by the screen
+	// alone (Row_sizes), the same at every UI scale.
+	if (FIXED_SCALE > NATIVE_SCALE && kind == ROW_BACKDROP_COLL) {
 		g->sz.item_w *= ROW_BIG_UI_SHRINK;
 		g->sz.item_h *= ROW_BIG_UI_SHRINK;
 		g->sz.gap *= ROW_BIG_UI_SHRINK;
@@ -1853,7 +1854,7 @@ void RowView_render(SDL_Surface* screen, int lastScreen) {
 	SDL_Rect prev_clip;
 	SDL_GetClipRect(screen, &prev_clip);
 	SDL_SetClipRect(screen, &(SDL_Rect){0, bar, screen->w, body_h});
-	PadSize pad_box = Pad_rowBox((float)g.full_h); // 2.8 x 1.8 the logo slot's height
+	PadSize pad_box = Pad_rowBox((float)g.full_h); // 3.0 x 1.95 the logo slot's height
 	int pad_w = (int)(pad_box.w + 0.5f), pad_h = (int)(pad_box.h + 0.5f);
 
 	// far to near (the largest d first), so the centre lands on top

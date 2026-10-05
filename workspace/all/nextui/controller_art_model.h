@@ -29,7 +29,7 @@ typedef struct {
 } PadSize;
 // An image of aspect w/h fitted in box_w x box_h (keeping its aspect).
 PadSize Pad_fit(float aspect, float box_w, float box_h);
-// The pad's box behind a logo slot of height h: the horizontal Carousel's 2.8 h x 1.8 h, the vertical's 2.6 h x 1.7 h.
+// The pad's box behind a logo slot of height h: the horizontal Carousel's 3.0 h x 1.95 h, the vertical's 2.8 h x 1.85 h.
 PadSize Pad_rowBox(float h);
 PadSize Pad_stackBox(float h);
 // The pad's opacity at distance d from the selection: 0.6 at the focused item, gone one step away.

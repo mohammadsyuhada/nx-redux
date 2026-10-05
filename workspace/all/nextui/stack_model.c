@@ -13,9 +13,12 @@ static float maxf(float a, float b) {
 StackSizes Stack_mainSizes(StackKind k, float body_w) {
 	StackSizes s = {0, 0, 0.5f, 0, 0};
 	switch (k) {
-	case STACK_MAIN_CONSOLES:
-		s.item_w = 330, s.item_h = 100, s.gap = 16, s.cap = 26;
+	case STACK_MAIN_CONSOLES: { // by the screen alone (u = body_w / 960 dp, px independent of the UI scale)
+		float u = body_w / 960.0f;
+		// the gap never under 16 dp: the "N games" line under each logo is UI-scale text and needs that room
+		s.item_w = 490 * u, s.item_h = 149 * u, s.gap = maxf(30 * u, 16), s.cap = 26, s.side_alpha = ROW_LOGO_SIDE_ALPHA;
 		break;
+	}
 	case STACK_MAIN_COLLECTIONS:
 		s.item_w = 400, s.item_h = 100, s.gap = 14;
 		break;
@@ -124,6 +127,8 @@ StackItem Stack_item(const StackSizes* s, float index, float pos) {
 	it.dy = diff < 0 ? -off : off + s->cap * t; // below the selection: the cap's room too, eased in over a step
 	it.scale = 1 + (s->scale - 1) * t;
 	it.alpha = Row_slotAlpha(d);
+	if (s->side_alpha > 0) // Consoles: its neighbours a step dimmer than the curve, as the horizontal Carousel's
+		it.alpha *= 1 - (1 - s->side_alpha) * t;
 	it.darken = d <= 1 ? 0.60f * t : minf(0.85f, 0.45f + 0.15f * d);
 	if (d > 3) // the tiles fade toward the black ground over 3..4
 		it.darken += (1 - it.darken) * clampf(d - 3, 0, 1);

@@ -33,10 +33,16 @@ RowSizes Row_sizes(RowKind k, float body_w, float body_h) {
 		s.item_h = h, s.item_w = h * 170.0f / 150.0f, s.gap = 28 * f;
 		break;
 	}
-	case ROW_BACKDROP_LOGO: // the main-menu Consoles' logo slot: side logos shrink further, so the selected one stands out
-		// (415 x 164, about 26% over the spec's 330 x 130 for the handhelds; sides at 0.40 of it)
-		s.item_w = 415 * f, s.item_h = 164 * f, s.scale = 0.40f, s.gap = 28 * f;
+	case ROW_BACKDROP_LOGO: { // the main-menu Consoles' logo slot: side logos shrink further, so the selected one stands
+		// out (460 x 182, about 40% over the spec's 330 x 130 for the handhelds; sides at 0.40 of it, 48 apart). Sized by
+		// the screen alone: no 1.0 cap on the factor, so in px it is the same at every UI scale (rowview.c skips its
+		// big-UI shrink for it too). Held by the body's height at 500 too: a 16:9 screen's extra width (the Smart Pro
+		// S) would otherwise make it bigger than on the Brick for about the same height; the Brick stays width-bound.
+		float fl = minf(body_w / 960.0f, body_h / 500.0f);
+		s.f = fl;
+		s.item_w = 460 * fl, s.item_h = 182 * fl, s.scale = 0.40f, s.gap = 48 * fl;
 		break;
+	}
 	case ROW_BACKDROP_TOOL: // 1.6x the spec's 150 wide (long names) and 1.3x its 160 tall, its icon and name 1.3x
 		s.item_w = 240 * f, s.item_h = 208 * f, s.gap = 14 * f;
 		break;

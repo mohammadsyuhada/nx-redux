@@ -27,11 +27,13 @@ typedef enum { STACK_MAIN_CONSOLES, // the logo slot
 typedef struct {
 	float item_w, item_h, scale, gap, cap;
 	float extra_up, extra_down;
+	float side_alpha; // the neighbours' alpha × this, eased in over the first step (Consoles 0.65); 0: no extra fade
 } StackSizes;
 
-// The main-menu Carousel-Vertical's slots (§8f.3), unscaled (no small-screen factor), the width held to
-// body_w − 2 · 24 dp: Consoles 330 × 100, s 0.5, gap 16, cap 26; Collections min(400, ·) × 100, s 0.5, gap 14;
-// Tools 150 × 140, s 0.6, gap 10.
+// The main-menu Carousel-Vertical's slots (§8f.3), the width held to body_w − 2 · 24 dp. Consoles is sized by the
+// screen alone, like the horizontal Carousel's logo slot (u = body_w / 960, so its px are the same at every UI scale):
+// 490 u × 149 u, s 0.5, gap max(30 u, 16), cap 26, neighbours at 0.65 × the frameless fade. Collections min(400, ·) × 100, s 0.5,
+// gap 14; Tools 150 × 140, s 0.6, gap 10 (dp, unscaled).
 StackSizes Stack_mainSizes(StackKind k, float body_w);
 
 // The game-list stacks' side arrangement (§8f.4, landscape family): h = round(want), w = round(h · ar), the stack's
