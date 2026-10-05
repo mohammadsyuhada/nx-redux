@@ -79,6 +79,7 @@ static void refreshInputs(const MenuReloadPlan* plan) {
 	if (plan->load_recents)
 		Recents_load();
 	if (plan->check_all) {
+		last_in.hide_home = !CFG_getShowHome();
 		last_in.show_consoles = CFG_getShowEmulators();
 		last_in.show_collections = CFG_getShowCollections();
 		last_in.show_tools = CFG_getShowTools();
@@ -132,6 +133,32 @@ bool MenuTabs_isVisible(MenuTabId id) {
 	return MenuTabs_indexOf(tabs, tab_count, id) >= 0;
 }
 
+bool MenuTabs_pushable(MenuTabId id) {
+	if (simple_mode || MenuTabs_isVisible(id))
+		return false;
+	switch (id) {
+	case MENU_TAB_CONSOLES:
+		return last_in.has_consoles;
+	case MENU_TAB_COLLECTIONS:
+		return last_in.has_collections;
+	case MENU_TAB_TOOLS:
+		return last_in.has_tools;
+	default:
+		return false;
+	}
+}
+
+// The hidden tab whose list sits pushed at stack[1] (the root context menu's item), else MENU_TAB_HOME.
+static MenuTabId pushedTab(void) {
+	if (!stack || stack->count < 2)
+		return MENU_TAB_HOME;
+	const char* path = ((Directory*)stack->items[1])->path;
+	for (int id = MENU_TAB_CONSOLES; id < MENU_TAB_COUNT; id++)
+		if (!MenuTabs_isVisible((MenuTabId)id) && exactMatch((char*)path, (char*)MenuTabs_path((MenuTabId)id)))
+			return (MenuTabId)id;
+	return MENU_TAB_HOME;
+}
+
 int MenuTabs_styleCategory(MenuTabId id) {
 	switch (id) {
 	case MENU_TAB_CONSOLES:
@@ -167,7 +194,7 @@ static MenuTabPaths tabPaths(void) {
 MenuTabId MenuTabs_forPathVisible(const char* path) {
 	MenuTabPaths p = tabPaths();
 	MenuTabId id = MenuTabs_forPath(path, &p);
-	return MenuTabs_isVisible(id) ? id : MENU_TAB_HOME;
+	return MenuTabs_isVisible(id) ? id : MenuTabs_at(0); // Home, unless it is hidden
 }
 
 // Build the Directory for a tab with a clamped selection window. `current` must already be id: the row count
@@ -202,7 +229,8 @@ static void aimDim(bool animate) {
 }
 
 void MenuTabs_setFocused(bool on) {
-	focused = on && stack && stack->count == 1;
+	// a lone tab draws no row (MenuTabs_renderRow), so there is nothing to focus: UP from the content's top stops
+	focused = on && stack && stack->count == 1 && tab_count > 1;
 	aimDim(true);
 }
 
@@ -341,12 +369,11 @@ void MenuTabs_clearHomeLaunch(void) {
 void MenuTabs_saveState(void) {
 	if (home_launch && current == MENU_TAB_HOME)
 		putFile(MENU_TAB_PATH, "home\nlaunch\n");
-	else if (stack && stack->count > 1 && !MenuTabs_isVisible(MENU_TAB_TOOLS) &&
-			 exactMatch(((Directory*)stack->items[1])->path, TOOLS_PATH)) {
-		// the context menu's Tools list pushed over a tab (Tools tab hidden): the tab it was pushed over plus a
-		// "tools" line, so boot reopens that tab and loadLast re-pushes Tools on the tool's row
+	else if (pushedTab() != MENU_TAB_HOME) {
+		// a hidden tab's list pushed over a tab by the context menu: the tab it was pushed over plus the pushed
+		// tab's key, so boot reopens that tab and loadLast re-pushes the list
 		char state[64];
-		snprintf(state, sizeof(state), "%s\ntools\n", MenuTabs_key(current));
+		snprintf(state, sizeof(state), "%s\n%s\n", MenuTabs_key(current), MenuTabs_key(pushedTab()));
 		putFile(MENU_TAB_PATH, state);
 	} else
 		putFile(MENU_TAB_PATH, (char*)MenuTabs_key(current));
@@ -368,11 +395,19 @@ static void readSavedState(char* key, size_t key_size, char** second) {
 	trimTrailingNewlines(key);
 }
 
-bool MenuTabs_savedToolsPush(void) {
+// The pushed tab a second line names (Consoles, Collections or Tools), else MENU_TAB_HOME.
+static MenuTabId pushedFromLine(const char* second) {
+	MenuTabId id = MENU_TAB_HOME;
+	if (!second || !MenuTabs_parseKey(second, &id))
+		return MENU_TAB_HOME;
+	return id;
+}
+
+MenuTabId MenuTabs_savedPush(void) {
 	char key[64];
 	char* second;
 	readSavedState(key, sizeof(key), &second);
-	return second && strcmp(second, "tools") == 0;
+	return pushedFromLine(second);
 }
 
 bool MenuTabs_savedHomeLaunch(void) {
@@ -427,9 +462,10 @@ MenuTabId MenuTabs_initialTab(const char* last_path) {
 	if (has_path) {
 		MenuTabPaths p = tabPaths();
 		path_tab = MenuTabs_forPath(last_path, &p);
-		// a tool from the Tools list pushed over the saved tab: boot reopens that tab (loadLast re-pushes Tools)
-		bool tools_push = second && strcmp(second, "tools") == 0 && path_tab == MENU_TAB_TOOLS && !MenuTabs_isVisible(MENU_TAB_TOOLS);
-		owns = home_launched || tools_push || (saved_valid && savedOwnsPath(saved, last_path, path_tab));
+		// a launch from a hidden tab's list pushed over the saved tab: boot reopens that tab (loadLast re-pushes the list)
+		MenuTabId pushed = pushedFromLine(second);
+		bool list_push = pushed != MENU_TAB_HOME && path_tab == pushed && !MenuTabs_isVisible(pushed);
+		owns = home_launched || list_push || (saved_valid && savedOwnsPath(saved, last_path, path_tab));
 	}
 	return MenuTabs_pickInitial(tabs, tab_count, saved_valid, saved, has_path, path_tab, owns);
 }
@@ -684,7 +720,8 @@ static SDL_Surface* plateSurface(TTF_Font* f, MenuTabId id, int pw, int ph, int 
 }
 
 void MenuTabs_renderRow(SDL_Surface* screen, int ow) {
-	if (tab_count <= 0)
+	// one tab left (the others hidden or empty): no row, a lone label has nothing to switch to
+	if (tab_count <= 1)
 		return;
 
 	// the row fills the top bar: both the default scale's height whatever the UI scale

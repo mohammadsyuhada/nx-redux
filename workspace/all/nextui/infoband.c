@@ -273,8 +273,11 @@ static SDL_Surface* buildBlock(const InfoSeg* in, int nsegs, bool up, bool down,
 	SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
 
 	// the fade: ground at 80% across the 2 dp above the hint bar's top, linear to 0 at the band's top; below the
-	// bar's top (the band reaches into it) nothing, the bar's own 80% shows
-	SDL_Surface* fade = fill_h > 0 ? UI_bandFadeSurface(w, fill_h, 0.8f, NX_DP(2)) : NULL;
+	// bar's top (the band reaches into it) nothing, the bar's own 80% shows. With the button hints hidden there is
+	// no bar (the fill reaches the band's bottom, the screen's edge): the 80% holds from the text line down instead,
+	// or light art would show through under the text.
+	int hold = fill_h >= h ? h - text_off : NX_DP(2);
+	SDL_Surface* fade = fill_h > 0 ? UI_bandFadeSurface(w, fill_h, 0.8f, hold) : NULL;
 	if (fade)
 		SDL_BlitSurface(fade, NULL, s, NULL);
 

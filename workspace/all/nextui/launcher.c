@@ -576,8 +576,9 @@ void openDirectory(char* path, int auto_launch) {
 		stack = pathToStack(temp_path);
 		if (stack->count == 0) {
 			// pathToStack yields an empty stack for non-SD paths — fall back
-			// to Home rather than indexing items[-1] (sets stack and top)
-			MenuTabs_openRoot(MENU_TAB_HOME);
+			// to the first tab (Home, unless it is hidden) rather than indexing
+			// items[-1] (sets stack and top)
+			MenuTabs_openRoot(MenuTabs_at(0));
 		} else {
 			top = stack->items[stack->count - 1];
 		}
@@ -640,24 +641,26 @@ void saveLast(char* path) {
 	putFile(LAST_PATH, path);
 	MenuTabs_saveState();
 }
-// One copy for both callers (the root context menu's Tools item, and loadLast re-pushing Tools after a tool launched
-// from it), which had drifted apart. Kept from each, deliberately:
+// One copy for both callers (the root context menu's Consoles, Collections and Tools items, and loadLast re-pushing
+// the list after a launch from it), which had drifted apart for Tools. Kept from each, deliberately:
 //  - the window is clamped to the selection (boot copy, via MenuTabs_clampWindow): with select_path NULL the row is 0
 //    and this is the plain top window the menu copy built, and on boot the tool's row must be visible;
 //  - MenuTabs_leaveFocus (menu copy): a list was opened over the tab, so the content has focus, lit. On boot it is a
 //    no-op in practice (Entry_open already left focus before the launch), and it keeps the two pushes identical.
-// The resume probe is the caller's: the context menu re-probes whatever is selected after any action, so only
-// loadLast probes here.
-void pushToolsOverTab(const char* select_path) {
-	Directory* tools = Directory_new(TOOLS_PATH, 0);
-	int count = tools->entries->count;
+// The list is titled as its tab ("Consoles", not the Roms folder's name). The resume probe is the caller's: the
+// context menu re-probes whatever is selected after any action, so only loadLast probes here.
+void pushTabOverTab(MenuTabId id, const char* select_path) {
+	Directory* list = Directory_new((char*)MenuTabs_path(id), 0);
+	free(list->name);
+	list->name = strdup(MenuTabs_label(id));
+	int count = list->entries->count;
 	int sel = 0;
 	if (select_path) { // a system tool pak is saved SD-shaped, TOOLS_PATH/<name>, so match on the name too
 		const char* name = strrchr(select_path, '/');
 		char paks_tools_path[MAX_PATH];
 		snprintf(paks_tools_path, sizeof(paks_tools_path), "%s/Tools/", PAKS_PATH);
 		for (int i = 0; i < count; i++) {
-			Entry* entry = tools->entries->items[i];
+			Entry* entry = list->entries->items[i];
 			if (exactMatch(entry->path, (char*)select_path) ||
 				(name && prefixMatch(paks_tools_path, entry->path) && suffixMatch((char*)name, entry->path))) {
 				sel = i;
@@ -665,12 +668,12 @@ void pushToolsOverTab(const char* select_path) {
 			}
 		}
 	}
-	tools->selected = sel;
-	tools->start = tools->end = 0; // rebuilt around the selection, with a game list's rows (pushed over the tab)
-	MenuTabs_clampWindow(count, GameList_rowCountAt(false), &tools->selected, &tools->start, &tools->end);
+	list->selected = sel;
+	list->start = list->end = 0; // rebuilt around the selection, with a game list's rows (pushed over the tab)
+	MenuTabs_clampWindow(count, GameList_rowCountAt(false), &list->selected, &list->start, &list->end);
 	MenuTabs_leaveFocus();
-	Array_push(stack, tools);
-	top = tools;
+	Array_push(stack, list);
+	top = list;
 }
 
 void loadLast(void) { // call after loading root directory
@@ -688,22 +691,28 @@ void loadLast(void) { // call after loading root directory
 		return;
 
 	bool home_launch = MenuTabs_savedHomeLaunch();
-	if (MenuTabs_savedToolsPush()) {
-		// a tool launched from the Tools list pushed over a tab (Tools tab hidden): boot opened that tab,
-		// re-push Tools on the tool's row
-		char tools_dir[MAX_PATH];
-		snprintf(tools_dir, sizeof(tools_dir), "%s/", TOOLS_PATH);
-		if (prefixMatch(tools_dir, last_path) && !MenuTabs_isVisible(MENU_TAB_TOOLS) && hasTools()) {
-			pushToolsOverTab(last_path);
-			if (top->entries->count > 0)
-				readyResume(top->entries->items[top->selected]);
-			return;
+	bool pushed_list = false;
+	MenuTabId pushed = MenuTabs_savedPush();
+	if (pushed != MENU_TAB_HOME) {
+		// a launch from a hidden tab's list pushed over a tab: boot opened that tab, re-push the list
+		char pushed_dir[MAX_PATH];
+		snprintf(pushed_dir, sizeof(pushed_dir), "%s/", MenuTabs_path(pushed));
+		if (prefixMatch(pushed_dir, last_path) && MenuTabs_pushable(pushed)) {
+			if (pushed == MENU_TAB_TOOLS) { // on the tool's row
+				pushTabOverTab(pushed, last_path);
+				if (top->entries->count > 0)
+					readyResume(top->entries->items[top->selected]);
+				return;
+			}
+			// Consoles, Collections: the walk below goes on from the list into the console or collection
+			pushTabOverTab(pushed, NULL);
+			pushed_list = true;
 		}
 	}
 
 	// Home tab: the saved path is the pinned row itself — select it, don't walk
 	// into a pinned parent folder on the way
-	if (MenuTabs_current() == MENU_TAB_HOME) {
+	if (MenuTabs_current() == MENU_TAB_HOME && !pushed_list) {
 		for (int i = 0; i < top->entries->count; i++) {
 			Entry* entry = top->entries->items[i];
 			if (exactMatch(entry->path, last_path)) {

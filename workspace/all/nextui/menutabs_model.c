@@ -10,7 +10,8 @@ static const char* tab_keys[MENU_TAB_COUNT] = {"home", "consoles", "collections"
 
 int MenuTabs_visible(const MenuTabInputs* in, MenuTabId out[MENU_TAB_COUNT]) {
 	int n = 0;
-	out[n++] = MENU_TAB_HOME;
+	if (!in->hide_home)
+		out[n++] = MENU_TAB_HOME;
 	if (in->show_consoles && in->has_consoles)
 		out[n++] = MENU_TAB_CONSOLES;
 	if (in->show_collections && in->has_collections)
@@ -18,6 +19,8 @@ int MenuTabs_visible(const MenuTabInputs* in, MenuTabId out[MENU_TAB_COUNT]) {
 	// simple mode keeps Settings reachable whatever the Tools toggle says
 	if (in->simple_mode ? in->has_settings : (in->show_tools && in->has_tools))
 		out[n++] = MENU_TAB_TOOLS;
+	if (n == 0) // Home hidden and nothing else to show: keep it, the menu needs a tab
+		out[n++] = MENU_TAB_HOME;
 	return n;
 }
 
@@ -112,7 +115,7 @@ MenuTabId MenuTabs_pickInitial(const MenuTabId* tabs, int count, bool saved_vali
 		return saved;
 	if (has_path && MenuTabs_indexOf(tabs, count, path_tab) >= 0)
 		return path_tab;
-	return MENU_TAB_HOME; // always visible; also the cold-boot tab
+	return count > 0 ? tabs[0] : MENU_TAB_HOME; // the cold-boot tab: Home, unless it is hidden
 }
 
 void MenuTabs_clampWindow(int count, int rows, int* selected, int* start, int* end) {

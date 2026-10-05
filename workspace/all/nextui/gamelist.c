@@ -1358,10 +1358,19 @@ void GameList_runContextAction(int id) {
 		ctxRefresh(root_sel);
 		break;
 	case 2: // Tools (root, offered while the Tools tab is hidden)
-		// Push the Tools folder over the current tab so B comes back to it.
-		// Tools is a direct child of the Home tab only; from any other tab
+	case 4: // Consoles (same, Consoles tab)
+	case 5: // Collections (same, Collections tab)
+		// Push the tab's list over the current tab so B comes back to it.
+		// It is a direct child of the Home tab only; from any other tab
 		// openDirectory would rebuild the stack on Home.
-		pushToolsOverTab(NULL);
+		{
+			MenuTabId pushed = MENU_TAB_TOOLS;
+			if (id == 4)
+				pushed = MENU_TAB_CONSOLES;
+			else if (id == 5)
+				pushed = MENU_TAB_COLLECTIONS;
+			pushTabOverTab(pushed, NULL);
+		}
 		break;
 	case 20: // Pin Tool
 	case 30: // Pin Item
@@ -1518,11 +1527,14 @@ static void toolItems(Entry* entry, ContextMenuItem* items, int* idx) {
 // The main menu's own items.
 static void rootItems(ContextMenuItem* items, int* idx) {
 	addItem(items, idx, "Refresh Roms", 1);
-	// Tools must stay reachable here even when "Show Tools" is off:
-	// Settings.pak lives inside Tools, so hiding Tools would
-	// otherwise lock the user out of re-enabling it. With a Tools
-	// tab it is one R1 away, so the item is left out.
-	if (!gl_simple_mode && hasTools() && !MenuTabs_isVisible(MENU_TAB_TOOLS))
+	// A hidden tab's list stays reachable here (Layouts > Consoles, Collections and Tools tab). Tools must:
+	// Settings.pak lives inside Tools, so hiding Tools would otherwise lock the user out of re-enabling it.
+	// A visible tab is one R1 away, so its item is left out.
+	if (MenuTabs_pushable(MENU_TAB_CONSOLES))
+		addItem(items, idx, "Consoles", 4);
+	if (MenuTabs_pushable(MENU_TAB_COLLECTIONS))
+		addItem(items, idx, "Collections", 5);
+	if (MenuTabs_pushable(MENU_TAB_TOOLS))
 		addItem(items, idx, "Tools", 2);
 }
 
@@ -1946,6 +1958,11 @@ static int listTop(void) {
 // differs (listTopAt).
 static InfoBandLayout listLayoutAt(bool root) {
 	int screen_h = screen ? screen->h : FIXED_HEIGHT;
+	// Button hints hidden (Layouts > Button hints): no bar, so the band sits on the screen's bottom edge, its fade
+	// reaching it, and the rows take the bar's height; 8 dp each side of the line: the text off the edge, and the
+	// fade above it (infoband.c holds the 80% from the text line down)
+	if (!CFG_getButtonHints())
+		return InfoBand_fixedLayout(screen_h, 0, listTopAt(root), SCALE1(PILL_SIZE), NX_DP(18), NX_DP(8), 0);
 	int bar_h = BAR_HEIGHT; // the hint bar (UI_buttonHintBarTop)
 	// the bar's ink top: the padding over its centred BUTTON_SIZE icons, plus the glyphs' margin (host-tested)
 	int overlap = InfoBand_overlap(NX_DP(12), InfoBand_hintInkTop(bar_h, CHROME1(BUTTON_SIZE)));
@@ -2016,23 +2033,26 @@ static void renderInfoBand(void) {
 	Entry* entry = total > 0 ? top->entries->items[top->selected] : NULL;
 	MenuTabId tab = MenuTabs_current();
 	bool at_root = stack->count == 1;
-	// game rows: game lists and the Home tab (same rule as GameList_render's game_art)
+	// game rows: game lists and the Home tab (same rule as GameList_render's game_art). Their play time and
+	// achievements show only while the button hints are hidden (Layouts > Button hints); with the bar shown the
+	// band is the fade and arrows alone.
 	if (entry && (!at_root || tab == MENU_TAB_HOME) && selectedIsGame(entry)) {
 		GameInfo info;
 		InfoSeg segs[3];
 		int n = 0;
-		if (GameInfo_get(entry->path, &info) && (info.has_time || info.has_ra))
+		if (!CFG_getButtonHints() && GameInfo_get(entry->path, &info) && (info.has_time || info.has_ra))
 			n = GameInfo_segments(time(NULL), info.has_time ? info.last_played : 0,
 								  info.has_time ? info.seconds : -1, info.has_ra ? info.unlocked : 0,
 								  info.has_ra ? info.total : 0, info.has_ra ? info.next : NULL, true, segs);
 		InfoBand_render(&layout, segs, n, up, down, LAYER_OVERLAY, dst);
 		return;
 	}
-	// Consoles and Collections rows: "N games" (nothing while unknown); Tools and folders show no text.
+	// Consoles and Collections rows (their tab, or its list pushed over a tab while hidden): "N games" (nothing while
+	// unknown); Tools and folders show no text.
 	char games[32] = "";
-	if (entry && at_root && tab == MENU_TAB_CONSOLES)
+	if (entry && exactMatch(top->path, ROMS_PATH))
 		GameInfo_gamesLabel(Content_consoleGameCount(entry), games, sizeof(games));
-	else if (entry && at_root && tab == MENU_TAB_COLLECTIONS)
+	else if (entry && exactMatch(top->path, COLLECTIONS_PATH))
 		GameInfo_gamesLabel(CollCount_get(entry->path), games, sizeof(games));
 	InfoBand_renderText(&layout, games[0] ? games : NULL, up, down, LAYER_OVERLAY, dst);
 }
@@ -2049,6 +2069,9 @@ void GameList_renderInfoLayer(void) {
 // The hint bar of a List or Grid screen (main-menu tabs and game lists): one copy of the pairs, the four-pair cap
 // and the START drop rule.
 static void renderHints(SDL_Surface* screen, IndicatorType show_setting) {
+	// Button hints hidden (Layouts > Button hints): no bar at all, a volume or brightness change included
+	if (!CFG_getButtonHints())
+		return;
 	int total = top->entries->count;
 	Entry* entry = total > 0 ? top->entries->items[top->selected] : NULL;
 	char* right_pairs[16] = {NULL};
@@ -2237,8 +2260,6 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		ox = had_thumb ? screen->w - SCALE1(BUTTON_MARGIN * 2) : screen->w;
 	}
 
-	renderHints(screen, show_setting);
-
 	// the rows' geometry: whole px rows of row_h (nxListFit), the band below them
 	InfoBandLayout rows_layout = listLayout();
 	int row_h = rows_layout.row_h;
@@ -2269,6 +2290,10 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 			}
 		}
 	}
+
+	// after the controller art: its bottom reaches into the hint bar, and blitted over the bar's 80% scrim it showed
+	// undimmed there, a hard edge under the band's fade (which ends at the bar's 80%)
+	renderHints(screen, show_setting);
 
 	// the List's content: the rows and the band, down to the band's bottom (inside the hint bar)
 	content.h = rows_layout.band_bottom - content.y;

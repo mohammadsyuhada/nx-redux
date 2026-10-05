@@ -2335,7 +2335,7 @@ int GFX_blitHardwareIndicatorFixed(SDL_Surface* dst, int x, int y, IndicatorType
 char** GFX_getHardwareHintPairs(IndicatorType show_setting) {
 	static char* brightness_pairs[] = {BRIGHTNESS_BUTTON_LABEL, "BRIGHTNESS", NULL};
 	static char* colortemp_pairs[] = {BRIGHTNESS_BUTTON_LABEL, "COLOR TEMP", NULL};
-	static char* default_pairs[] = {"SELECT", "BRGHTNESS", NULL};
+	static char* default_pairs[] = {"SELECT", "BRIGHTNESS", NULL};
 
 	if (show_setting == INDICATOR_BRIGHTNESS)
 		return brightness_pairs;

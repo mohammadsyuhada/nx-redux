@@ -1154,6 +1154,9 @@ static void drawTile(SDL_Surface* dst, const HomeTile* t, int id, int scroll_px)
 }
 
 static void renderHints(SDL_Surface* dst) {
+	// Button hints hidden (Layouts > Button hints): no bar at all, a volume or brightness change included
+	if (!CFG_getButtonHints())
+		return;
 	char* pairs[10] = {NULL};
 	int p = 0;
 	pairs[p++] = "SELECT";

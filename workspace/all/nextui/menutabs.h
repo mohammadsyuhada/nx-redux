@@ -18,6 +18,9 @@ void MenuTabs_dropCached(MenuTabId id);
 // Menu_quit: free the parked roots.
 void MenuTabs_quit(void);
 bool MenuTabs_isVisible(MenuTabId id);
+// The root context menu offers `id` (Consoles, Collections or Tools) as a list pushed over the current tab: the tab is
+// hidden, has something to list, and simple mode is off.
+bool MenuTabs_pushable(MenuTabId id);
 const char* MenuTabs_path(MenuTabId id);			 // the stack[0] path for a tab
 MenuTabId MenuTabs_forPathVisible(const char* path); // MenuTabs_forPath, then Home
 // The tab's main menu style category (MENU_CAT_* in config.h), or -1 for Home.
@@ -46,19 +49,20 @@ void MenuTabs_markHomeLaunch(void);
 // Drop a pending mark (Entry_open calls this last, so a mark never outlives its own open).
 void MenuTabs_clearHomeLaunch(void);
 // saveLast() hook: write the current tab key to MENU_TAB_PATH ("home\nlaunch\n" after
-// MenuTabs_markHomeLaunch while on Home; "<tab>\ntools\n" from the Tools list pushed over <tab> while the
-// Tools tab is hidden).
+// MenuTabs_markHomeLaunch while on Home; "<tab>\n<pushed>\n" from a hidden tab's list (consoles, collections
+// or tools) pushed over <tab>).
 // Clears the mark.
 void MenuTabs_saveState(void);
 // MENU_TAB_PATH carries a launch from Home itself (the "launch" line): loadLast then only reselects Home's row.
 bool MenuTabs_savedHomeLaunch(void);
-// MENU_TAB_PATH carries the "tools" line: the launch came from the Tools list pushed over the saved tab.
-bool MenuTabs_savedToolsPush(void);
+// MENU_TAB_PATH's pushed-list line: the launch came from that hidden tab's list pushed over the saved tab (its
+// id), else MENU_TAB_HOME.
+MenuTabId MenuTabs_savedPush(void);
 // The tab to open at boot: MENU_TAB_PATH if visible, else the tab of last_path, else Home.
 MenuTabId MenuTabs_initialTab(const char* last_path);
 // Tab-row focus (docs/superpowers/specs/2026-10-01-menu-sp6-tab-focus-design.md): UP from the top of a tab's content
 // moves focus to the tab row. Meaningful only at the root: setFocused(true) is refused below it, and every path that
-// pushes a list clears it (Entry_open, openDirectory, the context menu's Tools push), so B back to the root
+// pushes a list clears it (Entry_open, openDirectory, the context menu's hidden-tab push), so B back to the root
 // returns to the content; MenuTabs_focused is a pure read. MenuTabs_openRoot clears it (boot, a launch return);
 // MenuTabs_step keeps it (LEFT/RIGHT, L1/R1 on the row).
 bool MenuTabs_focused(void);

@@ -3,7 +3,8 @@
 
 #include <stdbool.h>
 
-// Fixed tab order. Home (the SDCARD_PATH listing: pins) is always visible.
+// Fixed tab order. Home (the SDCARD_PATH listing: pins) is first; it can be hidden (Layouts > Home tab), but stays
+// when no other tab shows.
 typedef enum { MENU_TAB_HOME = 0,
 			   MENU_TAB_CONSOLES,
 			   MENU_TAB_COLLECTIONS,
@@ -11,6 +12,7 @@ typedef enum { MENU_TAB_HOME = 0,
 			   MENU_TAB_COUNT } MenuTabId;
 
 typedef struct {
+	bool hide_home; // Layouts > Home tab hidden (false keeps it, so a zeroed struct still shows Home)
 	bool show_consoles, has_consoles;
 	bool show_collections, has_collections;
 	bool show_tools, has_tools;
@@ -24,7 +26,7 @@ typedef struct {
 	const char* sys_tools;	 // PAKS_PATH "/Tools"
 } MenuTabPaths;
 
-// Visible tabs in fixed order into out; returns the count (>= 1: Home is always first).
+// Visible tabs in fixed order into out; returns the count (>= 1: Home when nothing else shows).
 int MenuTabs_visible(const MenuTabInputs* in, MenuTabId out[MENU_TAB_COUNT]);
 // index + delta, wrapping over count (count <= 0 returns 0).
 int MenuTabs_wrap(int count, int index, int delta);
@@ -46,7 +48,7 @@ int MenuTabs_scrollOffset(int content_w, int view_w, int cur_x, int cur_w, int m
 // The tab to open at boot. The saved tab (saved_valid: MENU_TAB_PATH parsed) wins when it is
 // visible and either there is no saved path or the path belongs to it (saved_owns_path, e.g. a
 // Search launch from Home saves an unpinned ROM, which does not). Otherwise the path's tab
-// (path_tab = MenuTabs_forPath), then Home.
+// (path_tab = MenuTabs_forPath), then the first visible tab (Home unless it is hidden).
 MenuTabId MenuTabs_pickInitial(const MenuTabId* tabs, int count, bool saved_valid, MenuTabId saved,
 							   bool has_path, MenuTabId path_tab, bool saved_owns_path);
 

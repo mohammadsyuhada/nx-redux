@@ -130,7 +130,9 @@ typedef struct
 	bool showMenuTransitions;
 	bool showRecents;
 	bool showTools;
+	bool showHome; // the Home tab (Layouts > Home tab)
 	bool menuControllerArt;
+	bool buttonHints; // the launcher lists' bottom button hint bar (Layouts > Button hints)
 	bool showCollections;
 	bool showEmulators;
 	bool showFolderNamesAtRoot;
@@ -242,7 +244,9 @@ typedef struct
 #define CFG_DEFAULT_VIEW SCREEN_GAMELIST
 #define CFG_DEFAULT_WIFI_DIAG false
 #define CFG_DEFAULT_SHOWTOOLS true
+#define CFG_DEFAULT_SHOWHOME true
 #define CFG_DEFAULT_MENUCONTROLLERART true
+#define CFG_DEFAULT_BUTTONHINTS true
 #define CFG_DEFAULT_FN1_TOOL ""
 #define CFG_DEFAULT_FN2_TOOL ""
 #define CFG_DEFAULT_BLUETOOTH false
@@ -334,9 +338,15 @@ void CFG_setShowRecents(bool show);
 // Show/hide tools folder in the main menu.
 bool CFG_getShowTools(void);
 void CFG_setShowTools(bool show);
+// Show/hide the Home tab (Layouts > Home tab); it still shows when no other tab does.
+bool CFG_getShowHome(void);
+void CFG_setShowHome(bool show);
 // Show/hide each console's controller art in the Consoles tab (Layouts > Controller).
 bool CFG_getMenuControllerArt(void);
 void CFG_setMenuControllerArt(bool show);
+// Show/hide the bottom button hint bar on the launcher's Home, tab and game list screens (Layouts > Button hints).
+bool CFG_getButtonHints(void);
+void CFG_setButtonHints(bool show);
 // Show/hide collections in the main menu.
 bool CFG_getShowCollections(void);
 void CFG_setShowCollections(bool show);

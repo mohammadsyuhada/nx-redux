@@ -2,6 +2,7 @@
 #define LAUNCHER_H
 
 #include "defines.h"
+#include "menutabs_model.h"
 #include "types.h"
 #include <stdbool.h>
 
@@ -60,9 +61,9 @@ void Entry_open(Entry* self);
 // Spawn the Artwork Manager pak's headless fetch for one ROM, fire-and-forget.
 void openArtFetch(const char* rom, const char* out, const char* tag, const char* status);
 
-// Push the Tools list over the current tab (Tools tab hidden) with select_path's row selected (NULL: the first),
-// so B comes back to the tab.
-void pushToolsOverTab(const char* select_path);
+// Push a hidden tab's list (Consoles, Collections or Tools) over the current tab with select_path's row selected
+// (NULL: the first), so B comes back to the tab.
+void pushTabOverTab(MenuTabId id, const char* select_path);
 
 // State persistence
 void saveLast(char* path);

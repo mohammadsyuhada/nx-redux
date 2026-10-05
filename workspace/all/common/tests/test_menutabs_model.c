@@ -276,6 +276,35 @@ static void reload_plan_recents_marks_no_tab(void) {
 	assert(p.stale_tabs == 0);
 }
 
+static void home_hidden_drops_the_tab(void) {
+	MenuTabId t[MENU_TAB_COUNT];
+	MenuTabInputs in = all_on();
+	in.hide_home = true;
+	assert(MenuTabs_visible(&in, t) == 3);
+	assert(t[0] == MENU_TAB_CONSOLES && t[1] == MENU_TAB_COLLECTIONS && t[2] == MENU_TAB_TOOLS);
+	in.show_consoles = false;
+	assert(MenuTabs_visible(&in, t) == 2 && t[0] == MENU_TAB_COLLECTIONS);
+}
+
+static void home_hidden_but_nothing_else_keeps_home(void) {
+	MenuTabId t[MENU_TAB_COUNT];
+	MenuTabInputs in = {.hide_home = true}; // every other tab hidden or empty: Home is the last resort
+	assert(MenuTabs_visible(&in, t) == 1 && t[0] == MENU_TAB_HOME);
+	in.show_tools = true; // Tools shown but empty
+	assert(MenuTabs_visible(&in, t) == 1 && t[0] == MENU_TAB_HOME);
+}
+
+static void pick_initial_without_home_opens_first_tab(void) {
+	MenuTabId no_home[3] = {MENU_TAB_CONSOLES, MENU_TAB_COLLECTIONS, MENU_TAB_TOOLS};
+	// cold boot, a saved Home tab, or a Home-owned path: the first visible tab
+	assert(MenuTabs_pickInitial(no_home, 3, false, MENU_TAB_HOME, false, MENU_TAB_HOME, false) == MENU_TAB_CONSOLES);
+	assert(MenuTabs_pickInitial(no_home, 3, true, MENU_TAB_HOME, true, MENU_TAB_HOME, true) == MENU_TAB_CONSOLES);
+	// a visible saved tab still wins
+	assert(MenuTabs_pickInitial(no_home, 3, true, MENU_TAB_TOOLS, false, MENU_TAB_HOME, false) == MENU_TAB_TOOLS);
+	MenuTabId only_tools[1] = {MENU_TAB_TOOLS};
+	assert(MenuTabs_pickInitial(only_tools, 1, false, MENU_TAB_HOME, false, MENU_TAB_HOME, false) == MENU_TAB_TOOLS);
+}
+
 int main(void) {
 	visible_fixed_order_and_toggles();
 	home_always_first_and_visible();
@@ -299,6 +328,9 @@ int main(void) {
 	reload_plan_pins_marks_only_home();
 	reload_plan_collections_bit();
 	reload_plan_recents_marks_no_tab();
+	home_hidden_drops_the_tab();
+	home_hidden_but_nothing_else_keeps_home();
+	pick_initial_without_home_opens_first_tab();
 	printf("test_menutabs_model: ok\n");
 	return 0;
 }
