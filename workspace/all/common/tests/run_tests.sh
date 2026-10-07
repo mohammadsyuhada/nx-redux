@@ -22,6 +22,8 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_scraper_system
 /tmp/nx_test_scraper_systems
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_arcade_names ../arcade_names.c test_arcade_names.c
 /tmp/nx_test_arcade_names
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_png_palette ../png_palette.c test_png_palette.c -lz
+/tmp/nx_test_png_palette
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_button_layout test_button_layout.c
 /tmp/nx_test_button_layout
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_next_cmd test_next_cmd.c

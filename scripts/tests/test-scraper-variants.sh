@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Host unit test for the Artwork Manager art variants: the variant-path helper
-# Scraper_variantPath (workspace/all/scraper/scraper_core.c) and the
-# single-image compositor Compositor_createSingle (scraper_compositor.c).
+# Scraper_variantPath (workspace/all/scraper/scraper_core.c), the
+# single-image compositor Compositor_createSingle and its 256-colour save
+# (scraper_compositor.c), and the "Optimize images" pass (scraper_optimize.c).
 # Compiles those device TUs with the host compiler + host SDL2/SDL2_image and
 # drives them directly; nothing is built for a device.
 #
@@ -41,7 +42,9 @@ CFLAGS=(-std=gnu99 -O1 -DUSE_SDL2 -DPLATFORM=\"tg5040\" -DHOSTTEST_SDCARD=\"$TMP
 # other host tests do; our test TU is held to -Wall -Wextra -Werror.
 for src in \
 	workspace/all/scraper/scraper_compositor.c \
+	workspace/all/scraper/scraper_optimize.c \
 	workspace/all/scraper/scraper_paths.c \
+	workspace/all/common/png_palette.c \
 	workspace/all/common/utils.c; do
 	"$CC" "${CFLAGS[@]}" -w -c -o "$TMP/$(basename "${src%.c}").o" "$src"
 done
@@ -49,7 +52,7 @@ done
 "$CC" "${CFLAGS[@]}" -Wall -Wextra -Werror -c -o "$TMP/test.o" \
 	scripts/tests/scraper-variants/test_variants.c
 
-"$CC" -o "$TMP/test_variants" "$TMP"/*.o "${SDL_LIBS_ARR[@]}"
+"$CC" -o "$TMP/test_variants" "$TMP"/*.o "${SDL_LIBS_ARR[@]}" -lz
 
 mkdir -p "$TMP/sd/.userdata/shared"
 "$TMP/test_variants" "$TMP/sd/.userdata/shared"

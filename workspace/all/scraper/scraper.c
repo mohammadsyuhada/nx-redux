@@ -13,6 +13,7 @@
 #include "api.h"
 #include "ui_buttonhintbar.h"
 #include "ui_confirmdialog.h"
+#include "ui_downloadprogress.h"
 #include "ui_emptystate.h"
 #include "ui_loadingoverlay.h"
 #include "ui_menubar.h"
@@ -29,6 +30,7 @@
 #include "ui_keyboard.h"
 #include "display_helper.h"
 #include "scraper_scan.h"
+#include "scraper_optimize.h"
 
 // ============================================
 // Constants
@@ -765,7 +767,8 @@ static const char* romStatusLabel(ROMEntry* rom) {
 // ============================================
 
 static ListView main_menu_view;
-static const char* main_menu_items[] = {"Library", "Progress", "Settings"};
+static const char* main_menu_items[] = {"Library", "Progress", "Optimize images", "Settings"};
+#define MAIN_MENU_COUNT ((int)(sizeof(main_menu_items) / sizeof(main_menu_items[0])))
 static char progress_badge_buf[32];
 
 static void main_menu_get_row(void* ctx, int i, bool selected,
@@ -789,7 +792,7 @@ static void renderMainMenu(void) {
 	ListView* v = &main_menu_view;
 	v->title = "Artwork Manager";
 	v->font = font.large;
-	v->count = 3;
+	v->count = MAIN_MENU_COUNT;
 	v->get_row = main_menu_get_row;
 	v->ctx = NULL;
 	v->list_id = (const void*)main_menu_items;
@@ -1100,6 +1103,166 @@ static void resetArtworkFlow(void) {
 	SDL_Delay(1000);
 }
 
+// ---- Optimize images ------------------------------------------------------
+// Rewrites the art already on the card as 256-colour PNGs (scraper_optimize.c)
+// on a worker thread, one file at a time, while this loop draws the progress
+// page; B asks the worker to stop after the file in hand (each file is
+// replaced by a tmp + rename, so a stop never leaves one half-written).
+
+typedef struct {
+	OptimizeList list;
+	volatile int index; // file the worker is on
+	volatile bool cancel, done;
+	int optimized, already, no_gain, failed;
+	long long saved;
+} OptimizeJob;
+
+static OptimizeJob optimize_job;
+
+static void* optimize_thread_func(void* arg) {
+	OptimizeJob* job = arg;
+	for (int i = 0; i < job->list.count && !job->cancel; i++) {
+		job->index = i;
+		long long saved = 0;
+		switch (Optimize_file(job->list.paths[i], &saved)) {
+		case OPTIMIZE_DONE:
+			job->optimized++;
+			job->saved += saved;
+			break;
+		case OPTIMIZE_ALREADY:
+			job->already++;
+			break;
+		case OPTIMIZE_NO_GAIN:
+			job->no_gain++;
+			break;
+		case OPTIMIZE_FAILED:
+			job->failed++;
+			break;
+		}
+	}
+	job->done = true;
+	return NULL;
+}
+
+// The system a path belongs to, as the Library names it: the Roms folder name
+// with its tag and sort prefix dropped ("1) Game Boy (GB)" -> "Game Boy").
+static void optimizeSystemName(const char* path, char* out, int out_size) {
+	out[0] = '\0';
+	size_t root_len = strlen(ROMS_PATH);
+	if (strncmp(path, ROMS_PATH "/", root_len + 1) != 0)
+		return;
+	const char* folder = path + root_len + 1;
+	const char* slash = strchr(folder, '/');
+	char dirname[256];
+	snprintf(dirname, sizeof(dirname), "%.*s", slash ? (int)(slash - folder) : (int)strlen(folder), folder);
+	extractDisplayName(dirname, out, out_size);
+}
+
+static void renderOptimizeProgress(void) {
+	OptimizeJob* job = &optimize_job;
+	int total = job->list.count;
+	int i = job->index;
+	char system[256] = "";
+	if (i >= 0 && i < total)
+		optimizeSystemName(job->list.paths[i], system, sizeof(system));
+	char status[300], detail[64];
+	if (job->cancel)
+		snprintf(status, sizeof(status), "Stopping...");
+	else if (system[0])
+		snprintf(status, sizeof(status), "Optimizing %s", system);
+	else
+		snprintf(status, sizeof(status), "Optimizing images");
+	snprintf(detail, sizeof(detail), "%d of %d", i + 1, total);
+
+	GFX_clear(screen);
+	UI_renderMenuBar(screen, "Artwork Manager | Optimize images");
+	UI_renderDownloadProgress(screen, &(UIDownloadProgress){
+										  .status = status,
+										  .detail = detail,
+										  .progress = total > 0 ? i * 100 / total : 0,
+										  .show_bar = true,
+									  });
+	if (!job->cancel)
+		UI_renderButtonHintBar(screen, (char*[]){"B", "CANCEL", NULL});
+	GFX_flip(screen);
+}
+
+// Confirm, then convert every art PNG under Roms. Refuses while the scrape
+// queue is working (the scraper thread writes art into the same folders).
+static void optimizeImagesFlow(void) {
+	if (queueIsBusy()) {
+		UI_renderLoadingOverlay(screen, "Scrape in progress",
+								"Wait for the queue to finish");
+		GFX_flip(screen);
+		SDL_Delay(1500);
+		return;
+	}
+
+	if (!UI_confirmModal(screen, "Optimize images?",
+						 "Shrinks the art files on the card to 256 colours. They look the same "
+						 "on screen and take far less space. This can't be undone.",
+						 &app_quit, false, true))
+		return;
+
+	UI_renderLoadingOverlay(screen, "Optimize images", "Finding art files...");
+	GFX_flip(screen);
+
+	OptimizeJob* job = &optimize_job;
+	memset(job, 0, sizeof(*job));
+	if (!Optimize_collect(ROMS_PATH, &job->list)) {
+		UI_renderLoadingOverlay(screen, "Optimize images", "Out of memory");
+		GFX_flip(screen);
+		SDL_Delay(1500);
+		return;
+	}
+	if (job->list.count == 0) {
+		UI_renderLoadingOverlay(screen, "Nothing to optimize", "No art files found");
+		GFX_flip(screen);
+		SDL_Delay(1500);
+		return;
+	}
+
+	pthread_t thread;
+	if (pthread_create(&thread, NULL, optimize_thread_func, job) != 0) {
+		Optimize_freeList(&job->list);
+		UI_renderLoadingOverlay(screen, "Optimize images", "Could not start");
+		GFX_flip(screen);
+		SDL_Delay(1500);
+		return;
+	}
+
+	// a long job: don't let the device doze off while it runs
+	PWR_disableAutosleep();
+	bool dirty = true;
+	IndicatorType show_setting = INDICATOR_NONE;
+	while (!job->done) {
+		GFX_startFrame();
+		PAD_poll();
+		PWR_update(&dirty, &show_setting, NULL, NULL);
+		if (PAD_justPressed(BTN_B) || app_quit)
+			job->cancel = true;
+		renderOptimizeProgress();
+	}
+	pthread_join(thread, NULL);
+	PWR_enableAutosleep();
+	bool cancelled = job->cancel;
+	Optimize_freeList(&job->list);
+	PAD_poll();
+	PAD_reset();
+	if (app_quit)
+		return;
+
+	char summary[256];
+	int skipped = job->already + job->no_gain;
+	int n = snprintf(summary, sizeof(summary), "Optimized %d %s, saved %.1f MB. Skipped %d (already optimized or no smaller).",
+					 job->optimized, job->optimized == 1 ? "file" : "files",
+					 job->saved / (1024.0 * 1024.0), skipped);
+	if (job->failed > 0 && n > 0 && n < (int)sizeof(summary))
+		snprintf(summary + n, sizeof(summary) - n, " %d could not be read.", job->failed);
+	UI_confirmModalHints(screen, cancelled ? "Optimize stopped" : "Optimize complete", summary,
+						 (char*[]){"A", "OK", NULL}, &app_quit, false, true);
+}
+
 // ============================================
 // Main
 // ============================================
@@ -1152,7 +1315,7 @@ int main(int argc, char* argv[]) {
 
 	// Cold-start the main-menu ListView; selection persists across screen
 	// changes thereafter (static view), matching the old module-static index.
-	UI_listViewReset(&main_menu_view, 3, main_menu_items);
+	UI_listViewReset(&main_menu_view, MAIN_MENU_COUNT, main_menu_items);
 
 	bool dirty = true;
 	IndicatorType show_setting = INDICATOR_NONE;
@@ -1192,7 +1355,11 @@ int main(int argc, char* argv[]) {
 					progress_scroll = 0;
 					dirty = true;
 					break;
-				case 2: // Settings
+				case 2: // Optimize images
+					optimizeImagesFlow();
+					dirty = true;
+					break;
+				case 3: // Settings
 					current_screen = SCREEN_SETTINGS;
 					settings_selected = 0;
 					settings_scroll = 0;

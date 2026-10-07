@@ -1,4 +1,6 @@
 #include "scraper_compositor.h"
+#include "api.h" // LOG_warn
+#include "png_palette.h"
 #include "utils.h"
 #include <stdio.h>
 #include <string.h>
@@ -59,6 +61,25 @@ SDL_Surface* Compositor_createSingle(const char* image_path) {
 	return canvas;
 }
 
+// Quantize an ARGB8888 surface (converting other formats first) and write it
+// as an indexed PNG via png_palette (tmp file + rename).
+static bool savePalettePNG(SDL_Surface* surface, const char* path) {
+	SDL_Surface* argb = surface;
+	if (surface->format->format != SDL_PIXELFORMAT_ARGB8888) {
+		argb = SDL_ConvertSurfaceFormat(surface, SDL_PIXELFORMAT_ARGB8888, 0);
+		if (!argb)
+			return false;
+	}
+	bool ok = false;
+	if (SDL_LockSurface(argb) == 0) {
+		ok = PngPalette_saveARGB((const uint32_t*)argb->pixels, argb->w, argb->h, argb->pitch / 4, path);
+		SDL_UnlockSurface(argb);
+	}
+	if (argb != surface)
+		SDL_FreeSurface(argb);
+	return ok;
+}
+
 bool Compositor_savePNG(SDL_Surface* surface, const char* path) {
 	if (!surface || !path)
 		return false;
@@ -71,6 +92,13 @@ bool Compositor_savePNG(SDL_Surface* surface, const char* path) {
 		*last_slash = '\0';
 		mkdir_p(dir);
 	}
+
+	// Game art goes to the card as a 256-colour PNG: same size on screen, a
+	// third of the bytes or less. Any failure there (an odd surface format,
+	// out of memory, a write error) falls back to the plain 32-bit PNG.
+	if (savePalettePNG(surface, path))
+		return true;
+	LOG_warn("Scraper: 256-colour save failed, writing a full-colour PNG: %s\n", path);
 
 	SDL_RWops* rw = SDL_RWFromFile(path, "wb");
 	if (!rw)
