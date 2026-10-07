@@ -21,13 +21,42 @@ Model string: `TRIMUI_MODEL` (e.g. `Trimui Brick Pro`).
 
 ## UI scale and asset sheets
 
-- `FIXED_SCALE` on tg5040 is **runtime**: `(is_brick ? 3 : 2)`
-  (`workspace/tg5040/platform/platform.h`). The Brick renders the 1024×768
-  panel at 3x; Smart Pro and Brick Pro use 2x. tg5050 is a compile-time 2.
-- Because the scale is runtime, sprite-sheet glyphs must be drawn into **all
-  four** `skeleton/SYSTEM/res/assets@{1,2,3,4}x.png` sheets, and all four must
-  be deployed together. Pushing only `@2x` makes a new glyph invisible on the
-  Brick (it loads `@3x`) — this exact mistake has burned a debugging session.
+- There is no user UI scale. Each device has **one UI scale**, tuned by eye so
+  the UI is the same physical size on every panel (`UIScale_forDevice` in
+  `workspace/all/common/ui_scale.h`). `FIXED_SCALE` is that float, resolved in
+  `GFX_init` (`ui_scale`); the standalone-emulator overlay reads the same value
+  with `UIScale_fromEnvironment()` (`$DEVICE`). Every size rounds on its own
+  (`SCALE1` is `lroundf`), so fractional scales are fine.
+
+  | Device | Panel | Density | Scale |
+  |---|---|---|---|
+  | Brick (tg5040) | 3.2" 1024×768 | ~400 ppi | 3.0 (the reference) |
+  | Brick Pro (tg5040) | 3.95" 1024×768 | ~324 ppi | 2.5 (2.4375 by density; rounded up for whole-px sizes) |
+  | Smart Pro / Smart Pro S | 4.96" 1280×720 | ~296 ppi | 2.25 |
+
+  The Brick Pro and Smart Pro values were seeded from density (3 × ppi / 400)
+  and are pending by-eye tuning. Every scale is snapped to 1/16 (so a 128-unit
+  sheet is whole pixels) and clamped to [1.5, 4].
+- **Tuning a device's scale on hardware:** add `uiscale_dev=<float>` to
+  `/mnt/SDCARD/.userdata/shared/minuisettings.txt` and force-reboot so
+  nextui's shutdown save can't race the edit:
+  `adb shell "echo uiscale_dev=2.5 >> /mnt/SDCARD/.userdata/shared/minuisettings.txt && sync && reboot -f"`.
+  The launcher log shows `[UI] scale 2.5 (<device>)`. A scale with no baked
+  sheet is drawn from the nearest larger sheet, resized at load (nearest
+  neighbour; the log says `scaled from @…x`), which is fine for judging sizes.
+  Remove the line the same way (`sed -i '/^uiscale_dev=/d' … && sync && reboot -f`).
+  Settings saves keep the line (unknown keys survive `CFG_sync`).
+- **Baking a tuned scale:** set it in `UIScale_forDevice`, add it to
+  `DEVICE_SCALES` in `scripts/gen-chrome-assets.py` and `SCALES` in
+  `scripts/gen-nav-icons.py`, and run both; they write `assets@<s>x.png`, its
+  two-thirds indicator sheet and `nav_*@<s>x.png` into `skeleton/SYSTEM/res/`.
+  Home draws at two thirds of the UI scale and the volume indicator likewise.
+- A new glyph in the asset sheet must reach **every** shipped sheet
+  (`assets@{2,3}x.png` by hand, the fractional ones by re-running
+  `gen-chrome-assets.py` from the `scripts/assets/assets@4x.png` master), and
+  all of them deployed together. Pushing only one sheet makes the glyph
+  invisible on devices that load another — this exact mistake has burned a
+  debugging session.
 - Framebuffer format is RGB565 (`FIXED_BPP 2`) — no alpha channel on screen.
   Anti-aliasing therefore lives on *source* surfaces (PNG alpha, TTF blended
   alpha) and is consumed by the blit; drawn shapes need coverage-based AA
