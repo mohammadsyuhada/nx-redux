@@ -516,7 +516,7 @@ int main(int argc, char* argv[]) {
 				// Grid, Carousel and Backdrop (LIST-LAYOUT §10.1)
 				int title_x = currentScreen == SCREEN_GAMELIST &&
 									  (GameList_currentStyle() != MENU_STYLE_LIST || stack->count == 1)
-								  ? NX_NATIVE_DP(NX_MENU_GUTTER_DP) // the root's: where the tab row starts
+								  ? NX_DP(NX_MENU_GUTTER_DP) // the root's: where the tab row starts
 								  : -1;
 				ow = UI_renderMenuBarAt(screen, menu_title, NULL, title_x, false, over_art);
 			} else {

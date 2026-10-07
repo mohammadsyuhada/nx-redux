@@ -32,7 +32,7 @@ InfoBandLayout InfoBand_fixedLayout(int screen_h, int bar_h, int list_top, int p
 // rather than lose a row to a pixel-level shortfall (it grows as needed otherwise). Returns n.
 int InfoBand_listFit(int slot, int pitch, int* row_h);
 
-// The hint glyphs' transparent margin above their ink, in px: none. The nav_*.png glyphs (SYSTEM/res, one set per CHROME_SCALE)
+// The hint glyphs' transparent margin above their ink, in px: none. The nav_*.png glyphs (SYSTEM/res, one set per FIXED_SCALE)
 // are cropped to their discs and labels, with ink on their first row, and drawn BUTTON_SIZE tall (no centring offset).
 #define INFOBAND_HINT_GLYPH_INK_MARGIN 0
 

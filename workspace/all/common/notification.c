@@ -258,7 +258,7 @@ void Notification_update(uint32_t now) {
 
 // Render system indicator (top-right)
 static void render_system_indicator(void) {
-	// the indicator's fixed size (INDICATOR_SCALE), whatever the UI scale
+	// the indicator's own size (INDICATOR_SCALE)
 	int indicator_width, indicator_height;
 	GFX_hardwareIndicatorSize(&indicator_width, &indicator_height);
 	int indicator_x = screen_width - SCALE1(PADDING) - indicator_width;

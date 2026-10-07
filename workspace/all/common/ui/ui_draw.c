@@ -131,16 +131,16 @@ SDL_Surface* UI_getScrimAlpha(SDL_Surface** cache, int w, int h, Uint8 alpha) {
 	return scrim;
 }
 
-// The hint bar's size (CHROME_SCALE) whatever the UI scale, so a dialog's buttons match the hint bar's.
+// The hint bar's size, so a dialog's buttons match the hint bar's.
 void UI_renderCenteredButtons(SDL_Surface* dst, int y, char** pairs) {
-	int btn_margin = CHROME1(BUTTON_MARGIN);
+	int btn_margin = SCALE1(BUTTON_MARGIN);
 
 	// Measure the row
 	int widths[8];
 	int count = 0;
 	int total_w = 0;
 	for (int i = 0; pairs[i * 2] && pairs[i * 2 + 1] && count < 8; i++) {
-		widths[count] = GFX_getButtonWidthChrome(pairs[i * 2 + 1], pairs[i * 2]);
+		widths[count] = GFX_getButtonWidth(pairs[i * 2 + 1], pairs[i * 2]);
 		total_w += (count > 0 ? btn_margin : 0) + widths[count];
 		count++;
 	}
@@ -150,7 +150,7 @@ void UI_renderCenteredButtons(SDL_Surface* dst, int y, char** pairs) {
 	// Render centered
 	int bx = (dst->w - total_w) / 2;
 	for (int i = 0; i < count; i++) {
-		GFX_blitButtonChrome(pairs[i * 2 + 1], pairs[i * 2], dst, &(SDL_Rect){bx, y, 0, 0});
+		GFX_blitButton(pairs[i * 2 + 1], pairs[i * 2], dst, &(SDL_Rect){bx, y, 0, 0});
 		bx += widths[i] + btn_margin;
 	}
 }

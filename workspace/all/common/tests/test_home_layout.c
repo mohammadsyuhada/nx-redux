@@ -306,7 +306,103 @@ static void brick_small_tools(void) {
 	assert(l.npins == 2 && near(l.pins[0].r.y, 1026));
 }
 
+// The stats text's own factor moves the strip's baselines and the top section's start (its text grew); the top section
+// then fills what is left.
+static void strip_text_factor(void) {
+	HomeLayout a, b;
+	HomeLayout_computeStrip(1536, 1152, 126, 2, 1.5f, 2, 3, &a);
+	HomeLayout_computeStripText(1536, 1152, 126, 2, 1.5f, 1.0f, 2, 3, &b);
+	assert(near(a.strip_base[0], b.strip_base[0]) && near(a.strip_base[1], b.strip_base[1]) && near(a.top_y, b.top_y));
+	assert(near(a.glyph, b.glyph) && near(a.square, b.square) && a.ntop == b.ntop);
+	float tk = 30.0f / 27.0f;
+	HomeLayout_computeStripText(1536, 1152, 126, 2, 1.5f, tk, 2, 3, &b);
+	assert(near(b.strip_base[0], 126 + 37 * 1.5f * tk) && near(b.strip_base[1], 126 + 73 * 1.5f * tk));
+	assert(near(b.top_y, 126 + 103 * 1.5f * tk));
+	assert(near(b.top[0].r.y, b.top_y) && b.top_h < a.top_h); // Continue starts under the taller strip
+	HomeLayout_computeStripText(1536, 1152, 126, 1, 1.5f, tk, 2, 3, &b);
+	assert(near(b.strip_base[0], 126 + 40 * 1.5f * tk) && near(b.top_y, 126 + 71 * 1.5f * tk));
+}
+
+// The Continue caption's baselines above the card's bottom grow with its info line: the Brick's 21 px time 21 px up and
+// the title 28 px over it, at 33 px 33 up and the title 44 over it (the stats lines' gap).
+static void caption_baselines(void) {
+	float sub, title;
+	HomeLayout_captionBaselines(21, 49, 21, 21, &sub, &title);
+	assert(near(sub, 21) && near(title, 49));
+	HomeLayout_captionBaselines(21, 49, 21, 33, &sub, &title);
+	assert(near(sub, 33) && near(title, 33 + 28 * 33.0f / 21));
+}
+
+// The pins' height factor (the Brick's pins, below the top section): each pin pin_k times as tall, the rows and the
+// page following.
+static void pin_height_factor(void) {
+	HomeLayout a, b;
+	HomeLayoutOpts o = {1.5f, 33.0f / 27.0f, 1.0f};
+	HomeLayout_computeOpts(1536, 1152, 126, 2, &o, 4, 3, &a);
+	o.pin_k = 2.0f;
+	HomeLayout_computeOpts(1536, 1152, 126, 2, &o, 4, 3, &b);
+	assert(a.npins == 4 && b.npins == 4);
+	assert(near(b.pins[0].r.h, 2 * a.pins[0].r.h) && near(b.pins[0].r.y, a.pins[0].r.y));
+	assert(near(b.pins[2].r.y, b.pins[0].r.y + b.pins[0].r.h + HOME_GAP));
+	assert(near(b.page_h, a.page_h + 2 * a.pins[0].r.h));	  // two rows, each a pin taller
+	assert(near(b.top_y, a.top_y) && near(b.top_h, a.top_h)); // the top section unchanged
+}
+
+// The tools per column (the 4:3 top section's squares): 5 (the Brick Pro's) makes each column of squares 5 tall,
+// smaller, filling the same height; 0 is the 4 every other device keeps.
+static void tool_rows_option(void) {
+	HomeLayout a, b;
+	HomeLayoutOpts o = {1.5f, 1.0f, 1.0f, 0, 0};
+	HomeLayout_computeOpts(1536, 1152, 126, 2, &o, 2, 5, &a);
+	o.tool_rows = 5;
+	HomeLayout_computeOpts(1536, 1152, 126, 2, &o, 2, 5, &b);
+	assert(b.square < a.square);
+	int col0 = 0; // tiles sharing the first tool's x: one column
+	float x0 = -1;
+	for (int i = 0; i < b.ntop; i++)
+		if (b.top[i].kind == HOME_TILE_TOOL) {
+			if (x0 < 0)
+				x0 = b.top[i].r.x;
+			col0 += b.top[i].r.x == x0;
+		}
+	assert(col0 == 5); // 5 tools in one column, not 4 + 1
+	float last_bottom = 0;
+	for (int i = 0; i < b.ntop; i++)
+		if (b.top[i].kind == HOME_TILE_TOOL && b.top[i].r.y + b.top[i].r.h > last_bottom)
+			last_bottom = b.top[i].r.y + b.top[i].r.h;
+	assert(near(last_bottom, b.top_y + b.top_h)); // the column fills the section
+}
+
+// The wide layout's pins: wide_pin_cols a row (0: 4), each (the row less the gaps) / cols wide; pin_k < 1 shortens
+// them and the top section (Continue) takes the height they give up.
+static void wide_pins_option(void) {
+	HomeLayout a, b;
+	HomeLayoutOpts o = {1.5f, 1.0f, 1.0f, 0, 0};
+	HomeLayout_computeOpts(2560, 1440, 140, 2, &o, 6, 3, &a); // the Smart Pro S at Home's scale, with tools
+	assert(a.wide && a.k == 4 && near(a.pins[0].r.w, (2560 - 2 * HOME_EDGE - 3 * HOME_GAP) / 4));
+	o.wide_pin_cols = 3;
+	o.pin_k = 0.8f;
+	HomeLayout_computeOpts(2560, 1440, 140, 2, &o, 6, 3, &b);
+	assert(b.k == 3 && near(b.pins[0].r.w, (2560 - 2 * HOME_EDGE - 2 * HOME_GAP) / 3));
+	assert(near(b.pins[2].r.y, b.pins[0].r.y) && b.pins[3].r.y > b.pins[0].r.y); // 3 a row
+	assert(near(b.pins[0].r.h, a.pins[0].r.h * 0.8f));
+	assert(near(b.top_h, a.top_h + a.pins[0].r.h * 0.2f)); // Continue takes what the pins gave up
+	assert(near(b.top[0].r.h, b.top_h) && b.top[0].kind == HOME_TILE_CONTINUE);
+	// the tool squares fill the taller top section: 3 a column, the third's bottom on the section's
+	assert(near(b.square, (b.top_h - 2 * HOME_GAP) / 3) && b.square > a.square);
+	float tool_bottom = 0;
+	for (int i = 0; i < b.ntop; i++)
+		if (b.top[i].kind == HOME_TILE_TOOL && b.top[i].r.y + b.top[i].r.h > tool_bottom)
+			tool_bottom = b.top[i].r.y + b.top[i].r.h;
+	assert(near(tool_bottom, b.top_y + b.top_h));
+}
+
 int main(void) {
+	wide_pins_option();
+	tool_rows_option();
+	strip_text_factor();
+	caption_baselines();
+	pin_height_factor();
 	brick_small_tools();
 	wide_few_games();
 	wide_few_games_moves();

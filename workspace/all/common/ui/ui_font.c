@@ -23,7 +23,6 @@ typedef struct {
 
 static UIFontEntry cache[UIFONT_MAX];
 static int cache_count = 0;
-static int cache_scale = 0; // FIXED_SCALE the cached fonts were opened at
 static unsigned cache_tick = 0;
 
 // Debug counter: TTF_OpenFont calls this process (primary + Arabic). A steadily rising count while scrolling means
@@ -63,7 +62,6 @@ void UIFont_quit(void) {
 	for (int i = 0; i < cache_count; i++)
 		closeEntry(&cache[i]);
 	cache_count = 0;
-	cache_scale = 0;
 }
 
 // GFX_fallbackFontFor resolver: the Arabic face for one of our fonts (NULL for any other font, or when
@@ -92,10 +90,6 @@ TTF_Font* UIFont_get(float sp, bool bold) {
 }
 
 TTF_Font* UIFont_getPx(int px, bool bold) {
-	if (cache_scale != FIXED_SCALE) {
-		UIFont_quit();
-		cache_scale = FIXED_SCALE;
-	}
 	if (px < 1)
 		px = 1;
 	for (int i = 0; i < cache_count; i++)
@@ -115,7 +109,7 @@ TTF_Font* UIFont_getPx(int px, bool bold) {
 	}
 	if (!TTF_WasInit())
 		TTF_Init();
-	// Close the cache whenever the system fonts reload (font change, GFX_reloadScale) and at GFX_quit, and
+	// Close the cache whenever the system fonts reload (font change) and at GFX_quit, and
 	// give our fonts their Arabic counterparts in GFX_renderText/GFX_measureText/GFX_getCachedText.
 	GFX_setFontReloadHook(UIFont_quit);
 	GFX_setFallbackFontResolver(arabicFor);

@@ -30,8 +30,10 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_next_cmd test_
 /tmp/nx_test_next_cmd
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_gpu_governor_hold test_gpu_governor_hold.c
 /tmp/nx_test_gpu_governor_hold
-cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_ui_scale test_ui_scale.c
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_ui_scale test_ui_scale.c -lm
 /tmp/nx_test_ui_scale
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_pill_cap test_pill_cap.c -lm
+/tmp/nx_test_pill_cap
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_wiz_caps ../../netplay-wizard/wiz_caps.c test_wiz_caps.c
 /tmp/nx_test_wiz_caps
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_core_netplay ../../netplay/core_netplay.c test_core_netplay.c

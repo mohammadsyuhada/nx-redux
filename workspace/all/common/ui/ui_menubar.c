@@ -10,10 +10,9 @@
 #include <stdio.h>
 #include <string.h>
 
-// The page title keeps the Brick's physical size on every device whatever the UI scale: UI_PAGE_TITLE_SP at
-// CHROME_SCALE, not FIXED_SCALE.
+// The page title: UI_PAGE_TITLE_SP at the UI scale.
 TTF_Font* UI_pageTitleFont(void) {
-	return UIFont_getPx(NX_CHROME_SP(UI_PAGE_TITLE_SP), false);
+	return UIFont_getPx(NX_SP(UI_PAGE_TITLE_SP), false);
 }
 
 int UI_menuBarHeight(void) {
@@ -40,12 +39,12 @@ int UI_pageTitleBandTop(void) {
 		if (TTF_GlyphMetrics(f, (Uint16)*c, &minx, &maxx, &miny, &maxy, &adv) == 0 && -miny > desc)
 			desc = -miny;
 	}
-	return base + desc + NX_NATIVE_DP(2);
+	return base + desc + NX_DP(2);
 }
 
 int UI_pageTitleX(void) {
 	// the list label inset (LIST-LAYOUT §10.1): == UI_listTextX(), the shared list rows' text start
-	return NX_NATIVE_DP(NX_LIST_INSET_DP);
+	return NX_DP(NX_LIST_INSET_DP);
 }
 
 // A title with Arabic text is drawn with the Arabic fallback face, which has no "|" (U+007C): when the part
@@ -109,16 +108,16 @@ int UI_renderPageTitleEx(SDL_Surface* dst, int x, const char* title, const char*
 		max_w = dst->w - x;
 
 	// The bar redraws every frame during list animation: re-fit only when the input changes. The key holds
-	// the font's height and the scale too, since a reopened font can land at the same address.
+	// the font's height too, since a reopened font can land at the same address.
 	// The strings are keyed whole (length + hash): a long title can share the first 255 bytes with another.
 	static char last_title[256], last_suffix[64], fitted[256];
 	static UI_TitleKey last_title_key, last_suffix_key;
 	static TTF_Font* last_font = NULL;
-	static int last_max_w = -1, last_h = -1, last_scale = -1;
+	static int last_max_w = -1, last_h = -1;
 	const char* sfx = suffix ? suffix : "";
 	int fh = TTF_FontHeight(f);
 	UI_TitleKey title_key = UI_titleFit_key(title), suffix_key = UI_titleFit_key(sfx);
-	if (f != last_font || max_w != last_max_w || fh != last_h || FIXED_SCALE != last_scale ||
+	if (f != last_font || max_w != last_max_w || fh != last_h ||
 		strncmp(title, last_title, sizeof(last_title)) != 0 || strncmp(sfx, last_suffix, sizeof(last_suffix)) != 0 ||
 		!UI_titleFit_keyEq(title_key, last_title_key) || !UI_titleFit_keyEq(suffix_key, last_suffix_key)) {
 		UI_titleFit(title, suffix && suffix[0] ? suffix : NULL, max_w, measureTitle, f, fitted, sizeof(fitted));
@@ -129,7 +128,6 @@ int UI_renderPageTitleEx(SDL_Surface* dst, int x, const char* title, const char*
 		last_font = f;
 		last_max_w = max_w;
 		last_h = fh;
-		last_scale = FIXED_SCALE;
 	}
 
 	// Cached (do not free): the title only changes on navigation.

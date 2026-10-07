@@ -351,24 +351,24 @@ static void wifi_network_draw(SDL_Surface* screen, SettingItem* item,
 
 	// SSID text (truncate first so we know the label width for pills)
 	char truncated[128];
-	int max_text_w = w - NATIVE1(BUTTON_PADDING * 2) - SCALE1(48); // room for icons
+	int max_text_w = w - SCALE1(BUTTON_PADDING * 2) - SCALE1(48); // room for icons
 	GFX_truncateText(f, info->ssid, truncated, max_text_w, 0);
 
 	// Draw 2-layer selection pill
 	if (selected) {
 		// Layer 1: full-width background
 		SDL_Rect row_rect = {x, y, w, h};
-		GFX_blitRectColor(ASSET_BUTTON, screen, &row_rect, THEME_COLOR2);
+		GFX_blitPillColor(ASSET_BUTTON, screen, &row_rect, THEME_COLOR2, RGB_WHITE);
 
 		// Layer 2: label-width pill on top
 		int text_w_px, text_h_px;
 		GFX_measureText(f, truncated, &text_w_px, &text_h_px);
-		int label_pill_w = text_w_px + NATIVE1(BUTTON_PADDING * 2);
+		int label_pill_w = text_w_px + SCALE1(BUTTON_PADDING * 2);
 		SDL_Rect label_rect = {x, y, label_pill_w, h};
-		GFX_blitRectColor(ASSET_BUTTON, screen, &label_rect, UI_accentMapped(screen->format));
+		GFX_blitPillColor(ASSET_BUTTON, screen, &label_rect, UI_accentMapped(screen->format), RGB_WHITE);
 	}
 
-	int text_x = x + NATIVE1(BUTTON_PADDING);
+	int text_x = x + SCALE1(BUTTON_PADDING);
 	int text_y = y + (h - TTF_FontHeight(f)) / 2;
 
 	SDL_Surface* text_surf = GFX_renderText(f, truncated, text_color);
@@ -378,7 +378,7 @@ static void wifi_network_draw(SDL_Surface* screen, SettingItem* item,
 	}
 
 	// Right-side icons
-	int icon_x = x + w - NATIVE1(BUTTON_PADDING);
+	int icon_x = x + w - SCALE1(BUTTON_PADDING);
 
 	// Connected checkmark or lock icon
 	if (info->connected) {

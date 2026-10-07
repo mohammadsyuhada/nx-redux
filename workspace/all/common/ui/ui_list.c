@@ -9,6 +9,7 @@
 #include "ui_menubar.h"
 #include "ui_buttonhintbar.h"
 #include "../ui_list_layout.h"
+#include "../ui_text_sizes.h"
 #include "ui_font.h"
 #include "ui_accent.h"
 
@@ -246,12 +247,12 @@ void UI_listLayoutSetRowHeight(ListLayout* layout, int row_h, int rows_wanted) {
 }
 
 int UI_listTextX(void) {
-	return NX_NATIVE_DP(NX_LIST_INSET_DP);
+	return NX_DP(NX_LIST_INSET_DP);
 }
 
 int UI_listPillXFor(int text_x) {
-	// The pill pads its text by NATIVE1(BUTTON_PADDING) (14 dp at the default scale), so its edge sits that far left.
-	int x = text_x - NATIVE1(BUTTON_PADDING);
+	// The pill pads its text by SCALE1(BUTTON_PADDING) (14 dp), so its edge sits that far left.
+	int x = text_x - SCALE1(BUTTON_PADDING);
 	return x > 0 ? x : 0;
 }
 
@@ -265,7 +266,7 @@ int UI_listPillX(void) {
 
 int UI_calcListPillWidth(TTF_Font* font, const char* text, char* truncated, int max_width, int prefix_width) {
 	int available_width = max_width - prefix_width;
-	int padding = NATIVE1(BUTTON_PADDING * 2);
+	int padding = SCALE1(BUTTON_PADDING * 2);
 
 	int raw_text_w = 0;
 	if (GFX_fitTextCached(font, text, truncated, available_width, padding, &raw_text_w))
@@ -386,7 +387,7 @@ ListItemPos UI_renderListItemPill(SDL_Surface* screen, ListLayout* layout,
 	SDL_Rect pill_rect = {UI_listPillX(), y, pos.pill_width, layout->item_h};
 	UI_drawListItemBg(screen, &pill_rect, selected);
 
-	pos.text_x = UI_listPillX() + NATIVE1(BUTTON_PADDING);
+	pos.text_x = UI_listPillX() + SCALE1(BUTTON_PADDING);
 	pos.text_y = y + (layout->item_h - TTF_FontHeight(font)) / 2;
 
 	return pos;
@@ -520,7 +521,7 @@ ListItemBadgedPos UI_renderListItemPillBadged(
 	int item_h = layout->item_h > SCALE1(PILL_SIZE) ? layout->item_h : SCALE1(PILL_SIZE) * 3 / 2;
 
 	// Badge area: badge content + BUTTON_PADDING on each side
-	int badge_area_w = badge_width > 0 ? badge_width + NATIVE1(BUTTON_PADDING * 2) : 0;
+	int badge_area_w = badge_width > 0 ? badge_width + SCALE1(BUTTON_PADDING * 2) : 0;
 
 	// Calculate title pill width (reduced max to leave room for badge area)
 	int title_max_width = layout->max_width - badge_area_w;
@@ -531,7 +532,7 @@ ListItemBadgedPos UI_renderListItemPillBadged(
 		int sub_w;
 		GFX_measureText(subtitle_font, subtitle, &sub_w, NULL);
 		sub_w += extra_subtitle_width;
-		int sub_pill_w = MIN(title_max_width, sub_w + NATIVE1(BUTTON_PADDING * 2));
+		int sub_pill_w = MIN(title_max_width, sub_w + SCALE1(BUTTON_PADDING * 2));
 		if (sub_pill_w > pos.pill_width)
 			pos.pill_width = sub_pill_w;
 	}
@@ -550,7 +551,7 @@ ListItemBadgedPos UI_renderListItemPillBadged(
 	}
 
 	// Text positions: two rows vertically centered
-	int text_start_x = UI_listPillX() + NATIVE1(BUTTON_PADDING);
+	int text_start_x = UI_listPillX() + SCALE1(BUTTON_PADDING);
 	int title_h = TTF_FontHeight(title_font);
 	int sub_h = TTF_FontHeight(subtitle_font);
 	int total_text_h = title_h + sub_h;
@@ -563,12 +564,12 @@ ListItemBadgedPos UI_renderListItemPillBadged(
 	pos.subtitle_y = y + top_gap + title_h;
 
 	// Badge position (centered vertically in capsule)
-	pos.badge_x = UI_listPillX() + pos.pill_width + NATIVE1(BUTTON_PADDING);
+	pos.badge_x = UI_listPillX() + pos.pill_width + SCALE1(BUTTON_PADDING);
 	pos.badge_y = y + (item_h - TTF_FontHeight(badge_font)) / 2;
 
 	// Account for right-side capsule radius reducing usable text width
 	int r = item_h / 2;
-	pos.text_max_width = pos.pill_width - NATIVE1(BUTTON_PADDING) - r / 2;
+	pos.text_max_width = pos.pill_width - SCALE1(BUTTON_PADDING) - r / 2;
 
 	pos.total_width = pos.pill_width + badge_area_w;
 
@@ -653,7 +654,7 @@ void UI_renderSettingsPageEx(SDL_Surface* screen, ListLayout* layout,
 
 		// Custom draw override
 		if (item->custom_draw) {
-			// x is the pill edge (the text sits NATIVE1(BUTTON_PADDING) in); the row still ends PADDING short of
+			// x is the pill edge (the text sits SCALE1(BUTTON_PADDING) in); the row still ends PADDING short of
 			// the right edge
 			item->custom_draw(screen, item->custom_draw_ctx, UI_listPillX(), item_y,
 							  hw - SCALE1(PADDING) - UI_listPillX(), layout->item_h, sel);
@@ -800,13 +801,14 @@ int UI_renderSettingsRow(SDL_Surface* screen, ListLayout* layout,
 		SDL_Color selected_text_color = UI_getListTextColor(1);
 
 		if (value) {
-			// 2-layer: full-width THEME_COLOR2 + label-width accent
+			// 2-layer: full-width THEME_COLOR2 + label-width accent, both true capsules (GFX_blitPillColor: half-circle
+			// ends at the row's height, which the button art's corners only gave at whole scales)
 			int row_width = hw - SCALE1(PADDING) - pill_x;
 			SDL_Rect row_rect = {pill_x, y, row_width, pill_h};
-			GFX_blitRectColor(ASSET_BUTTON, screen, &row_rect, THEME_COLOR2);
+			GFX_blitPillColor(ASSET_BUTTON, screen, &row_rect, THEME_COLOR2, RGB_WHITE);
 
 			SDL_Rect label_pill_rect = {pill_x, y, label_pill_width, pill_h};
-			GFX_blitRectColor(ASSET_BUTTON, screen, &label_pill_rect, accentPill());
+			GFX_blitPillColor(ASSET_BUTTON, screen, &label_pill_rect, accentPill(), RGB_WHITE);
 
 			// Label text
 			SDL_Surface* label_surf = GFX_renderText(f, label, selected_text_color);
@@ -843,7 +845,7 @@ int UI_renderSettingsRow(SDL_Surface* screen, ListLayout* layout,
 		} else {
 			// Single label rect only
 			SDL_Rect label_pill_rect = {pill_x, y, label_pill_width, pill_h};
-			GFX_blitRectColor(ASSET_BUTTON, screen, &label_pill_rect, accentPill());
+			GFX_blitPillColor(ASSET_BUTTON, screen, &label_pill_rect, accentPill(), RGB_WHITE);
 
 			SDL_Surface* label_surf = GFX_renderText(f, label, selected_text_color);
 			if (label_surf) {
@@ -951,14 +953,58 @@ void UI_adjustListScroll(int selected, int* scroll, int items_per_page) {
 	}
 }
 
+TTF_Font* UI_mainListFont(void) {
+	int px = (int)TextPx_for(TEXT_MENU_LIST, UIScale_deviceIndex(UI_DEVICE_NAME));
+	TTF_Font* f = px > 0 && px != SCALE1(FONT_LARGE) ? UIFont_getPx(px, false) : NULL;
+	return f ? f : font.large;
+}
+
+int UI_mainListRows(void) {
+	return (int)TextPx_for(MENU_LIST_ROWS, UIScale_deviceIndex(UI_DEVICE_NAME));
+}
+
+// The arrow art is dark grey (0x26, drawn for light grounds): its coverage kept, in white, at UI_SCROLL_ARROW_ALPHA.
+// Baked into the pixels (not an alpha mod), so a blend onto a cleared layer and the layer's own blend can't apply it
+// twice. Built once (the scale is fixed for the process).
+SDL_Surface* UI_scrollArrow(bool up) {
+	static SDL_Surface* arrows[2] = {NULL, NULL};
+	SDL_Surface** a = &arrows[up ? 0 : 1];
+	if (*a)
+		return *a;
+	int asset = up ? ASSET_SCROLL_UP : ASSET_SCROLL_DOWN;
+	SDL_Rect r;
+	GFX_assetRect(asset, &r);
+	if (r.w <= 0 || r.h <= 0)
+		return NULL;
+	SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, r.w, r.h, 32, SDL_PIXELFORMAT_ARGB8888);
+	if (!s)
+		return NULL;
+	SDL_FillRect(s, NULL, SDL_MapRGBA(s->format, 255, 255, 255, 0));
+	GFX_blitAsset(asset, NULL, s, &(SDL_Rect){0, 0});
+	if (SDL_MUSTLOCK(s))
+		SDL_LockSurface(s);
+	for (int y = 0; y < s->h; y++) {
+		Uint32* px = (Uint32*)((Uint8*)s->pixels + y * s->pitch);
+		for (int x = 0; x < s->w; x++)
+			px[x] = (((px[x] >> 24) * UI_SCROLL_ARROW_ALPHA + 127) / 255) << 24 | 0x00FFFFFF;
+	}
+	if (SDL_MUSTLOCK(s))
+		SDL_UnlockSurface(s);
+	SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
+	*a = s;
+	return s;
+}
+
 void UI_renderScrollArrows(SDL_Surface* screen, int up_y, int down_y, bool show_up, bool show_down) {
 	// the arrow assets are 24 x 6 logical
 	int ox = (screen->w - SCALE1(24)) / 2;
 	int half = SCALE1(6) / 2;
-	if (show_up)
-		GFX_blitAsset(ASSET_SCROLL_UP, NULL, screen, &(SDL_Rect){ox, up_y - half});
-	if (show_down)
-		GFX_blitAsset(ASSET_SCROLL_DOWN, NULL, screen, &(SDL_Rect){ox, down_y - half});
+	SDL_Surface* up = show_up ? UI_scrollArrow(true) : NULL;
+	SDL_Surface* down = show_down ? UI_scrollArrow(false) : NULL;
+	if (up)
+		SDL_BlitSurface(up, NULL, screen, &(SDL_Rect){ox, up_y - half});
+	if (down)
+		SDL_BlitSurface(down, NULL, screen, &(SDL_Rect){ox, down_y - half});
 }
 
 void UI_renderScrollIndicatorsAt(SDL_Surface* screen, const ListLayout* layout, int scroll,
@@ -1135,11 +1181,11 @@ ListItemRichPos UI_renderListItemPillRich(SDL_Surface* screen, ListLayout* layou
 		capsule_x = pos.image_x - NX_DP(4);
 		if (capsule_x < 0)
 			capsule_x = 0;
-		image_area_w = (pos.image_x - capsule_x) + pos.image_size + NATIVE1(BUTTON_PADDING);
+		image_area_w = (pos.image_x - capsule_x) + pos.image_size + SCALE1(BUTTON_PADDING);
 		pos.image_y = y + img_padding;
 	} else {
 		pos.image_size = 0;
-		image_area_w = NATIVE1(BUTTON_PADDING);
+		image_area_w = SCALE1(BUTTON_PADDING);
 		pos.image_x = 0;
 		pos.image_y = 0;
 	}
@@ -1150,7 +1196,7 @@ ListItemRichPos UI_renderListItemPillRich(SDL_Surface* screen, ListLayout* layou
 	if (subtitle && subtitle[0]) {
 		int sub_w;
 		GFX_measureText(font.small, subtitle, &sub_w, NULL);
-		int sub_pill_w = MIN(max_w, image_area_w + sub_w + extra_subtitle_width + NATIVE1(BUTTON_PADDING * 2));
+		int sub_pill_w = MIN(max_w, image_area_w + sub_w + extra_subtitle_width + SCALE1(BUTTON_PADDING * 2));
 		if (sub_pill_w > pos.pill_width)
 			pos.pill_width = sub_pill_w;
 	}
@@ -1172,7 +1218,7 @@ ListItemRichPos UI_renderListItemPillRich(SDL_Surface* screen, ListLayout* layou
 	pos.subtitle_x = text_start_x;
 	pos.subtitle_y = y + top_gap + medium_h;
 
-	pos.text_max_width = pos.pill_width - image_area_w - NATIVE1(BUTTON_PADDING);
+	pos.text_max_width = pos.pill_width - image_area_w - SCALE1(BUTTON_PADDING);
 
 	return pos;
 }
@@ -1249,7 +1295,7 @@ MenuItemPos UI_renderMenuItemPill(SDL_Surface* screen, ListLayout* layout,
 	SDL_Rect pill_rect = {UI_listPillX(), pos.item_y, pos.pill_width, SCALE1(PILL_SIZE)};
 	UI_drawListItemBg(screen, &pill_rect, selected);
 
-	pos.text_x = UI_listPillX() + NATIVE1(BUTTON_PADDING);
+	pos.text_x = UI_listPillX() + SCALE1(BUTTON_PADDING);
 	pos.text_y = pos.item_y + (SCALE1(PILL_SIZE) - TTF_FontHeight(font.large)) / 2;
 
 	return pos;

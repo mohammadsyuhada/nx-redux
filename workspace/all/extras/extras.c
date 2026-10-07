@@ -623,7 +623,7 @@ static int run_detail(AddonEntry* e); // Task 4; returns 1 if install state chan
 // fresh list; both tabs are short and UP/DOWN wraps, so page-jump loses
 // nothing. Task 13 added the tab hint (user feedback: the switch wasn't
 // discoverable) - one combined button-pill hint ("LEFT/RIGHT" as the
-// button label, GFX_blitButtonChrome renders any >1-char button string as a text
+// button label, GFX_blitButton renders any >1-char button string as a text
 // pill rather than two separate circular buttons; same label the bootlogo/
 // musicplayer settings bars use for d-pad hints), since
 // UI_renderButtonHintBar caps at 4 total pairs and doesn't clip pixel
@@ -839,7 +839,7 @@ static void draw_result_dialog(const char* title, const char* subtitle, const ch
 	}
 
 	int title_h = TTF_FontHeight(font.large);
-	int btn_sz = CHROME1(BUTTON_SIZE); // the centred button row (UI_renderCenteredButtons)
+	int btn_sz = SCALE1(BUTTON_SIZE); // the centred button row (UI_renderCenteredButtons)
 
 	int total_h = title_h;
 	if (sub_line_count)

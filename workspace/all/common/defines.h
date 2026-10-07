@@ -1,6 +1,7 @@
 #ifndef __DEFINES_H__
 #define __DEFINES_H__
 
+#include <math.h>
 #include "platform.h"
 
 #define VOLUME_MIN 0
@@ -98,12 +99,8 @@
 #define SETTINGS_WIDTH 80
 #define HW_INDICATOR_WIDTH (PILL_SIZE + SETTINGS_WIDTH + 10 + 4) // pill drawn by GFX_blitHardwareIndicator
 
-#ifndef MAIN_ROW_COUNT
-#define MAIN_ROW_COUNT 6 // FIXED_HEIGHT / (PILL_SIZE * FIXED_SCALE) - 2 (floor and subtract 1 if not an integer)
-#endif
-
 #ifndef PADDING
-#define PADDING 10 // PILL_SIZE / 3 (or non-integer part of the previous calculatiom divided by three)
+#define PADDING UI_PADDING_UNITS // ui_scale.h: the Brick's 15 px at 3.0, one physical size on every device
 #endif
 
 #define FONT_XLARGE 36 // extra large heading
@@ -136,31 +133,17 @@ enum {
 #define MIN(a, b) (a) < (b) ? (a) : (b)
 #define CEIL_DIV(a, b) ((a) + (b) - 1) / (b)
 
-#define SCALE1(a) ((a) * FIXED_SCALE)
-#define SCALE2(a, b) ((a) * FIXED_SCALE), ((b) * FIXED_SCALE)
-#define SCALE4(a, b, c, d) ((a) * FIXED_SCALE), ((b) * FIXED_SCALE), ((c) * FIXED_SCALE), ((d) * FIXED_SCALE)
-// device-default ("native") size, whatever the UI scale: the tab row and the hardware status group keep
-// NATIVE_SCALE. Each expansion keeps its call sites' exact operand order and types (int math for
-// NATIVE1; NATIVE_SCALE first, as the sites wrote it), so swapping a site to the macro is pixel-identical.
-#define NATIVE1(a) ((NATIVE_SCALE) * (a))
-// mobile dp / sp at NATIVE_SCALE (dp: a 42 dp row is one 30-unit row; sp: 14 sp is one 12-unit font size). Not folded
-// into a per-dp factor: dp * (F * 30 / 42) rounds differently from (dp * F) * 30 / 42.
-#define NX_NATIVE_DP(x) ((int)((x) * NATIVE_SCALE * 30.0f / 42.0f + 0.5f))
-#define NX_NATIVE_SP(x) ((int)((x) * NATIVE_SCALE * 12.0f / 14.0f + 0.5f))
-// The button hint bar, the page titles and the status group keep the Brick's physical size whatever the UI scale and
-// the panel: CHROME_SCALE (platform.h) is the Brick's 3x times the panel's density over the Brick's 400 ppi, rounded
-// so its asset sheet is whole pixels. The fractional sets are baked: assets@<s>x.png (scripts/gen-chrome-assets.py)
-// and nav_*@<s>x.png (scripts/gen-nav-icons.py).
-#define CHROME1(a) ((int)((a) * CHROME_SCALE + 0.5f))
-// The top bar's and the hint bar's height: the device's default scale's whatever the UI scale, so the UI scale moves
-// neither the page's top nor its bottom (their contents are CHROME_SCALE, which always fits).
-#define BAR_HEIGHT NATIVE1(BUTTON_SIZE + BUTTON_MARGIN * 2)
-#define NX_CHROME_SP(x) ((int)((x) * CHROME_SCALE * 12.0f / 14.0f + 0.5f))
-#define NX_CHROME_DP(x) ((int)((x) * CHROME_SCALE * 30.0f / 42.0f + 0.5f))
-// The volume / brightness / colour-temperature indicator: two thirds of CHROME_SCALE (2 on the Brick, 1.625 on the Brick Pro,
-// 1.5 on the Smart Pro family), so its PILL_SIZE pill is one physical size and fits inside every panel's top bar.
-// Its sheets: assets@2x.png, and the baked assets@1.625x.png and assets@1.5x.png (scripts/gen-chrome-assets.py).
-#define INDICATOR_SCALE (CHROME_SCALE * 2.0f / 3.0f)
+// One UI scale per device (ui_scale.h), fractional on the Brick Pro and the 720p panels: each size rounds to whole
+// pixels on its own, so two summed SCALE1s can sit 1 px off one SCALE1 of the sum.
+#define SCALE1(a) ((int)lroundf((a) * FIXED_SCALE))
+#define SCALE2(a, b) SCALE1(a), SCALE1(b)
+#define SCALE4(a, b, c, d) SCALE1(a), SCALE1(b), SCALE1(c), SCALE1(d)
+// The top bar's and the hint bar's height.
+#define BAR_HEIGHT SCALE1(BUTTON_SIZE + BUTTON_MARGIN * 2)
+// The volume / brightness / colour-temperature indicator: two thirds of the UI scale on 1/16 (2 on the Brick, 1.6875 on
+// the Brick Pro, 1.5 on the Smart Pro family), so its PILL_SIZE pill fits inside the top bar. Its sheets: assets@2x.png
+// and the baked assets@1.6875x.png and assets@1.5x.png (scripts/gen-chrome-assets.py).
+#define INDICATOR_SCALE (roundf(FIXED_SCALE * 2.0f / 3.0f * 16.0f) / 16.0f)
 // mobile dp -> pixels (a 42 dp row is one 30-unit PILL_SIZE row)
 #define NX_DP(x) ((int)((x) * FIXED_SCALE * 30.0f / 42.0f + 0.5f))
 // dp float -> pixels, rounded (layout math stays in dp floats until drawing)
@@ -168,9 +151,8 @@ enum {
 // mobile sp -> text pixels (14 sp body text is the 12-unit text size)
 #define NX_SP(x) ((int)((x) * FIXED_SCALE * 12.0f / 14.0f + 0.5f))
 // List row text starts NX_LIST_INSET_DP in (game lists, Settings, Tools, every shared list), on the main menu's 24 dp
-// gutter; its selection pill keeps 14 dp (== NATIVE1(BUTTON_PADDING)) round the text, so the pill's edge is 10 dp from
+// gutter; its selection pill keeps 14 dp (== SCALE1(BUTTON_PADDING)) round the text, so the pill's edge is 10 dp from
 // the screen's (LIST-LAYOUT §10.1 had 14, which put the pill's rounded end off-screen). Page titles start there too.
-// All three are dp at the device's default scale (NX_NATIVE_DP), so the UI scale doesn't move the left inset.
 #define NX_LIST_INSET_DP 24
 #define NX_RICH_LIST_GAP_DP 14 // a rich list's thumbnail to its text (LIST-LAYOUT §10.2)
 #define NX_MENU_GUTTER_DP 24

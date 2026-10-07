@@ -10,6 +10,7 @@
 #include "ui_buttonhintbar.h"
 #include "ui_menubar.h"
 #include "ui_emptystate.h"
+#include "../ui_list_layout.h"
 
 #define LISTVIEW_ICON_SIZE 24 // logical px, SCALE1'd at draw
 #define LISTVIEW_ICON_SPACING 6
@@ -46,8 +47,13 @@ static int row_height(ListView* v, int i, int item_h) {
 			   : item_h;
 }
 
+// A list in the large font is a main list: its text and rows per device (UI_mainListFont, UI_mainListRows).
+static bool is_main_list(ListView* v) {
+	return !v->font || v->font == font.large;
+}
+
 static TTF_Font* row_font(ListView* v) {
-	return v->font ? v->font : font.large;
+	return is_main_list(v) ? UI_mainListFont() : v->font;
 }
 
 // Step from `from` by dir (+1/-1), skipping headers, wrapping unless
@@ -229,6 +235,9 @@ void UI_listViewRender(ListView* v, SDL_Surface* screen) {
 	ListLayout layout = v->list_y_override > 0
 							? UI_calcListLayoutEx(screen, v->list_y_override, -1, SCALE1(PILL_SIZE), 0)
 							: UI_calcListLayout(screen);
+	if (is_main_list(v))
+		UI_listLayoutSetRowHeight(
+			&layout, UI_mainListRowHeight(layout.avail_bottom - layout.avail_top, layout.item_h, UI_mainListRows()), 0);
 	if (v->max_width_override > 0)
 		layout.max_width = v->max_width_override;
 	// the rows against the caller's header instead of centred in the band (the half of the leftover above them
@@ -424,14 +433,14 @@ void UI_listViewRender(ListView* v, SDL_Surface* screen) {
 		}
 
 		int text_x = pos.text_x + icon_offset;
-		int text_w = pos.pill_width - NATIVE1(BUTTON_PADDING * 2) - prefix;
+		int text_w = pos.pill_width - SCALE1(BUTTON_PADDING * 2) - prefix;
 		// Keep the selected row's marquee band clear of the annotation.
 		if (row.annotation && row.annotation[0] && row_sel) {
 			int ann_w = 0;
 			GFX_measureText(font.tiny, row.annotation, &ann_w, NULL);
 			int ann_x = screen->w - ann_w - SCALE1(PADDING * 2);
-			if (text_x + text_w > ann_x - NATIVE1(BUTTON_PADDING))
-				text_w = ann_x - NATIVE1(BUTTON_PADDING) - text_x;
+			if (text_x + text_w > ann_x - SCALE1(BUTTON_PADDING))
+				text_w = ann_x - SCALE1(BUTTON_PADDING) - text_x;
 		}
 		// Marquee only on the settled selected row; one state per widget.
 		// Static rows draw the ellipsis-truncated label.

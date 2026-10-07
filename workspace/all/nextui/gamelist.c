@@ -13,6 +13,7 @@
 #include "ui_buttonhintbar.h"
 #include "ui_draw.h"
 #include "ui_fade.h"
+#include "ui_font.h"
 #include "ui_confirmdialog.h"
 #include "ui_loadingoverlay.h"
 #include "ui_message.h"
@@ -22,6 +23,7 @@
 #include "ui_list.h"
 #include "ui_listdialog.h"
 #include "ui_pindialog.h"
+#include "ui_text_sizes.h"
 #include "utils.h"
 #include "wifi.h"
 
@@ -2007,13 +2009,21 @@ static int listTop(void) {
 // band (18 dp line, 4 dp each side) with its bottom min(12 dp, the bar's ink top) inside the hint bar, and whole px
 // rows (nxListFit at the PILL_SIZE pitch) filling the slot from the list top down to the band's top. Only the list top
 // differs (listTopAt).
+// The rows' pitch and text: the main menu's per device (ui_text_sizes.h), the game lists' the UI scale's.
+static int listPitch(bool root) {
+	return root ? (int)TextPx_for(MENU_LIST_PITCH, UIScale_deviceIndex(UI_DEVICE_NAME)) : SCALE1(PILL_SIZE);
+}
+static TTF_Font* listFont(bool root) {
+	return root ? UI_mainListFont() : font.large; // font.large where the sizes match
+}
+
 static InfoBandLayout listLayoutAt(bool root) {
 	int screen_h = screen ? screen->h : FIXED_HEIGHT;
 	int bar_h = BAR_HEIGHT; // the hint bar (UI_buttonHintBarTop)
 	// the bar's ink top: the padding over its centred BUTTON_SIZE icons, plus the glyphs' margin (host-tested)
-	int overlap = InfoBand_overlap(NX_DP(12), InfoBand_hintInkTop(bar_h, CHROME1(BUTTON_SIZE)));
+	int overlap = InfoBand_overlap(NX_DP(12), InfoBand_hintInkTop(bar_h, SCALE1(BUTTON_SIZE)));
 	InfoBandLayout l =
-		InfoBand_fixedLayout(screen_h, bar_h, listTopAt(root), SCALE1(PILL_SIZE), NX_DP(18), NX_DP(4), overlap);
+		InfoBand_fixedLayout(screen_h, bar_h, listTopAt(root), listPitch(root), NX_DP(18), NX_DP(4), overlap);
 	// The band paints no fade of its own, only its arrows (and text): with the hints shown the bar's scrim is under it
 	// and a game's info is off; hidden (Layouts > Button hints), the same rows and band, a game list keeping the bar's
 	// scrim alone (renderHintScrim) with the info line moved into its row
@@ -2026,7 +2036,7 @@ static InfoBandLayout listLayout(void) {
 }
 
 int GameList_textX(void) {
-	return stack && stack->count == 1 ? NX_NATIVE_DP(NX_MENU_GUTTER_DP) : UI_listTextX();
+	return stack && stack->count == 1 ? NX_DP(NX_MENU_GUTTER_DP) : UI_listTextX();
 }
 
 int GameList_rowCount(void) {
@@ -2116,7 +2126,8 @@ static void renderInfoBand(void) {
 	if (!CFG_getPageTitle()) {
 		if (up) {
 			// the down arrow's centre under the last row's bottom (the rows may leave a few px above the band)
-			int below = layout.text_top + layout.text_h / 2 - (layout.list_top + layout.rows * layout.row_h);
+			int below = layout.text_top + layout.text_h / 2 - INFOBAND_ARROW_RAISE -
+						(layout.list_top + layout.rows * layout.row_h);
 			arrow = true;
 			arrow_y = layout.list_top - below;
 		}
@@ -2145,14 +2156,8 @@ static void renderInfoBand(void) {
 		}
 		gen = InfoBand_prepare(&layout, segs, n, up, down);
 	} else {
-		// Collections rows (their tab, or its list pushed over a tab while hidden): "N games" (nothing while
-		// unknown). Consoles, Tools and folders show no text.
-		char games[32] = "";
-		if (entry && exactMatch(top->path, COLLECTIONS_PATH))
-			GameInfo_gamesLabel(CollCount_get(entry->path), games, sizeof(games));
-		InfoSeg seg = {.kind = INFO_SEG_COUNT};
-		snprintf(seg.text, sizeof(seg.text), "%s", games);
-		gen = InfoBand_prepare(&layout, &seg, games[0] ? 1 : 0, up, down);
+		// Collections, Consoles, Tools and folders: the arrows alone (no "N games" line under a collection)
+		gen = InfoBand_prepare(&layout, NULL, 0, up, down);
 	}
 
 	if (dst) {
@@ -2412,6 +2417,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 	// the rows' geometry: whole px rows of row_h (nxListFit), the band below them
 	InfoBandLayout rows_layout = listLayout();
 	int row_h = rows_layout.row_h;
+	TTF_Font* list_font = listFont(atRoot()); // the rows' text (the main menu's per device), as listLayout()
 
 	// Consoles tab: the selected console's controller (Layouts > Controller), else its logo, dimmed, on the right
 	// behind the rows (the page background: it stays lit under the tab-focus dim, cropped only by the screen edges).
@@ -2479,7 +2485,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 	if (total > 0) {
 		int selected_row = top->selected - top->start;
 		// Row text start (LIST-LAYOUT §1): the main menu's List rows on the tab row's 24 dp gutter, game lists on
-		// the 14 dp list inset; the pill keeps its 14 dp (NATIVE1(BUTTON_PADDING)) round the text either way.
+		// the 14 dp list inset; the pill keeps its 14 dp (SCALE1(BUTTON_PADDING)) round the text either way.
 		int row_text_x = GameList_textX();
 		int row_pill_x = UI_listPillXFor(row_text_x);
 
@@ -2502,7 +2508,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 											  : screen->w - SCALE1(BUTTON_MARGIN)) -
 									   SCALE1(PADDING) - row_pill_x);
 			char sel_trunc[256];
-			int sel_pill_w = UI_calcListPillWidth(font.large, sel_text, sel_trunc, sel_avail, 0);
+			int sel_pill_w = UI_calcListPillWidth(list_font, sel_text, sel_trunc, sel_avail, 0);
 			int target_y = listTop() + selected_row * row_h;
 			// A page/list change (folder enter/exit, a tab switch: the `top` Directory's serial
 			// changes) snaps the pill to the new selection instead of gliding in
@@ -2547,7 +2553,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 			// the row's text, the difference split evenly (rounded). nxListFit lets a row shrink by up to 5% (Brick
 			// main menu 89 px, Smart Pro S game lists 58 px), so the pill may overhang its row by a px; it is clipped to
 			// the list area: never above the list top (the header or the tab row's gap) nor below the band's top.
-			int pill_h = SCALE1(PILL_SIZE);
+			int pill_h = row_h < SCALE1(PILL_SIZE) * 19 / 20 ? row_h : SCALE1(PILL_SIZE); // a shorter pitch: the row's
 			int pill_off = (int)floorf((row_h - pill_h) / 2.0f + 0.5f);
 			int below = pill_h + pill_off - row_h; // the overhang under the last row, when the pill is taller
 			int band_rows = top->end - top->start;
@@ -2604,10 +2610,10 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 				// selected=false: the selection background is the moving pill drawn
 				// above, not a per-row static pill.
 				ListItemPos pos = UI_renderListItemPill(
-					screen, &item_layout, font.large,
+					screen, &item_layout, list_font,
 					display_text, truncated, y, false, 0);
 				pos.text_x = row_text_x; // the shared renderer's x is the 14 dp inset; the main menu sits on 24 dp
-				int text_width = pos.pill_width - NATIVE1(BUTTON_PADDING * 2);
+				int text_width = pos.pill_width - SCALE1(BUTTON_PADDING * 2);
 				// This call site is the only place list_scroll resyncs (via
 				// ScrollText_update's strcmp), so while it's gated off below a
 				// context action that changes the selection (Delete/Rename Rom,
@@ -2646,7 +2652,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 				// a selected title that fits has nothing to scroll: a sprite like the rest (its marquee state
 				// dropped, so the idle tick has nothing stale to draw)
 				if (use_marquee && row_sprites && !entry_unique &&
-					UI_listItemTextFits(display_text, font.large, text_width, pill_over)) {
+					UI_listItemTextFits(display_text, list_font, text_width, pill_over)) {
 					use_marquee = false;
 					if (list_scroll.text[0])
 						ScrollText_clear(&list_scroll);
@@ -2658,41 +2664,41 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 					// upstream NextUI. The marquee row stays single-colour: the
 					// scroll texture is one surface.
 					if (!row_sprites ||
-						!UI_listItemTextDimSuffixSprite(entry_name, entry_unique + strlen(entry_name), font.large,
+						!UI_listItemTextDimSuffixSprite(entry_name, entry_unique + strlen(entry_name), list_font,
 														pos.text_x, pos.text_y, text_width, pill_over)) {
 						list_body_clear = false; // this row is in the screen
 						UI_renderListItemTextDimSuffix(screen, entry_name,
 													   entry_unique + strlen(entry_name),
-													   font.large, pos.text_x, pos.text_y,
+													   list_font, pos.text_x, pos.text_y,
 													   text_width, pill_over);
 					}
 				} else if (use_marquee || !row_sprites ||
-						   !UI_listItemTextSprite(display_text, font.large, pos.text_x, pos.text_y, text_width,
+						   !UI_listItemTextSprite(display_text, list_font, pos.text_x, pos.text_y, text_width,
 												  pill_over)) {
 					// this row is in the screen: the selected one's marquee is the one row the body may hold
 					if (use_marquee && row_sprites) {
-						list_body_row = (SDL_Rect){0, pos.text_y, screen->w, TTF_FontHeight(font.large)};
+						list_body_row = (SDL_Rect){0, pos.text_y, screen->w, TTF_FontHeight(list_font)};
 						marquee.on = true, marquee.text = display_text, marquee.x = pos.text_x;
 						marquee.y = pos.text_y, marquee.w = text_width, marquee.over = pill_over;
 					} else {
 						list_body_clear = false;
 						UI_renderListItemText(screen,
 											  use_marquee ? &list_scroll : NULL,
-											  display_text, font.large,
+											  display_text, list_font,
 											  pos.text_x, pos.text_y, text_width, pill_over);
 					}
 				}
 			}
 		}
 		if (marquee.on) {
-			UI_renderListItemText(screen, &list_scroll, marquee.text, font.large, marquee.x, marquee.y, marquee.w,
+			UI_renderListItemText(screen, &list_scroll, marquee.text, list_font, marquee.x, marquee.y, marquee.w,
 								  marquee.over);
 			// held still (the pre-scroll delay, or nothing to scroll), the title it blitted into the screen sits under
 			// the sprite pill: the same title as a sprite over it. Scrolling, the scroll layer (over the sprites) has it.
 			// (A row clipped away entirely leaves the state as it was.)
 			if (pill_sprite && strcmp(list_scroll.text, marquee.text) == 0)
 				list_hold_tex =
-					UI_listItemMarqueeHoldSprite(&list_scroll, font.large, marquee.x, marquee.y, marquee.over);
+					UI_listItemMarqueeHoldSprite(&list_scroll, list_font, marquee.x, marquee.y, marquee.over);
 		}
 	} else {
 		UI_renderCenteredMessage(screen, "Empty folder");

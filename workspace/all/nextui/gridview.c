@@ -15,6 +15,7 @@
 #include "api.h"
 #include "config.h"
 #include "defines.h"
+#include "ui_text_sizes.h"
 #include "ui_ease.h"
 #include "ui_accent.h"
 #include "ui_message.h"
@@ -51,7 +52,7 @@
 #define CUT_SHADE_ALPHA 179		  // black at 70% over a column cut by a screen edge
 #define EDGE_FADE_SHARE 0.20f	  // the edge fade's width, of the screen's
 #define PREFETCH_TWEEN_SHARE 0.6f // a single move's slide and crossfade this far through let prefetch run
-#define GRID_BIG_UI_SHRINK 0.85f  // the main menu's tiles at the Large UI scale (computeLayout)
+#define GRID_ROOT_SHRINK 0.85f	  // the main menu's tiles (computeLayout)
 
 // the slide: the content offset (dp) eases from `off_from` to `off_to`
 static float off_from = 0, off_to = 0;
@@ -93,15 +94,14 @@ static void computeLayout(SDL_Surface* screen, int n, GridLayout* g) {
 	float pd = pxPerDp();
 	float sw = screen->w / pd, sh = screen->h / pd;
 	// wider tiles than the spec shape: the Consoles and Collections tabs twice as wide (wide logos 4-8:1, long names),
-	// game lists 1.5x (their screenshots), the Tools tab as specced
+	// game lists 1.5x (their screenshots), the Tools tab per device (ui_text_sizes.h GRID_TOOLS_W_K)
 	int tab = GameList_lookTab(); // the root tab, or a hidden tab's list pushed over it (-1: a game list)
 	bool root = tab >= 0;
-	float mul = !root ? 1.5f : (tab == MENU_TAB_TOOLS ? 1.0f : 2.0f);
-	// at the Large UI scale (3x, the Brick's default too): the main menu's tiles (and their logos, icons and names) at
-	// GRID_BIG_UI_SHRINK, else they take most of the smaller body
-	float size = root && FIXED_SCALE >= 3 ? GRID_BIG_UI_SHRINK : 1.0f;
-	// the gap between tiles stays the default scale's px whatever the UI scale
-	GridLayout_computeSized(sw, BAR_DP, sh - 2 * BAR_DP, n, mul, (float)NATIVE_SCALE / (float)FIXED_SCALE, size, g);
+	float tools_k = TextPx_for(GRID_TOOLS_W_K, UIScale_deviceIndex(UI_DEVICE_NAME));
+	float mul = !root ? 1.5f : (tab == MENU_TAB_TOOLS ? tools_k : 2.0f);
+	// the main menu's tiles (and their logos, icons and names) at GRID_ROOT_SHRINK, else they take most of the body
+	float size = root ? GRID_ROOT_SHRINK : 1.0f;
+	GridLayout_computeSized(sw, BAR_DP, sh - 2 * BAR_DP, n, mul, 1.0f, size, g);
 }
 
 ///////////////////////////////////////
@@ -516,7 +516,7 @@ static void warmLogos(int n, int sel, int tw, int th, float scale) {
 	seen_serial = top->serial, seen_gen = MenuTabs_generation(), seen_sel = sel, seen_n = n, seen_tw = tw;
 	seen_th = th;
 	int bw, bh;
-	Tiles_logoBox(tw, th, scale, &bw, &bh);
+	Tiles_gridLogoBox(tw, th, scale, &bw, &bh); // as drawLogo decodes them
 	if (bw <= 0 || bh <= 0)
 		return;
 	for (int d = 0; d <= LOGO_WARM_RADIUS; d++) {

@@ -25,6 +25,10 @@ typedef struct {
 // never below the spec-scaled size (a block that still doesn't fit clamps under the header, see Row_top).
 void Row_fitBoxSlot(RowSizes* s, RowKind k, float body_h, float room, float caption_gap, float caption_h);
 RowItem Row_item(const RowSizes* s, RowKind k, float index, float pos);
+// Row_item's dx for content-sized slots (Horizontal Tools and Collections): item j is w(j, ctx) dp wide at full size
+// (s->scale of it off the selection), s->gap between neighbouring edges; at rest on k the selection is centred, and
+// between two rests the centres move linearly (equal widths: Row_item's dx exactly). n items.
+float Row_itemDxVar(const RowSizes* s, float index, float pos, int n, float (*w)(int, void*), void* ctx);
 // A frameless item's alpha d steps from the selection (Backdrop's and the main-menu Carousel's, both orientations):
 // 1 − 0.5·d up to one step, then max(0.2, 0.5 − 0.12·(d − 1)), faded out over 3..4 steps (0 from 4 on).
 float Row_slotAlpha(float d);
@@ -84,5 +88,11 @@ float Row_collFitSlotSp(float sp, float min_sp, float px_per_sp, int slot_h, int
 						int (*lines_at)(float sp, void* ctx), void* ctx);
 // Separable box blur of an 8-bit alpha buffer, `passes` times with radius r (in px). In place via tmp (same size).
 void Row_boxBlurAlpha(unsigned char* a, unsigned char* tmp, int w, int h, int r, int passes);
+
+// A Horizontal Collections name on at most 2 lines: a word longer than 5 characters starts a new line (never the first
+// word; once on the second line, the rest stays there). Runs of spaces collapse. Returns the line count (0: empty).
+int Row_collBreak(const char* name, char lines[2][256]);
+// The same, a word the first line has no room for (measure(text, ctx) > max_w px) starting the second line too.
+int Row_collBreakFit(const char* name, char lines[2][256], int (*measure)(const char*, void*), void* ctx, int max_w);
 
 #endif

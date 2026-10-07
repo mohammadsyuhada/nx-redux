@@ -23,6 +23,7 @@
 #include "api.h"
 #include "config.h"
 #include "defines.h"
+#include "ui_text_sizes.h"
 #include "utils.h"
 
 #include "content.h"
@@ -63,11 +64,6 @@
 #define CONT_SUB_UP 31.0f
 #define PIN_NAME_PX 33.8f
 #define PIN_NAME_LH 41.6f
-#define PIN_INFO_PX 28.6f
-#define PIN_INFO_LH 36.4f
-#define PIN_SIDE 20.0f
-#define PIN_UP 16.0f
-#define PIN_LINE_GAP 4.0f
 
 static const SDL_Color C_WHITE = {255, 255, 255, 255};
 static const SDL_Color C_BLACK = {0, 0, 0, 255};
@@ -103,7 +99,8 @@ static bool need_rebuild = true; // Home_reset: the pins or Continue may have ch
 static bool was_active = false; // Home_active()'s last answer: the false → true edge sets stats_due
 static bool stats_due = false;
 static unsigned built_root = 0; // the root Directory's serial (0 = none)
-static int built_w = 0, built_h = 0, built_scale = 0, built_lines = -1;
+static int built_w = 0, built_h = 0, built_lines = -1;
+static float built_scale = 0;
 
 static HomeLayout layout;
 static Entry* cont = NULL; // owned; NULL = no Continue (the Pick-a-game card takes its slot)
@@ -133,9 +130,9 @@ static void cardCacheClear(void);
 ///////////////////////////////////////
 // Units and timing
 
-// Home's scale: always the Small one (2x), whatever the UI scale (which sizes the lists, not Home).
-static int homeScale(void) {
-	return 2;
+// Home's scale: two thirds of the UI scale (the Brick's 2 at 3.0), so Home is one physical size on every device too.
+static float homeScale(void) {
+	return roundf(FIXED_SCALE * 2.0f / 3.0f * 16.0f) / 16.0f;
 }
 
 // An sp for UIFont_get / Tiles_fitWordsSp / NX_SP (which scale by FIXED_SCALE) that comes out at Home's scale.
@@ -148,7 +145,7 @@ static int homeDp(float dp) {
 	return (int)(dp * homeScale() * 30.0f / 42.0f + 0.5f);
 }
 
-// Screen px per Brick px: Home draws at 2x on every device.
+// Screen px per Brick px (Home's layout is in the Brick's 3x px): 2/3 on the Brick.
 static float unitPx(void) {
 	return homeScale() / 3.0f;
 }
@@ -157,9 +154,19 @@ static int px(float bpx) {
 	return (int)floorf(bpx * unitPx() + 0.5f);
 }
 
-// The stats strip keeps the Large scale's size whatever the UI scale: its Brick px at 1:1 (× this in px()).
+// The stats strip is drawn at the UI scale, not Home's: its Brick px at FIXED_SCALE / 3 (× this in px()), 1:1 on the Brick.
 static float stripK(void) {
-	return 3.0f / homeScale();
+	return FIXED_SCALE / homeScale();
+}
+
+// The stats strip's text size in px (ui_text_sizes.h: set per device), and that over the size the UI scale alone gives
+// it (STRIP_PX at Home's scale), for the strip's spacing to grow with it.
+static int statsPx(void) {
+	return (int)TextPx_for(TEXT_HOME_STATS, UIScale_deviceIndex(UI_DEVICE_NAME));
+}
+static float statsTextK(void) {
+	int base = px(STRIP_PX * stripK());
+	return base > 0 ? (float)statsPx() / base : 1.0f;
 }
 
 static float currentScroll(void) {
@@ -501,7 +508,10 @@ static int stripLines(void) {
 static void relayout(int lines) {
 	float u = unitPx();
 	built_lines = lines;
-	HomeLayout_computeStrip(screen->w / u, screen->h / u, barPx() / u, lines, stripK(), ngames, ntools, &layout);
+	UIDevice dev = UIScale_deviceIndex(UI_DEVICE_NAME);
+	HomeLayoutOpts opts = {stripK(), statsTextK(), TextPx_for(HOME_PIN_K, dev), (int)TextPx_for(HOME_TOOL_ROWS, dev),
+						   (int)TextPx_for(HOME_WIDE_PIN_COLS, dev)};
+	HomeLayout_computeOpts(screen->w / u, screen->h / u, barPx() / u, lines, &opts, ngames, ntools, &layout);
 	focus = HomeLayout_clampFocus(&layout, focus);
 	scroll_to = HomeLayout_scrollFor(&layout, focus, screen->h / u, barPx() / u, scroll_to);
 	scroll_from = scroll_to;
@@ -640,9 +650,10 @@ static void drawInLine(SDL_Surface* s, TTF_Font* f, const char* text, SDL_Color 
 		drawText(s, f, text, c, x, y + (lh - TTF_FontHeight(f)) / 2, 255);
 }
 
-// Continue: the art full-bleed under the caption fade; the title (44, one line with "…") and the time (31, grey), 29
-// in, baselines 74 and 31 above the bottom (the art: the game's own, else its abstract picture). No picture at all: the
-// name centred (up to 2 lines) over the time.
+// Continue: the art full-bleed under the caption fade; the title (TEXT_HOME_CONT_TITLE, one line with "…") and the time
+// (TEXT_HOME_CONT_INFO, grey), 29 in, baselines 74 and 31 above the bottom at the UI scale's sizes (44 and 31), further
+// up as the time grows (HomeLayout_captionBaselines) (the art: the game's own, else its abstract picture). No picture
+// at all: the name centred (up to 2 lines) over the time.
 static void composeContinue(SDL_Surface* s, int w, int h) {
 	SDL_FillRect(s, &(SDL_Rect){0, 0, w, h}, SDL_MapRGBA(s->format, 0, 0, 0, 255));
 	SDL_Surface* pic = NULL;
@@ -652,26 +663,30 @@ static void composeContinue(SDL_Surface* s, int w, int h) {
 		captionFade(s, w, h);
 	}
 	int inset = px(CONT_INSET);
+	UIDevice dev = UIScale_deviceIndex(UI_DEVICE_NAME);
+	int sub_px = (int)TextPx_for(TEXT_HOME_CONT_INFO, dev), title_px = (int)TextPx_for(TEXT_HOME_CONT_TITLE, dev);
+	float sub_up, title_up;
+	HomeLayout_captionBaselines(px(CONT_SUB_UP), px(CONT_TITLE_UP), px(CONT_SUB_PX), sub_px, &sub_up, &title_up);
 	char when[160];
 	timeText(cont->path, when, sizeof(when));
-	TTF_Font* f = UIFont_getPx(px(CONT_SUB_PX), false);
+	TTF_Font* f = UIFont_getPx(sub_px, false);
 	if (f && when[0]) {
 		char line[LINE_MAX];
 		ellipsize(f, when, line, w - 2 * inset);
-		drawTextBaseline(s, f, line, C_GREY, inset, h - px(CONT_SUB_UP), 255);
+		drawTextBaseline(s, f, line, C_GREY, inset, h - (int)(sub_up + 0.5f), 255);
 	}
-	f = UIFont_getPx(px(CONT_TITLE_PX), false);
+	f = UIFont_getPx(title_px, false);
 	if (!f)
 		return;
 	if (st == HOMEART_NONE) { // a title card
 		char lines[2][LINE_MAX];
 		int nl = wrapLines(f, View_displayName(cont), w - 2 * inset, 2, lines);
 		int lh = (int)(TTF_FontHeight(f) * 1.1f + 0.5f);
-		drawCentredLines(s, f, lines, nl, lh, C_WHITE, w, 0, h - px(CONT_TITLE_UP));
+		drawCentredLines(s, f, lines, nl, lh, C_WHITE, w, 0, h - (int)(title_up + 0.5f));
 	} else {
 		char name[LINE_MAX];
 		ellipsize(f, View_displayName(cont), name, w - 2 * inset);
-		drawTextBaseline(s, f, name, C_WHITE, inset, h - px(CONT_TITLE_UP), 255);
+		drawTextBaseline(s, f, name, C_WHITE, inset, h - (int)(title_up + 0.5f), 255);
 	}
 	tileBorder(s, w, h);
 }
@@ -738,8 +753,8 @@ static void composePick(SDL_Surface* s, int w, int h) {
 	tileBorder(s, w, h);
 }
 
-// A pinned game: its art; lit, the caption fade and the name (33.8 on a 41.6 line, white)
-// over the time (28.6 on a 36.4 line, grey), 20 in, 16 up, 4 apart. No art: the name centred (lit: the time alone
+// A pinned game: its art; lit, the caption fade and the name (TEXT_HOME_PIN_NAME, up to 2 lines, white) over the time
+// (TEXT_HOME_PIN_INFO, grey), placed as the Continue card's caption (its inset and baselines). No art: the name centred (lit: the time alone
 // under it).
 static void composeGame(SDL_Surface* s, int w, int h, bool lit, int g) {
 	Entry* e = games[g];
@@ -754,15 +769,25 @@ static void composeGame(SDL_Surface* s, int w, int h, bool lit, int g) {
 		captionFade(s, w, h);
 		timeText(e->path, when, sizeof(when));
 	}
-	int side = px(PIN_SIDE);
-	int info_lh = px(PIN_INFO_LH), name_lh = px(PIN_NAME_LH);
-	int info_top = h - px(PIN_UP) - info_lh;
-	int name_top = (when[0] ? info_top : h - px(PIN_UP)) - px(PIN_LINE_GAP) - name_lh;
+	// the caption as the Continue card's: its inset from the sides, the time's and the name's baselines as far up
+	// from the bottom (HomeLayout_captionBaselines at the pin's sizes)
+	int side = px(CONT_INSET);
+	UIDevice dev = UIScale_deviceIndex(UI_DEVICE_NAME);
+	int name_px = (int)TextPx_for(TEXT_HOME_PIN_NAME, dev), info_px = (int)TextPx_for(TEXT_HOME_PIN_INFO, dev);
+	int name_lh = (int)(px(PIN_NAME_LH) * (float)name_px / px(PIN_NAME_PX) + 0.5f);
+	float sub_up, title_up;
+	HomeLayout_captionBaselines(px(CONT_SUB_UP), px(CONT_TITLE_UP), px(CONT_SUB_PX), info_px, &sub_up, &title_up);
+	int info_base = h - (int)(sub_up + 0.5f);
+	int name_base = when[0] ? h - (int)(title_up + 0.5f) : info_base; // the name alone sits where the time would
+	int info_top = info_base;
 	if (lit && when[0]) {
-		TTF_Font* f = UIFont_getPx(px(PIN_INFO_PX), false);
-		char line[LINE_MAX];
-		ellipsize(f, when, line, w - 2 * side);
-		drawInLine(s, f, line, C_GREY, side, info_top, info_lh);
+		TTF_Font* f = UIFont_getPx(info_px, false);
+		if (f) {
+			char line[LINE_MAX];
+			ellipsize(f, when, line, w - 2 * side);
+			drawTextBaseline(s, f, line, C_GREY, side, info_base, 255);
+			info_top = info_base - TTF_FontAscent(f);
+		}
 	}
 	if (title_tile) {
 		// the name above the caption, centred; 15 sp, smaller (to 11) until its longest word fits
@@ -780,10 +805,12 @@ static void composeGame(SDL_Surface* s, int w, int h, bool lit, int g) {
 			drawCentredLines(s, f, lines, nl, (int)(lh + 0.5f), C_WHITE, w, 0, h - caption);
 		}
 	} else if (lit) {
-		TTF_Font* f = UIFont_getPx(px(PIN_NAME_PX), false);
-		char name[LINE_MAX];
-		ellipsize(f, View_displayName(e), name, w - 2 * side);
-		drawInLine(s, f, name, C_WHITE, side, name_top, name_lh);
+		// the name on up to 2 lines (the rest "…"), stacked up from where one line would sit
+		TTF_Font* f = UIFont_getPx(name_px, false);
+		char lines[2][LINE_MAX];
+		int nl = f ? wrapLines(f, View_displayName(e), w - 2 * side, 2, lines) : 0;
+		for (int i = 0; i < nl; i++)
+			drawTextBaseline(s, f, lines[i], C_WHITE, side, name_base - (nl - 1 - i) * name_lh, 255);
 	}
 	tileBorder(s, w, h);
 }
@@ -826,7 +853,7 @@ static SDL_Color runColour(StripTone t) {
 
 // One line's runs from x on baseline y; the run that gives way is cut with "…" so the line ends by right.
 static void drawStripLine(SDL_Surface* s, TTF_Font* f, StripLine* l, int x, int right, int baseline) {
-	float em = (float)px(STRIP_PX * stripK());
+	float em = (float)statsPx();
 	int fixed = 0, give = -1;
 	for (int i = 0; i < l->n; i++) {
 		StripRun* r = &l->runs[i];
@@ -856,13 +883,13 @@ static void drawStrip(SDL_Surface* dst, const HomeStats* st, int scroll_px) {
 	StripInput in = stripInput(st);
 	StripLine l1, l2;
 	HomeStrip_build(&in, &l1, &l2);
-	TTF_Font* f = UIFont_getPx(px(STRIP_PX * stripK()), false);
+	TTF_Font* f = UIFont_getPx(statsPx(), false);
 	if (!f)
 		return;
 	Uint32 key = 2166136261u;
 	key = View_fnv(key, &dst->w, sizeof(dst->w));
 	key = View_fnv(key, &layout.strip_lines, sizeof(layout.strip_lines));
-	int scale = homeScale();
+	float scale = homeScale();
 	key = View_fnv(key, &scale, sizeof(scale));
 	for (int i = 0; i < l1.n; i++)
 		key = View_fnvStr(key, l1.runs[i].text);
@@ -925,7 +952,8 @@ static float litAmount(int id) {
 typedef struct {
 	bool used;
 	CardKind kind;
-	int ref, w, h, scale;
+	int ref, w, h;
+	float scale;
 	bool lit;
 	Uint32 stamp; // what the card shows (see cardStamp)
 	unsigned lru;
@@ -1198,7 +1226,7 @@ static void renderHints(SDL_Surface* dst) {
 		return;
 	}
 	char key[sizeof(hint_key)];
-	int n = snprintf(key, sizeof(key), "%dx%d@%d", dst->w, bar_h, FIXED_SCALE);
+	int n = snprintf(key, sizeof(key), "%dx%d@%g", dst->w, bar_h, FIXED_SCALE);
 	for (int i = 0; pairs[i] && n < (int)sizeof(key); i++)
 		n += snprintf(key + n, sizeof(key) - n, "|%s", pairs[i]);
 	if (!hint_bar || hint_bar->w != dst->w || hint_bar->h != bar_h || strcmp(key, hint_key) != 0) {

@@ -311,7 +311,22 @@ static void count_fits_tile(void) {
 	assert(GridLayout_wordMaxLines(60, 10, 50, 13, 38, 3, 4) == 1);
 }
 
+// The logo and its "N games" centred as one block: equal room above the logo and below the count; no count, the logo
+// alone centred. The logo's box gives up the count's line, so the tallest logo still leaves the block in the box.
+static void logo_block_centred(void) {
+	float ly, cy;
+	GridLayout_logoBlock(10, 230, 120, 9, 30, &ly, &cy);
+	assert(near(ly - 10, (10 + 230) - (cy + 30)) && near(cy, ly + 120 + 9));
+	GridLayout_logoBlock(10, 230, 120, 9, 0, &ly, &cy);
+	assert(near(ly, 10 + (230 - 120) / 2.0f));
+	assert(GridLayout_logoBoxH(144, 9, 30) == 144 - 39 && GridLayout_logoBoxH(144, 9, 0) == 144);
+	// the tallest logo the reduced box allows: the block fits the box (inset 43 each side of a 230 tile)
+	GridLayout_logoBlock(0, 230, (float)GridLayout_logoBoxH(230 - 86, 9, 30), 9, 30, &ly, &cy);
+	assert(ly >= 43 - 0.01f && cy + 30 <= 230 - 43 + 0.01f);
+}
+
 int main(void) {
+	logo_block_centred();
 	device_vectors();
 	still_centring();
 	counts_and_names();

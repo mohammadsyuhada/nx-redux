@@ -24,14 +24,16 @@ without `DEVICE=` deploys `brick`, not the Pro.
 
 ## How it differs from the plain Brick
 
-Same 1024×768 panel, but it is a **physically larger** panel, so it uses the
-Smart Pro's **2× layout, not the Brick's 3×**. This was confirmed on hardware
-(a 3× layout was too large / clipped rows).
+Same 1024×768 resolution, but a **physically larger** panel (3.95" against the
+Brick's 3.2"), so it has its own UI scale: **2.5** (`ui_scale.h`
+`UIScale_forDevice`; its density gives 2.4375, rounded up so most sizes are whole px)
+and tuned by eye with the hidden `uiscale_dev=` override (see `.dev/DEVICES.md`,
+`.dev/TEXT_SIZES.md`).
 
 | Trait | Plain Brick | Brick Pro |
 |---|---|---|
-| UI scale (`FIXED_SCALE`) | 3× | **2×** |
-| Main menu rows (`MAIN_ROW_COUNT`) | 7 | **11** (10 visible) |
+| UI scale (`FIXED_SCALE`) | 3.0 | **2.5** |
+| Main menu rows (fitted to the panel at each device's UI scale) | 7 | per its scale (`ui_scale.h`) |
 | Analog sticks | none | **two** (I2C hall sticks) |
 | Stick clicks L3/R3 (`JOY_L3/R3`) | 9 / 10 | 9 / 10 |
 | Function keys L4/R4 (`JOY_L4/R4`) | — | **11 / 12** |

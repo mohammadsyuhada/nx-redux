@@ -305,14 +305,14 @@ static void bt_device_draw(SDL_Surface* screen, SettingItem* item,
 	if (selected) {
 		// Layer 1: full-width background
 		SDL_Rect row_rect = {x, y, w, h};
-		GFX_blitRectColor(ASSET_BUTTON, screen, &row_rect, THEME_COLOR2);
+		GFX_blitPillColor(ASSET_BUTTON, screen, &row_rect, THEME_COLOR2, RGB_WHITE);
 
 		// Layer 2: label-width pill on top
 		int text_w_px, text_h_px;
 		GFX_measureText(f, truncated, &text_w_px, &text_h_px);
 		int label_pill_w = text_w_px + SCALE1(BUTTON_PADDING * 2);
 		SDL_Rect label_rect = {x, y, label_pill_w, h};
-		GFX_blitRectColor(ASSET_BUTTON, screen, &label_rect, UI_accentMapped(screen->format));
+		GFX_blitPillColor(ASSET_BUTTON, screen, &label_rect, UI_accentMapped(screen->format), RGB_WHITE);
 	}
 
 	// Device name text

@@ -6,6 +6,7 @@
 
 #include "api.h"
 #include "defines.h"
+#include "ui_text_sizes.h"
 #include "grid_layout.h"
 #include "infoband.h"
 #include "menuart.h"
@@ -512,9 +513,11 @@ static void drawTool(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float s, S
 	if (t->carousel) {
 		f = carouselToolFont(r.w, r.w - 2 * pad);
 	} else {
-		// the Grid: 14 sp (× the tile scale); a one-word name too wide breaks at its lower→upper case boundary
-		// first ("Retro / Achievements"), then the size shrinks (to 11 sp) until its longest word fits, as on Home
-		float sp_max = TOOL_TEXT_SP * s;
+		// the Grid: TEXT_GRID_TOOL per device (px, as sp; 0: 14 sp × the tile scale); a one-word name too wide breaks at its lower→upper case
+		// boundary first ("Retro / Achievements"), then the size shrinks (to 11 sp) until its longest word fits, as on
+		// Home
+		float tool_px = TextPx_for(TEXT_GRID_TOOL, UIScale_deviceIndex(UI_DEVICE_NAME));
+		float sp_max = tool_px > 0 ? tool_px / (FIXED_SCALE * 12.0f / 14.0f) : TOOL_TEXT_SP * s;
 		float sp_min = sp_max < TOOL_TEXT_MIN_SP ? sp_max : TOOL_TEXT_MIN_SP;
 		f = UIFont_get(sp_max, false);
 		if (f && textWidth(f, name) > r.w - 2 * pad)
@@ -541,7 +544,7 @@ static void drawTool(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float s, S
 }
 
 // Console logo, inset 22 dp at the sides and 30 dp top and bottom (scaled with the tile); the name when
-// there's no logo (the Grid's as a collection tile, the Carousel's as a word). A Grid tile adds "N games" 6 dp under what's drawn (count_a), the logo staying centred.
+// there's no logo (the Grid's as a collection tile, the Carousel's as a word). A Grid tile adds "N games" 6 dp under what's drawn (count_a), the two centred as one block.
 SDL_Surface* Tiles_cornerMask(int w, int h) {
 	SDL_Surface* s = w > 0 && h > 0 ? SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888) : NULL;
 	if (!s)
@@ -609,12 +612,24 @@ void Tiles_logoBox(int tile_w, int tile_h, float s, int* box_w, int* box_h) {
 	*box_h = tile_h - 2 * NX_DPF(LOGO_INSET_Y_DP * s);
 }
 
+void Tiles_gridLogoBox(int tile_w, int tile_h, float s, int* box_w, int* box_h) {
+	Tiles_logoBox(tile_w, tile_h, s, box_w, box_h);
+	TTF_Font* f = UIFont_get(GridLayout_countSp(GRID_LOGO_COUNT_SP, s), false);
+	*box_h = GridLayout_logoBoxH(*box_h, NX_DPF(GRID_LOGO_COUNT_GAP_DP), f ? TTF_FontHeight(f) : 0);
+}
+
 static void drawLogo(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float s, SDL_Color c, Uint8 a, Uint8 count_a) {
 	int box_w, box_h;
 	Tiles_logoBox(r.w, r.h, s, &box_w, &box_h);
-	SDL_Surface* logo = (t->logo_file && box_w > 0 && box_h > 0) ? MenuArt_get(t->logo_file, box_w, box_h) : NULL;
 	int gap = NX_DPF(GRID_LOGO_COUNT_GAP_DP);
 	float count_sp = GridLayout_countSp(GRID_LOGO_COUNT_SP, s);
+	// the Grid's logo and its count centred as one block, the count's line reserved whether or not it is known yet (so
+	// nothing moves when it arrives): the logo's box gives that line up (Tiles_gridLogoBox, as warmLogos decodes it)
+	TTF_Font* fcount = !t->carousel ? UIFont_get(count_sp, false) : NULL;
+	int count_h = fcount ? TTF_FontHeight(fcount) : 0;
+	int logo_box_h = GridLayout_logoBoxH(box_h, gap, count_h);
+	SDL_Surface* logo =
+		(t->logo_file && box_w > 0 && logo_box_h > 0) ? MenuArt_get(t->logo_file, box_w, logo_box_h) : NULL;
 	if (!logo && !t->carousel) {
 		// the Grid: drawn like a collection tile with the unknown-console emblem over its name, in the off-white at full
 		// alpha, and its 13 sp count
@@ -634,9 +649,11 @@ static void drawLogo(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float s, S
 	// the logo art is always the fixed off-white (TILE_MENU_GREY, baked into the PNGs); only its alpha follows the
 	// selection
 	SDL_SetSurfaceAlphaMod(logo, a);
-	SDL_BlitSurface(logo, NULL, dst, &(SDL_Rect){r.x + (r.w - lw) / 2, r.y + (r.h - lh) / 2, lw, lh});
+	float logo_y, count_y;
+	GridLayout_logoBlock((float)r.y, (float)r.h, (float)lh, (float)gap, (float)count_h, &logo_y, &count_y);
+	SDL_BlitSurface(logo, NULL, dst, &(SDL_Rect){r.x + (r.w - lw) / 2, (int)floorf(logo_y + 0.5f), lw, lh});
 	SDL_SetSurfaceAlphaMod(logo, 255);
-	int y = (int)floorf(GridLayout_logoCountY((float)r.y, (float)r.h, (float)lh, (float)gap) + 0.5f);
+	int y = (int)floorf(count_y + 0.5f);
 	// "N games" in the count grey, a step under the logo
 	drawCount(dst, t->count, count_sp, r.x + r.w / 2, y, greyColor(TILE_COUNT_GREY), count_a);
 }

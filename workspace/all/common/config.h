@@ -202,7 +202,6 @@ typedef struct
 	// Input
 	int buttonLayout; // BUTTON_LAYOUT_NINTENDO / BUTTON_LAYOUT_XBOX (A<->B, X<->Y everywhere; applies at next boot)
 	bool hintLabels;  // true: hints show the printed cap you press (only differs from logical when layout is Xbox)
-	int uiScale;	  // 0 = device native, 2 or 3 (ui_scale.h)
 
 } NextUISettings;
 
@@ -250,7 +249,7 @@ typedef struct
 #define CFG_DEFAULT_SHOWHOME true
 #define CFG_DEFAULT_MENUCONTROLLERART true
 #define CFG_DEFAULT_BUTTONHINTS true
-#define CFG_DEFAULT_PAGETITLE false
+#define CFG_DEFAULT_PAGETITLE true
 #define CFG_DEFAULT_FN1_TOOL ""
 #define CFG_DEFAULT_FN2_TOOL ""
 #define CFG_DEFAULT_BLUETOOTH false
@@ -289,7 +288,6 @@ typedef struct
 // Input defaults
 #define CFG_DEFAULT_BUTTON_LAYOUT BUTTON_LAYOUT_NINTENDO
 #define CFG_DEFAULT_HINT_LABELS true
-#define CFG_DEFAULT_UI_SCALE 0 // UI_SCALE_NATIVE
 
 void CFG_init(FontLoad_callback_t fontCallback, ColorSet_callback_t ccb);
 void CFG_print(void);
@@ -504,11 +502,6 @@ void CFG_setButtonLayout(int layout);
 bool CFG_getHintLabels(void);
 void CFG_setHintLabels(bool physical);
 
-// UI scale: 0 follows the device (Brick 3x, others 2x); 2 or 3 forces it.
-// Resolved at GFX_init (before fonts load); CFG_init mirrors it into settings.
-// A running process switches with GFX_reloadScale().
-int CFG_getUIScale(void);
-void CFG_setUIScale(int scale);
 
 void CFG_sync(void);
 void CFG_quit(void);

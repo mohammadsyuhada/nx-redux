@@ -9,7 +9,7 @@ void UI_renderEmptyStateButtons(SDL_Surface* screen, const char* message,
 	int hw = screen->w;
 	int hh = screen->h;
 
-	int btn_sz = CHROME1(BUTTON_SIZE); // the centred button row (UI_renderCenteredButtons)
+	int btn_sz = SCALE1(BUTTON_SIZE); // the centred button row (UI_renderCenteredButtons)
 
 	// Calculate total height for vertical centering
 	int icon_size = SCALE1(48);

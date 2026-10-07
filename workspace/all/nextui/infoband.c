@@ -11,11 +11,14 @@
 #include "imgloader.h" // screen
 #include "menuart.h"
 #include "ui_fade.h"
+#include "ui_font.h"
+#include "ui_list.h"
+#include "ui_text_sizes.h"
 
 #include <string.h>
 
-#define SHADOW_ALPHA 153 // black at 60%
-#define ARROW_ALPHA 51	 // white at 20%
+#define SHADOW_ALPHA 153				  // black at 60%
+#define ARROW_ALPHA UI_SCROLL_ARROW_ALPHA // ui_list.h: every list's arrows (was 20% here: nearly invisible)
 #define SEPARATOR " \xC2\xB7 "
 #define MAX_SEGS 3
 
@@ -97,9 +100,9 @@ static int drawShadowedText(TTF_Font* f, SDL_Surface* dst, const char* text, SDL
 	return textWidthFor(f, text);
 }
 
-// The scroll arrows, white, NX_DP(28) wide (aspect kept) at alpha 51, built once per scale. The asset sheet is
+// The scroll arrows, white, NX_DP(28) wide (aspect kept) at ARROW_ALPHA, built once per scale. The asset sheet is
 // shared, so each arrow is copied into a scratch surface first (whitened, keeping the art's coverage) and the scaled
-// copy is the one faded.
+// copy is the one faded (its pixels' alpha).
 #define ARROW_W NX_DP(28)
 static SDL_Surface* arrow_up = NULL;
 static SDL_Surface* arrow_down = NULL;
@@ -132,8 +135,18 @@ static SDL_Surface* buildArrow(int asset) {
 	if (out) {
 		SDL_SetSurfaceBlendMode(tmp, SDL_BLENDMODE_NONE); // a straight scaled copy
 		SDL_BlitScaled(tmp, NULL, out, NULL);
+		// ARROW_ALPHA baked into the pixels' alpha (an alpha mod on top of the block's blend and unpremultiply came
+		// out squared on screen: 20% showed as 4%)
+		if (SDL_MUSTLOCK(out))
+			SDL_LockSurface(out);
+		for (int y = 0; y < out->h; y++) {
+			Uint32* px = (Uint32*)((Uint8*)out->pixels + y * out->pitch);
+			for (int x = 0; x < out->w; x++)
+				px[x] = (((px[x] >> 24) * ARROW_ALPHA + 127) / 255) << 24 | (px[x] & 0x00FFFFFF);
+		}
+		if (SDL_MUSTLOCK(out))
+			SDL_UnlockSurface(out);
 		SDL_SetSurfaceBlendMode(out, SDL_BLENDMODE_BLEND);
-		SDL_SetSurfaceAlphaMod(out, ARROW_ALPHA);
 	}
 	SDL_FreeSurface(tmp);
 	return out;
@@ -308,21 +321,31 @@ static SDL_Surface* buildBlock(bool up, bool down, bool tall, int w, int h, int 
 	if (fade) // onto the clear block: its own pixels, copied (no blend)
 		UI_fillFade(fade, NULL, s, 0, 0);
 
-	// the arrows, packed: the first one shown takes slot 1, centred on the text line
+	// the arrows, packed: the first one shown takes slot 1, centred on the text line, INFOBAND_ARROW_RAISE up
 	ensureArrows();
 	int x = arrow_x;
 	if (up && arrow_up) {
-		SDL_BlitSurface(arrow_up, NULL, s, &(SDL_Rect){x, text_off + (text_h - arrow_up->h) / 2});
+		SDL_BlitSurface(arrow_up, NULL, s, &(SDL_Rect){x, text_off + (text_h - arrow_up->h) / 2 - INFOBAND_ARROW_RAISE});
 		x += ARROW_W + NX_DP(1);
 	}
 	if (down && arrow_down)
-		SDL_BlitSurface(arrow_down, NULL, s, &(SDL_Rect){x, text_off + (text_h - arrow_down->h) / 2});
+		SDL_BlitSurface(arrow_down, NULL, s, &(SDL_Rect){x, text_off + (text_h - arrow_down->h) / 2 - INFOBAND_ARROW_RAISE});
 	unpremultiply(s); // once per content change (the block is cached)
 	return s;
 }
 
 // The info line on its own strip, rows y .. y + h of the band (h: the text's line with room for its shadow and
 // descenders, cut at max_h). Drawn as it was into the block, on clear, then unpremultiplied the same way.
+// The info line's font: on its own row (info_off past the band's text line: the hint bar's, while the hints are
+// hidden) TEXT_LIST_INFO per device, else font.small.
+static TTF_Font* infoFont(int info_off, int text_off) {
+	if (info_off == text_off)
+		return font.small;
+	int px = (int)TextPx_for(TEXT_LIST_INFO, UIScale_deviceIndex(UI_DEVICE_NAME));
+	TTF_Font* f = px > 0 && px != SCALE1(FONT_SMALL) ? UIFont_getPx(px, false) : NULL;
+	return f ? f : font.small;
+}
+
 static SDL_Surface* buildText(const InfoSeg* in, int nsegs, int w, int text_off, int info_off, int text_h, int arrow_x,
 							  int max_h, int* y) {
 	int pad = NX_DP(4);
@@ -341,7 +364,10 @@ static SDL_Surface* buildText(const InfoSeg* in, int nsegs, int w, int text_off,
 	// w - 24 dp; on its own line (info_off) from the arrows' x
 	int left = info_off != text_off ? arrow_x : arrow_x + ARROW_W * 2 + NX_DP(1) + NX_DP(12);
 	int right = w - NX_DP(24);
-	InfoBand_drawSegments(s, in, nsegs, right, true, info_off - y0, right - left, font.small);
+	TTF_Font* f = infoFont(info_off, text_off);
+	// centred in the line box (a font other than font.small has its own height)
+	int fy = info_off - y0 + (text_h - TTF_FontHeight(f)) / 2 - (text_h - TTF_FontHeight(font.small)) / 2;
+	InfoBand_drawSegments(s, in, nsegs, right, true, fy, right - left, f);
 	unpremultiply(s);
 	*y = y0;
 	return s;
@@ -383,14 +409,14 @@ unsigned InfoBand_prepare(const InfoBandLayout* layout, const InfoSeg* segs, int
 	// the info's own line below the band: its strip reaches the screen's bottom (the glyphs' descenders and shadow
 	// run past text_h), and the block's fade holds as it did when the block reached there too
 	bool tall = nsegs > 0 && info_off + l.text_h > h;
-	int arrow_x = l.arrow_x > 0 ? l.arrow_x : NX_NATIVE_DP(NX_LIST_INSET_DP);
+	int arrow_x = l.arrow_x > 0 ? l.arrow_x : NX_DP(NX_LIST_INSET_DP);
 	if (w <= 0 || h <= 0)
 		return cur.gen;
 
 	BandBlock* blk = blockFor(up, down, tall, w, h, fill_h, text_off, l.text_h, arrow_x);
 	bool text_same = text.valid && text.nsegs == nsegs && text.w == w && text.info_off == info_off &&
 					 text.text_off == text_off && text.text_h == l.text_h && text.arrow_x == arrow_x &&
-					 text.scale == (float)FIXED_SCALE && text.font == font.small;
+					 text.scale == (float)FIXED_SCALE && text.font == infoFont(info_off, text_off);
 	for (int i = 0; text_same && i < nsegs; i++)
 		if (text.segs[i].kind != segs[i].kind || strcmp(text.segs[i].text, segs[i].text) != 0)
 			text_same = false;
@@ -408,7 +434,7 @@ unsigned InfoBand_prepare(const InfoBandLayout* layout, const InfoSeg* segs, int
 		text.text_h = l.text_h;
 		text.arrow_x = arrow_x;
 		text.scale = (float)FIXED_SCALE;
-		text.font = font.small;
+		text.font = infoFont(info_off, text_off);
 		text.valid = true;
 		cur.gen++;
 	}
@@ -427,9 +453,15 @@ void InfoBand_draw(int layer, SDL_Surface* dst) {
 			continue;
 		if (dst)
 			SDL_BlitSurface(parts[i], NULL, dst, &(SDL_Rect){0, ys[i]});
-		else // their textures made once per content
-			PLAT_drawTextureOnLayer(PLAT_textureForSurface(parts[i]),
-									&(SDL_Rect){0, ys[i], parts[i]->w, parts[i]->h}, layer);
+		else { // their textures made once per content
+			SDL_Texture* tex = PLAT_textureForSurface(parts[i]);
+			// the block copied onto the (cleared) layer, not blended: a blend leaves its colour times its alpha in the
+			// layer and the layer's own blend onto the screen multiplies it again (the arrows' 45% showed as 20%). The
+			// text strip blends over it (its glyphs' edges onto the block).
+			if (tex && i == 0)
+				SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_NONE);
+			PLAT_drawTextureOnLayer(tex, &(SDL_Rect){0, ys[i], parts[i]->w, parts[i]->h}, layer);
+		}
 	}
 }
 
@@ -440,7 +472,7 @@ void InfoBand_render(const InfoBandLayout* layout, const InfoSeg* segs, int nseg
 }
 
 void InfoBand_renderUpArrow(int x, int cy, int layer, SDL_Surface* dst) {
-	static SDL_Surface* baked = NULL; // the arrow at its 20% (ARROW_ALPHA), as the band bakes it into its block
+	static SDL_Surface* baked = NULL; // the arrow at ARROW_ALPHA, as the band bakes it into its block
 	static float baked_scale = 0;
 	ensureArrows();
 	if (!arrow_up)
@@ -452,7 +484,7 @@ void InfoBand_renderUpArrow(int x, int cy, int layer, SDL_Surface* dst) {
 		if (!baked)
 			return;
 		SDL_SetSurfaceBlendMode(baked, SDL_BLENDMODE_BLEND);
-		// a straight copy, only its alpha scaled to ARROW_ALPHA (a blend onto clear would darken the colour too:
+		// a straight copy (arrow_up carries ARROW_ALPHA in its pixels; a blend onto clear would darken the colour too:
 		// the band undoes that with unpremultiply)
 		SDL_Surface* src = SDL_ConvertSurfaceFormat(arrow_up, SDL_PIXELFORMAT_ARGB8888, 0);
 		if (!src)
@@ -461,7 +493,7 @@ void InfoBand_renderUpArrow(int x, int cy, int layer, SDL_Surface* dst) {
 			const Uint32* in = (const Uint32*)((const Uint8*)src->pixels + y * src->pitch);
 			Uint32* out = (Uint32*)((Uint8*)baked->pixels + y * baked->pitch);
 			for (int x = 0; x < src->w; x++)
-				out[x] = (((in[x] >> 24) * ARROW_ALPHA + 127) / 255) << 24 | (in[x] & 0x00FFFFFF);
+				out[x] = in[x];
 		}
 		SDL_FreeSurface(src);
 		baked_scale = (float)FIXED_SCALE;

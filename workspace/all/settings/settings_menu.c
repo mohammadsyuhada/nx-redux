@@ -20,9 +20,6 @@
 #define MAX_PAGE_DEPTH 8
 static SettingsPage* page_stack[MAX_PAGE_DEPTH];
 static int stack_depth = 0;
-// Bumped by settings_menu_invalidate_layout on a live UI-scale change; a page
-// whose layout_gen lags it has a scroll window sized for the old scale.
-static unsigned layout_gen;
 
 void settings_menu_init(void) {
 	stack_depth = 0;
@@ -36,12 +33,6 @@ void settings_menu_push(SettingsPage* page) {
 	// which persists over the incoming page unless cleared. It re-primes on
 	// the next list render (ScrollText repaints the layer every render).
 	GFX_clearLayers(LAYER_SCROLLTEXT);
-	// A page kept its selected/scroll from its last visit; if the UI scale
-	// changed while it was off the stack, that window is stale (see
-	// settings_menu_invalidate_layout).
-	if (page->layout_gen != layout_gen)
-		page->scroll = 0;
-	page->layout_gen = layout_gen;
 	if (page->on_show)
 		page->on_show(page);
 	page_stack[stack_depth++] = page;
@@ -385,32 +376,6 @@ bool settings_menu_glide_active(void) {
 		return false;
 	UI_listViewTickIdle(&category_view);
 	return UI_listViewBusy(&category_view);
-}
-
-void settings_menu_invalidate_layout(void) {
-	// A live UI-scale change (GFX_reloadScale) swaps fonts and row metrics
-	// under every page. The category list's glide holds old-scale pixel
-	// positions and its marquee a surface rendered in the old font;
-	// zero-init is the widget's valid initial state, and render_list_mode
-	// re-fills the config fields every frame, so the next render snaps at
-	// the new scale. Each page's scroll window was sized for the old row
-	// count, and both renderers only ever advance it (UI_adjustListScroll,
-	// the ListView windowing loop), so a window that grew would stay
-	// under-filled. Pages on the stack are reset to 0 here: the renderers
-	// then re-derive the tightest window that keeps the unchanged selection
-	// visible. Off-stack pages keep selected/scroll between visits, so
-	// bumping layout_gen makes settings_menu_push reset theirs on re-entry;
-	// the stack pages are stamped current so a later re-push leaves them be.
-	// Clearing LAYER_SCROLLTEXT is a no-op on value pages (they draw no
-	// marquee); it matters when a category list is shown next.
-	GFX_clearLayers(LAYER_SCROLLTEXT);
-	ScrollText_clear(&category_view.marquee);
-	memset(&category_view, 0, sizeof(category_view));
-	layout_gen++;
-	for (int i = 0; i < stack_depth; i++) {
-		page_stack[i]->scroll = 0;
-		page_stack[i]->layout_gen = layout_gen;
-	}
 }
 
 static void category_get_row(void* ctx, int i, bool selected, ListViewRow* out) {

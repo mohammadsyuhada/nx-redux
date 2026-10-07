@@ -479,15 +479,14 @@ MenuTabId MenuTabs_initialTab(const char* last_path) {
 // current label wears the selection plate (12 dp past the word each side, 5 dp
 // above and below) and the underline hides; the words keep their positions.
 
-// The tab row keeps the page title's size whatever the UI scale (UI scale enlarges the content, not the tabs): its
-// font is the page title's (UI_pageTitleFont) and its measures dp at CHROME_SCALE, the Brick's physical size on every panel
-#define TAB_LABEL_GAP NX_CHROME_DP(20)	 // pixels between labels
-#define TAB_UNDERLINE_H NX_CHROME_DP(3)	 // underline height in pixels
-#define TAB_EDGE NX_CHROME_DP(16)		 // scroll margin + edge fade width
-#define TAB_PLATE_PAD_X NX_CHROME_DP(12) // the plate past the word, each side
-#define TAB_PLATE_PAD_Y NX_CHROME_DP(5)	 // and above and below
-#define TAB_DIM_ALPHA 97				 // 38%: labels of the other tabs
-#define TAB_GLIDE_MS 240				 // underline glide, eased with UI_easeStandard
+// The tab row keeps the page title's size: its font is the page title's (UI_pageTitleFont) and its measures dp
+#define TAB_LABEL_GAP NX_DP(20)	  // pixels between labels
+#define TAB_UNDERLINE_H NX_DP(3)  // underline height in pixels
+#define TAB_EDGE NX_DP(16)		  // scroll margin + edge fade width
+#define TAB_PLATE_PAD_X NX_DP(12) // the plate past the word, each side
+#define TAB_PLATE_PAD_Y NX_DP(5)  // and above and below
+#define TAB_DIM_ALPHA 97		  // 38%: labels of the other tabs
+#define TAB_GLIDE_MS 240		  // underline glide, eased with UI_easeStandard
 
 // Underline glide (strip coordinates). Position = lerp(from, to, UI_easeStandard(elapsed / 240 ms)).
 static struct {
@@ -504,15 +503,16 @@ static struct {
 	TTF_Font* font;
 	int off, cur, count, w, h;
 	MenuTabId ids[MENU_TAB_COUNT];
-	int scale;
+	float scale;
 	bool focused; // the current label is left out (the plate draws it)
 } strip;
 
 // The last layoutLabels result, so a dirty frame doesn't re-measure the labels: keyed on the font, the visible tabs
-// (each id's label is a fixed string) and FIXED_SCALE (a system-font reload follows a scale change).
+// (each id's label is a fixed string) and FIXED_SCALE.
 static struct {
 	TTF_Font* font;
-	int count, scale, width;
+	int count, width;
+	float scale;
 	MenuTabId ids[MENU_TAB_COUNT];
 	int xs[MENU_TAB_COUNT], ws[MENU_TAB_COUNT];
 } label_layout;
@@ -668,7 +668,8 @@ static struct {
 	SDL_Surface* surf;
 	TTF_Font* font;
 	MenuTabId id;
-	int w, h, scale, text_y;
+	int w, h, text_y;
+	float scale;
 	uint64_t key; // the accent and its ink
 } plate;
 
@@ -725,12 +726,12 @@ void MenuTabs_renderRow(SDL_Surface* screen, int ow) {
 	if (tab_count <= 1)
 		return;
 
-	// the row fills the top bar: both the default scale's height whatever the UI scale
+	// the row fills the top bar
 	int bar_h = BAR_HEIGHT;
 	int row_h = bar_h;
 	int row_y = 0;
-	int band_h = row_h - TAB_UNDERLINE_H * 2;	// labels centre above the underline
-	int left = NX_NATIVE_DP(NX_MENU_GUTTER_DP); // the first label on the 24 dp gutter (§5), where the List rows' text starts
+	int band_h = row_h - TAB_UNDERLINE_H * 2; // labels centre above the underline
+	int left = NX_DP(NX_MENU_GUTTER_DP);	  // the first label on the 24 dp gutter (§5), where the List rows' text starts
 	int right_limit = screen->w - ow - SCALE1(PADDING);
 	int band_w = right_limit - left;
 	if (band_w <= 0)
@@ -819,7 +820,7 @@ void MenuTabs_renderRow(SDL_Surface* screen, int ow) {
 	} else {
 		int ux, uw;
 		underlineNow(&ux, &uw);
-		SDL_FillRect(screen, &(SDL_Rect){base + ux, row_y + row_h - TAB_UNDERLINE_H - CHROME1(2), uw, TAB_UNDERLINE_H},
+		SDL_FillRect(screen, &(SDL_Rect){base + ux, row_y + row_h - TAB_UNDERLINE_H - SCALE1(2), uw, TAB_UNDERLINE_H},
 					 accentOpaque(screen->format));
 	}
 

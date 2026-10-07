@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include "sdl.h"
 
-// Page title (LIST-LAYOUT §10.1): one look everywhere, at the device's default scale whatever the UI scale.
+// Page title (LIST-LAYOUT §10.1): one look everywhere.
 // UI_PAGE_TITLE_SP regular (the UI font has no bold face, and TTF_STYLE_BOLD's synthetic emboldening reads heavy with
 // rough edges) in COLOR_GRAY,
 // vertically centred in the top strip (UI_menuBarHeight()). The part up to and including the first " | " and
@@ -21,9 +21,9 @@ int UI_pageTitleBaseline(void);
 // 2 dp (LIST-LAYOUT §10.2: a list is centred between the title's letters and the hint bar's icons, not the
 // boxes), so a block that fills the band never touches the title.
 int UI_pageTitleBandTop(void);
-// Default title x: the standard pill list's text start, the list inset (NX_NATIVE_DP(NX_LIST_INSET_DP)), 24 dp.
+// Default title x: the standard pill list's text start, the list inset (NX_DP(NX_LIST_INSET_DP)), 24 dp.
 int UI_pageTitleX(void);
-// The page title's font: UI_PAGE_TITLE_SP at CHROME_SCALE (the Brick's physical size on every panel), whatever the UI scale.
+// The page title's font: UI_PAGE_TITLE_SP at FIXED_SCALE.
 // NULL if the font fails to open.
 TTF_Font* UI_pageTitleFont(void);
 // Draw a page title at x in the top strip, fitted into max_w px (<= 0: no limit beyond the screen). suffix

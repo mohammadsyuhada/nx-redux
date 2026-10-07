@@ -312,10 +312,6 @@ void GFX_flip_scheduled(SDL_Surface* screen, double slot_s, double target_fps); 
 void GFX_sync(void);															// call this to maintain 60fps when not calling GFX_flip() this frame
 void GFX_delay(void);															// gfx_sync() is only for everywhere where there is no audio buffer to rely on for delaying, stupid so doing gfx_delay() for like waiting for input loop in binding menu. Need to remove gfx_sync() everwhere eventually
 void GFX_quit(void);
-// Re-applies the stored UI scale (CFG_getUIScale) to a running process: asset
-// sheet, asset rects, nav glyphs and fonts. Returns -1 and keeps the old scale
-// if the new asset sheet can't load.
-int GFX_reloadScale(void);
 
 enum {
 	VSYNC_OFF = 0,
@@ -339,8 +335,8 @@ void GFX_forgetFontText(TTF_Font* font);
 // The TTF file the system fonts (font.*) were last loaded from: the user's selected UI font.
 const char* GFX_getSystemFontPath(void);
 // Register a callback that closes a runtime font cache (one slot; common/ui/ui_font.c uses it). It runs
-// before every system-font reload (font change, GFX_reloadScale) and in GFX_quit, so the cache reopens on the
-// new font and scale. It must GFX_forgetFontText each font it closes.
+// before every system-font reload (font change) and in GFX_quit, so the cache reopens on the
+// new font. It must GFX_forgetFontText each font it closes.
 void GFX_setFontReloadHook(void (*hook)(void));
 
 // Arabic-aware text primitives (drop-in replacements). Non-Arabic input takes
@@ -401,9 +397,9 @@ void GFX_blitRectColor(int asset, SDL_Surface* dst, SDL_Rect* dst_rect, uint32_t
 // SDL_FillRect; lower alpha is blended over the existing pixels.
 void GFX_fillRectColor(SDL_Surface* dst, const SDL_Rect* rect, uint32_t mapped_color);
 void GFX_blitBatteryAtPosition(SDL_Surface* dst, int x, int y);
-// A button hint (glyph + label) at CHROME_SCALE (the Brick's physical size on every panel) whatever the UI scale: the button hint bar's.
-int GFX_getButtonWidthChrome(char* hint, char* button);
-void GFX_blitButtonChrome(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_rect);
+// A button hint (glyph + label) at the UI scale: the button hint bar's.
+int GFX_getButtonWidth(char* hint, char* button);
+void GFX_blitButton(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_rect);
 // "Button layout" (Settings > System), read once per process at first poll.
 int PAD_layoutIsXbox(void);
 // Display label for a logical face/chord label ("A", "MENU+X", ...): the
@@ -428,7 +424,7 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, IndicatorType show_setting);
  * @return The width of the rendered indicator
  */
 int GFX_blitHardwareIndicator(SDL_Surface* dst, int x, int y, IndicatorType indicator_type);
-// The same at INDICATOR_SCALE (defines.h), its fixed size whatever the UI scale: the top bar's and the in-game popup's.
+// The same at INDICATOR_SCALE (defines.h), two thirds of the UI scale: the top bar's and the in-game popup's.
 // GFX_hardwareIndicatorSize gives the box it fills.
 void GFX_hardwareIndicatorSize(int* w, int* h);
 int GFX_blitHardwareIndicatorFixed(SDL_Surface* dst, int x, int y, IndicatorType indicator_type);

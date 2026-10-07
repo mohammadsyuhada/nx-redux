@@ -56,7 +56,7 @@ typedef struct {
 // excluded), ntools: the pinned tools.
 void HomeLayout_compute(float W, float H, float bar, int strip_lines, int ngames, int ntools, HomeLayout* out);
 // The same with the stats strip's offsets (its baselines and the top section's start under it) strip_k times their
-// size: Home passes 3 / the UI scale, so the strip keeps the Large scale's size whatever the UI scale. strip_k > 1 (the
+// size: Home passes the UI scale over its own (1.5), so the strip is drawn at the UI scale. strip_k > 1 (the
 // Small scale) with tools on a wide screen with pin rows also keeps the tool squares' glyph at the Large size (46 ×
 // strip_k) and sizes the squares from it (the glyph 58% of the side), so the top section is just their three rows
 // (filled a column at a time, a column per 3 tools) tall and one pin row takes the rest.
@@ -68,6 +68,20 @@ void HomeLayout_compute(float W, float H, float bar, int strip_lines, int ngames
 // left of them (stacked, top tiles: npins 0), and Continue the rest.
 void HomeLayout_computeStrip(float W, float H, float bar, int strip_lines, float strip_k, int ngames, int ntools,
 							 HomeLayout* out);
+// The same with the stats text text_k times its default size: the strip's baselines and the top section's start move
+// with it (strip_k still sizes the rest).
+// What HomeLayout_computeOpts takes beyond the screen: strip_k and text_k as HomeLayout_computeStripText's, and pin_k
+// the Brick's pins (below the top section, past the screen's end) that times as tall. 0 (or a NULL opts) is 1.
+// tool_rows: the 4:3 top section's tool squares per column (0: 4). wide_pin_cols: the wide layout's pins a row (0: 4);
+// there pin_k shortens (or lengthens) the pins, the top section taking the difference.
+typedef struct {
+	float strip_k, text_k, pin_k;
+	int tool_rows, wide_pin_cols;
+} HomeLayoutOpts;
+void HomeLayout_computeOpts(float W, float H, float bar, int strip_lines, const HomeLayoutOpts* opts, int ngames,
+							int ntools, HomeLayout* out);
+void HomeLayout_computeStripText(float W, float H, float bar, int strip_lines, float strip_k, float text_k, int ngames, int ntools,
+								 HomeLayout* out);
 
 typedef enum { HOME_SEC_TOP,
 			   HOME_SEC_PINS } HomeSection;
@@ -102,5 +116,10 @@ HomeRect HomeLayout_focusRect(const HomeLayout* l, HomeFocus f);
 // The page scroll (Brick px) keeping the focused pin's ring under the tab row and the pin HOME_BOTTOM above the hint
 // bar, moving as little as possible from `current`; 0 in the top section; clamped to [0, page_h − H].
 float HomeLayout_scrollFor(const HomeLayout* l, HomeFocus f, float H, float bar, float current);
+
+// A card caption's baselines above its bottom (px) when its info line is sub_px instead of sub_px0: the info line's
+// offset and the gap up to the title both grow with it, so the lines keep their proportions.
+void HomeLayout_captionBaselines(float sub_up, float title_up, float sub_px0, float sub_px, float* sub_out,
+								 float* title_out);
 
 #endif

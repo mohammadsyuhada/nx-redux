@@ -238,6 +238,17 @@ float GridLayout_logoCountY(float tile_y, float tile_h, float drawn_h, float gap
 	return tile_y + tile_h / 2 + drawn_h / 2 + gap;
 }
 
+void GridLayout_logoBlock(float tile_y, float tile_h, float logo_h, float gap, float count_h, float* logo_y,
+						  float* count_y) {
+	float block_h = logo_h + (count_h > 0 ? gap + count_h : 0);
+	*logo_y = tile_y + (tile_h - block_h) / 2;
+	*count_y = *logo_y + logo_h + gap;
+}
+
+int GridLayout_logoBoxH(int box_h, int gap, int count_h) {
+	return count_h > 0 ? box_h - gap - count_h : box_h;
+}
+
 GridCollText GridLayout_collText(int tile_h, int lines, int line_h, int gap, int count_h) {
 	lines = lines < 1 ? 1 : (lines > GRID_COLL_LINES ? GRID_COLL_LINES : lines);
 	GridCollText t;

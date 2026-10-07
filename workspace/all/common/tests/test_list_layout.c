@@ -215,7 +215,19 @@ static void test_detail_badge(void) {
 	assert(UI_detailBadgeSize(320, 300, 86, 206) == 86);
 }
 
+// A main list tuned to a row count: rows of at most `pitch` px, short enough that `rows` of them plus the two half-row
+// strips fill the band; 0 rows keeps the pitch (as many as fit).
+static void test_main_list_row_height(void) {
+	assert(UI_mainListRowHeight(630, 90, 0) == 90);		 // untuned: the pitch
+	assert(UI_mainListRowHeight(630, 90, 7) == 630 / 8); // 78: 7 rows + 1 row of strips
+	UIListBlock b = UI_listBlock(50, 680, UI_mainListRowHeight(630, 90, 7), 0);
+	assert(b.rows == 7);
+	assert(UI_mainListRowHeight(900, 90, 7) == 90); // room to spare: never taller than the pitch
+	assert(UI_mainListRowHeight(0, 90, 7) == 90);	// no band: the pitch
+}
+
 int main(void) {
+	test_main_list_row_height();
 	test_equal_strips_and_centring();
 	test_whole_rows_only();
 	test_rows_wanted_caps();

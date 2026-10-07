@@ -59,6 +59,8 @@ SDL_Surface* Tiles_borderOverlay(int w, int h);
 Uint8 Tiles_borderAlpha(void);
 // The box a tile_w x tile_h tile's console logo is fitted in (MenuArt_get's), at tile scale s.
 void Tiles_logoBox(int tile_w, int tile_h, float s, int* box_w, int* box_h);
+// The Grid's console logo box: Tiles_logoBox less its "N games" line (the logo and count are centred as one block).
+void Tiles_gridLogoBox(int tile_w, int tile_h, float s, int* box_w, int* box_h);
 // The caption surface Tiles_drawCaption blends at r (tile-sized, cached; do not free), or NULL when it draws none.
 SDL_Surface* Tiles_captionSurface(SDL_Rect r, const TileSpec* t, float lit);
 // The bundled icon for a tool name ("Settings", "Settings.pak", "Artwork-Manager", ...): the four bundled mappings,

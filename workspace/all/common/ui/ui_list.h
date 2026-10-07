@@ -68,6 +68,16 @@ typedef struct {
 } ListLayout;
 
 // The standard pill list: SCALE1(PILL_SIZE) rows, as many as fit, under a page title and over a hint bar.
+// The apps' main lists (a ListView in the large font): their text and row count on this device (ui_text_sizes.h
+// TEXT_MENU_LIST, MENU_LIST_ROWS; 0 rows: as many as fit). The font is font.large where the sizes match.
+TTF_Font* UI_mainListFont(void);
+int UI_mainListRows(void);
+
+// The scroll arrows (ASSET_SCROLL_UP / _DOWN at the UI scale), white at UI_SCROLL_ARROW_ALPHA in their pixels' alpha:
+// every list's arrows, the main menu's band included.
+#define UI_SCROLL_ARROW_ALPHA 115 // 45%
+SDL_Surface* UI_scrollArrow(bool up);
+
 ListLayout UI_calcListLayout(SDL_Surface* screen);
 // The same in a chosen band: avail_top < 0 is the title's letters, avail_bottom < 0 the hint icons. Rows of
 // row_h; rows_wanted > 0 caps the count. For a list under its own header (ratools, Xtras tabs) pass the
@@ -77,7 +87,7 @@ ListLayout UI_calcListLayoutEx(SDL_Surface* screen, int avail_top, int avail_bot
 void UI_listLayoutSetRowHeight(ListLayout* layout, int row_h, int rows_wanted);
 
 // LIST-LAYOUT §1/§10.1: a list row's text starts at UI_listTextX() (the 14 dp inset); its selection pill's edge is
-// at UI_listPillX(), 14 dp (NATIVE1(BUTTON_PADDING)) left of the text. Every shared renderer below uses them, and
+// at UI_listPillX(), 14 dp (SCALE1(BUTTON_PADDING)) left of the text. Every shared renderer below uses them, and
 // the default page title x (UI_pageTitleX) is the same text start.
 int UI_listTextX(void);
 int UI_listPillX(void);

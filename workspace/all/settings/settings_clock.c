@@ -154,7 +154,7 @@ void clock_adjustment_run(SDL_Surface* screen) {
 	while ((c = chars[i])) {
 		digit = GFX_renderText(font.large, c, COLOR_WHITE);
 		if (digit) {
-			int y = i == CHAR_COLON ? SCALE1(-1.5) : 0;
+			int y = i == CHAR_COLON ? (int)(-1.5f * FIXED_SCALE) : 0; // truncated toward zero, as the Brick has always drawn it
 			SDL_BlitSurface(digit, NULL, clock_digits, &(SDL_Rect){(i * SCALE1(DIGIT_WIDTH)) + (SCALE1(DIGIT_WIDTH) - digit->w) / 2, y + (SCALE1(DIGIT_HEIGHT) - digit->h) / 2});
 			SDL_FreeSurface(digit);
 		}

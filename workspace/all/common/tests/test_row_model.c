@@ -374,7 +374,69 @@ static void backdrop_dim(void) {
 		assert(Row_backdropGain(i / 100.0f) <= 0.28f + 1e-4f);
 }
 
+// Content-sized slots (Horizontal Tools and Collections): each item as wide as its content, one gap between neighbours'
+// edges. Equal widths give Row_item's offsets exactly; unequal ones keep the edge gap at rest and slide linearly.
+static float widthOf(int i, void* ctx) {
+	return ((const float*)ctx)[i];
+}
+static void test_content_sized_dx(void) {
+	RowSizes s = Row_sizes(ROW_BACKDROP_TOOL, 960, 358);
+	float eq[9];
+	for (int i = 0; i < 9; i++)
+		eq[i] = s.item_w;
+	float poss[] = {4, 4.25f, 4.5f, 4.9f, 5};
+	for (int p = 0; p < 5; p++)
+		for (int i = 0; i < 9; i++) {
+			float dx = Row_itemDxVar(&s, (float)i, poss[p], 9, widthOf, eq);
+			assert(fabsf(dx - Row_item(&s, ROW_BACKDROP_TOOL, (float)i, poss[p]).dx) < 0.01f);
+		}
+	float w[5] = {100, 60, 200, 80, 120}; // at rest on 2: the edge gap between every pair of neighbours
+	for (int i = 1; i < 5; i++) {
+		float a = Row_itemDxVar(&s, (float)(i - 1), 2, 5, widthOf, w), b = Row_itemDxVar(&s, (float)i, 2, 5, widthOf, w);
+		float wa = w[i - 1] * (i - 1 == 2 ? 1 : s.scale), wb = w[i] * (i == 2 ? 1 : s.scale);
+		assert(fabsf((b - wb / 2) - (a + wa / 2) - s.gap) < 0.01f);
+	}
+	assert(fabsf(Row_itemDxVar(&s, 2, 2, 5, widthOf, w)) < 0.01f); // the selection centred
+	// halfway: halfway between the two rests
+	float m = Row_itemDxVar(&s, 3, 2.5f, 5, widthOf, w);
+	float r2 = Row_itemDxVar(&s, 3, 2, 5, widthOf, w), r3 = Row_itemDxVar(&s, 3, 3, 5, widthOf, w);
+	assert(fabsf(m - (r2 + r3) / 2) < 0.01f);
+}
+
+// Collection names: a word longer than 5 characters starts a new line (never the first word; 2 lines at most, the rest
+// staying on the second).
+static void test_coll_break(void) {
+	char l[2][256];
+	assert(Row_collBreak("To Be Completed", l) == 2 && !strcmp(l[0], "To Be") && !strcmp(l[1], "Completed"));
+	assert(Row_collBreak("Play Later", l) == 1 && !strcmp(l[0], "Play Later")); // "Later" is 5
+	assert(Row_collBreak("Favorites", l) == 1 && !strcmp(l[0], "Favorites"));
+	assert(Row_collBreak("Pokemon Games", l) == 1 && !strcmp(l[0], "Pokemon Games")); // the first word stays
+	assert(Row_collBreak("Super Mario Collection", l) == 2 && !strcmp(l[0], "Super Mario") &&
+		   !strcmp(l[1], "Collection"));
+	assert(Row_collBreak("My Retro Achievements Picks", l) == 2 && !strcmp(l[0], "My Retro") &&
+		   !strcmp(l[1], "Achievements Picks"));									  // 2 lines at most
+	assert(Row_collBreak("  Spaced   Out  ", l) == 1 && !strcmp(l[0], "Spaced Out")); // runs of spaces collapse
+	assert(Row_collBreak("", l) == 0);
+}
+
+// The width rule too: a line that would overflow max_w breaks before the word (short words wrap as well).
+static int charW(const char* t, void* ctx) {
+	(void)ctx;
+	return (int)strlen(t) * 10; // 10 px a character
+}
+static void test_coll_break_fit(void) {
+	char l[2][256];
+	assert(Row_collBreakFit("Super Mario Bros Games Ever", l, charW, NULL, 120) == 2 &&
+		   !strcmp(l[0], "Super Mario") && !strcmp(l[1], "Bros Games Ever"));						  // 12 chars max a line
+	assert(Row_collBreakFit("To Be Completed", l, charW, NULL, 1000) == 2 && !strcmp(l[0], "To Be")); // the >5 rule
+	assert(Row_collBreakFit("Play Later", l, charW, NULL, 1000) == 1);
+	assert(Row_collBreakFit("Play Later", l, NULL, NULL, 0) == 1); // no measure: the >5 rule alone
+}
+
 int main(void) {
+	test_coll_break_fit();
+	test_coll_break();
+	test_content_sized_dx();
 	box_slot_fits_caption();
 	sizes();
 	item_layout();

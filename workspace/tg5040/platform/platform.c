@@ -30,7 +30,7 @@
 
 int is_brick = 0;
 int is_brickpro = 0;
-int ui_scale = 0;
+float ui_scale = 0;
 void PLAT_initPlatform(void) {
 	// TODO: replace with something that doesnt bleed out of tg5040 scope
 	char* device = getenv("DEVICE");

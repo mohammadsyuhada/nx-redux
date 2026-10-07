@@ -7,13 +7,12 @@
 
 // The system UI font (GFX_getSystemFontPath, the user's selected font) at arbitrary text sizes: the Home
 // tab, the page title (ui_menubar.c) and any other caller. Fonts are opened on demand and cached (up to 64
-// size/weight pairs); a system-font reload (font change, GFX_reloadScale) or a FIXED_SCALE change closes
-// them all and they reopen at the new font and scale. UI thread only: the cache (and the Arabic fallback resolver
+// size/weight pairs); a system-font reload (font change) closes them all and they reopen at the new font. UI thread only: the cache (and the Arabic fallback resolver
 // it installs into GFX) has no locking, so worker threads must not call any UIFont_* / UI_textRole function.
 
 // Cached system font at NX_SP(sp) px; bold is a synthetic TTF_STYLE_BOLD on its own instance. Owned by
-// the cache: never close it. Valid until a later UIFont_get (which may evict it when 64 are open, or
-// reopen everything after a FIXED_SCALE change) or UIFont_quit: use it before the next UIFont_get. Closing a font
+// the cache: never close it. Valid until a later UIFont_get (which may evict it when 64 are open) or
+// UIFont_quit: use it before the next UIFont_get. Closing a font
 // also drops its GFX_getCachedText surfaces. NULL when the font can't be opened.
 TTF_Font* UIFont_get(float sp, bool bold);
 // The same at an exact px size (NX_SP already applied): text sized off the list label (UI_textRole, rich rows).

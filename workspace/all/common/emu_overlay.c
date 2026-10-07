@@ -14,8 +14,8 @@
 #define BUTTON_PADDING 10
 #define SETTINGS_ROW_PAD 8
 
-static int ovl_scale = 2;
-#define S(x) ((x) * ovl_scale)
+static float ovl_scale = 2.25f;
+#define S(x) UIScale_px((x), ovl_scale)
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -116,9 +116,9 @@ int emu_ovl_init(EmuOvl* ovl, EmuOvlConfig* cfg, EmuOvlRenderBackend* render,
 	if (game_name)
 		snprintf(ovl->game_name, sizeof(ovl->game_name), "%s", game_name);
 
-	// Same scale as the rest of NX Redux (Settings → Appearance → UI scale).
+	// The device's UI scale, as the rest of NX Redux (ui_scale.h).
 	ovl_scale = UIScale_fromEnvironment();
-	ovl->items_per_page = UIScale_layout(screen_h, ovl_scale).overlay_items;
+	ovl->items_per_page = UIScale_overlayItems(screen_h, ovl_scale);
 
 	build_main_menu(ovl);
 
@@ -304,7 +304,8 @@ static void draw_menu_bar(EmuOvl* ovl, const char* title) {
 	// keyed on the whole title (length + hash), not just the 255 bytes kept in last_title
 	static char last_title[256], fitted[256];
 	static UI_TitleKey last_key;
-	static int last_max_w = -1, last_scale = -1;
+	static int last_max_w = -1;
+	static float last_scale = -1;
 	static EmuOvlRenderBackend* last_r = NULL;
 	int max_w = ovl->screen_w * 8 / 10;
 	UI_TitleKey key = UI_titleFit_key(title);

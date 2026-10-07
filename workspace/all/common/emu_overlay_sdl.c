@@ -47,11 +47,11 @@ static void ovl_load_gl3_procs(void) {
 // Scale factor & font sizes (matching NextUI's defines.h)
 // ---------------------------------------------------------------------------
 
-static int s_scale = 2;
+static float s_scale = 2.25f;
 
-#define FONT_SIZE_LARGE (16 * s_scale)
-#define FONT_SIZE_SMALL (12 * s_scale)
-#define FONT_SIZE_TINY (10 * s_scale)
+#define FONT_SIZE_LARGE UIScale_px(16, s_scale)
+#define FONT_SIZE_SMALL UIScale_px(12, s_scale)
+#define FONT_SIZE_TINY UIScale_px(10, s_scale)
 #define FONT_SIZE_TITLE ((int)(16 * s_scale * 12.0f / 14.0f + 0.5f)) // NX_SP(16), as the UI's page title
 
 // ---------------------------------------------------------------------------
@@ -178,7 +178,7 @@ static int ovl_sdl_init(int screen_w, int screen_h) {
 	s_screenW = screen_w;
 	s_screenH = screen_h;
 
-	// Same scale as the rest of NX Redux (Settings → Appearance → UI scale).
+	// The device's UI scale, as the rest of NX Redux (ui_scale.h).
 	s_scale = UIScale_fromEnvironment();
 
 	// Initialize SDL_ttf

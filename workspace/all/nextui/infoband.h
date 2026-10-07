@@ -1,9 +1,13 @@
 #ifndef INFOBAND_H
 #define INFOBAND_H
+
 #include "gameinfo_text.h"
 #include "infoband_layout.h"
 #include "sdl.h"
 #include <stdbool.h>
+
+// The scroll arrows sit this far above the band's text line's centre (clear of the hint bar's top edge).
+#define INFOBAND_ARROW_RAISE NX_DP(3)
 
 // The band for the current List screen: arrows (packed, at layout->arrow_x, the rows' text start; 0 = 14 dp) + one
 // line of segments, right-aligned.

@@ -32,19 +32,19 @@ int UI_renderButtonHintBarEx(SDL_Surface* dst, char** pairs, Uint8 scrim_alpha) 
 			char* hint = groups[g][i * 2 + 1];
 			if (!hint)
 				break;
-			int w = GFX_getButtonWidthChrome(hint, button);
+			int w = GFX_getButtonWidth(hint, button);
 			hints[count++] = (struct Hint){hint, button, w};
-			total_w += CHROME1(BUTTON_MARGIN) + w;
+			total_w += SCALE1(BUTTON_MARGIN) + w;
 		}
 	}
 
 	if (count == 0)
 		return 0;
-	total_w += CHROME1(BUTTON_MARGIN);
+	total_w += SCALE1(BUTTON_MARGIN);
 
-	// Full-width semi-transparent black bar (keep in step with UI_buttonHintIconTop): BAR_HEIGHT whatever the UI scale
-	// (the space every screen reserves), the hints in it the Brick's physical size (CHROME_SCALE), centred
-	int btn_sz = CHROME1(BUTTON_SIZE);
+	// Full-width semi-transparent black bar (keep in step with UI_buttonHintIconTop): BAR_HEIGHT (the space every screen
+	// reserves), the hints in it centred
+	int btn_sz = SCALE1(BUTTON_SIZE);
 	int bar_h = BAR_HEIGHT;
 	int oy = dst->h - bar_h;
 
@@ -65,17 +65,17 @@ int UI_renderButtonHintBarEx(SDL_Surface* dst, char** pairs, Uint8 scrim_alpha) 
 	// Render all buttons from the left; the first glyph is pulled left so its
 	// circle (inset 16/128 of the glyph) sits on the old text edge
 	int by = oy + UI_hintBarIconOffset(bar_h, btn_sz);
-	int ox = SCALE1(PADDING) + CHROME1(BUTTON_MARGIN) - (btn_sz * 16 + 64) / 128;
+	int ox = SCALE1(PADDING) + SCALE1(BUTTON_MARGIN) - (btn_sz * 16 + 64) / 128;
 	for (int i = 0; i < count; i++) {
-		GFX_blitButtonChrome(hints[i].hint, hints[i].button, dst, &(SDL_Rect){ox, by});
-		ox += hints[i].ow + CHROME1(BUTTON_MARGIN);
+		GFX_blitButton(hints[i].hint, hints[i].button, dst, &(SDL_Rect){ox, by});
+		ox += hints[i].ow + SCALE1(BUTTON_MARGIN);
 	}
 
 	return total_w;
 }
 
 int UI_buttonHintIconTop(int screen_h) {
-	int btn_sz = CHROME1(BUTTON_SIZE);
+	int btn_sz = SCALE1(BUTTON_SIZE);
 	int bar_h = BAR_HEIGHT;
 	return screen_h - bar_h + UI_hintBarIconOffset(bar_h, btn_sz);
 }

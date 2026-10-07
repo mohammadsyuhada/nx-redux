@@ -47,6 +47,15 @@ static inline UIListBlock UI_listBlock(int avail_top, int avail_bottom, int row_
 	return UI_listBlockStrip(avail_top, avail_bottom, row_h, rows_wanted, row_h > 0 ? row_h / 2 : 0);
 }
 
+// A main list tuned to show `rows` rows (ui_text_sizes.h MENU_LIST_ROWS): rows no taller than `pitch`, short enough that
+// `rows` of them plus the two half-row strips (one row) fill avail_h; rows <= 0 (untuned) keeps the pitch.
+static inline int UI_mainListRowHeight(int avail_h, int pitch, int rows) {
+	if (rows <= 0 || avail_h <= 0)
+		return pitch;
+	int h = avail_h / (rows + 1);
+	return h < pitch ? h : pitch;
+}
+
 // Rich lists (§10.6: the pitch is rounded to whole rows): the row height nearest to row_h at which a whole number
 // of rows plus the two half-row strips (one row) fill avail_h exactly; at least one row. Rows drawn with fixed
 // assets (the pill) keep their nominal height instead.

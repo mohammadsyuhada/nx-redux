@@ -54,9 +54,23 @@ void HomeLayout_compute(float W, float H, float bar, int strip_lines, int ngames
 
 void HomeLayout_computeStrip(float W, float H, float bar, int strip_lines, float strip_k, int ngames, int ntools,
 							 HomeLayout* out) {
+	HomeLayout_computeStripText(W, H, bar, strip_lines, strip_k, 1.0f, ngames, ntools, out);
+}
+
+void HomeLayout_computeStripText(float W, float H, float bar, int strip_lines, float strip_k, float text_k, int ngames,
+								 int ntools, HomeLayout* out) {
+	HomeLayoutOpts o = {strip_k, text_k, 1.0f, 0, 0};
+	HomeLayout_computeOpts(W, H, bar, strip_lines, &o, ngames, ntools, out);
+}
+
+void HomeLayout_computeOpts(float W, float H, float bar, int strip_lines, const HomeLayoutOpts* opts, int ngames,
+							int ntools, HomeLayout* out) {
+	float strip_k = opts && opts->strip_k > 0 ? opts->strip_k : 1.0f;
+	float text_k = opts && opts->text_k > 0 ? opts->text_k : 1.0f;
+	float pin_k = opts && opts->pin_k > 0 ? opts->pin_k : 1.0f;
+	int tool_rows = opts && opts->tool_rows > 0 ? opts->tool_rows : 4;
+	int wide_cols = opts && opts->wide_pin_cols > 0 ? opts->wide_pin_cols : 4;
 	memset(out, 0, sizeof(*out));
-	if (strip_k <= 0)
-		strip_k = 1.0f;
 	HomeLayout* l = out;
 	float L = HOME_EDGE, R = W - HOME_EDGE, bottom = H - bar - HOME_BOTTOM;
 	if (ngames < 0)
@@ -70,13 +84,14 @@ void HomeLayout_computeStrip(float W, float H, float bar, int strip_lines, float
 	// section from 187 / 155, or 111 without a strip. The strip's own offsets × strip_k (its text keeps one size)
 	l->strip_x = L + 3;
 	l->strip_right = R - 1;
-	l->strip_base[0] = bar + (l->strip_lines == 2 ? 37 : 40) * strip_k;
-	l->strip_base[1] = bar + 73 * strip_k;
-	float y0 = bar + (l->strip_lines == 2 ? 103 * strip_k : l->strip_lines == 1 ? 71 * strip_k
-																				: 27);
+	float sk = strip_k * text_k; // the strip's offsets grow with its text
+	l->strip_base[0] = bar + (l->strip_lines == 2 ? 37 : 40) * sk;
+	l->strip_base[1] = bar + 73 * sk;
+	float y0 = bar + (l->strip_lines == 2 ? 103 * sk : l->strip_lines == 1 ? 71 * sk
+																		   : 27);
 	l->top_y = y0;
 	l->pin_h = HOME_PIN_H;
-	l->k = l->wide ? 4 : 2;
+	l->k = l->wide ? wide_cols : 2;
 	float page_bottom = bottom;
 	// the Small UI scale with tools: the glyph at the Large size, the squares sized from it (the glyph 58% of a side)
 	bool small = strip_k > 1.0f && ntools > 0;
@@ -86,10 +101,10 @@ void HomeLayout_computeStrip(float W, float H, float bar, int strip_lines, float
 
 	if (!l->wide || ngames == 0 || ngames <= HOME_WIDE_COL_GAMES) {
 		// the top section down to the bottom: no pin rows (no games; on a wide screen up to 2), or the Brick, whose pin
-		// rows sit below it, past the screen's end (the page scrolls to them). The tools four rows of squares filling
+		// rows sit below it, past the screen's end (the page scrolls to them). The tools four rows of squares (tool_rows) filling
 		// it, a column per 4, flush right; on a wide screen the games a column three squares wide left of them,
 		// stacked; Continue the rest, from the left edge
-		const int srows = 4;
+		const int srows = tool_rows;
 		int colgames = l->wide ? ngames : 0;
 		float h = bottom - y0;
 		l->top_h = h;
@@ -116,13 +131,12 @@ void HomeLayout_computeStrip(float W, float H, float bar, int strip_lines, float
 			// screen with the top: at the Small scale, what three squares (20 Large px apart) leave of it
 			if (strip_k > 1.0f)
 				l->pin_h = bottom - (y0 + 3 * small_sq + 2 * 20 * strip_k + HOME_GAP);
+			l->pin_h *= pin_k; // below the screen's end, so they may grow freely
 			addRows(l, bottom + HOME_BOTTOM, (R - L - HOME_GAP) / 2, 0, ngames);
 		}
 	} else {
-		// the Smart Pro S: 8 columns; two rows of four 2-column pins over the hint bar, the top section what they leave
+		// the Smart Pro S: two rows of pins (wide_cols a row, 4: 2 of 8 columns) over the hint bar, the top section what they leave
 		// (at most 372; a short screen keeps one row)
-		float col = (R - L - 7 * HOME_GAP) / 8;
-#define SPAN(n) ((n) * col + ((n) - 1) * HOME_GAP)
 		int rows = 2;
 		float h = minf(HOME_TOP_MAX, bottom - rows * HOME_PIN_H - rows * HOME_GAP - y0);
 		if (h < 2 * HOME_PIN_H) {
@@ -135,6 +149,15 @@ void HomeLayout_computeStrip(float W, float H, float bar, int strip_lines, float
 			rows_y = y0 + h + HOME_GAP;
 			l->pin_h = bottom - rows_y;
 		}
+		if (pin_k != 1.0f) { // the pins pin_k as tall, the top section taking (or giving) the difference
+			float ph = l->pin_h * pin_k;
+			h += l->pin_h - ph;
+			rows_y = y0 + h + HOME_GAP;
+			l->pin_h = ph;
+		}
+		// the Small scale's squares fill the top section, 3 a column (its height moves with pin_k)
+		float tool_sq = small ? (h - 2 * HOME_GAP) / 3 : 0;
+		float tool_glyph = small && tool_sq != small_sq ? roundf(tool_sq * 0.58f) : small_glyph;
 		l->top_h = h;
 		// Continue from the left edge to 30 before the squares (no tools: the full width); the squares flush right: at
 		// the Large scale in reading order, up to 4 tools a 2 x 2 block, 5 or 6 a 3 x 2 block (its third column taken
@@ -143,15 +166,14 @@ void HomeLayout_computeStrip(float W, float H, float bar, int strip_lines, float
 		if (ntools > 0) {
 			int srows = small ? 3 : 2;
 			int cols = small ? toolCols(ntools, 3) : (ntools <= 4 ? 2 : 3);
-			float sq = small ? small_sq : (h - HOME_GAP) / 2, bx = R - cols * sq - (cols - 1) * HOME_GAP;
+			float sq = small ? tool_sq : (h - HOME_GAP) / 2, bx = R - cols * sq - (cols - 1) * HOME_GAP;
 			l->square = sq;
-			l->glyph = small ? small_glyph : minf(46, roundf(sq * 0.58f));
+			l->glyph = small ? tool_glyph : minf(46, roundf(sq * 0.58f));
 			cont_w = bx - HOME_GAP - L;
 			placeTools(l, tiles, &nt, bx, y0, sq, HOME_GAP, srows, cols, small, ntools);
 		}
 		addTop(l, HOME_TILE_CONTINUE, 0, rect(L, y0, cont_w, h));
-		addRows(l, rows_y, SPAN(2), 0, ngames);
-#undef SPAN
+		addRows(l, rows_y, (R - L - (l->k - 1) * HOME_GAP) / l->k, 0, ngames); // 2 of 8 columns at 4 a row
 	}
 	for (int i = 0; i < nt; i++)
 		addTop(l, tiles[i].kind, tiles[i].ref, tiles[i].r);
@@ -331,4 +353,11 @@ float HomeLayout_scrollFor(const HomeLayout* l, HomeFocus f, float H, float bar,
 	}
 	return s < 0 ? 0 : s > max ? max
 							   : s;
+}
+
+void HomeLayout_captionBaselines(float sub_up, float title_up, float sub_px0, float sub_px, float* sub_out,
+								 float* title_out) {
+	float k = sub_px0 > 0 ? sub_px / sub_px0 : 1.0f;
+	*sub_out = sub_up * k;
+	*title_out = *sub_out + (title_up - sub_up) * k;
 }

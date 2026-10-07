@@ -45,6 +45,8 @@ typedef struct {
 	int side_w, side_h; // a neighbour at rest (px)
 	int cap_y, cap_h;	// the caption block (px; cap_h 0 = none reserved)
 	int cap_draw_h;		// the caption's drawn height: cap_h, less what would fall under the hint bar
+	int body_cy;		// the body's vertical centre (px): a game Carousel's neighbours sit on it
+	int cap_gap;		// the selection's picture to its caption (px)
 	float k;			// a Backdrop slot's content scale: min(1, slot_w / spec slot_w)
 	bool vertical;		// a Vertical stack's slots (stackview.c): their own cache keys, and a logo-less console's
 						// count under at least a half-slot "logo" (§8f.3)
@@ -104,8 +106,8 @@ void RowView_captionRefreshed(void);
 // Build one item ahead at the selected size (side false; `lit`: a Carousel tile's lit look) or a neighbour's (a cache
 // hit builds nothing).
 void RowView_prefetchItem(const RowGeo* g, Entry* e, TileKind kind, bool side, bool lit);
-// The game caption beside a stack (§8f.4): the name (16 sp, 18 at the Small UI scale; 2 lines), the time row and the
-// trophy row (14 sp, 15 at Small; a long Next on its own lines, caption_fit.h), 3 dp apart, left-aligned from x in w px
+// The game caption beside a stack (§8f.4): the name (16 sp; 2 lines), the time row and the
+// trophy row (14 sp; a long Next on its own lines, caption_fit.h), 3 dp apart, left-aligned from x in w px
 // (right: right-aligned to x + w, Vertical alignment Right), centred on cy and kept inside the body (body_top, body_h).
 // Backdrop's (g->kind ROW_BACKDROP_BOX) keeps the text shadow. One cached surface.
 void RowView_drawSideCaption(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind kind, int x, int w, int cy,

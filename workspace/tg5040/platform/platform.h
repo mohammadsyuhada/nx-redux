@@ -13,19 +13,17 @@
 ///////////////////////////////
 
 // Brick and Brick Pro share the 1024x768 panel *resolution* (FIXED_WIDTH/HEIGHT key
-// off is_brick || is_brickpro), but NOT the default UI scale: the Brick is a small
-// panel where 3x is right, while the Brick Pro's panel is physically much larger
-// (about the Smart Pro S's height), so 3x renders everything ~1.4x too big. The
-// Brick Pro therefore defaults to the Smart Pro's 2x layout (NATIVE_SCALE keys off
-// is_brick alone); the user can override either device in Settings → Appearance →
-// UI scale, and the row counts / padding follow the chosen scale via ui_scale.h. Input
-// still keys off is_brick || is_brickpro: the Brick Pro additionally has analog
-// sticks, two extra shoulder buttons (L4/R4) and a HOME key.
+// off is_brick || is_brickpro), but not its size: the Brick's 3.2" panel is 400 ppi, the
+// Brick Pro's 3.95" 324. Each device has its own UI scale (ui_scale.h UIScale_forDevice),
+// tuned so the UI is one physical size on both (and on the Smart Pro). Input still keys
+// off is_brick || is_brickpro: the Brick Pro additionally has analog sticks, two extra
+// shoulder buttons (L4/R4) and a HOME key.
 extern int is_brick;
 extern int is_brickpro;
-// UI scale picked in Settings → Appearance (minuisettings.txt uiscale=). 0 until
-// GFX_init resolves it, which means NATIVE_SCALE. See ui_scale.h.
-extern int ui_scale;
+// The device's UI scale (UIScale_forDevice, or a hand-added uiscale_dev= tuning override),
+// resolved in GFX_init; 0 before then, which FIXED_SCALE reads as the device's.
+extern float ui_scale;
+#define UI_DEVICE_NAME (is_brick ? "brick" : (is_brickpro ? "brickpro" : "smartpro"))
 
 ///////////////////////////////
 
@@ -160,24 +158,13 @@ extern int ui_scale;
 
 ///////////////////////////////
 
-#define NATIVE_SCALE (is_brick ? 3 : 2) // Brick Pro defaults to 2x (see the panel note above)
-#define FIXED_SCALE (ui_scale ? ui_scale : NATIVE_SCALE)
-// The hint bar's size (CHROME_SCALE in defines.h): the Brick's 3.2" panel is 400 ppi, the Brick Pro's 3.95" 324 (same
-// 1024x768: 3 * 324 / 400 = 2.43, a 312 px sheet at 2.4375), the Smart Pro's 4.96" 1280x720 296 (2.22, 288 px at 2.25).
-#define CHROME_SCALE (is_brick ? 3.0f : (is_brickpro ? 2.4375f : 2.25f))
+#define FIXED_SCALE (ui_scale > 0 ? ui_scale : UIScale_forDevice(UI_DEVICE_NAME))
 #define FIXED_WIDTH (is_brick || is_brickpro ? 1024 : 1280)
 #define FIXED_HEIGHT (is_brick || is_brickpro ? 768 : 720)
 #define FIXED_BPP 2
 #define FIXED_DEPTH (FIXED_BPP * 8)
 #define FIXED_PITCH (FIXED_WIDTH * FIXED_BPP)
 #define FIXED_SIZE (FIXED_PITCH * FIXED_HEIGHT)
-
-///////////////////////////////
-
-// Per-scale layout tables live in ui_scale.h, keyed on panel height: at 2x the
-// Brick Pro's taller panel (768 vs 720) fits one extra main-menu row (11 vs 10).
-#define MAIN_ROW_COUNT (UIScale_layout(FIXED_HEIGHT, FIXED_SCALE).main_rows)
-#define PADDING (UIScale_padding(FIXED_HEIGHT, FIXED_SCALE, NATIVE_SCALE))
 
 ///////////////////////////////
 
