@@ -21,14 +21,6 @@
 #include <string.h>
 #include <strings.h>
 
-// a cached surface out with its GPU texture, if it got one (the Grid's sprites)
-static void freeSurfTex(SDL_Surface* s) {
-	if (!s)
-		return;
-	PLAT_freeSurfaceTexture(s);
-	SDL_FreeSurface(s);
-}
-
 #define TILE_RADIUS_DP 14.0f
 #define TILE_RING_DP 3.0f
 #define TILE_BORDER_DP 1.0f
@@ -157,7 +149,7 @@ static SDL_Surface* getMask(ShapeKind kind, int w, int h, int rad, int inset) {
 			victim = &masks[i];
 	}
 	if (victim->surface)
-		freeSurfTex(victim->surface);
+		GFX_freeSurfaceAndTexture(victim->surface);
 	*victim = (MaskSlot){kind, w, h, rad, inset, s, ++mask_clock};
 	return s;
 }
@@ -217,7 +209,7 @@ static void cutCorners(SDL_Surface* s, int rad) {
 static void drawPicture(SDL_Surface* dst, SDL_Rect r, int rad, SDL_Surface* pic) {
 	if (!scratch || scratch->w != r.w || scratch->h != r.h) {
 		if (scratch)
-			freeSurfTex(scratch);
+			GFX_freeSurfaceAndTexture(scratch);
 		scratch = SDL_CreateRGBSurfaceWithFormat(0, r.w, r.h, 32, SDL_PIXELFORMAT_ARGB8888);
 		if (!scratch)
 			return;
@@ -323,7 +315,7 @@ static void blitTextColor(SDL_Surface* dst, TTF_Font* f, const char* text, int x
 	SDL_SetSurfaceColorMod(s, c.r, c.g, c.b);
 	SDL_SetSurfaceAlphaMod(s, a);
 	SDL_BlitSurface(s, NULL, dst, &(SDL_Rect){x, y, s->w, s->h});
-	freeSurfTex(s);
+	GFX_freeSurfaceAndTexture(s);
 }
 
 static SDL_Color greyColor(Uint8 c) {
@@ -335,9 +327,19 @@ static void blitText(SDL_Surface* dst, TTF_Font* f, const char* text, int x, int
 	blitTextColor(dst, f, text, x, y, greyColor(c), a);
 }
 
-// The dark shadow under a line of text: the same white glyphs tinted black at 60% of a, SCALE1(1) right and down.
-static void blitTextShadow(SDL_Surface* dst, TTF_Font* f, const char* text, int x, int y, Uint8 a) {
-	blitText(dst, f, text, x + SCALE1(1), y + SCALE1(1), 0, (Uint8)(TEXT_SHADOW_ALPHA * a / 255));
+// A line of text with its dark shadow under it (the same white glyphs tinted black at 60% of a, SCALE1(1) right and
+// down), the glyphs rendered once for both: a caption's name is made while a held D-pad scrolls, and rendering each
+// line twice was half its cost.
+static void blitTextShadowed(SDL_Surface* dst, TTF_Font* f, const char* text, int x, int y, SDL_Color c, Uint8 a) {
+	if (!f || !text[0] || a == 0)
+		return;
+	SDL_Surface* s = GFX_renderText(f, text, COLOR_WHITE);
+	if (!s)
+		return;
+	SDL_SetSurfaceColorMod(s, c.r, c.g, c.b);
+	SDL_SetSurfaceAlphaMod(s, a);
+	InfoBand_blitShadowed(s, dst, x, y, (Uint8)(TEXT_SHADOW_ALPHA * a / 255));
+	GFX_freeSurfaceAndTexture(s);
 }
 
 // Lines centred on cx, the block's top at y.
@@ -758,7 +760,7 @@ static SDL_Surface* getCaption(int w, int h, int rad, const TileSpec* t, float s
 			victim = &captions[i];
 	}
 	if (victim->surface)
-		freeSurfTex(victim->surface);
+		GFX_freeSurfaceAndTexture(victim->surface);
 	snprintf(victim->key, sizeof(victim->key), "%s", key);
 	victim->w = w;
 	victim->h = h;
@@ -916,8 +918,9 @@ static int textBlockAligned(SDL_Surface* dst, TTF_Font* f, const char* text, int
 			int lw = align < 0 ? 0 : textWidth(f, l.line[i]);
 			int x = align < 0 ? x0 : (align > 0 ? x0 - lw : x0 - lw / 2), ly = y + i * lh + lead;
 			if (shadow)
-				blitTextShadow(dst, f, l.line[i], x, ly, alpha);
-			blitTextColor(dst, f, l.line[i], x, ly, c, alpha);
+				blitTextShadowed(dst, f, l.line[i], x, ly, c, alpha);
+			else
+				blitTextColor(dst, f, l.line[i], x, ly, c, alpha);
 		}
 	}
 	return l.n * lh;
@@ -1003,15 +1006,15 @@ const char* Tiles_toolIcon(const char* pak_name) {
 void Tiles_quit(void) {
 	for (int i = 0; i < MASK_SLOTS; i++) {
 		if (masks[i].surface)
-			freeSurfTex(masks[i].surface);
+			GFX_freeSurfaceAndTexture(masks[i].surface);
 	}
 	memset(masks, 0, sizeof(masks));
 	for (int i = 0; i < CAPTION_SLOTS; i++) {
 		if (captions[i].surface)
-			freeSurfTex(captions[i].surface);
+			GFX_freeSurfaceAndTexture(captions[i].surface);
 	}
 	memset(captions, 0, sizeof(captions));
 	if (scratch)
-		freeSurfTex(scratch);
+		GFX_freeSurfaceAndTexture(scratch);
 	scratch = NULL;
 }

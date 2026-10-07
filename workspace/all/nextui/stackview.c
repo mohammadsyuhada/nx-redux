@@ -7,6 +7,9 @@
 // blits: no font, logo, tile or caption is made at a tweened size (an item changing size is its selected-size surface
 // scaled, as on the row). A Backdrop-Vertical's picture (the crossfading screenshot layers with their 65% dim and the
 // shade, its fade in and out) is the row's own, drawn under the body before RowView_render (RowView_renderPicture).
+// As on the row, the Consoles stack and a game list's Carousel and Backdrop stacks are drawn as GPU sprites
+// (RowView_beginSprites: the same cached surfaces handed to the GPU, the Carousel's edge fade as black strips), so a
+// slide draws nothing into the screen's body; under a context menu they are drawn the software way.
 
 #include "ui_contextmenu.h"
 #include "stackview.h"
@@ -31,14 +34,6 @@
 
 #include <math.h>
 #include <string.h>
-
-// a surface out with its GPU texture, if it ever got one (the Carousel's sprite mode)
-static void freeSurfTex(SDL_Surface* s) {
-	if (!s)
-		return;
-	PLAT_freeSurfaceTexture(s);
-	SDL_FreeSurface(s);
-}
 
 #define SCALE_EPS 0.004f // an item this close to its neighbour size is drawn 1:1 from that size's surface
 
@@ -280,13 +275,15 @@ static void edgeFade(SDL_Surface* screen, const StackGeo* sg) {
 static void edgeFadeSprites(SDL_Surface* screen, const StackGeo* sg) {
 	static SDL_Surface* strips[2]; // top, bottom
 	static int strip_band = -1, strip_vis = -1;
+	if (sg->kind == STACK_GAME_BACKDROP)
+		return; // never over the picture (as edgeFade)
 	float pd = pxPerDp();
 	EdgeFade f = edgeFadeGeo(screen, sg);
 	if (f.band <= 0)
 		return;
 	if (f.band != strip_band || sg->vis_h != strip_vis) {
 		for (int k = 0; k < 2; k++) {
-			freeSurfTex(strips[k]);
+			GFX_freeSurfaceAndTexture(strips[k]);
 			strips[k] = SDL_CreateRGBSurfaceWithFormat(0, 1, f.band, 32, SDL_PIXELFORMAT_ARGB8888);
 		}
 		strip_band = f.band, strip_vis = sg->vis_h;
@@ -329,6 +326,35 @@ static bool prefetchItems(const StackGeo* sg, int n, int sel, Uint32 deadline) {
 		int di;
 		bool side, lit;
 	} jobs[] = {{1, false, false}, {1, false, true}, {-1, false, false}, {-1, false, true}, {2, true, false}, {-2, true, false}, {3, true, false}, {-3, true, false}, {4, true, false}, {-4, true, false}};
+	bool skipped = false;
+	// the selection's side caption first when the frame showed an older one of it (RowView_captionStale)
+	if (RowView_captionStale() && gameStack(sg->kind) && sel >= 0 && sel < n) {
+		if (!RowView_jobFits(deadline, PF_JOB_CAPTION))
+			return true;
+		Entry* e = top->entries->items[sel];
+		bool done =
+			RowView_prefetchSideCaption(&sg->g, e, RowView_kindFor(sel, e), sg->cap_w, sg->body_h, sg->right, deadline);
+		RowView_captionRefreshed();
+		if (!done)
+			return true;
+	}
+	// a game stack's neighbours' side captions first (and in sprite mode their textures): the next step shows one at
+	// once, and composing it in that frame made it late
+	for (int di = 1; gameStack(sg->kind) && di >= -1; di -= 2) {
+		int i = sel + di;
+		if (i < 0 || i >= n)
+			continue;
+		if (!RowView_jobFits(deadline, PF_JOB_CAPTION)) {
+			skipped = true; // the items still get their turn: the caption waits for a roomier frame
+			break;
+		}
+		Entry* e = top->entries->items[i];
+		if (!RowView_prefetchSideCaption(&sg->g, e, RowView_kindFor(i, e), sg->cap_w, sg->body_h, sg->right,
+										 deadline)) {
+			skipped = true;
+			break;
+		}
+	}
 	for (size_t j = 0; j < sizeof(jobs) / sizeof(jobs[0]); j++) {
 		int i = sel + jobs[j].di;
 		if (i < 0 || i >= n)
@@ -339,10 +365,12 @@ static bool prefetchItems(const StackGeo* sg, int n, int sel, Uint32 deadline) {
 			if (i < f || i > l)
 				continue;
 		}
-		if (RowView_pastDeadline(deadline))
+		if (!RowView_jobFits(deadline, PF_JOB_ITEM))
 			return true;
+		Uint32 t0 = SDL_GetTicks();
 		Entry* e = top->entries->items[i];
 		RowView_prefetchItem(&sg->g, e, RowView_kindFor(i, e), jobs[j].side, jobs[j].lit);
+		RowView_jobDone(PF_JOB_ITEM, t0);
 	}
 	if (sg->kind == STACK_MAIN_CONSOLES) { // the neighbours' controllers, which show as soon as a step starts
 		PadSize box = Pad_stackBox(sg->ss.item_h);
@@ -357,7 +385,7 @@ static bool prefetchItems(const StackGeo* sg, int n, int sel, Uint32 deadline) {
 			RowView_prefetchPad(e, RowView_kindFor(i, e), Stack_round(box.w * pd), Stack_round(box.h * pd));
 		}
 	}
-	return false;
+	return skipped;
 }
 
 bool StackView_active(void) {
@@ -420,9 +448,10 @@ void StackView_render(SDL_Surface* screen, int lastScreen) {
 	SDL_GetClipRect(screen, &prev_clip);
 	SDL_SetClipRect(screen, &(SDL_Rect){0, sg.vis_top, screen->w, sg.vis_h});
 
-	// Consoles: its pictures, counts and edge fade go to the GPU (RowView_beginSprites), the screen's body stays black
-	// (not under a context menu: it draws over the body on the screen, under the sprites)
-	bool sprites = kind == STACK_MAIN_CONSOLES && !ContextMenu_isOpen();
+	// Consoles and a game list's Carousel and Backdrop: the pictures, counts, caption and edge fade go to the GPU
+	// (RowView_beginSprites), the screen's body stays as RowView_render left it (not under a context menu: it draws over
+	// the body on the screen, under the sprites)
+	bool sprites = (kind == STACK_MAIN_CONSOLES && !ContextMenu_isOpen()) || (gameStack(kind) && RowView_gameSprites());
 	RowView_beginSprites(sprites);
 
 	// far to near (the largest d first), so the nearer item lands on top where a grown name reaches a neighbour
@@ -509,7 +538,7 @@ bool StackView_prefetchStep(Uint32 deadline) {
 	}
 	// as the row's (RowView_prefetchStep): not while the picture is busy, nor through the first part of a single
 	// step's slide; a held D-pad's retargeted slide builds for its target
-	if (RowView_pictureBusy() || (slide_tw.active && !slide_retargeted && slideProgress() < PREFETCH_SLIDE_SHARE))
+	if (RowView_prefetchBlocked() || (slide_tw.active && !slide_retargeted && slideProgress() < PREFETCH_SLIDE_SHARE))
 		return true;
 	if (prefetchItems(&pf.sg, pf.n, pf.sel, deadline))
 		return true;

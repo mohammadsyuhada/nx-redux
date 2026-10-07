@@ -185,13 +185,6 @@ static struct {
 // on for every Grid frame but one under a context menu (it draws over the body on the screen, under the sprites)
 static bool grid_sprites = false;
 
-static void freeSurfTex(SDL_Surface* s) {
-	if (!s)
-		return;
-	PLAT_freeSurfaceTexture(s);
-	SDL_FreeSurface(s);
-}
-
 static int ringRoom(void) {
 	return NX_DPF(TILE_RING_DP) + 1;
 }
@@ -260,7 +253,7 @@ static SDL_Surface* cachedTile(const char* path, int w, int h, const TileSpec* t
 		return NULL;
 	int sw = w + 2 * room, sh = h + 2 * room;
 	if (victim->surf && (victim->surf->w != sw || victim->surf->h != sh)) {
-		freeSurfTex(victim->surf);
+		GFX_freeSurfaceAndTexture(victim->surf);
 		victim->surf = NULL;
 	}
 	PLAT_freeSurfaceTexture(victim->surf); // a reused surface gets a new look: its texture is stale
@@ -298,7 +291,7 @@ static const char* litCount(const char* path, int w, int h) {
 static void tileCacheClear(void) {
 	for (int i = 0; i < TILE_CACHE_MAX; i++) {
 		if (tile_cache[i].surf)
-			freeSurfTex(tile_cache[i].surf);
+			GFX_freeSurfaceAndTexture(tile_cache[i].surf);
 	}
 	memset(tile_cache, 0, sizeof(tile_cache));
 	tile_lru = 0;
@@ -347,7 +340,7 @@ static void darkenExcept(SDL_Surface* screen, int w, int y, int h, const Uint8* 
 static void darkenSprites(SDL_Surface* screen, int w, int y, int h, const Uint8* col_a, const SDL_Rect* keep) {
 	static SDL_Surface* strip;
 	if (!strip || strip->w != w) {
-		freeSurfTex(strip);
+		GFX_freeSurfaceAndTexture(strip);
 		strip = SDL_CreateRGBSurfaceWithFormat(0, w, 1, 32, SDL_PIXELFORMAT_ARGB8888);
 		if (!strip)
 			return;
@@ -395,15 +388,15 @@ static void drawGameSprites(SDL_Rect r, const TileSpec* t, float lit, const SDL_
 	static SDL_Color ring_c;
 	SDL_Color ac = UI_accent();
 	if (!mask || mask->w != r.w || mask->h != r.h) {
-		freeSurfTex(mask);
+		GFX_freeSurfaceAndTexture(mask);
 		mask = Tiles_cornerMask(r.w, r.h);
-		freeSurfTex(border);
+		GFX_freeSurfaceAndTexture(border);
 		border = Tiles_borderOverlay(r.w, r.h);
 	}
 	int room = ringRoom() - 1; // TILE_RING_DP's px: the ring overlay's margin
 	if (!ring || ring->w != r.w + 2 * room || ring->h != r.h + 2 * room || ring_c.r != ac.r || ring_c.g != ac.g ||
 		ring_c.b != ac.b) {
-		freeSurfTex(ring);
+		GFX_freeSurfaceAndTexture(ring);
 		ring = Tiles_ringOverlay(r.w, r.h, ac);
 		ring_c = ac;
 	}

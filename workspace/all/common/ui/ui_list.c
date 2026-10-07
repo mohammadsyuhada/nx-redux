@@ -267,16 +267,9 @@ int UI_calcListPillWidth(TTF_Font* font, const char* text, char* truncated, int 
 	int available_width = max_width - prefix_width;
 	int padding = NATIVE1(BUTTON_PADDING * 2);
 
-	int raw_text_w, raw_text_h;
-	GFX_measureText(font, text, &raw_text_w, &raw_text_h);
-
-	if (raw_text_w + padding > available_width) {
-		GFX_truncateText(font, text, truncated, available_width, padding);
+	int raw_text_w = 0;
+	if (GFX_fitTextCached(font, text, truncated, available_width, padding, &raw_text_w))
 		return max_width;
-	}
-
-	strncpy(truncated, text, 255);
-	truncated[255] = '\0';
 	return MIN(max_width, prefix_width + raw_text_w + padding);
 }
 
@@ -290,6 +283,92 @@ void UI_drawListItemBg(SDL_Surface* dst, SDL_Rect* rect, bool selected) {
 	if (selected) {
 		GFX_blitPillColor(ASSET_WHITE_PILL, dst, rect, accentPill(), RGB_WHITE);
 	}
+}
+
+bool UI_listItemBgSprites(const SDL_Rect* rect, const SDL_Rect* clip) {
+	return GFX_pillSprites(ASSET_WHITE_PILL, rect, accentPill(), clip);
+}
+
+// A cached text surface as a sprite at (x, y), cut at max_w px and clipped to clip (NULL: none). False when the text
+// isn't cacheable (the caller draws it the software way).
+static bool textSprite(TTF_Font* font, const char* text, SDL_Color color, int x, int y, int max_w, const SDL_Rect* clip,
+					   int* drawn_w) {
+	SDL_Surface* surf = GFX_getCachedText(font, text, color);
+	SDL_Texture* tex = surf ? PLAT_textureForSurface(surf) : NULL;
+	if (!tex)
+		return false;
+	int w = surf->w > max_w ? max_w : surf->w;
+	if (w > 0)
+		PLAT_spriteAdd(tex, &(SDL_Rect){0, 0, w, surf->h}, &(SDL_Rect){x, y, w, surf->h}, 255, clip);
+	if (drawn_w)
+		*drawn_w = surf->w;
+	return true;
+}
+
+bool UI_listItemTextSprite(const char* text, TTF_Font* font, int text_x, int text_y, int max_text_width,
+						   bool selected) {
+	if (!text || !text[0])
+		return true;
+	SDL_Rect clip = {text_x, text_y, max_text_width, TTF_FontHeight(font)};
+	return textSprite(font, text, UI_getListTextColor(selected), text_x, text_y, max_text_width, &clip, NULL);
+}
+
+bool UI_listItemTextFits(const char* text, TTF_Font* font, int max_text_width, bool selected) {
+	if (!text || !text[0])
+		return true;
+	SDL_Surface* surf = GFX_getCachedText(font, text, UI_getListTextColor(selected));
+	return surf && surf->w <= max_text_width;
+}
+
+bool UI_listItemTextDimSuffixSprite(const char* name, const char* suffix, TTF_Font* font, int text_x, int text_y,
+									int max_text_width, bool selected) {
+	SDL_Rect clip = {text_x, text_y, max_text_width, TTF_FontHeight(font)};
+	int name_w = 0;
+	if (name && name[0] &&
+		!textSprite(font, name, UI_getListTextColor(selected), text_x, text_y, max_text_width, &clip, &name_w))
+		return false;
+	if (suffix && suffix[0] && name_w < max_text_width)
+		return textSprite(font, suffix, COLOR_DARK_TEXT, text_x + name_w, text_y, max_text_width - name_w, &clip,
+						  NULL);
+	return true;
+}
+
+SDL_Texture* UI_listItemMarqueeHoldSprite(const ScrollTextState* state, TTF_Font* font, int text_x, int text_y,
+										  bool selected) {
+	if (!state->text[0] || state->needs_scroll)
+		return NULL;
+	SDL_Color color = UI_getListTextColor(selected);
+	SDL_Surface* surf = GFX_getCachedText(font, state->text, color);
+	if (!surf) {
+		// a title too long for the text cache: one owned render, kept until the title or its colour changes
+		static SDL_Surface* own = NULL;
+		static char own_text[sizeof(state->text)];
+		static SDL_Color own_color;
+		static TTF_Font* own_font = NULL;
+		if (!own || own_font != font || strcmp(own_text, state->text) != 0 || own_color.r != color.r ||
+			own_color.g != color.g || own_color.b != color.b || own_color.a != color.a) {
+			if (own) {
+				PLAT_freeSurfaceTexture(own);
+				SDL_FreeSurface(own);
+			}
+			own = GFX_renderText(font, state->text, color);
+			strcpy(own_text, state->text);
+			own_color = color;
+			own_font = font;
+		}
+		surf = own;
+	}
+	SDL_Texture* tex = surf ? PLAT_textureForSurface(surf) : NULL;
+	if (!tex)
+		return NULL;
+	int max_w = state->max_width;
+	int w = surf->w > max_w ? max_w : surf->w;
+	// as ScrollText_render's hold: an overflowing RTL title shows its right edge (the start of the Arabic)
+	int src_x = (state->rtl && surf->w > max_w) ? surf->w - max_w : 0;
+	if (w > 0)
+		PLAT_spriteAdd(tex, &(SDL_Rect){src_x, 0, w, surf->h}, &(SDL_Rect){text_x, text_y, w, surf->h}, 255,
+					   &(SDL_Rect){text_x, text_y, max_w, TTF_FontHeight(font)});
+	return tex;
 }
 
 SDL_Color UI_getListTextColor(bool selected) {

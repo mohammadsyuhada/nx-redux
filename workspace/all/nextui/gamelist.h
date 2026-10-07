@@ -50,8 +50,15 @@ int GameList_textX(void);
 int GameList_rowCount(void);
 int GameList_rowCountAt(bool root);
 // Scroll-text (marquee) state, driven by the main loop's idle path.
-bool GameList_scrollBusy(void);		   // still needs animation/render ticks
-bool GameList_pillAnimating(void);	   // selection pill mid-glide, keep redrawing
+bool GameList_scrollBusy(void);	   // still needs animation/render ticks
+bool GameList_pillAnimating(void); // selection pill mid-glide, keep redrawing
+bool GameList_artWaiting(void);	   // the List's Consoles art still decoding: keep redrawing until it lands
+// a List frame keeps LAYER_OVERLAY as it drew it (its info band redraws only on a change): nextui.c doesn't clear it
+bool GameList_keepsOverlay(void);
+// the last GameList_render was a List with every row on the GPU: the screen holds nothing between the header (and its
+// fade) and the hint bar but, when *row has a height, the selected row's marquee there, so only those rows need
+// clearing and uploading while that holds (nextui.c)
+bool GameList_listBodyClear(SDL_Rect* row);
 bool GameList_scrollIsScrolling(void); // actively scrolling right now
 void GameList_scrollTickIdle(void);	   // advance marquee on non-dirty frames
 void GameList_clearScroll(void);	   // drop cached scroll state (screen switch/exit)

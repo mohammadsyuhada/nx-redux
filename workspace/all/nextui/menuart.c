@@ -12,14 +12,6 @@
 #include <string.h>
 #include "api.h"
 
-// a surface out with its GPU texture, if it ever got one (the Carousel's sprite mode)
-static void freeSurfTex(SDL_Surface* s) {
-	if (!s)
-		return;
-	PLAT_freeSurfaceTexture(s);
-	SDL_FreeSurface(s);
-}
-
 #define MENUART_SLOTS 40 // room for every bundled image (~37); the surfaces are small
 
 typedef struct {
@@ -41,7 +33,7 @@ SDL_Surface* MenuArt_load(const char* file, int box_w, int box_h) {
 	if (!raw)
 		return NULL;
 	SDL_Surface* src = SDL_ConvertSurfaceFormat(raw, SDL_PIXELFORMAT_ARGB8888, 0);
-	freeSurfTex(raw);
+	GFX_freeSurfaceAndTexture(raw);
 	if (!src)
 		return NULL;
 
@@ -55,7 +47,7 @@ SDL_Surface* MenuArt_load(const char* file, int box_w, int box_h) {
 	int w = (int)(src->w * scale);
 	int h = (int)(src->h * scale);
 	if (w < 1 || h < 1) {
-		freeSurfTex(src);
+		GFX_freeSurfaceAndTexture(src);
 		return NULL;
 	}
 
@@ -68,7 +60,7 @@ SDL_Surface* MenuArt_load(const char* file, int box_w, int box_h) {
 		}
 		SDL_SetSurfaceBlendMode(out, SDL_BLENDMODE_BLEND);
 	}
-	freeSurfTex(src);
+	GFX_freeSurfaceAndTexture(src);
 	return out;
 }
 
@@ -102,11 +94,8 @@ SDL_Surface* MenuArt_halve(const SDL_Surface* src) {
 	return out;
 }
 
-SDL_Surface* MenuArt_loadHalf(const char* file) {
-	SDL_Surface* full = MenuArt_load(file, 0, 0);
-	SDL_Surface* half = MenuArt_halve(full);
-	freeSurfTex(full);
-	return half;
+SDL_Surface* MenuArt_loadLevel(const char* file) {
+	return MenuArt_load(file, 0, 0);
 }
 
 static SDL_Surface* store(const char* file, int box_w, int box_h, SDL_Surface* surface);
@@ -163,7 +152,7 @@ static SDL_Surface* store(const char* file, int box_w, int box_h, SDL_Surface* s
 			slot = &slots[i];
 	}
 	if (slot->surface)
-		freeSurfTex(slot->surface);
+		GFX_freeSurfaceAndTexture(slot->surface);
 
 	snprintf(slot->file, sizeof(slot->file), "%s", file);
 	slot->box_w = box_w;
@@ -177,7 +166,7 @@ static SDL_Surface* store(const char* file, int box_w, int box_h, SDL_Surface* s
 void MenuArt_quit(void) {
 	for (int i = 0; i < MENUART_SLOTS; i++) {
 		if (slots[i].surface)
-			freeSurfTex(slots[i].surface);
+			GFX_freeSurfaceAndTexture(slots[i].surface);
 	}
 	memset(slots, 0, sizeof(slots));
 	next_stamp = 0;

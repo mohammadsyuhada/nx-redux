@@ -23,6 +23,14 @@
 static inline bool RowView_pastDeadline(Uint32 deadline) {
 	return (Sint32)(SDL_GetTicks() - deadline) >= 0;
 }
+// A job ahead is only started when what it usually costs still fits before the deadline: a caption (its text, ~5-8 ms
+// on the Brick) or a texture upload begun with 2 ms left ran past the next frame's start, a late frame. Costs are
+// learned per kind (RowView_jobDone with the job's start ticks; a cache hit, under a ms, teaches nothing).
+typedef enum { PF_JOB_CAPTION,
+			   PF_JOB_ITEM,
+			   PF_JOB_COUNT } PrefetchJob;
+bool RowView_jobFits(Uint32 deadline, PrefetchJob job);
+void RowView_jobDone(PrefetchJob job, Uint32 t0);
 
 typedef enum { CAP_NONE,
 			   CAP_GAME } CapKind;
@@ -75,9 +83,24 @@ void RowView_drawCount(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind 
 // 1 (the selected size) to g->sz.scale (a neighbour's); d is the item's distance from the position (steps).
 void RowView_drawGameItem(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind kind, int cx, int cy, float scale,
 						  float alpha, float darken, float d);
+// A game list's Carousel or Backdrop (either orientation) draws this frame as GPU sprites: one with items, and no
+// context menu open (it draws over the body on the screen). Its picture, items, caption and edge fade are then sprites
+// and the screen's body holds nothing that moves.
+bool RowView_gameSprites(void);
 // The picture is busy: its screenshot crossfade or B's exit fade is running. Prefetch waits for it (a build would
 // stall the fade's frames), as the row's own does.
 bool RowView_pictureBusy(void);
+// Whether prefetch must wait: B's exit fade, or the picture's crossfade when it runs on the CPU (in sprite mode it is
+// the GPU's, and a held D-pad's steps keep it running).
+bool RowView_prefetchBlocked(void);
+// Make the game caption beside a stack ahead (stackview's prefetch), as RowView_drawSideCaption would show it, then
+// (sprite mode) its texture if that still fits before the deadline: false when it didn't (stop for this frame).
+bool RowView_prefetchSideCaption(const RowGeo* g, Entry* e, TileKind kind, int w, int body_h, bool right,
+								 Uint32 deadline);
+// The frame showed an older caption of the selection (its info rows since changed, sprite mode): prefetch makes the
+// selection's own first, then RowView_captionRefreshed (one more frame shows it).
+bool RowView_captionStale(void);
+void RowView_captionRefreshed(void);
 // Build one item ahead at the selected size (side false; `lit`: a Carousel tile's lit look) or a neighbour's (a cache
 // hit builds nothing).
 void RowView_prefetchItem(const RowGeo* g, Entry* e, TileKind kind, bool side, bool lit);

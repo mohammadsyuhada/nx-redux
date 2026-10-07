@@ -11,10 +11,11 @@ SDL_Surface* MenuArt_load(const char* file, int box_w, int box_h);
 // MenuArt_get without the decode: cached, or decoded by the art loader (artloader.h) by now, else NULL with *pending set
 // (and the decode queued first in line). For draws that must not wait on a PNG (the Consoles carousel).
 SDL_Surface* MenuArt_peek(const char* file, int box_w, int box_h, bool* pending);
-// res/menu/<file> at half its own size (a 2x2 alpha-weighted mean, no resampling): a GPU-scaled stand-in for the
-// area-averaged MenuArt_get, much cheaper to make. Uncached, the caller owns it. MenuArt_halve: the same halving of an
-// ARGB8888 surface (NULL for anything else or under 2x2).
-SDL_Surface* MenuArt_loadHalf(const char* file);
+// res/menu/<file> at its own size, as the GPU's level: the console logos ship pre-baked at the largest size any view
+// draws them (tools/console-logos/prebake_logos.py), so this is a GPU-scaled stand-in for the area-averaged MenuArt_get
+// with no resampling at all. Uncached, the caller owns it. MenuArt_halve: a 2x2 alpha-weighted halving of an ARGB8888
+// surface (NULL for anything else or under 2x2), for the smaller level.
+SDL_Surface* MenuArt_loadLevel(const char* file);
 SDL_Surface* MenuArt_halve(const SDL_Surface* src);
 void MenuArt_quit(void); // free the cache
 #endif

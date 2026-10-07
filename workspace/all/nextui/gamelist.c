@@ -12,6 +12,7 @@
 #include "shortcuts.h"
 #include "ui_buttonhintbar.h"
 #include "ui_draw.h"
+#include "ui_fade.h"
 #include "ui_confirmdialog.h"
 #include "ui_loadingoverlay.h"
 #include "ui_message.h"
@@ -80,6 +81,18 @@ static bool had_thumb = false;
 static int ox;
 // Set once a main-menu tab without game art has cleared the thumbnail
 static bool list_art_cleared = false;
+// the List's Consoles controller art (or logo) was still on the art loader's thread in the last render
+static bool list_art_waiting = false;
+// the last render was a List whose rows all went to the GPU: nothing drawn into the screen between the header's fade
+// and the hint bar but, at most, the selected row's marquee in list_body_row (h 0: none) (GameList_listBodyClear)
+static bool list_body_clear = false;
+static SDL_Rect list_body_row;
+// the selected row's held marquee title as a sprite over the sprite pill (UI_listItemMarqueeHoldSprite), from the last
+// List render: dropped when its GPU scroll starts between full frames, or the static and the scrolling title would both
+// show (NULL: none)
+static SDL_Texture* list_hold_tex = NULL;
+#define LIST_ART_AHEAD 2	 // neighbours each way whose controller art is decoded ahead
+#define LIST_ART_UPLOAD_MS 6 // the slot a pad's texture upload needs, at least
 static char folderBgPath[1024] = {0};
 // last background type loaded; file-scope so it can be reset alongside
 // folderBgPath when another screen clears the shared background surface
@@ -116,25 +129,61 @@ bool GameList_pillAnimating(void) {
 	return UI_pillAnimIsActive(&list_pill_anim);
 }
 
+bool GameList_artWaiting(void) {
+	return list_art_waiting && !GridView_active() && !RowView_active() && !Home_active();
+}
+
 bool GameList_scrollIsScrolling(void) {
 	return ScrollText_isScrolling(&list_scroll);
 }
 
+// The List on the Consoles tab: its neighbours' controller art decoded ahead (nearest first) and given a texture while
+// the frame has room, so a held D-pad lands on art that is ready. True while some is still decoding.
+static bool prefetchListArt(Uint32 deadline) {
+	int look = GameList_lookTab();
+	if (look != MENU_TAB_CONSOLES || !CFG_getMenuControllerArt() || !top || top->entries->count == 0)
+		return false;
+	int n = top->entries->count, sel = top->selected;
+	bool busy = false;
+	for (int d = 1; d <= LIST_ART_AHEAD; d++) {
+		for (int sign = 1; sign >= -1; sign -= 2) {
+			int i = ((sel + sign * d) % n + n) % n; // the List wraps
+			Entry* e = top->entries->items[i];
+			const char* slash = strrchr(e->path, '/');
+			const char* pad_id = Pad_idForFolder(slash ? slash + 1 : e->path);
+			if (!pad_id)
+				continue;
+			bool pending = false;
+			SDL_Surface* pad = ControllerArt_listPrefetch(pad_id, screen->w, screen->h, d, &pending);
+			busy = busy || pending;
+			// a texture is a whole upload (a few ms): only with that much of the slot left
+			if (pad && !pad->userdata && SDL_GetTicks() + LIST_ART_UPLOAD_MS <= deadline)
+				PLAT_textureForSurface(pad);
+		}
+	}
+	return busy;
+}
+
 bool GameList_prefetchIdle(Uint32 deadline) {
-	// Home and the List build nothing ahead; the Grid, Carousel and Backdrop (either orientation) compose the items
-	// their next move draws first
+	// Home builds nothing ahead; the Grid, Carousel and Backdrop (either orientation) compose the items their next
+	// move draws first; the List decodes its neighbours' controller art
 	if (Home_active())
 		return false;
 	if (GridView_active())
 		return GridView_prefetchStep(deadline);
 	if (RowView_active())
 		return RowView_prefetchStep(deadline);
-	return false;
+	return prefetchListArt(deadline);
 }
 
 void GameList_scrollTickIdle(void) {
 	ScrollText_activateAfterDelay(&list_scroll);
 	if (ScrollText_isScrolling(&list_scroll)) {
+		// the scroll layer draws the title from here: the held one's sprite leaves before this first present
+		if (list_hold_tex) {
+			PLAT_spriteRemove(list_hold_tex);
+			list_hold_tex = NULL;
+		}
 		ScrollText_animateOnly(&list_scroll);
 	}
 }
@@ -2032,27 +2081,44 @@ int GameList_currentStyle(void) {
 	}
 }
 
+// What the info band last put on LAYER_OVERLAY (the band's block and, with the page title hidden, the up arrow), and
+// the layer's serial right after: while neither changed, the layer still holds it and nothing is redrawn (a redraw
+// is a texture made and uploaded, a few ms a frame). nextui.c leaves the layer to this while a List frame keeps it
+// (GameList_keepsOverlay); anyone else's draw or clear changes the serial, and the next frame redraws.
+static struct {
+	bool valid;
+	unsigned serial, band_gen;
+	int band_top;
+	bool arrow;
+	int arrow_x, arrow_y;
+} overlay;
+
 static void renderInfoBand(void) {
 	// Home, Grid, Carousel and Backdrop have no info band (Grid's game info sits in the lit tile, the rows'
 	// in the caption under the row)
-	if (ContextMenu_isOpen() || Home_active() || GridView_active() || RowView_active())
+	if (ContextMenu_isOpen() || Home_active() || GridView_active() || RowView_active()) {
+		overlay.valid = false;
 		return;
+	}
 	int total = top->entries->count;
 	bool up = total > 0 && top->start > 0;
 	bool down = total > 0 && top->end < total;
 	InfoBandLayout layout = listLayout(); // the rows' own geometry
 	layout.arrow_x = GameList_textX();	  // the arrows sit at the rows' text start (§3.2)
-	// On LAYER_OVERLAY, above the thumbnail layer (which would otherwise cover it on 4:3 screens).
-	// nextui.c clears that layer at the start of every dirty pass, so this is redrawn with the list.
-	// While the tab-focus dim is layered, onto the screen instead: it dims with the rows (contentdim.h).
+	// On LAYER_OVERLAY, above the thumbnail layer (which would otherwise cover it on 4:3 screens), kept there while it
+	// is unchanged (overlay above). While the tab-focus dim is layered, onto the screen instead: it dims with the rows
+	// (contentdim.h), and the layer's copy goes.
 	SDL_Surface* dst = ContentDim_layered() ? screen : NULL;
 	// Layouts > Page title: Hide: the up arrow moves above the first row, as far above it as the band's down arrow sits
 	// below the last (at the rows' text start), so the List has one at each end, mirrored; the band keeps the down one
+	bool arrow = false;
+	int arrow_y = 0;
 	if (!CFG_getPageTitle()) {
 		if (up) {
 			// the down arrow's centre under the last row's bottom (the rows may leave a few px above the band)
 			int below = layout.text_top + layout.text_h / 2 - (layout.list_top + layout.rows * layout.row_h);
-			InfoBand_renderUpArrow(layout.arrow_x, layout.list_top - below, LAYER_OVERLAY, dst);
+			arrow = true;
+			arrow_y = layout.list_top - below;
 		}
 		up = false;
 	}
@@ -2060,6 +2126,7 @@ static void renderInfoBand(void) {
 	Entry* entry = total > 0 ? top->entries->items[top->selected] : NULL;
 	MenuTabId tab = MenuTabs_current();
 	bool at_root = stack->count == 1;
+	unsigned gen;
 	// game rows: game lists and the Home tab (same rule as GameList_render's game_art). Their play time and
 	// achievements show only while the button hints are hidden (Layouts > Button hints); with the bar shown the
 	// band is the fade and arrows alone.
@@ -2076,15 +2143,52 @@ static void renderInfoBand(void) {
 			int bar_top = UI_buttonHintBarTop(screen->h);
 			layout.info_top = bar_top + (screen->h - bar_top - layout.text_h) / 2;
 		}
-		InfoBand_render(&layout, segs, n, up, down, LAYER_OVERLAY, dst);
+		gen = InfoBand_prepare(&layout, segs, n, up, down);
+	} else {
+		// Collections rows (their tab, or its list pushed over a tab while hidden): "N games" (nothing while
+		// unknown). Consoles, Tools and folders show no text.
+		char games[32] = "";
+		if (entry && exactMatch(top->path, COLLECTIONS_PATH))
+			GameInfo_gamesLabel(CollCount_get(entry->path), games, sizeof(games));
+		InfoSeg seg = {.kind = INFO_SEG_COUNT};
+		snprintf(seg.text, sizeof(seg.text), "%s", games);
+		gen = InfoBand_prepare(&layout, &seg, games[0] ? 1 : 0, up, down);
+	}
+
+	if (dst) {
+		if (overlay.valid) // the layer's copy would sit lit over the dimmed rows
+			GFX_clearLayers(LAYER_OVERLAY);
+		overlay.valid = false;
+		if (arrow)
+			InfoBand_renderUpArrow(layout.arrow_x, arrow_y, LAYER_OVERLAY, dst);
+		InfoBand_draw(LAYER_OVERLAY, dst);
 		return;
 	}
-	// Collections rows (their tab, or its list pushed over a tab while hidden): "N games" (nothing while unknown).
-	// Consoles, Tools and folders show no text.
-	char games[32] = "";
-	if (entry && exactMatch(top->path, COLLECTIONS_PATH))
-		GameInfo_gamesLabel(CollCount_get(entry->path), games, sizeof(games));
-	InfoBand_renderText(&layout, games[0] ? games : NULL, up, down, LAYER_OVERLAY, dst);
+	if (overlay.valid && overlay.serial == PLAT_layerSerial(LAYER_OVERLAY) && overlay.band_gen == gen &&
+		overlay.band_top == layout.band_top && overlay.arrow == arrow &&
+		(!arrow || (overlay.arrow_x == layout.arrow_x && overlay.arrow_y == arrow_y)))
+		return; // still on the layer as drawn
+	GFX_clearLayers(LAYER_OVERLAY);
+	if (arrow)
+		InfoBand_renderUpArrow(layout.arrow_x, arrow_y, LAYER_OVERLAY, NULL);
+	InfoBand_draw(LAYER_OVERLAY, NULL);
+	overlay.valid = true;
+	overlay.serial = PLAT_layerSerial(LAYER_OVERLAY);
+	overlay.band_gen = gen;
+	overlay.band_top = layout.band_top;
+	overlay.arrow = arrow;
+	overlay.arrow_x = layout.arrow_x;
+	overlay.arrow_y = arrow_y;
+}
+
+bool GameList_listBodyClear(SDL_Rect* row) {
+	if (row)
+		*row = list_body_row;
+	return list_body_clear;
+}
+
+bool GameList_keepsOverlay(void) {
+	return !ContextMenu_isOpen() && !Home_active() && !GridView_active() && !RowView_active();
 }
 
 // nextui.c's re-add after a slide, outside GameList_render's content layer. While the content is dimmed the band is
@@ -2100,8 +2204,8 @@ void GameList_renderInfoLayer(void) {
 static void renderHintScrim(SDL_Surface* screen) {
 	static SDL_Surface* scrim = NULL;
 	SDL_Surface* s = UI_getScrimAlpha(&scrim, screen->w, BAR_HEIGHT, 204);
-	if (s)
-		SDL_BlitSurface(s, NULL, screen, &(SDL_Rect){0, UI_buttonHintBarTop(screen->h)});
+	if (s) // black at one alpha: the row darkening, not SDL's per-pixel blend (~2 ms a frame on the Brick)
+		UI_blitFade(s, NULL, screen, 0, UI_buttonHintBarTop(screen->h));
 }
 
 // The hint bar of a List or Grid screen (main-menu tabs and game lists): one copy of the pairs, the four-pair cap
@@ -2204,6 +2308,9 @@ static void clearArtForGrid(SDL_Surface* screen, int lastScreen) {
 
 void GameList_render(SDL_Surface* screen, int lastScreen,
 					 IndicatorType show_setting, SDL_Surface* blackBG) {
+	list_body_clear = false; // only a List render with all its rows on the GPU sets it
+	list_body_row = (SDL_Rect){0, 0, 0, 0};
+	list_hold_tex = NULL; // the frame's sprites start over (nextui.c's PLAT_spritesClear)
 	if (Home_active()) {
 		// the global bg.png, as on every main-menu tab, and no thumbnail (Home draws its own pictures)
 		bool names = true;
@@ -2314,23 +2421,34 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		const char* folder = slash ? slash + 1 : entry->path;
 		const char* pad_id = Pad_idForFolder(folder);
 		const char* logo_id = MenuLogo_idForFolder(folder);
+		// Both are GPU sprites under the screen (PLAT_spriteAddUnder), seen through its clear body under the rows and
+		// dimmed by the hint bar's scrim where they reach into it, and both decode on the art loader's thread: a step
+		// never waits on a PNG, and a pad still decoding draws nothing (not the logo) until it lands
+		// (GameList_artWaiting keeps the redraws coming; GameList_prefetchIdle asks for the neighbours' ahead).
 		int pad_x, pad_y;
 		SDL_Surface* pad = pad_id ? ControllerArt_list(pad_id, screen->w, screen->h, &pad_x, &pad_y) : NULL;
-		if (pad) // baked at its 35%, placed and rotated for this screen
-			SDL_BlitSurface(pad, NULL, screen, &(SDL_Rect){pad_x, pad_y});
-		else if (logo_id) {
+		bool pad_pending = pad_id && ControllerArt_listPending();
+		list_art_waiting = pad_pending;
+		SDL_Texture* tex = pad ? PLAT_textureForSurface(pad) : NULL;
+		if (tex) // baked at its 35%, placed and rotated for this screen
+			PLAT_spriteAddUnder(tex, NULL, &(SDL_Rect){pad_x, pad_y, pad->w, pad->h}, 255, NULL);
+		else if (!pad_pending && logo_id) {
 			char file[64];
 			snprintf(file, sizeof(file), "menu_logo_%s.png", logo_id);
 			int band_y = listTop();
 			int band_h = rows_layout.rows * row_h;
-			SDL_Surface* logo = MenuArt_get(file, screen->w * 40 / 100, band_h * 60 / 100);
-			if (logo) {
-				SDL_SetSurfaceAlphaMod(logo, 47); // white at 16%: the PNG's off-white (0xE0) at 18.4%
-				SDL_BlitSurface(logo, NULL, screen,
-								&(SDL_Rect){screen->w - SCALE1(23) - logo->w, band_y + (band_h - logo->h) / 2});
-				SDL_SetSurfaceAlphaMod(logo, 255);
-			}
+			bool logo_pending = false;
+			SDL_Surface* logo = MenuArt_peek(file, screen->w * 40 / 100, band_h * 60 / 100, &logo_pending);
+			list_art_waiting = logo_pending;
+			SDL_Texture* lt = logo ? PLAT_textureForSurface(logo) : NULL;
+			if (lt) // white at 16%: the PNG's off-white (0xE0) at 18.4%
+				PLAT_spriteAddUnder(lt, NULL,
+									&(SDL_Rect){screen->w - SCALE1(23) - logo->w, band_y + (band_h - logo->h) / 2,
+												logo->w, logo->h},
+									47, NULL);
 		}
+	} else {
+		list_art_waiting = false;
 	}
 
 	// after the controller art: its bottom reaches into the hint bar, and blitted over the bar's 80% scrim it showed
@@ -2348,11 +2466,16 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 	bool layered = ContentDim_layered();
 	if (layered && GameList_scrollBusy())
 		ScrollText_clear(&list_scroll);
+	// The rows and the selection pill go to the GPU as sprites over the screen (their text from the text cache's
+	// surfaces, the pill from a tinted atlas), so a glide that only moves the pill leaves the screen as it was and
+	// little is uploaded. Not under the tab-focus dim (the content draws in software, to be dimmed) or a context menu
+	// (it draws over the screen, under the sprites); the selected row's marquee stays in the screen (its own layer).
+	bool row_sprites = !layered && !ContextMenu_isOpen();
+	list_body_clear = row_sprites;
 
 	// The info band (a GPU layer), drawn even for an empty list. Drawn before the rows: the marquee below
 	// may present mid-render, and the band must already be back on its layer by then (no blink).
 	renderInfoBand();
-
 	if (total > 0) {
 		int selected_row = top->selected - top->start;
 		// Row text start (LIST-LAYOUT §1): the main menu's List rows on the tab row's 24 dp gutter, game lists on
@@ -2364,8 +2487,9 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		// the per-row loop, so it can sit between rows mid-slide; the rows below
 		// then draw text only (no per-row pill background).
 		bool pill_animating = false;
-		int pill_y = -1; // current pill top-y; used by the row loop to tint the
-						 // row the pill is over (see color-tracking note below)
+		int pill_y = -1;		  // current pill top-y; used by the row loop to tint the
+								  // row the pill is over (see color-tracking note below)
+		bool pill_sprite = false; // the pill went to the GPU (over the screen: it hides what the screen has under it)
 		if (list_show_entry_names) {
 			Entry* sel = top->entries->items[top->selected];
 			char* sel_name = sel->name;
@@ -2435,10 +2559,22 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 			SDL_GetClipRect(screen, &prev_clip);
 			SDL_SetClipRect(screen, &band);
 			SDL_Rect pill = {row_pill_x, pill_y + pill_off, list_pill_anim.current_w, pill_h};
-			UI_drawListItemBg(screen, &pill, true); // dimmed with the whole content while the tab row has focus
+			pill_sprite = row_sprites && UI_listItemBgSprites(&pill, &band);
+			if (!pill_sprite) {
+				UI_drawListItemBg(screen, &pill, true); // dimmed with the whole content while the tab row has focus
+				list_body_clear = false;
+			}
 			SDL_SetClipRect(screen, &prev_clip);
 		}
 
+		// the selected row's marquee, drawn after the loop when the rows are sprites: its GPU scroll presents a frame
+		// itself (ScrollText -> PLAT_GPU_Flip), and by then every row's sprite must be in (no rows missing below it)
+		struct {
+			bool on;
+			char* text;
+			int x, y, w;
+			bool over;
+		} marquee = {false};
 		for (int i = top->start, j = 0; i < top->end; i++, j++) {
 			Entry* entry = top->entries->items[i];
 			char* entry_name = entry->name;
@@ -2507,26 +2643,60 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 								 abs(pill_y - y) * 2 < row_h;
 				bool use_marquee = row_is_selected && !pill_animating &&
 								   !ContextMenu_isOpen() && !layered;
+				// a selected title that fits has nothing to scroll: a sprite like the rest (its marquee state
+				// dropped, so the idle tick has nothing stale to draw)
+				if (use_marquee && row_sprites && !entry_unique &&
+					UI_listItemTextFits(display_text, font.large, text_width, pill_over)) {
+					use_marquee = false;
+					if (list_scroll.text[0])
+						ScrollText_clear(&list_scroll);
+				}
 				if (entry_unique && !use_marquee &&
 					strncmp(entry_unique, entry_name, strlen(entry_name)) == 0) {
 					// Duplicate-name row: name in the list colour, disambiguating
 					// suffix ("(EMU)" or the filename remainder) dimmed, as in
 					// upstream NextUI. The marquee row stays single-colour: the
 					// scroll texture is one surface.
-					UI_renderListItemTextDimSuffix(screen, entry_name,
-												   entry_unique + strlen(entry_name),
-												   font.large, pos.text_x, pos.text_y,
-												   text_width, pill_over);
-				} else {
-					UI_renderListItemText(screen,
-										  use_marquee ? &list_scroll : NULL,
-										  display_text, font.large,
-										  pos.text_x, pos.text_y, text_width, pill_over);
+					if (!row_sprites ||
+						!UI_listItemTextDimSuffixSprite(entry_name, entry_unique + strlen(entry_name), font.large,
+														pos.text_x, pos.text_y, text_width, pill_over)) {
+						list_body_clear = false; // this row is in the screen
+						UI_renderListItemTextDimSuffix(screen, entry_name,
+													   entry_unique + strlen(entry_name),
+													   font.large, pos.text_x, pos.text_y,
+													   text_width, pill_over);
+					}
+				} else if (use_marquee || !row_sprites ||
+						   !UI_listItemTextSprite(display_text, font.large, pos.text_x, pos.text_y, text_width,
+												  pill_over)) {
+					// this row is in the screen: the selected one's marquee is the one row the body may hold
+					if (use_marquee && row_sprites) {
+						list_body_row = (SDL_Rect){0, pos.text_y, screen->w, TTF_FontHeight(font.large)};
+						marquee.on = true, marquee.text = display_text, marquee.x = pos.text_x;
+						marquee.y = pos.text_y, marquee.w = text_width, marquee.over = pill_over;
+					} else {
+						list_body_clear = false;
+						UI_renderListItemText(screen,
+											  use_marquee ? &list_scroll : NULL,
+											  display_text, font.large,
+											  pos.text_x, pos.text_y, text_width, pill_over);
+					}
 				}
 			}
 		}
+		if (marquee.on) {
+			UI_renderListItemText(screen, &list_scroll, marquee.text, font.large, marquee.x, marquee.y, marquee.w,
+								  marquee.over);
+			// held still (the pre-scroll delay, or nothing to scroll), the title it blitted into the screen sits under
+			// the sprite pill: the same title as a sprite over it. Scrolling, the scroll layer (over the sprites) has it.
+			// (A row clipped away entirely leaves the state as it was.)
+			if (pill_sprite && strcmp(list_scroll.text, marquee.text) == 0)
+				list_hold_tex =
+					UI_listItemMarqueeHoldSprite(&list_scroll, font.large, marquee.x, marquee.y, marquee.over);
+		}
 	} else {
 		UI_renderCenteredMessage(screen, "Empty folder");
+		list_body_clear = false;
 	}
 	ContentDim_end(screen); // before the fade below: it presents frames itself
 

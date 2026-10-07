@@ -50,7 +50,7 @@ static int workerMain(void* arg) {
 		snprintf(file, sizeof(file), "%s", next->file);
 		int w = next->box_w, h = next->box_h;
 		SDL_UnlockMutex(lock);
-		SDL_Surface* s = w == 0 && h == 0 ? MenuArt_loadHalf(file) : MenuArt_load(file, w, h);
+		SDL_Surface* s = w == 0 && h == 0 ? MenuArt_loadLevel(file) : MenuArt_load(file, w, h);
 		SDL_LockMutex(lock);
 		if (next->dropped || quitting) {
 			if (s)
@@ -81,8 +81,8 @@ static bool ensureStarted(void) {
 }
 
 void ArtLoader_request(const char* file, int box_w, int box_h, int prio) {
-	bool half = box_w == 0 && box_h == 0;
-	if (!file || !file[0] || (!half && (box_w < 1 || box_h < 1)) || strlen(file) >= sizeof(jobs[0].file) ||
+	bool own = box_w == 0 && box_h == 0; // MenuArt_loadLevel's
+	if (!file || !file[0] || (!own && (box_w < 1 || box_h < 1)) || strlen(file) >= sizeof(jobs[0].file) ||
 		!ensureStarted())
 		return;
 	SDL_LockMutex(lock);

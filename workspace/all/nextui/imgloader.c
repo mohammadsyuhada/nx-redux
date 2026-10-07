@@ -8,6 +8,7 @@
 #include "config.h"
 #include "imgloader.h"
 #include "artbg.h"
+#include "area_scale.h"
 #include "ui_image.h"
 
 ///////////////////////////////////////
@@ -81,10 +82,9 @@ SDL_mutex* bgMutex = NULL;
 SDL_mutex* thumbMutex = NULL;
 
 SDL_Surface* folderbgbmp = NULL;
-// Background art style: software-composited black + folder bg + faded art
-// (see updateBackgroundLayer); allocated lazily, freed with the pool.
-static SDL_Surface* bgCompose = NULL;
 SDL_Surface* thumbbmp = NULL;
+// Bumped (under thumbMutex) whenever thumbbmp is replaced or dropped: the art on the GPU belongs to one generation.
+static unsigned thumb_gen = 0;
 
 int folderbgchanged = 0;
 int thumbchanged = 0;
@@ -274,6 +274,19 @@ static int thumbLoadWorker(void* arg) {
 			// fades diagonally into the list. ArtBg_compose is pure SDL (thread-safe).
 			SDL_Surface* composed = ArtBg_compose(result, cachedScreenW, cachedScreenH, cachedScreenFormat);
 			SDL_FreeSurface(result);
+			// at half size (area-averaged): it sits faded behind the rows, where the GPU's linear upscale to the
+			// screen reads the same, and a quarter of the pixels to upload when the selection brings new art
+			SDL_Surface* half = composed && composed->format->format == SDL_PIXELFORMAT_ARGB8888
+									? SDL_CreateRGBSurfaceWithFormat(0, (composed->w + 1) / 2, (composed->h + 1) / 2, 32,
+																	 SDL_PIXELFORMAT_ARGB8888)
+									: NULL;
+			if (half && AreaScale_argb(composed->pixels, composed->w, composed->h, composed->pitch / 4, half->pixels,
+									   half->w, half->h, half->pitch / 4) == 0) {
+				SDL_FreeSurface(composed);
+				composed = half;
+			} else if (half) {
+				SDL_FreeSurface(half);
+			}
 			result = composed; // NULL falls through to the no-thumb path below
 		}
 
@@ -291,6 +304,7 @@ static int thumbLoadWorker(void* arg) {
 				if (thumbbmp)
 					SDL_FreeSurface(thumbbmp);
 				thumbbmp = thumb_copy;
+				thumb_gen++;
 			} else {
 				thumbCacheInsert(task->imagePath, result);
 			}
@@ -301,6 +315,7 @@ static int thumbLoadWorker(void* arg) {
 				if (thumbbmp)
 					SDL_FreeSurface(thumbbmp);
 				thumbbmp = NULL;
+				thumb_gen++;
 			}
 			thumbchanged = 1;
 			setNeedDraw(1);
@@ -354,10 +369,10 @@ void onBackgroundLoaded(SDL_Surface* surface) {
 bool startLoadThumb(const char* thumbpath) {
 	SDL_LockMutex(thumbMutex);
 
-	// Fast path: already showing the right thumb
+	// Fast path: already showing the right thumb. Nothing changed: GameList_render asks every frame, and flagging a
+	// change here rebuilt and re-uploaded the whole background layer every List frame. A layer someone else drew on or
+	// cleared since its upload is rebuilt anyway (updateBackgroundLayer checks the layer's serial).
 	if (thumbbmp && strcmp(desiredThumbPath, thumbpath) == 0) {
-		thumbchanged = 1;
-		setNeedDraw(1);
 		SDL_UnlockMutex(thumbMutex);
 		return true;
 	}
@@ -375,6 +390,7 @@ bool startLoadThumb(const char* thumbpath) {
 				SDL_FreeSurface(thumbbmp);
 			thumbbmp = SDL_ConvertSurface(thumb_cache[i].surface,
 										  thumb_cache[i].surface->format, 0);
+			thumb_gen++;
 			if (thumbbmp) {
 				thumbchanged = 1;
 				setNeedDraw(1);
@@ -408,55 +424,94 @@ void requestBackgroundReupload(void) {
 	SDL_UnlockMutex(bgMutex);
 }
 
-void updateBackgroundLayer(SDL_Surface* blackBG) {
-	const bool art_bg = true; // the game art is always drawn as the background (no thumbnail style any more)
-	SDL_LockMutex(bgMutex);
-	// Background art style paints the game art onto this layer too (below the
-	// UI stream, so the status bar, pills and titles draw over the fade), so a
-	// thumbnail change must rebuild the whole layer: black + folder bg + art.
-	// Lock order bgMutex -> thumbMutex is only ever taken here; the worker
-	// holds thumbMutex alone, so this cannot deadlock.
-	bool rebuild = folderbgchanged;
-	if (art_bg) {
-		SDL_LockMutex(thumbMutex);
-		rebuild = rebuild || thumbchanged;
+// LAYER_BACKGROUND's serial right after this file's last upload: a different one means another screen (the Game
+// Switcher, a transition, a return from a game, the keyboard) drew on or cleared the layer since, so it is rebuilt.
+static unsigned bg_layer_serial = 0;
+static bool bg_layer_known = false;
+
+// The game art on the GPU (the List's background style): two textures, the one shown (art_front, set as the background
+// layer's art) and the one the next art fills a band of rows per call (so no frame pays a whole upload), shown once
+// complete. art_gen_shown: the thumbbmp generation on screen; art_gen_loading: the one being filled.
+#define ART_UPLOAD_BANDS 2
+static SDL_Texture* art_tex[2];
+static int art_w[2], art_h[2];
+static int art_front = -1;
+static unsigned art_gen_shown = ~0u, art_gen_loading = ~0u;
+static int art_rows_done = 0;
+
+// Where the art goes: ArtBg_compose's strip, from its origin to the screen's right edge, full height (the texture is
+// that at half size: the GPU scales it back up)
+static SDL_Rect artDst(int i) {
+	(void)i;
+	int x = ArtBg_originX(screen->w, screen->h);
+	return (SDL_Rect){x, 0, screen->w - x, screen->h};
+}
+
+// One step of the art upload (thumbMutex held). True once the shown art matches thumbbmp (nothing left to do).
+static bool artStep(void) {
+	if (thumb_gen == art_gen_shown)
+		return true;
+	if (!thumbbmp || thumbbmp->format->format != SDL_PIXELFORMAT_ARGB8888) {
+		PLAT_setLayerArt(NULL, NULL); // no art (or none this path can upload): the layer alone
+		art_front = -1;
+		art_gen_shown = thumb_gen;
+		art_gen_loading = ~0u;
+		setNeedDraw(1);
+		return true;
 	}
-	if (rebuild && art_bg && thumbbmp) {
-		// LAYER_BACKGROUND composites without alpha (only layers 2-5 get
-		// SDL_BLENDMODE_BLEND), so the art's fade must be blended in software
-		// over black + folder bg into one opaque surface, uploaded once.
-		if (!bgCompose)
-			bgCompose = SDL_CreateRGBSurfaceWithFormat(0, screen->w, screen->h, 32,
-													   screen->format->format);
-		if (bgCompose) {
-			SDL_SetSurfaceBlendMode(blackBG, SDL_BLENDMODE_NONE);
-			SDL_BlitSurface(blackBG, NULL, bgCompose, NULL);
-			if (folderbgbmp) {
-				SDL_SetSurfaceBlendMode(folderbgbmp, SDL_BLENDMODE_BLEND);
-				SDL_BlitScaled(folderbgbmp, NULL, bgCompose,
-							   &(SDL_Rect){0, 0, screen->w, screen->h});
-			}
-			SDL_SetSurfaceBlendMode(thumbbmp, SDL_BLENDMODE_BLEND);
-			SDL_BlitSurface(thumbbmp, NULL, bgCompose,
-							&(SDL_Rect){ArtBg_originX(screen->w, screen->h), 0,
-										thumbbmp->w, thumbbmp->h});
-			GFX_drawOnLayer(bgCompose, 0, 0, screen->w, screen->h, 1.0f, 0,
-							LAYER_BACKGROUND);
+	int back = art_front == 0 ? 1 : 0;
+	if (art_gen_loading != thumb_gen) {
+		if (!art_tex[back] || art_w[back] != thumbbmp->w || art_h[back] != thumbbmp->h) {
+			PLAT_freeTexture(art_tex[back]);
+			art_tex[back] = PLAT_textureCreate(thumbbmp->w, thumbbmp->h);
+			art_w[back] = thumbbmp->w, art_h[back] = thumbbmp->h;
 		}
-	} else if (rebuild) {
-		GFX_drawOnLayer(blackBG, 0, 0, screen->w, screen->h, 1.0f, 0,
-						LAYER_BACKGROUND);
-		if (folderbgbmp)
-			GFX_drawOnLayer(folderbgbmp, 0, 0, screen->w, screen->h, 1.0f, 0,
-							LAYER_BACKGROUND);
+		if (!art_tex[back])
+			return true; // no texture: keep what is shown
+		art_gen_loading = thumb_gen;
+		art_rows_done = 0;
 	}
+	int band = (thumbbmp->h + ART_UPLOAD_BANDS - 1) / ART_UPLOAD_BANDS;
+	PLAT_textureUpdateRows(art_tex[back], thumbbmp, art_rows_done, band);
+	art_rows_done += band;
+	if (art_rows_done < thumbbmp->h)
+		return false;
+	art_front = back;
+	art_gen_shown = thumb_gen;
+	art_gen_loading = ~0u;
+	SDL_Rect dst = artDst(back);
+	PLAT_setLayerArt(art_tex[back], &dst);
+	setNeedDraw(1);
+	return true;
+}
+
+void updateBackgroundLayer(SDL_Surface* blackBG) {
+	SDL_LockMutex(bgMutex);
+	// The background layer holds black and the folder background; the game art is a GPU texture blended over it as
+	// part of the layer (PLAT_setLayerArt: it goes whenever anything else clears or draws on the layer). A changed
+	// art no longer recomposes and re-uploads the whole screen: it fills its own texture a band per call (artStep),
+	// thumbchanged staying set until it shows. Lock order bgMutex -> thumbMutex is only ever taken here; the worker
+	// holds thumbMutex alone, so this cannot deadlock.
+	SDL_LockMutex(thumbMutex);
+	bool rebuild = folderbgchanged || !bg_layer_known || PLAT_layerSerial(LAYER_BACKGROUND) != bg_layer_serial;
 	if (rebuild) {
+		GFX_drawOnLayer(blackBG, 0, 0, screen->w, screen->h, 1.0f, 0, LAYER_BACKGROUND);
+		if (folderbgbmp)
+			GFX_drawOnLayer(folderbgbmp, 0, 0, screen->w, screen->h, 1.0f, 0, LAYER_BACKGROUND);
 		folderbgchanged = 0;
-		if (art_bg)
-			thumbchanged = 0;
+		bg_layer_serial = PLAT_layerSerial(LAYER_BACKGROUND);
+		bg_layer_known = true;
+		// the redraw dropped the art: the shown one goes back over the new layer, even while a newer one is still
+		// filling the other texture (it stays up until that completes, rather than a frame or two of no art);
+		// artStep below drops it at once when the new art is none
+		if (art_front >= 0) {
+			SDL_Rect dst = artDst(art_front);
+			PLAT_setLayerArt(art_tex[art_front], &dst);
+		}
 	}
-	if (art_bg)
-		SDL_UnlockMutex(thumbMutex);
+	if (artStep())
+		thumbchanged = 0;
+	SDL_UnlockMutex(thumbMutex);
 	SDL_UnlockMutex(bgMutex);
 }
 
@@ -525,10 +580,11 @@ void initImageLoaderPool(void) {
 }
 
 void cleanupImageLoaderPool(void) {
-	if (bgCompose) {
-		SDL_FreeSurface(bgCompose);
-		bgCompose = NULL;
+	for (int i = 0; i < 2; i++) { // before GFX_quit (nextui.c calls this first)
+		PLAT_freeTexture(art_tex[i]);
+		art_tex[i] = NULL;
 	}
+	art_front = -1;
 	// Signal all worker threads to exit (atomic set for thread safety)
 	SDL_AtomicSet(&workerThreadsShutdown, 1);
 

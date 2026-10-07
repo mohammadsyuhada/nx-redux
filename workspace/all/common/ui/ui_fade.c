@@ -173,6 +173,28 @@ void UI_blitFade(SDL_Surface* fade, const SDL_Rect* src, SDL_Surface* dst, int x
 	}
 }
 
+void UI_fillFade(SDL_Surface* fade, const SDL_Rect* src, SDL_Surface* dst, int x, int y) {
+	if (!fade || !dst)
+		return;
+	SDL_Rect sr = src ? *src : (SDL_Rect){0, 0, fade->w, fade->h};
+	if (fade->format->format != SDL_PIXELFORMAT_ARGB8888 || !isArgb(dst) || sr.x < 0 || sr.y < 0 ||
+		sr.x + sr.w > fade->w || sr.y + sr.h > fade->h) {
+		UI_blitFade(fade, src, dst, x, y);
+		return;
+	}
+	SDL_Rect out = {x, y, sr.w, sr.h}, clipped;
+	if (!SDL_IntersectRect(&out, &dst->clip_rect, &clipped))
+		return;
+	for (int dy = clipped.y; dy < clipped.y + clipped.h; dy++) {
+		const Uint32* frow = (const Uint32*)((const Uint8*)fade->pixels + (sr.y + dy - y) * fade->pitch);
+		Uint32 a = frow[sr.x] >> 24; // black, one alpha per row
+		if (a == 0)
+			continue;
+		// over clear pixels the darkening IS the fade's own pixel: black at the row's alpha
+		SDL_FillRect(dst, &(SDL_Rect){clipped.x, dy, clipped.w, 1}, a << 24);
+	}
+}
+
 #define FADE_H_MAX 4096
 
 void UI_darkenColumns(SDL_Surface* dst, int x, int y, int w, int h, const Uint8* alpha) {

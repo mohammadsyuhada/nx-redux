@@ -352,6 +352,16 @@ void GFX_measureText(TTF_Font* primary, const char* utf8, int* w, int* h);
 SDL_Surface* GFX_renderTextWrapped(TTF_Font* primary, const char* utf8, SDL_Color color, uint32_t wrap_w);
 
 int GFX_truncateText(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding); // returns final width
+// `text` as it fits `avail` px with `padding` (GFX_truncateText when it doesn't) into out (256 bytes), its own width in
+// *raw_w; true when truncated. Remembered per font, text and room (dropped with the text cache), so a list's rows
+// aren't measured every frame.
+bool GFX_fitTextCached(TTF_Font* font, const char* text, char* out, int avail, int padding, int* raw_w);
+// How many GFX_flip calls so far: a caller that keeps what its last frame left in the screen checks that nothing else
+// (a dialog, an overlay) has flipped a screen of its own since.
+unsigned GFX_flipCount(void);
+// A pill (as GFX_blitPillColor draws it) added as GPU sprites over the screen instead, clipped to `clip` (NULL: none).
+// False when it couldn't be (draw it the software way).
+bool GFX_pillSprites(int asset, const SDL_Rect* rect, uint32_t asset_color, const SDL_Rect* clip);
 int PLAT_textShouldScroll(TTF_Font* font, const char* in_name, int max_width, SDL_mutex* fontMutex);
 void PLAT_resetScrollText(void);
 int GFX_getTextWidth(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding); // returns final width
@@ -705,6 +715,16 @@ void PLAT_setOffsetX(int x);
 void PLAT_setOffsetY(int y);
 void PLAT_drawOnLayer(SDL_Surface* inputSurface, int x, int y, int w, int h, float brightness, bool maintainAspectRatio, int layer);
 void PLAT_clearLayers(int layer);
+// How many times a layer (1-5) has been drawn on or cleared: a caller that uploads a layer compares it with the value
+// it saw after its own upload to tell whether anything else has touched the layer since
+unsigned PLAT_layerSerial(int layer);
+// Game art blended over the background layer as part of it: drawn over layer 1 (and under layer 2) at dst on every
+// composite until cleared (NULL), freed (PLAT_freeTexture) or dropped by anything that clears or draws on layer 1. The
+// texture stays the caller's.
+void PLAT_setLayerArt(SDL_Texture* tex, const SDL_Rect* dst);
+// A texture drawn (blended) onto a layer at dst: PLAT_drawOnLayer without making and uploading a texture each call,
+// for a surface drawn again unchanged (keep its texture with PLAT_textureForSurface).
+void PLAT_drawTextureOnLayer(SDL_Texture* tex, const SDL_Rect* dst, int layer);
 SDL_Surface* PLAT_captureRendererToSurface();
 
 // Notification overlay for GL rendering (rendered on top of game during PLAT_GL_Swap)
@@ -752,16 +772,54 @@ void PLAT_GPU_Flip();
 // GPU sprites over the screen layer (a frame's moving pictures drawn by the GPU instead of blended into the screen):
 // the list is drawn right above the screen texture on every composite until it is cleared. dst and clip are in screen
 // px; src NULL = the whole texture. The texture is the surface's own (PLAT_textureForSurface, kept in s->userdata);
-// free such a surface with PLAT_freeSurfaceTexture first.
+// free such a surface with PLAT_freeSurfaceTexture first. A texture freed (either way) leaves the sprite lists too.
+// PLAT_spriteAddUnder: the same, in a second list drawn under the screen layer (over the background layers), seen
+// through the screen's transparent pixels (a Backdrop game list's full-screen picture). PLAT_spritesClear clears both.
 void PLAT_spritesClear(void);
 void PLAT_spriteAdd(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, const SDL_Rect* clip);
+void PLAT_spriteAddUnder(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, const SDL_Rect* clip);
+// Drop tex's sprites from both lists before the next clear: for a sprite the next present must no longer show (a List
+// marquee's held title, once its GPU scroll takes over between full frames).
+void PLAT_spriteRemove(SDL_Texture* tex);
 SDL_Texture* PLAT_textureForSurface(SDL_Surface* s);
 void PLAT_freeSurfaceTexture(SDL_Surface* s);
+// A surface out with its GPU texture, if it ever got one (a sprite's: PLAT_textureForSurface). NULL-safe.
+static inline void GFX_freeSurfaceAndTexture(SDL_Surface* s) {
+	if (!s)
+		return;
+	PLAT_freeSurfaceTexture(s);
+	SDL_FreeSurface(s);
+}
+// A new texture of s's pixels that the caller owns (not kept in s->userdata, so it outlives s): free it with
+// PLAT_freeTexture.
+SDL_Texture* PLAT_textureFromSurface(SDL_Surface* s);
+void PLAT_freeTexture(SDL_Texture* t);
+// An owned, empty w x h ARGB8888 texture (blend mode BLEND) to fill a band at a time: PLAT_textureUpdateRows uploads
+// rows [y, y + h) of s (ARGB8888, the texture's size), so a big picture's upload can be spread over several frames.
+// Freed with PLAT_freeTexture.
+SDL_Texture* PLAT_textureCreate(int w, int h);
+void PLAT_textureUpdateRows(SDL_Texture* t, SDL_Surface* s, int y, int h);
+// An owned w x h render-target texture, opaque: PLAT_targetBegin starts it over as black and makes it the drawing
+// target, PLAT_targetDraw blends a texture into it (dst in its px, at alpha), PLAT_targetEnd goes back to the screen.
+// For flattening several full-screen layers once (a Backdrop crossfade cut short) instead of blending them all on
+// every composite. Freed with PLAT_freeTexture.
+SDL_Texture* PLAT_targetCreate(int w, int h);
+void PLAT_targetBegin(SDL_Texture* t);
+void PLAT_targetDraw(SDL_Texture* tex, const SDL_Rect* dst, Uint8 alpha);
+void PLAT_targetEnd(void);
+// PLAT_spriteAddUnder for an opaque texture drawn at full alpha over the whole screen: drawn without blending, and
+// what is under it (the background layers, the under-sprites added before it) is skipped, being covered.
+void PLAT_spriteAddUnderOpaque(SDL_Texture* tex, const SDL_Rect* dst);
+// Draw only these row bands of the screen texture on the next PLAT_flip's composite: for frames whose screen is fully
+// transparent outside them (a Backdrop game list's sprite frame: its picture and row are sprites), so a full-screen
+// blend of clear pixels is skipped. Consumed by that flip; n <= 0 = the whole screen.
+void PLAT_setScreenDrawBands(const int* y, const int* h, int n);
 // Re-upload a surface's pixels into its texture (one it already has; a no-op otherwise): for a small surface redrawn
 // every frame (the Grid's edge shade), without making a new texture each time.
 void PLAT_textureRefresh(SDL_Surface* s);
 // Upload only these row bands of the screen on the next PLAT_flip (the rest of the screen texture keeps what it had):
-// for frames whose other rows are known unchanged. Consumed by that flip; n <= 0 = the whole screen.
+// for frames whose other rows are known unchanged. Up to 4. Consumed by that flip; n <= 0 = the whole screen (only
+// its changed rows: a hash per row).
 void PLAT_setUploadBands(const int* y, const int* h, int n);
 void PLAT_setShaders(int nr);
 void PLAT_resetShaders();

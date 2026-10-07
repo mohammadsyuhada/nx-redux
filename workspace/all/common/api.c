@@ -347,20 +347,99 @@ typedef struct {
 static TextCacheEntry text_cache[TEXT_CACHE_SIZE];
 static uint32_t text_cache_lru = 0;
 
+// ---- Cached text fitting ---------------------------------------------------
+// A list row's pill width is its text measured, and a text too wide for its row truncated (a measure per candidate
+// length): every visible row, every frame of a glide or a held D-pad. Kept per (font, text, room), so a row the list
+// keeps showing isn't measured again; dropped with the text cache (a font reload).
+#define FIT_CACHE_SIZE 64
+typedef struct {
+	TTF_Font* font;
+	int avail, padding;
+	Uint32 hash;
+	char text[256];
+	int raw_w;		// the text's own width
+	char fit[256];	// the text as it fits the room (itself when it does)
+	bool truncated; // fit is the truncated text
+	uint32_t lru;
+} FitCacheEntry;
+static FitCacheEntry fit_cache[FIT_CACHE_SIZE];
+static uint32_t fit_cache_lru = 0;
+
+static void fitCacheForget(TTF_Font* font) {
+	for (int i = 0; i < FIT_CACHE_SIZE; i++)
+		if (!font || fit_cache[i].font == font)
+			fit_cache[i] = (FitCacheEntry){0};
+	if (!font)
+		fit_cache_lru = 0;
+}
+
+bool GFX_fitTextCached(TTF_Font* font, const char* text, char* out, int avail, int padding, int* raw_w) {
+	size_t len = text ? strlen(text) : 0;
+	if (!font || !text || len >= sizeof(fit_cache[0].text)) { // uncached: as measured and truncated directly
+		int w = 0;
+		GFX_measureText(font, text, &w, NULL);
+		if (raw_w)
+			*raw_w = w;
+		if (w + padding > avail) {
+			GFX_truncateText(font, text, out, avail, padding);
+			return true;
+		}
+		strncpy(out, text ? text : "", 255);
+		out[255] = '\0';
+		return false;
+	}
+	Uint32 hash = 2166136261u;
+	for (const unsigned char* c = (const unsigned char*)text; *c; c++)
+		hash = (hash ^ *c) * 16777619u;
+	FitCacheEntry* slot = &fit_cache[0];
+	for (int i = 0; i < FIT_CACHE_SIZE; i++) {
+		FitCacheEntry* e = &fit_cache[i];
+		if (e->font == font && e->hash == hash && e->avail == avail && e->padding == padding &&
+			strcmp(e->text, text) == 0) {
+			e->lru = ++fit_cache_lru;
+			if (raw_w)
+				*raw_w = e->raw_w;
+			strcpy(out, e->fit);
+			return e->truncated;
+		}
+		if (e->lru < slot->lru)
+			slot = e;
+	}
+	FitCacheEntry e = {.font = font, .avail = avail, .padding = padding, .hash = hash};
+	memcpy(e.text, text, len + 1);
+	GFX_measureText(font, text, &e.raw_w, NULL);
+	e.truncated = e.raw_w + padding > avail;
+	if (e.truncated)
+		GFX_truncateText(font, text, e.fit, avail, padding);
+	else
+		memcpy(e.fit, text, len + 1);
+	e.lru = ++fit_cache_lru;
+	*slot = e;
+	if (raw_w)
+		*raw_w = e.raw_w;
+	strcpy(out, e.fit);
+	return e.truncated;
+}
+
 static void GFX_clearTextCache(void) {
 	for (int i = 0; i < TEXT_CACHE_SIZE; i++) {
-		if (text_cache[i].surf)
+		if (text_cache[i].surf) {
+			PLAT_freeSurfaceTexture(text_cache[i].surf); // a List row drew it as a GPU sprite
 			SDL_FreeSurface(text_cache[i].surf);
+		}
 		text_cache[i] = (TextCacheEntry){0};
 	}
 	text_cache_lru = 0;
+	fitCacheForget(NULL);
 }
 
 void GFX_forgetFontText(TTF_Font* font) {
 	if (!font)
 		return;
+	fitCacheForget(font);
 	for (int i = 0; i < TEXT_CACHE_SIZE; i++) {
 		if (text_cache[i].surf && text_cache[i].font == font) {
+			PLAT_freeSurfaceTexture(text_cache[i].surf); // a List row drew it as a GPU sprite
 			SDL_FreeSurface(text_cache[i].surf);
 			text_cache[i] = (TextCacheEntry){0};
 		}
@@ -397,8 +476,10 @@ SDL_Surface* GFX_getCachedText(TTF_Font* font, const char* text, SDL_Color color
 		return NULL;
 
 	int slot = (free_slot >= 0) ? free_slot : lru_slot;
-	if (text_cache[slot].surf)
+	if (text_cache[slot].surf) {
+		PLAT_freeSurfaceTexture(text_cache[slot].surf); // a List row drew it as a GPU sprite
 		SDL_FreeSurface(text_cache[slot].surf);
+	}
 	text_cache[slot].font = font;
 	text_cache[slot].color = color;
 	strncpy(text_cache[slot].text, text, sizeof(text_cache[slot].text) - 1);
@@ -784,6 +865,7 @@ void GFX_setScreen(SDL_Surface* s) {
 }
 static void hwChromeFree(void);	   // the chrome-scale status-group context (below)
 static void hwIndicatorFree(void); // and the indicator's
+static void pillCachesFree(void);  // the pill strips and atlases (below)
 void GFX_quit(void) {
 	GFX_finishStartupBoost();
 
@@ -792,6 +874,7 @@ void GFX_quit(void) {
 
 	// cached text keys on the font pointers closed below
 	GFX_clearTextCache();
+	pillCachesFree();
 	hwChromeFree();
 	hwIndicatorFree();
 
@@ -947,7 +1030,13 @@ void GFX_setAmbientColor(const void* data, unsigned width, unsigned height, size
 	}
 }
 
+static unsigned flip_count = 0;
+unsigned GFX_flipCount(void) {
+	return flip_count;
+}
+
 void GFX_flip(SDL_Surface* screen) {
+	flip_count++;
 	{
 		uint64_t performance_frequency = SDL_GetPerformanceFrequency();
 		uint64_t frame_duration = SDL_GetPerformanceCounter() - per_frame_start;
@@ -1579,6 +1668,147 @@ static int pill_rect_asset(int asset) {
 	}
 }
 
+// A pill's middle, the asset's middle slice (a column profile, the same across x) stretched to a strip PILL_STRIP_W
+// wide at the pill's height and tinted: built once per asset, height and colour, then tiled across the middle with
+// plain blits. The direct way, a tinted SDL_BlitScaled, takes SDL's slow per-pixel path (scaled + modulated + blended):
+// ~2 ms a frame for a list's selection pill on the Brick.
+#define PILL_STRIP_W 64
+#define PILL_STRIPS 4
+static struct {
+	SDL_Surface* src; // the assets surface it was cut from (a reload makes a new one)
+	int slice, h;
+	uint32_t color;
+	SDL_Surface* strip;
+	uint32_t lru;
+} pill_strips[PILL_STRIPS];
+static uint32_t pill_strip_lru = 0;
+
+static SDL_Surface* pillStrip(int slice, int h, uint32_t color) {
+	SDL_Surface* src = gfx.assets;
+	int victim = 0;
+	for (int i = 0; i < PILL_STRIPS; i++) {
+		if (pill_strips[i].strip && pill_strips[i].src == src && pill_strips[i].slice == slice &&
+			pill_strips[i].h == h && pill_strips[i].color == color) {
+			pill_strips[i].lru = ++pill_strip_lru;
+			return pill_strips[i].strip;
+		}
+		if (pill_strips[i].lru < pill_strips[victim].lru)
+			victim = i;
+	}
+	SDL_Surface* strip = SDL_CreateRGBSurfaceWithFormat(0, PILL_STRIP_W, h, 32, SDL_PIXELFORMAT_ARGB8888);
+	if (!strip)
+		return NULL;
+	SDL_FillRect(strip, NULL, 0);
+	// the slice copied in (no blend), tinted as the direct blit would tint it
+	TintRestore keep = tint_begin(src, color == RGB_WHITE ? 0xFFFFFFFF : asset_color_to_rgba(color));
+	SDL_SetSurfaceBlendMode(src, SDL_BLENDMODE_NONE);
+	SDL_BlitScaled(src, &asset_rects[slice], strip, NULL);
+	tint_end(src, keep);
+	SDL_SetSurfaceBlendMode(strip, SDL_BLENDMODE_BLEND);
+	if (pill_strips[victim].strip)
+		SDL_FreeSurface(pill_strips[victim].strip);
+	pill_strips[victim].src = src;
+	pill_strips[victim].slice = slice;
+	pill_strips[victim].h = h;
+	pill_strips[victim].color = color;
+	pill_strips[victim].strip = strip;
+	pill_strips[victim].lru = ++pill_strip_lru;
+	return strip;
+}
+
+// A pill as GPU sprites (a List drawn on the GPU): its left cap, middle strip and right cap tinted once into one small
+// atlas per asset, height and colour, then three sprites, the strip stretched across the middle by the GPU (its
+// columns are all alike, so that is exact). Same pixels as GFX_blitPillColor's blits.
+#define PILL_ATLASES 2
+static struct {
+	SDL_Surface* src;
+	int asset, h, r;
+	uint32_t color;
+	SDL_Surface* atlas; // [left cap r | strip PILL_STRIP_W | right cap r] x h
+	uint32_t lru;
+} pill_atlases[PILL_ATLASES];
+static uint32_t pill_atlas_lru = 0;
+
+static SDL_Surface* pillAtlas(int asset, int h, uint32_t color, int* r_out) {
+	int slice = pill_rect_asset(asset);
+	int r = h / 2;
+	if (slice < 0 || r <= 0)
+		return NULL;
+	SDL_Surface* src = gfx.assets;
+	int victim = 0;
+	for (int i = 0; i < PILL_ATLASES; i++) {
+		if (pill_atlases[i].atlas && pill_atlases[i].src == src && pill_atlases[i].asset == asset &&
+			pill_atlases[i].h == h && pill_atlases[i].color == color) {
+			pill_atlases[i].lru = ++pill_atlas_lru;
+			*r_out = pill_atlases[i].r;
+			return pill_atlases[i].atlas;
+		}
+		if (pill_atlases[i].lru < pill_atlases[victim].lru)
+			victim = i;
+	}
+	SDL_Surface* strip = pillStrip(slice, h, color);
+	SDL_Surface* atlas = strip ? SDL_CreateRGBSurfaceWithFormat(0, 2 * r + PILL_STRIP_W, h, 32, SDL_PIXELFORMAT_ARGB8888)
+							   : NULL;
+	if (!atlas)
+		return NULL;
+	SDL_FillRect(atlas, NULL, 0);
+	// the caps copied in (no blend) as GFX_blitAssetColor tints them
+	SDL_Rect* ar = &asset_rects[asset];
+	TintRestore keep = tint_begin(src, color == RGB_WHITE ? 0xFFFFFFFF : asset_color_to_rgba(color));
+	SDL_SetSurfaceBlendMode(src, SDL_BLENDMODE_NONE);
+	SDL_BlitSurface(src, &(SDL_Rect){ar->x, ar->y, r, h}, atlas, &(SDL_Rect){0, 0});
+	SDL_BlitSurface(src, &(SDL_Rect){ar->x + r, ar->y, r, h}, atlas, &(SDL_Rect){r + PILL_STRIP_W, 0});
+	tint_end(src, keep);
+	SDL_SetSurfaceBlendMode(strip, SDL_BLENDMODE_NONE);
+	SDL_BlitSurface(strip, NULL, atlas, &(SDL_Rect){r, 0});
+	SDL_SetSurfaceBlendMode(strip, SDL_BLENDMODE_BLEND);
+	SDL_SetSurfaceBlendMode(atlas, SDL_BLENDMODE_BLEND);
+	if (pill_atlases[victim].atlas) {
+		PLAT_freeSurfaceTexture(pill_atlases[victim].atlas);
+		SDL_FreeSurface(pill_atlases[victim].atlas);
+	}
+	pill_atlases[victim].src = src;
+	pill_atlases[victim].asset = asset;
+	pill_atlases[victim].h = h;
+	pill_atlases[victim].r = r;
+	pill_atlases[victim].color = color;
+	pill_atlases[victim].atlas = atlas;
+	pill_atlases[victim].lru = ++pill_atlas_lru;
+	*r_out = r;
+	return atlas;
+}
+
+bool GFX_pillSprites(int asset, const SDL_Rect* rect, uint32_t asset_color, const SDL_Rect* clip) {
+	int h = rect->h ? rect->h : asset_rects[asset].h;
+	int r = 0;
+	SDL_Surface* atlas = pillAtlas(asset, h, asset_color, &r);
+	SDL_Texture* tex = atlas ? PLAT_textureForSurface(atlas) : NULL;
+	if (!tex)
+		return false;
+	int w = rect->w < h ? h : rect->w; // as GFX_blitPillColor: never narrower than its two caps
+	int x = rect->x, y = rect->y, mid = w - h;
+	PLAT_spriteAdd(tex, &(SDL_Rect){0, 0, r, h}, &(SDL_Rect){x, y, r, h}, 255, clip);
+	if (mid > 0)
+		PLAT_spriteAdd(tex, &(SDL_Rect){r, 0, PILL_STRIP_W, h}, &(SDL_Rect){x + r, y, mid, h}, 255, clip);
+	PLAT_spriteAdd(tex, &(SDL_Rect){r + PILL_STRIP_W, 0, r, h}, &(SDL_Rect){x + r + (mid > 0 ? mid : 0), y, r, h}, 255,
+				   clip);
+	return true;
+}
+
+static void pillCachesFree(void) {
+	for (int i = 0; i < PILL_ATLASES; i++) {
+		if (pill_atlases[i].atlas) {
+			PLAT_freeSurfaceTexture(pill_atlases[i].atlas);
+			SDL_FreeSurface(pill_atlases[i].atlas);
+		}
+	}
+	memset(pill_atlases, 0, sizeof(pill_atlases));
+	for (int i = 0; i < PILL_STRIPS; i++)
+		if (pill_strips[i].strip)
+			SDL_FreeSurface(pill_strips[i].strip);
+	memset(pill_strips, 0, sizeof(pill_strips));
+}
+
 void GFX_blitPillColor(int asset, SDL_Surface* dst, SDL_Rect* dst_rect, uint32_t asset_color, uint32_t fill_color) {
 	(void)fill_color; // kept for API compatibility; middles use asset_color
 	int x = dst_rect->x;
@@ -1598,7 +1828,13 @@ void GFX_blitPillColor(int asset, SDL_Surface* dst, SDL_Rect* dst_rect, uint32_t
 	x += r;
 	if (w > 0) {
 		int slice = pill_rect_asset(asset);
-		if (slice >= 0)
+		SDL_Surface* strip = slice >= 0 ? pillStrip(slice, h, asset_color) : NULL;
+		if (strip) {
+			for (int sx = 0; sx < w; sx += PILL_STRIP_W) {
+				int sw = w - sx < PILL_STRIP_W ? w - sx : PILL_STRIP_W;
+				SDL_BlitSurface(strip, &(SDL_Rect){0, 0, sw, h}, dst, &(SDL_Rect){x + sx, y});
+			}
+		} else if (slice >= 0)
 			GFX_blitSurfaceColorScaled(gfx.assets, &asset_rects[slice], dst, &(SDL_Rect){x, y, w, h}, asset_color);
 		else
 			GFX_fillRectColor(dst, &(SDL_Rect){x, y, w, h}, asset_color);

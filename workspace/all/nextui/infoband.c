@@ -57,26 +57,43 @@ static void blitIconShadowed(SDL_Surface* icon, SDL_Surface* dst, int x, int y, 
 	SDL_BlitSurface(icon, NULL, dst, &(SDL_Rect){x, y});
 }
 
+void InfoBand_blitShadowed(SDL_Surface* s, SDL_Surface* dst, int x, int y, Uint8 shadow_a) {
+	if (shadow_a) {
+		Uint8 r, g, b, a;
+		SDL_GetSurfaceColorMod(s, &r, &g, &b);
+		SDL_GetSurfaceAlphaMod(s, &a);
+		SDL_SetSurfaceColorMod(s, 0, 0, 0);
+		SDL_SetSurfaceAlphaMod(s, shadow_a);
+		SDL_BlitSurface(s, NULL, dst, &(SDL_Rect){x + SCALE1(1), y + SCALE1(1), s->w, s->h});
+		SDL_SetSurfaceColorMod(s, r, g, b);
+		SDL_SetSurfaceAlphaMod(s, a);
+	}
+	SDL_BlitSurface(s, NULL, dst, &(SDL_Rect){x, y, s->w, s->h});
+}
+
 // Text with the dark shadow (unless !shadowed), its top-left at (x, line top + centring); returns its measured width
 // (textWidth, the same measure the layout used, so advancing by it lands exactly where the layout said).
 static int drawShadowedText(TTF_Font* f, SDL_Surface* dst, const char* text, SDL_Color color, int x, int line_y,
 							int line_h, bool shadowed) {
 	if (!text[0])
 		return 0;
-	// Rendered fresh, not from the shared text cache: callers bake the result into their own cached surfaces, and
-	// the one per-frame caller (the Game Switcher) already renders the shadow fresh every frame.
-	SDL_Surface* surf = GFX_renderText(f, text, color);
+	// Rendered fresh, not from the shared text cache (callers bake the result into their own cached surfaces), except
+	// the separator, the same few glyphs every time. The shadow is the same render blitted black: a blended render
+	// is its colour over the glyphs' coverage, so a black colour mod gives what rendering it black did, at one
+	// render instead of two.
+	bool shared = strcmp(text, SEPARATOR) == 0;
+	SDL_Surface* surf = shared ? GFX_getCachedText(f, text, color) : NULL;
+	if (!surf) {
+		shared = false;
+		surf = GFX_renderText(f, text, color);
+	}
 	if (!surf)
 		return 0;
 	int ty = line_y + (line_h - surf->h) / 2;
-	SDL_Surface* shadow = shadowed ? GFX_renderText(f, text, COLOR_BLACK) : NULL;
-	if (shadow) {
-		SDL_SetSurfaceAlphaMod(shadow, SHADOW_ALPHA);
-		SDL_BlitSurface(shadow, NULL, dst, &(SDL_Rect){x + SCALE1(1), ty + SCALE1(1)});
-		SDL_FreeSurface(shadow);
-	}
-	SDL_BlitSurface(surf, NULL, dst, &(SDL_Rect){x, ty});
-	SDL_FreeSurface(surf);
+	// the shadow at SHADOW_ALPHA, as the black render's: whatever the text's own alpha
+	InfoBand_blitShadowed(surf, dst, x, ty, shadowed ? SHADOW_ALPHA : 0);
+	if (!shared)
+		SDL_FreeSurface(surf);
 	return textWidthFor(f, text);
 }
 
@@ -144,28 +161,38 @@ static SDL_Color segColor(InfoSegKind kind) {
 	return kind == INFO_SEG_NEXT ? COLOR_WHITE : COLOR_GRAY;
 }
 
-// The cached block and the key it was built for.
-static struct {
+// The band's block (the fade and the arrows) and its info line are cached apart: a selection change brings new text
+// (and, while its game info loads, none first) but the same block, so a step rebuilds and uploads only the text's
+// strip. Two blocks are kept: with the button hints hidden the block's fade holds differently with and without an
+// info line below the band (blockFor's `tall`), and a held D-pad goes between the two every step.
+typedef struct {
 	SDL_Surface* surf;
+	bool up, down, tall;
+	int w, h, fill_h, text_off, text_h, arrow_x;
+	float scale;
+	unsigned stamp; // last use (the older of the two goes)
+} BandBlock;
+static BandBlock blocks[2];
+static unsigned block_stamp = 0;
+
+// The info line's strip: band-relative rows y .. y + surf->h (the text's own line, its shadow and descenders).
+static struct {
+	SDL_Surface* surf; // NULL: no info line
 	InfoSeg segs[MAX_SEGS];
 	int nsegs;
-	bool up, down;
-	int w, h, fill_h, text_off, info_off, text_h, arrow_x;
+	int w, info_off, text_off, text_h, arrow_x, y;
 	float scale;
 	TTF_Font* font;
-} block;
+	bool valid; // the key above describes surf (a NULL surf included)
+} text;
 
-static bool keyMatches(const InfoSeg* segs, int nsegs, bool up, bool down, int w, int h, int fill_h, int text_off,
-					   int info_off, int text_h, int arrow_x) {
-	if (!block.surf || block.nsegs != nsegs || block.up != up || block.down != down || block.w != w ||
-		block.h != h || block.fill_h != fill_h || block.text_off != text_off || block.info_off != info_off || block.text_h != text_h || block.arrow_x != arrow_x ||
-		block.scale != (float)FIXED_SCALE || block.font != font.small)
-		return false;
-	for (int i = 0; i < nsegs; i++)
-		if (block.segs[i].kind != segs[i].kind || strcmp(block.segs[i].text, segs[i].text) != 0)
-			return false;
-	return true;
-}
+// What the last InfoBand_prepare chose (the block and the text strip drawn by InfoBand_draw), and a number bumped
+// whenever either changes.
+static struct {
+	BandBlock* blk;
+	int band_top;
+	unsigned gen;
+} cur;
 
 static int measureCb(void* ctx, const char* text) {
 	return textWidthFor((TTF_Font*)ctx, text);
@@ -264,8 +291,8 @@ static void unpremultiply(SDL_Surface* s) {
 		SDL_UnlockSurface(s);
 }
 
-static SDL_Surface* buildBlock(const InfoSeg* in, int nsegs, bool up, bool down, int w, int h, int fill_h,
-							   int text_off, int info_off, int text_h, int arrow_x) {
+static SDL_Surface* buildBlock(bool up, bool down, bool tall, int w, int h, int fill_h, int text_off, int text_h,
+							   int arrow_x) {
 	SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888);
 	if (!s)
 		return NULL;
@@ -275,11 +302,11 @@ static SDL_Surface* buildBlock(const InfoSeg* in, int nsegs, bool up, bool down,
 	// the fade: ground at 80% across the 2 dp above the hint bar's top, linear to 0 at the band's top; below the
 	// bar's top (the band reaches into it) nothing, the bar's own 80% shows. A fill that reaches the band's
 	// bottom (no bar under it) holds the 80% from the text line down instead, or light art would show through under
-	// the text.
-	int hold = fill_h >= h ? h - text_off : NX_DP(2);
+	// the text; not while an info line sits below the band (tall: the block then reached the screen's bottom).
+	int hold = fill_h >= h && !tall ? h - text_off : NX_DP(2);
 	SDL_Surface* fade = fill_h > 0 ? UI_bandFadeSurface(w, fill_h, 0.8f, hold) : NULL;
-	if (fade)
-		SDL_BlitSurface(fade, NULL, s, NULL);
+	if (fade) // onto the clear block: its own pixels, copied (no blend)
+		UI_fillFade(fade, NULL, s, 0, 0);
 
 	// the arrows, packed: the first one shown takes slot 1, centred on the text line
 	ensureArrows();
@@ -290,22 +317,59 @@ static SDL_Surface* buildBlock(const InfoSeg* in, int nsegs, bool up, bool down,
 	}
 	if (down && arrow_down)
 		SDL_BlitSurface(arrow_down, NULL, s, &(SDL_Rect){x, text_off + (text_h - arrow_down->h) / 2});
-
-	if (nsegs > 0 && font.small) {
-		// the text: reserved room for both arrows + a gap on the left (fixed, so the text never moves),
-		// right-aligned at w - 24 dp; on its own line (info_off) from the arrows' x
-		int left = info_off != text_off ? arrow_x : arrow_x + ARROW_W * 2 + NX_DP(1) + NX_DP(12);
-		int right = w - NX_DP(24);
-		InfoBand_drawSegments(s, in, nsegs, right, true, info_off, right - left, font.small);
-	}
 	unpremultiply(s); // once per content change (the block is cached)
 	return s;
 }
 
-void InfoBand_render(const InfoBandLayout* layout, const InfoSeg* segs, int nsegs, bool up, bool down, int layer,
-					 SDL_Surface* dst) {
+// The info line on its own strip, rows y .. y + h of the band (h: the text's line with room for its shadow and
+// descenders, cut at max_h). Drawn as it was into the block, on clear, then unpremultiplied the same way.
+static SDL_Surface* buildText(const InfoSeg* in, int nsegs, int w, int text_off, int info_off, int text_h, int arrow_x,
+							  int max_h, int* y) {
+	int pad = NX_DP(4);
+	int y0 = info_off - pad > 0 ? info_off - pad : 0;
+	int h = info_off + text_h + pad - y0;
+	if (y0 + h > max_h)
+		h = max_h - y0;
+	if (h <= 0 || w <= 0 || !font.small)
+		return NULL;
+	SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888);
+	if (!s)
+		return NULL;
+	SDL_FillRect(s, NULL, SDL_MapRGBA(s->format, 0, 0, 0, 0));
+	SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
+	// reserved room for both arrows + a gap on the left (fixed, so the text never moves), right-aligned at
+	// w - 24 dp; on its own line (info_off) from the arrows' x
+	int left = info_off != text_off ? arrow_x : arrow_x + ARROW_W * 2 + NX_DP(1) + NX_DP(12);
+	int right = w - NX_DP(24);
+	InfoBand_drawSegments(s, in, nsegs, right, true, info_off - y0, right - left, font.small);
+	unpremultiply(s);
+	*y = y0;
+	return s;
+}
+
+static BandBlock* blockFor(bool up, bool down, bool tall, int w, int h, int fill_h, int text_off, int text_h,
+						   int arrow_x) {
+	BandBlock* victim = &blocks[0];
+	for (int i = 0; i < 2; i++) {
+		BandBlock* b = &blocks[i];
+		if (b->surf && b->up == up && b->down == down && b->tall == tall && b->w == w && b->h == h &&
+			b->fill_h == fill_h && b->text_off == text_off && b->text_h == text_h && b->arrow_x == arrow_x &&
+			b->scale == (float)FIXED_SCALE) {
+			b->stamp = ++block_stamp;
+			return b;
+		}
+		if (!b->surf || b->stamp < victim->stamp)
+			victim = b;
+	}
+	GFX_freeSurfaceAndTexture(victim->surf);
+	*victim = (BandBlock){buildBlock(up, down, tall, w, h, fill_h, text_off, text_h, arrow_x),
+						  up, down, tall, w, h, fill_h, text_off, text_h, arrow_x, (float)FIXED_SCALE, ++block_stamp};
+	return victim->surf ? victim : NULL;
+}
+
+unsigned InfoBand_prepare(const InfoBandLayout* layout, const InfoSeg* segs, int nsegs, bool up, bool down) {
 	if (!screen || !layout)
-		return;
+		return cur.gen;
 	if (nsegs < 0 || !segs)
 		nsegs = 0;
 	if (nsegs > MAX_SEGS)
@@ -316,35 +380,63 @@ void InfoBand_render(const InfoBandLayout* layout, const InfoSeg* segs, int nseg
 	int fill_h = (l.fill_bottom < l.band_bottom ? l.fill_bottom : l.band_bottom) - l.band_top;
 	int text_off = l.text_top - l.band_top;
 	int info_off = (l.info_top > 0 ? l.info_top : l.text_top) - l.band_top;
-	if (nsegs > 0 && info_off + l.text_h > h) // the info's own line below the band: the block reaches the screen's
-		h = screen->h - l.band_top;			  // bottom (the glyphs' descenders and shadow run past text_h)
+	// the info's own line below the band: its strip reaches the screen's bottom (the glyphs' descenders and shadow
+	// run past text_h), and the block's fade holds as it did when the block reached there too
+	bool tall = nsegs > 0 && info_off + l.text_h > h;
 	int arrow_x = l.arrow_x > 0 ? l.arrow_x : NX_NATIVE_DP(NX_LIST_INSET_DP);
 	if (w <= 0 || h <= 0)
-		return;
+		return cur.gen;
 
-	if (!keyMatches(segs, nsegs, up, down, w, h, fill_h, text_off, info_off, l.text_h, arrow_x)) {
-		if (block.surf)
-			SDL_FreeSurface(block.surf);
-		block.surf = buildBlock(segs, nsegs, up, down, w, h, fill_h, text_off, info_off, l.text_h, arrow_x);
+	BandBlock* blk = blockFor(up, down, tall, w, h, fill_h, text_off, l.text_h, arrow_x);
+	bool text_same = text.valid && text.nsegs == nsegs && text.w == w && text.info_off == info_off &&
+					 text.text_off == text_off && text.text_h == l.text_h && text.arrow_x == arrow_x &&
+					 text.scale == (float)FIXED_SCALE && text.font == font.small;
+	for (int i = 0; text_same && i < nsegs; i++)
+		if (text.segs[i].kind != segs[i].kind || strcmp(text.segs[i].text, segs[i].text) != 0)
+			text_same = false;
+	if (!text_same) {
+		GFX_freeSurfaceAndTexture(text.surf);
+		text.surf = nsegs > 0 ? buildText(segs, nsegs, w, text_off, info_off, l.text_h, arrow_x,
+										  screen->h - l.band_top, &text.y)
+							  : NULL;
 		if (nsegs)
-			memcpy(block.segs, segs, sizeof(InfoSeg) * nsegs);
-		block.nsegs = nsegs;
-		block.up = up;
-		block.down = down;
-		block.w = w;
-		block.h = h;
-		block.fill_h = fill_h;
-		block.text_off = text_off;
-		block.info_off = info_off;
-		block.text_h = l.text_h;
-		block.arrow_x = arrow_x;
-		block.scale = (float)FIXED_SCALE;
-		block.font = font.small;
+			memcpy(text.segs, segs, sizeof(InfoSeg) * nsegs);
+		text.nsegs = nsegs;
+		text.w = w;
+		text.info_off = info_off;
+		text.text_off = text_off;
+		text.text_h = l.text_h;
+		text.arrow_x = arrow_x;
+		text.scale = (float)FIXED_SCALE;
+		text.font = font.small;
+		text.valid = true;
+		cur.gen++;
 	}
-	if (block.surf && dst)
-		SDL_BlitSurface(block.surf, NULL, dst, &(SDL_Rect){0, l.band_top});
-	else if (block.surf)
-		GFX_drawOnLayer(block.surf, 0, l.band_top, w, h, 1.0f, 0, layer);
+	if (blk != cur.blk || l.band_top != cur.band_top)
+		cur.gen++;
+	cur.blk = blk;
+	cur.band_top = l.band_top;
+	return cur.gen;
+}
+
+void InfoBand_draw(int layer, SDL_Surface* dst) {
+	SDL_Surface* parts[2] = {cur.blk ? cur.blk->surf : NULL, text.surf};
+	int ys[2] = {cur.band_top, cur.band_top + text.y};
+	for (int i = 0; i < 2; i++) {
+		if (!parts[i])
+			continue;
+		if (dst)
+			SDL_BlitSurface(parts[i], NULL, dst, &(SDL_Rect){0, ys[i]});
+		else // their textures made once per content
+			PLAT_drawTextureOnLayer(PLAT_textureForSurface(parts[i]),
+									&(SDL_Rect){0, ys[i], parts[i]->w, parts[i]->h}, layer);
+	}
+}
+
+void InfoBand_render(const InfoBandLayout* layout, const InfoSeg* segs, int nsegs, bool up, bool down, int layer,
+					 SDL_Surface* dst) {
+	InfoBand_prepare(layout, segs, nsegs, up, down);
+	InfoBand_draw(layer, dst);
 }
 
 void InfoBand_renderUpArrow(int x, int cy, int layer, SDL_Surface* dst) {
@@ -393,8 +485,11 @@ void InfoBand_renderText(const InfoBandLayout* layout, const char* text, bool up
 }
 
 void InfoBand_quit(void) {
-	if (block.surf)
-		SDL_FreeSurface(block.surf);
-	block.surf = NULL;
+	for (int i = 0; i < 2; i++)
+		GFX_freeSurfaceAndTexture(blocks[i].surf);
+	memset(blocks, 0, sizeof(blocks));
+	GFX_freeSurfaceAndTexture(text.surf);
+	memset(&text, 0, sizeof(text));
+	cur.blk = NULL;
 	freeArrows();
 }

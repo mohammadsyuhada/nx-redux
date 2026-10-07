@@ -97,6 +97,22 @@ int UI_calcListPillWidth(TTF_Font* font, const char* text, char* truncated,
 						 int max_width, int prefix_width);
 void UI_drawListItemBg(SDL_Surface* dst, SDL_Rect* rect, bool selected);
 SDL_Color UI_getListTextColor(bool selected);
+// The List drawn on the GPU (nextui's game lists): the selection pill (UI_drawListItemBg's) and a row's text
+// (UI_renderListItemText's without a marquee, UI_renderListItemTextDimSuffix's) added as sprites over the screen. False
+// when one couldn't be (an uncacheable text): the caller draws it the software way.
+bool UI_listItemBgSprites(const SDL_Rect* rect, const SDL_Rect* clip);
+bool UI_listItemTextSprite(const char* text, TTF_Font* font, int text_x, int text_y, int max_text_width, bool selected);
+// The text fits max_text_width as it is (a selected row needs no marquee: it can be a sprite as well).
+bool UI_listItemTextFits(const char* text, TTF_Font* font, int max_text_width, bool selected);
+bool UI_listItemTextDimSuffixSprite(const char* name, const char* suffix, TTF_Font* font, int text_x, int text_y,
+									int max_text_width, bool selected);
+// The selected row's marquee title while it holds still (the pre-scroll delay, or a title with nothing to scroll) as a
+// sprite: ScrollText_render blits it into the screen, under the sprite pill that would hide it. Call after
+// UI_renderListItemText with the same state; shows what that blit shows (the right edge of an overflowing RTL title).
+// Returns the sprite's texture, to drop with PLAT_spriteRemove once the GPU scroll takes over between full frames; NULL
+// when the state is scrolling (its layer draws the title) or no sprite could be made.
+SDL_Texture* UI_listItemMarqueeHoldSprite(const ScrollTextState* state, TTF_Font* font, int text_x, int text_y,
+										  bool selected);
 
 // Render a list item's pill background and calculate text position
 // Combines: Fonts_calcListPillWidth + Fonts_drawListItemBg + text position calculation

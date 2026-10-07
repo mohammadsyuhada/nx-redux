@@ -18,9 +18,15 @@ bool RowView_active(void); // the style is Carousel or Backdrop (and not Home)
 // and shaded, crossfading over 0.35 s) drawn full screen as the bottom-most layer of `screen`. Draws nothing on any
 // other screen, the main-menu tabs included. Returns RowView_backdropPicture().
 bool RowView_renderPicture(SDL_Surface* screen);
-// RowView_renderPicture will paint every pixel of the screen this frame (a Backdrop game list: the picture, or black):
-// the caller can skip clearing it first.
+// RowView_renderPicture will paint every pixel of the screen this frame (a Backdrop game list drawn the software way:
+// the picture, or black): the caller can skip clearing it first. Drawn as GPU sprites the picture is under the screen
+// instead, its body transparent: false then.
 bool RowView_paintsScreen(void);
+// The screen shows a Backdrop game list (it has a picture, however it is drawn).
+bool RowView_hasPicture(void);
+// The current game row draws as GPU sprites (Carousel, Backdrop; not under a context menu): a Backdrop one leaves the
+// screen's body transparent, its picture under it.
+bool RowView_gameSprites(void);
 // The body: the row (far items first), the caption, plain black under a row without a picture (no hints).
 void RowView_render(SDL_Surface* screen, int lastScreen);
 // The D-pad only: LEFT/RIGHT step the selection (at the root a fresh press past an end switches tab; a held key and
@@ -44,11 +50,14 @@ bool RowView_beginExit(void);
 bool RowView_exiting(void);
 bool RowView_exitStep(bool key_pressed);
 void RowView_renderExit(SDL_Surface* screen);
-// GPU sprite mode for the Consoles carousel (both orientations): while on, the row's pictures become GPU sprites
-// (PLAT_spriteAdd) instead of software blits. RowView_takeSpritesUsed: whether this frame drew any (then cleared), so
-// the host can upload only the screen rows that changed.
+// GPU sprite mode for the Consoles carousel and a game list's Carousel and Backdrop (both orientations; the Grid
+// marks its frames too): while on, the row's pictures become GPU sprites (PLAT_spriteAdd) instead of software blits.
+// RowView_takeSpritesUsed: whether this frame drew any (then cleared), so the host can upload only the screen rows
+// that changed. RowView_takeBodyChanged: this frame's row filled the screen's body anew (another kind of frame came
+// before it): the host must upload the screen whole this once.
 void RowView_beginSprites(bool on);
 bool RowView_takeSpritesUsed(void);
+bool RowView_takeBodyChanged(void);
 // Free the cached surfaces and the per-list item kinds.
 void RowView_quit(void);
 
