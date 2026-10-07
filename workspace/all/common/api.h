@@ -139,6 +139,7 @@ enum {
 	ASSET_BATTERY_FILL,
 	ASSET_BATTERY_FILL_LOW,
 	ASSET_BATTERY_BOLT,
+	ASSET_BATTERY_CHARGING, // wider outline with a vertical bolt, the percentage beside it
 
 	ASSET_SCROLL_UP,
 	ASSET_SCROLL_DOWN,

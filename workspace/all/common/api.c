@@ -747,6 +747,7 @@ static void GFX_initAssetRectsInto(SDL_Rect* rects, float scale) {
 	rects[ASSET_BATTERY_FILL] = (SDL_Rect){AR4(81, 33, 12, 6)};
 	rects[ASSET_BATTERY_FILL_LOW] = (SDL_Rect){AR4(1, 55, 12, 6)};
 	rects[ASSET_BATTERY_BOLT] = (SDL_Rect){AR4(81, 41, 12, 6)};
+	rects[ASSET_BATTERY_CHARGING] = (SDL_Rect){AR4(44, 66, 24, 10)};
 	rects[ASSET_SCROLL_UP] = (SDL_Rect){AR4(97, 23, 24, 6)};
 	rects[ASSET_SCROLL_DOWN] = (SDL_Rect){AR4(97, 31, 24, 6)};
 	rects[ASSET_WIFI] = (SDL_Rect){AR4(1, 104, 12, 12)};
@@ -2183,10 +2184,37 @@ void GFX_blitMessage(TTF_Font* font, char* msg, SDL_Surface* dst, SDL_Rect* dst_
 static float hw_scale = 0;
 #define HW1(a) (hw_scale > 0 ? (int)((a) * hw_scale + 0.5f) : SCALE1(a))
 
+// While charging with the percentage shown, the battery is the wider ASSET_BATTERY_CHARGING: the bolt alone would
+// leave no room for the number.
+static int batteryShowsChargingPercent(int is_charging) {
+	return is_charging && CFG_getShowBatteryPercent();
+}
+
+// The battery glyph's rect as GFX_blitBatteryAtPosition draws it now, for laying out the status group around it.
+static SDL_Rect batteryRect(void) {
+	return asset_rects[batteryShowsChargingPercent(SDL_AtomicGet(&pwr.is_charging)) ? ASSET_BATTERY_CHARGING
+																					: ASSET_BATTERY];
+}
+
 void GFX_blitBatteryAtPosition(SDL_Surface* dst, int x, int y) {
 	SDL_Rect battery_rect = asset_rects[ASSET_BATTERY];
+	int is_charging = SDL_AtomicGet(&pwr.is_charging);
 
-	if (SDL_AtomicGet(&pwr.is_charging)) {
+	if (batteryShowsChargingPercent(is_charging)) {
+		SDL_Rect charging_rect = asset_rects[ASSET_BATTERY_CHARGING];
+		GFX_blitAssetColor(ASSET_BATTERY_CHARGING, NULL, dst, &(SDL_Rect){x, y}, THEME_COLOR6);
+
+		char percentage[16];
+		sprintf(percentage, "%i", SDL_AtomicGet(&pwr.charge));
+		SDL_Surface* text = GFX_renderText(font.micro, percentage, uintToColour(THEME_COLOR6_255));
+		// centred in the space right of the bolt (the glyph's units 7 to 23)
+		int left = HW1(7);
+		SDL_Rect target = {
+			x + left + (charging_rect.w - left - HW1(1) - text->w) / 2,
+			y + (charging_rect.h - text->h) / 2 - 1};
+		SDL_BlitSurface(text, NULL, dst, &target);
+		SDL_FreeSurface(text);
+	} else if (is_charging) {
 		GFX_blitAssetColor(ASSET_BATTERY, NULL, dst, &(SDL_Rect){x, y}, THEME_COLOR6);
 		GFX_blitAssetColor(ASSET_BATTERY_BOLT, NULL, dst, &(SDL_Rect){x + HW1(3), y + HW1(2)}, THEME_COLOR6);
 	} else {
@@ -2313,7 +2341,7 @@ static int hardwareGroupDraw(SDL_Surface* dst, IndicatorType show_setting, int y
 		int show_cap = 0;
 		int show_rec = 0;
 		PWR_captureStatus(&show_cap, &show_rec);
-		SDL_Rect battery_rect = asset_rects[ASSET_BATTERY];
+		SDL_Rect battery_rect = batteryRect();
 
 		if (!show_ext_audio && !show_bt_controller && !show_wifi && !show_clock && !show_cap && !show_rec) {
 			ow = battery_rect.w + HW1(BUTTON_MARGIN * 2);
@@ -4119,6 +4147,14 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 		if (was_charging != is_charging) {
 			was_charging = is_charging;
 			dirty = true;
+		}
+		// the percentage, when shown, follows the charge (it climbs while charging)
+		static int was_charge = -1;
+		int charge = SDL_AtomicGet(&pwr.charge);
+		if (was_charge != charge) {
+			if (was_charge != -1 && CFG_getShowBatteryPercent())
+				dirty = true;
+			was_charge = charge;
 		}
 		checked_charge_at = now;
 	}
