@@ -891,8 +891,10 @@ void SetHDMI(int value) {};
 void SetFnMode(int value) {
 	settings->fn_mode = value;
 	if (settings->fn_mode) {
-		if (GetFnVolume() != SETTINGS_DEFAULT_FN_NO_CHANGE)
-			SetRawVolume(scaleVolume(GetFnVolume()));
+		// Re-apply even when the FN volume is "Unchanged": InitSettings() runs
+		// setMixerDefaults() in every process, which leaves "digital volume"
+		// at full scale until something sets it again (issue #160).
+		SetRawVolume(scaleVolume(GetVolume()));
 		// custom mute mode display settings
 		if (GetFnBrightness() != SETTINGS_DEFAULT_FN_NO_CHANGE)
 			SetRawBrightness(scaleBrightness(GetFnBrightness()));
