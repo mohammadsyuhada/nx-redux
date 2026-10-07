@@ -1114,6 +1114,22 @@ int Menu_options(MenuList* list) {
 		if (defer_menu && !PAD_anyPressed())
 			defer_menu = false;
 
+		// an on_change handler may rebuild the rows (the Shaders page hides
+		// unused shader slots), so recount them after input and before this
+		// frame renders: a row past the new end has a NULL name, and drawing
+		// it with the old count crashed in the text truncation
+		for (count = 0; items[count].name; count++)
+			;
+		if (selected >= count)
+			selected = count - 1;
+		if (selected < 0)
+			selected = 0;
+		if (scroll > 0 && scroll + layout.items_per_page > count) {
+			scroll = count - layout.items_per_page;
+			if (scroll < 0)
+				scroll = 0;
+		}
+
 		if (dirty) {
 			GFX_clear(screen);
 

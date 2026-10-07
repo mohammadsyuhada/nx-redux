@@ -682,19 +682,48 @@ static int OptionPragmas_openMenu(MenuList* list, int i) {
 
 	return MENU_CALLBACK_NOP;
 }
+// Rows of a shader slot past "Number of Shaders" are hidden: with shaders
+// off the menu shows only the preset and the count, so a slot's file name no
+// longer looks like an active shader. Rows above the slots never move, so the
+// selection stays put when the count changes.
+static int shaderRowVisible(int opt) {
+	if (opt < SH_SHADER1)
+		return 1;
+	int slot = (opt - SH_SHADER1) / (SH_SHADER2 - SH_SHADER1) + 1;
+	return slot <= config.shaders.options[SH_NROFSHADERS].value;
+}
+// Fills items (config.shaders.count + 1 entries) with the visible rows and
+// NULL-terminates the rest; Menu_options recounts the rows every frame
+static void fillShaderItems(MenuItem* items) {
+	memset(items, 0, (config.shaders.count + 1) * sizeof(MenuItem));
+	int n = 0;
+	for (int i = 0; i < config.shaders.count; i++) {
+		if (!shaderRowVisible(i))
+			continue;
+		MenuItem* item = &items[n++];
+		Option* configitem = &config.shaders.options[i];
+		item->id = i;
+		item->name = configitem->name;
+		item->desc = configitem->desc;
+		item->value = configitem->value;
+		item->key = configitem->key;
+		item->values = configitem->values;
+		if (i == SH_EXTRASETTINGS)
+			item->on_confirm = OptionPragmas_openMenu;
+	}
+}
 int OptionShaders_optionChanged(MenuList* list, int i) {
 	MenuItem* item = &list->items[i];
+	int id = item->id;
 	// Process menu entry change, update underlying config cruft and call handler
 	Config_syncShaders(item->key, item->value);
 	// Apply shader pragmas if needed
 	applyShaderSettings();
-	// Update menu entries to reflect any changes made by the handler
-	for (int y = 0; y < config.shaders.count; y++) {
-		MenuItem* item = &list->items[y];
-		item->value = config.shaders.options[y].value;
-	}
+	// Rebuild the rows: values may have changed in the handler and the
+	// shader count decides which slots are shown
+	fillShaderItems(list->items);
 	// Recursively call Config_syncShaders again for some reason
-	if (i == SH_SHADERS_PRESET)
+	if (id == SH_SHADERS_PRESET)
 		initShaders();
 	return MENU_CALLBACK_NOP;
 }
@@ -724,29 +753,13 @@ int OptionShaders_openMenu(MenuList* list, int i) {
 	// every menu open
 	char** old_filelist = config.shaders.options[SH_SHADER1].values;
 
-	ShaderOptions_menu.items = calloc(config.shaders.count + 1, sizeof(MenuItem));
-	for (int i = 0; i < config.shaders.count; i++) {
-		MenuItem* item = &ShaderOptions_menu.items[i];
-		Option* configitem = &config.shaders.options[i];
-		item->id = i;
-		item->name = configitem->name;
-		item->desc = configitem->desc;
-		item->value = configitem->value;
-		item->key = configitem->key;
-		if (i == SH_EXTRASETTINGS)
-			item->on_confirm = OptionPragmas_openMenu;
-
-		if (strcmp(config.shaders.options[i].key, "minarch_shader1") == 0 ||
-			strcmp(config.shaders.options[i].key, "minarch_shader2") == 0 ||
-			strcmp(config.shaders.options[i].key, "minarch_shader3") == 0) {
-			item->values = filelist;
-			config.shaders.options[i].values = filelist;
-			config.shaders.options[i].labels = filelist;
-			config.shaders.options[i].count = filecount;
-		} else {
-			item->values = config.shaders.options[i].values;
-		}
+	for (int i = SH_SHADER1; i < config.shaders.count; i += SH_SHADER2 - SH_SHADER1) {
+		config.shaders.options[i].values = filelist;
+		config.shaders.options[i].labels = filelist;
+		config.shaders.options[i].count = filecount;
 	}
+	ShaderOptions_menu.items = calloc(config.shaders.count + 1, sizeof(MenuItem));
+	fillShaderItems(ShaderOptions_menu.items);
 
 	if (old_filelist && old_filelist != filelist)
 		free_file_list(old_filelist);
