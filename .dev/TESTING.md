@@ -203,6 +203,50 @@ during menu rendering — useless as a first-frame/boot proxy.
 - nextui stamps boot phases to `/tmp/nextui_boottime` (start / gfx init /
   menu init / first frame).
 
+## USB cable netplay link
+
+Architecture, addressing and invariants are in
+[workspace/all/netplay/README.md](../workspace/all/netplay/README.md#usb-cable-link).
+Host unit tests (frame padding, handshake, state file):
+`workspace/all/usblink/tests/run_tests.sh`.
+
+**Never read the USB role nodes** (`/sys/devices/platform/soc*/usbc0/usb_host`,
+`usb_device`, `usb_null`, `usb_otg`; tg5050 `soc@3000000/10.usbc0/`) — not
+even `cat`, `grep -r` or tab completion. A read flips the port role and kills
+adb; on the Smart Pro S it latched host mode across reboots (no adb, no
+charging from a PC). Only `otg_role` is safe. Recovery is in the README.
+
+Two-device bring-up with one computer:
+
+1. Deploy to device A (it will be the **gadget** side) over adb first, while
+   its main (bottom) port is on the computer.
+2. Re-cable: A's bottom port → B's top (second) port. B keeps its bottom port
+   on the computer, so adb stays on B, the USB-host side (`10.99.0.1`);
+   A is `10.99.0.2`.
+3. Start USB Cable mode on both (wizard, or on B by hand). In `adb shell`,
+   `.system/bin` is not on PATH — use the full path
+   `/mnt/SDCARD/.system/bin/usblink.elf` (the launcher's PATH has it).
+   `start` and `stop` rebind B's gadget, so adb drops for 1–3 s; chain the
+   command and its checks in one `adb shell` or reconnect afterwards.
+4. `usblink.elf status` prints `/tmp/usblink.state`; linked is
+   `USBLINK_LINK=up` with `USBLINK_SIDE`/`USBLINK_LOCAL_IP`/`USBLINK_PEER_IP`.
+   Log: `$LOGS_PATH/usblink.txt` (else `/tmp/usblink.log`).
+5. `ping 10.99.0.2` from B proves the path. busybox `ping` is 1/s, too
+   coarse for jitter: for p99/max use a fixed-interval ICMP pinger (e.g.
+   every 16 ms for 60 s, record each RTT, report loss/p99/max). Baseline:
+   ~1 ms RTT, p99 ≈ 1.5–2.5 ms, max ≈ 2.6 ms, 0 loss.
+
+Teardown checks after a session: no daemon, no `nxlink0`, no
+`/sys/kernel/config/usb_gadget/g1/configs/c.1/ffs.net`, adb still up. Cable
+pull: link down at once, relinks ~1 s after re-plug with the same addresses.
+
+`kill -9` of the daemon can't run its gadget detach: the kernel unbinds the
+gadget and **adb stays down** until `usblink.elf stop` repairs it (the
+wizard's `--cleanup` and the next wizard start both run it). Mid-game the
+game freezes, then the in-game menu shows (normal netplay disconnect). Only
+SIGKILL a daemon on the device you are *not* reaching through adb, or have a
+way to run `stop` there (e.g. relaunch the wizard on-device).
+
 ## Misc
 
 - `SIGCHLD=SIG_IGN` set anywhere in a process breaks `popen()`/`system()`

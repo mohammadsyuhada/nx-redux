@@ -87,3 +87,112 @@ on mismatch the client adopts the host's mode in-band
 `netplay_boot.c`). The string values are compared verbatim — "auto" on a
 FireRed host and "rfu" on the client is a mismatch even though they resolve
 to the same hardware.
+
+## USB cable link
+
+The wizard's third connection mode, **USB Cable** (`NETPLAY_MODE=usb`), runs
+the same session over a plain USB-C ↔ USB-C data cable: one device's
+**second (top) port** to the other device's **main (bottom) port**, either
+way round. The top port is a host-only controller (`ehci1`/`ohci1`); the
+bottom port is the OTG/gadget port adb also uses. Which end is USB host has
+nothing to do with which end is netplay host — the role menu decides that.
+2 players only (one cable; the host clamps `max_players` to 2). Hardware-verified
+2026-10-08 on every Brick / Brick Pro / Smart Pro S pairing, both cable directions.
+
+Measured over the cable: ~1 ms RTT, p99 ≈ 1.5–2.5 ms, max ≈ 2.6 ms, 0 loss
+(Wi-Fi to a router: p99 73 ms, max 189 ms, 4 % loss). Frame-sync netplay and
+the wizard's rsync save sync run over it unchanged (played: SNES Contra III,
+arcade Metal Slug, FC Bomberman II, with save sync).
+
+```
+ wizard (netplay.elf)                 game (minarch / N64 / DC)
+   │ start/stop + state file             │  plain TCP/UDP to peer IP
+   ▼                                     ▼
+ usblink.elf daemon  ──── TUN nxlink0 (10.99.0.1 ↔ 10.99.0.2, point-to-point)
+   ├─ gadget side: FunctionFS ffs.net on main port (bulk OUT/IN)
+   └─ host side:   usbfs on second port, claims the peer's ffs.net interface
+```
+
+`usblink.elf` (`workspace/all/usblink/`, installed next to `netplay.elf`) runs
+the same on both handhelds and does not know which end of the cable it is on:
+it always exposes a vendor interface (class 0xff, subclass 0x4e, "nxlink") on
+its gadget port and, at the same time, scans its host port for that interface
+every 250 ms. The USB-host side sends `HELLO{ver}` (250 ms until linked, then
+1 s keepalives); the gadget side answers `HELLO_ACK{ver}`. A version mismatch
+is `USBLINK_ERROR=version` ("Both devices need the same NXRedux version.").
+3 s without a frame, or `ENODEV`/`ESHUTDOWN` on the host side, drops the link
+and the address; scanning continues, so a re-plug relinks (~1 s, same
+addresses). Everything above the TUN is plain IP — nothing in minarch,
+netplay or the link backends knows about USB.
+
+- **Addressing**: USB-host side `10.99.0.1`, USB-gadget side `10.99.0.2`, /30,
+  MTU 1500. Point-to-point means no subnet broadcast: in usb mode the host's
+  discovery packets go unicast to the peer (`NET_sendDiscoveryTo`), and the
+  client connects to `NETPLAY_PEER_IP` = `USBLINK_PEER_IP` (the hotspot
+  "known host address" arm). `netplay_boot.c` needs nothing special.
+- **CLI**: `start` (daemonize, return once the daemon publishes its first
+  state — not once linked), `stop` (SIGTERM, ≤ 2 s, SIGKILL, then **repair**;
+  always exit 0, safe when nothing is up), `status` (print the state file),
+  `run` (foreground, ignores SIGHUP for adb debugging).
+- **Files**: `/tmp/usblink.pid`, `/tmp/usblink.state` (shell-sourceable,
+  atomic rename: `USBLINK_LINK=up|down|error`, `USBLINK_SIDE=host|device|`,
+  `USBLINK_LOCAL_IP`, `USBLINK_PEER_IP`, `USBLINK_ERROR`), `/tmp/usblink.udc`
+  (the UDC name saved before the rebind; proves our attach unbound it).
+  Log: `$LOGS_PATH/usblink.txt`, else `/tmp/usblink.log`.
+- **Teardown**: `wiz_teardown()` runs `usblink.elf stop`; `--cleanup` and the
+  wizard's start-up heal also stop it whenever `/tmp/usblink.pid` exists (live
+  or not — a SIGKILLed daemon's leftovers are exactly what `stop` repairs).
+
+### The gadget-unlink invariant
+
+`usblink` adds `functions/ffs.net` next to `ffs.adb` in configfs gadget `g1`
+(UDC unbind → symlink into `configs/c.1` → rebind; adb survives, dropping for
+1–3 s). **The function MUST be unlinked from `c.1` before the process's ep0
+closes**: a linked FunctionFS function whose ep0 is gone makes the whole
+gadget fail to bind → adb dead. The daemon detaches the gadget first on every
+exit path (SIGTERM/SIGINT/SIGHUP, fatal error). SIGKILL can't be caught: the
+kernel unbinds the gadget and adb stays down until `usblink.elf stop` (or the
+next daemon start) runs `usblink_gadget_repair()` — unlink `ffs.net`, rebind
+the saved UDC, unmount `/dev/usb-ffs/net`. A daemon killed mid-game freezes
+the game, then the in-game menu shows (the normal netplay disconnect).
+
+### The role-node trap
+
+**Never read** `/sys/devices/platform/soc*/usbc0/usb_host` (tg5050:
+`soc@3000000/10.usbc0/`), nor `usb_device`, `usb_null` or `usb_otg` in the same
+directory. These are trigger nodes: a plain `cat` flips the port role —
+`usb_host` puts the main port into host mode and kills adb at once. On the
+Smart Pro S the host role **latched across reboots** (no adb, no charging
+from a PC). Only `otg_role` is safe to read. Nothing in usblink touches the
+role nodes; don't `grep -r` or tab-complete through that directory.
+
+Recovery without a shell: mount the SD card on a computer and create
+`.userdata/tg5050/auto.sh` containing
+
+```sh
+echo usb_device > /sys/devices/platform/soc@3000000/10.usbc0/otg_role
+```
+
+One boot clears the latch; delete `auto.sh` afterwards.
+
+### tg5050 `tun.ko`
+
+The tg5040 kernel (4.9.191) has TUN built in; the stock tg5050 kernel
+(5.15.147) does not. We ship `SYSTEM/tg5050/lib/modules/tun.ko`, which the
+daemon loads with `finit_module` when `/dev/net/tun` is missing (path:
+`$SYSTEM_PATH/lib/modules/tun.ko`) and leaves loaded until the next boot.
+A load failure is `USBLINK_ERROR=tun` ("USB link unavailable on this
+device."). The module is mainline `drivers/net/tun.c` from linux-5.15.147
+(tarball sha256-checked) built as an external module against the device
+config committed as `workspace/tg5050/other/kernel/config-5.15.147`; the
+kernel has no MODVERSIONS or signing, so only the vermagic
+(`5.15.147 SMP preempt mod_unload aarch64`) must match and the script checks
+it. Build: `make build-prebuilt PLATFORM=tg5050 PREBUILT=tun-ko` (script
+`workspace/all/prebuilts/tun-ko.sh`, part of `build-prebuilts` for tg5050).
+GPL-2.0 notice: `licenses/linux-tun.txt`.
+
+### Power
+
+The host port supplies VBUS: the device on the **top-port** end powers and
+charges the other device for the whole session. Accepted for v1 (no draw
+limit).
