@@ -176,6 +176,9 @@ int usblink_gadget_attach(int* out_fd, int* in_fd) {
 fail:
 	attached = 1;
 	usblink_gadget_detach();
+	// The save file must only exist while a link may be live, so a later
+	// repair never trusts a name from a failed attempt.
+	unlink(UDC_SAVE);
 	return -1;
 }
 
@@ -226,19 +229,20 @@ static int first_udc(char* buf, int size) {
 // binding. Safe to run when nothing is left over.
 void usblink_gadget_repair(void) {
 	char name[64];
-	int len = read_line(UDC_SAVE, name, sizeof(name));
-	if (len <= 0)
-		len = first_udc(name, sizeof(name));
+	int saved = read_line(UDC_SAVE, name, sizeof(name));
 
 	struct stat st;
 	if (lstat(G_LINK, &st) == 0) {
+		int len = saved > 0 ? saved : first_udc(name, sizeof(name));
 		relink(name, len, 0);
-	} else if (len > 0) {
+	} else if (saved > 0) {
 		// Killed between unbind and rebind: the link is gone but the gadget is
-		// still unbound, so adb is down. Rebind if nothing is bound.
+		// still unbound, so adb is down. Only done with a save file, which
+		// proves our attach did the unbind; a gadget the firmware left
+		// unbound (or the USB-host side) is never touched.
 		char cur[64];
 		if (read_line(G_UDC, cur, sizeof(cur)) == 0)
-			write_file(G_UDC, name, len);
+			write_file(G_UDC, name, saved);
 	}
 	umount2(FFS, MNT_DETACH);
 	rmdir(G_FUNC);
