@@ -65,6 +65,10 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_collname ../..
 sh test_launcher_logs_path.sh
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_home_layout ../../nextui/home_layout.c test_home_layout.c -lm
 /tmp/nx_test_home_layout
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_home_carousel_layout ../../nextui/home_carousel_layout.c ../../nextui/row_model.c test_home_carousel_layout.c -lm
+/tmp/nx_test_home_carousel_layout
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_home_list_layout ../../nextui/home_list_layout.c test_home_list_layout.c
+/tmp/nx_test_home_list_layout
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_homeart_model ../../nextui/homeart_model.c test_homeart_model.c
 /tmp/nx_test_homeart_model
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_home_stats_model ../../nextui/home_stats_model.c test_home_stats_model.c

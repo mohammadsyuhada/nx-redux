@@ -143,6 +143,18 @@ static void valign_store_and_out_of_range(void) {
 		assert(MenuStyle_storeVAlign(bad[i]) == MENU_VALIGN_LEFT);
 }
 
+// Home layout: Grid by default and for anything out of range; the stored values are fixed.
+static void home_style_store_and_out_of_range(void) {
+	assert(HOME_STYLE_GRID == 0 && HOME_STYLE_CAROUSEL == 1 && HOME_STYLE_LIST == 2 && HOME_STYLE_COUNT == 3);
+	assert(CFG_DEFAULT_HOMESTYLE == HOME_STYLE_GRID);
+	assert(MenuStyle_storeHome(HOME_STYLE_GRID) == HOME_STYLE_GRID);
+	assert(MenuStyle_storeHome(HOME_STYLE_CAROUSEL) == HOME_STYLE_CAROUSEL);
+	assert(MenuStyle_storeHome(HOME_STYLE_LIST) == HOME_STYLE_LIST);
+	int bad[] = {-1, 3, 99, -99};
+	for (int i = 0; i < 4; i++)
+		assert(MenuStyle_storeHome(bad[i]) == HOME_STYLE_GRID);
+}
+
 int main(void) {
 	unset_main_menu_defaults();
 	unset_game_list_is_carousel();
@@ -154,6 +166,7 @@ int main(void) {
 	orientation_default_is_horizontal();
 	orientation_store_and_out_of_range();
 	valign_store_and_out_of_range();
+	home_style_store_and_out_of_range();
 	main_menu_orientation_by_style();
 	game_list_orientation_by_style();
 	orientation_kept_across_style_changes();

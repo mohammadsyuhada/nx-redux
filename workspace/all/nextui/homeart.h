@@ -45,6 +45,15 @@ void HomeArt_forget(const char* rom_path);
 // Stop the worker and free the cache. Safe to call when nothing was loaded.
 void HomeArt_quit(void);
 
+// Home's List draws the selected game's picture behind the rows as a game list's List does (imgloader.c
+// startLoadThumb): HomeArt_listPath gives the loader's path for it: Continue's resume frame (preview_path, NULL or ""
+// for none), else the screenshot's own path, else the game's abstract picture. A resume frame or an abstract picture is
+// a path of its own ("" when it doesn't fit size) that only HomeArt_loadListPath reads: the loader's thread calls it
+// (any thread: no cache, no state) for a path HomeArt_isListPath, and gets the picture (ARGB8888, the caller's) or NULL.
+void HomeArt_listPath(const char* rom_path, const char* preview_path, char* out, size_t size);
+bool HomeArt_isListPath(const char* path);
+SDL_Surface* HomeArt_loadListPath(const char* path);
+
 // Continue's entry: the first ROM in recents as a fresh Entry (the caller Entry_free()s it), or NULL.
 Entry* Home_continueEntry(void);
 

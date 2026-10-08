@@ -108,10 +108,10 @@ static void computeLayout(SDL_Surface* screen, int n, GridLayout* g) {
 // Tiles (their kinds: rowview.c's per-list cache, RowView_syncKinds / RowView_kindFor)
 
 // The count-only info (time, "n of m") of a game tile. Requests it when it isn't ready (latest request wins: call
-// it for the tile that matters most last).
+// it for the tile that matters most last). None with Layouts > Extra info hidden: the name alone.
 static int gameInfo(Entry* e, InfoSeg segs[3]) {
 	GameInfo info;
-	if (!GameInfo_get(e->path, &info) || !(info.has_time || info.has_ra))
+	if (!CFG_getExtraInfo() || !GameInfo_get(e->path, &info) || !(info.has_time || info.has_ra))
 		return 0;
 	return GameInfo_segments(time(NULL), info.has_time ? info.last_played : 0, info.has_time ? info.seconds : -1,
 							 info.has_ra ? info.unlocked : 0, info.has_ra ? info.total : 0,

@@ -133,7 +133,7 @@ bool GameList_pillAnimating(void) {
 }
 
 bool GameList_artWaiting(void) {
-	return list_art_waiting && !GridView_active() && !RowView_active() && !Home_active();
+	return list_art_waiting && !GridView_active() && !RowView_active() && (!Home_active() || Home_isList());
 }
 
 bool GameList_scrollIsScrolling(void) {
@@ -2027,13 +2027,13 @@ static TTF_Font* listFont(bool root) {
 	return root ? UI_mainListFont() : font.large; // font.large where the sizes match
 }
 
-static InfoBandLayout listLayoutAt(bool root) {
+static InfoBandLayout listLayoutFrom(int list_top, bool root) {
 	int screen_h = screen ? screen->h : FIXED_HEIGHT;
 	int bar_h = BAR_HEIGHT; // the hint bar (UI_buttonHintBarTop)
 	// the bar's ink top: the padding over its centred BUTTON_SIZE icons, plus the glyphs' margin (host-tested)
 	int overlap = InfoBand_overlap(NX_DP(12), InfoBand_hintInkTop(bar_h, SCALE1(BUTTON_SIZE)));
 	InfoBandLayout l =
-		InfoBand_fixedLayout(screen_h, bar_h, listTopAt(root), listPitch(root), NX_DP(18), NX_DP(4), overlap);
+		InfoBand_fixedLayout(screen_h, bar_h, list_top, listPitch(root), NX_DP(18), NX_DP(4), overlap);
 	// The band paints no fade of its own, only its arrows (and text): with the hints shown the bar's scrim is under it
 	// and a game's info is off; hidden (Layouts > Button hints), the same rows and band, a game list keeping the bar's
 	// scrim alone (renderHintScrim) with the info line moved into its row
@@ -2041,8 +2041,26 @@ static InfoBandLayout listLayoutAt(bool root) {
 	return l;
 }
 
+static InfoBandLayout listLayoutAt(bool root) {
+	return listLayoutFrom(listTopAt(root), root);
+}
+
+// The List shown: Home's (Layouts > Home layout: List; its rows under the stats strip) or the top Directory's.
+static Directory* shownList(void) {
+	Directory* home = Home_listDir();
+	return home ? home : top;
+}
+
+static int shownListTop(void) {
+	return Home_isList() ? Home_listTop() : listTop();
+}
+
 static InfoBandLayout listLayout(void) {
-	return listLayoutAt(atRoot());
+	return Home_isList() ? listLayoutFrom(Home_listTop(), true) : listLayoutAt(atRoot());
+}
+
+int GameList_rowCountFrom(int list_top) {
+	return listLayoutFrom(list_top, true).rows;
 }
 
 int GameList_textX(void) {
@@ -2116,13 +2134,14 @@ static struct {
 static void renderInfoBand(void) {
 	// Home, Grid, Carousel and Backdrop have no info band (Grid's game info sits in the lit tile, the rows'
 	// in the caption under the row)
-	if (ContextMenu_isOpen() || Home_active() || GridView_active() || RowView_active()) {
+	if (ContextMenu_isOpen() || (Home_active() && !Home_isList()) || GridView_active() || RowView_active()) {
 		overlay.valid = false;
 		return;
 	}
-	int total = top->entries->count;
-	bool up = total > 0 && top->start > 0;
-	bool down = total > 0 && top->end < total;
+	Directory* list = shownList(); // Home's List, or the top Directory
+	int total = list->entries->count;
+	bool up = total > 0 && list->start > 0;
+	bool down = total > 0 && list->end < total;
 	InfoBandLayout layout = listLayout(); // the rows' own geometry
 	layout.arrow_x = GameList_textX();	  // the arrows sit at the rows' text start (§3.2)
 	// On LAYER_OVERLAY, above the thumbnail layer (which would otherwise cover it on 4:3 screens), kept there while it
@@ -2131,9 +2150,10 @@ static void renderInfoBand(void) {
 	SDL_Surface* dst = ContentDim_layered() ? screen : NULL;
 	// Layouts > Page title: Hide: the up arrow moves above the first row, as far above it as the band's down arrow sits
 	// below the last (at the rows' text start), so the List has one at each end, mirrored; the band keeps the down one
+	// (Home's List keeps both in the band, packed, whatever the title: its stats strip sits above the first row)
 	bool arrow = false;
 	int arrow_y = 0;
-	if (!CFG_getPageTitle()) {
+	if (!CFG_getPageTitle() && list == top) {
 		if (up) {
 			// the down arrow's centre under the last row's bottom (the rows may leave a few px above the band)
 			int below = layout.text_top + layout.text_h / 2 - INFOBAND_ARROW_RAISE -
@@ -2144,18 +2164,18 @@ static void renderInfoBand(void) {
 		up = false;
 	}
 	// The band is always there (fade + arrows), with or without text, so rows never move.
-	Entry* entry = total > 0 ? top->entries->items[top->selected] : NULL;
+	Entry* entry = total > 0 ? list->entries->items[list->selected] : NULL;
 	MenuTabId tab = MenuTabs_current();
 	bool at_root = stack->count == 1;
 	unsigned gen;
 	// game rows: game lists and the Home tab (same rule as GameList_render's game_art). Their play time and
-	// achievements show only while the button hints are hidden (Layouts > Button hints); with the bar shown the
-	// band is the fade and arrows alone.
+	// achievements show only while the button hints are hidden (Layouts > Button hints) and the extra info is shown
+	// (Layouts > Extra info); otherwise the band is the fade and arrows alone.
 	if (entry && (!at_root || tab == MENU_TAB_HOME) && selectedIsGame(entry)) {
 		GameInfo info;
 		InfoSeg segs[3];
 		int n = 0;
-		if (!CFG_getButtonHints() && GameInfo_get(entry->path, &info) && (info.has_time || info.has_ra))
+		if (!CFG_getButtonHints() && CFG_getExtraInfo() && GameInfo_get(entry->path, &info) && (info.has_time || info.has_ra))
 			n = GameInfo_segments(time(NULL), info.has_time ? info.last_played : 0,
 								  info.has_time ? info.seconds : -1, info.has_ra ? info.unlocked : 0,
 								  info.has_ra ? info.total : 0, info.has_ra ? info.next : NULL, true, segs);
@@ -2203,7 +2223,7 @@ bool GameList_listBodyClear(SDL_Rect* row) {
 }
 
 bool GameList_keepsOverlay(void) {
-	return !ContextMenu_isOpen() && !Home_active() && !GridView_active() && !RowView_active();
+	return !ContextMenu_isOpen() && (!Home_active() || Home_isList()) && !GridView_active() && !RowView_active();
 }
 
 // nextui.c's re-add after a slide, outside GameList_render's content layer. While the content is dimmed the band is
@@ -2326,12 +2346,26 @@ static void clearArtForGrid(SDL_Surface* screen, int lastScreen) {
 		ScrollText_clear(&list_scroll);
 }
 
+// A console's logo (or Home's List's tool icon) dimmed on the right behind the rows, centred on them (band_y, band_h): a
+// GPU sprite under the screen, decoded on the art loader's thread. True while it is still decoding.
+static bool listLogoSprite(SDL_Surface* screen, const char* file, int band_y, int band_h) {
+	bool pending = false;
+	SDL_Surface* logo = MenuArt_peek(file, screen->w * 40 / 100, band_h * 60 / 100, &pending);
+	SDL_Texture* lt = logo ? PLAT_textureForSurface(logo) : NULL;
+	if (lt) // white at 16%: the PNG's off-white (0xE0) at 18.4%
+		PLAT_spriteAddUnder(lt, NULL,
+							&(SDL_Rect){screen->w - SCALE1(23) - logo->w, band_y + (band_h - logo->h) / 2, logo->w,
+										logo->h},
+							47, NULL);
+	return pending;
+}
+
 void GameList_render(SDL_Surface* screen, int lastScreen,
 					 IndicatorType show_setting, SDL_Surface* blackBG) {
 	list_body_clear = false; // only a List render with all its rows on the GPU sets it
 	list_body_row = (SDL_Rect){0, 0, 0, 0};
 	list_hold_tex = NULL; // the frame's sprites start over (nextui.c's PLAT_spritesClear)
-	if (Home_active()) {
+	if (Home_active() && !Home_isList()) {
 		// the global bg.png, as on every main-menu tab, and no thumbnail (Home draws its own pictures)
 		bool names = true;
 		resolveAndLoadBackground(NULL, NULL, NULL, &names);
@@ -2370,9 +2404,13 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		return;
 	}
 
-	int total = top->entries->count;
+	// Home's List (Layouts > Home layout: List) is this List over Home's own rows: Continue (its tag before the name),
+	// the pinned games, the pinned tools; its stats strip above them, its art and hints its own
+	bool home_list = Home_isList();
+	Directory* list = shownList();
+	int total = list->entries->count;
 
-	Entry* entry = total > 0 ? top->entries->items[top->selected] : NULL;
+	Entry* entry = total > 0 ? list->entries->items[list->selected] : NULL;
 	char path_copy[1024];
 	char* rompath = NULL;
 
@@ -2430,9 +2468,15 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		// nothing. The screenshot paints behind the rows, so the title runs the full screen width (matching an
 		// art-less row) and a long title may reach over the image's bright side; the box is solid, so the titles
 		// stop short of it.
+		// Home's List: Continue's resume frame first, a game without a screenshot its abstract picture, a tool none
+		// (always behind the rows)
 		char thumbpath[1024];
-		bool fit = ROM_findListArt(entry->path, CFG_getGameListArt(), thumbpath,
-								   sizeof(thumbpath)); // else the screenshot: scraped, else the root .media picture
+		bool fit = false;
+		if (home_list)
+			Home_listArtPath(thumbpath, sizeof(thumbpath));
+		else
+			fit = ROM_findListArt(entry->path, CFG_getGameListArt(), thumbpath,
+								  sizeof(thumbpath)); // else the screenshot: scraped, else the root .media picture
 		had_thumb = startLoadThumb(thumbpath, fit ? THUMB_COMPOSE_FIT : THUMB_COMPOSE_BG);
 		// The consumers add SCALE1(BUTTON_MARGIN) back to ox, so this yields the art-less full-width row's available
 		// width, or for the box, titles ending BUTTON_MARGIN before it as they end BUTTON_MARGIN before the
@@ -2472,28 +2516,23 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		else if (!pad_pending && logo_id) {
 			char file[64];
 			snprintf(file, sizeof(file), "menu_logo_%s.png", logo_id);
-			int band_y = listTop();
-			int band_h = rows_layout.rows * row_h;
-			bool logo_pending = false;
-			SDL_Surface* logo = MenuArt_peek(file, screen->w * 40 / 100, band_h * 60 / 100, &logo_pending);
-			list_art_waiting = logo_pending;
-			SDL_Texture* lt = logo ? PLAT_textureForSurface(logo) : NULL;
-			if (lt) // white at 16%: the PNG's off-white (0xE0) at 18.4%
-				PLAT_spriteAddUnder(lt, NULL,
-									&(SDL_Rect){screen->w - SCALE1(23) - logo->w, band_y + (band_h - logo->h) / 2,
-												logo->w, logo->h},
-									47, NULL);
+			list_art_waiting = listLogoSprite(screen, file, shownListTop(), rows_layout.rows * row_h);
 		}
+	} else if (home_list && Home_listToolIcon()) {
+		// Home's List on a tool: its icon large and dim on the right, as a console's logo
+		list_art_waiting = listLogoSprite(screen, Home_listToolIcon(), shownListTop(), rows_layout.rows * row_h);
 	} else {
 		list_art_waiting = false;
 	}
 
 	// after the controller art: its bottom reaches into the hint bar, and blitted over the bar's 80% scrim it showed
 	// undimmed there, a hard edge under the band's fade (which ends at the bar's 80%)
-	if (CFG_getButtonHints())
+	if (CFG_getButtonHints() && home_list)
+		Home_renderListHints(screen); // Home's own (A RESUME / PLAY / the tool's name), as its Grid's and Carousel's
+	else if (CFG_getButtonHints())
 		renderHints(screen, show_setting);
-	else if (stack->count > 1) // a game list: its info line sits in the bar's row; the main menu's tabs: no shade
-		renderHintScrim(screen);
+	else if (stack->count > 1 || home_list) // a game list and Home's List: a game's info line sits in the bar's row
+		renderHintScrim(screen);			// (over its art); the main menu's other tabs: no shade
 
 	// the List's content: the rows and the band, down to the band's bottom (inside the hint bar)
 	content.h = rows_layout.band_bottom - content.y;
@@ -2509,12 +2548,18 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 	// (it draws over the screen, under the sprites); the selected row's marquee stays in the screen (its own layer).
 	bool row_sprites = !layered && !ContextMenu_isOpen();
 	list_body_clear = row_sprites;
+	if (home_list && Home_listHasStrip()) { // Home's stats strip, in the screen over the rows' top
+		Home_renderListStrip(screen);
+		list_body_clear = false;
+	}
+	// Home's List: Continue's row (always the first) wears its tag before the name, the name moved after it
+	int tag_w = home_list ? Home_listTagWidth() : 0;
 
 	// The info band (a GPU layer), drawn even for an empty list. Drawn before the rows: the marquee below
 	// may present mid-render, and the band must already be back on its layer by then (no blink).
 	renderInfoBand();
 	if (total > 0) {
-		int selected_row = top->selected - top->start;
+		int selected_row = list->selected - list->start;
 		// Row text start (LIST-LAYOUT §1): the main menu's List rows on the tab row's 24 dp gutter, game lists on
 		// the 14 dp list inset; the pill keeps its 14 dp (SCALE1(BUTTON_PADDING)) round the text either way.
 		int row_text_x = GameList_textX();
@@ -2528,7 +2573,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 								  // row the pill is over (see color-tracking note below)
 		bool pill_sprite = false; // the pill went to the GPU (over the screen: it hides what the screen has under it)
 		if (list_show_entry_names) {
-			Entry* sel = top->entries->items[top->selected];
+			Entry* sel = list->entries->items[list->selected];
 			char* sel_name = sel->name;
 			char* sel_unique = sel->unique;
 			trimSortingMeta(&sel_name);
@@ -2539,22 +2584,23 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 											  : screen->w - SCALE1(BUTTON_MARGIN)) -
 									   SCALE1(PADDING) - row_pill_x);
 			char sel_trunc[256];
-			int sel_pill_w = UI_calcListPillWidth(list_font, sel_text, sel_trunc, sel_avail, 0);
-			int target_y = listTop() + selected_row * row_h;
+			int sel_pill_w =
+				UI_calcListPillWidth(list_font, sel_text, sel_trunc, sel_avail, list->selected == 0 ? tag_w : 0);
+			int target_y = shownListTop() + selected_row * row_h;
 			// A page/list change (folder enter/exit, a tab switch: the `top` Directory's serial
 			// changes) snaps the pill to the new selection instead of gliding in
 			// from the previous list's row, which briefly flashed the old position.
 			// Keyed on the serial, not the pointer: a freed Directory's address is often reused.
-			bool list_changed = top->serial != list_pill_prev_top ||
+			bool list_changed = list->serial != list_pill_prev_top ||
 								MenuTabs_generation() != list_pill_prev_gen;
-			list_pill_prev_top = top->serial;
+			list_pill_prev_top = list->serial;
 			list_pill_prev_gen = MenuTabs_generation();
 			// On a wrap (last<->first), enter from the near edge in the direction of
 			// travel instead of sliding the whole list: forward wrap (last->first)
 			// drops in from just above the first row; backward wrap (first->last)
 			// rises up from just below the last row. Done by seeding the glide's
 			// start position (current_y) one row off the target edge.
-			int cur_sel = top->selected;
+			int cur_sel = list->selected;
 			bool wrap_fwd = !list_changed && list_pill_prev_sel == total - 1 && cur_sel == 0 && total > 1;
 			bool wrap_bwd = !list_changed && list_pill_prev_sel == 0 && cur_sel == total - 1 && total > 1;
 			list_pill_prev_sel = cur_sel;
@@ -2587,11 +2633,11 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 			int pill_h = row_h < SCALE1(PILL_SIZE) * 19 / 20 ? row_h : SCALE1(PILL_SIZE); // a shorter pitch: the row's
 			int pill_off = (int)floorf((row_h - pill_h) / 2.0f + 0.5f);
 			int below = pill_h + pill_off - row_h; // the overhang under the last row, when the pill is taller
-			int band_rows = top->end - top->start;
-			int clip_bottom = listTop() + band_rows * row_h + (below > 0 ? below : 0);
+			int band_rows = list->end - list->start;
+			int clip_bottom = shownListTop() + band_rows * row_h + (below > 0 ? below : 0);
 			if (clip_bottom > rows_layout.band_top)
 				clip_bottom = rows_layout.band_top;
-			SDL_Rect band = {0, listTop(), screen->w, clip_bottom - listTop()};
+			SDL_Rect band = {0, shownListTop(), screen->w, clip_bottom - shownListTop()};
 			SDL_Rect prev_clip;
 			SDL_GetClipRect(screen, &prev_clip);
 			SDL_SetClipRect(screen, &band);
@@ -2612,8 +2658,8 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 			int x, y, w;
 			bool over;
 		} marquee = {false};
-		for (int i = top->start, j = 0; i < top->end; i++, j++) {
-			Entry* entry = top->entries->items[i];
+		for (int i = list->start, j = 0; i < list->end; i++, j++) {
+			Entry* entry = list->entries->items[i];
 			char* entry_name = entry->name;
 			char* entry_unique = entry->unique;
 			bool row_is_selected = (j == selected_row);
@@ -2630,7 +2676,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 				trimSortingMeta(&entry_unique);
 			char* display_text = entry_unique ? entry_unique : entry_name;
 
-			int y = listTop() + j * row_h;
+			int y = shownListTop() + j * row_h;
 
 			if (list_show_entry_names) {
 				char truncated[256];
@@ -2640,11 +2686,18 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 				};
 				// selected=false: the selection background is the moving pill drawn
 				// above, not a per-row static pill.
+				int row_tag_w = i == 0 ? tag_w : 0; // Home's Continue tag, before the name
 				ListItemPos pos = UI_renderListItemPill(
 					screen, &item_layout, list_font,
-					display_text, truncated, y, false, 0);
+					display_text, truncated, y, false, row_tag_w);
 				pos.text_x = row_text_x; // the shared renderer's x is the 14 dp inset; the main menu sits on 24 dp
-				int text_width = pos.pill_width - SCALE1(BUTTON_PADDING * 2);
+				int text_width = pos.pill_width - SCALE1(BUTTON_PADDING * 2) - row_tag_w;
+				// the tag tints with the row (pill_over, below): drawn with it, a sprite when the rows are
+				bool tag_over = row_tag_w > 0 && pill_y >= 0 && abs(pill_y - y) * 2 < row_h;
+				if (row_tag_w > 0) {
+					Home_listDrawTag(screen, pos.text_x, pos.text_y, TTF_FontHeight(list_font), tag_over, row_sprites);
+					pos.text_x += row_tag_w;
+				}
 				// This call site is the only place list_scroll resyncs (via
 				// ScrollText_update's strcmp), so while it's gated off below a
 				// context action that changes the selection (Delete/Rename Rom,

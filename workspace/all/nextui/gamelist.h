@@ -49,6 +49,8 @@ int GameList_textX(void);
 // Directory built before it reaches the stack (root = a tab's own list at stack[0]).
 int GameList_rowCount(void);
 int GameList_rowCountAt(bool root);
+// The main menu's List rows with the first row's top at list_top (px): Home's List (under its stats strip).
+int GameList_rowCountFrom(int list_top);
 // Scroll-text (marquee) state, driven by the main loop's idle path.
 bool GameList_scrollBusy(void);	   // still needs animation/render ticks
 bool GameList_pillAnimating(void); // selection pill mid-glide, keep redrawing

@@ -24,6 +24,9 @@ static inline float TextPx_for(TextPx t, UIDevice d) {
 // (CONT_TITLE_PX 44 / CONT_SUB_PX 31 at Home's scale).
 #define TEXT_HOME_CONT_TITLE ((TextPx){33, 28, 26})
 #define TEXT_HOME_CONT_INFO ((TextPx){33, 28, 26})
+// Home's Continue card: its "Continue" badge, a pill top-left (2026-10-08, from the mockup's 12 sp beside the title's 17,
+// about 0.7 of the title)
+#define TEXT_HOME_CONT_BADGE ((TextPx){23, 20, 18})
 // Home's pinned games: the name and its info line (the time, shown on the selected pin). Were 23 and 19 on the Brick
 // (2026-10-07: both 33, as the Continue card; their line boxes grow with them); the Brick Pro and Smart Pro keep the UI
 // scale's (PIN_NAME_PX 33.8 / PIN_INFO_PX 28.6 at Home's scale).

@@ -76,6 +76,22 @@ static inline int MenuStyle_storeVAlign(int valign) {
 	return valign;
 }
 
+// The Home tab's layout (Layouts > Home layout): Grid, Continue beside the tool squares with the pinned games below;
+// Carousel, Continue first in a row of the pinned games, the tools in a dock under it; or List, one pill list of
+// Continue, the pinned games and the pinned tools. Stored values (minuisettings.txt): never renumber.
+enum { HOME_STYLE_GRID = 0,
+	   HOME_STYLE_CAROUSEL,
+	   HOME_STYLE_LIST,
+	   HOME_STYLE_COUNT };
+#define HOMESTYLE_DEFAULT HOME_STYLE_GRID
+
+// The value to store (and how a stored value reads): an out-of-range value becomes Grid.
+static inline int MenuStyle_storeHome(int style) {
+	if (style < HOME_STYLE_GRID || style >= HOME_STYLE_COUNT)
+		return HOMESTYLE_DEFAULT;
+	return style;
+}
+
 // Whether a main-menu tab's stored style has an orientation: only Carousel (a stored Backdrop reads as Carousel).
 static inline int MenuStyle_mainMenuHasOrient(int stored_style) {
 	return MenuStyle_mainMenu(stored_style) == MENU_STYLE_CAROUSEL;

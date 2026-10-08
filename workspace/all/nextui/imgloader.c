@@ -9,6 +9,7 @@
 #include "imgloader.h"
 #include "artbg.h"
 #include "area_scale.h"
+#include "homeart.h"
 #include "ui_image.h"
 
 ///////////////////////////////////////
@@ -180,7 +181,9 @@ static int dequeueAndDecode(TaskQueue* q, LoadBackgroundTask** out_task, SDL_Sur
 	free(node);
 
 	SDL_Surface* result = NULL;
-	SDL_Surface* image = IMG_Load(task->imagePath);
+	// Home's List: a resume frame or an abstract picture by a path of Home's own (homeart.h)
+	SDL_Surface* image = HomeArt_isListPath(task->imagePath) ? HomeArt_loadListPath(task->imagePath)
+															 : IMG_Load(task->imagePath);
 	if (image) {
 		result = SDL_ConvertSurfaceFormat(image, cachedScreenFormat, 0);
 		SDL_FreeSurface(image);

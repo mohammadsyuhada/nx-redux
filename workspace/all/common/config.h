@@ -139,6 +139,7 @@ typedef struct
 	int menuOrient[MENU_CAT_COUNT]; // MENU_ORIENT_* per main menu tab (MENU_CAT_*), stored whatever the style
 	int gameListOrient;				// MENU_ORIENT_* for game lists, stored whatever the style
 	int gameListVAlign;				// MENU_VALIGN_* for game lists' vertical stacks, stored whatever the style
+	int homeStyle;					// HOME_STYLE_* for the Home tab
 
 	// font loading/unloading callback
 	FontLoad_callback_t onFontChange;
@@ -163,6 +164,7 @@ typedef struct
 	int backdropArt;  // BACKDROP_ART_*: the Backdrop game list's item pictures (Layouts > Backdrop art)
 	bool buttonHints; // the launcher lists' bottom button hint bar (Layouts > Button hints)
 	bool pageTitle;	  // the main menu's tab row and a game list's title (Layouts > Page title)
+	bool extraInfo;	  // play time, achievements and Home's monthly stats in the menus (Layouts > Extra info)
 	bool showCollections;
 	bool showEmulators;
 	bool showFolderNamesAtRoot;
@@ -271,6 +273,7 @@ typedef struct
 #define CFG_DEFAULT_MENUORIENT MENUSTYLE_ORIENT_DEFAULT		// Horizontal
 #define CFG_DEFAULT_GAMELISTORIENT MENUSTYLE_ORIENT_DEFAULT // Horizontal
 #define CFG_DEFAULT_GAMELISTVALIGN MENUSTYLE_VALIGN_DEFAULT // Left
+#define CFG_DEFAULT_HOMESTYLE HOMESTYLE_DEFAULT				// Grid
 #define CFG_DEFAULT_WIFI false
 #define CFG_DEFAULT_VIEW SCREEN_GAMELIST
 #define CFG_DEFAULT_WIFI_DIAG false
@@ -281,6 +284,7 @@ typedef struct
 #define CFG_DEFAULT_BACKDROPART BACKDROP_ART_BOXART3D
 #define CFG_DEFAULT_BUTTONHINTS true
 #define CFG_DEFAULT_PAGETITLE true
+#define CFG_DEFAULT_EXTRAINFO true
 #define CFG_DEFAULT_FN1_TOOL ""
 #define CFG_DEFAULT_FN2_TOOL ""
 #define CFG_DEFAULT_BLUETOOTH false
@@ -397,6 +401,10 @@ void CFG_setBackdropArt(int art);
 // Show/hide the bottom button hint bar on the launcher's Home, tab and game list screens (Layouts > Button hints).
 bool CFG_getButtonHints(void);
 void CFG_setButtonHints(bool show);
+// Show/hide the games' extra info in the launcher's menus (Layouts > Extra info): play time, achievements and Next on
+// Home and in the game lists, and Home's monthly stats strip. The Game Switcher keeps its own.
+bool CFG_getExtraInfo(void);
+void CFG_setExtraInfo(bool show);
 // Show/hide the page title: the main menu's tab row (or a lone tab's "NX Redux") and a game list's title (Layouts >
 // Page title). Hidden, the bar keeps its room and the status icons; L1/R1 still switch tabs.
 bool CFG_getPageTitle(void);
@@ -455,6 +463,9 @@ void CFG_setGameListOrient(int orient);
 // they draw Vertical (CFG_getGameListOrientEffective). An out-of-range value reads as Left.
 int CFG_getGameListVAlign(void);
 void CFG_setGameListVAlign(int valign);
+// The Home tab's layout (HOME_STYLE_*), the Layouts page's "Home layout". An out-of-range value reads as Grid.
+int CFG_getHomeStyle(void);
+void CFG_setHomeStyle(int style);
 // Effective orientation: Vertical only while the tab is Carousel, or the game lists are Carousel or Backdrop;
 // List and Grid always read Horizontal (menustyle_model.h).
 int CFG_getMenuOrientEffective(int category);

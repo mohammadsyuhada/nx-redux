@@ -294,7 +294,7 @@ static int captionNameLines(const SDL_Surface* screen, RowKind k) {
 }
 
 // The caption's reserved height (px): the Carousel's name lines + the info line; the Backdrop's name's one line +
-// two info rows.
+// two info rows. With Layouts > Extra info hidden, the name's lines alone (no info is drawn: no room kept for it).
 static int captionReserve(const SDL_Surface* screen, RowKind k, CapKind c) {
 	if (c == CAP_NONE)
 		return 0;
@@ -304,6 +304,8 @@ static int captionReserve(const SDL_Surface* screen, RowKind k, CapKind c) {
 	int ih = fi ? TTF_FontHeight(fi) : 0;
 	// a Carousel's info lines per device (ui_text_sizes.h CAROUSEL_CAPTION_INFO_LINES)
 	int info_lines = (int)TextPx_for(CAROUSEL_CAPTION_INFO_LINES, UIScale_deviceIndex(UI_DEVICE_NAME));
+	if (!CFG_getExtraInfo())
+		ih = 0;
 	return k == ROW_CAROUSEL ? captionNameLines(screen, k) * nh + (info_lines > 1 ? info_lines : 1) * ih : nh + 2 * ih;
 }
 
@@ -1699,10 +1701,11 @@ static SDL_Surface* captionSurface(const CapStyle* cs, const char* path, const c
 }
 
 // A game's info rows: the Carousel's one full line (time · n of m · Next), or Backdrop's two, the time then "n of m ·
-// Next: …" (beside a stack too, §8f.4). None for a folder or a tool: the name alone.
+// Next: …" (beside a stack too, §8f.4). None for a folder or a tool, nor with Layouts > Extra info hidden: the name
+// alone.
 static int captionRows(Entry* e, TileKind kind, bool one_line, SegRow rows[2]) {
 	memset(rows, 0, sizeof(SegRow) * 2);
-	if (kind != TILE_GAME)
+	if (kind != TILE_GAME || !CFG_getExtraInfo())
 		return 0;
 	InfoSeg segs[3];
 	int n = gameSegments(e, segs);

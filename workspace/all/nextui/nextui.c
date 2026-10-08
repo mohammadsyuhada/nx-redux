@@ -320,6 +320,16 @@ int main(int argc, char* argv[]) {
 			}
 		}
 
+		// the menu's close guard (ContextMenu_isOpen stays true a few frames after it closed) ran out: one more frame, so
+		// what a List leaves off under the menu (its info band and arrows: renderInfoBand) comes back
+		{
+			static bool cm_was_open = false;
+			bool cm_now = ContextMenu_isOpen();
+			if (cm_was_open && !cm_now)
+				dirty = true;
+			cm_was_open = cm_now;
+		}
+
 		PWR_update(&dirty, &show_setting, NULL, NULL);
 
 		if (UI_statusBarChanged())
@@ -447,10 +457,14 @@ int main(int argc, char* argv[]) {
 			// a Backdrop game row's picture drawn the software way paints every pixel: no clear under it. After a sprite
 			// frame the screen's body still holds what that frame left there (it drew it nowhere but on the GPU; a
 			// Backdrop's transparent over its picture, else black, and the row refills it when another kind of frame
-			// left it): only the bars' rows need clearing.
+			// left it): only the bars' rows need clearing. Only when this frame is a Grid, Carousel or Backdrop one too
+			// (they fill their body themselves): any other (a List, Home's, Search) is drawn over a clear body, or the
+			// sprite frame's black stays in it, over the art under the screen (Home's List back from Consoles).
 			bool screen_clear = false; // the whole screen is clear (0,0,0,0) here: the top fade can be written, not blended
 			if (!(currentScreen == SCREEN_GAMELIST && !startgame && RowView_paintsScreen())) {
-				if (sprites_last && screen->h > 2 * BAR_HEIGHT) {
+				bool body_kept = sprites_last && currentScreen == SCREEN_GAMELIST && !startgame &&
+								 (GridView_active() || RowView_active());
+				if (body_kept && screen->h > 2 * BAR_HEIGHT) {
 					SDL_FillRect(screen, &(SDL_Rect){0, 0, screen->w, BAR_HEIGHT}, 0);
 					SDL_FillRect(screen, &(SDL_Rect){0, screen->h - BAR_HEIGHT, screen->w, BAR_HEIGHT}, 0);
 				} else if (list_clear_last && GFX_flipCount() == list_clear_flip && currentScreen == SCREEN_GAMELIST &&
@@ -497,8 +511,8 @@ int main(int argc, char* argv[]) {
 				int fade_h = currentScreen == SCREEN_GAMESWITCHER
 								 ? bar_h + (font.tiny ? TTF_FontHeight(font.tiny) : 0) + NX_DP(64) // 64 dp below the subtitle
 								 : bar_h + NX_DP(48);
-				// Home shows it only while its page is scrolled
-				bool home = currentScreen == SCREEN_GAMELIST && Home_active();
+				// Home shows it only while its page is scrolled (its List: always, as every List)
+				bool home = currentScreen == SCREEN_GAMELIST && Home_active() && !Home_isList();
 				SDL_Surface* fade = !over_art && (!home || Home_scrolled())
 										? UI_easedFadeSurface(screen->w, fade_h, 0.9f, 3.5f, true)
 										: NULL;

@@ -55,6 +55,7 @@ void CFG_defaults(NextUISettings* cfg) {
 		.menuOrient = {CFG_DEFAULT_MENUORIENT, CFG_DEFAULT_MENUORIENT, CFG_DEFAULT_MENUORIENT},
 		.gameListOrient = CFG_DEFAULT_GAMELISTORIENT,
 		.gameListVAlign = CFG_DEFAULT_GAMELISTVALIGN,
+		.homeStyle = CFG_DEFAULT_HOMESTYLE,
 		.showFolderNamesAtRoot = CFG_DEFAULT_SHOWFOLDERNAMESATROOT,
 
 		.showClock = CFG_DEFAULT_SHOWCLOCK,
@@ -72,6 +73,7 @@ void CFG_defaults(NextUISettings* cfg) {
 		.gameListArt = CFG_DEFAULT_GAMELISTART,
 		.backdropArt = CFG_DEFAULT_BACKDROPART,
 		.buttonHints = CFG_DEFAULT_BUTTONHINTS,
+		.extraInfo = CFG_DEFAULT_EXTRAINFO,
 		.pageTitle = CFG_DEFAULT_PAGETITLE,
 		.showCollections = CFG_DEFAULT_SHOWCOLLECTIONS,
 		.showEmulators = CFG_DEFAULT_SHOWEMULATORS,
@@ -321,6 +323,14 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 			}
 			if (sscanf(line, "gameListVerticalAlign=%i", &temp_value) == 1) {
 				CFG_setGameListVAlign(temp_value);
+				continue;
+			}
+			if (sscanf(line, "homeStyle=%i", &temp_value) == 1) {
+				CFG_setHomeStyle(temp_value);
+				continue;
+			}
+			if (sscanf(line, "extraInfo=%i", &temp_value) == 1) {
+				CFG_setExtraInfo((bool)temp_value);
 				continue;
 			}
 			if (sscanf(line, "wifi=%i", &temp_value) == 1) {
@@ -730,6 +740,15 @@ void CFG_setButtonHints(bool show) {
 	CFG_sync();
 }
 
+bool CFG_getExtraInfo(void) {
+	return settings.extraInfo;
+}
+
+void CFG_setExtraInfo(bool show) {
+	settings.extraInfo = show;
+	CFG_sync();
+}
+
 bool CFG_getPageTitle(void) {
 	return settings.pageTitle;
 }
@@ -902,6 +921,15 @@ int CFG_getGameListVAlign(void) {
 
 void CFG_setGameListVAlign(int valign) {
 	settings.gameListVAlign = MenuStyle_storeVAlign(valign);
+	CFG_sync();
+}
+
+int CFG_getHomeStyle(void) {
+	return MenuStyle_storeHome(settings.homeStyle);
+}
+
+void CFG_setHomeStyle(int style) {
+	settings.homeStyle = MenuStyle_storeHome(style);
 	CFG_sync();
 }
 
@@ -1298,6 +1326,10 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", CFG_getGameListOrient());
 	} else if (strcmp(key, "gameListVerticalAlign") == 0) {
 		sprintf(value, "%i", CFG_getGameListVAlign());
+	} else if (strcmp(key, "homeStyle") == 0) {
+		sprintf(value, "%i", CFG_getHomeStyle());
+	} else if (strcmp(key, "extraInfo") == 0) {
+		sprintf(value, "%i", CFG_getExtraInfo());
 	} else if (strcmp(key, "wifi") == 0) {
 		sprintf(value, "%i", (int)(CFG_getWifi()));
 	} else if (strcmp(key, "defaultView") == 0) {
@@ -1397,6 +1429,8 @@ static int CFG_serialize(char* buf, size_t cap) {
 		EMIT("%s=%i\n", menu_orient_keys[c], settings.menuOrient[c]);
 	EMIT("gameListOrient=%i\n", settings.gameListOrient);
 	EMIT("gameListVerticalAlign=%i\n", settings.gameListVAlign);
+	EMIT("homeStyle=%i\n", settings.homeStyle);
+	EMIT("extraInfo=%i\n", settings.extraInfo);
 	EMIT("wifi=%i\n", settings.wifi);
 	EMIT("defaultView=%i\n", settings.defaultView);
 	EMIT("wifiDiagnostics=%i\n", settings.wifiDiagnostics);
@@ -1641,6 +1675,8 @@ void CFG_print(void) {
 		printf("\t\"%s\": %i,\n", menu_orient_keys[c], settings.menuOrient[c]);
 	printf("\t\"gameListOrient\": %i,\n", settings.gameListOrient);
 	printf("\t\"gameListVerticalAlign\": %i,\n", settings.gameListVAlign);
+	printf("\t\"homeStyle\": %i,\n", settings.homeStyle);
+	printf("\t\"extraInfo\": %i,\n", settings.extraInfo);
 	printf("\t\"wifi\": %i,\n", settings.wifi);
 	printf("\t\"defaultView\": %i,\n", settings.defaultView);
 	printf("\t\"wifiDiagnostics\": %i,\n", settings.wifiDiagnostics);

@@ -233,19 +233,23 @@ static void queuePlaceholderPng(SDL_Surface* s, const char* path) {
 	p->surface = copy;
 }
 
-static SDL_Surface* placeholderFor(const char* rom, bool box, HomeArtRect* keep) {
+// The abstract picture's seed (the ROM's file name without its extension) and its PNG's path. Pure: any thread.
+static void placeholderSeed(const char* rom, bool box, char* seed /* MAX_PATH */, char* path /* MAX_PATH */) {
 	const char* base = strrchr(rom, '/');
 	base = base ? base + 1 : rom;
-	char seed[MAX_PATH];
-	snprintf(seed, sizeof(seed), "%s", base);
+	snprintf(seed, MAX_PATH, "%s", base);
 	char* dot = strrchr(seed, '.');
 	if (dot && dot != seed)
 		*dot = '\0';
 	uint32_t hash = 2166136261u;
 	for (const char* c = seed; *c; c++)
 		hash = (hash ^ (uint8_t)*c) * 16777619u;
-	char path[MAX_PATH];
-	snprintf(path, sizeof(path), "%s/%08x%s.png", PLACEHOLDER_DIR, hash, box ? "_box" : "");
+	snprintf(path, MAX_PATH, "%s/%08x%s.png", PLACEHOLDER_DIR, hash, box ? "_box" : "");
+}
+
+static SDL_Surface* placeholderFor(const char* rom, bool box, HomeArtRect* keep) {
+	char seed[MAX_PATH], path[MAX_PATH];
+	placeholderSeed(rom, box, seed, path);
 	SDL_Surface* s = NULL;
 	for (int i = 0; i < pendingPngCount && !s; i++) // generated a moment ago, not on the card yet
 		if (!strcmp(pendingPngs[i].path, path))
@@ -667,4 +671,88 @@ void HomeArt_quit(void) {
 
 Entry* Home_continueEntry(void) {
 	return Recents_firstRom();
+}
+
+///////////////////////////////////////
+// The Home List's background (the thumbnail loader's pictures)
+
+// "<prefix>cont\n<preview>\n<rom>" (a resume frame) or "<prefix>abs\n<rom>" (the abstract picture): never a file's
+// path (a control character leads)
+#define LIST_PATH_PREFIX "\x01home:"
+
+void HomeArt_listPath(const char* rom_path, const char* preview_path, char* out, size_t size) {
+	out[0] = '\0';
+	if (!rom_path || !rom_path[0])
+		return;
+	int n = -1;
+	if (preview_path && preview_path[0])
+		n = snprintf(out, size, LIST_PATH_PREFIX "cont\n%s\n%s", preview_path, rom_path);
+	if (n >= 0 && (size_t)n < size)
+		return;
+	ROM_findScreenshot(rom_path, out, size); // the scraped screenshot, else the root .media picture (Ports)
+	if (out[0] && access(out, F_OK) == 0)
+		return;
+	n = snprintf(out, size, LIST_PATH_PREFIX "abs\n%s", rom_path);
+	if (n < 0 || (size_t)n >= size)
+		out[0] = '\0';
+}
+
+bool HomeArt_isListPath(const char* path) {
+	return path && strncmp(path, LIST_PATH_PREFIX, sizeof(LIST_PATH_PREFIX) - 1) == 0;
+}
+
+// The abstract picture: its PNG when Grid or the Carousel made it already, else rendered here (not saved: the Home
+// art worker owns the writes).
+static SDL_Surface* listAbstract(const char* rom) {
+	char seed[MAX_PATH], path[MAX_PATH];
+	placeholderSeed(rom, false, seed, path);
+	SDL_Surface* s = loadArgb(path);
+	if (s)
+		return s;
+	s = SDL_CreateRGBSurfaceWithFormat(0, PLACEHOLDER_W, PLACEHOLDER_H, 32, SDL_PIXELFORMAT_ARGB8888);
+	if (s)
+		PlaceholderArt_render(s->pixels, s->w, s->h, s->pitch / 4, seed);
+	return s;
+}
+
+SDL_Surface* HomeArt_loadListPath(const char* path) {
+	if (!HomeArt_isListPath(path))
+		return NULL;
+	const char* p = path + sizeof(LIST_PATH_PREFIX) - 1;
+	if (strncmp(p, "abs\n", 4) == 0)
+		return listAbstract(p + 4);
+	if (strncmp(p, "cont\n", 5) != 0)
+		return NULL;
+	p += 5;
+	const char* nl = strchr(p, '\n');
+	if (!nl)
+		return NULL;
+	char preview[MAX_PATH];
+	snprintf(preview, sizeof(preview), "%.*s", (int)(nl - p), p);
+	const char* rom = nl + 1;
+	// Continue's resume frame without its letterbox (as HomeArt_continue's); a black one gives way to the screenshot,
+	// then the abstract picture
+	SDL_Surface* src = loadArgb(preview);
+	if (src) {
+		SDL_LockSurface(src);
+		HomeArtRect keep = HomeArt_trimLetterbox(src->pixels, src->w, src->h, src->pitch / 4);
+		bool blank = HomeArt_isBlankFrame(src->pixels, keep, src->pitch / 4);
+		SDL_UnlockSurface(src);
+		if (!blank && keep.w > 0 && keep.h > 0) {
+			if (keep.x == 0 && keep.y == 0 && keep.w == src->w && keep.h == src->h)
+				return src;
+			SDL_Surface* cut = SDL_CreateRGBSurfaceWithFormat(0, keep.w, keep.h, 32, SDL_PIXELFORMAT_ARGB8888);
+			if (cut) {
+				SDL_SetSurfaceBlendMode(src, SDL_BLENDMODE_NONE);
+				SDL_BlitSurface(src, &(SDL_Rect){keep.x, keep.y, keep.w, keep.h}, cut, NULL);
+			}
+			SDL_FreeSurface(src);
+			return cut;
+		}
+		SDL_FreeSurface(src);
+	}
+	char shot[MAX_PATH];
+	ROM_findScreenshot(rom, shot, sizeof(shot));
+	src = loadArgb(shot);
+	return src ? src : listAbstract(rom);
 }
