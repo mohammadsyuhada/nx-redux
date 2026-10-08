@@ -1,0 +1,176 @@
+# license: modifies gpSP (https://github.com/libretro/gpsp), GPL-2.0 (COPYING); this patch is distributed under the same license.
+diff --git forkSrcPrefix/libretro/libretro.c forkDstPrefix/libretro/libretro.c
+index 80969b3..16629b1 100644
+--- forkSrcPrefix/libretro/libretro.c
++++ forkDstPrefix/libretro/libretro.c
+@@ -32,6 +32,18 @@ int getVMBlock();
+ 
+ #endif
+ 
++#if defined(MMAP_JIT_CACHE) && defined(HAVE_DYNAREC) && \
++    defined(ARM64_ARCH) && defined(__linux__)
++#include <sys/mman.h>
++/* Last-resort dynarec cache inside the core's own image (.bss), so it is
++ * always within direct-branch range of the core. Used when the frontend has
++ * already filled the address space around the core and map_jit_block fails.
++ * Untouched pages cost no memory. */
++#define JIT_STATIC_FALLBACK
++static u8 jit_static_cache[ROM_TRANSLATION_CACHE_SIZE + RAM_TRANSLATION_CACHE_SIZE]
++   __attribute__((aligned(65536)));
++#endif
++
+ #if defined(_3DS)
+ void* linearMemAlign(size_t size, size_t alignment);
+ void linearFree(void* mem);
+@@ -600,7 +612,21 @@ void retro_init(void)
+ #if defined(HAVE_DYNAREC)
+   #if defined(MMAP_JIT_CACHE)
+    rom_translation_cache = map_jit_block(ROM_TRANSLATION_CACHE_SIZE + RAM_TRANSLATION_CACHE_SIZE);
+-   ram_translation_cache = &rom_translation_cache[ROM_TRANSLATION_CACHE_SIZE];
++  #ifdef JIT_STATIC_FALLBACK
++   if (!rom_translation_cache)
++   {
++      if (mprotect(jit_static_cache, sizeof(jit_static_cache),
++                   PROT_READ | PROT_WRITE | PROT_EXEC) == 0)
++      {
++         rom_translation_cache = jit_static_cache;
++         info_msg("Dynarec cache mapped inside the core image.");
++      }
++   }
++  #endif
++   if (rom_translation_cache)
++      ram_translation_cache = &rom_translation_cache[ROM_TRANSLATION_CACHE_SIZE];
++   else
++      error_msg("Could not map the dynarec cache near the core.");
+   #elif defined(_3DS)
+    if (__ctr_svchax && !translation_caches_inited)
+    {
+@@ -701,7 +727,15 @@ void retro_deinit(void)
+    memory_term();
+ 
+ #if defined(MMAP_JIT_CACHE) && defined(HAVE_DYNAREC)
+-   unmap_jit_block(rom_translation_cache, ROM_TRANSLATION_CACHE_SIZE + RAM_TRANSLATION_CACHE_SIZE);
++  #ifdef JIT_STATIC_FALLBACK
++   if (rom_translation_cache == jit_static_cache)
++      mprotect(jit_static_cache, sizeof(jit_static_cache), PROT_READ | PROT_WRITE);
++   else
++  #endif
++   if (rom_translation_cache)
++      unmap_jit_block(rom_translation_cache, ROM_TRANSLATION_CACHE_SIZE + RAM_TRANSLATION_CACHE_SIZE);
++   rom_translation_cache = NULL;
++   ram_translation_cache = NULL;
+ #endif
+ #if defined(_3DS) && defined(HAVE_DYNAREC)
+ 
+@@ -1155,6 +1189,16 @@ bool retro_load_game(const struct retro_game_info* info)
+    if (!gba_screen_pixels)
+       return false;
+ 
++#if defined(MMAP_JIT_CACHE) && defined(HAVE_DYNAREC)
++   /* reset_gba() always initialises the emitter, which writes into the
++    * translation cache; without it the core would crash on load. */
++   if (!rom_translation_cache)
++   {
++      error_msg("Dynarec cache unavailable, cannot load the game.");
++      return false;
++   }
++#endif
++
+    check_variables(true);
+    set_input_descriptors();
+ 
+diff --git forkSrcPrefix/memmap.c forkDstPrefix/memmap.c
+index 46bb951..f8631da 100644
+--- forkSrcPrefix/memmap.c
++++ forkDstPrefix/memmap.c
+@@ -100,10 +100,81 @@ bool validate_addr_section_mips(void *ptr, unsigned size, unsigned max_offset_mb
+ 
+ 	#include <sys/mman.h>
+ 
++	#if defined(ARM64_ARCH) && defined(__linux__)
++	#include <stdio.h>
++	#include <unistd.h>
++
++	#define _MAP_RANGE      (128*1024*1024)   // Must match _VALIDATE_BLOCK_FN
++	#define _MAP_GAPS_MAX   64
++
++	// The probe loop below only passes hints; when the hinted address is taken
++	// the kernel puts the block somewhere far away and every probe fails once
++	// the frontend has mapped enough around the core. Instead read the free
++	// gaps from /proc/self/maps and hint an address inside the gap closest to
++	// the core: the range is free, so the kernel honours the hint.
++	static void *map_jit_block_in_gap(unsigned size) {
++		uintptr_t ref = (uintptr_t)(map_jit_block);
++		uintptr_t pgmask = (uintptr_t)sysconf(_SC_PAGESIZE) - 1;
++		uintptr_t len = ((uintptr_t)size + pgmask) & ~pgmask;
++		uintptr_t lo, hi, cand[_MAP_GAPS_MAX];
++		unsigned long ms, me, prev_end = 0;
++		unsigned n = 0, i;
++		FILE *f;
++
++		if (len >= _MAP_RANGE)
++			return NULL;
++		// Valid block starts: ref - range < start, start + size < ref + range.
++		lo = ref > _MAP_RANGE ? ((ref - _MAP_RANGE) | pgmask) + 1 : pgmask + 1;
++		hi = (ref + _MAP_RANGE - len - 1) & ~pgmask;
++
++		f = fopen("/proc/self/maps", "r");
++		if (!f)
++			return NULL;
++		while (n < _MAP_GAPS_MAX &&
++		       fscanf(f, "%lx-%lx%*[^\n]", &ms, &me) == 2) {
++			if (prev_end && ms > prev_end && ms - prev_end >= len) {
++				uintptr_t a = prev_end > lo ? prev_end : lo;
++				uintptr_t b = ms - len < hi ? ms - len : hi;
++				if (a <= b)
++					cand[n++] = ref < a ? a : ref > b ? b : (ref & ~pgmask);
++			}
++			if (me > prev_end)
++				prev_end = me;
++		}
++		fclose(f);
++
++		// Try the candidates closest to the core first.
++		while (n) {
++			unsigned best = 0;
++			void *p;
++			for (i = 1; i < n; i++) {
++				uintptr_t di = cand[i] > ref ? cand[i] - ref : ref - cand[i];
++				uintptr_t db = cand[best] > ref ? cand[best] - ref : ref - cand[best];
++				if (di < db)
++					best = i;
++			}
++			p = mmap((void*)cand[best], size, PROT_READ|PROT_WRITE|PROT_EXEC,
++			                                  MAP_ANON|MAP_PRIVATE, -1, 0);
++			if (p != MAP_FAILED) {
++				if (_VALIDATE_BLOCK_FN(p, size))
++					return p;
++				munmap(p, size);
++			}
++			cand[best] = cand[--n];
++		}
++		return NULL;
++	}
++	#endif
++
+ 	// Posix implementation
+ 	void *map_jit_block(unsigned size) {
+ 		unsigned i;
+ 		uintptr_t base = (uintptr_t)(map_jit_block) & (~(_MAP_STEP - 1ULL));
++	#if defined(ARM64_ARCH) && defined(__linux__)
++		void *gp = map_jit_block_in_gap(size);
++		if (gp)
++			return gp;
++	#endif
+ 		for (i = 0; i < _MAP_ITERATIONS; i++) {
+ 			int offset = ((i & 1) ? 1 : -1) * (i >> 1) * _MAP_STEP;
+ 			uintptr_t baddr = base + (intptr_t)offset;
+@@ -112,7 +183,7 @@ bool validate_addr_section_mips(void *ptr, unsigned size, unsigned max_offset_mb
+ 
+ 			void *p = mmap((void*)baddr, size, PROT_READ|PROT_WRITE|PROT_EXEC,
+ 			                                   MAP_ANON|MAP_PRIVATE, -1, 0);
+-			if (p) {
++			if (p != MAP_FAILED) {
+ 				if (_VALIDATE_BLOCK_FN(p, size))
+ 					return p;
+ 
