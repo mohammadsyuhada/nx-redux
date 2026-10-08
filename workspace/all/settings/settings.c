@@ -291,6 +291,14 @@ static SettingItem* game_list_orient_item = NULL;
 static const char* valign_labels[] = {"Left", "Right"};
 static int valign_values[] = {MENU_VALIGN_LEFT, MENU_VALIGN_RIGHT};
 static SettingItem* game_list_valign_item = NULL;
+/* Game lists' List art and Backdrop art: under their alignment row, each shown only while they draw its style */
+static const char* list_art_labels[] = {"Screenshot", "Mix", "3D box art", "2D box art", "Wheel"};
+static int list_art_values[] = {GAME_LIST_ART_SCREENSHOT, GAME_LIST_ART_MIX, GAME_LIST_ART_BOXART3D,
+								GAME_LIST_ART_BOXART2D, GAME_LIST_ART_WHEEL};
+static SettingItem* list_art_item = NULL;
+static const char* backdrop_art_labels[] = {"3D box art", "2D box art", "Wheel"};
+static int backdrop_art_values[] = {BACKDROP_ART_BOXART3D, BACKDROP_ART_BOXART2D, BACKDROP_ART_WHEEL};
+static SettingItem* backdrop_art_item = NULL;
 static const char* hide_show_labels[] = {"Hide", "Show"};
 
 // "Vibration strength": values are libmsettings rumble_strength levels
@@ -634,11 +642,15 @@ static void reset_menu_transitions(void) {
 }
 
 /* Show each orientation row only while its style has an orientation (a main-menu Carousel; a game-list Carousel or
-   Backdrop). The row sits directly under its style row and the page selection is a visible index, so a row that
-   appears or disappears under the style row being cycled leaves the highlight on that style row. */
+   Backdrop), the game lists' alignment row only while they draw Vertical, their List art row only while they draw
+   List and their Backdrop art row only while they draw Backdrop. Each row sits under its style row and the page
+   selection is a visible index, so a row that appears or disappears under the style row being cycled leaves the
+   highlight on that style row. */
 static int layouts_orient_rows_shown(void) {
 	int n = game_list_orient_item && game_list_orient_item->visible ? 1 : 0;
 	n += game_list_valign_item && game_list_valign_item->visible ? 1 : 0;
+	n += list_art_item && list_art_item->visible ? 1 : 0;
+	n += backdrop_art_item && backdrop_art_item->visible ? 1 : 0;
 	for (int c = 0; c < MENU_CAT_COUNT; c++)
 		n += menu_orient_items[c] && menu_orient_items[c]->visible ? 1 : 0;
 	return n;
@@ -659,6 +671,10 @@ static void sync_layouts_orient_rows(void) {
 		game_list_orient_item->visible = MenuStyle_gameListHasOrient(CFG_getGameListStyle()) ? 1 : 0;
 	if (game_list_valign_item)
 		game_list_valign_item->visible = CFG_getGameListOrientEffective() == MENU_ORIENT_VERTICAL ? 1 : 0;
+	if (list_art_item)
+		list_art_item->visible = CFG_getGameListStyle() == MENU_STYLE_LIST ? 1 : 0;
+	if (backdrop_art_item)
+		backdrop_art_item->visible = CFG_getGameListStyle() == MENU_STYLE_BACKDROP ? 1 : 0;
 	int gone = before - layouts_orient_rows_shown();
 	if (gone > 0 && layouts_page.scroll > 0)
 		layouts_page.scroll = layouts_page.scroll > gone ? layouts_page.scroll - gone : 0;
@@ -721,6 +737,24 @@ static void set_game_list_valign(int v) {
 }
 static void reset_game_list_valign(void) {
 	CFG_setGameListVAlign(CFG_DEFAULT_GAMELISTVALIGN);
+}
+static int get_list_art(void) {
+	return CFG_getGameListArt();
+}
+static void set_list_art(int v) {
+	CFG_setGameListArt(v);
+}
+static void reset_list_art(void) {
+	CFG_setGameListArt(CFG_DEFAULT_GAMELISTART);
+}
+static int get_backdrop_art(void) {
+	return CFG_getBackdropArt();
+}
+static void set_backdrop_art(int v) {
+	CFG_setBackdropArt(v);
+}
+static void reset_backdrop_art(void) {
+	CFG_setBackdropArt(CFG_DEFAULT_BACKDROPART);
 }
 
 /* Show Tools */
@@ -1779,6 +1813,17 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		"Vertical alignment", "Which side a vertical game list's stack sits on; its details take the other side.",
 		valign_labels, MENU_VALIGN_COUNT, valign_values, get_game_list_valign, set_game_list_valign,
 		reset_game_list_valign);
+	layouts_items[idx++].a_cycles = 1;
+	list_art_item = &layouts_items[idx];
+	layouts_items[idx] = (SettingItem)ITEM_CYCLE_INIT(
+		"List art", "The picture behind the List. Mix, 2D box art and Wheel come from Artwork Manager > Settings.",
+		list_art_labels, GAME_LIST_ART_COUNT, list_art_values, get_list_art, set_list_art, reset_list_art);
+	layouts_items[idx++].a_cycles = 1;
+	backdrop_art_item = &layouts_items[idx];
+	layouts_items[idx] = (SettingItem)ITEM_CYCLE_INIT(
+		"Backdrop art", "The pictures in the Backdrop's row. 2D box art and Wheel come from Artwork Manager > Settings.",
+		backdrop_art_labels, BACKDROP_ART_COUNT, backdrop_art_values, get_backdrop_art, set_backdrop_art,
+		reset_backdrop_art);
 	layouts_items[idx++].a_cycles = 1;
 	sync_layouts_orient_rows();
 	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(

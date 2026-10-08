@@ -54,8 +54,23 @@ enum {
 	SCREEN_OFF
 };
 
-// Game art presentation style: a thumbnail floating on the right, or a
-// full-height background image that fades diagonally into the list.
+// The List game list's picture (Layouts > List art): the screenshot, 3D box art, or one of the scraper's
+// optional mix composite, 2D box art or wheel (Artwork Manager > Settings). Stored as gamelistart=; never
+// renumber (3D box art came later, so it is last; the settings row shows it after Mix).
+enum { GAME_LIST_ART_SCREENSHOT = 0,
+	   GAME_LIST_ART_MIX = 1,
+	   GAME_LIST_ART_BOXART2D = 2,
+	   GAME_LIST_ART_WHEEL = 3,
+	   GAME_LIST_ART_BOXART3D = 4,
+	   GAME_LIST_ART_COUNT };
+
+// The Backdrop game list's row item pictures (Layouts > Backdrop art): 3D box art, or the scraper's
+// optional 2D box art or wheel (Artwork Manager > Settings). Stored as backdropart=; never renumber.
+enum { BACKDROP_ART_BOXART3D = 0,
+	   BACKDROP_ART_BOXART2D = 1,
+	   BACKDROP_ART_WHEEL = 2,
+	   BACKDROP_ART_COUNT };
+
 // Main menu tab and game list layout styles (MENU_STYLE_*), their defaults and the stored-value mapping.
 #include "menustyle_model.h"
 // Main menu style categories; MenuTabs_styleCategory (menutabs.h) maps a tab to one (Home has none).
@@ -64,10 +79,10 @@ enum { MENU_CAT_CONSOLES = 0,
 	   MENU_CAT_TOOLS,
 	   MENU_CAT_COUNT };
 
-// Which stored art variant the game lists display. The scraper writes a mix
-// composite to <console>/.media/<game>.png and, when available, screenshot-
-// and box-art-only variants to .media/screenshot/ and .media/boxart/. Older
-// libraries have only the mix file, which is the fallback for the others.
+// Which stored art variant to resolve (ROM_displayArtPath). The scraper writes the screenshot to
+// <console>/.media/screenshot/<game>.png and the box art to .media/boxart/; the root .media/<game>.png
+// is where Ports, hand-made art and older scrapes (an older mix composite included) keep their one
+// picture, which is the fallback for the variants. Generate mix writes .media/mix/ (ROM_findListArt).
 typedef enum {
 	ART_TYPE_MIX = 0,
 	ART_TYPE_SCREENSHOT = 1,
@@ -134,6 +149,8 @@ typedef struct
 	bool showTools;
 	bool showHome; // the Home tab (Layouts > Home tab)
 	bool menuControllerArt;
+	int gameListArt;  // GAME_LIST_ART_*: the List game list's picture (Layouts > List art)
+	int backdropArt;  // BACKDROP_ART_*: the Backdrop game list's item pictures (Layouts > Backdrop art)
 	bool buttonHints; // the launcher lists' bottom button hint bar (Layouts > Button hints)
 	bool pageTitle;	  // the main menu's tab row and a game list's title (Layouts > Page title)
 	bool showCollections;
@@ -250,6 +267,8 @@ typedef struct
 #define CFG_DEFAULT_SHOWTOOLS true
 #define CFG_DEFAULT_SHOWHOME true
 #define CFG_DEFAULT_MENUCONTROLLERART true
+#define CFG_DEFAULT_GAMELISTART GAME_LIST_ART_SCREENSHOT
+#define CFG_DEFAULT_BACKDROPART BACKDROP_ART_BOXART3D
 #define CFG_DEFAULT_BUTTONHINTS true
 #define CFG_DEFAULT_PAGETITLE true
 #define CFG_DEFAULT_FN1_TOOL ""
@@ -354,6 +373,14 @@ void CFG_setShowHome(bool show);
 // Show/hide each console's controller art in the Consoles tab (Layouts > Controller).
 bool CFG_getMenuControllerArt(void);
 void CFG_setMenuControllerArt(bool show);
+// The List game list's picture, GAME_LIST_ART_* (Layouts > List art); the setter stores an out-of-range
+// value as the default.
+int CFG_getGameListArt(void);
+void CFG_setGameListArt(int art);
+// The Backdrop game list's item pictures, BACKDROP_ART_* (Layouts > Backdrop art); the setter stores an
+// out-of-range value as the default.
+int CFG_getBackdropArt(void);
+void CFG_setBackdropArt(int art);
 // Show/hide the bottom button hint bar on the launcher's Home, tab and game list screens (Layouts > Button hints).
 bool CFG_getButtonHints(void);
 void CFG_setButtonHints(bool show);

@@ -69,6 +69,8 @@ void CFG_defaults(NextUISettings* cfg) {
 		.showTools = CFG_DEFAULT_SHOWTOOLS,
 		.showHome = CFG_DEFAULT_SHOWHOME,
 		.menuControllerArt = CFG_DEFAULT_MENUCONTROLLERART,
+		.gameListArt = CFG_DEFAULT_GAMELISTART,
+		.backdropArt = CFG_DEFAULT_BACKDROPART,
 		.buttonHints = CFG_DEFAULT_BUTTONHINTS,
 		.pageTitle = CFG_DEFAULT_PAGETITLE,
 		.showCollections = CFG_DEFAULT_SHOWCOLLECTIONS,
@@ -198,6 +200,14 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 			}
 			if (sscanf(line, "menucontrollerart=%i", &temp_value) == 1) {
 				CFG_setMenuControllerArt((bool)temp_value);
+				continue;
+			}
+			if (sscanf(line, "gamelistart=%i", &temp_value) == 1) {
+				CFG_setGameListArt(temp_value);
+				continue;
+			}
+			if (sscanf(line, "backdropart=%i", &temp_value) == 1) {
+				CFG_setBackdropArt(temp_value);
 				continue;
 			}
 			if (sscanf(line, "buttonhints=%i", &temp_value) == 1) {
@@ -683,6 +693,26 @@ bool CFG_getMenuControllerArt(void) {
 
 void CFG_setMenuControllerArt(bool show) {
 	settings.menuControllerArt = show;
+	CFG_sync();
+}
+
+int CFG_getGameListArt(void) {
+	return settings.gameListArt;
+}
+
+void CFG_setGameListArt(int art) {
+	// out of range → the default, like the other game list keys (menustyle_model.h)
+	settings.gameListArt = (art < GAME_LIST_ART_SCREENSHOT || art >= GAME_LIST_ART_COUNT) ? CFG_DEFAULT_GAMELISTART : art;
+	CFG_sync();
+}
+
+int CFG_getBackdropArt(void) {
+	return settings.backdropArt;
+}
+
+void CFG_setBackdropArt(int art) {
+	// out of range → the default, like the other game list keys (menustyle_model.h)
+	settings.backdropArt = (art < BACKDROP_ART_BOXART3D || art >= BACKDROP_ART_COUNT) ? CFG_DEFAULT_BACKDROPART : art;
 	CFG_sync();
 }
 
@@ -1225,6 +1255,10 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", CFG_getShowHome());
 	} else if (strcmp(key, "menucontrollerart") == 0) {
 		sprintf(value, "%i", CFG_getMenuControllerArt());
+	} else if (strcmp(key, "gamelistart") == 0) {
+		sprintf(value, "%i", CFG_getGameListArt());
+	} else if (strcmp(key, "backdropart") == 0) {
+		sprintf(value, "%i", CFG_getBackdropArt());
 	} else if (strcmp(key, "buttonhints") == 0) {
 		sprintf(value, "%i", CFG_getButtonHints());
 	} else if (strcmp(key, "pagetitle") == 0) {
@@ -1332,6 +1366,8 @@ static int CFG_serialize(char* buf, size_t cap) {
 	EMIT("tools=%i\n", settings.showTools);
 	EMIT("showhome=%i\n", settings.showHome);
 	EMIT("menucontrollerart=%i\n", settings.menuControllerArt);
+	EMIT("gamelistart=%i\n", settings.gameListArt);
+	EMIT("backdropart=%i\n", settings.backdropArt);
 	EMIT("buttonhints=%i\n", settings.buttonHints);
 	EMIT("pagetitle=%i\n", settings.pageTitle);
 	EMIT("collections=%i\n", settings.showCollections);
@@ -1577,6 +1613,8 @@ void CFG_print(void) {
 	printf("\t\"tools\": %i,\n", settings.showTools);
 	printf("\t\"showhome\": %i,\n", settings.showHome);
 	printf("\t\"menucontrollerart\": %i,\n", settings.menuControllerArt);
+	printf("\t\"gamelistart\": %i,\n", settings.gameListArt);
+	printf("\t\"backdropart\": %i,\n", settings.backdropArt);
 	printf("\t\"buttonhints\": %i,\n", settings.buttonHints);
 	printf("\t\"pagetitle\": %i,\n", settings.pageTitle);
 	printf("\t\"collections\": %i,\n", settings.showCollections);
