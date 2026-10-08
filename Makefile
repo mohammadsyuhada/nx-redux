@@ -296,7 +296,7 @@ common: build system cores prebuilts
 # own cached job and drops the results in workspace/all/prebuilts/output/; locally,
 # `make build-prebuilts PLATFORM=...` builds what that platform needs.
 PREBUILTS_tg5040 = ffplay rsync gliden64 mupen64plus sdl2-drastic
-PREBUILTS_tg5050 = mupen64plus sdl2-drastic
+PREBUILTS_tg5050 = mupen64plus sdl2-drastic tun-ko
 
 build-prebuilts:
 	@for p in $(PREBUILTS_$(PLATFORM)); do \
@@ -315,6 +315,7 @@ N64_PREBUILT_FILES = libmupen64plus.so.2 mupen64plus mupen64plus-audio-sdl.so \
 PREBUILT_FILES_tg5040 = SYSTEM/shared/bin/ffplay SYSTEM/shared/bin/rsync \
 	BASE/Emus/shared/mupen64plus/mupen64plus-video-GLideN64.so \
 	BASE/Emus/shared/mupen64plus/libpng16.so.16
+PREBUILT_FILES_tg5050 = SYSTEM/tg5050/lib/modules/tun.ko
 PREBUILT_FILES = $(PREBUILT_FILES_$(PLATFORM)) \
 	$(addprefix SYSTEM/$(PLATFORM)/paks/Emus/N64.pak/,$(N64_PREBUILT_FILES)) \
 	SYSTEM/$(PLATFORM)/paks/Emus/NDS.pak/libs/libSDL2-2.0.so.0
