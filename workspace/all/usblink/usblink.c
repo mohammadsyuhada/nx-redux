@@ -12,6 +12,8 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
+#include <endian.h>
+#include <linux/usb/ch9.h>
 #include <linux/usb/functionfs.h>
 #include <pthread.h>
 #include <signal.h>
@@ -238,6 +240,30 @@ static const char* ffs_event_name(int type) {
 	return "?";
 }
 
+// nxlink has no control requests of its own. FunctionFS hands any request
+// addressed to our interface to user space and holds the control pipe until we
+// answer, so an unanswered one stalls enumeration until the host resets the
+// port. Each is refused with a stall: a zero-length transfer in the direction
+// opposite to the data stage (that it "fails" with EL2HLT/EBADMSG is the stall).
+// Each distinct request is logged once, to learn what hosts ask.
+static void stall_setup(int fd, const struct usb_ctrlrequest* r) {
+	static uint32_t seen[16];
+	static int nseen;
+	uint32_t key = (uint32_t)r->bRequestType << 24 | (uint32_t)r->bRequest << 16 | le16toh(r->wValue);
+	int known = 0;
+	for (int i = 0; i < nseen; i++)
+		known |= seen[i] == key;
+	if (!known) {
+		if (nseen < (int)(sizeof(seen) / sizeof(seen[0])))
+			seen[nseen++] = key;
+		fprintf(stderr, "usblink: gadget setup bRequestType=%02x bRequest=%02x wValue=%04x wIndex=%04x wLength=%u (stalled)\n",
+				r->bRequestType, r->bRequest, le16toh(r->wValue), le16toh(r->wIndex), le16toh(r->wLength));
+	}
+	int rc = (r->bRequestType & USB_DIR_IN) ? (int)read(fd, NULL, 0) : (int)write(fd, NULL, 0);
+	if (rc < 0 && errno != EL2HLT && errno != EBADMSG)
+		fprintf(stderr, "usblink: gadget setup stall: %s\n", strerror(errno));
+}
+
 // FunctionFS queues events on ep0; they must be drained or the queue fills.
 static void* ep0_drain(void* arg) {
 	(void)arg;
@@ -249,8 +275,12 @@ static void* ep0_drain(void* arg) {
 			sleep_ms(100);
 			continue;
 		}
-		for (int i = 0; i < n / (int)sizeof(ev[0]); i++)
-			fprintf(stderr, "usblink: gadget %s\n", ffs_event_name(ev[i].type));
+		for (int i = 0; i < n / (int)sizeof(ev[0]); i++) {
+			if (ev[i].type == FUNCTIONFS_SETUP)
+				stall_setup(fd, &ev[i].u.setup);
+			else
+				fprintf(stderr, "usblink: gadget %s\n", ffs_event_name(ev[i].type));
+		}
 	}
 	return NULL;
 }
