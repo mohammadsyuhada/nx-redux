@@ -12,6 +12,7 @@
 #include "ma_menu.h"
 #include "ma_frontend_opts.h"
 #include "ma_saves.h"
+#include "ma_save_paths.h"
 #include "ma_game.h"
 #include "ma_config.h"
 #include "ma_core.h"
@@ -105,8 +106,16 @@ void Menu_init(void) {
 
 	char emu_name[MAX_PATH]; // getEmuName requires MAX_PATH buffers
 	getEmuName(game.path, emu_name);
-	snprintf(menu.minui_dir, sizeof(menu.minui_dir), "%s/.minui/%s", SHARED_USERDATA_PATH, emu_name);
-	mkdir(menu.minui_dir, 0755);
+	// A netplay client on the host's save keeps its slot markers beside its
+	// isolated states (see Core_open), so NextUI never lists them as its own.
+	const char* netplay_saves = getenv("NETPLAY_SAVES_DIR");
+	if (netplay_saves && netplay_saves[0]) {
+		snprintf(menu.minui_dir, sizeof(menu.minui_dir), "%s/minui", netplay_saves);
+		mkdir_p(menu.minui_dir);
+	} else {
+		snprintf(menu.minui_dir, sizeof(menu.minui_dir), "%s/.minui/%s", SHARED_USERDATA_PATH, emu_name);
+		mkdir(menu.minui_dir, 0755);
+	}
 
 	// always sanitized/outer name, to keep main UI from having to inspect archives
 	snprintf(menu.slot_path, sizeof(menu.slot_path), "%s/%s.txt", menu.minui_dir, game.name);
@@ -144,11 +153,48 @@ void Menu_beforeSleep() {
 		}
 	} else {
 		State_autosave();
-		if (prefixMatch(SDCARD_PATH, game.path))
+		// a netplay client's autosave holds the host's data in /tmp: nothing
+		// NextUI should resume into
+		if (prefixMatch(SDCARD_PATH, game.path) && Menu_netplaySavesMode() != NETPLAY_SAVES_COPY)
 			putFile(AUTO_RESUME_PATH, game.path + strlen(SDCARD_PATH));
 	}
 
 	PWR_setCPUSpeed(CPU_SPEED_MENU);
+}
+NetplaySavesMode Menu_netplaySavesMode(void) {
+	return SavePaths_netplayMode(getenv("NETPLAY_ROLE"), getenv("NETPLAY_SAVES_DIR"));
+}
+// A session on the device's own save (link sessions, the lockstep host) writes
+// that save but never an auto-resume state, so the one from before the session
+// would resume the game to before it, and the next in-game save would then
+// undo the session (a trade, say). Drop it, and the markers that point at it,
+// as the session starts so a crash or flat battery mid-session is covered too.
+// Manual slots (0-8) are never touched.
+void Menu_dropAutoResumeForSession(void) {
+	if (Menu_netplaySavesMode() != NETPLAY_SAVES_REAL)
+		return;
+
+	char removed[MAX_PATH] = "";
+	char path[MAX_PATH];
+	State_getSlotPath(AUTO_RESUME_SLOT, path);
+	if (unlink(path) == 0)
+		strcat(removed, " state");
+	snprintf(path, sizeof(path), "%s/%s.%d.bmp", menu.minui_dir, game.name, AUTO_RESUME_SLOT);
+	if (unlink(path) == 0)
+		strcat(removed, " preview");
+	snprintf(path, sizeof(path), "%s/%s.%d.txt", menu.minui_dir, game.name, AUTO_RESUME_SLOT);
+	if (unlink(path) == 0)
+		strcat(removed, " disc-marker");
+	// the RESUME slot file only when it points at the auto slot just removed
+	if (exists(menu.slot_path) && getInt(menu.slot_path) == AUTO_RESUME_SLOT && unlink(menu.slot_path) == 0)
+		strcat(removed, " slot-file");
+	if (exists(AUTO_RESUME_PATH)) {
+		char marker[MAX_PATH];
+		getFile(AUTO_RESUME_PATH, marker, sizeof(marker));
+		if (SavePaths_autoResumeIsGame(marker, game.path, SDCARD_PATH) && unlink(AUTO_RESUME_PATH) == 0)
+			strcat(removed, " auto_resume.txt");
+	}
+	LOG_info("Netplay: session on the real save, dropped auto-resume for %s:%s\n", game.name, removed[0] ? removed : " (none)");
 }
 void Menu_afterSleep() {
 	unlink(AUTO_RESUME_PATH);

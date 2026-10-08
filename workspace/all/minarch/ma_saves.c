@@ -2,6 +2,7 @@
 #include "utils.h"
 #include "config.h"
 #include "ma_saves.h"
+#include "ma_save_paths.h"
 #include "notification.h"
 #include "ra_integration.h"
 #include <errno.h>
@@ -13,17 +14,9 @@
 #include "streams/file_stream.h"
 #endif
 
-// strip a 1-4 letter extension (plus dot), matching getDisplayName's rule
-static void stripExtension(char* work_name) {
-	char* tmp = strrchr(work_name, '.');
-	if (tmp != NULL && strlen(tmp) > 2 && strlen(tmp) <= 5) {
-		tmp[0] = '\0';
-	}
-}
-
 // filename must be a MAX_PATH-sized buffer
 static void formatSavePath(char* work_name, char* filename, const char* suffix) {
-	stripExtension(work_name);
+	SavePaths_stripExtension(work_name);
 	snprintf(filename, MAX_PATH, "%s/%s%s", core.saves_dir, work_name, suffix);
 }
 
@@ -171,32 +164,12 @@ void RTC_write(void) {
 int state_slot = 0;
 
 // filename must be a MAX_PATH-sized buffer
+void State_getSlotPath(int slot, char* filename) {
+	SavePaths_state(filename, MAX_PATH, core.states_dir, game.alt_name, CFG_getStateFormat(), slot);
+}
+// filename must be a MAX_PATH-sized buffer
 void State_getPath(char* filename) {
-	char work_name[MAX_PATH];
-
-	// This is only here for compatibility with older versions of minarch,
-	// should probably be removed at some point in the future.
-	if (CFG_getStateFormat() == STATE_FORMAT_SRM_EXTRADOT || CFG_getStateFormat() == STATE_FORMAT_SRM_UNCOMPRESSED_EXTRADOT) {
-		strcpy(work_name, game.alt_name);
-		stripExtension(work_name);
-
-		if (state_slot == AUTO_RESUME_SLOT)
-			snprintf(filename, MAX_PATH, "%s/%s.state.auto", core.states_dir, work_name);
-		else
-			snprintf(filename, MAX_PATH, "%s/%s.state.%i", core.states_dir, work_name, state_slot);
-	} else if (CFG_getStateFormat() == STATE_FORMAT_SRM || CFG_getStateFormat() == STATE_FORMAT_SRM_UNCOMPRESSED) {
-		strcpy(work_name, game.alt_name);
-		stripExtension(work_name);
-
-		if (state_slot == AUTO_RESUME_SLOT)
-			snprintf(filename, MAX_PATH, "%s/%s.state.auto", core.states_dir, work_name);
-		else if (state_slot == 0)
-			snprintf(filename, MAX_PATH, "%s/%s.state", core.states_dir, work_name);
-		else
-			snprintf(filename, MAX_PATH, "%s/%s.state%i", core.states_dir, work_name, state_slot);
-	} else {
-		snprintf(filename, MAX_PATH, "%s/%s.st%i", core.states_dir, game.alt_name, state_slot);
-	}
+	State_getSlotPath(state_slot, filename);
 }
 
 #define RASTATE_HEADER_SIZE 16

@@ -350,6 +350,10 @@ int main(int argc, char* argv[]) {
 	if (NetplayBoot_startFromEnv(core.name) != 0) {
 		Menu_message("Netplay connection failed.", (char*[]){"A", "OKAY", NULL});
 		quit = 1;
+	} else {
+		// session on the device's own save: its old auto-resume state would
+		// resume to before the session (no-op for plain launches and clients)
+		Menu_dropAutoResumeForSession();
 	}
 
 	// we dont need five second updates while ingame, and wifi status isnt displayed either
