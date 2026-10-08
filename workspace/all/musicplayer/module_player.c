@@ -445,30 +445,22 @@ static bool handle_browser_input(PlayerInternalState* state, bool* dirty) {
 
 // Handle input in playing state. Returns true when main loop should continue (skip render).
 static bool handle_playing_input(SDL_Surface* screen, PlayerInternalState* state, bool* dirty) {
-	// Handle screen off hint timeout
-	if (ModuleCommon_isScreenOffHintActive()) {
+	// Screen off hint or screen off: A still toggles play/pause
+	if (screen_off || ModuleCommon_isScreenOffHintActive()) {
+		// (the waking frame ends here so its A press doesn't also toggle)
+		DarkScreenAction action = ModuleCommon_handleDarkScreenInput(screen, &screen_off);
+		if (action == DARK_SCREEN_WAKE)
+			*dirty = 1;
+		else if (action == DARK_SCREEN_TOGGLE)
+			MusicClient_toggle();
 		if (ModuleCommon_processScreenOffHintTimeout()) {
 			screen_off = true;
 			GFX_clear(screen);
 			GFX_flip(screen);
 		}
 		MusicClient_update();
-		GFX_sync();
-		return true;
-	}
-
-	// Handle screen off mode
-	if (screen_off) {
-		// Wake screen with SELECT+A
-		if (PAD_isPressed(BTN_SELECT) && PAD_isPressed(BTN_A)) {
-			screen_off = false;
-			PLAT_enableBacklight(1);
-			ModuleCommon_recordInputTime();
-			*dirty = 1;
-		}
-		MusicClient_update();
-		ModuleCommon_setAutosleepDisabled(Background_isPlaying());
-
+		if (screen_off)
+			ModuleCommon_setAutosleepDisabled(Background_isPlaying());
 		GFX_sync();
 		return true;
 	}
@@ -879,29 +871,22 @@ ModuleExitReason PlayerModule_runWithPlaylist(SDL_Surface* screen,
 			}
 		}
 
-		// Handle screen off hint timeout
-		if (ModuleCommon_isScreenOffHintActive()) {
+		// Screen off hint or screen off: A still toggles play/pause
+		if (screen_off || ModuleCommon_isScreenOffHintActive()) {
+			// (the waking frame ends here so its A press doesn't also toggle)
+			DarkScreenAction action = ModuleCommon_handleDarkScreenInput(screen, &screen_off);
+			if (action == DARK_SCREEN_WAKE)
+				dirty = 1;
+			else if (action == DARK_SCREEN_TOGGLE)
+				MusicClient_toggle();
 			if (ModuleCommon_processScreenOffHintTimeout()) {
 				screen_off = true;
 				GFX_clear(screen);
 				GFX_flip(screen);
 			}
 			MusicClient_update();
-			GFX_sync();
-			continue;
-		}
-
-		// Handle screen off mode
-		if (screen_off) {
-			if (PAD_isPressed(BTN_SELECT) && PAD_isPressed(BTN_A)) {
-				screen_off = false;
-				PLAT_enableBacklight(1);
-				ModuleCommon_recordInputTime();
-				dirty = 1;
-			}
-			MusicClient_update();
-			ModuleCommon_setAutosleepDisabled(Background_isPlaying());
-
+			if (screen_off)
+				ModuleCommon_setAutosleepDisabled(Background_isPlaying());
 			GFX_sync();
 			continue;
 		}

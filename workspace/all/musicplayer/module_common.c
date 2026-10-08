@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <msettings.h>
@@ -257,6 +258,44 @@ bool ModuleCommon_processScreenOffHintTimeout(void) {
 		return true;
 	}
 	return false;
+}
+
+DarkScreenAction ModuleCommon_handleDarkScreenInput(SDL_Surface* screen, bool* screen_off) {
+	// Mirrors PWR_update's power button handling, which the module skips while
+	// the screen is dark (its tap would deep-sleep instead of showing the hint).
+	static uint32_t power_pressed_at = 0;
+	uint32_t now = SDL_GetTicks();
+
+	if (PAD_justPressed(BTN_POWER))
+		power_pressed_at = now;
+	if (PAD_justReleased(BTN_POWEROFF) || (power_pressed_at && now - power_pressed_at >= 1000)) {
+		system("gametimectl.elf stop_all");
+		PWR_powerOff(0);
+	}
+	if (PAD_justReleased(BTN_POWER) && power_pressed_at) {
+		power_pressed_at = 0;
+		if (*screen_off) {
+			*screen_off = false;
+			PLAT_enableBacklight(1);
+			GFX_clear(screen);
+			render_screen_off_hint(screen);
+			GFX_flip(screen);
+		}
+		ModuleCommon_startScreenOffHint();
+		return DARK_SCREEN_NONE;
+	}
+
+	if (PAD_isPressed(BTN_SELECT) && PAD_isPressed(BTN_A)) {
+		power_pressed_at = 0;
+		*screen_off = false;
+		screen_off_hint_active = false;
+		PLAT_enableBacklight(1);
+		ModuleCommon_recordInputTime();
+		return DARK_SCREEN_WAKE;
+	}
+	if (PAD_justPressed(BTN_A))
+		return DARK_SCREEN_TOGGLE;
+	return DARK_SCREEN_NONE;
 }
 
 void ModuleCommon_quit(void) {

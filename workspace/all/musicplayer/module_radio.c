@@ -71,6 +71,17 @@ static char last_rendered_artist[256] = "";
 static char last_rendered_title[256] = "";
 static char last_artwork_path[MUSIC_SERVICE_MAX_PATH] = "";
 
+// A toggles play/pause: stop a playing stream, or reload the last one
+static void toggle_radio_playback(void) {
+	if (MusicClient_isRadioActive()) {
+		MusicClient_pause();
+	} else {
+		const char* url = MusicClient_snapshot()->current_file;
+		if (url[0] != '\0')
+			MusicClient_loadRadio(url);
+	}
+}
+
 static bool sync_radio_artwork(const MusicSnapshotWire* snapshot) {
 	if (strcmp(last_artwork_path, snapshot->artwork_path) == 0)
 		return false;
@@ -394,26 +405,18 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 		else if (state == RADIO_INTERNAL_PLAYING) {
 			ModuleCommon_setAutosleepDisabled(true);
 
-			// Handle screen off hint timeout
-			if (ModuleCommon_isScreenOffHintActive()) {
+			// Screen off hint or screen off: A still toggles play/pause
+			// (the waking frame ends here so its A press doesn't also toggle)
+			if (screen_off || ModuleCommon_isScreenOffHintActive()) {
+				DarkScreenAction action = ModuleCommon_handleDarkScreenInput(screen, &screen_off);
+				if (action == DARK_SCREEN_WAKE)
+					dirty = 1;
+				else if (action == DARK_SCREEN_TOGGLE)
+					toggle_radio_playback();
 				if (ModuleCommon_processScreenOffHintTimeout()) {
 					screen_off = true;
 					GFX_clear(screen);
 					GFX_flip(screen);
-				}
-				MusicClient_update();
-				GFX_sync();
-				continue;
-			}
-
-			// Handle screen off mode
-			if (screen_off) {
-				// Wake screen with SELECT+A
-				if (PAD_isPressed(BTN_SELECT) && PAD_isPressed(BTN_A)) {
-					screen_off = false;
-					PLAT_enableBacklight(1);
-					ModuleCommon_recordInputTime();
-					dirty = 1;
 				}
 				MusicClient_update();
 				GFX_sync();
@@ -456,19 +459,8 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 				state = RADIO_INTERNAL_LIST;
 				dirty = 1;
 			} else if (PAD_justPressed(BTN_A)) {
-				// A toggles play/pause
-				if (MusicClient_isRadioActive()) {
-					// Playing - stop it
-					MusicClient_pause();
-					dirty = 1;
-				} else {
-					// Stopped - resume playing
-					const char* url = MusicClient_snapshot()->current_file;
-					if (url[0] != '\0') {
-						MusicClient_loadRadio(url);
-						dirty = 1;
-					}
-				}
+				toggle_radio_playback();
+				dirty = 1;
 			} else if (PAD_tappedSelect(SDL_GetTicks())) {
 				ModuleCommon_startScreenOffHint();
 				GFX_clearLayers(LAYER_SCROLLTEXT);

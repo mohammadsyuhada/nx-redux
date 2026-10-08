@@ -102,6 +102,13 @@ static bool restore_podcast_identity(void) {
 	return false;
 }
 
+static void toggle_podcast_playback(void) {
+	if (MusicClient_snapshot()->state == MUSIC_STATE_PAUSED)
+		MusicClient_play();
+	else
+		MusicClient_pause();
+}
+
 static void clear_and_show_screen_off_hint(SDL_Surface* screen) {
 	GFX_clearLayers(LAYER_SCROLLTEXT);
 	PLAT_clearLayers(LAYER_BUFFER);
@@ -925,23 +932,18 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 		else if (state == PODCAST_INTERNAL_PLAYING) {
 			ModuleCommon_setAutosleepDisabled(true);
 
-			// Handle screen off hint timeout
-			if (ModuleCommon_isScreenOffHintActive()) {
+			// Screen off hint or screen off: A still toggles play/pause
+			// (the waking frame ends here so its A press doesn't also toggle)
+			if (screen_off || ModuleCommon_isScreenOffHintActive()) {
+				DarkScreenAction action = ModuleCommon_handleDarkScreenInput(screen, &screen_off);
+				if (action == DARK_SCREEN_WAKE)
+					dirty = 1;
+				else if (action == DARK_SCREEN_TOGGLE)
+					toggle_podcast_playback();
 				if (ModuleCommon_processScreenOffHintTimeout()) {
 					screen_off = true;
 					GFX_clear(screen);
 					GFX_flip(screen);
-				}
-				Podcast_update();
-				GFX_sync();
-				continue;
-			} else if (screen_off) {
-				// Wake screen with SELECT+A
-				if (PAD_isPressed(BTN_SELECT) && PAD_isPressed(BTN_A)) {
-					screen_off = false;
-					PLAT_enableBacklight(1);
-					ModuleCommon_recordInputTime();
-					dirty = 1;
 				}
 				// Handle USB/Bluetooth media and volume buttons even with screen off
 				Podcast_update();
@@ -949,10 +951,7 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 				continue;
 			} else {
 				if (PAD_justPressed(BTN_A)) {
-					if (MusicClient_snapshot()->state == MUSIC_STATE_PAUSED)
-						MusicClient_play();
-					else
-						MusicClient_pause();
+					toggle_podcast_playback();
 					ModuleCommon_recordInputTime();
 					dirty = 1;
 				} else if (PAD_justPressed(BTN_B)) {

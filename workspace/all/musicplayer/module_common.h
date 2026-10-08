@@ -70,6 +70,19 @@ void ModuleCommon_resetScreenOffHint(void);
 // If still counting down or hint not active: returns false.
 bool ModuleCommon_processScreenOffHintTimeout(void);
 
+// What a module must do after ModuleCommon_handleDarkScreenInput.
+typedef enum {
+	DARK_SCREEN_NONE,	// nothing (or the helper already handled it)
+	DARK_SCREEN_WAKE,	// SELECT + A: the screen is back on, redraw the page
+	DARK_SCREEN_TOGGLE, // A: toggle play/pause the way the page's A does
+} DarkScreenAction;
+
+// Input while the screen-off hint is showing or the screen is dark. The module
+// skips global input and PWR_update then, so this owns the power button: a tap
+// brings the hint back (backlight on, screen_off cleared), a 1 s hold or the
+// platform power-off event powers the device off.
+DarkScreenAction ModuleCommon_handleDarkScreenInput(SDL_Surface* screen, bool* screen_off);
+
 // Record last input time (for auto screen-off timeout)
 void ModuleCommon_recordInputTime(void);
 
