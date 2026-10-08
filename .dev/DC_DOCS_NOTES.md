@@ -140,8 +140,33 @@ yet**; the switch ships together with netplay (sub-project 4). Until then the cu
   - card-write safety.
 - Credits: none needed (flycast was already credited, if it is). Separately, Kenney glyph credit is pending (see DEV_TODO).
 
+## Dreamcast Lite (DCX), 2026-10-08
+
+A second Dreamcast system on **both platforms** (tg5040 + tg5050, owner 2026-10-08): tag `DCX`, folder
+`Roms/Dreamcast Lite (DCX)`, pak `DCX.pak`, core `flycast_legacy` (libretro's own flycast fork at `4c293f30`,
+2022-04-06, built from source with four patches: resume before the first frame, BIOS directly in `Bios/DCX`, modern `awbios.zip`,
+discs share one card). Why: on the Brick, flycast 2.7 runs Crazy Taxi 2 at ~81 % while driving (audio gaps); this
+fork runs it at ~99 % with the same settings.
+
+User-visible points (docs site: written on `docs/handheld/emulators/dreamcast.md` "Dreamcast Lite" section and
+`cores.md` core table + "choice of core" table — local, not pushed):
+
+- Copy/move a game into `Roms/Dreamcast Lite (DCX)/`; it shows under "Dreamcast Lite" with its own logo (Dreamcast
+  + LITE badge) and the Dreamcast controller art.
+- BIOS: its own folder, `Bios/DCX/` — players copy the same files as DC's (`dc_boot.bin`; `naomi.zip` / `awbios.zip`
+  for arcade games) there themselves (owner's call 2026-10-08: no automatic copy). Without `dc_boot.bin` the core's HLE
+  BIOS boots Dreamcast games. Modern `awbios.zip` (`bios.ic23_l`) works (patch 0004).
+- Saves are separate from DC: per-game card `Saves/DCX/<rom>.A1.bin`, states in `.userdata/shared/DCX-flycast_legacy/`.
+- Works: RetroAchievements, save states, auto-resume, fast-forward, Artwork Manager, Naomi/Atomiswave.
+- Missing vs DC: netplay, *SH4 CPU under/overclock*, *Auto Skip Frame*. Less accurate than v2.7 — use it for the games
+  that stutter.
+- Smart Pro S (tg5050) gets it too (2.7 already runs most games at ~96 % there); its pak mirrors DC's tg5050 setup
+  (big-core affinity, cpu5 online, GPU performance governor, widescreen hack on).
+- Release-note bullet when it ships: "Dreamcast Lite, a lighter Dreamcast emulator for heavy games".
+
 ## Changelog of this notes file
 
+- 2026-10-08: Dreamcast Lite (DCX) section.
 - 2026-09-29: sub-project 3 built (pak switch, save carry-over, BIOS dir, controls, options, arcade menu title, standalone
   build removed).
 - 2026-09-29: created during sub-project 1. It covers the spike, phase 1a (AV-info / aspect), Emulated sync, the v2.7 core build
