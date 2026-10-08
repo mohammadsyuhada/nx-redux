@@ -161,7 +161,8 @@ User-visible points (docs site: written on `docs/handheld/emulators/dreamcast.md
 - Missing vs DC: netplay, *SH4 CPU under/overclock*, *Auto Skip Frame*. Less accurate than v2.7 — use it for the games
   that stutter.
 - Smart Pro S (tg5050) gets it too (2.7 already runs most games at ~96 % there); its pak mirrors DC's tg5050 setup
-  (big-core affinity, cpu5 online, GPU performance governor, widescreen hack on).
+  (big-core affinity, cpu5 online, GPU performance governor) but keeps the widescreen hack OFF: this core reports 16:9
+  whenever the hack is on yet only widens unclipped games, so 4:3 games stretched (Metal Slug 6). Per-game opt-in.
 - Release-note bullet when it ships: "Dreamcast Lite, a lighter Dreamcast emulator for heavy games".
 
 ## Changelog of this notes file
