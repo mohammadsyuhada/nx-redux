@@ -7,7 +7,7 @@
 // blits: no font, logo, tile or caption is made at a tweened size (an item changing size is its selected-size surface
 // scaled, as on the row). A Backdrop-Vertical's picture (the crossfading screenshot layers with their 65% dim and the
 // shade, its fade in and out) is the row's own, drawn under the body before RowView_render (RowView_renderPicture).
-// As on the row, the Consoles stack and a game list's Carousel and Backdrop stacks are drawn as GPU sprites
+// As on the row, the main menu's stacks and a game list's Carousel and Backdrop stacks are drawn as GPU sprites
 // (RowView_beginSprites: the same cached surfaces handed to the GPU, the Carousel's edge fade as black strips), so a
 // slide draws nothing into the screen's body; under a context menu they are drawn the software way.
 
@@ -198,8 +198,8 @@ static void drawItem(SDL_Surface* screen, const StackGeo* sg, Entry* e, TileKind
 	if (a == 0)
 		return;
 	if (RowView_drawConsoleLogo(screen, &sg->g, e, kind, sg->g.cx, cy, it->scale, a, selected))
-		return;													  // a Consoles logo as a GPU sprite (sprite mode)
-	if (sg->kind == STACK_MAIN_CONSOLES && !ContextMenu_isOpen()) // GPU sprites: the full surface, scaled by the GPU
+		return;				   // a Consoles logo as a GPU sprite (sprite mode)
+	if (!ContextMenu_isOpen()) // GPU sprites (every frameless stack): the full surface, scaled by the GPU
 		RowView_blitItem(screen, RowView_slotItem(&sg->g, e, kind, false), sg->g.cx, cy, it->scale, a);
 	else if (fabsf(it->scale - sg->ss.scale) < SCALE_EPS)
 		RowView_blitItem(screen, RowView_slotItem(&sg->g, e, kind, true), sg->g.cx, cy, 1.0f, a);
@@ -448,10 +448,10 @@ void StackView_render(SDL_Surface* screen, int lastScreen) {
 	SDL_GetClipRect(screen, &prev_clip);
 	SDL_SetClipRect(screen, &(SDL_Rect){0, sg.vis_top, screen->w, sg.vis_h});
 
-	// Consoles and a game list's Carousel and Backdrop: the pictures, counts, caption and edge fade go to the GPU
-	// (RowView_beginSprites), the screen's body stays as RowView_render left it (not under a context menu: it draws over
-	// the body on the screen, under the sprites)
-	bool sprites = (kind == STACK_MAIN_CONSOLES && !ContextMenu_isOpen()) || (gameStack(kind) && RowView_gameSprites());
+	// Consoles, Collections, Tools and a game list's Carousel and Backdrop: the pictures, counts, caption and edge fade
+	// go to the GPU (RowView_beginSprites), the screen's body stays as RowView_render left it (not under a context menu:
+	// it draws over the body on the screen, under the sprites)
+	bool sprites = (!gameStack(kind) && !ContextMenu_isOpen()) || (gameStack(kind) && RowView_gameSprites());
 	RowView_beginSprites(sprites);
 
 	// far to near (the largest d first), so the nearer item lands on top where a grown name reaches a neighbour

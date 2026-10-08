@@ -780,6 +780,10 @@ void PLAT_GPU_Flip();
 void PLAT_spritesClear(void);
 void PLAT_spriteAdd(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, const SDL_Rect* clip);
 void PLAT_spriteAddUnder(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, const SDL_Rect* clip);
+// PLAT_spriteAdd with a grey colour mod: the texture's colours times shade/255 (a card darkened toward black whose
+// transparent corners stay transparent, as a black sprite over it would not).
+void PLAT_spriteAddShaded(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, Uint8 shade,
+						  const SDL_Rect* clip);
 // Drop tex's sprites from both lists before the next clear: for a sprite the next present must no longer show (a List
 // marquee's held title, once its GPU scroll takes over between full frames).
 void PLAT_spriteRemove(SDL_Texture* tex);

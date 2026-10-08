@@ -56,6 +56,7 @@
 #include "ui_list.h"
 #include "tiles.h"
 #include "ui_buttonhintbar.h"
+#include "ui_contextmenu.h"
 #include "ui_ease.h"
 #include "ui_fade.h"
 #include "view_common.h"
@@ -160,6 +161,7 @@ static int strip_top = 0; // the surface's top on the unscrolled page (px)
 
 static void cardCacheClear(void);
 static void stretchFree(void);
+static void ringFree(void);
 
 ///////////////////////////////////////
 // Units and timing
@@ -778,6 +780,7 @@ void Home_quit(void) {
 	strip_key = 0;
 	cardCacheClear();
 	stretchFree();
+	ringFree();
 	need_rebuild = true;
 }
 
@@ -1301,8 +1304,7 @@ static unsigned card_lru = 0;
 
 static void cardCacheClear(void) {
 	for (int i = 0; i < CARD_CACHE_MAX; i++) {
-		if (card_cache[i].surf)
-			SDL_FreeSurface(card_cache[i].surf);
+		GFX_freeSurfaceAndTexture(card_cache[i].surf); // a Carousel card may have its sprite texture
 		card_cache[i] = (CardSlot){0};
 	}
 }
@@ -1402,6 +1404,7 @@ static Uint32 cardStamp(CardKind kind, int ref, int w, int h, bool lit) {
 }
 
 static void composeCardKind(SDL_Surface* s, CardKind kind, int w, int h, bool lit, int ref) {
+	PLAT_freeSurfaceTexture(s); // a Carousel card's sprite texture holds the old look: made again on its next use
 	SDL_SetClipRect(s, &(SDL_Rect){0, 0, w, h});
 	switch (kind) {
 	case CARD_CONTINUE:
@@ -1465,7 +1468,7 @@ static SDL_Surface* cachedCard(CardKind kind, int ref, int w, int h, bool lit) {
 	if (!victim)
 		return NULL;
 	if (victim->surf && (victim->surf->w != w || victim->surf->h != h)) {
-		SDL_FreeSurface(victim->surf);
+		GFX_freeSurfaceAndTexture(victim->surf);
 		victim->surf = NULL;
 	}
 	if (!victim->surf)
@@ -1609,6 +1612,105 @@ static SDL_Surface* stretched(int which, SDL_Surface* src, int w, int h) {
 	return v;
 }
 
+// GPU sprite mode (Home_render: the Carousel, not under a context menu): the row's cards and their rings go to the GPU
+// as sprites instead of being stretched and blended into the screen (10-15 ms a frame on the Brick while the row
+// slid), as the game lists' Carousel (rowview.c). The body under them stays clear; the strip and the dock stay
+// software (they don't move with the row).
+static bool car_sprites = false;
+// a look of a card within reach still had no texture after this frame's one (carWarm): keep redrawing (Home_animating)
+static bool car_warming = false;
+
+// A sprite's alpha: a at the tab-focus dim (the page dims as one layer: contentdim.c for the software part)
+static Uint8 carSpriteAlpha(int a) {
+	if (a <= 0)
+		return 0;
+	return (Uint8)((a > 255 ? 255 : a) * MenuTabs_contentAlpha() + 0.5f);
+}
+
+// card's texture into r at alpha a, darkened by dim (a colour mod: its clear corners stay clear)
+static void cardSprite(SDL_Surface* dst, SDL_Surface* card, SDL_Rect r, int a, Uint8 dim) {
+	Uint8 sa = carSpriteAlpha(a);
+	SDL_Texture* t = sa && card ? PLAT_textureForSurface(card) : NULL;
+	if (t)
+		PLAT_spriteAddShaded(t, NULL, &r, sa, (Uint8)(255 - dim), &dst->clip_rect);
+}
+
+// The selection ring around the centre card at full strength, as strokeRounded draws it on the screen: one colour, its
+// coverage in the alpha (straight, as a sprite's). Made again when the card's size, the ring or the accent changes.
+static SDL_Surface* ring_surf = NULL;
+static int ring_t = 0, ring_r = 0;
+static Uint32 ring_rgb = 0;
+
+static void ringFree(void) {
+	GFX_freeSurfaceAndTexture(ring_surf);
+	ring_surf = NULL;
+}
+
+static SDL_Surface* ringSurface(void) {
+	int t = px(HOME_RING);
+	int sw = car_full_w + 2 * t, sh = car_full_h + 2 * t;
+	SDL_Color c = cardBg(true);
+	Uint32 rgb = ((Uint32)c.r << 16) | ((Uint32)c.g << 8) | c.b;
+	int r = clampRadius(radiusPx() + t, sw, sh);
+	if (ring_surf && ring_surf->w == sw && ring_surf->h == sh && ring_t == t && ring_r == r && ring_rgb == rgb)
+		return ring_surf;
+	ringFree();
+	if (t <= 0 || sw <= 0 || sh <= 0)
+		return NULL;
+	SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, sw, sh, 32, SDL_PIXELFORMAT_ARGB8888);
+	if (!s)
+		return NULL;
+	SDL_FillRect(s, NULL, 0);
+	strokeRounded(s, 0, 0, sw, sh, radiusPx() + t, t, c, 255);
+	// a partly covered pixel blended over clear is left premultiplied (blendPx): the ring is one colour, so every
+	// covered pixel takes it back at its coverage
+	for (int y = 0; y < sh; y++) {
+		Uint32* row = (Uint32*)((Uint8*)s->pixels + y * s->pitch);
+		for (int x = 0; x < sw; x++)
+			if (row[x] >> 24)
+				row[x] = (row[x] & 0xFF000000u) | rgb;
+	}
+	SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
+	ring_surf = s;
+	ring_t = t, ring_r = r, ring_rgb = rgb;
+	return s;
+}
+
+// The ring in the outer rect o at alpha a: its corners 1:1 and its sides stretched along their length (nine pieces less
+// the empty middle), so its thickness and corners stay as strokeRounded's at any card size.
+static void ringSprites(SDL_Surface* dst, SDL_Rect o, int a) {
+	SDL_Surface* s = ringSurface();
+	Uint8 sa = carSpriteAlpha(a);
+	SDL_Texture* tex = sa && s ? PLAT_textureForSurface(s) : NULL;
+	if (!tex)
+		return;
+	const SDL_Rect* clip = &dst->clip_rect;
+	int t = ring_t, R = ring_r, sw = s->w, sh = s->h;
+	if (clampRadius(radiusPx() + t, o.w, o.h) != R || o.w < 2 * R || o.h < 2 * R) {
+		PLAT_spriteAdd(tex, NULL, &o, sa, clip); // not reached at the Carousel's sizes
+		return;
+	}
+	SDL_Rect src[8] = {{0, 0, R, R},
+					   {sw - R, 0, R, R},
+					   {0, sh - R, R, R},
+					   {sw - R, sh - R, R, R},
+					   {R, 0, sw - 2 * R, t},
+					   {R, sh - t, sw - 2 * R, t},
+					   {0, R, t, sh - 2 * R},
+					   {sw - t, R, t, sh - 2 * R}};
+	SDL_Rect d[8] = {{o.x, o.y, R, R},
+					 {o.x + o.w - R, o.y, R, R},
+					 {o.x, o.y + o.h - R, R, R},
+					 {o.x + o.w - R, o.y + o.h - R, R, R},
+					 {o.x + R, o.y, o.w - 2 * R, t},
+					 {o.x + R, o.y + o.h - t, o.w - 2 * R, t},
+					 {o.x, o.y + R, t, o.h - 2 * R},
+					 {o.x + o.w - t, o.y + R, t, o.h - 2 * R}};
+	for (int i = 0; i < 8; i++)
+		if (src[i].w > 0 && src[i].h > 0 && d[i].w > 0 && d[i].h > 0)
+			PLAT_spriteAdd(tex, &src[i], &d[i], sa, clip);
+}
+
 // Row item i with the row at pos: 1:1 from its cached card at a rest size (the centre's, lit; a neighbour's, plain),
 // else both looks stretched from the centre's with the lit one crossfading in (1 − d, as the game lists' Carousel); the
 // darkening (Row_item's) over it. The ring (the selection's, at the lit amount, gone while the dock has the focus:
@@ -1635,6 +1737,20 @@ static void drawCarItem(SDL_Surface* dst, int i, float pos, float row_lit) {
 		return;
 	Uint8 dim = (Uint8)(it.darken * 255.0f + 0.5f);
 	float ring_a = lit * row_lit * (1.0f - it.darken);
+	if (car_sprites) { // the same looks as sprites, the GPU scaling the centre's while the item changes size
+		if (ring_a > 0.0f)
+			ringSprites(dst, (SDL_Rect){r.x - ring, r.y - ring, r.w + 2 * ring, r.h + 2 * ring},
+						(int)(ring_a * 255 + 0.5f));
+		if (full || side) {
+			cardSprite(dst, cachedCard(kind, ref, w, h, full && lit_differs), r, 255, dim);
+			return;
+		}
+		SDL_Surface* lit_s = lit_differs && lit > 0.004f ? cachedCard(kind, ref, car_full_w, car_full_h, true) : NULL;
+		SDL_Surface* plain = !lit_s || lit < 0.996f ? cachedCard(kind, ref, car_full_w, car_full_h, false) : NULL;
+		cardSprite(dst, plain, r, 255, dim);
+		cardSprite(dst, lit_s, r, plain ? (int)(lit * 255 + 0.5f) : 255, dim);
+		return;
+	}
 	if (ring_a > 0.0f)
 		strokeRounded(dst, r.x - ring, r.y - ring, r.w + 2 * ring, r.h + 2 * ring, radiusPx() + ring, ring,
 					  cardBg(true), (int)(ring_a * 255 + 0.5f));
@@ -1649,6 +1765,32 @@ static void drawCarItem(SDL_Surface* dst, int i, float pos, float row_lit) {
 		blitCardOver(dst, lit_s, plain, r, (int)(lit * 255 + 0.5f), dim);
 	else
 		blitCardOver(dst, lit_s ? lit_s : plain, NULL, r, 255, dim);
+}
+
+// Sprite mode, the row at rest: the textures of the looks a slide shows next (each item within reach at a neighbour's
+// size, the centre's size plain and lit, the ring), one a frame, so a slide finds them made instead of making them
+// (~3 ms each on the Brick) in its frames.
+static void carWarm(int first, int last) {
+	SDL_Surface* ring = ringSurface();
+	if (ring && !ring->userdata) {
+		PLAT_textureForSurface(ring);
+		car_warming = true;
+		return;
+	}
+	for (int i = first; i <= last; i++) {
+		CardKind kind = i > 0 ? CARD_CAR_GAME : cont ? CARD_CAR_CONTINUE
+													 : CARD_PICK;
+		int ref = i > 0 ? i - 1 : 0;
+		SDL_Surface* looks[3] = {cachedCard(kind, ref, car_side_w, car_side_h, false),
+								 cachedCard(kind, ref, car_full_w, car_full_h, false),
+								 kind != CARD_PICK ? cachedCard(kind, ref, car_full_w, car_full_h, true) : NULL};
+		for (int k = 0; k < 3; k++)
+			if (looks[k] && !looks[k]->userdata) {
+				PLAT_textureForSurface(looks[k]);
+				car_warming = true; // maybe more: the next frame looks again
+				return;
+			}
+	}
 }
 
 // The row, farthest items first (a sliding item's ring is never under a neighbour), then the dock's squares (Grid's
@@ -1669,6 +1811,8 @@ static void drawCarousel(SDL_Surface* dst) {
 	float row_lit = litAmount(CAR_ID_ROW);
 	for (int k = 0; k < n; k++)
 		drawCarItem(dst, order[k], pos, row_lit);
+	if (car_sprites && !slide_tw.active && !sel_tw.active)
+		carWarm(first, last);
 	for (int t = 0; t < car.ntools; t++) {
 		HomeTile tile = {HOME_TILE_TOOL, t, car.dock[t]};
 		drawTile(dst, &tile, CAR_ID_DOCK + t, 0);
@@ -1761,6 +1905,9 @@ void Home_render(SDL_Surface* dst, int lastScreen) {
 		ContentDim_begin(dst, (SDL_Rect){0, bar_h, dst->w, body_h});
 		drawStrip(dst, &st, scroll_px);
 		if (carousel()) {
+			// sprites: not under a context menu (it draws on the screen, which they would cover)
+			car_sprites = !ContextMenu_isOpen();
+			car_warming = false;
 			drawCarousel(dst);
 		} else {
 			for (int i = 0; i < layout.ntop; i++)
@@ -1912,7 +2059,7 @@ bool Home_animating(void) {
 		scroll_from = scroll_to;
 	if (c && !slide_tw.active)
 		pos_from = pos_to;
-	return a || b || c;
+	return a || b || c || (carousel() && car_warming);
 }
 
 bool Home_scrolled(void) {

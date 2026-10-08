@@ -1487,6 +1487,7 @@ typedef struct {
 	bool has_src, has_clip;
 	bool opaque; // PLAT_spriteAddUnderOpaque: drawn without blending, covering what is under it
 	Uint8 alpha;
+	Uint8 shade; // a grey colour mod (PLAT_spriteAddShaded): 255 = the texture's own colours
 } Sprite;
 static Sprite sprites[MAX_SPRITES];
 static int sprite_count = 0;
@@ -1513,10 +1514,19 @@ static void spriteAddTo(Sprite* list, int* count, int max, SDL_Texture* tex, con
 		s->clip = *clip;
 	s->opaque = false;
 	s->alpha = alpha;
+	s->shade = 255;
 }
 
 void PLAT_spriteAdd(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, const SDL_Rect* clip) {
 	spriteAddTo(sprites, &sprite_count, MAX_SPRITES, tex, src, dst, alpha, clip);
+}
+
+void PLAT_spriteAddShaded(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, Uint8 shade,
+						  const SDL_Rect* clip) {
+	int n = sprite_count;
+	spriteAddTo(sprites, &sprite_count, MAX_SPRITES, tex, src, dst, alpha, clip);
+	if (sprite_count > n)
+		sprites[n].shade = shade;
 }
 
 void PLAT_spriteAddUnder(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha,
@@ -1672,7 +1682,11 @@ static void drawSpriteList(const Sprite* list, int count) {
 			SDL_GetTextureBlendMode(s->tex, &bm);
 			SDL_SetTextureBlendMode(s->tex, SDL_BLENDMODE_NONE);
 		}
+		if (s->shade != 255)
+			SDL_SetTextureColorMod(s->tex, s->shade, s->shade, s->shade);
 		SDL_RenderCopy(vid.renderer, s->tex, s->has_src ? &s->src : NULL, &d);
+		if (s->shade != 255)
+			SDL_SetTextureColorMod(s->tex, 255, 255, 255);
 		if (s->opaque)
 			SDL_SetTextureBlendMode(s->tex, bm);
 	}
