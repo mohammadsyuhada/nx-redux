@@ -176,8 +176,10 @@ void Menu_dropAutoResumeForSession(void) {
 
 	char removed[MAX_PATH] = "";
 	char path[MAX_PATH];
-	State_getSlotPath(AUTO_RESUME_SLOT, path);
-	if (unlink(path) == 0)
+	// a truncated path could name a manual slot: leave the state alone then
+	if (State_getSlotPath(AUTO_RESUME_SLOT, path) != 0)
+		LOG_error("Netplay: auto-resume state path too long for %s, state kept\n", game.name);
+	else if (unlink(path) == 0)
 		strcat(removed, " state");
 	snprintf(path, sizeof(path), "%s/%s.%d.bmp", menu.minui_dir, game.name, AUTO_RESUME_SLOT);
 	if (unlink(path) == 0)
@@ -197,7 +199,9 @@ void Menu_dropAutoResumeForSession(void) {
 	LOG_info("Netplay: session on the real save, dropped auto-resume for %s:%s\n", game.name, removed[0] ? removed : " (none)");
 }
 void Menu_afterSleep() {
-	unlink(AUTO_RESUME_PATH);
+	// a netplay client never writes it (Menu_beforeSleep), so never drops it
+	if (Menu_netplaySavesMode() != NETPLAY_SAVES_COPY)
+		unlink(AUTO_RESUME_PATH);
 	setOverclock(overclock);
 	EmuTime_reset();
 }

@@ -163,9 +163,10 @@ void RTC_write(void) {
 
 int state_slot = 0;
 
-// filename must be a MAX_PATH-sized buffer
-void State_getSlotPath(int slot, char* filename) {
-	SavePaths_state(filename, MAX_PATH, core.states_dir, game.alt_name, CFG_getStateFormat(), slot);
+// filename must be a MAX_PATH-sized buffer; returns -1 if the path was
+// truncated (it may then name a different slot)
+int State_getSlotPath(int slot, char* filename) {
+	return SavePaths_state(filename, MAX_PATH, core.states_dir, game.alt_name, CFG_getStateFormat(), slot);
 }
 // filename must be a MAX_PATH-sized buffer
 void State_getPath(char* filename) {
