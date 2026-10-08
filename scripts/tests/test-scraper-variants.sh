@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Host unit test for the Artwork Manager art variants: the variant-path helper
 # Scraper_variantPath (workspace/all/scraper/scraper_core.c), the
-# single-image compositor Compositor_createSingle and its 256-colour save
-# (scraper_compositor.c), and the "Optimize images" pass (scraper_optimize.c).
+# single-image compositors and the mix (Compositor_createSingle/UpTo/create,
+# their 256-colour and full-colour saves, scraper_compositor.c + the shared
+# nextui/area_scale.c), the "Optimize images" pass (scraper_optimize.c), and
+# the download preferences file (scraper_prefs.c).
 # Compiles those device TUs with the host compiler + host SDL2/SDL2_image and
 # drives them directly; nothing is built for a device.
 #
@@ -44,6 +46,7 @@ for src in \
 	workspace/all/scraper/scraper_compositor.c \
 	workspace/all/scraper/scraper_optimize.c \
 	workspace/all/scraper/scraper_paths.c \
+	workspace/all/nextui/area_scale.c \
 	workspace/all/common/png_palette.c \
 	workspace/all/common/utils.c; do
 	"$CC" "${CFLAGS[@]}" -w -c -o "$TMP/$(basename "${src%.c}").o" "$src"
@@ -56,5 +59,14 @@ done
 
 mkdir -p "$TMP/sd/.userdata/shared"
 "$TMP/test_variants" "$TMP/sd/.userdata/shared"
+
+# Download preferences: a separate binary (its own main), linked against the
+# prefs TU and utils.o (mkdir_p) only.
+mkdir -p "$TMP/prefs"
+"$CC" "${CFLAGS[@]}" -w -c -o "$TMP/prefs/scraper_prefs.o" workspace/all/scraper/scraper_prefs.c
+"$CC" "${CFLAGS[@]}" -Wall -Wextra -Werror -c -o "$TMP/prefs/test.o" \
+	scripts/tests/scraper-variants/test_prefs.c
+"$CC" -o "$TMP/prefs/test_prefs" "$TMP"/prefs/*.o "$TMP/utils.o" "${SDL_LIBS_ARR[@]}" -lz
+"$TMP/prefs/test_prefs" "$TMP"
 
 echo "PASS: test-scraper-variants"

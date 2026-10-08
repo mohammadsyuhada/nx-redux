@@ -6,7 +6,8 @@
 // Media URLs extracted from ScreenScraper API response
 typedef struct {
 	char screenshot_url[1024];
-	char boxart_url[1024];
+	char boxart_url[1024];	 // 3D, else 2D
+	char boxart2d_url[1024]; // 2D only
 	char wheel_url[1024];
 	char game_name[256];
 	bool found;

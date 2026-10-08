@@ -17,13 +17,6 @@
 // rather than spend tens of MB on one file (the device has ~1 GB).
 #define MAX_PIXELS (4096 * 4096)
 
-// Folder backgrounds nextui draws (bg.png; bglist.png and resolution
-// variants like bg-1024.png from older themes) are never scraper art.
-static bool isBackground(const char* name) {
-	return strcasecmp(name, "bg.png") == 0 || strcasecmp(name, "bglist.png") == 0 ||
-		   strncasecmp(name, "bg-", 3) == 0;
-}
-
 static bool isPng(const char* name) {
 	size_t n = strlen(name);
 	return n > 4 && strcasecmp(name + n - 4, ".png") == 0;
@@ -66,15 +59,13 @@ static void addPath(Collector* c, const char* path) {
 }
 
 // The PNGs directly inside one directory (no recursion).
-static void addPngsIn(Collector* c, const char* dir_path, bool skip_backgrounds) {
+static void addPngsIn(Collector* c, const char* dir_path) {
 	DIR* dir = opendir(dir_path);
 	if (!dir)
 		return;
 	struct dirent* e;
 	while ((e = readdir(dir)) != NULL) {
 		if (e->d_name[0] == '.' || !isPng(e->d_name))
-			continue;
-		if (skip_backgrounds && isBackground(e->d_name))
 			continue;
 		char path[1024];
 		snprintf(path, sizeof(path), "%s/%s", dir_path, e->d_name);
@@ -85,17 +76,18 @@ static void addPngsIn(Collector* c, const char* dir_path, bool skip_backgrounds)
 	closedir(dir);
 }
 
-// <dir>/.media/*.png plus its screenshot/ and boxart/ variants, then the same
-// for every sub-folder (nested game folders keep their own .media).
+// <dir>/.media/screenshot/, boxart/ and boxart2d/, then the same for every sub-folder (nested game folders
+// keep their own .media). The root .media/*.png pictures are the user's own art (Ports, hand-made pictures)
+// and the folder backgrounds: left alone. wheel/ and mix/ are left alone too: the scraper saves them full
+// colour on purpose (a logo's or the mix's gradients band at 256 colours; flat 2D box art holds up).
 static void walk(Collector* c, const char* dir_path, int depth) {
 	char media[1024];
 	snprintf(media, sizeof(media), "%s/.media", dir_path);
-	addPngsIn(c, media, true);
-	static const char* variants[] = {"screenshot", "boxart"};
+	static const char* variants[] = {"screenshot", "boxart", "boxart2d"};
 	for (size_t v = 0; v < sizeof(variants) / sizeof(variants[0]); v++) {
 		char variant[1100];
 		snprintf(variant, sizeof(variant), "%s/%s", media, variants[v]);
-		addPngsIn(c, variant, false);
+		addPngsIn(c, variant);
 	}
 	if (depth >= MAX_DEPTH)
 		return;

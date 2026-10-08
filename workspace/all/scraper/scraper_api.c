@@ -245,6 +245,10 @@ static bool parseSearchResponse(HTTP_Response* resp, ScraperGameInfo* info) {
 		extractMediaURL(medias, boxart_types, 2,
 						info->boxart_url, sizeof(info->boxart_url));
 
+		const char* boxart2d_types[] = {"box-2D"};
+		extractMediaURL(medias, boxart2d_types, 1,
+						info->boxart2d_url, sizeof(info->boxart2d_url));
+
 		const char* wheel_types[] = {"wheel-hd", "wheel"};
 		extractMediaURL(medias, wheel_types, 2,
 						info->wheel_url, sizeof(info->wheel_url));

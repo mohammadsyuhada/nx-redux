@@ -2,10 +2,11 @@
 //
 // Rewrites the game art already on the card as 256-colour PNGs (png_palette),
 // the format the scraper now saves new downloads in: same width and height,
-// fewer colours, a third of the bytes or less. Covers every .media folder
-// under Roms (nested game folders too): the root pictures (older scrapes,
-// PortMaster and hand-made art) and the screenshot/ and boxart/ variants.
-// Folder backgrounds (bg.png and friends) are left alone.
+// fewer colours, a third of the bytes or less. Covers the screenshot/,
+// boxart/ and boxart2d/ variants of every .media folder under Roms (nested
+// game folders too). The root .media pictures (the user's own art: Ports,
+// hand-made pictures, folder backgrounds) are left alone, and so are wheel/
+// and mix/, which the scraper saves full colour on purpose.
 #ifndef SCRAPER_OPTIMIZE_H
 #define SCRAPER_OPTIMIZE_H
 
@@ -16,7 +17,7 @@ typedef struct {
 	int count;
 } OptimizeList;
 
-// Collect every art PNG under roms_root. False only when out of memory; an
+// Collect every screenshot/ and boxart/ PNG under roms_root. False only when out of memory; an
 // empty list (no art at all) is a success.
 bool Optimize_collect(const char* roms_root, OptimizeList* out);
 void Optimize_freeList(OptimizeList* list);
