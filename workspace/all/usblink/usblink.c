@@ -3,7 +3,8 @@
 //   usblink.elf start   daemonize; 0 when a daemon is running (new or already)
 //   usblink.elf stop    always 0; no daemon, no ffs.net, no pid/state/udc files
 //   usblink.elf status  prints /tmp/usblink.state, or USBLINK_LINK=down
-//   usblink.elf run     the daemon in the foreground (debugging)
+//   usblink.elf run     the daemon in the foreground (debugging); ignores SIGHUP,
+//                       because attach rebinds the UDC and drops an adb shell
 //
 // The same daemon runs on both handhelds and does not know which end of the
 // cable it is on: it exposes an "nxlink" FunctionFS interface on its gadget
@@ -44,6 +45,7 @@
 #define TICK_MS 50
 #define HOST_READ_TIMEOUT_MS 200 // bounds how long host_io holds nothing but a read
 #define HOST_SCAN_MS 250
+#define START_WAIT_MS 3000 // `start` waits this long for the daemon's first state
 
 // Link state machine; guarded by mu. mu only covers state changes and the
 // tun address ioctls, never endpoint I/O: a gadget write blocks until the peer
@@ -392,7 +394,7 @@ static pid_t running_pid(void) {
 	return strstr(cmd, "usblink") ? pid : 0;
 }
 
-static int run_daemon(void) {
+static int run_daemon(int foreground) {
 	// Signals stay blocked through attach and thread creation: workers inherit
 	// the mask, so only the main thread ever runs the shutdown handler, and a
 	// signal cannot land halfway through the configfs relink.
@@ -404,7 +406,12 @@ static int run_daemon(void) {
 	sigfillset(&sa.sa_mask);
 	sigaction(SIGTERM, &sa, NULL);
 	sigaction(SIGINT, &sa, NULL);
-	sigaction(SIGHUP, &sa, NULL);
+	// In `run` the controlling terminal is usually an adb shell, which our own
+	// UDC rebind hangs up; that must not take the daemon down with it.
+	if (foreground)
+		signal(SIGHUP, SIG_IGN);
+	else
+		sigaction(SIGHUP, &sa, NULL);
 	signal(SIGPIPE, SIG_IGN);
 
 	if (write_pid_file() != 0)
@@ -478,6 +485,10 @@ static int cmd_start(void) {
 	if (running_pid() > 0)
 		return 0;
 	unlink(PID_FILE);
+	// The daemon's first state file is the startup verdict, so no stale one
+	// from an earlier run may answer for it (no daemon is running here).
+	unlink(STATE_FILE);
+	unlink(STATE_TMP);
 	pid_t p = fork();
 	if (p < 0)
 		return 1;
@@ -487,14 +498,19 @@ static int cmd_start(void) {
 		if (q != 0)
 			_exit(q < 0 ? 1 : 0);
 		redirect_stdio();
-		_exit(run_daemon());
+		_exit(run_daemon(0));
 	}
 	waitpid(p, NULL, 0);
-	for (int i = 0; i < 20; i++) {
-		if (access(PID_FILE, F_OK) == 0)
-			return 0;
+	// The daemon publishes "down" once tun and the gadget are up, or "error"
+	// on a startup failure. Budget covers tun.ko loading (up to 1 s) plus the
+	// UDC rebind in attach.
+	for (int i = 0; i < START_WAIT_MS / 50; i++) {
+		UsbLinkState st;
+		if (usblink_state_read(STATE_FILE, &st) == 0 && st.link[0])
+			return strcmp(st.link, "error") == 0 ? 1 : 0;
 		sleep_ms(50);
 	}
+	fprintf(stderr, "usblink: daemon did not report within %d ms\n", START_WAIT_MS);
 	return 1;
 }
 
@@ -546,7 +562,7 @@ int main(int argc, char** argv) {
 			return 1;
 		}
 		setvbuf(stderr, NULL, _IOLBF, 0);
-		return run_daemon();
+		return run_daemon(1);
 	}
 	fprintf(stderr, "usage: %s start|stop|status|run\n", argv[0]);
 	return 2;
