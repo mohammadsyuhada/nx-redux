@@ -820,6 +820,10 @@ void PLAT_spriteAddUnderOpaque(SDL_Texture* tex, const SDL_Rect* dst);
 // transparent outside them (a Backdrop game list's sprite frame: its picture and row are sprites), so a full-screen
 // blend of clear pixels is skipped. Consumed by that flip; n <= 0 = the whole screen.
 void PLAT_setScreenDrawBands(const int* y, const int* h, int n);
+// Draw rows [y, y + h) of the screen texture at opacity a (a colour and alpha mod: the premultiplied layer at true
+// opacity over what is under it), on every composite until set again; a = 255 (or h <= 0) clears it. False when the
+// screen doesn't composite premultiplied (nothing set: the caller dims in software instead).
+bool PLAT_setScreenDim(int y, int h, Uint8 a);
 // Re-upload a surface's pixels into its texture (one it already has; a no-op otherwise): for a small surface redrawn
 // every frame (the Grid's edge shade), without making a new texture each time.
 void PLAT_textureRefresh(SDL_Surface* s);

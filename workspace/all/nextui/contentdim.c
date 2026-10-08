@@ -10,6 +10,8 @@
 
 #include "contentdim.h"
 
+#include "api.h"
+
 #include "menutabs.h"
 #include "ui_fade.h"
 
@@ -59,6 +61,20 @@ void ContentDim_begin(SDL_Surface* screen, SDL_Rect area) {
 	snap_area = c;
 	snap_alpha = a;
 	layered = true;
+}
+
+void ContentDim_beginClear(SDL_Surface* screen, SDL_Rect area) {
+	layered = false;
+	int a = dimAlpha255();
+	if (!screen || a >= 255) {
+		ContentDim_begin(screen, area); // lit: frees the snapshot
+		return;
+	}
+	SDL_Rect c;
+	if (!SDL_IntersectRect(&area, &(SDL_Rect){0, 0, screen->w, screen->h}, &c))
+		return;
+	if (!PLAT_setScreenDim(c.y, c.h, (Uint8)a))
+		ContentDim_begin(screen, area);
 }
 
 void ContentDim_end(SDL_Surface* screen) {

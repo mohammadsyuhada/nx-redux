@@ -437,6 +437,7 @@ int main(int argc, char* argv[]) {
 			// RowView_beginSprites), those under the screen too (the Backdrop picture); a frame that adds none leaves
 			// none. After the capture above: the outgoing frame keeps its sprites.
 			PLAT_spritesClear();
+			PLAT_setScreenDim(0, 0, 255); // the tab-focus dim's rows, when it is the GPU's: this frame's to set again
 
 			if (lastScreen == SCREEN_GAME || lastScreen == SCREEN_OFF) {
 				GFX_clearLayers(LAYER_ALL);

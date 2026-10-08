@@ -1902,7 +1902,13 @@ void Home_render(SDL_Surface* dst, int lastScreen) {
 		currentStats(&st);
 
 		// the page as one layer for the tab-focus dim (contentdim.h); the top band's fade and the hints stay lit
-		ContentDim_begin(dst, (SDL_Rect){0, bar_h, dst->w, body_h});
+		// the body is clear under the page (nextui.c cleared it): the GPU dims it, unless the scrolled page's fade goes
+		// over it after (it stays lit)
+		SDL_Rect body = {0, bar_h, dst->w, body_h};
+		if (scroll_px > 0)
+			ContentDim_begin(dst, body);
+		else
+			ContentDim_beginClear(dst, body);
 		drawStrip(dst, &st, scroll_px);
 		if (carousel()) {
 			// sprites: not under a context menu (it draws on the screen, which they would cover)

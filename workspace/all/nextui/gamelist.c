@@ -2391,12 +2391,17 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 	bool grid = GridView_active();
 	if (grid || RowView_active()) {
 		clearArtForGrid(screen, lastScreen);
-		ContentDim_begin(screen, content);
+		// a Grid or a row with items, outside a context menu, draws them as GPU sprites at the dim's opacity
+		// (MenuTabs_contentAlpha) over a body it leaves as it was: the layer would change nothing, so it is skipped
+		bool sprites = !ContextMenu_isOpen() && top->entries->count > 0;
+		if (!sprites)
+			ContentDim_begin(screen, content);
 		if (grid)
 			GridView_render(screen, lastScreen);
 		else
 			RowView_render(screen, lastScreen);
-		ContentDim_end(screen);
+		if (!sprites)
+			ContentDim_end(screen);
 		renderHints(screen, show_setting); // over the black body (or the picture), as on List
 		if (lastScreen == SCREEN_OFF)
 			GFX_animateSurfaceOpacity(blackBG, 0, 0, screen->w, screen->h, 255, 0,
