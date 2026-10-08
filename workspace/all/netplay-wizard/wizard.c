@@ -782,7 +782,9 @@ static int run_cleanup(const WizArgs* a) {
 #define WIZ_MODE_ITEMS 3
 
 static const char* role_items[] = {"Host Game", "Join Game"};
-static const char* mode_items[] = {"Hotspot", "WiFi", "USB Cable"};
+static const char* mode_items[] = {"USB Cable", "Hotspot", "WiFi"};
+// session.mode key per mode_items row; keep both arrays in the same order.
+static const char* mode_keys[] = {"usb", "hotspot", "wifi"};
 
 // One ListView serves both menus; list_id (role_items vs mode_items)
 // tells the widget which one is on screen, so switching states snaps the pill
@@ -974,8 +976,7 @@ int main(int argc, char* argv[]) {
 			ListViewAction act = UI_listViewHandleInput(&wiz_menu_view);
 			if (act.type == LISTVIEW_ACTIVATED) {
 				mode_selected = wiz_menu_view.selected;
-				strcpy(session.mode, act.index == 0 ? "hotspot" : act.index == 1 ? "wifi"
-																				 : "usb");
+				strcpy(session.mode, mode_keys[act.index]);
 				state = ST_NETSETUP;
 				dirty = true;
 			} else if (act.type == LISTVIEW_BACK) {

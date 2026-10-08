@@ -90,7 +90,7 @@ to the same hardware.
 
 ## USB cable link
 
-The wizard's third connection mode, **USB Cable** (`NETPLAY_MODE=usb`), runs
+The wizard's first connection mode, **USB Cable** (`NETPLAY_MODE=usb`), runs
 the same session over a plain USB-C ↔ USB-C data cable: one device's
 **second (top) port** to the other device's **main (bottom) port**, either
 way round. The top port is a host-only controller (`ehci1`/`ohci1`); the
