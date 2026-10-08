@@ -14,6 +14,8 @@
 #define SETTINGS_DEFAULT_FN_NO_CHANGE -69
 
 void InitSettings(void);
+// InitSettings without applying anything to the hardware (see msettings.c)
+void InitSettingsNoApply(void);
 void QuitSettings(void);
 int InitializedSettings(void);
 
@@ -33,12 +35,13 @@ void SetRawSaturation(int value); // 0-100
 void SetRawExposure(int value);	  // 0-100
 void SetRawVolume(int value);	  // 0-100
 
-void SetBrightness(int value); // 0-10
-void SetColortemp(int value);  // 0-40
-void SetContrast(int value);   // -4-5
-void SetSaturation(int value); // -5-5
-void SetExposure(int value);   // -4-5
-void SetVolume(int value);	   // 0-20
+void SetBrightness(int value);	// 0-10
+int scaleBrightness(int value); // 0-10 to the panel's raw level, per device
+void SetColortemp(int value);	// 0-40
+void SetContrast(int value);	// -4-5
+void SetSaturation(int value);	// -5-5
+void SetExposure(int value);	// -4-5
+void SetVolume(int value);		// 0-20
 void SetGameVolume(int value);
 void SetMusicVolume(int value);
 

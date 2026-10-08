@@ -673,6 +673,25 @@ void InitSettings(void) {
 	// This will implicitly update all other settings based on FN switch state
 	SetFnMode(settings->fn_mode);
 }
+// InitSettings without touching the hardware: maps the shared settings as a
+// client and applies nothing (no mixer defaults, no FN-mode re-apply). For a
+// short-lived tool that changes one setting while audio and video are live,
+// e.g. osdctl from the OSD; InitSettings' re-apply briefly runs the codec at
+// full scale (a speaker pop) and resets the backlight (a flash) (issue #164).
+// Falls back to InitSettings when there is no host yet.
+void InitSettingsNoApply(void) {
+	char* device = getenv("DEVICE");
+	is_brick = exactMatch("brick", device);
+	is_brickpro = exactMatch("brickpro", device);
+	sprintf(SettingsPath, "%s/msettings.bin", getenv("USERDATA_PATH"));
+
+	shm_fd = shm_open(SHM_KEY, O_RDWR, 0644);
+	if (shm_fd == -1) {
+		InitSettings();
+		return;
+	}
+	settings = mmap(NULL, shm_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+}
 int InitializedSettings(void) {
 	return (settings != NULL);
 }

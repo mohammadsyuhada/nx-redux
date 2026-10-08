@@ -75,7 +75,10 @@ int main(int argc, char* argv[]) {
 	if (strcmp(cmd, "set") == 0) {
 		if (!getenv("USERDATA_PATH"))
 			setenv("USERDATA_PATH", "/mnt/SDCARD/.userdata/" PLATFORM, 0);
-		InitSettings();
+		// Not InitSettings: its re-apply runs the codec at full scale for a
+		// moment (a speaker pop) and resets the backlight (a flash) on every
+		// OSD press (issue #164). Only the one setting below is applied.
+		InitSettingsNoApply();
 		settings_initialized = 1;
 	}
 
@@ -139,10 +142,10 @@ int main(int argc, char* argv[]) {
 				save_settings(s);
 			}
 		} else if (strcmp(prop, "brightness") == 0) {
+			value = value < 0 ? 0 : (value > 10 ? 10 : value);
 			s->brightness = value;
-			int raw = (value <= 0) ? 10 : (value >= 10) ? 220
-														: 10 + 21 * value;
-			SetRawBrightness(raw);
+			// The device's own curve, as Settings and every app apply it
+			SetRawBrightness(scaleBrightness(value));
 			save_settings(s);
 #ifdef HAS_FAN
 		} else if (strcmp(prop, "fanspeed") == 0) {
