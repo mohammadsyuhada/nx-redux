@@ -188,16 +188,23 @@ typedef struct {
 static BandBlock blocks[2];
 static unsigned block_stamp = 0;
 
-// The info line's strip: band-relative rows y .. y + surf->h (the text's own line, its shadow and descenders).
-static struct {
+// The info line's strip: band-relative rows y .. y + surf->h (the text's own line, its shadow and descenders). The
+// last few are kept with their textures, so a held D-pad going back over the same games (Home's List has only a few
+// rows) neither renders nor uploads their lines again (~10 ms a new line on the Brick).
+#define TEXT_STRIPS 12
+typedef struct {
 	SDL_Surface* surf; // NULL: no info line
 	InfoSeg segs[MAX_SEGS];
 	int nsegs;
-	int w, info_off, text_off, text_h, arrow_x, y;
+	int w, info_off, text_off, text_h, arrow_x, max_h, y;
 	float scale;
 	TTF_Font* font;
-	bool valid; // the key above describes surf (a NULL surf included)
-} text;
+	bool valid;		// the key above describes surf (a NULL surf included)
+	unsigned stamp; // last use (the oldest goes)
+} TextStrip;
+static TextStrip strips[TEXT_STRIPS];
+static unsigned strip_stamp = 0;
+static TextStrip* text = NULL; // the one InfoBand_draw draws (NULL: none)
 
 // What the last InfoBand_prepare chose (the block and the text strip drawn by InfoBand_draw), and a number bumped
 // whenever either changes.
@@ -414,30 +421,46 @@ unsigned InfoBand_prepare(const InfoBandLayout* layout, const InfoSeg* segs, int
 		return cur.gen;
 
 	BandBlock* blk = blockFor(up, down, tall, w, h, fill_h, text_off, l.text_h, arrow_x);
-	bool text_same = text.valid && text.nsegs == nsegs && text.w == w && text.info_off == info_off &&
-					 text.text_off == text_off && text.text_h == l.text_h && text.arrow_x == arrow_x &&
-					 text.scale == (float)FIXED_SCALE && text.font == infoFont(info_off, text_off);
-	for (int i = 0; text_same && i < nsegs; i++)
-		if (text.segs[i].kind != segs[i].kind || strcmp(text.segs[i].text, segs[i].text) != 0)
-			text_same = false;
-	if (!text_same) {
-		GFX_freeSurfaceAndTexture(text.surf);
-		text.surf = nsegs > 0 ? buildText(segs, nsegs, w, text_off, info_off, l.text_h, arrow_x,
-										  screen->h - l.band_top, &text.y)
-							  : NULL;
-		if (nsegs)
-			memcpy(text.segs, segs, sizeof(InfoSeg) * nsegs);
-		text.nsegs = nsegs;
-		text.w = w;
-		text.info_off = info_off;
-		text.text_off = text_off;
-		text.text_h = l.text_h;
-		text.arrow_x = arrow_x;
-		text.scale = (float)FIXED_SCALE;
-		text.font = infoFont(info_off, text_off);
-		text.valid = true;
-		cur.gen++;
+	int max_h = screen->h - l.band_top;
+	TTF_Font* font_now = infoFont(info_off, text_off);
+	TextStrip* found = NULL;
+	TextStrip* victim = &strips[0];
+	for (int k = 0; k < TEXT_STRIPS && !found; k++) {
+		TextStrip* t = &strips[k];
+		bool same = t->valid && t->nsegs == nsegs && t->w == w && t->info_off == info_off && t->text_off == text_off &&
+					t->text_h == l.text_h && t->arrow_x == arrow_x && t->max_h == max_h &&
+					t->scale == (float)FIXED_SCALE && t->font == font_now;
+		for (int i = 0; same && i < nsegs; i++)
+			if (t->segs[i].kind != segs[i].kind || strcmp(t->segs[i].text, segs[i].text) != 0)
+				same = false;
+		if (same)
+			found = t;
+		else if (!t->valid || (victim->valid && t->stamp < victim->stamp))
+			victim = t;
 	}
+	if (!found) {
+		found = victim;
+		GFX_freeSurfaceAndTexture(found->surf);
+		*found = (TextStrip){0};
+		found->surf = nsegs > 0 ? buildText(segs, nsegs, w, text_off, info_off, l.text_h, arrow_x, max_h, &found->y)
+								: NULL;
+		if (nsegs)
+			memcpy(found->segs, segs, sizeof(InfoSeg) * nsegs);
+		found->nsegs = nsegs;
+		found->w = w;
+		found->info_off = info_off;
+		found->text_off = text_off;
+		found->text_h = l.text_h;
+		found->arrow_x = arrow_x;
+		found->max_h = max_h;
+		found->scale = (float)FIXED_SCALE;
+		found->font = font_now;
+		found->valid = true;
+	}
+	found->stamp = ++strip_stamp;
+	if (found != text)
+		cur.gen++;
+	text = found;
 	if (blk != cur.blk || l.band_top != cur.band_top)
 		cur.gen++;
 	cur.blk = blk;
@@ -446,8 +469,8 @@ unsigned InfoBand_prepare(const InfoBandLayout* layout, const InfoSeg* segs, int
 }
 
 void InfoBand_draw(int layer, SDL_Surface* dst) {
-	SDL_Surface* parts[2] = {cur.blk ? cur.blk->surf : NULL, text.surf};
-	int ys[2] = {cur.band_top, cur.band_top + text.y};
+	SDL_Surface* parts[2] = {cur.blk ? cur.blk->surf : NULL, text ? text->surf : NULL};
+	int ys[2] = {cur.band_top, cur.band_top + (text ? text->y : 0)};
 	for (int i = 0; i < 2; i++) {
 		if (!parts[i])
 			continue;
@@ -520,8 +543,10 @@ void InfoBand_quit(void) {
 	for (int i = 0; i < 2; i++)
 		GFX_freeSurfaceAndTexture(blocks[i].surf);
 	memset(blocks, 0, sizeof(blocks));
-	GFX_freeSurfaceAndTexture(text.surf);
-	memset(&text, 0, sizeof(text));
+	for (int k = 0; k < TEXT_STRIPS; k++)
+		GFX_freeSurfaceAndTexture(strips[k].surf);
+	memset(strips, 0, sizeof(strips));
+	text = NULL;
 	cur.blk = NULL;
 	freeArrows();
 }
