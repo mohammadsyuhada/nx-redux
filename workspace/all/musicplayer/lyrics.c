@@ -483,15 +483,26 @@ const char* Lyrics_getCurrentLine(int position_ms) {
 }
 
 const char* Lyrics_getNextLine(void) {
+	return Lyrics_getLineAfter(1);
+}
+
+const char* Lyrics_getLineAfter(int k) {
 	pthread_mutex_lock(&lyrics_mutex);
 	const char* text = NULL;
 	if (lyrics_available && lyrics_line_count > 0) {
-		int next = lyrics_current_index + 1;
-		if (next < lyrics_line_count)
-			text = lyrics_lines[next].text;
+		int idx = lyrics_current_index + k;
+		if (idx >= 0 && idx < lyrics_line_count)
+			text = lyrics_lines[idx].text;
 	}
 	pthread_mutex_unlock(&lyrics_mutex);
 	return text;
+}
+
+int Lyrics_getCurrentIndex(void) {
+	pthread_mutex_lock(&lyrics_mutex);
+	int idx = (lyrics_available && lyrics_line_count > 0) ? lyrics_current_index : -1;
+	pthread_mutex_unlock(&lyrics_mutex);
+	return idx;
 }
 
 long Lyrics_getCacheSize(void) {

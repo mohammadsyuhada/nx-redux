@@ -27,6 +27,14 @@ const char* Lyrics_getCurrentLine(int position_ms);
 // Returns pointer to next lyric text, or NULL if no next line
 const char* Lyrics_getNextLine(void);
 
+// Get the lyric line k lines after the current one (k = 1 is the next line;
+// call after Lyrics_getCurrentLine). Returns NULL past the last line.
+const char* Lyrics_getLineAfter(int k);
+
+// Index of the current lyric line (call after Lyrics_getCurrentLine), -1 when
+// before the first line or no lyrics
+int Lyrics_getCurrentIndex(void);
+
 // Get total size of lyrics cache on disk (in bytes)
 long Lyrics_getCacheSize(void);
 

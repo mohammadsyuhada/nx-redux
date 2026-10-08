@@ -86,4 +86,10 @@ static inline float TextPx_for(TextPx t, UIDevice d) {
 // caption under the row follows it where it is 2 (else keeps its time / trophies + Next rows).
 #define CAROUSEL_CAPTION_INFO_LINES ((TextPx){2, 2, 1})
 
+// Not a text size: the music player's Now Playing lyrics, the widest a lyric line gets as a fraction of the screen
+// width. 0 keeps the current and next line, one row each, truncated (the Brick: no room below). Otherwise a line longer
+// than that wraps onto more rows, and the lines after the current one fill the space down to the spectrum
+// (2026-10-08: 80% on the Brick Pro and Smart Pro).
+#define MUSIC_LYRICS_WRAP_W ((TextPx){0, 0.8f, 0.8f})
+
 #endif

@@ -17,6 +17,7 @@
 #include "album_art.h"
 #include "lyrics.h"
 #include "settings.h"
+#include "ui_text_sizes.h"
 
 // Short kHz label for the rate badge: 48000 -> "48", 44100 -> "44.1"
 static void format_khz(int rate, char* buf, size_t size) {
@@ -86,7 +87,8 @@ static int last_rendered_duration = -1;
 static bool playtime_position_set = false;
 
 // Lyrics GPU state
-static int lyrics_gpu_x = 0, lyrics_gpu_y = 0, lyrics_gpu_max_w = 0;
+static int lyrics_gpu_x = 0, lyrics_gpu_y = 0, lyrics_gpu_max_w = 0, lyrics_gpu_max_h = 0;
+static int last_lyric_index = -2;
 static bool lyrics_gpu_position_set = false;
 static char last_lyric_line[256] = "";
 static char last_next_lyric_line[256] = "";
@@ -265,7 +267,8 @@ void render_playing(SDL_Surface* screen, IndicatorType show_setting, BrowserCont
 
 	// Lyric lines (GPU rendered) or album name (screen rendered)
 	if (Settings_getLyricsEnabled()) {
-		Lyrics_setGPUPosition(SCALE1(PADDING), info_y, max_w_text);
+		// Down to just above the spectrum (its geometry is set below)
+		Lyrics_setGPUPosition(SCALE1(PADDING), info_y, max_w_text, hh - SCALE1(90) - SCALE1(6) - info_y);
 	} else {
 		Lyrics_clearGPU();
 		// Show album name when lyrics are off
@@ -456,15 +459,17 @@ void PlayTime_renderGPU(void) {
 
 // === LYRICS GPU FUNCTIONS ===
 
-void Lyrics_setGPUPosition(int x, int y, int max_w) {
+void Lyrics_setGPUPosition(int x, int y, int max_w, int max_h) {
 	lyrics_gpu_x = x;
 	lyrics_gpu_y = y;
 	lyrics_gpu_max_w = max_w;
+	lyrics_gpu_max_h = max_h;
 	lyrics_gpu_position_set = true;
 }
 
 void Lyrics_clearGPU(void) {
 	lyrics_gpu_position_set = false;
+	last_lyric_index = -2;
 	last_lyric_line[0] = '\0';
 	last_next_lyric_line[0] = '\0';
 	PLAT_clearLayers(LAYER_LYRICS);
@@ -481,7 +486,41 @@ bool Lyrics_GPUneedsRefresh(void) {
 	const char* cur_str = current ? current : "";
 	const char* next_str = next ? next : "";
 
-	return (strcmp(cur_str, last_lyric_line) != 0 || strcmp(next_str, last_next_lyric_line) != 0);
+	return (Lyrics_getCurrentIndex() != last_lyric_index || strcmp(cur_str, last_lyric_line) != 0 ||
+			strcmp(next_str, last_next_lyric_line) != 0);
+}
+
+#define LYRICS_MAX_ROWS 16
+
+// Lyrics wrapped at wrap_w px: the current line, then as many of the lines
+// after it as fit whole in the rows below (the current line alone may be cut
+// to the rows there are). Returns the rows' surfaces in rows[] (caller frees).
+static int render_wrapped_lyrics(const char* cur_str, int wrap_w, int max_rows, SDL_Surface** rows) {
+	int count = 0;
+	for (int k = 0; count < max_rows; k++) {
+		const char* text = k == 0 ? cur_str : Lyrics_getLineAfter(k);
+		if (!text)
+			break;
+		if (!text[0]) {
+			if (k == 0)
+				continue; // before the first line: just the upcoming ones
+			text = " ";	  // a blank lyric line keeps its row
+		}
+
+		char wrapped[512];
+		snprintf(wrapped, sizeof(wrapped), "%s", text);
+		GFX_wrapText(font.small, wrapped, wrap_w, k == 0 ? max_rows - count : 0);
+		int need = 1;
+		for (const char* c = wrapped; *c; c++)
+			need += *c == '\n';
+		if (k > 0 && count + need > max_rows)
+			break;
+
+		SDL_Color color = k == 0 ? COLOR_LIGHT_TEXT : COLOR_DARK_TEXT;
+		for (char* row = strtok(wrapped, "\n"); row && count < max_rows; row = strtok(NULL, "\n"))
+			rows[count++] = GFX_renderText(font.small, row, color);
+	}
+	return count;
 }
 
 void Lyrics_renderGPU(void) {
@@ -494,8 +533,11 @@ void Lyrics_renderGPU(void) {
 	const char* next_str = next ? next : "";
 
 	// Skip if nothing changed
-	if (strcmp(cur_str, last_lyric_line) == 0 && strcmp(next_str, last_next_lyric_line) == 0)
+	int cur_index = Lyrics_getCurrentIndex();
+	if (cur_index == last_lyric_index && strcmp(cur_str, last_lyric_line) == 0 &&
+		strcmp(next_str, last_next_lyric_line) == 0)
 		return;
+	last_lyric_index = cur_index;
 
 	strncpy(last_lyric_line, cur_str, sizeof(last_lyric_line) - 1);
 	last_lyric_line[sizeof(last_lyric_line) - 1] = '\0';
@@ -504,6 +546,44 @@ void Lyrics_renderGPU(void) {
 
 	char truncated[256];
 	int line_h = TTF_FontHeight(font.small);
+
+	// Wrapped lyrics filling the space down to the spectrum (Brick Pro, Smart Pro)
+	float wrap_k = TextPx_for(MUSIC_LYRICS_WRAP_W, UIScale_deviceIndex(UI_DEVICE_NAME));
+	if (wrap_k > 0) {
+		int screen_w = lyrics_gpu_max_w + 2 * lyrics_gpu_x;
+		int wrap_w = (int)(screen_w * wrap_k);
+		if (wrap_w > lyrics_gpu_max_w)
+			wrap_w = lyrics_gpu_max_w;
+		int row_gap = SCALE1(2);
+		int max_rows = (lyrics_gpu_max_h + row_gap) / (line_h + row_gap);
+		if (max_rows < 2)
+			max_rows = 2;
+		if (max_rows > LYRICS_MAX_ROWS)
+			max_rows = LYRICS_MAX_ROWS;
+
+		SDL_Surface* rows[LYRICS_MAX_ROWS];
+		int row_count = render_wrapped_lyrics(cur_str, wrap_w, max_rows, rows);
+		PLAT_clearLayers(LAYER_LYRICS);
+		if (row_count > 0) {
+			int total_h = row_count * line_h + (row_count - 1) * row_gap;
+			SDL_Surface* combined = SDL_CreateRGBSurfaceWithFormat(0, wrap_w, total_h, 32, SDL_PIXELFORMAT_ARGB8888);
+			if (combined) {
+				SDL_FillRect(combined, NULL, 0); // Transparent background
+				for (int i = 0; i < row_count; i++) {
+					if (rows[i])
+						SDL_BlitSurface(rows[i], NULL, combined, &(SDL_Rect){0, i * (line_h + row_gap), 0, 0});
+				}
+				PLAT_drawOnLayer(combined, lyrics_gpu_x, lyrics_gpu_y, wrap_w, total_h, 1.0f, false, LAYER_LYRICS);
+				SDL_FreeSurface(combined);
+			}
+		}
+		for (int i = 0; i < row_count; i++) {
+			if (rows[i])
+				SDL_FreeSurface(rows[i]);
+		}
+		PLAT_GPU_Flip();
+		return;
+	}
 	bool has_cur = (cur_str[0] != '\0');
 	bool has_next = (next_str[0] != '\0');
 

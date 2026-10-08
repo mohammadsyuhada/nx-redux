@@ -39,7 +39,9 @@ bool PlayTime_needsRefresh(void);
 void PlayTime_clear(void);
 
 // Lyrics GPU rendering functions
-void Lyrics_setGPUPosition(int x, int y, int max_w);
+// Where the lyrics go: from (x, y), max_w wide (one truncated row a line) or,
+// on devices that wrap lyrics (MUSIC_LYRICS_WRAP_W), down to max_h tall.
+void Lyrics_setGPUPosition(int x, int y, int max_w, int max_h);
 void Lyrics_renderGPU(void);
 bool Lyrics_GPUneedsRefresh(void);
 void Lyrics_clearGPU(void);
