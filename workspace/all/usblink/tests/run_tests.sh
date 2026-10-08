@@ -1,0 +1,9 @@
+#!/bin/sh
+# Host-side unit tests for usblink's pure modules. Run from anywhere.
+set -e
+D=$(cd "$(dirname "$0")/.." && pwd)
+OUT=${TMPDIR:-/tmp}/test_usblink
+cc -std=gnu99 -Wall -Wextra -Werror -I"$D" \
+	"$D/usblink_frame.c" \
+	"$D/tests/test_usblink.c" -o "$OUT"
+"$OUT"
