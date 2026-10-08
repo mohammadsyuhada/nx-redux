@@ -97,9 +97,11 @@ way round. The top port is a host-only controller (`ehci1`/`ohci1`); the
 bottom port is the OTG/gadget port adb also uses. Which end is USB host has
 nothing to do with which end is netplay host — the role menu decides that.
 2 players only (one cable; the host clamps `max_players` to 2). Hardware-verified
-2026-10-08 on every Brick / Brick Pro / Smart Pro S pairing, both cable directions.
+2026-10-08: Brick ↔ Smart Pro S end-to-end in both cable directions; Brick Pro
+shares the tg5040 build with Brick and was link-tested in the spike (`ffs.net`
+beside adb, TUN link, ~1 ms ping as USB host to a Brick).
 
-Measured over the cable: ~1 ms RTT, p99 ≈ 1.5–2.5 ms, max ≈ 2.6 ms, 0 loss
+Measured over the cable: ~1 ms RTT, p99 ≈ 1.5 ms, max ≈ 2.6 ms, 0 loss
 (Wi-Fi to a router: p99 73 ms, max 189 ms, 4 % loss). Frame-sync netplay and
 the wizard's rsync save sync run over it unchanged (played: SNES Contra III,
 arcade Metal Slug, FC Bomberman II, with save sync).
@@ -120,7 +122,11 @@ its gadget port and, at the same time, scans its host port for that interface
 every 250 ms. The USB-host side sends `HELLO{ver}` (250 ms until linked, then
 1 s keepalives); the gadget side answers `HELLO_ACK{ver}`. A version mismatch
 is `USBLINK_ERROR=version` ("Both devices need the same NXRedux version.").
-3 s without a frame, or `ENODEV`/`ESHUTDOWN` on the host side, drops the link
+If the gadget cannot attach (stock gadget not bound to a UDC, configfs or
+FunctionFS refusing), the daemon logs it and runs **host-only**: it publishes
+`down`, scans its host port and links when the peer's gadget appears there.
+3 s without a frame, or `ENODEV`/`ESHUTDOWN`/`EPROTO`/`ENOENT` on the host side
+(a real cable pull reports `EPROTO`), drops the link
 and the address; scanning continues, so a re-plug relinks (~1 s, same
 addresses). Everything above the TUN is plain IP — nothing in minarch,
 netplay or the link backends knows about USB.
@@ -136,7 +142,13 @@ netplay or the link backends knows about USB.
   `run` (foreground, ignores SIGHUP for adb debugging).
 - **Files**: `/tmp/usblink.pid`, `/tmp/usblink.state` (shell-sourceable,
   atomic rename: `USBLINK_LINK=up|down|error`, `USBLINK_SIDE=host|device|`,
-  `USBLINK_LOCAL_IP`, `USBLINK_PEER_IP`, `USBLINK_ERROR`), `/tmp/usblink.udc`
+  `USBLINK_LOCAL_IP`, `USBLINK_PEER_IP`, `USBLINK_ERROR` = `version` (peer
+  protocol mismatch, while running), `tun` or `thread` (startup failures; the
+  daemon exits). A gadget failure is not an error value — see host-only above.
+  A startup error makes `start` exit 1, which the wizard shows as "USB link
+  could not start."; an error state read while waiting shows "USB link
+  unavailable on this device." for every value but `version`),
+  `/tmp/usblink.udc`
   (the UDC name saved before the rebind; proves our attach unbound it).
   Log: `$LOGS_PATH/usblink.txt`, else `/tmp/usblink.log`.
 - **Teardown**: `wiz_teardown()` runs `usblink.elf stop`; `--cleanup` and the
@@ -181,8 +193,8 @@ The tg5040 kernel (4.9.191) has TUN built in; the stock tg5050 kernel
 (5.15.147) does not. We ship `SYSTEM/tg5050/lib/modules/tun.ko`, which the
 daemon loads with `finit_module` when `/dev/net/tun` is missing (path:
 `$SYSTEM_PATH/lib/modules/tun.ko`) and leaves loaded until the next boot.
-A load failure is `USBLINK_ERROR=tun` ("USB link unavailable on this
-device."). The module is mainline `drivers/net/tun.c` from linux-5.15.147
+A load failure is `USBLINK_ERROR=tun` (a startup error: "USB link could not
+start."). The module is mainline `drivers/net/tun.c` from linux-5.15.147
 (tarball sha256-checked) built as an external module against the device
 config committed as `workspace/tg5050/other/kernel/config-5.15.147`; the
 kernel has no MODVERSIONS or signing, so only the vermagic

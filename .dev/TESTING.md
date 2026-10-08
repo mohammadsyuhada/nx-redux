@@ -234,7 +234,7 @@ Two-device bring-up with one computer:
 5. `ping 10.99.0.2` from B proves the path. busybox `ping` is 1/s, too
    coarse for jitter: for p99/max use a fixed-interval ICMP pinger (e.g.
    every 16 ms for 60 s, record each RTT, report loss/p99/max). Baseline:
-   ~1 ms RTT, p99 ≈ 1.5–2.5 ms, max ≈ 2.6 ms, 0 loss.
+   ~1 ms RTT, p99 ≈ 1.5 ms, max ≈ 2.6 ms, 0 loss.
 
 Teardown checks after a session: no daemon, no `nxlink0`, no
 `/sys/kernel/config/usb_gadget/g1/configs/c.1/ffs.net`, adb still up. Cable
