@@ -24,7 +24,7 @@ TARGET = usblink.elf
 
 CC = $(CROSS_COMPILE)gcc
 
-CFLAGS += -Wall -Wextra -O2 -std=gnu99 -I.
+CFLAGS += -Wall -Wextra -O2 -std=gnu99 -I. -MMD -MP
 # Makefile.env links SDL/GLES for the UI apps; this daemon only needs pthreads.
 LDFLAGS = -lpthread
 
@@ -38,11 +38,13 @@ all: $(PRODUCT)
 build/$(PLATFORM):
 	mkdir -p $@
 
-$(PRODUCT): build/$(PLATFORM) $(OBJS)
+$(PRODUCT): $(OBJS) | build/$(PLATFORM)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS)
 
 build/$(PLATFORM)/%.o: %.c | build/$(PLATFORM)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(PRODUCT) $(OBJS)
+	rm -f $(PRODUCT) $(OBJS) $(OBJS:.o=.d)
+
+-include $(OBJS:.o=.d)
