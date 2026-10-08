@@ -38,13 +38,24 @@ void wiz_usb_link_stop(void) {
 	system("usblink.elf stop >/dev/null 2>&1");
 }
 
-static void wiz_usb_render(const char* line, bool cancelable) {
-	char msg[256];
-	snprintf(msg, sizeof(msg),
-			 "Connect a USB-C cable from one device's\ntop port to the other device's\nbottom port.\n\n%s",
-			 line);
+// GFX_blitText centres inside dst_rect, so a full-width rect at y is a centred
+// line at y. Same as wizard_net.c's wiz_net_blit (static there).
+static void wiz_usb_blit(TTF_Font* f, const char* text, int y) {
+	GFX_blitText(f, text, 0, COLOR_WHITE, wiz_screen,
+				 &(SDL_Rect){0, y, wiz_screen->w, SCALE1(FONT_LARGE)});
+}
+
+// The three-tier layout of wizard_net.c's wiz_net_render_waiting(), with the
+// instruction split over two medium lines; the status line moves down by the
+// same one medium line so nothing overlaps.
+static void wiz_usb_render(const char* status, bool cancelable) {
+	int center_y = wiz_screen->h / 2;
+
 	GFX_clear(wiz_screen);
-	UI_renderCenteredMessage(wiz_screen, msg);
+	wiz_usb_blit(font.large, "USB Cable", center_y - SCALE1(FONT_LARGE + PADDING));
+	wiz_usb_blit(font.medium, "Connect one device's top port", center_y + SCALE1(5));
+	wiz_usb_blit(font.medium, "to the other device's bottom port", center_y + SCALE1(5 + FONT_MEDIUM));
+	wiz_usb_blit(font.small, status, center_y + SCALE1(28 + FONT_MEDIUM));
 	if (cancelable)
 		UI_renderButtonHintBar(wiz_screen, (char*[]){"B", "CANCEL", NULL});
 	GFX_flip(wiz_screen);
