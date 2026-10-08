@@ -22,6 +22,7 @@ static const struct {
 	{"plus4", "c64"},
 	{"amiga", "c64"},
 	{"fbn", "c64"}, // Arcade: the Competition Pro is an arcade stick
+	{"dcx", "dc"},	// Dreamcast Lite
 };
 
 const PadTableRow* Pad_row(const char* id) {

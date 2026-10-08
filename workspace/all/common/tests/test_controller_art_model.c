@@ -32,6 +32,7 @@ int main(void) {
 	assert(is("Nintendo Entertainment System (FC)", "fc") && is("Dreamcast (DC)", "dc"));
 	// reuse: Super Game Boy on the SNES pad, Sega CD and 32X on the Mega Drive's, Neo Geo Pocket on the Color's
 	assert(is("Super Game Boy (SGB)", "sfc"));
+	assert(is("Dreamcast Lite (DCX)", "dc")); // same controller as Dreamcast
 	assert(is("Sega CD (SEGACD)", "md") && is("Sega CD (GPGX)", "md") && is("Sega 32X (32X)", "md"));
 	assert(is("Neo Geo Pocket (NGP)", "ngpc") && is("Neo Geo Pocket Color (NGPC)", "ngpc"));
 	// no hardware of their own, or no image: keep the logo
