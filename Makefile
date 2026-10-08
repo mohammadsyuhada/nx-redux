@@ -185,6 +185,8 @@ ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
 	# gated here, not with the other SYSTEM bin copies, because it is only built
 	# for tg5040/tg5050 (see workspace/Makefile).
 	cp ./workspace/all/netplay-wizard/build/$(PLATFORM)/netplay.elf ./build/SYSTEM/$(PLATFORM)/bin/
+	# USB cable netplay link daemon (started/stopped by netplay.elf)
+	cp ./workspace/all/usblink/build/$(PLATFORM)/usblink.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	# N64 netplay relay server (N64.pak)
 	cp ./workspace/all/n64-netplay-server/build/$(PLATFORM)/m64p-server.elf ./build/SYSTEM/$(PLATFORM)/paks/Emus/N64.pak/
 
