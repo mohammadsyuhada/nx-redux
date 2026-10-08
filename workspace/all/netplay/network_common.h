@@ -185,6 +185,16 @@ void NET_sendDiscoveryBroadcast(int udp_fd, uint32_t magic, uint32_t protocol_ve
 								const char* link_mode);
 
 /**
+ * Send the same discovery packet as NET_sendDiscoveryBroadcast, unicast to
+ * dest_ip (USB cable mode: point-to-point TUN link, no subnet broadcast).
+ * @param dest_ip Peer IPv4 address (dotted quad)
+ */
+void NET_sendDiscoveryTo(int udp_fd, const char* dest_ip, uint32_t magic,
+						 uint32_t protocol_version, uint32_t game_crc,
+						 uint16_t tcp_port, uint16_t discovery_port,
+						 const char* game_name, const char* link_mode);
+
+/**
  * Receive and deduplicate discovery responses
  * @param udp_fd UDP socket file descriptor
  * @param expected_magic Expected magic number (host byte order)
