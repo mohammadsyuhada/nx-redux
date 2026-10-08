@@ -1473,7 +1473,8 @@ static void drawBackdropItem(SDL_Surface* screen, const RowGeo* g, Entry* e, Til
 		Uint8 a = (Uint8)(alpha * 255.0f + 0.5f);
 		if (kind == TILE_GAME) {
 			SDL_Surface* art = NULL;
-			HomeArtState st = HomeArt_boxart(e->path, g->full_w, g->full_h, &art, NULL, NULL);
+			// the 3D box art, or Layouts > Backdrop art's 2D box art or wheel (else the 3D box art), fitted in the box
+			HomeArtState st = HomeArt_boxart(e->path, CFG_getBackdropArt(), g->full_w, g->full_h, &art, NULL, NULL);
 			unsigned gen = HomeArt_lastGen(); // the slot of that art: keys its stretched copy
 			if (st == HOMEART_READY && art) {
 				// the shadow padding is the same on every side: the surface's centre is the art's
@@ -2697,7 +2698,8 @@ static void prefetchOne(const RowGeo* g, Entry* e, TileKind k, bool side, bool l
 	} else if (g->kind == ROW_BACKDROP_BOX) {
 		SDL_Surface* art = NULL;
 		HomeArtState st =
-			k == TILE_GAME ? HomeArt_boxart(e->path, g->full_w, g->full_h, &art, NULL, NULL) : HOMEART_NONE;
+			k == TILE_GAME ? HomeArt_boxart(e->path, CFG_getBackdropArt(), g->full_w, g->full_h, &art, NULL, NULL)
+						   : HOMEART_NONE;
 		unsigned gen = HomeArt_lastGen(); // the slot of that art (0 when not looked up: art is then NULL)
 		if (st == HOMEART_READY && art)	  // HomeArt frees a texture on its surface with it (PLAT_freeSurfaceTexture)
 			prefetchTexture(side && !sprites ? sideArt(g, e, art, gen) : art, sprites);

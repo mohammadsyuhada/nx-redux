@@ -56,15 +56,18 @@ else
 fi
 
 echo "== artbg compositor =="
-# artbg.c is deliberately self-contained (SDL + libm), so it compiles clean
-# with the strict flags and links only against SDL2.
+# artbg.c is deliberately self-contained (SDL + libm + the SDL-free
+# area_scale.c), so it compiles clean with the strict flags and links only
+# against SDL2.
 cc -std=gnu99 -O1 -Wall -Wextra -Werror $SDL_CFLAGS \
     -I workspace/all/nextui \
     -c -o "$TMP/artbg.o" workspace/all/nextui/artbg.c
+cc -std=gnu99 -O1 -Wall -Wextra -Werror \
+    -c -o "$TMP/area_scale.o" workspace/all/nextui/area_scale.c
 cc -std=gnu99 -O1 -Wall -Wextra -Werror $SDL_CFLAGS \
     -I workspace/all/nextui \
     -c -o "$TMP/test_artbg.o" scripts/tests/artstyle/test_artbg.c
-cc -o "$TMP/test_artbg" "$TMP/artbg.o" "$TMP/test_artbg.o" $SDL_LIBS -lm
+cc -o "$TMP/test_artbg" "$TMP/artbg.o" "$TMP/area_scale.o" "$TMP/test_artbg.o" $SDL_LIBS -lm
 "$TMP/test_artbg"
 
 echo "PASS: test-art-style"

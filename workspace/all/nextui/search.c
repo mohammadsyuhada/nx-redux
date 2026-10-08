@@ -172,7 +172,7 @@ void Search_render(SDL_Surface* screen, int lastScreen) {
 		// width (no column reserved, like an art-less row).
 		char thumbpath[1024];
 		ROM_displayArtPath(selected_entry->path, ART_TYPE_SCREENSHOT, false, thumbpath, sizeof(thumbpath));
-		startLoadThumb(thumbpath);
+		startLoadThumb(thumbpath, THUMB_COMPOSE_BG);
 	}
 
 	search_view.count = total;

@@ -31,7 +31,9 @@
 
 enum { KIND_CONTINUE,
 	   KIND_PIN,
-	   KIND_BOXART,
+	   KIND_BOXART,	   // the Backdrop row's items: 3D box art (Layouts > Backdrop art's default)
+	   KIND_BOXART_2D, // ... 2D box art, else the 3D box art (its own kind: an art type never reuses another's picture)
+	   KIND_WHEEL,	   // ... the wheel, else the 3D box art
 	   KIND_BACKDROP,
 	   KIND_BOXPH }; // the placeholder case's abstract plate (box-art pool)
 
@@ -315,11 +317,19 @@ static SDL_Surface* addShadow(SDL_Surface* art, int pad, int off, int r) {
 	return dst;
 }
 
-// Box art fitted (contain) into w×h with its soft shadow; *ox/*oy = the art's top-left in the result.
-static SDL_Surface* buildBoxart(const char* rom, int w, int h, int* ox, int* oy) {
+// Box art fitted (contain) into w×h with its soft shadow; *ox/*oy = the art's top-left in the result. KIND_BOXART_2D and
+// KIND_WHEEL fit the scraped 2D box art or wheel the same way (a wheel keeps its wide aspect), falling back to the 3D
+// box art when the game has none (or it can't be read).
+static SDL_Surface* buildBoxart(int kind, const char* rom, int w, int h, int* ox, int* oy) {
 	char path[MAX_PATH];
-	ROM_displayArtPath(rom, ART_TYPE_BOXART, false, path, sizeof(path));
-	SDL_Surface* src = loadArgb(path);
+	SDL_Surface* src = NULL;
+	if (kind != KIND_BOXART &&
+		ROM_findListArt(rom, kind == KIND_BOXART_2D ? GAME_LIST_ART_BOXART2D : GAME_LIST_ART_WHEEL, path, sizeof(path)))
+		src = loadArgb(path);
+	if (!src) {
+		ROM_displayArtPath(rom, ART_TYPE_BOXART, false, path, sizeof(path));
+		src = loadArgb(path);
+	}
 	if (!src || dropIfCancelled(src))
 		return NULL;
 	float s = fminf((float)w / src->w, (float)h / src->h);
@@ -388,8 +398,8 @@ static SDL_Surface* buildBackdrop(const char* rom, int w, int h) {
 
 static SDL_Surface* buildPicture(int kind, const char* rom, const char* preview, int w, int h, int radius, int* ox,
 								 int* oy) {
-	if (kind == KIND_BOXART)
-		return buildBoxart(rom, w, h, ox, oy);
+	if (kind == KIND_BOXART || kind == KIND_BOXART_2D || kind == KIND_WHEEL)
+		return buildBoxart(kind, rom, w, h, ox, oy);
 	if (kind == KIND_BACKDROP)
 		return buildBackdrop(rom, w, h);
 	if (kind == KIND_BOXPH) {
@@ -502,7 +512,7 @@ static bool ensureStarted(void) {
 
 // Each kind evicts within its own pool: [first, first + count).
 static void poolFor(int kind, int* first, int* count) {
-	if (kind == KIND_BOXART || kind == KIND_BOXPH) {
+	if (kind == KIND_BOXART || kind == KIND_BOXART_2D || kind == KIND_WHEEL || kind == KIND_BOXPH) {
 		*first = POOL_PICTURE_SIZE;
 		*count = POOL_BOXART_SIZE;
 	} else if (kind == KIND_BACKDROP) {
@@ -583,8 +593,10 @@ HomeArtState HomeArt_pin(const char* rom_path, int w, int h, int radius_px, SDL_
 	return lookup(KIND_PIN, rom_path, NULL, w, h, radius_px, out, NULL, NULL);
 }
 
-HomeArtState HomeArt_boxart(const char* rom_path, int w, int h, SDL_Surface** out, int* ox, int* oy) {
-	return lookup(KIND_BOXART, rom_path, NULL, w, h, 0, out, ox, oy);
+HomeArtState HomeArt_boxart(const char* rom_path, int art, int w, int h, SDL_Surface** out, int* ox, int* oy) {
+	int kind = art == BACKDROP_ART_BOXART2D ? KIND_BOXART_2D : art == BACKDROP_ART_WHEEL ? KIND_WHEEL
+																						 : KIND_BOXART;
+	return lookup(kind, rom_path, NULL, w, h, 0, out, ox, oy);
 }
 
 HomeArtState HomeArt_boxPlaceholder(const char* rom_path, int w, int h, SDL_Surface** out) {

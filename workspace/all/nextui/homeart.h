@@ -21,11 +21,13 @@ HomeArtState HomeArt_continue(const char* rom_path, const char* preview_path, in
 							  SDL_Surface** out);
 // A pin's screenshot, else its abstract picture, cropped to fill w×h, corners rounded. Same ownership.
 HomeArtState HomeArt_pin(const char* rom_path, int w, int h, int radius_px, SDL_Surface** out);
-// Box art (.media/boxart) fitted (contain, aspect kept) into w×h px with its soft shadow baked in. The returned surface
-// is the fitted art plus the same padding `pad` on every side (room for the 4 dp offset and the 8 dp blur), and
+// A Backdrop row item: box art (.media/boxart) fitted (contain, aspect kept) into w×h px with its soft shadow baked in.
+// `art` (BACKDROP_ART_*, Layouts > Backdrop art) picks the picture: 3D box art, or the scraped 2D box art
+// (.media/boxart2d) or wheel (.media/wheel), each falling back to the 3D box art when the game has none. The returned
+// surface is the fitted art plus the same padding `pad` on every side (room for the 4 dp offset and the 8 dp blur), and
 // *ox = *oy = pad is where the art's own top-left sits: art size = (surface->w - 2 * *ox) × (surface->h - 2 * *oy).
-// NONE when the game has no box art. ox/oy may be NULL; they are 0 unless READY.
-HomeArtState HomeArt_boxart(const char* rom_path, int w, int h, SDL_Surface** out, int* ox, int* oy);
+// NONE when the game has none of them. ox/oy may be NULL; they are 0 unless READY.
+HomeArtState HomeArt_boxart(const char* rom_path, int art, int w, int h, SDL_Surface** out, int* ox, int* oy);
 // The Backdrop placeholder case's plate for a game without box art: its abstract picture (portrait, the same seed as
 // the tiles' placeholder) cropped to fill w×h, generated once and kept on disk. Same ownership.
 HomeArtState HomeArt_boxPlaceholder(const char* rom_path, int w, int h, SDL_Surface** out);

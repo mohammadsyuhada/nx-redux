@@ -33,6 +33,7 @@
 #include "content.h"
 #include "gameswitcher.h"
 #include "imgloader.h"
+#include "artbg.h"
 #include "gameinfo.h"
 #include "gameinfo_text.h"
 #include "gridview.h"
@@ -1052,7 +1053,7 @@ static bool entryEmuOptionsCapable(Entry* entry) {
 }
 
 #define ARTFETCH_STATUS_PATH "/tmp/nextui_artfetch.status"
-#define ARTFETCH_TIMEOUT_MS 60000
+#define ARTFETCH_TIMEOUT_MS 120000 // up to 4 downloads plus composing the mix
 #define ARTFETCH_RESULT_MS 1500
 
 // Fit a game name onto one line of the modal title (font.large), ellipsizing
@@ -1136,6 +1137,8 @@ static void artFetchModal_render(SDL_Surface* screen, void* vctx) {
 			sub = "Downloading...";
 		else if (strcmp(ctx->stage, "saving") == 0)
 			sub = "Adding art...";
+		else if (strcmp(ctx->stage, "compositing") == 0)
+			sub = "Building mix...";
 		else
 			sub = "Starting...";
 	}
@@ -1158,14 +1161,21 @@ static int artFetchModal_handle(void* vctx) {
 				*nl = '\0';
 
 			if (strcmp(status, "done") == 0) {
-				// the List's thumbnails (by its art type: the mix path, or the screenshot or box art) and the
-				// Carousel, Grid and Backdrop pictures (HomeArt, which may hold a placeholder or a miss for it)
+				// the List's thumbnails, each in both compose modes (the root .media picture, the screenshot, box art,
+				// and List art's mix, 2D box art, wheel and 3D box art) and the Carousel, Grid and Backdrop pictures (HomeArt,
+				// which may hold a placeholder or a miss for it)
 				char variant[MAX_PATH];
 				thumbCacheInvalidate(ctx->out_png);
 				ROM_displayArtPath(ctx->rom, ART_TYPE_SCREENSHOT, false, variant, sizeof(variant));
 				thumbCacheInvalidate(variant);
 				ROM_displayArtPath(ctx->rom, ART_TYPE_BOXART, false, variant, sizeof(variant));
 				thumbCacheInvalidate(variant);
+				const int fitted[] = {GAME_LIST_ART_MIX, GAME_LIST_ART_BOXART2D, GAME_LIST_ART_WHEEL,
+									  GAME_LIST_ART_BOXART3D};
+				for (int i = 0; i < (int)(sizeof(fitted) / sizeof(fitted[0])); i++) {
+					ROM_findListArt(ctx->rom, fitted[i], variant, sizeof(variant)); // a miss names the screenshot
+					thumbCacheInvalidate(variant);
+				}
 				HomeArt_forget(ctx->rom);
 				ctx->result = "Artwork added";
 			} else if (strcmp(status, "notfound") == 0) {
@@ -1561,7 +1571,7 @@ static void romItems(Entry* entry, bool allow_pin, ContextMenuItem* items, int* 
 		if (entryEmuOptionsCapable(entry))
 			addItem(items, idx, "Emulator Options", 36);
 		// offered (in any style, never on Home) while the game has neither a screenshot nor a box art: the scraper
-		// saves both (no mix composite any more)
+		// saves the screenshot and box art, plus the 2D box art, wheel and mix when Artwork Manager's settings ask for them
 		char af_rom[MAX_PATH], af_out[MAX_PATH], af_tag[MAX_PATH];
 		if (!Home_active() && entryArtInfo(entry, af_rom, af_out, af_tag) && !entryHasArt(entry->path))
 			addItem(items, idx, "Fetch Artwork", 37);
@@ -2303,7 +2313,7 @@ static void clearArtForGrid(SDL_Surface* screen, int lastScreen) {
 	had_thumb = false;
 	ox = screen->w;
 	if (!list_art_cleared || lastScreen != SCREEN_GAMELIST) {
-		startLoadThumb("");
+		startLoadThumb("", THUMB_COMPOSE_BG);
 		list_art_cleared = true;
 	}
 	// no marquee on a Grid screen: a List's leftover state would keep ticking on the scroll-text layer
@@ -2323,7 +2333,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		had_thumb = false;
 		ox = screen->w;
 		if (!list_art_cleared || lastScreen != SCREEN_GAMELIST) {
-			startLoadThumb("");
+			startLoadThumb("", THUMB_COMPOSE_BG);
 			list_art_cleared = true;
 		}
 		Home_render(screen, lastScreen);
@@ -2398,20 +2408,29 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		had_thumb = false;
 		ox = screen->w;
 		if (!list_art_cleared || lastScreen != SCREEN_GAMELIST) {
-			startLoadThumb("");
+			startLoadThumb("", THUMB_COMPOSE_BG);
 			list_art_cleared = true;
 		}
 	} else if (total > 0) {
 		list_art_cleared = false;
-		// The game's screenshot as the background art behind the list (LIST-LAYOUT §6: the only game-art look), or
-		// nothing. It paints behind the rows, so the title runs the full screen width (matching an art-less row);
-		// a long title may reach over the image's bright side.
+		// The game's screenshot as the background art behind the list (LIST-LAYOUT §6), or with Layouts > List art =
+		// Mix, 3D box art, 2D box art or Wheel and that picture on the card, it fitted into a hard-edged box on the right; or
+		// nothing. The screenshot paints behind the rows, so the title runs the full screen width (matching an
+		// art-less row) and a long title may reach over the image's bright side; the box is solid, so the titles
+		// stop short of it.
 		char thumbpath[1024];
-		ROM_findScreenshot(entry->path, thumbpath, sizeof(thumbpath)); // scraped, else the root .media picture
-		had_thumb = startLoadThumb(thumbpath);
-		// The consumers add SCALE1(BUTTON_MARGIN) back to ox, so this yields the same available width as the
-		// art-less full-width row.
-		ox = had_thumb ? screen->w - SCALE1(BUTTON_MARGIN * 2) : screen->w;
+		bool fit = ROM_findListArt(entry->path, CFG_getGameListArt(), thumbpath,
+								   sizeof(thumbpath)); // else the screenshot: scraped, else the root .media picture
+		had_thumb = startLoadThumb(thumbpath, fit ? THUMB_COMPOSE_FIT : THUMB_COMPOSE_BG);
+		// The consumers add SCALE1(BUTTON_MARGIN) back to ox, so this yields the art-less full-width row's available
+		// width, or for the box, titles ending BUTTON_MARGIN before it as they end BUTTON_MARGIN before the
+		// screen's edge.
+		if (!had_thumb)
+			ox = screen->w;
+		else if (fit)
+			ox = ArtBg_fitOriginX(screen->w, screen->h, SCALE1(BUTTON_MARGIN)) - SCALE1(BUTTON_MARGIN * 2);
+		else
+			ox = screen->w - SCALE1(BUTTON_MARGIN * 2);
 	}
 
 	// the rows' geometry: whole px rows of row_h (nxListFit), the band below them

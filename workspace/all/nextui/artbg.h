@@ -29,4 +29,26 @@ SDL_Surface* ArtBg_compose(SDL_Surface* art, int screen_w, int screen_h, Uint32 
 // state from ArtBg_compose.
 int ArtBg_originX(int screen_w, int screen_h);
 
+// The List's fitted picture (List art = Mix, 3D box art, 2D box art or Wheel)
+// in a fixed box on the right: ARTBG_FIT_BOX_W (384) panel px wide by
+// ARTBG_FIT_BOX_H_FRAC (75%) of the screen height, its right edge `margin` px in
+// from the screen's right edge (the caller passes the List's right padding,
+// SCALE1(BUTTON_MARGIN), so this file stays free of api.h), vertically centred.
+// The art is fitted whole (aspect kept) inside the box, right-aligned and
+// vertically centred, the rest transparent. Its own edge is the hard edge: no
+// fade. Scaled smoothly (area average down, bilinear up), never nearest. Pure
+// and worker-thread safe like ArtBg_compose; `art` is left untouched and its
+// straight alpha is kept. Returns a NEW surface the caller owns, sized to the
+// box (ArtBg_fitRect's w x h) and blitted at that rect, or NULL on failure.
+#define ARTBG_FIT_BOX_W 384
+#define ARTBG_FIT_BOX_H_FRAC 0.75f
+SDL_Surface* ArtBg_composeFit(SDL_Surface* art, int screen_w, int screen_h, int margin, Uint32 pixel_format);
+
+// The screen rect of the fitted box (where the ArtBg_composeFit surface is
+// blitted). Depends only on the screen size and the margin, like ArtBg_originX.
+SDL_Rect ArtBg_fitRect(int screen_w, int screen_h, int margin);
+
+// The fitted box's left x (ArtBg_fitRect(...).x).
+int ArtBg_fitOriginX(int screen_w, int screen_h, int margin);
+
 #endif // ARTBG_H

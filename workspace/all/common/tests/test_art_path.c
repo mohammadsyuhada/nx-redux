@@ -121,6 +121,81 @@ int main(void) {
 	ROM_displayArtPath(cue, 2, false, out, sizeof(out));
 	assert(strcmp(out, want) == 0);
 
+	// 8. the List's art (ROM_findListArt; art = GAME_LIST_ART_*: 0 Screenshot, 1 Mix, 2 2D box art, 3 Wheel,
+	// 4 3D box art). A fitted
+	// picture returns true; otherwise ROM_findScreenshot's pick, returning false.
+	char gb[512], gb_media[512], gbrom[512], shot[512];
+	snprintf(gb, sizeof(gb), "%s/Roms/Game Boy (GB)", root);
+	snprintf(gb_media, sizeof(gb_media), "%s/.media", gb);
+	snprintf(mk, sizeof(mk), "mkdir -p '%s/screenshot' '%s/mix' '%s/boxart2d' '%s/wheel' '%s/boxart'", gb_media,
+			 gb_media, gb_media, gb_media, gb_media);
+	assert(system(mk) == 0);
+	snprintf(gbrom, sizeof(gbrom), "%s/Tetris.gb", gb);
+	mkfile(gbrom);
+	// only a screenshot: every type falls back to it
+	snprintf(shot, sizeof(shot), "%s/screenshot/Tetris.png", gb_media);
+	mkfile(shot);
+	for (int art = 0; art <= 4; art++) {
+		assert(!ROM_findListArt(gbrom, art, out, sizeof(out)));
+		assert(strcmp(out, shot) == 0);
+	}
+	// Mix: the legacy root picture (an old library's mix, a Port's picture) when there is no .media/mix one
+	snprintf(want, sizeof(want), "%s/Tetris.png", gb_media);
+	mkfile(want);
+	assert(ROM_findListArt(gbrom, 1, out, sizeof(out)));
+	assert(strcmp(out, want) == 0);
+	// Mix: .media/mix/ wins over the legacy root picture
+	snprintf(want, sizeof(want), "%s/mix/Tetris.png", gb_media);
+	mkfile(want);
+	assert(ROM_findListArt(gbrom, 1, out, sizeof(out)));
+	assert(strcmp(out, want) == 0);
+	// 2D box art, Wheel and 3D box art: their own folders only (the mix and the root picture never stand in)
+	assert(!ROM_findListArt(gbrom, 2, out, sizeof(out)));
+	assert(strcmp(out, shot) == 0);
+	assert(!ROM_findListArt(gbrom, 3, out, sizeof(out)));
+	assert(strcmp(out, shot) == 0);
+	assert(!ROM_findListArt(gbrom, 4, out, sizeof(out)));
+	assert(strcmp(out, shot) == 0);
+	snprintf(want, sizeof(want), "%s/boxart2d/Tetris.png", gb_media);
+	mkfile(want);
+	assert(ROM_findListArt(gbrom, 2, out, sizeof(out)));
+	assert(strcmp(out, want) == 0);
+	snprintf(want, sizeof(want), "%s/wheel/Tetris.png", gb_media);
+	mkfile(want);
+	assert(ROM_findListArt(gbrom, 3, out, sizeof(out)));
+	assert(strcmp(out, want) == 0);
+	snprintf(want, sizeof(want), "%s/boxart/Tetris.png", gb_media);
+	mkfile(want);
+	assert(ROM_findListArt(gbrom, 4, out, sizeof(out)));
+	assert(strcmp(out, want) == 0);
+	// Screenshot (and an out-of-range type): the screenshot even though every fitted picture exists
+	assert(!ROM_findListArt(gbrom, 0, out, sizeof(out)));
+	assert(strcmp(out, shot) == 0);
+	assert(!ROM_findListArt(gbrom, 7, out, sizeof(out)));
+	assert(strcmp(out, shot) == 0);
+
+	// a folder game's disc: each picture beside its folder. The legacy root mix is FF VII's root picture (made in 5.)
+	snprintf(want, sizeof(want), "%s/Final Fantasy VII.png", ps_media);
+	assert(ROM_findListArt(disc, 1, out, sizeof(out)));
+	assert(strcmp(out, want) == 0);
+	assert(!ROM_findListArt(disc, 2, out, sizeof(out))); // no 2D box art yet: its screenshot instead
+	snprintf(want, sizeof(want), "%s/screenshot/Final Fantasy VII.png", ps_media);
+	assert(strcmp(out, want) == 0);
+	assert(!ROM_findListArt(disc, 0, out, sizeof(out)));
+	assert(strcmp(out, want) == 0);
+	snprintf(mk, sizeof(mk), "mkdir -p '%s/mix' '%s/boxart2d' '%s/wheel'", ps_media, ps_media, ps_media);
+	assert(system(mk) == 0);
+	// (3D box art: FF VII's box art beside the folder, made in 5.)
+	const char* folders[] = {NULL, "mix", "boxart2d", "wheel", "boxart"};
+	for (int art = 1; art <= 4; art++) {
+		snprintf(want, sizeof(want), "%s/%s/Final Fantasy VII.png", ps_media, folders[art]);
+		mkfile(want);
+		assert(ROM_findListArt(disc, art, out, sizeof(out)));
+		assert(strcmp(out, want) == 0);
+		assert(ROM_findListArt(m3u, art, out, sizeof(out)));
+		assert(strcmp(out, want) == 0);
+	}
+
 	snprintf(mk, sizeof(mk), "rm -rf '%s'", root);
 	assert(system(mk) == 0);
 	printf("test_art_path: ok\n");

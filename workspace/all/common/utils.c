@@ -941,6 +941,40 @@ bool ROM_findScreenshot(const char* rom_path, char* out, size_t out_size) {
 		   folderGameArtPath(rom_path, NULL, out, out_size);
 }
 
+// The fitted List art's folder for a GAME_LIST_ART_* value (config.h; int-typed so utils.c stays free of config.h):
+// 1 Mix, 2 2D box art, 3 Wheel, 4 3D box art; NULL for the Screenshot (0) or anything else.
+static const char* listArtFolder(int art) {
+	switch (art) {
+	case 1:
+		return "mix";
+	case 2:
+		return "boxart2d";
+	case 3:
+		return "wheel";
+	case 4:
+		return "boxart";
+	default:
+		return NULL;
+	}
+}
+
+bool ROM_findListArt(const char* rom_path, int art, char* out, size_t out_size) {
+	const char* folder = listArtFolder(art);
+	if (folder) {
+		ROM_mediaArtVariantPath(rom_path, folder, out, out_size);
+		if (exists(out) || folderGameArtPath(rom_path, folder, out, out_size))
+			return true;
+		// Mix: an older library's mix (and a Port's picture) is the root .media/<name>.png
+		if (art == 1) {
+			ROM_mediaArtPath(rom_path, out, out_size);
+			if (exists(out) || folderGameArtPath(rom_path, NULL, out, out_size))
+				return true;
+		}
+	}
+	ROM_findScreenshot(rom_path, out, out_size);
+	return false;
+}
+
 bool M3U_findForRom(const char* rom_path, char* m3u_path, size_t m3u_size) {
 	char work[MAX_PATH];
 	strncpy(work, rom_path, sizeof(work) - 1);
