@@ -11,6 +11,7 @@
 #include <pthread.h>
 #include "api.h"
 #include "utils.h"
+#include "tz_country.h"
 #include "parson/parson.h"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
@@ -129,7 +130,93 @@ static void save_album_art_to_cache(const char* cache_path, const uint8_t* data,
 // URL encode a string for use in query parameters
 // url_encode moved to common/utils.c as urlEncode()
 
-// Background thread: fetch album art from iTunes API
+#define SEARCH_RESPONSE_MAX (64 * 1024)
+
+// Fetch url and parse it as JSON. Returns NULL on any failure.
+static JSON_Value* fetch_json(const char* url) {
+	uint8_t* buf = (uint8_t*)malloc(SEARCH_RESPONSE_MAX);
+	if (!buf)
+		return NULL;
+	int bytes = wget_fetch(url, buf, SEARCH_RESPONSE_MAX - 1);
+	if (bytes <= 0) {
+		LOG_error("Album art search failed: %s\n", url);
+		free(buf);
+		return NULL;
+	}
+	buf[bytes] = '\0';
+	JSON_Value* root = json_parse_string((const char*)buf);
+	free(buf);
+	if (!root)
+		LOG_error("Album art search returned invalid JSON: %s\n", url);
+	return root;
+}
+
+// Pick the search result to take art from: the first whose track title equals
+// title (ignoring case), so a cover version or remix ranked higher doesn't win,
+// else the first result. Returns NULL when there are no results.
+static JSON_Object* pick_result(JSON_Array* results, const char* title_key, const char* title) {
+	size_t count = json_array_get_count(results);
+	for (size_t i = 0; title[0] && i < count; i++) {
+		const char* t = json_object_get_string(json_array_get_object(results, i), title_key);
+		if (t && strcasecmp(t, title) == 0)
+			return json_array_get_object(results, i);
+	}
+	return json_array_get_object(results, 0);
+}
+
+// Search one iTunes storefront (two-letter country code) for term (already
+// URL-encoded). On a hit, writes a 300x300 artwork URL into out.
+static bool search_itunes(const char* term, const char* title, const char* country, char* out, int out_sz) {
+	char url[1300];
+	snprintf(url, sizeof(url), "https://itunes.apple.com/search?term=%s&media=music&limit=10&country=%s", term,
+			 country);
+	JSON_Value* root = fetch_json(url);
+	if (!root)
+		return false;
+	JSON_Array* results = json_object_get_array(json_value_get_object(root), "results");
+	const char* artwork_url = json_object_get_string(pick_result(results, "trackName", title), "artworkUrl100");
+	if (!artwork_url) {
+		json_value_free(root);
+		return false;
+	}
+
+	// Convert HTTPS to HTTP for better compatibility
+	if (strncmp(artwork_url, "https://", 8) == 0) {
+		const char* after_https = artwork_url + 8;
+		const char* ssl_pos = strstr(after_https, "-ssl.");
+		if (ssl_pos)
+			snprintf(out, out_sz, "http://%.*s%s", (int)(ssl_pos - after_https), after_https, ssl_pos + 4);
+		else
+			snprintf(out, out_sz, "http://%s", after_https);
+	} else {
+		snprintf(out, out_sz, "%s", artwork_url);
+	}
+	json_value_free(root);
+
+	// Replace 100x100 with 300x300 for larger image
+	char* size_str = strstr(out, "100x100");
+	if (size_str)
+		memcpy(size_str, "300x300", 7);
+	return true;
+}
+
+// Search Deezer (one catalogue worldwide, no API key) for term. On a hit,
+// writes the album's 500x500 cover URL into out.
+static bool search_deezer(const char* term, const char* title, char* out, int out_sz) {
+	char url[1300];
+	snprintf(url, sizeof(url), "https://api.deezer.com/search?q=%s&limit=10", term);
+	JSON_Value* root = fetch_json(url);
+	if (!root)
+		return false;
+	JSON_Array* results = json_object_get_array(json_value_get_object(root), "data");
+	const char* cover = json_object_dotget_string(pick_result(results, "title", title), "album.cover_big");
+	if (cover)
+		snprintf(out, out_sz, "%s", cover);
+	json_value_free(root);
+	return cover != NULL;
+}
+
+// Background thread: fetch album art (iTunes, then Deezer)
 static void* fetch_thread_func(void* arg) {
 	(void)arg;
 	PWR_pinToCores(CPU_CORE_EFFICIENCY);
@@ -149,106 +236,35 @@ static void* fetch_thread_func(void* arg) {
 		return NULL;
 	}
 
-	// Build search query using iTunes API
 	char encoded_artist[512];
 	char encoded_title[512];
 	urlEncode(artist, encoded_artist, sizeof(encoded_artist));
 	urlEncode(title, encoded_title, sizeof(encoded_title));
 
-	char search_url[1024];
-	if (artist[0] && title[0]) {
-		snprintf(search_url, sizeof(search_url),
-				 "https://itunes.apple.com/search?term=%s+%s&media=music&limit=1",
-				 encoded_artist, encoded_title);
-	} else if (artist[0]) {
-		snprintf(search_url, sizeof(search_url),
-				 "https://itunes.apple.com/search?term=%s&media=music&limit=1",
-				 encoded_artist);
-	} else {
-		snprintf(search_url, sizeof(search_url),
-				 "https://itunes.apple.com/search?term=%s&media=music&limit=1",
-				 encoded_title);
-	}
+	char term[1100];
+	if (artist[0] && title[0])
+		snprintf(term, sizeof(term), "%s+%s", encoded_artist, encoded_title);
+	else
+		snprintf(term, sizeof(term), "%s", artist[0] ? encoded_artist : encoded_title);
 
-	// Fetch iTunes API response
-	uint8_t* response_buf = (uint8_t*)malloc(32 * 1024);
-	if (!response_buf) {
-		art_ctx.result_ready = true;
-		return NULL;
-	}
-
-	int bytes = wget_fetch(search_url, response_buf, 32 * 1024);
-	if (bytes <= 0) {
-		LOG_error("Failed to fetch iTunes search results\n");
-		free(response_buf);
-		art_ctx.result_ready = true;
-		return NULL;
-	}
-
-	response_buf[bytes] = '\0';
-
-	// Parse JSON response
-	JSON_Value* root = json_parse_string((const char*)response_buf);
-	free(response_buf);
-
-	if (!root) {
-		LOG_error("Failed to parse iTunes JSON response\n");
-		art_ctx.result_ready = true;
-		return NULL;
-	}
-
-	JSON_Object* obj = json_value_get_object(root);
-	if (!obj) {
-		json_value_free(root);
-		art_ctx.result_ready = true;
-		return NULL;
-	}
-
-	JSON_Array* results = json_object_get_array(obj, "results");
-	if (!results || json_array_get_count(results) == 0) {
-		json_value_free(root);
-		art_ctx.result_ready = true;
-		return NULL;
-	}
-
-	JSON_Object* track = json_array_get_object(results, 0);
-	if (!track) {
-		json_value_free(root);
-		art_ctx.result_ready = true;
-		return NULL;
-	}
-
-	const char* artwork_url = json_object_get_string(track, "artworkUrl100");
-	if (!artwork_url) {
-		json_value_free(root);
-		art_ctx.result_ready = true;
-		return NULL;
-	}
-
-	// Modify URL to get larger image and convert HTTPS to HTTP for better compatibility
+	// iTunes in the device's storefront (from its timezone), then the US one,
+	// and only then Deezer: storefronts carry different catalogues, and a lot
+	// of regional music is missing from the US one.
 	char large_artwork_url[512];
-	if (strncmp(artwork_url, "https://", 8) == 0) {
-		const char* after_https = artwork_url + 8;
-		char* ssl_pos = strstr(after_https, "-ssl.");
-		if (ssl_pos) {
-			int prefix_len = ssl_pos - after_https;
-			snprintf(large_artwork_url, sizeof(large_artwork_url), "http://%.*s%s",
-					 prefix_len, after_https, ssl_pos + 4);
-		} else {
-			snprintf(large_artwork_url, sizeof(large_artwork_url), "http://%s", after_https);
-		}
-	} else {
-		strncpy(large_artwork_url, artwork_url, sizeof(large_artwork_url) - 1);
+	char country[8];
+	bool found = false;
+	if (TZ_currentCountryCode(country, sizeof(country)) && strcasecmp(country, "US") != 0)
+		found = search_itunes(term, title, country, large_artwork_url, sizeof(large_artwork_url));
+	if (!found)
+		found = search_itunes(term, title, "US", large_artwork_url, sizeof(large_artwork_url));
+	if (!found)
+		found = search_deezer(term, title, large_artwork_url, sizeof(large_artwork_url));
+	if (!found) {
+		LOG_info("No album art found for \"%s\" - \"%s\"\n", artist, title);
+		art_ctx.result_ready = true;
+		return NULL;
 	}
-	large_artwork_url[sizeof(large_artwork_url) - 1] = '\0';
-
-	// Replace 100x100 with 300x300 for larger image
-	char* size_str = strstr(large_artwork_url, "100x100");
-	if (size_str) {
-		memcpy(size_str, "300x300", 7);
-	}
-
-	json_value_free(root);
+	LOG_info("Album art for \"%s\" - \"%s\": %s\n", artist, title, large_artwork_url);
 
 	// Download the image
 	uint8_t* image_buf = (uint8_t*)malloc(1024 * 1024);
@@ -367,7 +383,7 @@ bool album_art_matches(const char* artist, const char* title) {
 	bool matches;
 	pthread_mutex_lock(&art_lock);
 	matches = art_ctx.album_art && strcmp(art_ctx.loaded_art_artist, artist ? artist : "") == 0 &&
-		strcmp(art_ctx.loaded_art_title, title ? title : "") == 0;
+			  strcmp(art_ctx.loaded_art_title, title ? title : "") == 0;
 	pthread_mutex_unlock(&art_lock);
 	return matches;
 }
