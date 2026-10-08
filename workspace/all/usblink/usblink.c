@@ -430,16 +430,21 @@ static int run_daemon(int foreground) {
 	tun_fd = usblink_tun_open(TUN_NAME);
 	if (tun_fd < 0)
 		fatal("tun");
-	if (usblink_gadget_attach(&g_out, &g_in) != 0)
-		fatal("gadget");
-	fprintf(stderr, "usblink: attached, waiting for a peer\n");
+	// No gadget (UDC unbound, configfs refused) only rules out a peer on our
+	// main port; the host port can still claim one, so run host-only.
+	int gadget_ok = usblink_gadget_attach(&g_out, &g_in) == 0;
+	if (gadget_ok)
+		fprintf(stderr, "usblink: attached, waiting for a peer\n");
+	else
+		fprintf(stderr, "usblink: gadget unavailable, host port only\n");
 
 	pthread_mutex_lock(&mu);
 	publish();
 	pthread_mutex_unlock(&mu);
 
-	void* (*workers[])(void*) = {gadget_rx, ep0_drain, host_io, tun_rx};
-	for (unsigned i = 0; i < sizeof(workers) / sizeof(workers[0]); i++) {
+	void* (*workers[])(void*) = {host_io, tun_rx, gadget_rx, ep0_drain};
+	unsigned nworkers = gadget_ok ? 4 : 2;
+	for (unsigned i = 0; i < nworkers; i++) {
 		pthread_t t;
 		if (pthread_create(&t, NULL, workers[i], NULL) != 0)
 			fatal("thread");
@@ -481,6 +486,17 @@ static void redirect_stdio(void) {
 	setvbuf(stderr, NULL, _IOLBF, 0);
 }
 
+// The daemon outlives the wizard into the game; it must not hold on to any
+// of the wizard's descriptors. `start` waits on the state file, not a pipe,
+// so nothing above stdio is needed here.
+static void close_inherited_fds(void) {
+	long max = sysconf(_SC_OPEN_MAX);
+	if (max < 0 || max > 65536)
+		max = 65536;
+	for (int fd = 3; fd < (int)max; fd++)
+		close(fd);
+}
+
 static int cmd_start(void) {
 	if (running_pid() > 0)
 		return 0;
@@ -497,13 +513,14 @@ static int cmd_start(void) {
 		pid_t q = fork();
 		if (q != 0)
 			_exit(q < 0 ? 1 : 0);
+		close_inherited_fds();
 		redirect_stdio();
 		_exit(run_daemon(0));
 	}
 	waitpid(p, NULL, 0);
-	// The daemon publishes "down" once tun and the gadget are up, or "error"
-	// on a startup failure. Budget covers tun.ko loading (up to 1 s) plus the
-	// UDC rebind in attach.
+	// The daemon publishes "down" once tun is up and the gadget attached (or
+	// given up on: host-only), or "error" on a startup failure. Budget covers
+	// tun.ko loading (up to 1 s) plus the UDC rebind in attach.
 	for (int i = 0; i < START_WAIT_MS / 50; i++) {
 		UsbLinkState st;
 		if (usblink_state_read(STATE_FILE, &st) == 0 && st.link[0])
