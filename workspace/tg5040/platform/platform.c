@@ -629,6 +629,10 @@ void PLAT_initLeds(LightSettings* lights) {
 					continue;
 				}
 				if (sscanf(line, "effect=%d", &temp_value) == 1) {
+					// Older builds offered effects the driver never had; those
+					// left the zone dark, so fall back to Static.
+					if (temp_value > LED_EFFECT_MAX)
+						temp_value = LED_EFFECT_STATIC;
 					lights[current_light].effect = temp_value;
 					continue;
 				}

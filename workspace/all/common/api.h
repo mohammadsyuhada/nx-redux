@@ -243,6 +243,10 @@ typedef struct
 
 } LightSettings;
 
+// Highest effect the trimui led_anim driver implements (1 linear .. 7 blink3)
+#define LED_EFFECT_MAX 7
+#define LED_EFFECT_STATIC 4
+
 extern LightSettings lightsDefault[MAX_LIGHTS];
 
 enum {

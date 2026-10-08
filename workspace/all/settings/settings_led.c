@@ -39,30 +39,15 @@ extern const char* color_labels[COLOR_COUNT];
 // Effect name arrays
 // ============================================
 
-#define STANDARD_EFFECT_COUNT 15
-static const char* standard_effect_names[STANDARD_EFFECT_COUNT] = {
+/* The trimui led_anim driver only implements effects 1..LED_EFFECT_MAX
+   (see /sys/class/led_anim/effect_names); anything higher is rejected and
+   leaves the zone dark, so only those are offered. */
+static const char* effect_names[LED_EFFECT_MAX] = {
 	"Linear", "Breathe", "Interval Breathe", "Static",
-	"Blink 1", "Blink 2", "Blink 3", "Rainbow", "Twinkle",
-	"Fire", "Glitter", "NeonGlow", "Firefly", "Aurora", "Reactive"};
-
-#define TOPBAR_EFFECT_COUNT 17
-static const char* topbar_effect_names[TOPBAR_EFFECT_COUNT] = {
-	"Linear", "Breathe", "Interval Breathe", "Static",
-	"Blink 1", "Blink 2", "Blink 3", "Rainbow", "Twinkle",
-	"Fire", "Glitter", "NeonGlow", "Firefly", "Aurora", "Reactive",
-	"Topbar Rainbow", "Topbar night"};
-
-#define LR_EFFECT_COUNT 17
-static const char* lr_effect_names[LR_EFFECT_COUNT] = {
-	"Linear", "Breathe", "Interval Breathe", "Static",
-	"Blink 1", "Blink 2", "Blink 3", "Rainbow", "Twinkle",
-	"Fire", "Glitter", "NeonGlow", "Firefly", "Aurora", "Reactive",
-	"LR Rainbow", "LR Reactive"};
+	"Blink 1", "Blink 2", "Blink 3"};
 
 /* Effect values are 1-based so settings_item_sync() maps correctly */
-static int standard_effect_values[STANDARD_EFFECT_COUNT];
-static int topbar_effect_values[TOPBAR_EFFECT_COUNT];
-static int lr_effect_values[LR_EFFECT_COUNT];
+static int effect_values[LED_EFFECT_MAX];
 
 // ============================================
 // Speed labels: 50 entries "0"..."4900" (step 100)
@@ -105,12 +90,8 @@ static void led_init_labels(void) {
 	led_labels_initialized = 1;
 
 	/* Effect values: 1-based */
-	for (int i = 0; i < STANDARD_EFFECT_COUNT; i++)
-		standard_effect_values[i] = i + 1;
-	for (int i = 0; i < TOPBAR_EFFECT_COUNT; i++)
-		topbar_effect_values[i] = i + 1;
-	for (int i = 0; i < LR_EFFECT_COUNT; i++)
-		lr_effect_values[i] = i + 1;
+	for (int i = 0; i < LED_EFFECT_MAX; i++)
+		effect_values[i] = i + 1;
 
 	/* Speed labels: 0, 100, 200, ..., 4900 */
 	for (int i = 0; i < SPEED_LABEL_COUNT; i++) {
@@ -319,13 +300,12 @@ static SettingsPage zone_pages[MAX_LIGHTS];
    file's static allocation, keeps led_page_destroy() a no-op. */
 static char zone_title_bufs[MAX_LIGHTS][128];
 
-static void led_build_zone_page(int zone_idx, const char* title,
-								const char** eff_names, int* eff_values, int eff_count) {
+static void led_build_zone_page(int zone_idx, const char* title) {
 	int idx = 0;
 
 	zone_items[zone_idx][idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Effect", "LED light effect",
-		eff_names, eff_count, eff_values,
+		effect_names, LED_EFFECT_MAX, effect_values,
 		zone_get_effect[zone_idx], zone_set_effect[zone_idx], NULL);
 
 	zone_items[zone_idx][idx++] = (SettingItem)ITEM_COLOR_INIT(
@@ -387,34 +367,11 @@ SettingsPage* led_page_create(void) {
 							   : led_is_brick  ? brick_zone_titles
 											   : default_zone_titles;
 
-	/* Build per-zone pages. The extended effect sets belong to specific sysfs
-	   nodes, so select them by the zone's node name rather than by index — on the
-	   Brick "lr" drives the triggers, on the Brick Pro it drives the joysticks. */
+	/* Build per-zone pages */
 	for (int z = 0; z < led_num_lights; z++) {
-		const char** eff_names;
-		int* eff_values;
-		int eff_count;
-		const char* node = lightsDefault[z].filename;
-
-		if (led_per_zone_brightness && exactMatch("m", node)) {
-			/* Top bar */
-			eff_names = topbar_effect_names;
-			eff_values = topbar_effect_values;
-			eff_count = TOPBAR_EFFECT_COUNT;
-		} else if (led_per_zone_brightness && exactMatch("lr", node)) {
-			eff_names = lr_effect_names;
-			eff_values = lr_effect_values;
-			eff_count = LR_EFFECT_COUNT;
-		} else {
-			/* Standard zones */
-			eff_names = standard_effect_names;
-			eff_values = standard_effect_values;
-			eff_count = STANDARD_EFFECT_COUNT;
-		}
-
 		snprintf(zone_title_bufs[z], sizeof(zone_title_bufs[z]),
 				 "LED Control | %s", zone_titles[z]);
-		led_build_zone_page(z, zone_title_bufs[z], eff_names, eff_values, eff_count);
+		led_build_zone_page(z, zone_title_bufs[z]);
 	}
 
 	/* Sync all zone items */
