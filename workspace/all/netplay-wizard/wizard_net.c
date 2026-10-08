@@ -1000,6 +1000,9 @@ int wiz_host_rendezvous(const WizArgs* a, WizSession* s) {
 	char error_text[128] = {0};
 	char big[64];
 	bool hotspot = (strcmp(s->mode, "hotspot") == 0);
+	bool usb = (strcmp(s->mode, "usb") == 0);
+	// One cable joins exactly two devices, whatever --max-players asked for.
+	int max_players = usb ? 2 : a->max_players;
 	bool dirty = true;
 	int result = -1;
 
@@ -1012,7 +1015,7 @@ int wiz_host_rendezvous(const WizArgs* a, WizSession* s) {
 		char ip[16];
 	} joiners[4];
 	int njoin = 0;
-	int max_join = a->max_players - 1;
+	int max_join = max_players - 1;
 	int start_now = 0;
 	bool break_all = false;
 
@@ -1036,15 +1039,17 @@ int wiz_host_rendezvous(const WizArgs* a, WizSession* s) {
 	if (listen_flags >= 0)
 		fcntl(listen_fd, F_SETFL, listen_flags | O_NONBLOCK);
 
-	// Discovery is how the WiFi client finds us. The hotspot client already
-	// knows the address but still listens for one packet to learn our title
-	// (wiz_client_hotspot_peek); a socket we could not create is therefore not
-	// fatal in hotspot mode — it only costs that peek — and only costs the
+	// Discovery is how the WiFi client finds us. The hotspot and USB clients
+	// already know the address but still listen for one packet to learn our
+	// title (wiz_client_hotspot_peek); a socket we could not create is
+	// therefore not fatal there — it only costs that peek — and only costs the
 	// list entry in WiFi mode.
 	int udp_fd = NET_createBroadcastSocket();
 	NET_initBroadcastTimer(&broadcast_timer, WIZ_NET_BROADCAST_INTERVAL_US);
 
-	if (hotspot) {
+	if (usb) {
+		snprintf(big, sizeof(big), "USB");
+	} else if (hotspot) {
 		snprintf(big, sizeof(big), "%s", wiz_hotspot_code[0] ? wiz_hotspot_code : "????");
 	} else {
 		char ip[16] = {0};
@@ -1053,8 +1058,9 @@ int wiz_host_rendezvous(const WizArgs* a, WizSession* s) {
 		snprintf(big, sizeof(big), "%s", ip[0] ? ip : "0.0.0.0");
 	}
 
-	const char* instruction = hotspot ? "Select this code on the other device"
-									  : "Other device must be on the same WiFi";
+	const char* instruction = usb		? "Connected by USB cable"
+							  : hotspot ? "Select this code on the other device"
+										: "Other device must be on the same WiFi";
 
 	// No wall-clock ceiling: this screen exists to wait for a person, and B is
 	// live every frame. wizard.c holds sleep/power-off off for the whole run,
@@ -1068,9 +1074,16 @@ int wiz_host_rendezvous(const WizArgs* a, WizSession* s) {
 			break;
 		}
 
-		if (udp_fd >= 0 && NET_shouldBroadcast(&broadcast_timer))
-			NET_sendDiscoveryBroadcast(udp_fd, WIZ_MAGIC, WIZ_PROTO_VERSION, 0 /* crc unused */,
-									   WIZ_TCP_PORT, WIZ_UDP_PORT, a->game, WIZ_NET_LINK_MODE);
+		if (udp_fd >= 0 && NET_shouldBroadcast(&broadcast_timer)) {
+			// The cable is a point-to-point link with no broadcast route worth
+			// relying on, and the one listener's address is already known.
+			if (usb)
+				NET_sendDiscoveryTo(udp_fd, s->peer_ip, WIZ_MAGIC, WIZ_PROTO_VERSION, 0 /* crc unused */,
+									WIZ_TCP_PORT, WIZ_UDP_PORT, a->game, WIZ_NET_LINK_MODE);
+			else
+				NET_sendDiscoveryBroadcast(udp_fd, WIZ_MAGIC, WIZ_PROTO_VERSION, 0 /* crc unused */,
+										   WIZ_TCP_PORT, WIZ_UDP_PORT, a->game, WIZ_NET_LINK_MODE);
+		}
 
 		// Accept only while there is still a seat: past max_join, extra callers
 		// are refused in the accept branch (their fd closed immediately).
@@ -1112,7 +1125,7 @@ int wiz_host_rendezvous(const WizArgs* a, WizSession* s) {
 		// Start trigger. With max_players == 2 the first joiner auto-starts, no
 		// A press — byte-identical to the pre-4-player flow. With room for more,
 		// the host presses A once at least one joiner is in.
-		if (a->max_players == 2 && njoin == 1)
+		if (max_players == 2 && njoin == 1)
 			start_now = 1;
 		if (njoin >= 1 && PAD_justPressed(BTN_A))
 			start_now = 1;
@@ -1123,18 +1136,18 @@ int wiz_host_rendezvous(const WizArgs* a, WizSession* s) {
 
 		if (dirty) {
 			char status[64];
-			if (a->max_players > 2)
+			if (max_players > 2)
 				// +1 for the host, who is player 1: with one joiner the lobby
 				// has 2 players, not 1.
 				snprintf(status, sizeof(status), "Players connected: %d / up to %d",
-						 njoin + 1, a->max_players);
+						 njoin + 1, max_players);
 			else
 				snprintf(status, sizeof(status), "%s",
 						 njoin ? "Player connected" : "Waiting for player...");
 
 			// The A=START affordance is a multi-join concept: only the >2 lobby
 			// shows it. The 2-player screen keeps the plain B-only hint.
-			if (a->max_players > 2 && njoin >= 1)
+			if (max_players > 2 && njoin >= 1)
 				wiz_net_render_lobby(big, instruction, status);
 			else
 				wiz_net_render_waiting(big, instruction, status);
@@ -1522,8 +1535,9 @@ static int wiz_client_session(const WizArgs* a, WizSession* s, int fd, const cha
 	return 0;
 }
 
-// Hotspot has no host list, but the host broadcasts on the AP subnet exactly
-// as it does on WiFi, so one short listen gives the joiner the host's title
+// Hotspot and USB have no host list, but the host announces itself there
+// exactly as it does on WiFi (broadcast on the AP subnet, unicast over the
+// cable), so one short listen gives the joiner the host's title
 // before it connects — enough to run the same different-title prompt as the
 // list does. Silence (the host could not open its broadcast socket, a lossy
 // first second) is not an error: the join proceeds under the plain name gate,
@@ -1569,9 +1583,22 @@ static int wiz_client_hotspot_peek(const WizArgs* a, bool* any_out) {
 	return 0;
 }
 
-// Hotspot arm: one known address, no list to go back to.
-static int wiz_client_hotspot(const WizArgs* a, WizSession* s) {
+// Known-address arm: hotspot or USB cable — one address, no list to go back to.
+static int wiz_client_known_host(const WizArgs* a, WizSession* s, const char* host_ip) {
 	bool any_game = false;
+	char cmd[64];
+	// A copy, not the pointer: in USB mode host_ip IS s->peer_ip, and
+	// wiz_client_session() writes s->peer_ip (and clears it on failure).
+	char ip[16];
+	snprintf(ip, sizeof(ip), "%s", host_ip);
+
+	// Validated here, not only by the caller: in USB mode the address came from
+	// a state file, and it is about to be pasted into a shell command.
+	struct in_addr addr;
+	if (inet_pton(AF_INET, ip, &addr) != 1) {
+		wiz_net_error("Could not reach the host.\n\nInvalid host address.");
+		return -1;
+	}
 
 	// The association is seconds old — ARP and the default route may not be in
 	// place yet, and the first SYN into that gap reads to the user as a refused
@@ -1580,7 +1607,9 @@ static int wiz_client_hotspot(const WizArgs* a, WizSession* s) {
 	wiz_net_status("Connecting to host...");
 	if (wiz_client_hotspot_peek(a, &any_game) == -2)
 		return -2;
-	system("ping -c 1 -W 2 " WIFI_DIRECT_HOTSPOT_IP " >/dev/null 2>&1");
+	// Safe to hand to the shell: ip passed inet_pton above.
+	snprintf(cmd, sizeof(cmd), "ping -c 1 -W 2 %s >/dev/null 2>&1", ip);
+	system(cmd);
 
 	for (int attempt = 1; attempt <= WIZ_NET_CONNECT_ATTEMPTS; attempt++) {
 		char status[64];
@@ -1592,13 +1621,13 @@ static int wiz_client_hotspot(const WizArgs* a, WizSession* s) {
 			snprintf(status, sizeof(status), "Retrying connection... (%d/%d)",
 					 attempt, WIZ_NET_CONNECT_ATTEMPTS);
 
-		int rc = wiz_connect(WIFI_DIRECT_HOTSPOT_IP, WIZ_TCP_PORT,
+		int rc = wiz_connect(ip, WIZ_TCP_PORT,
 							 WIZ_NET_CONNECT_TIMEOUT_MS, status, &fd);
 		if (rc == -2)
 			return -2;
 
 		if (rc == 0) {
-			int src = wiz_client_session(a, s, fd, WIFI_DIRECT_HOTSPOT_IP, any_game);
+			int src = wiz_client_session(a, s, fd, ip, any_game);
 			close(fd);
 
 			if (src == 0)
@@ -1619,7 +1648,9 @@ static int wiz_client_hotspot(const WizArgs* a, WizSession* s) {
 
 int wiz_client_rendezvous(const WizArgs* a, WizSession* s) {
 	if (strcmp(s->mode, "hotspot") == 0)
-		return wiz_client_hotspot(a, s);
+		return wiz_client_known_host(a, s, WIFI_DIRECT_HOTSPOT_IP);
+	if (strcmp(s->mode, "usb") == 0)
+		return wiz_client_known_host(a, s, s->peer_ip);
 
 	// WiFi: anything short of a fatal error goes back to the list, because the
 	// host that refused us may not be the only one broadcasting.
