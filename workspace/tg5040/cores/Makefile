@@ -29,6 +29,7 @@ CORES+= prboom
 CORES+= bluemsx
 CORES+= gearcoleco
 CORES+= flycast
+CORES+= flycast_legacy
 CORES+= ppsspp
 
 ###############################
@@ -205,5 +206,16 @@ ppsspp_REPO = https://github.com/hrydgard/ppsspp
 ppsspp_HASH = 2a1700a7ee495310c52c85f9436652cc8f26e45e
 ppsspp_MAKE = NX_CORES_OUTPUT=$(CURDIR)/$(OUTPUT_ROOT) sh $(CURDIR)/../../all/cores/ppsspp/build-libretro.sh $(PLATFORM)
 ppsspp_DEPS = ../../all/cores/ppsspp/build-libretro.sh ../../all/cores/ppsspp/outline_atomics.c ../../all/cores/flycast/toolchain-aarch64.cmake
+
+# flycast_legacy (DCX, "Dreamcast Lite"): libretro's own fork of flycast as of
+# 2022-04-06 (4c293f30; diverged from upstream in 2015), the build CrossMix-OS
+# ships. On the Brick it runs heavy games at full speed where upstream 2.7 does
+# ~80 %. Built with the fork's libretro Makefile (platform=arm64: GLES, arm64
+# dynarec); TARGET_NAME keeps it from colliding with DC's flycast_libretro.so.
+# No OpenMP (only texture upscaling uses it, which DCX leaves off). CC_AS: the
+# arm64 dynarec stub (ngen_arm64.S) needs the C preprocessor, so gcc assembles it.
+flycast_legacy_REPO = https://github.com/libretro/flycast
+flycast_legacy_HASH = 4c293f306bc16a265c2d768af5d0cea138426054
+flycast_legacy_MAKE = make platform=arm64 ARCH=aarch64 TARGET_NAME=flycast_legacy HAVE_OPENMP=0 CC_AS="$(CC)"
 
 include ../../all/cores/Makefile

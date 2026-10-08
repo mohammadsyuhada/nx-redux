@@ -1,0 +1,25 @@
+# license: modifies Flycast (https://github.com/libretro/flycast), GPL-2.0 (LICENSE); this patch is distributed under the same license.
+diff --git a/core/stdclass.cpp b/core/stdclass.cpp
+index 4174908..c020258 100644
+--- a/core/stdclass.cpp
++++ b/core/stdclass.cpp
+@@ -52,7 +52,18 @@ std::string get_writable_vmu_path(const char *logical_port)
+    if ((per_content_vmus == 1 && !strcmp("A1", logical_port)) ||
+        (per_content_vmus == 2))
+    {
+-      sprintf(filename, "%s.%s.bin", content_name, logical_port);
++      // NX Redux: a game's discs share one card, so drop a "(Disc N)" /
++      // "(Disc N of M)" tag (minarch passes the disc file, not the .m3u) —
++      // the same rule as DC's patch 0003
++      std::string name(content_name);
++      size_t tag = name.find(" (Disc ");
++      if (tag != std::string::npos)
++      {
++         size_t end = name.find(')', tag);
++         if (end != std::string::npos)
++            name.erase(tag, end - tag + 1);
++      }
++      snprintf(filename, sizeof(filename), "%s.%s.bin", name.c_str(), logical_port);
+       return std::string(vmu_dir_no_slash +
+ #ifdef _WIN32
+          std::string("\\")

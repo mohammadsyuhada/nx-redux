@@ -2,3 +2,4 @@ workspace/all/minarch/libretro-common/**
 workspace/all/musicplayer/audio/**
 workspace/all/musicplayer/include/**
 workspace/all/include/**
+workspace/all/cores/flycast_legacy/include/**

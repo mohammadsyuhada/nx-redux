@@ -1,0 +1,19 @@
+# license: modifies Flycast (https://github.com/libretro/flycast), GPL-2.0 (LICENSE); this patch is distributed under the same license.
+diff --git a/core/libretro/libretro.cpp b/core/libretro/libretro.cpp
+index 2efca4b..b84193e 100644
+--- a/core/libretro/libretro.cpp
++++ b/core/libretro/libretro.cpp
+@@ -1863,8 +1863,11 @@ bool retro_load_game(const struct retro_game_info *game)
+    if (!(environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &dir) && dir))
+       dir = game_dir;
+ 
+-   snprintf(game_dir, sizeof(game_dir), "%s%cdc%c", dir, slash, slash);
+-   snprintf(game_dir_no_slash, sizeof(game_dir_no_slash), "%s%cdc", dir, slash);
++   // NX Redux: the BIOS (dc_boot.bin, naomi.zip, awbios.zip) and the console's
++   // own files live directly in the frontend's system dir (Bios/DCX/), like
++   // DC; no RetroArch-style "dc" subfolder
++   snprintf(game_dir, sizeof(game_dir), "%s%c", dir, slash);
++   snprintf(game_dir_no_slash, sizeof(game_dir_no_slash), "%s", dir);
+ 
+    // Per-content VMU additions START
+    // > Get save directory

@@ -1,0 +1,47 @@
+# license: modifies Flycast (https://github.com/libretro/flycast), GPL-2.0 (LICENSE); this patch is distributed under the same license.
+diff --git a/core/libretro/libretro.cpp b/core/libretro/libretro.cpp
+index 2efca4b..d6030d1 100644
+--- a/core/libretro/libretro.cpp
++++ b/core/libretro/libretro.cpp
+@@ -2150,7 +2150,10 @@ bool retro_serialize(void *data, size_t size)
+ 
+ #if !defined(TARGET_NO_THREADS)
+ 	mtx_serialization.lock();
+-    if (settings.rend.ThreadedRendering)
++    // NX Redux: before the first retro_run the emulation thread doesn't exist
++    // yet (minarch restores the resume state then), so there is nothing to stop
++    // or lock; waiting for it would time out after 5 s and refuse the state
++    if (settings.rend.ThreadedRendering && !first_run)
+     {
+     	if ( !wait_until_dc_running())
+       {
+@@ -2172,7 +2175,7 @@ bool retro_serialize(void *data, size_t size)
+    performed_serialization = true ;
+ 
+ #if !defined(TARGET_NO_THREADS)
+-    if (settings.rend.ThreadedRendering)
++    if (settings.rend.ThreadedRendering && !first_run)
+     {
+     	mtx_mainloop.unlock();
+     }
+@@ -2190,7 +2193,10 @@ bool retro_unserialize(const void * data, size_t size)
+    int i ;
+ 
+ #if !defined(TARGET_NO_THREADS)
+-    if (settings.rend.ThreadedRendering)
++    // NX Redux: before the first retro_run the emulation thread doesn't exist
++    // yet (minarch restores the resume state then), so there is nothing to stop
++    // or lock; waiting for it would time out after 5 s and refuse the state
++    if (settings.rend.ThreadedRendering && !first_run)
+     {
+     	mtx_serialization.lock();
+     	if ( !wait_until_dc_running()) {
+@@ -2233,7 +2239,7 @@ bool retro_unserialize(const void * data, size_t size)
+     performed_serialization = true ;
+ 
+ #if !defined(TARGET_NO_THREADS)
+-    if (settings.rend.ThreadedRendering)
++    if (settings.rend.ThreadedRendering && !first_run)
+     {
+     	mtx_mainloop.unlock();
+     	mtx_serialization.unlock();

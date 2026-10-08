@@ -1,0 +1,27 @@
+# license: modifies Flycast (https://github.com/libretro/flycast), GPL-2.0 (LICENSE); this patch is distributed under the same license.
+diff --git a/core/hw/naomi/naomi_cart.cpp b/core/hw/naomi/naomi_cart.cpp
+index 1852ede..322be00 100644
+--- a/core/hw/naomi/naomi_cart.cpp
++++ b/core/hw/naomi/naomi_cart.cpp
+@@ -133,6 +133,21 @@ static bool naomi_LoadBios(const char *filename, Archive *child_archive, Archive
+ 				file = parent_archive->OpenFile(bios->blobs[romid].filename);
+ 			if (file == NULL && bios_archive != NULL)
+ 				file = bios_archive->OpenFile(bios->blobs[romid].filename);
++			// NX Redux: the modern MAME Atomiswave set ships the BIOS as
++			// bios.ic23_l, a 64KB image in the 128KB window; mirror it the way
++			// the hardware's address decoding does (same rule as DC's patch 0002)
++			if (!file && !stricmp(bios->name, "awbios") && bios->blobs[romid].offset == 0
++					&& bios->blobs[romid].length == 0x20000 && bios_archive != NULL)
++			{
++				ArchiveFile *half = bios_archive->OpenFile("bios.ic23_l");
++				if (half != NULL)
++				{
++					half->Read(rom_chip->data, 0x10000);
++					memcpy(rom_chip->data + 0x10000, rom_chip->data, 0x10000);
++					delete half;
++					continue;
++				}
++			}
+ 			if (!file) {
+ 				WARN_LOG(NAOMI, "%s: Cannot open %s", filename, bios->blobs[romid].filename);
+ 				goto error;
