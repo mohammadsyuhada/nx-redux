@@ -65,7 +65,7 @@ int wiz_client_rendezvous(const WizArgs* a, WizSession* s);
 // wizard_usb.c
 int wiz_usb_link_up(WizSession* s); // 0 linked (s->peer_ip set), -1 error (message drawn), -2 cancelled
 void wiz_usb_link_stop(void);		// usblink.elf stop; idempotent, bounded (~2 s)
-bool wiz_usb_link_running(void);	// live /tmp/usblink.pid
+bool wiz_usb_link_may_be_up(void);	// /tmp/usblink.pid exists (live or stale)
 // wizard_sync.c (Task 5)
 int wiz_sync_serve_start(const char* serve_dir, const char* client_ip);
 void wiz_sync_serve_stop(void);

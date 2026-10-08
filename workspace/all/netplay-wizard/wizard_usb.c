@@ -5,7 +5,6 @@
  * learns which end is USB host: the daemon reports the peer's address, and
  * netplay host/client stays whatever the user picked on the role menu.
  */
-#include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,14 +24,12 @@
 #define USBLINK_STATE_PATH "/tmp/usblink.state"
 #define USBLINK_PID_PATH "/tmp/usblink.pid"
 
-bool wiz_usb_link_running(void) {
-	FILE* f = fopen(USBLINK_PID_PATH, "r");
-	if (!f)
-		return false;
-	int pid = 0;
-	bool alive = fscanf(f, "%d", &pid) == 1 && pid > 0 && kill(pid, 0) == 0;
-	fclose(f);
-	return alive;
+// Any pidfile, live pid or not: a SIGKILLed daemon leaves its pidfile behind
+// together with a gadget that may still be linked, and that dead-pid case is
+// exactly the one `usblink.elf stop` has to repair. stop removes the pidfile,
+// so this goes false again once anything has cleaned up.
+bool wiz_usb_link_may_be_up(void) {
+	return access(USBLINK_PID_PATH, F_OK) == 0;
 }
 
 void wiz_usb_link_stop(void) {

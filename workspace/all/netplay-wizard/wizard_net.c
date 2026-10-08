@@ -1003,6 +1003,11 @@ int wiz_host_rendezvous(const WizArgs* a, WizSession* s) {
 	bool usb = (strcmp(s->mode, "usb") == 0);
 	// One cable joins exactly two devices, whatever --max-players asked for.
 	int max_players = usb ? 2 : a->max_players;
+	// A copy, not s->peer_ip: wiz_host_handshake() overwrites that per joiner
+	// and clears it on failure, and discovery must keep reaching the cable's
+	// one peer after a rejected or dropped joiner.
+	char usb_peer[16];
+	snprintf(usb_peer, sizeof(usb_peer), "%s", s->peer_ip);
 	bool dirty = true;
 	int result = -1;
 
@@ -1078,7 +1083,7 @@ int wiz_host_rendezvous(const WizArgs* a, WizSession* s) {
 			// The cable is a point-to-point link with no broadcast route worth
 			// relying on, and the one listener's address is already known.
 			if (usb)
-				NET_sendDiscoveryTo(udp_fd, s->peer_ip, WIZ_MAGIC, WIZ_PROTO_VERSION, 0 /* crc unused */,
+				NET_sendDiscoveryTo(udp_fd, usb_peer, WIZ_MAGIC, WIZ_PROTO_VERSION, 0 /* crc unused */,
 									WIZ_TCP_PORT, WIZ_UDP_PORT, a->game, WIZ_NET_LINK_MODE);
 			else
 				NET_sendDiscoveryBroadcast(udp_fd, WIZ_MAGIC, WIZ_PROTO_VERSION, 0 /* crc unused */,

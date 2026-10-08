@@ -730,8 +730,9 @@ static int run_cleanup(const WizArgs* a) {
 	orphan_ap = wiz_orphan_ap_present();
 
 	// Same window for USB Cable mode: usblink.elf runs from ST_NETSETUP, the
-	// session file only appears at ST_DONE. A pidfile read, no system().
-	orphan_usb = wiz_usb_link_running();
+	// session file only appears at ST_DONE. A pidfile test, no system(); a stale
+	// pidfile counts too, since a SIGKILLed daemon can leave the gadget linked.
+	orphan_usb = wiz_usb_link_may_be_up();
 
 	// Two cheap system() probes, a pidfile and a missing file: the normal ending of every
 	// launch that did not use netplay, and of one that did and was cleaned up
@@ -761,8 +762,10 @@ static int run_cleanup(const WizArgs* a) {
 	// to restoring prev_ssid.
 	if (orphan_ap)
 		wiz_stop_hotspot_orphan();
-	// With a session, its teardown stops the daemon.
-	if (orphan_usb && !have_session)
+	// Unconditional: the session file may name a different mode than the
+	// daemon was started for. A usb session's teardown stops it again, which
+	// is idempotent and costs at most one more gadget rebind.
+	if (orphan_usb)
 		wiz_usb_link_stop();
 
 	if (have_session)
@@ -903,7 +906,7 @@ int main(int argc, char* argv[]) {
 	// run_cleanup()'s.
 	bool stale_session = (access(args.session_path, F_OK) == 0);
 	bool orphan_ap = wiz_orphan_ap_present();
-	bool orphan_usb = wiz_usb_link_running();
+	bool orphan_usb = wiz_usb_link_may_be_up();
 
 	if (stale_session || orphan_ap || orphan_usb) {
 		uint32_t deadline = wiz_now_ms() + WIZ_TEARDOWN_BUDGET_MS;
