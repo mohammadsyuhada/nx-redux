@@ -2643,14 +2643,14 @@ static void SND_resizeBuffer(void) { // plat_sound_resize_buffer
 #endif
 
 	int buffer_bytes = snd.frame_count * sizeof(SND_Frame);
+	pthread_mutex_lock(&audio_mutex);
 	snd.buffer = (SND_Frame*)realloc(snd.buffer, buffer_bytes);
-
-	LOG_info("Resized audio buffer to: %d bytes\n", buffer_bytes);
-
 	memset(snd.buffer, 0, buffer_bytes);
-
 	snd.frame_in = 0;
 	snd.frame_out = 0;
+	pthread_mutex_unlock(&audio_mutex);
+
+	LOG_info("Resized audio buffer to: %d bytes\n", buffer_bytes);
 
 #if defined(USE_SDL2)
 	SDL_UnlockAudioDevice(snd.device_id);
@@ -2901,7 +2901,7 @@ size_t SND_batchSamples(const SND_Frame* frames, size_t frame_count) {
 
 		int written_frames = 0;
 		pthread_mutex_lock(&audio_mutex);
-		for (int i = 0; i < resampled.frame_count; i++) {
+		for (int i = 0; snd.buffer && snd.frame_count > 0 && i < resampled.frame_count; i++) {
 			// Check if buffer full (leave one slot free)
 			if ((snd.frame_in + 1) % snd.frame_count == snd.frame_out) {
 				// Buffer full, break early
@@ -2926,6 +2926,16 @@ enum {
 	SND_FF_VERY_LATE
 };
 
+float SND_bufferOccupancy(void) {
+	if (snd.frame_count <= 0)
+		return 0.0f;
+	pthread_mutex_lock(&audio_mutex);
+	int used = snd.frame_in - snd.frame_out;
+	if (used < 0)
+		used += snd.frame_count;
+	pthread_mutex_unlock(&audio_mutex);
+	return (float)used / snd.frame_count;
+}
 size_t SND_batchSamples_fixed_rate(const SND_Frame* frames, size_t frame_count) {
 	static int current_mode = SND_FF_ON_TIME;
 	double ratio = 1.0;
@@ -3013,7 +3023,7 @@ size_t SND_batchSamples_fixed_rate(const SND_Frame* frames, size_t frame_count) 
 		int written_frames = 0;
 
 		pthread_mutex_lock(&audio_mutex);
-		for (int i = 0; i < resampled.frame_count; i++) {
+		for (int i = 0; snd.buffer && snd.frame_count > 0 && i < resampled.frame_count; i++) {
 			if ((snd.frame_in + 1) % snd.frame_count == snd.frame_out) {
 				// Buffer is full, break. This should never happen tho, but just to be safe
 				break;
@@ -3055,7 +3065,11 @@ void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 	}
 #endif
 
+	// a core may push audio from its own thread (DCX's flycast) while the
+	// main thread resets audio: swap the state under the lock it writes under
+	pthread_mutex_lock(&audio_mutex);
 	memset(&snd, 0, sizeof(struct SND_Context));
+	pthread_mutex_unlock(&audio_mutex);
 	snd.frame_rate = frame_rate;
 
 	SDL_AudioSpec spec_in;
@@ -3124,12 +3138,13 @@ void SND_quit(void) {
 	if (SDL_WasInit(SDL_INIT_AUDIO))
 		LOG_error("SND_quit: failed to quit audio!!\n");
 	LOG_debug("SND_quit: quit audio!!\n");
+	pthread_mutex_lock(&audio_mutex);
 	snd.initialized = 0;
-
 	if (snd.buffer) {
 		free(snd.buffer);
 		snd.buffer = NULL;
 	}
+	pthread_mutex_unlock(&audio_mutex);
 }
 
 // Weak reference: resolves to NULL if -lasound is not linked.

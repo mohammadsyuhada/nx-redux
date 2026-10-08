@@ -479,6 +479,7 @@ void SND_quit(void);
 void SND_resetAudio(double sample_rate, double frame_rate);
 void SND_flushALSAConfig(void); // flush cached .asoundrc so ALSA re-reads on next open
 void SND_pauseAudio(bool paused);
+float SND_bufferOccupancy(void); // 0 (empty) .. 1 (full)
 void SND_setQuality(int quality);
 
 // watch audio device changes
