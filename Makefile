@@ -243,6 +243,9 @@ cores: # TODO: can't assume every platform will have the same stock cores (platf
 	cp ./workspace/$(PLATFORM)/cores/output/licenses/genesis_plus_gx.txt ./build/SYSTEM/$(PLATFORM)/paks/Emus/GPGX.pak/LICENSE-genesis_plus_gx.txt
 	cp ./workspace/$(PLATFORM)/cores/output/flycast_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/DC.pak
 	cp ./workspace/$(PLATFORM)/cores/output/licenses/flycast.txt ./build/SYSTEM/$(PLATFORM)/paks/Emus/DC.pak/LICENSE-flycast.txt
+	# Dreamcast Lite (DCX): libretro's 2022 flycast fork, lighter than DC's 2.7
+	cp ./workspace/$(PLATFORM)/cores/output/flycast_legacy_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/DCX.pak
+	cp ./workspace/$(PLATFORM)/cores/output/licenses/flycast_legacy.txt ./build/SYSTEM/$(PLATFORM)/paks/Emus/DCX.pak/LICENSE-flycast_legacy.txt
 	cp ./workspace/$(PLATFORM)/cores/output/ppsspp_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/PSP.pak
 	cp ./workspace/$(PLATFORM)/cores/output/licenses/ppsspp.txt ./build/SYSTEM/$(PLATFORM)/paks/Emus/PSP.pak/LICENSE-ppsspp.txt
 	# PPSSPP runtime assets (staged next to the core by all/cores/ppsspp/build-libretro.sh), read via NX_PPSSPP_ASSETS
