@@ -56,6 +56,9 @@ int main(void) {
 	assert(ScraperSystems_getIdForRom("DC", "/Roms/DreamCast (DC)/mslug6.ZIP") == SS_ARCADE);
 	assert(ScraperSystems_getIdForRom("DC", "/Roms/DreamCast (DC)/dolphin.7z") == SS_ARCADE);
 	assert(ScraperSystems_getIdForRom("DC", "/Roms/DreamCast (DC)/mslug6.zip/x") == SS_DREAMCAST);
+	assert(ScraperSystems_getIdForRom("DCX", "/Roms/Dreamcast Lite (DCX)/Shenmue.chd") == SS_DREAMCAST);
+	assert(ScraperSystems_getIdForRom("DCX", "/Roms/Dreamcast Lite (DCX)/mslug6.zip") == SS_ARCADE);
+	assert(ScraperSystems_getIdForRom("DCX", "/Roms/Dreamcast Lite (DCX)/dolphin.7z") == SS_ARCADE);
 	// Zips under any other tag stay on that tag's system.
 	assert(ScraperSystems_getIdForRom("GPGX", "/Roms/Sega Genesis (GPGX)/Sonic.zip") == SS_MEGA_DRIVE);
 	assert(ScraperSystems_getIdForRom("GBA", "/Roms/GBA/game.zip") == SS_GBA);

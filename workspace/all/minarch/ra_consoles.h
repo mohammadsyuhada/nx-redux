@@ -42,6 +42,8 @@ static const RA_ConsoleMapping ra_console_table[] = {
 	// Dreamcast (standalone flycast pak). The folder also carries NAOMI/
 	// Atomiswave .zip sets, which prefetch refines to the "Arcade" console.
 	{"DC", RC_CONSOLE_DREAMCAST},
+	// Dreamcast Lite (DCX.pak: libretro's 2022 flycast fork). Same games as DC.
+	{"DCX", RC_CONSOLE_DREAMCAST},
 	// Nintendo
 	{"FC", RC_CONSOLE_NINTENDO},
 	// FinalBurn Neo
@@ -174,6 +176,7 @@ static const RA_CoreFamily ra_core_families[] = {
 	{"fbneo", {RC_CONSOLE_ARCADE}},
 	{"fceumm", {RC_CONSOLE_NINTENDO, RC_CONSOLE_FAMICOM_DISK_SYSTEM}},
 	{"flycast", {RC_CONSOLE_DREAMCAST, RC_CONSOLE_ARCADE}},
+	{"flycast_legacy", {RC_CONSOLE_DREAMCAST, RC_CONSOLE_ARCADE}},
 	{"fmsx", {RC_CONSOLE_MSX}},
 	{"gambatte", {RC_CONSOLE_GAMEBOY, RC_CONSOLE_GAMEBOY_COLOR}},
 	{"gearboy", {RC_CONSOLE_GAMEBOY, RC_CONSOLE_GAMEBOY_COLOR}},
@@ -235,6 +238,7 @@ typedef struct {
 
 static const RA_TagFamily ra_tag_families[] = {
 	{"DC", {RC_CONSOLE_DREAMCAST, RC_CONSOLE_ARCADE}},
+	{"DCX", {RC_CONSOLE_DREAMCAST, RC_CONSOLE_ARCADE}},
 	{"GPGX", {RC_CONSOLE_MEGA_DRIVE, RC_CONSOLE_MASTER_SYSTEM, RC_CONSOLE_GAME_GEAR, RC_CONSOLE_SG1000, RC_CONSOLE_SEGA_CD}},
 	{"MD", {RC_CONSOLE_MEGA_DRIVE, RC_CONSOLE_MASTER_SYSTEM, RC_CONSOLE_GAME_GEAR, RC_CONSOLE_SG1000, RC_CONSOLE_SEGA_CD}},
 	{"PCE", {RC_CONSOLE_PC_ENGINE, RC_CONSOLE_PC_ENGINE_CD}},

@@ -127,7 +127,7 @@ static ArcadeNames* arcadeTable(const char* rom_path) {
 	}
 	if (i == arcade_table_count) {
 		char table_path[MAX_PATH];
-		snprintf(table_path, sizeof(table_path), "%s/arcade/%s.txt", RES_PATH, tag);
+		snprintf(table_path, sizeof(table_path), "%s/arcade/%s.txt", RES_PATH, ArcadeNames_tableTag(tag));
 		if (arcade_table_count == ARCADE_TABLES_MAX)
 			return NULL; // more emulator tags than any card has; skip rather than evict
 		names = ArcadeNames_load(table_path);

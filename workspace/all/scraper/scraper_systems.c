@@ -59,6 +59,7 @@ static const SystemMapping systems[] = {
 	{"SS", 22, "Sega Saturn"},
 	{"SAT", 22, "Sega Saturn"},
 	{"DC", 23, "Dreamcast"},
+	{"DCX", 23, "Dreamcast"}, // Dreamcast Lite (old flycast fork), same games as DC
 	{"SG1000", 109, "Sega SG-1000"},
 	{"SG", 109, "Sega SG-1000"},
 

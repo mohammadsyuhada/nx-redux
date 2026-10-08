@@ -270,3 +270,9 @@ int ArcadeNames_disambiguate(const char* const* qualifiers, const char* const* f
 	}
 	return 1;
 }
+
+const char* ArcadeNames_tableTag(const char* tag) {
+	if (tag && strcmp(tag, "DCX") == 0)
+		return "DC";
+	return tag;
+}

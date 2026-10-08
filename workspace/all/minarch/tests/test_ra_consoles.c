@@ -22,6 +22,7 @@ int main(void) {
 	// PSP runs on the PPSSPP libretro core in minarch (system PSP.pak)
 	CHECK(RA_getConsoleId("PSP") == RC_CONSOLE_PSP, "PSP -> RC_CONSOLE_PSP");
 	CHECK(RA_getConsoleId("DC") == RC_CONSOLE_DREAMCAST, "DC -> Dreamcast (control)");
+	CHECK(RA_getConsoleId("DCX") == RC_CONSOLE_DREAMCAST, "DCX -> Dreamcast");
 	CHECK(RA_getConsoleId("PS") == RC_CONSOLE_PLAYSTATION, "PS -> PlayStation (control)");
 	CHECK(RA_getConsoleId("WS") == RC_CONSOLE_WONDERSWAN, "WS -> WonderSwan");
 	CHECK(RA_getConsoleId("WSC") == RC_CONSOLE_WONDERSWAN, "WSC -> WonderSwan (Color shares the console)");
@@ -45,6 +46,9 @@ int main(void) {
 		{"CPC", "cap32", "a.dsk", RC_CONSOLE_AMSTRAD_PC},
 		{"DC", "flycast", "a.chd", RC_CONSOLE_DREAMCAST},
 		{"DC", "flycast", "a.gdi", RC_CONSOLE_DREAMCAST},
+		{"DCX", "flycast_legacy", "a.chd", RC_CONSOLE_DREAMCAST},
+		{"DCX", "flycast_legacy", "a.gdi", RC_CONSOLE_DREAMCAST},
+		{"DCX", "flycast_legacy", "mslug6.zip", RC_CONSOLE_ARCADE},
 		{"FBN", "fbneo", "sf2.zip", RC_CONSOLE_ARCADE},
 		{"FC", "fceumm", "a.nes", RC_CONSOLE_NINTENDO},
 		{"FDS", "fceumm", "a.fds", RC_CONSOLE_FAMICOM_DISK_SYSTEM},
@@ -107,6 +111,8 @@ int main(void) {
 		{"PCE", "some_pce_core", "a.cue", RC_CONSOLE_PC_ENGINE_CD},
 		{"GPGX", "", "a.gg", RC_CONSOLE_GAME_GEAR},
 		{"DC", NULL, "a.7z", RC_CONSOLE_ARCADE},
+		{"DCX", NULL, "a.chd", RC_CONSOLE_DREAMCAST},
+		{"DCX", NULL, "a.7z", RC_CONSOLE_ARCADE},
 		{"PS", NULL, "a.chd", RC_CONSOLE_PLAYSTATION},
 		// case-insensitive extension and core prefix match
 		{"GB", "GAMBATTE", "A.GBC", RC_CONSOLE_GAMEBOY_COLOR},

@@ -60,6 +60,11 @@ static void expectSuffixes(const char** qualifiers, int n, const char** labels) 
 }
 
 int main(void) {
+	// the table a folder tag reads: Dreamcast Lite (DCX) shares DC's Naomi/Atomiswave names
+	assert(strcmp(ArcadeNames_tableTag("DCX"), "DC") == 0);
+	assert(strcmp(ArcadeNames_tableTag("DC"), "DC") == 0);
+	assert(strcmp(ArcadeNames_tableTag("FBN"), "FBN") == 0);
+
 	// cheap pre-check callers use before loading a table
 	assert(ArcadeNames_isArcadeFile("mslug6.zip"));
 	assert(ArcadeNames_isArcadeFile("MSLUG6.ZIP"));

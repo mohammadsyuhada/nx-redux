@@ -915,7 +915,7 @@ static void getArcadeTitle(const char* path, char* name) {
 		char tag[MAX_PATH];
 		getEmuName(path, tag);
 		char table_path[MAX_PATH];
-		snprintf(table_path, sizeof(table_path), "%s/arcade/%s.txt", RES_PATH, tag);
+		snprintf(table_path, sizeof(table_path), "%s/arcade/%s.txt", RES_PATH, ArcadeNames_tableTag(tag));
 		ArcadeNames* names = ArcadeNames_load(table_path);
 		const char* title = ArcadeNames_get(names, baseName(path));
 		if (title && strcmp(title, ".") != 0)
