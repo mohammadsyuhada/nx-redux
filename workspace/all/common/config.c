@@ -62,6 +62,7 @@ void CFG_defaults(NextUISettings* cfg) {
 		.showBatteryPercent = CFG_DEFAULT_SHOWBATTERYPERCENT,
 		.showSearchHint = CFG_DEFAULT_SHOWSEARCHHINT,
 		.showRecentHint = CFG_DEFAULT_SHOWRECENTHINT,
+		.showNetplayHint = CFG_DEFAULT_SHOWNETPLAYHINT,
 		.showMenuAnimations = CFG_DEFAULT_SHOWMENUANIMATIONS,
 		.showMenuTransitions = CFG_DEFAULT_SHOWMENUTRANSITIONS,
 		.showRecents = CFG_DEFAULT_SHOWRECENTS,
@@ -169,6 +170,10 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 			}
 			if (sscanf(line, "recenthint=%i", &temp_value) == 1) {
 				CFG_setShowRecentHint((bool)temp_value);
+				continue;
+			}
+			if (sscanf(line, "netplayhint=%i", &temp_value) == 1) {
+				CFG_setShowNetplayHint((bool)temp_value);
 				continue;
 			}
 			if (sscanf(line, "menuanim=%i", &temp_value) == 1) {
@@ -615,6 +620,15 @@ bool CFG_getShowRecentHint(void) {
 
 void CFG_setShowRecentHint(bool show) {
 	settings.showRecentHint = show;
+	CFG_sync();
+}
+
+bool CFG_getShowNetplayHint(void) {
+	return settings.showNetplayHint;
+}
+
+void CFG_setShowNetplayHint(bool show) {
+	settings.showNetplayHint = show;
 	CFG_sync();
 }
 
@@ -1197,6 +1211,8 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", CFG_getShowSearchHint());
 	} else if (strcmp(key, "recenthint") == 0) {
 		sprintf(value, "%i", CFG_getShowRecentHint());
+	} else if (strcmp(key, "netplayhint") == 0) {
+		sprintf(value, "%i", CFG_getShowNetplayHint());
 	} else if (strcmp(key, "menuanim") == 0) {
 		sprintf(value, "%i", CFG_getMenuAnimations());
 	} else if (strcmp(key, "menutransitions") == 0) {
@@ -1309,6 +1325,7 @@ static int CFG_serialize(char* buf, size_t cap) {
 	EMIT("batteryperc=%i\n", settings.showBatteryPercent);
 	EMIT("searchhint=%i\n", settings.showSearchHint);
 	EMIT("recenthint=%i\n", settings.showRecentHint);
+	EMIT("netplayhint=%i\n", settings.showNetplayHint);
 	EMIT("menuanim=%i\n", settings.showMenuAnimations);
 	EMIT("menutransitions=%i\n", settings.showMenuTransitions);
 	EMIT("recents=%i\n", settings.showRecents);
@@ -1553,6 +1570,7 @@ void CFG_print(void) {
 	printf("\t\"batteryperc\": %i,\n", settings.showBatteryPercent);
 	printf("\t\"searchhint\": %i,\n", settings.showSearchHint);
 	printf("\t\"recenthint\": %i,\n", settings.showRecentHint);
+	printf("\t\"netplayhint\": %i,\n", settings.showNetplayHint);
 	printf("\t\"menuanim\": %i,\n", settings.showMenuAnimations);
 	printf("\t\"menutransitions\": %i,\n", settings.showMenuTransitions);
 	printf("\t\"recents\": %i,\n", settings.showRecents);

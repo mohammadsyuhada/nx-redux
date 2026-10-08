@@ -600,6 +600,17 @@ static void reset_show_recent_hint(void) {
 	CFG_setShowRecentHint(CFG_DEFAULT_SHOWRECENTHINT);
 }
 
+/* Show netplay hint */
+static int get_show_netplay_hint(void) {
+	return CFG_getShowNetplayHint() ? 1 : 0;
+}
+static void set_show_netplay_hint(int v) {
+	CFG_setShowNetplayHint(v != 0);
+}
+static void reset_show_netplay_hint(void) {
+	CFG_setShowNetplayHint(CFG_DEFAULT_SHOWNETPLAYHINT);
+}
+
 /* Show menu animations */
 static int get_menu_animations(void) {
 	return CFG_getMenuAnimations() ? 1 : 0;
@@ -1840,6 +1851,9 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Show recent hint", "Show the SELECT recent games button hint on the main menu",
 		on_off_labels, 2, on_off_values, get_show_recent_hint, set_show_recent_hint, reset_show_recent_hint);
+	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Show netplay hint", "Show the Y netplay button hint in game lists and search",
+		on_off_labels, 2, on_off_values, get_show_netplay_hint, set_show_netplay_hint, reset_show_netplay_hint);
 	appearance_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Show menu animations", "Enable or disable menu animations",
 		on_off_labels, 2, on_off_values, get_menu_animations, set_menu_animations, reset_menu_animations);

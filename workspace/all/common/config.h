@@ -127,6 +127,7 @@ typedef struct
 	bool showBatteryPercent;
 	bool showSearchHint;
 	bool showRecentHint;
+	bool showNetplayHint;
 	bool showMenuAnimations;
 	bool showMenuTransitions;
 	bool showRecents;
@@ -218,6 +219,7 @@ typedef struct
 #define CFG_DEFAULT_SHOWBATTERYPERCENT false
 #define CFG_DEFAULT_SHOWSEARCHHINT true
 #define CFG_DEFAULT_SHOWRECENTHINT true
+#define CFG_DEFAULT_SHOWNETPLAYHINT true
 #define CFG_DEFAULT_SHOWMENUANIMATIONS true
 #define CFG_DEFAULT_SHOWMENUTRANSITIONS true
 #define CFG_DEFAULT_SHOWRECENTS false // unused since the tab set lost Recent; kept so the key round-trips
@@ -331,6 +333,9 @@ void CFG_setShowSearchHint(bool show);
 // Appearance > Show recent hint: the SELECT RECENT hint on the main menu (SELECT still opens the Game Switcher)
 bool CFG_getShowRecentHint(void);
 void CFG_setShowRecentHint(bool show);
+// Appearance > Show netplay hint: the Y NETPLAY hint in game lists and search (Y still starts netplay)
+bool CFG_getShowNetplayHint(void);
+void CFG_setShowNetplayHint(bool show);
 // Show/hide menu animations in main menu.
 bool CFG_getMenuAnimations(void);
 void CFG_setMenuAnimations(bool show);

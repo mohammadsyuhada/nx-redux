@@ -2253,7 +2253,7 @@ static void renderHints(SDL_Surface* screen, IndicatorType show_setting) {
 			right_pairs[p++] = "BACK";
 		}
 	} else {
-		bool netplay_hint = entryNetplayCapable(entry);
+		bool netplay_hint = CFG_getShowNetplayHint() && entryNetplayCapable(entry); // Y still starts netplay when hidden
 		if (stack->count > 1) {
 			right_pairs[p++] = "B";
 			right_pairs[p++] = "BACK";

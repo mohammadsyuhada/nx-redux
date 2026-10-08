@@ -193,7 +193,7 @@ void Search_render(SDL_Surface* screen, int lastScreen) {
 	if (total > 0) {
 		Entry* hint_entry = search_results->items[search_view.selected];
 		readyResume(hint_entry); // refresh the shared resume state per selection
-		if (GameList_entryNetplayCapable(hint_entry)) {
+		if (CFG_getShowNetplayHint() && GameList_entryNetplayCapable(hint_entry)) {
 			hints[p++] = "Y";
 			hints[p++] = "NETPLAY";
 		}
