@@ -1,0 +1,38 @@
+# license: modifies SwanStation (https://github.com/libretro/swanstation), GPL-3.0 (LICENSE); this patch is distributed under the same license.
+diff --git a/src/common/cd_image_pbp.cpp b/src/common/cd_image_pbp.cpp
+index a1dd840..8a8b911 100644
+--- a/src/common/cd_image_pbp.cpp
++++ b/src/common/cd_image_pbp.cpp
+@@ -524,6 +524,32 @@ bool CDImagePBP::OpenDisc(uint32_t index, Common::Error* error)
+   // iso_header_start + 0x12D4, 0x12D6, 0x12D8 supposedly contain data on block size, num clusters, and num blocks
+   // Might be useful for error checking, but probably not that important as of now
+ 
++  // NextUI: some converters leave the TOC empty (all zero). pcsx_rearmed plays those as one data track, so build the
++  // TOC a standard converter writes for that: track 1 at 00:02:00 with the pregap off file, lead-out after the last
++  // block on file.
++  if (std::all_of(m_toc.begin(), m_toc.end(), [](const TOCEntry& e) {
++        const uint8_t* b = reinterpret_cast<const uint8_t*>(&e);
++        return std::all_of(b, b + sizeof(e), [](uint8_t v) { return v == 0; });
++      }))
++  {
++    LBA blocks_on_file = 0;
++    for (const BlockInfo& bi : m_blockinfo_table)
++      blocks_on_file += (bi.size != 0) ? 1 : 0;
++
++    const auto bcd = [](uint32_t v) { return BinaryToBCD(static_cast<uint8_t>(v)); };
++    const Position lead_out = Position::FromLBA(blocks_on_file * (DECOMPRESSED_BLOCK_SIZE / RAW_SECTOR_SIZE) + 150);
++    Log_WarningPrintf("Empty TOC, assuming a single data track of %u blocks", blocks_on_file);
++    m_toc[0].point = 0xA0;
++    m_toc[0].userdata_start.m = bcd(1);
++    m_toc[1].point = 0xA1;
++    m_toc[1].userdata_start.m = bcd(1);
++    m_toc[2].point = 0xA2;
++    m_toc[2].userdata_start = {bcd(lead_out.minute), bcd(lead_out.second), bcd(lead_out.frame)};
++    m_toc[3].type = 0x41;
++    m_toc[3].point = bcd(1);
++    m_toc[3].userdata_start.s = bcd(2);
++  }
++
+   // Ignore track types for first three TOC entries, these don't seem to be consistent, but check that the points are
+   // valid. Not sure what m_toc[0].userdata_start.s encodes on homebrew EBOOTs though, so ignore that
+   if (m_toc[0].point != 0xA0 || m_toc[1].point != 0xA1 || m_toc[2].point != 0xA2)
