@@ -66,6 +66,15 @@ int usblink_link_on_frame(UsbLink* l, UsbLinkSide via, uint8_t type, const uint8
 			return USBLINK_ACT_DELIVER;
 		}
 	}
+	if (type == ULF_SIO) {
+		// gpSP lockstep link traffic for the local minarch (usblink_sio.h).
+		// Only on the linked port; it counts as traffic for the keepalive.
+		if (l->phase == USBLINK_UP && via == l->side && len >= 1 && len <= USBLINK_SIO_MAX) {
+			l->last_rx_ms = now_ms;
+			return USBLINK_ACT_SIO;
+		}
+		return 0;
+	}
 	return 0;
 }
 

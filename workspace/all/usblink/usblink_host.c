@@ -63,10 +63,10 @@ static void find_endpoints(const char* ifdir, unsigned* ep_out, unsigned* ep_in)
 	closedir(d);
 }
 
-static int try_claim(const char* name, UsbLinkHost* h, unsigned subclass) {
+static int try_claim(const char* name, UsbLinkHost* h) {
 	char ifdir[512];
 	snprintf(ifdir, sizeof(ifdir), USB_DEVICES "/%s", name);
-	if (read_num(ifdir, "bInterfaceClass", 16) != NXLINK_CLASS || read_num(ifdir, "bInterfaceSubClass", 16) != (long)subclass)
+	if (read_num(ifdir, "bInterfaceClass", 16) != NXLINK_CLASS || read_num(ifdir, "bInterfaceSubClass", 16) != NXLINK_SUBCLASS)
 		return -1;
 	long ifnum = read_num(ifdir, "bInterfaceNumber", 16);
 	// The interface entry is a symlink into the device's directory, so ".."
@@ -101,7 +101,7 @@ static int try_claim(const char* name, UsbLinkHost* h, unsigned subclass) {
 	return 0;
 }
 
-int usblink_host_find_and_claim_subclass(UsbLinkHost* h, unsigned subclass) {
+int usblink_host_find_and_claim(UsbLinkHost* h) {
 	h->fd = -1;
 	DIR* d = opendir(USB_DEVICES);
 	if (!d)
@@ -113,17 +113,13 @@ int usblink_host_find_and_claim_subclass(UsbLinkHost* h, unsigned subclass) {
 		// and root-hub entries are skipped without reading anything.
 		if (!strchr(e->d_name, ':'))
 			continue;
-		if (try_claim(e->d_name, h, subclass) == 0) {
+		if (try_claim(e->d_name, h) == 0) {
 			rc = 0;
 			break;
 		}
 	}
 	closedir(d);
 	return rc;
-}
-
-int usblink_host_find_and_claim(UsbLinkHost* h) {
-	return usblink_host_find_and_claim_subclass(h, NXLINK_SUBCLASS);
 }
 
 // One frame per transfer; usblink_frame pads so every frame ends with a short

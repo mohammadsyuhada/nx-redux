@@ -10,6 +10,8 @@
 // cable it is on: it exposes an "nxlink" FunctionFS interface on its gadget
 // port and, at the same time, looks for that interface on its USB host port.
 // Whichever side hears the other first brings nxlink0 up (see usblink_link.c).
+// It also relays the gpSP lockstep link ("siolink", usblink_sio.h) between
+// the local minarch and the peer as ULF_SIO frames on the same endpoints.
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
@@ -17,12 +19,15 @@
 #include <linux/usb/ch9.h>
 #include <linux/usb/functionfs.h>
 #include <pthread.h>
+#include <sched.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/un.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -31,6 +36,7 @@
 #include "usblink_gadget.h"
 #include "usblink_host.h"
 #include "usblink_link.h"
+#include "usblink_sio.h"
 #include "usblink_state.h"
 #include "usblink_tun.h"
 
@@ -46,6 +52,7 @@
 #define HOST_READ_TIMEOUT_MS 200 // bounds how long host_io holds nothing but a read
 #define HOST_SCAN_MS 250
 #define START_WAIT_MS 3000 // `start` waits this long for the daemon's first state
+#define SIO_WRITE_TIMEOUT_MS 100
 
 // Link state machine; guarded by mu. mu only covers state changes and the
 // tun address ioctls, never endpoint I/O: a gadget write blocks until the peer
@@ -59,6 +66,18 @@ static UsbLinkHost host = {.fd = -1};
 static volatile int host_claimed;
 static int g_out = -1, g_in = -1, tun_fd = -1;
 static char last_error[32];
+
+// siolink local hop (usblink_sio.h). sio_mu only guards the client address;
+// endpoint writes use the same per-endpoint locks as IP frames.
+static int sio_fd = -1;
+static pthread_mutex_t sio_mu = PTHREAD_MUTEX_INITIALIZER;
+static struct sockaddr_un sio_client;
+static socklen_t sio_client_len; // 0 = no minarch registered
+// SIO writers waiting on an endpoint lock. IP writers yield to them: one
+// lockstep round trip per GBA transfer, nine a frame, must not queue behind a
+// burst of TCP segments. At most one IP transfer is in flight per endpoint,
+// so an SIO frame waits for at most that one.
+static int sio_waiting;
 
 static uint32_t now_ms(void) {
 	struct timespec ts;
@@ -103,7 +122,8 @@ static void shutdown_and_exit(int code, int keep_state) {
 	if (host.fd >= 0)
 		close(host.fd); // the kernel releases the claimed interface with the fd
 	if (tun_fd >= 0)
-		close(tun_fd); // nxlink0 vanishes with its last fd
+		close(tun_fd);		  // nxlink0 vanishes with its last fd
+	unlink(USBLINK_SIO_SOCK); // async-signal-safe; minarch's next send fails and it falls back to IP
 	if (!keep_state)
 		unlink(STATE_FILE);
 	unlink(STATE_TMP);
@@ -176,6 +196,49 @@ static void host_send_raw(const uint8_t* frame, int n) {
 	pthread_mutex_unlock(&host_wr);
 }
 
+static void yield_to_sio(void) {
+	while (__atomic_load_n(&sio_waiting, __ATOMIC_ACQUIRE) > 0)
+		sched_yield();
+}
+
+// One ULF_SIO frame out on the linked port, ahead of any IP frame waiting
+// for the same endpoint. A host-port write gives up after 100 ms: the core
+// resends after its own 500 ms timeout, and a stale frame is worthless.
+static void sio_send_usb(UsbLinkSide side, const uint8_t* frame, int n) {
+	__atomic_add_fetch(&sio_waiting, 1, __ATOMIC_ACQ_REL);
+	if (side == USBLINK_SIDE_HOST) {
+		pthread_mutex_lock(&host_wr);
+		if (host.fd >= 0 && usblink_host_write_timeout(&host, frame, n, SIO_WRITE_TIMEOUT_MS) < 0 && errno != ETIMEDOUT)
+			fprintf(stderr, "usblink: host sio write: %s\n", strerror(errno));
+		pthread_mutex_unlock(&host_wr);
+	} else {
+		pthread_mutex_lock(&gadget_wr);
+		if (write(g_in, frame, (size_t)n) != n && errno != ESHUTDOWN)
+			fprintf(stderr, "usblink: gadget sio write: %s\n", strerror(errno));
+		pthread_mutex_unlock(&gadget_wr);
+	}
+	__atomic_sub_fetch(&sio_waiting, 1, __ATOMIC_ACQ_REL);
+}
+
+// A ULF_SIO payload from the peer, to the registered minarch. Never blocks
+// (MSG_DONTWAIT): a full client socket drops it like a lost frame. A client
+// whose socket is gone (minarch exited) is forgotten.
+static void sio_deliver(const uint8_t* p, int len) {
+	pthread_mutex_lock(&sio_mu);
+	struct sockaddr_un to = sio_client;
+	socklen_t tl = sio_client_len;
+	pthread_mutex_unlock(&sio_mu);
+	if (!tl || sio_fd < 0)
+		return; // no minarch registered yet: dropped, its handshake retries
+	if (sendto(sio_fd, p, (size_t)len, MSG_DONTWAIT, (struct sockaddr*)&to, tl) < 0 && (errno == ENOENT || errno == ECONNREFUSED)) {
+		pthread_mutex_lock(&sio_mu);
+		if (sio_client_len == tl && memcmp(&sio_client, &to, tl) == 0)
+			sio_client_len = 0;
+		pthread_mutex_unlock(&sio_mu);
+		fprintf(stderr, "usblink: sio client %s gone\n", to.sun_path);
+	}
+}
+
 static void do_sends(int sends) {
 	uint8_t frame[16];
 	uint8_t ver = USBLINK_PROTO_VERSION;
@@ -203,6 +266,8 @@ static void on_frame(UsbLinkSide via, const uint8_t* buf, int n) {
 	pthread_mutex_unlock(&mu);
 	if ((act & USBLINK_ACT_DELIVER) && write(tun_fd, payload, (size_t)len) != len)
 		fprintf(stderr, "usblink: tun write: %s\n", strerror(errno));
+	if (act & USBLINK_ACT_SIO)
+		sio_deliver(payload, len);
 	do_sends(sends);
 }
 
@@ -347,10 +412,65 @@ static void* tun_rx(void* arg) {
 		int fn = usblink_frame_encode(ULF_DATA, pkt, n, frame, sizeof(frame));
 		if (fn < 0)
 			continue;
+		yield_to_sio();
 		if (side == USBLINK_SIDE_HOST)
 			host_send_raw(frame, fn);
 		else
 			gadget_send_raw(frame, fn);
+	}
+	return NULL;
+}
+
+static int sio_open(void) {
+	struct sockaddr_un a;
+	memset(&a, 0, sizeof(a));
+	a.sun_family = AF_UNIX;
+	snprintf(a.sun_path, sizeof(a.sun_path), "%s", USBLINK_SIO_SOCK);
+	int fd = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+	if (fd < 0)
+		return -1;
+	unlink(USBLINK_SIO_SOCK); // left by a SIGKILLed daemon
+	if (bind(fd, (struct sockaddr*)&a, sizeof(a)) != 0) {
+		close(fd);
+		return -1;
+	}
+	return fd;
+}
+
+// Datagrams from the local minarch: REGISTER, or one SIO payload to send.
+static void* sio_rx(void* arg) {
+	(void)arg;
+	static uint8_t buf[USBLINK_SIO_MAX + 1]; // +1: an oversized datagram shows up as too long
+	static uint8_t frame[USBLINK_SIO_MAX + USBLINK_FRAME_HDR + 1];
+	if (sio_fd < 0)
+		return NULL;
+	for (;;) {
+		struct sockaddr_un from;
+		socklen_t flen = sizeof(from);
+		int n = (int)recvfrom(sio_fd, buf, sizeof(buf), 0, (struct sockaddr*)&from, &flen);
+		if (n < 0) {
+			if (errno != EINTR)
+				sleep_ms(10);
+			continue;
+		}
+		int kind = usblink_sio_local_kind(buf, n);
+		if (kind == USBLINK_SIO_LOCAL_REGISTER && flen > (socklen_t)sizeof(sa_family_t)) {
+			pthread_mutex_lock(&sio_mu);
+			sio_client = from;
+			sio_client_len = flen;
+			pthread_mutex_unlock(&sio_mu);
+			sendto(sio_fd, buf, 1, MSG_DONTWAIT, (struct sockaddr*)&from, flen); // ack: a daemon is listening
+			fprintf(stderr, "usblink: sio client %s registered\n", from.sun_path);
+		} else if (kind == USBLINK_SIO_LOCAL_FORWARD) {
+			pthread_mutex_lock(&mu);
+			UsbLinkSide side = usblink_sio_route(&g_link);
+			pthread_mutex_unlock(&mu);
+			if (side == USBLINK_SIDE_NONE)
+				continue; // link down: dropped, the lockstep layer times out / resends
+			int fn = usblink_frame_encode(ULF_SIO, buf, n, frame, sizeof(frame));
+			if (fn > 0)
+				sio_send_usb(side, frame, fn);
+		}
 	}
 	return NULL;
 }
@@ -430,6 +550,11 @@ static int run_daemon(int foreground) {
 	tun_fd = usblink_tun_open(TUN_NAME);
 	if (tun_fd < 0)
 		fatal("tun");
+	// No socket only costs the gpSP lockstep link its fast path (minarch falls
+	// back to IP); the IP link itself does not need it.
+	sio_fd = sio_open();
+	if (sio_fd < 0)
+		fprintf(stderr, "usblink: %s: %s, gpSP lockstep link stays on IP\n", USBLINK_SIO_SOCK, strerror(errno));
 	// No gadget (UDC unbound, configfs refused) only rules out a peer on our
 	// main port; the host port can still claim one, so run host-only.
 	int gadget_ok = usblink_gadget_attach(&g_out, &g_in) == 0;
@@ -442,8 +567,8 @@ static int run_daemon(int foreground) {
 	publish();
 	pthread_mutex_unlock(&mu);
 
-	void* (*workers[])(void*) = {host_io, tun_rx, gadget_rx, ep0_drain};
-	unsigned nworkers = gadget_ok ? 4 : 2;
+	void* (*workers[])(void*) = {host_io, tun_rx, sio_rx, gadget_rx, ep0_drain};
+	unsigned nworkers = gadget_ok ? 5 : 3;
 	for (unsigned i = 0; i < nworkers; i++) {
 		pthread_t t;
 		if (pthread_create(&t, NULL, workers[i], NULL) != 0)
@@ -549,6 +674,7 @@ static int cmd_stop(void) {
 	unlink(PID_FILE);
 	unlink(STATE_FILE);
 	unlink(STATE_TMP);
+	unlink(USBLINK_SIO_SOCK);
 	return 0;
 }
 

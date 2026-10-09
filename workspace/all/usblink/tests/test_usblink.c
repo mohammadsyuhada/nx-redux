@@ -8,6 +8,7 @@
 #include "../usblink_frame.h"
 #include "../usblink_link.h"
 #include "../usblink_state.h"
+#include "../usblink_sio.h"
 
 static void test_frame_roundtrip_sizes(void) {
 	uint8_t payload[USBLINK_PAYLOAD_MAX], out[USBLINK_FRAME_MAX];
@@ -193,12 +194,58 @@ static void test_frame_confirm_type(void) {
 	const uint8_t* p;
 	int n = usblink_frame_encode(ULF_CONFIRM, &v, 1, out, sizeof(out));
 	assert(usblink_frame_decode(out, n, &type, &p) == 1 && type == ULF_CONFIRM);
-	out[2] = ULF_CONFIRM + 1;
+	out[2] = ULF_SIO + 1;
 	assert(usblink_frame_decode(out, n, &type, &p) == -1);
-	// The IP link ignores it (it only ever travels on nxsio).
+	// The IP link ignores it as an outer frame (it only travels inside ULF_SIO).
 	UsbLink l;
 	usblink_link_init(&l);
 	assert(usblink_link_on_frame(&l, USBLINK_SIDE_DEVICE, ULF_CONFIRM, &v, 1, 10) == 0);
+}
+
+static void test_frame_sio_type(void) {
+	uint8_t pl[25] = {1, 'N', 'X', 'L', 'S'}, out[64], type;
+	const uint8_t* q;
+	int n = usblink_frame_encode(ULF_SIO, pl, 25, out, sizeof(out));
+	assert(usblink_frame_decode(out, n, &type, &q) == 25 && type == ULF_SIO && memcmp(q, pl, 25) == 0);
+	out[2] = ULF_SIO + 1;
+	assert(usblink_frame_decode(out, n, &type, &q) == -1);
+}
+
+static void test_link_sio_only_when_up_on_linked_side(void) {
+	UsbLink l;
+	uint8_t pl[USBLINK_SIO_MAX + 1];
+	memset(pl, 1, sizeof(pl));
+	usblink_link_init(&l);
+	assert(usblink_link_on_frame(&l, USBLINK_SIDE_DEVICE, ULF_SIO, pl, 25, 5) == 0); // not up: dropped
+	assert(usblink_sio_route(&l) == USBLINK_SIDE_NONE);
+	usblink_link_on_frame(&l, USBLINK_SIDE_DEVICE, ULF_HELLO, &V, 1, 10);
+	assert(usblink_sio_route(&l) == USBLINK_SIDE_DEVICE);
+	assert(usblink_link_on_frame(&l, USBLINK_SIDE_DEVICE, ULF_SIO, pl, 25, 2000) == USBLINK_ACT_SIO);
+	assert(l.last_rx_ms == 2000);													  // SIO traffic keeps the link alive like IP does
+	assert(usblink_link_on_frame(&l, USBLINK_SIDE_HOST, ULF_SIO, pl, 25, 2010) == 0); // other port
+	assert(usblink_link_on_frame(&l, USBLINK_SIDE_DEVICE, ULF_SIO, pl, 0, 2020) == 0);
+	assert(usblink_link_on_frame(&l, USBLINK_SIDE_DEVICE, ULF_SIO, pl, USBLINK_SIO_MAX + 1, 2030) == 0);
+	assert(usblink_link_on_frame(&l, USBLINK_SIDE_DEVICE, ULF_SIO, pl, USBLINK_SIO_MAX, 2040) == USBLINK_ACT_SIO);
+	assert(usblink_link_tick(&l, 0, 2040 + USBLINK_DEAD_MS) & USBLINK_ACT_DOWN);
+	assert(usblink_sio_route(&l) == USBLINK_SIDE_NONE); // link down: the daemon drops client payloads
+	UsbLink h;
+	usblink_link_init(&h);
+	usblink_link_on_frame(&h, USBLINK_SIDE_HOST, ULF_HELLO_ACK, &V, 1, 10);
+	assert(usblink_sio_route(&h) == USBLINK_SIDE_HOST);
+}
+
+static void test_sio_local_kind(void) {
+	uint8_t b[USBLINK_SIO_MAX + 1];
+	memset(b, 1, sizeof(b));
+	uint8_t reg = USBLINK_SIO_REGISTER;
+	assert(usblink_sio_local_kind(&reg, 1) == USBLINK_SIO_LOCAL_REGISTER);
+	assert(usblink_sio_local_kind(b, 1) == USBLINK_SIO_LOCAL_FORWARD);
+	assert(usblink_sio_local_kind(b, USBLINK_SIO_MAX) == USBLINK_SIO_LOCAL_FORWARD);
+	assert(usblink_sio_local_kind(b, USBLINK_SIO_MAX + 1) == USBLINK_SIO_LOCAL_DROP); // truncated by recvfrom
+	assert(usblink_sio_local_kind(b, 0) == USBLINK_SIO_LOCAL_DROP);
+	assert(usblink_sio_local_kind(NULL, 1) == USBLINK_SIO_LOCAL_DROP);
+	b[0] = USBLINK_SIO_REGISTER;
+	assert(usblink_sio_local_kind(b, 2) == USBLINK_SIO_LOCAL_DROP); // payloads never start with 0
 }
 
 int main(void) {
@@ -207,6 +254,9 @@ int main(void) {
 	test_frame_rejects();
 	test_frame_control();
 	test_frame_confirm_type();
+	test_frame_sio_type();
+	test_link_sio_only_when_up_on_linked_side();
+	test_sio_local_kind();
 	test_link_host_handshake_and_keepalive();
 	test_link_dead_after_silence_then_relink();
 	test_link_device_side();

@@ -24,46 +24,42 @@
 #define NXLINK_CLASS 0xff
 #define NXLINK_SUBCLASS 0x4e
 #define NXLINK_PROTOCOL 1
-#define NXSIO_SUBCLASS 0x4f // interface 1: opened by minarch (netplay/siolink.c), never by usblink
 
-// FunctionFS v2 descriptors, full and high speed. Interface 0 "nxlink" (bulk
-// OUT ep1 + IN ep2) is the IP link this daemon drives. Interface 1 "nxsio"
-// (bulk OUT ep3 + IN ep4) is never opened here: during a GBA lockstep link
-// session minarch opens /dev/usb-ffs/net/ep3 and ep4 itself, so cable
-// transfers skip TCP, the TUN and this process. Integers are plain literals:
-// both targets are little-endian and htole*() is not a constant expression.
+// FunctionFS v2 descriptors: one interface, bulk OUT ep1 + bulk IN ep2, for
+// full and high speed. The gpSP lockstep link rides this same pair as ULF_SIO
+// frames: tg5040's sunxi UDC refuses a gadget with a second bulk pair
+// (-524 on bind, adbd warns), so there is no second interface. Integers are
+// plain literals: both targets are little-endian and htole*() is not a
+// constant expression.
 static const struct {
 	struct usb_functionfs_descs_head_v2 h;
 	__le32 fs_count, hs_count;
 	struct {
-		struct usb_interface_descriptor link;
-		struct usb_endpoint_descriptor_no_audio link_sink, link_source;
-		struct usb_interface_descriptor sio;
-		struct usb_endpoint_descriptor_no_audio sio_sink, sio_source;
+		struct usb_interface_descriptor intf;
+		struct usb_endpoint_descriptor_no_audio sink, source;
 	} __attribute__((packed)) fs, hs;
 } __attribute__((packed)) descs = {
 	.h = {.magic = FUNCTIONFS_DESCRIPTORS_MAGIC_V2, .flags = FUNCTIONFS_HAS_FS_DESC | FUNCTIONFS_HAS_HS_DESC, .length = sizeof(descs)},
-	.fs_count = 6,
-	.hs_count = 6,
-#define INTF(num, sub, str) {.bLength = sizeof(struct usb_interface_descriptor), .bDescriptorType = USB_DT_INTERFACE, .bInterfaceNumber = num, .bNumEndpoints = 2, .bInterfaceClass = NXLINK_CLASS, .bInterfaceSubClass = sub, .bInterfaceProtocol = NXLINK_PROTOCOL, .iInterface = str}
+	.fs_count = 3,
+	.hs_count = 3,
+#define INTF {.bLength = sizeof(struct usb_interface_descriptor), .bDescriptorType = USB_DT_INTERFACE, .bNumEndpoints = 2, .bInterfaceClass = NXLINK_CLASS, .bInterfaceSubClass = NXLINK_SUBCLASS, .bInterfaceProtocol = NXLINK_PROTOCOL, .iInterface = 1}
 #define EP(addr, mps) {.bLength = USB_DT_ENDPOINT_SIZE, .bDescriptorType = USB_DT_ENDPOINT, .bEndpointAddress = addr, .bmAttributes = USB_ENDPOINT_XFER_BULK, .wMaxPacketSize = mps}
-	.fs = {INTF(0, NXLINK_SUBCLASS, 1), EP(1 | USB_DIR_OUT, 64), EP(2 | USB_DIR_IN, 64), INTF(1, NXSIO_SUBCLASS, 2), EP(3 | USB_DIR_OUT, 64), EP(4 | USB_DIR_IN, 64)},
-	.hs = {INTF(0, NXLINK_SUBCLASS, 1), EP(1 | USB_DIR_OUT, 512), EP(2 | USB_DIR_IN, 512), INTF(1, NXSIO_SUBCLASS, 2), EP(3 | USB_DIR_OUT, 512), EP(4 | USB_DIR_IN, 512)},
+	.fs = {INTF, EP(1 | USB_DIR_OUT, 64), EP(2 | USB_DIR_IN, 64)},
+	.hs = {INTF, EP(1 | USB_DIR_OUT, 512), EP(2 | USB_DIR_IN, 512)},
 #undef INTF
 #undef EP
 };
-_Static_assert(sizeof(descs) == 112, "FunctionFS descriptor layout");
+_Static_assert(sizeof(descs) == 66, "FunctionFS descriptor layout: one interface, two bulk endpoints");
 
 static const struct {
 	struct usb_functionfs_strings_head h;
 	struct {
 		__le16 code;
-		char link[sizeof "nxlink"];
-		char sio[sizeof "nxsio"];
+		char s[sizeof "nxlink"];
 	} __attribute__((packed)) lang0;
 } __attribute__((packed)) strs = {
-	.h = {.magic = FUNCTIONFS_STRINGS_MAGIC, .length = sizeof(strs), .str_count = 2, .lang_count = 1},
-	.lang0 = {0x0409, "nxlink", "nxsio"},
+	.h = {.magic = FUNCTIONFS_STRINGS_MAGIC, .length = sizeof(strs), .str_count = 1, .lang_count = 1},
+	.lang0 = {0x0409, "nxlink"},
 };
 
 // State shared with the signal path. detach() only touches these with
@@ -158,7 +154,7 @@ int usblink_gadget_attach(int* out_fd, int* in_fd) {
 		fprintf(stderr, "usblink: ep0 descriptors: %s\n", strerror(errno));
 		goto fail;
 	}
-	// ep1-ep4 only exist once the descriptors have been accepted.
+	// ep1/ep2 only exist once the descriptors have been accepted.
 	ep1_fd = open(FFS "/ep1", O_RDWR | O_CLOEXEC);
 	ep2_fd = open(FFS "/ep2", O_RDWR | O_CLOEXEC);
 	if (ep1_fd < 0 || ep2_fd < 0) {
@@ -175,9 +171,9 @@ int usblink_gadget_attach(int* out_fd, int* in_fd) {
 		goto fail;
 	}
 	write_file(G_UDC, udc_name, udc_len);
-	// A UDC that cannot fit adb + nxlink + nxsio refuses the bind and leaves
-	// UDC empty, and adb with it: take our function back out (fail -> detach
-	// unlinks it and rebinds the stock gadget).
+	// A UDC that refuses the rebind (as tg5040's did for a second endpoint
+	// pair) leaves UDC empty, and adb with it: take our function back out
+	// (fail -> detach unlinks it and rebinds the stock gadget).
 	char bound[64];
 	if (read_line(G_UDC, bound, sizeof(bound)) <= 0) {
 		fprintf(stderr, "usblink: gadget did not bind with ffs.net, backing out\n");
