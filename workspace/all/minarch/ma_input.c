@@ -317,21 +317,11 @@ int16_t input_state_callback(unsigned port, unsigned device, unsigned index, uns
 			return player_buttons;
 		return (player_buttons >> id) & 1;
 	}
-	// Analog inputs (local only - no netplay analog support)
-	else if (port == 0 && device == RETRO_DEVICE_ANALOG) {
-		if (!Netplay_isActive() || Netplay_getMode() == NETPLAY_HOST) {
-			if (index == RETRO_DEVICE_INDEX_ANALOG_LEFT) {
-				if (id == RETRO_DEVICE_ID_ANALOG_X)
-					return pad.laxis.x;
-				else if (id == RETRO_DEVICE_ID_ANALOG_Y)
-					return pad.laxis.y;
-			} else if (index == RETRO_DEVICE_INDEX_ANALOG_RIGHT) {
-				if (id == RETRO_DEVICE_ID_ANALOG_X)
-					return pad.raxis.x;
-				else if (id == RETRO_DEVICE_ID_ANALOG_Y)
-					return pad.raxis.y;
-			}
-		}
+	// Analog sticks: our pad on port 0, or both players' synchronized sticks in netplay
+	else if (device == RETRO_DEVICE_ANALOG) {
+		const PAD_Axis* stick = index == RETRO_DEVICE_INDEX_ANALOG_LEFT ? &pad.laxis : &pad.raxis;
+		int16_t local = (int16_t)(id == RETRO_DEVICE_ID_ANALOG_X ? stick->x : stick->y);
+		return Netplay_getPlayerAnalog(port, index, id, local);
 	}
 	return 0;
 }

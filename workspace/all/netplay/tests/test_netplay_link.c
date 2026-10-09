@@ -145,7 +145,21 @@ static void test_port_input(void) {
 	assert(netplay_port_input(7, 0x11, 0x22) == 0);
 }
 
+static void test_port_analog(void) {
+	const int16_t p1[NETPLAY_ANALOG_AXES] = {100, -200, 300, -400};
+	const int16_t p2[NETPLAY_ANALOG_AXES] = {-1, 2, -3, 4};
+	// left X/Y, right X/Y for each player on its own port
+	assert(netplay_port_analog(0, 0, 0, p1, p2) == 100 && netplay_port_analog(0, 0, 1, p1, p2) == -200);
+	assert(netplay_port_analog(0, 1, 0, p1, p2) == 300 && netplay_port_analog(0, 1, 1, p1, p2) == -400);
+	assert(netplay_port_analog(1, 0, 0, p1, p2) == -1 && netplay_port_analog(1, 1, 1, p1, p2) == 4);
+	// nobody on ports 2+, and the analog-button index (2) is not a stick
+	assert(netplay_port_analog(2, 0, 0, p1, p2) == 0 && netplay_port_analog(3, 1, 1, p1, p2) == 0);
+	assert(netplay_port_analog(0, 2, 0, p1, p2) == 0 && netplay_analog_slot(2, 0) == -1);
+	assert(netplay_analog_slot(0, 2) == -1 && netplay_analog_slot(1, 1) == 3);
+}
+
 int main(void) {
+	test_port_analog();
 	test_port_input();
 	test_hs_host_hello_cadence_and_fail();
 	test_hs_full();

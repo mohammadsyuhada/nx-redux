@@ -14,7 +14,7 @@
 
 #define NETPLAY_DEFAULT_PORT 55435
 #define NETPLAY_DISCOVERY_PORT 55436
-#define NETPLAY_PROTOCOL_VERSION 2
+#define NETPLAY_PROTOCOL_VERSION 3 // 3: input packets carry both sticks
 #define NETPLAY_MAX_GAME_NAME 64
 #define NETPLAY_MAX_HOSTS 8
 
@@ -94,6 +94,15 @@ uint32_t Netplay_getPlayerButtons(unsigned port, uint32_t local_buttons);
 
 // Set local player's input for current frame
 void Netplay_setLocalInput(uint16_t input);
+
+// Set local player's sticks for current frame: left X/Y, right X/Y
+// (NETPLAY_ANALOG_AXES, netplay_ports.h). Call before Netplay_update.
+void Netplay_setLocalAnalog(const int16_t axes[4]);
+
+// Stick axis for a libretro port with netplay handling: the synchronized value
+// while connected (host = port 0, client = port 1), otherwise local_value on
+// port 0 and 0 elsewhere
+int16_t Netplay_getPlayerAnalog(unsigned port, unsigned index, unsigned id, int16_t local_value);
 
 // Called at end of each frame - sends data, advances frame counter
 void Netplay_postFrame(void);

@@ -52,8 +52,10 @@ enum {
 // Frame input entry
 typedef struct {
 	uint32_t frame;
-	uint16_t p1_input; // Host input (always Player 1)
-	uint16_t p2_input; // Client input (always Player 2)
+	uint16_t p1_input;						// Host input (always Player 1)
+	uint16_t p2_input;						// Client input (always Player 2)
+	int16_t p1_analog[NETPLAY_ANALOG_AXES]; // Host sticks (netplay_ports.h slots)
+	int16_t p2_analog[NETPLAY_ANALOG_AXES]; // Client sticks
 	bool have_p1;
 	bool have_p2;
 } FrameInput;
@@ -65,9 +67,12 @@ typedef struct __attribute__((packed)) {
 	uint16_t size;
 } PacketHeader;
 
-// Input packet
+// Input packet: buttons plus both sticks, so analog games stay in lockstep
+// (protocol 3; protocol 2 sent buttons only and the client's sticks never
+// reached the host). Network byte order.
 typedef struct __attribute__((packed)) {
 	uint16_t input;
+	int16_t analog[NETPLAY_ANALOG_AXES];
 } InputPacket;
 
 // Main netplay state
@@ -98,6 +103,7 @@ static struct {
 
 	// Local input for current frame
 	uint16_t local_input;
+	int16_t local_analog[NETPLAY_ANALOG_AXES];
 
 	// State sync flags
 	bool needs_state_sync;
@@ -134,6 +140,7 @@ static struct {
 // Forward declarations
 static bool send_packet(uint8_t cmd, uint32_t frame, const void* data, uint16_t size);
 static bool recv_packet(PacketHeader* hdr, void* data, uint16_t max_size, int timeout_ms);
+static void send_input(uint32_t frame);
 static void* listen_thread_func(void* arg);
 static FrameInput* get_frame_slot(uint32_t frame);
 static void init_frame_buffer(void);
@@ -210,8 +217,18 @@ static void init_frame_slot(uint32_t frame) {
 	slot->frame = frame;
 	slot->p1_input = 0;
 	slot->p2_input = 0;
+	memset(slot->p1_analog, 0, sizeof(slot->p1_analog));
+	memset(slot->p2_analog, 0, sizeof(slot->p2_analog));
 	slot->have_p1 = false;
 	slot->have_p2 = false;
+}
+
+// Our buttons and sticks for a future frame, in network byte order.
+static void send_input(uint32_t frame) {
+	InputPacket pkt = {.input = htons(np.local_input)};
+	for (int i = 0; i < NETPLAY_ANALOG_AXES; i++)
+		pkt.analog[i] = (int16_t)htons((uint16_t)np.local_analog[i]);
+	send_packet(CMD_INPUT, frame, &pkt, sizeof(pkt));
 }
 
 // Optimization: Extracted duplicate frame buffer initialization
@@ -551,16 +568,16 @@ bool Netplay_preFrame(void) {
 	if (np.mode == NETPLAY_HOST) {
 		if (!input_slot->have_p1) {
 			input_slot->p1_input = np.local_input;
+			memcpy(input_slot->p1_analog, np.local_analog, sizeof(input_slot->p1_analog));
 			input_slot->have_p1 = true;
-			InputPacket pkt = {.input = htons(np.local_input)};
-			send_packet(CMD_INPUT, np.self_frame, &pkt, sizeof(pkt));
+			send_input(np.self_frame);
 		}
 	} else {
 		if (!input_slot->have_p2) {
 			input_slot->p2_input = np.local_input;
+			memcpy(input_slot->p2_analog, np.local_analog, sizeof(input_slot->p2_analog));
 			input_slot->have_p2 = true;
-			InputPacket pkt = {.input = htons(np.local_input)};
-			send_packet(CMD_INPUT, np.self_frame, &pkt, sizeof(pkt));
+			send_input(np.self_frame);
 		}
 	}
 
@@ -598,13 +615,19 @@ bool Netplay_preFrame(void) {
 			if (hdr.cmd == CMD_INPUT) {
 				FrameInput* remote_slot = get_frame_slot(hdr.frame);
 				uint16_t remote_input = ntohs(remote_pkt.input);
+				int16_t remote_analog[NETPLAY_ANALOG_AXES] = {0};
+				if (hdr.size >= sizeof(remote_pkt)) // a short (buttons-only) packet means centred sticks
+					for (int i = 0; i < NETPLAY_ANALOG_AXES; i++)
+						remote_analog[i] = (int16_t)ntohs((uint16_t)remote_pkt.analog[i]);
 
 				// Store remote input in appropriate slot
 				if (np.mode == NETPLAY_HOST) {
 					remote_slot->p2_input = remote_input;
+					memcpy(remote_slot->p2_analog, remote_analog, sizeof(remote_analog));
 					remote_slot->have_p2 = true;
 				} else {
 					remote_slot->p1_input = remote_input;
+					memcpy(remote_slot->p1_analog, remote_analog, sizeof(remote_analog));
 					remote_slot->have_p1 = true;
 				}
 			} else if (hdr.cmd == CMD_DISCONNECT) {
@@ -706,6 +729,22 @@ uint32_t Netplay_getPlayerButtons(unsigned port, uint32_t local_buttons) {
 
 void Netplay_setLocalInput(uint16_t input) {
 	np.local_input = input;
+}
+
+void Netplay_setLocalAnalog(const int16_t axes[NETPLAY_ANALOG_AXES]) {
+	memcpy(np.local_analog, axes, sizeof(np.local_analog));
+}
+
+int16_t Netplay_getPlayerAnalog(unsigned port, unsigned index, unsigned id, int16_t local_value) {
+	if (np.mode != NETPLAY_OFF && Netplay_isConnected()) {
+		pthread_mutex_lock(&np.mutex);
+		FrameInput* slot = get_frame_slot(np.run_frame);
+		int16_t value = netplay_port_analog(port, index, id, slot->p1_analog, slot->p2_analog);
+		pthread_mutex_unlock(&np.mutex);
+		return value;
+	}
+	// Local play - only P1 has sticks (and no analog-button index)
+	return (port == 0 && netplay_analog_slot(index, id) >= 0) ? local_value : 0;
 }
 
 void Netplay_postFrame(void) {
@@ -831,6 +870,8 @@ void Netplay_completeStateSync(void) {
 		slot->frame = i;
 		slot->p1_input = 0;
 		slot->p2_input = 0;
+		memset(slot->p1_analog, 0, sizeof(slot->p1_analog));
+		memset(slot->p2_analog, 0, sizeof(slot->p2_analog));
 		slot->have_p1 = true;
 		slot->have_p2 = true;
 	}

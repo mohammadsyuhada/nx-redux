@@ -59,13 +59,25 @@ also silently overrides a swapped `.srm` — if you replace a save file to get
 a distinct trainer, remove/rename the matching `.state.auto` too or the old
 trainer comes back.
 
+### Sticks travel with the buttons
+
+Each lockstep input packet carries the player's buttons and both sticks (left
+X/Y, right X/Y; `InputPacket`, `NETPLAY_PROTOCOL_VERSION` 3), and the frame
+buffer keeps them per player: host sticks on port 0, client sticks on port 1
+(`netplay_port_analog`). Before protocol 3 only buttons were sent, so the host
+fed its own stick to its core while the client read 0 there, and any stick
+movement in an analog game (DualShock on PS/PSX) desynced the session. The
+packet format changed, so the wizard's HELLO went to version 2 as well: a
+device on an older build is refused at pairing ("different netplay version")
+instead of stalling mid-game.
+
 ### Different titles: the joiner's override
 
 The wizard's only game gate compares ROM file names (normalized: tags in
 ()/[] dropped, non-alphanumerics dropped, lowercased) in the HELLO handshake.
 Sister versions (FireRed/LeafGreen, Ruby/Sapphire) normalize differently, so
 the joiner is prompted (`wiz_client_confirm_other_game`) and, on A, sends
-`HELLO 1 <game> client any`; a host that sees `any` skips its name check. On
+`HELLO 2 <game> client any`; a host that sees `any` skips its name check. On
 hotspot the joiner listens ~2.5 s for the host's discovery broadcast to learn
 the title before connecting (`wiz_client_hotspot_peek`); silence falls back
 to the plain gate. That peek only works because `NET_sendDiscoveryBroadcast`
