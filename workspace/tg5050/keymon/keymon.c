@@ -49,6 +49,11 @@
 #define INPUT_DIR "/dev/input"
 #define REPEAT_DELAY_MS 300
 #define REPEAT_RATE_MS 100
+// A wake this far past the requested epoll timeout means the device slept.
+// Must be relative to the timeout: an idle wait is itself 1000 ms, so a fixed
+// 1000 ms threshold tripped on every idle wake and dropped a held Select/Start
+// (Select+volume brightness then only worked within ~1 s of pressing Select).
+#define STALE_INPUT_SLACK_MS 1000
 
 // epoll data tags — use high bits to distinguish input fds from inotify fd
 #define EPOLL_TAG_INOTIFY 0xFF000000
@@ -228,9 +233,7 @@ int main(int argc, char* argv[]) {
 		if (menu_pressed && !menu_long_fired) {
 			// Polling for menu long-press detection
 			uint32_t remaining_lp = (menu_press_start + LONG_PRESS_MS > now) ? (menu_press_start + LONG_PRESS_MS - now) : 1;
-			// Cap the wait below the stale-input guard's 1000ms window — a
-			// single sleep spanning the full LONG_PRESS_MS would trip it and
-			// reset menu_pressed mid-hold, so the OSD would never trigger
+			// Poll at most every 500 ms until the long-press threshold
 			timeout_ms = (int)(remaining_lp < 500 ? remaining_lp : 500);
 		} else if (up_pressed || down_pressed) {
 			uint32_t next_repeat = up_pressed ? up_repeat_at : down_repeat_at;
@@ -250,7 +253,7 @@ int main(int argc, char* argv[]) {
 		}
 
 		now = now_ms();
-		if (now - then > 1000) {
+		if (now - then > (uint32_t)timeout_ms + STALE_INPUT_SLACK_MS) {
 			// Ignore stale input after sleep
 			select_pressed = 0;
 			menu_pressed = 0;
