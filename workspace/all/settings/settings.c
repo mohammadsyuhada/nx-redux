@@ -1169,6 +1169,16 @@ static void reset_fn_leds(void) {
 	CFG_setFnLEDs(CFG_DEFAULT_FNLEDS);
 }
 
+static int get_fn_prevent_wake(void) {
+	return GetFnPreventWake();
+}
+static void set_fn_prevent_wake(int v) {
+	SetFnPreventWake(v);
+}
+static void reset_fn_prevent_wake(void) {
+	SetFnPreventWake(0);
+}
+
 static int get_fn_brightness(void) {
 	return GetFnBrightness();
 }
@@ -2130,6 +2140,9 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"FN switch disables LED", "Switch will also disable LEDs",
 		on_off_labels, 2, on_off_values, get_fn_leds, set_fn_leds, reset_fn_leds);
+	fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"FN switch blocks power button", "Travel lock: while FN is on, the power button won't wake the device from sleep. Putting it to sleep, and powering off while awake, are unaffected.",
+		on_off_labels, 2, on_off_values, get_fn_prevent_wake, set_fn_prevent_wake, reset_fn_prevent_wake);
 	fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Brightness when FN is on", "Display brightness (0 to 10)",
 		fn_brightness_labels, FN_BRIGHTNESS_COUNT, fn_brightness_values, get_fn_brightness, set_fn_brightness, reset_fn_brightness);
