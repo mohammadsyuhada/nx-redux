@@ -1510,8 +1510,9 @@ static void gbalink_netpacket_send(int flags, const void* buf, size_t len, uint1
 	}
 }
 
-// Main thread only (deliveries and the query below), so no lock.
+// Main thread only (deliveries and the queries below), so no lock.
 static uint64_t last_ls_start_ms;
+static bool ls_seen; // lockstep traffic this session: gpSP runs the real cable
 
 static uint64_t mono_ms(void) {
 	struct timespec t;
@@ -1521,7 +1522,10 @@ static uint64_t mono_ms(void) {
 
 // A lockstep START handed to the core: the leader is driving the link now.
 static void note_delivery(const void* buf, size_t len) {
-	if (siols_is_packet(buf, len) && ((const uint8_t*)buf)[4] == SIOLS_START)
+	if (!siols_is_packet(buf, len))
+		return;
+	ls_seen = true;
+	if (((const uint8_t*)buf)[4] == SIOLS_START)
 		last_ls_start_ms = mono_ms();
 }
 
@@ -1531,6 +1535,21 @@ static void deliver_to_core(const void* buf, size_t len, void* ctx) {
 		note_delivery(buf, len);
 		gl.core_callbacks.receive(buf, len, gl.remote_client_id);
 	}
+}
+
+bool GBALink_lockstepLinkInUse(void) {
+	return gl.netpacket_active && ls_seen;
+}
+
+void GBALink_holdLink(bool hold) {
+	if (!GBALink_lockstepLinkInUse())
+		return; // other serial modes (RFU) would misread the message
+	// siols_encode lives in the core; the frame (sio_lockstep.c) is
+	// "NXLS" type mode ctrl 0 seq:16 0:16 word:32le cycle:64le.
+	uint8_t b[SIOLS_MSG_SIZE] = {'N', 'X', 'L', 'S', SIOLS_HOLD};
+	b[12] = hold ? 1 : 0;
+	for (int i = 0; i < 2; i++) // idempotent; a second copy covers a lost datagram
+		GBALink_sendPacket(0, b, sizeof(b), gl.remote_client_id);
 }
 
 bool GBALink_lockstepFollowerBusy(void) {
@@ -1595,6 +1614,8 @@ void GBALink_notifyConnected(int is_host) {
 		gl.remote_client_id = is_host ? 1 : 0;
 		if (usb_session())
 			siolink_start(); // handshake runs on the drains; IP until it is up
+		ls_seen = false;
+		last_ls_start_ms = 0;
 		gl.core_callbacks.start(client_id, gbalink_netpacket_send, gbalink_netpacket_poll_receive);
 		gl.netpacket_active = true;
 

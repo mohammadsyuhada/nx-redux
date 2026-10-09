@@ -85,6 +85,11 @@ bool GBALink_isConnected(void);
 // GBALINK_FOLLOWER_BUSY_MS: minarch then paces it by the link, not by vsync.
 #define GBALINK_FOLLOWER_BUSY_MS 250
 bool GBALink_lockstepFollowerBusy(void);
+// gpSP's real link cable (lockstep) is in use this session.
+bool GBALink_lockstepLinkInUse(void);
+// The link has no pause: while our menu is open, tell the peer's gpSP to wait
+// for us (hold) instead of reading "no partner" (the game's link error).
+void GBALink_holdLink(bool hold);
 
 // Host discovery (for client)
 void GBALink_stopDiscovery(void);
