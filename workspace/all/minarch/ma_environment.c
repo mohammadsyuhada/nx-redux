@@ -8,6 +8,7 @@
 #include "ma_options.h"
 #include "ma_opts_dump.h"
 #include "ra_integration.h"
+#include "ma_core_progress.h"
 #include "core_netplay.h"
 #include "gbalink.h"
 #include "gbalink_mode.h"
@@ -72,6 +73,19 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		if (message)
 			LOG_info("%s\n", message->msg);
 		break;
+	}
+	case RETRO_ENVIRONMENT_SET_MESSAGE_EXT: { /* 60 */
+		// Progress (e.g. mupen64plus-next converting a hi-res texture pack on
+		// first launch) is shown as a notice page; other messages are logged,
+		// as plain SET_MESSAGE ones are.
+		const struct retro_message_ext* message = (const struct retro_message_ext*)data;
+		if (message && message->msg) {
+			if (message->type == RETRO_MESSAGE_TYPE_PROGRESS)
+				CoreProgress_set(message->msg);
+			else
+				LOG_info("%s\n", message->msg);
+		}
+		return true;
 	}
 	case RETRO_ENVIRONMENT_SHUTDOWN: { /* 7 */
 		// A core's own quit path (e.g. Doom's quit menu, FBNeo's error screen)
@@ -415,6 +429,16 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		if (out)
 			*out = fast_forward != 0;
 		break;
+	}
+	case RETRO_ENVIRONMENT_SET_FASTFORWARDING_OVERRIDE: {
+		// SPIKE: mupen64plus-next's core netplay asks for fast-forward while
+		// this side lags the lead player (netplay_get_input) and drops it once
+		// caught up; without it a lagging device can never catch up. NULL is
+		// the "is it supported" probe.
+		const struct retro_fastforwarding_override* o = (const struct retro_fastforwarding_override*)data;
+		if (o && CoreNetplay_isActive())
+			fast_forward = setFastForward(o->fastforward);
+		return true;
 	}
 	case RETRO_ENVIRONMENT_SET_HW_RENDER: {
 		return HWR_setCallback((struct retro_hw_render_callback*)data);

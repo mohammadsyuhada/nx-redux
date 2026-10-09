@@ -1379,6 +1379,13 @@ void RA_setMemoryMap(const void* mmap) {
 	RA_LOG_DEBUG("Memory map set by core: %u descriptors (deep copied)\n", ra_memory_map->num_descriptors);
 }
 
+// A core can expose its RAM only once emulation has started (mupen64plus-next
+// allocates RDRAM and sets its memory map inside the first retro_run), after
+// the regions below were built at game load. Remember the console and rebuild
+// the regions once, the first frame the core reports system RAM.
+static uint32_t ra_regions_console = 0;
+static bool ra_regions_need_memory = false;
+
 static void RA_initMemoryRegions(uint32_t console_id) {
 	// Clean up any existing regions
 	if (ra_memory_regions_initialized) {
@@ -1392,10 +1399,14 @@ static void RA_initMemoryRegions(uint32_t console_id) {
 	int result = rc_libretro_memory_init(&ra_memory_regions, ra_memory_map,
 										 ra_get_core_memory_info, console_id);
 
+	ra_regions_console = console_id;
+	ra_regions_need_memory = !ra_memory_map && !(ra_get_memory_data && ra_get_memory_data(0));
 	if (result) {
 		ra_memory_regions_initialized = true;
-		RA_LOG_DEBUG("Memory regions initialized: %u regions, %zu total bytes\n",
-					 ra_memory_regions.count, ra_memory_regions.total_size);
+		RA_LOG_INFO("Memory regions initialized: %u regions, %zu total bytes (map=%d ram=%p)%s\n",
+					ra_memory_regions.count, ra_memory_regions.total_size, ra_memory_map != NULL,
+					ra_get_memory_data ? ra_get_memory_data(0) : NULL,
+					ra_regions_need_memory ? " - core RAM not up yet, will retry" : "");
 	} else {
 		RA_LOG_WARN("Warning: Failed to initialize memory regions for console %u\n", console_id);
 	}
@@ -1603,6 +1614,11 @@ void RA_doFrame(void) {
 		return;
 
 	ra_service_main_thread();
+
+	if (ra_regions_need_memory && (ra_memory_map || (ra_get_memory_data && ra_get_memory_data(0)))) {
+		RA_LOG_INFO("Core RAM is up now, rebuilding memory regions\n");
+		RA_initMemoryRegions(ra_regions_console);
+	}
 
 	if (ra_game_loaded) {
 		rc_client_do_frame(ra_client);
