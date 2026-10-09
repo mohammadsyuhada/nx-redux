@@ -17,3 +17,5 @@ void State_invalidateUndo(void);
 void State_freeUndo(void);
 void State_autosave(void);
 void State_resume(void);
+// Retries a resume the core refused before its first frame; call every frame.
+void State_resumePending(void);

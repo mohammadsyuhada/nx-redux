@@ -482,6 +482,24 @@ void State_autosave(void) {
 	State_write();
 	state_slot = last_state_slot;
 }
+// A resume the core refused before its first frame (mupen64plus-next only
+// accepts states once its emulation thread runs): retried from run_frame.
+#define RESUME_RETRY_EVERY 10 // frames between attempts
+#define RESUME_RETRY_MAX 30	  // ~5 s at 60 fps, then the game just starts fresh
+static int pending_resume_slot = -1;
+static int pending_resume_wait = 0;
+static int pending_resume_tries = 0;
+
+static int State_readSlot(int slot) {
+	int last_state_slot = state_slot;
+	state_slot = slot;
+	int ok = State_read();
+	state_slot = last_state_slot;
+	if (ok)
+		Rewind_on_state_change();
+	return ok;
+}
+
 void State_resume(void) {
 	if (!exists(RESUME_SLOT_PATH))
 		return;
@@ -491,9 +509,25 @@ void State_resume(void) {
 	if (slot < 0 || slot > AUTO_RESUME_SLOT)
 		return; // corrupt slot file
 
+	if (State_readSlot(slot) || RA_isHardcoreModeActive())
+		return;
+	char filename[MAX_PATH];
 	int last_state_slot = state_slot;
 	state_slot = slot;
-	State_read();
+	State_getPath(filename);
 	state_slot = last_state_slot;
-	Rewind_on_state_change();
+	if (!exists(filename))
+		return;
+	pending_resume_slot = slot;
+	pending_resume_wait = RESUME_RETRY_EVERY;
+	pending_resume_tries = 0;
+	LOG_info("Resume state not accepted yet, retrying once the core runs\n");
+}
+
+void State_resumePending(void) {
+	if (pending_resume_slot < 0 || --pending_resume_wait > 0)
+		return;
+	pending_resume_wait = RESUME_RETRY_EVERY;
+	if (State_readSlot(pending_resume_slot) || ++pending_resume_tries >= RESUME_RETRY_MAX)
+		pending_resume_slot = -1;
 }

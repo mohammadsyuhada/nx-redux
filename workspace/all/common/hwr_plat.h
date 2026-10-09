@@ -8,6 +8,9 @@ int PLAT_HWR_resize(unsigned w, unsigned h); // in place, same FBO name; 1 when 
 void PLAT_HWR_makeCurrent(void);
 void PLAT_HWR_setFrame(unsigned w, unsigned h, int flip);
 void PLAT_HWR_restoreFrontendState(void);
+// Right before each core frame: leave the default vertex array and no array
+// buffer bound, the state a core expects to start from.
+void PLAT_HWR_prepareCoreFrame(void);
 void* PLAT_HWR_getProcAddress(const char* sym);
 int PLAT_HWR_maxTextureSize(void);
 // Debug HUD over GPU frames: an RGBA buffer the size of the frame, drawn over

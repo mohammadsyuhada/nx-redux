@@ -315,6 +315,16 @@ void PLAT_HWR_restoreFrontendState(void) {
 	hwr.state_dirty = 1;
 }
 
+void PLAT_HWR_prepareCoreFrame(void) {
+	// Our present leaves its own VAO and VBO bound. mupen64plus-next's GL
+	// state wrapper (glsm) assumes the default VAO and re-applies the core's
+	// attribute pointers to whatever is bound, so GLideN64 drew from our VAO
+	// and every frame came out black.
+	glBindVertexArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	hwr.state_dirty = 1;
+}
+
 void PLAT_HWR_setHud(const void* rgba, int w, int h) {
 	if (!rgba || w <= 0 || h <= 0) {
 		if (hwr.hud_tex)

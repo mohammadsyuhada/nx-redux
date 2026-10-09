@@ -142,6 +142,7 @@ void HWR_beforeRun(void) {
 	// The in-game menu draws through SDL's renderer, which has its own GL
 	// context: make the game context current again before the core draws.
 	PLAT_HWR_makeCurrent();
+	PLAT_HWR_prepareCoreFrame();
 	hwr.stat_runs++;
 	hwr_stats();
 }
