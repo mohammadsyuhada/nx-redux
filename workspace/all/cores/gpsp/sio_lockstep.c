@@ -238,9 +238,7 @@ void siols_initiate(SioLs* s, uint8_t mode, uint8_t ctrl, uint32_t word) {
 	s->ever_xfer = true;
 	s->last_xfer = s->now;
 	s->out = (SioLsMsg){.type = SIOLS_START, .mode = mode, .ctrl = ctrl, .seq = (uint16_t)(s->seq + 1), .word = word};
-	if (!s->linked || s->broken) {
-		// No peer, or it just stopped answering: finish with "nobody there"
-		// now instead of freezing the game for another timeout.
+	if (!s->linked) { // no peer: "nobody there" at once
 		s->reply_ready = true;
 		s->reply_word = no_peer(mode);
 		s->waiting = false;
@@ -248,9 +246,19 @@ void siols_initiate(SioLs* s, uint8_t mode, uint8_t ctrl, uint32_t word) {
 	}
 	s->seq++;
 	s->out.cycle = s->leader ? s->now : (uint64_t)((int64_t)s->now - s->offset);
+	send_msg(s, &s->out);
+	if (s->broken) {
+		// The peer just stopped answering: finish with "nobody there" now
+		// instead of freezing the game for another timeout, but still send the
+		// START so a peer that is back answers it, and its REPLY (or START)
+		// repairs the link. That late REPLY finds no transfer and is dropped.
+		s->reply_ready = true;
+		s->reply_word = no_peer(mode);
+		s->waiting = false;
+		return;
+	}
 	s->reply_ready = false;
 	s->waiting = true;
-	send_msg(s, &s->out);
 	s->t0_us = s->last_send_us = s->io.now_us(s->io.ctx);
 }
 

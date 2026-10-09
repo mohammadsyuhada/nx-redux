@@ -122,7 +122,7 @@ static void test_timeout_marks_broken(void) {
 	uint64_t t = fa.us;
 	int sent = fa.total_sent;
 	siols_initiate(&A, SIOLS_MULTI, 3, 1);
-	assert(siols_complete(&A) == 0xFFFF && fa.us == t && fa.total_sent == sent);
+	assert(siols_complete(&A) == 0xFFFF && fa.us == t && fa.total_sent == sent + 1); // START still sent
 	// A SYNC does not repair it (a peer that syncs may still ignore STARTs); transfer traffic does.
 	inject(&A, (SioLsMsg){.type = SIOLS_SYNC, .cycle = 5});
 	assert(A.broken);
@@ -364,6 +364,73 @@ static void test_follower_reanchor_resets_leader_latest(void) {
 	assert(B.st.bound_waits == 2 && B.st.bound_timeouts == 2);
 }
 
+// (a) broken leader: the START still goes out, the game gets "nobody there" at once;
+// (b) the follower answers it later: repaired, the next transfer locks normally.
+static void test_broken_leader_recovers(void) {
+	setup();
+	siols_start(&A, true);
+	siols_start(&B, false);
+	siols_initiate(&A, SIOLS_MULTI, 3, 0x11); // peer paused > timeout
+	assert(siols_complete(&A) == 0xFFFF && A.broken && A.st.timeouts == 1);
+	fa.nout = 0; // all of seq 1 lost
+	uint64_t t = fa.us;
+	int polls = fa.polls;
+	siols_initiate(&A, SIOLS_MULTI, 3, 0x22);
+	SioLsMsg s = last_sent(&fa);
+	assert(fa.nout == 1 && s.type == SIOLS_START && s.seq == 2 && s.word == 0x22);
+	// A REPLY racing in before complete: repairs the link, but this transfer is already no_peer.
+	inject(&A, (SioLsMsg){.type = SIOLS_REPLY, .seq = 2, .word = 0x99});
+	assert(!A.broken);
+	assert(siols_complete(&A) == 0xFFFF && fa.us == t && fa.polls == polls);
+	assert(A.st.timeouts == 1 && A.st.xfers == 1);
+	// The follower is back and answers seq 2; the late REPLY completes nothing.
+	pump(&fa, &B);
+	SioLsMsg st;
+	assert(siols_take_start(&B, false, &st) && st.seq == 2);
+	siols_reply(&B, &st, 0x2002);
+	pump(&fb, &A);
+	assert(!A.broken && !A.reply_ready && !A.xfer_active && A.st.xfers == 1);
+	// Normal lockstep again: waits for and returns the follower's real word.
+	fa.hook = hook_run_follower;
+	siols_advance(&A, 31000);
+	t = fa.us;
+	siols_initiate(&A, SIOLS_MULTI, 3, 0x33);
+	assert(siols_complete(&A) == 0x2003 && fa.us > t);
+	assert(A.st.xfers == 2 && A.st.timeouts == 1 && !A.broken && B.st.bound_timeouts == 0);
+}
+
+// (c) both sides broken: one exchange repairs both.
+static void test_both_broken_recover(void) {
+	setup();
+	siols_start(&A, true);
+	siols_start(&B, false);
+	siols_initiate(&A, SIOLS_MULTI, 3, 1);
+	assert(siols_complete(&A) == 0xFFFF && A.broken);
+	siols_initiate(&B, SIOLS_MULTI, 3, 1);
+	assert(siols_complete(&B) == 0xFFFF && B.broken);
+	fa.nout = fb.nout = 0; // everything so far lost
+	siols_initiate(&A, SIOLS_MULTI, 3, 2);
+	assert(siols_complete(&A) == 0xFFFF);
+	pump(&fa, &B); // the START repairs the follower...
+	assert(!B.broken);
+	SioLsMsg st;
+	assert(siols_take_start(&B, false, &st) && st.seq == 2);
+	siols_reply(&B, &st, 0x2002);
+	pump(&fb, &A); // ...and its REPLY repairs the leader
+	assert(!A.broken);
+	fa.hook = hook_run_follower;
+	siols_advance(&A, 31000);
+	siols_initiate(&A, SIOLS_MULTI, 3, 3);
+	assert(siols_complete(&A) == 0x2003 && A.st.timeouts == 1);
+	// The follower's own transfers work again too.
+	fa.hook = NULL;
+	siols_initiate(&B, SIOLS_MULTI, 3, 4);
+	SioLsMsg bs = last_sent(&fb);
+	assert(bs.type == SIOLS_START && !B.reply_ready);
+	inject(&B, (SioLsMsg){.type = SIOLS_REPLY, .seq = bs.seq, .word = 0x44});
+	assert(siols_complete(&B) == 0x44 && B.st.timeouts == 1);
+}
+
 int main(void) {
 	test_codec();
 	test_unlinked_completes_at_once();
@@ -381,6 +448,8 @@ int main(void) {
 	test_two_instances_trade_burst();
 	test_follower_broken_needs_transfer_traffic();
 	test_follower_reanchor_resets_leader_latest();
+	test_broken_leader_recovers();
+	test_both_broken_recover();
 	printf("sio_lockstep tests: OK\n");
 	return 0;
 }
