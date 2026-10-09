@@ -237,6 +237,22 @@ void hdmimon(void) {
 #define PWR_UPDATE_FREQ 5
 #define PWR_UPDATE_FREQ_INGAME 20
 
+// gpSP's real link cable waits for the peer inside retro_run, which the Auto
+// governor reads as idle and clocks down: both games slow down. While link
+// traffic flows run at Performance; the user's setting returns when it stops.
+static bool link_cpu_boost;
+static void updateLinkCpuBoost(void) {
+	bool want = GBALink_lockstepBusy();
+	if (want == link_cpu_boost)
+		return;
+	link_cpu_boost = want;
+	if (want)
+		PWR_setCPUSpeed(CPU_SPEED_PERFORMANCE);
+	else
+		setOverclock(overclock);
+	LOG_info("GBALink: link cable %s, CPU %s\n", want ? "busy" : "quiet", want ? "Performance" : "back to setting");
+}
+
 int main(int argc, char* argv[]) {
 	if (argc >= 4 && argc <= 5 && !strcmp(argv[1], "--dump-options"))
 		return OptsDump_run(argv[2], argv[3], argc == 5 ? argv[4] : NULL);
@@ -412,6 +428,7 @@ int main(int argc, char* argv[]) {
 
 		GBALink_update();
 		GBALink_pollAndDeliverPackets();
+		updateLinkCpuBoost();
 		GBLink_pollConnectionState(); // GB Link: detect connect/disconnect from the socket table
 
 		// the other player left on purpose: end now, not at the core's timeout
@@ -493,7 +510,8 @@ int main(int argc, char* argv[]) {
 			}
 			PWR_updateFrequency(PWR_UPDATE_FREQ, 1);
 			Menu_loop();
-			EmuTime_reset(); // emulated-time pacing restarts after the menu
+			link_cpu_boost = false; // the menu restored the user's speed: boost again if still busy
+			EmuTime_reset();		// emulated-time pacing restarts after the menu
 			// Process RA async operations while menu is shown
 			RA_idle();
 			if (Netplay_isPaused()) {

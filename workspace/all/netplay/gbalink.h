@@ -85,6 +85,11 @@ bool GBALink_isConnected(void);
 // GBALINK_FOLLOWER_BUSY_MS: minarch then paces it by the link, not by vsync.
 #define GBALINK_FOLLOWER_BUSY_MS 250
 bool GBALink_lockstepFollowerBusy(void);
+// Lockstep traffic arrived within GBALINK_LOCKSTEP_BUSY_MS (either role):
+// minarch runs the CPU at Performance meanwhile, since the governor would
+// otherwise clock down while gpSP waits for the peer.
+#define GBALINK_LOCKSTEP_BUSY_MS 2000
+bool GBALink_lockstepBusy(void);
 // gpSP's real link cable (lockstep) is in use this session.
 bool GBALink_lockstepLinkInUse(void);
 // The link has no pause: while our menu is open, tell the peer's gpSP to wait

@@ -1512,7 +1512,8 @@ static void gbalink_netpacket_send(int flags, const void* buf, size_t len, uint1
 
 // Main thread only (deliveries and the queries below), so no lock.
 static uint64_t last_ls_start_ms;
-static bool ls_seen; // lockstep traffic this session: gpSP runs the real cable
+static uint64_t last_ls_ms; // any lockstep packet (START/REPLY/SYNC/HOLD)
+static bool ls_seen;		// lockstep traffic this session: gpSP runs the real cable
 
 static uint64_t mono_ms(void) {
 	struct timespec t;
@@ -1525,6 +1526,7 @@ static void note_delivery(const void* buf, size_t len) {
 	if (!siols_is_packet(buf, len))
 		return;
 	ls_seen = true;
+	last_ls_ms = mono_ms();
 	if (((const uint8_t*)buf)[4] == SIOLS_START)
 		last_ls_start_ms = mono_ms();
 }
@@ -1550,6 +1552,10 @@ void GBALink_holdLink(bool hold) {
 	b[12] = hold ? 1 : 0;
 	for (int i = 0; i < 2; i++) // idempotent; a second copy covers a lost datagram
 		GBALink_sendPacket(0, b, sizeof(b), gl.remote_client_id);
+}
+
+bool GBALink_lockstepBusy(void) {
+	return gl.netpacket_active && last_ls_ms && mono_ms() - last_ls_ms < GBALINK_LOCKSTEP_BUSY_MS;
 }
 
 bool GBALink_lockstepFollowerBusy(void) {
@@ -1615,7 +1621,7 @@ void GBALink_notifyConnected(int is_host) {
 		if (usb_session())
 			siolink_start(); // handshake runs on the drains; IP until it is up
 		ls_seen = false;
-		last_ls_start_ms = 0;
+		last_ls_start_ms = last_ls_ms = 0;
 		gl.core_callbacks.start(client_id, gbalink_netpacket_send, gbalink_netpacket_poll_receive);
 		gl.netpacket_active = true;
 
