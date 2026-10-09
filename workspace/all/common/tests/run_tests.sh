@@ -36,6 +36,8 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_pill_cap test_
 /tmp/nx_test_pill_cap
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_wiz_caps ../../netplay-wizard/wiz_caps.c test_wiz_caps.c
 /tmp/nx_test_wiz_caps
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_wiz_modes ../../netplay-wizard/wiz_modes.c test_wiz_modes.c
+/tmp/nx_test_wiz_modes
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_core_netplay ../../netplay/core_netplay.c test_core_netplay.c
 /tmp/nx_test_core_netplay
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_menutabs_model ../../nextui/menutabs_model.c test_menutabs_model.c

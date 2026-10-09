@@ -29,6 +29,7 @@ typedef struct {
 	bool cleanup;			  // --cleanup
 	int max_players;		  // --max-players (2..4, default 2). >2 enables multi-join.
 	const char* caps;		  // --caps (optional; traded with the peer, see wiz_caps.h)
+	unsigned modes;			  // --modes (default WIZ_MODES_ALL), see wiz_modes.h
 } WizArgs;
 
 typedef struct {

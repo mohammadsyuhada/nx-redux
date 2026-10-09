@@ -31,6 +31,7 @@
 #include "utils.h"
 #include "wifi_direct.h"
 #include "wizard.h"
+#include "wiz_modes.h"
 
 // How long a terminal message stays up before the process exits (ms).
 #define WIZ_MESSAGE_MS 1000
@@ -86,6 +87,7 @@ static int parse_args(int argc, char** argv, WizArgs* a) {
 	memset(a, 0, sizeof(*a));
 	a->session_path = WIZ_SESSION_PATH_DEFAULT;
 	a->max_players = 2;
+	a->modes = WIZ_MODES_ALL;
 
 	for (int i = 1; i < argc; i++) {
 		const char* arg = argv[i];
@@ -105,6 +107,12 @@ static int parse_args(int argc, char** argv, WizArgs* a) {
 			a->caps = argv[++i];
 			if (!WizCaps_isValid(a->caps)) {
 				fprintf(stderr, "netplay: --caps must be [A-Za-z0-9._=,-], under %d chars\n", WIZ_CAPS_MAX);
+				return -1;
+			}
+		} else if (strcmp(arg, "--modes") == 0 && has_value) {
+			a->modes = WizModes_parse(argv[++i]);
+			if (!a->modes) {
+				fprintf(stderr, "netplay: --modes must be a csv of usb,hotspot,wifi\n");
 				return -1;
 			}
 		} else if (strcmp(arg, "--fetch-files") == 0 && has_value) {
@@ -779,14 +787,19 @@ static int run_cleanup(const WizArgs* a) {
 //////////////////////////////////
 
 #define WIZ_ROLE_ITEMS 2
-#define WIZ_MODE_ITEMS 3
 
 static const char* role_items[] = {"Host Game", "Join Game"};
 static const char* mode_items[] = {"USB Cable", "Hotspot", "WiFi"};
 // session.mode key per mode_items row; keep both arrays in the same order.
 static const char* mode_keys[] = {"usb", "hotspot", "wifi"};
+// The rows --modes allows (see wiz_modes.h), built once in main():
+// shown_items[k] is the label and shown_rows[k] its mode_items/mode_keys index.
+// A single allowed mode still gets a one-row menu.
+static const char* shown_items[3];
+static int shown_rows[3];
+static int shown_count;
 
-// One ListView serves both menus; list_id (role_items vs mode_items)
+// One ListView serves both menus; list_id (role_items vs shown_items)
 // tells the widget which one is on screen, so switching states snaps the pill
 // instead of gliding between unrelated menus. The per-state cursor lives in
 // main()'s role_selected/mode_selected and is saved/restored on every state
@@ -818,10 +831,10 @@ static void render_mode_menu(void) {
 	ListView* v = &wiz_menu_view;
 	v->title = "Netplay | Connection"; // a page inside the tool names it (LIST-LAYOUT §10.1)
 	v->font = font.large;
-	v->count = WIZ_MODE_ITEMS;
+	v->count = shown_count;
 	v->get_row = wiz_menu_get_row;
-	v->ctx = (void*)mode_items;
-	v->list_id = (const void*)mode_items;
+	v->ctx = (void*)shown_items;
+	v->list_id = (const void*)shown_items;
 	v->hint_pairs = (char*[]){"B", "BACK", "A", "SELECT", NULL};
 	UI_listViewRender(v, wiz_screen);
 	GFX_flip(wiz_screen);
@@ -878,6 +891,10 @@ int main(int argc, char* argv[]) {
 
 	if (args.cleanup)
 		return run_cleanup(&args);
+
+	shown_count = WizModes_rows(args.modes, shown_rows);
+	for (int k = 0; k < shown_count; k++)
+		shown_items[k] = mode_items[shown_rows[k]];
 
 	wiz_screen = GFX_init(MODE_MAIN);
 	UI_showSplashScreen(wiz_screen, "Netplay");
@@ -959,7 +976,7 @@ int main(int argc, char* argv[]) {
 					session.num_players = 2;
 				}
 				state = ST_MODE;
-				UI_listViewReset(&wiz_menu_view, WIZ_MODE_ITEMS, mode_items);
+				UI_listViewReset(&wiz_menu_view, shown_count, shown_items);
 				wiz_menu_view.selected = mode_selected;
 				dirty = true;
 			} else if (act.type == LISTVIEW_BACK) {
@@ -976,7 +993,7 @@ int main(int argc, char* argv[]) {
 			ListViewAction act = UI_listViewHandleInput(&wiz_menu_view);
 			if (act.type == LISTVIEW_ACTIVATED) {
 				mode_selected = wiz_menu_view.selected;
-				strcpy(session.mode, mode_keys[act.index]);
+				strcpy(session.mode, mode_keys[shown_rows[act.index]]);
 				state = ST_NETSETUP;
 				dirty = true;
 			} else if (act.type == LISTVIEW_BACK) {
@@ -1010,7 +1027,7 @@ int main(int argc, char* argv[]) {
 			if (rc == -2) {
 				wiz_cancel(&session);
 				state = ST_MODE;
-				UI_listViewReset(&wiz_menu_view, WIZ_MODE_ITEMS, mode_items);
+				UI_listViewReset(&wiz_menu_view, shown_count, shown_items);
 				wiz_menu_view.selected = mode_selected;
 			} else if (rc != 0) {
 				wiz_cancel(&session);
@@ -1033,7 +1050,7 @@ int main(int argc, char* argv[]) {
 			if (rc == -2) {
 				wiz_cancel(&session);
 				state = ST_MODE;
-				UI_listViewReset(&wiz_menu_view, WIZ_MODE_ITEMS, mode_items);
+				UI_listViewReset(&wiz_menu_view, shown_count, shown_items);
 				wiz_menu_view.selected = mode_selected;
 			} else if (rc != 0) {
 				wiz_cancel(&session);
