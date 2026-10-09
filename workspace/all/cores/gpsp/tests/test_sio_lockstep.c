@@ -502,6 +502,61 @@ static void test_both_broken_recover(void) {
 	assert(siols_complete(&B) == 0x44 && B.st.timeouts == 1);
 }
 
+// The peer's menu is open (HOLD 1): we wait for it however long, then carry
+// on when it resumes (HOLD 0). Released at 2 s, its REPLY comes at once.
+static uint64_t release_at_us;
+static void hook_release_then_reply(Fake* f) {
+	if (f->us < release_at_us)
+		return;
+	SioLs* s = f == &fa ? &A : &B;
+	inject(s, (SioLsMsg){.type = SIOLS_HOLD, .word = 0});
+	if (s == &A)
+		inject(&A, (SioLsMsg){.type = SIOLS_REPLY, .seq = A.out.seq, .word = 0x77});
+	else
+		inject(&B, (SioLsMsg){.type = SIOLS_SYNC, .cycle = 10 * SIOLS_FRAME_CYCLES});
+	f->hook = NULL;
+}
+
+static void test_leader_waits_through_peer_hold(void) {
+	setup();
+	siols_start(&A, true);
+	siols_initiate(&A, SIOLS_MULTI, 3, 1);
+	inject(&A, (SioLsMsg){.type = SIOLS_HOLD, .word = 1});
+	release_at_us = 2000000;
+	fa.hook = hook_release_then_reply;
+	assert(siols_complete(&A) == 0x77);
+	assert(A.st.timeouts == 0 && !A.broken && fa.us >= 2000000);
+	// Released: a peer that stops answering times out as usual again.
+	siols_initiate(&A, SIOLS_MULTI, 3, 2);
+	assert(siols_complete(&A) == 0xFFFF && A.st.timeouts == 1);
+}
+
+static void test_follower_waits_at_bound_through_leader_hold(void) {
+	setup();
+	siols_start(&B, false);
+	SioLsMsg st;
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 1, .cycle = 0});
+	assert(siols_take_start(&B, false, &st));
+	siols_reply(&B, &st, 1);
+	inject(&B, (SioLsMsg){.type = SIOLS_HOLD, .word = 1});
+	siols_advance(&B, SIOLS_SLACK_CYCLES); // at the bound
+	release_at_us = 3000000;
+	fb.hook = hook_release_then_reply;
+	siols_service(&B, false);
+	assert(B.st.bound_timeouts == 0 && B.epoch_valid && fb.us >= 3000000);
+}
+
+// A hold that is never released (peer crashed with its menu open) stops
+// counting after SIOLS_HOLD_MAX_US: the transfer then times out.
+static void test_hold_expires(void) {
+	setup();
+	siols_start(&A, true);
+	inject(&A, (SioLsMsg){.type = SIOLS_HOLD, .word = 1});
+	siols_initiate(&A, SIOLS_MULTI, 3, 1);
+	assert(siols_complete(&A) == 0xFFFF && A.st.timeouts == 1);
+	assert(fa.us >= SIOLS_HOLD_MAX_US && fa.us < SIOLS_HOLD_MAX_US + 2 * SIOLS_REPLY_TIMEOUT_US);
+}
+
 static void test_abort_xfer(void) {
 	setup();
 	siols_start(&A, true);
@@ -534,6 +589,9 @@ int main(void) {
 	test_broken_leader_recovers();
 	test_both_broken_recover();
 	test_abort_xfer();
+	test_leader_waits_through_peer_hold();
+	test_follower_waits_at_bound_through_leader_hold();
+	test_hold_expires();
 	printf("sio_lockstep tests: OK\n");
 	return 0;
 }

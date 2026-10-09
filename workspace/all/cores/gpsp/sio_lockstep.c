@@ -44,7 +44,7 @@ int siols_encode(const SioLsMsg* m, uint8_t* out) {
 
 int siols_decode(const void* buf, size_t len, SioLsMsg* m) {
 	const uint8_t* p = (const uint8_t*)buf;
-	if (!siols_is_packet(buf, len) || p[4] < SIOLS_START || p[4] > SIOLS_SYNC || p[5] > SIOLS_NORMAL32)
+	if (!siols_is_packet(buf, len) || p[4] < SIOLS_START || p[4] > SIOLS_HOLD || p[5] > SIOLS_NORMAL32)
 		return -1;
 	m->type = p[4];
 	m->mode = p[5];
@@ -143,12 +143,23 @@ void siols_stop(SioLs* s) {
 	s->linked = false;
 	s->inbox_n = 0;
 	s->epoch_valid = false;
+	s->peer_hold = false;
+}
+
+// The peer's menu is open: a real cable has no "pause", so both games wait.
+static bool held(const SioLs* s, uint64_t now_us) {
+	return s->peer_hold && now_us - s->hold_since_us < SIOLS_HOLD_MAX_US;
 }
 
 void siols_on_packet(SioLs* s, const void* buf, size_t len) {
 	SioLsMsg m;
 	if (!s->linked || siols_decode(buf, len, &m) != 0)
 		return;
+	if (m.type == SIOLS_HOLD) {
+		s->peer_hold = m.word != 0;
+		s->hold_since_us = s->io.now_us(s->io.ctx);
+		return;
+	}
 	// Only transfer traffic proves the peer answers again: the leader keeps
 	// sending SYNCs while it ignores our STARTs (menu, mismatched game).
 	if (m.type != SIOLS_SYNC)
@@ -236,7 +247,10 @@ void siols_service(SioLs* s, bool busy) {
 		s->io.poll(s->io.ctx);
 		if (!s->linked || !at_bound(s) || can_take(s, false))
 			return;
-		if (s->io.now_us(s->io.ctx) - t0 >= SIOLS_BOUND_TIMEOUT_US) {
+		uint64_t now = s->io.now_us(s->io.ctx);
+		if (held(s, now))
+			t0 = now; // the leader is paused: wait for it, do not run free
+		else if (now - t0 >= SIOLS_BOUND_TIMEOUT_US) {
 			// Leader went quiet (menu, pause, gone): run free; its next message re-anchors us.
 			s->epoch_valid = false;
 			s->st.bound_timeouts++;
@@ -277,6 +291,7 @@ void siols_initiate(SioLs* s, uint8_t mode, uint8_t ctrl, uint32_t word) {
 uint32_t siols_complete(SioLs* s) {
 	if (!s->xfer_active)
 		return no_peer(s->out.mode);
+	uint64_t since = s->t0_us; // the reply timeout runs from here
 	while (!s->reply_ready) {
 		if (!s->linked) { // session ended inside our own poll
 			s->reply_word = no_peer(s->out.mode);
@@ -286,7 +301,9 @@ uint32_t siols_complete(SioLs* s) {
 		if (s->reply_ready)
 			break;
 		uint64_t t = s->io.now_us(s->io.ctx);
-		if (t - s->t0_us >= SIOLS_REPLY_TIMEOUT_US) {
+		if (held(s, t))
+			since = t; // the peer is paused: wait for it, do not time out
+		else if (t - since >= SIOLS_REPLY_TIMEOUT_US) {
 			s->broken = true;
 			s->st.timeouts++;
 			s->reply_word = no_peer(s->out.mode);

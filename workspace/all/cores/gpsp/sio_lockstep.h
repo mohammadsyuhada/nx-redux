@@ -33,11 +33,13 @@
 #define SIOLS_RESEND_US 20000u							   // START re-sent while waiting (lost frame)
 #define SIOLS_BOUND_TIMEOUT_US 100000u					   // leader silent this long: follower runs free
 #define SIOLS_IDLE_SLEEP_US 50u
+#define SIOLS_HOLD_MAX_US 30000000u // a peer's hold (its menu) outlasting this is ignored: Leave grace 20 s + 10
 #define SIOLS_INBOX 8
 
 enum { SIOLS_START = 1,
 	   SIOLS_REPLY = 2,
-	   SIOLS_SYNC = 3 };
+	   SIOLS_SYNC = 3,
+	   SIOLS_HOLD = 4 }; // word 1: the peer stopped emulating (menu open), 0: it resumed
 enum { SIOLS_MULTI = 0,
 	   SIOLS_NORMAL8 = 1,
 	   SIOLS_NORMAL32 = 2 };
@@ -66,6 +68,8 @@ typedef struct {
 typedef struct {
 	SioLsIo io;
 	bool linked, leader, broken;
+	bool peer_hold; // the peer's frontend paused it: wait for it instead of timing out
+	uint64_t hold_since_us;
 	uint64_t now; // local emulated cycles
 	bool ever_xfer;
 	uint64_t last_xfer;
