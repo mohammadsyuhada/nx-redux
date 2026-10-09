@@ -1612,9 +1612,9 @@ static int leaveNetplay_handle(void* data) {
 
 // true = leave the session (and the game)
 static bool Menu_leaveNetplay(void) {
-	// The link cable's peer waits too (GBALink_holdLink), for as long as its
-	// hold lasts (SIOLS_HOLD_MAX_US, 10 s past this grace).
-	bool timed = CoreNetplay_isActive() || GBALink_lockstepLinkInUse();
+	// A GBA link peer waits too (GBALink_setPaused), for as long as its pause
+	// lasts (GBALINK_PEER_PAUSE_MAX_MS / SIOLS_HOLD_MAX_US, 10 s past this grace).
+	bool timed = CoreNetplay_isActive() || GBALink_isConnected();
 	LeaveNetplayCtx ctx = {SDL_GetTicks(), timed ? CORE_NETPLAY_LEAVE_GRACE_MS / 1000 : -1};
 	UI_ModalOpts opts = {
 		.screen = screen,
@@ -1705,9 +1705,9 @@ void Menu_loop(void) {
 	//set vid.blit to null for menu drawing no need for blitrender drawing
 	GFX_clearShaders();
 	if (Multiplayer_isActive()) {
-		GBALink_holdLink(true);
+		GBALink_setPaused(true);
 		bool leave = Menu_leaveNetplay();
-		GBALink_holdLink(false); // also before leaving: the peer then ends as on a pulled cable
+		GBALink_setPaused(false); // also before leaving: the peer then ends as on a pulled cable
 		if (leave) {
 			Netplay_quitAll(); // as the full menu's Quit: close the link cleanly
 			quit = 1;

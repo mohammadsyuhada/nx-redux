@@ -66,6 +66,7 @@ enum {
 	CMD_DISCONNECT = 0x04,
 	CMD_READY = 0x05,	  // Signal ready for SIO exchange
 	CMD_HEARTBEAT = 0x06, // Keepalive during idle periods
+	CMD_PAUSE = 0x07,	  // 1 byte: 1 = our menu is open (wait for us), 0 = resumed
 };
 
 // Heartbeat interval - RFU protocol requires host to send data so clients can respond
@@ -253,6 +254,7 @@ static bool send_packet(uint8_t cmd, const void* data, uint16_t size, uint16_t c
 static bool recv_packet(PacketHeader* hdr, void* data, uint16_t max_size, int timeout_ms);
 static void* listen_thread_func(void* arg);
 static void GBALink_sendHeartbeatIfNeeded(const struct timeval* now);
+static void note_peer_pause(const uint8_t* data, uint16_t size);
 
 //////////////////////////////////////////////////////////////////////////////
 // Performance Optimization Helpers
@@ -1122,6 +1124,8 @@ void GBALink_pollReceive(void) {
 			// host heartbeat (500ms), so no ping-pong amplification.
 			if (gl.mode == GBALINK_CLIENT)
 				send_packet(CMD_HEARTBEAT, NULL, 0, 0);
+		} else if (hdr.cmd == CMD_PAUSE) {
+			note_peer_pause(data, hdr.size);
 		} else if (hdr.cmd == CMD_DISCONNECT) {
 			// Remote sent explicit disconnect command
 			gbalink_handle_remote_gone("Host disconnected", true);
@@ -1511,6 +1515,8 @@ static void gbalink_netpacket_send(int flags, const void* buf, size_t len, uint1
 }
 
 // Main thread only (deliveries and the queries below), so no lock.
+static bool peer_paused;
+static uint64_t peer_paused_ms;
 static uint64_t last_ls_start_ms;
 static uint64_t last_ls_ms; // any lockstep packet (START/REPLY/SYNC/HOLD)
 static bool ls_seen;		// lockstep traffic this session: gpSP runs the real cable
@@ -1522,6 +1528,13 @@ static uint64_t mono_ms(void) {
 }
 
 // A lockstep START handed to the core: the leader is driving the link now.
+// CMD_PAUSE from the peer (its menu opened or closed). Under gl.mutex.
+static void note_peer_pause(const uint8_t* data, uint16_t size) {
+	peer_paused = size >= 1 && data[0];
+	peer_paused_ms = mono_ms();
+	LOG_info("GBALink: peer %s\n", peer_paused ? "paused (menu open), waiting" : "resumed");
+}
+
 static void note_delivery(const void* buf, size_t len) {
 	if (!siols_is_packet(buf, len))
 		return;
@@ -1537,6 +1550,22 @@ static void deliver_to_core(const void* buf, size_t len, void* ctx) {
 		note_delivery(buf, len);
 		gl.core_callbacks.receive(buf, len, gl.remote_client_id);
 	}
+}
+
+bool GBALink_peerPaused(void) {
+	return GBALink_isConnected() && peer_paused && mono_ms() - peer_paused_ms < GBALINK_PEER_PAUSE_MAX_MS;
+}
+
+void GBALink_setPaused(bool paused) {
+	if (!GBALink_isConnected())
+		return;
+	uint8_t b = paused ? 1 : 0;
+	pthread_mutex_lock(&gl.mutex);
+	send_packet(CMD_PAUSE, &b, 1, gl.local_client_id);
+	pthread_mutex_unlock(&gl.mutex);
+	// The peer may be inside retro_run waiting on the real cable, where this
+	// TCP packet only lands at its next frame: hold its lockstep timers too.
+	GBALink_holdLink(paused);
 }
 
 bool GBALink_lockstepLinkInUse(void) {
@@ -1580,6 +1609,8 @@ static int take_lockstep_midframe(uint8_t out[LS_PENDING][SIOLS_MSG_SIZE]) {
 			queue_received(data, hdr.size, hdr.client_id);
 		else if (hdr.cmd == CMD_HEARTBEAT)
 			gl_ls.hb_echo_owed = true;
+		else if (hdr.cmd == CMD_PAUSE)
+			note_peer_pause(data, hdr.size);
 		else if (hdr.cmd == CMD_DISCONNECT) {
 			gbalink_handle_remote_gone("Host disconnected", false); // notify deferred to the frame poll
 			break;
@@ -1621,6 +1652,7 @@ void GBALink_notifyConnected(int is_host) {
 		if (usb_session())
 			siolink_start(); // handshake runs on the drains; IP until it is up
 		ls_seen = false;
+		peer_paused = false;
 		last_ls_start_ms = last_ls_ms = 0;
 		gl.core_callbacks.start(client_id, gbalink_netpacket_send, gbalink_netpacket_poll_receive);
 		gl.netpacket_active = true;

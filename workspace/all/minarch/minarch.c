@@ -429,6 +429,11 @@ int main(int argc, char* argv[]) {
 		GBALink_update();
 		GBALink_pollAndDeliverPackets();
 		updateLinkCpuBoost();
+		if (GBALink_peerPaused()) { // the other player's menu is open: wait with them (frozen frame)
+			input_poll_callback();
+			SDL_Delay(10);
+			continue;
+		}
 		GBLink_pollConnectionState(); // GB Link: detect connect/disconnect from the socket table
 
 		// the other player left on purpose: end now, not at the core's timeout

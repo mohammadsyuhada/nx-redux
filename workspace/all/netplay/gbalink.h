@@ -95,6 +95,12 @@ bool GBALink_lockstepLinkInUse(void);
 // The link has no pause: while our menu is open, tell the peer's gpSP to wait
 // for us (hold) instead of reading "no partner" (the game's link error).
 void GBALink_holdLink(bool hold);
+// Any GBA link mode (wireless adapter too): while our menu is open the peer's
+// minarch stops running its game (GBALink_peerPaused) so neither side times
+// out. Also sends GBALink_holdLink. A pause outlasting the cap is ignored.
+#define GBALINK_PEER_PAUSE_MAX_MS 30000 // Leave prompt grace (20 s) + 10 s
+void GBALink_setPaused(bool paused);
+bool GBALink_peerPaused(void);
 
 // Host discovery (for client)
 void GBALink_stopDiscovery(void);
