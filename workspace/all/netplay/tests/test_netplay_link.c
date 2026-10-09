@@ -69,6 +69,52 @@ static void test_hs_device_never_fails(void) {
 	assert(siolink_hs_on_frame(&dev, ULF_CONFIRM, &V, 1) == SIOHS_UP);
 }
 
+static void test_hs_confirm_needs_matching_ack(void) {
+	SioLinkHs h;
+	siolink_hs_init(&h, SIOLINK_SIDE_HOST, 0);
+	assert(siolink_hs_confirm_sent(&h) == 0 && !h.up); // no HELLO_ACK yet
+	h.peer_version = SIOLINK_PROTO_VERSION + 1;
+	assert(siolink_hs_confirm_sent(&h) == 0 && !h.up); // wrong version never comes up
+	h.peer_version = 0;
+	assert(siolink_hs_on_frame(&h, ULF_HELLO_ACK, &V, 1) == SIOHS_SEND_CONFIRM);
+	assert(siolink_hs_confirm_sent(&h) == SIOHS_UP && h.up);
+}
+
+static void test_hs_data_after_fail(void) {
+	// CONFIRM/timeout race: the gadget side came up on a CONFIRM sent just
+	// before our timeout. Its DATA must still reach the core.
+	uint8_t p[24] = {'N', 'X', 'L', 'S'};
+	SioLinkHs host;
+	siolink_hs_init(&host, SIOLINK_SIDE_HOST, 0);
+	assert(siolink_hs_tick(&host, SIOLINK_HANDSHAKE_MS) == SIOHS_FAIL && host.failed);
+	assert(siolink_hs_on_frame(&host, ULF_DATA, p, 24) == SIOHS_DELIVER);
+	assert(siolink_hs_on_frame(&host, ULF_HELLO_ACK, &V, 1) == 0 && !host.up);
+}
+
+static void test_msg_codec(void) {
+	uint8_t p[SIOLINK_PAYLOAD_MAX + 1] = {'N', 'X', 'L', 'S'}, m[SIOLINK_MSG_MAX + 1], type;
+	const uint8_t* q;
+	int n = siolink_msg_encode(ULF_DATA, p, 24, m, sizeof(m));
+	assert(n == 25 && m[0] == ULF_DATA);
+	assert(siolink_msg_decode(m, n, &type, &q) == 24 && type == ULF_DATA && memcmp(q, p, 24) == 0);
+	assert(siolink_msg_encode(ULF_CONFIRM, &V, 1, m, sizeof(m)) == 2);
+	assert(siolink_msg_decode(m, 2, &type, &q) == 1 && type == ULF_CONFIRM && q[0] == V);
+	assert(siolink_msg_encode(ULF_DATA, p, SIOLINK_PAYLOAD_MAX, m, sizeof(m)) == SIOLINK_MSG_MAX);
+	assert(siolink_msg_encode(ULF_DATA, p, SIOLINK_PAYLOAD_MAX + 1, m, sizeof(m)) == -1);
+	assert(siolink_msg_encode(ULF_DATA, p, 24, m, 24) == -1); // out too small
+	assert(siolink_msg_encode(ULF_DATA, p, -1, m, sizeof(m)) == -1);
+	assert(siolink_msg_encode(0, p, 1, m, sizeof(m)) == -1);	   // 0 is usblink's REGISTER byte
+	assert(siolink_msg_encode(ULF_SIO, p, 1, m, sizeof(m)) == -1); // never nested
+	m[0] = 0;
+	assert(siolink_msg_decode(m, 2, &type, &q) == -1);
+	m[0] = ULF_SIO;
+	assert(siolink_msg_decode(m, 2, &type, &q) == -1);
+	m[0] = ULF_DATA;
+	assert(siolink_msg_decode(m, 0, &type, &q) == -1);
+	assert(siolink_msg_decode(m, SIOLINK_MSG_MAX + 1, &type, &q) == -1);
+	assert(siolink_msg_decode(m, 1, &type, &q) == 0 && type == ULF_DATA); // empty: on_frame ignores it
+}
+
 static void test_side_from_state(void) {
 	assert(siolink_side_from_state("host") == SIOLINK_SIDE_HOST);
 	assert(siolink_side_from_state("device") == SIOLINK_SIDE_DEVICE);
@@ -94,6 +140,9 @@ int main(void) {
 	test_hs_version_and_malformed();
 	test_hs_data_always_delivered();
 	test_hs_device_never_fails();
+	test_hs_confirm_needs_matching_ack();
+	test_hs_data_after_fail();
+	test_msg_codec();
 	test_side_from_state();
 	test_serial_option();
 	printf("netplay link tests: OK\n");
