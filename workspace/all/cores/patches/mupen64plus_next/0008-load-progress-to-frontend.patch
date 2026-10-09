@@ -1,0 +1,119 @@
+diff --git a/GLideN64/src/DisplayLoadProgress.cpp b/GLideN64/src/DisplayLoadProgress.cpp
+index 647ca32..08a3143 100644
+--- a/GLideN64/src/DisplayLoadProgress.cpp
++++ b/GLideN64/src/DisplayLoadProgress.cpp
+@@ -9,6 +9,13 @@
+ #include "DisplayWindow.h"
+ #include "DisplayLoadProgress.h"
+ 
++#ifdef __LIBRETRO__
++/* nx-redux (libretro.c): the frontend shows the text (this build of
++ * GLideN64's text drawer has no font); returns 1 when a frame is due */
++extern "C" int nx_load_progress(const char* text);
++extern "C" void nx_load_progress_yield(void);
++#endif
++
+ void displayLoadProgress(const wchar_t *format, ...)
+ {
+ 	va_list args;
+@@ -34,16 +41,31 @@ void displayLoadProgress(const wchar_t *format, ...)
+ 	// XXX: convert to multibyte
+ 	wcstombs(buf, wbuf, INFO_BUF);
+ 
++#ifdef __LIBRETRO__
++	{
++		size_t len = strlen(buf);
++		while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r'))
++			buf[--len] = '\0';
++		if (!nx_load_progress(buf))
++			return;
++	}
++#endif
++
+ 	FrameBuffer* pBuffer = frameBufferList().getCurrent();
+ 	if (pBuffer != nullptr)
+ 		gfxContext.bindFramebuffer(graphics::bufferTarget::DRAW_FRAMEBUFFER, graphics::ObjectHandle::defaultFramebuffer);
+ 
+ 	GraphicsDrawer & drawer = dwnd().getDrawer();
+ 	drawer.clearColorBuffer(nullptr);
++#ifndef __LIBRETRO__
+ 	if (strlen(buf) > 0)
+ 		drawer.drawText(buf, -0.9f, 0);
++#endif
+ 	dwnd().swapBuffers();
+ 
+ 	if (pBuffer != nullptr)
+ 		gfxContext.bindFramebuffer(graphics::bufferTarget::DRAW_FRAMEBUFFER, pBuffer->m_FBO);
++#ifdef __LIBRETRO__
++	nx_load_progress_yield();
++#endif
+ }
+diff --git a/libretro/libretro.c b/libretro/libretro.c
+index 6b0771e..f5323f3 100644
+--- a/libretro/libretro.c
++++ b/libretro/libretro.c
+@@ -534,6 +534,54 @@ static int nx_netplay_start(void)
+ }
+ #endif
+ 
++/* nx-redux: GLideN64's load progress (hi-res pack conversion, cache load).
++ * The text goes to the frontend as a progress message; at most every 100 ms
++ * a frame is handed over so the frontend can show it. */
++static int nx_in_retro_run = 0;
++
++static unsigned long nx_progress_ms(void)
++{
++    struct timespec ts;
++    clock_gettime(CLOCK_MONOTONIC, &ts);
++    return (unsigned long)ts.tv_sec * 1000UL + (unsigned long)(ts.tv_nsec / 1000000L);
++}
++
++int nx_load_progress(const char* text)
++{
++    static unsigned long last_frame;
++    char msg[512];
++    struct retro_message_ext m;
++    unsigned long now = nx_progress_ms();
++
++    if (strstr(text, "total mem:"))
++        snprintf(msg, sizeof(msg), "Processing hi-res textures (first time only)...\n%s", text);
++    else
++        snprintf(msg, sizeof(msg), "%s", text);
++    memset(&m, 0, sizeof(m));
++    m.msg      = msg;
++    m.duration = 1000;
++    m.priority = 3;
++    m.level    = RETRO_LOG_INFO;
++    m.target   = RETRO_MESSAGE_TARGET_OSD;
++    m.type     = RETRO_MESSAGE_TYPE_PROGRESS;
++    m.progress = -1;
++    environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE_EXT, &m);
++
++    if (now - last_frame < 100)
++        return 0;
++    last_frame = now;
++    return 1;
++}
++
++/* The progress frame was swapped: with the threaded renderer that already
++ * returns to the frontend; on the libretro thread, return from retro_run
++ * here (only from inside it, never during teardown). */
++void nx_load_progress_yield(void)
++{
++    if (nx_in_retro_run && !(current_rdp_type == RDP_PLUGIN_GLIDEN64 && EnableThreadedRenderer))
++        co_switch(retro_thread);
++}
++
+ static void* EmuThreadFunction(void* param)
+ {
+     initializing = false;
+@@ -2195,7 +2243,9 @@ void retro_run (void)
+        glsm_ctl(GLSM_CTL_STATE_BIND, NULL);
+     }
+ 
++    nx_in_retro_run = 1;
+     co_switch(game_thread);
++    nx_in_retro_run = 0;
+ 
+     if(current_rdp_type == RDP_PLUGIN_GLIDEN64 || current_rdp_type == RDP_PLUGIN_RICE)
+     {

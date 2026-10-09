@@ -1,0 +1,379 @@
+diff --git a/Makefile.common b/Makefile.common
+index 1b5259a..37adaca 100644
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -98,6 +98,13 @@ SOURCES_C = \
+ 	$(CORE_DIR)/src/plugin/dummy_audio.c \
+ 	$(CORE_DIR)/src/plugin/dummy_input.c
+ 
++# nx-redux: Rice video plugin, built into RICE_OBJ by build-rice.sh
++ifeq ($(HAVE_RICE), 1)
++SOURCES_C += $(ROOT_DIR)/custom/mupen64plus-core/plugin/rice_glue.c
++COREFLAGS += -DHAVE_RICE
++LDFLAGS += $(RICE_OBJ)
++endif
++
+ # nx-redux: mupen64plus core netplay (SDL2_net, linked by the build script)
+ ifeq ($(NX_NETPLAY), 1)
+ SOURCES_C += $(CORE_DIR)/src/main/netplay.c
+diff --git a/custom/mupen64plus-core/api/config.c b/custom/mupen64plus-core/api/config.c
+index 63a79c1..afd2a72 100644
+--- a/custom/mupen64plus-core/api/config.c
++++ b/custom/mupen64plus-core/api/config.c
+@@ -430,6 +430,17 @@ m64p_error ConfigInit(const char *ConfigDirOverride, const char *DataDirOverride
+     return M64ERR_SUCCESS;
+ }
+ 
++#ifdef HAVE_RICE
++/* nx-redux: the libretro build never initializes the config store (its
++ * plugins read libretro options instead). Rice keeps its settings in the
++ * mupen64plus config API, so its startup switches the in-memory store on;
++ * nothing is read from or written to disk. */
++void ConfigInitInMemory(void)
++{
++    l_ConfigInit = 1;
++}
++#endif
++
+ m64p_error ConfigShutdown(void)
+ {
+     /* first, save the file if necessary */
+diff --git a/custom/mupen64plus-core/api/vidext_libretro.c b/custom/mupen64plus-core/api/vidext_libretro.c
+index 3e3e6b1..8eeabed 100644
+--- a/custom/mupen64plus-core/api/vidext_libretro.c
++++ b/custom/mupen64plus-core/api/vidext_libretro.c
+@@ -26,6 +26,7 @@
+ #include <stdlib.h>
+ #include <stdio.h>
+ #include <string.h>
++#include <stdbool.h>
+ 
+ #define M64P_CORE_PROTOTYPES 1
+ #include "m64p_types.h"
+@@ -124,8 +125,17 @@ EXPORT m64p_error CALL VidExt_SetVideoMode(int Width, int Height, int BitsPerPix
+    return M64ERR_SUCCESS;
+ }
+ 
++#ifdef HAVE_RICE
++extern bool libretro_swap_buffer;
++#endif
++
+ EXPORT m64p_error CALL VidExt_GL_SwapBuffers(void)
+ {
++#ifdef HAVE_RICE
++   /* nx-redux: Rice ends its frame here; GLideN64 and paraLLEl flag the
++    * frame themselves. retro_run hands it to the frontend. */
++   libretro_swap_buffer = true;
++#endif
+    return M64ERR_SUCCESS;
+ }
+ 
+diff --git a/custom/mupen64plus-core/plugin/rice_glue.c b/custom/mupen64plus-core/plugin/rice_glue.c
+new file mode 100644
+index 0000000..73f236d
+--- /dev/null
++++ b/custom/mupen64plus-core/plugin/rice_glue.c
+@@ -0,0 +1,93 @@
++/* nx-redux: glue between the mupen64plus-next core and the Rice video
++ * plugin built into it (HAVE_RICE).
++ *
++ * Rice's PluginStartup looks up the core's config and video-extension
++ * functions by name, as it would in a separate .so. Inside the core there
++ * is no library to search, so rice_core_proc() hands out the addresses.
++ * Rice's own globals with the same names stay local to its object
++ * (build-rice.sh), so they cannot collide with these functions. */
++#include <stdio.h>
++#include <string.h>
++
++#define M64P_CORE_PROTOTYPES 1
++#include "api/m64p_types.h"
++#include "api/m64p_common.h"
++#include "api/m64p_config.h"
++#include "api/m64p_vidext.h"
++
++#include "main/version.h"
++
++#include <glsm/glsm.h>
++
++EXPORT m64p_error CALL ricePluginStartup(m64p_dynlib_handle, void*, void (*)(void*, int, const char*));
++
++/* api/common.c is not part of the libretro build: answer Rice's API
++ * version check with the core's own versions. */
++static m64p_error rice_api_versions(int* config, int* debug, int* vidext, int* extra)
++{
++   if (config) *config = CONFIG_API_VERSION;
++   if (debug) *debug = DEBUG_API_VERSION;
++   if (vidext) *vidext = VIDEXT_API_VERSION;
++   if (extra) *extra = 0;
++   return M64ERR_SUCCESS;
++}
++
++/* The libretro vidext has no GL proc lookup or attribute query: glsm owns
++ * GL, and Rice only asks for attributes to log them. */
++static void* rice_gl_get_proc(const char* name)
++{
++   return glsm_get_proc_address(name);
++}
++
++static m64p_error rice_gl_get_attr(m64p_GLattr attr, int* value)
++{
++   (void)attr;
++   if (value)
++      *value = 0;
++   return M64ERR_SUCCESS;
++}
++
++#define P(f) { #f, (void*)f }
++static const struct { const char* name; void* addr; } rice_procs[] = {
++   { "CoreGetAPIVersions", (void*)rice_api_versions },
++   P(ConfigOpenSection), P(ConfigSetParameter), P(ConfigSetParameterHelp), P(ConfigGetParameter),
++   P(ConfigSetDefaultInt), P(ConfigSetDefaultFloat), P(ConfigSetDefaultBool), P(ConfigSetDefaultString),
++   P(ConfigGetParamInt), P(ConfigGetParamFloat), P(ConfigGetParamBool), P(ConfigGetParamString),
++   P(ConfigGetSharedDataFilepath), P(ConfigGetUserConfigPath), P(ConfigGetUserDataPath), P(ConfigGetUserCachePath),
++   P(VidExt_Init), P(VidExt_Quit), P(VidExt_ListFullscreenModes), P(VidExt_SetVideoMode),
++   P(VidExt_SetCaption), P(VidExt_ToggleFullScreen), P(VidExt_ResizeWindow),
++   P(VidExt_GL_SetAttribute), P(VidExt_GL_SwapBuffers),
++   { "VidExt_GL_GetProcAddress", (void*)rice_gl_get_proc },
++   { "VidExt_GL_GetAttribute", (void*)rice_gl_get_attr },
++};
++
++void* rice_core_proc(const char* name)
++{
++   size_t i;
++   for (i = 0; i < sizeof(rice_procs) / sizeof(rice_procs[0]); i++)
++      if (!strcmp(rice_procs[i].name, name))
++         return rice_procs[i].addr;
++   printf("[Rice] no core function %s\n", name);
++   return NULL;
++}
++
++static void rice_debug(void* context, int level, const char* message)
++{
++   (void)context;
++   if (level <= M64MSG_WARNING)
++      printf("[Rice] %s\n", message);
++}
++
++void ConfigInitInMemory(void);
++
++void rice_plugin_startup(void)
++{
++   static int started;
++   if (started)
++      return;
++   ConfigInitInMemory();
++   if (ricePluginStartup(NULL, NULL, rice_debug) == M64ERR_SUCCESS)
++      started = 1;
++   else
++      printf("[Rice] PluginStartup failed\n");
++}
+diff --git a/custom/mupen64plus-next_common.h b/custom/mupen64plus-next_common.h
+index 1ce8b90..1352a9d 100644
+--- a/custom/mupen64plus-next_common.h
++++ b/custom/mupen64plus-next_common.h
+@@ -39,6 +39,7 @@ enum rdp_plugin_type
+    RDP_PLUGIN_GLIDEN64,
+    RDP_PLUGIN_ANGRYLION,
+    RDP_PLUGIN_PARALLEL,
++   RDP_PLUGIN_RICE, /* nx-redux: Rice video plugin (HAVE_RICE) */
+    RDP_PLUGIN_MAX
+ };
+ 
+diff --git a/libretro/libretro.c b/libretro/libretro.c
+index 5d03fe6..fc545a2 100644
+--- a/libretro/libretro.c
++++ b/libretro/libretro.c
+@@ -996,6 +996,12 @@ static void update_variables(bool startup)
+           {
+              plugin_connect_rdp_api(RDP_PLUGIN_PARALLEL);
+           }
++#ifdef HAVE_RICE
++          else if (!strcmp(var.value, "rice"))
++          {
++             plugin_connect_rdp_api(RDP_PLUGIN_RICE);
++          }
++#endif
+        }
+        else
+        {
+@@ -1081,6 +1087,10 @@ static void update_variables(bool startup)
+        {
+           EnableThreadedRenderer = !strcmp(var.value, "True") ? 1 : 0;
+        }
++       /* nx-redux: the threaded renderer is GLideN64's; Rice runs on the
++        * libretro thread like non-threaded GLideN64. */
++       if (current_rdp_type == RDP_PLUGIN_RICE)
++          EnableThreadedRenderer = 0;
+ 	    
+        if(current_rdp_type == RDP_PLUGIN_GLIDEN64 && EnableThreadedRenderer)
+        {
+@@ -1150,6 +1160,10 @@ static void update_variables(bool startup)
+        {
+           EnableFrameDuping = !strcmp(var.value, "False") ? 0 : 1;
+        }
++       /* nx-redux: Rice only ends a frame when the picture changes; report the
++        * other VIs as dupes so the frontend still paces on every frame. */
++       if (current_rdp_type == RDP_PLUGIN_RICE)
++          EnableFrameDuping = 1;
+ 
+        var.key = CORE_NAME "-Framerate";
+        var.value = NULL;
+@@ -1861,7 +1875,7 @@ static void format_saved_memory(void)
+ 
+ void context_reset(void)
+ {
+-    if(current_rdp_type == RDP_PLUGIN_GLIDEN64)
++    if(current_rdp_type == RDP_PLUGIN_GLIDEN64 || current_rdp_type == RDP_PLUGIN_RICE)
+     {
+        log_cb(RETRO_LOG_DEBUG, CORE_NAME ": context_reset()\n");
+        glsm_ctl(GLSM_CTL_STATE_CONTEXT_RESET, NULL);
+@@ -1874,7 +1888,7 @@ void context_reset(void)
+        // (e.g., during fullscreen toggle). This is needed because BufferedDrawer uses
+        // persistent buffer mappings (GL_MAP_PERSISTENT_BIT) which become invalid when
+        // the GL context is destroyed and recreated.
+-       if (emu_initialized)
++       if (emu_initialized && current_rdp_type == RDP_PLUGIN_GLIDEN64)
+        {
+           gln64DestroyGfxContext();
+           gln64ReinitGfxContext();
+@@ -1886,7 +1900,7 @@ void context_reset(void)
+ 
+ static void context_destroy(void)
+ {
+-    if(current_rdp_type == RDP_PLUGIN_GLIDEN64)
++    if(current_rdp_type == RDP_PLUGIN_GLIDEN64 || current_rdp_type == RDP_PLUGIN_RICE)
+     {
+        glsm_ctl(GLSM_CTL_STATE_CONTEXT_DESTROY, NULL);
+     }
+@@ -2024,7 +2038,7 @@ bool retro_load_game(const struct retro_game_info *game)
+     params.stencil               = false;
+ 
+     params.framebuffer_lock      = context_framebuffer_lock;
+-    if (current_rdp_type == RDP_PLUGIN_GLIDEN64 && !glsm_ctl(GLSM_CTL_STATE_CONTEXT_INIT, &params))
++    if ((current_rdp_type == RDP_PLUGIN_GLIDEN64 || current_rdp_type == RDP_PLUGIN_RICE) && !glsm_ctl(GLSM_CTL_STATE_CONTEXT_INIT, &params))
+     {
+         if (log_cb)
+             log_cb(RETRO_LOG_ERROR, CORE_NAME ": libretro frontend doesn't have OpenGL support\n");
+@@ -2046,7 +2060,7 @@ bool retro_load_game(const struct retro_game_info *game)
+     if (!emu_step_load_data())
+         return false;
+ 
+-    if(current_rdp_type == RDP_PLUGIN_GLIDEN64 || current_rdp_type == RDP_PLUGIN_PARALLEL)
++    if(current_rdp_type == RDP_PLUGIN_GLIDEN64 || current_rdp_type == RDP_PLUGIN_RICE || current_rdp_type == RDP_PLUGIN_PARALLEL)
+     {
+        first_context_reset = true;
+     }
+@@ -2107,7 +2121,7 @@ void retro_run (void)
+     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
+        update_variables(false);
+ 
+-    if(current_rdp_type == RDP_PLUGIN_GLIDEN64)
++    if(current_rdp_type == RDP_PLUGIN_GLIDEN64 || current_rdp_type == RDP_PLUGIN_RICE)
+     {
+        if(EnableThreadedRenderer)
+        {
+@@ -2123,14 +2137,14 @@ void retro_run (void)
+ 
+     co_switch(game_thread);
+ 
+-    if(current_rdp_type == RDP_PLUGIN_GLIDEN64)
++    if(current_rdp_type == RDP_PLUGIN_GLIDEN64 || current_rdp_type == RDP_PLUGIN_RICE)
+     {
+        glsm_ctl(GLSM_CTL_STATE_UNBIND, NULL);
+     }
+     
+     if (libretro_swap_buffer)
+     {
+-       if(current_rdp_type == RDP_PLUGIN_GLIDEN64)
++       if(current_rdp_type == RDP_PLUGIN_GLIDEN64 || current_rdp_type == RDP_PLUGIN_RICE)
+        {
+           video_cb(RETRO_HW_FRAME_BUFFER_VALID, retro_screen_width, retro_screen_height, 0);
+        }
+@@ -2202,7 +2216,7 @@ bool retro_serialize(void *data, size_t size)
+ 
+    savestates_set_job(savestates_job_save, savestates_type_m64p, data);
+ 
+-   if (current_rdp_type == RDP_PLUGIN_GLIDEN64)
++   if(current_rdp_type == RDP_PLUGIN_GLIDEN64 || current_rdp_type == RDP_PLUGIN_RICE)
+    {
+       if(EnableThreadedRenderer)
+       {
+@@ -2217,7 +2231,7 @@ bool retro_serialize(void *data, size_t size)
+       co_switch(game_thread);
+    }
+ 
+-   if (current_rdp_type == RDP_PLUGIN_GLIDEN64)
++   if(current_rdp_type == RDP_PLUGIN_GLIDEN64 || current_rdp_type == RDP_PLUGIN_RICE)
+    {
+       glsm_ctl(GLSM_CTL_STATE_UNBIND, NULL);
+    }
+@@ -2235,7 +2249,7 @@ bool retro_unserialize(const void *data, size_t size)
+ 
+    savestates_set_job(savestates_job_load, savestates_type_m64p, data);
+ 
+-   if (current_rdp_type == RDP_PLUGIN_GLIDEN64)
++   if(current_rdp_type == RDP_PLUGIN_GLIDEN64 || current_rdp_type == RDP_PLUGIN_RICE)
+    {
+       if(EnableThreadedRenderer)
+       {
+@@ -2250,7 +2264,7 @@ bool retro_unserialize(const void *data, size_t size)
+       co_switch(game_thread);
+    }
+ 
+-   if (current_rdp_type == RDP_PLUGIN_GLIDEN64)
++   if(current_rdp_type == RDP_PLUGIN_GLIDEN64 || current_rdp_type == RDP_PLUGIN_RICE)
+    {
+       glsm_ctl(GLSM_CTL_STATE_UNBIND, NULL);
+    }
+diff --git a/libretro/libretro_core_options.h b/libretro/libretro_core_options.h
+index fb39aa9..7b09f5f 100644
+--- a/libretro/libretro_core_options.h
++++ b/libretro/libretro_core_options.h
+@@ -79,6 +79,9 @@ struct retro_core_option_v2_definition option_defs_us[] = {
+             {"parallel", "ParaLLEl-RDP"},
+ #endif
+             {"gliden64", "GLideN64"},
++#ifdef HAVE_RICE
++            {"rice", "Rice"},
++#endif
+             { NULL, NULL },
+         },
+         "gliden64"
+diff --git a/mupen64plus-core/src/plugin/plugin.c b/mupen64plus-core/src/plugin/plugin.c
+index e0246bb..4a44fb7 100644
+--- a/mupen64plus-core/src/plugin/plugin.c
++++ b/mupen64plus-core/src/plugin/plugin.c
+@@ -100,6 +100,10 @@ DEFINE_GFX(angrylion);
+ #if defined(HAVE_PARALLEL_RDP)
+ DEFINE_GFX(parallel);
+ #endif
++#if defined(HAVE_RICE)
++DEFINE_GFX(rice);
++void rice_plugin_startup(void);
++#endif
+ 
+ gfx_plugin_functions gfx;
+ GFX_INFO gfx_info;
+@@ -403,6 +407,9 @@ void plugin_connect_rdp_api(enum rdp_plugin_type type)
+       case RDP_PLUGIN_GLIDEN64:
+       case RDP_PLUGIN_ANGRYLION:
+       case RDP_PLUGIN_PARALLEL:
++#if defined(HAVE_RICE)
++      case RDP_PLUGIN_RICE:
++#endif
+          current_rdp_type = type;
+          break;
+       case RSP_PLUGIN_NONE:
+@@ -444,6 +451,12 @@ void plugin_connect_all()
+        case RDP_PLUGIN_GLIDEN64:
+           gfx = gfx_gln64;
+           break;
++#if defined(HAVE_RICE)
++       case RDP_PLUGIN_RICE:
++          rice_plugin_startup();
++          gfx = gfx_rice;
++          break;
++#endif
+       case RDP_PLUGIN_NONE:
+       default:
+          break;

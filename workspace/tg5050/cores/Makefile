@@ -32,6 +32,7 @@ CORES+= gearcoleco
 CORES+= flycast
 CORES+= flycast_legacy
 CORES+= ppsspp
+CORES+= mupen64plus_next
 
 ###############################
 
@@ -241,5 +242,19 @@ flycast_legacy_HASH = 4c293f306bc16a265c2d768af5d0cea138426054
 # libGLESv2 is a stub whose symbols live in libmali, so link that too (the
 # fork links with --no-undefined).
 flycast_legacy_MAKE = CPATH=$(CURDIR)/../../all/cores/flycast_legacy/include make platform=arm64 ARCH=aarch64 TARGET_NAME=flycast_legacy HAVE_OPENMP=0 CC_AS="$(CC)" GL_LIB="-lGLESv2 -lmali"
+
+# mupen64plus-next (N64.pak): GLES3, GLideN64 + new aarch64 dynarec, core
+# netplay (patch 0002, our m64p-server) and the Rice video plugin built in
+# (patch 0003 + build-rice.sh) for the PowerVR devices.
+mupen64plus_next_REPO = https://github.com/libretro/mupen64plus-libretro-nx
+mupen64plus_next_HASH = 12edd2c74a517ff86dfa8cfc71ad75e4c10486d5
+# No real submodules, but a stray gitlink (paraLLEl RSP's lightning/gnulib, no
+# .gitmodules) breaks the template's default recursive init; a plain-file
+# pathspec makes init/update a no-op.
+mupen64plus_next_SUBMODULES = -- README.md
+# core licence + the built-in Rice plugin's (written by build-libretro.sh)
+mupen64plus_next_LICENSE = NX-LICENSES.txt
+mupen64plus_next_MAKE = sh $(CURDIR)/../../all/cores/mupen64plus_next/build-libretro.sh $(PLATFORM)
+mupen64plus_next_DEPS = ../../all/cores/mupen64plus_next/build-libretro.sh ../../all/cores/mupen64plus_next/build-rice.sh $(wildcard ../../all/cores/mupen64plus_next/rice/*) $(wildcard ../../all/cores/mupen64plus_next/rice/patches/*.patch) $(wildcard ../../all/cores/mupen64plus_next/nx/*)
 
 include ../../all/cores/Makefile

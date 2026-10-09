@@ -1,0 +1,20 @@
+diff --git a/libretro/libretro.c b/libretro/libretro.c
+index 0f84383..15391d3 100644
+--- a/libretro/libretro.c
++++ b/libretro/libretro.c
+@@ -2051,6 +2051,15 @@ bool retro_load_game(const struct retro_game_info *game)
+ 
+     update_variables(true);
+ 
++    /* nx-redux: announce the controller layout now. The input plugin only
++     * sends it when it starts inside the first retro_run, after frontends
++     * that build their controls menu at load (minarch) have fallen back to
++     * generic RetroPad names. alternate_mapping is set by update_variables. */
++    {
++       extern void inputGetKeys_default_descriptor(void);
++       inputGetKeys_default_descriptor();
++    }
++
+     if(current_rdp_type == RDP_PLUGIN_GLIDEN64 && EnableThreadedRenderer)
+     {
+        initializing = true;

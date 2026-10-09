@@ -1,0 +1,52 @@
+diff --git a/libretro/libretro.c b/libretro/libretro.c
+index 15391d3..6b0771e 100644
+--- a/libretro/libretro.c
++++ b/libretro/libretro.c
+@@ -482,6 +482,8 @@ static void emu_step_initialize(void)
+  * session. Mirrors the standalone ui-console patch (retry ~10 s, the peer's
+  * server may start a moment later). On failure the core stops. */
+ static int nx_netplay_active = 0;
++/* nx-redux: the session could not start; the emulator never ran */
++static int nx_netplay_failed = 0;
+ static int nx_netplay_start(void)
+ {
+     const char *host = getenv("NX_M64P_NETPLAY_HOST");
+@@ -539,8 +541,23 @@ static void* EmuThreadFunction(void* param)
+ #ifdef M64P_NETPLAY
+     if (nx_netplay_start() < 0)
+     {
+-        /* never fall back to a peerless game: tell the frontend to quit */
++        /* never fall back to a peerless game: tell the frontend to quit and
++         * don't start the emulator. A started one would have to be stopped
++         * again during teardown, and with the threaded renderer that waits
++         * for a GL shutdown that never comes (retro_unload_game). */
++        nx_netplay_failed = 1;
+         environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);
++        /* a libco thread must never return (see below) */
++        if (!(current_rdp_type == RDP_PLUGIN_GLIDEN64 && EnableThreadedRenderer))
++            for (;;)
++                co_switch(retro_thread);
++        /* Threaded renderer: retro_run sits in GLideN64's command loop, which
++         * only hands back to the frontend on a buffer swap (none will come)
++         * or while a save state is pending. Use the latter so retro_run
++         * returns and the frontend can act on the shutdown. */
++        retro_savestate_complete = false;
++        emuThreadRunning = false;
++        return NULL;
+     }
+ #endif
+ 
+@@ -2128,7 +2145,13 @@ void retro_unload_game(void)
+ 
+        // Run one more frame to unlock it
+        glsm_ctl(GLSM_CTL_STATE_BIND, NULL);
++#ifdef M64P_NETPLAY
++       /* nx-redux: a failed netplay start never ran the emulator, so no GL
++        * shutdown will come */
++       while(!threaded_gl_safe_shutdown && !nx_netplay_failed)
++#else
+        while(!threaded_gl_safe_shutdown)
++#endif
+        {
+           co_switch(game_thread);
+        }

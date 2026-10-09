@@ -1,0 +1,207 @@
+nx-redux: mupen64plus core netplay in the libretro core (spike, issue #149).
+Built with NX_NETPLAY=1 (+ static SDL2_net); the session comes from the
+NX_M64P_NETPLAY_HOST/PORT/PLAYER environment, set by the pak launcher after
+the pre-launch wizard, and talks to our m64p-server.elf like the standalone.
+Upstream never compiles netplay.c: it lacked the log_cb declaration, and a
+self-stopped emulator fell off the libco thread (crash): it now asks the
+frontend to shut down. NX_M64P_NETPLAY_DEBUG=1 logs every seat key change.
+
+diff --git a/Makefile.common b/Makefile.common
+index 72aef3a..1b5259a 100644
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -97,7 +97,12 @@ SOURCES_C = \
+ 	$(CORE_DIR)/src/plugin/plugin.c \
+ 	$(CORE_DIR)/src/plugin/dummy_audio.c \
+ 	$(CORE_DIR)/src/plugin/dummy_input.c
+-	#$(CORE_DIR)/src/main/netplay.c
++
++# nx-redux: mupen64plus core netplay (SDL2_net, linked by the build script)
++ifeq ($(NX_NETPLAY), 1)
++SOURCES_C += $(CORE_DIR)/src/main/netplay.c
++COREFLAGS += -DM64P_NETPLAY
++endif
+ 
+ MINIZIP_SOURCES_C = \
+ 	$(MINIZIP_DIR)/zip.c \
+diff --git a/libretro/libretro.c b/libretro/libretro.c
+index 1129890..5d03fe6 100644
+--- a/libretro/libretro.c
++++ b/libretro/libretro.c
+@@ -19,6 +19,8 @@
+  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+ 
+ #include <stdio.h>
++#include <unistd.h>
++#include <time.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include <compat/strl.h>
+@@ -445,38 +447,76 @@ static void emu_step_initialize(void)
+     plugin_connect_all();
+ }
+ 
+-static void* EmuThreadFunction(void* param)
++#ifdef M64P_NETPLAY
++/* nx-redux: core netplay driven by the pak's launcher (the pre-launch wizard
++ * brokers host/peer, the host runs m64p-server.elf). The session arrives in
++ * the environment, like flycast's NX_GGPO_*:
++ *   NX_M64P_NETPLAY_HOST   server address (127.0.0.1 on the host)
++ *   NX_M64P_NETPLAY_PORT   server port (55445)
++ *   NX_M64P_NETPLAY_PLAYER seat 1-4
++ * Must run before M64CMD_EXECUTE: main_run() syncs settings and saves over the
++ * session. Mirrors the standalone ui-console patch (retry ~10 s, the peer's
++ * server may start a moment later). On failure the core stops. */
++static int nx_netplay_active = 0;
++static int nx_netplay_start(void)
+ {
+-    uint32_t netplay_port = 0;
+-    uint16_t netplay_player = 1;
++    const char *host = getenv("NX_M64P_NETPLAY_HOST");
++    const char *port_s = getenv("NX_M64P_NETPLAY_PORT");
++    const char *player_s = getenv("NX_M64P_NETPLAY_PLAYER");
++    int port, player, attempt;
++    uint32_t version = 0, reg_id;
++    m64p_error rval = M64ERR_SYSTEM_FAIL;
++
++    if (!host || !*host)
++        return 0; /* no session: plain single-player */
++    port = port_s ? atoi(port_s) : 0;
++    player = player_s ? atoi(player_s) : 0;
++    if (port < 1 || port > 65535 || player < 1 || player > 4)
++    {
++        log_cb(RETRO_LOG_ERROR, "Netplay: bad NX_M64P_NETPLAY_PORT/PLAYER\n");
++        return -1;
++    }
++    if (CoreDoCommand(M64CMD_NETPLAY_GET_VERSION, 0x010001, &version) != M64ERR_SUCCESS)
++    {
++        log_cb(RETRO_LOG_ERROR, "Netplay: API version mismatch (core %u)\n", version);
++        return -1;
++    }
++    for (attempt = 0; attempt < 20; ++attempt)
++    {
++        rval = CoreDoCommand(M64CMD_NETPLAY_INIT, port, (void*)host);
++        if (rval == M64ERR_SUCCESS)
++            break;
++        usleep(500000);
++    }
++    if (rval != M64ERR_SUCCESS)
++    {
++        log_cb(RETRO_LOG_ERROR, "Netplay: could not connect to %s:%d\n", host, port);
++        return -1;
++    }
++    reg_id = (((uint32_t)time(NULL)) << 8) ^ ((uint32_t)getpid()) ^ (uint32_t)player;
++    if (reg_id == 0)
++        reg_id = 0x4E585250;
++    if (CoreDoCommand(M64CMD_NETPLAY_CONTROL_PLAYER, player, &reg_id) != M64ERR_SUCCESS)
++    {
++        log_cb(RETRO_LOG_ERROR, "Netplay: player %d seat rejected by server\n", player);
++        CoreDoCommand(M64CMD_NETPLAY_CLOSE, 0, NULL);
++        return -1;
++    }
++    nx_netplay_active = 1;
++    log_cb(RETRO_LOG_INFO, "Netplay: connected to %s:%d as player %d\n", host, port, player);
++    return 1;
++}
++#endif
+ 
++static void* EmuThreadFunction(void* param)
++{
+     initializing = false;
+ 
+-#if 0
+-    if (netplay_port)
++#ifdef M64P_NETPLAY
++    if (nx_netplay_start() < 0)
+     {
+-        uint32_t version;
+-        if (CoreDoCommand(M64CMD_NETPLAY_GET_VERSION, 0x010000, &version) == M64ERR_SUCCESS)
+-        {
+-            log_cb(RETRO_LOG_INFO, "Netplay: using core version %u\n", version);
+-
+-            if (CoreDoCommand(M64CMD_NETPLAY_INIT, netplay_port, "") == M64ERR_SUCCESS)
+-                log_cb(RETRO_LOG_INFO, "Netplay: init success\n");
+-
+-            uint32_t reg_id = 0;
+-            while (reg_id == 0)
+-            {
+-#ifdef __MINGW32__
+-                rand_s(&reg_id);
+-#else
+-                reg_id = rand();
+-#endif
+-            }
+-            reg_id += netplay_player;
+-
+-            if (CoreDoCommand(M64CMD_NETPLAY_CONTROL_PLAYER, netplay_player, &reg_id) == M64ERR_SUCCESS)
+-                log_cb(RETRO_LOG_INFO, "Netplay: registered for player %d\n", netplay_player);
+-        }
++        /* never fall back to a peerless game: tell the frontend to quit */
++        environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);
+     }
+ #endif
+ 
+@@ -485,6 +525,23 @@ static void* EmuThreadFunction(void* param)
+     // Runs until CMD_STOP
+     CoreDoCommand(M64CMD_EXECUTE, 0, NULL);
+ 
++#ifdef M64P_NETPLAY
++    if (nx_netplay_active)
++    {
++        /* The emulator stopped on its own (netplay lost the server or the
++         * peer): close the session and ask the frontend to quit. */
++        CoreDoCommand(M64CMD_NETPLAY_CLOSE, 0, NULL);
++        nx_netplay_active = 0;
++        environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);
++        /* A libco thread must never return: falling off this function
++         * crashes the next co_switch (retro_run until the frontend quits,
++         * retro_deinit's final switch). Bounce straight back instead. */
++        if (!(current_rdp_type == RDP_PLUGIN_GLIDEN64 && EnableThreadedRenderer))
++            for (;;)
++                co_switch(retro_thread);
++    }
++#endif
++
+     if(current_rdp_type == RDP_PLUGIN_GLIDEN64 && EnableThreadedRenderer)
+     {
+         // Unset
+diff --git a/mupen64plus-core/src/main/netplay.c b/mupen64plus-core/src/main/netplay.c
+index 7d35a18..2865140 100644
+--- a/mupen64plus-core/src/main/netplay.c
++++ b/mupen64plus-core/src/main/netplay.c
+@@ -28,10 +28,15 @@
+ #include "plugin/plugin.h"
+ #include "backends/plugins_compat/plugins_compat.h"
+ #include "netplay.h"
++#include <stdlib.h>
+ 
+ #include <mupen64plus-next_common.h>
+ 
+ #include <SDL2/SDL_net.h>
++/* nx-redux: declare log_cb, else C implicitly declares it as a function and
++ * calls the pointer variable's address (SIGSEGV). libretro_private.h can't be
++ * included here: it macros SDL_GetTicks away. */
++extern retro_log_printf_t log_cb;
+ #if !defined(WIN32)
+ #include <sys/socket.h>
+ #endif
+@@ -429,6 +434,19 @@ static uint32_t netplay_get_input(uint8_t control_id)
+         while (current->count != l_cin_compats[control_id].netplay_count)
+             current = current->next;
+         keys = current->buttons;
++        {
++            /* nx-redux spike: log each seat's key changes (proves remote input lands) */
++            static uint32_t nx_last_keys[4];
++            static int nx_dbg = -1;
++            if (nx_dbg < 0)
++                nx_dbg = getenv("NX_M64P_NETPLAY_DEBUG") != NULL;
++            if (nx_dbg && control_id < 4 && keys != nx_last_keys[control_id])
++            {
++                log_cb(RETRO_LOG_INFO, "Netplay: seat %u keys %08x at count %u\n",
++                       control_id + 1, keys, l_cin_compats[control_id].netplay_count);
++                nx_last_keys[control_id] = keys;
++            }
++        }
+         Controls[control_id].Plugin = current->plugin;
+         netplay_delete_event(current, control_id);
+         ++l_cin_compats[control_id].netplay_count;
