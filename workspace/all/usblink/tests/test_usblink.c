@@ -209,6 +209,11 @@ static void test_frame_sio_type(void) {
 	assert(usblink_frame_decode(out, n, &type, &q) == 25 && type == ULF_SIO && memcmp(q, pl, 25) == 0);
 	out[2] = ULF_SIO + 1;
 	assert(usblink_frame_decode(out, n, &type, &q) == -1);
+	// The largest SIO frame (pad included) fits one 512-byte high-speed packet.
+	static uint8_t big[USBLINK_SIO_MAX], fb[1024];
+	assert(USBLINK_SIO_MAX == 508);
+	n = usblink_frame_encode(ULF_SIO, big, USBLINK_SIO_MAX, fb, sizeof(fb));
+	assert(n > 0 && n <= 512);
 }
 
 static void test_link_sio_only_when_up_on_linked_side(void) {

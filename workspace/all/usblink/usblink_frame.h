@@ -11,7 +11,10 @@
 #define USBLINK_FRAME_MAX 2048
 #define USBLINK_FRAME_HDR 3
 #define USBLINK_PAYLOAD_MAX (USBLINK_FRAME_MAX - USBLINK_FRAME_HDR - 1)
-#define USBLINK_SIO_MAX 512 // largest ULF_SIO payload; a siolink message is at most 257 bytes
+// Largest ULF_SIO payload. Header + payload + pad byte fit one 512-byte
+// high-speed packet, so a host write that times out never leaves half a frame
+// on the wire. A siolink message is at most 257 bytes.
+#define USBLINK_SIO_MAX (512 - USBLINK_FRAME_HDR - 1)
 
 enum {
 	ULF_DATA = 1,	   // one IP packet

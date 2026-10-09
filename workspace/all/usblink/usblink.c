@@ -196,8 +196,11 @@ static void host_send_raw(const uint8_t* frame, int n) {
 	pthread_mutex_unlock(&host_wr);
 }
 
+// Bounded: a gadget SIO write blocks with no timeout while the peer is not
+// reading (its daemon exited or wedged), and spinning on that would burn a
+// core. After a short spin, fall through to the endpoint lock, which sleeps.
 static void yield_to_sio(void) {
-	while (__atomic_load_n(&sio_waiting, __ATOMIC_ACQUIRE) > 0)
+	for (int i = 0; i < 64 && __atomic_load_n(&sio_waiting, __ATOMIC_ACQUIRE) > 0; i++)
 		sched_yield();
 }
 
