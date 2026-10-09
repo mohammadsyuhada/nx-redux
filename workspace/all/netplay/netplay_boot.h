@@ -9,4 +9,8 @@
 // failure message and exits without entering the main loop).
 int NetplayBoot_startFromEnv(const char* core_name);
 
+// Why the last NetplayBoot_startFromEnv failed, for the failure dialog, or
+// NULL when the generic "connection failed" message fits.
+const char* NetplayBoot_lastError(void);
+
 #endif

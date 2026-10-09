@@ -365,7 +365,8 @@ int main(int argc, char* argv[]) {
 	// alone would skip Menu_quit/Notification_quit/QuitSettings/Video_cleanup,
 	// all of which pair with initialization done above.
 	if (NetplayBoot_startFromEnv(core.name) != 0) {
-		Menu_message("Netplay connection failed.", (char*[]){"A", "OKAY", NULL});
+		const char* why = NetplayBoot_lastError();
+		Menu_message((char*)(why ? why : "Netplay connection failed."), (char*[]){"A", "OKAY", NULL});
 		quit = 1;
 	} else {
 		// session on the device's own save: its old auto-resume state would

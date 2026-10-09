@@ -158,6 +158,22 @@ static void test_port_analog(void) {
 	assert(netplay_analog_slot(0, 2) == -1 && netplay_analog_slot(1, 1) == 3);
 }
 
+static void test_link_mode_key(void) {
+	assert(!strcmp(gbalink_link_mode_key("gpsp"), "gpsp_serial"));
+	assert(!strcmp(gbalink_link_mode_key("GPSP"), "gpsp_serial"));
+	assert(gbalink_link_mode_key("mgba") == NULL);
+	assert(gbalink_link_mode_key(NULL) == NULL);
+}
+
+static void test_transport_ok(void) {
+	assert(gbalink_transport_ok("mgba", "usb"));
+	assert(!gbalink_transport_ok("mgba", "wifi"));
+	assert(!gbalink_transport_ok("mgba", "hotspot"));
+	assert(!gbalink_transport_ok("mgba", NULL));
+	assert(gbalink_transport_ok("gpsp", "wifi"));
+	assert(gbalink_transport_ok("gpsp", NULL));
+}
+
 int main(void) {
 	test_port_analog();
 	test_port_input();
@@ -171,6 +187,8 @@ int main(void) {
 	test_msg_codec();
 	test_side_from_state();
 	test_serial_option();
+	test_link_mode_key();
+	test_transport_ok();
 	printf("netplay link tests: OK\n");
 	return 0;
 }

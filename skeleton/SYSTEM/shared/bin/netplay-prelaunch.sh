@@ -25,7 +25,7 @@
 # must not have it written back over its own file. Both are solved the same way
 # the Dreamcast pak already does it: the host serves its save read-only and the
 # client plays on a copy in an isolated dir (NETPLAY_SAVES_DIR, read by
-# minarch's Core_open). GB/GBC/GBA are LINK-CABLE cores (gambatte/gpsp) and are
+# minarch's Core_open). GB/GBC/GBA are LINK-CABLE cores (gambatte/gpsp/mgba) and are
 # excluded on purpose - link play (Pokemon trading) needs DISTINCT saves.
 #
 # The wizard's transfer only accepts filenames matching [A-Za-z0-9._-], but a
@@ -47,9 +47,12 @@ if [ -f "$NETPLAY_LAUNCH_FLAG" ]; then
 
 	# Lockstep cores sync saves; the two link-cable cores never do.
 	case "${EMU_EXE:-}" in
-		gambatte|gpsp) NETPLAY_SYNC_SAVES=0 ;;
-		*)             NETPLAY_SYNC_SAVES=1 ;;
+		gambatte|gpsp|mgba) NETPLAY_SYNC_SAVES=0 ;;
+		*)                  NETPLAY_SYNC_SAVES=1 ;;
 	esac
+	# mGBA's link is the real cable, which runs only over the USB Cable.
+	NP_WIZ_MODE_ARGS=""
+	[ "${EMU_EXE:-}" = "mgba" ] && NP_WIZ_MODE_ARGS="--modes usb"
 
 	# Stage the local save under a safe name so it can be served if we host, and
 	# give the client a clean dir to fetch into. Both dirs live in /tmp (thrown
@@ -71,7 +74,7 @@ if [ -f "$NETPLAY_LAUNCH_FLAG" ]; then
 	fi
 
 	netplay.elf --game "$NETPLAY_GAME_NAME" --session-file "$NETPLAY_SESSION_FILE" \
-		$NP_WIZ_SYNC_ARGS \
+		$NP_WIZ_SYNC_ARGS $NP_WIZ_MODE_ARGS \
 		> "$LOGS_PATH/netplay-wizard.txt" 2>&1
 	if [ $? -ne 0 ]; then
 		exit 0
