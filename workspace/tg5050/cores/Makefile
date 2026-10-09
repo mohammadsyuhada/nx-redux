@@ -104,6 +104,10 @@ mednafen_supafaust_REPO = https://github.com/libretro/supafaust
 mednafen_supafaust_HASH = e25f66765938d33f9ad5850e8d6cd597e55b7299
 
 mgba_HASH = c758314a639aa0066e7b65a8341448181b73c804
+# The real link cable (all/cores/patches/mgba/001) compiles in the same lockstep
+# state machine as gpSP; NX_SIOLS_DIR points the patched Makefile.libretro at it.
+mgba_FLAGS = NX_SIOLS_DIR=$(CURDIR)/../../all/cores/sio_lockstep
+mgba_DEPS = $(wildcard ../../all/cores/sio_lockstep/*.c ../../all/cores/sio_lockstep/*.h ../../all/cores/patches/mgba/*.patch)
 
 pcsx_rearmed_MAKEFILE = Makefile.libretro
 pcsx_rearmed_HASH = 6eb679d064a1efe92af79fe9970c0591c8da02d4

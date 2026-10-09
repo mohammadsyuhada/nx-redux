@@ -1,0 +1,791 @@
+# license: modifies mGBA (https://github.com/libretro/mgba), MPL-2.0 (LICENSE); this patch is distributed under the same license.
+diff --git forkSrcPrefix/Makefile.libretro forkDstPrefix/Makefile.libretro
+index 21ee583..5b5bddf 100644
+--- forkSrcPrefix/Makefile.libretro
++++ forkDstPrefix/Makefile.libretro
+@@ -460,6 +460,16 @@ DEFINES += -DHAVE_STRNDUP -DHAVE_STRDUP -DDISABLE_THREADING -DMINIMAL_CORE=2
+ 
+ include $(BUILD_DIR)/Makefile.common
+ 
++# NXRedux: real link cable over netplay (src/gba/sio/nx_lockstep.c). The
++# lockstep state machine, shared with gpSP, lives in the NXRedux tree, where
++# it is unit-tested on the host; the cores Makefile passes NX_SIOLS_DIR.
++NX_SIOLS_DIR ?= $(CORE_DIR)/../../../../all/cores/sio_lockstep
++SOURCES_C += $(CORE_DIR)/src/gba/sio/nx_lockstep.c $(CORE_DIR)/src/gba/sio/nx_sio_lockstep.c
++ifneq ($(NX_SIOLS_DIR),)
++CFLAGS += -I$(NX_SIOLS_DIR)
++endif
++# (rules for the two objects: end of file, after the default goal)
++
+ OBJS := $(SOURCES_C:.c=.o) $(SOURCES_ASM:.S=.o)
+ 
+ DEFINES += $(PLATFORM_DEFINES) $(RETRODEFS)
+@@ -508,3 +518,7 @@ uninstall:
+ endif
+ 
+ endif
++
++# NXRedux: warnings on for our files; rebuild them when the state machine changes.
++$(CORE_DIR)/src/gba/sio/nx_lockstep.o $(CORE_DIR)/src/gba/sio/nx_sio_lockstep.o: CFLAGS += -Wall
++$(CORE_DIR)/src/gba/sio/nx_lockstep.o $(CORE_DIR)/src/gba/sio/nx_sio_lockstep.o: $(NX_SIOLS_DIR)/sio_lockstep.c $(NX_SIOLS_DIR)/sio_lockstep.h
+diff --git forkSrcPrefix/include/mgba/internal/gba/sio/nx_lockstep.h forkDstPrefix/include/mgba/internal/gba/sio/nx_lockstep.h
+new file mode 100644
+index 0000000..2ae2b48
+--- /dev/null
++++ forkDstPrefix/include/mgba/internal/gba/sio/nx_lockstep.h
+@@ -0,0 +1,36 @@
++/* Copyright (c) 2026 NXRedux contributors
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++#ifndef GBA_SIO_NX_LOCKSTEP_H
++#define GBA_SIO_NX_LOCKSTEP_H
++
++#include <mgba-util/common.h>
++
++CXX_GUARD_START
++
++/* NXRedux: a real link cable between two mGBA instances over libretro
++ * netpacket. A GBASIODriver drives the emulator-agnostic lockstep state
++ * machine (sio_lockstep.c in the NXRedux tree, shared with gpSP). One link
++ * per process: the driver is a singleton. */
++
++struct GBA;
++
++/* Netplay session up: install the driver (no partner until _start). */
++void nx_lockstep_attach(struct GBA* gba, void (*send)(const void* buf, size_t len), void (*poll)(void));
++/* Session over: link down and the driver removed. */
++void nx_lockstep_detach(struct GBA* gba);
++/* The cable is plugged in: netplay client 0 is the timeline leader. */
++void nx_lockstep_start(bool leader);
++/* The peer left: link down, the driver stays attached ("no partner"). */
++void nx_lockstep_stop(void);
++void nx_lockstep_receive(const void* buf, size_t len);
++/* After a savestate load (retro_unserialize). */
++void nx_lockstep_state_loaded(void);
++/* Once per retro_run: NX_SIO_STATS / NX_SIO_TRACE housekeeping. */
++void nx_lockstep_frame_update(void);
++
++CXX_GUARD_END
++
++#endif
+diff --git forkSrcPrefix/src/gba/sio/nx_lockstep.c forkDstPrefix/src/gba/sio/nx_lockstep.c
+new file mode 100644
+index 0000000..4db8bb9
+--- /dev/null
++++ forkDstPrefix/src/gba/sio/nx_lockstep.c
+@@ -0,0 +1,540 @@
++/* Copyright (c) 2026 NXRedux contributors
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++#if !defined(_GNU_SOURCE) && !defined(_POSIX_C_SOURCE)
++#define _POSIX_C_SOURCE 200809L /* clock_gettime, nanosleep under -std=c99 */
++#endif
++#include <mgba/internal/gba/sio/nx_lockstep.h>
++
++#include <mgba/internal/gba/gba.h>
++#include <mgba/internal/gba/io.h>
++#include <mgba/internal/gba/sio.h>
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <time.h>
++
++#include "sio_lockstep.h"
++
++/* NXRedux: real link cable between two mGBA instances (USB Cable netplay).
++ *
++ * The side that starts a transfer (MULTI parent, NORMAL internal clock) sends
++ * its word and lets mGBA run the transfer's normal duration (completeEvent);
++ * the finish callback then waits in-core for the peer's word. The other side
++ * answers a START from a driver timing event (tick) and runs its half of the
++ * transfer on a second event (finish). Netplay client 0 paces client 1's
++ * timeline. Protocol/state machine: sio_lockstep.c, compiled in by
++ * nx_sio_lockstep.c and unit-tested in the NXRedux tree. Same semantics as
++ * gpSP's serial.c lockstep glue. */
++
++static struct {
++	struct GBASIODriver d;
++	struct GBA* gba;
++	SioLs ls;
++	bool ready;    /* siols_init done */
++	bool attached; /* our driver is installed */
++	void (*send)(const void*, size_t);
++	void (*poll)(void);
++	struct mTimingEvent tick, finish;
++	uint64_t last_global; /* mTimingGlobalTime at the last siols_advance */
++	/* our transfer */
++	bool initiated; /* in flight, started in this session (not from a savestate) */
++	bool start_pending; /* NORMAL: start() seen, writeSIOCNT picks the clock source */
++	uint8_t mode;
++	uint32_t own;
++	/* our half of the peer's transfer */
++	SioLsMsg resp;
++	uint32_t own_resp;
++	bool resp_pending;
++	/* diagnostics */
++	int stats; /* NX_SIO_STATS=1: a stats line per 60 frames; -1 = not read yet */
++	unsigned frames;
++	int trace_on; /* NX_SIO_TRACE=1: one line per link event to /tmp/sio-trace.txt */
++	FILE* trace;
++	unsigned frame_no;
++} nx = { .stats = -1, .trace_on = -1 };
++
++static void _trace(char kind, unsigned seq, uint32_t a, uint32_t b, long long x, long long y) {
++	if (nx.trace_on < 0) {
++		const char* v = getenv("NX_SIO_TRACE");
++		nx.trace_on = v && v[0] == '1';
++		if (nx.trace_on && !(nx.trace = fopen("/tmp/sio-trace.txt", "w"))) {
++			nx.trace_on = 0;
++		}
++		if (nx.trace_on) {
++			fprintf(nx.trace, "# frame vcount cycle kind seq a b x y\n");
++		}
++	}
++	if (!nx.trace_on) {
++		return;
++	}
++	unsigned vcount = nx.gba ? nx.gba->memory.io[GBA_REG(VCOUNT)] : 0;
++	fprintf(nx.trace, "%u %u %llu %c %u %x %x %lld %lld\n", nx.frame_no, vcount, (unsigned long long) nx.ls.now, kind,
++	        seq, (unsigned) a, (unsigned) b, x, y);
++}
++
++static uint64_t _nowUs(void* ctx) {
++	UNUSED(ctx);
++	struct timespec t;
++	clock_gettime(CLOCK_MONOTONIC, &t);
++	return (uint64_t) t.tv_sec * 1000000u + (uint64_t) t.tv_nsec / 1000u;
++}
++
++static void _sleepUs(void* ctx, unsigned us) {
++	UNUSED(ctx);
++	struct timespec t = { 0, (long) us * 1000L };
++	nanosleep(&t, NULL);
++}
++
++static void _ioSend(void* ctx, const void* buf, size_t len) {
++	UNUSED(ctx);
++	if (nx.send) {
++		nx.send(buf, len);
++	}
++}
++
++static void _ioPoll(void* ctx) {
++	UNUSED(ctx);
++	if (nx.poll) {
++		nx.poll();
++	}
++}
++
++static bool _linkUp(void) {
++	return nx.ls.linked && !nx.ls.broken;
++}
++
++/* Bring the state machine's timeline up to the emulator's. */
++static void _syncTime(void) {
++	if (!nx.gba) {
++		return;
++	}
++	uint64_t g = mTimingGlobalTime(&nx.gba->timing);
++	uint64_t d = g - nx.last_global;
++	siols_advance(&nx.ls, d > UINT32_MAX ? UINT32_MAX : (uint32_t) d);
++	nx.last_global = g;
++}
++
++static void _rescheduleTick(void) {
++	if (!nx.gba) {
++		return;
++	}
++	mTimingDeschedule(&nx.gba->timing, &nx.tick);
++	if (!nx.attached || !nx.ls.linked) {
++		return;
++	}
++	uint32_t ev = siols_next_event(&nx.ls);
++	if (ev > SIOLS_FRAME_CYCLES) {
++		ev = SIOLS_FRAME_CYCLES;
++	}
++	mTimingSchedule(&nx.gba->timing, &nx.tick, (int32_t) ev);
++}
++
++static void _initiate(uint8_t mode, uint8_t ctrl, uint32_t own) {
++	nx.initiated = true;
++	nx.mode = mode;
++	nx.own = own;
++	siols_initiate(&nx.ls, mode, ctrl, own);
++	_trace('I', nx.ls.out.seq, own, ctrl, mode, nx.ls.broken);
++	_rescheduleTick(); /* a transfer in flight changes siols_next_event */
++}
++
++/* The transfer we started completes now: wait for the peer's word. */
++static uint32_t _complete(void) {
++	_syncTime();
++	uint64_t t0 = _nowUs(NULL);
++	uint32_t peer = siols_complete(&nx.ls);
++	nx.initiated = false;
++	_trace('F', nx.ls.out.seq, nx.own, peer, (long long) (_nowUs(NULL) - t0), nx.ls.broken);
++	_rescheduleTick();
++	return peer;
++}
++
++/* Our half of the peer's transfer ends: the game sees its word. */
++static void _finishResponse(uint32_t cyclesLate) {
++	struct GBASIO* sio = &nx.gba->sio;
++	switch (nx.resp.mode) {
++	case SIOLS_MULTI: {
++		uint16_t data[4] = { (uint16_t) nx.resp.word, (uint16_t) nx.own_resp, 0xFFFF, 0xFFFF };
++		GBASIOMultiplayerFinishTransfer(sio, data, cyclesLate);
++		break;
++	}
++	case SIOLS_NORMAL8:
++		GBASIONormal8FinishTransfer(sio, nx.resp.word & 0xFF, cyclesLate);
++		break;
++	default:
++		GBASIONormal32FinishTransfer(sio, nx.resp.word, cyclesLate);
++		break;
++	}
++	_trace('C', nx.resp.seq, nx.resp.word, nx.own_resp, sio->siocnt, 0);
++}
++
++static void _finishCallback(struct mTiming* timing, void* context, uint32_t cyclesLate) {
++	UNUSED(timing);
++	UNUSED(context);
++	nx.resp_pending = false;
++	_finishResponse(cyclesLate);
++	_rescheduleTick();
++}
++
++/* The peer started a transfer: answer with our word, run our half of it. */
++static void _respond(const SioLsMsg* st) {
++	struct GBASIO* sio = &nx.gba->sio;
++	uint16_t* io = nx.gba->memory.io;
++	uint16_t cnt = sio->siocnt;
++	int32_t cycles;
++	uint32_t mine;
++	if (st->mode == SIOLS_MULTI) {
++		if (sio->mode != GBA_SIO_MULTI) { /* not on the cable yet: the parent reads "no partner" */
++			_trace('r', st->seq, st->word, cnt, sio->mode, 0);
++			siols_reply(&nx.ls, st, 0xFFFF);
++			return;
++		}
++		mine = io[GBA_REG(SIOMLT_SEND)];
++		siols_reply(&nx.ls, st, mine);
++		sio->siocnt = GBASIOMultiplayerFillBusy(sio->siocnt); /* busy until the finish event */
++		sio->rcnt = GBASIORegisterRCNTClearSc(sio->rcnt);
++		cycles = GBASIOTransferCycles(GBA_SIO_MULTI, st->ctrl, 1); /* ctrl bits 0-1: the parent's baud */
++	} else {
++		bool is32 = st->mode == SIOLS_NORMAL32;
++		enum GBASIOMode want = is32 ? GBA_SIO_NORMAL_32 : GBA_SIO_NORMAL_8;
++		/* A NORMAL slave takes part only when armed: start bit set, external clock. */
++		if (sio->mode != want || !GBASIONormalIsStart(cnt) || GBASIONormalIsSc(cnt)) {
++			_trace('r', st->seq, st->word, cnt, sio->mode, 0);
++			siols_reply(&nx.ls, st, is32 ? 0xFFFFFFFFu : 0xFFu);
++			return;
++		}
++		mine = is32 ? (uint32_t) io[GBA_REG(SIODATA32_LO)] | ((uint32_t) io[GBA_REG(SIODATA32_HI)] << 16)
++		            : (uint32_t) (io[GBA_REG(SIODATA8)] & 0xFF);
++		siols_reply(&nx.ls, st, mine);
++		/* mGBA's InternalSc is SIOCNT bit 1, the clock speed: the starter's ctrl bit 1 (2 MHz). */
++		cycles = GBASIOTransferCycles(want, st->ctrl, 1);
++	}
++	_trace('R', st->seq, st->word, mine, cnt, 0);
++	nx.resp = *st;
++	nx.own_resp = mine;
++	nx.resp_pending = true;
++	mTimingDeschedule(&nx.gba->timing, &nx.finish);
++	mTimingSchedule(&nx.gba->timing, &nx.finish, cycles > 0 ? cycles : 1);
++}
++
++static bool _busy(void) {
++	return nx.resp_pending || mTimingIsScheduled(&nx.gba->timing, &nx.gba->sio.completeEvent);
++}
++
++/* Poll, keep client 1 within reach of client 0's timeline, answer STARTs
++ * that are due. */
++static void _tickCallback(struct mTiming* timing, void* context, uint32_t cyclesLate) {
++	UNUSED(timing);
++	UNUSED(context);
++	UNUSED(cyclesLate);
++	_syncTime();
++	siols_service(&nx.ls, _busy());
++	SioLsMsg st;
++	while (siols_take_start(&nx.ls, _busy(), &st)) {
++		_trace('T', st.seq, nx.ls.inbox_n, 0, 0, 0);
++		_respond(&st);
++	}
++	_rescheduleTick();
++}
++
++/* ---- GBASIODriver ------------------------------------------------------ */
++
++static void _clearTransfers(void) {
++	nx.initiated = false;
++	nx.start_pending = false;
++	nx.resp_pending = false;
++	if (nx.ready) {
++		siols_abort_xfer(&nx.ls);
++	}
++}
++
++static bool _driverInit(struct GBASIODriver* driver) {
++	UNUSED(driver);
++	return true;
++}
++
++static void _driverDeinit(struct GBASIODriver* driver) {
++	UNUSED(driver);
++	if (nx.gba) {
++		mTimingDeschedule(&nx.gba->timing, &nx.tick);
++		mTimingDeschedule(&nx.gba->timing, &nx.finish);
++	}
++	_clearTransfers();
++}
++
++/* GBAReset: it cleared the timing list (and global time) before calling us. */
++static void _driverReset(struct GBASIODriver* driver) {
++	UNUSED(driver);
++	_clearTransfers();
++	if (nx.gba) {
++		mTimingDeschedule(&nx.gba->timing, &nx.finish);
++		nx.last_global = mTimingGlobalTime(&nx.gba->timing);
++	}
++	_rescheduleTick();
++}
++
++static bool _driverHandlesMode(struct GBASIODriver* driver, enum GBASIOMode mode) {
++	UNUSED(driver);
++	return mode == GBA_SIO_MULTI || mode == GBA_SIO_NORMAL_8 || mode == GBA_SIO_NORMAL_32;
++}
++
++static int _driverConnectedDevices(struct GBASIODriver* driver) {
++	UNUSED(driver);
++	return _linkUp() ? 1 : 0;
++}
++
++static int _driverDeviceId(struct GBASIODriver* driver) {
++	UNUSED(driver);
++	return nx.ls.linked && !nx.ls.leader ? 1 : 0;
++}
++
++/* GBASIOWriteSIOCNT: called after _startTransfer, with the value written,
++ * while sio->siocnt still holds the previous one. */
++static uint16_t _driverWriteSIOCNT(struct GBASIODriver* driver, uint16_t value) {
++	struct GBASIO* sio = driver->p;
++	switch (sio->mode) {
++	case GBA_SIO_MULTI:
++		/* Ready (SD high on every GBA): only with a partner on the cable. */
++		value = _linkUp() ? GBASIOMultiplayerFillReady(value) : GBASIOMultiplayerClearReady(value);
++		break;
++	case GBA_SIO_NORMAL_8:
++	case GBA_SIO_NORMAL_32:
++		if (nx.start_pending) {
++			/* start() saw the old SIOCNT; the clock source is in the value written. */
++			nx.start_pending = false;
++			mTimingDeschedule(&sio->p->timing, &sio->completeEvent);
++			if (GBASIONormalIsSc(value)) {
++				/* We drive the clock: start a transfer with the other mGBA. */
++				bool is32 = sio->mode == GBA_SIO_NORMAL_32;
++				uint16_t* io = sio->p->memory.io;
++				uint32_t own = is32 ? (uint32_t) io[GBA_REG(SIODATA32_LO)] | ((uint32_t) io[GBA_REG(SIODATA32_HI)] << 16)
++				                    : (uint32_t) (io[GBA_REG(SIODATA8)] & 0xFF);
++				_initiate(is32 ? SIOLS_NORMAL32 : SIOLS_NORMAL8, value & 0x3, own);
++				mTimingSchedule(&sio->p->timing, &sio->completeEvent, GBASIOTransferCycles(sio->mode, value, 1));
++			}
++			/* External clock: we only answer; the peer's START completes it. */
++		}
++		value = GBASIONormalFillSi(value); /* as mGBA without a driver */
++		break;
++	default:
++		break;
++	}
++	return value;
++}
++
++/* _startTransfer: true = mGBA schedules completeEvent, which calls finish*. */
++static bool _driverStart(struct GBASIODriver* driver) {
++	struct GBASIO* sio = driver->p;
++	_syncTime();
++	switch (sio->mode) {
++	case GBA_SIO_MULTI:
++		/* Only the parent gets here (sio.c). mGBA times this transfer from the
++		 * SIOCNT before this write; the peer uses the same baud. */
++		_initiate(SIOLS_MULTI, sio->siocnt & 0x3, sio->p->memory.io[GBA_REG(SIOMLT_SEND)]);
++		return true;
++	case GBA_SIO_NORMAL_8:
++	case GBA_SIO_NORMAL_32:
++		nx.start_pending = true; /* _driverWriteSIOCNT, right after this, decides */
++		return true;
++	default:
++		return true;
++	}
++}
++
++static void _driverFinishMultiplayer(struct GBASIODriver* driver, uint16_t data[4]) {
++	if (nx.initiated) {
++		uint32_t peer = _complete();
++		data[0] = nx.own;
++		data[1] = peer;
++		data[2] = data[3] = 0xFFFF;
++		return;
++	}
++	/* Not ours to wait for (savestate): nobody else on the cable. */
++	data[0] = data[1] = data[2] = data[3] = 0xFFFF;
++	data[_driverDeviceId(driver) & 3] = driver->p->p->memory.io[GBA_REG(SIOMLT_SEND)];
++}
++
++static uint8_t _driverFinishNormal8(struct GBASIODriver* driver) {
++	UNUSED(driver);
++	return nx.initiated ? _complete() & 0xFF : 0xFF;
++}
++
++static uint32_t _driverFinishNormal32(struct GBASIODriver* driver) {
++	UNUSED(driver);
++	return nx.initiated ? _complete() : 0xFFFFFFFFu;
++}
++
++/* ---- frontend side ----------------------------------------------------- */
++
++/* The cable was plugged in or pulled: what GBASIOWriteSIOCNT and _switchMode
++ * derive from the driver, for a game that polls SIOCNT/RCNT without writing. */
++static void _refreshLinkBits(void) {
++	struct GBASIO* sio = &nx.gba->sio;
++	if (sio->mode != GBA_SIO_MULTI) {
++		return;
++	}
++	int id = _driverDeviceId(&nx.d);
++	bool connected = _linkUp();
++	sio->siocnt = GBASIOMultiplayerSetSlave(sio->siocnt, id || !connected);
++	sio->siocnt = connected ? GBASIOMultiplayerFillReady(sio->siocnt) : GBASIOMultiplayerClearReady(sio->siocnt);
++	sio->rcnt = GBASIORegisterRCNTSetSi(sio->rcnt, !!id);
++}
++
++void nx_lockstep_attach(struct GBA* gba, void (*send)(const void*, size_t), void (*poll)(void)) {
++	if (nx.attached) {
++		nx_lockstep_detach(nx.gba);
++	}
++	nx.gba = gba;
++	nx.send = send;
++	nx.poll = poll;
++
++	memset(&nx.d, 0, sizeof(nx.d));
++	nx.d.init = _driverInit;
++	nx.d.deinit = _driverDeinit;
++	nx.d.reset = _driverReset;
++	nx.d.handlesMode = _driverHandlesMode;
++	nx.d.connectedDevices = _driverConnectedDevices;
++	nx.d.deviceId = _driverDeviceId;
++	nx.d.writeSIOCNT = _driverWriteSIOCNT;
++	nx.d.start = _driverStart;
++	nx.d.finishMultiplayer = _driverFinishMultiplayer;
++	nx.d.finishNormal8 = _driverFinishNormal8;
++	nx.d.finishNormal32 = _driverFinishNormal32;
++
++	nx.tick.context = NULL;
++	nx.tick.name = "NX SIO lockstep";
++	nx.tick.callback = _tickCallback;
++	nx.tick.priority = 0x81;
++	nx.finish.context = NULL;
++	nx.finish.name = "NX SIO lockstep finish";
++	nx.finish.callback = _finishCallback;
++	nx.finish.priority = 0x80;
++
++	SioLsIo io = { NULL, _ioSend, _ioPoll, _nowUs, _sleepUs };
++	siols_init(&nx.ls, &io);
++	nx.ready = true;
++	nx.initiated = nx.start_pending = nx.resp_pending = false;
++	nx.last_global = mTimingGlobalTime(&gba->timing);
++
++	GBASIOSetDriver(&gba->sio, &nx.d);
++	nx.attached = gba->sio.driver == &nx.d;
++}
++
++void nx_lockstep_detach(struct GBA* gba) {
++	if (!nx.attached) {
++		return;
++	}
++	nx_lockstep_stop();
++	nx.attached = false;
++	if (gba && gba->sio.driver == &nx.d) {
++		GBASIOSetDriver(&gba->sio, NULL);
++	}
++	if (nx.trace) {
++		fflush(nx.trace);
++	}
++}
++
++void nx_lockstep_start(bool leader) {
++	if (!nx.attached) {
++		return;
++	}
++	nx.last_global = mTimingGlobalTime(&nx.gba->timing);
++	siols_start(&nx.ls, leader);
++	_refreshLinkBits();
++	_trace('S', leader, 0, 0, 0, 0);
++	_rescheduleTick();
++}
++
++void nx_lockstep_stop(void) {
++	if (!nx.ready) {
++		return;
++	}
++	siols_stop(&nx.ls);
++	_trace('X', 0, 0, 0, 0, 0);
++	if (nx.gba) {
++		mTimingDeschedule(&nx.gba->timing, &nx.tick);
++		mTimingDeschedule(&nx.gba->timing, &nx.finish);
++		if (nx.attached) {
++			_refreshLinkBits();
++		}
++	}
++	if (nx.resp_pending && nx.gba) {
++		/* Don't leave the game's busy/start bit stuck on a cable that's gone. */
++		nx.resp_pending = false;
++		_finishResponse(0);
++	}
++	/* A transfer we started finishes on its own: siols_complete reads "no peer". */
++}
++
++void nx_lockstep_receive(const void* buf, size_t len) {
++	if (nx.ready) {
++		siols_on_packet(&nx.ls, buf, len);
++	}
++}
++
++/* A savestate restores mGBA's timing (global time, event list) but neither
++ * our events nor the link: a transfer in flight when the state was saved has
++ * no START on the wire in this session, so waiting for its REPLY would only
++ * time out and break the link. Drop it. mGBA does not save sio.completeEvent
++ * at all, so a transfer the state caught in flight is finished here without
++ * a peer, rather than leaving the game's busy/start bit stuck. */
++void nx_lockstep_state_loaded(void) {
++	if (!nx.attached || !nx.gba) {
++		return;
++	}
++	struct GBA* gba = nx.gba;
++	struct GBASIO* sio = &gba->sio;
++	_clearTransfers();
++	mTimingDeschedule(&gba->timing, &nx.finish);
++	nx.last_global = mTimingGlobalTime(&gba->timing);
++	bool inflight = false;
++	switch (sio->mode) {
++	case GBA_SIO_MULTI:
++		inflight = GBASIOMultiplayerIsBusy(sio->siocnt);
++		break;
++	case GBA_SIO_NORMAL_8:
++	case GBA_SIO_NORMAL_32:
++		inflight = GBASIONormalIsStart(sio->siocnt) && GBASIONormalIsSc(sio->siocnt);
++		break;
++	default:
++		break;
++	}
++	if (inflight && !mTimingIsScheduled(&gba->timing, &sio->completeEvent)) {
++		int32_t cycles = GBASIOTransferCycles(sio->mode, sio->siocnt, _driverConnectedDevices(&nx.d));
++		mTimingSchedule(&gba->timing, &sio->completeEvent, cycles > 0 ? cycles : 1);
++	}
++	_refreshLinkBits(); /* the state may come from before the cable was in */
++	_trace('L', 0, sio->siocnt, inflight, 0, 0);
++	_rescheduleTick();
++}
++
++void nx_lockstep_frame_update(void) {
++	nx.frame_no++;
++	if (nx.trace && !(nx.frame_no % 60)) {
++		fflush(nx.trace);
++	}
++	if (nx.stats < 0) {
++		const char* v = getenv("NX_SIO_STATS");
++		nx.stats = v && v[0] == '1';
++	}
++	if (!nx.stats || !nx.ready || ++nx.frames < 60) {
++		return;
++	}
++	nx.frames = 0;
++	SioLsStats* t = &nx.ls.st;
++	if (t->xfers || t->replies || t->timeouts || t->bound_waits) {
++		fprintf(stderr,
++		        "sio-lockstep(mgba): %s xfers=%u replies=%u wait_avg_us=%llu wait_max_us=%llu "
++		        "wait_ms(<.5/<1/<2/<5/>=5)=%u/%u/%u/%u/%u timeouts=%u resends=%u reanswers=%u "
++		        "bound_waits=%u bound_timeouts=%u\n",
++		        nx.ls.leader ? "leader" : "follower", t->xfers, t->replies,
++		        (unsigned long long) (t->xfers ? t->wait_us_total / t->xfers : 0),
++		        (unsigned long long) t->wait_us_max, t->hist[0], t->hist[1], t->hist[2], t->hist[3], t->hist[4],
++		        t->timeouts, t->resends, t->reanswers, t->bound_waits, t->bound_timeouts);
++	}
++	memset(t, 0, sizeof(*t));
++}
+diff --git forkSrcPrefix/src/gba/sio/nx_sio_lockstep.c forkDstPrefix/src/gba/sio/nx_sio_lockstep.c
+new file mode 100644
+index 0000000..219ff55
+--- /dev/null
++++ forkDstPrefix/src/gba/sio/nx_sio_lockstep.c
+@@ -0,0 +1,5 @@
++/* NXRedux: compiles the lockstep link state machine into the core. The
++ * source lives (and is unit-tested) in the NXRedux tree at
++ * workspace/all/cores/sio_lockstep/ (GPL-2.0-or-later); Makefile.libretro
++ * puts that on the include path (NX_SIOLS_DIR). */
++#include "sio_lockstep.c"
+diff --git forkSrcPrefix/src/platform/libretro/libretro.c forkDstPrefix/src/platform/libretro/libretro.c
+index 4b05a42..06844e0 100644
+--- forkSrcPrefix/src/platform/libretro/libretro.c
++++ forkDstPrefix/src/platform/libretro/libretro.c
+@@ -24,6 +24,7 @@
+ #include <mgba/gba/core.h>
+ #include <mgba/gba/interface.h>
+ #include <mgba/internal/gba/gba.h>
++#include <mgba/internal/gba/sio/nx_lockstep.h>
+ #endif
+ #include <mgba-util/memory.h>
+ #include <mgba-util/vfs.h>
+@@ -86,6 +87,14 @@ static int32_t _readGyroZ(struct mRotationSource* source);
+ static void _setupMaps(struct mCore* core);
+ 
+ static struct mCore* core;
++#ifdef M_CORE_GBA
++/* NXRedux netpacket session (link cable, see np_iface) */
++static retro_netpacket_send_t np_send;
++static retro_netpacket_poll_receive_t np_poll;
++static uint16_t np_client_id;
++static bool np_peer; /* one cable: at most one other player */
++static uint16_t np_peer_id;
++#endif
+ static mColor* outputBuffer = NULL;
+ struct mAudioBuffer audioResampleBuffer;
+ struct mAudioResampler audioResampler;
+@@ -1551,6 +1560,11 @@ void retro_run(void) {
+ 	if (deferredSetup) {
+ 		_doDeferredSetup();
+ 	}
++#ifdef M_CORE_GBA
++	if (np_send) {
++		nx_lockstep_frame_update();
++	}
++#endif
+ 	uint16_t keys;
+ 	bool skipFrame = false;
+ 
+@@ -1988,6 +2002,82 @@ error:
+ }
+ #endif
+ 
++#ifdef M_CORE_GBA
++/* NXRedux: a real link cable between two mGBA instances over netplay
++ * (frontend netpacket; minarch routes it over the USB Cable). The GBA SIO
++ * driver lives in src/gba/sio/nx_lockstep.c. Outside a netpacket session no
++ * driver is installed and the core behaves as before. */
++static void np_io_send(const void* buf, size_t len) {
++	if (np_send) {
++		np_send(RETRO_NETPACKET_RELIABLE | RETRO_NETPACKET_FLUSH_HINT, buf, len, RETRO_NETPACKET_BROADCAST);
++	}
++}
++
++static void np_io_poll(void) {
++	if (np_poll) {
++		np_poll();
++	}
++}
++
++static void RETRO_CALLCONV np_start(uint16_t client_id, retro_netpacket_send_t send_fn, retro_netpacket_poll_receive_t poll_receive_fn) {
++	np_send = send_fn;
++	np_poll = poll_receive_fn;
++	np_client_id = client_id;
++	np_peer = false;
++	nx_lockstep_attach(core->board, np_io_send, np_io_poll);
++	/* A client only starts once it is connected; the host links when its
++	 * client connects (np_connected), not while it waits for one. */
++	if (client_id != 0) {
++		nx_lockstep_start(false);
++	}
++}
++
++static void RETRO_CALLCONV np_receive(const void* buf, size_t len, uint16_t client_id) {
++	UNUSED(client_id);
++	nx_lockstep_receive(buf, len);
++}
++
++static void RETRO_CALLCONV np_stop(void) {
++	nx_lockstep_detach(core->board);
++	np_send = NULL;
++	np_poll = NULL;
++	np_peer = false;
++}
++
++static bool RETRO_CALLCONV np_connected(uint16_t client_id) {
++	if (np_peer) {
++		return false;
++	}
++	np_peer = true;
++	np_peer_id = client_id;
++	/* Host only: the cable is plugged in now. The frontend reports the peer
++	 * as connected on the client side too, right after start(), and a second
++	 * start there would make both sides timeline leaders. */
++	if (np_client_id == 0) {
++		nx_lockstep_start(true);
++	}
++	return true;
++}
++
++static void RETRO_CALLCONV np_disconnected(uint16_t client_id) {
++	if (!np_peer || client_id != np_peer_id) {
++		return;
++	}
++	np_peer = false;
++	nx_lockstep_stop();
++}
++
++static const struct retro_netpacket_callback np_iface = {
++	np_start,
++	np_receive,
++	np_stop,
++	NULL, /* poll */
++	np_connected,
++	np_disconnected,
++	"nx-mgba-lockstep-1",
++};
++#endif
++
+ bool retro_load_game(const struct retro_game_info* game) {
+ 	struct VFile* rom;
+ 
+@@ -2147,6 +2237,12 @@ bool retro_load_game(const struct retro_game_info* game) {
+ 	}
+ #endif
+ 
++#ifdef M_CORE_GBA
++	if (core->platform(core) == mPLATFORM_GBA) {
++		environCallback(RETRO_ENVIRONMENT_SET_NETPACKET_INTERFACE, (void*) &np_iface);
++	}
++#endif
++
+ 	return true;
+ }
+ 
+@@ -2154,6 +2250,14 @@ void retro_unload_game(void) {
+ 	if (!core) {
+ 		return;
+ 	}
++#ifdef M_CORE_GBA
++	if (np_send) {
++		nx_lockstep_detach(core->board);
++		np_send = NULL;
++		np_poll = NULL;
++		np_peer = false;
++	}
++#endif
+ 	mCoreConfigDeinit(&core->config);
+ 	core->deinit(core);
+ 	mappedMemoryFree(data, dataSize);
+@@ -2198,6 +2302,11 @@ bool retro_unserialize(const void* data, size_t size) {
+ 	struct VFile* vfm = VFileFromConstMemory(data, size);
+ 	bool success = mCoreLoadStateNamed(core, vfm, SAVESTATE_RTC);
+ 	vfm->close(vfm);
++#ifdef M_CORE_GBA
++	if (success && np_send) {
++		nx_lockstep_state_loaded();
++	}
++#endif
+ 	return success;
+ }
+ 
