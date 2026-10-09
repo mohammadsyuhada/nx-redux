@@ -16,11 +16,15 @@
  * Supported features via gpSP:
  * - Pokemon trading (FireRed/LeafGreen/Ruby/Sapphire/Emerald)
  * - Pokemon battles (Union Room)
+ *
+ * mGBA uses the same transport for a real link cable (the lockstep driver in
+ * all/cores/sio_lockstep), over the USB Cable only.
  */
 
 #define _GNU_SOURCE // For strcasestr
 
 #include "gbalink.h"
+#include "gbalink_mode.h"
 #include "minarch.h"
 #include "netplay_helper.h"
 #include "network_common.h"
@@ -184,7 +188,11 @@ static struct {
 	bool netpacket_active;
 	uint16_t remote_client_id; // Cached: 1 if we're host, 0 if we're client
 
-	// Link mode synchronization (host's gpsp_serial value sent to client)
+	// Link core from the .so name ("gpsp" / "mgba"): picks the link-mode option
+	char core_name[32];
+
+	// Link mode synchronization (host's gpsp_serial value sent to client;
+	// empty for cores with no link-mode option)
 	char link_mode[32];
 
 	// Pending reload state (when client's link mode differs from host's)
@@ -307,6 +315,8 @@ void GBALink_init(void) {
 	struct retro_netpacket_callback saved_callbacks = gl.core_callbacks;
 	bool saved_has_callbacks = gl.has_core_callbacks;
 	bool saved_has_netpacket = gl.has_netpacket_support;
+	char saved_core_name[sizeof(gl.core_name)];
+	memcpy(saved_core_name, gl.core_name, sizeof(saved_core_name));
 
 	memset(&gl, 0, sizeof(gl));
 
@@ -314,6 +324,7 @@ void GBALink_init(void) {
 	gl.core_callbacks = saved_callbacks;
 	gl.has_core_callbacks = saved_has_callbacks;
 	gl.has_netpacket_support = saved_has_netpacket;
+	memcpy(gl.core_name, saved_core_name, sizeof(gl.core_name));
 
 	gl.mode = GBALINK_OFF;
 	gl.state = GBALINK_STATE_IDLE;
@@ -357,10 +368,12 @@ void GBALink_quit(void) {
 }
 
 bool GBALink_checkCoreSupport(const char* core_name) {
-	// Only gpSP supports Wireless Adapter/RFU via netpacket interface
+	// Cores that link through the netpacket interface. gpSP: Wireless Adapter
+	// (RFU), per-game fakes and the real cable; mGBA: the real cable over USB.
 	// core_name is derived from the .so filename (e.g., "gpsp" from "gpsp_libretro.so")
-	bool supported = strcasecmp(core_name, "gpsp") == 0;
+	bool supported = strcasecmp(core_name, "gpsp") == 0 || strcasecmp(core_name, "mgba") == 0;
 	gl.has_netpacket_support = supported;
+	snprintf(gl.core_name, sizeof(gl.core_name), "%s", supported ? core_name : "");
 	return supported;
 }
 
@@ -386,8 +399,9 @@ void GBALink_clearPendingReload(void) {
 // Note: gpsp ignores runtime option changes, so we just set the option here
 // and the caller must reload the game for gpsp to pick it up
 void GBALink_applyPendingLinkMode(void) {
-	if (gl.needs_reload && gl.pending_link_mode[0]) {
-		minarch_setCoreOptionValue("gpsp_serial", gl.pending_link_mode);
+	const char* key = gbalink_link_mode_key(gl.core_name);
+	if (key && gl.needs_reload && gl.pending_link_mode[0]) {
+		minarch_setCoreOptionValue(key, gl.pending_link_mode);
 		GBALink_clearPendingReload();
 	}
 }
@@ -852,9 +866,11 @@ int GBALink_connectToHost(const char* ip, uint16_t port) {
 				if (hdr.size > 0 && hdr.size < sizeof(data)) {
 					data[hdr.size] = '\0'; // Ensure null-terminated
 					const char* host_link_mode = (const char*)data;
-					if (host_link_mode[0]) {
+					// No link-mode option (mGBA) or none sent: nothing to match
+					const char* key = gbalink_link_mode_key(gl.core_name);
+					if (key && host_link_mode[0]) {
 						// Get client's current link mode
-						const char* client_mode = minarch_getCoreOptionValue("gpsp_serial");
+						const char* client_mode = minarch_getCoreOptionValue(key);
 
 						// Check if modes differ (need reload for gpsp to pick up new mode)
 						if (!client_mode || strcmp(client_mode, host_link_mode) != 0) {

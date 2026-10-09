@@ -44,6 +44,7 @@ CORES+= ppsspp
 # *_BUILD_PATH=
 # *_SUBMODULES=
 # *_LICENSE=
+# *_LICENSE_NOTICE=
 
 a2600_REPO = https://github.com/libretro/stella2014-libretro
 a2600_CORE = stella2014_libretro.so
@@ -95,13 +96,22 @@ gambatte_HASH = 9fe223d9c4b615c55840170c6e85e6e9fa4bd1d2
 # the all/cores/patches/gpsp/* netplay patches. When bumping this hash, regen
 # 001-rfu_disconnect_fix.patch against the new source in the same change.
 gpsp_HASH = 2db57b11a437c4432ab69823bdcd951181de6213
-# The lockstep link state machine is compiled in from all/cores/gpsp (004 patch).
-gpsp_DEPS = $(wildcard ../../all/cores/gpsp/*.c ../../all/cores/gpsp/*.h)
+# The lockstep link state machine (shared with mGBA) is compiled in from
+# all/cores/sio_lockstep (004 patch); NX_SIOLS_DIR points the patched Makefile at it.
+gpsp_FLAGS = NX_SIOLS_DIR=$(CURDIR)/../../all/cores/sio_lockstep
+gpsp_DEPS = $(wildcard ../../all/cores/sio_lockstep/*.c ../../all/cores/sio_lockstep/*.h)
 
 mednafen_supafaust_REPO = https://github.com/libretro/supafaust
 mednafen_supafaust_HASH = e25f66765938d33f9ad5850e8d6cd597e55b7299
 
 mgba_HASH = c758314a639aa0066e7b65a8341448181b73c804
+# The real link cable (all/cores/patches/mgba/001) compiles in the same lockstep
+# state machine as gpSP; NX_SIOLS_DIR points the patched Makefile.libretro at it.
+mgba_FLAGS = NX_SIOLS_DIR=$(CURDIR)/../../all/cores/sio_lockstep
+mgba_DEPS = $(wildcard ../../all/cores/sio_lockstep/*.c ../../all/cores/sio_lockstep/*.h ../../all/cores/patches/mgba/*.patch)
+# That code is GPL-2.0-or-later, so the shipped license says the combined core is
+# distributed under the GPL (MPL-2.0 section 3.3).
+mgba_LICENSE_NOTICE = ../../all/cores/mgba/LICENSE-sio_lockstep.txt
 
 pcsx_rearmed_MAKEFILE = Makefile.libretro
 pcsx_rearmed_HASH = 6eb679d064a1efe92af79fe9970c0591c8da02d4

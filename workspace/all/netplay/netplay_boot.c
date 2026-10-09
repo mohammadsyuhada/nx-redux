@@ -12,6 +12,7 @@
 #include "netplay_helper.h"
 #include "netplay.h"
 #include "gbalink.h"
+#include "gbalink_mode.h"
 #include "gblink.h"
 #include "wifi_direct.h" // WIFI_DIRECT_HOTSPOT_IP macro only, no link dependency on wifi_direct.c
 #include "api.h"
@@ -29,10 +30,21 @@
 #define BOOT_CONNECT_ATTEMPTS 20
 #define BOOT_CONNECT_DELAY_MS 500
 
-static int boot_start_host(LinkType type, const char* game_name, uint32_t crc, const char* hotspot_ip) {
+// Message for the caller's failure dialog; NULL = the generic one.
+static const char* boot_error;
+
+const char* NetplayBoot_lastError(void) {
+	return boot_error;
+}
+
+static int boot_start_host(LinkType type, const char* core_name, const char* game_name, uint32_t crc,
+						   const char* hotspot_ip) {
 	switch (type) {
-	case LINK_TYPE_GBALINK:
-		return GBALink_startHost(game_name, crc, hotspot_ip, minarch_getCoreOptionValue("gpsp_serial"));
+	case LINK_TYPE_GBALINK: {
+		// The host's link mode, synced to the client; NULL for cores without one (mGBA)
+		const char* key = gbalink_link_mode_key(core_name);
+		return GBALink_startHost(game_name, crc, hotspot_ip, key ? minarch_getCoreOptionValue(key) : NULL);
+	}
 	case LINK_TYPE_GBLINK:
 		return GBLink_startHost(game_name, crc, hotspot_ip);
 	default:
@@ -52,6 +64,7 @@ static int boot_connect_once(LinkType type, const char* peer_ip) {
 }
 
 int NetplayBoot_startFromEnv(const char* core_name) {
+	boot_error = NULL;
 	const char* role = getenv("NETPLAY_ROLE");
 	if (!role || !role[0])
 		return 0; // plain launch
@@ -71,12 +84,20 @@ int NetplayBoot_startFromEnv(const char* core_name) {
 					: support.has_gblink  ? LINK_TYPE_GBLINK
 										  : LINK_TYPE_NETPLAY; // same priority as the old menu (ma_menu.c:1678)
 
+	// mGBA's link is the real cable, which only runs over the USB Cable. The
+	// wizard offers mGBA nothing else; this catches a stale or hand-made env.
+	if (type == LINK_TYPE_GBALINK && !gbalink_transport_ok(core_name, mode)) {
+		LOG_error("NetplayBoot: mGBA link needs the USB Cable (NETPLAY_MODE=%s)\n", mode ? mode : "NULL");
+		boot_error = "MGBA link needs the USB Cable";
+		return -1;
+	}
+
 	char game_name[256];
 	getGameName(game_name, sizeof(game_name));
 	uint32_t crc = calculateGameCRC();
 
 	if (strcmp(role, "host") == 0)
-		return boot_start_host(type, game_name, crc, hotspot ? WIFI_DIRECT_HOTSPOT_IP : NULL);
+		return boot_start_host(type, core_name, game_name, crc, hotspot ? WIFI_DIRECT_HOTSPOT_IP : NULL);
 
 	if (!peer_ip || !peer_ip[0]) {
 		LOG_error("NetplayBoot: client launch with no NETPLAY_PEER_IP\n");
@@ -88,7 +109,7 @@ int NetplayBoot_startFromEnv(const char* core_name) {
 		int rc = boot_connect_once(type, peer_ip);
 		if (rc == 0)
 			return 0;
-		if (type == LINK_TYPE_GBALINK && rc == GBALINK_CONNECT_NEEDS_RELOAD) {
+		if (type == LINK_TYPE_GBALINK && rc == GBALINK_CONNECT_NEEDS_RELOAD && gbalink_link_mode_key(core_name)) {
 			// Host runs a different gpsp_serial mode: adopt it, persist it,
 			// reload the core with the new mode, then reconnect. Ports the
 			// menu-layer fallback this migration deletes (netplay_helper.c

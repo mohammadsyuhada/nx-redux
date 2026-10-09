@@ -110,6 +110,14 @@ jobs:
           for f in $(find workspace/all/cores/${{ matrix.core }} -type f 2>/dev/null | sort); do
             FILES="$FILES $f"
           done
+          # - the shared lockstep link code gpSP and mGBA compile in
+          case "${{ matrix.core }}" in
+            gpsp|mgba)
+              for f in $(find workspace/all/cores/sio_lockstep -type f 2>/dev/null | sort); do
+                FILES="$FILES $f"
+              done
+              ;;
+          esac
           HASH=$(cat $FILES | sha256sum | cut -d' ' -f1)
           echo "hash=$HASH" >> $GITHUB_OUTPUT
 

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Host-side unit tests for the gpSP lockstep link state machine. Run from anywhere.
+# Host-side unit tests for the lockstep link state machine. Run from anywhere.
 set -e
 D=$(cd "$(dirname "$0")/.." && pwd)
 OUT=${TMPDIR:-/tmp}/test_sio_lockstep
