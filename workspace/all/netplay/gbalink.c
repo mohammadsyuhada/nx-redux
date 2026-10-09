@@ -25,6 +25,8 @@
 #include "netplay_helper.h"
 #include "network_common.h"
 #include "api.h"
+#include "siolink.h"
+#include "sio_lockstep.h"
 #ifdef HAS_WIFIMG
 #include "wifi_direct.h"
 #endif
@@ -40,6 +42,13 @@
 #include <sys/time.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+
+// USB Cable session (wizard exports NETPLAY_MODE=usb): the only place the
+// siolink channel exists.
+static bool usb_session(void) {
+	const char* m = getenv("NETPLAY_MODE");
+	return m && strcmp(m, "usb") == 0;
+}
 
 // Protocol constants
 #define GL_DISCOVERY_QUERY 0x47424451 // "GBDQ" - GBA Link Discovery Query
@@ -191,6 +200,52 @@ static struct {
 	// Deferred disconnect notification (set by recv_packet, processed after mutex release)
 	volatile bool pending_disconnect_notify;
 } gl = {0};
+
+// gpSP lockstep packets that arrived over TCP (the peer's siolink is not up,
+// or refused a send). Kept apart from pending_packets so the core's mid-frame
+// poll can take them without waiting behind, or reordering, RFU / mul_*
+// packets, which keep their once-per-frame FIFO. Guarded by gl.mutex.
+#define LS_PENDING 16
+static struct {
+	uint8_t b[LS_PENDING][SIOLS_MSG_SIZE];
+	int head, n;
+	bool hb_echo_owed; // a heartbeat the mid-frame poll read; the frame poll echoes it
+} gl_ls;
+
+static void reset_ls_queue(void) {
+	gl_ls.head = gl_ls.n = 0;
+	gl_ls.hb_echo_owed = false;
+}
+
+// Caller holds gl.mutex.
+static void queue_received(const uint8_t* data, uint16_t size, uint16_t client_id) {
+	if (siols_is_packet(data, size)) {
+		if (gl_ls.n < LS_PENDING) {
+			memcpy(gl_ls.b[(gl_ls.head + gl_ls.n) % LS_PENDING], data, SIOLS_MSG_SIZE);
+			gl_ls.n++;
+		}
+		return;
+	}
+	if (gl.pending_count < MAX_PENDING_PACKETS && size <= RECV_BUFFER_SIZE) {
+		ReceivedPacket* pkt = &gl.pending_packets[gl.pending_write_idx];
+		memcpy(pkt->data, data, size);
+		pkt->len = size;
+		pkt->client_id = client_id;
+		gl.pending_write_idx = (gl.pending_write_idx + 1) % MAX_PENDING_PACKETS;
+		gl.pending_count++;
+	}
+}
+
+// Caller holds gl.mutex. Copies out so delivery happens with it released.
+static int take_ls_queue(uint8_t out[LS_PENDING][SIOLS_MSG_SIZE]) {
+	int n = 0;
+	while (gl_ls.n > 0) {
+		memcpy(out[n++], gl_ls.b[gl_ls.head], SIOLS_MSG_SIZE);
+		gl_ls.head = (gl_ls.head + 1) % LS_PENDING;
+		gl_ls.n--;
+	}
+	return n;
+}
 
 // Forward declarations
 static bool send_packet(uint8_t cmd, const void* data, uint16_t size, uint16_t client_id);
@@ -614,6 +669,7 @@ static void* listen_thread_func(void* arg) {
 
 					gl.state = GBALINK_STATE_CONNECTED;
 					gl.pending_count = 0;
+					reset_ls_queue();
 					gl.pending_read_idx = 0;
 					gl.pending_write_idx = 0;
 					gl.stream_buf_read_idx = 0;
@@ -754,6 +810,7 @@ int GBALink_connectToHost(const char* ip, uint16_t port) {
 	gl.local_client_id = 1; // Client is always client 1
 
 	gl.pending_count = 0;
+	reset_ls_queue();
 	gl.pending_read_idx = 0;
 	gl.pending_write_idx = 0;
 	gl.stream_buf_read_idx = 0;
@@ -886,6 +943,7 @@ void GBALink_disconnect(void) {
 	}
 
 	gl.pending_count = 0;
+	reset_ls_queue();
 	gl.stream_buf_read_idx = 0;
 	gl.stream_buf_write_idx = 0;
 	gl.stream_buf_skip = 0;
@@ -949,6 +1007,13 @@ void GBALink_sendPacket(int flags, const void* buf, size_t len, uint16_t client_
 	if (!buf || len == 0)
 		return;
 
+	// gpSP lockstep traffic takes siolink (ULF_SIO via usblink, ~0.35 ms round
+	// trip) once our side of its handshake is up; a refused send falls through
+	// to TCP, which the peer reads too. last_packet_sent is left alone so the
+	// host's TCP heartbeats keep both TCP timeouts fed while TCP is idle.
+	if (siols_is_packet(buf, len) && siolink_send(buf, len) == 0)
+		return;
+
 	// Send to remote via TCP
 	pthread_mutex_lock(&gl.mutex);
 	bool sent_ok = send_packet(CMD_SIO_DATA, buf, (uint16_t)len, client_id);
@@ -1001,8 +1066,20 @@ static void GBALink_sendHeartbeatIfNeeded(const struct timeval* now) {
 }
 
 void GBALink_pollReceive(void) {
-	if (!GBALink_isConnected())
+	if (!GBALink_isConnected()) {
+		// The core's mid-frame poll may have seen the peer go and deferred the
+		// notification to here (it cannot run the core's stop() inside the
+		// core's own poll); by now the link no longer reads as connected.
+		if (!gl.initialized)
+			return;
+		pthread_mutex_lock(&gl.mutex);
+		bool notify = gl.pending_disconnect_notify;
+		gl.pending_disconnect_notify = false;
+		pthread_mutex_unlock(&gl.mutex);
+		if (notify)
+			GBALink_notifyDisconnected();
 		return;
+	}
 
 	// Cache frame time once at start - avoids multiple gettimeofday() syscalls
 	cache_frame_time();
@@ -1011,6 +1088,14 @@ void GBALink_pollReceive(void) {
 	GBALink_sendHeartbeatIfNeeded(get_frame_time());
 
 	pthread_mutex_lock(&gl.mutex);
+
+	// A heartbeat the core's mid-frame poll read is echoed here, where
+	// send_packet may block.
+	if (gl_ls.hb_echo_owed) {
+		gl_ls.hb_echo_owed = false;
+		if (gl.mode == GBALINK_CLIENT)
+			send_packet(CMD_HEARTBEAT, NULL, 0, 0);
+	}
 
 	// Check for incoming packets with short timeout
 	PacketHeader hdr;
@@ -1021,16 +1106,9 @@ void GBALink_pollReceive(void) {
 
 	while (packets_this_poll < MAX_PACKETS_PER_POLL && recv_packet(&hdr, data, max_recv, 0)) {
 		if (hdr.cmd == CMD_SIO_DATA) {
-			// Queue packet for delivery to core
+			// Queue packet for delivery to core (lockstep packets to gl_ls)
 			// Note: hdr.size is validated by recv_packet to be <= RECV_BUFFER_SIZE
-			if (gl.pending_count < MAX_PENDING_PACKETS && hdr.size <= RECV_BUFFER_SIZE) {
-				ReceivedPacket* pkt = &gl.pending_packets[gl.pending_write_idx];
-				memcpy(pkt->data, data, hdr.size);
-				pkt->len = hdr.size;
-				pkt->client_id = hdr.client_id;
-				gl.pending_write_idx = (gl.pending_write_idx + 1) % MAX_PENDING_PACKETS;
-				gl.pending_count++;
-			}
+			queue_received(data, hdr.size, hdr.client_id);
 			packets_this_poll++;
 		} else if (hdr.cmd == CMD_HEARTBEAT) {
 			// Heartbeat received - timestamp already updated in recv_packet.
@@ -1420,11 +1498,54 @@ static void gbalink_netpacket_send(int flags, const void* buf, size_t len, uint1
 	}
 }
 
-// Poll receive function provided to core
+static void deliver_to_core(const void* buf, size_t len, void* ctx) {
+	(void)ctx;
+	if (gl.netpacket_active && gl.core_callbacks.receive)
+		gl.core_callbacks.receive(buf, len, gl.remote_client_id);
+}
+
+// The core's mid-frame TCP read: never blocks. trylock, so a net thread that
+// holds gl.mutex (the listen thread's accept handshake waits in select under
+// it) costs one skipped poll, not a stall. No heartbeat send (send_all may
+// block for up to 2 s) and no disconnect callback (it would run the core's
+// stop() inside the core's own poll): both are left for the frame poll.
+static int take_lockstep_midframe(uint8_t out[LS_PENDING][SIOLS_MSG_SIZE]) {
+	if (pthread_mutex_trylock(&gl.mutex) != 0)
+		return 0;
+	PacketHeader hdr;
+	uint8_t data[RECV_BUFFER_SIZE];
+	for (int i = 0; i < MAX_PACKETS_PER_POLL && gl.tcp_fd >= 0 && gl.state == GBALINK_STATE_CONNECTED &&
+					recv_packet(&hdr, data, RECV_BUFFER_SIZE, 0);
+		 i++) {
+		if (hdr.cmd == CMD_SIO_DATA)
+			queue_received(data, hdr.size, hdr.client_id);
+		else if (hdr.cmd == CMD_HEARTBEAT)
+			gl_ls.hb_echo_owed = true;
+		else if (hdr.cmd == CMD_DISCONNECT) {
+			gbalink_handle_remote_gone("Host disconnected", false); // notify deferred to the frame poll
+			break;
+		}
+	}
+	int n = take_ls_queue(out);
+	pthread_mutex_unlock(&gl.mutex);
+	return n;
+}
+
+// libretro's poll_receive means "deliver what has arrived, now". gpSP's
+// lockstep link calls it from inside retro_run while it waits for the peer's
+// word, so lockstep packets from both channels are handed over immediately.
+// Every other packet (RFU, mul_poke/aw) keeps the once-per-frame delivery it
+// was tuned with (GBALink_pollAndDeliverPackets), so Wi-Fi and
+// wireless-adapter play is unchanged. Both channels are always read: the two
+// ends may disagree about siolink being up.
 static void gbalink_netpacket_poll_receive(void) {
 	if (!gl.netpacket_active)
 		return;
-	GBALink_pollReceive();
+	siolink_drain(deliver_to_core, NULL);
+	uint8_t ls[LS_PENDING][SIOLS_MSG_SIZE];
+	int n = take_lockstep_midframe(ls);
+	for (int i = 0; i < n; i++)
+		deliver_to_core(ls[i], SIOLS_MSG_SIZE, NULL);
 }
 
 // Start netpacket session - called when gbalink connects
@@ -1438,6 +1559,8 @@ void GBALink_notifyConnected(int is_host) {
 		uint16_t client_id = is_host ? 0 : 1; // 0 = host, 1 = client
 		gl.local_client_id = client_id;
 		gl.remote_client_id = is_host ? 1 : 0;
+		if (usb_session())
+			siolink_start(); // handshake runs on the drains; IP until it is up
 		gl.core_callbacks.start(client_id, gbalink_netpacket_send, gbalink_netpacket_poll_receive);
 		gl.netpacket_active = true;
 
@@ -1468,6 +1591,7 @@ void GBALink_notifyDisconnected(void) {
 
 	// Unregister from timeout tracking
 	GBALink_onNetpacketStop();
+	siolink_stop();
 
 	gl.netpacket_active = false;
 }
@@ -1477,8 +1601,18 @@ void GBALink_pollAndDeliverPackets(void) {
 	if (!gl.netpacket_active)
 		return;
 
+	siolink_drain(deliver_to_core, NULL);
+
 	// Poll for incoming TCP data
 	GBALink_pollReceive();
+
+	// Lockstep packets that came over TCP since the last mid-frame poll.
+	uint8_t ls[LS_PENDING][SIOLS_MSG_SIZE];
+	pthread_mutex_lock(&gl.mutex);
+	int nls = take_ls_queue(ls);
+	pthread_mutex_unlock(&gl.mutex);
+	for (int i = 0; i < nls; i++)
+		deliver_to_core(ls[i], SIOLS_MSG_SIZE, NULL);
 
 	// Deliver pending packets to core
 	// Use atomic pop to reduce mutex cycles (single lock instead of get+consume)
