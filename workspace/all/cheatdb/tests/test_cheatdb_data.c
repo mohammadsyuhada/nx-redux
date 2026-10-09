@@ -55,7 +55,7 @@ int main(void) {
 		fclose(f);
 
 	// mapping sanity
-	CHECK(CHEATDB_MAP_COUNT == 34, "34 tag mappings");
+	CHECK(CHEATDB_MAP_COUNT == 35, "35 tag mappings");
 	const char* psp = NULL;
 	for (int i = 0; i < CHEATDB_MAP_COUNT; i++)
 		if (strcmp(CHEATDB_MAP[i].tag, "PSP") == 0)

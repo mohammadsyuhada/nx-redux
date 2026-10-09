@@ -218,7 +218,12 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 			const struct retro_controller_info* info = &infos[0];
 			for (int i = 0; i < info->num_types; i++) {
 				const struct retro_controller_description* type = &info->types[i];
-				if (exactMatch((char*)type->desc, "dualshock")) { // currently only enabled for PlayStation
+				// currently only enabled for PlayStation: pcsx_rearmed names it
+				// "dualshock" (517), SwanStation "Analog Controller (DualShock)" (261)
+				if (type->desc && containsString((char*)type->desc, "dualshock")) {
+					static char dualshock_id[12];
+					snprintf(dualshock_id, sizeof(dualshock_id), "%u", type->id);
+					gamepad_values[1] = dualshock_id;
 					has_custom_controllers = 1;
 					break;
 				}

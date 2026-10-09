@@ -17,6 +17,7 @@ CORES+= mednafen_vb
 CORES+= mednafen_wswan
 CORES+= mgba
 CORES+= pcsx_rearmed
+CORES+= swanstation
 CORES+= pet
 CORES+= picodrive
 CORES+= genesis_plus_gx
@@ -106,6 +107,13 @@ pcsx_rearmed_MAKEFILE = Makefile.libretro
 pcsx_rearmed_HASH = 6eb679d064a1efe92af79fe9970c0591c8da02d4
 # pcsx has a disabled submodule for gnulib, which takes forever to check out and is unused - skip checkout
 pcsx_rearmed_SUBMODULES = frontend/libpicofe
+
+# SwanStation (PSX.pak): libretro's DuckStation fork, a more accurate PlayStation
+# core than pcsx_rearmed with a GLES hardware renderer. Its Makefile.libretro only
+# knows host platforms, so build as unix and name the CPU (the docker host is
+# x86_64); the shared patch strips the .so.
+swanstation_HASH = dd4805619bbbfc6e0d1776372cb16377088b448e
+swanstation_MAKE = make -f Makefile.libretro platform=unix CPU_ARCH=aarch64
 
 picodrive_REPO = https://github.com/irixxxx/picodrive
 picodrive_MAKEFILE = Makefile.libretro

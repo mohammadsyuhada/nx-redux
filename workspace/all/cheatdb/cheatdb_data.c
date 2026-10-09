@@ -26,6 +26,7 @@ const CheatdbMap CHEATDB_MAP[] = {
 	{"SG1000", "Sega - SG-1000"},
 	{"DC", "Sega - Dreamcast"},
 	{"PS", "Sony - PlayStation"},
+	{"PSX", "Sony - PlayStation"},
 	{"PSP", "Sony - PlayStation Portable"},
 	{"PCE", "NEC - PC Engine - TurboGrafx 16"},
 	{"A2600", "Atari - 2600"},
