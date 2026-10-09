@@ -13,26 +13,23 @@ void chooseSyncRef(void) {
 	use_core_fps = SyncRef_useCoreFps(sync_ref, core.get_region() == RETRO_REGION_PAL, core.fps, SCREEN_FPS);
 }
 
+// A fast-forward pass already runs max_ff_speed + 1 core frames (see run_frame),
+// so pacing each pass to one native frame period gives exactly (max_ff_speed + 1)x.
 static void limitFF(void) {
-	static uint64_t ff_frame_time = 0;
 	static uint64_t last_time = 0;
-	static int last_max_speed = -1;
-	if (last_max_speed != max_ff_speed) {
-		last_max_speed = max_ff_speed;
-		ff_frame_time = 1000000 / (core.fps * (max_ff_speed + 1));
-	}
 
 	uint64_t now = getMicroseconds();
-	if (fast_forward && max_ff_speed) {
+	if (fast_forward && max_ff_speed && core.fps > 0) {
+		uint64_t ff_frame_time = 1000000 / core.fps;
 		if (last_time == 0)
 			last_time = now;
 		int elapsed = now - last_time;
-		if (elapsed > 0 && elapsed < 0x80000) {
+		// running behind by more than a pass: resync instead of bursting to catch up
+		if (elapsed > 0 && elapsed < (int)(ff_frame_time * 2)) {
 			if (elapsed < ff_frame_time) {
 				int delay = (ff_frame_time - elapsed) / 1000;
-				if (delay > 0 && delay < 17) { // don't allow a delay any greater than a frame
+				if (delay > 0)
 					SDL_Delay(delay);
-				}
 			}
 			last_time += ff_frame_time;
 			return;
