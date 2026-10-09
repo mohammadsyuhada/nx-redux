@@ -50,6 +50,7 @@ endif
 	cd ./all/sync/ && make
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
 	cd ./all/netplay-wizard/ && make
+	cd ./all/usblink/ && make
 	cd ./all/emu-options/ && make
 	cd ./all/extras/ && make
 	cd ./all/cheatdb/ && make
@@ -107,6 +108,7 @@ endif
 	cd ./all/imageviewer/ && make clean
 	cd ./all/sync/ && make clean
 	cd ./all/netplay-wizard/ && make clean
+	cd ./all/usblink/ && make clean
 	cd ./all/emu-options/ && make clean
 	cd ./all/extras/ && make clean
 	cd ./all/cheatdb/ && make clean

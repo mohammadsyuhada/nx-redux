@@ -22,12 +22,12 @@ SDL?=SDL
 
 TARGET = minarch
 PRODUCT= build/$(PLATFORM)/$(TARGET).elf
-INCDIR = -I. -I./libretro-common/include/ -I../common/ -I../../$(PLATFORM)/platform/ -I../netplay/
+INCDIR = -I. -I./libretro-common/include/ -I../common/ -I../../$(PLATFORM)/platform/ -I../netplay/ -I../usblink/ -I../cores/gpsp/
 include ../common/ui/ui.mk
-SOURCE = $(TARGET).c ma_hwrender.c ma_avinfo.c ma_emutime.c ma_game.c ma_cheats.c ma_cheat_match.c ma_saves.c ma_rewind.c ma_config.c ma_shaders.c ma_options.c \
-         ma_input.c ma_turbo.c ma_bench.c ma_cpu_profile.c ma_cpu_affinity.c ma_environment.c ma_video.c ma_audio.c ma_core.c ma_menu.c ma_frontend_opts.c ma_runframe.c \
+SOURCE = $(TARGET).c ma_hwrender.c ma_avinfo.c ma_emutime.c ma_game.c ma_cheats.c ma_cheat_match.c ma_saves.c ma_save_paths.c ma_rewind.c ma_config.c ma_shaders.c ma_options.c \
+         ma_input.c ma_turbo.c ma_bench.c ma_cpu_profile.c ma_cpu_affinity.c ma_environment.c ma_video.c ma_audio.c ma_core.c ma_menu.c ma_frontend_opts.c ma_runframe.c ma_present.c \
          ma_opts_schema.c ma_opts_dump.c ../common/cjson/cJSON.c \
-         ../common/scaler.c ../common/utils.c ../common/config.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/notification.c ../common/arcade_names.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c ../../$(PLATFORM)/platform/platform.c ../netplay/netplay.c ../netplay/gbalink.c ../netplay/gblink.c ../netplay/network_common.c ../netplay/netplay_helper.c ../netplay/core_netplay.c ../netplay/netplay_boot.c
+         ../common/scaler.c ../common/utils.c ../common/config.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/notification.c ../common/arcade_names.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c ../../$(PLATFORM)/platform/platform.c ../netplay/netplay.c ../netplay/gbalink.c ../netplay/gblink.c ../netplay/network_common.c ../netplay/netplay_helper.c ../netplay/core_netplay.c ../netplay/netplay_boot.c ../netplay/siolink.c ../netplay/siolink_proto.c ../netplay/gbalink_mode.c ../usblink/usblink_state.c
 
 # RA support
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050 my355))

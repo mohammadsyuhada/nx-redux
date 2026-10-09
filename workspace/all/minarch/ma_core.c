@@ -121,18 +121,24 @@ void Core_open(const char* core_path, const char* tag_name) {
 	core.need_fullpath = info.need_fullpath;
 
 	sprintf((char*)core.config_dir, "%s/%s-%s", USERDATA_PATH, core.tag, core.name);
-	sprintf((char*)core.states_dir, "%s/%s-%s", SHARED_USERDATA_PATH, core.tag, core.name);
 	// A netplay client plays on a copy of the host's save that the pre-launch
 	// wizard synced into an isolated dir (NETPLAY_SAVES_DIR, set by
 	// netplay-prelaunch.sh); redirect SRAM and RTC there so the player's own
-	// Saves/<tag> is never read or written. The host, and every non-netplay
-	// launch, use the real dir.
+	// Saves/<tag> is never read or written. Save states go to a subdir of it
+	// too (and the menu's .minui slot markers, see Menu_init): anything saved
+	// while on the host's data -- during the session or after the host leaves
+	// and the game plays on solo -- stays in /tmp, so the player's own states
+	// and auto-resume never come back with host progress. The host, and every
+	// non-netplay launch, use the real dirs.
 	{
 		const char* netplay_saves = getenv("NETPLAY_SAVES_DIR");
-		if (netplay_saves && netplay_saves[0])
+		if (netplay_saves && netplay_saves[0]) {
 			snprintf((char*)core.saves_dir, sizeof(core.saves_dir), "%s", netplay_saves);
-		else
+			snprintf((char*)core.states_dir, sizeof(core.states_dir), "%s/states", netplay_saves);
+		} else {
 			sprintf((char*)core.saves_dir, "%s/Saves/%s", SDCARD_PATH, core.tag);
+			sprintf((char*)core.states_dir, "%s/%s-%s", SHARED_USERDATA_PATH, core.tag, core.name);
+		}
 	}
 	// Same for the core's system files (flycast keeps its console flash and the
 	// shared second memory card beside the BIOS): NETPLAY_SYSTEM_DIR is an

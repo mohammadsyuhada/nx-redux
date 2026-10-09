@@ -11,8 +11,10 @@
 #include "ma_options.h"
 #include "ma_cheats.h"
 #include "ma_shaders.h"
+#include "ma_present.h"
 
 static int Menu_messageWithFont(char* message, char** pairs, TTF_Font* f) {
+	Present_stop();
 	GFX_setMode(MODE_MAIN);
 	bool dirty = true;
 	while (1) {

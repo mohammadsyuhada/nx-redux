@@ -1079,15 +1079,15 @@ void GFX_flip(SDL_Surface* screen) {
 	per_frame_start = SDL_GetPerformanceCounter();
 }
 void GFX_GL_Swap() {
-	{
-		uint64_t performance_frequency = SDL_GetPerformanceFrequency();
-		uint64_t frame_duration = SDL_GetPerformanceCounter() - per_frame_start;
-		double elapsed_time_s = (double)frame_duration / performance_frequency;
-		double frame_ms = elapsed_time_s * 1000.0;
-		//LOG_info("GFX_GL_Swap: Frame time before flip: %.2f ms\n", frame_ms);
-	}
 	PLAT_GL_Swap();
+	GFX_GL_noteFrame();
+}
 
+// Frame-rate bookkeeping of one presented frame (perf stats, and current_fps,
+// which the screen-sync audio resampler follows). Split from GFX_GL_Swap for
+// minarch's present thread: there the main thread counts its frames here
+// while the thread does the swap.
+void GFX_GL_noteFrame(void) {
 	perf.fps = current_fps;
 	fps_counter++;
 

@@ -3,6 +3,7 @@
 #include "ma_hwrender.h"
 #include "ma_emutime.h"
 #include "netplay_helper.h" // Multiplayer_isActive
+#include "ma_present.h"
 
 static const char* bitmap_font[] = {
 	['0'] =
@@ -788,6 +789,7 @@ static void video_refresh_callback_main(const void* data, unsigned width, unsign
 	// if source has changed size (or forced by dst_p==0)
 	// eg. true src + cropped src + fixed dst + cropped dst
 	if (renderer.dst_p == 0 || width != renderer.true_w || height != renderer.true_h) {
+		Present_stop(); // GFX_clearAll and the shader reset need the GL context here
 		selectScaler(width, height, pitch);
 		GFX_clearAll();
 		if (!shader_reset_suppressed) {
@@ -808,6 +810,11 @@ static void video_refresh_callback_main(const void* data, unsigned width, unsign
 
 	renderer.src = (void*)data;
 	renderer.dst = screen->pixels;
+	if (Present_update()) { // busy USB link follower: the present thread swaps
+		Present_submit(&renderer);
+		last_flip_time = SDL_GetTicks();
+		return;
+	}
 	GFX_blitRenderer(&renderer);
 
 	screen_flip(screen);

@@ -620,6 +620,13 @@ static void wiz_teardown(const WizSession* s, bool interactive, uint32_t deadlin
 	// serve_dir to whoever asks. Idempotent when no daemon was ever started.
 	wiz_sync_serve_stop();
 
+	// USB Cable mode: the link daemon is the only thing it set up. Its `stop`
+	// also repairs a gadget left linked by a daemon that was killed.
+	if (strcmp(s->mode, "usb") == 0) {
+		wiz_usb_link_stop();
+		return;
+	}
+
 	// WiFi mode set nothing up to undo: the picker left the device associated to
 	// a real network, which is exactly where it should stay.
 	if (strcmp(s->mode, "hotspot") != 0)
@@ -679,6 +686,9 @@ static void wiz_reclaim_session(const char* path, uint32_t deadline) {
 		// saved networks. There is no prev_ssid to restore, so the supplicant's
 		// own reassociation is what brings WiFi back.
 		WIFI_direct_forgetAllHotspots();
+		// The session may have been a USB Cable one; a stop with no daemon
+		// running is a no-op, and with a killed one it is the gadget repair.
+		wiz_usb_link_stop();
 	}
 
 	// Unconditional: a file that failed to parse has nothing to act on but must
@@ -694,6 +704,7 @@ static void wiz_reclaim_session(const char* path, uint32_t deadline) {
 static int run_cleanup(const WizArgs* a) {
 	bool have_session;
 	bool orphan_ap;
+	bool orphan_usb;
 	uint32_t deadline;
 
 	// BEFORE the session-file test, deliberately: a host killed mid-sync leaves
@@ -718,11 +729,16 @@ static int run_cleanup(const WizArgs* a) {
 	// it. So this probe is NOT behind the session-file gate.
 	orphan_ap = wiz_orphan_ap_present();
 
-	// Two cheap system() probes and a missing file: the normal ending of every
+	// Same window for USB Cable mode: usblink.elf runs from ST_NETSETUP, the
+	// session file only appears at ST_DONE. A pidfile test, no system(); a stale
+	// pidfile counts too, since a SIGKILLed daemon can leave the gadget linked.
+	orphan_usb = wiz_usb_link_may_be_up();
+
+	// Two cheap system() probes, a pidfile and a missing file: the normal ending of every
 	// launch that did not use netplay, and of one that did and was cleaned up
 	// already. Nothing was left behind, so nothing below needs to run — not even
 	// CFG_init.
-	if (!have_session && !orphan_ap)
+	if (!have_session && !orphan_ap && !orphan_usb)
 		return 0;
 
 	// MANDATORY before any WIFI_* call below, and therefore above both of them.
@@ -746,6 +762,11 @@ static int run_cleanup(const WizArgs* a) {
 	// to restoring prev_ssid.
 	if (orphan_ap)
 		wiz_stop_hotspot_orphan();
+	// Unconditional: the session file may name a different mode than the
+	// daemon was started for. A usb session's teardown stops it again, which
+	// is idempotent and costs at most one more gadget rebind.
+	if (orphan_usb)
+		wiz_usb_link_stop();
 
 	if (have_session)
 		wiz_reclaim_session(a->session_path, deadline);
@@ -757,12 +778,15 @@ static int run_cleanup(const WizArgs* a) {
 // Screens
 //////////////////////////////////
 
-#define WIZ_MENU_ITEMS 2
+#define WIZ_ROLE_ITEMS 2
+#define WIZ_MODE_ITEMS 3
 
 static const char* role_items[] = {"Host Game", "Join Game"};
-static const char* mode_items[] = {"Hotspot", "WiFi"};
+static const char* mode_items[] = {"USB Cable", "Hotspot", "WiFi"};
+// session.mode key per mode_items row; keep both arrays in the same order.
+static const char* mode_keys[] = {"usb", "hotspot", "wifi"};
 
-// One ListView serves both two-item menus; list_id (role_items vs mode_items)
+// One ListView serves both menus; list_id (role_items vs mode_items)
 // tells the widget which one is on screen, so switching states snaps the pill
 // instead of gliding between unrelated menus. The per-state cursor lives in
 // main()'s role_selected/mode_selected and is saved/restored on every state
@@ -780,7 +804,7 @@ static void render_role_menu(const char* game) {
 	ListView* v = &wiz_menu_view;
 	v->title = game;
 	v->font = font.large;
-	v->count = WIZ_MENU_ITEMS;
+	v->count = WIZ_ROLE_ITEMS;
 	v->get_row = wiz_menu_get_row;
 	v->ctx = (void*)role_items;
 	v->list_id = (const void*)role_items;
@@ -794,7 +818,7 @@ static void render_mode_menu(void) {
 	ListView* v = &wiz_menu_view;
 	v->title = "Netplay | Connection"; // a page inside the tool names it (LIST-LAYOUT §10.1)
 	v->font = font.large;
-	v->count = WIZ_MENU_ITEMS;
+	v->count = WIZ_MODE_ITEMS;
 	v->get_row = wiz_menu_get_row;
 	v->ctx = (void*)mode_items;
 	v->list_id = (const void*)mode_items;
@@ -884,13 +908,16 @@ int main(int argc, char* argv[]) {
 	// run_cleanup()'s.
 	bool stale_session = (access(args.session_path, F_OK) == 0);
 	bool orphan_ap = wiz_orphan_ap_present();
+	bool orphan_usb = wiz_usb_link_may_be_up();
 
-	if (stale_session || orphan_ap) {
+	if (stale_session || orphan_ap || orphan_usb) {
 		uint32_t deadline = wiz_now_ms() + WIZ_TEARDOWN_BUDGET_MS;
 
 		show_message("Cleaning up previous session...", 0);
 		if (orphan_ap)
 			wiz_stop_hotspot_orphan();
+		if (orphan_usb)
+			wiz_usb_link_stop();
 		if (stale_session)
 			wiz_reclaim_session(args.session_path, deadline);
 	}
@@ -910,7 +937,7 @@ int main(int argc, char* argv[]) {
 	// Initial ST_ROLE entry. Every later entry into ST_ROLE/ST_MODE resets the
 	// shared view the same way (in the transition arms below) and restores that
 	// state's saved cursor.
-	UI_listViewReset(&wiz_menu_view, WIZ_MENU_ITEMS, role_items);
+	UI_listViewReset(&wiz_menu_view, WIZ_ROLE_ITEMS, role_items);
 	wiz_menu_view.selected = role_selected;
 
 	while (!app_quit) {
@@ -932,7 +959,7 @@ int main(int argc, char* argv[]) {
 					session.num_players = 2;
 				}
 				state = ST_MODE;
-				UI_listViewReset(&wiz_menu_view, WIZ_MENU_ITEMS, mode_items);
+				UI_listViewReset(&wiz_menu_view, WIZ_MODE_ITEMS, mode_items);
 				wiz_menu_view.selected = mode_selected;
 				dirty = true;
 			} else if (act.type == LISTVIEW_BACK) {
@@ -949,13 +976,13 @@ int main(int argc, char* argv[]) {
 			ListViewAction act = UI_listViewHandleInput(&wiz_menu_view);
 			if (act.type == LISTVIEW_ACTIVATED) {
 				mode_selected = wiz_menu_view.selected;
-				strcpy(session.mode, act.index == 0 ? "hotspot" : "wifi");
+				strcpy(session.mode, mode_keys[act.index]);
 				state = ST_NETSETUP;
 				dirty = true;
 			} else if (act.type == LISTVIEW_BACK) {
 				mode_selected = wiz_menu_view.selected;
 				state = ST_ROLE;
-				UI_listViewReset(&wiz_menu_view, WIZ_MENU_ITEMS, role_items);
+				UI_listViewReset(&wiz_menu_view, WIZ_ROLE_ITEMS, role_items);
 				wiz_menu_view.selected = role_selected;
 				dirty = true;
 			}
@@ -970,6 +997,8 @@ int main(int argc, char* argv[]) {
 			bool is_host = (strcmp(session.role, "host") == 0);
 			if (strcmp(session.mode, "hotspot") == 0)
 				rc = is_host ? wiz_hotspot_start(&session, args.game) : wiz_hotspot_join(&session);
+			else if (strcmp(session.mode, "usb") == 0)
+				rc = wiz_usb_link_up(&session);
 			else
 				rc = wiz_wifi_ensure_connected(&session);
 
@@ -981,7 +1010,7 @@ int main(int argc, char* argv[]) {
 			if (rc == -2) {
 				wiz_cancel(&session);
 				state = ST_MODE;
-				UI_listViewReset(&wiz_menu_view, WIZ_MENU_ITEMS, mode_items);
+				UI_listViewReset(&wiz_menu_view, WIZ_MODE_ITEMS, mode_items);
 				wiz_menu_view.selected = mode_selected;
 			} else if (rc != 0) {
 				wiz_cancel(&session);
@@ -1004,7 +1033,7 @@ int main(int argc, char* argv[]) {
 			if (rc == -2) {
 				wiz_cancel(&session);
 				state = ST_MODE;
-				UI_listViewReset(&wiz_menu_view, WIZ_MENU_ITEMS, mode_items);
+				UI_listViewReset(&wiz_menu_view, WIZ_MODE_ITEMS, mode_items);
 				wiz_menu_view.selected = mode_selected;
 			} else if (rc != 0) {
 				wiz_cancel(&session);

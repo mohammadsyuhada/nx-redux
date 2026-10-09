@@ -10,6 +10,7 @@
 #include "ra_integration.h"
 #include "core_netplay.h"
 #include "gbalink.h"
+#include "gbalink_mode.h"
 
 static bool set_rumble_state(unsigned port, enum retro_rumble_effect effect, uint16_t strength) {
 	(void)port; // single motor, port is not distinguishable
@@ -132,7 +133,9 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		struct retro_variable* var = (struct retro_variable*)data;
 		if (var && var->key) {
 			var->value = OptionList_getOptionValue(&config.core, var->key);
-			// printf("\t%s = \"%s\"\n", var->key, var->value);
+			// gpsp_serial: Automatic means real link cable in a USB Cable
+			// session, and "lockstep" exists only there (gbalink_mode.c).
+			var->value = gbalink_serial_option(var->key, var->value, getenv("NETPLAY_MODE"));
 		}
 		// fflush(stdout);
 		break;

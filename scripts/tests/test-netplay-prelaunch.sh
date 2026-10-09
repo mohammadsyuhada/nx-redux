@@ -65,6 +65,10 @@ run() { # $1 = rom path; env: NPELF_RC NPELF_WRITE_SESSION NPELF_ROLE NPELF_FETC
 	NPELF_RC="${NPELF_RC:-0}" NPELF_WRITE_SESSION="${NPELF_WRITE_SESSION:-}" \
 	NPELF_ROLE="${NPELF_ROLE:-host}" NPELF_FETCH="${NPELF_FETCH:-}" \
 	sh "$TMP/launch.sh" "$1" > "$OUT"
+	# `VAR=x run …` prefixes outlive the call when this runs as `sh` (POSIX
+	# mode keeps assignments made before a function call), so case 3's
+	# NPELF_RC=1 would fail every later wizard. Clear them; no-op under bash.
+	unset NPELF_RC NPELF_WRITE_SESSION NPELF_ROLE NPELF_FETCH EMU_EXE
 }
 
 # 1. Plain launch: no flag -> wizard never invoked, minarch reached, no env.
