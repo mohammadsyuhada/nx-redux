@@ -72,10 +72,10 @@ index 0000000..2ae2b48
 +#endif
 diff --git forkSrcPrefix/src/gba/sio/nx_lockstep.c forkDstPrefix/src/gba/sio/nx_lockstep.c
 new file mode 100644
-index 0000000..4db8bb9
+index 0000000..7732c1a
 --- /dev/null
 +++ forkDstPrefix/src/gba/sio/nx_lockstep.c
-@@ -0,0 +1,540 @@
+@@ -0,0 +1,550 @@
 +/* Copyright (c) 2026 NXRedux contributors
 + *
 + * This Source Code Form is subject to the terms of the Mozilla Public
@@ -117,7 +117,7 @@ index 0000000..4db8bb9
 +	void (*send)(const void*, size_t);
 +	void (*poll)(void);
 +	struct mTimingEvent tick, finish;
-+	uint64_t last_global; /* mTimingGlobalTime at the last siols_advance */
++	uint32_t last_cur; /* mTimingCurrentTime at the last siols_advance (wraps) */
 +	/* our transfer */
 +	bool initiated; /* in flight, started in this session (not from a savestate) */
 +	bool start_pending; /* NORMAL: start() seen, writeSIOCNT picks the clock source */
@@ -185,15 +185,22 @@ index 0000000..4db8bb9
 +	return nx.ls.linked && !nx.ls.broken;
 +}
 +
-+/* Bring the state machine's timeline up to the emulator's. */
++/* Bring the state machine's timeline up to the emulator's. mGBA only keeps
++ * timing.globalCycles with ENABLE_DEBUGGERS (gba.c GBAProcessEvents), so the
++ * clock is mTimingCurrentTime (masterCycles + the CPU's pending cycles), a
++ * 32-bit counter: the wrapping difference is exact while calls are less than
++ * 2^31 cycles apart, and while linked the tick runs at least once a frame. */
++static uint32_t _now(void) {
++	return (uint32_t) mTimingCurrentTime(&nx.gba->timing);
++}
++
 +static void _syncTime(void) {
 +	if (!nx.gba) {
 +		return;
 +	}
-+	uint64_t g = mTimingGlobalTime(&nx.gba->timing);
-+	uint64_t d = g - nx.last_global;
-+	siols_advance(&nx.ls, d > UINT32_MAX ? UINT32_MAX : (uint32_t) d);
-+	nx.last_global = g;
++	uint32_t cur = _now();
++	siols_advance(&nx.ls, cur - nx.last_cur);
++	nx.last_cur = cur;
 +}
 +
 +static void _rescheduleTick(void) {
@@ -311,6 +318,9 @@ index 0000000..4db8bb9
 +	UNUSED(cyclesLate);
 +	_syncTime();
 +	siols_service(&nx.ls, _busy());
++	if (!nx.gba) {
++		return; /* the session ended inside the poll (detach) */
++	}
 +	SioLsMsg st;
 +	while (siols_take_start(&nx.ls, _busy(), &st)) {
 +		_trace('T', st.seq, nx.ls.inbox_n, 0, 0, 0);
@@ -350,7 +360,7 @@ index 0000000..4db8bb9
 +	_clearTransfers();
 +	if (nx.gba) {
 +		mTimingDeschedule(&nx.gba->timing, &nx.finish);
-+		nx.last_global = mTimingGlobalTime(&nx.gba->timing);
++		nx.last_cur = _now();
 +	}
 +	_rescheduleTick();
 +}
@@ -458,6 +468,7 @@ index 0000000..4db8bb9
 +	int id = _driverDeviceId(&nx.d);
 +	bool connected = _linkUp();
 +	sio->siocnt = GBASIOMultiplayerSetSlave(sio->siocnt, id || !connected);
++	sio->siocnt = GBASIOMultiplayerSetId(sio->siocnt, id);
 +	sio->siocnt = connected ? GBASIOMultiplayerFillReady(sio->siocnt) : GBASIOMultiplayerClearReady(sio->siocnt);
 +	sio->rcnt = GBASIORegisterRCNTSetSi(sio->rcnt, !!id);
 +}
@@ -496,7 +507,7 @@ index 0000000..4db8bb9
 +	siols_init(&nx.ls, &io);
 +	nx.ready = true;
 +	nx.initiated = nx.start_pending = nx.resp_pending = false;
-+	nx.last_global = mTimingGlobalTime(&gba->timing);
++	nx.last_cur = _now();
 +
 +	GBASIOSetDriver(&gba->sio, &nx.d);
 +	nx.attached = gba->sio.driver == &nx.d;
@@ -511,6 +522,7 @@ index 0000000..4db8bb9
 +	if (gba && gba->sio.driver == &nx.d) {
 +		GBASIOSetDriver(&gba->sio, NULL);
 +	}
++	nx.gba = NULL; /* nothing of ours touches the core after this */
 +	if (nx.trace) {
 +		fflush(nx.trace);
 +	}
@@ -520,7 +532,7 @@ index 0000000..4db8bb9
 +	if (!nx.attached) {
 +		return;
 +	}
-+	nx.last_global = mTimingGlobalTime(&nx.gba->timing);
++	nx.last_cur = _now();
 +	siols_start(&nx.ls, leader);
 +	_refreshLinkBits();
 +	_trace('S', leader, 0, 0, 0, 0);
@@ -533,14 +545,12 @@ index 0000000..4db8bb9
 +	}
 +	siols_stop(&nx.ls);
 +	_trace('X', 0, 0, 0, 0, 0);
-+	if (nx.gba) {
++	if (nx.attached && nx.gba) {
 +		mTimingDeschedule(&nx.gba->timing, &nx.tick);
 +		mTimingDeschedule(&nx.gba->timing, &nx.finish);
-+		if (nx.attached) {
-+			_refreshLinkBits();
-+		}
++		_refreshLinkBits();
 +	}
-+	if (nx.resp_pending && nx.gba) {
++	if (nx.resp_pending && nx.attached && nx.gba) {
 +		/* Don't leave the game's busy/start bit stuck on a cable that's gone. */
 +		nx.resp_pending = false;
 +		_finishResponse(0);
@@ -568,7 +578,7 @@ index 0000000..4db8bb9
 +	struct GBASIO* sio = &gba->sio;
 +	_clearTransfers();
 +	mTimingDeschedule(&gba->timing, &nx.finish);
-+	nx.last_global = mTimingGlobalTime(&gba->timing);
++	nx.last_cur = _now();
 +	bool inflight = false;
 +	switch (sio->mode) {
 +	case GBA_SIO_MULTI:
@@ -628,7 +638,7 @@ index 0000000..219ff55
 + * puts that on the include path (NX_SIOLS_DIR). */
 +#include "sio_lockstep.c"
 diff --git forkSrcPrefix/src/platform/libretro/libretro.c forkDstPrefix/src/platform/libretro/libretro.c
-index 4b05a42..06844e0 100644
+index 4b05a42..65089f8 100644
 --- forkSrcPrefix/src/platform/libretro/libretro.c
 +++ forkDstPrefix/src/platform/libretro/libretro.c
 @@ -24,6 +24,7 @@
@@ -666,7 +676,7 @@ index 4b05a42..06844e0 100644
  	uint16_t keys;
  	bool skipFrame = false;
  
-@@ -1988,6 +2002,82 @@ error:
+@@ -1988,6 +2002,84 @@ error:
  }
  #endif
  
@@ -706,7 +716,9 @@ index 4b05a42..06844e0 100644
 +}
 +
 +static void RETRO_CALLCONV np_stop(void) {
-+	nx_lockstep_detach(core->board);
++	if (np_send) { /* not after retro_unload_game already detached */
++		nx_lockstep_detach(core->board);
++	}
 +	np_send = NULL;
 +	np_poll = NULL;
 +	np_peer = false;
@@ -749,7 +761,7 @@ index 4b05a42..06844e0 100644
  bool retro_load_game(const struct retro_game_info* game) {
  	struct VFile* rom;
  
-@@ -2147,6 +2237,12 @@ bool retro_load_game(const struct retro_game_info* game) {
+@@ -2147,6 +2239,12 @@ bool retro_load_game(const struct retro_game_info* game) {
  	}
  #endif
  
@@ -762,7 +774,7 @@ index 4b05a42..06844e0 100644
  	return true;
  }
  
-@@ -2154,6 +2250,14 @@ void retro_unload_game(void) {
+@@ -2154,6 +2252,14 @@ void retro_unload_game(void) {
  	if (!core) {
  		return;
  	}
@@ -777,7 +789,7 @@ index 4b05a42..06844e0 100644
  	mCoreConfigDeinit(&core->config);
  	core->deinit(core);
  	mappedMemoryFree(data, dataSize);
-@@ -2198,6 +2302,11 @@ bool retro_unserialize(const void* data, size_t size) {
+@@ -2198,6 +2304,11 @@ bool retro_unserialize(const void* data, size_t size) {
  	struct VFile* vfm = VFileFromConstMemory(data, size);
  	bool success = mCoreLoadStateNamed(core, vfm, SAVESTATE_RTC);
  	vfm->close(vfm);
