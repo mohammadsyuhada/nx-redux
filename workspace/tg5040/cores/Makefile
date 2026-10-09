@@ -94,6 +94,8 @@ gambatte_HASH = 9fe223d9c4b615c55840170c6e85e6e9fa4bd1d2
 # the all/cores/patches/gpsp/* netplay patches. When bumping this hash, regen
 # 001-rfu_disconnect_fix.patch against the new source in the same change.
 gpsp_HASH = 2db57b11a437c4432ab69823bdcd951181de6213
+# The lockstep link state machine is compiled in from all/cores/gpsp (004 patch).
+gpsp_DEPS = $(wildcard ../../all/cores/gpsp/*.c ../../all/cores/gpsp/*.h)
 
 mednafen_supafaust_REPO = https://github.com/libretro/supafaust
 mednafen_supafaust_HASH = e25f66765938d33f9ad5850e8d6cd597e55b7299
