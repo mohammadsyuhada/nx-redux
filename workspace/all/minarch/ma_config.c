@@ -1257,6 +1257,7 @@ void Config_readOptionsString(char* cfg) {
 		gamepad_type = strtol(value, NULL, 0);
 		int device = strtol(gamepad_values[gamepad_type], NULL, 0);
 		core.set_controller_port_device(0, device);
+		core.set_controller_port_device(1, device); // player 2 (netplay) gets the same pad
 	}
 
 	// Per-pak CPU range (ma_cpu_profile.h). Plain integers in MHz; a user's
@@ -1538,6 +1539,7 @@ void Config_restore(void) {
 	if (has_custom_controllers) {
 		gamepad_type = 0;
 		core.set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
+		core.set_controller_port_device(1, RETRO_DEVICE_JOYPAD);
 	}
 
 	for (int i = 0; config.controls[i].name; i++) {

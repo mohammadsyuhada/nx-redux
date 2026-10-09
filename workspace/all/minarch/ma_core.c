@@ -293,7 +293,10 @@ void Core_load(void) {
 	SRAM_read();
 	RTC_read();
 	// NOTE: must be called after core.load_game!
-	core.set_controller_port_device(0, RETRO_DEVICE_JOYPAD); // set a default, may update after loading configs
+	// set a default, may update after loading configs. Port 1 too: a core that
+	// leaves it unplugged (SwanStation) has no player 2 for netplay otherwise
+	core.set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
+	core.set_controller_port_device(1, RETRO_DEVICE_JOYPAD);
 	Core_updateAVInfo();
 }
 void Core_reset(void) {

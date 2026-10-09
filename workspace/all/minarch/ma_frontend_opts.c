@@ -332,6 +332,7 @@ int OptionControls_optionChanged(MenuList* list, int i) {
 		gamepad_type = item->value;
 		int device = strtol(gamepad_values[item->value], NULL, 0);
 		core.set_controller_port_device(0, device);
+		core.set_controller_port_device(1, device); // player 2 (netplay) gets the same pad
 	}
 	return MENU_CALLBACK_NOP;
 }
