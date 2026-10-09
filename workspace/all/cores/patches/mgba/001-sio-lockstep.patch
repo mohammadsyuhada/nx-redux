@@ -189,7 +189,7 @@ index 0000000..7732c1a
 + * timing.globalCycles with ENABLE_DEBUGGERS (gba.c GBAProcessEvents), so the
 + * clock is mTimingCurrentTime (masterCycles + the CPU's pending cycles), a
 + * 32-bit counter: the wrapping difference is exact while calls are less than
-+ * 2^31 cycles apart, and while linked the tick runs at least once a frame. */
++ * 2^32 cycles apart, and while linked the tick runs at least once a frame. */
 +static uint32_t _now(void) {
 +	return (uint32_t) mTimingCurrentTime(&nx.gba->timing);
 +}
