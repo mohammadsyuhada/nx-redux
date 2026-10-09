@@ -5,6 +5,7 @@
 #include <string.h>
 #include "../gbalink_mode.h"
 #include "../siolink_proto.h"
+#include "../netplay_ports.h"
 #include "usblink_frame.h"
 
 static uint8_t V = SIOLINK_PROTO_VERSION;
@@ -134,7 +135,18 @@ static void test_serial_option(void) {
 	assert(gbalink_serial_option("gpsp_serial", NULL, "usb") == NULL);
 }
 
+// Two players per session: ports past 1 (multitap, 4-player games) have
+// nobody on them and read nothing, as in local play, not player 2's input.
+static void test_port_input(void) {
+	assert(netplay_port_input(0, 0x11, 0x22) == 0x11);
+	assert(netplay_port_input(1, 0x11, 0x22) == 0x22);
+	assert(netplay_port_input(2, 0x11, 0x22) == 0);
+	assert(netplay_port_input(3, 0x11, 0x22) == 0);
+	assert(netplay_port_input(7, 0x11, 0x22) == 0);
+}
+
 int main(void) {
+	test_port_input();
 	test_hs_host_hello_cadence_and_fail();
 	test_hs_full();
 	test_hs_version_and_malformed();

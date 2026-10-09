@@ -12,6 +12,7 @@
 #define _GNU_SOURCE // For strcasestr
 
 #include "netplay.h"
+#include "netplay_ports.h"
 #include "netplay_helper.h" // For stopHotspotAndRestoreWiFiAsync, netplay_connected_to_hotspot
 #include "network_common.h"
 #ifdef HAS_WIFIMG
@@ -188,6 +189,7 @@ bool Netplay_checkCoreSupport(const char* core_name) {
 		strcasecmp(core_name, "snes9x") == 0 ||
 		strcasecmp(core_name, "mednafen_supafaust") == 0 ||
 		strcasecmp(core_name, "picodrive") == 0 ||
+		strcasecmp(core_name, "genesis_plus_gx") == 0 ||
 		strcasecmp(core_name, "pcsx_rearmed") == 0) {
 		return true;
 	}
@@ -684,7 +686,7 @@ uint16_t Netplay_getInputState(unsigned port) {
 
 	pthread_mutex_lock(&np.mutex);
 	FrameInput* slot = get_frame_slot(np.run_frame);
-	uint16_t input = (port == 0) ? slot->p1_input : slot->p2_input;
+	uint16_t input = netplay_port_input(port, slot->p1_input, slot->p2_input);
 	pthread_mutex_unlock(&np.mutex);
 
 	return input;
