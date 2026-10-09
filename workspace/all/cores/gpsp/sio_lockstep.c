@@ -135,7 +135,10 @@ void siols_on_packet(SioLs* s, const void* buf, size_t len) {
 	SioLsMsg m;
 	if (!s->linked || siols_decode(buf, len, &m) != 0)
 		return;
-	s->broken = false;
+	// Only transfer traffic proves the peer answers again: the leader keeps
+	// sending SYNCs while it ignores our STARTs (menu, mismatched game).
+	if (m.type != SIOLS_SYNC)
+		s->broken = false;
 	if (m.type == SIOLS_REPLY) {
 		if (s->xfer_active && !s->reply_ready && m.seq == s->out.seq) {
 			s->reply_ready = true;
@@ -150,6 +153,7 @@ void siols_on_packet(SioLs* s, const void* buf, size_t len) {
 		// transfer after a quiet spell.
 		if (!s->epoch_valid || (m.type == SIOLS_START && !engaged(s))) {
 			s->offset = (int64_t)s->now - (int64_t)m.cycle;
+			s->leader_latest = m.cycle; // the leader may have gone back (reset, state load)
 			s->epoch_valid = true;
 		}
 	}

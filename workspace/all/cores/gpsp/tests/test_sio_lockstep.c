@@ -123,8 +123,10 @@ static void test_timeout_marks_broken(void) {
 	int sent = fa.total_sent;
 	siols_initiate(&A, SIOLS_MULTI, 3, 1);
 	assert(siols_complete(&A) == 0xFFFF && fa.us == t && fa.total_sent == sent);
-	// Any packet from the peer repairs it.
+	// A SYNC does not repair it (a peer that syncs may still ignore STARTs); transfer traffic does.
 	inject(&A, (SioLsMsg){.type = SIOLS_SYNC, .cycle = 5});
+	assert(A.broken);
+	inject(&A, (SioLsMsg){.type = SIOLS_REPLY, .seq = 99});
 	assert(!A.broken);
 }
 
@@ -322,6 +324,46 @@ static void test_two_instances_trade_burst(void) {
 	assert(A.st.wait_us_max < 1000); // follower lag absorbed by the min-gap rule
 }
 
+static void test_follower_broken_needs_transfer_traffic(void) {
+	setup();
+	siols_start(&B, false);
+	SioLsMsg st;
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 1, .cycle = 0});
+	assert(siols_take_start(&B, false, &st));
+	siols_reply(&B, &st, 1);
+	siols_initiate(&B, SIOLS_MULTI, 3, 5); // leader alive but not answering
+	assert(siols_complete(&B) == 0xFFFF && B.broken && B.st.timeouts == 1);
+	// The leader's SYNCs keep coming: still broken, the next transfer does not stall.
+	siols_advance(&B, 1000);
+	inject(&B, (SioLsMsg){.type = SIOLS_SYNC, .cycle = SIOLS_SYNC_CYCLES});
+	assert(B.broken);
+	uint64_t t = fb.us;
+	siols_initiate(&B, SIOLS_MULTI, 3, 6);
+	assert(siols_complete(&B) == 0xFFFF && fb.us == t && B.st.timeouts == 1);
+	// A START from the leader is real transfer traffic: repaired.
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 2, .cycle = SIOLS_SYNC_CYCLES + 1000});
+	assert(!B.broken);
+}
+
+static void test_follower_reanchor_resets_leader_latest(void) {
+	setup();
+	siols_start(&B, false);
+	SioLsMsg st;
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 1, .cycle = 1000000});
+	assert(siols_take_start(&B, false, &st));
+	siols_reply(&B, &st, 1);
+	siols_advance(&B, SIOLS_SLACK_CYCLES);
+	siols_service(&B, false); // leader silent: bound timeout, running free
+	assert(B.st.bound_timeouts == 1 && !B.epoch_valid);
+	// The leader came back with an earlier cycle (core reset / state load).
+	inject(&B, (SioLsMsg){.type = SIOLS_SYNC, .cycle = 500});
+	assert(B.epoch_valid && B.leader_latest == 500 && B.offset == (int64_t)SIOLS_SLACK_CYCLES - 500);
+	assert(siols_next_event(&B) <= SIOLS_SLACK_CYCLES); // bounded again
+	siols_advance(&B, SIOLS_SLACK_CYCLES);
+	siols_service(&B, false);
+	assert(B.st.bound_waits == 2 && B.st.bound_timeouts == 2);
+}
+
 int main(void) {
 	test_codec();
 	test_unlinked_completes_at_once();
@@ -337,6 +379,8 @@ int main(void) {
 	test_leader_sync_cadence();
 	test_next_event();
 	test_two_instances_trade_burst();
+	test_follower_broken_needs_transfer_traffic();
+	test_follower_reanchor_resets_leader_latest();
 	printf("sio_lockstep tests: OK\n");
 	return 0;
 }
