@@ -59,7 +59,7 @@ index 5dff1b5..ec12593 100644
     normalize_blank_backup_for_detected_type();
  
 diff --git forkSrcPrefix/libretro/libretro.c forkDstPrefix/libretro/libretro.c
-index 16629b1..a12c3ca 100644
+index 16629b1..64f5fcf 100644
 --- forkSrcPrefix/libretro/libretro.c
 +++ forkDstPrefix/libretro/libretro.c
 @@ -481,10 +481,15 @@ static void netpacket_start(uint16_t client_id, retro_netpacket_send_t send_fn,
@@ -97,15 +97,19 @@ index 16629b1..a12c3ca 100644
    };
    const u32 max_clients = maxpl[serial_mode] - 1U;
  
-@@ -521,6 +531,7 @@ static bool netpacket_connected(uint16_t client_id) {
+@@ -521,6 +531,11 @@ static bool netpacket_connected(uint16_t client_id) {
      return false;
  
    netplay_num_clients++;
-+  lockstep_net_start(true);   // host: the cable is plugged in now
++  // Host only: the cable is plugged in now. The frontend reports the peer as
++  // connected on the client side too, right after start(), and a second
++  // siols_start there would make both sides timeline leaders.
++  if (netplay_client_id == 0)
++    lockstep_net_start(true);
    return true;
  }
  
-@@ -531,6 +542,7 @@ static void netpacket_disconnected(uint16_t client_id) {
+@@ -531,6 +546,7 @@ static void netpacket_disconnected(uint16_t client_id) {
    // Force RFU state to IDLE so the game receives disconnect notification
    // This fixes CLIENT getting stuck when HOST disconnects during gameplay
    rfu_net_disconnect();
@@ -113,7 +117,7 @@ index 16629b1..a12c3ca 100644
    netplay_num_clients--;
  }
  
-@@ -1008,6 +1020,10 @@ static void check_variables(bool started_from_load)
+@@ -1008,6 +1024,10 @@ static void check_variables(bool started_from_load)
             serial_setting = SERIAL_MODE_SERIAL_AW2;
          else if (!strcmp(var.value, "gbp"))
             serial_setting = SERIAL_MODE_GBP;
@@ -124,7 +128,7 @@ index 16629b1..a12c3ca 100644
          else
             serial_setting = SERIAL_MODE_AUTO;
       }
-@@ -1448,6 +1464,9 @@ void retro_run(void)
+@@ -1448,6 +1468,9 @@ void retro_run(void)
     case SERIAL_MODE_SERIAL_POKE:
       serialpoke_frame_update();
       break;
@@ -157,7 +161,7 @@ index 0000000..502d489
 + * workspace/all/cores/gpsp/; Makefile.common puts that on the include path. */
 +#include "sio_lockstep.c"
 diff --git forkSrcPrefix/serial.c forkDstPrefix/serial.c
-index 55bf2e1..42be0e9 100644
+index 55bf2e1..6cecff7 100644
 --- forkSrcPrefix/serial.c
 +++ forkDstPrefix/serial.c
 @@ -18,6 +18,7 @@
@@ -252,7 +256,7 @@ index 55bf2e1..42be0e9 100644
 +static void lockstep_state_loaded(void) {
 +  lockstep_initiated = false;
 +  if (lockstep_ready)
-+    lockstep.xfer_active = lockstep.reply_ready = lockstep.waiting = false;
++    siols_abort_xfer(&lockstep);
 +}
 +void lockstep_net_receive(const void *buf, size_t len) { siols_on_packet(ls(), buf, len); }
 +

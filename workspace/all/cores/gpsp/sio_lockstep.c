@@ -125,6 +125,10 @@ void siols_start(SioLs* s, bool leader) {
 	s->next_poll = now;
 }
 
+void siols_abort_xfer(SioLs* s) {
+	s->xfer_active = s->reply_ready = s->waiting = false;
+}
+
 void siols_stop(SioLs* s) {
 	s->linked = false;
 	s->inbox_n = 0;

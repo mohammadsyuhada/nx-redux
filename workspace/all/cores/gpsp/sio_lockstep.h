@@ -110,5 +110,8 @@ void siols_initiate(SioLs* s, uint8_t mode, uint8_t ctrl, uint32_t word);
 uint32_t siols_complete(SioLs* s);
 bool siols_take_start(SioLs* s, bool busy, SioLsMsg* out);
 void siols_reply(SioLs* s, const SioLsMsg* start, uint32_t word);
+// Forget a transfer we started without waiting for its REPLY (savestate load:
+// that START was never sent in this session, so waiting would only time out).
+void siols_abort_xfer(SioLs* s);
 
 #endif

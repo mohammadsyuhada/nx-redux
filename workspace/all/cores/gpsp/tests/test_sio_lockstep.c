@@ -431,6 +431,15 @@ static void test_both_broken_recover(void) {
 	assert(siols_complete(&B) == 0x44 && B.st.timeouts == 1);
 }
 
+static void test_abort_xfer(void) {
+	setup();
+	siols_start(&A, true);
+	siols_initiate(&A, SIOLS_MULTI, 3, 0x1234);
+	siols_abort_xfer(&A);
+	assert(!A.xfer_active && !A.reply_ready && !A.waiting);
+	assert(siols_complete(&A) == 0xFFFF && fa.us == 0 && A.st.timeouts == 0 && !A.broken);
+}
+
 int main(void) {
 	test_codec();
 	test_unlinked_completes_at_once();
@@ -450,6 +459,7 @@ int main(void) {
 	test_follower_reanchor_resets_leader_latest();
 	test_broken_leader_recovers();
 	test_both_broken_recover();
+	test_abort_xfer();
 	printf("sio_lockstep tests: OK\n");
 	return 0;
 }
