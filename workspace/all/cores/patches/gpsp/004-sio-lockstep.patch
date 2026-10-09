@@ -161,7 +161,7 @@ index 0000000..502d489
 + * workspace/all/cores/gpsp/; Makefile.common puts that on the include path. */
 +#include "sio_lockstep.c"
 diff --git forkSrcPrefix/serial.c forkDstPrefix/serial.c
-index 55bf2e1..6cecff7 100644
+index 55bf2e1..7eadd2b 100644
 --- forkSrcPrefix/serial.c
 +++ forkDstPrefix/serial.c
 @@ -18,6 +18,7 @@
@@ -185,7 +185,7 @@ index 55bf2e1..6cecff7 100644
  
  // Timings are very aproximate, hopefully they are good enough.
  #define CLOCK_CYC_256KHZ_8BIT        524    // CLOCK / 256KHz * 8
-@@ -73,6 +78,186 @@ uint16_t serial_mul_siocnt() {
+@@ -73,6 +78,229 @@ uint16_t serial_mul_siocnt() {
    return ret;
  }
  
@@ -209,6 +209,27 @@ index 55bf2e1..6cecff7 100644
 +static u32 lockstep_own;        // our word in it
 +static int lockstep_stats = -1; // NX_SIO_STATS=1: a stats line per 60 frames
 +static unsigned lockstep_frames;
++// NX_SIO_TRACE=1: one line per link event to /tmp/sio-trace.txt (debug).
++static FILE *lockstep_trace;
++static int lockstep_trace_on = -1;
++static unsigned lockstep_frame_no;
++static uint64_t lockstep_irq_at; // our timeline at the last transfer completion
++
++static void ls_trace(char kind, unsigned seq, u32 a, u32 b, long long x, long long y) {
++  if (lockstep_trace_on < 0) {
++    const char *v = getenv("NX_SIO_TRACE");
++    lockstep_trace_on = v && v[0] == '1';
++    if (lockstep_trace_on && !(lockstep_trace = fopen("/tmp/sio-trace.txt", "w")))
++      lockstep_trace_on = 0;
++    if (lockstep_trace_on)
++      fprintf(lockstep_trace, "# frame vcount cycle kind seq a b x y\n");
++  }
++  if (!lockstep_trace_on)
++    return;
++  fprintf(lockstep_trace, "%u %u %llu %c %u %x %x %lld %lld\n", lockstep_frame_no,
++          (unsigned)read_ioreg(REG_VCOUNT), (unsigned long long)lockstep.now, kind, seq,
++          (unsigned)a, (unsigned)b, x, y);
++}
 +
 +static uint64_t ls_now_us(void *c) {
 +  struct timespec t;
@@ -241,12 +262,18 @@ index 55bf2e1..6cecff7 100644
 +
 +// Other serial modes never touch the lockstep state.
 +void lockstep_net_start(bool leader) {
-+  if (serial_mode == SERIAL_MODE_LOCKSTEP)
++  if (serial_mode == SERIAL_MODE_LOCKSTEP) {
 +    siols_start(ls(), leader);
++    ls_trace('S', leader, 0, 0, 0, 0);
++  }
 +}
 +void lockstep_net_stop(void) {
-+  if (lockstep_ready)
++  if (lockstep_ready) {
 +    siols_stop(ls());
++    ls_trace('X', 0, 0, 0, 0, 0);
++    if (lockstep_trace)
++      fflush(lockstep_trace);
++  }
 +}
 +
 +// A savestate restores serial_irq_cycles but not the link: a transfer that was
@@ -276,12 +303,15 @@ index 55bf2e1..6cecff7 100644
 +  else
 +    lockstep_own = read_ioreg(REG_SIOMLT_SEND) & 0xFF; // SIODATA8 is 0x400012A too
 +  siols_initiate(ls(), mode, siocnt & 0x3, lockstep_own);
++  ls_trace('I', lockstep.out.seq, lockstep_own, siocnt, mode, lockstep.broken);
 +}
 +
 +// The transfer we started completes now: wait for the peer's word.
 +static void lockstep_finish(void) {
++  uint64_t t0 = ls_now_us(NULL);
 +  u32 peer = siols_complete(ls());
 +  lockstep_initiated = false;
++  ls_trace('F', lockstep.out.seq, lockstep_own, peer, (long long)(ls_now_us(NULL) - t0), lockstep.broken);
 +  if (lockstep_mode == SIOLS_MULTI) {
 +    write_ioreg(REG_SIOMULTI0, lockstep_own);
 +    write_ioreg(REG_SIOMULTI1, peer);
@@ -300,10 +330,12 @@ index 55bf2e1..6cecff7 100644
 +  u32 hw = get_serial_mode(cnt, read_ioreg(REG_RCNT));
 +  if (st->mode == SIOLS_MULTI) {
 +    if (hw != SERIAL_MODE_MULTI) { // not on the cable yet: the parent reads "no partner"
++      ls_trace('r', st->seq, st->word, cnt, hw, 0);
 +      siols_reply(ls(), st, 0xFFFF);
 +      return;
 +    }
 +    u16 mine = read_ioreg(REG_SIOMLT_SEND);
++    ls_trace('R', st->seq, st->word, mine, cnt, (long long)(lockstep.now - lockstep_irq_at));
 +    siols_reply(ls(), st, mine);
 +    write_ioreg(REG_SIOMULTI0, st->word);
 +    write_ioreg(REG_SIOMULTI1, mine);
@@ -315,10 +347,12 @@ index 55bf2e1..6cecff7 100644
 +    bool is32 = st->mode == SIOLS_NORMAL32;
 +    // A NORMAL slave takes part only when armed: start bit set, external clock.
 +    if (hw != SERIAL_MODE_NORMAL || !(cnt & 0x80) || (cnt & 0x1)) {
++      ls_trace('r', st->seq, st->word, cnt, hw, 0);
 +      siols_reply(ls(), st, is32 ? 0xFFFFFFFFu : 0xFFu);
 +      return;
 +    }
 +    u32 mine = is32 ? read_ioreg32(REG_SIODATA32_L) : (read_ioreg(REG_SIOMLT_SEND) & 0xFF);
++    ls_trace('R', st->seq, st->word, mine, cnt, (long long)(lockstep.now - lockstep_irq_at));
 +    siols_reply(ls(), st, mine);
 +    if (is32) {
 +      write_ioreg(REG_SIODATA32_L, st->word & 0xFFFF);
@@ -344,11 +378,20 @@ index 55bf2e1..6cecff7 100644
 +  SioLs *s = ls();
 +  SioLsMsg st;
 +  siols_service(s, serial_irq_cycles != 0);
-+  while (siols_take_start(s, serial_irq_cycles != 0, &st))
++  for (;;) {
++    long long lag = s->inbox_n ? (long long)s->now - ((long long)s->inbox[0].cycle + s->offset) : 0;
++    int n = s->inbox_n;
++    if (!siols_take_start(s, serial_irq_cycles != 0, &st))
++      break;
++    ls_trace('T', st.seq, n, 0, lag, (long long)s->leader_latest + s->offset - (long long)s->now);
 +    lockstep_respond(&st);
++  }
 +}
 +
 +void lockstep_frame_update(void) {
++  lockstep_frame_no++;
++  if (lockstep_trace && !(lockstep_frame_no % 60))
++    fflush(lockstep_trace);
 +  if (lockstep_stats < 0) {
 +    const char *v = getenv("NX_SIO_STATS");
 +    lockstep_stats = v && v[0] == '1';
@@ -372,7 +415,7 @@ index 55bf2e1..6cecff7 100644
  cpu_alert_type write_rcnt(u16 value) {
    u16 oldval = read_ioreg(REG_RCNT);
    u32 pvmode = get_serial_mode(oldval, read_ioreg(REG_RCNT));
-@@ -158,6 +343,13 @@ cpu_alert_type write_siocnt(u16 value) {
+@@ -158,6 +386,13 @@ cpu_alert_type write_siocnt(u16 value) {
          serial_irq_cycles = CLOCK_CYC_64KHZ_32BIT;
        }
      }
@@ -386,7 +429,7 @@ index 55bf2e1..6cecff7 100644
      break;
  
    case SERIAL_MODE_MULTI:
-@@ -178,6 +370,8 @@ cpu_alert_type write_siocnt(u16 value) {
+@@ -178,6 +413,8 @@ cpu_alert_type write_siocnt(u16 value) {
          serialpoke_master_send();
        else if (serial_mode == SERIAL_MODE_SERIAL_AW1 || serial_mode == SERIAL_MODE_SERIAL_AW2)
          serialaw_master_send();
@@ -395,7 +438,7 @@ index 55bf2e1..6cecff7 100644
      }
  
      break;
-@@ -191,30 +385,17 @@ cpu_alert_type write_siocnt(u16 value) {
+@@ -191,30 +428,17 @@ cpu_alert_type write_siocnt(u16 value) {
  
  // How many cycles until the next serial event happens. Return MAX otherwise.
  u32 serial_next_event() {
@@ -435,7 +478,7 @@ index 55bf2e1..6cecff7 100644
    bool trigger_irq = false;
    if (serial_irq_cycles) {
      if (serial_irq_cycles > cycles)
-@@ -246,3 +427,30 @@ bool update_serial(unsigned cycles) {
+@@ -246,3 +470,36 @@ bool update_serial(unsigned cycles) {
    return false;
  }
  
@@ -461,9 +504,15 @@ index 55bf2e1..6cecff7 100644
 +    break;
 +  };
 +
++  u32 pending = serial_irq_cycles;
 +  bool irq = serial_countdown(cycles);
-+  if (serial_mode == SERIAL_MODE_LOCKSTEP)
++  if (serial_mode == SERIAL_MODE_LOCKSTEP) {
++    if (pending && !serial_irq_cycles) {
++      lockstep_irq_at = lockstep.now;
++      ls_trace('C', 0, read_ioreg(REG_SIOMULTI0), read_ioreg(REG_SIOMULTI1), read_ioreg(REG_SIOCNT), irq);
++    }
 +    lockstep_update_end();
++  }
 +  return irq;
 +}
 diff --git forkSrcPrefix/serial.h forkDstPrefix/serial.h
