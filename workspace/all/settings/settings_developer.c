@@ -107,6 +107,10 @@ static void* ssh_toggle_thread(void* arg) {
 		system("/etc/init.d/sshd start > /dev/null 2>&1 || /etc/init.d/S50sshd start > /dev/null 2>&1");
 	} else {
 		system("/etc/init.d/sshd stop > /dev/null 2>&1 || /etc/init.d/S50sshd stop > /dev/null 2>&1");
+		// The init scripts only stop the listener; per-connection sshd children
+		// (e.g. an open SFTP client) survive it, keep pidof sshd true and the
+		// toggle stuck on. Turning SSH off drops every session too.
+		system("killall sshd > /dev/null 2>&1");
 	}
 	*ctx->done = 1;
 	return NULL;
