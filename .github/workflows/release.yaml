@@ -132,6 +132,12 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         run: make setup
 
+      - name: Fetch ${{ matrix.core }} build inputs
+        # a core's fetch-deps.sh downloads what its build needs but the
+        # toolchain image cannot fetch (mupen64plus_next: SDL2_net)
+        if: steps.cache.outputs.cache-hit != 'true' && hashFiles(format('workspace/all/cores/{0}/fetch-deps.sh', matrix.core)) != ''
+        run: sh workspace/all/cores/${{ matrix.core }}/fetch-deps.sh ${{ matrix.toolchain }}
+
       - name: Build ${{ matrix.core }} core
         if: steps.cache.outputs.cache-hit != 'true'
         run: make build-core CORE=${{ matrix.core }}
@@ -144,21 +150,18 @@ jobs:
 
   build-prebuilt:
     # Third-party binaries built from pinned source (workspace/all/prebuilts/);
-    # shared ones (ffplay, rsync, GLideN64) only with the tg5040 toolchain;
+    # shared ones (ffplay, rsync) only with the tg5040 toolchain;
     # tun.ko is tg5050-only (its kernel lacks CONFIG_TUN).
     runs-on: ubuntu-24.04-arm
     strategy:
       fail-fast: true
       matrix:
         include:
-          - { toolchain: tg5040, prebuilt: ffplay, inputs: "workspace/all/mediaplayer/include/ffplay/**", overlay: false }
-          - { toolchain: tg5040, prebuilt: rsync, inputs: "workspace/all/prebuilts/rsync.sh", overlay: false }
-          - { toolchain: tg5040, prebuilt: gliden64, inputs: "workspace/all/other/mupen64plus/GLideN64-standalone.patch", overlay: true }
-          - { toolchain: tg5040, prebuilt: mupen64plus, inputs: "workspace/all/other/mupen64plus/mupen64plus-*.patch", overlay: true }
-          - { toolchain: tg5050, prebuilt: mupen64plus, inputs: "workspace/all/other/mupen64plus/mupen64plus-*.patch", overlay: true }
-          - { toolchain: tg5040, prebuilt: sdl2-drastic, inputs: "workspace/all/other/sdl2-drastic/**", overlay: false }
-          - { toolchain: tg5050, prebuilt: sdl2-drastic, inputs: "workspace/all/other/sdl2-drastic/**", overlay: false }
-          - { toolchain: tg5050, prebuilt: tun-ko, inputs: "workspace/tg5050/other/kernel/**", overlay: false }
+          - { toolchain: tg5040, prebuilt: ffplay, inputs: "workspace/all/mediaplayer/include/ffplay/**" }
+          - { toolchain: tg5040, prebuilt: rsync, inputs: "workspace/all/prebuilts/rsync.sh" }
+          - { toolchain: tg5040, prebuilt: sdl2-drastic, inputs: "workspace/all/other/sdl2-drastic/**" }
+          - { toolchain: tg5050, prebuilt: sdl2-drastic, inputs: "workspace/all/other/sdl2-drastic/**" }
+          - { toolchain: tg5050, prebuilt: tun-ko, inputs: "workspace/tg5050/other/kernel/**" }
     steps:
       - name: Checkout
         uses: actions/checkout@v5.0.0
@@ -168,9 +171,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: workspace/all/prebuilts/output/
-          # only the N64 plugins (overlay: true) compile the in-game overlay from
-          # workspace/all/common, so only their key follows it
-          key: prebuilt-${{ matrix.toolchain }}-${{ matrix.prebuilt }}-${{ hashFiles(format('workspace/all/prebuilts/{0}.sh', matrix.prebuilt), matrix.inputs) }}${{ matrix.overlay && format('-{0}', hashFiles('workspace/all/common/**', 'workspace/all/include/**')) || '' }}
+          key: prebuilt-${{ matrix.toolchain }}-${{ matrix.prebuilt }}-${{ hashFiles(format('workspace/all/prebuilts/{0}.sh', matrix.prebuilt), matrix.inputs) }}
 
       - name: Build ${{ matrix.prebuilt }}
         if: steps.cache.outputs.cache-hit != 'true'

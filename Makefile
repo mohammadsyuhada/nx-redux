@@ -116,8 +116,8 @@ system:
 	cp ./workspace/$(PLATFORM)/keymon/keymon.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/$(PLATFORM)/sleepmon/sleepmon.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/syncsettings/build/$(PLATFORM)/syncsettings.elf ./build/SYSTEM/$(PLATFORM)/bin/
-	# taskset: used for CPU-affinity pinning by N64.pak and (tg5050)
-	# PS.pak launch.sh. Built from source here so a full `make deploy` stays
+	# taskset: pins N64.pak's netplay relay (m64p-server) off the emulator's
+	# cores. Built from source here so a full `make deploy` stays
 	# reproducible; see workspace/all/taskset/Makefile for why it must be
 	# dynamically linked (NOT -static) on this toolchain/kernel combination.
 	cp ./workspace/all/taskset/build/$(PLATFORM)/taskset ./build/SYSTEM/$(PLATFORM)/bin/
@@ -166,8 +166,6 @@ ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
 	cp ./LICENSE ./build/SYSTEM/$(PLATFORM)/licenses/NX-Redux.txt
 	cp ./licenses/*.txt ./build/SYSTEM/$(PLATFORM)/licenses/
 	# standalone emulators keep theirs beside them, like the cores
-	cp ./licenses/mupen64plus.txt ./build/SYSTEM/$(PLATFORM)/paks/Emus/N64.pak/LICENSE-mupen64plus.txt
-	cp ./licenses/gliden64.txt ./build/SYSTEM/$(PLATFORM)/paks/Emus/N64.pak/LICENSE-gliden64.txt
 	cp ./licenses/drastic.txt ./build/SYSTEM/$(PLATFORM)/paks/Emus/NDS.pak/LICENSE-drastic.txt
 	cp ./licenses/sdl2-drastic.txt ./build/SYSTEM/$(PLATFORM)/paks/Emus/NDS.pak/LICENSE-sdl2-drastic.txt
 	cp ./workspace/all/minarch/libchdr/LICENSE.txt ./build/SYSTEM/$(PLATFORM)/licenses/libchdr.txt
@@ -247,6 +245,9 @@ cores: # TODO: can't assume every platform will have the same stock cores (platf
 	# Dreamcast Lite (DCX): libretro's 2022 flycast fork, lighter than DC's 2.7
 	cp ./workspace/$(PLATFORM)/cores/output/flycast_legacy_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/DCX.pak
 	cp ./workspace/$(PLATFORM)/cores/output/licenses/flycast_legacy.txt ./build/SYSTEM/$(PLATFORM)/paks/Emus/DCX.pak/LICENSE-flycast_legacy.txt
+	# N64.pak: mupen64plus-next with GLideN64 and Rice built in
+	cp ./workspace/$(PLATFORM)/cores/output/mupen64plus_next_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/N64.pak
+	cp ./workspace/$(PLATFORM)/cores/output/licenses/mupen64plus_next.txt ./build/SYSTEM/$(PLATFORM)/paks/Emus/N64.pak/LICENSE-mupen64plus_next.txt
 	# PlayStation (PSX): SwanStation, the accurate alternative to PS's pcsx_rearmed
 	cp ./workspace/$(PLATFORM)/cores/output/swanstation_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/PSX.pak
 	cp ./workspace/$(PLATFORM)/cores/output/licenses/swanstation.txt ./build/SYSTEM/$(PLATFORM)/paks/Emus/PSX.pak/LICENSE-swanstation.txt
@@ -298,8 +299,8 @@ common: build system cores prebuilts
 # inside the toolchain image (shared ones with tg5040's). CI builds each in its
 # own cached job and drops the results in workspace/all/prebuilts/output/; locally,
 # `make build-prebuilts PLATFORM=...` builds what that platform needs.
-PREBUILTS_tg5040 = ffplay rsync gliden64 mupen64plus sdl2-drastic
-PREBUILTS_tg5050 = mupen64plus sdl2-drastic tun-ko
+PREBUILTS_tg5040 = ffplay rsync sdl2-drastic
+PREBUILTS_tg5050 = sdl2-drastic tun-ko
 
 build-prebuilts:
 	@for p in $(PREBUILTS_$(PLATFORM)); do \
@@ -313,14 +314,9 @@ endif
 	docker run --rm -v $(CURDIR)/workspace:/root/workspace ghcr.io/loveretro/$(PLATFORM)-toolchain:latest \
 		/bin/bash -c '. ~/.bashrc && cd /root/workspace && PLATFORM=$(PLATFORM) bash all/prebuilts/$(PREBUILT).sh'
 
-N64_PREBUILT_FILES = libmupen64plus.so.2 mupen64plus mupen64plus-audio-sdl.so \
-	mupen64plus-input-sdl.so mupen64plus-rsp-hle.so mupen64plus-video-rice.so
-PREBUILT_FILES_tg5040 = SYSTEM/shared/bin/ffplay SYSTEM/shared/bin/rsync \
-	BASE/Emus/shared/mupen64plus/mupen64plus-video-GLideN64.so \
-	BASE/Emus/shared/mupen64plus/libpng16.so.16
+PREBUILT_FILES_tg5040 = SYSTEM/shared/bin/ffplay SYSTEM/shared/bin/rsync
 PREBUILT_FILES_tg5050 = SYSTEM/tg5050/lib/modules/tun.ko
 PREBUILT_FILES = $(PREBUILT_FILES_$(PLATFORM)) \
-	$(addprefix SYSTEM/$(PLATFORM)/paks/Emus/N64.pak/,$(N64_PREBUILT_FILES)) \
 	SYSTEM/$(PLATFORM)/paks/Emus/NDS.pak/libs/libSDL2-2.0.so.0
 
 prebuilts:

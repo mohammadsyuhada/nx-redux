@@ -268,74 +268,20 @@ static void test_visible_when(void) {
 	emu_ovl_cfg_free(&cfg);
 }
 
-#define N64_SCHEMA "../../../../skeleton/BASE/Emus/shared/mupen64plus/overlay_settings.json"
-
-// Regression net for the shipped N64 schema: 12 sections, plugin-conditional
-// visibility resolves to exactly the GLideN64 or Rice set, and every cycle/enum
-// item carries a usable value list and a valid default.
-static void test_shipped_n64_schema(void) {
-	FILE* exists = fopen(N64_SCHEMA, "r");
-	assert(exists && "shipped N64 overlay_settings.json not found");
-	fclose(exists);
-
-	EmuOvlConfig cfg;
-	assert(emu_ovl_cfg_load(&cfg, N64_SCHEMA) == 0);
-	assert(cfg.section_count == 12);
-	assert(cfg.sections[0].vis_key[0] == '\0'); // Video Plugin ungated
-	assert(emu_ovl_cfg_section_visible(&cfg, 0) == true);
-
-	EmuOvlItem* vp = emu_ovl_cfg_find_item(&cfg, "NxRedux", "VideoPlugin", NULL, NULL);
-	assert(vp && vp->type == EMU_OVL_TYPE_ENUM);
-
-	int glide_idx = -1, rice_idx = -1;
-	assert(emu_ovl_cfg_parse_value(vp, "gliden64", &glide_idx));
-	assert(emu_ovl_cfg_parse_value(vp, "rice", &rice_idx));
-
-	// GLideN64 selected: section 0 + the 7 GLideN64 sections = 8 visible.
-	vp->staged_value = glide_idx;
-	int visible = 0;
-	for (int s = 0; s < cfg.section_count; s++)
-		if (emu_ovl_cfg_section_visible(&cfg, s))
-			visible++;
-	assert(visible == 8);
-
-	// Rice selected: section 0 + the 4 Rice sections = 5 visible, and every
-	// visible non-zero section is a [Video-Rice] group.
-	vp->staged_value = rice_idx;
-	visible = 0;
-	for (int s = 0; s < cfg.section_count; s++) {
-		if (!emu_ovl_cfg_section_visible(&cfg, s))
-			continue;
-		visible++;
-		if (s != 0)
-			assert(strcmp(emu_ovl_cfg_section_name(&cfg, s), "Video-Rice") == 0);
-	}
-	assert(visible == 5);
-
-	// Every cycle/enum item pairs a non-empty value list with a valid default.
-	for (int s = 0; s < cfg.section_count; s++) {
-		EmuOvlSection* sec = &cfg.sections[s];
-		for (int i = 0; i < sec->item_count; i++) {
-			EmuOvlItem* it = &sec->items[i];
-			if (it->type != EMU_OVL_TYPE_CYCLE && it->type != EMU_OVL_TYPE_ENUM)
-				continue;
-			assert(it->value_count > 0);
-			if (it->type == EMU_OVL_TYPE_ENUM) {
-				// enum default_value is an index into the value list
-				assert(it->default_value >= 0 && it->default_value < it->value_count);
-			} else {
-				// cycle default_value is one of the listed values
-				bool found = false;
-				for (int v = 0; v < it->value_count; v++)
-					if (it->values[v] == it->default_value)
-						found = true;
-				assert(found);
-			}
-		}
-	}
-
-	emu_ovl_cfg_free(&cfg);
-}
+// Two ini sections, the second absent from the file until an item in it is
+// staged: the shape the standalone N64 schema had ([NxRedux] + [Video-Rice]).
+static const char* APPEND_SCHEMA =
+	"{\n"
+	"  \"config_section\": \"NxRedux\",\n"
+	"  \"sections\": [\n"
+	"    { \"name\": \"Plugin\", \"ini_section\": \"NxRedux\", \"items\": [\n"
+	"      { \"key\": \"VideoPlugin\", \"label\": \"Video Plugin\", \"type\": \"enum\",\n"
+	"        \"values\": [\"gliden64\", \"rice\"], \"default\": \"gliden64\" } ] },\n"
+	"    { \"name\": \"Rendering\", \"ini_section\": \"Video-Rice\", \"items\": [\n"
+	"      { \"key\": \"AspectRatio\", \"label\": \"Aspect Ratio\", \"type\": \"cycle\",\n"
+	"        \"values\": [0, 1, 2, 3], \"default\": 1 } ] }\n"
+	"  ]\n"
+	"}\n";
 
 // Slurp a whole file into a caller buffer (NUL-terminated); asserts it fit.
 static void slurp(const char* path, char* buf, size_t size) {
@@ -347,17 +293,16 @@ static void slurp(const char* path, char* buf, size_t size) {
 	fclose(f);
 }
 
-// emu_ovl_cfg_write_ini must append a [section] the file never had. Rice does
-// not call ConfigSaveSection, so [Video-Rice] is absent from mupen64plus.cfg
-// until the editor stages a Rice item and writes it. No existing test drives
-// emu_ovl_cfg_write_ini directly, so this closes that gap on the shipped schema.
+// emu_ovl_cfg_write_ini must append a [section] the file never had (here
+// [Video-Rice], absent until the editor stages an item in it and writes).
 static void test_write_ini_appends_missing_section(void) {
 	reset_root();
 	write_file(ROOT "/mupen64plus.cfg",
 			   "[NxRedux]\n"
 			   "VideoPlugin = rice\n");
 	EmuOvlConfig cfg;
-	assert(emu_ovl_cfg_load(&cfg, N64_SCHEMA) == 0);
+	write_file(ROOT "/schema.json", APPEND_SCHEMA);
+	assert(emu_ovl_cfg_load(&cfg, ROOT "/schema.json") == 0);
 	assert(emu_ovl_cfg_read_ini(&cfg, ROOT "/mupen64plus.cfg") == 0);
 
 	EmuOvlItem* ar = emu_ovl_cfg_find_item(&cfg, "Video-Rice", "AspectRatio", NULL, NULL);
@@ -381,7 +326,6 @@ int main(void) {
 	test_read_ini_enum();
 	test_read_ini_quoted();
 	test_visible_when();
-	test_shipped_n64_schema();
 	test_write_ini_appends_missing_section();
 	printf("test_emu_ovl_enum: all tests passed\n");
 	return 0;

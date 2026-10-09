@@ -51,16 +51,16 @@ overlay, since each zip carries only its own.
 
 ## Third-party prebuilts
 
-ffplay, rsync, mupen64plus (N64.pak), GLideN64 + libpng and SDL_drastic (NDS.pak) are not
+ffplay, rsync, SDL_drastic (NDS.pak) and tun.ko (tg5050) are not
 committed: `workspace/all/prebuilts/<name>.sh` builds each from pinned, sha256-checked source
 inside the toolchain image, into `workspace/all/prebuilts/output/<plat>/` (git-ignored, laid out
 like `build/`). `make common` copies them into the release and fails if one is missing. CI builds
 each in its own cached `build-prebuilt` job. Locally, once per checkout (and after changing a
-script, its patches, or `workspace/all/common` for the N64 plugins' overlay):
+script or its patches):
 
 ```sh
-make build-prebuilts PLATFORM=tg5040   # ffplay rsync gliden64 mupen64plus sdl2-drastic
-make build-prebuilts PLATFORM=tg5050   # mupen64plus sdl2-drastic
+make build-prebuilts PLATFORM=tg5040   # ffplay rsync sdl2-drastic
+make build-prebuilts PLATFORM=tg5050   # sdl2-drastic tun-ko
 make build-prebuilt PLATFORM=tg5040 PREBUILT=ffplay   # just one
 ```
 
@@ -130,11 +130,15 @@ Component source lives in `workspace/all/<component>` (shared) and
   Makefiles include the fragment. New UI components are added to ui.mk, never
   to individual app Makefiles. There is no umbrella header — include exactly
   the `ui_*.h` you use.
-- Patched vendored projects (mupen64plus/GLideN64) are cloned at
-  **pinned commits** by the platform Makefiles and patched from
-  `workspace/all/other/`. Never regenerate a multi-file vendored patch with a
-  plain `git diff` — untracked new files vanish from it; splice per-file
-  sections instead. See `workspace/all/other/mupen64plus/README.md`.
+- Patched vendored projects (SDL_drastic) are cloned at **pinned commits** by
+  the platform Makefiles and patched from `workspace/all/other/`. Never
+  regenerate a multi-file vendored patch with a plain `git diff` — untracked
+  new files vanish from it; splice per-file sections instead.
+- N64 is the mupen64plus-next libretro core (`workspace/all/cores/mupen64plus_next/`,
+  patches in `workspace/all/cores/patches/mupen64plus_next/`, the built-in Rice
+  plugin's in `…/mupen64plus_next/rice/patches/`). Before `make build-core
+  CORE=mupen64plus_next`, run `workspace/all/cores/mupen64plus_next/fetch-deps.sh
+  <plat>` once (SDL2_net source; the toolchain image has no curl).
 
 ## IDE setup (clangd)
 
