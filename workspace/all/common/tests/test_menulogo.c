@@ -26,6 +26,7 @@ int main(void) {
 	assert(is("Microsoft MSX (MSX)", "msx"));
 	assert(is("Ms-Dos (DOS)", "dos"));
 	assert(is("Sony PlayStation (PS)", "ps"));
+	assert(is("Sony PlayStation (PSX)", "ps")); // SwanStation
 	assert(is("Sega Genesis (GPGX)", "md"));
 	assert(is("Sega Master System (GPGX)", "sms"));
 	assert(is("Sega Game Gear (GPGX)", "gg"));

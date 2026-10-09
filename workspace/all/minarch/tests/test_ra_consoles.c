@@ -24,6 +24,7 @@ int main(void) {
 	CHECK(RA_getConsoleId("DC") == RC_CONSOLE_DREAMCAST, "DC -> Dreamcast (control)");
 	CHECK(RA_getConsoleId("DCX") == RC_CONSOLE_DREAMCAST, "DCX -> Dreamcast");
 	CHECK(RA_getConsoleId("PS") == RC_CONSOLE_PLAYSTATION, "PS -> PlayStation (control)");
+	CHECK(RA_getConsoleId("PSX") == RC_CONSOLE_PLAYSTATION, "PSX -> PlayStation (SwanStation)");
 	CHECK(RA_getConsoleId("WS") == RC_CONSOLE_WONDERSWAN, "WS -> WonderSwan");
 	CHECK(RA_getConsoleId("WSC") == RC_CONSOLE_WONDERSWAN, "WSC -> WonderSwan (Color shares the console)");
 	CHECK(RA_getConsoleId("NOPE") == RC_CONSOLE_UNKNOWN, "unknown tag -> unknown");
@@ -78,6 +79,8 @@ int main(void) {
 		{"PS", "pcsx_rearmed", "a.chd", RC_CONSOLE_PLAYSTATION},
 		{"PS", "pcsx_rearmed", "a.bin", RC_CONSOLE_PLAYSTATION},
 		{"PS", "pcsx_rearmed", "a.pbp", RC_CONSOLE_PLAYSTATION}, // EBOOT: core decides
+		{"PSX", "swanstation", "a.chd", RC_CONSOLE_PLAYSTATION},
+		{"PSX", "swanstation", "a.m3u", RC_CONSOLE_PLAYSTATION},
 		{"PSP", "ppsspp", "a.iso", RC_CONSOLE_PSP},
 		{"PSP", "ppsspp", "a.cso", RC_CONSOLE_PSP},
 		{"PUAE", "puae2021", "a.adf", RC_CONSOLE_AMIGA},
@@ -114,6 +117,7 @@ int main(void) {
 		{"DCX", NULL, "a.chd", RC_CONSOLE_DREAMCAST},
 		{"DCX", NULL, "a.7z", RC_CONSOLE_ARCADE},
 		{"PS", NULL, "a.chd", RC_CONSOLE_PLAYSTATION},
+		{"PSX", NULL, "a.cue", RC_CONSOLE_PLAYSTATION},
 		// case-insensitive extension and core prefix match
 		{"GB", "GAMBATTE", "A.GBC", RC_CONSOLE_GAMEBOY_COLOR},
 		{"FOO", "genesis_plus_gx_wide", "a.SMS", RC_CONSOLE_MASTER_SYSTEM},

@@ -25,6 +25,7 @@ static int exists(const char* id, const char* suffix) {
 int main(void) {
 	// a console's own pad, through its logo id and every tag that names it
 	assert(is("Sony PlayStation (PS)", "ps"));
+	assert(is("Sony PlayStation (PSX)", "ps")); // SwanStation
 	assert(is("Game Boy Advance (GBA)", "gba") && is("Game Boy Advance (MGBA)", "gba"));
 	assert(is("Super Nintendo (SFC)", "sfc") && is("Super Nintendo ES (SUPA)", "sfc"));
 	assert(is("Sega Genesis (MD)", "md") && is("Sega Genesis (GPGX)", "md"));

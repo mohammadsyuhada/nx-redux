@@ -1,0 +1,16 @@
+# license: modifies SwanStation (https://github.com/libretro/swanstation), GPL-3.0 (LICENSE); this patch is distributed under the same license.
+diff --git a/Makefile.libretro b/Makefile.libretro
+index bd88a2f1..0b60d5ce 100644
+--- a/Makefile.libretro
++++ b/Makefile.libretro
+@@ -127,6 +127,10 @@ ifneq (,$(findstring unix,$(platform)))
+       LDFLAGS += -static-libgcc -static-libstdc++
+    endif
+    LDFLAGS += $(PTHREAD_FLAGS) -ldl -lrt
++   # NextUI: ship the core stripped (the static libstdc++ carries debug info)
++   ifneq ($(DEBUG),1)
++      LDFLAGS += -s
++   endif
+    ifneq ($(findstring Haiku,$(shell uname -s)),)
+       LDFLAGS := $(filter-out -ldl -lrt,$(LDFLAGS)) -lroot
+    endif
