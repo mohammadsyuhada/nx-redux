@@ -513,10 +513,15 @@ int main(int argc, char* argv[]) {
 			if (Netplay_isConnected()) {
 				Netplay_pause();
 			}
+			// A GBA link peer stops with us for the whole menu, setup and
+			// teardown included: the wireless adapter gives up after ~0.5 s
+			// of one-sided silence.
+			GBALink_setPaused(true);
 			PWR_updateFrequency(PWR_UPDATE_FREQ, 1);
 			Menu_loop();
-			link_cpu_boost = false; // the menu restored the user's speed: boost again if still busy
-			EmuTime_reset();		// emulated-time pacing restarts after the menu
+			GBALink_setPaused(false); // no-op once the menu left the session
+			link_cpu_boost = false;	  // the menu restored the user's speed: boost again if still busy
+			EmuTime_reset();		  // emulated-time pacing restarts after the menu
 			// Process RA async operations while menu is shown
 			RA_idle();
 			if (Netplay_isPaused()) {

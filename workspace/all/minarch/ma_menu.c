@@ -1705,10 +1705,11 @@ void Menu_loop(void) {
 	//set vid.blit to null for menu drawing no need for blitrender drawing
 	GFX_clearShaders();
 	if (Multiplayer_isActive()) {
-		GBALink_setPaused(true);
-		bool leave = Menu_leaveNetplay();
-		GBALink_setPaused(false); // also before leaving: the peer then ends as on a pulled cable
-		if (leave) {
+		// The GBA link peer was paused before we got here (minarch.c) and is
+		// resumed after the menu's teardown; leaving resumes it first, so a
+		// real-cable peer stuck mid-transfer ends as on a pulled cable.
+		if (Menu_leaveNetplay()) {
+			GBALink_setPaused(false);
 			Netplay_quitAll(); // as the full menu's Quit: close the link cleanly
 			quit = 1;
 		}
