@@ -1158,6 +1158,17 @@ void GBALink_update(void) {
 		return;
 	pthread_mutex_lock(&gl.mutex);
 
+	// A disconnect the core's mid-frame poll deferred belongs to the session
+	// before any client the listen thread accepted since: end that one first,
+	// or notifyConnected(1) below finds it still active and the next
+	// pollReceive stops the new session.
+	if (gl.pending_disconnect_notify) {
+		gl.pending_disconnect_notify = false;
+		pthread_mutex_unlock(&gl.mutex);
+		GBALink_notifyDisconnected();
+		pthread_mutex_lock(&gl.mutex);
+	}
+
 	// Process pending host connection notification (must run on main thread)
 	// The listen thread sets this flag, we process it here to ensure
 	// core callbacks are called from the main thread
@@ -1576,6 +1587,12 @@ void GBALink_notifyConnected(int is_host) {
 
 // Stop netpacket session - called when gbalink disconnects
 void GBALink_notifyDisconnected(void) {
+	// A direct notify satisfies a deferred one; left set, it would stop the
+	// next session at its first poll.
+	pthread_mutex_lock(&gl.mutex);
+	gl.pending_disconnect_notify = false;
+	pthread_mutex_unlock(&gl.mutex);
+
 	if (!gl.netpacket_active)
 		return;
 
