@@ -84,14 +84,21 @@ static bool at_bound(const SioLs* s) {
 	return bounded(s) && (int64_t)s->now >= bound(s);
 }
 
-// A follower behind the leader still answers once its game has had a
-// transfer's worth of time since the last one: it only has to have run its
-// serial IRQ handler, not to have reached the leader's exact cycle. This keeps
-// the leader's wait at about one round trip instead of the follower's lag.
+// How long after our last answer this START may be answered: the leader's own
+// gap between the two STARTs. Our game then gets the time a real cable gives
+// it between transfers, above all to run its serial IRQ handler and load the
+// next word; answered sooner, it sends the previous word again and the game's
+// checksum fails. Whether we are ahead of or behind the leader's time does
+// not matter, only the spacing. A wide gap (or the leader going back) starts
+// a new burst: due at once.
+static uint64_t spacing(const SioLs* s, const SioLsMsg* m) {
+	if (s->leader || !s->answered || m->cycle <= s->last_start_cycle)
+		return 0;
+	uint64_t gap = m->cycle - s->last_start_cycle;
+	return gap < SIOLS_MAX_SPACING_CYCLES ? gap : 0;
+}
 static bool start_due(const SioLs* s, const SioLsMsg* m) {
-	if (s->leader || !s->answered || (int64_t)s->now >= mapped(s, m))
-		return true;
-	return s->now - s->last_start_at >= SIOLS_MIN_GAP_CYCLES;
+	return s->now - s->last_start_at >= spacing(s, m);
 }
 
 static bool can_take(const SioLs* s, bool busy) {
@@ -197,10 +204,8 @@ uint32_t siols_next_event(const SioLs* s) {
 		ev = min64(ev, (int64_t)s->next_sync - now);
 	if (bounded(s))
 		ev = min64(ev, bound(s) - now);
-	if (!s->leader && s->inbox_n && s->answered) {
-		ev = min64(ev, mapped(s, &s->inbox[0]) - now);
-		ev = min64(ev, (int64_t)(s->last_start_at + SIOLS_MIN_GAP_CYCLES) - now);
-	}
+	if (!s->leader && s->inbox_n && s->answered)
+		ev = min64(ev, (int64_t)(s->last_start_at + spacing(s, &s->inbox[0])) - now);
 	if (ev < 1)
 		ev = 1;
 	if (ev > (int64_t)UINT32_MAX - 1)
@@ -317,6 +322,7 @@ void siols_reply(SioLs* s, const SioLsMsg* start, uint32_t word) {
 	s->last_reply = r;
 	s->answered = true;
 	s->last_start_at = s->now;
+	s->last_start_cycle = start->cycle;
 	s->ever_xfer = true;
 	s->last_xfer = s->now;
 	s->st.replies++;

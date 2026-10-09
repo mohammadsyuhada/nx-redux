@@ -172,21 +172,63 @@ static void test_follower_answers_and_dedupes(void) {
 	assert(!siols_take_start(&B, false, &st));
 }
 
-static void test_follower_late_answers_after_min_gap(void) {
+static void test_follower_keeps_leader_spacing(void) {
 	test_follower_answers_and_dedupes(); // B: now 50000, answered at 50000, offset -850000
 	SioLsMsg st;
 	inject(&B, (SioLsMsg){.type = SIOLS_START, .mode = SIOLS_MULTI, .ctrl = 3, .seq = 2, .word = 2, .cycle = 931000});
 	siols_advance(&B, 1000);
-	assert(!siols_take_start(&B, false, &st)); // mapped 81000 not reached, gap 1000
-	assert(siols_next_event(&B) <= SIOLS_MIN_GAP_CYCLES - 1000);
-	siols_advance(&B, SIOLS_MIN_GAP_CYCLES - 1000);
+	assert(!siols_take_start(&B, false, &st)); // leader gap 31000, ours 1000
+	assert(siols_next_event(&B) <= 30000);
+	siols_advance(&B, 29999);
+	assert(!siols_take_start(&B, false, &st));
+	siols_advance(&B, 1);
 	assert(siols_take_start(&B, false, &st) && st.seq == 2);
-	assert(B.offset == (int64_t)(50000 + SIOLS_MIN_GAP_CYCLES) - 931000); // anchor caught up
+	assert(B.offset == 50000 - 900000); // exactly on the leader's time: anchor kept
 	siols_reply(&B, &st, 2);
 	// Never while our own transfer is still running.
 	inject(&B, (SioLsMsg){.type = SIOLS_START, .mode = SIOLS_MULTI, .ctrl = 3, .seq = 3, .word = 3, .cycle = 962000});
 	siols_advance(&B, 100000);
 	assert(!siols_take_start(&B, true, &st));
+	assert(siols_take_start(&B, false, &st) && st.seq == 3);
+}
+
+// Device trace 2026-10-09: a follower 50000 cycles ahead took the next START
+// the moment its previous transfer completed, before its serial IRQ handler
+// loaded the next word, and sent the old word again (game: link error).
+static void test_follower_ahead_still_waits_leader_spacing(void) {
+	setup();
+	siols_start(&B, false);
+	siols_advance(&B, 100000);
+	SioLsMsg st;
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 1, .cycle = 500000});
+	assert(siols_take_start(&B, false, &st)); // anchors: offset -400000
+	siols_reply(&B, &st, 0x11);
+	siols_advance(&B, 200000); // now 300000: 100000 past START 2's time when it arrives
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 2, .cycle = 600000});
+	assert(siols_take_start(&B, false, &st) && st.seq == 2);
+	assert(B.offset == -400000); // ahead: anchor kept
+	siols_reply(&B, &st, 0xCAFE);
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 3, .cycle = 618400});
+	siols_advance(&B, 5242);				   // only our transfer's duration since the last answer
+	assert(!siols_take_start(&B, false, &st)); // its time long passed, but not 18400 since ours
+	assert(siols_next_event(&B) <= 18400 - 5242);
+	siols_advance(&B, 18400 - 5242);
+	assert(siols_take_start(&B, false, &st) && st.seq == 3);
+}
+
+// A START far after the last one (new burst) is answered at once; so is one
+// from a leader that went back in time (reset, state load).
+static void test_follower_new_burst_answers_at_once(void) {
+	setup();
+	siols_start(&B, false);
+	SioLsMsg st;
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 1, .cycle = 1000});
+	assert(siols_take_start(&B, false, &st));
+	siols_reply(&B, &st, 1);
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 2, .cycle = 1000 + SIOLS_MAX_SPACING_CYCLES});
+	assert(siols_take_start(&B, false, &st) && st.seq == 2);
+	siols_reply(&B, &st, 2);
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 3, .cycle = 10});
 	assert(siols_take_start(&B, false, &st) && st.seq == 3);
 }
 
@@ -317,11 +359,13 @@ static void test_two_instances_trade_burst(void) {
 	fa.hook = hook_run_follower;
 	for (uint32_t i = 1; i <= 9; i++) { // one Gen3 trade frame: 9 transfers
 		siols_advance(&A, 31000);
+		for (int k = 0; k < 31000 / 512; k++) // the follower runs alongside meanwhile
+			hook_run_follower(&fa);
 		siols_initiate(&A, SIOLS_MULTI, 3, 0x1000 + i);
 		assert(siols_complete(&A) == 0x2000 + i);
 	}
 	assert(A.st.timeouts == 0 && B.st.bound_timeouts == 0 && A.st.xfers == 9);
-	assert(A.st.wait_us_max < 1000); // follower lag absorbed by the min-gap rule
+	assert(A.st.wait_us_max < 1000); // a follower keeping up answers within a few polls
 }
 
 static void test_follower_broken_needs_transfer_traffic(void) {
@@ -448,7 +492,9 @@ int main(void) {
 	test_stop_mid_wait();
 	test_stale_reply_ignored();
 	test_follower_answers_and_dedupes();
-	test_follower_late_answers_after_min_gap();
+	test_follower_keeps_leader_spacing();
+	test_follower_ahead_still_waits_leader_spacing();
+	test_follower_new_burst_answers_at_once();
 	test_follower_ahead_keeps_anchor();
 	test_follower_bound_wait_and_timeout();
 	test_bound_wait_ends_on_start();

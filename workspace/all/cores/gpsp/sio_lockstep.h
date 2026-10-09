@@ -22,16 +22,16 @@
 #include <stdint.h>
 
 #define SIOLS_MSG_SIZE 24
-#define SIOLS_FRAME_CYCLES 280896u						 // one GBA frame
-#define SIOLS_SYNC_CYCLES (SIOLS_FRAME_CYCLES / 8)		 // leader SYNC cadence while the link is in use
-#define SIOLS_SLACK_CYCLES (SIOLS_FRAME_CYCLES / 4)		 // how far the follower may run past the leader
-#define SIOLS_MIN_GAP_CYCLES 8192u						 // > one 115200-baud 2-player transfer + its IRQ handler
-#define SIOLS_POLL_CYCLES 2048u							 // receive poll cadence while the link is in use
-#define SIOLS_IDLE_POLL_CYCLES (SIOLS_FRAME_CYCLES / 16) // ... and while it is idle
-#define SIOLS_ENGAGE_CYCLES (SIOLS_FRAME_CYCLES * 120u)	 // "in use" = a transfer in the last ~2 s
-#define SIOLS_REPLY_TIMEOUT_US 500000u					 // then the peer reads as absent
-#define SIOLS_RESEND_US 20000u							 // START re-sent while waiting (lost frame)
-#define SIOLS_BOUND_TIMEOUT_US 100000u					 // leader silent this long: follower runs free
+#define SIOLS_FRAME_CYCLES 280896u						   // one GBA frame
+#define SIOLS_SYNC_CYCLES (SIOLS_FRAME_CYCLES / 8)		   // leader SYNC cadence while the link is in use
+#define SIOLS_SLACK_CYCLES (SIOLS_FRAME_CYCLES / 4)		   // how far the follower may run past the leader
+#define SIOLS_MAX_SPACING_CYCLES (SIOLS_FRAME_CYCLES * 2u) // wider leader gaps: a new burst, answered at once
+#define SIOLS_POLL_CYCLES 2048u							   // receive poll cadence while the link is in use
+#define SIOLS_IDLE_POLL_CYCLES (SIOLS_FRAME_CYCLES / 16)   // ... and while it is idle
+#define SIOLS_ENGAGE_CYCLES (SIOLS_FRAME_CYCLES * 120u)	   // "in use" = a transfer in the last ~2 s
+#define SIOLS_REPLY_TIMEOUT_US 500000u					   // then the peer reads as absent
+#define SIOLS_RESEND_US 20000u							   // START re-sent while waiting (lost frame)
+#define SIOLS_BOUND_TIMEOUT_US 100000u					   // leader silent this long: follower runs free
 #define SIOLS_IDLE_SLEEP_US 50u
 #define SIOLS_INBOX 8
 
@@ -83,7 +83,8 @@ typedef struct {
 	uint64_t leader_latest;
 	// responder
 	bool answered;
-	uint64_t last_start_at;
+	uint64_t last_start_at;	   // our timeline when we answered the last START
+	uint64_t last_start_cycle; // ... and that START's leader time
 	SioLsMsg last_reply;
 	SioLsMsg inbox[SIOLS_INBOX];
 	int inbox_n;
