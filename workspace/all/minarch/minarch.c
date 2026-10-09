@@ -421,6 +421,8 @@ int main(int argc, char* argv[]) {
 
 		// Netplay: synchronize inputs BEFORE running the core. If we're still waiting
 		// on the peer this frame, poll input (so menu/quit stay responsive) and skip it.
+		const int16_t sticks[4] = {(int16_t)pad.laxis.x, (int16_t)pad.laxis.y, (int16_t)pad.raxis.x, (int16_t)pad.raxis.y};
+		Netplay_setLocalAnalog(sticks);
 		if (!Netplay_update((uint16_t)Input_getButtons(), core.serialize_size, core.serialize, core.unserialize)) {
 			input_poll_callback();
 			continue;

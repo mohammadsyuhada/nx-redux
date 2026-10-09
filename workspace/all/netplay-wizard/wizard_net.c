@@ -5,8 +5,8 @@
  * lines; the host advertises itself on WIZ_UDP_PORT so the WiFi-mode client can
  * list it. The exchange, in order:
  *
- *     client -> host:  HELLO 1 <game> client [any] [caps=<token>]
- *     host -> client:  HELLO 1 <game> host <n> [caps=<token>]  (or REJECT <reason>, then close)
+ *     client -> host:  HELLO 2 <game> client [any] [caps=<token>]
+ *     host -> client:  HELLO 2 <game> host <n> [caps=<token>]  (or REJECT <reason>, then close)
  *     host -> client:  SYNC-READY <n>           (only when the host serves saves)
  *     host -> client:  FILE <name>              (n times, bare filenames)
  *     client -> host:  SYNC-DONE | SYNC-FAIL
