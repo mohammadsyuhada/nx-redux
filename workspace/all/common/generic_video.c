@@ -2542,6 +2542,12 @@ void setRectToAspectRatio(SDL_Rect* dst_rect) {
 	}
 }
 
+// Leave no GL context current on the calling thread, so another thread can
+// make vid.gl_context (or the SDL renderer's) current (minarch present thread).
+void PLAT_GL_releaseCurrent(void) {
+	SDL_GL_MakeCurrent(vid.window, NULL);
+}
+
 void PLAT_blitRenderer(GFX_Renderer* renderer) {
 	vid.blit = renderer;
 	SDL_RenderClear(vid.renderer);

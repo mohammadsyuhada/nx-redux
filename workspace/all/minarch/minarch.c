@@ -49,6 +49,7 @@
 #include <SDL2/SDL.h>
 #include <rcheevos/rc_client.h>
 #include "ma_emutime.h"
+#include "ma_present.h"
 
 ///////////////////////////////////////
 
@@ -471,10 +472,14 @@ int main(int argc, char* argv[]) {
 			}
 		}
 
-		Notification_renderToLayer(5); // Always call - handles cleanup when inactive
+		if (Present_lockFrameState()) {	   // the present thread may be uploading the layer
+			Notification_renderToLayer(5); // Always call - handles cleanup when inactive
+			Present_unlockFrameState();
+		}
 
 		if (has_pending_opt_change) {
 			has_pending_opt_change = 0;
+			Present_stop();
 			if (Core_updateAVInfo()) {
 				SND_resetAudio(core.sample_rate, core.fps);
 				SetVolume(GetVolume());
@@ -515,6 +520,7 @@ int main(int argc, char* argv[]) {
 
 		hdmimon();
 	}
+	Present_stop();
 	// leaving (menu, quit shortcut, power): tell the other player right away
 	if (CoreNetplay_isActive())
 		CoreNetplay_byeSend(CORE_NETPLAY_BYE_PORT);

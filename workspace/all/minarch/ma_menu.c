@@ -10,6 +10,7 @@
 #include "ui_buttonhintbar.h"
 #include "ui_menubar.h"
 #include "ma_menu.h"
+#include "ma_present.h"
 #include "ma_frontend_opts.h"
 #include "ma_saves.h"
 #include "ma_save_paths.h"
@@ -1345,6 +1346,7 @@ SDL_Thread* screenshotsavethread;
 // GL-captures the current frame and returns it as a converted SDL_Surface
 // (caller owns and must SDL_FreeSurface it), or NULL on capture failure.
 SDL_Surface* Menu_captureScreenSurface(Uint32 pixel_format) {
+	Present_stop();
 	int cw, ch;
 	unsigned char* pixels = GFX_GL_screenCapture(&cw, &ch);
 	if (!pixels)
@@ -1356,6 +1358,7 @@ SDL_Surface* Menu_captureScreenSurface(Uint32 pixel_format) {
 // GL-captures the current frame and hands it to the background PNG-save
 // worker at `png_path`; waits for any previous save to finish first.
 void Menu_queueScreenshotSave(const char* png_path) {
+	Present_stop();
 	int cw, ch;
 	unsigned char* pixels = GFX_GL_screenCapture(&cw, &ch);
 	if (!pixels) {
@@ -1614,6 +1617,7 @@ static bool Menu_leaveNetplay(void) {
 }
 
 void Menu_netplayNotice(const char* title, const char* subtitle, int hold_ms) {
+	Present_stop();
 	if (screen->w != DEVICE_WIDTH || screen->h != DEVICE_HEIGHT)
 		screen = GFX_resize(DEVICE_WIDTH, DEVICE_HEIGHT, DEVICE_PITCH);
 	GFX_clearShaders();
@@ -1625,6 +1629,7 @@ void Menu_netplayNotice(const char* title, const char* subtitle, int hold_ms) {
 }
 
 void Menu_loop(void) {
+	Present_stop(); // the menu draws (and reads the frame back) on this thread
 	RA_onMenuOpen();
 	// the slot previews below are read back from disk
 	Menu_waitScreenshotSave();

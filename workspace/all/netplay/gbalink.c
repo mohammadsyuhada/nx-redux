@@ -40,6 +40,7 @@
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <sys/time.h>
+#include <time.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
@@ -1509,10 +1510,32 @@ static void gbalink_netpacket_send(int flags, const void* buf, size_t len, uint1
 	}
 }
 
+// Main thread only (deliveries and the query below), so no lock.
+static uint64_t last_ls_start_ms;
+
+static uint64_t mono_ms(void) {
+	struct timespec t;
+	clock_gettime(CLOCK_MONOTONIC, &t);
+	return (uint64_t)t.tv_sec * 1000u + (uint64_t)t.tv_nsec / 1000000u;
+}
+
+// A lockstep START handed to the core: the leader is driving the link now.
+static void note_delivery(const void* buf, size_t len) {
+	if (siols_is_packet(buf, len) && ((const uint8_t*)buf)[4] == SIOLS_START)
+		last_ls_start_ms = mono_ms();
+}
+
 static void deliver_to_core(const void* buf, size_t len, void* ctx) {
 	(void)ctx;
-	if (gl.netpacket_active && gl.core_callbacks.receive)
+	if (gl.netpacket_active && gl.core_callbacks.receive) {
+		note_delivery(buf, len);
 		gl.core_callbacks.receive(buf, len, gl.remote_client_id);
+	}
+}
+
+bool GBALink_lockstepFollowerBusy(void) {
+	return gl.netpacket_active && gl.local_client_id == 1 && usb_session() &&
+		   last_ls_start_ms && mono_ms() - last_ls_start_ms < GBALINK_FOLLOWER_BUSY_MS;
 }
 
 // The core's mid-frame TCP read: never blocks. trylock, so a net thread that
@@ -1641,6 +1664,7 @@ void GBALink_pollAndDeliverPackets(void) {
 		   GBALink_popPendingPacket(&pkt_buf, &pkt_len, NULL)) {
 		// In direct 2-player TCP, any received packet is from the remote peer
 		if (gl.core_callbacks.receive) {
+			note_delivery(pkt_buf, pkt_len);
 			gl.core_callbacks.receive(pkt_buf, pkt_len, gl.remote_client_id);
 		}
 		packets_delivered++;

@@ -81,6 +81,10 @@ void GBALink_disconnect(void);
 
 // Status queries
 bool GBALink_isConnected(void);
+// USB Cable lockstep follower (client 1) whose leader sent a transfer within
+// GBALINK_FOLLOWER_BUSY_MS: minarch then paces it by the link, not by vsync.
+#define GBALINK_FOLLOWER_BUSY_MS 250
+bool GBALink_lockstepFollowerBusy(void);
 
 // Host discovery (for client)
 void GBALink_stopDiscovery(void);

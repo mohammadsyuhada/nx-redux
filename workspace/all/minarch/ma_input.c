@@ -8,6 +8,7 @@
 #include "ma_config.h"
 #include "netplay_helper.h"
 #include "ma_turbo.h"
+#include "ma_present.h"
 #include "button_layout.h"
 
 int setFastForward(int enable) {
@@ -81,6 +82,7 @@ void input_poll_callback(void) {
 		newScreenshot = 1;
 		Netplay_quitAll();
 		quit = 1;
+		Present_stop(); // the save state reads the frame back
 		Menu_saveState();
 		if (prefixMatch(SDCARD_PATH, game.path))
 			putFile(GAME_SWITCHER_PERSIST_PATH, game.path + strlen(SDCARD_PATH));
