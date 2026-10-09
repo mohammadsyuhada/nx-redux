@@ -189,6 +189,7 @@ bool Netplay_checkCoreSupport(const char* core_name) {
 		strcasecmp(core_name, "snes9x") == 0 ||
 		strcasecmp(core_name, "mednafen_supafaust") == 0 ||
 		strcasecmp(core_name, "picodrive") == 0 ||
+		strcasecmp(core_name, "genesis_plus_gx") == 0 ||
 		strcasecmp(core_name, "pcsx_rearmed") == 0) {
 		return true;
 	}
