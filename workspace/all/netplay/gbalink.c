@@ -16,6 +16,9 @@
  * Supported features via gpSP:
  * - Pokemon trading (FireRed/LeafGreen/Ruby/Sapphire/Emerald)
  * - Pokemon battles (Union Room)
+ *
+ * mGBA uses the same transport for a real link cable (the lockstep driver in
+ * all/cores/sio_lockstep), over the USB Cable only.
  */
 
 #define _GNU_SOURCE // For strcasestr

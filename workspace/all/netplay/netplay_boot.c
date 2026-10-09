@@ -87,7 +87,7 @@ int NetplayBoot_startFromEnv(const char* core_name) {
 	// mGBA's link is the real cable, which only runs over the USB Cable. The
 	// wizard offers mGBA nothing else; this catches a stale or hand-made env.
 	if (type == LINK_TYPE_GBALINK && !gbalink_transport_ok(core_name, mode)) {
-		LOG_error("GBALink: mGBA link needs the USB Cable (NETPLAY_MODE=%s)\n", mode ? mode : "NULL");
+		LOG_error("NetplayBoot: mGBA link needs the USB Cable (NETPLAY_MODE=%s)\n", mode ? mode : "NULL");
 		boot_error = "MGBA link needs the USB Cable";
 		return -1;
 	}
