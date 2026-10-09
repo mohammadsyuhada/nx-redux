@@ -36,6 +36,7 @@
 #include "usblink_gadget.h"
 #include "usblink_host.h"
 #include "usblink_link.h"
+#include "usblink_power.h"
 #include "usblink_sio.h"
 #include "usblink_state.h"
 #include "usblink_tun.h"
@@ -114,6 +115,7 @@ static int udc_bound(void) {
 // only uses async-signal-safe calls. ffs.net must leave c.1 before the process
 // (and with it ep0) goes away, or the gadget cannot rebind and adb is dead.
 static void shutdown_and_exit(int code, int keep_state) {
+	usblink_power_restore_signal_safe(); // never leave the battery unable to charge
 	usblink_gadget_detach();
 	// Only a gadget that is bound again proves the detach worked; otherwise
 	// the save file stays so `stop`'s repair can still rebind it.
@@ -167,10 +169,13 @@ static int apply(int act) {
 		if (usblink_tun_set_up(TUN_NAME, local, peer) != 0)
 			fprintf(stderr, "usblink: %s up failed\n", TUN_NAME);
 		fprintf(stderr, "usblink: link up via %s port, %s -> %s\n", host_side ? "host" : "gadget", local, peer);
+		if (!host_side && !usblink_power_limit()) // the peer powers us: do not charge from it
+			fprintf(stderr, "usblink: no PMIC node, charging from the peer stays on\n");
 		publish();
 	}
 	if (act & USBLINK_ACT_DOWN) {
 		usblink_tun_set_down(TUN_NAME);
+		usblink_power_restore(); // e.g. cable swapped for a charger mid-session
 		fprintf(stderr, "usblink: link down\n");
 		publish();
 	}
@@ -540,6 +545,7 @@ static int run_daemon(int foreground) {
 	if (write_pid_file() != 0)
 		fprintf(stderr, "usblink: write %s: %s\n", PID_FILE, strerror(errno));
 	usblink_link_init(&g_link);
+	usblink_power_restore_saved(); // a SIGKILLed predecessor may have left charging off
 
 	// A SIGKILLed predecessor leaves ffs.net linked (or the gadget unbound),
 	// and attach would refuse an unbound gadget; repair is a no-op otherwise.
@@ -580,10 +586,12 @@ static int run_daemon(int foreground) {
 	}
 	pthread_sigmask(SIG_SETMASK, &old, NULL);
 
-	for (;;) {
+	for (unsigned tick = 0;; tick++) {
 		sleep_ms(TICK_MS);
 		pthread_mutex_lock(&mu);
 		int sends = apply(usblink_link_tick(&g_link, host_claimed, now_ms()));
+		if (tick % (1000 / TICK_MS) == 0)
+			usblink_power_check(); // the driver resets the input limit on replug
 		pthread_mutex_unlock(&mu);
 		do_sends(sends);
 	}
@@ -674,6 +682,7 @@ static int cmd_stop(void) {
 	// Covers a daemon that was SIGKILLed (now or earlier): unlinks ffs.net and
 	// rebinds the UDC so adb comes back. nxlink0 died with the daemon's fd.
 	usblink_gadget_repair();
+	usblink_power_restore_saved();
 	unlink(PID_FILE);
 	unlink(STATE_FILE);
 	unlink(STATE_TMP);

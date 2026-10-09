@@ -9,6 +9,7 @@
 #include "../usblink_link.h"
 #include "../usblink_state.h"
 #include "../usblink_sio.h"
+#include "../usblink_power.h"
 
 static void test_frame_roundtrip_sizes(void) {
 	uint8_t payload[USBLINK_PAYLOAD_MAX], out[USBLINK_FRAME_MAX];
@@ -253,6 +254,21 @@ static void test_sio_local_kind(void) {
 	assert(usblink_sio_local_kind(b, 2) == USBLINK_SIO_LOCAL_DROP); // payloads never start with 0
 }
 
+// Register values as the two devices read them on 2026-10-09 (Brick: 0x19
+// 0x06, 0x17 0x88 = usb pc 500 mA; Smart Pro S: 0x19 0x06, 0x17 0xb0).
+static void test_power_values(void) {
+	assert(usblink_power_parse("REG[0x19]=0x6") == 0x06);
+	assert(usblink_power_parse("axp2202-REG[0x17]=0xb0\n") == 0xb0);
+	assert(usblink_power_parse("REG[0x17]=") == -1);
+	assert(usblink_power_parse("garbage") == -1);
+	assert(usblink_power_parse(NULL) == -1);
+	assert(usblink_power_limited_chg(0x06) == 0x04);
+	assert(usblink_power_limited_ilim(0x88) == 0x80 && usblink_power_limited_ilim(0xb0) == 0x80);
+	// The restore turns the charger on whatever was saved: a device must never
+	// be left unable to charge.
+	assert(usblink_power_restored_chg(0x04) == 0x06 && usblink_power_restored_chg(0x06) == 0x06);
+}
+
 int main(void) {
 	test_frame_roundtrip_sizes();
 	test_frame_padding_boundaries();
@@ -270,6 +286,7 @@ int main(void) {
 	test_link_version_mismatch();
 	test_link_host_detach();
 	test_state_roundtrip();
+	test_power_values();
 	printf("usblink tests: OK\n");
 	return 0;
 }

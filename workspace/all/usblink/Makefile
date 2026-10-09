@@ -28,7 +28,7 @@ CFLAGS += -Wall -Wextra -O2 -std=gnu99 -I. -MMD -MP
 # Makefile.env links SDL/GLES for the UI apps; this daemon only needs pthreads.
 LDFLAGS = -lpthread
 
-SRCS = usblink.c usblink_frame.c usblink_link.c usblink_state.c usblink_sio.c usblink_tun.c usblink_gadget.c usblink_host.c
+SRCS = usblink.c usblink_frame.c usblink_link.c usblink_state.c usblink_sio.c usblink_tun.c usblink_gadget.c usblink_host.c usblink_power.c
 OBJS = $(addprefix build/$(PLATFORM)/,$(SRCS:.c=.o))
 
 PRODUCT = build/$(PLATFORM)/$(TARGET)
