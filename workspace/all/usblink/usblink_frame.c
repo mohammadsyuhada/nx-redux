@@ -26,7 +26,7 @@ int usblink_frame_decode(const uint8_t* buf, int n, uint8_t* type_out, const uin
 	int extra = n - USBLINK_FRAME_HDR - len;
 	if (len > USBLINK_PAYLOAD_MAX || extra < 0 || extra > 1)
 		return -1;
-	if (buf[2] < ULF_DATA || buf[2] > ULF_HELLO_ACK)
+	if (buf[2] < ULF_DATA || buf[2] > ULF_CONFIRM)
 		return -1;
 	*type_out = buf[2];
 	*payload_out = buf + USBLINK_FRAME_HDR;

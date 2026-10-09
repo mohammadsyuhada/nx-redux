@@ -16,6 +16,7 @@ enum {
 	ULF_DATA = 1,	   // one IP packet
 	ULF_HELLO = 2,	   // USB-host side -> gadget side, payload: proto version
 	ULF_HELLO_ACK = 3, // gadget side -> USB-host side, payload: proto version
+	ULF_CONFIRM = 4,   // nxsio only: USB-host side -> gadget side after HELLO_ACK, payload: proto version
 };
 
 int usblink_frame_encode(uint8_t type, const uint8_t* payload, int len, uint8_t* out, int out_size);

@@ -188,11 +188,25 @@ static void test_state_roundtrip(void) {
 	assert(usblink_state_read(path, &r) == -1);
 }
 
+static void test_frame_confirm_type(void) {
+	uint8_t v = 1, out[16], type;
+	const uint8_t* p;
+	int n = usblink_frame_encode(ULF_CONFIRM, &v, 1, out, sizeof(out));
+	assert(usblink_frame_decode(out, n, &type, &p) == 1 && type == ULF_CONFIRM);
+	out[2] = ULF_CONFIRM + 1;
+	assert(usblink_frame_decode(out, n, &type, &p) == -1);
+	// The IP link ignores it (it only ever travels on nxsio).
+	UsbLink l;
+	usblink_link_init(&l);
+	assert(usblink_link_on_frame(&l, USBLINK_SIDE_DEVICE, ULF_CONFIRM, &v, 1, 10) == 0);
+}
+
 int main(void) {
 	test_frame_roundtrip_sizes();
 	test_frame_padding_boundaries();
 	test_frame_rejects();
 	test_frame_control();
+	test_frame_confirm_type();
 	test_link_host_handshake_and_keepalive();
 	test_link_dead_after_silence_then_relink();
 	test_link_device_side();
