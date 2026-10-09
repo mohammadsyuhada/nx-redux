@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
 // Compiled into gpSP by all/cores/patches/gpsp/004-sio-lockstep.patch
-// (nx_sio_lockstep.c includes sio_lockstep.c) and unit-tested on the host by
-// tests/run_tests.sh. No gpSP or frontend dependencies: emulated time comes in
+// (nx_sio_lockstep.c includes sio_lockstep.c) and mGBA by
+// all/cores/patches/mgba/001-sio-lockstep.patch, and unit-tested on the host by
+// tests/run_tests.sh. No emulator or frontend dependencies: emulated time comes in
 // through siols_advance(), wall time, transport and polling through SioLsIo.
 //
 // The side that starts a transfer (MULTI parent, NORMAL internal clock) sends

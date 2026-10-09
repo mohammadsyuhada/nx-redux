@@ -1,5 +1,5 @@
 // Host-compiled tests for sio_lockstep (fake wall clock, fake transport).
-// Build & run: workspace/all/cores/gpsp/tests/run_tests.sh
+// Build & run: workspace/all/cores/sio_lockstep/tests/run_tests.sh
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>

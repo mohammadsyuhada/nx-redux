@@ -8,7 +8,7 @@ index 3c85049..e08880b 100644
  	$(CC) $(INCFLAGS) $(CFLAGS) $(OPTIMIZE) -c  -o $@ $<
  
 +# NXRedux: rebuild the lockstep objects when the state machine changes.
-+$(CORE_DIR)/serial.o $(CORE_DIR)/nx_sio_lockstep.o: $(NX_GPSP_DIR)/sio_lockstep.c $(NX_GPSP_DIR)/sio_lockstep.h
++$(CORE_DIR)/serial.o $(CORE_DIR)/nx_sio_lockstep.o: $(NX_SIOLS_DIR)/sio_lockstep.c $(NX_SIOLS_DIR)/sio_lockstep.h
 +
  %.o: %.cc
  	$(CXX) $(INCFLAGS) $(CXXFLAGS) $(OPTIMIZE) -c  -o $@ $<
@@ -23,8 +23,8 @@ index 9742c05..29754c9 100644
  
 +# NXRedux: the lockstep link-cable state machine (gpsp_serial "lockstep",
 +# serial.c) lives in the NXRedux tree, where it is unit-tested on the host.
-+NX_GPSP_DIR ?= $(CORE_DIR)/../../../../all/cores/gpsp
-+INCFLAGS += -I$(NX_GPSP_DIR)
++NX_SIOLS_DIR ?= $(CORE_DIR)/../../../../all/cores/sio_lockstep
++INCFLAGS += -I$(NX_SIOLS_DIR)
 +SOURCES_C += $(CORE_DIR)/nx_sio_lockstep.c
 +
  ifeq ($(HAVE_DYNAREC), 1)
@@ -158,7 +158,7 @@ index 0000000..502d489
 @@ -0,0 +1,4 @@
 +/* NXRedux: compiles the lockstep link state machine into the core. The
 + * source lives (and is unit-tested) in the NXRedux tree at
-+ * workspace/all/cores/gpsp/; Makefile.common puts that on the include path. */
++ * workspace/all/cores/sio_lockstep/; Makefile.common puts that on the include path. */
 +#include "sio_lockstep.c"
 diff --git forkSrcPrefix/serial.c forkDstPrefix/serial.c
 index 55bf2e1..7eadd2b 100644

@@ -22,7 +22,7 @@ SDL?=SDL
 
 TARGET = minarch
 PRODUCT= build/$(PLATFORM)/$(TARGET).elf
-INCDIR = -I. -I./libretro-common/include/ -I../common/ -I../../$(PLATFORM)/platform/ -I../netplay/ -I../usblink/ -I../cores/gpsp/
+INCDIR = -I. -I./libretro-common/include/ -I../common/ -I../../$(PLATFORM)/platform/ -I../netplay/ -I../usblink/ -I../cores/sio_lockstep/
 include ../common/ui/ui.mk
 SOURCE = $(TARGET).c ma_hwrender.c ma_avinfo.c ma_emutime.c ma_game.c ma_cheats.c ma_cheat_match.c ma_saves.c ma_save_paths.c ma_rewind.c ma_config.c ma_shaders.c ma_options.c \
          ma_input.c ma_turbo.c ma_bench.c ma_cpu_profile.c ma_cpu_affinity.c ma_environment.c ma_video.c ma_audio.c ma_core.c ma_menu.c ma_frontend_opts.c ma_runframe.c ma_present.c \
