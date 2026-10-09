@@ -185,6 +185,8 @@ ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
 	# gated here, not with the other SYSTEM bin copies, because it is only built
 	# for tg5040/tg5050 (see workspace/Makefile).
 	cp ./workspace/all/netplay-wizard/build/$(PLATFORM)/netplay.elf ./build/SYSTEM/$(PLATFORM)/bin/
+	# USB cable netplay link daemon (started/stopped by netplay.elf)
+	cp ./workspace/all/usblink/build/$(PLATFORM)/usblink.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	# N64 netplay relay server (N64.pak)
 	cp ./workspace/all/n64-netplay-server/build/$(PLATFORM)/m64p-server.elf ./build/SYSTEM/$(PLATFORM)/paks/Emus/N64.pak/
 
@@ -297,7 +299,7 @@ common: build system cores prebuilts
 # own cached job and drops the results in workspace/all/prebuilts/output/; locally,
 # `make build-prebuilts PLATFORM=...` builds what that platform needs.
 PREBUILTS_tg5040 = ffplay rsync gliden64 mupen64plus sdl2-drastic
-PREBUILTS_tg5050 = mupen64plus sdl2-drastic
+PREBUILTS_tg5050 = mupen64plus sdl2-drastic tun-ko
 
 build-prebuilts:
 	@for p in $(PREBUILTS_$(PLATFORM)); do \
@@ -316,6 +318,7 @@ N64_PREBUILT_FILES = libmupen64plus.so.2 mupen64plus mupen64plus-audio-sdl.so \
 PREBUILT_FILES_tg5040 = SYSTEM/shared/bin/ffplay SYSTEM/shared/bin/rsync \
 	BASE/Emus/shared/mupen64plus/mupen64plus-video-GLideN64.so \
 	BASE/Emus/shared/mupen64plus/libpng16.so.16
+PREBUILT_FILES_tg5050 = SYSTEM/tg5050/lib/modules/tun.ko
 PREBUILT_FILES = $(PREBUILT_FILES_$(PLATFORM)) \
 	$(addprefix SYSTEM/$(PLATFORM)/paks/Emus/N64.pak/,$(N64_PREBUILT_FILES)) \
 	SYSTEM/$(PLATFORM)/paks/Emus/NDS.pak/libs/libSDL2-2.0.so.0

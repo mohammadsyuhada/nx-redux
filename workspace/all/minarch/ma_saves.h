@@ -6,6 +6,7 @@ void SRAM_read(void);
 void SRAM_write(void);
 void RTC_read(void);
 void RTC_write(void);
+int State_getSlotPath(int slot, char* filename);
 void State_getPath(char* filename);
 int State_read(void);
 int State_readWithUndo(void);

@@ -285,6 +285,23 @@ bool NET_shouldBroadcast(NET_BroadcastTimer* timer) {
 // Discovery Utilities
 //////////////////////////////////////////////////////////////////////////////
 
+static void net_fill_discovery(NET_DiscoveryPacket* pkt, uint32_t magic,
+							   uint32_t protocol_version, uint32_t game_crc,
+							   uint16_t tcp_port, const char* game_name,
+							   const char* link_mode) {
+	memset(pkt, 0, sizeof(*pkt));
+	pkt->magic = htonl(magic);
+	pkt->protocol_version = htonl(protocol_version);
+	pkt->game_crc = htonl(game_crc);
+	pkt->port = htons(tcp_port);
+	if (game_name) {
+		strncpy(pkt->game_name, game_name, NET_MAX_GAME_NAME - 1);
+	}
+	if (link_mode) {
+		strncpy(pkt->link_mode, link_mode, NET_MAX_LINK_MODE - 1);
+	}
+}
+
 void NET_sendDiscoveryBroadcast(int udp_fd, uint32_t magic, uint32_t protocol_version,
 								uint32_t game_crc, uint16_t tcp_port,
 								uint16_t discovery_port, const char* game_name,
@@ -292,17 +309,9 @@ void NET_sendDiscoveryBroadcast(int udp_fd, uint32_t magic, uint32_t protocol_ve
 	if (udp_fd < 0)
 		return;
 
-	NET_DiscoveryPacket pkt = {0};
-	pkt.magic = htonl(magic);
-	pkt.protocol_version = htonl(protocol_version);
-	pkt.game_crc = htonl(game_crc);
-	pkt.port = htons(tcp_port);
-	if (game_name) {
-		strncpy(pkt.game_name, game_name, NET_MAX_GAME_NAME - 1);
-	}
-	if (link_mode) {
-		strncpy(pkt.link_mode, link_mode, NET_MAX_LINK_MODE - 1);
-	}
+	NET_DiscoveryPacket pkt;
+	net_fill_discovery(&pkt, magic, protocol_version, game_crc, tcp_port,
+					   game_name, link_mode);
 
 	// The subnet-directed broadcast (ip | ~mask) of the interface whose IP the
 	// host advertises (NET_getLanInfo), on every platform. Linux routes the
@@ -335,6 +344,37 @@ void NET_sendDiscoveryBroadcast(int udp_fd, uint32_t magic, uint32_t protocol_ve
 			inet_ntop(AF_INET, &bcast.sin_addr, dst, sizeof(dst));
 			fprintf(stderr, "netplay: discovery broadcast to %s:%u failed: %s\n",
 					dst, (unsigned)discovery_port, strerror(errno));
+		}
+	}
+}
+
+// USB cable mode: the TUN link is point-to-point, so there is no subnet
+// broadcast to ride — the peer address is known, send straight to it.
+void NET_sendDiscoveryTo(int udp_fd, const char* dest_ip, uint32_t magic,
+						 uint32_t protocol_version, uint32_t game_crc,
+						 uint16_t tcp_port, uint16_t discovery_port,
+						 const char* game_name, const char* link_mode) {
+	if (udp_fd < 0 || !dest_ip)
+		return;
+
+	NET_DiscoveryPacket pkt;
+	net_fill_discovery(&pkt, magic, protocol_version, game_crc, tcp_port,
+					   game_name, link_mode);
+
+	struct sockaddr_in dest = {0};
+	dest.sin_family = AF_INET;
+	dest.sin_port = htons(discovery_port);
+	if (inet_pton(AF_INET, dest_ip, &dest.sin_addr) != 1)
+		return;
+
+	if (sendto(udp_fd, &pkt, sizeof(pkt), 0,
+			   (struct sockaddr*)&dest, sizeof(dest)) < 0) {
+		// Once per process, like the broadcast path.
+		static bool warned = false;
+		if (!warned) {
+			warned = true;
+			fprintf(stderr, "netplay: discovery send to %s:%u failed: %s\n",
+					dest_ip, (unsigned)discovery_port, strerror(errno));
 		}
 	}
 }

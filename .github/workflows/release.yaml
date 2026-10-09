@@ -136,7 +136,8 @@ jobs:
 
   build-prebuilt:
     # Third-party binaries built from pinned source (workspace/all/prebuilts/);
-    # shared ones (ffplay, rsync, GLideN64) only with the tg5040 toolchain.
+    # shared ones (ffplay, rsync, GLideN64) only with the tg5040 toolchain;
+    # tun.ko is tg5050-only (its kernel lacks CONFIG_TUN).
     runs-on: ubuntu-24.04-arm
     strategy:
       fail-fast: true
@@ -149,6 +150,7 @@ jobs:
           - { toolchain: tg5050, prebuilt: mupen64plus, inputs: "workspace/all/other/mupen64plus/mupen64plus-*.patch", overlay: true }
           - { toolchain: tg5040, prebuilt: sdl2-drastic, inputs: "workspace/all/other/sdl2-drastic/**", overlay: false }
           - { toolchain: tg5050, prebuilt: sdl2-drastic, inputs: "workspace/all/other/sdl2-drastic/**", overlay: false }
+          - { toolchain: tg5050, prebuilt: tun-ko, inputs: "workspace/tg5050/other/kernel/**", overlay: false }
     steps:
       - name: Checkout
         uses: actions/checkout@v5.0.0

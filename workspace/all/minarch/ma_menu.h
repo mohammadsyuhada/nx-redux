@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <SDL2/SDL_ttf.h>
+#include "ma_save_paths.h"
 
 // Forward declaration (full def in ma_frontend_opts.h); guarded because C99
 // forbids repeating a typedef and both headers may land in the same TU.
@@ -14,6 +15,11 @@ void Menu_init(void);
 void Menu_quit(void);
 void Menu_beforeSleep(void);
 void Menu_afterSleep(void);
+// Which save data this launch plays on (netplay env; see ma_save_paths.h).
+NetplaySavesMode Menu_netplaySavesMode(void);
+// At the start of a netplay session on the device's own save: delete this
+// game's auto-resume state and its markers (after Menu_init).
+void Menu_dropAutoResumeForSession(void);
 int Menu_options(MenuList* list);
 void Menu_screenshot(void);
 void Menu_saveState(void);

@@ -1,0 +1,543 @@
+# license: modifies gpSP (https://github.com/libretro/gpsp), GPL-2.0 (COPYING); this patch is distributed under the same license.
+diff --git forkSrcPrefix/Makefile forkDstPrefix/Makefile
+index 3c85049..e08880b 100644
+--- forkSrcPrefix/Makefile
++++ forkDstPrefix/Makefile
+@@ -656,6 +656,9 @@ cpu_threaded.o: cpu_threaded.c
+ %.o: %.c
+ 	$(CC) $(INCFLAGS) $(CFLAGS) $(OPTIMIZE) -c  -o $@ $<
+ 
++# NXRedux: rebuild the lockstep objects when the state machine changes.
++$(CORE_DIR)/serial.o $(CORE_DIR)/nx_sio_lockstep.o: $(NX_GPSP_DIR)/sio_lockstep.c $(NX_GPSP_DIR)/sio_lockstep.h
++
+ %.o: %.cc
+ 	$(CXX) $(INCFLAGS) $(CXXFLAGS) $(OPTIMIZE) -c  -o $@ $<
+ 
+diff --git forkSrcPrefix/Makefile.common forkDstPrefix/Makefile.common
+index 9742c05..29754c9 100644
+--- forkSrcPrefix/Makefile.common
++++ forkDstPrefix/Makefile.common
+@@ -31,6 +31,12 @@ SOURCES_C := $(CORE_DIR)/main.c \
+              $(LIBRETRO_COMM_DIR)/time/rtime.c \
+              $(LIBRETRO_COMM_DIR)/vfs/vfs_implementation.c
+ 
++# NXRedux: the lockstep link-cable state machine (gpsp_serial "lockstep",
++# serial.c) lives in the NXRedux tree, where it is unit-tested on the host.
++NX_GPSP_DIR ?= $(CORE_DIR)/../../../../all/cores/gpsp
++INCFLAGS += -I$(NX_GPSP_DIR)
++SOURCES_C += $(CORE_DIR)/nx_sio_lockstep.c
++
+ ifeq ($(HAVE_DYNAREC), 1)
+   SOURCES_C += $(CORE_DIR)/cpu_threaded.c
+   ifeq ($(CPU_ARCH), x86_32)
+diff --git forkSrcPrefix/gba_memory.c forkDstPrefix/gba_memory.c
+index 5dff1b5..ec12593 100644
+--- forkSrcPrefix/gba_memory.c
++++ forkDstPrefix/gba_memory.c
+@@ -2908,6 +2908,13 @@ u32 load_gamepak(const struct retro_game_info* info, const char *name,
+    rtc_enabled = false;
+    rumble_enabled = false;
+    backup_type_reset = BACKUP_UNKN;
++   /* NXRedux: "auto_cable" is what the frontend passes for Automatic in a USB
++    * Cable session: resolve exactly like "auto", then use the real link cable
++    * in place of no device or the cable fakes (mul_poke/mul_aw1/mul_aw2). The
++    * wireless adapter and the GB Player keep their own emulation. */
++   bool cable_pref = force_serial == SERIAL_MODE_AUTO_CABLE;
++   if (cable_pref)
++      force_serial = SERIAL_MODE_AUTO;
+    serial_mode = force_serial;
+ 
+    load_game_config_over(game_code);
+@@ -2972,6 +2979,9 @@ u32 load_gamepak(const struct retro_game_info* info, const char *name,
+          }
+       }
+    }
++
++   if (cable_pref && serial_mode != SERIAL_MODE_RFU && serial_mode != SERIAL_MODE_GBP)
++      serial_mode = SERIAL_MODE_LOCKSTEP;
+ 	
+    normalize_blank_backup_for_detected_type();
+ 
+diff --git forkSrcPrefix/libretro/libretro.c forkDstPrefix/libretro/libretro.c
+index 16629b1..64f5fcf 100644
+--- forkSrcPrefix/libretro/libretro.c
++++ forkDstPrefix/libretro/libretro.c
+@@ -481,10 +481,15 @@ static void netpacket_start(uint16_t client_id, retro_netpacket_send_t send_fn,
+   netpacket_pollrcv_fn_ptr = poll_receive_fn;
+   netplay_num_clients = 0;
+   netplay_client_id = client_id;
++  // A client only starts once it is connected; the host links when its
++  // client connects (netpacket_connected), not while it waits for one.
++  if (client_id != 0)
++    lockstep_net_start(false);
+ }
+ 
+ // Netplay session ends.
+ static void netpacket_stop() {
++  lockstep_net_stop();
+   netpacket_send_fn_ptr = NULL;
+   netpacket_pollrcv_fn_ptr = NULL;
+ }
+@@ -501,6 +506,9 @@ static void netpacket_receive(const void* buf, size_t len, uint16_t client_id) {
+   case SERIAL_MODE_SERIAL_AW2:
+     serialaw_net_receive(buf, len, client_id);
+     break;
++  case SERIAL_MODE_LOCKSTEP:
++    lockstep_net_receive(buf, len);
++    break;
+   };
+ }
+ 
+@@ -514,6 +522,8 @@ static bool netpacket_connected(uint16_t client_id) {
+      MAX_SERMULT_NETPLAYERS,   // SERIAL_MODE_SERIAL_AW1
+      MAX_SERMULT_NETPLAYERS,   // SERIAL_MODE_SERIAL_AW2
+      0,                        // SERIAL_MODE_AUTO
++     2,                        // SERIAL_MODE_LOCKSTEP (one cable)
++     0,                        // SERIAL_MODE_AUTO_CABLE (never a running mode)
+   };
+   const u32 max_clients = maxpl[serial_mode] - 1U;
+ 
+@@ -521,6 +531,11 @@ static bool netpacket_connected(uint16_t client_id) {
+     return false;
+ 
+   netplay_num_clients++;
++  // Host only: the cable is plugged in now. The frontend reports the peer as
++  // connected on the client side too, right after start(), and a second
++  // siols_start there would make both sides timeline leaders.
++  if (netplay_client_id == 0)
++    lockstep_net_start(true);
+   return true;
+ }
+ 
+@@ -531,6 +546,7 @@ static void netpacket_disconnected(uint16_t client_id) {
+   // Force RFU state to IDLE so the game receives disconnect notification
+   // This fixes CLIENT getting stuck when HOST disconnects during gameplay
+   rfu_net_disconnect();
++  lockstep_net_stop();
+   netplay_num_clients--;
+ }
+ 
+@@ -1008,6 +1024,10 @@ static void check_variables(bool started_from_load)
+            serial_setting = SERIAL_MODE_SERIAL_AW2;
+         else if (!strcmp(var.value, "gbp"))
+            serial_setting = SERIAL_MODE_GBP;
++        else if (!strcmp(var.value, "lockstep"))
++           serial_setting = SERIAL_MODE_LOCKSTEP;
++        else if (!strcmp(var.value, "auto_cable"))
++           serial_setting = SERIAL_MODE_AUTO_CABLE;
+         else
+            serial_setting = SERIAL_MODE_AUTO;
+      }
+@@ -1448,6 +1468,9 @@ void retro_run(void)
+    case SERIAL_MODE_SERIAL_POKE:
+      serialpoke_frame_update();
+      break;
++   case SERIAL_MODE_LOCKSTEP:
++     lockstep_frame_update();
++     break;
+    };
+ 
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
+diff --git forkSrcPrefix/libretro/libretro_core_options.h forkDstPrefix/libretro/libretro_core_options.h
+index ab406b1..8ac26b4 100644
+--- forkSrcPrefix/libretro/libretro_core_options.h
++++ forkDstPrefix/libretro/libretro_core_options.h
+@@ -123,6 +123,7 @@ struct retro_core_option_definition option_defs_us[] = {
+          { "mul_poke", "Link Cable - Pokemon Gen3 mode" },
+          { "mul_aw1",  "Link Cable - Advance Wars 1 mode" },
+          { "mul_aw2",  "Link Cable - Advance Wars 2 mode" },
++         { "lockstep", "Link Cable - Real (USB only)" },
+          { NULL, NULL },
+       },
+       "auto"
+diff --git forkSrcPrefix/nx_sio_lockstep.c forkDstPrefix/nx_sio_lockstep.c
+new file mode 100644
+index 0000000..502d489
+--- /dev/null
++++ forkDstPrefix/nx_sio_lockstep.c
+@@ -0,0 +1,4 @@
++/* NXRedux: compiles the lockstep link state machine into the core. The
++ * source lives (and is unit-tested) in the NXRedux tree at
++ * workspace/all/cores/gpsp/; Makefile.common puts that on the include path. */
++#include "sio_lockstep.c"
+diff --git forkSrcPrefix/serial.c forkDstPrefix/serial.c
+index 55bf2e1..7eadd2b 100644
+--- forkSrcPrefix/serial.c
++++ forkDstPrefix/serial.c
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include "common.h"
++#include "sio_lockstep.h"
+ 
+ int serial_mode = SERIAL_MODE_AUTO;
+ 
+@@ -29,7 +30,11 @@ static u32 serial_irq_cycles = 0;
+  * immediate spurious IRQ on the very next update_serial() call.
+  * serial_mode is a libretro core-option, restored independently. */
+ u32 serial_get_irq_cycles(void) { return serial_irq_cycles; }
+-void serial_set_irq_cycles(u32 v) { serial_irq_cycles = v; }
++static void lockstep_state_loaded(void);
++void serial_set_irq_cycles(u32 v) {
++  serial_irq_cycles = v;
++  lockstep_state_loaded();
++}
+ 
+ // Timings are very aproximate, hopefully they are good enough.
+ #define CLOCK_CYC_256KHZ_8BIT        524    // CLOCK / 256KHz * 8
+@@ -73,6 +78,229 @@ uint16_t serial_mul_siocnt() {
+   return ret;
+ }
+ 
++/* ---- NXRedux: lockstep link cable (gpsp_serial "lockstep") ----------------
++ * Two gpSP instances act as one cable: the side that starts a transfer sends
++ * its word, emulates the transfer's normal duration, then waits here (in the
++ * CPU loop, not the frontend) for the peer's word; netplay client 0 paces
++ * client 1's timeline. Protocol/state machine: sio_lockstep.c (NXRedux tree,
++ * host unit-tested; compiled in by nx_sio_lockstep.c). */
++void netpacket_send(uint16_t client_id, const void *buf, size_t len);
++void netpacket_poll_receive();
++
++static const u16 lockstep_multi_tim[] = {
++  CLOCK_CYC_9600_16BIT, CLOCK_CYC_38400_16BIT,
++  CLOCK_CYC_57600_16BIT, CLOCK_CYC_115200_16BIT };
++
++static SioLs lockstep;
++static bool lockstep_ready;
++static bool lockstep_initiated; // a transfer we started is in flight (not from a savestate)
++static u8 lockstep_mode;        // SIOLS_* of the transfer we started
++static u32 lockstep_own;        // our word in it
++static int lockstep_stats = -1; // NX_SIO_STATS=1: a stats line per 60 frames
++static unsigned lockstep_frames;
++// NX_SIO_TRACE=1: one line per link event to /tmp/sio-trace.txt (debug).
++static FILE *lockstep_trace;
++static int lockstep_trace_on = -1;
++static unsigned lockstep_frame_no;
++static uint64_t lockstep_irq_at; // our timeline at the last transfer completion
++
++static void ls_trace(char kind, unsigned seq, u32 a, u32 b, long long x, long long y) {
++  if (lockstep_trace_on < 0) {
++    const char *v = getenv("NX_SIO_TRACE");
++    lockstep_trace_on = v && v[0] == '1';
++    if (lockstep_trace_on && !(lockstep_trace = fopen("/tmp/sio-trace.txt", "w")))
++      lockstep_trace_on = 0;
++    if (lockstep_trace_on)
++      fprintf(lockstep_trace, "# frame vcount cycle kind seq a b x y\n");
++  }
++  if (!lockstep_trace_on)
++    return;
++  fprintf(lockstep_trace, "%u %u %llu %c %u %x %x %lld %lld\n", lockstep_frame_no,
++          (unsigned)read_ioreg(REG_VCOUNT), (unsigned long long)lockstep.now, kind, seq,
++          (unsigned)a, (unsigned)b, x, y);
++}
++
++static uint64_t ls_now_us(void *c) {
++  struct timespec t;
++  (void)c;
++  clock_gettime(CLOCK_MONOTONIC, &t);
++  return (uint64_t)t.tv_sec * 1000000u + (uint64_t)t.tv_nsec / 1000u;
++}
++static void ls_sleep_us(void *c, unsigned us) {
++  struct timespec t = { 0, (long)us * 1000L };
++  (void)c;
++  nanosleep(&t, NULL);
++}
++static void ls_send(void *c, const void *b, size_t n) {
++  (void)c;
++  netpacket_send(RETRO_NETPACKET_BROADCAST, b, n);
++}
++static void ls_poll(void *c) {
++  (void)c;
++  netpacket_poll_receive();
++}
++
++static SioLs *ls(void) {
++  if (!lockstep_ready) {
++    SioLsIo io = { NULL, ls_send, ls_poll, ls_now_us, ls_sleep_us };
++    siols_init(&lockstep, &io);
++    lockstep_ready = true;
++  }
++  return &lockstep;
++}
++
++// Other serial modes never touch the lockstep state.
++void lockstep_net_start(bool leader) {
++  if (serial_mode == SERIAL_MODE_LOCKSTEP) {
++    siols_start(ls(), leader);
++    ls_trace('S', leader, 0, 0, 0, 0);
++  }
++}
++void lockstep_net_stop(void) {
++  if (lockstep_ready) {
++    siols_stop(ls());
++    ls_trace('X', 0, 0, 0, 0, 0);
++    if (lockstep_trace)
++      fflush(lockstep_trace);
++  }
++}
++
++// A savestate restores serial_irq_cycles but not the link: a transfer that was
++// in flight when the state was saved has no START on the wire in this session,
++// so waiting for its REPLY would only time out and break the link. Drop it;
++// the restored countdown completes with the registers as saved.
++static void lockstep_state_loaded(void) {
++  lockstep_initiated = false;
++  if (lockstep_ready)
++    siols_abort_xfer(&lockstep);
++}
++void lockstep_net_receive(const void *buf, size_t len) { siols_on_packet(ls(), buf, len); }
++
++static u32 lockstep_normal_cycles(u8 ctrl, bool is32) {
++  u32 c = (ctrl & 0x2) ? CLOCK_CYC_2MHZ_8BIT : CLOCK_CYC_256KHZ_8BIT;
++  return is32 ? c << 2 : c;
++}
++
++// write_siocnt: we start a transfer (MULTI parent, or NORMAL internal clock).
++static void lockstep_initiate(u8 mode, u16 siocnt) {
++  lockstep_initiated = true;
++  lockstep_mode = mode;
++  if (mode == SIOLS_MULTI)
++    lockstep_own = read_ioreg(REG_SIOMLT_SEND);
++  else if (mode == SIOLS_NORMAL32)
++    lockstep_own = read_ioreg32(REG_SIODATA32_L);
++  else
++    lockstep_own = read_ioreg(REG_SIOMLT_SEND) & 0xFF; // SIODATA8 is 0x400012A too
++  siols_initiate(ls(), mode, siocnt & 0x3, lockstep_own);
++  ls_trace('I', lockstep.out.seq, lockstep_own, siocnt, mode, lockstep.broken);
++}
++
++// The transfer we started completes now: wait for the peer's word.
++static void lockstep_finish(void) {
++  uint64_t t0 = ls_now_us(NULL);
++  u32 peer = siols_complete(ls());
++  lockstep_initiated = false;
++  ls_trace('F', lockstep.out.seq, lockstep_own, peer, (long long)(ls_now_us(NULL) - t0), lockstep.broken);
++  if (lockstep_mode == SIOLS_MULTI) {
++    write_ioreg(REG_SIOMULTI0, lockstep_own);
++    write_ioreg(REG_SIOMULTI1, peer);
++    write_ioreg(REG_SIOMULTI2, 0xFFFF);
++    write_ioreg(REG_SIOMULTI3, 0xFFFF);
++  } else if (lockstep_mode == SIOLS_NORMAL32) {
++    write_ioreg(REG_SIODATA32_L, peer & 0xFFFF);
++    write_ioreg(REG_SIODATA32_H, peer >> 16);
++  } else
++    write_ioreg(REG_SIOMLT_SEND, peer & 0xFF);
++}
++
++// The peer started a transfer: answer with our word, run our half of it.
++static void lockstep_respond(const SioLsMsg *st) {
++  u16 cnt = read_ioreg(REG_SIOCNT);
++  u32 hw = get_serial_mode(cnt, read_ioreg(REG_RCNT));
++  if (st->mode == SIOLS_MULTI) {
++    if (hw != SERIAL_MODE_MULTI) { // not on the cable yet: the parent reads "no partner"
++      ls_trace('r', st->seq, st->word, cnt, hw, 0);
++      siols_reply(ls(), st, 0xFFFF);
++      return;
++    }
++    u16 mine = read_ioreg(REG_SIOMLT_SEND);
++    ls_trace('R', st->seq, st->word, mine, cnt, (long long)(lockstep.now - lockstep_irq_at));
++    siols_reply(ls(), st, mine);
++    write_ioreg(REG_SIOMULTI0, st->word);
++    write_ioreg(REG_SIOMULTI1, mine);
++    write_ioreg(REG_SIOMULTI2, 0xFFFF);
++    write_ioreg(REG_SIOMULTI3, 0xFFFF);
++    write_ioreg(REG_SIOCNT, cnt | 0x80); // busy until the completion IRQ clears it
++    serial_irq_cycles = lockstep_multi_tim[st->ctrl & 0x3] * 2;
++  } else {
++    bool is32 = st->mode == SIOLS_NORMAL32;
++    // A NORMAL slave takes part only when armed: start bit set, external clock.
++    if (hw != SERIAL_MODE_NORMAL || !(cnt & 0x80) || (cnt & 0x1)) {
++      ls_trace('r', st->seq, st->word, cnt, hw, 0);
++      siols_reply(ls(), st, is32 ? 0xFFFFFFFFu : 0xFFu);
++      return;
++    }
++    u32 mine = is32 ? read_ioreg32(REG_SIODATA32_L) : (read_ioreg(REG_SIOMLT_SEND) & 0xFF);
++    ls_trace('R', st->seq, st->word, mine, cnt, (long long)(lockstep.now - lockstep_irq_at));
++    siols_reply(ls(), st, mine);
++    if (is32) {
++      write_ioreg(REG_SIODATA32_L, st->word & 0xFFFF);
++      write_ioreg(REG_SIODATA32_H, st->word >> 16);
++    } else
++      write_ioreg(REG_SIOMLT_SEND, st->word & 0xFF);
++    serial_irq_cycles = lockstep_normal_cycles(st->ctrl, is32);
++  }
++}
++
++// update_serial, before the IRQ countdown: advance our timeline; a transfer
++// we started that ends within these cycles needs the peer's word now.
++static void lockstep_update_begin(unsigned cycles) {
++  SioLs *s = ls();
++  siols_advance(s, cycles);
++  if (lockstep_initiated && s->xfer_active && serial_irq_cycles && serial_irq_cycles <= cycles)
++    lockstep_finish();
++}
++
++// update_serial, after the countdown: poll, keep client 1 within reach of
++// client 0's timeline, answer STARTs that are due.
++static void lockstep_update_end(void) {
++  SioLs *s = ls();
++  SioLsMsg st;
++  siols_service(s, serial_irq_cycles != 0);
++  for (;;) {
++    long long lag = s->inbox_n ? (long long)s->now - ((long long)s->inbox[0].cycle + s->offset) : 0;
++    int n = s->inbox_n;
++    if (!siols_take_start(s, serial_irq_cycles != 0, &st))
++      break;
++    ls_trace('T', st.seq, n, 0, lag, (long long)s->leader_latest + s->offset - (long long)s->now);
++    lockstep_respond(&st);
++  }
++}
++
++void lockstep_frame_update(void) {
++  lockstep_frame_no++;
++  if (lockstep_trace && !(lockstep_frame_no % 60))
++    fflush(lockstep_trace);
++  if (lockstep_stats < 0) {
++    const char *v = getenv("NX_SIO_STATS");
++    lockstep_stats = v && v[0] == '1';
++  }
++  if (!lockstep_stats || ++lockstep_frames < 60)
++    return;
++  lockstep_frames = 0;
++  SioLsStats *t = &ls()->st;
++  if (t->xfers || t->replies || t->timeouts || t->bound_waits)
++    fprintf(stderr, "sio-lockstep: %s xfers=%u replies=%u wait_avg_us=%llu wait_max_us=%llu "
++            "wait_ms(<.5/<1/<2/<5/>=5)=%u/%u/%u/%u/%u timeouts=%u resends=%u reanswers=%u "
++            "bound_waits=%u bound_timeouts=%u\n",
++            ls()->leader ? "leader" : "follower", t->xfers, t->replies,
++            (unsigned long long)(t->xfers ? t->wait_us_total / t->xfers : 0),
++            (unsigned long long)t->wait_us_max, t->hist[0], t->hist[1], t->hist[2],
++            t->hist[3], t->hist[4], t->timeouts, t->resends, t->reanswers,
++            t->bound_waits, t->bound_timeouts);
++  memset(t, 0, sizeof(*t));
++}
++
+ cpu_alert_type write_rcnt(u16 value) {
+   u16 oldval = read_ioreg(REG_RCNT);
+   u32 pvmode = get_serial_mode(oldval, read_ioreg(REG_RCNT));
+@@ -158,6 +386,13 @@ cpu_alert_type write_siocnt(u16 value) {
+         serial_irq_cycles = CLOCK_CYC_64KHZ_32BIT;
+       }
+     }
++    else if (serial_mode == SERIAL_MODE_LOCKSTEP) {
++      // We drive the clock: start a transfer with the other gpSP.
++      if ((newval & 0x0080) && (newval & 0x1) && !serial_irq_cycles) {
++        serial_irq_cycles = lockstep_normal_cycles(newval & 0x3, newval & 0x1000);
++        lockstep_initiate((newval & 0x1000) ? SIOLS_NORMAL32 : SIOLS_NORMAL8, newval);
++      }
++    }
+     break;
+ 
+   case SERIAL_MODE_MULTI:
+@@ -178,6 +413,8 @@ cpu_alert_type write_siocnt(u16 value) {
+         serialpoke_master_send();
+       else if (serial_mode == SERIAL_MODE_SERIAL_AW1 || serial_mode == SERIAL_MODE_SERIAL_AW2)
+         serialaw_master_send();
++      else if (serial_mode == SERIAL_MODE_LOCKSTEP)
++        lockstep_initiate(SIOLS_MULTI, newval);
+     }
+ 
+     break;
+@@ -191,30 +428,17 @@ cpu_alert_type write_siocnt(u16 value) {
+ 
+ // How many cycles until the next serial event happens. Return MAX otherwise.
+ u32 serial_next_event() {
+-  if (serial_irq_cycles)
+-    return serial_irq_cycles;
+-  return ~0U;
++  u32 ev = serial_irq_cycles ? serial_irq_cycles : ~0U;
++  if (serial_mode == SERIAL_MODE_LOCKSTEP) {
++    u32 l = siols_next_event(ls());   // poll / SYNC / follower-bound checkpoints
++    if (l < ev)
++      ev = l;
++  }
++  return ev;
+ }
+ 
+-// Account for consumed cycles and return if a serial IRQ should be raised.
+-bool update_serial(unsigned cycles) {
+-  // Might wanna check if the connected device has some update (IRQ).
+-  switch (serial_mode) {
+-  case SERIAL_MODE_RFU:
+-    if (rfu_update(cycles))
+-      return true;
+-    break;
+-  case SERIAL_MODE_SERIAL_POKE:
+-    if (serialpoke_update(cycles))
+-      return true;
+-    break;
+-  case SERIAL_MODE_SERIAL_AW1:
+-  case SERIAL_MODE_SERIAL_AW2:
+-    if (serialaw_update(cycles))
+-      return true;
+-    break;
+-  };
+-
++// Count down a pending transfer; true when its completion raises the IRQ.
++static bool serial_countdown(unsigned cycles) {
+   bool trigger_irq = false;
+   if (serial_irq_cycles) {
+     if (serial_irq_cycles > cycles)
+@@ -246,3 +470,36 @@ bool update_serial(unsigned cycles) {
+   return false;
+ }
+ 
++// Account for consumed cycles and return if a serial IRQ should be raised.
++bool update_serial(unsigned cycles) {
++  // Might wanna check if the connected device has some update (IRQ).
++  switch (serial_mode) {
++  case SERIAL_MODE_RFU:
++    if (rfu_update(cycles))
++      return true;
++    break;
++  case SERIAL_MODE_SERIAL_POKE:
++    if (serialpoke_update(cycles))
++      return true;
++    break;
++  case SERIAL_MODE_SERIAL_AW1:
++  case SERIAL_MODE_SERIAL_AW2:
++    if (serialaw_update(cycles))
++      return true;
++    break;
++  case SERIAL_MODE_LOCKSTEP:
++    lockstep_update_begin(cycles);
++    break;
++  };
++
++  u32 pending = serial_irq_cycles;
++  bool irq = serial_countdown(cycles);
++  if (serial_mode == SERIAL_MODE_LOCKSTEP) {
++    if (pending && !serial_irq_cycles) {
++      lockstep_irq_at = lockstep.now;
++      ls_trace('C', 0, read_ioreg(REG_SIOMULTI0), read_ioreg(REG_SIOMULTI1), read_ioreg(REG_SIOCNT), irq);
++    }
++    lockstep_update_end();
++  }
++  return irq;
++}
+diff --git forkSrcPrefix/serial.h forkDstPrefix/serial.h
+index ce471b9..caf7004 100644
+--- forkSrcPrefix/serial.h
++++ forkDstPrefix/serial.h
+@@ -24,6 +24,8 @@
+ #define SERIAL_MODE_SERIAL_AW1    4  // Connected to serial cable (AdvWars emulation mode)
+ #define SERIAL_MODE_SERIAL_AW2    5  // Connected to serial cable (AdvWars emulation mode)
+ #define SERIAL_MODE_AUTO          6  // Choose best fit automatically
++#define SERIAL_MODE_LOCKSTEP      7  // Real link cable to another gpSP (NXRedux, USB Cable sessions)
++#define SERIAL_MODE_AUTO_CABLE    8  // Setting only: like AUTO, real cable instead of the cable fakes; resolved at load
+ 
+ extern int serial_mode;
+ 
+@@ -47,6 +49,12 @@ void rfu_net_disconnect(void);
+ void rfu_frame_update(void);
+ void rfu_net_receive(const void* buf, size_t len, uint16_t client_id);
+ 
++// Lockstep link cable (NXRedux; serial.c)
++void lockstep_net_start(bool leader);
++void lockstep_net_stop(void);
++void lockstep_net_receive(const void* buf, size_t len);
++void lockstep_frame_update(void);
++
+ // Serial implementations
+ void serialproto_reset(void);
+ 

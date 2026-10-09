@@ -1,0 +1,597 @@
+// Host-compiled tests for sio_lockstep (fake wall clock, fake transport).
+// Build & run: workspace/all/cores/gpsp/tests/run_tests.sh
+#include <assert.h>
+#include <stdio.h>
+#include <string.h>
+#include "../sio_lockstep.h"
+
+typedef struct Fake Fake;
+struct Fake {
+	uint64_t us;					  // fake wall clock, advanced only by sleep_us
+	uint8_t out[512][SIOLS_MSG_SIZE]; // sent, not yet pumped to the peer
+	int nout, total_sent, polls;
+	void (*hook)(Fake* f); // runs on every poll: "the other device"
+};
+
+static Fake fa, fb;
+static SioLs A, B;
+static int hook_at;
+
+static uint64_t f_now(void* c) {
+	return ((Fake*)c)->us;
+}
+static void f_sleep(void* c, unsigned us) {
+	((Fake*)c)->us += us;
+}
+static void f_send(void* c, const void* b, size_t n) {
+	Fake* f = c;
+	assert(n == SIOLS_MSG_SIZE);
+	if (f->nout < 512)
+		memcpy(f->out[f->nout++], b, n);
+	f->total_sent++;
+}
+static void f_poll(void* c) {
+	Fake* f = c;
+	f->polls++;
+	if (f->hook)
+		f->hook(f);
+}
+
+static void setup(void) {
+	memset(&fa, 0, sizeof(fa));
+	memset(&fb, 0, sizeof(fb));
+	SioLsIo ia = {&fa, f_send, f_poll, f_now, f_sleep}, ib = {&fb, f_send, f_poll, f_now, f_sleep};
+	siols_init(&A, &ia);
+	siols_init(&B, &ib);
+}
+
+static void inject(SioLs* s, SioLsMsg m) {
+	uint8_t b[SIOLS_MSG_SIZE];
+	siols_encode(&m, b);
+	siols_on_packet(s, b, sizeof(b));
+}
+
+static void pump(Fake* from, SioLs* to) {
+	for (int i = 0; i < from->nout; i++)
+		siols_on_packet(to, from->out[i], SIOLS_MSG_SIZE);
+	from->nout = 0;
+}
+
+static SioLsMsg last_sent(Fake* f) {
+	SioLsMsg m;
+	assert(f->nout > 0 && siols_decode(f->out[f->nout - 1], SIOLS_MSG_SIZE, &m) == 0);
+	return m;
+}
+
+static void test_codec(void) {
+	SioLsMsg m = {.type = SIOLS_START, .mode = SIOLS_NORMAL32, .ctrl = 3, .seq = 0xBEEF, .word = 0xDEADBEEF, .cycle = 0x0123456789ABCDEFull}, r;
+	uint8_t b[SIOLS_MSG_SIZE];
+	assert(siols_encode(&m, b) == SIOLS_MSG_SIZE);
+	assert(b[0] == 'N' && b[1] == 'X' && b[2] == 'L' && b[3] == 'S');
+	assert(siols_is_packet(b, sizeof(b)));
+	assert(siols_decode(b, sizeof(b), &r) == 0);
+	assert(r.type == m.type && r.mode == m.mode && r.ctrl == 3 && r.seq == 0xBEEF && r.word == 0xDEADBEEF && r.cycle == m.cycle);
+	assert(!siols_is_packet(b, sizeof(b) - 1) && siols_decode(b, sizeof(b) - 1, &r) == -1);
+	b[4] = 9;
+	assert(siols_decode(b, sizeof(b), &r) == -1); // unknown type
+	b[4] = SIOLS_START;
+	b[5] = 7;
+	assert(siols_decode(b, sizeof(b), &r) == -1);			 // unknown mode
+	uint8_t poke[SIOLS_MSG_SIZE] = {0x4d, 0x50, 0x4b, 0x31}; // gpSP's own "MPK1" traffic
+	assert(!siols_is_packet(poke, sizeof(poke)));
+}
+
+static void test_unlinked_completes_at_once(void) {
+	setup();
+	assert(siols_next_event(&A) == UINT32_MAX);
+	siols_initiate(&A, SIOLS_MULTI, 3, 0x1234);
+	assert(siols_complete(&A) == 0xFFFF);
+	assert(fa.total_sent == 0 && fa.us == 0 && A.st.xfers == 0);
+}
+
+static void hook_reply_on_3rd_poll(Fake* f) {
+	if (f->polls != 3)
+		return;
+	SioLsMsg s = last_sent(&fa);
+	inject(&A, (SioLsMsg){.type = SIOLS_REPLY, .mode = s.mode, .seq = s.seq, .word = 0xB9A0});
+}
+
+static void test_leader_transfer(void) {
+	setup();
+	siols_start(&A, true);
+	siols_advance(&A, 1000);
+	assert(fa.total_sent == 0); // no link use yet: no SYNC
+	fa.hook = hook_reply_on_3rd_poll;
+	siols_initiate(&A, SIOLS_MULTI, 3, 0x8FFF);
+	SioLsMsg s = last_sent(&fa);
+	assert(s.type == SIOLS_START && s.seq == 1 && s.word == 0x8FFF && s.cycle == 1000 && s.ctrl == 3);
+	assert(siols_complete(&A) == 0xB9A0);
+	assert(fa.polls == 3 && fa.us == 100);
+	assert(A.st.xfers == 1 && A.st.timeouts == 0 && A.st.hist[0] == 1);
+}
+
+static void test_timeout_marks_broken(void) {
+	setup();
+	siols_start(&A, true);
+	siols_initiate(&A, SIOLS_NORMAL32, 0, 0x11223344);
+	assert(siols_complete(&A) == 0xFFFFFFFFu);
+	assert(fa.us == SIOLS_REPLY_TIMEOUT_US);
+	assert(A.broken && A.st.timeouts == 1 && A.st.hist[4] == 1);
+	assert(A.st.resends == SIOLS_REPLY_TIMEOUT_US / SIOLS_RESEND_US - 1); // re-sent while waiting
+	// Broken: the next transfer gives up at once instead of freezing the game again.
+	uint64_t t = fa.us;
+	int sent = fa.total_sent;
+	siols_initiate(&A, SIOLS_MULTI, 3, 1);
+	assert(siols_complete(&A) == 0xFFFF && fa.us == t && fa.total_sent == sent + 1); // START still sent
+	// A SYNC does not repair it (a peer that syncs may still ignore STARTs); transfer traffic does.
+	inject(&A, (SioLsMsg){.type = SIOLS_SYNC, .cycle = 5});
+	assert(A.broken);
+	inject(&A, (SioLsMsg){.type = SIOLS_REPLY, .seq = 99});
+	assert(!A.broken);
+}
+
+static void hook_stop_on_2nd_poll(Fake* f) {
+	if (f->polls == 2)
+		siols_stop(&A);
+}
+
+static void test_stop_mid_wait(void) {
+	setup();
+	siols_start(&A, true);
+	fa.hook = hook_stop_on_2nd_poll;
+	siols_initiate(&A, SIOLS_MULTI, 3, 7);
+	assert(siols_complete(&A) == 0xFFFF);
+	assert(fa.us < 1000 && A.st.timeouts == 0);
+}
+
+static void test_stale_reply_ignored(void) {
+	setup();
+	siols_start(&A, true);
+	siols_initiate(&A, SIOLS_MULTI, 3, 1); // seq 1
+	inject(&A, (SioLsMsg){.type = SIOLS_REPLY, .seq = 7, .word = 0x99});
+	assert(!A.reply_ready);
+	inject(&A, (SioLsMsg){.type = SIOLS_REPLY, .seq = 1, .word = 0x42});
+	assert(siols_complete(&A) == 0x42 && fa.polls == 0);
+}
+
+static void test_follower_answers_and_dedupes(void) {
+	setup();
+	siols_start(&B, false);
+	siols_advance(&B, 50000);
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .mode = SIOLS_MULTI, .ctrl = 3, .seq = 1, .word = 0x8FFF, .cycle = 900000});
+	SioLsMsg st;
+	assert(siols_take_start(&B, false, &st)); // first START of a session: answered at once
+	assert(st.word == 0x8FFF && st.seq == 1 && B.offset == 50000 - 900000);
+	siols_reply(&B, &st, 0xB9A0);
+	SioLsMsg r = last_sent(&fb);
+	assert(r.type == SIOLS_REPLY && r.seq == 1 && r.word == 0xB9A0);
+	// The leader re-sent it (our REPLY was lost): same answer again, not a second transfer.
+	int n = fb.total_sent;
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .mode = SIOLS_MULTI, .ctrl = 3, .seq = 1, .word = 0x8FFF, .cycle = 900000});
+	assert(fb.total_sent == n + 1 && last_sent(&fb).word == 0xB9A0);
+	assert(!siols_take_start(&B, false, &st));
+}
+
+static void test_follower_keeps_leader_spacing(void) {
+	test_follower_answers_and_dedupes(); // B: now 50000, answered at 50000, offset -850000
+	SioLsMsg st;
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .mode = SIOLS_MULTI, .ctrl = 3, .seq = 2, .word = 2, .cycle = 931000});
+	siols_advance(&B, 1000);
+	assert(!siols_take_start(&B, false, &st)); // leader gap 31000, ours 1000
+	assert(siols_next_event(&B) <= 30000);
+	siols_advance(&B, 29999);
+	assert(!siols_take_start(&B, false, &st));
+	siols_advance(&B, 1);
+	assert(siols_take_start(&B, false, &st) && st.seq == 2);
+	assert(B.offset == 50000 - 900000); // exactly on the leader's time: anchor kept
+	siols_reply(&B, &st, 2);
+	// Never while our own transfer is still running.
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .mode = SIOLS_MULTI, .ctrl = 3, .seq = 3, .word = 3, .cycle = 962000});
+	siols_advance(&B, 100000);
+	assert(!siols_take_start(&B, true, &st));
+	assert(siols_take_start(&B, false, &st) && st.seq == 3);
+}
+
+// Device trace 2026-10-09: a follower 50000 cycles ahead took the next START
+// the moment its previous transfer completed, before its serial IRQ handler
+// loaded the next word, and sent the old word again (game: link error).
+static void test_follower_ahead_still_waits_leader_spacing(void) {
+	setup();
+	siols_start(&B, false);
+	siols_advance(&B, 100000);
+	SioLsMsg st;
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 1, .cycle = 500000});
+	assert(siols_take_start(&B, false, &st)); // anchors: offset -400000
+	siols_reply(&B, &st, 0x11);
+	siols_advance(&B, 200000); // now 300000: 100000 past START 2's time when it arrives
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 2, .cycle = 600000});
+	assert(siols_take_start(&B, false, &st) && st.seq == 2);
+	assert(B.offset == -400000); // ahead: anchor kept
+	siols_reply(&B, &st, 0xCAFE);
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 3, .cycle = 618400});
+	siols_advance(&B, 5242);				   // only our transfer's duration since the last answer
+	assert(!siols_take_start(&B, false, &st)); // its time long passed, but not 18400 since ours
+	assert(siols_next_event(&B) <= 18400 - 5242);
+	siols_advance(&B, 18400 - 5242);
+	assert(siols_take_start(&B, false, &st) && st.seq == 3);
+}
+
+// Device trace 2026-10-09 (seq 1525): the CPU loop overshot the bound by 5
+// cycles before answering, so the next START was due 5 cycles past the next
+// bound. The follower waited there for the leader, which was waiting for its
+// REPLY: 100 ms stall until the bound timeout. A pending START lifts the bound.
+static void test_pending_start_lifts_bound(void) {
+	setup();
+	siols_start(&B, false);
+	SioLsMsg st;
+	const uint64_t G = 18400;
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 1, .cycle = 0});
+	assert(siols_take_start(&B, false, &st)); // anchors: offset 0
+	siols_reply(&B, &st, 1);
+	siols_advance(&B, (uint32_t)(G + SIOLS_SLACK_CYCLES + 5)); // overshot the bound
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 2, .cycle = G});
+	assert(siols_take_start(&B, false, &st) && st.seq == 2);
+	siols_reply(&B, &st, 2); // answered SLACK + 5 past the leader's time
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 3, .cycle = 2 * G});
+	siols_advance(&B, (uint32_t)(G - 5)); // at START 3's bound, 5 short of its due point
+	uint64_t us = fb.us;
+	siols_service(&B, false);
+	assert(fb.us == us && B.st.bound_waits == 0 && B.st.bound_timeouts == 0);
+	assert(!siols_take_start(&B, false, &st));
+	assert(siols_next_event(&B) <= 5);
+	siols_advance(&B, 5);
+	assert(siols_take_start(&B, false, &st) && st.seq == 3);
+}
+
+// A START far after the last one (new burst) is answered at once; so is one
+// from a leader that went back in time (reset, state load).
+static void test_follower_new_burst_answers_at_once(void) {
+	setup();
+	siols_start(&B, false);
+	SioLsMsg st;
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 1, .cycle = 1000});
+	assert(siols_take_start(&B, false, &st));
+	siols_reply(&B, &st, 1);
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 2, .cycle = 1000 + SIOLS_MAX_SPACING_CYCLES});
+	assert(siols_take_start(&B, false, &st) && st.seq == 2);
+	siols_reply(&B, &st, 2);
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 3, .cycle = 10});
+	assert(siols_take_start(&B, false, &st) && st.seq == 3);
+}
+
+static void test_follower_ahead_keeps_anchor(void) {
+	setup();
+	siols_start(&B, false);
+	siols_advance(&B, 100000);
+	SioLsMsg st;
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 1, .cycle = 0});
+	assert(siols_take_start(&B, false, &st));
+	siols_reply(&B, &st, 1);
+	assert(B.offset == 100000);
+	siols_advance(&B, 40000); // 140000; next START maps to 130000: we are 10000 ahead
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 2, .cycle = 30000});
+	assert(siols_take_start(&B, false, &st));
+	assert(B.offset == 100000); // no ratchet forward
+}
+
+static void hook_sync_at(Fake* f) {
+	if (f->polls == hook_at)
+		inject(&B, (SioLsMsg){.type = SIOLS_SYNC, .cycle = SIOLS_SYNC_CYCLES});
+}
+
+static void test_follower_bound_wait_and_timeout(void) {
+	setup();
+	siols_start(&B, false);
+	SioLsMsg st;
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 1, .cycle = 0});
+	assert(siols_take_start(&B, false, &st));
+	siols_reply(&B, &st, 1);
+	siols_advance(&B, SIOLS_SLACK_CYCLES - 1);
+	siols_service(&B, false);
+	assert(B.st.bound_waits == 0);
+	hook_at = fb.polls + 20;
+	fb.hook = hook_sync_at;
+	siols_advance(&B, 1); // at the bound
+	siols_service(&B, false);
+	assert(B.st.bound_waits == 1 && B.st.bound_timeouts == 0 && fb.us < SIOLS_BOUND_TIMEOUT_US);
+	fb.hook = NULL;
+	uint64_t t = fb.us;
+	siols_advance(&B, SIOLS_SYNC_CYCLES); // at the new bound, leader silent
+	siols_service(&B, false);
+	assert(B.st.bound_timeouts == 1 && fb.us - t >= SIOLS_BOUND_TIMEOUT_US && !B.epoch_valid);
+	assert(siols_next_event(&B) <= SIOLS_POLL_CYCLES); // running free
+	// Re-anchored by the next SYNC; busy (mid-transfer) never waits.
+	inject(&B, (SioLsMsg){.type = SIOLS_SYNC, .cycle = 200000});
+	siols_advance(&B, SIOLS_SLACK_CYCLES);
+	t = fb.us;
+	siols_service(&B, true);
+	assert(fb.us == t && B.st.bound_waits == 2); // 2nd = the wait that timed out above
+}
+
+static void hook_start_at(Fake* f) {
+	if (f->polls == hook_at)
+		inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 2, .cycle = 1000});
+}
+
+static void test_bound_wait_ends_on_start(void) {
+	setup();
+	siols_start(&B, false);
+	SioLsMsg st;
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 1, .cycle = 0});
+	assert(siols_take_start(&B, false, &st));
+	siols_reply(&B, &st, 1);
+	siols_advance(&B, SIOLS_SLACK_CYCLES);
+	hook_at = fb.polls + 5;
+	fb.hook = hook_start_at;
+	siols_service(&B, false); // leader is stalled on us: its START must end the wait
+	assert(B.st.bound_timeouts == 0 && fb.us < 1000);
+	assert(siols_take_start(&B, false, &st) && st.seq == 2);
+}
+
+static void test_leader_sync_cadence(void) {
+	setup();
+	siols_start(&A, true);
+	siols_advance(&A, SIOLS_FRAME_CYCLES);
+	assert(fa.total_sent == 0); // idle link: silent
+	siols_initiate(&A, SIOLS_MULTI, 3, 1);
+	inject(&A, (SioLsMsg){.type = SIOLS_REPLY, .seq = 1, .word = 2});
+	siols_complete(&A);
+	fa.nout = 0;
+	int syncs = 0;
+	for (int i = 0; i < 281; i++)
+		siols_advance(&A, 1000);
+	for (int i = 0; i < fa.nout; i++) {
+		SioLsMsg m;
+		assert(siols_decode(fa.out[i], SIOLS_MSG_SIZE, &m) == 0);
+		syncs += m.type == SIOLS_SYNC;
+	}
+	assert(syncs == 8);
+	int n = fa.total_sent;
+	siols_advance(&A, SIOLS_ENGAGE_CYCLES);
+	siols_advance(&A, 2 * SIOLS_SYNC_CYCLES);
+	assert(fa.total_sent == n); // link idle again: no SYNCs
+}
+
+static void test_next_event(void) {
+	setup();
+	assert(siols_next_event(&A) == UINT32_MAX);
+	siols_start(&A, true);
+	assert(siols_next_event(&A) == 1);
+	siols_service(&A, false);
+	assert(siols_next_event(&A) == SIOLS_IDLE_POLL_CYCLES);
+	siols_initiate(&A, SIOLS_MULTI, 3, 1);
+	inject(&A, (SioLsMsg){.type = SIOLS_REPLY, .seq = 1});
+	siols_complete(&A);
+	siols_advance(&A, 1);
+	siols_service(&A, false);
+	assert(siols_next_event(&A) == SIOLS_POLL_CYCLES);
+}
+
+// A = leader (client 0), B = follower; every leader poll runs a slice of B.
+static void hook_run_follower(Fake* f) {
+	(void)f;
+	pump(&fa, &B);
+	siols_advance(&B, 512);
+	siols_service(&B, false);
+	SioLsMsg st;
+	while (siols_take_start(&B, false, &st))
+		siols_reply(&B, &st, 0x2000 + st.seq);
+	pump(&fb, &A);
+}
+
+static void test_two_instances_trade_burst(void) {
+	setup();
+	siols_start(&A, true);
+	siols_start(&B, false);
+	fa.hook = hook_run_follower;
+	for (uint32_t i = 1; i <= 9; i++) { // one Gen3 trade frame: 9 transfers
+		siols_advance(&A, 31000);
+		for (int k = 0; k < 31000 / 512; k++) // the follower runs alongside meanwhile
+			hook_run_follower(&fa);
+		siols_initiate(&A, SIOLS_MULTI, 3, 0x1000 + i);
+		assert(siols_complete(&A) == 0x2000 + i);
+	}
+	assert(A.st.timeouts == 0 && B.st.bound_timeouts == 0 && A.st.xfers == 9);
+	assert(A.st.wait_us_max < 1000); // a follower keeping up answers within a few polls
+}
+
+static void test_follower_broken_needs_transfer_traffic(void) {
+	setup();
+	siols_start(&B, false);
+	SioLsMsg st;
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 1, .cycle = 0});
+	assert(siols_take_start(&B, false, &st));
+	siols_reply(&B, &st, 1);
+	siols_initiate(&B, SIOLS_MULTI, 3, 5); // leader alive but not answering
+	assert(siols_complete(&B) == 0xFFFF && B.broken && B.st.timeouts == 1);
+	// The leader's SYNCs keep coming: still broken, the next transfer does not stall.
+	siols_advance(&B, 1000);
+	inject(&B, (SioLsMsg){.type = SIOLS_SYNC, .cycle = SIOLS_SYNC_CYCLES});
+	assert(B.broken);
+	uint64_t t = fb.us;
+	siols_initiate(&B, SIOLS_MULTI, 3, 6);
+	assert(siols_complete(&B) == 0xFFFF && fb.us == t && B.st.timeouts == 1);
+	// A START from the leader is real transfer traffic: repaired.
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 2, .cycle = SIOLS_SYNC_CYCLES + 1000});
+	assert(!B.broken);
+}
+
+static void test_follower_reanchor_resets_leader_latest(void) {
+	setup();
+	siols_start(&B, false);
+	SioLsMsg st;
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 1, .cycle = 1000000});
+	assert(siols_take_start(&B, false, &st));
+	siols_reply(&B, &st, 1);
+	siols_advance(&B, SIOLS_SLACK_CYCLES);
+	siols_service(&B, false); // leader silent: bound timeout, running free
+	assert(B.st.bound_timeouts == 1 && !B.epoch_valid);
+	// The leader came back with an earlier cycle (core reset / state load).
+	inject(&B, (SioLsMsg){.type = SIOLS_SYNC, .cycle = 500});
+	assert(B.epoch_valid && B.leader_latest == 500 && B.offset == (int64_t)SIOLS_SLACK_CYCLES - 500);
+	assert(siols_next_event(&B) <= SIOLS_SLACK_CYCLES); // bounded again
+	siols_advance(&B, SIOLS_SLACK_CYCLES);
+	siols_service(&B, false);
+	assert(B.st.bound_waits == 2 && B.st.bound_timeouts == 2);
+}
+
+// (a) broken leader: the START still goes out, the game gets "nobody there" at once;
+// (b) the follower answers it later: repaired, the next transfer locks normally.
+static void test_broken_leader_recovers(void) {
+	setup();
+	siols_start(&A, true);
+	siols_start(&B, false);
+	siols_initiate(&A, SIOLS_MULTI, 3, 0x11); // peer paused > timeout
+	assert(siols_complete(&A) == 0xFFFF && A.broken && A.st.timeouts == 1);
+	fa.nout = 0; // all of seq 1 lost
+	uint64_t t = fa.us;
+	int polls = fa.polls;
+	siols_initiate(&A, SIOLS_MULTI, 3, 0x22);
+	SioLsMsg s = last_sent(&fa);
+	assert(fa.nout == 1 && s.type == SIOLS_START && s.seq == 2 && s.word == 0x22);
+	// A REPLY racing in before complete: repairs the link, but this transfer is already no_peer.
+	inject(&A, (SioLsMsg){.type = SIOLS_REPLY, .seq = 2, .word = 0x99});
+	assert(!A.broken);
+	assert(siols_complete(&A) == 0xFFFF && fa.us == t && fa.polls == polls);
+	assert(A.st.timeouts == 1 && A.st.xfers == 1);
+	// The follower is back and answers seq 2; the late REPLY completes nothing.
+	pump(&fa, &B);
+	SioLsMsg st;
+	assert(siols_take_start(&B, false, &st) && st.seq == 2);
+	siols_reply(&B, &st, 0x2002);
+	pump(&fb, &A);
+	assert(!A.broken && !A.reply_ready && !A.xfer_active && A.st.xfers == 1);
+	// Normal lockstep again: waits for and returns the follower's real word.
+	fa.hook = hook_run_follower;
+	siols_advance(&A, 31000);
+	t = fa.us;
+	siols_initiate(&A, SIOLS_MULTI, 3, 0x33);
+	assert(siols_complete(&A) == 0x2003 && fa.us > t);
+	assert(A.st.xfers == 2 && A.st.timeouts == 1 && !A.broken && B.st.bound_timeouts == 0);
+}
+
+// (c) both sides broken: one exchange repairs both.
+static void test_both_broken_recover(void) {
+	setup();
+	siols_start(&A, true);
+	siols_start(&B, false);
+	siols_initiate(&A, SIOLS_MULTI, 3, 1);
+	assert(siols_complete(&A) == 0xFFFF && A.broken);
+	siols_initiate(&B, SIOLS_MULTI, 3, 1);
+	assert(siols_complete(&B) == 0xFFFF && B.broken);
+	fa.nout = fb.nout = 0; // everything so far lost
+	siols_initiate(&A, SIOLS_MULTI, 3, 2);
+	assert(siols_complete(&A) == 0xFFFF);
+	pump(&fa, &B); // the START repairs the follower...
+	assert(!B.broken);
+	SioLsMsg st;
+	assert(siols_take_start(&B, false, &st) && st.seq == 2);
+	siols_reply(&B, &st, 0x2002);
+	pump(&fb, &A); // ...and its REPLY repairs the leader
+	assert(!A.broken);
+	fa.hook = hook_run_follower;
+	siols_advance(&A, 31000);
+	siols_initiate(&A, SIOLS_MULTI, 3, 3);
+	assert(siols_complete(&A) == 0x2003 && A.st.timeouts == 1);
+	// The follower's own transfers work again too.
+	fa.hook = NULL;
+	siols_initiate(&B, SIOLS_MULTI, 3, 4);
+	SioLsMsg bs = last_sent(&fb);
+	assert(bs.type == SIOLS_START && !B.reply_ready);
+	inject(&B, (SioLsMsg){.type = SIOLS_REPLY, .seq = bs.seq, .word = 0x44});
+	assert(siols_complete(&B) == 0x44 && B.st.timeouts == 1);
+}
+
+// The peer's menu is open (HOLD 1): we wait for it however long, then carry
+// on when it resumes (HOLD 0). Released at 2 s, its REPLY comes at once.
+static uint64_t release_at_us;
+static void hook_release_then_reply(Fake* f) {
+	if (f->us < release_at_us)
+		return;
+	SioLs* s = f == &fa ? &A : &B;
+	inject(s, (SioLsMsg){.type = SIOLS_HOLD, .word = 0});
+	if (s == &A)
+		inject(&A, (SioLsMsg){.type = SIOLS_REPLY, .seq = A.out.seq, .word = 0x77});
+	else
+		inject(&B, (SioLsMsg){.type = SIOLS_SYNC, .cycle = 10 * SIOLS_FRAME_CYCLES});
+	f->hook = NULL;
+}
+
+static void test_leader_waits_through_peer_hold(void) {
+	setup();
+	siols_start(&A, true);
+	siols_initiate(&A, SIOLS_MULTI, 3, 1);
+	inject(&A, (SioLsMsg){.type = SIOLS_HOLD, .word = 1});
+	release_at_us = 2000000;
+	fa.hook = hook_release_then_reply;
+	assert(siols_complete(&A) == 0x77);
+	assert(A.st.timeouts == 0 && !A.broken && fa.us >= 2000000);
+	// Released: a peer that stops answering times out as usual again.
+	siols_initiate(&A, SIOLS_MULTI, 3, 2);
+	assert(siols_complete(&A) == 0xFFFF && A.st.timeouts == 1);
+}
+
+static void test_follower_waits_at_bound_through_leader_hold(void) {
+	setup();
+	siols_start(&B, false);
+	SioLsMsg st;
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 1, .cycle = 0});
+	assert(siols_take_start(&B, false, &st));
+	siols_reply(&B, &st, 1);
+	inject(&B, (SioLsMsg){.type = SIOLS_HOLD, .word = 1});
+	siols_advance(&B, SIOLS_SLACK_CYCLES); // at the bound
+	release_at_us = 3000000;
+	fb.hook = hook_release_then_reply;
+	siols_service(&B, false);
+	assert(B.st.bound_timeouts == 0 && B.epoch_valid && fb.us >= 3000000);
+}
+
+// A hold that is never released (peer crashed with its menu open) stops
+// counting after SIOLS_HOLD_MAX_US: the transfer then times out.
+static void test_hold_expires(void) {
+	setup();
+	siols_start(&A, true);
+	inject(&A, (SioLsMsg){.type = SIOLS_HOLD, .word = 1});
+	siols_initiate(&A, SIOLS_MULTI, 3, 1);
+	assert(siols_complete(&A) == 0xFFFF && A.st.timeouts == 1);
+	assert(fa.us >= SIOLS_HOLD_MAX_US && fa.us < SIOLS_HOLD_MAX_US + 2 * SIOLS_REPLY_TIMEOUT_US);
+}
+
+static void test_abort_xfer(void) {
+	setup();
+	siols_start(&A, true);
+	siols_initiate(&A, SIOLS_MULTI, 3, 0x1234);
+	siols_abort_xfer(&A);
+	assert(!A.xfer_active && !A.reply_ready && !A.waiting);
+	assert(siols_complete(&A) == 0xFFFF && fa.us == 0 && A.st.timeouts == 0 && !A.broken);
+}
+
+int main(void) {
+	test_codec();
+	test_unlinked_completes_at_once();
+	test_leader_transfer();
+	test_timeout_marks_broken();
+	test_stop_mid_wait();
+	test_stale_reply_ignored();
+	test_follower_answers_and_dedupes();
+	test_follower_keeps_leader_spacing();
+	test_follower_ahead_still_waits_leader_spacing();
+	test_follower_new_burst_answers_at_once();
+	test_pending_start_lifts_bound();
+	test_follower_ahead_keeps_anchor();
+	test_follower_bound_wait_and_timeout();
+	test_bound_wait_ends_on_start();
+	test_leader_sync_cadence();
+	test_next_event();
+	test_two_instances_trade_burst();
+	test_follower_broken_needs_transfer_traffic();
+	test_follower_reanchor_resets_leader_latest();
+	test_broken_leader_recovers();
+	test_both_broken_recover();
+	test_abort_xfer();
+	test_leader_waits_through_peer_hold();
+	test_follower_waits_at_bound_through_leader_hold();
+	test_hold_expires();
+	printf("sio_lockstep tests: OK\n");
+	return 0;
+}

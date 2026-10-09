@@ -4,14 +4,17 @@
 #include "utils.h"
 #include "arcade_names.h"
 #include "core_netplay.h"
+#include "gbalink.h"
 #include "ui_confirmdialog.h"
 #include "config.h"
 #include "ui_list.h"
 #include "ui_buttonhintbar.h"
 #include "ui_menubar.h"
 #include "ma_menu.h"
+#include "ma_present.h"
 #include "ma_frontend_opts.h"
 #include "ma_saves.h"
+#include "ma_save_paths.h"
 #include "ma_game.h"
 #include "ma_config.h"
 #include "ma_core.h"
@@ -105,8 +108,16 @@ void Menu_init(void) {
 
 	char emu_name[MAX_PATH]; // getEmuName requires MAX_PATH buffers
 	getEmuName(game.path, emu_name);
-	snprintf(menu.minui_dir, sizeof(menu.minui_dir), "%s/.minui/%s", SHARED_USERDATA_PATH, emu_name);
-	mkdir(menu.minui_dir, 0755);
+	// A netplay client on the host's save keeps its slot markers beside its
+	// isolated states (see Core_open), so NextUI never lists them as its own.
+	const char* netplay_saves = getenv("NETPLAY_SAVES_DIR");
+	if (netplay_saves && netplay_saves[0]) {
+		snprintf(menu.minui_dir, sizeof(menu.minui_dir), "%s/minui", netplay_saves);
+		mkdir_p(menu.minui_dir);
+	} else {
+		snprintf(menu.minui_dir, sizeof(menu.minui_dir), "%s/.minui/%s", SHARED_USERDATA_PATH, emu_name);
+		mkdir(menu.minui_dir, 0755);
+	}
 
 	// always sanitized/outer name, to keep main UI from having to inspect archives
 	snprintf(menu.slot_path, sizeof(menu.slot_path), "%s/%s.txt", menu.minui_dir, game.name);
@@ -144,14 +155,55 @@ void Menu_beforeSleep() {
 		}
 	} else {
 		State_autosave();
-		if (prefixMatch(SDCARD_PATH, game.path))
+		// a netplay client's autosave holds the host's data in /tmp: nothing
+		// NextUI should resume into
+		if (prefixMatch(SDCARD_PATH, game.path) && Menu_netplaySavesMode() != NETPLAY_SAVES_COPY)
 			putFile(AUTO_RESUME_PATH, game.path + strlen(SDCARD_PATH));
 	}
 
 	PWR_setCPUSpeed(CPU_SPEED_MENU);
 }
+NetplaySavesMode Menu_netplaySavesMode(void) {
+	return SavePaths_netplayMode(getenv("NETPLAY_ROLE"), getenv("NETPLAY_SAVES_DIR"));
+}
+// A session on the device's own save (link sessions, the lockstep host) writes
+// that save but never an auto-resume state, so the one from before the session
+// would resume the game to before it, and the next in-game save would then
+// undo the session (a trade, say). Drop it, and the markers that point at it,
+// as the session starts so a crash or flat battery mid-session is covered too.
+// Manual slots (0-8) are never touched.
+void Menu_dropAutoResumeForSession(void) {
+	if (Menu_netplaySavesMode() != NETPLAY_SAVES_REAL)
+		return;
+
+	char removed[MAX_PATH] = "";
+	char path[MAX_PATH];
+	// a truncated path could name a manual slot: leave the state alone then
+	if (State_getSlotPath(AUTO_RESUME_SLOT, path) != 0)
+		LOG_error("Netplay: auto-resume state path too long for %s, state kept\n", game.name);
+	else if (unlink(path) == 0)
+		strcat(removed, " state");
+	snprintf(path, sizeof(path), "%s/%s.%d.bmp", menu.minui_dir, game.name, AUTO_RESUME_SLOT);
+	if (unlink(path) == 0)
+		strcat(removed, " preview");
+	snprintf(path, sizeof(path), "%s/%s.%d.txt", menu.minui_dir, game.name, AUTO_RESUME_SLOT);
+	if (unlink(path) == 0)
+		strcat(removed, " disc-marker");
+	// the RESUME slot file only when it points at the auto slot just removed
+	if (exists(menu.slot_path) && getInt(menu.slot_path) == AUTO_RESUME_SLOT && unlink(menu.slot_path) == 0)
+		strcat(removed, " slot-file");
+	if (exists(AUTO_RESUME_PATH)) {
+		char marker[MAX_PATH];
+		getFile(AUTO_RESUME_PATH, marker, sizeof(marker));
+		if (SavePaths_autoResumeIsGame(marker, game.path, SDCARD_PATH) && unlink(AUTO_RESUME_PATH) == 0)
+			strcat(removed, " auto_resume.txt");
+	}
+	LOG_info("Netplay: session on the real save, dropped auto-resume for %s:%s\n", game.name, removed[0] ? removed : " (none)");
+}
 void Menu_afterSleep() {
-	unlink(AUTO_RESUME_PATH);
+	// a netplay client never writes it (Menu_beforeSleep), so never drops it
+	if (Menu_netplaySavesMode() != NETPLAY_SAVES_COPY)
+		unlink(AUTO_RESUME_PATH);
 	setOverclock(overclock);
 	EmuTime_reset();
 }
@@ -1295,6 +1347,7 @@ SDL_Thread* screenshotsavethread;
 // GL-captures the current frame and returns it as a converted SDL_Surface
 // (caller owns and must SDL_FreeSurface it), or NULL on capture failure.
 SDL_Surface* Menu_captureScreenSurface(Uint32 pixel_format) {
+	Present_stop();
 	int cw, ch;
 	unsigned char* pixels = GFX_GL_screenCapture(&cw, &ch);
 	if (!pixels)
@@ -1306,6 +1359,7 @@ SDL_Surface* Menu_captureScreenSurface(Uint32 pixel_format) {
 // GL-captures the current frame and hands it to the background PNG-save
 // worker at `png_path`; waits for any previous save to finish first.
 void Menu_queueScreenshotSave(const char* png_path) {
+	Present_stop();
 	int cw, ch;
 	unsigned char* pixels = GFX_GL_screenCapture(&cw, &ch);
 	if (!pixels) {
@@ -1514,6 +1568,7 @@ void Menu_undoLoadState(void) {
 typedef struct {
 	uint32_t start;
 	int seconds_left; // -1: no countdown
+	bool menu_down;	  // MENU pressed while the dialog is up
 } LeaveNetplayCtx;
 
 static void leaveNetplay_render(SDL_Surface* dst, void* data) {
@@ -1536,7 +1591,14 @@ static int leaveNetplay_handle(void* data) {
 	}
 	if (PAD_justPressed(BTN_A))
 		return 1;
-	if (PAD_justPressed(BTN_B) || PAD_justPressed(BTN_MENU))
+	if (PAD_justPressed(BTN_B))
+		return 0;
+	// MENU continues on its release: the game opens this dialog on a MENU
+	// release (ma_input.c), so closing on the press let that same press's
+	// release reopen it at once.
+	if (PAD_justPressed(BTN_MENU))
+		ctx->menu_down = true;
+	if (ctx->menu_down && PAD_justReleased(BTN_MENU))
 		return 0;
 	if (ctx->seconds_left >= 0) {
 		int left = CoreNetplay_leaveSecondsLeft(ctx->start, SDL_GetTicks());
@@ -1550,7 +1612,9 @@ static int leaveNetplay_handle(void* data) {
 
 // true = leave the session (and the game)
 static bool Menu_leaveNetplay(void) {
-	bool timed = CoreNetplay_isActive();
+	// A GBA link peer waits too (GBALink_setPaused), for as long as its pause
+	// lasts (GBALINK_PEER_PAUSE_MAX_MS / SIOLS_HOLD_MAX_US, 10 s past this grace).
+	bool timed = CoreNetplay_isActive() || GBALink_isConnected();
 	LeaveNetplayCtx ctx = {SDL_GetTicks(), timed ? CORE_NETPLAY_LEAVE_GRACE_MS / 1000 : -1};
 	UI_ModalOpts opts = {
 		.screen = screen,
@@ -1564,6 +1628,7 @@ static bool Menu_leaveNetplay(void) {
 }
 
 void Menu_netplayNotice(const char* title, const char* subtitle, int hold_ms) {
+	Present_stop();
 	if (screen->w != DEVICE_WIDTH || screen->h != DEVICE_HEIGHT)
 		screen = GFX_resize(DEVICE_WIDTH, DEVICE_HEIGHT, DEVICE_PITCH);
 	GFX_clearShaders();
@@ -1575,6 +1640,7 @@ void Menu_netplayNotice(const char* title, const char* subtitle, int hold_ms) {
 }
 
 void Menu_loop(void) {
+	Present_stop(); // the menu draws (and reads the frame back) on this thread
 	RA_onMenuOpen();
 	// the slot previews below are read back from disk
 	Menu_waitScreenshotSave();
@@ -1639,7 +1705,11 @@ void Menu_loop(void) {
 	//set vid.blit to null for menu drawing no need for blitrender drawing
 	GFX_clearShaders();
 	if (Multiplayer_isActive()) {
+		// The GBA link peer was paused before we got here (minarch.c) and is
+		// resumed after the menu's teardown; leaving resumes it first, so a
+		// real-cable peer stuck mid-transfer ends as on a pulled cable.
 		if (Menu_leaveNetplay()) {
+			GBALink_setPaused(false);
 			Netplay_quitAll(); // as the full menu's Quit: close the link cleanly
 			quit = 1;
 		}

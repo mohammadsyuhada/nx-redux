@@ -768,6 +768,8 @@ void PLAT_blitRenderer(GFX_Renderer* renderer);
 void PLAT_flip(SDL_Surface* screen, int sync);
 void PLAT_GL_Swap();
 void GFX_GL_Swap();
+void GFX_GL_noteFrame(void);	   // GFX_GL_Swap's frame-rate bookkeeping alone
+void PLAT_GL_releaseCurrent(void); // no GL context current on this thread
 unsigned char* PLAT_GL_screenCapture(int* outWidth, int* outHeight);
 void PLAT_GPU_Flip();
 

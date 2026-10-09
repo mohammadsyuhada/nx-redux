@@ -34,7 +34,7 @@ typedef struct {
 typedef struct {
 	char role[8]; // "host" | "client"
 	char peer_ip[16];
-	char mode[8];				  // "hotspot" | "wifi"
+	char mode[8];				  // "hotspot" | "wifi" | "usb"
 	char prev_ssid[33];			  // SSID to restore on cleanup ("" = none)
 	int player_num;				  // this device's player number (1..4); host = 1
 	int num_players;			  // total players in the session (2..4)
@@ -62,6 +62,10 @@ int wiz_hotspot_join(WizSession* s);					// hotspot client
 // wizard_net.c (Task 4)
 int wiz_host_rendezvous(const WizArgs* a, WizSession* s); // wait+handshake(+sync serve)
 int wiz_client_rendezvous(const WizArgs* a, WizSession* s);
+// wizard_usb.c
+int wiz_usb_link_up(WizSession* s); // 0 linked (s->peer_ip set), -1 error (message drawn), -2 cancelled
+void wiz_usb_link_stop(void);		// usblink.elf stop; idempotent, bounded (~2 s)
+bool wiz_usb_link_may_be_up(void);	// /tmp/usblink.pid exists (live or stale)
 // wizard_sync.c (Task 5)
 int wiz_sync_serve_start(const char* serve_dir, const char* client_ip);
 void wiz_sync_serve_stop(void);
