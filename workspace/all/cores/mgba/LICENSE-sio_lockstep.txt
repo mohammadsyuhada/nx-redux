@@ -1,0 +1,16 @@
+
+NX-Redux additions in this build
+================================
+
+This mgba_libretro.so is mGBA (MPL-2.0, above) combined with NX-Redux's
+lockstep link-cable code: sio_lockstep.c/.h (workspace/all/cores/sio_lockstep)
+and the glue in workspace/all/cores/patches/mgba/001-sio-lockstep.patch, from
+https://github.com/mohammadsyuhada/nx-redux. That code is licensed
+GPL-2.0-or-later.
+
+mGBA's own files stay under MPL-2.0. As MPL-2.0 section 3.3 permits, the
+combined binary (a Larger Work) is distributed under the GNU General Public
+License, version 2 or (at your option) any later version. The GPL-2.0 text
+ships on the card as .system/cores/LICENSE-gpsp.txt (gpSP is GPL-2.0 and
+compiles in the same link code) and is at
+https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt

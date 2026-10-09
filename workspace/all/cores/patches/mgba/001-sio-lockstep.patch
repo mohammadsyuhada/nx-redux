@@ -1,4 +1,4 @@
-# license: modifies mGBA (https://github.com/libretro/mgba), MPL-2.0 (LICENSE); this patch is distributed under the same license.
+# license: modifies mGBA (https://github.com/libretro/mgba), MPL-2.0 (LICENSE); this patch is distributed under the same license. It compiles in NXRedux's GPL-2.0-or-later sio_lockstep code, so the built core is distributed under GPL-2.0-or-later (MPL-2.0 section 3.3).
 diff --git forkSrcPrefix/Makefile.libretro forkDstPrefix/Makefile.libretro
 index 21ee583..5b5bddf 100644
 --- forkSrcPrefix/Makefile.libretro
@@ -631,11 +631,13 @@ new file mode 100644
 index 0000000..219ff55
 --- /dev/null
 +++ forkDstPrefix/src/gba/sio/nx_sio_lockstep.c
-@@ -0,0 +1,5 @@
+@@ -0,0 +1,7 @@
 +/* NXRedux: compiles the lockstep link state machine into the core. The
 + * source lives (and is unit-tested) in the NXRedux tree at
-+ * workspace/all/cores/sio_lockstep/ (GPL-2.0-or-later); Makefile.libretro
-+ * puts that on the include path (NX_SIOLS_DIR). */
++ * workspace/all/cores/sio_lockstep/; Makefile.libretro puts that on the
++ * include path (NX_SIOLS_DIR). That code is GPL-2.0-or-later, not MPL, so a
++ * core built with it is distributed under GPL-2.0-or-later as MPL-2.0
++ * section 3.3 allows; the core's shipped LICENSE-mgba.txt says so. */
 +#include "sio_lockstep.c"
 diff --git forkSrcPrefix/src/platform/libretro/libretro.c forkDstPrefix/src/platform/libretro/libretro.c
 index 4b05a42..65089f8 100644

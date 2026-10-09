@@ -78,10 +78,11 @@ $(OUTPUT_ROOT)/$$($1_CORE): $(SRC_ROOT)/$(1)/.patched $(SRC_ROOT)/$(1)/.patched-
 # The core's license ships beside it (copied into the release by the root
 # Makefile's cores target). Written into $(OUTPUT_ROOT) so it travels with the
 # CI core artifact, where the checkout doesn't. $1_LICENSE: the license file
-# inside the checkout when it isn't a usual root name.
-$(OUTPUT_ROOT)/licenses/$(1).txt: | $(SRC_ROOT)/$(1)
+# inside the checkout when it isn't a usual root name. $1_LICENSE_NOTICE: a
+# notice of ours appended after it (e.g. GPL code we compile into the core).
+$(OUTPUT_ROOT)/licenses/$(1).txt: $($1_LICENSE_NOTICE) | $(SRC_ROOT)/$(1)
 	mkdir -p $(OUTPUT_ROOT)/licenses
-	sh $(CURDIR)/../../all/cores/core-license.sh $(SRC_ROOT)/$(1) $(1) $$($(1)_REPO) $($1_LICENSE) > $$@.tmp
+	sh $(CURDIR)/../../all/cores/core-license.sh $(SRC_ROOT)/$(1) $(1) $$($(1)_REPO) "$($1_LICENSE)" $($1_LICENSE_NOTICE) > $$@.tmp
 	mv $$@.tmp $$@
 
 clone-$(1): $(SRC_ROOT)/$(1)
