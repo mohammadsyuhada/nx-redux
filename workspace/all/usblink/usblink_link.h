@@ -6,7 +6,7 @@
 // Handshake/keepalive state machine for one USB cable between two handhelds.
 // The side that is USB host sends HELLOs; the gadget side answers HELLO_ACK.
 // Pure logic: the caller does the I/O named by the returned USBLINK_ACT_* bits.
-#define USBLINK_PROTO_VERSION 1
+#define USBLINK_PROTO_VERSION 2	  // 2: descriptors carry the nxsio interface and the peer's gpSP knows "lockstep"
 #define USBLINK_HELLO_IDLE_MS 250 // hello cadence while not linked
 #define USBLINK_HELLO_UP_MS 1000  // keepalive cadence once linked
 #define USBLINK_DEAD_MS 3000	  // no frame for this long = link down

@@ -63,10 +63,10 @@ static void find_endpoints(const char* ifdir, unsigned* ep_out, unsigned* ep_in)
 	closedir(d);
 }
 
-static int try_claim(const char* name, UsbLinkHost* h) {
+static int try_claim(const char* name, UsbLinkHost* h, unsigned subclass) {
 	char ifdir[512];
 	snprintf(ifdir, sizeof(ifdir), USB_DEVICES "/%s", name);
-	if (read_num(ifdir, "bInterfaceClass", 16) != NXLINK_CLASS || read_num(ifdir, "bInterfaceSubClass", 16) != NXLINK_SUBCLASS)
+	if (read_num(ifdir, "bInterfaceClass", 16) != NXLINK_CLASS || read_num(ifdir, "bInterfaceSubClass", 16) != (long)subclass)
 		return -1;
 	long ifnum = read_num(ifdir, "bInterfaceNumber", 16);
 	// The interface entry is a symlink into the device's directory, so ".."
@@ -101,7 +101,7 @@ static int try_claim(const char* name, UsbLinkHost* h) {
 	return 0;
 }
 
-int usblink_host_find_and_claim(UsbLinkHost* h) {
+int usblink_host_find_and_claim_subclass(UsbLinkHost* h, unsigned subclass) {
 	h->fd = -1;
 	DIR* d = opendir(USB_DEVICES);
 	if (!d)
@@ -113,7 +113,7 @@ int usblink_host_find_and_claim(UsbLinkHost* h) {
 		// and root-hub entries are skipped without reading anything.
 		if (!strchr(e->d_name, ':'))
 			continue;
-		if (try_claim(e->d_name, h) == 0) {
+		if (try_claim(e->d_name, h, subclass) == 0) {
 			rc = 0;
 			break;
 		}
@@ -122,16 +122,24 @@ int usblink_host_find_and_claim(UsbLinkHost* h) {
 	return rc;
 }
 
+int usblink_host_find_and_claim(UsbLinkHost* h) {
+	return usblink_host_find_and_claim_subclass(h, NXLINK_SUBCLASS);
+}
+
 // One frame per transfer; usblink_frame pads so every frame ends with a short
 // packet, which is what keeps transfers from merging.
-int usblink_host_write(UsbLinkHost* h, const uint8_t* buf, int len) {
+int usblink_host_write_timeout(UsbLinkHost* h, const uint8_t* buf, int len, unsigned timeout_ms) {
 	struct usbdevfs_bulktransfer bt = {
 		.ep = h->ep_out,
 		.len = (unsigned)len,
-		.timeout = WRITE_TIMEOUT_MS,
+		.timeout = timeout_ms,
 		.data = (void*)buf,
 	};
 	return ioctl(h->fd, USBDEVFS_BULK, &bt);
+}
+
+int usblink_host_write(UsbLinkHost* h, const uint8_t* buf, int len) {
+	return usblink_host_write_timeout(h, buf, len, WRITE_TIMEOUT_MS);
 }
 
 int usblink_host_read(UsbLinkHost* h, uint8_t* buf, int len, unsigned timeout_ms) {
