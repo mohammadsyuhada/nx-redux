@@ -7,6 +7,43 @@
 
 #include "../../netplay-wizard/wiz_caps.h"
 
+static void expect_value(const char* caps, const char* key, const char* want) {
+	char got[WIZ_CAPS_MAX];
+	WizCaps_value(caps, key, got, sizeof(got));
+	if (strcmp(got, want) != 0) {
+		fprintf(stderr, "%s of '%s': expected '%s', got '%s'\n", key, caps ? caps : "(null)", want, got);
+		assert(0);
+	}
+}
+
+static void expect_label(const char* core, const char* tag, const char* want) {
+	char got[64];
+	WizCaps_coreLabel(core, tag, got, sizeof(got));
+	if (strcmp(got, want) != 0) {
+		fprintf(stderr, "label of '%s'/'%s': expected '%s', got '%s'\n", core ? core : "(null)",
+				tag ? tag : "(null)", want, got);
+		assert(0);
+	}
+}
+
+static void expect_reason(const char* caps, const char* want) {
+	char got[32]; // the REJECT reason buffer both sides use (%31s)
+	WizCaps_coreReason(caps, got, sizeof(got));
+	if (strcmp(got, want) != 0) {
+		fprintf(stderr, "reason of '%s': expected '%s', got '%s'\n", caps, want, got);
+		assert(0);
+	}
+}
+
+static void expect_reason_label(const char* reason, const char* want) {
+	char got[64];
+	WizCaps_reasonLabel(reason, got, sizeof(got));
+	if (strcmp(got, want) != 0) {
+		fprintf(stderr, "reason label of '%s': expected '%s', got '%s'\n", reason, want, got);
+		assert(0);
+	}
+}
+
 static void expect_find(const char* line, const char* want) {
 	char got[WIZ_CAPS_MAX];
 	WizCaps_find(line, got, sizeof(got));
@@ -58,6 +95,69 @@ int main(void) {
 	assert(strcmp(field, "") == 0);
 	WizCaps_field("bad token", field, sizeof(field));
 	assert(strcmp(field, "") == 0);
+
+	// one element of a comma-separated token, by key
+	expect_value("core=picodrive,tag=MD", "core", "picodrive");
+	expect_value("core=picodrive,tag=MD", "tag", "MD");
+	expect_value("tag=GPGX,core=genesis_plus_gx", "core", "genesis_plus_gx");
+	expect_value("dcbios=abc", "core", "");
+	expect_value("dcbios=abc", "tag", "");
+	expect_value("xcore=gpsp", "core", ""); // a different key that merely ends in it
+	expect_value("core=", "core", "");
+	expect_value("core", "core", "");
+	expect_value("", "core", "");
+	expect_value(NULL, "core", "");
+	char tiny[3];
+	WizCaps_value("core=gpsp", "core", tiny, sizeof(tiny));
+	assert(strcmp(tiny, "gp") == 0); // truncated, still terminated
+
+	// refused only when BOTH sides name a core and the two differ
+	assert(WizCaps_coreMismatch("core=gpsp,tag=GBA", "core=mgba,tag=MGBA"));
+	assert(WizCaps_coreMismatch("core=picodrive,tag=MD", "core=genesis_plus_gx,tag=GPGX"));
+	assert(WizCaps_coreMismatch("core=snes9x,tag=SFC", "tag=SUPA,core=mednafen_supafaust"));
+	assert(!WizCaps_coreMismatch("core=gpsp,tag=GBA", "core=gpsp,tag=GBA"));
+	// the same core in another folder is fine (the game check covers the rest)
+	assert(!WizCaps_coreMismatch("core=picodrive,tag=MD", "core=picodrive,tag=GG"));
+	assert(!WizCaps_coreMismatch("core=mgba,tag=MGBA", "")); // an older build sends none
+	assert(!WizCaps_coreMismatch("", "core=mgba,tag=MGBA"));
+	assert(!WizCaps_coreMismatch("core=mgba", NULL));
+	assert(!WizCaps_coreMismatch(NULL, NULL));
+	assert(!WizCaps_coreMismatch("tag=MD", "tag=GPGX")); // tags alone never refuse
+	assert(!WizCaps_coreMismatch("dcbios=a", "dcbios=b"));
+
+	// what the player is told the other device runs
+	assert(strcmp(WizCaps_coreName("gpsp"), "gpSP") == 0);
+	assert(strcmp(WizCaps_coreName("mgba"), "mGBA") == 0);
+	assert(strcmp(WizCaps_coreName("picodrive"), "PicoDrive") == 0);
+	assert(strcmp(WizCaps_coreName("genesis_plus_gx"), "Genesis Plus GX") == 0);
+	assert(strcmp(WizCaps_coreName("snes9x"), "Snes9x") == 0);
+	assert(strcmp(WizCaps_coreName("mednafen_supafaust"), "Supafaust") == 0);
+	assert(strcmp(WizCaps_coreName("pcsx_rearmed"), "PCSX ReARMed") == 0);
+	assert(strcmp(WizCaps_coreName("swanstation"), "SwanStation") == 0);
+	assert(strcmp(WizCaps_coreName("fbneo"), "FBNeo") == 0);
+	assert(strcmp(WizCaps_coreName("fceumm"), "FCEUmm") == 0);
+	assert(strcmp(WizCaps_coreName("vba_next"), "vba_next") == 0);
+	assert(strcmp(WizCaps_coreName(NULL), "") == 0);
+	expect_label("gpsp", "GBA", "gpSP (GBA folder)");
+	expect_label("genesis_plus_gx", "GPGX", "Genesis Plus GX (GPGX folder)");
+	expect_label("swanstation", "", "SwanStation");
+	expect_label("swanstation", NULL, "SwanStation");
+	expect_label("vba_next", "VBA", "vba_next (VBA folder)");
+
+	// the host's core and folder, packed into one REJECT reason token
+	expect_reason("core=gpsp,tag=GBA", "core-gpsp.GBA");
+	expect_reason("tag=SUPA,core=mednafen_supafaust", "core-mednafen_supafaust.SUPA");
+	expect_reason("core=swanstation", "core-swanstation");
+	// a folder name too long to fit drops to the core alone, then to bare "core"
+	expect_reason("core=picodrive,tag=AVERYLONGCUSTOMFOLDERNAME", "core-picodrive");
+	expect_reason("core=an_extremely_long_core_name_x", "core");
+	expect_reason("dcbios=abc", "core");
+	// and unpacked on the joiner
+	expect_reason_label("core-gpsp.GBA", "gpSP (GBA folder)");
+	expect_reason_label("core-mednafen_supafaust.SUPA", "Supafaust (SUPA folder)");
+	expect_reason_label("core-swanstation", "SwanStation");
+	expect_reason_label("core", "");
+	expect_reason_label("version", "");
 
 	printf("test_wiz_caps: OK\n");
 	return 0;

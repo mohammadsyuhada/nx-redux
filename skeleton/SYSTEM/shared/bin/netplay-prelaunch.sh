@@ -33,6 +33,11 @@
 # staged under a fixed safe name to be served, and the client renames the fetch
 # back to what minarch expects.
 #
+# Core check: every pak tells the wizard its core and folder (--caps
+# core=<EMU_EXE>,tag=<EMU_TAG>). The wizards trade it in their handshake and
+# refuse a pair running different cores, with the reason on both screens, so
+# this script never has to second-guess a successful wizard.
+#
 # NETPLAY_LAUNCH_FLAG / NETPLAY_SESSION_FILE and the save dirs are overridable
 # for tests only.
 NETPLAY_LAUNCH_FLAG="${NETPLAY_LAUNCH_FLAG:-/tmp/netplay_launch}"
@@ -53,12 +58,20 @@ if [ -f "$NETPLAY_LAUNCH_FLAG" ]; then
 	# mGBA's link is the real cable, which runs only over the USB Cable.
 	NP_WIZ_MODE_ARGS=""
 	[ "${EMU_EXE:-}" = "mgba" ] && NP_WIZ_MODE_ARGS="--modes usb"
-	# The two GBA link cores don't talk to each other (gpSP's link and mGBA's
-	# real cable are different protocols), so both sides trade which one they
-	# run and a mismatched pair is refused below.
+	# Tell the peer which emulator core (and pak folder) we run. Two different
+	# cores never sync (MD's PicoDrive vs GPGX's Genesis Plus GX: "State size
+	# mismatch"; gpSP's link vs mGBA's real cable: different protocols), so the
+	# wizard refuses such a pair in its handshake and names the other side's
+	# core and folder on both screens. Values outside the wizard's caps charset
+	# (a custom pak named with spaces, say) or too long for it skip the check.
 	NP_WIZ_CAPS_ARGS=""
+	NP_CAPS="core=${EMU_EXE:-},tag=${EMU_TAG:-}"
 	case "${EMU_EXE:-}" in
-		gpsp|mgba) NP_WIZ_CAPS_ARGS="--caps linkcore=$EMU_EXE" ;;
+		"" | *[!A-Za-z0-9._-]*) ;;
+		*) case "${EMU_TAG:-}" in
+			"" | *[!A-Za-z0-9._-]*) ;;
+			*) if [ ${#NP_CAPS} -lt 64 ]; then NP_WIZ_CAPS_ARGS="--caps $NP_CAPS"; fi ;;
+		esac ;;
 	esac
 
 	# Stage the local save under a safe name so it can be served if we host, and
@@ -87,27 +100,8 @@ if [ -f "$NETPLAY_LAUNCH_FLAG" ]; then
 		exit 0
 	fi
 	[ -f "$NETPLAY_SESSION_FILE" ] || exit 0
-	NETPLAY_PEER_CAPS=""
 	. "$NETPLAY_SESSION_FILE"
 	export NETPLAY_ROLE NETPLAY_PEER_IP NETPLAY_MODE
-
-	# GBA link: the peer runs the other link core (gpSP vs mGBA). Both sides see
-	# each other's caps, so both refuse here and nobody is left waiting. Undo
-	# the session like launch.sh's teardown does, then back to the game list.
-	# A peer that sent no linkcore (an older build) is let through.
-	if [ -n "$NP_WIZ_CAPS_ARGS" ]; then
-		NP_PEER_LINKCORE=""
-		case "$NETPLAY_PEER_CAPS" in
-			linkcore=*) NP_PEER_LINKCORE="${NETPLAY_PEER_CAPS#linkcore=}" ;;
-		esac
-		if [ -n "$NP_PEER_LINKCORE" ] && [ "$NP_PEER_LINKCORE" != "$EMU_EXE" ]; then
-			echo "netplay: peer runs the $NP_PEER_LINKCORE link core, we run $EMU_EXE; the GBA link needs the same core on both devices" \
-				>> "$LOGS_PATH/netplay-wizard.txt"
-			netplay.elf --cleanup --session-file "$NETPLAY_SESSION_FILE" \
-				>> "$LOGS_PATH/netplay-wizard.txt" 2>&1
-			exit 0
-		fi
-	fi
 
 	# Client: the wizard fetched the host's save under the fixed staged name.
 	# Rename it to what minarch derives (<rom>.<ext>) and point minarch's save

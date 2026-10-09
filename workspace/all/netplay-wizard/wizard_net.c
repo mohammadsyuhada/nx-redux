@@ -25,10 +25,15 @@
  * The trailing "caps=<token>" carries the launcher's --caps (wiz_caps.h), so
  * each side learns the other's (e.g. Dreamcast's BIOS fingerprint). Wizards
  * that predate it ignore it, since every HELLO parse reads a fixed field count.
+ * When both tokens name an emulator core ("core=<exe>,tag=<pak>", from
+ * netplay-prelaunch.sh) and the cores differ, the host answers
+ * REJECT core-<core>.<tag> (wiz_caps.h) — the two would never sync.
  *
  * A rejected or dropped client never ends the host's wait: the host closes that
  * connection and returns to its waiting screen. The client is the side that
  * gives up — back to its host list on WiFi, out of the wizard on hotspot.
+ * The one exception is a core mismatch, which ends both wizards: the players
+ * picked the game from different folders, and only they can fix that.
  */
 
 #include <ctype.h>
@@ -93,6 +98,8 @@
 #define WIZ_NET_LIST_TIMEOUT_MS 120000
 #define WIZ_NET_ERROR_TIMEOUT_MS 5000
 #define WIZ_NET_NOTICE_MS 1500
+// The second half of both core-mismatch messages.
+#define WIZ_NET_CORE_HINT "Pick the game from the same\nfolder on both devices."
 #define WIZ_NET_MAX_HOSTS NET_MAX_DISCOVERED_HOSTS
 #define WIZ_NET_LABEL_MAX 96
 // Discovery link_mode. Separates this wizard's broadcasts from any other user
@@ -447,6 +454,18 @@ static const char* wiz_reject_message(const char* reason) {
 		return "Both devices are hosting.\n\nOne of them must join instead.";
 	if (strcmp(reason, "sync") == 0)
 		return "The host could not share\nits saves.";
+	if (strcmp(reason, "core") == 0 || strncmp(reason, "core-", 5) == 0) {
+		// "core-<core>.<tag>" names the host's emulator and folder.
+		static char message[192];
+		char label[96];
+		WizCaps_reasonLabel(reason, label, sizeof(label));
+		if (label[0])
+			snprintf(message, sizeof(message), "The host is using\n%s.\n\n%s", label, WIZ_NET_CORE_HINT);
+		else
+			snprintf(message, sizeof(message), "The host is using a\ndifferent emulator.\n\n%s",
+					 WIZ_NET_CORE_HINT);
+		return message;
+	}
 	return "The host refused the connection.";
 }
 
@@ -960,11 +979,36 @@ static int wiz_host_handshake(const WizArgs* a, WizSession* s, int fd,
 		wiz_send_line(fd, "REJECT %s", reason);
 		return 1;
 	}
+	// A different emulator core never syncs (MD's PicoDrive vs GPGX, gpSP vs
+	// mGBA), so refuse here and say so on both screens. This one is fatal for
+	// the host too: over the cable no other player can arrive, and elsewhere
+	// the same pick would just be refused again.
+	char joiner_caps[WIZ_CAPS_MAX];
+	WizCaps_find(line, joiner_caps, sizeof(joiner_caps));
+	if (WizCaps_coreMismatch(a->caps, joiner_caps)) {
+		char reject[32]; // the joiner parses it with %31s
+		char core[WIZ_CAPS_MAX];
+		char tag[WIZ_CAPS_MAX];
+		char label[96];
+		char message[192];
+
+		WizCaps_coreReason(a->caps, reject, sizeof(reject));
+		wiz_send_line(fd, "REJECT %s", reject);
+		WizCaps_value(joiner_caps, "core", core, sizeof(core));
+		WizCaps_value(joiner_caps, "tag", tag, sizeof(tag));
+		WizCaps_coreLabel(core, tag, label, sizeof(label));
+		fprintf(stderr, "netplay: player %d at %s runs core '%s' (%s), we run '%s'; refused\n",
+				player_num, peer_ip, core, tag, a->caps);
+		snprintf(message, sizeof(message), "The other player is using\n%s.\n\n%s", label,
+				 WIZ_NET_CORE_HINT);
+		wiz_net_error(message);
+		return -1;
+	}
 	if (any_game && !wiz_names_equivalent(game, a->game))
 		fprintf(stderr, "netplay: player %d at %s runs '%s' (we run '%s'); joined on request\n",
 				player_num, peer_ip, game, a->game);
 
-	WizCaps_find(line, s->peer_caps, sizeof(s->peer_caps));
+	snprintf(s->peer_caps, sizeof(s->peer_caps), "%s", joiner_caps);
 	char caps_field[WIZ_CAPS_MAX + 8];
 	WizCaps_field(a->caps, caps_field, sizeof(caps_field));
 	wiz_esc_spaces(a->game, escaped, sizeof(escaped));
@@ -1468,8 +1512,20 @@ static int wiz_client_session(const WizArgs* a, WizSession* s, int fd, const cha
 		fprintf(stderr, "netplay: joining host %s on '%s' with our '%s' on request\n",
 				host_ip, game, a->game);
 
+	// A host that predates the core check lets a different core through; catch
+	// it here rather than in a "State size mismatch" after both games boot.
+	char host_caps[WIZ_CAPS_MAX];
+	WizCaps_find(line, host_caps, sizeof(host_caps));
+	if (WizCaps_coreMismatch(a->caps, host_caps)) {
+		char reject[32];
+		WizCaps_coreReason(host_caps, reject, sizeof(reject));
+		fprintf(stderr, "netplay: host %s runs '%s', we run '%s'; not joining\n", host_ip, host_caps, a->caps);
+		wiz_net_error(wiz_reject_message(reject));
+		return 1;
+	}
+
 	s->player_num = (assigned >= 1) ? assigned : 2; // older host omits it -> 2-player
-	WizCaps_find(line, s->peer_caps, sizeof(s->peer_caps));
+	snprintf(s->peer_caps, sizeof(s->peer_caps), "%s", host_caps);
 
 	snprintf(s->peer_ip, sizeof(s->peer_ip), "%s", host_ip);
 
