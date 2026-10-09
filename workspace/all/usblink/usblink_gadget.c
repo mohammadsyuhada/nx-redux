@@ -11,6 +11,7 @@
 #include <string.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #define G "/sys/kernel/config/usb_gadget/g1"
@@ -20,6 +21,8 @@
 #define FFS "/dev/usb-ffs/net"
 #define UDC_SAVE "/tmp/usblink.udc"
 #define UDC_CLASS "/sys/class/udc"
+#define BIND_WAIT_MS 1000 // the rebind can complete after the UDC write returns
+#define BIND_POLL_MS 50
 
 #define NXLINK_CLASS 0xff
 #define NXLINK_SUBCLASS 0x4e
@@ -173,12 +176,22 @@ int usblink_gadget_attach(int* out_fd, int* in_fd) {
 	write_file(G_UDC, udc_name, udc_len);
 	// A UDC that refuses the rebind (as tg5040's did for a second endpoint
 	// pair) leaves UDC empty, and adb with it: take our function back out
-	// (fail -> detach unlinks it and rebinds the stock gadget).
+	// (fail -> detach unlinks it and rebinds the stock gadget). On tg5040
+	// (4.9) the rebind write reports ENODEV and the bind lands a moment
+	// later, so UDC is polled for a while before giving up.
 	char bound[64];
-	if (read_line(G_UDC, bound, sizeof(bound)) <= 0) {
-		fprintf(stderr, "usblink: gadget did not bind with ffs.net, backing out\n");
-		goto fail;
+	int waited = 0;
+	while (read_line(G_UDC, bound, sizeof(bound)) <= 0) {
+		if (waited >= BIND_WAIT_MS) {
+			fprintf(stderr, "usblink: gadget did not bind with ffs.net within %d ms, backing out\n", BIND_WAIT_MS);
+			goto fail;
+		}
+		struct timespec ts = {0, BIND_POLL_MS * 1000000L};
+		nanosleep(&ts, NULL);
+		waited += BIND_POLL_MS;
 	}
+	if (waited > 0)
+		fprintf(stderr, "usblink: gadget bound after %d ms\n", waited);
 
 	*out_fd = ep1_fd;
 	*in_fd = ep2_fd;
