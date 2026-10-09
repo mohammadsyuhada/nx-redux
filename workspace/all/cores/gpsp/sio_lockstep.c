@@ -74,8 +74,11 @@ static bool engaged(const SioLs* s) {
 static int64_t mapped(const SioLs* s, const SioLsMsg* m) {
 	return (int64_t)m->cycle + s->offset;
 }
+// No bound while a START waits for its due point: the leader is stopped until
+// we answer it, so running on cannot get ahead of it, and waiting here for a
+// SYNC it cannot send would deadlock (until SIOLS_BOUND_TIMEOUT_US).
 static bool bounded(const SioLs* s) {
-	return !s->leader && s->epoch_valid && engaged(s);
+	return !s->leader && s->epoch_valid && engaged(s) && s->inbox_n == 0;
 }
 static int64_t bound(const SioLs* s) {
 	return (int64_t)s->leader_latest + s->offset + (int64_t)SIOLS_SLACK_CYCLES;

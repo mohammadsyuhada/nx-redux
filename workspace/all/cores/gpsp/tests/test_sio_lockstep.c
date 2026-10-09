@@ -216,6 +216,33 @@ static void test_follower_ahead_still_waits_leader_spacing(void) {
 	assert(siols_take_start(&B, false, &st) && st.seq == 3);
 }
 
+// Device trace 2026-10-09 (seq 1525): the CPU loop overshot the bound by 5
+// cycles before answering, so the next START was due 5 cycles past the next
+// bound. The follower waited there for the leader, which was waiting for its
+// REPLY: 100 ms stall until the bound timeout. A pending START lifts the bound.
+static void test_pending_start_lifts_bound(void) {
+	setup();
+	siols_start(&B, false);
+	SioLsMsg st;
+	const uint64_t G = 18400;
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 1, .cycle = 0});
+	assert(siols_take_start(&B, false, &st)); // anchors: offset 0
+	siols_reply(&B, &st, 1);
+	siols_advance(&B, (uint32_t)(G + SIOLS_SLACK_CYCLES + 5)); // overshot the bound
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 2, .cycle = G});
+	assert(siols_take_start(&B, false, &st) && st.seq == 2);
+	siols_reply(&B, &st, 2); // answered SLACK + 5 past the leader's time
+	inject(&B, (SioLsMsg){.type = SIOLS_START, .seq = 3, .cycle = 2 * G});
+	siols_advance(&B, (uint32_t)(G - 5)); // at START 3's bound, 5 short of its due point
+	uint64_t us = fb.us;
+	siols_service(&B, false);
+	assert(fb.us == us && B.st.bound_waits == 0 && B.st.bound_timeouts == 0);
+	assert(!siols_take_start(&B, false, &st));
+	assert(siols_next_event(&B) <= 5);
+	siols_advance(&B, 5);
+	assert(siols_take_start(&B, false, &st) && st.seq == 3);
+}
+
 // A START far after the last one (new burst) is answered at once; so is one
 // from a leader that went back in time (reset, state load).
 static void test_follower_new_burst_answers_at_once(void) {
@@ -495,6 +522,7 @@ int main(void) {
 	test_follower_keeps_leader_spacing();
 	test_follower_ahead_still_waits_leader_spacing();
 	test_follower_new_burst_answers_at_once();
+	test_pending_start_lifts_bound();
 	test_follower_ahead_keeps_anchor();
 	test_follower_bound_wait_and_timeout();
 	test_bound_wait_ends_on_start();
