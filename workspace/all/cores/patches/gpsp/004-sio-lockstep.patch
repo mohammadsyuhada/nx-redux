@@ -31,41 +31,45 @@ index 9742c05..29754c9 100644
    SOURCES_C += $(CORE_DIR)/cpu_threaded.c
    ifeq ($(CPU_ARCH), x86_32)
 diff --git forkSrcPrefix/gba_memory.c forkDstPrefix/gba_memory.c
-index 5dff1b5..34b7d45 100644
+index 5dff1b5..ec12593 100644
 --- forkSrcPrefix/gba_memory.c
 +++ forkDstPrefix/gba_memory.c
-@@ -2908,6 +2908,12 @@ u32 load_gamepak(const struct retro_game_info* info, const char *name,
+@@ -2908,6 +2908,13 @@ u32 load_gamepak(const struct retro_game_info* info, const char *name,
     rtc_enabled = false;
     rumble_enabled = false;
     backup_type_reset = BACKUP_UNKN;
 +   /* NXRedux: "auto_cable" is what the frontend passes for Automatic in a USB
 +    * Cable session: resolve exactly like "auto", then use the real link cable
-+    * for everything that did not pick the wireless adapter. */
++    * in place of no device or the cable fakes (mul_poke/mul_aw1/mul_aw2). The
++    * wireless adapter and the GB Player keep their own emulation. */
 +   bool cable_pref = force_serial == SERIAL_MODE_AUTO_CABLE;
 +   if (cable_pref)
 +      force_serial = SERIAL_MODE_AUTO;
     serial_mode = force_serial;
  
     load_game_config_over(game_code);
-@@ -2972,6 +2978,9 @@ u32 load_gamepak(const struct retro_game_info* info, const char *name,
+@@ -2972,6 +2979,9 @@ u32 load_gamepak(const struct retro_game_info* info, const char *name,
           }
        }
     }
 +
-+   if (cable_pref && serial_mode != SERIAL_MODE_RFU)
++   if (cable_pref && serial_mode != SERIAL_MODE_RFU && serial_mode != SERIAL_MODE_GBP)
 +      serial_mode = SERIAL_MODE_LOCKSTEP;
  	
     normalize_blank_backup_for_detected_type();
  
 diff --git forkSrcPrefix/libretro/libretro.c forkDstPrefix/libretro/libretro.c
-index 16629b1..5fe9a9a 100644
+index 16629b1..a12c3ca 100644
 --- forkSrcPrefix/libretro/libretro.c
 +++ forkDstPrefix/libretro/libretro.c
-@@ -481,10 +481,12 @@ static void netpacket_start(uint16_t client_id, retro_netpacket_send_t send_fn,
+@@ -481,10 +481,15 @@ static void netpacket_start(uint16_t client_id, retro_netpacket_send_t send_fn,
    netpacket_pollrcv_fn_ptr = poll_receive_fn;
    netplay_num_clients = 0;
    netplay_client_id = client_id;
-+  lockstep_net_start(client_id == 0);
++  // A client only starts once it is connected; the host links when its
++  // client connects (netpacket_connected), not while it waits for one.
++  if (client_id != 0)
++    lockstep_net_start(false);
  }
  
  // Netplay session ends.
@@ -74,7 +78,7 @@ index 16629b1..5fe9a9a 100644
    netpacket_send_fn_ptr = NULL;
    netpacket_pollrcv_fn_ptr = NULL;
  }
-@@ -501,6 +503,9 @@ static void netpacket_receive(const void* buf, size_t len, uint16_t client_id) {
+@@ -501,6 +506,9 @@ static void netpacket_receive(const void* buf, size_t len, uint16_t client_id) {
    case SERIAL_MODE_SERIAL_AW2:
      serialaw_net_receive(buf, len, client_id);
      break;
@@ -84,7 +88,7 @@ index 16629b1..5fe9a9a 100644
    };
  }
  
-@@ -514,6 +519,8 @@ static bool netpacket_connected(uint16_t client_id) {
+@@ -514,6 +522,8 @@ static bool netpacket_connected(uint16_t client_id) {
       MAX_SERMULT_NETPLAYERS,   // SERIAL_MODE_SERIAL_AW1
       MAX_SERMULT_NETPLAYERS,   // SERIAL_MODE_SERIAL_AW2
       0,                        // SERIAL_MODE_AUTO
@@ -93,7 +97,23 @@ index 16629b1..5fe9a9a 100644
    };
    const u32 max_clients = maxpl[serial_mode] - 1U;
  
-@@ -1008,6 +1015,10 @@ static void check_variables(bool started_from_load)
+@@ -521,6 +531,7 @@ static bool netpacket_connected(uint16_t client_id) {
+     return false;
+ 
+   netplay_num_clients++;
++  lockstep_net_start(true);   // host: the cable is plugged in now
+   return true;
+ }
+ 
+@@ -531,6 +542,7 @@ static void netpacket_disconnected(uint16_t client_id) {
+   // Force RFU state to IDLE so the game receives disconnect notification
+   // This fixes CLIENT getting stuck when HOST disconnects during gameplay
+   rfu_net_disconnect();
++  lockstep_net_stop();
+   netplay_num_clients--;
+ }
+ 
+@@ -1008,6 +1020,10 @@ static void check_variables(bool started_from_load)
             serial_setting = SERIAL_MODE_SERIAL_AW2;
          else if (!strcmp(var.value, "gbp"))
             serial_setting = SERIAL_MODE_GBP;
@@ -104,7 +124,7 @@ index 16629b1..5fe9a9a 100644
          else
             serial_setting = SERIAL_MODE_AUTO;
       }
-@@ -1448,6 +1459,9 @@ void retro_run(void)
+@@ -1448,6 +1464,9 @@ void retro_run(void)
     case SERIAL_MODE_SERIAL_POKE:
       serialpoke_frame_update();
       break;
@@ -137,7 +157,7 @@ index 0000000..502d489
 + * workspace/all/cores/gpsp/; Makefile.common puts that on the include path. */
 +#include "sio_lockstep.c"
 diff --git forkSrcPrefix/serial.c forkDstPrefix/serial.c
-index 55bf2e1..a722f89 100644
+index 55bf2e1..42be0e9 100644
 --- forkSrcPrefix/serial.c
 +++ forkDstPrefix/serial.c
 @@ -18,6 +18,7 @@
@@ -148,7 +168,20 @@ index 55bf2e1..a722f89 100644
  
  int serial_mode = SERIAL_MODE_AUTO;
  
-@@ -73,6 +74,166 @@ uint16_t serial_mul_siocnt() {
+@@ -29,7 +30,11 @@ static u32 serial_irq_cycles = 0;
+  * immediate spurious IRQ on the very next update_serial() call.
+  * serial_mode is a libretro core-option, restored independently. */
+ u32 serial_get_irq_cycles(void) { return serial_irq_cycles; }
+-void serial_set_irq_cycles(u32 v) { serial_irq_cycles = v; }
++static void lockstep_state_loaded(void);
++void serial_set_irq_cycles(u32 v) {
++  serial_irq_cycles = v;
++  lockstep_state_loaded();
++}
+ 
+ // Timings are very aproximate, hopefully they are good enough.
+ #define CLOCK_CYC_256KHZ_8BIT        524    // CLOCK / 256KHz * 8
+@@ -73,6 +78,186 @@ uint16_t serial_mul_siocnt() {
    return ret;
  }
  
@@ -167,6 +200,7 @@ index 55bf2e1..a722f89 100644
 +
 +static SioLs lockstep;
 +static bool lockstep_ready;
++static bool lockstep_initiated; // a transfer we started is in flight (not from a savestate)
 +static u8 lockstep_mode;        // SIOLS_* of the transfer we started
 +static u32 lockstep_own;        // our word in it
 +static int lockstep_stats = -1; // NX_SIO_STATS=1: a stats line per 60 frames
@@ -201,8 +235,25 @@ index 55bf2e1..a722f89 100644
 +  return &lockstep;
 +}
 +
-+void lockstep_net_start(bool leader) { siols_start(ls(), leader); }
-+void lockstep_net_stop(void) { siols_stop(ls()); }
++// Other serial modes never touch the lockstep state.
++void lockstep_net_start(bool leader) {
++  if (serial_mode == SERIAL_MODE_LOCKSTEP)
++    siols_start(ls(), leader);
++}
++void lockstep_net_stop(void) {
++  if (lockstep_ready)
++    siols_stop(ls());
++}
++
++// A savestate restores serial_irq_cycles but not the link: a transfer that was
++// in flight when the state was saved has no START on the wire in this session,
++// so waiting for its REPLY would only time out and break the link. Drop it;
++// the restored countdown completes with the registers as saved.
++static void lockstep_state_loaded(void) {
++  lockstep_initiated = false;
++  if (lockstep_ready)
++    lockstep.xfer_active = lockstep.reply_ready = lockstep.waiting = false;
++}
 +void lockstep_net_receive(const void *buf, size_t len) { siols_on_packet(ls(), buf, len); }
 +
 +static u32 lockstep_normal_cycles(u8 ctrl, bool is32) {
@@ -212,6 +263,7 @@ index 55bf2e1..a722f89 100644
 +
 +// write_siocnt: we start a transfer (MULTI parent, or NORMAL internal clock).
 +static void lockstep_initiate(u8 mode, u16 siocnt) {
++  lockstep_initiated = true;
 +  lockstep_mode = mode;
 +  if (mode == SIOLS_MULTI)
 +    lockstep_own = read_ioreg(REG_SIOMLT_SEND);
@@ -225,6 +277,7 @@ index 55bf2e1..a722f89 100644
 +// The transfer we started completes now: wait for the peer's word.
 +static void lockstep_finish(void) {
 +  u32 peer = siols_complete(ls());
++  lockstep_initiated = false;
 +  if (lockstep_mode == SIOLS_MULTI) {
 +    write_ioreg(REG_SIOMULTI0, lockstep_own);
 +    write_ioreg(REG_SIOMULTI1, peer);
@@ -277,7 +330,7 @@ index 55bf2e1..a722f89 100644
 +static void lockstep_update_begin(unsigned cycles) {
 +  SioLs *s = ls();
 +  siols_advance(s, cycles);
-+  if (s->xfer_active && serial_irq_cycles && serial_irq_cycles <= cycles)
++  if (lockstep_initiated && s->xfer_active && serial_irq_cycles && serial_irq_cycles <= cycles)
 +    lockstep_finish();
 +}
 +
@@ -315,7 +368,7 @@ index 55bf2e1..a722f89 100644
  cpu_alert_type write_rcnt(u16 value) {
    u16 oldval = read_ioreg(REG_RCNT);
    u32 pvmode = get_serial_mode(oldval, read_ioreg(REG_RCNT));
-@@ -158,6 +319,13 @@ cpu_alert_type write_siocnt(u16 value) {
+@@ -158,6 +343,13 @@ cpu_alert_type write_siocnt(u16 value) {
          serial_irq_cycles = CLOCK_CYC_64KHZ_32BIT;
        }
      }
@@ -329,7 +382,7 @@ index 55bf2e1..a722f89 100644
      break;
  
    case SERIAL_MODE_MULTI:
-@@ -178,6 +346,8 @@ cpu_alert_type write_siocnt(u16 value) {
+@@ -178,6 +370,8 @@ cpu_alert_type write_siocnt(u16 value) {
          serialpoke_master_send();
        else if (serial_mode == SERIAL_MODE_SERIAL_AW1 || serial_mode == SERIAL_MODE_SERIAL_AW2)
          serialaw_master_send();
@@ -338,7 +391,7 @@ index 55bf2e1..a722f89 100644
      }
  
      break;
-@@ -191,30 +361,17 @@ cpu_alert_type write_siocnt(u16 value) {
+@@ -191,30 +385,17 @@ cpu_alert_type write_siocnt(u16 value) {
  
  // How many cycles until the next serial event happens. Return MAX otherwise.
  u32 serial_next_event() {
@@ -378,7 +431,7 @@ index 55bf2e1..a722f89 100644
    bool trigger_irq = false;
    if (serial_irq_cycles) {
      if (serial_irq_cycles > cycles)
-@@ -246,3 +403,30 @@ bool update_serial(unsigned cycles) {
+@@ -246,3 +427,30 @@ bool update_serial(unsigned cycles) {
    return false;
  }
  
