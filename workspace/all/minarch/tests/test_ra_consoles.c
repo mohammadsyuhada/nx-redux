@@ -21,6 +21,8 @@ static int fails = 0;
 int main(void) {
 	// PSP runs on the PPSSPP libretro core in minarch (system PSP.pak)
 	CHECK(RA_getConsoleId("PSP") == RC_CONSOLE_PSP, "PSP -> RC_CONSOLE_PSP");
+	// N64 runs on mupen64plus-next in minarch (system N64.pak)
+	CHECK(RA_getConsoleId("N64") == RC_CONSOLE_NINTENDO_64, "N64 -> RC_CONSOLE_NINTENDO_64");
 	CHECK(RA_getConsoleId("DC") == RC_CONSOLE_DREAMCAST, "DC -> Dreamcast (control)");
 	CHECK(RA_getConsoleId("DCX") == RC_CONSOLE_DREAMCAST, "DCX -> Dreamcast");
 	CHECK(RA_getConsoleId("PS") == RC_CONSOLE_PLAYSTATION, "PS -> PlayStation (control)");

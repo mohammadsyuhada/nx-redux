@@ -38,6 +38,10 @@ void PLAT_HWR_setFrame(unsigned w, unsigned h, int flip) {
 void PLAT_HWR_restoreFrontendState(void) {
 	stub_restore_calls++;
 }
+static int stub_prepare_calls;
+void PLAT_HWR_prepareCoreFrame(void) {
+	stub_prepare_calls++;
+}
 void* PLAT_HWR_getProcAddress(const char* sym) {
 	(void)sym;
 	return (void*)0x1234;
@@ -78,7 +82,7 @@ static struct retro_hw_render_callback make_cb(enum retro_hw_context_type t) {
 static void reset_all(void) {
 	HWR_reset();
 	stub_fbo = 7;
-	stub_create_calls = stub_destroy_calls = stub_current_calls = stub_restore_calls = 0;
+	stub_create_calls = stub_destroy_calls = stub_current_calls = stub_restore_calls = stub_prepare_calls = 0;
 	stub_setframe_flip = -1;
 	core_reset_calls = core_destroy_calls = 0;
 }
@@ -180,11 +184,13 @@ int main(void) {
 		HWR_beforeRun();
 		HWR_makeCurrent();
 		CHECK(stub_current_calls == 0, "inactive: beforeRun/makeCurrent are no-ops");
+		CHECK(stub_prepare_calls == 0, "inactive: beforeRun leaves GL state alone");
 		struct retro_hw_render_callback cb = make_cb(RETRO_HW_CONTEXT_OPENGLES3);
 		HWR_setCallback(&cb);
 		HWR_contextReset(640, 480);
 		HWR_beforeRun();
 		CHECK(stub_current_calls >= 1, "active: beforeRun makes context current");
+		CHECK(stub_prepare_calls == 1, "active: beforeRun hands the core a clean vertex state");
 		int before = stub_current_calls;
 		HWR_makeCurrent();
 		CHECK(stub_current_calls == before + 1, "active: makeCurrent makes context current");

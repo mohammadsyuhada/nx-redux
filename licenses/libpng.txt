@@ -1,7 +1,7 @@
 libpng
-Source: http://www.libpng.org/pub/png/libpng.html (tarball libpng-1.6.43.tar.gz, kept at workspace/all/other/mupen64plus/libpng-build/)
-Version: 1.6.43 (confirmed by the "1.6.43" version string in the shipped binary)
-Shipped as: statically linked into BASE/Emus/shared/mupen64plus/mupen64plus-video-GLideN64.so (skeleton/BASE/Emus/shared/mupen64plus/)
+Source: http://www.libpng.org/pub/png/libpng.html (the copy bundled in mupen64plus-libretro-nx: custom/dependencies/libpng)
+Version: 1.6.34 (PNG_LIBPNG_VER_STRING in that copy)
+Shipped as: statically linked into SYSTEM/<platform>/paks/Emus/N64.pak/mupen64plus_next_libretro.so
 License: Libpng-2.0 (PNG Reference Library License version 2) and the libpng license for 0.5-1.6.35
 
 COPYRIGHT NOTICE, DISCLAIMER, and LICENSE

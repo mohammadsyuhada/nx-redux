@@ -1,7 +1,7 @@
 zlib
-Source: https://github.com/madler/zlib (tarball zlib-1.3.1.tar.gz, kept at workspace/all/other/mupen64plus/libpng-build/)
-Version: 1.3.1 (built as libz.a per workspace/all/other/mupen64plus/README.md; "1.3.1" string present in the shipped binary)
-Shipped as: statically linked into BASE/Emus/shared/mupen64plus/mupen64plus-video-GLideN64.so (skeleton/BASE/Emus/shared/mupen64plus/)
+Source: https://github.com/madler/zlib (the copy bundled in mupen64plus-libretro-nx: custom/dependencies/libzlib)
+Version: 1.2.8 (ZLIB_VERSION in that copy)
+Shipped as: statically linked into SYSTEM/<platform>/paks/Emus/N64.pak/mupen64plus_next_libretro.so
 License: Zlib
 
 Copyright notice:

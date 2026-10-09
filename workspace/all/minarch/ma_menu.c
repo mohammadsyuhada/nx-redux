@@ -1627,6 +1627,15 @@ static bool Menu_leaveNetplay(void) {
 	return UI_modalLoop(&opts) != 0;
 }
 
+void Menu_progressNotice(const char* title, const char* detail) {
+	Present_stop();
+	if (screen->w != DEVICE_WIDTH || screen->h != DEVICE_HEIGHT)
+		screen = GFX_resize(DEVICE_WIDTH, DEVICE_HEIGHT, DEVICE_PITCH);
+	GFX_clearShaders();
+	UI_renderConfirmDialogHints(screen, title, detail, (char*[]){NULL});
+	GFX_flip(screen);
+}
+
 void Menu_netplayNotice(const char* title, const char* subtitle, int hold_ms) {
 	Present_stop();
 	if (screen->w != DEVICE_WIDTH || screen->h != DEVICE_HEIGHT)

@@ -57,7 +57,7 @@ Policy facts:
 - mediaplayer's external `ffplay` gets `-af aresample=<pickRate>`; the engine
   restarts ffplay on sink change, which makes it hotplug-safe for free.
 
-The standalone-emulator launchers (DC, N64, NDS, PortMaster, gen1recomp) run
+The standalone-emulator launchers (NDS, PortMaster, gen1recomp) run
 `syncsettings.elf` about 5 s after start to re-apply the saved audio sink,
 volume and brightness, because those emulators clobber the mixer during their
 own SDL/ALSA init and nothing else re-asserts those settings for them. The
@@ -67,10 +67,11 @@ the whole point of the mixing work, so a short pop is now possible when a game
 starts while no music is playing — an accepted trade-off. Do **not**
 reintroduce `/sys/class/speaker/mute` in the launchers.
 
-## The N64 / standalone-emulator audio patch
+## The standalone-emulator audio patch (retired with the N64 standalone)
 
-`workspace/all/other/mupen64plus/mupen64plus-audio-sdl.patch` — the reference
-for fixing audio in any SDL-audio standalone emulator here:
+The standalone N64's `mupen64plus-audio-sdl.patch` (removed when N64 moved to
+mupen64plus-next in minarch; see git history) is the reference for fixing
+audio in any SDL-audio standalone emulator here:
 
 1. `OUTPUT_FREQUENCY` config param, default 48000 (0 = upstream auto) — kills
    the ALSA linear resample.

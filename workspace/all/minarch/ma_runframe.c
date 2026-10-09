@@ -4,6 +4,7 @@
 #include "ma_input.h"
 #include "ma_rewind.h"
 #include "ma_avinfo.h"
+#include "ma_saves.h"
 
 _Static_assert(SYNC_SRC_AUTO == AVSYNC_AUTO && SYNC_SRC_SCREEN == AVSYNC_SCREEN && SYNC_SRC_CORE == AVSYNC_CORE &&
 				   SYNC_SRC_EMULATED == AVSYNC_EMULATED,
@@ -105,4 +106,5 @@ void run_frame(void) {
 		}
 	}
 	limitFF();
+	State_resumePending();
 }

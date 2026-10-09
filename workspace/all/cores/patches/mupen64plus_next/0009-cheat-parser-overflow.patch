@@ -1,0 +1,14 @@
+diff --git a/libretro/libretro.c b/libretro/libretro.c
+index f5323f3..46bfd03 100644
+--- a/libretro/libretro.c
++++ b/libretro/libretro.c
+@@ -2435,7 +2435,8 @@ void retro_cheat_set(unsigned index, bool enabled, const char* codeLine)
+             matchLength++;
+         } else {
+             if (matchLength){
+-               char codePartS[matchLength];
++               /* nx-redux: room for the terminator (upstream wrote one past) */
++               char codePartS[matchLength + 1];
+                strncpy(codePartS,codeLine+cursor-matchLength,matchLength);
+                codePartS[matchLength]=0;
+                codeParts[partCount++]=strtoul(codePartS,NULL,16);

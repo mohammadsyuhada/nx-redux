@@ -1,0 +1,45 @@
+diff --git a/GLideN64/src/Config.cpp b/GLideN64/src/Config.cpp
+index 819743d..36880ed 100644
+--- a/GLideN64/src/Config.cpp
++++ b/GLideN64/src/Config.cpp
+@@ -9,6 +9,7 @@
+ #include "GBI.h"
+ #include "wst.h"
+ #include "osal_keys.h"
++#include <cstdlib>
+ 
+ void Config::resetToDefaults()
+ {
+@@ -117,6 +118,20 @@ void Config::resetToDefaults()
+ 	gln_wcscat(textureFilter.txCachePath, wst("/cache"));
+ 	api().GetUserCachePath(textureFilter.txDumpPath);
+ 	gln_wcscat(textureFilter.txDumpPath, wst("/texture_dump"));
++#ifdef __LIBRETRO__
++	{
++		/* nx-redux: the frontend's pak may keep hi-res packs and their cache
++		 * elsewhere (where the standalone N64.pak had them) */
++		const char* nx_path = getenv("NX_M64P_TX_PATH");
++		if (nx_path && *nx_path)
++			mbstowcs(textureFilter.txPath, nx_path, PLUGIN_PATH_SIZE - 1);
++		textureFilter.txPath[PLUGIN_PATH_SIZE - 1] = 0;
++		nx_path = getenv("NX_M64P_TX_CACHE_PATH");
++		if (nx_path && *nx_path)
++			mbstowcs(textureFilter.txCachePath, nx_path, PLUGIN_PATH_SIZE - 1);
++		textureFilter.txCachePath[PLUGIN_PATH_SIZE - 1] = 0;
++	}
++#endif
+ 
+ #ifdef OS_WINDOWS
+ 	font.name.assign("arial.ttf");
+diff --git a/libretro/libretro_core_options.h b/libretro/libretro_core_options.h
+index 7b09f5f..5a2b747 100644
+--- a/libretro/libretro_core_options.h
++++ b/libretro/libretro_core_options.h
+@@ -834,6 +834,7 @@ struct retro_core_option_v2_definition option_defs_us[] = {
+         "gliden64",
+         {
+             {"0", NULL},
++            {"200", NULL}, /* nx-redux: the standalone N64.pak's limit on 1 GB devices */
+             {"500", NULL},
+             {"1000", NULL},
+             {"1500", NULL},

@@ -38,14 +38,18 @@ size_t audio_sample_batch_callback(const int16_t* data, size_t frames) {
 	EmuTime_countAudio(frames);
 	if (rewinding && !rewind_ctx.audio)
 		return frames;
+	// Always report every input frame as consumed, as RetroArch does: the SND_*
+	// helpers return how many RESAMPLED frames they queued (0 when dropping),
+	// and a core that loops until its batch is consumed (mupen64plus-next:
+	// "output_frames -= ret") spins forever on 0 or wraps its size_t counter
+	// when the 44.1->48 kHz resample returns more frames than it was given.
 	if (!fast_forward || ff_audio) {
-		if (use_core_fps || fast_forward) {
-			return SND_batchSamples_fixed_rate((const SND_Frame*)data, frames);
-		} else {
-			return SND_batchSamples((const SND_Frame*)data, frames);
-		}
-	} else
-		return frames;
+		if (use_core_fps || fast_forward)
+			SND_batchSamples_fixed_rate((const SND_Frame*)data, frames);
+		else
+			SND_batchSamples((const SND_Frame*)data, frames);
+	}
+	return frames;
 }
 
 // We need to do this on the audio thread (aka main thread currently)

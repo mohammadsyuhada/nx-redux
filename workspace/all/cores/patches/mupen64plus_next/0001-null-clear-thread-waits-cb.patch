@@ -1,0 +1,44 @@
+nx-redux: RETRO_ENVIRONMENT_GET_CLEAR_ALL_THREAD_WAITS_CB is a RetroArch-private
+call minarch does not implement; the core then calls a NULL pointer on unload
+and on every serialize/unserialize with the threaded GLideN64 renderer.
+
+diff --git a/libretro/libretro.c b/libretro/libretro.c
+index 4a9f129..1129890 100644
+--- a/libretro/libretro.c
++++ b/libretro/libretro.c
+@@ -2011,7 +2011,7 @@ void retro_unload_game(void)
+ {
+     if(current_rdp_type == RDP_PLUGIN_GLIDEN64 && EnableThreadedRenderer)
+     {
+-       environ_clear_thread_waits_cb(1, NULL);
++       if (environ_clear_thread_waits_cb) environ_clear_thread_waits_cb(1, NULL);
+     }
+ 
+     if(current_rdp_type == RDP_PLUGIN_GLIDEN64 && EnableThreadedRenderer)
+@@ -2028,7 +2028,7 @@ void retro_unload_game(void)
+     
+        pthread_join(emuThread, NULL);
+ 
+-       environ_clear_thread_waits_cb(0, NULL);
++       if (environ_clear_thread_waits_cb) environ_clear_thread_waits_cb(0, NULL);
+ 
+        CoreDoCommand(M64CMD_ROM_CLOSE, 0, NULL);
+     }
+@@ -2150,7 +2150,7 @@ bool retro_serialize(void *data, size_t size)
+       if(EnableThreadedRenderer)
+       {
+          // Ensure the Audio driver is on (f.e. menu sounds off)
+-         environ_clear_thread_waits_cb(1, NULL);
++         if (environ_clear_thread_waits_cb) environ_clear_thread_waits_cb(1, NULL);
+       }
+       glsm_ctl(GLSM_CTL_STATE_BIND, NULL);
+    }
+@@ -2183,7 +2183,7 @@ bool retro_unserialize(const void *data, size_t size)
+       if(EnableThreadedRenderer)
+       {
+          // Ensure the Audio driver is on (f.e. menu sounds off)
+-         environ_clear_thread_waits_cb(1, NULL);
++         if (environ_clear_thread_waits_cb) environ_clear_thread_waits_cb(1, NULL);
+       }
+       glsm_ctl(GLSM_CTL_STATE_BIND, NULL);
+    }

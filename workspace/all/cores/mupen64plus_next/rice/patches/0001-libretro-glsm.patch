@@ -1,0 +1,18 @@
+diff --git a/src/osal_opengl.h b/src/osal_opengl.h
+index 1f8ead6..02a25a3 100644
+--- a/src/osal_opengl.h
++++ b/src/osal_opengl.h
+@@ -39,6 +39,13 @@
+ 
+ #include <SDL_opengles2.h>
+ 
++#ifdef __LIBRETRO__
++// Inside the mupen64plus-next libretro core: route GL through glsm, the
++// core's GL state wrapper, so the frontend's state changes between frames
++// are undone and "framebuffer 0" is the frontend's render target.
++#include <glsm/glsmsym.h>
++#endif
++
+ #define GLSL_VERSION "100"
+ 
+ // SDL_opengles2.h define GL_APIENTRYP instead of APIENTRYP

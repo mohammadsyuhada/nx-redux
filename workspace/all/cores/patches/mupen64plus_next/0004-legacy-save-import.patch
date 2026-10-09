@@ -1,0 +1,81 @@
+diff --git a/Makefile.common b/Makefile.common
+index 37adaca..f8e8a01 100644
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -98,6 +98,12 @@ SOURCES_C = \
+ 	$(CORE_DIR)/src/plugin/dummy_audio.c \
+ 	$(CORE_DIR)/src/plugin/dummy_input.c
+ 
++# nx-redux: standalone N64.pak save import (sources live in our repo)
++ifneq ($(NX_SRC_DIR),)
++SOURCES_C += $(NX_SRC_DIR)/nx_legacy_save.c
++COREFLAGS += -I$(NX_SRC_DIR) -DNX_LEGACY_SAVE
++endif
++
+ # nx-redux: Rice video plugin, built into RICE_OBJ by build-rice.sh
+ ifeq ($(HAVE_RICE), 1)
+ SOURCES_C += $(ROOT_DIR)/custom/mupen64plus-core/plugin/rice_glue.c
+diff --git a/libretro/libretro.c b/libretro/libretro.c
+index fc545a2..0f84383 100644
+--- a/libretro/libretro.c
++++ b/libretro/libretro.c
+@@ -116,6 +116,30 @@ struct retro_rumble_interface rumble;
+ 
+ save_memory_data saved_memory;
+ 
++#ifdef NX_LEGACY_SAVE
++#include "nx_legacy_save.h"
++static save_memory_data nx_fresh_saved_memory;
++
++/* nx-redux: first launch after the move from the standalone N64.pak. The
++ * frontend loads .srm between retro_load_game and the first retro_run; if it
++ * had none, the save memory is still the formatted snapshot and the
++ * standalone's files for this ROM are copied in. An existing .srm always
++ * wins; the standalone's files are never changed. */
++void nx_legacy_save_maybe_import(const char* md5)
++{
++    const char* dir = getenv("NX_M64P_LEGACY_SAVE_DIR");
++    if (!dir || memcmp(&saved_memory, &nx_fresh_saved_memory, sizeof(saved_memory)) != 0)
++        return;
++    int mask = nx_legacy_save_import(dir, md5,
++        saved_memory.eeprom, sizeof(saved_memory.eeprom),
++        saved_memory.mempack, sizeof(saved_memory.mempack),
++        saved_memory.sram, sizeof(saved_memory.sram),
++        saved_memory.flashram, sizeof(saved_memory.flashram));
++    if (mask && log_cb)
++        log_cb(RETRO_LOG_INFO, CORE_NAME ": imported standalone saves (mask %d) from %s\n", mask, dir);
++}
++#endif
++
+ static cothread_t game_thread;
+ cothread_t retro_thread;
+ 
+@@ -2020,6 +2044,10 @@ bool retro_load_game(const struct retro_game_info *game)
+ 
+     glsm_ctx_params_t params = {0};
+     format_saved_memory();
++#ifdef NX_LEGACY_SAVE
++    /* what save memory looks like when the frontend has no .srm for the game */
++    nx_fresh_saved_memory = saved_memory;
++#endif
+ 
+     update_variables(true);
+ 
+diff --git a/mupen64plus-core/src/main/main.c b/mupen64plus-core/src/main/main.c
+index 620f4ce..55252e8 100644
+--- a/mupen64plus-core/src/main/main.c
++++ b/mupen64plus-core/src/main/main.c
+@@ -1393,6 +1393,13 @@ m64p_error main_run(void)
+     /* XXX: select type of flashram from db */
+     uint32_t flashram_type = MX29L1100_ID;
+     
++#ifdef NX_LEGACY_SAVE
++    {
++        extern void nx_legacy_save_maybe_import(const char* md5);
++        nx_legacy_save_maybe_import(ROM_SETTINGS.MD5);
++    }
++#endif
++
+     emumode = r4300_emumode;
+     randomize_interrupt = 0; // We don't want this right now
+     no_compiled_jump = 0;

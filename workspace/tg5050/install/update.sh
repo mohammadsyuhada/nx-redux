@@ -192,3 +192,17 @@ if [ -f "$DC_OLD/overlay_settings.json" ]; then
 fi
 # --- dc-standalone-cleanup-end
 
+# --------------------------------------
+# --- n64-standalone-cleanup-begin
+# N64 moved from the standalone mupen64plus (its own overlay, GLideN64 .so)
+# to mupen64plus-next in minarch. The install replaces
+# .system/paks/Emus wholesale; this removes what the standalone left on the
+# card. Players' standalone saves and states (.userdata/shared/N64-mupen64plus)
+# are never touched: N64.pak's core imports a game's saves from there on first
+# launch. Hi-res texture packs stay in Roms/Nintendo 64 (N64)/.hires_texture.
+# One-shot per update; must never fail the update.
+N64_OLD="$SDCARD_PATH/Emus/shared/mupen64plus"
+[ -d "$N64_OLD" ] && rm -rf "$N64_OLD" && echo "removed the standalone mupen64plus data"
+true
+# --- n64-standalone-cleanup-end
+

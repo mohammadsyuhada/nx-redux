@@ -4,6 +4,8 @@
 #include "ma_emutime.h"
 #include "netplay_helper.h" // Multiplayer_isActive
 #include "ma_present.h"
+#include "ma_core_progress.h"
+#include "ma_menu.h"
 
 static const char* bitmap_font[] = {
 	['0'] =
@@ -1089,6 +1091,32 @@ void video_refresh_callback(const void* data, unsigned width, unsigned height, s
 	// pixel conversion and ambient scan for frames that will never be shown
 	if (fast_forward && SDL_GetTicks() - last_flip_time < FF_FRAME_INTERVAL_MS)
 		return;
+
+	// A core reporting progress (a hi-res texture pack converted on first
+	// launch) shows that instead of its picture; afterwards the screen goes
+	// back to the game's size and the scaler is rebuilt on the next frame.
+	{
+		static int progress_shown = 0;
+		static int restore_w, restore_h, restore_p;
+		char title[128], detail[256];
+		if (CoreProgress_active(title, sizeof(title), detail, sizeof(detail))) {
+			if (!progress_shown) {
+				progress_shown = 1;
+				restore_w = screen->w;
+				restore_h = screen->h;
+				restore_p = screen->pitch;
+			}
+			Menu_progressNotice(title, detail);
+			return;
+		}
+		if (progress_shown) {
+			progress_shown = 0;
+			if (screen->w != restore_w || screen->h != restore_h)
+				screen = GFX_resize(restore_w, restore_h, restore_p);
+			GFX_clear(screen);
+			renderer.dst_p = 0;
+		}
+	}
 
 	if (HWR_active()) {
 		video_refresh_hw(data, width, height);

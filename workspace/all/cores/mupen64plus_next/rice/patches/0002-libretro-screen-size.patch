@@ -1,0 +1,32 @@
+diff --git a/src/Config.cpp b/src/Config.cpp
+index 961a1c7..07379be 100644
+--- a/src/Config.cpp
++++ b/src/Config.cpp
+@@ -30,6 +30,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ #include "Texture.h"
+ #include "TextureManager.h"
+ #include "Video.h"
++
++#ifdef __LIBRETRO__
++extern "C" uint32_t get_retro_screen_width(void);
++extern "C" uint32_t get_retro_screen_height(void);
++#endif
+ #include "m64p_config.h"
+ #include "m64p_plugin.h"
+ #include "m64p_types.h"
+@@ -422,8 +427,15 @@ bool isSSESupported()
+ static void ReadConfiguration(void)
+ {
+     windowSetting.bDisplayFullscreen = ConfigGetParamBool(l_ConfigVideoGeneral, "Fullscreen");
++#ifdef __LIBRETRO__
++    // Inside the libretro core Rice draws into the frontend's framebuffer,
++    // sized by the core's resolution option.
++    windowSetting.uDisplayWidth = get_retro_screen_width();
++    windowSetting.uDisplayHeight = get_retro_screen_height();
++#else
+     windowSetting.uDisplayWidth = ConfigGetParamInt(l_ConfigVideoGeneral, "ScreenWidth");
+     windowSetting.uDisplayHeight = ConfigGetParamInt(l_ConfigVideoGeneral, "ScreenHeight");
++#endif
+     windowSetting.bVerticalSync = ConfigGetParamBool(l_ConfigVideoGeneral, "VerticalSync");
+ 
+     defaultRomOptions.N64FrameBufferEmuType = ConfigGetParamInt(l_ConfigVideoRice, "FrameBufferSetting");
