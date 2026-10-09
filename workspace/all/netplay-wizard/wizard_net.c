@@ -32,8 +32,8 @@
  * A rejected or dropped client never ends the host's wait: the host closes that
  * connection and returns to its waiting screen. The client is the side that
  * gives up — back to its host list on WiFi, out of the wizard on hotspot.
- * The one exception is a core mismatch, which ends both wizards: the players
- * picked the game from different folders, and only they can fix that.
+ * The one exception is a core mismatch over the USB Cable, which ends both
+ * wizards: the cable's only peer picked the game from a different folder.
  */
 
 #include <ctype.h>
@@ -63,6 +63,7 @@
 #include "ui_message.h"
 #include "utils.h"
 #include "wifi_direct.h"
+#include "wiz_modes.h"
 #include "wizard.h"
 
 // Longest control line accepted, terminator included. The longest line the
@@ -980,9 +981,9 @@ static int wiz_host_handshake(const WizArgs* a, WizSession* s, int fd,
 		return 1;
 	}
 	// A different emulator core never syncs (MD's PicoDrive vs GPGX, gpSP vs
-	// mGBA), so refuse here and say so on both screens. This one is fatal for
-	// the host too: over the cable no other player can arrive, and elsewhere
-	// the same pick would just be refused again.
+	// mGBA), so refuse here and say so on both screens. Over the cable that
+	// ends the host's wait too — no other player can arrive. On WiFi and the
+	// hotspot the lobby stays open for the players who did pick the same folder.
 	char joiner_caps[WIZ_CAPS_MAX];
 	WizCaps_find(line, joiner_caps, sizeof(joiner_caps));
 	if (WizCaps_coreMismatch(a->caps, joiner_caps)) {
@@ -999,6 +1000,11 @@ static int wiz_host_handshake(const WizArgs* a, WizSession* s, int fd,
 		WizCaps_coreLabel(core, tag, label, sizeof(label));
 		fprintf(stderr, "netplay: player %d at %s runs core '%s' (%s), we run '%s'; refused\n",
 				player_num, peer_ip, core, tag, a->caps);
+		if (!WizModes_singlePeer(s->mode)) {
+			snprintf(message, sizeof(message), "A player using\n%s\nwas turned away.", label);
+			wiz_net_notice(message);
+			return 1;
+		}
 		snprintf(message, sizeof(message), "The other player is using\n%s.\n\n%s", label,
 				 WIZ_NET_CORE_HINT);
 		wiz_net_error(message);

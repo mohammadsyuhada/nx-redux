@@ -9,6 +9,8 @@
 #ifndef WIZ_MODES_H
 #define WIZ_MODES_H
 
+#include <stdbool.h>
+
 #define WIZ_MODES_ALL 0x7u // bit i = mode_keys[i]: 0 usb, 1 hotspot, 2 wifi
 
 // Parses a csv of "usb","hotspot","wifi" into a mask. Returns the mask, or 0
@@ -16,5 +18,8 @@
 unsigned WizModes_parse(const char* csv);
 // Fills rows[] with the indices (0..2) of the set bits, in key order; returns the count.
 int WizModes_rows(unsigned mask, int rows[3]);
+// True for a session mode ("usb") whose transport joins exactly one other
+// device: a host turning that peer away has no one left to wait for.
+bool WizModes_singlePeer(const char* mode);
 
 #endif
