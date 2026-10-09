@@ -14,7 +14,7 @@ path that reuses the same pre-launch wizard for rendezvous only:
 
 | Backend | Cores | Ports |
 |---|---|---|
-| Netplay (frame-sync rollback) | fbneo, fceumm, snes9x, supafaust, picodrive, pcsx_rearmed | 55435/55436 |
+| Netplay (frame-sync rollback) | fbneo, fceumm, snes9x, supafaust, picodrive, pcsx_rearmed, swanstation | 55435/55436 |
 | GBA Link (gpSP RFU/serial via libretro netpacket) | gpsp | 55437/55438 |
 | GB Link (gambatte serial) | gambatte | 56400/56421 |
 | N64 core netplay (mupen64plus protocol via on-host `m64p-server.elf`) | mupen64plus (standalone, `N64.pak`) | 55445 (TCP+UDP) |
