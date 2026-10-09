@@ -1568,6 +1568,7 @@ void Menu_undoLoadState(void) {
 typedef struct {
 	uint32_t start;
 	int seconds_left; // -1: no countdown
+	bool menu_down;	  // MENU pressed while the dialog is up
 } LeaveNetplayCtx;
 
 static void leaveNetplay_render(SDL_Surface* dst, void* data) {
@@ -1590,7 +1591,14 @@ static int leaveNetplay_handle(void* data) {
 	}
 	if (PAD_justPressed(BTN_A))
 		return 1;
-	if (PAD_justPressed(BTN_B) || PAD_justPressed(BTN_MENU))
+	if (PAD_justPressed(BTN_B))
+		return 0;
+	// MENU continues on its release: the game opens this dialog on a MENU
+	// release (ma_input.c), so closing on the press let that same press's
+	// release reopen it at once.
+	if (PAD_justPressed(BTN_MENU))
+		ctx->menu_down = true;
+	if (ctx->menu_down && PAD_justReleased(BTN_MENU))
 		return 0;
 	if (ctx->seconds_left >= 0) {
 		int left = CoreNetplay_leaveSecondsLeft(ctx->start, SDL_GetTicks());
