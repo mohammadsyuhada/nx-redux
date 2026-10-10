@@ -1754,8 +1754,8 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 	if (row_focused && tabRowInput(now, show_setting, &result, dirty))
 		return result;
 
-	// Home owns the D-pad, A and MENU; SELECT, START, the F keys and L1/R1 fall through to the root's handlers
-	// below, and the list's own row actions (X, Y, A, the row moves) stay off.
+	// Home owns the D-pad, A and MENU (Y is its netplay launch, below); SELECT, START, the F keys and L1/R1 fall
+	// through to the root's handlers below, and the list's own row actions (X, Y, A, the row moves) stay off.
 	bool home = Home_active();
 	if (home) {
 		unsigned gen = MenuTabs_generation();
@@ -1764,6 +1764,12 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 				result.folderbgchanged = true; // an edge move or "Pick a game" opened another tab
 			else if (stack->count > 1 && !startgame)
 				result.animdir = SLIDE_LEFT; // a pinned plain folder opened (as the list's A does)
+			return result;
+		}
+		// Y on a pinned game or the Continue card launches it with netplay, as the list's Y does
+		if (!MenuTabs_focused() && PAD_justReleased(BTN_Y) && !(row_released & BTN_Y)) {
+			ctxNetplay(Home_focusedEntry(), true);
+			*dirty = true;
 			return result;
 		}
 	}

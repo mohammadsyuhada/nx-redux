@@ -12,7 +12,7 @@ bool MusicRequest_isValidPayload(uint16_t command, const void* payload, size_t l
 			return false;
 		const MusicLoadRequest* request = payload;
 		return bounded_string(request->path, sizeof(request->path)) &&
-			bounded_string(request->selected_path, sizeof(request->selected_path));
+			   bounded_string(request->selected_path, sizeof(request->selected_path));
 	}
 	case MUSIC_CMD_RADIO_LOAD: {
 		if (!payload || length != sizeof(MusicRadioLoadRequest))
@@ -31,7 +31,7 @@ bool MusicRequest_isValidPayload(uint16_t command, const void* payload, size_t l
 			return false;
 		const MusicPodcastLoadRequest* request = payload;
 		return bounded_string(request->feed_url, sizeof(request->feed_url)) &&
-			bounded_string(request->episode_guid, sizeof(request->episode_guid));
+			   bounded_string(request->episode_guid, sizeof(request->episode_guid));
 	}
 	case MUSIC_CMD_PODCAST_PROGRESS:
 	case MUSIC_CMD_PODCAST_MARK_PLAYED: {
@@ -39,7 +39,7 @@ bool MusicRequest_isValidPayload(uint16_t command, const void* payload, size_t l
 			return false;
 		const MusicPodcastProgressRequest* request = payload;
 		return bounded_string(request->feed_url, sizeof(request->feed_url)) &&
-			bounded_string(request->episode_guid, sizeof(request->episode_guid));
+			   bounded_string(request->episode_guid, sizeof(request->episode_guid));
 	}
 	case MUSIC_CMD_SELECT:
 	case MUSIC_CMD_SEEK:

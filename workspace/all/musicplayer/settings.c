@@ -226,10 +226,10 @@ void Settings_save(void) {
 	if (old) {
 		while (preserved_count < 5 && fgets(line, sizeof(line), old)) {
 			bool other_owner = settings_owner_mode
-				? strncmp(line, "screen_off_timeout=", 19) == 0 || strncmp(line, "lyrics_enabled=", 15) == 0
-				: strncmp(line, "bass_filter_hz=", 15) == 0 || strncmp(line, "soft_limiter=", 13) == 0 ||
-					strncmp(line, "sample_rate_follow=", 19) == 0 || strncmp(line, "resampler_quality=", 18) == 0 ||
-					strncmp(line, "buffer_frames=", 14) == 0;
+								   ? strncmp(line, "screen_off_timeout=", 19) == 0 || strncmp(line, "lyrics_enabled=", 15) == 0
+								   : strncmp(line, "bass_filter_hz=", 15) == 0 || strncmp(line, "soft_limiter=", 13) == 0 ||
+										 strncmp(line, "sample_rate_follow=", 19) == 0 || strncmp(line, "resampler_quality=", 18) == 0 ||
+										 strncmp(line, "buffer_frames=", 14) == 0;
 			if (other_owner)
 				strncpy(preserved[preserved_count++], line, sizeof(preserved[0]) - 1);
 		}

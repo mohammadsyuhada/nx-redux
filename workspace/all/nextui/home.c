@@ -1843,6 +1843,11 @@ static void renderHints(SDL_Surface* dst) {
 	} else {
 		pairs[p++] = "MENU";
 		pairs[p++] = "OPTIONS";
+		// Y still starts netplay when the hint is hidden (Appearance > Show netplay hint)
+		if (t->kind != HOME_TILE_TOOL && CFG_getShowNetplayHint() && GameList_entryNetplayCapable(e)) {
+			pairs[p++] = "Y";
+			pairs[p++] = "NETPLAY";
+		}
 		pairs[p++] = "A";
 		if (t->kind == HOME_TILE_TOOL) {
 			size_t i = 0;
