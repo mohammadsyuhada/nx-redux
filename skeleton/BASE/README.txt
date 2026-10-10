@@ -30,7 +30,7 @@ Copy "MinUI.zip" (without unzipping) to the root of the SD card containing your 
 
 Emulator and Tool paks are part of NX Redux itself now: they live in /.system/paks/ and update automatically with every update (MinUI.zip). There is nothing to copy by hand when updating.
 
-/Emus and /Tools are for your OWN paks (e.g. a community PSP.pak). Do NOT place a pak here with the same name as a shipped one: same-named paks are treated as NX Redux leftovers and are currently removed on every update. (Placing a same-named pak here to shadow the shipped one will become supported in a future release, once this transition cleanup is retired.)
+/Emus and /Tools are for your OWN paks (e.g. a community PSP.pak). A shipped pak always wins: a pak there with the same name as a shipped one is ignored, so give yours its own name.
 
 ----------------------------------------
 Shortcuts

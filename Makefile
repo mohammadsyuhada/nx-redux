@@ -507,10 +507,6 @@ package: tidy
 		\
 		echo "  assembling .system (contents merge from $$plat)"; \
 		cp -R ./build/SYSTEM/$$plat/. ./build/PAYLOAD-$$dev/.system/; \
-		echo "  installing legacy-boot compat shims"; \
-		mkdir -p ./build/PAYLOAD-$$dev/.system/$$plat/bin "./build/PAYLOAD-$$dev/.system/$$plat/paks/MinUI.pak"; \
-		cp ./workspace/$$plat/install/install-shim.sh ./build/PAYLOAD-$$dev/.system/$$plat/bin/install.sh; \
-		cp ./workspace/$$plat/install/minui-launch-shim.sh "./build/PAYLOAD-$$dev/.system/$$plat/paks/MinUI.pak/launch.sh"; \
 		cp -R ./build/SYSTEM/res      ./build/PAYLOAD-$$dev/.system/res; \
 		cp -R ./build/SYSTEM/shared   ./build/PAYLOAD-$$dev/.system/shared; \
 		cp ./build/SYSTEM/version.txt ./build/PAYLOAD-$$dev/.system/version.txt; \

@@ -39,14 +39,12 @@ rm -f "$SDCARD_PATH/.tmp_update.zip" "$SDCARD_PATH/.tmp_update.zip.done" "$SDCAR
 # PPSSPPSDL binary, or the PPSSPP/.config shell an Xtras uninstall leaves) has
 # its memory stick carried to the libretro one (Saves/PSP: PPSSPP maps ms0:/PSP
 # straight onto a save dir named PSP) and is removed. Any
-# other user PSP.pak is left to migrate-paks.sh, which removes shipped-name
-# paks. Standalone saves (Saves/PSP/<ID>: the standalone bind-mounted
+# other user PSP.pak is left alone (a same-named user pak overrides the
+# shipped one). Standalone saves (Saves/PSP/<ID>: the standalone bind-mounted
 # Saves/PSP as SAVEDATA) move to Saves/PSP/SAVEDATA/<ID>; an existing
 # destination is never overwritten.
 # Standalone save states (.userdata/shared/PSP-ppsspp) are not portable and
-# are left alone. Runs BEFORE migrate-paks.sh, which deletes every shipped-name
-# pak (PSP.pak now ships) from /Emus without carrying texture packs over.
-# One-shot per update; must never fail the update.
+# are left alone. One-shot per update; must never fail the update.
 PSP_SAVES="$SDCARD_PATH/Saves/PSP"
 for PSP_PAK in "$SDCARD_PATH/Emus/tg5040/PSP.pak" "$SDCARD_PATH/Emus/tg5050/PSP.pak" "$SDCARD_PATH/Emus/PSP.pak"; do
 	if ! ls "$PSP_PAK"/PPSSPP/PPSSPPSDL* >/dev/null 2>&1; then
@@ -84,12 +82,6 @@ for PSP_S in "$PSP_SAVES"/*; do
 done
 true
 # --- psp-standalone-cleanup-end
-
-# --------------------------------------
-# clean shipped-name paks out of /Emus and /Tools (moved into .system
-# 2026-07-31; removal of this hook is tracked in DEV_TODO.md);
-# must never fail the update
-sh ${SDCARD_PATH}/.system/shared/bin/migrate-paks.sh tg5050 || true
 
 # --------------------------------------
 # migration code here

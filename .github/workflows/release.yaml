@@ -298,4 +298,7 @@ jobs:
 
             More details available in https://nxredux.com/reference/release-notes/
             Select zip files that is relevant to your platform and extract it to your exFAT formatted SDCARD. Alternatively, you can update directly using the OTA update feature in the device.
+
+            **Coming from v1.x?** Back up your SD card before updating. A clean install is recommended: delete the hidden `.system` and `.tmp_update` folders from the card (keep `Roms`, `Saves`, `Bios` and `.userdata`, so your games, saves and settings stay), then extract this release as usual.
+
             If you have any questions, please open an issue in the repository.

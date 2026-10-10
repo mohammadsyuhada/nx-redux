@@ -20,11 +20,6 @@ for PLAT in tg5040 tg5050; do
 	UPDATE="$ROOT/workspace/$PLAT/install/update.sh"
 	BLOCK="$(sed -n '/^# --- psp-standalone-cleanup-begin/,/^# --- psp-standalone-cleanup-end/p' "$UPDATE")"
 	[ -n "$BLOCK" ] || { fail "$PLAT: psp-standalone-cleanup block not found in update.sh"; continue; }
-	# must run before migrate-paks.sh, which deletes every shipped-name pak (PSP.pak
-	# now ships) from /Emus without carrying texture packs over
-	B_LINE=$(grep -n "^# --- psp-standalone-cleanup-begin" "$UPDATE" | cut -d: -f1)
-	M_LINE=$(grep -n "migrate-paks.sh" "$UPDATE" | grep -v "^[0-9]*:#" | head -1 | cut -d: -f1)
-	[ -n "$M_LINE" ] && [ "$B_LINE" -lt "$M_LINE" ] || fail "$PLAT: block (line $B_LINE) must run before migrate-paks.sh (line $M_LINE)"
 	C="$TMP/$PLAT"; mkdir -p "$C"
 	standalone "$C/Emus/tg5040/PSP.pak"; standalone "$C/Emus/tg5050/PSP.pak"; standalone "$C/Emus/PSP.pak"
 	mkdir -p "$C/Emus/tg5040/PSP.pak/PPSSPP/.config/ppsspp/PSP/TEXTURES/ULUS10466"
@@ -69,7 +64,7 @@ for PLAT in tg5040 tg5050; do
 	[ -d "$C/Saves/PSP/NAND/flash0" ] && [ ! -e "$C/Saves/PSP/SAVEDATA/NAND" ] || fail "$PLAT: NAND touched"
 
 	# a user PSP.pak that is not the standalone is not this block's to remove
-	# (migrate-paks.sh handles shipped names); second run is a no-op
+	# (the shipped PSP.pak wins over it anyway); second run is a no-op
 	mkdir -p "$C/Emus/$PLAT/PSP.pak"; echo mine > "$C/Emus/$PLAT/PSP.pak/launch.sh"
 	SDCARD_PATH="$C" sh -c "$BLOCK" >/dev/null 2>&1 || fail "$PLAT: second run failed"
 	[ "$(cat "$C/Emus/$PLAT/PSP.pak/launch.sh" 2>/dev/null)" = mine ] || fail "$PLAT: custom pak removed"
