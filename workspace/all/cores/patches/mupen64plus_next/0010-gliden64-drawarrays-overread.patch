@@ -1,0 +1,15 @@
+diff --git a/GLideN64/src/Graphics/OpenGLContext/ThreadedOpenGl/opengl_Wrapper.cpp b/GLideN64/src/Graphics/OpenGLContext/ThreadedOpenGl/opengl_Wrapper.cpp
+index ab7bca3..ee0b303 100644
+--- a/GLideN64/src/Graphics/OpenGLContext/ThreadedOpenGl/opengl_Wrapper.cpp
++++ b/GLideN64/src/Graphics/OpenGLContext/ThreadedOpenGl/opengl_Wrapper.cpp
+@@ -365,7 +365,9 @@ namespace opengl {
+ 				executeCommand(GlDrawArraysCommand::get(mode, first, count));
+ 			} else {
+ 				const char* ptr = GlVertexAttribPointerManager::getSmallestPtr();
+-				PoolBufferPointer buffer = OpenGlCommand::m_ringBufferPool.createPoolBuffer(ptr, (count + 1)*GlVertexAttribPointerManager::getStride());
++				// nx-redux: vertices first..first+count-1 (upstream copied count+1 from
++				// vertex 0, one past the end: a segfault when the array ends a heap arena)
++				PoolBufferPointer buffer = OpenGlCommand::m_ringBufferPool.createPoolBuffer(ptr, (first + count)*GlVertexAttribPointerManager::getStride());
+ 				executeCommand(GlDrawArraysUnbufferedCommand::get(mode, first, count, buffer));
+ 			}
+ 		} else {
