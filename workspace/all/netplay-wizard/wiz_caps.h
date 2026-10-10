@@ -28,4 +28,23 @@ void WizCaps_find(const char* line, char* out, size_t out_size);
 // " caps=<token>" to append to an outgoing HELLO, or "" for no/invalid token.
 void WizCaps_field(const char* token, char* out, size_t out_size);
 
+// netplay-prelaunch.sh passes "core=<EMU_EXE>,tag=<EMU_TAG>": two different
+// cores (MD's PicoDrive vs GPGX's Genesis Plus GX, gpSP vs mGBA) never sync, so
+// both wizards refuse such a pair in the HELLO exchange and say why.
+// The value of the "<key>=" element of a comma-separated token, or "".
+void WizCaps_value(const char* caps, const char* key, char* out, size_t out_size);
+// True only when both tokens name a core and the two differ. A side with none
+// (Dreamcast's dcbios=, or an older build) is let through; tags never refuse.
+bool WizCaps_coreMismatch(const char* ours, const char* theirs);
+// The name a player knows a core by ("Genesis Plus GX"); unknown = as-is.
+const char* WizCaps_coreName(const char* core);
+// "<name> (<tag> folder)", or just the name when there is no tag.
+void WizCaps_coreLabel(const char* core, const char* tag, char* out, size_t out_size);
+// The REJECT reason that names our core and folder: "core-<core>.<tag>", or
+// "core-<core>", or bare "core" — whichever first fits out_size (the reply is
+// parsed with %31s, so pass 32).
+void WizCaps_coreReason(const char* caps, char* out, size_t out_size);
+// The label a "core-..." REJECT reason names, or "" when it names none.
+void WizCaps_reasonLabel(const char* reason, char* out, size_t out_size);
+
 #endif

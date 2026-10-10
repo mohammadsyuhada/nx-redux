@@ -62,13 +62,13 @@ sh -c 'echo "MINARCH role=\${NETPLAY_ROLE:-} peer=\${NETPLAY_PEER_IP:-} mode=\${
 EOF
 chmod +x "$TMP/launch.sh"
 
-run() { # $1 = rom path; env: NPELF_RC NPELF_WRITE_SESSION NPELF_ROLE NPELF_FETCH NPELF_PEER_CAPS EMU_EXE
+run() { # $1 = rom path; env: NPELF_RC NPELF_WRITE_SESSION NPELF_ROLE NPELF_FETCH NPELF_PEER_CAPS EMU_EXE EMU_TAG
 	rm -f "$ARGS" "$OUT" "$CLEANUP"
 	rm -rf "$TMP/stage" "$TMP/data"
 	PATH="$TMP/bin:$PATH" LOGS_PATH="$TMP/logs" \
 	NETPLAY_LAUNCH_FLAG="$FLAG" NETPLAY_SESSION_FILE="$SESSION" \
 	NETPLAY_SAVE_STAGE_DIR="$TMP/stage" NETPLAY_SAVE_DATA_DIR="$TMP/data" \
-	SAVES_PATH="$TMP/Saves" EMU_TAG="SFC" EMU_EXE="${EMU_EXE:-snes9x}" \
+	SAVES_PATH="$TMP/Saves" EMU_TAG="${EMU_TAG:-SFC}" EMU_EXE="${EMU_EXE:-snes9x}" \
 	NPELF_ARGS_OUT="$ARGS" NPELF_SESSION_OUT="$SESSION" NPELF_CLEANUP_OUT="$CLEANUP" \
 	NPELF_PEER_CAPS="${NPELF_PEER_CAPS:-}" \
 	NPELF_RC="${NPELF_RC:-0}" NPELF_WRITE_SESSION="${NPELF_WRITE_SESSION:-}" \
@@ -77,7 +77,7 @@ run() { # $1 = rom path; env: NPELF_RC NPELF_WRITE_SESSION NPELF_ROLE NPELF_FETC
 	# `VAR=x run …` prefixes outlive the call when this runs as `sh` (POSIX
 	# mode keeps assignments made before a function call), so case 3's
 	# NPELF_RC=1 would fail every later wizard. Clear them; no-op under bash.
-	unset NPELF_RC NPELF_WRITE_SESSION NPELF_ROLE NPELF_FETCH NPELF_PEER_CAPS EMU_EXE
+	unset NPELF_RC NPELF_WRITE_SESSION NPELF_ROLE NPELF_FETCH NPELF_PEER_CAPS EMU_EXE EMU_TAG
 }
 
 # 1. Plain launch: no flag -> wizard never invoked, minarch reached, no env.
@@ -137,52 +137,47 @@ EMU_EXE=gambatte NPELF_WRITE_SESSION=1 NPELF_ROLE=host run "/Roms/GB/Tetris.gb"
 grep -q -- '--serve-dir' "$ARGS" && fail "link core should not sync saves: $(cat "$ARGS")" || true
 grep -q '^MINARCH role=host .* saves=$' "$OUT" || fail "link core: unexpected save redirect: $(cat "$OUT")"
 
-# 9. mGBA: USB Cable only, no save sync, and it says which link core it runs.
+# 9. mGBA: USB Cable only, no save sync, and it says which core it runs.
 touch "$FLAG"; rm -f "$SESSION"
-EMU_EXE=mgba NPELF_WRITE_SESSION=1 NPELF_ROLE=host run "/Roms/GBA/Pokemon Ruby.gba"
+EMU_EXE=mgba EMU_TAG=MGBA NPELF_WRITE_SESSION=1 NPELF_ROLE=host run "/Roms/GBA/Pokemon Ruby.gba"
 grep -q -- '--modes usb' "$ARGS" || fail "mgba: wizard not limited to USB: $(cat "$ARGS")"
 grep -q -- '--serve-dir' "$ARGS" && fail "mgba: link core should not sync saves: $(cat "$ARGS")" || true
-grep -q -- '--caps linkcore=mgba' "$ARGS" || fail "mgba: linkcore caps missing: $(cat "$ARGS")"
+grep -q -- '--caps core=mgba,tag=MGBA' "$ARGS" || fail "mgba: core caps missing: $(cat "$ARGS")"
 grep -q '^MINARCH role=host .* saves=$' "$OUT" || fail "mgba: emulator not reached: $(cat "$OUT")"
 
-# 10. gpSP passes its linkcore too, with every mode on offer.
+# 10. gpSP passes its core too, with every mode on offer.
 touch "$FLAG"; rm -f "$SESSION"
-EMU_EXE=gpsp NPELF_WRITE_SESSION=1 run "/Roms/GBA/Pokemon Ruby.gba"
-grep -q -- '--caps linkcore=gpsp' "$ARGS" || fail "gpsp: linkcore caps missing: $(cat "$ARGS")"
+EMU_EXE=gpsp EMU_TAG=GBA NPELF_WRITE_SESSION=1 run "/Roms/GBA/Pokemon Ruby.gba"
+grep -q -- '--caps core=gpsp,tag=GBA' "$ARGS" || fail "gpsp: core caps missing: $(cat "$ARGS")"
 grep -q -- '--modes' "$ARGS" && fail "gpsp: modes should not be limited: $(cat "$ARGS")" || true
 grep -q 'MINARCH' "$OUT" || fail "gpsp: emulator not reached: $(cat "$OUT")"
 
-# 11. Same link core on the peer: allowed, no cleanup.
+# 11. Every lockstep core says which core and folder it runs, too.
 touch "$FLAG"; rm -f "$SESSION"
-EMU_EXE=mgba NPELF_WRITE_SESSION=1 NPELF_ROLE=client NPELF_PEER_CAPS=linkcore=mgba run "/Roms/GBA/Pokemon Ruby.gba"
-grep -q '^MINARCH role=client ' "$OUT" || fail "matching linkcore refused: $(cat "$OUT")"
-[ ! -f "$CLEANUP" ] || fail "matching linkcore ran cleanup"
+EMU_EXE=picodrive EMU_TAG=MD NPELF_WRITE_SESSION=1 run "/Roms/MD/Sonic.md"
+grep -q -- '--caps core=picodrive,tag=MD$' "$ARGS" || fail "picodrive: core caps missing: $(cat "$ARGS")"
+touch "$FLAG"; rm -f "$SESSION"
+EMU_EXE=genesis_plus_gx EMU_TAG=GPGX NPELF_WRITE_SESSION=1 run "/Roms/GPGX/Sonic.md"
+grep -q -- '--caps core=genesis_plus_gx,tag=GPGX$' "$ARGS" || fail "gpgx: core caps missing: $(cat "$ARGS")"
+touch "$FLAG"; rm -f "$SESSION"
+NPELF_WRITE_SESSION=1 run "/Roms/SFC/Mario Kart.sfc"
+grep -q -- '--caps core=snes9x,tag=SFC$' "$ARGS" || fail "snes9x: core caps missing: $(cat "$ARGS")"
 
-# 12. Peer runs the other link core: refused before the emulator, session
-#     cleaned up, reason logged.
+# 12. The wizard refuses a different core in its handshake; a session it did
+#     write is never second-guessed here, whatever the peer's caps say.
 touch "$FLAG"; rm -f "$SESSION"
-EMU_EXE=mgba NPELF_WRITE_SESSION=1 NPELF_ROLE=client NPELF_PEER_CAPS=linkcore=gpsp run "/Roms/GBA/Pokemon Ruby.gba"
-grep -q 'MINARCH' "$OUT" && fail "mismatched linkcore fell through to the emulator" || true
-grep -q -- "--cleanup --session-file $SESSION" "$CLEANUP" || fail "mismatch: session not cleaned up"
-[ ! -f "$SESSION" ] || fail "mismatch: session file left behind"
-grep -q 'peer runs the gpsp link core, we run mgba' "$TMP/logs/netplay-wizard.txt" \
-	|| fail "mismatch: reason not logged: $(cat "$TMP/logs/netplay-wizard.txt")"
+EMU_EXE=mgba EMU_TAG=MGBA NPELF_WRITE_SESSION=1 NPELF_ROLE=client NPELF_PEER_CAPS=core=gpsp,tag=GBA run "/Roms/GBA/Pokemon Ruby.gba"
+grep -q '^MINARCH role=client ' "$OUT" || fail "script refused a wizard-approved session: $(cat "$OUT")"
+[ ! -f "$CLEANUP" ] || fail "script ran cleanup on a wizard-approved session"
 
+# 13. A tag (or core) outside the caps charset skips the check rather than
+#     failing the wizard's --caps validation.
 touch "$FLAG"; rm -f "$SESSION"
-EMU_EXE=gpsp NPELF_WRITE_SESSION=1 NPELF_PEER_CAPS=linkcore=mgba run "/Roms/GBA/Pokemon Ruby.gba"
-grep -q 'MINARCH' "$OUT" && fail "gpsp vs mgba peer fell through to the emulator" || true
-[ -f "$CLEANUP" ] || fail "gpsp mismatch: session not cleaned up"
-
-# 13. Peer sent no caps (an older build): allowed.
+EMU_EXE=picodrive EMU_TAG="My MD" NPELF_WRITE_SESSION=1 run "/Roms/My MD/Sonic.md"
+grep -q -- '--caps' "$ARGS" && fail "unsafe tag passed caps: $(cat "$ARGS")" || true
+grep -q 'MINARCH role=host' "$OUT" || fail "unsafe tag: emulator not reached: $(cat "$OUT")"
 touch "$FLAG"; rm -f "$SESSION"
-EMU_EXE=mgba NPELF_WRITE_SESSION=1 run "/Roms/GBA/Pokemon Ruby.gba"
-grep -q 'MINARCH role=host' "$OUT" || fail "peer without caps refused: $(cat "$OUT")"
-[ ! -f "$CLEANUP" ] || fail "peer without caps ran cleanup"
-
-# 14. A non-link core ignores peer caps entirely.
-touch "$FLAG"; rm -f "$SESSION"
-NPELF_WRITE_SESSION=1 NPELF_PEER_CAPS=linkcore=gpsp run "/Roms/SFC/Mario Kart.sfc"
-grep -q -- '--caps' "$ARGS" && fail "non-link core passed caps: $(cat "$ARGS")" || true
-grep -q 'MINARCH role=host' "$OUT" || fail "non-link core refused on peer caps: $(cat "$OUT")"
+EMU_EXE='pico;drive' EMU_TAG=MD NPELF_WRITE_SESSION=1 run "/Roms/MD/Sonic.md"
+grep -q -- '--caps' "$ARGS" && fail "unsafe core passed caps: $(cat "$ARGS")" || true
 
 echo "PASS: netplay-prelaunch.sh"

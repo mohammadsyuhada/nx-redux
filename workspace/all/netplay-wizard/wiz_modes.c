@@ -52,3 +52,7 @@ int WizModes_rows(unsigned mask, int rows[3]) {
 	}
 	return n;
 }
+
+bool WizModes_singlePeer(const char* mode) {
+	return mode && strcmp(mode, "usb") == 0;
+}
