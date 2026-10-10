@@ -935,6 +935,11 @@ void Netplay_resume(void) {
 		np.stall_frames = 0;
 		snprintf(np.status_msg, sizeof(np.status_msg), "Netplay active");
 	} else {
+		// STALLED, not PAUSED: Netplay_update runs the lockstep only in PLAYING or STALLED, so PAUSED would run the
+		// core free (no input exchange) and never read the peer's RESUME. Stalled, Netplay_preFrame keeps polling
+		// (no timeout while the peer is paused) and picks up the RESUME and the peer's input in step.
+		np.state = NETPLAY_STATE_STALLED;
+		np.stall_frames = 0;
 		snprintf(np.status_msg, sizeof(np.status_msg), "Waiting for remote...");
 	}
 	pthread_mutex_unlock(&np.mutex);
