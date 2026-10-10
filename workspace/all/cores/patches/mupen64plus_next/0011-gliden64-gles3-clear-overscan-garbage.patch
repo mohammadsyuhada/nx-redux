@@ -1,0 +1,16 @@
+diff --git a/GLideN64/src/Graphics/OpenGLContext/opengl_ContextImpl.cpp b/GLideN64/src/Graphics/OpenGLContext/opengl_ContextImpl.cpp
+--- a/GLideN64/src/Graphics/OpenGLContext/opengl_ContextImpl.cpp
++++ b/GLideN64/src/Graphics/OpenGLContext/opengl_ContextImpl.cpp
+@@ -186,9 +186,11 @@ void ContextImpl::clearColorBuffer(f32 _red, f32 _green, f32 _blue, f32 _alpha)
+ 		m_cachedFunctions->getCachedClearColor()->setClearColor(_red, _green, _blue, _alpha);
+ 		glClear(GL_COLOR_BUFFER_BIT);
+ 	} else {
+-#if defined(OS_ANDROID)
++#if defined(OS_ANDROID) || defined(__LIBRETRO__)
+ 		// Using the GLES3 paths causes some background garbage where the Overscan is
+ 		// TODO: Investigate this
++		// nx-redux: the same garbage frames the picture on the TrimUI GPUs
++		// (PowerVR, Mali) under minarch, so libretro builds take this path too
+ 		m_cachedFunctions->getCachedClearColor()->setClearColor(_red, _green, _blue, _alpha);
+ 		glClear(GL_COLOR_BUFFER_BIT);
+ #else
