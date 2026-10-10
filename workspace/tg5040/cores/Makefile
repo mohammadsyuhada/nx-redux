@@ -88,10 +88,10 @@ fake-08_BUILD_PATH = fake-08/platform/libretro
 fake-08_HASH = f6bab5a7ba521ce440e45d1aeef6122674be6ee9
 
 fceumm_REPO = https://github.com/libretro/libretro-fceumm
-fceumm_HASH = 5cd4a43e16a7f3cd35628d481c347a0a98cfdfa2
+fceumm_HASH = 236ccdfc911e84c60fea6b9d0699c2d440a8de14
 
 gambatte_REPO = https://github.com/libretro/gambatte-libretro
-gambatte_HASH = 9fe223d9c4b615c55840170c6e85e6e9fa4bd1d2
+gambatte_HASH = d9d6cd06382d1ced30de34d56d3609452323dab1
 
 # Pinned: upstream gpsp rfu.c drifts (rfu_reset/new_devid reworked) and breaks
 # the all/cores/patches/gpsp/* netplay patches. When bumping this hash, regen
@@ -105,11 +105,13 @@ gpsp_DEPS = $(wildcard ../../all/cores/sio_lockstep/*.c ../../all/cores/sio_lock
 mednafen_supafaust_REPO = https://github.com/libretro/supafaust
 mednafen_supafaust_HASH = e25f66765938d33f9ad5850e8d6cd597e55b7299
 
-mgba_HASH = c758314a639aa0066e7b65a8341448181b73c804
-# The real link cable (all/cores/patches/mgba/001) compiles in the same lockstep
-# state machine as gpSP; NX_SIOLS_DIR points the patched Makefile.libretro at it.
-mgba_FLAGS = NX_SIOLS_DIR=$(CURDIR)/../../all/cores/sio_lockstep
-mgba_DEPS = $(wildcard ../../all/cores/sio_lockstep/*.c ../../all/cores/sio_lockstep/*.h ../../all/cores/patches/mgba/*.patch)
+mgba_HASH = 7a12d6d4b9acb14c0ae62c9166b6a2f3d08007f6
+# Upstream builds the libretro core with CMake only (8940477), via a build script
+# like flycast/ppsspp. The real link cable (all/cores/patches/mgba/001) compiles in
+# the same lockstep state machine as gpSP; NX_SIOLS_DIR points the patched
+# CMakeLists.txt at it.
+mgba_MAKE = NX_SIOLS_DIR=$(CURDIR)/../../all/cores/sio_lockstep sh $(CURDIR)/../../all/cores/mgba/build-libretro.sh $(PLATFORM)
+mgba_DEPS = ../../all/cores/mgba/build-libretro.sh ../../all/cores/flycast/toolchain-aarch64.cmake $(wildcard ../../all/cores/sio_lockstep/*.c ../../all/cores/sio_lockstep/*.h ../../all/cores/patches/mgba/*.patch)
 # That code is GPL-2.0-or-later, so the shipped license says the combined core is
 # distributed under the GPL (MPL-2.0 section 3.3).
 mgba_LICENSE_NOTICE = ../../all/cores/mgba/LICENSE-sio_lockstep.txt
@@ -160,7 +162,7 @@ snes9x2005_plus_LICENSE = copyright
 snes9x_REPO = https://github.com/libretro/snes9x
 snes9x_CORE = snes9x_libretro.so
 snes9x_BUILD_PATH = snes9x/libretro
-snes9x_HASH = 5a40cd5514e63e691e39141d64267798357a1424
+snes9x_HASH = fae2fea08f74180759ef540ee94259213f503480
 
 libretro-uae_REPO = https://github.com/libretro/libretro-uae
 libretro-uae_BRANCH = 2.6.1

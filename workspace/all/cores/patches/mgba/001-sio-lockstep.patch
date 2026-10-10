@@ -1,33 +1,23 @@
 # license: modifies mGBA (https://github.com/libretro/mgba), MPL-2.0 (LICENSE); this patch is distributed under the same license. It compiles in NXRedux's GPL-2.0-or-later sio_lockstep code, so the built core is distributed under GPL-2.0-or-later (MPL-2.0 section 3.3).
-diff --git forkSrcPrefix/Makefile.libretro forkDstPrefix/Makefile.libretro
-index 21ee583..5b5bddf 100644
---- forkSrcPrefix/Makefile.libretro
-+++ forkDstPrefix/Makefile.libretro
-@@ -460,6 +460,16 @@ DEFINES += -DHAVE_STRNDUP -DHAVE_STRDUP -DDISABLE_THREADING -DMINIMAL_CORE=2
- 
- include $(BUILD_DIR)/Makefile.common
- 
-+# NXRedux: real link cable over netplay (src/gba/sio/nx_lockstep.c). The
-+# lockstep state machine, shared with gpSP, lives in the NXRedux tree, where
-+# it is unit-tested on the host; the cores Makefile passes NX_SIOLS_DIR.
-+NX_SIOLS_DIR ?= $(CORE_DIR)/../../../../all/cores/sio_lockstep
-+SOURCES_C += $(CORE_DIR)/src/gba/sio/nx_lockstep.c $(CORE_DIR)/src/gba/sio/nx_sio_lockstep.c
-+ifneq ($(NX_SIOLS_DIR),)
-+CFLAGS += -I$(NX_SIOLS_DIR)
-+endif
-+# (rules for the two objects: end of file, after the default goal)
-+
- OBJS := $(SOURCES_C:.c=.o) $(SOURCES_ASM:.S=.o)
- 
- DEFINES += $(PLATFORM_DEFINES) $(RETRODEFS)
-@@ -508,3 +518,7 @@ uninstall:
- endif
- 
- endif
-+
-+# NXRedux: warnings on for our files; rebuild them when the state machine changes.
-+$(CORE_DIR)/src/gba/sio/nx_lockstep.o $(CORE_DIR)/src/gba/sio/nx_sio_lockstep.o: CFLAGS += -Wall
-+$(CORE_DIR)/src/gba/sio/nx_lockstep.o $(CORE_DIR)/src/gba/sio/nx_sio_lockstep.o: $(NX_SIOLS_DIR)/sio_lockstep.c $(NX_SIOLS_DIR)/sio_lockstep.h
+diff --git forkSrcPrefix/CMakeLists.txt forkDstPrefix/CMakeLists.txt
+index 9d528e7..b202009 100644
+--- forkSrcPrefix/CMakeLists.txt
++++ forkDstPrefix/CMakeLists.txt
+@@ -1031,6 +1031,14 @@ if(BUILD_LIBRETRO)
+ 	list(APPEND LIBRETRO_CORE_SRC ${VFS_SRC})
+ 	list(FILTER LIBRETRO_CORE_SRC EXCLUDE REGEX "/core/(scripting|library|mem-search|rewind|input)\\.c$")
+ 	list(FILTER LIBRETRO_CORE_SRC EXCLUDE REGEX "/util/(audio-resampler|interpolator)\\.c$")
++	# NXRedux: real link cable over netplay (src/gba/sio/nx_lockstep.c). The
++	# lockstep state machine, shared with gpSP, lives in the NXRedux tree, where
++	# it is unit-tested on the host; the cores build script passes NX_SIOLS_DIR.
++	set(NX_SIOLS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../all/cores/sio_lockstep" CACHE PATH "NXRedux sio_lockstep source dir")
++	set(NX_SIO_SRC ${CMAKE_CURRENT_SOURCE_DIR}/src/gba/sio/nx_lockstep.c ${CMAKE_CURRENT_SOURCE_DIR}/src/gba/sio/nx_sio_lockstep.c)
++	list(APPEND LIBRETRO_CORE_SRC ${NX_SIO_SRC})
++	set_source_files_properties(${NX_SIO_SRC} PROPERTIES COMPILE_OPTIONS -Wall INCLUDE_DIRECTORIES ${NX_SIOLS_DIR}
++		OBJECT_DEPENDS "${NX_SIOLS_DIR}/sio_lockstep.c;${NX_SIOLS_DIR}/sio_lockstep.h")
+ 	if(CMAKE_TRY_COMPILE_TARGET_TYPE STREQUAL "STATIC_LIBRARY" AND NOT APPLE)
+ 		# Link-based function probes always succeed under static try-compile,
+ 		# so every find_function result above is untrustworthy; use the set
 diff --git forkSrcPrefix/include/mgba/internal/gba/sio/nx_lockstep.h forkDstPrefix/include/mgba/internal/gba/sio/nx_lockstep.h
 new file mode 100644
 index 0000000..2ae2b48
@@ -72,7 +62,7 @@ index 0000000..2ae2b48
 +#endif
 diff --git forkSrcPrefix/src/gba/sio/nx_lockstep.c forkDstPrefix/src/gba/sio/nx_lockstep.c
 new file mode 100644
-index 0000000..7732c1a
+index 0000000..daf65c2
 --- /dev/null
 +++ forkDstPrefix/src/gba/sio/nx_lockstep.c
 @@ -0,0 +1,550 @@
@@ -628,19 +618,19 @@ index 0000000..7732c1a
 +}
 diff --git forkSrcPrefix/src/gba/sio/nx_sio_lockstep.c forkDstPrefix/src/gba/sio/nx_sio_lockstep.c
 new file mode 100644
-index 0000000..219ff55
+index 0000000..17180e7
 --- /dev/null
 +++ forkDstPrefix/src/gba/sio/nx_sio_lockstep.c
 @@ -0,0 +1,7 @@
 +/* NXRedux: compiles the lockstep link state machine into the core. The
 + * source lives (and is unit-tested) in the NXRedux tree at
-+ * workspace/all/cores/sio_lockstep/; Makefile.libretro puts that on the
++ * workspace/all/cores/sio_lockstep/; CMakeLists.txt puts that on the
 + * include path (NX_SIOLS_DIR). That code is GPL-2.0-or-later, not MPL, so a
 + * core built with it is distributed under GPL-2.0-or-later as MPL-2.0
 + * section 3.3 allows; the core's shipped LICENSE-mgba.txt says so. */
 +#include "sio_lockstep.c"
 diff --git forkSrcPrefix/src/platform/libretro/libretro.c forkDstPrefix/src/platform/libretro/libretro.c
-index 4b05a42..65089f8 100644
+index abed4cc..d15f9c9 100644
 --- forkSrcPrefix/src/platform/libretro/libretro.c
 +++ forkDstPrefix/src/platform/libretro/libretro.c
 @@ -24,6 +24,7 @@
@@ -651,7 +641,7 @@ index 4b05a42..65089f8 100644
  #endif
  #include <mgba-util/memory.h>
  #include <mgba-util/vfs.h>
-@@ -86,6 +87,14 @@ static int32_t _readGyroZ(struct mRotationSource* source);
+@@ -84,6 +85,14 @@ static int32_t _readGyroZ(struct mRotationSource* source);
  static void _setupMaps(struct mCore* core);
  
  static struct mCore* core;
@@ -664,9 +654,9 @@ index 4b05a42..65089f8 100644
 +static uint16_t np_peer_id;
 +#endif
  static mColor* outputBuffer = NULL;
- struct mAudioBuffer audioResampleBuffer;
- struct mAudioResampler audioResampler;
-@@ -1551,6 +1560,11 @@ void retro_run(void) {
+ static struct LibretroAudioConverter audioConverter;
+ static int16_t *audioSampleBuffer = NULL;
+@@ -1538,6 +1547,11 @@ void retro_run(void) {
  	if (deferredSetup) {
  		_doDeferredSetup();
  	}
@@ -678,7 +668,7 @@ index 4b05a42..65089f8 100644
  	uint16_t keys;
  	bool skipFrame = false;
  
-@@ -1988,6 +2002,84 @@ error:
+@@ -1971,6 +1985,84 @@ error:
  }
  #endif
  
@@ -763,7 +753,7 @@ index 4b05a42..65089f8 100644
  bool retro_load_game(const struct retro_game_info* game) {
  	struct VFile* rom;
  
-@@ -2147,6 +2239,12 @@ bool retro_load_game(const struct retro_game_info* game) {
+@@ -2117,6 +2209,12 @@ bool retro_load_game(const struct retro_game_info* game) {
  	}
  #endif
  
@@ -776,7 +766,7 @@ index 4b05a42..65089f8 100644
  	return true;
  }
  
-@@ -2154,6 +2252,14 @@ void retro_unload_game(void) {
+@@ -2124,6 +2222,14 @@ void retro_unload_game(void) {
  	if (!core) {
  		return;
  	}
@@ -791,7 +781,7 @@ index 4b05a42..65089f8 100644
  	mCoreConfigDeinit(&core->config);
  	core->deinit(core);
  	mappedMemoryFree(data, dataSize);
-@@ -2198,6 +2304,11 @@ bool retro_unserialize(const void* data, size_t size) {
+@@ -2168,6 +2274,11 @@ bool retro_unserialize(const void* data, size_t size) {
  	struct VFile* vfm = VFileFromConstMemory(data, size);
  	bool success = mCoreLoadStateNamed(core, vfm, SAVESTATE_RTC);
  	vfm->close(vfm);

@@ -1,11 +1,11 @@
 # license: modifies FCEUmm (https://github.com/libretro/libretro-fceumm), GPL-2.0 (Copying); this patch is distributed under the same license.
 diff --git forkSrcPrefix/Makefile.libretro forkDstPrefix/Makefile.libretro
-index 036c41f48b087c99b2276b2d41a71d661fd85145..891eb96ceeb1da868d6d2ed40392b51b65dcbb20 100644
+index 5b90d40..30ca5f0 100644
 --- forkSrcPrefix/Makefile.libretro
 +++ forkDstPrefix/Makefile.libretro
-@@ -461,6 +461,23 @@ else ifeq ($(platform), miyoo)
+@@ -460,6 +460,22 @@ else ifeq ($(platform), miyoo)
+ 	SHARED := -shared -Wl,--version-script=src/drivers/libretro/link.T -Wl,-no-undefined
  	PLATFORM_DEFINES += -fomit-frame-pointer -ffast-math -mcpu=arm926ej-s
- 	EXTERNAL_ZLIB = 1
  
 +# TRIMUI SMART PRO
 +else ifeq ($(platform), tg5040)
@@ -18,7 +18,6 @@ index 036c41f48b087c99b2276b2d41a71d661fd85145..891eb96ceeb1da868d6d2ed40392b51b
 +	CFLAGS += -mtune=cortex-a53 -mcpu=cortex-a53 -march=armv8-a
 +	CFLAGS += -fomit-frame-pointer -ffast-math -fPIC -flto
 +	OPTIMIZE := -Ofast -DNDEBUG
-+	EXTERNAL_ZLIB = 1
 +	HAVE_NTSC = 0
 +	ifeq (,$(DEBUG))
 +		# LDFLAGS += -s
