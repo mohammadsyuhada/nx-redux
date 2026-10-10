@@ -67,7 +67,8 @@ bool Netplay_checkCoreSupport(const char* core_name);
 
 // Connection management
 // If hotspot_ip is NULL, uses WiFi mode. Otherwise, uses hotspot mode with given IP.
-int Netplay_startHost(const char* game_name, uint32_t game_crc, const char* hotspot_ip);
+// peer_ip (the wizard's NETPLAY_PEER_IP) is the only address accepted; NULL or "" accepts anyone.
+int Netplay_startHost(const char* game_name, uint32_t game_crc, const char* hotspot_ip, const char* peer_ip);
 int Netplay_stopHostFast(void);
 void Netplay_stopBroadcast(void); // Stop UDP broadcast but keep session active
 int Netplay_connectToHost(const char* ip, uint16_t port);

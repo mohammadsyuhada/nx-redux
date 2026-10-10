@@ -38,17 +38,17 @@ const char* NetplayBoot_lastError(void) {
 }
 
 static int boot_start_host(LinkType type, const char* core_name, const char* game_name, uint32_t crc,
-						   const char* hotspot_ip) {
+						   const char* hotspot_ip, const char* peer_ip) {
 	switch (type) {
 	case LINK_TYPE_GBALINK: {
 		// The host's link mode, synced to the client; NULL for cores without one (mGBA)
 		const char* key = gbalink_link_mode_key(core_name);
-		return GBALink_startHost(game_name, crc, hotspot_ip, key ? minarch_getCoreOptionValue(key) : NULL);
+		return GBALink_startHost(game_name, crc, hotspot_ip, key ? minarch_getCoreOptionValue(key) : NULL, peer_ip);
 	}
 	case LINK_TYPE_GBLINK:
-		return GBLink_startHost(game_name, crc, hotspot_ip);
+		return GBLink_startHost(game_name, crc, hotspot_ip); // gambatte's own listener: no peer filter
 	default:
-		return Netplay_startHost(game_name, crc, hotspot_ip);
+		return Netplay_startHost(game_name, crc, hotspot_ip, peer_ip);
 	}
 }
 
@@ -97,7 +97,8 @@ int NetplayBoot_startFromEnv(const char* core_name) {
 	uint32_t crc = calculateGameCRC();
 
 	if (strcmp(role, "host") == 0)
-		return boot_start_host(type, core_name, game_name, crc, hotspot ? WIFI_DIRECT_HOTSPOT_IP : NULL);
+		// the wizard's paired joiner; both engines are two-player, so it is the only one to accept
+		return boot_start_host(type, core_name, game_name, crc, hotspot ? WIFI_DIRECT_HOTSPOT_IP : NULL, peer_ip);
 
 	if (!peer_ip || !peer_ip[0]) {
 		LOG_error("NetplayBoot: client launch with no NETPLAY_PEER_IP\n");

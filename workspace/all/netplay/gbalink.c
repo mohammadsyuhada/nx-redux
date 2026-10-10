@@ -122,6 +122,7 @@ static struct {
 	// Connection info
 	char local_ip[16];
 	char remote_ip[16];
+	char allowed_ip[16]; // host: the one peer the wizard paired with ("" = anyone)
 	uint16_t port;
 
 	// Hotspot mode
@@ -425,7 +426,8 @@ static const NET_TCPConfig GBALINK_TCP_CONFIG = {
 // Host Mode
 //////////////////////////////////////////////////////////////////////////////
 
-int GBALink_startHost(const char* game_name, uint32_t game_crc, const char* hotspot_ip, const char* link_mode) {
+int GBALink_startHost(const char* game_name, uint32_t game_crc, const char* hotspot_ip, const char* link_mode,
+					  const char* peer_ip) {
 	LOG_info("GBALink: HOST startHost() game=%s hotspot=%s link_mode=%s has_callbacks=%d\n",
 			 game_name, hotspot_ip ? hotspot_ip : "NULL", link_mode ? link_mode : "NULL",
 			 gl.has_core_callbacks);
@@ -437,6 +439,7 @@ int GBALink_startHost(const char* game_name, uint32_t game_crc, const char* hots
 
 	// Set link mode for client synchronization (must be after init to avoid being cleared)
 	GBALink_setLinkMode(link_mode);
+	snprintf(gl.allowed_ip, sizeof(gl.allowed_ip), "%s", peer_ip ? peer_ip : "");
 
 	// Set up IP based on mode
 	if (hotspot_ip) {
@@ -668,6 +671,12 @@ static void* listen_thread_func(void* arg) {
 					char client_ip[16];
 					inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
 					LOG_info("GBALink: HOST accept() got connection from %s\n", client_ip);
+					// only the device the wizard paired with may join; anyone else is dropped and we keep listening
+					if (gl.allowed_ip[0] && strcmp(client_ip, gl.allowed_ip) != 0) {
+						LOG_info("GBALink: HOST ignoring %s (paired with %s)\n", client_ip, gl.allowed_ip);
+						close(fd);
+						continue;
+					}
 
 					pthread_mutex_lock(&gl.mutex);
 
