@@ -1431,10 +1431,51 @@ void Config_free(void) {
 	config.user_cfg = NULL;
 	config.released = 1;
 }
+// Netplay pads: a lockstep session gives the game the same pad on every device,
+// so a game that probes the pad takes one path on both sides; a 6-button probe
+// against a 3-button pad desyncs (SF2' SCE, MK3, Comix Zone) and the state-size
+// check can't catch it. picodrive gets its default "3 button pad" on both inputs
+// whatever the user picked for the game (MD/SEGACD/32X don't lock it like SMS);
+// genesis_plus_gx always runs JOYPAD on both ports already (minarch offers a pad
+// type only to PlayStation cores). NX Redux Mobile forces the same
+// (NetplayPads.kt). Single player keeps the user's choice, and Config_write saves
+// that choice, not the forced one.
+static const char* np_pad_keys[] = {"picodrive_input1", "picodrive_input2"};
+static int np_pad_user_value[] = {-1, -1}; // the user's picodrive_input1/2 while forced
+
+// The value Config_write saves for `option`: the user's own while a session forces it
+static int Config_netplayPadUserValue(Option* option) {
+	for (int i = 0; i < 2; i++)
+		if (np_pad_user_value[i] >= 0 && exactMatch(option->key, (char*)np_pad_keys[i]))
+			return np_pad_user_value[i];
+	return option->value;
+}
+static void Config_forceNetplayPads(void) {
+	const char* role = getenv("NETPLAY_ROLE"); // a wizard-launched session (minarch's boot-time engine)
+	if (!role || !role[0] || !exactMatch((char*)core.name, "picodrive"))
+		return;
+	for (int i = 0; i < 2; i++) {
+		Option* option = OptionList_getOption(&config.core, np_pad_keys[i]);
+		if (!option)
+			continue; // not reported yet: the next read forces it
+		// the user's choice is what this read just left, when it read the user's cfg (cores
+		// register options in Core_open, before Config_load: that first read has no cfg)
+		if (config.user_cfg || np_pad_user_value[i] < 0) {
+			if (config.user_cfg && np_pad_user_value[i] != option->value)
+				LOG_info("Netplay pads: %s = 3 button pad for the session (user: %s)\n", np_pad_keys[i],
+						 OptionList_getOptionValue(&config.core, np_pad_keys[i]));
+			np_pad_user_value[i] = option->value;
+		}
+		OptionList_setOptionValue(&config.core, np_pad_keys[i], "3 button pad");
+		option->lock = 1; // hidden from the menu for the session
+	}
+}
+
 void Config_readOptions(void) {
 	Config_readOptionsString(config.system_cfg);
 	Config_readOptionsString(config.default_cfg);
 	Config_readOptionsString(config.user_cfg);
+	Config_forceNetplayPads(); // after the user's cfg: a session overrides it
 }
 void Config_reapplyOptions(void) {
 	// Cores can re-register their option list mid-game (eg. after a disc
@@ -1457,8 +1498,9 @@ static void writeOption(FILE* file, Option* option) {
 	int count = 0;
 	while (option->values && option->values[count])
 		count++;
-	if (option->value >= 0 && option->value < count) {
-		fprintf(file, "%s = %s\n", option->key, option->values[option->value]);
+	int value = Config_netplayPadUserValue(option); // a forced netplay pad saves the user's own choice
+	if (value >= 0 && value < count) {
+		fprintf(file, "%s = %s\n", option->key, option->values[value]);
 	}
 }
 void Config_write(int override) {

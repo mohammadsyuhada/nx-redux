@@ -15,6 +15,7 @@
 #include "netplay_ports.h"
 #include "netplay_helper.h" // For stopHotspotAndRestoreWiFiAsync, netplay_connected_to_hotspot
 #include "network_common.h"
+#include "api.h" // LOG_info
 #ifdef HAS_WIFIMG
 #include "wifi_direct.h"
 #endif
@@ -88,6 +89,7 @@ static struct {
 	// Connection info
 	char local_ip[16];
 	char remote_ip[16];
+	char allowed_ip[16]; // host: the one peer the wizard paired with ("" = anyone)
 	uint16_t port;
 
 	// Game info
@@ -242,11 +244,12 @@ static void init_frame_buffer(void) {
 // Host Mode
 //////////////////////////////////////////////////////////////////////////////
 
-int Netplay_startHost(const char* game_name, uint32_t game_crc, const char* hotspot_ip) {
+int Netplay_startHost(const char* game_name, uint32_t game_crc, const char* hotspot_ip, const char* peer_ip) {
 	Netplay_init(); // Lazy init
 	if (np.mode != NETPLAY_OFF) {
 		return -1;
 	}
+	snprintf(np.allowed_ip, sizeof(np.allowed_ip), "%s", peer_ip ? peer_ip : "");
 
 	// Set up IP based on mode
 	if (hotspot_ip) {
@@ -392,6 +395,15 @@ static void* listen_thread_func(void* arg) {
 
 				int fd = accept(np.listen_fd, (struct sockaddr*)&client_addr, &len);
 				if (fd >= 0) {
+					// only the device the wizard paired with may join; anyone else is dropped and we keep listening
+					char client_ip[16] = {0};
+					inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
+					if (np.allowed_ip[0] && strcmp(client_ip, np.allowed_ip) != 0) {
+						LOG_info("Netplay: HOST ignoring %s (paired with %s)\n", client_ip, np.allowed_ip);
+						close(fd);
+						continue;
+					}
+
 					pthread_mutex_lock(&np.mutex);
 
 					// Double-check we're still waiting (state could have changed)
@@ -935,6 +947,11 @@ void Netplay_resume(void) {
 		np.stall_frames = 0;
 		snprintf(np.status_msg, sizeof(np.status_msg), "Netplay active");
 	} else {
+		// STALLED, not PAUSED: Netplay_update runs the lockstep only in PLAYING or STALLED, so PAUSED would run the
+		// core free (no input exchange) and never read the peer's RESUME. Stalled, Netplay_preFrame keeps polling
+		// (no timeout while the peer is paused) and picks up the RESUME and the peer's input in step.
+		np.state = NETPLAY_STATE_STALLED;
+		np.stall_frames = 0;
 		snprintf(np.status_msg, sizeof(np.status_msg), "Waiting for remote...");
 	}
 	pthread_mutex_unlock(&np.mutex);

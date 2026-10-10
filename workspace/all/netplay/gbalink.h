@@ -74,7 +74,9 @@ void GBALink_applyPendingLinkMode(void); // Apply pending mode to config
 // Connection management
 // If hotspot_ip is NULL, uses WiFi mode. Otherwise, uses hotspot mode with given IP.
 // link_mode is the gpsp_serial value to sync with client (can be NULL)
-int GBALink_startHost(const char* game_name, uint32_t game_crc, const char* hotspot_ip, const char* link_mode);
+// peer_ip (the wizard's NETPLAY_PEER_IP) is the only address accepted; NULL or "" accepts anyone.
+int GBALink_startHost(const char* game_name, uint32_t game_crc, const char* hotspot_ip, const char* link_mode,
+					  const char* peer_ip);
 int GBALink_stopHostFast(void);
 int GBALink_connectToHost(const char* ip, uint16_t port);
 void GBALink_disconnect(void);
