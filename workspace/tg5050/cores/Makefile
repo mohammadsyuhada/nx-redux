@@ -88,10 +88,10 @@ fake-08_BUILD_PATH = fake-08/platform/libretro
 fake-08_HASH = f6bab5a7ba521ce440e45d1aeef6122674be6ee9
 
 fceumm_REPO = https://github.com/libretro/libretro-fceumm
-fceumm_HASH = 5cd4a43e16a7f3cd35628d481c347a0a98cfdfa2
+fceumm_HASH = 236ccdfc911e84c60fea6b9d0699c2d440a8de14
 
 gambatte_REPO = https://github.com/libretro/gambatte-libretro
-gambatte_HASH = 9fe223d9c4b615c55840170c6e85e6e9fa4bd1d2
+gambatte_HASH = d9d6cd06382d1ced30de34d56d3609452323dab1
 
 # Pinned: upstream gpsp rfu.c drifts (rfu_reset/new_devid reworked) and breaks
 # the all/cores/patches/gpsp/* netplay patches. When bumping this hash, regen
@@ -160,7 +160,7 @@ snes9x2005_plus_LICENSE = copyright
 snes9x_REPO = https://github.com/libretro/snes9x
 snes9x_CORE = snes9x_libretro.so
 snes9x_BUILD_PATH = snes9x/libretro
-snes9x_HASH = 5a40cd5514e63e691e39141d64267798357a1424
+snes9x_HASH = fae2fea08f74180759ef540ee94259213f503480
 
 libretro-uae_REPO = https://github.com/libretro/libretro-uae
 libretro-uae_BRANCH = 2.6.1
