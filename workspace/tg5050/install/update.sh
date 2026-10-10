@@ -139,7 +139,9 @@ if [ -d "$PM_CATALOG" ] && [ -f "$SDCARD_PATH/Emus/shared/PortMaster/version" ];
 	# against an old upstream tag left by a pre-migration install (PM_CATALOG is
 	# the .../portmaster/pak dir, so meta.txt is one level up).
 	PM_VER="$(sed -n 's/^version=//p' "$SDCARD_PATH/.system/paks/Tools/Xtras.pak/catalog/portmaster/meta.txt" 2>/dev/null | head -1 | tr -d '\r')"
-	[ -n "$PM_VER" ] && printf '%s\n' "$PM_VER" > "$SDCARD_PATH/.userdata/shared/xtras/portmaster.version" 2>/dev/null
+	if [ -n "$PM_VER" ]; then # an if, not &&: a missing version must not fail the block
+		printf '%s\n' "$PM_VER" > "$SDCARD_PATH/.userdata/shared/xtras/portmaster.version" 2>/dev/null
+	fi
 fi
 # --- portmaster-refresh-end
 
@@ -164,7 +166,9 @@ if [ -d "$CD_CATALOG/pak" ] && [ -f "$CD_MARK" ]; then
 			&& echo "refreshed $CD_TOOLS from the Xtras catalog"
 	fi
 	CD_VER="$(sed -n 's/^version=//p' "$CD_CATALOG/meta.txt" 2>/dev/null | head -1 | tr -d '\r')"
-	[ -n "$CD_VER" ] && printf '%s\n' "$CD_VER" > "$CD_MARK" 2>/dev/null
+	if [ -n "$CD_VER" ]; then # an if, not &&: a missing version must not fail the block
+		printf '%s\n' "$CD_VER" > "$CD_MARK" 2>/dev/null
+	fi
 fi
 # --- cheatdb-refresh-end
 
