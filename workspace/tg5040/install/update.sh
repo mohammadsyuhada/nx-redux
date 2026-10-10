@@ -44,8 +44,8 @@ rm -f "$SDCARD_PATH/.tmp_update.zip" "$SDCARD_PATH/.tmp_update.zip.done" "$SDCAR
 # PPSSPPSDL binary, or the PPSSPP/.config shell an Xtras uninstall leaves) has
 # its memory stick carried to the libretro one (Saves/PSP: PPSSPP maps ms0:/PSP
 # straight onto a save dir named PSP) and is removed. Any
-# other user PSP.pak is left alone (a same-named user pak overrides the
-# shipped one). Standalone saves (Saves/PSP/<ID>: the standalone bind-mounted
+# other user PSP.pak is left alone (the shipped PSP.pak wins over a
+# same-named user pak). Standalone saves (Saves/PSP/<ID>: the standalone bind-mounted
 # Saves/PSP as SAVEDATA) move to Saves/PSP/SAVEDATA/<ID>; an existing
 # destination is never overwritten.
 # Standalone save states (.userdata/shared/PSP-ppsspp) are not portable and
