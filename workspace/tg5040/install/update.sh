@@ -44,14 +44,12 @@ rm -f "$SDCARD_PATH/.tmp_update.zip" "$SDCARD_PATH/.tmp_update.zip.done" "$SDCAR
 # PPSSPPSDL binary, or the PPSSPP/.config shell an Xtras uninstall leaves) has
 # its memory stick carried to the libretro one (Saves/PSP: PPSSPP maps ms0:/PSP
 # straight onto a save dir named PSP) and is removed. Any
-# other user PSP.pak is left to migrate-paks.sh, which removes shipped-name
-# paks. Standalone saves (Saves/PSP/<ID>: the standalone bind-mounted
+# other user PSP.pak is left alone (the shipped PSP.pak wins over a
+# same-named user pak). Standalone saves (Saves/PSP/<ID>: the standalone bind-mounted
 # Saves/PSP as SAVEDATA) move to Saves/PSP/SAVEDATA/<ID>; an existing
 # destination is never overwritten.
 # Standalone save states (.userdata/shared/PSP-ppsspp) are not portable and
-# are left alone. Runs BEFORE migrate-paks.sh, which deletes every shipped-name
-# pak (PSP.pak now ships) from /Emus without carrying texture packs over.
-# One-shot per update; must never fail the update.
+# are left alone. One-shot per update; must never fail the update.
 PSP_SAVES="$SDCARD_PATH/Saves/PSP"
 for PSP_PAK in "$SDCARD_PATH/Emus/tg5040/PSP.pak" "$SDCARD_PATH/Emus/tg5050/PSP.pak" "$SDCARD_PATH/Emus/PSP.pak"; do
 	if ! ls "$PSP_PAK"/PPSSPP/PPSSPPSDL* >/dev/null 2>&1; then
@@ -89,64 +87,6 @@ for PSP_S in "$PSP_SAVES"/*; do
 done
 true
 # --- psp-standalone-cleanup-end
-
-# --------------------------------------
-# clean shipped-name paks out of /Emus and /Tools (moved into .system
-# 2026-07-31; removal of this hook is tracked in DEV_TODO.md);
-# must run before the brick-migration block below, which can reboot without
-# re-running install.sh; must never fail the update
-sh ${SDCARD_PATH}/.system/shared/bin/migrate-paks.sh tg5040 || true
-
-# --------------------------------------
-# remove old brick system folder
-BRICK_PATH=${SDCARD_PATH}/.system/tg3040
-echo "check for $BRICK_PATH"
-# this might always exist so we can pull up old cards
-if [ -d $BRICK_PATH ]; then
-	echo "deleting brick system folder $BRICK_PATH"
-	rm -rf "$BRICK_PATH"
-	
-	# copy brick configs from userdata
-	SRC_PATH=${SDCARD_PATH}/.userdata/tg3040
-	if [ -d $SRC_PATH ]; then
-		DST_PATH=${SDCARD_PATH}/.userdata/tg5040
-		mkdir -p $DST_PATH # just in case
-	
-		for SUB_PATH in $SRC_PATH/*; do
-			if [ -d $SUB_PATH ]; then
-				SUB_NAME=$(basename $SUB_PATH)
-				NEW_PATH=$DST_PATH/$SUB_NAME
-			
-				if [ ! -d $NEW_PATH ]; then
-					echo "creating new path $NEW_PATH"
-					mkdir -p $NEW_PATH
-				fi
-			
-				for CFG_PATH in $SUB_PATH/*.cfg; do
-					if [ -f $CFG_PATH ]; then
-						CFG_NAME=$(basename $CFG_PATH .cfg)
-						echo "copying $CFG_PATH to $NEW_PATH/$CFG_NAME-brick.cfg"
-						cp $CFG_PATH $NEW_PATH/$CFG_NAME-brick.cfg
-					fi
-				done
-			fi
-		done
-		echo "deleting brick userdata $SRC_PATH"
-		rm -rf $SRC_PATH
-		
-		UPDATE_PATH=${SDCARD_PATH}/.tmp_update/tg3040
-		rm -rf $UPDATE_PATH.sh
-		rm -rf $UPDATE_PATH
-		
-		reboot
-		# we need to sleep until reboot otherwise 
-		# it will poweroff without rebooting
-		while :; do
-			sleep 1
-		done
-	fi
-fi
-# --------------------------------------
 
 # --------------------------------------
 # --- portmaster-refresh-begin
@@ -194,7 +134,9 @@ if [ -d "$PM_CATALOG" ] && [ -f "$SDCARD_PATH/Emus/shared/PortMaster/version" ];
 	# against an old upstream tag left by a pre-migration install (PM_CATALOG is
 	# the .../portmaster/pak dir, so meta.txt is one level up).
 	PM_VER="$(sed -n 's/^version=//p' "$SDCARD_PATH/.system/paks/Tools/Xtras.pak/catalog/portmaster/meta.txt" 2>/dev/null | head -1 | tr -d '\r')"
-	[ -n "$PM_VER" ] && printf '%s\n' "$PM_VER" > "$SDCARD_PATH/.userdata/shared/xtras/portmaster.version" 2>/dev/null
+	if [ -n "$PM_VER" ]; then # an if, not &&: a missing version must not fail the block
+		printf '%s\n' "$PM_VER" > "$SDCARD_PATH/.userdata/shared/xtras/portmaster.version" 2>/dev/null
+	fi
 fi
 # --- portmaster-refresh-end
 
@@ -219,7 +161,9 @@ if [ -d "$CD_CATALOG/pak" ] && [ -f "$CD_MARK" ]; then
 			&& echo "refreshed $CD_TOOLS from the Xtras catalog"
 	fi
 	CD_VER="$(sed -n 's/^version=//p' "$CD_CATALOG/meta.txt" 2>/dev/null | head -1 | tr -d '\r')"
-	[ -n "$CD_VER" ] && printf '%s\n' "$CD_VER" > "$CD_MARK" 2>/dev/null
+	if [ -n "$CD_VER" ]; then # an if, not &&: a missing version must not fail the block
+		printf '%s\n' "$CD_VER" > "$CD_MARK" 2>/dev/null
+	fi
 fi
 # --- cheatdb-refresh-end
 

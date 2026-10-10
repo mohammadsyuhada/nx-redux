@@ -6,8 +6,7 @@
 # and must not touch anything else.
 #
 # Runs the real script under busybox sh in a container with a fake
-# /mnt/SDCARD (no /etc/version there, so the firmware gate is skipped;
-# migrate-paks.sh is stubbed — it is `|| true` in the script anyway).
+# /mnt/SDCARD (no /etc/version there, so the firmware gate is skipped).
 # Needs docker.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -22,8 +21,7 @@ cat > "$TMP/run.sh" <<'EOF'
 set -e
 fail() { echo "FAIL: $*"; exit 1; }
 SD=/mnt/SDCARD
-mkdir -p $SD/.system/shared/bin
-printf '#!/bin/sh\nexit 0\n' > $SD/.system/shared/bin/migrate-paks.sh
+mkdir -p $SD
 rm -f /etc/version
 : > $SD/btmgr_19700331_123737.tar
 : > $SD/btmgr_20260912_081500.tar

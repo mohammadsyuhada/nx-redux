@@ -20,9 +20,7 @@
 #   - Emus/PORTS.pak/launch.sh (the Ports console runner) <- pak/ports_launch.sh
 #   - Tools/PortMaster.pak (the GUI tool pak: just launch.sh, which is the
 #     whole launcher since 2026-09-16) <- $CATALOG_DIR/pak/ - the FLAT location: getTools()
-#     (nextui/content.c) lists flat SD paks first, and migrate-paks.sh only
-#     deletes a flat name while .system ships a same-named pak, which this
-#     build no longer does. The platform subfolder is the community-pak
+#     (nextui/content.c) lists flat SD paks first. The platform subfolder is the community-pak
 #     convention for paks that hardcode it internally; this one is
 #     location-independent, and one card serves one platform anyway.
 # Because those two copies (Tools/PortMaster.pak and Emus/PORTS.pak/launch.sh)

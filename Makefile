@@ -507,10 +507,6 @@ package: tidy
 		\
 		echo "  assembling .system (contents merge from $$plat)"; \
 		cp -R ./build/SYSTEM/$$plat/. ./build/PAYLOAD-$$dev/.system/; \
-		echo "  installing legacy-boot compat shims"; \
-		mkdir -p ./build/PAYLOAD-$$dev/.system/$$plat/bin "./build/PAYLOAD-$$dev/.system/$$plat/paks/MinUI.pak"; \
-		cp ./workspace/$$plat/install/install-shim.sh ./build/PAYLOAD-$$dev/.system/$$plat/bin/install.sh; \
-		cp ./workspace/$$plat/install/minui-launch-shim.sh "./build/PAYLOAD-$$dev/.system/$$plat/paks/MinUI.pak/launch.sh"; \
 		cp -R ./build/SYSTEM/res      ./build/PAYLOAD-$$dev/.system/res; \
 		cp -R ./build/SYSTEM/shared   ./build/PAYLOAD-$$dev/.system/shared; \
 		cp ./build/SYSTEM/version.txt ./build/PAYLOAD-$$dev/.system/version.txt; \
@@ -530,15 +526,17 @@ package: tidy
 		echo "  assembling .tmp_update"; \
 		cp -R ./build/BOOT/.tmp_update ./build/PAYLOAD-$$dev/.tmp_update; \
 		\
-		echo "  assembling Emus/shared"; \
-		mkdir -p ./build/PAYLOAD-$$dev/Emus; \
+		echo "  assembling Emus/shared and the /Emus + /Tools READMEs"; \
+		mkdir -p ./build/PAYLOAD-$$dev/Emus ./build/PAYLOAD-$$dev/Tools; \
 		cp -R ./build/BASE/Emus/shared ./build/PAYLOAD-$$dev/Emus/shared; \
+		cp ./build/BASE/Emus/README.txt ./build/PAYLOAD-$$dev/Emus/README.txt; \
+		cp ./build/BASE/Tools/README.txt ./build/PAYLOAD-$$dev/Tools/README.txt; \
 		\
 		echo "  creating device marker $$plat-$$dev"; \
 		touch ./build/PAYLOAD-$$dev/$$plat-$$dev; \
 		\
 		echo "  creating MinUI.zip"; \
-		cd ./build/PAYLOAD-$$dev && zip -r MinUI.zip .system .tmp_update Emus $$plat-$$dev && cd ../..; \
+		cd ./build/PAYLOAD-$$dev && zip -r MinUI.zip .system .tmp_update Emus Tools $$plat-$$dev && cd ../..; \
 		cp ./build/PAYLOAD-$$dev/MinUI.zip ./build/BASE/MinUI-$$dev.zip; \
 		\
 		echo "  resolving overlays for $$dev ($$overlay_res)"; \

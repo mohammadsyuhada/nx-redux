@@ -1649,9 +1649,10 @@ static void fn_tools_add(const char* dir, const char* pak_name) {
 	fn_tool_count++;
 }
 
-// Collect the same merged set of tool paks nextui's Tools menu lists: SD
-// /Tools first, then the /Tools/<platform> community-pak subfolder, then the
-// system paks — a name in an earlier layer shadows the later ones.
+// Collect the same merged set of tool paks nextui's Tools menu lists: the
+// system paks first, then SD /Tools, then the /Tools/<platform> community-pak
+// subfolder — a name in an earlier layer shadows the later ones (a shipped
+// pak always wins).
 static void fn_tools_scan(void) {
 	fn_tools[0].path[0] = '\0';
 	snprintf(fn_tools[0].name, sizeof(fn_tools[0].name), "%s", "Off");
@@ -1661,7 +1662,7 @@ static void fn_tools_scan(void) {
 	snprintf(plat_path, sizeof(plat_path), "%s/" PLATFORM, TOOLS_PATH);
 	char sys_path[MAX_PATH];
 	snprintf(sys_path, sizeof(sys_path), "%s/Tools", PAKS_PATH);
-	const char* dirs[] = {TOOLS_PATH, plat_path, sys_path};
+	const char* dirs[] = {sys_path, TOOLS_PATH, plat_path};
 
 	for (size_t d = 0; d < sizeof(dirs) / sizeof(dirs[0]); d++) {
 		DIR* dh = opendir(dirs[d]);

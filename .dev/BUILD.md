@@ -139,6 +139,11 @@ Component source lives in `workspace/all/<component>` (shared) and
   plugin's in `…/mupen64plus_next/rice/patches/`). Before `make build-core
   CORE=mupen64plus_next`, run `workspace/all/cores/mupen64plus_next/fetch-deps.sh
   <plat>` once (SDL2_net source; the toolchain image has no curl).
+- **Adding a device:** the device-marker cleanup
+  `rm -f $SDCARD_PATH/tg5040-brick tg5040-brickpro tg5040-smartpro tg5050-smartpros`
+  is hardcoded in three places (`workspace/tg5040/install/boot.sh`,
+  `workspace/tg5050/install/boot.sh`, `workspace/all/show2/boot-integration-example.sh`)
+  and must match the Makefile `DEVICES` list.
 
 ## IDE setup (clangd)
 

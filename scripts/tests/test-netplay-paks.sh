@@ -8,7 +8,9 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 NETPLAY=workspace/all/netplay
-SELF_NETPLAY="flycast" # DC: the core's GGPO session (core_netplay.h)
+# DC: flycast's GGPO session; N64: mupen64plus' own netplay against the pak's
+# relay (both NX_CORE_NETPLAY, core_netplay.h)
+SELF_NETPLAY="flycast mupen64plus_next"
 
 supported=$(grep -ho 'strcasecmp(core_name, "[^"]*")' \
 	"$NETPLAY/netplay.c" "$NETPLAY/gbalink.c" "$NETPLAY/gblink.c" | sed 's/.*"\(.*\)")/\1/' | sort -u)
@@ -20,7 +22,7 @@ for marker in skeleton/SYSTEM/*/paks/Emus/*.pak/netplay; do
 	pak=$(dirname "$marker")
 	core=$(sed -n 's/^EMU_EXE=//p' "$pak/launch.sh" | head -1)
 	if [ -z "$core" ]; then
-		# Standalone emulators (N64) bring their own netplay.
+		# Standalone emulators bring their own netplay.
 		grep -q 'minarch.elf' "$pak/launch.sh" && { echo "FAIL: $pak: minarch pak without EMU_EXE" >&2; fail=1; }
 		continue
 	fi
