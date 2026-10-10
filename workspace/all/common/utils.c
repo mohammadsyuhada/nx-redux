@@ -468,16 +468,18 @@ void getEmuName(const char* in_name, char* out_name) { // NOTE: both char arrays
 
 	// printf(" out_name: %s\n", out_name); fflush(stdout);
 }
+// A shipped pak always wins: a same-named SD pak (an old copy, a community
+// pak under a shipped tag) is ignored, so every card runs the shipped one.
 void getEmuPath(char* emu_name, char* pak_path) {
+	sprintf(pak_path, "%s/Emus/%s.pak/launch.sh", PAKS_PATH, emu_name);
+	if (exists(pak_path))
+		return;
 	sprintf(pak_path, "%s/Emus/%s.pak/launch.sh", SDCARD_PATH, emu_name);
 	if (exists(pak_path))
 		return;
 	// community paks follow the MinUI convention of a platform subfolder
-	// (e.g. Emus/tg5040/PSP.pak) and hardcode that path internally
+	// (e.g. Emus/tg5040/MyEmu.pak) and hardcode that path internally
 	sprintf(pak_path, "%s/Emus/" PLATFORM "/%s.pak/launch.sh", SDCARD_PATH, emu_name);
-	if (exists(pak_path))
-		return;
-	sprintf(pak_path, "%s/Emus/%s.pak/launch.sh", PAKS_PATH, emu_name);
 }
 
 void normalizeNewline(char* line) {

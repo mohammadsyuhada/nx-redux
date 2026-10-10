@@ -1516,9 +1516,9 @@ static Array* getPinned(void) {
 static Array* getSimpleTools(void) {
 	Array* entries = Array_new();
 	char settings_path[MAX_PATH];
-	snprintf(settings_path, sizeof(settings_path), "%s/Settings.pak", TOOLS_PATH);
+	snprintf(settings_path, sizeof(settings_path), "%s/Tools/Settings.pak", PAKS_PATH); // the shipped pak wins
 	if (!exists(settings_path))
-		snprintf(settings_path, sizeof(settings_path), "%s/Tools/Settings.pak", PAKS_PATH);
+		snprintf(settings_path, sizeof(settings_path), "%s/Settings.pak", TOOLS_PATH);
 	if (exists(settings_path))
 		Array_push(entries, Entry_newNamed(settings_path, ENTRY_PAK, "Settings"));
 	return entries;
@@ -1664,9 +1664,15 @@ static int isPlatformDirName(const char* name) {
 Array* getTools(void) {
 	Array* entries = Array_new();
 
-	// SD override layer first (may not exist; opendir just fails). Only
-	// directories belong in the Tools menu (paks and plain folders) -- plain
-	// files like the README migrate-paks.sh drops into /Tools are excluded.
+	// A shipped pak always wins: an SD pak with a shipped pak's name (an old
+	// copy, a community pak under a shipped name) is left out of the menu.
+	char sys_path[MAX_PATH];
+	snprintf(sys_path, sizeof(sys_path), "%s/Tools", PAKS_PATH);
+	char shadow[MAX_PATH];
+
+	// SD layer (may not exist; opendir just fails). Only directories belong in
+	// the Tools menu (paks and plain folders) -- plain files like the
+	// README.txt the release ships in /Tools are excluded.
 	DIR* sd = opendir(TOOLS_PATH);
 	if (sd != NULL) {
 		struct dirent* dp;
@@ -1677,15 +1683,18 @@ Array* getTools(void) {
 				continue;
 			if (isPlatformDirName(dp->d_name))
 				continue;
+			int type = suffixMatch(".pak", dp->d_name) ? ENTRY_PAK : ENTRY_DIR;
+			snprintf(shadow, sizeof(shadow), "%s/%s", sys_path, dp->d_name);
+			if (type == ENTRY_PAK && exists(shadow))
+				continue;
 			char full_path[MAX_PATH];
 			snprintf(full_path, sizeof(full_path), "%s/%s", TOOLS_PATH, dp->d_name);
-			int type = suffixMatch(".pak", dp->d_name) ? ENTRY_PAK : ENTRY_DIR;
 			Array_push(entries, Entry_new(full_path, type));
 		}
 		closedir(sd);
 	}
 
-	// append platform-subfolder paks not shadowed by an SD pak of the same name
+	// platform-subfolder paks not shadowed by a shipped or flat SD pak of the same name
 	char plat_path[MAX_PATH];
 	snprintf(plat_path, sizeof(plat_path), "%s/" PLATFORM, TOOLS_PATH);
 	DIR* pd = opendir(plat_path);
@@ -1696,7 +1705,9 @@ Array* getTools(void) {
 				continue;
 			if (!direntIsDir(plat_path, dp) || !suffixMatch(".pak", dp->d_name))
 				continue;
-			char shadow[MAX_PATH];
+			snprintf(shadow, sizeof(shadow), "%s/%s", sys_path, dp->d_name);
+			if (exists(shadow))
+				continue;
 			snprintf(shadow, sizeof(shadow), "%s/%s", TOOLS_PATH, dp->d_name);
 			if (exists(shadow))
 				continue;
@@ -1707,9 +1718,7 @@ Array* getTools(void) {
 		closedir(pd);
 	}
 
-	// append system paks not shadowed by an SD pak of the same name
-	char sys_path[MAX_PATH];
-	snprintf(sys_path, sizeof(sys_path), "%s/Tools", PAKS_PATH);
+	// every shipped pak
 	DIR* dh = opendir(sys_path);
 	if (dh != NULL) {
 		struct dirent* dp;
@@ -1717,13 +1726,6 @@ Array* getTools(void) {
 			if (hide(dp->d_name))
 				continue;
 			if (!direntIsDir(sys_path, dp) || !suffixMatch(".pak", dp->d_name))
-				continue;
-			char shadow[MAX_PATH];
-			snprintf(shadow, sizeof(shadow), "%s/%s", TOOLS_PATH, dp->d_name);
-			if (exists(shadow))
-				continue;
-			snprintf(shadow, sizeof(shadow), "%s/%s", plat_path, dp->d_name);
-			if (exists(shadow))
 				continue;
 			char full_path[MAX_PATH];
 			snprintf(full_path, sizeof(full_path), "%s/%s", sys_path, dp->d_name);

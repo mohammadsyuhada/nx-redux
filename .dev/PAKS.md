@@ -117,23 +117,26 @@ adds the following.
 
 Bundled paks ship inside `.system` with a platform-less layout:
 `.system/paks/Tools/<Name>.pak` and `.system/paks/Emus/<TAG>.pak` (the
-launcher's binary PATH is `.system/bin`). User pak resolution falls back
-through: SD flat (`Emus/<TAG>.pak`) → SD platform subfolder
-(`Emus/<PLATFORM>/<TAG>.pak`) → system paks (`getEmuPath` in
-`common/utils.c`; `hasEmu`/`entryFromPakName`/`getTools` in nextui's
-`content.c` use the same chain). The platform-subfolder fallback exists
+launcher's binary PATH is `.system/bin`). Pak resolution goes: system paks →
+SD flat (`Emus/<TAG>.pak`) → SD platform subfolder
+(`Emus/<PLATFORM>/<TAG>.pak`) (`getEmuPath` in `common/utils.c`; `getTools`
+in nextui's `content.c`, simple mode's Settings entry and the settings app's
+F-key tool list use the same order). The platform-subfolder fallback exists
 because community paks (e.g. minui-psp) hardcode the MinUI
 `Emus/$PLATFORM/$PAK_NAME.pak` path internally — flat placement launches but
 then points at the wrong directory.
 
-- Same-tag paks in the user layers override system paks (SD wins).
+- **A shipped pak always wins.** A same-named pak in the user layers is
+  ignored (and left out of the Tools list), so a stale copy or a community pak
+  under a shipped tag can't replace a bundled emulator or tool. A user who
+  wants an alternative gives it its own tag (and a matching Roms folder).
+  Nothing deletes such paks: the old `migrate-paks.sh` cleanup was retired
+  once this rule made it unnecessary.
 - `PORTS.pak` lives flat at `Emus/PORTS.pak` by design — it's installed there
   by the Xtras `portmaster` catalog entry (which also removes legacy
   platform-subdir copies on uninstall); never move it under a platform folder.
 - Platform-named dirs (tg5040/tg5050/shared) are hidden from the
   Tools list.
-- `migrate-paks.sh` (`skeleton/SYSTEM/shared/bin/`, run from the updater) is
-  a transition-period cleanup with a planned sunset — see `DEV_TODO.md`.
 
 ## Xtras catalog entries (on-device add-on store)
 

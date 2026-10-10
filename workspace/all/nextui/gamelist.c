@@ -601,9 +601,9 @@ static bool settingsPinAllows(Entry* entry) {
 		return true;
 
 	char settings_path[MAX_PATH];
-	snprintf(settings_path, sizeof(settings_path), "%s/Settings.pak", TOOLS_PATH);
+	snprintf(settings_path, sizeof(settings_path), "%s/Tools/Settings.pak", PAKS_PATH); // as getSimpleTools lists it
 	if (!exists(settings_path))
-		snprintf(settings_path, sizeof(settings_path), "%s/Tools/Settings.pak", PAKS_PATH);
+		snprintf(settings_path, sizeof(settings_path), "%s/Settings.pak", TOOLS_PATH);
 	if (!exactMatch(entry->path, settings_path))
 		return true;
 
