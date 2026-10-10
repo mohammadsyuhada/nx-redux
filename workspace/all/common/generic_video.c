@@ -122,14 +122,21 @@ static struct VID_Context {
 static bool screen_premult = false; // the screen texture composites with the premultiplied blend (PLAT_setScreenDim)
 
 // libretro GPU-render (hardware core) support. The core draws into hwr.fbo on
-// the game context; each frame is blitted (flipped upright) into copy_tex,
-// which PLAT_GL_Swap feeds to the shader pipeline in place of the CPU upload.
+// the game context. With no shader passes PLAT_GL_Swap scales color_tex to the
+// screen directly (hwr_present_program flips it and forces it opaque); shader
+// passes get it blitted (flipped upright, opaque) into copy_tex first, in place
+// of the CPU upload.
 static struct {
 	GLuint fbo, color_tex, depth_rb;
 	unsigned w, h;
 	GLuint copy_fbo, copy_tex;
 	unsigned copy_w, copy_h;
-	int frame_ready; // copy_tex holds a frame to present
+	unsigned frame_w, frame_h; // the core's last frame: the bottom-left w x h of fbo
+	int frame_flip;			   // the frame is bottom-left origin (GL), not row 0 = top
+	int frame_ready;		   // fbo holds a frame to present
+	int copy_valid;			   // copy_tex holds that frame
+	GLuint present_program;	   // direct-present shader (0 = not built yet)
+	GLint present_uvmap, present_uvclamp;
 	int state_dirty; // the core ran since our last draw: drop cached GL state
 	GLuint hud_tex;	 // debug HUD drawn over the game (0 = none)
 	int hud_w, hud_h;
@@ -159,6 +166,7 @@ static void hwr_delete_copy(void) {
 		glDeleteTextures(1, &hwr.copy_tex);
 	hwr.copy_fbo = hwr.copy_tex = 0;
 	hwr.copy_w = hwr.copy_h = 0;
+	hwr.copy_valid = 0;
 }
 
 void PLAT_HWR_destroy(void) {
@@ -176,6 +184,8 @@ void PLAT_HWR_destroy(void) {
 		glDeleteFramebuffers(1, &hwr.fbo);
 	if (hwr.color_tex)
 		glDeleteTextures(1, &hwr.color_tex);
+	if (hwr.present_program)
+		glDeleteProgram(hwr.present_program);
 	memset(&hwr, 0, sizeof(hwr));
 }
 
@@ -251,6 +261,20 @@ int PLAT_HWR_resize(unsigned w, unsigned h) {
 void PLAT_HWR_setFrame(unsigned w, unsigned h, int flip) {
 	if (!hwr.fbo)
 		return;
+	// No GL work here: PLAT_GL_Swap samples the FBO itself, or copies it only
+	// when shader passes need a frame-sized, upright texture.
+	hwr.frame_w = w;
+	hwr.frame_h = h;
+	hwr.frame_flip = flip;
+	hwr.frame_ready = 1;
+	hwr.copy_valid = 0;
+}
+
+// Blit the frame into copy_tex (upright, opaque) for the shader passes.
+static void hwr_update_copy(void) {
+	unsigned w = hwr.frame_w, h = hwr.frame_h;
+	if (hwr.copy_valid)
+		return;
 	if (hwr.copy_w != w || hwr.copy_h != h) {
 		hwr_delete_copy();
 		glGenTextures(1, &hwr.copy_tex);
@@ -269,7 +293,7 @@ void PLAT_HWR_setFrame(unsigned w, unsigned h, int flip) {
 	glDisable(GL_SCISSOR_TEST);
 	// The pipeline expects texture row 0 = image top (the CPU-upload layout);
 	// a bottom-left-origin GL frame is flipped here, exactly once.
-	if (flip)
+	if (hwr.frame_flip)
 		glBlitFramebuffer(0, 0, w, h, 0, h, w, 0, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 	else
 		glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
@@ -281,8 +305,92 @@ void PLAT_HWR_setFrame(unsigned w, unsigned h, int flip) {
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
 	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	glClearColor(0.0f, 0.0f, 0.0f, 0.0f); // restoreFrontendState's value
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	hwr.frame_ready = 1;
+	hwr.copy_valid = 1;
+}
+
+// Direct present: the vertex stage maps the quad's 0..1 TexCoord onto the
+// frame's corner of the FBO texture (and flips a GL frame upright); the
+// fragment stage keeps linear filtering off the texels outside the frame and
+// forces alpha to 1 for the same reason as hwr_update_copy.
+static const char* hwr_present_vs =
+	"#version 100\n"
+	"attribute vec2 VertexCoord;\n"
+	"attribute vec2 TexCoord;\n"
+	"uniform highp vec4 UVMap;\n"
+	"varying highp vec2 vTexCoord;\n"
+	"void main() {\n"
+	"	vTexCoord = UVMap.xy + TexCoord * UVMap.zw;\n"
+	"	gl_Position = vec4(VertexCoord, 0.0, 1.0);\n"
+	"}\n";
+static const char* hwr_present_fs =
+	"#version 100\n"
+	"#ifdef GL_FRAGMENT_PRECISION_HIGH\n"
+	"precision highp float;\n"
+	"#else\n"
+	"precision mediump float;\n"
+	"#endif\n"
+	"uniform sampler2D Texture;\n"
+	"uniform vec4 UVClamp;\n"
+	"varying vec2 vTexCoord;\n"
+	"void main() {\n"
+	"	gl_FragColor = vec4(texture2D(Texture, clamp(vTexCoord, UVClamp.xy, UVClamp.zw)).rgb, 1.0);\n"
+	"}\n";
+
+static GLuint hwr_compile(GLenum type, const char* src) {
+	GLuint sh = glCreateShader(type);
+	glShaderSource(sh, 1, &src, NULL);
+	glCompileShader(sh);
+	GLint ok = 0;
+	glGetShaderiv(sh, GL_COMPILE_STATUS, &ok);
+	if (!ok) {
+		char log[512];
+		glGetShaderInfoLog(sh, sizeof(log), NULL, log);
+		LOG_error("HWR: present shader compile failed: %s\n", log);
+		glDeleteShader(sh);
+		return 0;
+	}
+	return sh;
+}
+
+// 1 when the direct-present program is ready; on failure the copy path stays.
+static int hwr_present_ready(void) {
+	static int failed = 0;
+	if (hwr.present_program)
+		return 1;
+	if (failed)
+		return 0;
+	failed = 1;
+	GLuint vs = hwr_compile(GL_VERTEX_SHADER, hwr_present_vs);
+	GLuint fs = hwr_compile(GL_FRAGMENT_SHADER, hwr_present_fs);
+	if (!vs || !fs) {
+		if (vs)
+			glDeleteShader(vs);
+		if (fs)
+			glDeleteShader(fs);
+		return 0;
+	}
+	GLuint prog = glCreateProgram();
+	glAttachShader(prog, vs);
+	glAttachShader(prog, fs);
+	glLinkProgram(prog);
+	glDeleteShader(vs);
+	glDeleteShader(fs);
+	GLint ok = 0;
+	glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+	if (!ok) {
+		char log[512];
+		glGetProgramInfoLog(prog, sizeof(log), NULL, log);
+		LOG_error("HWR: present shader link failed: %s\n", log);
+		glDeleteProgram(prog);
+		return 0;
+	}
+	hwr.present_program = prog;
+	hwr.present_uvmap = glGetUniformLocation(prog, "UVMap");
+	hwr.present_uvclamp = glGetUniformLocation(prog, "UVClamp");
+	failed = 0;
+	return 1;
 }
 
 void PLAT_HWR_restoreFrontendState(void) {
@@ -322,6 +430,14 @@ void PLAT_HWR_prepareCoreFrame(void) {
 	// and every frame came out black.
 	glBindVertexArray(0);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	// The present samples the core's own FBO texture; left bound, the core's
+	// cached state can draw with it while rendering into it (garbage in the
+	// parts of the frame it does not redraw, like N64's overscan border).
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glUseProgram(0);
 	hwr.state_dirty = 1;
 }
 
@@ -357,7 +473,7 @@ void PLAT_HWR_setHud(const void* rgba, int w, int h) {
 // the whole frame for only w*h*4 bytes. w and h must be HWR_AVG_BASE >> n.
 #define HWR_AVG_BASE 256
 int PLAT_HWR_readAverage(void* rgba, int w, int h) {
-	if (!hwr.copy_fbo || !hwr.frame_ready || w <= 0 || h <= 0 || w != h || w > HWR_AVG_BASE)
+	if (!hwr.fbo || !hwr.frame_ready || w <= 0 || h <= 0 || w != h || w > HWR_AVG_BASE)
 		return 0;
 	int level = 0;
 	while ((HWR_AVG_BASE >> level) > w)
@@ -377,12 +493,17 @@ int PLAT_HWR_readAverage(void* rgba, int w, int h) {
 	}
 	if (hwr.avg_w != w)
 		return 0; // texture storage is fixed at first use
-	// blit the frame into level 0, then let the GPU average it down
+	// blit the frame (upright: row 0 = image top) into level 0, then let the
+	// GPU average it down
 	glBindFramebuffer(GL_FRAMEBUFFER, hwr.avg_fbo);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, hwr.avg_tex, 0);
-	glBindFramebuffer(GL_READ_FRAMEBUFFER, hwr.copy_fbo);
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, hwr.fbo);
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, hwr.avg_fbo);
-	glBlitFramebuffer(0, 0, hwr.copy_w, hwr.copy_h, 0, 0, HWR_AVG_BASE, HWR_AVG_BASE, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+	glDisable(GL_SCISSOR_TEST);
+	if (hwr.frame_flip)
+		glBlitFramebuffer(0, 0, hwr.frame_w, hwr.frame_h, 0, HWR_AVG_BASE, HWR_AVG_BASE, 0, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+	else
+		glBlitFramebuffer(0, 0, hwr.frame_w, hwr.frame_h, 0, 0, HWR_AVG_BASE, HWR_AVG_BASE, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 	glBindTexture(GL_TEXTURE_2D, hwr.avg_tex);
 	glGenerateMipmap(GL_TEXTURE_2D);
 	glBindTexture(GL_TEXTURE_2D, 0);
@@ -3343,10 +3464,16 @@ void PLAT_GL_Swap() {
 	}
 
 	GLuint frame_tex = src_texture;
+	int hwr_direct = 0;
 	if (hwr.frame_ready) {
 		// GPU core: the frame is already a texture; only its filtering follows
-		// the pipeline's settings (same rule as the CPU-upload texture).
-		frame_tex = hwr.copy_tex;
+		// the pipeline's settings (same rule as the CPU-upload texture). With no
+		// shader passes the FBO's own texture goes straight to the screen;
+		// shader passes need it copied to a frame-sized, upright texture.
+		hwr_direct = nrofshaders == 0 && hwr_present_ready();
+		if (!hwr_direct)
+			hwr_update_copy();
+		frame_tex = hwr_direct ? hwr.color_tex : hwr.copy_tex;
 		glBindTexture(GL_TEXTURE_2D, frame_tex);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, nrofshaders > 0 ? shaders[0]->filter : finalScaleFilter);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, nrofshaders > 0 ? shaders[0]->filter : finalScaleFilter);
@@ -3457,6 +3584,22 @@ void PLAT_GL_Swap() {
 			dst_rect.x, dst_rect.y, dst_rect.w, dst_rect.h,
 			&(Shader){.srcw = last_w, .srch = last_h, .texw = last_w, .texh = last_h},
 			0, GL_NONE);
+	} else if (hwr_direct) {
+		GLfloat sx = (GLfloat)hwr.frame_w / hwr.w;
+		GLfloat sy = (GLfloat)hwr.frame_h / hwr.h;
+		glUseProgram(hwr.present_program);
+		if (hwr.frame_flip)
+			glUniform4f(hwr.present_uvmap, 0.0f, 0.0f, sx, sy);
+		else
+			glUniform4f(hwr.present_uvmap, 0.0f, sy, sx, -sy);
+		GLfloat hx = 0.5f / hwr.w, hy = 0.5f / hwr.h;
+		glUniform4f(hwr.present_uvclamp, hx, hy, sx - hx, sy - hy);
+		runShaderPass(frame_tex,
+					  hwr.present_program,
+					  NULL,
+					  dst_rect.x, dst_rect.y, dst_rect.w, dst_rect.h,
+					  &(Shader){.srcw = hwr.frame_w, .srch = hwr.frame_h, .texw = hwr.w, .texh = hwr.h, .u_FrameDirection = -1, .u_FrameCount = -1, .u_OutputSize = -1, .u_TextureSize = -1, .u_InputSize = -1, .OrigInputSize = -1, .u_OrigTextureSize = -1, .u_OrigTexture = -1, .texLocation = -1, .texelSizeLocation = -1},
+					  0, GL_NONE);
 	} else {
 		//LOG_info("Shader Pass: Scale to screen (pipeline size: %d)\n", nrofshaders);
 		runShaderPass(frame_tex,
