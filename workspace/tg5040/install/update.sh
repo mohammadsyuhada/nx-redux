@@ -37,6 +37,16 @@ fi
 rm -f "$SDCARD_PATH/.tmp_update.zip" "$SDCARD_PATH/.tmp_update.zip.done" "$SDCARD_PATH/.tmp_update.zip.headers" 2>/dev/null
 
 # --------------------------------------
+# The bluez upgrade pakz (in every release) unpacks .update_bluez/ (~26 MB)
+# into the card root, and its post_install.sh used to leave it there on an
+# already-upgraded device; earlier releases also tarred the stock Bluetooth
+# stack into btmgr_<date>.zip, which nothing ever restored from. The pakz
+# has already run by now (boot installs pakz before MinUI.zip), so anything
+# left is stale.
+rm -rf "$SDCARD_PATH/.update_bluez" 2>/dev/null
+rm -f "$SDCARD_PATH"/btmgr_*.zip 2>/dev/null
+
+# --------------------------------------
 # --- psp-standalone-cleanup-begin
 # PSP moved from the standalone PPSSPP pak (ben16w/minui-psp, installed from
 # Xtras into Emus/<platform>/PSP.pak, earlier the flat Emus/PSP.pak) to the

@@ -1,16 +1,22 @@
 #! /bin/sh
 
+# The pakz unpacks .update_bluez/ into the card root before this runs, and
+# it ships with every release, so every exit path must remove it (an
+# already-upgraded device used to keep ~26 MB of it on the card).
+BLUEZ_PATH=/mnt/SDCARD/.update_bluez
+
 TRIMUI_MODEL=`strings /usr/trimui/bin/MainUI | grep ^Trimui`
 if [ "$TRIMUI_MODEL" = "Trimui Smart Pro S" ]; then
+	rm -rf "$BLUEZ_PATH"
 	return 0
 fi
 
 # if /usr/lib/libsbc.so.1.3.1 exists, we are already updated
 if [ -f "/usr/lib/libsbc.so.1.3.1" ]; then
+	rm -rf "$BLUEZ_PATH"
     return 0
 fi
 
-BLUEZ_PATH=/mnt/SDCARD/.update_bluez
 if [ -d "$BLUEZ_PATH" ]; then
 	echo "Updating bluez..."
 else
@@ -18,54 +24,8 @@ else
     return 0
 fi
 
-# this will become post_install.sh inside the pakz
-rm -rf /mnt/SDCARD/btmgr_backup
-mkdir -p /mnt/SDCARD/btmgr_backup/usr/bin
-mkdir -p /mnt/SDCARD/btmgr_backup/usr/lib/alsa-lib
-mkdir -p /mnt/SDCARD/btmgr_backup/usr/lib64/alsa-lib
-mkdir -p /mnt/SDCARD/btmgr_backup/etc/dbus-1/system.d
-mkdir -p /mnt/SDCARD/btmgr_backup/usr/share/alsa/alsa.conf.d/
-
-# bluez
-cp /usr/bin/bluetoothctl /mnt/SDCARD/btmgr_backup/usr/bin/
-cp /usr/bin/btmon /mnt/SDCARD/btmgr_backup/usr/bin/
-cp /usr/bin/rctest /mnt/SDCARD/btmgr_backup/usr/bin/
-cp /usr/bin/l2test /mnt/SDCARD/btmgr_backup/usr/bin/
-cp /usr/bin/l2ping /mnt/SDCARD/btmgr_backup/usr/bin/
-cp /usr/bin/bluemoon /mnt/SDCARD/btmgr_backup/usr/bin/
-cp /usr/bin/hex2hcd /mnt/SDCARD/btmgr_backup/usr/bin/
-cp /usr/bin/mpris-proxy /mnt/SDCARD/btmgr_backup/usr/bin/
-cp /usr/bin/btattach /mnt/SDCARD/btmgr_backup/usr/bin/
-#cp /usr/bin/isotest /mnt/SDCARD/btmgr_backup/usr/bin/
-cp /usr/bin/bluetoothd /mnt/SDCARD/btmgr_backup/usr/bin/
-cp /usr/bin/obexd /mnt/SDCARD/btmgr_backup/usr/bin/
-cp /usr/lib/libbluetooth.so.3.19.2 /mnt/SDCARD/btmgr_backup/usr/lib/
-cp /usr/lib64/libbluetooth.so.3.19.2 /mnt/SDCARD/btmgr_backup/usr/lib64/
-cp /etc/dbus-1/system.d/bluetooth.conf /mnt/SDCARD/btmgr_backup/etc/dbus-1/system.d/
-cp /etc/dbus-1/system.d/bluetooth-mesh.conf /mnt/SDCARD/btmgr_backup/etc/dbus-1/system.d/
-cp /etc/dbus-1/system.d/bluetooth-mesh-adapter.conf /mnt/SDCARD/btmgr_backup/etc/dbus-1/system.d/
-
-# bluealsa
-cp /usr/lib/alsa-lib/libasound_module_ctl_bluealsa.so /mnt/SDCARD/btmgr_backup/usr/lib/alsa-lib/libasound_module_ctl_bluealsa.so
-cp /usr/lib/alsa-lib/libasound_module_pcm_bluealsa.so /mnt/SDCARD/btmgr_backup/usr/lib/alsa-lib/libasound_module_pcm_bluealsa.so
-cp /usr/lib64/alsa-lib/libasound_module_ctl_bluealsa.so /mnt/SDCARD/btmgr_backup/usr/lib64/alsa-lib/libasound_module_ctl_bluealsa.so
-cp /usr/lib64/alsa-lib/libasound_module_pcm_bluealsa.so /mnt/SDCARD/btmgr_backup/usr/lib64/alsa-lib/libasound_module_pcm_bluealsa.so
-cp /usr/bin/bluealsa /mnt/SDCARD/btmgr_backup/usr/bin/
-cp /usr/bin/bluealsa-aplay /mnt/SDCARD/btmgr_backup/usr/bin/
-# cp /etc/dbus-1/system.d/bluealsa.conf /mnt/SDCARD/btmgr_backup/etc/dbus-1/system.d/
-cp /usr/share/alsa/alsa.conf.d/20-bluealsa.conf /mnt/SDCARD/btmgr_backup/usr/share/alsa/alsa.conf.d/
-
-# sbc
-cp /usr/lib/libsbc.so.1.2.1 /mnt/SDCARD/btmgr_backup/usr/lib/
-cp /usr/lib64/libsbc.so.1.2.1 /mnt/SDCARD/btmgr_backup/usr/lib64/
-cp /usr/bin/sbcinfo /mnt/SDCARD/btmgr_backup/usr/bin/
-cp /usr/bin/sbcdec /mnt/SDCARD/btmgr_backup/usr/bin/
-cp /usr/bin/sbcenc /mnt/SDCARD/btmgr_backup/usr/bin/
-
-# compress backup and clean up
-backupfile="/mnt/SDCARD/btmgr_$(date +%Y%m%d_%H%M%S).zip"
-tar czf $backupfile /mnt/SDCARD/btmgr_backup/
-rm -rf /mnt/SDCARD/btmgr_backup
+# No backup of the stock stack is kept: nothing ever restored from it, and
+# a firmware reflash is the real revert path.
 
 # deploy update
 cd $BLUEZ_PATH
@@ -103,9 +63,9 @@ mv ./usr/share/alsa/alsa.conf.d/20-bluealsa.conf /usr/share/alsa/alsa.conf.d/
 # sbc
 mv ./usr/lib/libsbc.so.1.3.1 /usr/lib/
 mv ./usr/lib64/libsbc.so.1.3.1 /usr/lib64/
-mv ./usr/bin/sbcinfo build/.update_bluez/usr/bin/
-mv ./usr/bin/sbcdec build/.update_bluez/usr/bin/
-mv ./usr/bin/sbcenc build/.update_bluez/usr/bin/
+mv ./usr/bin/sbcinfo /usr/bin/
+mv ./usr/bin/sbcdec /usr/bin/
+mv ./usr/bin/sbcenc /usr/bin/
 
 # symlinks
 cd /usr/lib/ && ln -s -f libbluetooth.so.3.19.15 libbluetooth.so.3
@@ -114,8 +74,8 @@ cd /usr/lib64/ && ln -s -f libbluetooth.so.3.19.15 libbluetooth.so.3
 cd /usr/lib64/ && ln -s -f libbluetooth.so.3.19.15 libbluetooth.so
 cd /usr/lib/ && ln -s -f libsbc.so.1.3.1 libsbc.so.1
 cd /usr/lib/ && ln -s -f libsbc.so.1.3.1 libsbc.so
-cd /usr/lib/64 && ln -s -f libsbc.so.1.3.1 libsbc.so.1
-cd /usr/lib/64 && ln -s -f libsbc.so.1.3.1 libsbc.so
+cd /usr/lib64/ && ln -s -f libsbc.so.1.3.1 libsbc.so.1
+cd /usr/lib64/ && ln -s -f libsbc.so.1.3.1 libsbc.so
 
 # clean up
 rm -rf $BLUEZ_PATH

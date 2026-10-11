@@ -1,16 +1,22 @@
 #! /bin/sh
 
+# The pakz unpacks .update_bluez/ into the card root before this runs, and
+# it ships with every release, so every exit path must remove it (an
+# already-upgraded device used to keep ~26 MB of it on the card).
+BLUEZ_PATH=/mnt/SDCARD/.update_bluez
+
 TRIMUI_MODEL=`strings /usr/trimui/bin/MainUI | grep ^Trimui`
 if [ "$TRIMUI_MODEL" != "Trimui Smart Pro S" ]; then
+	rm -rf "$BLUEZ_PATH"
 	return 0
 fi
 
 # if /usr/lib/libsbc.so.1.3.1 exists, we are already updated
 if [ -f "/usr/lib/libsbc.so.1.3.1" ]; then
+	rm -rf "$BLUEZ_PATH"
     return 0
 fi
 
-BLUEZ_PATH=/mnt/SDCARD/.update_bluez
 if [ -d "$BLUEZ_PATH" ]; then
 	echo "Updating bluez..."
 else

@@ -105,6 +105,11 @@ true
 # before replacing it. Nothing ever restored from it and the upgrade no
 # longer writes it, so clear any leftover on the next update.
 rm -f "${SDCARD_PATH}"/btmgr_*.tar
+# The pakz (in every release) also unpacks .update_bluez/ (~26 MB) into the
+# card root, and its post_install.sh used to leave it there on an
+# already-upgraded device. The pakz has already run by now (boot installs
+# pakz before MinUI.zip), so anything left is stale.
+rm -rf "${SDCARD_PATH}/.update_bluez"
 
 # --------------------------------------
 # --- portmaster-refresh-begin
