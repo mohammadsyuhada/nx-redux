@@ -128,10 +128,6 @@ jobs:
           path: workspace/${{ matrix.toolchain }}/cores/output/
           key: core-${{ matrix.toolchain }}-${{ matrix.core }}-${{ steps.cache-key.outputs.hash }}
 
-      - name: Setup
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: make setup
-
       - name: Fetch ${{ matrix.core }} build inputs
         # a core's fetch-deps.sh downloads what its build needs but the
         # toolchain image cannot fetch (mupen64plus_next: SDL2_net)
@@ -201,6 +197,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y zipmerge
+
+      - name: Restore cached MiSans fonts
+        uses: actions/cache@v5
+        with:
+          path: .cache/misans/
+          key: misans-${{ hashFiles('scripts/fetch-misans.py') }}
 
       - name: Setup
         run: make setup
