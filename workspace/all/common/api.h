@@ -778,7 +778,8 @@ void PLAT_GPU_Flip();
 // px; src NULL = the whole texture. The texture is the surface's own (PLAT_textureForSurface, kept in s->userdata);
 // free such a surface with PLAT_freeSurfaceTexture first. A texture freed (either way) leaves the sprite lists too.
 // PLAT_spriteAddUnder: the same, in a second list drawn under the screen layer (over the background layers), seen
-// through the screen's transparent pixels (a Backdrop game list's full-screen picture). PLAT_spritesClear clears both.
+// through the screen's transparent pixels (a Backdrop game list's full-screen picture). PLAT_spritesClear clears both,
+// as does GFX_clearLayers(LAYER_ALL) (with the PLAT_setScreenDim band): a modal's own loop must not show them.
 void PLAT_spritesClear(void);
 void PLAT_spriteAdd(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, const SDL_Rect* clip);
 void PLAT_spriteAddUnder(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, const SDL_Rect* clip);

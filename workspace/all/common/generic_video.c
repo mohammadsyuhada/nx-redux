@@ -2118,6 +2118,13 @@ void PLAT_clearLayers(int layer) {
 	// earlier draw — inheriting that here would turn a cleared
 	// thumbnail/transition layer into an opaque black sheet.
 	SDL_SetRenderDrawColor(vid.renderer, 0, 0, 0, 0);
+	// LAYER_ALL is a clean slate for what comes next (the keyboard, a modal, a game launch): the GPU sprites and the
+	// screen dim band are the outgoing frame's too, and would keep compositing over it (Search's keyboard showed the
+	// Home rows on top of it)
+	if (layer == 0) {
+		PLAT_spritesClear();
+		PLAT_setScreenDim(0, 0, 255);
+	}
 	if ((layer == 0 || layer == 1) && layer_has_content[1]) { // an empty layer has nothing to clear
 		SDL_SetRenderTarget(vid.renderer, vid.target_layer1);
 		SDL_RenderClear(vid.renderer);

@@ -32,7 +32,7 @@ typedef struct {
 	void* ctx;
 	const volatile bool* quit_flag; // optional external abort (returns -1); NULL to ignore
 	uint32_t timeout_ms;			// 0 = none; expiry returns -1
-	bool clear_layers;				// GFX_clearLayers(LAYER_ALL) on entry + exit
+	bool clear_layers;				// GFX_clearLayers(LAYER_ALL) on entry + exit (GPU sprites are dropped either way)
 	bool reset_pad;					// trailing PAD_poll(); PAD_reset();
 } UI_ModalOpts;
 int UI_modalLoop(const UI_ModalOpts* o);
