@@ -440,6 +440,22 @@ L40C="$(awk '/^export HC_PURE_SDL_CONTEXTS/,/SC_PURE_SDL_CONTEXTS=1$/' "$L40")"
 grep -q 'PURE_SDL_CONTEXTS' "$ROOT/skeleton/SYSTEM/tg5050/paks/Tools/Xtras.pak/catalog/portmaster/pak/ports_launch.sh" \
   && fail "tg5050 ports_launch exports PowerVR-only switches" || pass "tg5050 ports_launch leaves the PowerVR switches out"
 
+# ---- 13. udevadm shim: a bare trigger must not reach the SD card ------------
+# The CrossMix preview westonwrap.sh's bare `udevadm trigger` sends the card a change event, which
+# the stock mdev.conf treats as a removal.
+mkdir -p "$TMP/udev/bin"
+printf '#!/bin/sh\necho "REAL: $*"\n' > "$TMP/udev/bin/udevadm"; chmod +x "$TMP/udev/bin/udevadm"
+for plat in tg5040 tg5050; do
+  P="$ROOT/skeleton/SYSTEM/$plat/paks/Tools/Xtras.pak/catalog/portmaster/pak/ports_launch.sh"
+  grep -q '^    add_udevadm_shim$' "$P" && pass "ports_launch $plat: main installs the udevadm shim" || fail "ports_launch $plat: main does not call add_udevadm_shim"
+  SHIMF="$(sed -n '/^NX_PORT_SHIMS=/,/^}/p' "$P")"
+  OUT="$(PATH="$TMP/udev/bin:$PATH" bash -c "$SHIMF"$'\n'"NX_PORT_SHIMS=$TMP/udev/shims.$plat; add_udevadm_shim
+    udevadm trigger; udevadm trigger --action=change; udevadm trigger -s block; udevadm control --reload")"
+  [ "$OUT" = "$(printf 'REAL: trigger --action=add --subsystem-match=input\nREAL: trigger --action=add --subsystem-match=input --action=change\nREAL: trigger -s block\nREAL: control --reload')" ] \
+    && pass "udevadm shim $plat: unfiltered trigger narrowed to input, filtered calls and other commands pass through" \
+    || fail "udevadm shim $plat: wrong rewrite: $(printf '%s' "$OUT" | tr '\n' ' ')"
+done
+
 pkill -f "$BIN/show2.elf" >/dev/null 2>&1
 [ "$FAILS" = 0 ] && say "test-portmaster-launch: OK" || say "test-portmaster-launch: $FAILS FAILURE(S)"
 exit "$FAILS"

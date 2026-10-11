@@ -172,6 +172,33 @@ add_input_udev_rule() {
     done
 }
 
+# The CrossMix preview of PortMaster's Weston runtime (weston_pkg_0.2 with
+# "Westonwrap 0.2.8 (Preview 1)", which NX Redux bundled in libs.zip until
+# it stopped shipping a runtime; update.sh removes it from cards) runs a
+# bare `udevadm trigger` on CFW_NAME TrimUI: a change event for every device,
+# the SD card included. The stock /etc/mdev.conf handles any mmcblk1 event but
+# "add" as a removal (sdcard_remove: umount -l, rm /mnt/SDCARD), so the card
+# vanished mid-launch and the port died on a black screen. Put a udevadm first
+# on PATH for the port that narrows an unfiltered trigger to input devices, as
+# an add (what add_input_udev_rule does); every other call goes to the real one.
+NX_PORT_SHIMS="/tmp/nx_port_shims"
+add_udevadm_shim() {
+    local real
+    real="$(command -v udevadm)" || return 0
+    mkdir -p "$NX_PORT_SHIMS" || return 0
+    cat >"$NX_PORT_SHIMS/udevadm" <<SHIM
+#!/bin/sh
+if [ "\$1" = trigger ]; then
+    case " \$* " in
+        *" -s"*|*" --subsystem-match"*|*" -k"*|*" --kernel"*|*" -p"*|*" --property-match"*|*" -y"*|*" --sysname-match"*) ;;
+        *) shift; exec "$real" trigger --action=add --subsystem-match=input "\$@" ;;
+    esac
+fi
+exec "$real" "\$@"
+SHIM
+    chmod +x "$NX_PORT_SHIMS/udevadm" && export PATH="$NX_PORT_SHIMS:$PATH"
+}
+
 # Per-port workarounds live in the system's copy of this catalog,
 # pak/port_fixes/<name>.sh, so a system update refreshes them. Each file
 # defines <name>_pre, run before the port, and may define <name>_retry, run
@@ -241,6 +268,7 @@ main() {
     set_controller_layout "$NX_BUTTON_LAYOUT"
 
     add_input_udev_rule
+    add_udevadm_shim
     run_port_fixes pre
 
     # Start power button sleep/poweroff handler
