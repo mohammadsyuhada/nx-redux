@@ -12,14 +12,14 @@
 					"label": "CPU Cores",
 					"description": "Fewer cores save battery; Auto keeps every core on.",
 					"type": "enum",
-					"values": ["auto", "little4", "little4big2", "all8"],
-					"labels": ["Auto", "4 Little", "4 Little + 2 Big", "All 8"],
+					"values": ["auto", "little2", "little4", "little4big2", "all8"],
+					"labels": ["Auto", "2 Little", "4 Little", "4 Little + 2 Big", "All 8"],
 					"default": "auto"
 				},
 				{
 					"key": "cpu",
 					"label": "CPU Mode",
-					"description": "Fixed clock for the game; Auto lets it scale.",
+					"description": "Auto scales with load; the others hold one clock (little cores max 1416 MHz).",
 					"type": "enum",
 					"values": ["auto", "powersave", "normal", "performance"],
 					"labels": ["Auto", "Powersave", "Normal", "Performance"],
@@ -28,7 +28,7 @@
 				{
 					"key": "gpu",
 					"label": "GPU Mode",
-					"description": "Powersave lets the GPU slow down when idle.",
+					"description": "Auto is full speed as before; Powersave lets the GPU slow down.",
 					"type": "enum",
 					"values": ["auto", "powersave", "performance"],
 					"labels": ["Auto", "Powersave", "Performance"],

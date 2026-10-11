@@ -152,5 +152,23 @@ for plat in tg5040 tg5050; do
 	printf '[launch]\ncpu = powersave\n' >"$game"
 	log=$(PLATFORM=tg5050 USERDATA_PATH=$ud NX_SYSFS_ROOT=$tmp sh -c '. "$0"; nx_launch_opts_load PORTS "$1"; nx_launch_opts_apply' "$helper" "$rom")
 	[ "$log" = "launch options: cores=auto cpu=powersave gpu=auto" ] || fail "$helper: case8 log: '$log'"
+
+	# 9b. tg5050 little2: only cpu0+cpu1 online, policy4 untouched
+	seed
+	printf '[launch]\ncores = little2\ncpu = powersave\n' >"$game"
+	out=$(run tg5050)
+	[ "$out" = "little2 powersave auto" ] || fail "$helper: case9b: got '$out'"
+	expect_online 1 1 1 "case9b"
+	expect_online 2 7 0 "case9b"
+	expect_untouched_cpufreq cpu4 "case9b"
+
+	# 9. multi-disc folder game: the launch gets disc 1, the key is the folder-named .m3u
+	seed
+	mdir="$tmp/roms/Game (USA)"
+	mkdir -p "$mdir"
+	: >"$mdir/Game (USA).m3u"
+	printf '[launch]\ncpu = normal\n' >"$dir/Game (USA).m3u.ini"
+	out=$(PLATFORM=tg5050 USERDATA_PATH=$ud NX_SYSFS_ROOT=$tmp sh -c '. "$0"; nx_launch_opts_load PORTS "$1"; echo "$NX_LO_CPU"' "$helper" "$mdir/Game (USA) (Disc 1).chd")
+	[ "$out" = "normal" ] || fail "$helper: case9 m3u key: got '$out'"
 done
 echo "test_nx_launch_opts: OK"

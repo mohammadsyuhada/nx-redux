@@ -16,7 +16,7 @@
 #     write tolerates a missing node. The MinUI.pak loop restores cores and
 #     cpufreq after the command; nextui's gpuEnterMenu restores the GPU.
 #
-# Tokens: cores auto|little4|little4big2|all8 (tg5050 only)
+# Tokens: cores auto|little2|little4|little4big2|all8 (tg5050 only)
 #         cpu   auto|powersave|normal|performance
 #         gpu   auto|powersave|performance (tg5050 only)
 
@@ -44,7 +44,7 @@ _nxlo_read_ini() {
 # Apply one key=value line, accepting only valid tokens.
 _nxlo_take() {
 	case "$1" in
-	cores) case "$2" in auto | little4 | little4big2 | all8) NX_LO_CORES=$2 ;; esac ;;
+	cores) case "$2" in auto | little2 | little4 | little4big2 | all8) NX_LO_CORES=$2 ;; esac ;;
 	cpu) case "$2" in auto | powersave | normal | performance) NX_LO_CPU=$2 ;; esac ;;
 	gpu) case "$2" in auto | powersave | performance) NX_LO_GPU=$2 ;; esac ;;
 	esac
@@ -55,7 +55,15 @@ nx_launch_opts_load() {
 	NX_LO_CPU=auto
 	NX_LO_GPU=auto
 	_nxlo_dir="$USERDATA_PATH/$1-launch"
-	_nxlo_game="$_nxlo_dir/${2##*/}.ini"
+	# Per-game key: the basename with extension, collapsed to the folder-named
+	# .m3u for multi-disc folder games (a launch gets the first disc, the
+	# editor the .m3u), as minarch's alt_name does.
+	_nxlo_rdir="${2%/*}"
+	if [ -f "$_nxlo_rdir/${_nxlo_rdir##*/}.m3u" ]; then
+		_nxlo_game="$_nxlo_dir/${_nxlo_rdir##*/}.m3u.ini"
+	else
+		_nxlo_game="$_nxlo_dir/${2##*/}.ini"
+	fi
 	# Global first, then the override, so the per-game value wins.
 	for _nxlo_f in "$_nxlo_dir/launch.ini" "$_nxlo_game"; do
 		_nxlo_kv=$(_nxlo_read_ini "$_nxlo_f")
@@ -66,7 +74,7 @@ nx_launch_opts_load() {
 $_nxlo_kv
 EOF
 	done
-	unset _nxlo_dir _nxlo_game _nxlo_f _nxlo_kv _nxlo_line
+	unset _nxlo_dir _nxlo_rdir _nxlo_game _nxlo_f _nxlo_kv _nxlo_line
 }
 
 _nxlo_put() {
@@ -107,6 +115,7 @@ nx_launch_opts_apply() {
 	tg5050)
 		# 1. cores (cpu0 is the boot CPU and is never touched)
 		case "$NX_LO_CORES" in
+		little2) _nxlo_online 1 1 1; _nxlo_online 2 7 0 ;;
 		little4) _nxlo_online 1 3 1; _nxlo_online 4 7 0 ;;
 		little4big2) _nxlo_online 1 5 1; _nxlo_online 6 7 0 ;;
 		all8) _nxlo_online 1 7 1 ;;

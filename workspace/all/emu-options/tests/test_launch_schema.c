@@ -115,14 +115,14 @@ static void check_platform(const char* plat, int item_count) {
 	EmuOvlItem* cpu = item("cpu");
 	assert(cpu->type == EMU_OVL_TYPE_ENUM && cpu->value_count == 4);
 	assert(strcmp(cpu->labels[2], "Normal") == 0);
-	assert(strcmp(cpu->description, "Fixed clock for the game; Auto lets it scale.") == 0);
+	assert(cpu->description[0] != '\0'); // wording differs per platform
 	if (item_count == 3) {
 		EmuOvlItem* cores = item("cores");
-		assert(cores->value_count == 4 && strcmp(cores->labels[2], "4 Little + 2 Big") == 0);
-		assert(strcmp(cores->svalues[2], "little4big2") == 0);
+		assert(cores->value_count == 5 && strcmp(cores->labels[1], "2 Little") == 0 && strcmp(cores->labels[3], "4 Little + 2 Big") == 0);
+		assert(strcmp(cores->svalues[3], "little4big2") == 0);
 		EmuOvlItem* gpu = item("gpu");
 		assert(gpu->value_count == 3 && strcmp(gpu->labels[1], "Powersave") == 0);
-		assert(strcmp(gpu->description, "Powersave lets the GPU slow down when idle.") == 0);
+		assert(gpu->description[0] != '\0');
 	} else {
 		assert(!emu_ovl_cfg_find_item(&cfg, "launch", "cores", NULL, NULL));
 		assert(!emu_ovl_cfg_find_item(&cfg, "launch", "gpu", NULL, NULL));

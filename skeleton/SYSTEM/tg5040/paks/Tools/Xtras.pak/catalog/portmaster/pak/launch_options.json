@@ -10,7 +10,7 @@
 				{
 					"key": "cpu",
 					"label": "CPU Mode",
-					"description": "Fixed clock for the game; Auto lets it scale.",
+					"description": "Auto runs at full speed as before; lower modes save battery.",
 					"type": "enum",
 					"values": ["auto", "powersave", "normal", "performance"],
 					"labels": ["Auto", "Powersave", "Normal", "Performance"],
