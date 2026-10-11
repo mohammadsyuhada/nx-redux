@@ -172,7 +172,13 @@ void Entry_free(Entry* self) {
 static int EntryArray_sortEntry(const void* a, const void* b) {
 	Entry* item1 = *(Entry**)a;
 	Entry* item2 = *(Entry**)b;
-	return strcasecmp(item1->name, item2->name);
+	int c = strcasecmp(item1->name, item2->name);
+	if (c)
+		return c;
+	// a total order, so qsort is deterministic: "Tetris" and "TETRIS" don't interleave (Directory_index's
+	// same-name runs stay adjacent), and same-name rows keep one order from boot to boot
+	c = strcmp(item1->name, item2->name);
+	return c ? c : strcmp(item1->path, item2->path);
 }
 void EntryArray_sort(Array* self) {
 	qsort(self->items, self->count, sizeof(void*), EntryArray_sortEntry);

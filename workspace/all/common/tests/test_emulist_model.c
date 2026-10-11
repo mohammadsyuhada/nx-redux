@@ -62,9 +62,47 @@ static void collate_siblings_and_quirks(void) {
 	int out[4];
 	Emulist_collateCounts(consoles, 4, folders, counts, 6, out);
 	assert(out[0] == 8); // GB + SGB combine under "Game Boy (", case-insensitively
-	assert(out[1] == 6); // Ports also counts Ports2, as the listing does
-	assert(out[2] == 4); // but not the other way round
+	assert(out[1] == 2); // Ports is not Ports2: a row with no paren only collates itself
+	assert(out[2] == 4); // nor the other way round
 	assert(out[3] == 9); // a folder with no paren
+}
+
+static void collate_no_paren_is_exact(void) {
+	assert(Emulist_collates("/Roms/GB", "/Roms/GB"));
+	assert(Emulist_collates("/Roms/GB", "/roms/gb")); // case-insensitive
+	assert(!Emulist_collates("/Roms/GB", "/Roms/GBA (GBA)"));
+	assert(!Emulist_collates("/Roms/GB", "/Roms/GBC"));
+	assert(!Emulist_collates("/Roms/PS", "/Roms/PSP (PPSSPP)"));
+	assert(!Emulist_collates("/Roms/PS", "/Roms/PSX"));
+	assert(!Emulist_collates("/Roms/PS", "/Roms/PS/sub")); // not a subfolder either
+	assert(!Emulist_collates("/Roms/PS", "/Roms/PS "));	   // a trailing space is another name
+	// the same name plus a tag still merges (a tag-less survivor of the display-name dedupe)
+	assert(Emulist_collates("/Roms/Ports", "/Roms/Ports (PORTS)"));
+	assert(Emulist_collates("/Roms/Ports", "/Roms/ports (PORTS)"));
+	assert(!Emulist_collates("/Roms/Ports", "/Roms/Ports(PORTS)")); // no space: another name
+	// with a paren the prefix rule is unchanged
+	assert(Emulist_collates("/Roms/Game Boy (GB)", "/Roms/Game Boy (SGB)"));
+	assert(!Emulist_collates("/Roms/Game Boy (GB)", "/Roms/Game Boy Advance (GBA)"));
+	assert(!Emulist_collates(NULL, "/Roms/GB") && !Emulist_collates("/Roms/GB", NULL));
+}
+
+static void format_row_blanks_name_controls(void) {
+	char line[256];
+	Emulist_formatRow("/R/GBA (GBA)", "Game\tBoy\r\nAdvance", 3, line, sizeof(line));
+	assert(strcmp(line, "/R/GBA (GBA)\tGame Boy  Advance\t3\n") == 0);
+	line[strlen(line) - 1] = '\0';
+	char *path, *name;
+	int count = -1;
+	assert(Emulist_parseRow(line, &path, &name, &count)); // reads back as one row
+	assert(strcmp(name, "Game Boy  Advance") == 0 && count == 3);
+	// cut short: blanks only what was written
+	char small[16];
+	Emulist_formatRow("/R/X", "a\tb\tc\td\te\tf\tg", 1, small, sizeof(small));
+	assert(strcmp(small, "/R/X\ta b c d e ") == 0);
+	char field[] = "x\ty\nz";
+	Emulist_blankField(field, 2); // only the first len bytes
+	assert(strcmp(field, "x y\nz") == 0);
+	Emulist_blankField(NULL, 4);
 }
 
 static void collate_sibling_indexed_twice(void) {
@@ -87,7 +125,9 @@ static void adjust_clamps_and_matches(void) {
 	assert(count == 0); // clamped at 0
 	count = 4;
 	Emulist_adjustCount("/R/Ports", "/R/Ports2", 1, &count);
-	assert(count == 3); // the Ports quirk follows the collation
+	assert(count == 4); // another console that merely starts the same: untouched
+	Emulist_adjustCount("/R/Ports", "/R/Ports (PORTS)", 1, &count);
+	assert(count == 3); // its tagged twin follows the collation
 }
 
 int main(void) {
@@ -97,6 +137,8 @@ int main(void) {
 	parse_row_rejects();
 	collate_siblings_and_quirks();
 	collate_sibling_indexed_twice();
+	collate_no_paren_is_exact();
+	format_row_blanks_name_controls();
 	adjust_clamps_and_matches();
 	printf("test_emulist_model: ok\n");
 	return 0;

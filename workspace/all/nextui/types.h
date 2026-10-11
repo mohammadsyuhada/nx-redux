@@ -68,7 +68,7 @@ void EntryArray_free(Array* self);
 ///////////////////////////////////////
 // IntArray
 
-#define INT_ARRAY_MAX 27
+#define INT_ARRAY_MAX 28 // a list's letter-jump groups: 0-9 and symbols, a-z, then everything sorting after 'z'
 typedef struct IntArray {
 	int count;
 	int items[INT_ARRAY_MAX];

@@ -10,8 +10,8 @@
 
 // The collation rule shared by the console listing, the rom index and the counts: a console row merges
 // every Roms folder whose path starts with its own path cut after the last '(' ("Roms/Game Boy (GB)" ->
-// "Roms/Game Boy ("), case-insensitively. A path with no '(' is its own prefix, so "Roms/Ports" also
-// collates "Roms/Ports2" -- a long-standing quirk the counts keep so they match the listing.
+// "Roms/Game Boy ("), case-insensitively. A path with no '(' collates only itself and that path plus a
+// tag ("Roms/Ports" -> "Roms/Ports (PORTS)"), never a longer name ("Roms/GB" is not "Roms/GBA (GBA)").
 void Emulist_collatedPrefix(const char* path, char* out, size_t size);
 // True when folder_path is collated by the console row at row_path (the rule above).
 bool Emulist_collates(const char* row_path, const char* folder_path);
@@ -19,8 +19,11 @@ bool Emulist_collates(const char* row_path, const char* folder_path);
 // count >= 0 with nothing after it. False (outputs untouched) on anything else, e.g. a pre-count
 // two-column row.
 bool Emulist_parseRow(char* line, char** path, char** name, int* count);
-// "path\tname\tcount\n" into out; returns what snprintf returns.
+// "path\tname\tcount\n" into out, any tab, newline or CR in name written as a space (it would split
+// the row); returns what snprintf returns.
 int Emulist_formatRow(const char* path, const char* name, int count, char* out, size_t size);
+// Blanks (to spaces) every tab, newline and CR in the first len bytes of field, stopping at a '\0'.
+void Emulist_blankField(char* field, size_t len);
 // out[i] = the sum of folder_counts[j] over every folder j that console i collates.
 void Emulist_collateCounts(const char* const* console_paths, int n, const char* const* folder_paths,
 						   const int* folder_counts, int m, int* out);

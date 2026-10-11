@@ -22,7 +22,23 @@ bool Emulist_collates(const char* row_path, const char* folder_path) {
 	// the prefix is row_path itself up to and including its last '(' -- no copy needed
 	const char* paren = strrchr(row_path, '(');
 	size_t len = paren ? (size_t)(paren - row_path) + 1 : strlen(row_path);
-	return strncasecmp(row_path, folder_path, len) == 0; // case-insensitive like prefixMatch
+	if (strncasecmp(row_path, folder_path, len) != 0) // case-insensitive like prefixMatch
+		return false;
+	if (paren)
+		return true;
+	// no tag: the folder itself, or one that only adds a tag ("Roms/Ports" -> "Roms/Ports (PORTS)"), not one
+	// whose name merely starts the same ("Roms/GB" is not "Roms/GBA (GBA)", "Roms/PS" not "Roms/PSP (PPSSPP)")
+	const char* rest = folder_path + len;
+	return rest[0] == '\0' || (rest[0] == ' ' && rest[1] == '(');
+}
+
+void Emulist_blankField(char* field, size_t len) {
+	if (!field)
+		return;
+	for (size_t i = 0; i < len && field[i]; i++) {
+		if (field[i] == '\t' || field[i] == '\n' || field[i] == '\r')
+			field[i] = ' ';
+	}
 }
 
 bool Emulist_parseRow(char* line, char** path, char** name, int* count) {
@@ -56,7 +72,11 @@ bool Emulist_parseRow(char* line, char** path, char** name, int* count) {
 }
 
 int Emulist_formatRow(const char* path, const char* name, int count, char* out, size_t size) {
-	return snprintf(out, size, "%s\t%s\t%d\n", path, name, count < 0 ? 0 : count);
+	int n = snprintf(out, size, "%s\t%s\t%d\n", path, name, count < 0 ? 0 : count);
+	size_t at = strlen(path) + 1;
+	if (n > 0 && at < size)
+		Emulist_blankField(out + at, strlen(name)); // stops at the terminator when the row was cut short
+	return n;
 }
 
 void Emulist_collateCounts(const char* const* console_paths, int n, const char* const* folder_paths,
