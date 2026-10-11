@@ -4,7 +4,7 @@
 #include "sdl.h" // IWYU pragma: keep
 #include <stdbool.h>
 
-#define LISTDIALOG_MAX_ITEMS 128
+#define LISTDIALOG_MAX_ITEMS 128 // a size for a caller's own item array; ListDialog_setItems copies any count
 #define LISTDIALOG_MAX_TEXT 128
 #define LISTDIALOG_MAX_ICONS 4
 

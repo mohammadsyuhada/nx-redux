@@ -109,6 +109,14 @@ static char bgResolvePath[1024] = {0};
 static bool bgResolveValid = false;
 static bool bgResolveForcedNames = false;
 
+// The List's art for its selected game (ROM_findListArt's 2-6 stats), kept while the row, the list and the List art
+// setting stay; bumped where a game's art changes on the card (a fetch, a delete, a rename, Refresh Roms).
+static unsigned list_art_epoch = 0;
+
+static void listArtForget(void) {
+	list_art_epoch++;
+}
+
 void GameList_invalidateBackground(void) {
 	// force resolveAndLoadBackground to reload next render — call this whenever
 	// something else (eg. Search) clears the shared folder background, otherwise
@@ -230,9 +238,6 @@ static void resolveAndLoadBackground(Entry* entry, const char* rompath, const ch
 	if (tab_bg) {
 		cmpPath = tab_bg;
 		strncpy(bgPath, tab_bg, sizeof(bgPath) - 1);
-	} else if (entry && (entry->type == ENTRY_DIR || entry->type == ENTRY_ROM) &&
-			   Shortcuts_exists(entry->path + strlen(SDCARD_PATH))) {
-		cmpPath = entry->path;
 	} else if (entry && entry->type == ENTRY_PAK && suffixMatch(".pak", entry->path)) {
 		cmpPath = entry->path;
 		snprintf(bgPath, sizeof(bgPath), "%s/.media/%s/bg.png", TOOLS_PATH,
@@ -317,6 +322,10 @@ static void reloadDirectoryAt(int idx, int keep_selected) {
 	Directory* fresh = Directory_new(path, 0);
 	fresh->selected = ListWindow_reload(fresh->entries->count, GameList_rowCountAt(idx == 0), keep_selected,
 										&fresh->start, &fresh->end);
+	// the same path keeps its name: a hidden tab's list pushed over a tab is named for the tab (pushTabOverTab)
+	char* name = fresh->name;
+	fresh->name = old->name;
+	old->name = name;
 
 	Directory_free(old);
 	stack->items[idx] = fresh;
@@ -650,33 +659,46 @@ static int pickCollectionModal_handle(void* vctx) {
 	}
 	if (r.action == LISTDIALOG_CANCEL)
 		return 0;
-	// any held/pressed button may have moved the selection
-	return PAD_anyPressed() ? UI_MODAL_DIRTY : UI_MODAL_CONTINUE;
+	// a fresh press, or a held UP/DOWN's repeat, may have moved the selection
+	return PAD_anyJustPressed() || PAD_justRepeated(BTN_UP) || PAD_justRepeated(BTN_DOWN) ? UI_MODAL_DIRTY
+																						  : UI_MODAL_CONTINUE;
+}
+
+// Copy a name into a dialog row, cut short on a UTF-8 character boundary (never half a character), terminated.
+static void copyRowText(char* dst, size_t size, const char* src) {
+	size_t n = strlen(src);
+	if (n >= size) {
+		n = size - 1;
+		while (n > 0 && ((unsigned char)src[n] & 0xC0) == 0x80)
+			n--; // src[n] continues the character before it: leave that character out
+	}
+	memcpy(dst, src, n);
+	dst[n] = '\0';
 }
 
 // Full-screen blocking collection picker. Returns the chosen collection index
 // (0..count-1), COLLECTION_PICK_NEW for "New Collection…", or -1 on cancel.
 #define COLLECTION_PICK_NEW (-2)
 static int pickCollectionModal(Array* collections) {
-	ListDialogItem items[LISTDIALOG_MAX_ITEMS];
+	// every collection, then "New Collection..." (on the heap: the dialog takes any number of rows)
 	int n = collections->count;
-	if (n > LISTDIALOG_MAX_ITEMS - 1)
-		n = LISTDIALOG_MAX_ITEMS - 1;
+	ListDialogItem* items = calloc((size_t)n + 1, sizeof(ListDialogItem));
+	if (!items)
+		return -1;
 	for (int i = 0; i < n; i++) {
 		Entry* c = collections->items[i];
-		memset(&items[i], 0, sizeof(ListDialogItem));
-		strncpy(items[i].text, c->name, LISTDIALOG_MAX_TEXT - 1);
+		copyRowText(items[i].text, LISTDIALOG_MAX_TEXT, c->name);
 		items[i].prepend_icons[0] = -1;
 		items[i].append_icons[0] = -1;
 	}
-	memset(&items[n], 0, sizeof(ListDialogItem));
-	strncpy(items[n].text, "New Collection...", LISTDIALOG_MAX_TEXT - 1);
+	copyRowText(items[n].text, LISTDIALOG_MAX_TEXT, "New Collection...");
 	items[n].prepend_icons[0] = -1;
 	items[n].append_icons[0] = -1;
 	int count = n + 1;
 
 	ListDialog_init("Add to Collection");
 	ListDialog_setItems(items, count);
+	free(items); // the dialog keeps its own copy
 
 	PickCollectionCtx ctx = {.chosen = -1};
 	UI_ModalOpts opts = {
@@ -727,33 +749,6 @@ static void addRomToCollectionFile(const char* collection_path, const char* rom_
 		fprintf(out, "%s\n", rel);
 		fclose(out);
 	}
-}
-
-static void doAddToCollection(const char* rom_path) {
-	Array* collections = getCollections();
-	int pick = pickCollectionModal(collections);
-
-	if (pick == COLLECTION_PICK_NEW) {
-		char* name = UIKeyboard_open("New collection name");
-		requestBackgroundReupload(); // keyboard cleared the layers, same row stays
-		if (name && strlen(name) > 0 && !strchr(name, '/')) {
-			mkdir_p(COLLECTIONS_PATH);
-			char coll_path[MAX_PATH];
-			snprintf(coll_path, sizeof(coll_path), "%s/%s.txt", COLLECTIONS_PATH, name);
-			addRomToCollectionFile(coll_path, rom_path);
-			CollCount_invalidate(coll_path);
-			// no MenuTabs_reload here: a parked Collections root would go on listing without the new one
-			MenuTabs_dropCached(MENU_TAB_COLLECTIONS);
-		}
-		if (name)
-			free(name);
-	} else if (pick >= 0 && pick < collections->count) {
-		Entry* coll = collections->items[pick];
-		addRomToCollectionFile(coll->path, rom_path);
-		CollCount_invalidate(coll->path); // the stamps would catch it too; FAT mtime is 2 s coarse
-	}
-
-	EntryArray_free(collections);
 }
 
 // Returns true when the display name was renamed, so the caller knows to
@@ -835,7 +830,10 @@ static bool doRename(Entry* entry, int sel) {
 	if (prefixMatch(SDCARD_PATH, launched))
 		Recents_updateAlias(launched + strlen(SDCARD_PATH), newname);
 
-	reloadDirectoryAt(stack->count - 1, sel);
+	// the root (Home's pins) is the caller's MenuTabs_reload: rebuilding it here too would list it twice
+	if (stack->count > 1)
+		reloadDirectoryAt(stack->count - 1, sel);
+	listArtForget();
 	free(newname);
 	return true;
 }
@@ -843,11 +841,12 @@ static bool doRename(Entry* entry, int sel) {
 ///////////////////////////////////////
 // Collections: Rename and Delete (spec 2026-10-01-menu-sp7-page-titles-design.md, "Collections")
 
-// A row of the Collections tab: a Collections/<name>.txt at the root. Simple mode never renames or deletes one
-// (kids can't remove the curated collections), so its menu items, hint and actions all key off this.
+// A row of the Collections list: a Collections/<name>.txt on the Collections tab, or in its list pushed over a tab
+// while the tab is hidden. Simple mode never renames or deletes one (kids can't remove the curated collections), so
+// its menu items, hint and actions all key off this.
 static bool isCollectionRow(Entry* entry) {
 	size_t n = strlen(COLLECTIONS_PATH);
-	return !gl_simple_mode && entry && stack->count == 1 && exactMatch(top->path, COLLECTIONS_PATH) && entry->type == ENTRY_DIR &&
+	return !gl_simple_mode && entry && GameList_lookTab() == MENU_TAB_COLLECTIONS && exactMatch(top->path, COLLECTIONS_PATH) && entry->type == ENTRY_DIR &&
 		   suffixMatch(".txt", entry->path) && strncmp(entry->path, COLLECTIONS_PATH, n) == 0 &&
 		   entry->path[n] == '/' && !strchr(entry->path + n + 1, '/');
 }
@@ -885,22 +884,26 @@ static bool moveCollectionFile(const char* old_path, const char* new_path, bool 
 	return true;
 }
 
-// The root row showing `path` (after a reload), or -1.
-static int rootRowFor(const char* path) {
-	Directory* root = stack->items[0];
-	for (int i = 0; i < root->entries->count; i++)
-		if (exactMatch(((Entry*)root->entries->items[i])->path, path))
+// The row of `list` showing `path` (after a reload), or -1.
+static int rowFor(Directory* list, const char* path) {
+	for (int i = 0; i < list->entries->count; i++)
+		if (exactMatch(((Entry*)list->entries->items[i])->path, path))
 			return i;
 	return -1;
 }
 
-// Rename: the keyboard prefilled with the name; a rejected name says why and reopens the keyboard with it. The
-// games and their order stay (the file is moved, not rewritten). Returns true when the collection was renamed.
-static bool doRenameCollection(Entry* entry, int root_sel) {
-	char old_path[MAX_PATH], old_stem[MAX_PATH];
-	snprintf(old_path, sizeof(old_path), "%s", entry->path);
-	collectionStem(old_path, old_stem);
+// After a collection changed: the tabs (MenuTabs_reload), and the Collections list when it is pushed over a tab
+// (the hidden tab's), keeping its row `sel`. Returns the Collections list.
+static Directory* reloadCollections(int root_sel, int sel) {
+	MenuTabs_reload(root_sel, MENU_RELOAD_PINS | MENU_RELOAD_COLLECTIONS);
+	if (stack->count > 1)
+		reloadDirectoryAt(stack->count - 1, sel);
+	return stack->items[stack->count - 1];
+}
 
+// Every collection's name, for CollName_validate: names[i] points into stems. Returns the count (0 when memory ran
+// out); the caller frees stems and names.
+static int collectionNames(char (**stems_out)[MAX_PATH], const char*** names_out) {
 	Array* colls = getCollections();
 	int n = colls->count;
 	char (*stems)[MAX_PATH] = n ? malloc((size_t)n * MAX_PATH) : NULL;
@@ -912,6 +915,22 @@ static bool doRenameCollection(Entry* entry, int root_sel) {
 		names[i] = stems[i];
 	}
 	EntryArray_free(colls);
+	*stems_out = stems;
+	*names_out = names;
+	return n;
+}
+
+// Rename: the keyboard prefilled with the name; a rejected name says why and reopens the keyboard with it. The
+// games and their order stay (the file is moved, not rewritten). Returns true when the collection was renamed.
+static bool doRenameCollection(Entry* entry, int root_sel) {
+	int sel = top->selected;
+	char old_path[MAX_PATH], old_stem[MAX_PATH];
+	snprintf(old_path, sizeof(old_path), "%s", entry->path);
+	collectionStem(old_path, old_stem);
+
+	char (*stems)[MAX_PATH];
+	const char** names;
+	int n = collectionNames(&stems, &names);
 
 	char* attempt = strdup(old_stem);
 	char* newname = NULL;
@@ -958,12 +977,12 @@ static bool doRenameCollection(Entry* entry, int root_sel) {
 	CollCount_invalidate(new_path);
 
 	// the highlight follows the renamed row (the list is sorted by name, so it can move)
-	MenuTabs_reload(root_sel, MENU_RELOAD_PINS | MENU_RELOAD_COLLECTIONS);
-	int row = rootRowFor(new_path);
-	Directory* root = stack->items[0];
-	if (row >= 0 && row != root->selected) { // windowed as reloadDirectoryAt
-		root->selected = row;
-		ListWindow_reveal(root->entries->count, GameList_rowCountAt(true), row, &root->start, &root->end);
+	Directory* list = reloadCollections(root_sel, sel);
+	int row = rowFor(list, new_path);
+	if (row >= 0 && row != list->selected) { // windowed as reloadDirectoryAt
+		list->selected = row;
+		ListWindow_reveal(list->entries->count, GameList_rowCountAt(stack->count == 1), row, &list->start,
+						  &list->end);
 	}
 	free(newname);
 	return true;
@@ -972,6 +991,7 @@ static bool doRenameCollection(Entry* entry, int root_sel) {
 // Delete: only Collections/<name>.txt goes (the games stay), with its alias, pins and count. The highlight lands on
 // the next row (the same index), else the previous one; deleting the last collection drops the tab.
 static void doDeleteCollection(Entry* entry, int root_sel) {
+	int sel = top->selected;
 	char title[MAX_PATH + 16];
 	snprintf(title, sizeof(title), "Delete '%s'?", entry->name);
 	if (!UI_confirmModalHints(screen, title, "The games stay in your library.",
@@ -989,7 +1009,58 @@ static void doDeleteCollection(Entry* entry, int root_sel) {
 	dropMapKey(coll_map, strrchr(path, '/') + 1);
 	Shortcuts_remove(entry);
 	CollCount_invalidate(path);
-	MenuTabs_reload(root_sel, MENU_RELOAD_PINS | MENU_RELOAD_COLLECTIONS); // entry is freed from here on
+	reloadCollections(root_sel, sel); // entry is freed from here on
+}
+
+// Add to Collection: the picker, or "New Collection..." and its name on the keyboard (a rejected name says why and
+// reopens the keyboard with it, as Rename does). A new collection rebuilds the tabs: the Collections tab (or the
+// root menu's Collections item) may appear with it.
+static void doAddToCollection(const char* rom_path, int root_sel, int sel) {
+	Array* collections = getCollections();
+	int pick = pickCollectionModal(collections);
+
+	if (pick == COLLECTION_PICK_NEW) {
+		char (*stems)[MAX_PATH];
+		const char** names;
+		int n = collectionNames(&stems, &names);
+		char* attempt = NULL; // the keyboard opens empty
+		char* name = NULL;
+		for (;;) {
+			name = UIKeyboard_openWith("New collection name", attempt, 0);
+			requestBackgroundReupload(); // keyboard cleared the layers, same row stays
+			free(attempt);
+			attempt = NULL;
+			if (!name) // B, or an emptied line
+				break;
+			CollNameResult r = CollName_validate(NULL, name, names, n);
+			if (r == COLLNAME_OK)
+				break;
+			collectionNotice("Can't use that name", CollName_reason(r));
+			attempt = name; // back to the keyboard with what was typed
+			name = NULL;
+		}
+		free(stems);
+		free(names);
+		if (name) {
+			mkdir_p(COLLECTIONS_PATH);
+			char coll_path[MAX_PATH];
+			snprintf(coll_path, sizeof(coll_path), "%s/%s.txt", COLLECTIONS_PATH, name);
+			addRomToCollectionFile(coll_path, rom_path);
+			CollCount_invalidate(coll_path);
+			// the first collection shows the Collections tab (or its root menu item); a list pushed over the root may
+			// be the Collections one
+			MenuTabs_reload(root_sel, MENU_RELOAD_COLLECTIONS);
+			if (stack->count > 1)
+				reloadDirectoryAt(stack->count - 1, sel);
+			free(name);
+		}
+	} else if (pick >= 0 && pick < collections->count) {
+		Entry* coll = collections->items[pick];
+		addRomToCollectionFile(coll->path, rom_path);
+		CollCount_invalidate(coll->path); // the stamps would catch it too; FAT mtime is 2 s coarse
+	}
+
+	EntryArray_free(collections);
 }
 
 // Resolve <emu-pak-dir>/<marker> for `entry` — the marker file an emu pak ships
@@ -1055,6 +1126,106 @@ static bool entryEmuOptionsCapable(Entry* entry) {
 #define ARTFETCH_STATUS_PATH "/tmp/nextui_artfetch.status"
 #define ARTFETCH_TIMEOUT_MS 120000 // up to 4 downloads plus composing the mix
 #define ARTFETCH_RESULT_MS 1500
+#define ARTFETCH_PENDING 4					 // cancelled fetches still watched for their art
+#define ARTFETCH_PENDING_MS (10 * 60 * 1000) // how long one is watched before it is given up
+#define ARTFETCH_POLL_MS 1000
+
+// Each fetch's own status file (this nextui's pid and a count): a cancelled or timed-out scraper is left running and
+// still writes its file, which must not be read as a later fetch's.
+static void artFetchStatusPath(char* out, size_t size) {
+	static unsigned run = 0;
+	// an earlier nextui's parked fetches are watched by no one (it quit on a launch): their files go
+	char mine[32];
+	snprintf(mine, sizeof(mine), "nextui_artfetch.status.%d.", (int)getpid());
+	DIR* dh = opendir("/tmp");
+	if (dh) {
+		struct dirent* dp;
+		while ((dp = readdir(dh))) {
+			if (prefixMatch("nextui_artfetch.status.", dp->d_name) && !prefixMatch(mine, dp->d_name)) {
+				char stale[MAX_PATH];
+				snprintf(stale, sizeof(stale), "/tmp/%s", dp->d_name);
+				unlink(stale);
+			}
+		}
+		closedir(dh);
+	}
+	snprintf(out, size, "%s.%d.%u", ARTFETCH_STATUS_PATH, (int)getpid(), ++run);
+}
+
+// A fetch's art landed: drop every cached copy of the game's pictures.
+static void artFetchLanded(const char* rom, const char* out_png) {
+	// the List's thumbnails, each in both compose modes (the root .media picture, the screenshot, box art, and List
+	// art's mix, 2D box art, wheel and 3D box art) and the Carousel, Grid and Backdrop pictures (HomeArt, which may
+	// hold a placeholder or a miss for it)
+	char variant[MAX_PATH];
+	thumbCacheInvalidate(out_png);
+	ROM_displayArtPath(rom, ART_TYPE_SCREENSHOT, false, variant, sizeof(variant));
+	thumbCacheInvalidate(variant);
+	ROM_displayArtPath(rom, ART_TYPE_BOXART, false, variant, sizeof(variant));
+	thumbCacheInvalidate(variant);
+	const int fitted[] = {GAME_LIST_ART_MIX, GAME_LIST_ART_BOXART2D, GAME_LIST_ART_WHEEL, GAME_LIST_ART_BOXART3D};
+	for (int i = 0; i < (int)(sizeof(fitted) / sizeof(fitted[0])); i++) {
+		ROM_findListArt(rom, fitted[i], variant, sizeof(variant)); // a miss names the screenshot
+		thumbCacheInvalidate(variant);
+	}
+	HomeArt_forget(rom);
+	listArtForget();
+}
+
+// Fetches cancelled (B) or timed out while their scraper runs on: watched from the game list (artFetchPoll) so their
+// art shows once it lands. The oldest gives way to a new one.
+static struct {
+	bool on;
+	unsigned long since;
+	char status[MAX_PATH], rom[MAX_PATH], out_png[MAX_PATH];
+} artfetch_pending[ARTFETCH_PENDING];
+
+static void artFetchPark(const char* status, const char* rom, const char* out_png, unsigned long now) {
+	int slot = 0;
+	for (int i = 0; i < ARTFETCH_PENDING; i++) {
+		if (!artfetch_pending[i].on) {
+			slot = i;
+			break;
+		}
+		if (artfetch_pending[i].since < artfetch_pending[slot].since)
+			slot = i;
+	}
+	if (artfetch_pending[slot].on)
+		unlink(artfetch_pending[slot].status);
+	artfetch_pending[slot].on = true;
+	artfetch_pending[slot].since = now;
+	snprintf(artfetch_pending[slot].status, MAX_PATH, "%s", status);
+	snprintf(artfetch_pending[slot].rom, MAX_PATH, "%s", rom);
+	snprintf(artfetch_pending[slot].out_png, MAX_PATH, "%s", out_png);
+}
+
+// Once a second: a parked fetch that finished drops its game's cached art (and redraws), one that failed or ran too
+// long is let go; either way its status file goes.
+static void artFetchPoll(unsigned long now, bool* dirty) {
+	static unsigned long last = 0;
+	if (now - last < ARTFETCH_POLL_MS)
+		return;
+	last = now;
+	for (int i = 0; i < ARTFETCH_PENDING; i++) {
+		if (!artfetch_pending[i].on)
+			continue;
+		char status[32] = "";
+		getFile(artfetch_pending[i].status, status, sizeof(status));
+		char* nl = strchr(status, '\n');
+		if (nl)
+			*nl = '\0';
+		bool done = strcmp(status, "done") == 0;
+		if (done) {
+			artFetchLanded(artfetch_pending[i].rom, artfetch_pending[i].out_png);
+			*dirty = true;
+		}
+		if (done || strcmp(status, "notfound") == 0 || strcmp(status, "error") == 0 ||
+			now - artfetch_pending[i].since > ARTFETCH_PENDING_MS) {
+			unlink(artfetch_pending[i].status);
+			artfetch_pending[i].on = false;
+		}
+	}
+}
 
 // Fit a game name onto one line of the modal title (font.large), ellipsizing
 // when it's wider than the modal (the loading overlay assumes a single-line
@@ -1124,7 +1295,9 @@ typedef struct {
 	unsigned long result_until;
 	const char* title;
 	const char* out_png;
-	const char* rom; // the entry's path: HomeArt's key for its pictures
+	const char* rom;	// the entry's path: HomeArt's key for its pictures
+	const char* status; // this fetch's status file (artFetchStatusPath)
+	bool landed;		// "done" was read: the art is in
 } ArtFetchModalCtx;
 
 static void artFetchModal_render(SDL_Surface* screen, void* vctx) {
@@ -1155,28 +1328,14 @@ static int artFetchModal_handle(void* vctx) {
 			ctx->result = "Cancelled";
 		} else {
 			char status[32] = "";
-			getFile(ARTFETCH_STATUS_PATH, status, sizeof(status));
+			getFile((char*)ctx->status, status, sizeof(status));
 			char* nl = strchr(status, '\n');
 			if (nl)
 				*nl = '\0';
 
 			if (strcmp(status, "done") == 0) {
-				// the List's thumbnails, each in both compose modes (the root .media picture, the screenshot, box art,
-				// and List art's mix, 2D box art, wheel and 3D box art) and the Carousel, Grid and Backdrop pictures (HomeArt,
-				// which may hold a placeholder or a miss for it)
-				char variant[MAX_PATH];
-				thumbCacheInvalidate(ctx->out_png);
-				ROM_displayArtPath(ctx->rom, ART_TYPE_SCREENSHOT, false, variant, sizeof(variant));
-				thumbCacheInvalidate(variant);
-				ROM_displayArtPath(ctx->rom, ART_TYPE_BOXART, false, variant, sizeof(variant));
-				thumbCacheInvalidate(variant);
-				const int fitted[] = {GAME_LIST_ART_MIX, GAME_LIST_ART_BOXART2D, GAME_LIST_ART_WHEEL,
-									  GAME_LIST_ART_BOXART3D};
-				for (int i = 0; i < (int)(sizeof(fitted) / sizeof(fitted[0])); i++) {
-					ROM_findListArt(ctx->rom, fitted[i], variant, sizeof(variant)); // a miss names the screenshot
-					thumbCacheInvalidate(variant);
-				}
-				HomeArt_forget(ctx->rom);
+				artFetchLanded(ctx->rom, ctx->out_png);
+				ctx->landed = true;
 				ctx->result = "Artwork added";
 			} else if (strcmp(status, "notfound") == 0) {
 				ctx->result = "No art found";
@@ -1201,11 +1360,11 @@ static int artFetchModal_handle(void* vctx) {
 
 // Blocking box-art fetch modal. Shows staged progress while the spawned scraper
 // runs, polling the status file each frame; B cancels (the background scraper is
-// left to finish on its own). On "done" the thumbnail cache is invalidated so
-// the game list reloads the new art when the modal closes (nextui.c marks the
-// list dirty after runContextAction). Mirrors the blocking-modal idiom used by
-// Delete/Rename in this same dispatcher.
-static void artFetchModal(const char* game_name, const char* rom, const char* out_png) {
+// left to finish on its own, watched by artFetchPoll so its art shows if it lands).
+// On "done" the thumbnail cache is invalidated so the game list reloads the new
+// art when the modal closes (nextui.c marks the list dirty after runContextAction).
+// Mirrors the blocking-modal idiom used by Delete/Rename in this same dispatcher.
+static void artFetchModal(const char* game_name, const char* rom, const char* out_png, const char* status) {
 	char title[256];
 	artFetchTitle(game_name, title, sizeof(title));
 	ArtFetchModalCtx ctx = {
@@ -1214,6 +1373,7 @@ static void artFetchModal(const char* game_name, const char* rom, const char* ou
 		.title = title,
 		.out_png = out_png,
 		.rom = rom,
+		.status = status,
 	};
 	UI_ModalOpts opts = {
 		.screen = screen,
@@ -1227,7 +1387,13 @@ static void artFetchModal(const char* game_name, const char* rom, const char* ou
 	};
 	UI_modalLoop(&opts);
 
-	unlink(ARTFETCH_STATUS_PATH);
+	// a fetch that ended on its own result is over; a cancelled or timed-out one may still land its art
+	char last[32] = "";
+	getFile((char*)status, last, sizeof(last));
+	if (ctx.landed || strncmp(last, "notfound", 8) == 0 || strncmp(last, "error", 5) == 0)
+		unlink(status);
+	else
+		artFetchPark(status, rom, out_png, SDL_GetTicks());
 	GFX_clearLayers(LAYER_ALL);
 }
 
@@ -1242,13 +1408,22 @@ void GameList_contextMenuClosed(void) {
 // Refresh Roms: rescan the emulator list and rebuild every tab
 static void ctxRefresh(int root_sel) {
 	Content_invalidateEmulist();
+	// the marker probes and the List's art are per path: a pak or art added on the card since must show
+	netplay_cap_path[0] = '\0';
+	emuopts_cap_path[0] = '\0';
+	listArtForget();
+	thumbCacheForgetMisses();
 	MenuTabs_reload(root_sel, MENU_RELOAD_ALL);
+	// a hidden tab's list pushed over the root (its menu offers Refresh Roms too)
+	for (int i = 1; i < stack->count; i++)
+		reloadDirectoryAt(i, ((Directory*)stack->items[i])->selected);
 }
 
 // Pin Tool / Pin Item: add a shortcut and refresh the pins
 static void ctxPin(Entry* entry, int root_sel, int sel) {
 	if (entry) {
 		Shortcuts_add(entry);
+		GameList_invalidateBackground();
 		MenuTabs_reload(root_sel, MENU_RELOAD_PINS);
 		if (stack->count > 1)
 			reloadDirectoryAt(stack->count - 1, sel);
@@ -1259,6 +1434,7 @@ static void ctxPin(Entry* entry, int root_sel, int sel) {
 static void ctxUnpin(Entry* entry, int root_sel, int sel) {
 	if (entry) {
 		Shortcuts_remove(entry);
+		GameList_invalidateBackground();
 		MenuTabs_reload(root_sel, MENU_RELOAD_PINS);
 		if (stack->count > 1)
 			reloadDirectoryAt(stack->count - 1, sel);
@@ -1294,10 +1470,12 @@ static void ctxDeleteRom(Entry* entry, int root_sel, int sel) {
 				if (prefixMatch(SDCARD_PATH, del_line))
 					removeCollectionLines(del_line + strlen(SDCARD_PATH));
 				// drop its display alias too, so a future file that reuses the
-				// name doesn't inherit the dead entry's alias (mirrors rename)
+				// name doesn't inherit the dead entry's alias (mirrors rename).
+				// Keyed by what went: a folder game's folder (also when it went
+				// through its cue/m3u) in the console's map.txt
 				{
 					char adir[MAX_PATH];
-					strncpy(adir, entry->path, sizeof(adir) - 1);
+					strncpy(adir, removed, sizeof(adir) - 1);
 					adir[sizeof(adir) - 1] = '\0';
 					char* aslash = strrchr(adir, '/');
 					const char* home_key = aslash ? aslash + 1 : adir;
@@ -1319,8 +1497,11 @@ static void ctxDeleteRom(Entry* entry, int root_sel, int sel) {
 			// root too: a pinned copy of the deleted rom must not linger
 			// as a dead shortcut (mirrors pin/unpin)
 			MenuTabs_reload(root_sel, MENU_RELOAD_ALL);
-			if (stack->count > 1)
-				reloadDirectoryAt(stack->count - 1, sel);
+			listArtForget();
+			// every list pushed over the root (e.g. Home > Consoles > GBA: the
+			// Consoles list counts GBA's games), not only the top one
+			for (int i = 1; i < stack->count; i++)
+				reloadDirectoryAt(i, i == stack->count - 1 ? sel : ((Directory*)stack->items[i])->selected);
 		}
 	}
 }
@@ -1337,14 +1518,14 @@ static void ctxRenameRom(Entry* entry, int root_sel, int sel) {
 }
 
 // Add to Collection: add the rom (or a folder game's resolved cue/m3u)
-static void ctxAddToCollection(Entry* entry) {
+static void ctxAddToCollection(Entry* entry, int root_sel, int sel) {
 	if (entry) {
 		char game_file[MAX_PATH];
 		if (entry->type == ENTRY_ROM)
-			doAddToCollection(entry->path);
+			doAddToCollection(entry->path, root_sel, sel);
 		else if (entryFolderGame(entry, game_file))
 			// collections hold file paths: write the resolved cue/m3u
-			doAddToCollection(game_file);
+			doAddToCollection(game_file, root_sel, sel);
 	}
 }
 
@@ -1397,9 +1578,11 @@ static void ctxFetchArt(Entry* entry) {
 			artFetchNotice(entry->name, "Connect to WiFi to fetch art");
 			return;
 		}
-		putFile(ARTFETCH_STATUS_PATH, "starting");
-		openArtFetch(af_rom, af_out, af_tag, ARTFETCH_STATUS_PATH);
-		artFetchModal(entry->name, entry->path, af_out); // blocking modal until done/cancel/timeout
+		char status[MAX_PATH];
+		artFetchStatusPath(status, sizeof(status));
+		putFile(status, "starting");
+		openArtFetch(af_rom, af_out, af_tag, status);
+		artFetchModal(entry->name, entry->path, af_out, status); // blocking modal until done/cancel/timeout
 	}
 }
 
@@ -1458,7 +1641,7 @@ void GameList_runContextAction(int id) {
 			doDeleteCollection(entry, root_sel);
 		break;
 	case 34: // Add to Collection
-		ctxAddToCollection(entry);
+		ctxAddToCollection(entry, root_sel, sel);
 		break;
 	case 35: // Launch with Netplay
 		ctxNetplay(entry, from_home);
@@ -1591,7 +1774,10 @@ static void rootItems(ContextMenuItem* items, int* idx) {
 	addItem(items, idx, "Refresh Roms", 1);
 	// A hidden tab's list stays reachable here (Layouts > Consoles, Collections and Tools tab). Tools must:
 	// Settings.pak lives inside Tools, so hiding Tools would otherwise lock the user out of re-enabling it.
-	// A visible tab is one R1 away, so its item is left out.
+	// A visible tab is one R1 away, so its item is left out. Pushed only over a tab (the root), never over a
+	// hidden tab's list already pushed.
+	if (stack && stack->count > 1)
+		return;
 	if (MenuTabs_pushable(MENU_TAB_CONSOLES))
 		addItem(items, idx, "Consoles", 4);
 	if (MenuTabs_pushable(MENU_TAB_COLLECTIONS))
@@ -1667,12 +1853,16 @@ static int shoulderTabDelta(IndicatorType show_setting) {
 // resume (X) or netplay launch (Y) once focus has gone back.
 static int tab_row_held = 0;
 
+// This frame's MENU, SELECT and START taps, read once at the top of GameList_handleInput: a tap tracker sees the press
+// only on its justPressed frame, so one skipped by a view that returns early (Home, Grid, a row) would lose the tap.
+static bool tap_menu, tap_select, tap_start;
+
 // The tab row has focus (spec 2026-10-01-menu-sp6-tab-focus-design.md). It owns the D-pad, A, B, X, Y and L1/R1 until
 // the content takes focus back: LEFT/RIGHT and L1/R1 switch tabs (fresh presses; focus stays), DOWN, A and B return to
 // the content on the tab's item, UP wraps to its bottom, the rest does nothing. SELECT, START, MENU and the F keys
 // leave the menu: they hand focus back and keep their meaning (false: the root's handlers run).
-static bool tabRowInput(unsigned long now, IndicatorType show_setting, GameListResult* result, bool* dirty) {
-	if (PAD_tappedSelect(now) || PAD_tappedStart(now) || PAD_tappedMenu(now) ||
+static bool tabRowInput(IndicatorType show_setting, GameListResult* result, bool* dirty) {
+	if (tap_select || tap_start || tap_menu ||
 		(HAS_FN_KEYS && (PAD_justPressed(BTN_FN1) || PAD_justPressed(BTN_FN2)))) {
 		MenuTabs_leaveFocus(); // not a d-pad move: the content snaps lit (a screen slides in or a menu opens over it)
 		*dirty = true;
@@ -1722,16 +1912,19 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 		.folderbgchanged = false,
 	};
 
+	// every frame, whatever returns early below (each tracker ticked once: a tap is spent here, not misread later)
+	tap_menu = PAD_tappedMenu(now);
+	tap_select = PAD_tappedSelect(now);
+	tap_start = PAD_tappedStart(now);
+	artFetchPoll(now, dirty); // a cancelled fetch's art may have landed since
+
 	// B's fade out of a Backdrop game list (RowView_beginExit) takes no input while it runs. When its time is up the
 	// list closes; a key pressed during it closes the list at once and is then handled below, on the screen B
 	// returned to (the tab in its layout, or the parent list): pressed once, handled once.
 	if (RowView_exiting()) {
 		if (!RowView_exitStep(PAD_anyJustPressed())) {
-			// keep the tap and long-press trackers seeing the edges (as nextui.c does under the context menu): a
-			// MENU/SELECT/START held into the fade and released during it is spent here, not misread later
-			PAD_tappedMenu(now);
-			PAD_tappedSelect(now);
-			PAD_tappedStart(now);
+			// the tap trackers ticked above; the long-press one keeps seeing the edges too (as nextui.c does under the
+			// context menu): a MENU held into the fade and released during it is spent here, not misread later
 			PAD_longPressedMenu(now);
 			return result;
 		}
@@ -1751,7 +1944,7 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 	}
 	tab_row_held &= ~row_released;
 
-	if (row_focused && tabRowInput(now, show_setting, &result, dirty))
+	if (row_focused && tabRowInput(show_setting, &result, dirty))
 		return result;
 
 	// Home owns the D-pad, A and MENU (Y is its netplay launch, below); SELECT, START, the F keys and L1/R1 fall
@@ -1767,7 +1960,8 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 			return result;
 		}
 		// Y on a pinned game or the Continue card launches it with netplay, as the list's Y does
-		if (!MenuTabs_focused() && PAD_justReleased(BTN_Y) && !(row_released & BTN_Y)) {
+		if (!MenuTabs_focused() && PAD_justReleased(BTN_Y) && !(row_released & BTN_Y) && !PAD_isPressed(BTN_L2) &&
+			!PAD_isPressed(BTN_R2)) {
 			ctxNetplay(Home_focusedEntry(), true);
 			*dirty = true;
 			return result;
@@ -1804,7 +1998,7 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 	int total = home ? 0 : top->entries->count;
 	int row_count = GameList_rowCount();
 
-	if (!home && PAD_tappedMenu(now) && !ContextMenu_isOpen()) {
+	if (!home && tap_menu && !ContextMenu_isOpen()) {
 		// Open contextual menu based on current page
 		Entry* entry = (total > 0) ? top->entries->items[selected] : NULL;
 		int idx = 0;
@@ -1815,8 +2009,9 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 			// only) gets no menu: kids can't unpin the curated shortcuts.
 			if (entry && !gl_simple_mode)
 				toolItems(entry, items, &idx);
-		} else if (stack->count == 1) {
-			// Root menu (Consoles or Collections tab; Home handles its own MENU)
+		} else if (GameList_lookTab() >= 0) {
+			// Root menu (Consoles or Collections tab, or its list pushed over a tab
+			// while the tab is hidden; Home handles its own MENU)
 			// A collection renames or deletes. Pinned rows unpin in place; hidden
 			// in simple mode so kids can't remove the curated shortcuts.
 			if (isCollectionRow(entry)) {
@@ -1840,7 +2035,7 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 		}
 
 		return result;
-	} else if (PAD_tappedSelect(now)) {
+	} else if (tap_select) {
 		result.screen = SCREEN_GAMESWITCHER;
 		GameSwitcher_resetSelection();
 		result.animdir = SLIDE_UP;
@@ -1937,7 +2132,8 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 	}
 	// Y launches netplay-capable ROMs with netplay (works at root for
 	// pinned games too — root Search moved to START for this)
-	else if (total > 0 && PAD_justReleased(BTN_Y) && !(row_released & BTN_Y) && entryNetplayCapable(entry)) {
+	else if (total > 0 && PAD_justReleased(BTN_Y) && !(row_released & BTN_Y) && !PAD_isPressed(BTN_L2) &&
+			 !PAD_isPressed(BTN_R2) && entryNetplayCapable(entry)) {
 		putFile(NETPLAY_LAUNCH_PATH, "1\n");
 		Entry_open(entry);
 		// disarm if no launch was queued, whatever the entry type (see case 35)
@@ -1948,7 +2144,7 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 	// START to search at root (was Y; pin/unpin lives in the context menu).
 	// Use a tap, not a raw release: holding START + volume is the color-temp
 	// combo (BTN_MOD_COLORTEMP), and that release must not open search.
-	else if (stack->count == 1 && PAD_tappedStart(now)) {
+	else if (stack->count == 1 && tap_start) {
 		if (Search_open()) {
 			result.screen = SCREEN_SEARCH;
 			result.animdir = SLIDE_LEFT;
@@ -2366,6 +2562,27 @@ static bool listLogoSprite(SDL_Surface* screen, const char* file, int band_y, in
 	return pending;
 }
 
+// ROM_findListArt for the selected game of `list` (2-6 stats), remembered while the row, the list (its serial and the
+// tab generation), the List art setting and list_art_epoch stay: the List redraws every frame of a glide or marquee.
+static bool listArtFor(Directory* list, Entry* entry, char* out, size_t size) {
+	static char last_path[MAX_PATH], last_art_path[MAX_PATH];
+	static unsigned last_list, last_gen, last_epoch;
+	static int last_art = -1;
+	static bool last_fit;
+	int art = CFG_getGameListArt();
+	if (last_art != art || last_list != list->serial || last_gen != MenuTabs_generation() ||
+		last_epoch != list_art_epoch || strcmp(last_path, entry->path) != 0) {
+		last_fit = ROM_findListArt(entry->path, art, last_art_path, sizeof(last_art_path));
+		last_art = art;
+		last_list = list->serial;
+		last_gen = MenuTabs_generation();
+		last_epoch = list_art_epoch;
+		snprintf(last_path, sizeof(last_path), "%s", entry->path);
+	}
+	snprintf(out, size, "%s", last_art_path);
+	return last_fit;
+}
+
 void GameList_render(SDL_Surface* screen, int lastScreen,
 					 IndicatorType show_setting, SDL_Surface* blackBG) {
 	list_body_clear = false; // only a List render with all its rows on the GPU sets it
@@ -2484,10 +2701,9 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		char thumbpath[1024];
 		bool fit = false;
 		if (home_list)
-			Home_listArtPath(thumbpath, sizeof(thumbpath));
-		else
-			fit = ROM_findListArt(entry->path, CFG_getGameListArt(), thumbpath,
-								  sizeof(thumbpath)); // else the screenshot: scraped, else the root .media picture
+			Home_listArtPath(thumbpath, MAX_PATH); // a key too long for the loader's MAX_PATH falls back
+		else									   // else the screenshot: scraped, else the root .media picture
+			fit = listArtFor(list, entry, thumbpath, sizeof(thumbpath));
 		had_thumb = startLoadThumb(thumbpath, fit ? THUMB_COMPOSE_FIT : THUMB_COMPOSE_BG);
 		// The consumers add SCALE1(BUTTON_MARGIN) back to ox, so this yields the art-less full-width row's available
 		// width, or for the box, titles ending BUTTON_MARGIN before it as they end BUTTON_MARGIN before the
@@ -2801,7 +3017,8 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 	}
 	ContentDim_end(screen); // before the fade below: it presents frames itself
 
-	if (total > 0 && lastScreen == SCREEN_OFF)
+	// waking from sleep fades in from black, an empty list ("Empty folder") too, as Home, the Grid and the rows do
+	if (lastScreen == SCREEN_OFF)
 		GFX_animateSurfaceOpacity(blackBG, 0, 0, screen->w, screen->h, 255, 0, CFG_getMenuTransitions() ? 200 : 20,
 								  LAYER_THUMBNAIL);
 }

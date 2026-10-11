@@ -8,10 +8,12 @@
 #include "defines.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static char dialog_title[128];
 static char dialog_status[128];
-static ListDialogItem dialog_items[LISTDIALOG_MAX_ITEMS];
+// a copy of the caller's rows, any number of them (LISTDIALOG_MAX_ITEMS is only a size for callers' own arrays)
+static ListDialogItem* dialog_items = NULL;
 static int dialog_count;
 static int dialog_selected;
 static int dialog_scroll;
@@ -23,14 +25,22 @@ void ListDialog_init(const char* title) {
 	dialog_count = 0;
 	dialog_selected = 0;
 	dialog_scroll = 0;
-	memset(dialog_items, 0, sizeof(dialog_items));
+	free(dialog_items);
+	dialog_items = NULL;
 }
 
 void ListDialog_setItems(ListDialogItem* items, int count) {
-	if (count > LISTDIALOG_MAX_ITEMS)
-		count = LISTDIALOG_MAX_ITEMS;
-	if (items != NULL && count > 0)
-		memcpy(dialog_items, items, count * sizeof(ListDialogItem));
+	if (items == NULL || count < 0)
+		count = 0;
+	if (count > 0) {
+		ListDialogItem* copy = realloc(dialog_items, (size_t)count * sizeof(ListDialogItem));
+		if (copy) {
+			dialog_items = copy;
+			memcpy(dialog_items, items, (size_t)count * sizeof(ListDialogItem));
+		} else {
+			count = 0; // out of memory: no rows
+		}
+	}
 	dialog_count = count;
 
 	if (dialog_selected >= dialog_count)
@@ -218,6 +228,8 @@ void ListDialog_render(SDL_Surface* screen) {
 }
 
 void ListDialog_quit(void) {
+	free(dialog_items);
+	dialog_items = NULL;
 	dialog_count = 0;
 	dialog_selected = 0;
 	dialog_scroll = 0;
