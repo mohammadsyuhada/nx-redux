@@ -556,7 +556,8 @@ int isConsoleDir(char* path) {
 // per-console Roms/<Console>/map.txt (rom aliases), the Emus pak roots
 // consulted by hasEmu (pak add/remove), and the res/arcade name tables.
 // In-app mutations go through Content_invalidateEmulist and don't rely on
-// this check.
+// this check; the fingerprint itself is taken once per process and kept
+// until one of them (or Content_sourcesChanged) says a source changed.
 //
 // Change detection is by EQUALITY of a fingerprint of the source mtimes that
 // is recorded in the cache file, not by "source newer than cache": a source
@@ -645,6 +646,27 @@ static uint64_t cacheSourcesFingerprint(void) {
 	}
 	closedir(dh);
 	return fp;
+}
+
+// The walk above is ~100 stats on a stock card (5 roots, each arcade table, and a stat, the folder and its
+// map.txt per Roms entry), and the Consoles memo, Search, and Delete Rom (before and after) each need it. It is
+// taken once and kept like the memo: out-of-band card edits are picked up at the next nextui start, which follows
+// every game, and every in-app write to a source clears it -- Content_sourcesChanged (an edited map.txt: Rename
+// Rom), Content_invalidateEmulist (Refresh Roms), Content_forgetRom (the delete and its map.txt clean-up).
+// UI thread only.
+static uint64_t src_fp = 0;
+static bool src_fp_valid = false;
+
+static uint64_t sourcesFingerprint(void) {
+	if (!src_fp_valid) {
+		src_fp = cacheSourcesFingerprint();
+		src_fp_valid = true;
+	}
+	return src_fp;
+}
+
+void Content_sourcesChanged(void) {
+	src_fp_valid = false;
 }
 
 #define CACHE_FP_PREFIX "#fp="
@@ -762,7 +784,9 @@ static Array* readEntryCacheFile(const char* cache_path, int type, const uint64_
 // Roms folder (~100 stats on a stock card), and the boot, each tab switch onto Consoles and every
 // MenuTabs_reload used to pay it again. In-app changes clear the memo (Content_invalidateEmulist,
 // Content_forgetRom, a stale Search index); out-of-band card edits are picked up at the next nextui
-// start, which follows every game. UI thread only.
+// start, which follows every game. A rename keeps the rows (its labels are read from map.txt as each
+// list is built) but clears the fingerprint (sourcesFingerprint), so Search sees its index is stale.
+// UI thread only.
 static Array* emu_memo = NULL; // Entries as the Consoles tab lists them (path, type, name)
 static int* emu_counts = NULL; // per memo row: the games opening it lists (the cache's third column)
 static uint64_t emu_fp = 0;	   // the fingerprint the rows were read or scanned against
@@ -896,7 +920,7 @@ int Content_consoleGameCount(const Entry* console_row) {
 // readEntryCacheFile plus the staleness gate: NULL (forcing a rescan) when any
 // cache source changed since the file was written.
 static Array* readEntryCache(const char* cache_path, int type) {
-	uint64_t fp = cacheSourcesFingerprint();
+	uint64_t fp = sourcesFingerprint();
 	return readEntryCacheFile(cache_path, type, &fp);
 }
 
@@ -907,6 +931,7 @@ static Array* readRomIndexCache(void) {
 void Content_invalidateEmulist(void) {
 	unlink(EMULIST_CACHE_PATH);
 	unlink(ROMINDEX_CACHE_PATH);
+	Content_sourcesChanged(); // Refresh Roms also picks up card edits made over SFTP since the start
 	dropEmulistMemo();
 }
 
@@ -922,7 +947,7 @@ static bool readCacheFp(const char* cache_path, uint64_t* fp) {
 }
 
 bool Content_romCachesFresh(void) {
-	uint64_t now = cacheSourcesFingerprint(), index_fp = 0, emulist_fp = 0;
+	uint64_t now = sourcesFingerprint(), index_fp = 0, emulist_fp = 0;
 	return now && readCacheFp(ROMINDEX_CACHE_PATH, &index_fp) && index_fp == now &&
 		   readCacheFp(EMULIST_CACHE_PATH, &emulist_fp) && emulist_fp == now;
 }
@@ -1002,6 +1027,8 @@ static int rewriteEntryCache(const char* cache_path, uint64_t new_fp, const char
 }
 
 void Content_forgetRom(const char* removed_path, bool caches_were_fresh) {
+	// the delete and its map.txt clean-up both changed fingerprint sources: the restamp below takes it anew
+	Content_sourcesChanged();
 	if (removed_path && exists((char*)removed_path)) {
 		// the delete failed (a read-only card) or only half-removed a folder game: the rom is still on the
 		// card, so its rows must not be dropped. The map.txt/collection clean-up still ran, so the caches
@@ -1030,7 +1057,7 @@ void Content_forgetRom(const char* removed_path, bool caches_were_fresh) {
 	// stale emulist forces the full rescan.
 	// The emulist's count column drops by the index rows removed, on every row that collates the folder
 	// (Emulist_adjustCount), so the counts stay what a rescan would write.
-	uint64_t fp = cacheSourcesFingerprint();
+	uint64_t fp = sourcesFingerprint();
 	char folder_path[MAX_PATH];
 	snprintf(folder_path, sizeof(folder_path), "%s/%s", ROMS_PATH, folder);
 	int dropped = 0;
@@ -1039,7 +1066,7 @@ void Content_forgetRom(const char* removed_path, bool caches_were_fresh) {
 		Content_invalidateEmulist();
 		return;
 	}
-	dropEmulistMemo(); // the next read takes the restamped emulist (lib_gen moves on)
+	dropEmulistMemo(); // the next read takes the restamped emulist against fp, kept (lib_gen moves on)
 }
 
 // Byte length of the rom-label part of an indexed name ("Zelda (GBA)" -> 5):
@@ -1057,8 +1084,9 @@ Array* Content_searchRoms(const char* query) {
 	if (!all_roms) {
 		// Force a build by calling getRoms() (which populates both caches). The memo must go first: it
 		// was validated earlier this process, and an in-app ROM rename since (an edited map.txt, part of
-		// the fingerprint) leaves it looking valid while the index is stale -- getRoms would then return
-		// the memo, never rescan, and Search would keep the old label.
+		// the fingerprint, which Content_sourcesChanged made us retake) leaves it looking valid while the
+		// index is stale -- getRoms would then return the memo, never rescan, and Search would keep the
+		// old label.
 		dropEmulistMemo();
 		Array* consoles = getRoms();
 		EntryArray_free(consoles);
@@ -1414,7 +1442,7 @@ static void ensureEmulist(void) {
 	if (emu_valid)
 		return;
 	dropEmulistMemo();
-	uint64_t fp = cacheSourcesFingerprint();
+	uint64_t fp = sourcesFingerprint();
 	// Both caches are written together by scanRoms; a missing rom index with a valid emulist would
 	// satisfy the menu but leave Search permanently empty, so force the full rebuild that restores both.
 	int* counts = NULL;

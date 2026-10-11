@@ -31,6 +31,10 @@ int isConsoleDir(char* path);
 
 // Content retrieval
 void Content_invalidateEmulist(void);
+// Call after any in-app write to a rom cache source outside this file (a Roms/map.txt or Roms/<Console>/map.txt
+// edit, a rom or console folder added or removed): the source fingerprint is taken once per process and kept
+// until this (or Content_invalidateEmulist / Content_forgetRom), so Search and Delete Rom would trust stale caches.
+void Content_sourcesChanged(void);
 // Delete Rom bookkeeping (UI thread). Content_romCachesFresh, called just before the delete, says whether
 // the rom caches match the card; Content_forgetRom, called after the delete and its map.txt clean-up, then
 // drops the removed rows (removed_path itself or anything below it) from the rom index and restamps both

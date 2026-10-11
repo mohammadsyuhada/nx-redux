@@ -813,6 +813,7 @@ static bool doRename(Entry* entry, int sel) {
 
 	setMapAlias(home_map, home_key, newname);
 	setMapAlias(coll_map, coll_key, newname);
+	Content_sourcesChanged(); // map.txt is a fingerprint source: Search's index must be checked again
 
 	// Recently Played and the game switcher render an alias snapshot taken at
 	// launch (recent.txt: path<TAB>alias); re-point it so the new name shows
@@ -1450,6 +1451,7 @@ static void ctxDeleteRom(Entry* entry, int root_sel, int sel) {
 		if (entry->type != ENTRY_ROM && !folder_game)
 			return;
 		if (confirmModal("Delete ROM?", entry->name)) {
+			Content_sourcesChanged(); // a card edit made over SFTP since the start must not be stamped fresh
 			bool caches_fresh = Content_romCachesFresh();
 			const char* removed = entry->path;
 			if (folder_game)
