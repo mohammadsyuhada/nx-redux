@@ -91,8 +91,10 @@ static void Menu_init(void) {
 static bool sprites_last = false;
 // The last frame was a List with all its rows on the GPU (GameList_listBodyClear): its screen body is clear.
 static bool list_clear_last = false;
-static unsigned list_clear_flip = 0; // GFX_flipCount right after that frame's flip: another flip since voids it
-static SDL_Rect list_row_last;		 // that frame's marquee row in the body (h 0: none)
+// GFX_flipCount right after the last frame's flip. Another flip since (a blocking modal's own loop: the keyboard, a
+// dialog) drew over the screen, which voids both of the above.
+static unsigned last_frame_flip = 0;
+static SDL_Rect list_row_last; // that frame's marquee row in the body (h 0: none)
 
 static void Menu_quit(void) {
 	Recents_quit();
@@ -463,12 +465,13 @@ int main(int argc, char* argv[]) {
 			// sprite frame's black stays in it, over the art under the screen (Home's List back from Consoles).
 			bool screen_clear = false; // the whole screen is clear (0,0,0,0) here: the top fade can be written, not blended
 			if (!(currentScreen == SCREEN_GAMELIST && !startgame && RowView_paintsScreen())) {
-				bool body_kept = sprites_last && currentScreen == SCREEN_GAMELIST && !startgame &&
+				bool body_kept = sprites_last && GFX_flipCount() == last_frame_flip && currentScreen == SCREEN_GAMELIST &&
+								 !startgame &&
 								 (GridView_active() || RowView_active());
 				if (body_kept && screen->h > 2 * BAR_HEIGHT) {
 					SDL_FillRect(screen, &(SDL_Rect){0, 0, screen->w, BAR_HEIGHT}, 0);
 					SDL_FillRect(screen, &(SDL_Rect){0, screen->h - BAR_HEIGHT, screen->w, BAR_HEIGHT}, 0);
-				} else if (list_clear_last && GFX_flipCount() == list_clear_flip && currentScreen == SCREEN_GAMELIST &&
+				} else if (list_clear_last && GFX_flipCount() == last_frame_flip && currentScreen == SCREEN_GAMELIST &&
 						   lastScreen == SCREEN_GAMELIST &&
 						   animationdirection == ANIM_NONE && !startgame) {
 					// the last frame was a List that left its body clear: only the header with its fade and the hint
@@ -677,7 +680,8 @@ int main(int argc, char* argv[]) {
 				bool sprites_now = RowView_takeSpritesUsed() && currentScreen == SCREEN_GAMELIST;
 				bool body_changed = RowView_takeBodyChanged();
 				int bar_ys[2] = {0, screen->h - BAR_HEIGHT}, bar_hs[2] = {BAR_HEIGHT, BAR_HEIGHT};
-				if (sprites_now && sprites_last && !body_changed && !frame_animated && !ContextMenu_isOpen())
+				if (sprites_now && sprites_last && GFX_flipCount() == last_frame_flip && !body_changed && !frame_animated &&
+					!ContextMenu_isOpen())
 					PLAT_setUploadBands(bar_ys, bar_hs, 2);
 				// A List with all its rows on the GPU, after one: the body between the header's fade and the hint bar
 				// is clear in both (the rows, pill and art are sprites, the band its layer): only the header with its
@@ -685,7 +689,7 @@ int main(int argc, char* argv[]) {
 				SDL_Rect list_row = {0, 0, 0, 0};
 				bool list_clear_now =
 					currentScreen == SCREEN_GAMELIST && !sprites_now && GameList_listBodyClear(&list_row);
-				if (list_clear_now && list_clear_last && GFX_flipCount() == list_clear_flip && !frame_animated &&
+				if (list_clear_now && list_clear_last && GFX_flipCount() == last_frame_flip && !frame_animated &&
 					!ContextMenu_isOpen()) {
 					// the header with its fade, the hint bar, and the marquee row where it was and where it is
 					int top_h = BAR_HEIGHT + NX_DP(48);
@@ -706,7 +710,7 @@ int main(int argc, char* argv[]) {
 					PLAT_setScreenDrawBands(bar_ys, bar_hs, 2);
 				sprites_last = sprites_now;
 				GFX_flip(screen);
-				list_clear_flip = GFX_flipCount();
+				last_frame_flip = GFX_flipCount();
 				static bool first_frame_stamped = false;
 				if (!first_frame_stamped) {
 					first_frame_stamped = true;
