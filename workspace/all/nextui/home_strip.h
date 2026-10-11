@@ -14,7 +14,7 @@ typedef struct {
 	StripTone tone;
 	char text[160];
 	float pad_l, pad_r; // em
-	bool gives_way;		// the one run cut with "…" when the line is too long (line 2's title)
+	bool gives_way;		// the one run cut with "..." when the line is too long (line 2's title)
 } StripRun;
 typedef struct {
 	int n;

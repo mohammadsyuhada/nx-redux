@@ -65,7 +65,6 @@
 #define SEL_MS 120		// selection crossfade
 #define SCROLL_MS 320	// page scroll, UI_easeStandard
 #define SLIDE_MS 300	// the Carousel row's slide, UI_easeStandard (as the game lists' Carousel)
-#define ELLIPSIS "\xE2\x80\xA6"
 #define LINE_MAX 256
 
 // The B2 type (Brick px; docs/home-b2.md)
@@ -111,13 +110,20 @@ static bool need_rebuild = true; // Home_reset: the pins or Continue may have ch
 // changed (home_stats.c compares its input key off the UI thread; a miss re-parses every cached RA game).
 static bool was_active = false; // Home_active()'s last answer: the false → true edge sets stats_due
 static bool stats_due = false;
-static unsigned built_root = 0; // the root Directory's serial (0 = none)
+static unsigned card_epoch = 0; // bumped when what the cards show may have changed (see stampEpoch)
+// The stats are asked for again when the local day changes while Home stays shown (a midnight rollover, a wake from
+// sleep the next day): checked once a wall-clock minute (ensureBuilt), the worker's key check keeps it cheap.
+static int stats_day = 0;			// HomeStats_localDay of the last request
+static long long stats_minute = -1; // time(NULL) / 60 at the last check
+static unsigned built_root = 0;		// the root Directory's serial (0 = none)
 static int built_w = 0, built_h = 0, built_lines = -1;
 static float built_scale = 0;
 
 static HomeLayout layout;
 static Entry* cont = NULL; // owned; NULL = no Continue (the Pick-a-game card takes its slot)
 static char cont_preview[MAX_PATH];
+static GameInfo cont_info; // Continue's game info once GameInfo had it (asked for on rebuild; infoFor)
+static bool cont_info_ready = false;
 static Entry* games[HOME_MAX_PINS];		   // borrowed from stack[0], valid while its serial is built_root
 static bool game_plain_dir[HOME_MAX_PINS]; // a legacy pinned folder (no cue/m3u): A opens it
 static int ngames = 0;
@@ -162,6 +168,7 @@ static int strip_top = 0; // the surface's top on the unscrolled page (px)
 static void cardCacheClear(void);
 static void stretchFree(void);
 static void ringFree(void);
+static void pickArtFree(void);
 
 ///////////////////////////////////////
 // Units and timing
@@ -407,7 +414,8 @@ static void drawTextBaseline(SDL_Surface* dst, TTF_Font* f, const char* text, SD
 		drawText(dst, f, text, c, x, baseline - TTF_FontAscent(f), alpha);
 }
 
-// `in` cut to max_w with an ellipsis (out: LINE_MAX). Empty when nothing fits.
+// `in` cut to max_w with "..." (GFX_truncateText's, as the game lists' cut text) (out: LINE_MAX). Empty when nothing
+// fits.
 static void ellipsize(TTF_Font* f, const char* in, char* out, int max_w) {
 	char src[LINE_MAX];
 	snprintf(src, sizeof(src), "%s", in ? in : "");
@@ -474,8 +482,10 @@ static int wrapLines(TTF_Font* f, const char* text, int max_w, int max_lines, ch
 bool Home_active(void) {
 	bool active = stack && stack->count == 1 && MenuTabs_current() == MENU_TAB_HOME;
 	// gamelist.c asks every frame (input and render), so this sees every show; main thread only
-	if (active && !was_active)
+	if (active && !was_active) {
 		stats_due = true;
+		card_epoch++; // anything changed away from Home (a setting, the theme) is looked at again: cachedCard
+	}
 	was_active = active;
 	return active;
 }
@@ -668,6 +678,7 @@ static void listBuild(bool to_continue) {
 static void relayout(int lines) {
 	float u = unitPx();
 	built_lines = lines;
+	card_epoch++;
 	if (listMode()) {
 		listRelayout(lines);
 		return;
@@ -702,10 +713,15 @@ static void rebuild(void) {
 		Entry_free(cont);
 	cont = Home_continueEntry();
 	cont_preview[0] = '\0';
+	cont_info_ready = false;
 	if (cont) {
 		readyResume(cont);
 		if (resume.can_resume && resume.has_preview)
 			snprintf(cont_preview, sizeof(cont_preview), "%s", resume.preview_path);
+		// Continue's info asked for once here, ahead of the focused pin's (GameInfo serves the latest request): its
+		// card then only polls while that answer is on the way (infoFor)
+		if (CFG_getExtraInfo() && GameInfo_get(cont->path, &cont_info))
+			cont_info_ready = true;
 	}
 
 	// games (ROMs, folder games, legacy folders) and tools, each in stored order; a missing tool and the Continue game
@@ -735,8 +751,15 @@ static void rebuild(void) {
 static void ensureBuilt(void) {
 	if (!screen || !Home_active())
 		return;
+	long long minute = (long long)time(NULL) / 60;
+	if (minute != stats_minute) { // the wall clock: it moves on across a sleep too
+		stats_minute = minute;
+		if (HomeStats_localDay(minute * 60) != stats_day)
+			stats_due = true;
+	}
 	if (stats_due) {
 		stats_due = false;
+		stats_day = HomeStats_localDay(minute * 60);
 		if (CFG_getExtraInfo()) // hidden, the strip isn't drawn: nothing to count
 			HomeStats_request();
 	}
@@ -761,6 +784,7 @@ void Home_quit(void) {
 	if (cont)
 		Entry_free(cont);
 	cont = NULL;
+	cont_info_ready = false;
 	ngames = ntools = 0;
 	if (hl_entries)
 		Array_free(hl_entries); // the list only: its entries are borrowed
@@ -778,6 +802,7 @@ void Home_quit(void) {
 		SDL_FreeSurface(strip_surf);
 	strip_surf = NULL;
 	strip_key = 0;
+	pickArtFree();
 	cardCacheClear();
 	stretchFree();
 	ringFree();
@@ -787,11 +812,36 @@ void Home_quit(void) {
 ///////////////////////////////////////
 // Game info
 
+// A lookup a card's stamp read was still on its way (GameInfo, HomeArt): the card is looked at again next frame
+// instead of keeping its stamp (cachedCard).
+static bool stamp_waiting = false;
+
+// The game's info, false while GameInfo hasn't got it yet (queued then) or with Layouts > Extra info hidden.
+// Continue's is kept once it came (asked for on rebuild), so its card doesn't ask GameInfo again.
+static bool infoFor(const char* path, GameInfo* out) {
+	if (!path || !CFG_getExtraInfo())
+		return false;
+	bool is_cont = cont && path == cont->path;
+	if (is_cont && cont_info_ready) {
+		*out = cont_info;
+		return true;
+	}
+	if (!GameInfo_get(path, out)) {
+		stamp_waiting = true;
+		return false;
+	}
+	if (is_cont) {
+		cont_info = *out;
+		cont_info_ready = true;
+	}
+	return true;
+}
+
 // The time segment ("Today - 18m 37s") for a game; "" without one (and with Layouts > Extra info hidden).
 static void timeText(const char* path, char* out, size_t size) {
 	out[0] = '\0';
 	GameInfo info;
-	if (!path || !CFG_getExtraInfo() || !GameInfo_get(path, &info) || !info.has_time)
+	if (!infoFor(path, &info) || !info.has_time)
 		return;
 	InfoSeg segs[3];
 	int n = GameInfo_segments(time(NULL), info.last_played, info.seconds, 0, 0, NULL, false, segs);
@@ -850,7 +900,7 @@ static int drawContinueBadge(SDL_Surface* s, int inset, float k) {
 	return at + bh;
 }
 
-// Continue: the art full-bleed under the caption fade; the title (TEXT_HOME_CONT_TITLE, one line with "…") and the time
+// Continue: the art full-bleed under the caption fade; the title (TEXT_HOME_CONT_TITLE, one line with "...") and the time
 // (TEXT_HOME_CONT_INFO, grey), 29 in, baselines 74 and 31 above the bottom at the UI scale's sizes (44 and 31), further
 // up as the time grows (HomeLayout_captionBaselines) (the art: the game's own, else its abstract picture). No picture
 // at all: the name centred (up to 2 lines) over the time.
@@ -900,23 +950,47 @@ static Uint32 accentRgb(void) {
 }
 
 // Pick a game's background: an abstract picture (placeholder_art.c) in the accent's hue, made once per size and accent
-// and kept (the card itself is cached too, so this runs on a size or accent change only).
+// and kept (the card itself is cached too, so this runs on a size or accent change only). Two sizes kept: the
+// Carousel's card is composed at a neighbour's and at the centre's.
+static SDL_Surface* pick_art[2] = {NULL, NULL};
+static Uint32 pick_art_rgb[2] = {0, 0};
+static unsigned pick_art_lru[2] = {0, 0}, pick_art_clock = 0;
+
+static void pickArtFree(void) {
+	for (int i = 0; i < 2; i++) {
+		if (pick_art[i])
+			SDL_FreeSurface(pick_art[i]);
+		pick_art[i] = NULL;
+	}
+}
+
 static SDL_Surface* pickArt(int w, int h) {
-	static SDL_Surface* art = NULL;
-	static Uint32 art_rgb = 0;
 	Uint32 rgb = accentRgb();
-	if (art && art->w == w && art->h == h && art_rgb == rgb)
+	int i = -1;
+	for (int k = 0; k < 2 && i < 0; k++)
+		if (pick_art[k] && pick_art[k]->w == w && pick_art[k]->h == h)
+			i = k;
+	if (i < 0) // else the empty or least recently used one
+		i = !pick_art[0] ? 0 : !pick_art[1]						? 1
+						   : pick_art_lru[0] <= pick_art_lru[1] ? 0
+																: 1;
+	pick_art_lru[i] = ++pick_art_clock;
+	SDL_Surface* art = pick_art[i];
+	if (art && art->w == w && art->h == h && pick_art_rgb[i] == rgb)
 		return art;
-	if (art)
+	if (art && (art->w != w || art->h != h)) {
 		SDL_FreeSurface(art);
-	art = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888);
+		art = pick_art[i] = NULL;
+	}
+	if (!art)
+		art = pick_art[i] = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888);
 	if (!art)
 		return NULL;
 	SDL_LockSurface(art);
 	PlaceholderArt_renderRgb(art->pixels, w, h, art->pitch / 4, "nx-pick-a-game", rgb);
 	SDL_UnlockSurface(art);
 	SDL_SetSurfaceBlendMode(art, SDL_BLENDMODE_NONE);
-	art_rgb = rgb;
+	pick_art_rgb[i] = rgb;
 	return art;
 }
 
@@ -1007,7 +1081,7 @@ static void composeGame(SDL_Surface* s, int w, int h, bool lit, int g) {
 			drawCentredLines(s, f, lines, nl, (int)(lh + 0.5f), C_WHITE, w, 0, h - caption);
 		}
 	} else if (lit) {
-		// the name on up to 2 lines (the rest "…"), stacked up from where one line would sit
+		// the name on up to 2 lines (the rest "..."), stacked up from where one line would sit
 		TTF_Font* f = UIFont_getPx(name_px, false);
 		char lines[2][LINE_MAX];
 		int nl = f ? wrapLines(f, View_displayName(e), w - 2 * side, 2, lines) : 0;
@@ -1067,7 +1141,7 @@ static HomeArtState carArt(bool is_cont, Entry* e, SDL_Surface** pic) {
 static int carInfo(const char* path, InfoSeg segs[3], int* row0) {
 	GameInfo info;
 	*row0 = 0;
-	if (!path || !CFG_getExtraInfo() || !GameInfo_get(path, &info) || !(info.has_time || info.has_ra))
+	if (!infoFor(path, &info) || !(info.has_time || info.has_ra))
 		return 0;
 	int n = GameInfo_segments(time(NULL), info.has_time ? info.last_played : 0, info.has_time ? info.seconds : -1,
 							  info.has_ra ? info.unlocked : 0, info.has_ra ? info.total : 0,
@@ -1079,7 +1153,7 @@ static int carInfo(const char* path, InfoSeg segs[3], int* row0) {
 }
 
 // The selected card's caption, bottom-left as the Continue card's (its inset and baselines at the Continue card's sizes):
-// the name on one line ("…"), then the time with the achievements (the trophy, InfoBand's segments), then Next on a
+// the name on one line ("..."), then the time with the achievements (the trophy, InfoBand's segments), then Next on a
 // line of its own while the name still clears `top` (the badge). No info yet: the name alone where the time would sit.
 static void drawCarCaption(SDL_Surface* s, int w, int h, Entry* e, int top) {
 	int side = px(CONT_INSET);
@@ -1156,7 +1230,7 @@ static SDL_Color runColour(StripTone t) {
 													   : C_GREY;
 }
 
-// One line's runs from x on baseline y; the run that gives way is cut with "…" so the line ends by right. centre: the
+// One line's runs from x on baseline y; the run that gives way is cut with "..." so the line ends by right. centre: the
 // line centred between x and right instead (the Carousel's).
 static void drawStripLine(SDL_Surface* s, TTF_Font* f, StripLine* l, int x, int right, int baseline, bool centre) {
 	float em = (float)statsPx();
@@ -1220,6 +1294,10 @@ static void drawStrip(SDL_Surface* dst, const HomeStats* st, int scroll_px) {
 	key = View_fnv(key, &dst->w, sizeof(dst->w));
 	key = View_fnv(key, &lines, sizeof(lines));
 	key = View_fnv(key, &mode, sizeof(mode));
+	// where it sits: the Carousel's baselines move with the dock (HomeCar_compute), and the surface's top with them
+	key = View_fnv(key, base, sizeof(base));
+	key = View_fnv(key, &x, sizeof(x));
+	key = View_fnv(key, &right, sizeof(right));
 	float scale = homeScale();
 	key = View_fnv(key, &scale, sizeof(scale));
 	for (int i = 0; i < l1.n; i++)
@@ -1295,6 +1373,10 @@ typedef struct {
 	float scale;
 	bool lit;
 	Uint32 stamp; // what the card shows (see cardStamp)
+	Uint32 epoch; // stampEpoch() when stamp was taken
+	bool settled; // nothing stamp read was still on its way: kept while the epoch holds
+	bool full;	  // the composed look is a settled one (cachedCard holds it while its game's lookups come back)
+	Uint32 ident; // its game's path (cardIdent)
 	unsigned lru;
 	SDL_Surface* surf;
 } CardSlot;
@@ -1326,10 +1408,30 @@ static Uint32 fnvStr(Uint32 h, const char* s) {
 
 // gen = HomeArt_lastGen() of pic's lookup: a re-decoded art (after HomeArt_forget) may reuse the old pointer
 static Uint32 artStamp(Uint32 h, HomeArtState st, SDL_Surface* pic, unsigned gen) {
+	if (st == HOMEART_LOADING)
+		stamp_waiting = true;
 	h = View_fnv(h, &st, sizeof(st));
 	h = View_fnv(h, &gen, sizeof(gen));
 	return View_fnv(h, &pic, sizeof(pic));
 }
+// What a settled card's stamp is kept against: Home's own changes (rebuild, relayout, a show), a picture loaded or
+// forgotten, the wall-clock minute (the relative "Today" / "3 days ago", a wake from sleep), Layouts > Extra info and
+// the theme's accent. Cheap (no lock), so cachedCard skips cardStamp's lookups (HomeArt's mutex and slot compares,
+// GameInfo's, the names) for every visible card every frame.
+static Uint32 stampEpoch(void) {
+	Uint32 e = 2166136261u;
+	e = View_fnv(e, &card_epoch, sizeof(card_epoch));
+	unsigned art = HomeArt_changes();
+	e = View_fnv(e, &art, sizeof(art));
+	long long minute = (long long)time(NULL) / 60;
+	e = View_fnv(e, &minute, sizeof(minute));
+	bool extra = CFG_getExtraInfo();
+	e = View_fnv(e, &extra, sizeof(extra));
+	SDL_Color bg = cardBg(true), ink = cardInk(true);
+	e = View_fnv(e, &bg, sizeof(bg));
+	return View_fnv(e, &ink, sizeof(ink));
+}
+
 // A stamp of the data a card's composition reads (the same lookups compose does, all cached and cheap). The cache
 // outlives rebuilds (and so Home visits), so this must cover every input compose reads beyond the slot's key (kind, ref,
 // w, h, homeScale(), lit).
@@ -1428,7 +1530,22 @@ static void composeCardKind(SDL_Surface* s, CardKind kind, int w, int h, bool li
 	SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
 }
 
-// The card's cached surface for this look, recomposed only when its key changed.
+// The game a card shows, hashed (0 for Pick a game).
+static Uint32 cardIdent(CardKind kind, int ref) {
+	const char* path = NULL;
+	if (kind == CARD_CONTINUE || kind == CARD_CAR_CONTINUE)
+		path = cont ? cont->path : NULL;
+	else if (kind == CARD_GAME || kind == CARD_CAR_GAME)
+		path = games[ref]->path;
+	else if (kind == CARD_TOOL)
+		path = tools[ref]->path;
+	return path ? fnvStr(2166136261u, path) : 0;
+}
+
+// The card's cached surface for this look, recomposed only when its key changed. A settled card's stamp is kept while
+// stampEpoch() holds; one still waiting on a lookup is stamped again each frame until it settles. A settled look of the
+// same game is held while a lookup comes back again (its picture evicted while the card kept its stamp, a fetched
+// picture after HomeArt_forget, its info evicted from GameInfo's cache), so it never flashes to its loading look.
 static SDL_Surface* cachedCard(CardKind kind, int ref, int w, int h, bool lit) {
 	if (kind == CARD_CONTINUE || kind == CARD_PICK)
 		lit = false; // Continue and Pick a game light with their ring only
@@ -1436,7 +1553,7 @@ static SDL_Surface* cachedCard(CardKind kind, int ref, int w, int h, bool lit) {
 		ref = -1;
 	if (kind == CARD_CAR_CONTINUE)
 		ref = 0;
-	Uint32 stamp = cardStamp(kind, ref, w, h, lit);
+	Uint32 epoch = stampEpoch();
 	CardSlot* victim = NULL;
 	int used = 0;
 	for (int i = 0; i < CARD_CACHE_MAX; i++) {
@@ -1448,9 +1565,20 @@ static SDL_Surface* cachedCard(CardKind kind, int ref, int w, int h, bool lit) {
 		}
 		used++;
 		if (c->kind == kind && c->ref == ref && c->w == w && c->h == h && c->scale == homeScale() && c->lit == lit) {
-			if (c->stamp != stamp) { // same card, new content: recompose in place
-				c->stamp = stamp;
-				composeCardKind(c->surf, kind, w, h, lit, ref);
+			if (!c->settled || c->epoch != epoch) {
+				stamp_waiting = false;
+				Uint32 stamp = cardStamp(kind, ref, w, h, lit);
+				bool waiting = stamp_waiting;
+				Uint32 ident = cardIdent(kind, ref);
+				bool hold = waiting && c->full && c->ident == ident;
+				if (c->stamp != stamp && !hold) { // same card, new content: recompose in place
+					c->stamp = stamp;
+					c->full = !waiting;
+					composeCardKind(c->surf, kind, w, h, lit, ref);
+				}
+				c->settled = !waiting;
+				c->epoch = epoch;
+				c->ident = ident;
 			}
 			c->lru = ++card_lru;
 			return c->surf;
@@ -1478,7 +1606,9 @@ static SDL_Surface* cachedCard(CardKind kind, int ref, int w, int h, bool lit) {
 		return NULL;
 	}
 	SDL_Surface* surf = victim->surf;
-	*victim = (CardSlot){.used = true, .kind = kind, .ref = ref, .w = w, .h = h, .scale = homeScale(), .lit = lit, .stamp = stamp, .lru = ++card_lru, .surf = surf};
+	stamp_waiting = false;
+	Uint32 stamp = cardStamp(kind, ref, w, h, lit);
+	*victim = (CardSlot){.used = true, .kind = kind, .ref = ref, .w = w, .h = h, .scale = homeScale(), .lit = lit, .stamp = stamp, .epoch = epoch, .settled = !stamp_waiting, .full = !stamp_waiting, .ident = cardIdent(kind, ref), .lru = ++card_lru, .surf = surf};
 	composeCardKind(surf, kind, w, h, lit, ref);
 	return surf;
 }
@@ -1770,10 +1900,32 @@ static void drawCarItem(SDL_Surface* dst, int i, float pos, float row_lit) {
 // Sprite mode, the row at rest: the textures of the looks a slide shows next (each item within reach at a neighbour's
 // size, the centre's size plain and lit, the ring), one a frame, so a slide finds them made instead of making them
 // (~3 ms each on the Brick) in its frames.
+// The looks whose texture couldn't be made this time the row came to rest: skipped (they get theirs when drawn), so a
+// texture that keeps failing doesn't keep the row redrawing; forgotten once the row moves again (drawCarousel).
+#define WARM_FAILED_MAX 8
+static SDL_Surface* warm_failed[WARM_FAILED_MAX];
+static int warm_nfailed = 0;
+
+static bool warmFailed(SDL_Surface* s) {
+	for (int i = 0; i < warm_nfailed; i++)
+		if (warm_failed[i] == s)
+			return true;
+	return false;
+}
+
+// s's texture made, true when one was (or there's none to make); a failure is remembered (warmFailed).
+static bool warmOne(SDL_Surface* s) {
+	if (!s || s->userdata || warmFailed(s))
+		return false;
+	if (!PLAT_textureForSurface(s) && warm_nfailed < WARM_FAILED_MAX)
+		warm_failed[warm_nfailed++] = s;
+	return true;
+}
+
 static void carWarm(int first, int last) {
-	SDL_Surface* ring = ringSurface();
-	if (ring && !ring->userdata) {
-		PLAT_textureForSurface(ring);
+	if (warm_nfailed >= WARM_FAILED_MAX)
+		return; // the GPU keeps refusing: draw on use
+	if (warmOne(ringSurface())) {
 		car_warming = true;
 		return;
 	}
@@ -1785,8 +1937,7 @@ static void carWarm(int first, int last) {
 								 cachedCard(kind, ref, car_full_w, car_full_h, false),
 								 kind != CARD_PICK ? cachedCard(kind, ref, car_full_w, car_full_h, true) : NULL};
 		for (int k = 0; k < 3; k++)
-			if (looks[k] && !looks[k]->userdata) {
-				PLAT_textureForSurface(looks[k]);
+			if (warmOne(looks[k])) {
 				car_warming = true; // maybe more: the next frame looks again
 				return;
 			}
@@ -1813,6 +1964,8 @@ static void drawCarousel(SDL_Surface* dst) {
 		drawCarItem(dst, order[k], pos, row_lit);
 	if (car_sprites && !slide_tw.active && !sel_tw.active)
 		carWarm(first, last);
+	else
+		warm_nfailed = 0; // moving: a look that failed may get its texture now
 	for (int t = 0; t < car.ntools; t++) {
 		HomeTile tile = {HOME_TILE_TOOL, t, car.dock[t]};
 		drawTile(dst, &tile, CAR_ID_DOCK + t, 0);

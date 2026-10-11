@@ -40,6 +40,9 @@ HomeArtState HomeArt_backdrop(const char* rom_path, int screen_w, int screen_h, 
 unsigned HomeArt_lastGen(void);
 // True once after any load finished since the last call (the caller redraws).
 bool HomeArt_checkAsyncLoaded(void);
+// A count of the finished loads and HomeArt_forget calls (never reset, any thread): a render cache that skips its
+// lookups while it is unchanged still sees every picture arrive or go.
+unsigned HomeArt_changes(void);
 // Drop every cached picture of rom_path (after its art was fetched): the next request loads it afresh.
 void HomeArt_forget(const char* rom_path);
 // Stop the worker and free the cache. Safe to call when nothing was loaded.

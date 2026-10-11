@@ -65,6 +65,7 @@ static SDL_cond* cond = NULL;
 static SDL_Thread* worker = NULL;
 static SDL_atomic_t shutdownFlag;
 static SDL_atomic_t loadedFlag;
+static SDL_atomic_t changes; // finished loads and forgets (HomeArt_changes)
 
 ///////////////////////////////////////
 // Picture shaping (worker thread)
@@ -187,7 +188,7 @@ static SDL_Surface* screenshotFor(const char* rom, HomeArtRect* keep) {
 #define PLACEHOLDER_BOX_H 500
 
 // The PNG write (~100+ ms on the card) waits in a small queue so it never delays a decode: the worker writes one only
-// when no request is queued, and the rest when it stops. Worker thread only.
+// when no request is queued; those still queued when it stops are dropped (made again on demand). Worker thread only.
 #define PENDING_PNG_MAX 8
 typedef struct {
 	char path[MAX_PATH];
@@ -485,13 +486,18 @@ static int workerMain(void* arg) {
 			pick->oy = oy;
 			pick->state = result ? HOMEART_READY : HOMEART_NONE;
 			SDL_AtomicSet(&loadedFlag, 1);
+			SDL_AtomicIncRef(&changes);
 		} else if (result) {
 			SDL_FreeSurface(result); // evicted while decoding
 		}
 	}
 	SDL_UnlockMutex(mutex);
-	while (writeOnePendingPng()) // stopping: the placeholders not on the card yet
-		;
+	// stopping (nextui quits on every launch): the placeholders not on the card yet are dropped, not written (~100+ ms
+	// each); placeholderFor makes a missing one again on its next view. A write under way finished before the
+	// shutdown check above (and goes through a .tmp rename), so no half-written file is left.
+	for (int i = 0; i < pendingPngCount; i++)
+		SDL_FreeSurface(pendingPngs[i].surface);
+	pendingPngCount = 0;
 	return 0;
 }
 
@@ -615,6 +621,10 @@ unsigned HomeArt_lastGen(void) {
 	return lastGen;
 }
 
+unsigned HomeArt_changes(void) {
+	return (unsigned)SDL_AtomicGet(&changes);
+}
+
 bool HomeArt_checkAsyncLoaded(void) {
 	return SDL_AtomicCAS(&loadedFlag, 1, 0);
 }
@@ -636,6 +646,7 @@ void HomeArt_forget(const char* rom_path) {
 		s->gen = ++genCounter;
 	}
 	SDL_UnlockMutex(mutex);
+	SDL_AtomicIncRef(&changes);
 }
 
 void HomeArt_quit(void) {

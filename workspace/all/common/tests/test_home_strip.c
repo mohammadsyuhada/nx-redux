@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define ELLIPSIS "\xE2\x80\xA6"
+#define ELLIPSIS "..."
 
 static int run(const StripLine* l, int i, StripTone tone, const char* text) {
 	return i < l->n && l->runs[i].tone == tone && strcmp(l->runs[i].text, text) == 0;
@@ -39,7 +39,7 @@ int main(void) {
 	HomeStrip_build(&in, &a, &b);
 	assert(a.n == 2 && run(&a, 0, STRIP_GREY, "Nothing played yet.") && run(&a, 1, STRIP_WHITE, "Let's go!"));
 	assert(a.runs[1].pad_l == 0.5f && b.n == 0);
-	// not computed yet: every value "…", both lines, no time on line 2
+	// not computed yet: every value "...", both lines, no time on line 2
 	in = (StripInput){false, false, true, 0, 0, NULL, 0};
 	assert(HomeStrip_lineCount(&in) == 2);
 	HomeStrip_build(&in, &a, &b);

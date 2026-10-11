@@ -7,8 +7,8 @@
 
 #include "gameinfo_text.h"
 
-#define ELLIPSIS "\xE2\x80\xA6"
-#define ENSP_EM 0.5f // the en space after "This month" (a pad: the UI font has no U+2002)
+#define ELLIPSIS "..." // as Home's cut text (GFX_truncateText) and the game lists' (InfoBand, caption_fit)
+#define ENSP_EM 0.5f   // the en space after "This month" (a pad: the UI font has no U+2002)
 
 int HomeStrip_lineCount(const StripInput* in) {
 	if (in->fresh)
@@ -77,7 +77,7 @@ void HomeStrip_build(const StripInput* in, StripLine* l1, StripLine* l2) {
 		return;
 	}
 
-	// line 1: This month <time | …> · <n achievements>; not signed in to RetroAchievements, the line ends with the time
+	// line 1: This month <time | ...> · <n achievements>; not signed in to RetroAchievements, the line ends with the time
 	add(l1, STRIP_GREY, "This month");
 	if (in->ready)
 		GameInfo_durationText(in->total, buf, sizeof(buf));
@@ -100,7 +100,7 @@ void HomeStrip_build(const StripInput* in, StripLine* l1, StripLine* l2) {
 	if (lines < 2)
 		return;
 
-	// line 2: Most played <title> <time>; before the first computation "…" and no time
+	// line 2: Most played <title> <time>; before the first computation "..." and no time
 	add(l2, STRIP_GREY, "Most played");
 	StripRun* t = add(l2, STRIP_WHITE, "");
 	if (!t)
