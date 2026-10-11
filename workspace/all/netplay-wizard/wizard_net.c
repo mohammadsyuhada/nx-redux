@@ -981,9 +981,10 @@ static int wiz_host_handshake(const WizArgs* a, WizSession* s, int fd,
 		return 1;
 	}
 	// A different emulator core never syncs (MD's PicoDrive vs GPGX, gpSP vs
-	// mGBA), so refuse here and say so on both screens. Over the cable that
-	// ends the host's wait too — no other player can arrive. On WiFi and the
-	// hotspot the lobby stays open for the players who did pick the same folder.
+	// mGBA), so refuse here and say so on both screens. The host keeps waiting
+	// on every mode: on WiFi and the hotspot for the players who did pick the
+	// same folder, over the cable for the same peer, since a phone whose
+	// Emulator is Auto reconnects once with the core this REJECT names.
 	char joiner_caps[WIZ_CAPS_MAX];
 	WizCaps_find(line, joiner_caps, sizeof(joiner_caps));
 	if (WizCaps_coreMismatch(a->caps, joiner_caps)) {
@@ -1000,15 +1001,13 @@ static int wiz_host_handshake(const WizArgs* a, WizSession* s, int fd,
 		WizCaps_coreLabel(core, tag, label, sizeof(label));
 		fprintf(stderr, "netplay: player %d at %s runs core '%s' (%s), we run '%s'; refused\n",
 				player_num, peer_ip, core, tag, a->caps);
-		if (!WizModes_singlePeer(s->mode)) {
+		if (!WizModes_singlePeer(s->mode))
 			snprintf(message, sizeof(message), "A player using\n%s\nwas turned away.", label);
-			wiz_net_notice(message);
-			return 1;
-		}
-		snprintf(message, sizeof(message), "The other player is using\n%s.\n\n%s", label,
-				 WIZ_NET_CORE_HINT);
-		wiz_net_error(message);
-		return -1;
+		else
+			snprintf(message, sizeof(message), "The other player is using\n%s.\n\n%s", label,
+					 WIZ_NET_CORE_HINT);
+		wiz_net_notice(message);
+		return 1;
 	}
 	if (any_game && !wiz_names_equivalent(game, a->game))
 		fprintf(stderr, "netplay: player %d at %s runs '%s' (we run '%s'); joined on request\n",
