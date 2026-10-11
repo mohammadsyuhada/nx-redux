@@ -1414,6 +1414,7 @@ static void ctxRefresh(int root_sel) {
 	emuopts_cap_path[0] = '\0';
 	listArtForget();
 	thumbCacheForgetMisses();
+	HomeArt_forgetAll();
 	MenuTabs_reload(root_sel, MENU_RELOAD_ALL);
 	// a hidden tab's list pushed over the root (its menu offers Refresh Roms too)
 	for (int i = 1; i < stack->count; i++)

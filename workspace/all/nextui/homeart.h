@@ -45,6 +45,8 @@ bool HomeArt_checkAsyncLoaded(void);
 unsigned HomeArt_changes(void);
 // Drop every cached picture of rom_path (after its art was fetched): the next request loads it afresh.
 void HomeArt_forget(const char* rom_path);
+// Drop every cached picture (Refresh Roms: art copied onto the card since must show).
+void HomeArt_forgetAll(void);
 // Stop the worker and free the cache. Safe to call when nothing was loaded.
 void HomeArt_quit(void);
 

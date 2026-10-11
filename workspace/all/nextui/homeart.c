@@ -649,6 +649,28 @@ void HomeArt_forget(const char* rom_path) {
 	SDL_AtomicIncRef(&changes);
 }
 
+// Refresh Roms: art may have been copied onto the card since, and a game without any was cached as its abstract
+// picture (or a miss), so every picture is built again on its next view.
+void HomeArt_forgetAll(void) {
+	if (!mutex)
+		return;
+	SDL_LockMutex(mutex);
+	for (int i = 0; i < HOMEART_CACHE_SIZE; i++) {
+		Slot* s = &slots[i];
+		if (!s->used)
+			continue;
+		if (s->surface) {
+			PLAT_freeSurfaceTexture(s->surface);
+			SDL_FreeSurface(s->surface);
+		}
+		s->surface = NULL;
+		s->used = false;
+		s->gen = ++genCounter;
+	}
+	SDL_UnlockMutex(mutex);
+	SDL_AtomicIncRef(&changes);
+}
+
 void HomeArt_quit(void) {
 	if (worker) {
 		SDL_LockMutex(mutex);
