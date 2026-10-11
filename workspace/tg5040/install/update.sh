@@ -72,7 +72,20 @@ for PSP_PAK in "$SDCARD_PATH/Emus/tg5040/PSP.pak" "$SDCARD_PATH/Emus/tg5050/PSP.
 		PSP_B="${PSP_B##*/}"
 		[ "$PSP_B" = Emus ] && PSP_B=flat
 		mkdir -p "$PSP_SAVES/standalone-backup" 2>/dev/null
-		[ -e "$PSP_SAVES/standalone-backup/$PSP_B" ] || mv "$PSP_MS" "$PSP_SAVES/standalone-backup/$PSP_B" 2>/dev/null
+		# an earlier update's backup is never reused: a fresh -2, -3, ... name
+		PSP_BK="$PSP_SAVES/standalone-backup/$PSP_B"
+		PSP_I=1
+		while [ -e "$PSP_BK" ]; do
+			PSP_I=$((PSP_I + 1))
+			PSP_BK="$PSP_SAVES/standalone-backup/$PSP_B-$PSP_I"
+		done
+		mv "$PSP_MS" "$PSP_BK" 2>/dev/null
+	fi
+	# the pak goes only once nothing of its memory stick is left in it
+	# (save states, settings): a failed move keeps the whole pak instead
+	if [ -n "$(find "$PSP_MS" -type f 2>/dev/null | head -n 1)" ]; then
+		echo "kept the standalone PPSSPP pak ${PSP_PAK#"$SDCARD_PATH"/}: its memory stick could not be backed up"
+		continue
 	fi
 	rm -rf "$PSP_PAK" && echo "removed the standalone PPSSPP pak ${PSP_PAK#"$SDCARD_PATH"/}"
 	rmdir "${PSP_PAK%/*}" 2>/dev/null

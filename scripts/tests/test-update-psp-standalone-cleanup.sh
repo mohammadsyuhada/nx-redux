@@ -80,6 +80,28 @@ for PLAT in tg5040 tg5050; do
 	[ -f "$L/Saves/PSP/TEXTURES/NPJH50001/t.png" ] || fail "$PLAT: leftover textures not carried"
 	[ ! -e "$L/Saves/PSP/standalone-backup" ] || fail "$PLAT: backup made with nothing left to keep"
 
+	# a standalone reinstalled after an earlier update's backup: the new
+	# leftovers (save states, settings) go to a fresh -2 backup, never deleted
+	R="$TMP/rerun-$PLAT"; standalone "$R/Emus/$PLAT/PSP.pak"
+	RMS="$R/Emus/$PLAT/PSP.pak/PPSSPP/.config/ppsspp/PSP"
+	mkdir -p "$RMS/PPSSPP_STATE" "$RMS/SYSTEM" "$R/Saves/PSP/standalone-backup/$PLAT"
+	echo st > "$RMS/PPSSPP_STATE/ULUS10041_1.00_0.ppst"; echo ini2 > "$RMS/SYSTEM/ppsspp.ini"
+	echo old > "$R/Saves/PSP/standalone-backup/$PLAT/marker"
+	SDCARD_PATH="$R" sh -c "$BLOCK" >/dev/null 2>&1 || fail "$PLAT: rerun card failed"
+	[ "$(cat "$R/Saves/PSP/standalone-backup/$PLAT-2/PPSSPP_STATE/ULUS10041_1.00_0.ppst" 2>/dev/null)" = st ] || fail "$PLAT: rerun save state lost"
+	[ "$(cat "$R/Saves/PSP/standalone-backup/$PLAT-2/SYSTEM/ppsspp.ini" 2>/dev/null)" = ini2 ] || fail "$PLAT: rerun settings lost"
+	[ "$(cat "$R/Saves/PSP/standalone-backup/$PLAT/marker")" = old ] || fail "$PLAT: earlier backup touched"
+	[ ! -e "$R/Emus/$PLAT/PSP.pak" ] || fail "$PLAT: rerun pak not removed"
+
+	# the backup move fails (read-only backup dir): the pak and its data stay
+	F="$TMP/failmv-$PLAT"; standalone "$F/Emus/$PLAT/PSP.pak"
+	FMS="$F/Emus/$PLAT/PSP.pak/PPSSPP/.config/ppsspp/PSP"
+	mkdir -p "$FMS/PPSSPP_STATE" "$F/Saves/PSP/standalone-backup"; echo st > "$FMS/PPSSPP_STATE/s.ppst"
+	chmod 555 "$F/Saves/PSP/standalone-backup"
+	SDCARD_PATH="$F" sh -c "$BLOCK" >/dev/null 2>&1 || fail "$PLAT: failed-move card failed"
+	chmod 755 "$F/Saves/PSP/standalone-backup"
+	[ "$(cat "$FMS/PPSSPP_STATE/s.ppst" 2>/dev/null)" = st ] || fail "$PLAT: failed move deleted the memory stick"
+
 	# empty card: no-op, succeeds, creates nothing
 	E="$TMP/empty-$PLAT"; mkdir -p "$E"
 	SDCARD_PATH="$E" sh -c "$BLOCK" >/dev/null 2>&1 || fail "$PLAT: empty card failed"
