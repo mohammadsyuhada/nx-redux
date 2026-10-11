@@ -3256,6 +3256,10 @@ FALLBACK_IMPLEMENTATION void PLAT_setCPUSpeedRange(int min_khz, int max_khz) {
 	(void)min_khz;
 	(void)max_khz; // platform has no cpufreq range control
 }
+FALLBACK_IMPLEMENTATION void PLAT_setGPUShaderBoost(int on, const char* base_governor) {
+	(void)on;
+	(void)base_governor; // fixed GPU clock (tg5040): nothing to boost
+}
 // tg5040: cpu0's cpufreq policy is the only one. tg5050 overrides
 // this to also span the big cluster's policy4 when cpu4 is online.
 FALLBACK_IMPLEMENTATION bool PLAT_getCPUHwRangeKhz(int* min_khz, int* max_khz) {

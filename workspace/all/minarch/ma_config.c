@@ -887,6 +887,14 @@ void setOverclock(int i) {
 		}
 		int lo, hi;
 		CpuProfile_rangeKhz(cpu_profile_min_mhz, cpu_profile_max_mhz, hw_min, hw_max, &lo, &hi);
+		// A pak whose launch.sh exports NX_SHADER_CPU_MAX holds the CPU at the top of the range
+		// while a shader is on: the shader adds CPU work as well as GPU work, and schedutil
+		// ramps too late for it (tg5050 mGBA, lcd-perfect on the little cluster: 34.5% of frames
+		// late on schedutil, 5.4% held at 1416 MHz). Re-read on every menu exit, so a shader
+		// turned on or off in the menu follows.
+		const char* shader_cpu_max = getenv("NX_SHADER_CPU_MAX");
+		if (shader_cpu_max && shader_cpu_max[0] == '1' && config.shaders.options[SH_NROFSHADERS].value > 0)
+			lo = hi;
 		PWR_setCPUSpeedRange(lo, hi);
 		break;
 	}

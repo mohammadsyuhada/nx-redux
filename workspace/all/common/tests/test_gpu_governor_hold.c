@@ -41,6 +41,36 @@ int main(void) {
 	restore = GpuGovHold_leaveMenu(&h);
 	assert(restore && strlen(restore) < sizeof(h.saved));
 
+	// shader boost (an opted-in pak): launch.sh boosted to performance from simple_ondemand
+	GpuGovHold b = {0};
+	// the game starts with a shader on: performance, written at once
+	const char* gov = GpuGovHold_setBoost(&b, 1, "simple_ondemand\n");
+	assert(gov && strcmp(gov, "performance") == 0);
+	// the in-game menu still drops to simple_ondemand, and leaving it boosts again
+	assert(strcmp(GpuGovHold_enterMenu(&b, "performance\n"), "simple_ondemand") == 0);
+	gov = GpuGovHold_leaveMenu(&b);
+	assert(gov && strcmp(gov, "performance") == 0);
+	// shader turned off in the menu: nothing written yet, and leaving restores the base, not the
+	// performance the menu saw on entry
+	GpuGovHold_enterMenu(&b, "performance\n");
+	assert(GpuGovHold_setBoost(&b, 0, "simple_ondemand") == NULL);
+	gov = GpuGovHold_leaveMenu(&b);
+	assert(gov && strcmp(gov, "simple_ondemand") == 0);
+	// back on in the menu: performance once the game resumes
+	GpuGovHold_enterMenu(&b, "simple_ondemand\n");
+	assert(GpuGovHold_setBoost(&b, 1, "simple_ondemand") == NULL);
+	gov = GpuGovHold_leaveMenu(&b);
+	assert(gov && strcmp(gov, "performance") == 0);
+	// off outside a menu: the base, written at once
+	gov = GpuGovHold_setBoost(&b, 0, "simple_ondemand");
+	assert(gov && strcmp(gov, "simple_ondemand") == 0);
+	// a pak whose launch.sh set performance itself (DC/PS/PSP) keeps it with the shader off
+	GpuGovHold p = {0};
+	assert(GpuGovHold_setBoost(&p, 0, "performance") != NULL);
+	GpuGovHold_enterMenu(&p, "performance");
+	gov = GpuGovHold_leaveMenu(&p);
+	assert(gov && strcmp(gov, "performance") == 0);
+
 	printf("test_gpu_governor_hold: ALL PASS\n");
 	return 0;
 }

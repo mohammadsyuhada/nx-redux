@@ -862,6 +862,12 @@ void PLAT_setCPUSpeedAuto(void);
 // policy0 alone when its launch.sh took cpu4 offline — so a pak's range
 // means the same thing on either topology.
 void PLAT_setCPUSpeedRange(int min_khz, int max_khz);
+// A shader turned on or off in a pak that opted in to the GPU shader boost
+// (shared/bin/gpu-shader-boost.sh exports NX_GPU_SHADER_BOOST): tg5050 runs the GPU
+// at the performance governor while `on`, and goes back to `base_governor` (the
+// governor from before the pak's boost) when off; inside a menu speed it applies
+// once the game resumes (gpu_governor_hold.h). tg5040: no-op (fixed GPU clock).
+void PLAT_setGPUShaderBoost(int on, const char* base_governor);
 // Hardware frequency bounds across every cpufreq policy that has an online CPU
 // (cpuinfo_min_freq / cpuinfo_max_freq): the validation bounds for a pak's
 // minarch_cpu_min/max before PLAT_setCPUSpeedRange writes the range to each

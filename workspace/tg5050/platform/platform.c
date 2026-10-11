@@ -466,6 +466,11 @@ static void gpuLeaveMenu(void) {
 	if (governor)
 		putFile(GPU_GOVERNOR_PATH, (char*)governor);
 }
+void PLAT_setGPUShaderBoost(int on, const char* base_governor) {
+	const char* governor = GpuGovHold_setBoost(&gpu_gov_hold, on, base_governor);
+	if (governor)
+		putFile(GPU_GOVERNOR_PATH, (char*)governor);
+}
 
 static void setGovernor(const char* governor) {
 	putFile(GOVERNOR_PATH, (char*)governor);

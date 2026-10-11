@@ -108,6 +108,11 @@ void Config_syncShaders(char* key, int value) {
 		i = SH_SHADERS_PRESET;
 	} else if (exactMatch(key, config.shaders.options[SH_NROFSHADERS].key)) {
 		GFX_setShaders(value);
+		// a pak opted in to the GPU shader boost (gpu-shader-boost.sh): its value is the governor
+		// to go back to with no shader on
+		const char* gpu_base = getenv("NX_GPU_SHADER_BOOST");
+		if (gpu_base && gpu_base[0])
+			PLAT_setGPUShaderBoost(value > 0, gpu_base);
 		i = SH_NROFSHADERS;
 	}
 
