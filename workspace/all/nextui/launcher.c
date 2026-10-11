@@ -218,13 +218,20 @@ int pendingLaunch(void) {
 	char* slash = strrchr(parent, '/');
 	if (slash)
 		*slash = '\0';
+	// Exact row first; the parent folder only when it really is a folder game (a pinned console folder such as
+	// Roms/Ports (PORTS) on Home would otherwise just open as a list and launch nothing).
 	Entry* row = NULL;
-	for (int i = 0; top && i < top->entries->count; i++) {
+	for (int i = 0; top && i < top->entries->count && !row; i++) {
 		Entry* e = top->entries->items[i];
-		if (exactMatch(e->path, path) || (e->type == ENTRY_DIR && exactMatch(e->path, parent))) {
+		if (exactMatch(e->path, path))
 			row = e;
-			break;
-		}
+	}
+	for (int i = 0; top && i < top->entries->count && !row; i++) {
+		Entry* e = top->entries->items[i];
+		char game_file[MAX_PATH];
+		if (e->type == ENTRY_DIR && exactMatch(e->path, parent) &&
+			(hasCue(e->path, game_file) || hasFolderM3u(e->path, game_file)))
+			row = e;
 	}
 	Entry* tmp = row ? NULL : Entry_new(path, ENTRY_ROM);
 	if (!row && !tmp)

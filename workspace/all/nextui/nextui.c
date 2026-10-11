@@ -199,8 +199,11 @@ int main(int argc, char* argv[]) {
 	// launch. Stale = a previous launch never consumed it.
 	unlink(NETPLAY_LAUNCH_PATH);
 
-	if (autoResume())
+	if (autoResume()) {
+		// a Launch Options request left behind must not fire after the resumed game
+		unlink(PENDING_LAUNCH_PATH);
 		return 0; // nothing to do
+	}
 
 	// Lift the CPU cap before InitSettings, not just inside GFX_init: on tg5050
 	// the settings library alone is ~0.45s of the ~1s start-to-first-frame.
