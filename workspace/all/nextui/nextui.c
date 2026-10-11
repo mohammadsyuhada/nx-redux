@@ -359,7 +359,7 @@ int main(int argc, char* argv[]) {
 			if (gsr.dirty)
 				dirty = true;
 			if (gsr.folderbgchanged)
-				folderbgchanged = 1;
+				requestBackgroundReupload();
 			if (gsr.startgame)
 				startgame = true;
 			if (gsr.screen != SCREEN_GAMESWITCHER) {
@@ -380,7 +380,7 @@ int main(int argc, char* argv[]) {
 			if (sr.dirty)
 				dirty = true;
 			if (sr.folderbgchanged)
-				folderbgchanged = 1;
+				requestBackgroundReupload();
 			if (sr.startgame)
 				startgame = true;
 			if (sr.screen != SCREEN_SEARCH) {
@@ -400,7 +400,7 @@ int main(int argc, char* argv[]) {
 			if (glr.animdir != ANIM_NONE)
 				animationdirection = glr.animdir;
 			if (glr.folderbgchanged)
-				folderbgchanged = 1;
+				requestBackgroundReupload();
 		}
 
 		// TG5050: search keyboard may have triggered display recovery (new screen surface)
@@ -570,7 +570,7 @@ int main(int argc, char* argv[]) {
 						if (blackBG)
 							GFX_drawOnLayer(blackBG, 0, 0, screen->w, screen->h, 1.0f, 0,
 											LAYER_BACKGROUND);
-						folderbgchanged = 1;
+						requestBackgroundReupload();
 					}
 					GFX_clearLayers(LAYER_TRANSITION);
 					GFX_clearLayers(LAYER_THUMBNAIL);
@@ -729,7 +729,7 @@ int main(int argc, char* argv[]) {
 				SDL_FreeSurface(tmpOldScreen);
 
 			dirty = false;
-		} else if (folderbgchanged || thumbchanged ||
+		} else if (backgroundLayerPending() ||
 				   (GameList_scrollBusy() && !ContextMenu_isOpen()) ||
 				   (currentScreen == SCREEN_SEARCH &&
 					UI_listViewMarqueeBusy(Search_view()))) {

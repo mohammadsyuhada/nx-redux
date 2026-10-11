@@ -62,12 +62,13 @@ static void gs_rebuildIndices(void) {
 // carousel steps), and re-decoding the full-size PNG on the UI thread each time
 // stutters the carousel — key by source path so we only decode on change.
 static char gs_img_path[MAX_PATH] = {0};
-static SDL_Surface* gs_img_surf = NULL;
+static SDL_Surface* gs_img_surf = NULL; // NULL with gs_img_valid: the path failed to load, not retried every frame
+static bool gs_img_valid = false;
 // rounded corners mutate the cached surface, so apply them once per cache fill
 // (the render runs every dirty frame — battery ticks included)
 
 static SDL_Surface* gs_get_cached_image(const char* path) {
-	if (gs_img_surf && strcmp(gs_img_path, path) == 0)
+	if (gs_img_valid && strcmp(gs_img_path, path) == 0)
 		return gs_img_surf;
 	if (gs_img_surf) {
 		SDL_FreeSurface(gs_img_surf);
@@ -77,8 +78,8 @@ static SDL_Surface* gs_get_cached_image(const char* path) {
 	if (raw)
 		raw = UI_convertSurface(raw, screen);
 	gs_img_surf = raw;
-	strncpy(gs_img_path, path, sizeof(gs_img_path) - 1);
-	gs_img_path[sizeof(gs_img_path) - 1] = '\0';
+	// a path too long to keep whole is never matched again: don't remember it as loaded (or as a miss)
+	gs_img_valid = snprintf(gs_img_path, sizeof(gs_img_path), "%s", path) < (int)sizeof(gs_img_path);
 	return gs_img_surf;
 }
 
