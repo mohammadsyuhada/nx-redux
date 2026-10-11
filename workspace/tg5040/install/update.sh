@@ -152,6 +152,16 @@ if [ -d "$PM_CATALOG" ] && [ -f "$SDCARD_PATH/Emus/shared/PortMaster/version" ];
 	# gl4es's EGL shim in PortMaster/lib broke Xwayland for Weston ports (the
 	# catalog install.sh no longer keeps it); remove it from existing installs.
 	rm -f "$SDCARD_PATH/Emus/shared/PortMaster/lib/libEGL.so.1" 2>/dev/null
+	# The Weston runtime NX Redux used to bundle (files/libs.zip) was a CrossMix
+	# preview (Westonwrap 0.2.8) whose bare `udevadm trigger` unmounted the SD
+	# card. No runtime ships any more: drop the zip and, only when it is still
+	# that exact preview build, the extracted squashfs, so PortMaster downloads
+	# the official one the next time a port needs it.
+	rm -f "$SDCARD_PATH/Emus/shared/PortMaster/files/libs.zip" 2>/dev/null
+	PM_WESTON="$SDCARD_PATH/Emus/shared/PortMaster/libs/weston_pkg_0.2.squashfs"
+	if [ -f "$PM_WESTON" ] && [ "$(md5sum "$PM_WESTON" 2>/dev/null | cut -d' ' -f1)" = 91dc57a0c0a49c8a3af55fc64711e587 ]; then
+		rm -f "$PM_WESTON" && echo "removed the bundled preview Weston runtime"
+	fi
 	# PortMaster is now version_source=internal; refresh the pak-code marker to
 	# the catalog version so Xtras does not show a phantom "update available"
 	# against an old upstream tag left by a pre-migration install (PM_CATALOG is

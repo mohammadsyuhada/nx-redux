@@ -141,6 +141,26 @@ for PLAT in tg5040 tg5050; do
     seed_catalog "$card" "$PLAT"; mark_installed "$card"; seed_stale_tools "$card"
     rc=0; PLATFORM= run_block "$card" >/dev/null || rc=$?
     [ -x "$card/Tools/PortMaster.pak/launch.sh" ] || fail "$PLAT (h): flat pak destroyed with empty PLATFORM"
+
+    # --- case (i): the bundled preview Weston runtime and libs.zip go -------
+    # A fake md5sum hashes a "PREVIEW" squashfs to the preview build's md5.
+    mkdir -p "$TMP/md5bin"
+    printf '#!/bin/sh\nif grep -q PREVIEW "$1"; then h=91dc57a0c0a49c8a3af55fc64711e587; else h=0a761c28877625861d9c9c4326664428; fi\necho "$h  $1"\n' > "$TMP/md5bin/md5sum"
+    chmod +x "$TMP/md5bin/md5sum"
+    for kind in PREVIEW OFFICIAL; do
+        card="$TMP/$PLAT-i-$kind"; mkdir -p "$card/Emus/shared/PortMaster/libs" "$card/Emus/shared/PortMaster/files"
+        seed_catalog "$card" "$PLAT"; mark_installed "$card"
+        echo "$kind" > "$card/Emus/shared/PortMaster/libs/weston_pkg_0.2.squashfs"
+        echo zip > "$card/Emus/shared/PortMaster/files/libs.zip"
+        rc=0; PATH="$TMP/md5bin:$PATH" run_block "$card" >/dev/null || rc=$?
+        [ "$rc" = 0 ] || fail "$PLAT (i $kind): block exited $rc"
+        [ ! -e "$card/Emus/shared/PortMaster/files/libs.zip" ] || fail "$PLAT (i $kind): files/libs.zip kept"
+        if [ "$kind" = PREVIEW ]; then
+            [ ! -e "$card/Emus/shared/PortMaster/libs/weston_pkg_0.2.squashfs" ] || fail "$PLAT (i): preview Weston runtime kept"
+        else
+            [ -f "$card/Emus/shared/PortMaster/libs/weston_pkg_0.2.squashfs" ] || fail "$PLAT (i): official Weston runtime removed"
+        fi
+    done
 done
 
 [ "$FAIL" = 0 ] && echo "test-update-portmaster-refresh: OK"

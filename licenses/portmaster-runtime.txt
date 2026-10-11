@@ -1,7 +1,7 @@
 PortMaster runtime (third-party programs, libraries, Python packages, fonts and data bundled with the PortMaster pak)
-Source: https://github.com/ben16w/minui-portmaster (files/bin.tar.gz, files/lib.tar.gz, PortMaster pylibs), https://github.com/PortsMaster/PortMaster-GUI (pylibs, runtimes), https://github.com/binarycounter/Westonpack (weston_pkg); per-component upstreams in the table
+Source: https://github.com/ben16w/minui-portmaster (files/bin.tar.gz, files/lib.tar.gz, PortMaster pylibs), https://github.com/PortsMaster/PortMaster-GUI (pylibs, runtimes); per-component upstreams in the table
 Version: per component (see table; versions from file names and embedded version strings)
-Shipped as: Emus/shared/PortMaster/files/bin.zip, lib.zip, libs.zip (weston_pkg_0.2.squashfs), pylibs.zip, gamecontrollerdb_*.txt, ca-certificates.crt, disable_python_function.py (card root; from skeleton/BASE/Emus/shared/PortMaster/files/)
+Shipped as: Emus/shared/PortMaster/files/bin.zip, lib.zip, pylibs.zip, gamecontrollerdb_*.txt, ca-certificates.crt, disable_python_function.py (card root; from skeleton/BASE/Emus/shared/PortMaster/files/)
 License: mixed (GPL-2.0, GPL-3.0, LGPL-2.0/2.1/3.0, MIT, BSD-2/3-Clause, ISC, Zlib, Apache-2.0, PSF-2.0, MPL-2.0, BSL-1.0, ICU, OpenSSL, FTL, IJG, libpng-2.0, Info-ZIP, OFL-1.1, Bitstream-Vera, public domain, and PROPRIETARY vendor GPU blobs); see table and texts below
 
 IMPORTANT NOTES (found while auditing)
@@ -11,11 +11,9 @@ IMPORTANT NOTES (found while auditing)
    FFmpeg's LICENSE.md says such a build "is unredistributable". It is used by mpv/libmpv (also built as GPL).
 2. lib/libGLESv1_CM.so.1 and lib/libGLUES.so.0 are Imagination Technologies PowerVR (Rogue GE8300)
    vendor driver binaries (they link libIMGegl.so / libsrv_um.so). No redistribution license was found.
-3. libs.zip/weston_pkg_0.2.squashfs contains a file named "core" at its root: an ELF core dump of
-   ./seatd (368 KB). It is not needed at runtime and may contain memory contents of the build machine.
-4. Most binaries come pre-built from upstream packs; corresponding source code for the GPL/LGPL parts
+3. Most binaries come pre-built from upstream packs; corresponding source code for the GPL/LGPL parts
    must be obtained from the upstream projects listed (EmuELEC/CoreELEC, Debian/Ubuntu, Alpine for musl, etc.).
-5. bin.zip carries its own license files (bash.LICENSE GPL-3.0, jq.LICENSE, mksquashfs.LICENSE,
+4. bin.zip carries its own license files (bash.LICENSE GPL-3.0, jq.LICENSE, mksquashfs.LICENSE,
    unsquashfs.LICENSE, 7zzs.aarch64.LICENSE) and pylibs.zip carries exlibs/LICENSE-* and pylibs/LICENSE-*;
    these are reproduced verbatim below.
 
@@ -105,49 +103,6 @@ Zstandard (libzstd) | 1.4.4 | lib/libzstd.so.1 | BSD-3-Clause OR GPL-2.0-only (B
 CPython standard library (python3.11/, incl. lib-dynload extension modules, test suite, idlelib, tkinter, lib2to3, ensurepip wheels) and pkgconfig files | 3.11.8 | lib/python3.11/**, lib/pkgconfig/python*.pc | PSF-2.0 (with third-party notices listed in the CPython LICENSE; ensurepip bundles pip and setuptools wheels) | https://www.python.org/ | Copyright (c) 2001-2024 Python Software Foundation
 pip | 22.3 and 24.0 | lib/python3.11/site-packages/pip (+ pip-22.3.dist-info, pip-24.0.dist-info) | MIT (vendored deps: CacheControl Apache-2.0, certifi MPL-2.0, chardet LGPL-2.1-or-later, colorama BSD-3-Clause, distlib PSF-2.0, distro Apache-2.0, idna BSD-3-Clause, msgpack Apache-2.0, packaging Apache-2.0 OR BSD-2-Clause, platformdirs MIT, pygments BSD-2-Clause, pyparsing MIT, pyproject-hooks MIT, requests Apache-2.0, resolvelib ISC, rich MIT, six MIT, tenacity Apache-2.0, tomli MIT, truststore MIT, typing_extensions PSF-2.0, urllib3 MIT, webencodings BSD-3-Clause) | https://pip.pypa.io/ | Copyright (c) 2008-present The pip developers
 setuptools (incl. pkg_resources, _distutils_hack, distutils-precedence) | 65.5.0 | lib/python3.11/site-packages/setuptools, pkg_resources, _distutils_hack | MIT | https://github.com/pypa/setuptools | Copyright Jason R. Coombs
-
-== libs.zip (weston_pkg_0.2.squashfs, "Westonpack" runtime) ==
-Westonpack (wrapper scripts, wp_weston launcher, tools/findlib, westonkill, drmd) | 0.2 (wp_version=270) | libs/weston_pkg_0.2.squashfs: westonwrap*.sh, wp_weston, tools/* | MIT | https://github.com/binarycounter/Westonpack | Copyright (c) 2025 BinaryCounter
-CrustyEGL (libcrusty, libCRU, crusty_* EGL/GBM/GLX shims) | 0.2 | lib_aarch64/libcrusty.so, lib_*/graphics/crusty_* | MIT (part of Westonpack; no separate license found) | https://github.com/binarycounter/Westonpack | Copyright (c) 2025 BinaryCounter
-Weston (wp_weston, libweston-14, libexec_weston, desktop/kiosk shells, weston-terminal, weston-keyboard) | 13.0.90 (libweston-14 dev snapshot) | lib_*/libweston-14*, lib_*/weston/*, libexec/*, tools/weston-terminal | MIT | https://gitlab.freedesktop.org/wayland/weston | Copyright 2008-2012 Kristian Hogsberg; 2010-2012 Intel Corporation and others
-Xwayland, xkbcomp, xdpyinfo (X.Org) | unknown | bin/Xwayland, bin/xkbcomp, tools/xdpyinfo | MIT/X11 | https://gitlab.freedesktop.org/xorg | X.Org Foundation and contributors
-X.Org client libraries (libICE, libSM, libX11, libX11-xcb, libXau, libXaw, libXcomposite, libXcursor, libXdamage, libXdmcp, libXext, libXfixes, libXfont2, libXft, libXi, libXinerama, libXmu, libXpm, libXrandr, libXrender, libXss, libXt, libXtst, libXxf86dga, libXxf86vm, libfontenc, libxkbfile, libxshmfence, libxcb-*) | various | lib_aarch64/, lib_armhf/ | MIT/X11 | https://gitlab.freedesktop.org/xorg/lib | X Consortium, The Open Group, X.Org Foundation and others
-Wayland (libwayland-client/-server/-cursor/-egl) | unknown | lib_*/libwayland-*, lib_aarch64/extra_wayland/ | MIT | https://gitlab.freedesktop.org/wayland/wayland | Copyright 2008-2012 Kristian Hogsberg; 2010-2012 Intel Corporation and others
-libinput (+ quirks data) | 1.25.0 | lib_*/libinput.so.10, share/libinput/ | MIT | https://gitlab.freedesktop.org/libinput/libinput | Copyright 2006-2009 Simon Thum; 2008-2012 Kristian Hogsberg; Red Hat and others
-seatd / libseat | 0.8.0 | seatd, lib_*/libseat.so.1 | MIT | https://git.sr.ht/~kennylevinsen/seatd | Copyright 2020 Kenny Levinsen
-libxkbcommon (+ xkeyboard-config data in share/xkb, share/X11/xkb) | unknown | lib_*/libxkbcommon*.so.0, share/xkb, share/X11/xkb | MIT and X11-style (libxkbcommon LICENSE); xkeyboard-config: MIT/X11-style | https://xkbcommon.org/ | Various (see LICENSE)
-libdecor | unknown | lib_aarch64/libdecor-0.so* | MIT | https://gitlab.freedesktop.org/libdecor/libdecor | Copyright libdecor contributors
-pixman | 0.38.4 | lib_*/libpixman-1.so.0 | MIT | https://pixman.org/ | Copyright 1987-2017 various (see COPYING)
-cairo | 1.16.0 | lib_*/libcairo.so.2 | LGPL-2.1-only OR MPL-1.1 (LGPL-2.1 elected) | https://www.cairographics.org/ | Copyright Carl Worth, Red Hat, Inc. and others
-Pango | 1.44.7 | lib_*/libpango*-1.0.so.0 | LGPL-2.1-or-later | https://pango.gnome.org/ | Copyright Red Hat Software, Owen Taylor and others
-HarfBuzz, FreeType, Fontconfig, Graphite2, libpng, libjpeg-turbo, libdrm, libunistring, OpenSSL 1.1, libxcb (also in lib.zip, see above) | various | lib_aarch64/, lib_armhf/ | as listed above | see above | see above
-FriBidi | unknown | lib_*/libfribidi.so.0 | LGPL-2.1-or-later | https://github.com/fribidi/fribidi | Copyright Behdad Esfahbod, Dov Grobgeld and others
-libthai, libdatrie | unknown | lib_*/libthai.so.0, lib_*/libdatrie.so.1 | LGPL-2.1-or-later | https://linux.thai.net/projects/libthai | Copyright Theppitak Karoonboonyanan and others
-libepoxy | unknown | lib_*/libepoxy.so.0 | MIT | https://github.com/anholt/libepoxy | Copyright 2013 Intel Corporation and others
-libffi | 3.3 (libffi.so.7) and 3.2 (libffi.so.6) | lib_*/libffi.so.* | MIT | https://sourceware.org/libffi/ | Copyright (c) 1996-2026 Anthony Green, Red Hat, Inc and others
-libwebp | unknown (soname 6) | lib_*/libwebp.so.6 | BSD-3-Clause (+ additional patent grant) | https://chromium.googlesource.com/webm/libwebp | Copyright (c) 2010, Google Inc.
-MIT Kerberos (libgssapi_krb5, libkrb5, libk5crypto, libkrb5support) | unknown | lib_*/libgssapi_krb5.so.2, libkrb5.so.3, libk5crypto.so.3, libkrb5support.so.0 | MIT-style (krb5 NOTICE, multiple notices) | https://web.mit.edu/kerberos/ | Copyright (C) 1985-2026 by the Massachusetts Institute of Technology and others
-keyutils (libkeyutils) | unknown | lib_*/libkeyutils.so.1 | LGPL-2.1-or-later | https://git.kernel.org/pub/scm/linux/kernel/git/dhowells/keyutils.git | Copyright Red Hat, Inc.
-com_err (e2fsprogs) | unknown | lib_*/libcom_err.so.2 | MIT-style (MIT/Athena) | https://e2fsprogs.sourceforge.net/ | Copyright 1987, 1988 by the Student Information Processing Board of MIT
-libcap-ng | unknown | lib_*/libcap-ng.so.0 | LGPL-2.1-or-later | https://people.redhat.com/sgrubb/libcap-ng/ | Copyright Red Hat, Inc.
-libaudit (audit userspace) | unknown | lib_aarch64/libaudit.so.1 | LGPL-2.1-or-later | https://github.com/linux-audit/audit-userspace | Copyright Red Hat, Inc.
-Linux-PAM (libpam) | unknown | lib_*/libpam.so.0 | BSD-3-Clause OR GPL-2.0-or-later (BSD elected) | https://github.com/linux-pam/linux-pam | Copyright Andrew G. Morgan and others
-libbsd | unknown | lib_*/libbsd.so.0 | BSD-3-Clause, BSD-2-Clause, ISC, MIT, Beerware and public domain (libbsd COPYING) | https://libbsd.freedesktop.org/ | Various (see COPYING)
-FUSE 2 (libfuse) | 2.x | lib_*/libfuse.so.2 | LGPL-2.1-only | https://github.com/libfuse/libfuse | Copyright (C) 2001-2007 Miklos Szeredi
-mtdev | unknown | lib_*/libmtdev.so.1 | MIT | https://bitmath.org/code/mtdev/ | Copyright (C) 2010 Henrik Rydberg and others
-GNU Nettle/Hogweed | 3.5 (soname 7) / hogweed 5 | lib_*/libnettle.so.7, lib_*/libhogweed.so.5 | LGPL-3.0-or-later OR GPL-2.0-or-later | https://www.lysator.liu.se/~nisse/nettle/ | Copyright (C) Niels Moller and others
-CUPS client library (libcups) | 2.3.1 | lib_aarch64/libcups.so | Apache-2.0 (CUPS 2.3+, with GPL-2.0/LGPL-2.0 linking exceptions) | https://openprinting.github.io/cups/ | Copyright 2007-2019 Apple Inc.
-Mesa GLU (libGLU) and Mesa X11 stubs (graphics/mesa_x11_stub) | unknown | lib_*/libGLU.so.1, lib_*/graphics/mesa_x11_stub/* | SGI-B-2.0 (GLU) / MIT (Mesa) | https://gitlab.freedesktop.org/mesa/glu | Copyright (C) 1991-2000 Silicon Graphics, Inc.; Mesa authors
-gl4es and libglvnd variants (graphics/gl4es_*, core4es_glxpass, extra_fakeglx) | unknown | lib_*/graphics/*, lib_aarch64/extra_fakeglx/ | MIT (gl4es); MIT-style (libglvnd) | https://github.com/ptitSeb/gl4es | see gl4es / libglvnd above
-xtrace | 1.4.0 | tools/xtrace, share/xtrace/*.proto | GPL-2.0 (per Debian packaging; no text fetched separately, GPL-2.0 text above) | https://salsa.debian.org/debian/xtrace | Copyright (C) 2005-2011 Bernhard R. Link
-DejaVu fonts | unknown | share/fonts/truetype/dejavu/*.ttf | Bitstream-Vera AND public domain (DejaVu changes) AND Arev notice | https://dejavu-fonts.github.io/ | Copyright (c) 2003 Bitstream, Inc.; Arev (c) 2006 Tavmjong Bah
-Hack font | unknown | share/fonts/truetype/hack/*.ttf | MIT AND Bitstream-Vera (Hack LICENSE.md) | https://sourcefoundry.org/hack/ | Copyright 2018 Source Foundry Authors
-Noto Mono | unknown | share/fonts/truetype/noto/NotoMono-Regular.ttf | OFL-1.1 | https://notofonts.github.io/ | Copyright Google Inc. / The Noto Project Authors
-Charis SIL Bold | unknown | share/fonts/truetype/CharisSILB.ttf | OFL-1.1 | https://software.sil.org/charis/ | Copyright SIL International
-X11 bitmap fonts (100dpi, misc) and font encodings | unknown | share/fonts/X11/** | MIT/X11-style and public domain (per-font notices in the X.Org font packages) | https://gitlab.freedesktop.org/xorg/font | Various (Adobe, Bitstream, Digital, Sun, X Consortium and others)
-Adwaita cursor/icon theme | unknown | share/icons/Adwaita/** | LGPL-3.0-only OR CC-BY-SA-3.0 | https://gitlab.gnome.org/GNOME/adwaita-icon-theme | GNOME Project
-Fontconfig configuration files | unknown | fonts/fonts.conf, fonts/conf.avail/* | MIT-style (fontconfig COPYING) | https://www.freedesktop.org/wiki/Software/fontconfig/ | Keith Packard and others
-Weston demo images | unknown | data/*.png, data/*.svg | MIT (Weston) | https://gitlab.freedesktop.org/wayland/weston | Weston authors
 
 == pylibs.zip (Python libraries used by PortMaster) ==
 PortMaster GUI libraries (harbourmaster, pugscene, pugtheme, utility, default_theme, locales) | unknown | pylibs/harbourmaster/, pylibs/pug*.py, pylibs/utility.py, pylibs/default_theme/, pylibs/locales/ | MIT | https://github.com/PortsMaster/PortMaster-GUI | Copyright (c) 2023-2025 Jacob (see licenses/portmaster.txt)
@@ -10639,29 +10594,6 @@ DEALINGS IN THE SOFTWARE.
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
-
-==== Westonpack LICENSE | https://raw.githubusercontent.com/binarycounter/Westonpack/main/LICENSE ====
-MIT License
-
-Copyright (c) 2025 BinaryCounter
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 
 ==== DejaVu fonts LICENSE (Bitstream Vera + Arev) | https://raw.githubusercontent.com/dejavu-fonts/dejavu-fonts/master/LICENSE ====
 Fonts are (c) Bitstream (see below). DejaVu changes are in public domain.

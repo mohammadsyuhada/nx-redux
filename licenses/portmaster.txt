@@ -1,7 +1,7 @@
 PortMaster (PortMaster-GUI) and MinUI PortMaster pak
 Source: https://github.com/PortsMaster/PortMaster-GUI (PortMaster); https://github.com/ben16w/minui-portmaster (MinUI/NextUI pak that bundles the runtime below)
 Version: unknown (PortMaster Python libraries in pylibs.zip and the bin/lib runtime come from a minui-portmaster release; the PortMaster app itself is downloaded at install time by Xtras from PortsMaster/PortMaster-GUI releases)
-Shipped as: Emus/shared/PortMaster/files/pylibs.zip (pylibs/harbourmaster, pylibs/pugscene.py, pylibs/pugtheme.py, pylibs/utility.py, pylibs/default_theme, pylibs/locales), Emus/shared/PortMaster/files/{bin,lib,libs}.zip, disable_python_function.py, ca-certificates.crt (from skeleton/BASE/Emus/shared/PortMaster/files/). Third-party components inside these zips are listed in portmaster-runtime.txt.
+Shipped as: Emus/shared/PortMaster/files/pylibs.zip (pylibs/harbourmaster, pylibs/pugscene.py, pylibs/pugtheme.py, pylibs/utility.py, pylibs/default_theme, pylibs/locales), Emus/shared/PortMaster/files/{bin,lib}.zip, disable_python_function.py, ca-certificates.crt (from skeleton/BASE/Emus/shared/PortMaster/files/). Third-party components inside these zips are listed in portmaster-runtime.txt.
 License: MIT (PortMaster-GUI); MIT (minui-portmaster); pylibs/pySDL2gui.py is Apache-2.0 (pylibs/LICENSE-port_gui.txt, full Apache-2.0 text in portmaster-runtime.txt)
 
 ==== PortMaster-GUI: LICENSE (https://raw.githubusercontent.com/PortsMaster/PortMaster-GUI/main/LICENSE) ====

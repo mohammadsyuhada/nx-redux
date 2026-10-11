@@ -12,7 +12,7 @@
 # first open). What lands where:
 #   - PortMaster.zip (pugwash GUI)  -> Emus/shared/PortMaster/ (upstream's
 #     own PortMaster/ zip root, extracted into Emus/shared/)
-#   - runtime deps (bin/lib/libs/pylibs zips, cert, patch helper) already
+#   - runtime deps (bin/lib/pylibs zips, cert, patch helper) already
 #     ship on every card in Emus/shared/PortMaster/files/ (skeleton BASE) -
 #     extracted/copied into the runtime tree here, exactly as the old elf's
 #     extract_deps() did (compat-lib quarantine, unversioned .so copies,
@@ -180,7 +180,7 @@ EOF
 if ! command -v "$NX_EXTRAS_UNZIP" >/dev/null 2>&1; then
     fail "system unzip tool missing - update or reinstall NX Redux, then retry"
 fi
-for f in bin.zip lib.zip libs.zip pylibs.zip ca-certificates.crt disable_python_function.py; do
+for f in bin.zip lib.zip pylibs.zip ca-certificates.crt disable_python_function.py; do
     [ -f "$PM_FILES/$f" ] || fail "bundled runtime files missing ($f) - reinstall the NX Redux BASE files, then retry"
 done
 for f in launch.sh ports_launch.sh; do
@@ -219,12 +219,12 @@ echo "Extracting libraries..."
 mkdir -p "$PM_DIR/lib"
 extract "$PM_FILES/lib.zip" "$PM_DIR/lib" || fail "could not extract bundled libraries"
 
-echo "@75 Extracting additional libraries..."
-echo "Extracting additional libraries..."
+# Runtimes (Weston, Java, Godot, Mono...) go to libs/: PortMaster downloads
+# each one when a port that needs it is installed, and a port's launcher
+# fetches it at launch if it is missing. None is bundled.
 mkdir -p "$PM_DIR/libs"
-extract "$PM_FILES/libs.zip" "$PM_DIR/libs" || fail "could not extract additional libraries"
 
-echo "@85 Extracting Python libraries..."
+echo "@80 Extracting Python libraries..."
 echo "Extracting Python libraries..."
 # pylibs.zip carries exlibs/ and pylibs/ at its root
 extract "$PM_FILES/pylibs.zip" "$PM_DIR" || fail "could not extract Python libraries"

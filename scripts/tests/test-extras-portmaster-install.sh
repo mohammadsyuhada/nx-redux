@@ -41,7 +41,7 @@ echo 'pugwash-gui' > "$FIX/PortMaster/pugwash"
 # wrapper-generation block actually runs on the host; gzip is a "real"
 # pre-existing binary the wrapper pass must NOT clobber.
 DEPS="$TMP/deps"
-mkdir -p "$DEPS/bin" "$DEPS/lib" "$DEPS/libs" "$DEPS/py/pylibs/harbourmaster" "$DEPS/py/exlibs"
+mkdir -p "$DEPS/bin" "$DEPS/lib" "$DEPS/py/pylibs/harbourmaster" "$DEPS/py/exlibs"
 cat > "$DEPS/bin/busybox" <<'EOF'
 #!/usr/bin/env bash
 [ "$1" = "--list" ] && printf 'ls\nsh\ngzip\n'
@@ -50,12 +50,10 @@ echo 'real-gzip-binary'  > "$DEPS/bin/gzip"
 echo 'lib-payload'       > "$DEPS/lib/libfoo.so.1"
 echo 'gpu-driver'        > "$DEPS/lib/libEGL.so.1"
 echo 'newer-glib'        > "$DEPS/lib/libglib-2.0.so.0"
-echo 'libs-payload'      > "$DEPS/libs/marker-libs.txt"
 echo 'hm-module'         > "$DEPS/py/pylibs/harbourmaster/marker.py"
 echo 'exlib'             > "$DEPS/py/exlibs/marker.txt"
 (cd "$DEPS/bin"  && zip -qr "$TMP/bin.zip" .)
 (cd "$DEPS/lib"  && zip -qr "$TMP/lib.zip" .)
-(cd "$DEPS/libs" && zip -qr "$TMP/libs.zip" .)
 (cd "$DEPS/py"   && zip -qr "$TMP/pylibs.zip" pylibs exlibs)
 
 sha() { shasum -a 256 "$1" | cut -d' ' -f1; }
@@ -87,7 +85,7 @@ EOF
 SD="$TMP/sd"
 seed_base_files() {
   mkdir -p "$SD/Emus/shared/PortMaster/files"
-  cp "$TMP/bin.zip" "$TMP/lib.zip" "$TMP/libs.zip" "$TMP/pylibs.zip" "$SD/Emus/shared/PortMaster/files/"
+  cp "$TMP/bin.zip" "$TMP/lib.zip" "$TMP/pylibs.zip" "$SD/Emus/shared/PortMaster/files/"
   echo 'certs'    > "$SD/Emus/shared/PortMaster/files/ca-certificates.crt"
   echo 'py-patch' > "$SD/Emus/shared/PortMaster/files/disable_python_function.py"
 }
@@ -184,8 +182,11 @@ if run_install > "$TMP/log1.txt" 2>&1; then pass "fresh install exits 0"
 else fail "fresh install exited non-zero: $(tail -3 "$TMP/log1.txt")"; fi
 [ "$(cat "$PM/pugwash" 2>/dev/null)" = "pugwash-gui" ] \
   && pass "pugwash extracted" || fail "pugwash missing"
-[ -f "$PM/bin/busybox" ] && [ -f "$PM/lib/libfoo.so.1" ] && [ -f "$PM/libs/marker-libs.txt" ] \
-  && pass "bin/lib/libs deps extracted" || fail "bin/lib/libs deps missing"
+[ -f "$PM/bin/busybox" ] && [ -f "$PM/lib/libfoo.so.1" ] \
+  && pass "bin/lib deps extracted" || fail "bin/lib deps missing"
+# No runtime is bundled: libs/ exists for PortMaster's downloads but is empty.
+[ -d "$PM/libs" ] && [ -z "$(ls -A "$PM/libs")" ] \
+  && pass "libs/ created empty (runtimes are PortMaster downloads)" || fail "libs/ missing or prefilled"
 [ -f "$PM/pylibs/harbourmaster/marker.py" ] && [ -f "$PM/exlibs/marker.txt" ] \
   && pass "pylibs extracted to runtime root" || fail "pylibs missing"
 [ "$(cat "$PM/ssl/certs/ca-certificates.crt" 2>/dev/null)" = "certs" ] \
