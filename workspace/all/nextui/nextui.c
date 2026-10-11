@@ -385,8 +385,12 @@ int main(int argc, char* argv[]) {
 				startgame = true;
 			if (sr.screen != SCREEN_SEARCH) {
 				currentScreen = sr.screen;
-				if (currentScreen == SCREEN_GAMELIST)
+				if (currentScreen == SCREEN_GAMELIST) {
 					animationdirection = SLIDE_RIGHT;
+					// Search's per-row readyResume left the shared resume state on its last result; recompute it
+					// for the list's own selection, or the root's hint shows that result's X RESUME
+					readyResume(top->entries->count > 0 ? top->entries->items[top->selected] : NULL);
+				}
 			}
 		} else if (!ContextMenu_isOpen()) {
 			bool was_backdrop = RowView_hasPicture();
