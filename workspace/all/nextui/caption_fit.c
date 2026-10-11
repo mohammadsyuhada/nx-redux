@@ -63,14 +63,17 @@ bool CaptionFit_split(const InfoSeg* segs, int n, int avail, int sep_w, int trop
 		return false;
 	memset(out, 0, sizeof(*out));
 	out->head_n = n > 0 ? n : 0;
-	if (!segs || !measure || n < 2 || avail <= 0 || free_lines <= 0)
-		return false; // nothing before Next (or no Next), or no free line: no split
+	if (!segs || !measure || n < 1 || avail <= 0 || free_lines <= 0)
+		return false; // an empty row, or no free line: no split
 	if (segs[n - 1].kind != INFO_SEG_NEXT)
 		return false;
 	if (CaptionFit_rowWidth(segs, n, sep_w, trophy_w, measure, ctx) <= avail)
 		return false; // it fits
 
-	int lines = free_lines < CAPTION_FIT_NEXT_LINES ? free_lines : CAPTION_FIT_NEXT_LINES;
+	// Next alone on its row (a Carousel's own Next line) wraps from the row's own line into the free ones
+	int lines = free_lines + (n == 1);
+	if (lines > CAPTION_FIT_NEXT_LINES)
+		lines = CAPTION_FIT_NEXT_LINES;
 	const char* p = segs[n - 1].text;
 	size_t min_bytes = strncmp(p, NEXT_PREFIX, strlen(NEXT_PREFIX)) == 0 ? strlen(NEXT_PREFIX) : 0;
 	int made = 0;

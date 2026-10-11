@@ -56,7 +56,6 @@
 #include "menutabs.h"
 #include "ui_font.h"
 #include "row_model.h"
-#include "stack_model.h"
 #include "shortcuts.h"
 #include "stack_model.h"
 #include "tiles.h"
@@ -189,13 +188,12 @@ static struct {
 static struct {
 	char key[96];
 	SDL_Surface* s;
-	int sel;				// the selection the place was worked out for (-1 = none)
-	int y_from, y_to;		// Consoles: the line's top (px), gliding from → to
-	const SDL_Surface* art; // unused (the logo is now known by its height: art_h)
-	int art_w, art_h;		// Consoles: art_h the logo height y_to was worked out for (-1 = none, the name)
-	int off;				// Collections: the line's centre below the item's centre, at the selected size (px)
-	bool fade_pending;		// Collections: the fade starts when the selection's count is first known
-	bool pending;			// Consoles: the selected logo is still being decoded (no line until it lands)
+	int sel;		   // the selection the place was worked out for (-1 = none)
+	int y_from, y_to;  // Consoles: the line's top (px), gliding from → to
+	int art_h;		   // Consoles: the logo height y_to was worked out for (-1 = none, the name)
+	int off;		   // Collections: the line's centre below the item's centre, at the selected size (px)
+	bool fade_pending; // Collections: the fade starts when the selection's count is first known
+	bool pending;	   // Consoles: the selected logo is still being decoded (no line until it lands)
 	Tween glide, fade;
 } cnt = {.sel = -1};
 
@@ -210,6 +208,7 @@ typedef struct {
 	SDL_Rect ink;  // the part with any alpha: only it is blitted (the rest of the block is clear)
 	int content_h; // the lines' height as laid out (px; ≤ the surface's)
 	unsigned stamp;
+	bool used; // the key is set (s may be NULL: a remembered empty or failed one, not made again every frame)
 } CaptionSlot;
 static CaptionSlot caption_slots[CAPTION_SLOTS];
 static unsigned caption_clock = 0;
@@ -219,7 +218,8 @@ static CaptionSlot* cap_cur = &caption_slots[0];
 // or trophies landing after the selection did would otherwise make the caption in that frame, a late one): it shows
 // for a frame or two while the new one is made between frames (cap_refresh), then a redraw shows it (cap_redraw).
 static bool cap_allow_stale = false, cap_refresh = false, cap_redraw = false;
-static Uint32 cap_refresh_at = 0; // when the older one first stood in: past CAP_STALE_MS the frame makes it after all
+static Uint32 cap_refresh_at = 0;	// when the older one first stood in: past CAP_STALE_MS the frame makes it after all
+static Uint32 cap_refresh_look = 0; // whose (the hash of its key up to the name: the game and look) cap_refresh_at is
 #define CAP_STALE_MS 250
 
 static void captionsClear(void) {
@@ -274,7 +274,14 @@ static RowKind currentKind(void) {
 	}
 	if (GameList_currentStyle() == MENU_STYLE_CAROUSEL)
 		return ROW_CAROUSEL; // a game list's tile row
-	if (Shortcuts_isInToolsFolder(top->path))
+	// whether the list is the Tools listing, once per list (a string test on its path, asked several times a frame)
+	static unsigned tools_top = 0;
+	static bool tools_list = false;
+	if (top->serial != tools_top) {
+		tools_top = top->serial;
+		tools_list = Shortcuts_isInToolsFolder(top->path);
+	}
+	if (tools_list)
 		return ROW_BACKDROP_TOOL; // the Tools listing
 	return ROW_BACKDROP_BOX;	  // a game list
 }
@@ -293,14 +300,18 @@ static int captionNameLines(const SDL_Surface* screen, RowKind k) {
 	return screen && screen->w * 2 > screen->h * 3 ? 1 : 2;
 }
 
+static float carouselSp(TextPx t, bool vertical, float fallback_sp);
+
 // The caption's reserved height (px): the Carousel's name lines + the info line; the Backdrop's name's one line +
 // two info rows. With Layouts > Extra info hidden, the name's lines alone (no info is drawn: no room kept for it).
+// Measured in the sizes the caption is drawn in (a game list's: TEXT_CAROUSEL_GAME_*, as capNameSp / capInfoSp), so the
+// block centres as drawn.
 static int captionReserve(const SDL_Surface* screen, RowKind k, CapKind c) {
 	if (c == CAP_NONE)
 		return 0;
-	TTF_Font* fn = UIFont_get(CAPTION_NAME_SP, false);
+	TTF_Font* fn = UIFont_get(carouselSp(TEXT_CAROUSEL_GAME_NAME, false, CAPTION_NAME_SP), false);
 	int nh = fn ? TTF_FontHeight(fn) : 0;
-	TTF_Font* fi = UIFont_get(CAPTION_INFO_SP, false);
+	TTF_Font* fi = UIFont_get(carouselSp(TEXT_CAROUSEL_GAME_INFO, false, CAPTION_INFO_SP), false);
 	int ih = fi ? TTF_FontHeight(fi) : 0;
 	// a Carousel's info lines per device (ui_text_sizes.h CAROUSEL_CAPTION_INFO_LINES)
 	int info_lines = (int)TextPx_for(CAROUSEL_CAPTION_INFO_LINES, UIScale_deviceIndex(UI_DEVICE_NAME));
@@ -994,10 +1005,53 @@ static int slotContentPx(const RowGeo* g, Entry* e, TileKind tk) {
 	return px;
 }
 
+// The slots' widths (dp) per index of the current list, worked out on first sight: Row_itemDxVar asks for every slot up
+// to an item's, for every item a frame, and slotContentPx's lookup is a scan of its slots. Keyed as the kinds (the
+// Directory serial, the tab generation, the count) and on the slot's size and scale.
+static float* slot_dp = NULL;
+static int slot_dp_cap = 0, slot_dp_n = -1, slot_dp_w = 0, slot_dp_h = 0;
+static unsigned slot_dp_top = 0, slot_dp_gen = 0;
+static float slot_dp_k = 0, slot_dp_px = 0;
+
+static void slotDpSync(const RowGeo* g, int n) {
+	float px = pxPerDp();
+	if (top->serial == slot_dp_top && MenuTabs_generation() == slot_dp_gen && n == slot_dp_n &&
+		g->full_w == slot_dp_w && g->full_h == slot_dp_h && g->k == slot_dp_k && px == slot_dp_px)
+		return;
+	slot_dp_top = top->serial, slot_dp_gen = MenuTabs_generation(), slot_dp_n = n;
+	slot_dp_w = g->full_w, slot_dp_h = g->full_h, slot_dp_k = g->k, slot_dp_px = px;
+	if (n > slot_dp_cap) {
+		float* d = realloc(slot_dp, sizeof(float) * (size_t)n);
+		if (!d) {
+			free(slot_dp);
+			slot_dp = NULL;
+			slot_dp_cap = 0;
+			return;
+		}
+		slot_dp = d;
+		slot_dp_cap = n;
+	}
+	for (int i = 0; slot_dp && i < n; i++)
+		slot_dp[i] = -1.0f;
+}
+
+static void slotDpFree(void) {
+	free(slot_dp);
+	slot_dp = NULL;
+	slot_dp_cap = 0;
+	slot_dp_n = -1;
+	slot_dp_top = 0;
+}
+
 static float slotWidthDp(int i, void* ctx) {
 	const RowGeo* g = ctx;
+	if (slot_dp && i < slot_dp_cap && slot_dp[i] >= 0)
+		return slot_dp[i];
 	Entry* e = top->entries->items[i];
-	return slotContentPx(g, e, kindFor(i, e)) / pxPerDp();
+	float dp = slotContentPx(g, e, kindFor(i, e)) / pxPerDp();
+	if (slot_dp && i < slot_dp_cap)
+		slot_dp[i] = dp;
+	return dp;
 }
 
 // An item's centre offset (dp): content-sized for Horizontal Tools and Collections, else Row_item's.
@@ -1006,6 +1060,7 @@ static float itemDx(const RowGeo* g, RowKind kind, const RowItem* it, int i, flo
 		return it->dx;
 	RowSizes sz = g->sz; // the gap between neighbours per device (ui_text_sizes.h)
 	sz.gap *= TextPx_for(CAROUSEL_ITEM_GAP_K, UIScale_deviceIndex(UI_DEVICE_NAME));
+	slotDpSync(g, n);
 	return Row_itemDxVar(&sz, (float)i, pos, n, slotWidthDp, (void*)g);
 }
 
@@ -1303,6 +1358,7 @@ typedef struct {
 	SDL_Color ring_c;
 	SDL_Surface *mask, *border, *ring;
 	unsigned stamp;
+	bool built, ring_built; // made for w x h, the ring for ring_c (NULL: a remembered failure, not made every frame)
 } TileOverlays;
 static TileOverlays tile_ov[2];
 static unsigned tile_ov_clock = 0;
@@ -1320,7 +1376,7 @@ static TileOverlays* tileOverlays(int w, int h) {
 	SDL_Color ac = UI_accent();
 	TileOverlays* o = NULL;
 	for (int i = 0; i < 2 && !o; i++)
-		if (tile_ov[i].mask && tile_ov[i].w == w && tile_ov[i].h == h)
+		if (tile_ov[i].built && tile_ov[i].w == w && tile_ov[i].h == h)
 			o = &tile_ov[i];
 	if (!o) {
 		o = tile_ov[0].stamp <= tile_ov[1].stamp ? &tile_ov[0] : &tile_ov[1];
@@ -1329,16 +1385,20 @@ static TileOverlays* tileOverlays(int w, int h) {
 		GFX_freeSurfaceAndTexture(o->ring);
 		memset(o, 0, sizeof(*o));
 		o->w = w, o->h = h;
+		o->built = true;
 		o->mask = Tiles_cornerMask(w, h);
 		o->border = Tiles_borderOverlay(w, h);
 	}
-	if (!o->ring || o->ring_c.r != ac.r || o->ring_c.g != ac.g || o->ring_c.b != ac.b) {
+	o->stamp = ++tile_ov_clock;
+	if (!o->mask)
+		return NULL;
+	if (!o->ring_built || o->ring_c.r != ac.r || o->ring_c.g != ac.g || o->ring_c.b != ac.b) {
 		GFX_freeSurfaceAndTexture(o->ring);
 		o->ring = Tiles_ringOverlay(w, h, ac);
 		o->ring_c = ac;
+		o->ring_built = true;
 	}
-	o->stamp = ++tile_ov_clock;
-	return o->mask ? o : NULL;
+	return o;
 }
 
 // False when the tile has no picture to show (HomeArt couldn't make one): the composed title tile draws instead.
@@ -1509,9 +1569,12 @@ typedef struct {
 	int n;
 } SegRow;
 
+// A neighbour's (its caption made ahead) asks behind the selection's request (GameInfo_prefetch), never displacing it.
 static int gameSegments(Entry* e, InfoSeg segs[3]) {
 	GameInfo info;
-	if (!GameInfo_get(e->path, &info) || !(info.has_time || info.has_ra))
+	int n = top->entries->count;
+	bool sel = n > 0 && top->entries->items[View_selectedIndex(n)] == e;
+	if (!(sel ? GameInfo_get(e->path, &info) : GameInfo_prefetch(e->path, &info)) || !(info.has_time || info.has_ra))
 		return 0;
 	return GameInfo_segments(time(NULL), info.has_time ? info.last_played : 0, info.has_time ? info.seconds : -1,
 							 info.has_ra ? info.unlocked : 0, info.has_ra ? info.total : 0,
@@ -1568,7 +1631,7 @@ static int captionLines(const CapStyle* cs, int name_h, const SegRow* rows, int 
 		CaptionFitRow fit;
 		bool split = CaptionFit_split(rows[r].segs, rows[r].n, cs->w, sep_w, trophy_w, free_lines, captionMeasure, fi,
 									  &fit);
-		if (n < CAP_LINES) {
+		if (n < CAP_LINES && !(split && fit.head_n == 0)) { // (Next alone: its first line is the row's)
 			out[n] = rows[r];
 			out[n].n = split ? fit.head_n : rows[r].n;
 			n++;
@@ -1579,10 +1642,10 @@ static int captionLines(const CapStyle* cs, int name_h, const SegRow* rows, int 
 			out[n].segs[0].kind = INFO_SEG_NEXT; // white
 			snprintf(out[n].segs[0].text, sizeof(out[n].segs[0].text), "%s", fit.next[k]);
 			n++;
-			*h += cs->gap + ih;
+			*h += (*h > 0 ? cs->gap : 0) + ih;
 		}
 		if (split)
-			free_lines -= fit.next_lines;
+			free_lines -= fit.next_lines - (fit.head_n == 0);
 	}
 	return n;
 }
@@ -1605,25 +1668,35 @@ static SDL_Surface* captionSurface(const CapStyle* cs, const char* path, const c
 	CaptionSlot* victim = &caption_slots[0];
 	for (int i = 0; i < CAPTION_SLOTS; i++) {
 		CaptionSlot* c = &caption_slots[i];
-		if (c->s && strcmp(c->key, key) == 0) {
+		if (c->used && strcmp(c->key, key) == 0) {
 			c->stamp = ++caption_clock;
 			cap_cur = c;
 			return c->s;
 		}
-		if (!victim->s)
+		if (!victim->used)
 			continue; // an empty slot found first stays the pick
-		if (!c->s || c->stamp < victim->stamp)
+		if (!c->used || c->stamp < victim->stamp)
 			victim = c;
 	}
-	if (cap_allow_stale && look_n > 0 && (size_t)look_n < sizeof(key) &&
-		!(cap_refresh && SDL_GetTicks() - cap_refresh_at > CAP_STALE_MS)) {
+	Uint32 look = 0;
+	if (cap_allow_stale && look_n > 0 && (size_t)look_n < sizeof(key)) {
+		char cut = key[look_n];
+		key[look_n] = '\0';
+		look = View_fnvStr(2166136261u, key);
+		key[look_n] = cut;
+	}
+	// another game (or look) since the older one first stood in starts its own wait
+	bool waited = cap_refresh && cap_refresh_look == look && SDL_GetTicks() - cap_refresh_at > CAP_STALE_MS;
+	if (cap_allow_stale && look_n > 0 && (size_t)look_n < sizeof(key) && !waited) {
 		for (int i = 0; i < CAPTION_SLOTS; i++) {
 			CaptionSlot* c = &caption_slots[i];
 			if (c->s && strncmp(c->key, key, (size_t)look_n) == 0) {
 				c->stamp = ++caption_clock;
 				cap_cur = c;
-				if (!cap_refresh)
+				if (!cap_refresh || cap_refresh_look != look) {
 					cap_refresh_at = SDL_GetTicks();
+					cap_refresh_look = look;
+				}
 				cap_refresh = true; // the selection's own is made next, between frames
 				return c->s;
 			}
@@ -1639,6 +1712,7 @@ static SDL_Surface* captionSurface(const CapStyle* cs, const char* path, const c
 	caption.content_h = 0;
 	caption.ink = (SDL_Rect){0, 0, 0, 0};
 	snprintf(caption.key, sizeof(caption.key), "%s", key);
+	caption.used = true;
 
 	// the layout first (a font is only good until a later UIFont_get: each is fetched where it's used)
 	int w = cs->w;
@@ -1763,9 +1837,19 @@ static void drawCaptionAt(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKi
 #define CAP_H_SLOTS 16
 static struct {
 	char path[MAX_PATH];
+	int kind, scale, extra; // the look it was measured in: the row's kind, FIXED_SCALE × 100, Layouts > Extra info
 	int h;
-} cap_h_memo[CAP_H_SLOTS]; // the selections' caption heights, by path, for when they are a neighbour again
+} cap_h_memo[CAP_H_SLOTS]; // the selections' caption heights, by path and look, for when they are a neighbour again
 static int cap_h_next = 0;
+
+static int capHMemoFind(const RowGeo* g, const char* path) {
+	int scale = (int)lroundf(FIXED_SCALE * 100), extra = CFG_getExtraInfo();
+	for (int k = 0; k < CAP_H_SLOTS; k++)
+		if (cap_h_memo[k].kind == (int)g->kind && cap_h_memo[k].scale == scale && cap_h_memo[k].extra == extra &&
+			strcmp(cap_h_memo[k].path, path) == 0)
+			return k;
+	return -1;
+}
 
 // The selection's caption height, as drawCaptionAt shows it (an older caption may stand in, so measuring builds nothing
 // mid-frame); a neighbour's from when it was last selected (no caption built, no GameInfo request), else the
@@ -1773,23 +1857,22 @@ static int cap_h_next = 0;
 static int captionContentH(const RowGeo* g, int i, int sel) {
 	Entry* e = top->entries->items[i];
 	if (i != sel) {
-		for (int k = 0; k < CAP_H_SLOTS; k++)
-			if (strcmp(cap_h_memo[k].path, e->path) == 0)
-				return cap_h_memo[k].h;
-		return captionContentH(g, sel, sel);
+		int k = capHMemoFind(g, e->path);
+		return k >= 0 ? cap_h_memo[k].h : captionContentH(g, sel, sel);
 	}
 	CapStyle cs;
 	cap_allow_stale = sprite_mode;
 	SDL_Surface* s = rowCaption(screen, g, e, kindFor(i, e), &cs);
 	cap_allow_stale = false;
 	int h = s ? s->h : 0;
-	int k = 0;
-	while (k < CAP_H_SLOTS && strcmp(cap_h_memo[k].path, e->path) != 0)
-		k++;
-	if (k == CAP_H_SLOTS) {
+	int k = capHMemoFind(g, e->path);
+	if (k < 0) {
 		k = cap_h_next;
 		cap_h_next = (cap_h_next + 1) % CAP_H_SLOTS;
 		snprintf(cap_h_memo[k].path, sizeof(cap_h_memo[k].path), "%s", e->path);
+		cap_h_memo[k].kind = (int)g->kind;
+		cap_h_memo[k].scale = (int)lroundf(FIXED_SCALE * 100);
+		cap_h_memo[k].extra = CFG_getExtraInfo();
 	}
 	cap_h_memo[k].h = h;
 	return h;
@@ -1902,6 +1985,14 @@ static LogoMip mips[LOGO_MIPS];
 static unsigned mip_clock = 0;
 
 // file's levels, or NULL: none (a failed decode) or still decoding (*pending; queued first in line)
+// Whether the file's level is kept (or a remembered failure): no decode, no LRU touch.
+static bool logoMipHas(const char* file) {
+	for (int i = 0; i < LOGO_MIPS; i++)
+		if (mips[i].used && strcmp(mips[i].file, file) == 0)
+			return true;
+	return false;
+}
+
 static LogoMip* logoMip(const char* file, bool* pending) {
 	*pending = false;
 	for (int i = 0; i < LOGO_MIPS; i++) {
@@ -2371,7 +2462,8 @@ static void settlePictureSprites(SDL_Surface* screen) {
 		return;
 	}
 	Uint8 a = (Uint8)(fadeProgress() * 255.0f + 0.5f);
-	if (!(to_flattened && a == 255))						 // (a finished target is in the stack already)
+	// (a finished target is in the stack already; one still uploading never showed: the stack stays as it is)
+	if (!(to_flattened && a == 255) && (!to_tex || to_up_y >= to_tex_h))
 		picLayerPush(screen, to_tex, to_tex_w, to_tex_h, a); // NULL (no picture): black
 	toTexFree();
 	to_flattened = false;
@@ -2440,12 +2532,15 @@ static bool pictureUploadStep(HomeArtState st, SDL_Surface* to, unsigned gen) {
 	return to_up_y < to_tex_h;
 }
 
-static bool drawPictureSprites(SDL_Surface* screen, HomeArtState st, SDL_Surface* to, unsigned gen, float p) {
-	(void)st, (void)to, (void)gen; // the target's texture: pictureUploadStep
+// st: the target's picture (its texture: pictureUploadStep).
+static bool drawPictureSprites(SDL_Surface* screen, HomeArtState st, float p) {
 	bool to_ready = to_tex && to_up_y >= to_tex_h;
 	Uint8 a = (Uint8)(p * 255.0f + 0.5f);
-	// a finished crossfade: the target becomes the stack, alone (one opaque layer from then on)
-	if (a == 255 && !to_flattened) {
+	// a finished crossfade: the target becomes the stack, alone (one opaque layer from then on), once it is known: its
+	// texture whole, or no picture (black). A texture made again under a finished fade (back from a context menu, a
+	// re-decode after Fetch artwork) uploads over a few frames meanwhile, the stack as it was showing until then.
+	bool resolved = to_ready || st == HOMEART_NONE || (st == HOMEART_READY && !to_tex);
+	if (a == 255 && !to_flattened && resolved) {
 		picLayersClear();
 		picLayerPush(screen, to_ready ? to_tex : NULL, to_tex_w, to_tex_h, 255);
 		to_flattened = true;
@@ -2487,6 +2582,18 @@ bool RowView_renderPicture(SDL_Surface* screen) {
 			SDL_Texture* t = PLAT_textureFromSurface(pic_from);
 			picLayerPush(screen, t, pic_from->w, pic_from->h, 255);
 			PLAT_freeTexture(t);
+		} else if (spr && fade_started && fadeProgress() >= 1.0f && to_path[0]) {
+			// a finished crossfade (back from a context menu): its target's texture in one go, so it is the stack this
+			// frame, not black for the few frames a banded upload takes (pictureUploadStep keeps it: same surface, gen)
+			SDL_Surface* s = NULL;
+			if (HomeArt_backdrop(to_path, screen->w, screen->h, &s) == HOMEART_READY && s &&
+				(to_tex = PLAT_textureFromSurface(s))) {
+				to_tex_src = s;
+				to_tex_gen = HomeArt_lastGen();
+				to_tex_w = s->w;
+				to_tex_h = s->h;
+				to_up_y = s->h;
+			}
 		}
 		from_valid = false;
 		if (pic_from) { // sprite mode keeps no CPU copy (3-4 MB); the CPU's next settle makes it again
@@ -2525,7 +2632,7 @@ bool RowView_renderPicture(SDL_Surface* screen) {
 	}
 	float p = fadeProgress();
 	if (spr) {
-		pic_on = drawPictureSprites(screen, st, to, gen, p);
+		pic_on = drawPictureSprites(screen, st, p);
 		return pic_on;
 	}
 	bool to_ok = st == HOMEART_READY && to;
@@ -2753,16 +2860,19 @@ void RowView_warmConsoleArt(int slot_w, int slot_h, int pad_w, int pad_h, int se
 			TileKind k = kindFor(i, e);
 			if (k != TILE_LOGO)
 				continue;
+			// nothing asked of what the caches hold already: a finished decode nobody takes would sit in the art
+			// loader's queue
 			const char* pad = RowView_padId(e, k);
-			if (pad && pad_w > 0 && pad_h > 0) {
+			if (pad && pad_w > 0 && pad_h > 0 && !ControllerArt_hasCarousel(pad, pad_w, pad_h)) {
 				char file[64];
 				snprintf(file, sizeof(file), "menu_pad_%s.png", pad);
 				ArtLoader_request(file, pad_w, pad_h, 2 * d);
 			}
 			char logo[64];
 			if (entryLogoFile(e, logo, sizeof(logo))) {
-				ArtLoader_request(logo, 0, 0, 2 * d + 1); // the level (RowView_drawConsoleLogo)
-				if (d == 0)								  // and the selection's crisp one
+				if (!logoMipHas(logo))
+					ArtLoader_request(logo, 0, 0, 2 * d + 1);	  // the level (RowView_drawConsoleLogo)
+				if (d == 0 && !MenuArt_has(logo, slot_w, slot_h)) // and the selection's crisp one
 					ArtLoader_request(logo, slot_w, slot_h, 0);
 			}
 		}
@@ -3153,6 +3263,7 @@ void RowView_quit(void) {
 	kinds_cap = 0;
 	kinds_top = 0;
 	kinds_n = -1;
+	slotDpFree();
 	itemsClear();
 	mipsClear();
 	captionsClear();

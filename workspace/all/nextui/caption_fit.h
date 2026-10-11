@@ -14,9 +14,10 @@
 // info line), then "Next: …" on its own lines, up to CAPTION_FIT_NEXT_LINES, the last ellipsized ("..."). The row is
 // measured as drawn: its texts, the separators and the inline trophy with its gap (trophy_w, on the INFO_SEG_ACH
 // segment). Reserves are unchanged: Next may only use `free_lines`, the whole free lines the caller has below the
-// caption's reserve (none: no split, the row is drawn and cut as before). Rows that fit, rows without Next and a row
-// with nothing before Next are not split. The Game Switcher, Home's Continue card, the List band and Grid tiles don't
-// use it.
+// caption's reserve (none: no split, the row is drawn and cut as before). Rows that fit and rows without Next are not
+// split. A row of Next alone (the Brick's Carousel info lines, CAROUSEL_CAPTION_INFO_LINES 2) wraps from its own line
+// into the free ones: head_n is 0 and next[0] takes the row's line, so only next_lines - 1 come out of free_lines.
+// The Game Switcher, Home's Continue card, the List band and Grid tiles don't use it.
 
 #define CAPTION_FIT_NEXT_LINES 2
 
@@ -30,7 +31,8 @@ typedef struct {
 int CaptionFit_rowWidth(const InfoSeg* segs, int n, int sep_w, int trophy_w, InfoBand_measureFn measure, void* ctx);
 
 // Split the row (segs[0 .. n)) for a caption avail px wide with free_lines whole free lines. Next's text wraps at
-// spaces (a word wider than the line breaks between code points) onto min(free_lines, CAPTION_FIT_NEXT_LINES) lines;
+// spaces (a word wider than the line breaks between code points) onto min(free_lines, CAPTION_FIT_NEXT_LINES) lines
+// (Next alone: min(free_lines + 1, CAPTION_FIT_NEXT_LINES));
 // what's left after the last one is cut with "..." (Next keeps its "Next: " and one title character at least).
 // Returns out->next_lines > 0 when it split.
 bool CaptionFit_split(const InfoSeg* segs, int n, int avail, int sep_w, int trophy_w, int free_lines,

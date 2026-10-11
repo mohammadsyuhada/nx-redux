@@ -264,10 +264,6 @@ void Row_boxBlurAlpha(unsigned char* a, unsigned char* tmp, int w, int h, int r,
 	}
 }
 
-int Row_collBreak(const char* name, char lines[2][256]) {
-	return Row_collBreakFit(name, lines, NULL, NULL, 0);
-}
-
 int Row_collBreakFit(const char* name, char lines[2][256], int (*measure)(const char*, void*), void* ctx, int max_w) {
 	lines[0][0] = lines[1][0] = '\0';
 	int n = 0;
@@ -284,7 +280,10 @@ int Row_collBreakFit(const char* name, char lines[2][256], int (*measure)(const 
 		if (n == 0)
 			n = 1;
 		else if (n == 1 && lines[0][0]) {
-			bool wrap = len > 5;				 // a long word starts the second line
+			int cps = 0; // the word's characters (code points: a UTF-8 continuation byte isn't one)
+			for (const char* c = p; c < e; c++)
+				cps += ((unsigned char)*c & 0xC0) != 0x80;
+			bool wrap = cps > 5;				 // a long word starts the second line
 			if (!wrap && measure && max_w > 0) { // so does a word the first line has no room for
 				char cand[512];
 				snprintf(cand, sizeof(cand), "%s %.*s", lines[0], len, p);

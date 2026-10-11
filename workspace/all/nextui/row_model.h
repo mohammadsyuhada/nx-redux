@@ -89,10 +89,10 @@ float Row_collFitSlotSp(float sp, float min_sp, float px_per_sp, int slot_h, int
 // Separable box blur of an 8-bit alpha buffer, `passes` times with radius r (in px). In place via tmp (same size).
 void Row_boxBlurAlpha(unsigned char* a, unsigned char* tmp, int w, int h, int r, int passes);
 
-// A Horizontal Collections name on at most 2 lines: a word longer than 5 characters starts a new line (never the first
-// word; once on the second line, the rest stays there). Runs of spaces collapse. Returns the line count (0: empty).
-int Row_collBreak(const char* name, char lines[2][256]);
-// The same, a word the first line has no room for (measure(text, ctx) > max_w px) starting the second line too.
+// A Horizontal Collections name on at most 2 lines: a word longer than 5 characters (code points) starts a new line
+// (never the first word; once on the second line, the rest stays there), and so does a word the first line has no room
+// for (measure(text, ctx) > max_w px; no measure: the length rule alone). Runs of spaces collapse. Returns the line
+// count (0: empty).
 int Row_collBreakFit(const char* name, char lines[2][256], int (*measure)(const char*, void*), void* ctx, int max_w);
 
 #endif

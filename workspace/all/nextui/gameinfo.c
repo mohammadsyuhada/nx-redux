@@ -190,6 +190,7 @@ static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t wake = PTHREAD_COND_INITIALIZER;
 static bool quitting = false;
 static char pending[MAX_PATH];	 // latest request; empty = none
+static char ahead[MAX_PATH];	 // latest prefetch (GameInfo_prefetch), served only while pending is empty
 static char computing[MAX_PATH]; // the request the worker is on; empty = idle
 static GameInfoSlot cache[GAMEINFO_CACHE_SIZE];
 static unsigned cache_clock = 0;
@@ -210,14 +211,15 @@ static void* workerMain(void* arg) {
 	(void)arg;
 	pthread_mutex_lock(&lock);
 	for (;;) {
-		while (!quitting && !pending[0])
+		while (!quitting && !pending[0] && !ahead[0])
 			pthread_cond_wait(&wake, &lock);
 		if (quitting)
 			break;
+		char* next = pending[0] ? pending : ahead; // a request before any prefetch
 		char path[MAX_PATH];
-		snprintf(path, sizeof(path), "%s", pending);
-		snprintf(computing, sizeof(computing), "%s", pending);
-		pending[0] = '\0';
+		snprintf(path, sizeof(path), "%s", next);
+		snprintf(computing, sizeof(computing), "%s", next);
+		next[0] = '\0';
 		pthread_mutex_unlock(&lock);
 
 		GameInfo info;
@@ -239,6 +241,7 @@ void GameInfo_init(void) {
 		return;
 	quitting = false;
 	pending[0] = '\0';
+	ahead[0] = '\0';
 	computing[0] = '\0';
 	memset(cache, 0, sizeof(cache));
 	cache_clock = 0;
@@ -265,26 +268,48 @@ void GameInfo_quit(void) {
 	time_failures = 0;
 }
 
-bool GameInfo_get(const char* path, GameInfo* out) {
-	if (!worker_running || !path || !path[0] || strlen(path) >= MAX_PATH)
-		return false;
-	bool hit = false;
-	pthread_mutex_lock(&lock);
+// A cached result into *out (true), else false; the lock held.
+static bool cacheGet(const char* path, GameInfo* out) {
 	for (int i = 0; i < GAMEINFO_CACHE_SIZE; i++) {
 		if (cache[i].age && exactMatch(cache[i].path, path)) {
 			*out = cache[i].info;
 			cache[i].age = ++cache_clock;
-			hit = true;
-			break;
+			return true;
 		}
 	}
+	return false;
+}
+
+bool GameInfo_get(const char* path, GameInfo* out) {
+	if (!worker_running || !path || !path[0] || strlen(path) >= MAX_PATH)
+		return false;
+	pthread_mutex_lock(&lock);
+	bool hit = cacheGet(path, out);
 	if (!hit) {
 		if (exactMatch(computing, path)) {
-			pending[0] = '\0'; // its result is on the way; drop a stale newer request
+			// its result is on the way. A different pending request stays: another caller's, which dropping it would
+			// leave without a result until something redraws.
+			if (exactMatch(pending, path))
+				pending[0] = '\0';
 		} else {
 			snprintf(pending, sizeof(pending), "%s", path);
 			pthread_cond_signal(&wake);
 		}
+		if (exactMatch(ahead, path))
+			ahead[0] = '\0'; // asked for now: no second run of it
+	}
+	pthread_mutex_unlock(&lock);
+	return hit;
+}
+
+bool GameInfo_prefetch(const char* path, GameInfo* out) {
+	if (!worker_running || !path || !path[0] || strlen(path) >= MAX_PATH)
+		return false;
+	pthread_mutex_lock(&lock);
+	bool hit = cacheGet(path, out);
+	if (!hit && !exactMatch(computing, path) && !exactMatch(pending, path)) {
+		snprintf(ahead, sizeof(ahead), "%s", path);
+		pthread_cond_signal(&wake);
 	}
 	pthread_mutex_unlock(&lock);
 	return hit;

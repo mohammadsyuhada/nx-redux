@@ -403,20 +403,29 @@ static void test_content_sized_dx(void) {
 	assert(fabsf(m - (r2 + r3) / 2) < 0.01f);
 }
 
+// Row_collBreakFit without a measure: the length rule alone
+static int collBreak(const char* name, char l[2][256]) {
+	return Row_collBreakFit(name, l, NULL, NULL, 0);
+}
+
 // Collection names: a word longer than 5 characters starts a new line (never the first word; 2 lines at most, the rest
 // staying on the second).
 static void test_coll_break(void) {
 	char l[2][256];
-	assert(Row_collBreak("To Be Completed", l) == 2 && !strcmp(l[0], "To Be") && !strcmp(l[1], "Completed"));
-	assert(Row_collBreak("Play Later", l) == 1 && !strcmp(l[0], "Play Later")); // "Later" is 5
-	assert(Row_collBreak("Favorites", l) == 1 && !strcmp(l[0], "Favorites"));
-	assert(Row_collBreak("Pokemon Games", l) == 1 && !strcmp(l[0], "Pokemon Games")); // the first word stays
-	assert(Row_collBreak("Super Mario Collection", l) == 2 && !strcmp(l[0], "Super Mario") &&
+	assert(collBreak("To Be Completed", l) == 2 && !strcmp(l[0], "To Be") && !strcmp(l[1], "Completed"));
+	assert(collBreak("Play Later", l) == 1 && !strcmp(l[0], "Play Later")); // "Later" is 5
+	assert(collBreak("Favorites", l) == 1 && !strcmp(l[0], "Favorites"));
+	assert(collBreak("Pokemon Games", l) == 1 && !strcmp(l[0], "Pokemon Games")); // the first word stays
+	assert(collBreak("Super Mario Collection", l) == 2 && !strcmp(l[0], "Super Mario") &&
 		   !strcmp(l[1], "Collection"));
-	assert(Row_collBreak("My Retro Achievements Picks", l) == 2 && !strcmp(l[0], "My Retro") &&
-		   !strcmp(l[1], "Achievements Picks"));									  // 2 lines at most
-	assert(Row_collBreak("  Spaced   Out  ", l) == 1 && !strcmp(l[0], "Spaced Out")); // runs of spaces collapse
-	assert(Row_collBreak("", l) == 0);
+	assert(collBreak("My Retro Achievements Picks", l) == 2 && !strcmp(l[0], "My Retro") &&
+		   !strcmp(l[1], "Achievements Picks"));								  // 2 lines at most
+	assert(collBreak("  Spaced   Out  ", l) == 1 && !strcmp(l[0], "Spaced Out")); // runs of spaces collapse
+	assert(collBreak("", l) == 0);
+	// characters, not bytes: "日本語" is 3 (9 bytes), "Pokémon" 7 (8 bytes)
+	assert(collBreak("RPG 日本語", l) == 1 && !strcmp(l[0], "RPG 日本語"));
+	assert(collBreak("Ma Série", l) == 1); // "Série" is 5 (6 bytes)
+	assert(collBreak("My Pokémon", l) == 2 && !strcmp(l[1], "Pokémon"));
 }
 
 // The width rule too: a line that would overflow max_w breaks before the word (short words wrap as well).

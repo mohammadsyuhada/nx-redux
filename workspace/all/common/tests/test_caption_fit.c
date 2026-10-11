@@ -41,9 +41,28 @@ static void fits_unchanged(void) {
 	// rows without Next are never split, however wide
 	InfoSeg nonext[2] = {seg(INFO_SEG_TIME, "Yesterday - 1h 15m"), seg(INFO_SEG_ACH, "12 of 140")};
 	assert(!CaptionFit_split(nonext, 2, 100, BRICK_SEP, BRICK_TROPHY, 2, measure, &ch, &r) && r.head_n == 2);
-	// nothing before Next: not split (the draw cuts it as before)
-	InfoSeg only[1] = {seg(INFO_SEG_NEXT, "Next: Defeat the Elite Four and become the Champion")};
-	assert(!CaptionFit_split(only, 1, 446, BRICK_SEP, BRICK_TROPHY, 2, measure, &ch, &r) && r.head_n == 1);
+}
+
+// Next alone on its row (the Brick's Carousel: time and trophies, then Next on its own line): it wraps from its own
+// line into the free ones, two lines at most, and fits or has no free line: not split.
+static void next_alone(void) {
+	int ch = BRICK_CH;
+	CaptionFitRow r;
+	InfoSeg only[1] = {seg(INFO_SEG_NEXT, "Next: Defeat the Elite Four and become the Champion")}; // 51 · 18 = 918
+	// one free line: its own line + one
+	assert(CaptionFit_split(only, 1, 446, BRICK_SEP, BRICK_TROPHY, 1, measure, &ch, &r));
+	assert(r.head_n == 0 && r.next_lines == 2 && strncmp(r.next[0], "Next: Defeat", 12) == 0);
+	assert(measure(&ch, r.next[0]) <= 446 && measure(&ch, r.next[1]) <= 446);
+	assert(strcmp(r.next[1] + strlen(r.next[1]) - 3, "...") == 0);
+	// more free lines: still two at most
+	assert(CaptionFit_split(only, 1, 446, BRICK_SEP, BRICK_TROPHY, 3, measure, &ch, &r) && r.next_lines == 2);
+	// no free line: drawn and cut as before
+	assert(!CaptionFit_split(only, 1, 446, BRICK_SEP, BRICK_TROPHY, 0, measure, &ch, &r) && r.head_n == 1);
+	// it fits (Brick horizontal Carousel, 922 px): not split
+	assert(!CaptionFit_split(only, 1, 922, BRICK_SEP, BRICK_TROPHY, 2, measure, &ch, &r) && r.head_n == 1);
+	// a lone segment that isn't Next: not split
+	InfoSeg time[1] = {seg(INFO_SEG_TIME, "Yesterday - 1h 15m and then some more time")};
+	assert(!CaptionFit_split(time, 1, 100, BRICK_SEP, BRICK_TROPHY, 2, measure, &ch, &r) && r.head_n == 1);
 }
 
 static void splits(void) {
@@ -122,6 +141,7 @@ static void carousel_rows(void) {
 
 int main(void) {
 	fits_unchanged();
+	next_alone();
 	splits();
 	measured_as_drawn();
 	carousel_rows();
