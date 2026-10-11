@@ -74,6 +74,17 @@ main() {
         touch "$DEVICE_CONFIG_PATH/.initialized"
     fi
 
+    # Layout/theme settings: the hook rewrites resources/settings.json on exit
+    # and cannot save without it; the release ships only the default, so an
+    # update never resets the player's copy
+    if [ ! -f "$EMU_DIR/resources/settings.json" ]; then
+        if [ -f "$PAK_DIR/settings.json" ]; then
+            cp "$PAK_DIR/settings.json" "$EMU_DIR/resources/" 2>/dev/null || true
+        else
+            cp "$EMU_DIR/resources/settings.default.json" "$EMU_DIR/resources/settings.json" 2>/dev/null || true
+        fi
+    fi
+
     # Move any leftover cheats to centralized location
     if [ -d "$EMU_DIR/cheats" ] && ls -A "$EMU_DIR/cheats" 2>/dev/null | grep -q .; then
         cd "$EMU_DIR/cheats"

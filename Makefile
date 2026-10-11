@@ -430,6 +430,10 @@ setup: name
 	rm -rf ./build/BASE/Emus/shared/drastic/images
 	# Overlay custom drastic resources (bg, fonts) on top of upstream
 	cp -Rf ./skeleton/BASE/Emus/shared/drastic/resources/. ./build/BASE/Emus/shared/drastic/resources/
+	# resources/settings.json is the player's layout/theme (the SDL hook writes
+	# it on exit), so it must not ship: every update would reset it. Ship the
+	# default under another name; NDS.pak seeds settings.json from it if missing.
+	mv ./build/BASE/Emus/shared/drastic/resources/settings.json ./build/BASE/Emus/shared/drastic/resources/settings.default.json
 
 	# remove authoring detritus
 	cd ./build && find . -type f -name '.keep' -delete
