@@ -116,6 +116,7 @@ static int udc_bound(void) {
 // (and with it ep0) goes away, or the gadget cannot rebind and adb is dead.
 static void shutdown_and_exit(int code, int keep_state) {
 	usblink_power_restore_signal_safe(); // never leave the battery unable to charge
+	usblink_cc_restore_signal_safe();	 // nor the main port held as a device
 	usblink_gadget_detach();
 	// Only a gadget that is bound again proves the detach worked; otherwise
 	// the save file stays so `stop`'s repair can still rebind it.
@@ -546,6 +547,9 @@ static int run_daemon(int foreground) {
 		fprintf(stderr, "usblink: write %s: %s\n", PID_FILE, strerror(errno));
 	usblink_link_init(&g_link);
 	usblink_power_restore_saved(); // a SIGKILLed predecessor may have left charging off
+	// Before the gadget attaches: the main port must come up as the USB device,
+	// also after a replug mid-session (a phone would often win the host role).
+	usblink_cc_hold_sink();
 
 	// A SIGKILLed predecessor leaves ffs.net linked (or the gadget unbound),
 	// and attach would refuse an unbound gadget; repair is a no-op otherwise.
@@ -590,8 +594,10 @@ static int run_daemon(int foreground) {
 		sleep_ms(TICK_MS);
 		pthread_mutex_lock(&mu);
 		int sends = apply(usblink_link_tick(&g_link, host_claimed, now_ms()));
-		if (tick % (1000 / TICK_MS) == 0)
+		if (tick % (1000 / TICK_MS) == 0) {
 			usblink_power_check(); // the driver resets the input limit on replug
+			usblink_cc_check();	   // and the USB-C mode when VBUS goes away
+		}
 		pthread_mutex_unlock(&mu);
 		do_sends(sends);
 	}
@@ -683,6 +689,7 @@ static int cmd_stop(void) {
 	// rebinds the UDC so adb comes back. nxlink0 died with the daemon's fd.
 	usblink_gadget_repair();
 	usblink_power_restore_saved();
+	usblink_cc_restore_saved();
 	unlink(PID_FILE);
 	unlink(STATE_FILE);
 	unlink(STATE_TMP);

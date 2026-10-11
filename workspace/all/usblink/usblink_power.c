@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 int usblink_power_parse(const char* s) {
@@ -156,4 +157,121 @@ void usblink_power_restore_saved(void) {
 		fprintf(stderr, "usblink: charging restored after an unclean exit\n");
 	}
 	unlink(USBLINK_POWER_SAVE);
+}
+
+int usblink_cc_sink_value(int orig) {
+	return (orig & ~(0x20 | USBLINK_PMIC_CC_MODE_MASK)) | 0x10 | USBLINK_PMIC_CC_SINK;
+}
+
+static bool cc_held;
+static int orig_cc = -1, cc_state = -1;
+// Prebuilt for usblink_cc_restore_signal_safe: the Disable step, then the original.
+static char restore_cc_off[8], restore_cc[8];
+
+// nanosleep: async-signal-safe, for the shutdown path too.
+static void pause_ms(long ms) {
+	struct timespec t = {ms / 1000, (ms % 1000) * 1000000L};
+	nanosleep(&t, NULL);
+}
+
+// The vendor's "reset type-c": Disable for 50 ms, then [mode]; the port re-runs its attach.
+static void cc_reset_to(int mode) {
+	reg_write(USBLINK_PMIC_CC_MODE_REG, mode & ~USBLINK_PMIC_CC_MODE_MASK);
+	pause_ms(50);
+	reg_write(USBLINK_PMIC_CC_MODE_REG, mode);
+}
+
+// Sink only; already attached as the sink, the plain write keeps the live connection.
+static void cc_apply_sink(void) {
+	int st = reg_read(USBLINK_PMIC_CC_STATUS_REG);
+	if (st >= 0 && (st & 0x0f) == USBLINK_PMIC_CC_ATTACHED_SINK)
+		reg_write(USBLINK_PMIC_CC_MODE_REG, usblink_cc_sink_value(orig_cc));
+	else
+		cc_reset_to(usblink_cc_sink_value(orig_cc));
+}
+
+bool usblink_cc_hold_sink(void) {
+	if (cc_held)
+		return true;
+	if (!reg_node)
+		reg_node = node();
+	if (!reg_node)
+		return false;
+	int cc = reg_read(USBLINK_PMIC_CC_MODE_REG);
+	if (cc < 0)
+		return false;
+	// A record left by a SIGKILLed run holds the real original: ours would be
+	// its held sink mode.
+	FILE* f = fopen(USBLINK_CC_SAVE, "r");
+	int saved;
+	if (f && fscanf(f, "%d", &saved) == 1 && saved >= 0)
+		cc = saved;
+	if (f)
+		fclose(f);
+	if ((cc & USBLINK_PMIC_CC_MODE_MASK) != USBLINK_PMIC_CC_DRP) {
+		fprintf(stderr, "usblink: main port USB-C mode 0x%02x is not dual-role; left alone\n", cc);
+		return false;
+	}
+	orig_cc = cc;
+	snprintf(restore_cc_off, sizeof(restore_cc_off), "0x%02x%02x", USBLINK_PMIC_CC_MODE_REG, orig_cc & ~USBLINK_PMIC_CC_MODE_MASK);
+	snprintf(restore_cc, sizeof(restore_cc), "0x%02x%02x", USBLINK_PMIC_CC_MODE_REG, orig_cc);
+	f = fopen(USBLINK_CC_SAVE, "w");
+	if (f) {
+		fprintf(f, "%d\n", orig_cc);
+		fclose(f);
+	}
+	cc_held = true;
+	cc_apply_sink();
+	fprintf(stderr, "usblink: main port held as USB device (0xe3 0x%02x -> 0x%02x)\n", orig_cc,
+			usblink_cc_sink_value(orig_cc));
+	return true;
+}
+
+void usblink_cc_check(void) {
+	if (!cc_held)
+		return;
+	int cc = reg_read(USBLINK_PMIC_CC_MODE_REG);
+	if (cc >= 0 && (cc & USBLINK_PMIC_CC_MODE_MASK) != USBLINK_PMIC_CC_SINK) {
+		fprintf(stderr, "usblink: main port USB-C mode reset to 0x%02x; held as device again\n", cc);
+		cc_apply_sink();
+	}
+	int st = reg_read(USBLINK_PMIC_CC_STATUS_REG);
+	if (st >= 0 && (st & 0x0f) != cc_state) {
+		cc_state = st & 0x0f;
+		fprintf(stderr, "usblink: main port USB-C state %d (3 attached as device, 6 as host)\n", cc_state);
+	}
+}
+
+void usblink_cc_restore(void) {
+	if (!cc_held)
+		return;
+	cc_held = false;
+	cc_reset_to(orig_cc);
+	unlink(USBLINK_CC_SAVE);
+	fprintf(stderr, "usblink: main port USB-C mode back to 0x%02x\n", orig_cc);
+}
+
+void usblink_cc_restore_signal_safe(void) {
+	if (!cc_held || !reg_node)
+		return;
+	write_str(reg_node, restore_cc_off);
+	pause_ms(50);
+	write_str(reg_node, restore_cc);
+	unlink(USBLINK_CC_SAVE);
+}
+
+void usblink_cc_restore_saved(void) {
+	FILE* f = fopen(USBLINK_CC_SAVE, "r");
+	if (!f)
+		return;
+	int cc = -1;
+	int n = fscanf(f, "%d", &cc);
+	fclose(f);
+	if (!reg_node)
+		reg_node = node();
+	if (reg_node && n == 1 && cc >= 0 && cc <= 0xff) {
+		cc_reset_to(cc);
+		fprintf(stderr, "usblink: main port USB-C mode back to 0x%02x after an unclean exit\n", cc);
+	}
+	unlink(USBLINK_CC_SAVE);
 }

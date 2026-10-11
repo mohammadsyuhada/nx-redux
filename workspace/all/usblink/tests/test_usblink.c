@@ -269,6 +269,14 @@ static void test_power_values(void) {
 	assert(usblink_power_restored_chg(0x04) == 0x06 && usblink_power_restored_chg(0x06) == 0x06);
 }
 
+// 0xE3 as the Smart Pro S reads it on 2026-10-11: 0x13 (DRP, Try.SNK, default Rp).
+static void test_cc_sink_value(void) {
+	assert(usblink_cc_sink_value(0x13) == 0x11);
+	assert(usblink_cc_sink_value(0x33) == 0x11); // Try.SRC off
+	assert(usblink_cc_sink_value(0x0f) == 0x1d); // the Rp current bits 3:2 are kept
+	assert(usblink_cc_sink_value(0x03) == 0x11); // Try.SNK on
+}
+
 int main(void) {
 	test_frame_roundtrip_sizes();
 	test_frame_padding_boundaries();
@@ -287,6 +295,7 @@ int main(void) {
 	test_link_host_detach();
 	test_state_roundtrip();
 	test_power_values();
+	test_cc_sink_value();
 	printf("usblink tests: OK\n");
 	return 0;
 }
