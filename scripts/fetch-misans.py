@@ -13,6 +13,8 @@
 import hashlib
 import os
 import sys
+import time
+import urllib.error
 import urllib.request
 import zipfile
 
@@ -29,6 +31,31 @@ FONTS = [
 ]
 
 
+RETRIES = 4  # attempts per request; waits 2, 4, 8 s between them
+
+
+def get(url, rng, timeout):
+    """GET bytes <rng> of url, retrying server errors and network failures
+    (CI runs this from many jobs at once and Xiaomi's CDN answers 504 at
+    times). Returns (status, headers, body)."""
+    req = urllib.request.Request(url, headers={"Range": f"bytes={rng}"})
+    for attempt in range(1, RETRIES + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.status, r.headers, r.read()
+        except urllib.error.HTTPError as e:
+            if e.code < 500 and e.code != 429:
+                raise
+            err = e
+        except (urllib.error.URLError, OSError) as e:
+            err = e
+        if attempt == RETRIES:
+            raise err
+        wait = 2 ** attempt
+        print(f"{url}: {err}, retrying in {wait} s", file=sys.stderr)
+        time.sleep(wait)
+
+
 class RangeFile:
     """Seekable read-only file over HTTP Range requests, for zipfile."""
 
@@ -36,9 +63,8 @@ class RangeFile:
         self.url = url
         self.pos = 0
         # HEAD has no Content-Length here; a 1-byte range reports the size
-        req = urllib.request.Request(url, headers={"Range": "bytes=0-0"})
-        with urllib.request.urlopen(req, timeout=60) as r:
-            self.size = int(r.headers["Content-Range"].rsplit("/", 1)[1])
+        _, headers, _ = get(url, "0-0", 60)
+        self.size = int(headers["Content-Range"].rsplit("/", 1)[1])
 
     def seekable(self):
         return True
@@ -61,12 +87,9 @@ class RangeFile:
         n = min(n, self.size - self.pos)
         if n <= 0:
             return b""
-        req = urllib.request.Request(
-            self.url, headers={"Range": f"bytes={self.pos}-{self.pos + n - 1}"})
-        with urllib.request.urlopen(req, timeout=120) as r:
-            if r.status != 206:
-                raise IOError(f"{self.url}: server ignored the Range request")
-            data = r.read()
+        status, _, data = get(self.url, f"{self.pos}-{self.pos + n - 1}", 120)
+        if status != 206:
+            raise IOError(f"{self.url}: server ignored the Range request")
         self.pos += len(data)
         return data
 
