@@ -649,6 +649,16 @@ void HomeArt_forget(const char* rom_path) {
 	SDL_AtomicIncRef(&changes);
 }
 
+void HomeArt_dropPlaceholders(const char* rom_path) {
+	if (!rom_path)
+		return;
+	char seed[MAX_PATH], path[MAX_PATH];
+	placeholderSeed(rom_path, false, seed, path);
+	unlink(path);
+	placeholderSeed(rom_path, true, seed, path);
+	unlink(path);
+}
+
 // Refresh Roms: art may have been copied onto the card since, and a game without any was cached as its abstract
 // picture (or a miss), so every picture is built again on its next view.
 void HomeArt_forgetAll(void) {

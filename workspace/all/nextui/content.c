@@ -13,6 +13,7 @@
 #include "config.h"
 #include "arcade_names.h"
 #include "collname.h"
+#include "romkey.h"
 #include "emulist_model.h"
 #include "api.h"
 
@@ -206,8 +207,60 @@ static bool arcadeLabelRun(Directory* self, Hash* map, int start, int end) {
 	return ok;
 }
 
+// The map.txt files a collection's rows take their names from, each read once per build (a collection can list many
+// games across consoles; most share a handful of folders).
+typedef struct {
+	char dir[MAX_PATH];
+	Hash* map; // NULL: no map.txt there
+} AliasMap;
+typedef struct {
+	AliasMap* maps;
+	int count;
+} AliasMaps;
+
+static Hash* aliasMapFor(AliasMaps* maps, const char* dir) {
+	for (int i = 0; i < maps->count; i++)
+		if (exactMatch(maps->maps[i].dir, dir))
+			return maps->maps[i].map;
+	char map_path[MAX_PATH];
+	snprintf(map_path, sizeof(map_path), "%s/map.txt", dir);
+	Hash* map = readMapFile(map_path);
+	AliasMap* grown = realloc(maps->maps, (maps->count + 1) * sizeof(AliasMap));
+	if (!grown) {
+		if (map)
+			Hash_free(map);
+		return NULL; // out of memory: this row keeps its file name
+	}
+	maps->maps = grown;
+	snprintf(maps->maps[maps->count].dir, MAX_PATH, "%s", dir);
+	maps->maps[maps->count].map = map;
+	maps->count++;
+	return map;
+}
+
+static void aliasMapsFree(AliasMaps* maps) {
+	for (int i = 0; i < maps->count; i++)
+		if (maps->maps[i].map)
+			Hash_free(maps->maps[i].map);
+	free(maps->maps);
+	maps->maps = NULL;
+	maps->count = 0;
+}
+
+// A collection row's name from the game's own console list: the alias in the map.txt beside it, keyed as that list
+// keys it (a folder game by its folder, see RomKey_aliasSource). NULL when the console list names it from the file.
+static char* consoleAlias(AliasMaps* maps, const char* rom_path) {
+	char dir[MAX_PATH], key[MAX_PATH];
+	RomKey_aliasSource(rom_path, ROMS_PATH, dir, sizeof(dir), key, sizeof(key));
+	Hash* map = aliasMapFor(maps, dir);
+	return map ? Hash_get(map, key) : NULL;
+}
+
 static void Directory_index(Directory* self) {
 	int is_collection = prefixMatch(COLLECTIONS_PATH, self->path);
+	// a collection's games (not the Collections tab, whose rows are the collection files Collections/map.txt names)
+	bool collection_games = is_collection && !exactMatch(COLLECTIONS_PATH, self->path);
+	AliasMaps console_maps = {NULL, 0};
 	int skip_index = exactMatch(FAUX_RECENT_PATH, self->path) || is_collection; // not alphabetized
 
 	char map_path[MAX_PATH];
@@ -215,6 +268,8 @@ static void Directory_index(Directory* self) {
 						  : exactMatch(ROMS_PATH, self->path) ? SDCARD_PATH // Consoles tab: the old root's map.txt
 															  : self->path;
 	snprintf(map_path, sizeof(map_path), "%s/map.txt", map_dir);
+	// for a collection's games this is only the legacy Collections/map.txt (keyed by bare file name, which older
+	// builds' Rename Rom wrote): still honoured, after the game's own console map.txt
 	Hash* map = readMapFile(map_path);
 	// Recents names come from the alias recorded at launch (a Rename or the
 	// arcade title it showed then); the arcade table must not override that.
@@ -228,7 +283,9 @@ static void Directory_index(Directory* self) {
 		if (!slash)
 			continue;
 		char* filename = slash + 1;
-		char* alias = map ? Hash_get(map, filename) : NULL;
+		char* alias = collection_games ? consoleAlias(&console_maps, entry->path) : NULL;
+		if (!alias && map)
+			alias = Hash_get(map, filename);
 		bool from_map = alias != NULL;
 		if (!alias && use_arcade && entry->type == ENTRY_ROM)
 			alias = (char*)arcadeName(entry->path);
@@ -365,6 +422,7 @@ static void Directory_index(Directory* self) {
 
 	if (map)
 		Hash_free(map);
+	aliasMapsFree(&console_maps);
 }
 
 ///////////////////////////////////////

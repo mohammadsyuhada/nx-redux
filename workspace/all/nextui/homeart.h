@@ -47,6 +47,9 @@ unsigned HomeArt_changes(void);
 void HomeArt_forget(const char* rom_path);
 // Drop every cached picture (Refresh Roms: art copied onto the card since must show).
 void HomeArt_forgetAll(void);
+// Delete Rom: remove the abstract pictures generated for rom_path (tile and box). They are keyed by the file name's
+// stem, so a same-named game elsewhere gets the identical picture made again on its next view.
+void HomeArt_dropPlaceholders(const char* rom_path);
 // Stop the worker and free the cache. Safe to call when nothing was loaded.
 void HomeArt_quit(void);
 

@@ -30,6 +30,7 @@
 #include "collcount.h"
 #include "contentdim.h"
 #include "collname.h"
+#include "romkey.h"
 #include "content.h"
 #include "gameswitcher.h"
 #include "imgloader.h"
@@ -761,10 +762,10 @@ static void addRomToCollectionFile(const char* collection_path, const char* rom_
 // paths, netplay peer matching — can be broken or orphaned by a rename.
 // Arcade cores REQUIRE this (the zip filename is the romset id the core
 // loads by); every other core just shares the same behavior.
-// Aliases are keyed by basename:
-//   list view  -> <rom dir>/map.txt keyed by the entry's own basename
-//   collection -> Collections/map.txt keyed by the collection line's basename
-//                 (the resolved cue/m3u for folder games)
+//
+// The alias goes where the game's console list reads it (RomKey_aliasSource): <rom dir>/map.txt keyed by the file
+// name, or for a folder game (its row, or its cue/m3u from a collection, Search or Recents) the console folder's
+// map.txt keyed by the folder name. Collections name their games from that same map.txt, so nothing else is written.
 static bool doRename(Entry* entry, int sel) {
 	char prompt[MAX_PATH];
 	snprintf(prompt, sizeof(prompt), "Rename: %s", entry->name);
@@ -786,33 +787,21 @@ static bool doRename(Entry* entry, int sel) {
 		return false;
 	}
 
-	char parent_dir[MAX_PATH];
-	strncpy(parent_dir, entry->path, sizeof(parent_dir) - 1);
-	parent_dir[sizeof(parent_dir) - 1] = '\0';
-	char* pslash = strrchr(parent_dir, '/');
-	char home_key[MAX_PATH];
-	strncpy(home_key, pslash ? pslash + 1 : parent_dir, sizeof(home_key) - 1);
-	home_key[sizeof(home_key) - 1] = '\0';
-	if (pslash)
-		*pslash = '\0';
-	char home_map[MAX_PATH];
-	char coll_map[MAX_PATH];
-	snprintf(home_map, sizeof(home_map), "%s/map.txt", parent_dir);
-	snprintf(coll_map, sizeof(coll_map), "%s/map.txt", COLLECTIONS_PATH);
-
-	char coll_key[MAX_PATH];
 	char game_file[MAX_PATH];
 	bool folder_game = entryFolderGame(entry, game_file);
-	if (folder_game) {
-		char* gslash = strrchr(game_file, '/');
-		strncpy(coll_key, gslash ? gslash + 1 : game_file, sizeof(coll_key) - 1);
-	} else {
-		strncpy(coll_key, home_key, sizeof(coll_key) - 1);
-	}
-	coll_key[sizeof(coll_key) - 1] = '\0';
+	char alias_dir[MAX_PATH], alias_key[MAX_PATH], home_map[MAX_PATH];
+	RomKey_aliasSource(entry->path, ROMS_PATH, alias_dir, sizeof(alias_dir), alias_key, sizeof(alias_key));
+	snprintf(home_map, sizeof(home_map), "%s/map.txt", alias_dir);
+	setMapAlias(home_map, alias_key, newname);
 
-	setMapAlias(home_map, home_key, newname);
-	setMapAlias(coll_map, coll_key, newname);
+	// Older builds also wrote the name to Collections/map.txt, keyed by the bare file name (the folder game's cue/m3u):
+	// collections still honour such an entry when the console map.txt has none, so it goes, or it could outlive
+	// a later rename. Its other keys (a collection's own "<name>.txt") are untouched.
+	char coll_map[MAX_PATH];
+	snprintf(coll_map, sizeof(coll_map), "%s/map.txt", COLLECTIONS_PATH);
+	const char* legacy_file = folder_game ? game_file : entry->path;
+	const char* lslash = strrchr(legacy_file, '/');
+	dropMapKey(coll_map, lslash ? lslash + 1 : legacy_file);
 	Content_sourcesChanged(); // map.txt is a fingerprint source: Search's index must be checked again
 
 	// Recently Played and the game switcher render an alias snapshot taken at
@@ -1173,6 +1162,22 @@ static void artFetchLanded(const char* rom, const char* out_png) {
 	listArtForget();
 }
 
+// Delete Rom: remove the deleted game's art, every picture the scraper writes and the lists read
+// (<dir>/.media/<variant>/<stem>.png and the root <dir>/.media/<stem>.png). art_rom is the ROM file, or a folder game's
+// folder (its art is named after the folder, beside it). Exact paths only: another game whose name starts the same keeps
+// its art, and the console's own background (.media/bg.png) is never a game's. Saves and states are the player's: kept.
+static void deleteGameArt(const char* art_rom) {
+	static const char* variants[] = {NULL, "screenshot", "boxart", "boxart2d", "mix", "wheel"};
+	for (int i = 0; i < (int)(sizeof(variants) / sizeof(variants[0])); i++) {
+		char png[MAX_PATH];
+		ROM_mediaArtVariantPath(art_rom, variants[i], png, sizeof(png));
+		if (RomKey_artReserved(png))
+			continue;
+		unlink(png);
+		thumbCacheInvalidate(png); // a game later added under the name must not show the cached picture
+	}
+}
+
 // Fetches cancelled (B) or timed out while their scraper runs on: watched from the game list (artFetchPoll) so their
 // art shows once it lands. The oldest gives way to a new one.
 static struct {
@@ -1493,6 +1498,12 @@ static void ctxDeleteRom(Entry* entry, int root_sel, int sel) {
 					snprintf(amap, sizeof(amap), "%s/map.txt", COLLECTIONS_PATH);
 					dropMapKey(amap, coll_key);
 				}
+				// its art (kept by the folder game's name for a folder game) and its cached and generated pictures
+				deleteGameArt(removed);
+				HomeArt_forget(entry->path);
+				HomeArt_forget(del_line);
+				HomeArt_dropPlaceholders(del_line);
+				HomeArt_dropPlaceholders(removed);
 				// drop it from the rom index so console counts and Search follow (after the
 				// map.txt clean-up: both feed the index fingerprint)
 				Content_forgetRom(removed, caches_fresh);

@@ -93,3 +93,5 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_menustyle test
 /tmp/nx_test_menustyle
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I../ui -o /tmp/nx_test_menu_transition ../../nextui/menu_transition.c ../ui/ui_ease.c test_menu_transition.c -lm
 /tmp/nx_test_menu_transition
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_romkey ../../nextui/romkey.c test_romkey.c
+/tmp/nx_test_romkey
