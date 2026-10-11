@@ -1,6 +1,6 @@
 // Host-compiled unit test for settings.c (no device toolchain).
 // Build & run (from workspace/all/musicplayer):
-//   cc -std=gnu99 -Wall -Werror -D_GNU_SOURCE -I. -I../../tg5040/platform \
+//   cc -std=gnu99 -Wall -Werror -D_GNU_SOURCE -I. -I../common -I../../tg5040/platform \
 //      -DMUSIC_SETTINGS_TEST_DIR='"/tmp/nx_music_settings_roundtrip"' \
 //      settings.c tests/test_music_settings.c -o /tmp/test_music_settings -lm && /tmp/test_music_settings
 //

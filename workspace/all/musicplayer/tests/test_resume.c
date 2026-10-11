@@ -3,7 +3,7 @@
 // the resume directory is redirected to a temp dir through NX_MUSIC_RESUME_DIR,
 // so no device paths are touched.
 // Build & run (from workspace/all/musicplayer):
-//   cc -std=gnu99 -Wall -Werror -D_GNU_SOURCE -I. resume.c tests/test_resume.c -o /tmp/test_resume && /tmp/test_resume
+//   cc -std=gnu99 -Wall -Werror -D_GNU_SOURCE -I. -I../common resume.c tests/test_resume.c -o /tmp/test_resume && /tmp/test_resume
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
