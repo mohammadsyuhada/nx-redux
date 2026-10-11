@@ -86,16 +86,18 @@ USERDATA_DIR="$SDCARD_PATH/.userdata/$PLATFORM"
 # failure leaves any prior successful install fully untouched. From then on
 # a failure may leave the runtime half-written - a truncated pugwash must
 # not stay launchable - so fail() strips the runtime back to the BASE-
-# shipped files/ and pulls both launchers (same shape as
-# uninstall.sh; ports/saves in Roms are never touched). Re-running install
-# recovers cleanly.
+# shipped files/ and pulls both launchers (ports/saves in Roms are never
+# touched). Unlike uninstall.sh it keeps config/ (the player's settings and
+# added sources), libs/ (runtimes PortMaster downloaded) and themes/: a
+# failed update must not cost those, and re-running install overwrites
+# every file it extracts, so it recovers cleanly over them.
 TARGET_DIRTY=0
 
 cleanup_runtime() {
     for entry in "$PM_DIR"/* "$PM_DIR"/.[!.]*; do
         [ -e "$entry" ] || continue
         case "$(basename "$entry")" in
-            files) ;;
+            files|config|libs|themes) ;;
             *) rm -rf "$entry" ;;
         esac
     done

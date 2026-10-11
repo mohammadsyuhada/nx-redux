@@ -263,6 +263,8 @@ grep -q 'checksum mismatch' "$TMP/log3a.txt" \
 
 # ---- 3b. mid-install failure strips the runtime back to BASE files ------
 echo 'not-a-zip' > "$PM/files/bin.zip"
+echo '{"user": true}' > "$PM/config/config.json"
+echo 'runtime' > "$PM/libs/mono.squashfs"
 if run_install > "$TMP/log3b.txt" 2>&1; then
   fail "corrupt dep zip did not abort"
 else pass "corrupt dep zip aborts"; fi
@@ -272,6 +274,8 @@ else pass "corrupt dep zip aborts"; fi
   && pass "failed install: BASE files/ kept" || fail "failed install: BASE payload lost"
 [ ! -d "$TOOLS_PAK" ] && [ ! -d "$PORTS_PAK" ] \
   && pass "failed install: launchers pulled" || fail "failed install: launchers left behind"
+[ "$(cat "$PM/config/config.json" 2>/dev/null)" = '{"user": true}' ] && [ -f "$PM/libs/mono.squashfs" ] \
+  && pass "failed install: user config + downloaded runtimes kept" || fail "failed install: user config/runtimes lost"
 cp "$TMP/bin.zip" "$PM/files/bin.zip"
 
 # ---- 4. uninstall --------------------------------------------------------
