@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "radio_hls.h"
 #include "radio_net.h"
+#include "tag_meta.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -261,67 +262,47 @@ int radio_hls_parse_id3_metadata(const uint8_t* data, int len,
 
 		// TIT2 = Title
 		if (strcmp(frame_id, "TIT2") == 0 && frame_size > 1 && title && title_size > 0) {
-			int encoding = frame_data[0];
-			const char* text = (const char*)&frame_data[1];
-			int text_len = frame_size - 1;
-			if (text_len > title_size - 1)
-				text_len = title_size - 1;
-
-			if (encoding == 0 || encoding == 3) { // ISO-8859-1 or UTF-8
-				memcpy(title, text, text_len);
-				title[text_len] = '\0';
-			}
+			TagMeta_id3Text(frame_data[0], &frame_data[1], frame_size - 1, title, title_size);
 		}
 		// TPE1 = Artist
 		else if (strcmp(frame_id, "TPE1") == 0 && frame_size > 1 && artist && artist_size > 0) {
-			int encoding = frame_data[0];
-			const char* text = (const char*)&frame_data[1];
-			int text_len = frame_size - 1;
-			if (text_len > artist_size - 1)
-				text_len = artist_size - 1;
-
-			if (encoding == 0 || encoding == 3) {
-				memcpy(artist, text, text_len);
-				artist[text_len] = '\0';
-			}
+			TagMeta_id3Text(frame_data[0], &frame_data[1], frame_size - 1, artist, artist_size);
 		}
-		// TXXX = User-defined text (may contain StreamTitle)
+		// TXXX = User-defined text: encoding(1) description value (may carry StreamTitle)
 		else if (strcmp(frame_id, "TXXX") == 0 && frame_size > 1 && title && title_size > 0) {
-			int encoding = frame_data[0];
-			if (encoding == 0 || encoding == 3) {
-				// Copy the (untrusted, possibly unterminated) frame payload into
-				// a NUL-terminated local buffer before any strstr, so the search
-				// can't run off the end of the segment buffer.
-				int desc_len = frame_size - 1;
-				char descbuf[512];
-				if (desc_len > (int)sizeof(descbuf) - 1)
-					desc_len = sizeof(descbuf) - 1;
-				memcpy(descbuf, &frame_data[1], desc_len);
-				descbuf[desc_len] = '\0';
-				const char* desc = descbuf;
-				if (strstr(desc, "StreamTitle") || strstr(desc, "TITLE")) {
-					const char* value = desc;
-					while (*value && (value - desc) < desc_len)
-						value++;
-					value++;
+			uint8_t encoding = frame_data[0];
+			const uint8_t* body = &frame_data[1];
+			uint32_t body_len = frame_size - 1;
 
-					if ((value - desc) < desc_len) {
-						int val_len = desc_len - (int)(value - desc);
-						if (val_len > title_size - 1)
-							val_len = title_size - 1;
+			// Find the end of the description: one NUL byte, or a 2-byte NUL
+			// on a code-unit boundary for the UTF-16 encodings
+			bool wide = encoding == 1 || encoding == 2;
+			uint32_t desc_end = 0;
+			while (desc_end < body_len) {
+				if (wide) {
+					if (desc_end + 1 < body_len && body[desc_end] == 0 && body[desc_end + 1] == 0)
+						break;
+					desc_end += 2;
+				} else {
+					if (body[desc_end] == 0)
+						break;
+					desc_end++;
+				}
+			}
+			uint32_t value_start = desc_end + (wide ? 2 : 1);
 
-						memcpy(title, value, val_len);
-						title[val_len] = '\0';
+			char desc[256];
+			TagMeta_id3Text(encoding, body, desc_end < body_len ? desc_end : body_len, desc, sizeof(desc));
+			if (value_start < body_len && (strstr(desc, "StreamTitle") || strstr(desc, "TITLE"))) {
+				TagMeta_id3Text(encoding, body + value_start, body_len - value_start, title, title_size);
 
-						// Try to parse "Artist - Title" format
-						char* separator = strstr(title, " - ");
-						if (separator && artist && artist_size > 0) {
-							*separator = '\0';
-							strncpy(artist, title, artist_size - 1);
-							artist[artist_size - 1] = '\0';
-							memmove(title, separator + 3, strlen(separator + 3) + 1);
-						}
-					}
+				// Try to parse "Artist - Title" format
+				char* separator = strstr(title, " - ");
+				if (separator && artist && artist_size > 0) {
+					*separator = '\0';
+					strncpy(artist, title, artist_size - 1);
+					artist[artist_size - 1] = '\0';
+					memmove(title, separator + 3, strlen(separator + 3) + 1);
 				}
 			}
 		}
@@ -337,9 +318,7 @@ int radio_hls_parse_id3_metadata(const uint8_t* data, int len,
 				title_start += 13;
 				char* title_end = strchr(title_start, '\'');
 				if (title_end) {
-					*title_end = '\0';
-					strncpy(title, title_start, title_size - 1);
-					title[title_size - 1] = '\0';
+					TagMeta_streamText(title_start, title_end - title_start, title, title_size);
 
 					char* separator = strstr(title, " - ");
 					if (separator && artist && artist_size > 0) {

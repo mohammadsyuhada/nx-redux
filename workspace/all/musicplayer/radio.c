@@ -3,6 +3,7 @@
 #include "radio_net.h"
 #include "album_art.h"
 #include "radio_hls.h"
+#include "tag_meta.h"
 #include "radio_catalog.h"
 #include "player.h"
 #include <stdio.h>
@@ -688,12 +689,12 @@ static int parse_headers(void) {
 		} else if (strncasecmp(line, "icy-br:", 7) == 0) {
 			radio.metadata.bitrate = atoi(line + 7);
 		} else if (strncasecmp(line, "icy-name:", 9) == 0) {
-			strncpy(radio.metadata.station_name, line + 9, sizeof(radio.metadata.station_name) - 1);
 			// Trim leading space
-			char* name = radio.metadata.station_name;
+			const char* name = line + 9;
 			while (*name == ' ')
 				name++;
-			memmove(radio.metadata.station_name, name, strlen(name) + 1);
+			TagMeta_streamText(name, strlen(name), radio.metadata.station_name,
+							   sizeof(radio.metadata.station_name));
 		} else if (strncasecmp(line, "content-type:", 13) == 0) {
 			strncpy(radio.metadata.content_type, line + 13, sizeof(radio.metadata.content_type) - 1);
 		}
@@ -749,8 +750,7 @@ static void parse_icy_metadata(const uint8_t* data, int len) {
 	// the UI thread never sees a half-written pair
 	char new_artist[256] = "";
 	char new_title[256];
-	strncpy(new_title, title_start, sizeof(new_title) - 1);
-	new_title[sizeof(new_title) - 1] = '\0';
+	TagMeta_streamText(title_start, strlen(title_start), new_title, sizeof(new_title));
 
 	char* separator = strstr(new_title, " - ");
 	if (separator) {
