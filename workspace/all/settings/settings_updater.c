@@ -31,6 +31,7 @@
 #include <ctype.h>
 #include <signal.h>
 #include <strings.h>
+#include <sys/statvfs.h>
 
 // ============================================
 // Configuration
@@ -45,6 +46,11 @@
 #define VERSION_FILE_PATH "/mnt/SDCARD/.system/version.txt"
 #define DOWNLOAD_PATH "/mnt/SDCARD/.tmp_update.zip"
 #define EXTRACT_DEST "/mnt/SDCARD/"
+#define UPDATER_7Z "/mnt/SDCARD/.system/shared/bin/7zzs.aarch64"
+// Free space needed before downloading: the release zip and the MinUI.zip
+// unpacked from it sit on the card together (~550 MB), then the next boot
+// unpacks MinUI.zip (~540 MB) while it is still there.
+#define UPDATE_MIN_FREE_MB 1024
 
 // ============================================
 // Device name mapping
@@ -360,14 +366,26 @@ static void* extract_thread(void* arg) {
 
 	char out_arg[256];
 	snprintf(out_arg, sizeof(out_arg), "-o%s", EXTRACT_DEST);
-	char* argv[] = {"/mnt/SDCARD/.system/shared/bin/7zzs.aarch64",
-					"x", DOWNLOAD_PATH, out_arg, "-y", NULL};
+	// The release zip also carries the card skeleton (Roms/Bios folders,
+	// Shaders presets, Overlays, sample art) that players edit or replace,
+	// so that part only adds what is missing (-aos). The system parts -
+	// MinUI.zip, the pakz, the stock-launcher shim and the shader sources -
+	// are always replaced (-aoa) in a second pass.
+	char* user_argv[] = {UPDATER_7Z, "x", DOWNLOAD_PATH, out_arg, "-aos",
+						 "-x!MinUI.zip", "-x!*.pakz", "-x!trimui", "-x!README.txt",
+						 "-x!Shaders/glsl", NULL};
+	char* system_argv[] = {UPDATER_7Z, "x", DOWNLOAD_PATH, out_arg, "-aoa",
+						   "MinUI.zip", "*.pakz", "trimui", "README.txt", "Shaders/glsl", NULL};
 
-	int ret = run_command(argv);
+	int ret = run_command(user_argv);
+	if (ret == 0)
+		ret = run_command(system_argv);
 	if (ret != 0) {
 		// Don't leave the zip in the card root: a retry downloads it again,
 		// and Windows Explorer prompts for a "multi-volume set" on a bad zip.
 		unlink(DOWNLOAD_PATH);
+		// nor a possibly truncated MinUI.zip for the next boot to install
+		unlink(EXTRACT_DEST "MinUI.zip");
 		snprintf(ctx->error, sizeof(ctx->error), "Extraction failed");
 		ctx->success = 0;
 		__sync_synchronize();
@@ -700,6 +718,21 @@ static int verify_update_hash(const char* zip_path, const char* expected_sha256)
 // Run download + extract + reboot with full-screen progress pages.
 static void do_install(SDL_Surface* screen, ReleaseInfo* release) {
 	pthread_t tid;
+
+	// Running out of space mid-install leaves a half-unpacked update, so
+	// refuse up front (a stale partial download is not counted against it)
+	unlink(DOWNLOAD_PATH);
+	struct statvfs vfs;
+	if (statvfs(EXTRACT_DEST, &vfs) == 0) {
+		unsigned long long free_mb = (unsigned long long)vfs.f_bavail * vfs.f_frsize / (1024 * 1024);
+		if (free_mb < UPDATE_MIN_FREE_MB) {
+			char msg[128];
+			snprintf(msg, sizeof(msg), "Free up %llu MB on the SD card",
+					 UPDATE_MIN_FREE_MB - free_mb);
+			show_message_page(screen, "Not Enough Space", msg);
+			return;
+		}
+	}
 
 	// Prevent screen off and disable WiFi power save during update
 	PWR_disableAutosleep();
