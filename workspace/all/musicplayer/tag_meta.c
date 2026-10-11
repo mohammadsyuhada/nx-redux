@@ -138,3 +138,134 @@ fail:
 	free(block);
 	return NULL;
 }
+
+// Append codepoint cp as UTF-8 at out[*j], keeping room for the terminator.
+// Returns false (writing nothing) once it no longer fits.
+static int put_utf8(char* out, size_t out_size, size_t* j, uint32_t cp) {
+	char b[4];
+	size_t n;
+	if (cp < 0x80) {
+		b[0] = (char)cp;
+		n = 1;
+	} else if (cp < 0x800) {
+		b[0] = (char)(0xC0 | (cp >> 6));
+		b[1] = (char)(0x80 | (cp & 0x3F));
+		n = 2;
+	} else if (cp < 0x10000) {
+		b[0] = (char)(0xE0 | (cp >> 12));
+		b[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+		b[2] = (char)(0x80 | (cp & 0x3F));
+		n = 3;
+	} else {
+		b[0] = (char)(0xF0 | (cp >> 18));
+		b[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+		b[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+		b[3] = (char)(0x80 | (cp & 0x3F));
+		n = 4;
+	}
+	if (*j + n >= out_size)
+		return 0;
+	memcpy(out + *j, b, n);
+	*j += n;
+	return 1;
+}
+
+void TagMeta_id3Text(uint8_t enc, const uint8_t* p, size_t len, char* out, size_t out_size) {
+	if (!out || out_size == 0)
+		return;
+	out[0] = '\0';
+	if (!p)
+		return;
+
+	size_t i = 0, j = 0;
+	if (enc == 1 || enc == 2) {
+		int be = enc == 2;
+		if (enc == 1 && len >= 2) {
+			if (p[0] == 0xFE && p[1] == 0xFF) {
+				be = 1;
+				i = 2;
+			} else if (p[0] == 0xFF && p[1] == 0xFE) {
+				i = 2;
+			}
+		}
+		while (i + 1 < len) {
+			uint32_t u = be ? ((uint32_t)p[i] << 8 | p[i + 1]) : ((uint32_t)p[i + 1] << 8 | p[i]);
+			i += 2;
+			if (u == 0)
+				break;
+			if (u >= 0xD800 && u < 0xDC00 && i + 1 < len) {
+				uint32_t lo = be ? ((uint32_t)p[i] << 8 | p[i + 1]) : ((uint32_t)p[i + 1] << 8 | p[i]);
+				if (lo >= 0xDC00 && lo < 0xE000) {
+					i += 2;
+					u = 0x10000 + ((u - 0xD800) << 10) + (lo - 0xDC00);
+				}
+			}
+			if (u >= 0xD800 && u < 0xE000)
+				u = 0xFFFD; // unpaired surrogate
+			if (!put_utf8(out, out_size, &j, u))
+				break;
+		}
+	} else if (enc == 0) {
+		// Latin-1 maps 1:1 onto U+0000..U+00FF
+		for (; i < len && p[i]; i++) {
+			if (!put_utf8(out, out_size, &j, p[i]))
+				break;
+		}
+	} else {
+		// UTF-8: copy, but never cut a multi-byte sequence in half
+		while (i < len && p[i]) {
+			size_t n = 1;
+			while (i + n < len && (p[i + n] & 0xC0) == 0x80)
+				n++;
+			if (j + n >= out_size)
+				break;
+			memcpy(out + j, p + i, n);
+			i += n;
+			j += n;
+		}
+	}
+	out[j] = '\0';
+}
+
+// True when the first len bytes of p (up to a NUL) are well-formed UTF-8
+static int is_utf8(const uint8_t* p, size_t len) {
+	size_t i = 0;
+	while (i < len && p[i]) {
+		uint8_t c = p[i];
+		size_t n;
+		uint32_t cp;
+		if (c < 0x80) {
+			i++;
+			continue;
+		} else if ((c & 0xE0) == 0xC0) {
+			n = 1;
+			cp = c & 0x1F;
+		} else if ((c & 0xF0) == 0xE0) {
+			n = 2;
+			cp = c & 0x0F;
+		} else if ((c & 0xF8) == 0xF0) {
+			n = 3;
+			cp = c & 0x07;
+		} else {
+			return 0;
+		}
+		if (i + n >= len)
+			return 0;
+		for (size_t k = 1; k <= n; k++) {
+			if ((p[i + k] & 0xC0) != 0x80)
+				return 0;
+			cp = (cp << 6) | (p[i + k] & 0x3F);
+		}
+		// Overlong forms, surrogates, beyond U+10FFFF
+		if ((n == 1 && cp < 0x80) || (n == 2 && cp < 0x800) || (n == 3 && cp < 0x10000) ||
+			cp > 0x10FFFF || (cp >= 0xD800 && cp < 0xE000))
+			return 0;
+		i += n + 1;
+	}
+	return 1;
+}
+
+void TagMeta_streamText(const char* src, size_t len, char* out, size_t out_size) {
+	const uint8_t* p = (const uint8_t*)src;
+	TagMeta_id3Text(is_utf8(p, len) ? 3 : 0, p, len, out, out_size);
+}

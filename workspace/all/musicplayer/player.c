@@ -1968,50 +1968,29 @@ static void copy_metadata_string(char* dest, const char* src, size_t max_len) {
 	}
 }
 
-// Helper: convert UTF-16LE to ASCII (for ID3v2 text frames)
-static void utf16le_to_ascii(char* dest, const uint8_t* src, size_t src_len, size_t max_len) {
-	if (!dest || !src || max_len == 0)
-		return;
-
-	size_t j = 0;
-	for (size_t i = 0; i + 1 < src_len && j < max_len - 1; i += 2) {
-		// Get UTF-16LE character (low byte first)
-		uint16_t ch = src[i] | (src[i + 1] << 8);
-
-		// Only copy ASCII range characters
-		if (ch > 0 && ch < 128) {
-			dest[j++] = (char)ch;
-		} else if (ch >= 128 && ch < 256) {
-			// Latin-1 supplement - just use low byte
-			dest[j++] = (char)ch;
-		}
-		// Skip non-ASCII/non-Latin1 characters
+// ID3v1 has no encoding field: taggers that cannot store a title in Latin-1
+// write '?' for every character it could not represent, so a field made only
+// of '?' and spaces carries no information and must not replace a real one.
+static bool id3v1_is_placeholder(const char* s) {
+	bool any = false;
+	for (; *s; s++) {
+		if (*s == '?')
+			any = true;
+		else if (*s != ' ')
+			return false;
 	}
-	dest[j] = '\0';
+	return any;
 }
 
-// Helper: convert UTF-16BE to ASCII (for ID3v2 text frames)
-static void utf16be_to_ascii(char* dest, const uint8_t* src, size_t src_len, size_t max_len) {
-	if (!dest || !src || max_len == 0)
-		return;
-
-	size_t j = 0;
-	for (size_t i = 0; i + 1 < src_len && j < max_len - 1; i += 2) {
-		// Get UTF-16BE character (high byte first)
-		uint16_t ch = (src[i] << 8) | src[i + 1];
-
-		// Only copy ASCII range characters
-		if (ch > 0 && ch < 128) {
-			dest[j++] = (char)ch;
-		} else if (ch >= 128 && ch < 256) {
-			// Latin-1 supplement
-			dest[j++] = (char)ch;
-		}
-	}
-	dest[j] = '\0';
+// Copy one 30-byte ID3v1 field into dest when it holds real text
+static void id3v1_field(char* dest, size_t dest_size, const uint8_t* field) {
+	char buf[31];
+	memcpy(buf, field, 30);
+	buf[30] = '\0';
+	if (!id3v1_is_placeholder(buf))
+		copy_metadata_string(dest, buf, dest_size);
 }
 
-// Parse ID3v1 tag (at end of file, 128 bytes)
 static void parse_id3v1(const char* filepath) {
 	FILE* f = fopen(filepath, "rb");
 	if (!f)
@@ -2036,30 +2015,20 @@ static void parse_id3v1(const char* filepath) {
 	}
 
 	// ID3v1 layout: TAG(3) + Title(30) + Artist(30) + Album(30) + Year(4) + Comment(30) + Genre(1)
-	char buf[31];
 
 	// Title (bytes 3-32). Only fill when empty — the old `strstr(".")` guard
 	// (meant to catch filename-derived titles) also clobbered valid ID3v2
 	// titles that legitimately contain a dot, e.g. "S.O.S.".
-	if (player.track_info.title[0] == '\0') {
-		memcpy(buf, &tag[3], 30);
-		buf[30] = '\0';
-		copy_metadata_string(player.track_info.title, buf, sizeof(player.track_info.title));
-	}
+	if (player.track_info.title[0] == '\0')
+		id3v1_field(player.track_info.title, sizeof(player.track_info.title), &tag[3]);
 
 	// Artist (bytes 33-62)
-	if (player.track_info.artist[0] == '\0') {
-		memcpy(buf, &tag[33], 30);
-		buf[30] = '\0';
-		copy_metadata_string(player.track_info.artist, buf, sizeof(player.track_info.artist));
-	}
+	if (player.track_info.artist[0] == '\0')
+		id3v1_field(player.track_info.artist, sizeof(player.track_info.artist), &tag[33]);
 
 	// Album (bytes 63-92)
-	if (player.track_info.album[0] == '\0') {
-		memcpy(buf, &tag[63], 30);
-		buf[30] = '\0';
-		copy_metadata_string(player.track_info.album, buf, sizeof(player.track_info.album));
-	}
+	if (player.track_info.album[0] == '\0')
+		id3v1_field(player.track_info.album, sizeof(player.track_info.album), &tag[63]);
 }
 
 // Parse ID3v2 tag (at beginning of file)
@@ -2140,39 +2109,8 @@ static void parse_id3v2(const char* filepath) {
 		if (frame_id[0] == 'T' && frame_size > 1) {
 			const uint8_t* frame_data = &tag_data[pos];
 			uint8_t encoding = frame_data[0];
-			const uint8_t* text_data = &frame_data[1];
-			size_t text_len = frame_size - 1;
-
 			char temp[256];
-			temp[0] = '\0';
-
-			// Handle different encodings
-			// 0 = ISO-8859-1, 1 = UTF-16 with BOM, 2 = UTF-16BE, 3 = UTF-8
-			if (encoding == 0 || encoding == 3) {
-				// ISO-8859-1 or UTF-8: copy directly
-				size_t copy_len = text_len < 255 ? text_len : 255;
-				memcpy(temp, text_data, copy_len);
-				temp[copy_len] = '\0';
-			} else if (encoding == 1) {
-				// UTF-16 with BOM
-				if (text_len >= 2) {
-					bool is_le = (text_data[0] == 0xFF && text_data[1] == 0xFE);
-					bool is_be = (text_data[0] == 0xFE && text_data[1] == 0xFF);
-					if (is_le || is_be) {
-						text_data += 2;
-						text_len -= 2;
-					}
-					if (is_be) {
-						utf16be_to_ascii(temp, text_data, text_len, sizeof(temp));
-					} else {
-						// Default to LE
-						utf16le_to_ascii(temp, text_data, text_len, sizeof(temp));
-					}
-				}
-			} else if (encoding == 2) {
-				// UTF-16BE without BOM
-				utf16be_to_ascii(temp, text_data, text_len, sizeof(temp));
-			}
+			TagMeta_id3Text(encoding, &frame_data[1], frame_size - 1, temp, sizeof(temp));
 
 			// Assign to appropriate field
 			if (strcmp(frame_id, "TIT2") == 0 && temp[0]) { // Title

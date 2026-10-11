@@ -539,6 +539,65 @@ static void test_block_picture(void) {
 	free(block.p);
 }
 
+static void test_id3_text(void) {
+	char out[64];
+	// UTF-16LE with BOM: 周杰伦 (the frame that used to come back empty)
+	const uint8_t le[] = {0xFF, 0xFE, 0x68, 0x54, 0x70, 0x67, 0x26, 0x4F};
+	TagMeta_id3Text(1, le, sizeof(le), out, sizeof(out));
+	CHECK(strcmp(out, "\xE5\x91\xA8\xE6\x9D\xB0\xE4\xBC\xA6") == 0);
+	// UTF-16 with a big-endian BOM, terminator, then junk
+	const uint8_t be[] = {0xFE, 0xFF, 0x00, 'A', 0x00, 0xE9, 0x00, 0x00, 0x00, 'X'};
+	TagMeta_id3Text(1, be, sizeof(be), out, sizeof(out));
+	CHECK(strcmp(out, "A\xC3\xA9") == 0);
+	// UTF-16BE without BOM, surrogate pair U+1F600
+	const uint8_t be2[] = {0xD8, 0x3D, 0xDE, 0x00};
+	TagMeta_id3Text(2, be2, sizeof(be2), out, sizeof(out));
+	CHECK(strcmp(out, "\xF0\x9F\x98\x80") == 0);
+	// Latin-1 is converted, not copied raw
+	const uint8_t l1[] = {'C', 0xE9, 'l', 'i', 'n', 'e'};
+	TagMeta_id3Text(0, l1, sizeof(l1), out, sizeof(out));
+	CHECK(strcmp(out, "C\xC3\xA9line") == 0);
+	// UTF-8 passes through
+	const char* u8 = "\xE5\x8F\x8C\xE6\x88\xAA";
+	TagMeta_id3Text(3, (const uint8_t*)u8, strlen(u8), out, sizeof(out));
+	CHECK(strcmp(out, u8) == 0);
+	// Truncation never splits a character: 3-byte chars into a 6-byte buffer
+	TagMeta_id3Text(1, le, sizeof(le), out, 6);
+	CHECK(strcmp(out, "\xE5\x91\xA8") == 0);
+	TagMeta_id3Text(3, (const uint8_t*)u8, strlen(u8), out, 6);
+	CHECK(strcmp(out, "\xE5\x8F\x8C") == 0);
+	// Unpaired surrogate becomes U+FFFD
+	const uint8_t lone[] = {0x00, 0xD8, 'a', 0x00};
+	TagMeta_id3Text(1, lone, sizeof(lone), out, sizeof(out));
+	CHECK(strcmp(out, "\xEF\xBF\xBD"
+					  "a") == 0);
+	// Empty / odd input
+	TagMeta_id3Text(1, le, 1, out, sizeof(out));
+	CHECK(out[0] == '\0');
+}
+
+static void test_stream_text(void) {
+	char out[64];
+	// Valid UTF-8 is kept
+	const char* u8 = "\xE5\x91\xA8\xE6\x9D\xB0\xE4\xBC\xA6 - Caf\xC3\xA9";
+	TagMeta_streamText(u8, strlen(u8), out, sizeof(out));
+	CHECK(strcmp(out, u8) == 0);
+	// Invalid UTF-8 is read as Latin-1
+	const char* l1 = "Caf\xE9 Ol\xE9";
+	TagMeta_streamText(l1, strlen(l1), out, sizeof(out));
+	CHECK(strcmp(out, "Caf\xC3\xA9 Ol\xC3\xA9") == 0);
+	// A sequence cut off by len is not valid UTF-8
+	TagMeta_streamText(u8, 2, out, sizeof(out));
+	CHECK(strcmp(out, "\xC3\xA5\xC2\x91") == 0);
+	// Overlong encoding is rejected
+	const char* overlong = "\xC0\xAF";
+	TagMeta_streamText(overlong, 2, out, sizeof(out));
+	CHECK(strcmp(out, "\xC3\x80\xC2\xAF") == 0);
+	// Stops at NUL within len
+	TagMeta_streamText("ab\0cd", 5, out, sizeof(out));
+	CHECK(strcmp(out, "ab") == 0);
+}
+
 int main(void) {
 	test_id3_uslt_utf16();
 	test_id3_uslt_latin1_lrc();
@@ -553,6 +612,8 @@ int main(void) {
 	test_is_lrc();
 	test_vorbis_fields();
 	test_block_picture();
+	test_id3_text();
+	test_stream_text();
 	remove(TMP_PATH);
 	if (failures) {
 		fprintf(stderr, "test_embedded_lyrics: %d failure(s)\n", failures);
