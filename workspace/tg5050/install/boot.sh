@@ -38,8 +38,16 @@ if [ "$SHOW_SPLASH" = "yes" ] ; then
 	else
 		./show2.elf --mode=daemon --image="$LOGO_PATH" --text="Installing..." --logoheight=128 --progress=-1 &
 	fi
-	#sleep 0.5
 	#SHOW_PID=$!
+	# show2 creates /tmp/show2.fifo only once it is up; a TEXT: written
+	# before that lands in a plain file show2 then replaces, so the message
+	# never shows. Wait for the fifo (bounded, so a splash that fails to
+	# start cannot hold up the boot).
+	i=0
+	while [ ! -p /tmp/show2.fifo ] && [ $i -lt 50 ]; do
+		sleep 0.1
+		i=$((i + 1))
+	done
 fi
 
 echo after splash `cat /proc/uptime` >> /tmp/nextui_boottime
@@ -109,6 +117,24 @@ done
 echo after pkg install `cat /proc/uptime` >> /tmp/nextui_boottime
 
 # install/update
+# Test the whole zip before the clean replacement below wipes the running
+# system: a truncated MinUI.zip (card pulled mid-copy, an interrupted OTA
+# unpack) used to wipe .system first and then fail to extract, so every boot
+# powered off until the zip was re-copied from a computer. With a working
+# system on the card, a bad zip is set aside as MinUI.zip.failed and the
+# current system boots. A first install has nothing to keep and nothing to
+# boot, so it keeps the zip (and its error message) as before. show2 does
+# not wrap, so splash messages stay short enough for the panel.
+if [ -f "$UPDATE_PATH" ] && [ -f "$SYSTEM_PATH/paks/MinUI.pak/launch.sh" ]; then
+	cd $(dirname "$0")/$PLATFORM
+	echo "TEXT:Checking MinUI.zip" > /tmp/show2.fifo
+	if ! ./unzip -tqq "$UPDATE_PATH" > /dev/null 2>&1; then
+		echo "TEXT:MinUI.zip is corrupt - update skipped" > /tmp/show2.fifo
+		mv -f "$UPDATE_PATH" "$UPDATE_PATH.failed"
+		sleep 10
+	fi
+fi
+
 if [ -f "$UPDATE_PATH" ]; then 
 	echo ok
 	cd $(dirname "$0")/$PLATFORM
@@ -152,7 +178,7 @@ if [ -f "$UPDATE_PATH" ]; then
 		rm -f "$UPDATER.new"
 		rm -f "$UPDATE_PATH"
 	else
-		echo "TEXT:Install failed: MinUI.zip is corrupt or the card is full. Re-copy MinUI.zip to the card." > /tmp/show2.fifo
+		echo "TEXT:Install failed - re-copy MinUI.zip" > /tmp/show2.fifo
 		sleep 10
 	fi
 
