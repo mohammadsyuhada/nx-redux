@@ -148,6 +148,9 @@ if [ -d "$PM_CATALOG" ] && [ -f "$SDCARD_PATH/Emus/shared/PortMaster/version" ];
 		cp -f "$PM_CATALOG/ports_launch.sh" "$PM_PORTS/launch.sh" 2>/dev/null \
 			&& chmod +x "$PM_PORTS/launch.sh" 2>/dev/null \
 			&& echo "refreshed $PM_PORTS/launch.sh from the Xtras catalog"
+		cp -f "$PM_CATALOG/launch_options.sh" "$PM_CATALOG/launch_options.json" "$PM_PORTS/" 2>/dev/null \
+			&& chmod +x "$PM_PORTS/launch_options.sh" 2>/dev/null \
+			&& echo "refreshed $PM_PORTS Launch Options from the Xtras catalog"
 	fi
 	# gl4es's EGL shim in PortMaster/lib broke Xwayland for Weston ports (the
 	# catalog install.sh no longer keeps it); remove it from existing installs.

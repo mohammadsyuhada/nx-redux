@@ -183,7 +183,7 @@ fi
 for f in bin.zip lib.zip pylibs.zip ca-certificates.crt disable_python_function.py; do
     [ -f "$PM_FILES/$f" ] || fail "bundled runtime files missing ($f) - reinstall the NX Redux BASE files, then retry"
 done
-for f in launch.sh ports_launch.sh; do
+for f in launch.sh ports_launch.sh launch_options.sh launch_options.json; do
     [ -f "$CATALOG_DIR/pak/$f" ] || fail "catalog pak payload missing ($f)"
 done
 
@@ -315,6 +315,11 @@ echo "Installing launchers..."
 mkdir -p "$PORTS_PAK" || fail "cannot create PORTS.pak"
 cp -f "$CATALOG_DIR/pak/ports_launch.sh" "$PORTS_PAK/launch.sh" || fail "could not create the Ports console launcher"
 chmod +x "$PORTS_PAK/launch.sh" 2>/dev/null || true
+# Launch Options (per-game cores / CPU / GPU): the editor, whose presence is
+# nextui's "Launch Options" context-menu marker, and its schema.
+cp -f "$CATALOG_DIR/pak/launch_options.sh" "$CATALOG_DIR/pak/launch_options.json" "$PORTS_PAK/" \
+    || fail "could not install the Ports Launch Options"
+chmod +x "$PORTS_PAK/launch_options.sh" 2>/dev/null || true
 
 # The GUI tool pak, at the flat Tools location (see header). launch.sh IS
 # the launcher (no elf since 2026-09-16). Earlier generations also left a

@@ -1,0 +1,22 @@
+{
+	"emulator": "ports",
+	"config_file": "launch.ini",
+	"config_section": "launch",
+	"options_hint": "Applies the next time the game starts",
+	"sections": [
+		{
+			"name": "Launch Options",
+			"items": [
+				{
+					"key": "cpu",
+					"label": "CPU Mode",
+					"description": "Fixed clock for the game; Auto lets it scale.",
+					"type": "enum",
+					"values": ["auto", "powersave", "normal", "performance"],
+					"labels": ["Auto", "Powersave", "Normal", "Performance"],
+					"default": "auto"
+				}
+			]
+		}
+	]
+}

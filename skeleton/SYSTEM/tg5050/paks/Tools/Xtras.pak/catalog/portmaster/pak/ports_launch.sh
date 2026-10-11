@@ -242,6 +242,13 @@ main() {
     # GPU: lock to performance for port games (many use OpenGL/SDL2 rendering)
     echo performance >/sys/devices/platform/soc@3000000/1800000.gpu/devfreq/1800000.gpu/governor 2>/dev/null
 
+    # Launch Options (per-game cores / CPU / GPU, Auto = the lines above)
+    if [ -f "$SYSTEM_PATH/bin/nx_launch_opts.sh" ]; then
+        . "$SYSTEM_PATH/bin/nx_launch_opts.sh"
+        nx_launch_opts_load PORTS "$ROM_PATH"
+        nx_launch_opts_apply
+    fi
+
     mkdir -p "$PORTS_DIR"
 
     # Bind mount .ports to temp dir so port scripts can find game data

@@ -230,6 +230,13 @@ main() {
     echo 2000000 >/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
     echo 2000000 >/sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq
 
+    # Launch Options (per-game cores / CPU / GPU, Auto = the lines above)
+    if [ -f "$SYSTEM_PATH/bin/nx_launch_opts.sh" ]; then
+        . "$SYSTEM_PATH/bin/nx_launch_opts.sh"
+        nx_launch_opts_load PORTS "$ROM_PATH"
+        nx_launch_opts_apply
+    fi
+
     mkdir -p "$PORTS_DIR"
 
     # Bind mount .ports to temp dir so port scripts can find game data

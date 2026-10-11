@@ -1,0 +1,40 @@
+{
+	"emulator": "ports",
+	"config_file": "launch.ini",
+	"config_section": "launch",
+	"options_hint": "Applies the next time the game starts",
+	"sections": [
+		{
+			"name": "Launch Options",
+			"items": [
+				{
+					"key": "cores",
+					"label": "CPU Cores",
+					"description": "Fewer cores save battery; Auto keeps every core on.",
+					"type": "enum",
+					"values": ["auto", "little4", "little4big2", "all8"],
+					"labels": ["Auto", "4 Little", "4 Little + 2 Big", "All 8"],
+					"default": "auto"
+				},
+				{
+					"key": "cpu",
+					"label": "CPU Mode",
+					"description": "Fixed clock for the game; Auto lets it scale.",
+					"type": "enum",
+					"values": ["auto", "powersave", "normal", "performance"],
+					"labels": ["Auto", "Powersave", "Normal", "Performance"],
+					"default": "auto"
+				},
+				{
+					"key": "gpu",
+					"label": "GPU Mode",
+					"description": "Powersave lets the GPU slow down when idle.",
+					"type": "enum",
+					"values": ["auto", "powersave", "performance"],
+					"labels": ["Auto", "Powersave", "Performance"],
+					"default": "auto"
+				}
+			]
+		}
+	]
+}

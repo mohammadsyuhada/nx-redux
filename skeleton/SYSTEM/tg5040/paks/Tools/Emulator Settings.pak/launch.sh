@@ -29,7 +29,28 @@ for opt in "$SYS_PAKS/Emus"/*.pak/options.sh; do
     set -- "$@" --entry "$name" "$opt"
 done
 
-# Nothing to configure (no emulator pak ships options.sh on this card)
+# Paks with launch-time settings (cores / CPU / GPU) ship launch_options.sh;
+# run with no argument it edits the console-wide default. A pak that also
+# ships options.sh is already listed above. Same SD-wins rule for system paks.
+for opt in "$SDCARD_PATH/Emus"/*.pak/launch_options.sh; do
+    [ -f "$opt" ] || continue
+    [ -f "$(dirname "$opt")/options.sh" ] && continue
+    name="$(sed -n 's/^# NAME: //p' "$opt" | head -1)"
+    [ -n "$name" ] || name="$(basename "$(dirname "$opt")" .pak)"
+    set -- "$@" --entry "$name (Launch Options)" "$opt"
+done
+for opt in "$SYS_PAKS/Emus"/*.pak/launch_options.sh; do
+    [ -f "$opt" ] || continue
+    [ -f "$(dirname "$opt")/options.sh" ] && continue
+    tag="$(basename "$(dirname "$opt")" .pak)"
+    [ -f "$SDCARD_PATH/Emus/$tag.pak/launch_options.sh" ] && continue
+    [ -f "$SDCARD_PATH/Emus/$tag.pak/options.sh" ] && continue
+    name="$(sed -n 's/^# NAME: //p' "$opt" | head -1)"
+    [ -n "$name" ] || name="$tag"
+    set -- "$@" --entry "$name (Launch Options)" "$opt"
+done
+
+# Nothing to configure (no emulator pak ships options.sh or launch_options.sh)
 [ $# -eq 0 ] && exit 0
 
 # Picker prints the chosen options.sh on stdout; empty means cancelled (B).
