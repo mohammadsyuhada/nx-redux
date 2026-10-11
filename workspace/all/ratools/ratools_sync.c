@@ -54,7 +54,7 @@ static void rat_sync_progress(int done, int total, void* userdata) {
 	rat_sync_render(ui->screen, "Syncing offline unlocks", "Submitting", done, total);
 }
 
-// phase 2 progress: cloud state refreshed game-by-game
+// phase 2 progress: cloud state checked console-by-console
 static void rat_sync_refresh_progress(int done, int total, const char* label,
 									  void* userdata) {
 	RATSyncUI* ui = (RATSyncUI*)userdata;
@@ -188,6 +188,11 @@ void RATSync_run(SDL_Surface* screen) {
 					 stats.games_checked == 1 ? "" : "s");
 		else
 			snprintf(line2, sizeof(line2), "%s", pts);
+		if (stats.consoles_failed > 0) {
+			size_t used = strlen(line2);
+			snprintf(line2 + used, sizeof(line2) - used, ", %d console%s not checked",
+					 stats.consoles_failed, stats.consoles_failed == 1 ? "" : "s");
+		}
 	}
 	rat_sync_message_screen(screen, line1, line2);
 }

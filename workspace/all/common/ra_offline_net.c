@@ -149,10 +149,16 @@ int RA_OfflineNet_cacheLogin(const char* username, const char* token) {
  * Cloud refresh (pull the server's fresh unlock state back into the cache)
  *****************************************************************************/
 
+#define RA_NET_MAX_SET_IDS 16
+
 typedef struct {
 	uint32_t id;			  // sets "id" (allprogress keys on this)
 	uint32_t session_game_id; // used for startsession + cache/sessions/<id>.json
 	uint32_t console_id;
+	// game ids of the core set and every bonus/subset set: the session lists
+	// unlocks from all of them, allprogress counts each set under its own id
+	uint32_t set_ids[RA_NET_MAX_SET_IDS];
+	int num_set_ids;
 	char title[128];
 	char hash[64];
 } RA_CachedGameInfo;
@@ -217,6 +223,9 @@ static int ra_net_enum_cached_games(RA_CachedGameInfo** out) {
 			g->console_id = sets.console_id;
 			snprintf(g->title, sizeof(g->title), "%s", sets.title ? sets.title : "");
 			snprintf(g->hash, sizeof(g->hash), "%s", ent->d_name);
+			for (uint32_t k = 0; k < sets.num_sets && g->num_set_ids < RA_NET_MAX_SET_IDS; k++)
+				if (sets.sets[k].game_id)
+					g->set_ids[g->num_set_ids++] = sets.sets[k].game_id;
 		}
 		rc_api_destroy_fetch_game_sets_response(&sets);
 		free(body);
@@ -267,35 +276,46 @@ static bool ra_net_cached_session_count(uint32_t session_game_id, int* out_count
 	return true;
 }
 
-// Look up a game's server unlock count in an allprogress response. allprogress
-// keys on the main game id; fall back to the session id for the rare subset
-// game where the two differ.
-static bool ra_net_prog_lookup(const rc_api_fetch_all_user_progress_response_t* prog,
-							   uint32_t id, uint32_t session_id, int* out_count) {
-	if (!prog)
-		return false;
-	for (uint32_t i = 0; i < prog->num_entries; i++) {
-		if (prog->entries[i].game_id == id || prog->entries[i].game_id == session_id) {
-			if (out_count)
-				*out_count = (int)(prog->entries[i].num_unlocked_achievements +
-								   prog->entries[i].num_unlocked_achievements_hardcore);
+static bool ra_net_game_has_id(const RA_CachedGameInfo* g, uint32_t game_id) {
+	if (game_id == g->id || game_id == g->session_game_id)
+		return true;
+	for (int k = 0; k < g->num_set_ids; k++)
+		if (g->set_ids[k] == game_id)
 			return true;
-		}
-	}
 	return false;
 }
 
+// A game's server unlock count from an allprogress response: the sum over its
+// main id, session id and every set id (allprogress counts each bonus/subset
+// set under its own game id). False when none of them is listed.
+static bool ra_net_prog_lookup(const rc_api_fetch_all_user_progress_response_t* prog,
+							   const RA_CachedGameInfo* g, int* out_count) {
+	bool found = false;
+	int count = 0;
+	for (uint32_t i = 0; i < prog->num_entries; i++) {
+		if (ra_net_game_has_id(g, prog->entries[i].game_id)) {
+			found = true;
+			count += (int)(prog->entries[i].num_unlocked_achievements +
+						   prog->entries[i].num_unlocked_achievements_hardcore);
+		}
+	}
+	if (out_count)
+		*out_count = count;
+	return found;
+}
+
 // Decide whether a cached game's session cache is stale versus the server.
+// `prog` is NULL when the console has no allprogress data (unknown console).
 static bool ra_net_game_needs_refresh(const RA_CachedGameInfo* g,
 									  const rc_api_fetch_all_user_progress_response_t* prog) {
 	int cached_count = 0;
 	if (!ra_net_cached_session_count(g->session_game_id, &cached_count))
 		return true; // no session cache yet — fetch it
 	if (!prog)
-		return true; // allprogress unavailable for this console — refresh anyway
+		return true; // no allprogress for this console — refresh anyway
 
 	int server_count = 0;
-	if (!ra_net_prog_lookup(prog, g->id, g->session_game_id, &server_count))
+	if (!ra_net_prog_lookup(prog, g, &server_count))
 		return cached_count > 0; // absent from allprogress: stale only if we hold unlocks
 	return server_count != cached_count;
 }
@@ -372,7 +392,7 @@ static bool ra_net_fetch_allprogress(const char* username, const char* token,
 int RA_OfflineNet_refreshCloud(const char* username, const char* token,
 							   RA_RefreshProgressFn progress, RA_CancelFn cancel,
 							   void* userdata, RA_RefreshStats* out) {
-	RA_RefreshStats stats = {0, 0, false};
+	RA_RefreshStats stats = {0, 0, 0, false};
 	if (!username || !*username || !token || !*token) {
 		if (out)
 			*out = stats;
@@ -390,7 +410,15 @@ int RA_OfflineNet_refreshCloud(const char* username, const char* token,
 	// re-fetch each stale session. processed[] guards the grouping so every
 	// game is handled exactly once regardless of directory order.
 	bool* processed = (ngames > 0) ? (bool*)calloc((size_t)ngames, sizeof(bool)) : NULL;
-	int done = 0;
+	int nconsoles = 0;
+	for (int i = 0; i < ngames; i++) {
+		bool seen = false;
+		for (int j = 0; j < i && !seen; j++)
+			seen = (games[j].console_id == games[i].console_id);
+		if (!seen)
+			nconsoles++;
+	}
+	int consoles_done = 0;
 	bool cancelled = false;
 
 	for (int i = 0; i < ngames && !cancelled; i++) {
@@ -398,8 +426,23 @@ int RA_OfflineNet_refreshCloud(const char* username, const char* token,
 			continue;
 		uint32_t console = games[i].console_id;
 
+		char label[160];
+		if (progress) {
+			snprintf(label, sizeof(label), "Checking %s", rc_console_name(console));
+			progress(consoles_done, nconsoles, label, userdata);
+		}
+
+		// one retry: a failed request would otherwise leave the whole
+		// console unchecked until the next sync
 		rc_api_fetch_all_user_progress_response_t prog;
-		bool have_prog = ra_net_fetch_allprogress(username, token, console, &prog);
+		bool have_prog = ra_net_fetch_allprogress(username, token, console, &prog) ||
+						 (console != RC_CONSOLE_UNKNOWN &&
+						  ra_net_fetch_allprogress(username, token, console, &prog));
+		// request failed: keep this console's cached sessions as they are
+		// rather than re-fetching every game (only missing ones are fetched)
+		bool prog_failed = !have_prog && console != RC_CONSOLE_UNKNOWN;
+		if (prog_failed)
+			stats.consoles_failed++;
 
 		for (int j = i; j < ngames && !cancelled; j++) {
 			if (games[j].console_id != console)
@@ -412,17 +455,24 @@ int RA_OfflineNet_refreshCloud(const char* username, const char* token,
 				break;
 			}
 
-			done++;
-			stats.games_checked++;
-			if (progress)
-				progress(done, ngames, games[j].title[0] ? games[j].title : "game", userdata);
+			bool has_session = ra_net_cached_session_count(games[j].session_game_id, NULL);
+			if (prog_failed && has_session)
+				continue;
+			if (!prog_failed)
+				stats.games_checked++;
 
 			if (ra_net_game_needs_refresh(&games[j], have_prog ? &prog : NULL)) {
+				if (progress) {
+					snprintf(label, sizeof(label), "Updating %s",
+							 games[j].title[0] ? games[j].title : "game");
+					progress(consoles_done, nconsoles, label, userdata);
+				}
 				if (ra_net_refresh_session(username, token, games[j].session_game_id,
 										   games[j].hash))
 					stats.games_updated++;
 			}
 		}
+		consoles_done++;
 
 		if (have_prog)
 			rc_api_destroy_fetch_all_user_progress_response(&prog);

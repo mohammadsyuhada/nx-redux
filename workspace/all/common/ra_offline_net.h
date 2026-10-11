@@ -39,8 +39,9 @@ int RA_OfflineNet_syncAllEx(const char* username, const char* token,
  */
 int RA_OfflineNet_cacheLogin(const char* username, const char* token);
 
-/** Progress callback for RA_OfflineNet_refreshCloud: current game index
- *  (1-based), total games to check, and the current game's title. */
+/** Progress callback for RA_OfflineNet_refreshCloud: consoles checked so far,
+ *  total consoles, and what is happening now ("Checking <console>" or
+ *  "Updating <game title>" while a stale game is re-fetched). */
 typedef void (*RA_RefreshProgressFn)(int done, int total, const char* label,
 									 void* userdata);
 
@@ -48,6 +49,7 @@ typedef void (*RA_RefreshProgressFn)(int done, int total, const char* label,
 typedef struct {
 	int games_checked;	  // games whose cloud state was examined
 	int games_updated;	  // games whose session cache was rewritten
+	int consoles_failed;  // consoles whose allprogress request failed (games skipped)
 	bool login_refreshed; // login2 (points) re-fetched successfully
 } RA_RefreshStats;
 
@@ -60,9 +62,12 @@ typedef struct {
  *   3. for each distinct console, POSTs allprogress once to learn the
  *      server's per-game unlock counts;
  *   4. re-fetches (startsession, write-through) every game whose cached
- *      session is missing or whose unlock count no longer matches the server
- *      (or whose console's allprogress request failed).
- * @param progress optional per-game callback (may be NULL).
+ *      session is missing or whose unlock count (summed over its core and
+ *      bonus/subset sets) no longer matches the server. A console whose
+ *      allprogress request fails twice is skipped: its games keep their
+ *      cached sessions (only missing ones are fetched) and it is counted in
+ *      consoles_failed.
+ * @param progress optional progress callback (may be NULL).
  * @param cancel   optional cancel poll (may be NULL).
  * @param out      optional stats (may be NULL).
  * @return 0 on success, -1 when even the login refresh failed.
