@@ -9,6 +9,27 @@ A pak opts in by shipping an `options.sh` next to its `launch.sh` — that
 file's existence is the capability marker nxredux probes; nothing else is
 wired per-emulator.
 
+## Launch mode (`--launch`)
+
+```sh
+options.elf --launch --json J --ini I --override O --game NAME
+```
+
+The per-game INI backend on one flat page, for settings that apply before a
+game starts (per-game CPU cores / CPU mode / GPU mode for ports). No section
+list: the page lists every item of every visible section, then a **Launch**
+row and a **Reset to Global** row. Rows are rebuilt after each change, so a
+`visible_when` gate can add or drop rows while you edit. The per-game file is
+saved on the way out (B or Launch). Exit codes: **3** = the user picked Launch
+(the caller starts the game), 0 = B, 1 = the schema or INI could not be
+loaded, 2 = usage error (`--launch` without `--override`, or combined with
+`--pick`/`--minarch-dir`).
+
+A pak opts in by shipping `launch_options.sh` next to its `launch.sh`. That
+file is nxredux's marker for the "Launch Options" context-menu entry. It runs
+this mode and, on exit 3, writes the ROM path to `/tmp/nextui_launch`, which
+nxredux launches on its next start.
+
 ## Conditional sections (`visible_when`)
 
 A schema section may carry a `visible_when` object so the editor lists it only

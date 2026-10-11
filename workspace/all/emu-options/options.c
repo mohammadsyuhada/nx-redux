@@ -1,7 +1,7 @@
 /*
  * options.elf — pre-launch emulator options editor and emulator picker.
  *
- * Four modes, one binary (the CLI shape Tasks 4/5 script against):
+ * Five modes, one binary (the CLI shape Tasks 4/5 script against):
  *
  *   options.elf --json J --ini I --game NAME
  *       Global mode. Edits the device-wide emulator config (flycast's
@@ -20,12 +20,19 @@
  *       --minarch-game switches to the full-snapshot per-game file. Mutually
  *       exclusive with --ini/--override.
  *
+ *   options.elf --launch --json J --ini I --override O --game NAME
+ *       Launch mode. Per-game mode's storage on one flat page: every item of
+ *       every visible section, then a "Launch" row and "Reset to Global".
+ *       Saves on the way out either way; exits 3 when the user picked Launch
+ *       (the caller then starts the game), 0 on B. Needs --override; exclusive
+ *       with --pick/--minarch-dir. A pak's launch_options.sh drives it.
+ *
  *   options.elf --pick --entry NAME PATH [--entry NAME PATH ...]
  *       Emulator picker. Prints the chosen PATH on stdout and nothing else,
  *       exit 0; exit 1 when the user backs out.
  *
  * Exit codes: 0 save-and-exit (or a picked entry), 1 picker cancelled / config
- * could not be loaded, 2 usage error.
+ * could not be loaded, 2 usage error, 3 launch mode's Launch row (after saving).
  */
 
 #include <fcntl.h>
@@ -40,6 +47,7 @@
 #include "defines.h"
 #include "api.h"
 #include "emu_overlay_cfg.h"
+#include "opts_launch.h"
 #include "opts_minarch.h"
 #include "opts_override.h"
 #include "ui_buttonhintbar.h"
@@ -592,6 +600,131 @@ static void run_editor(const char* title, bool per_game) {
 	}
 }
 
+// Launch page only: the (section, item) pair behind each item row, as
+// opts_launch_collect fills it. Two rows short of MAX_ROWS so the trailing
+// Launch and Reset to Global rows always fit.
+#define LAUNCH_MAX_ITEMS (MAX_ROWS - 2)
+static int launch_sec[LAUNCH_MAX_ITEMS];
+static int launch_item[LAUNCH_MAX_ITEMS];
+static int launch_count = 0;
+
+/*
+ * Fills row_item[] for the launch page: every item of every visible section
+ * (always per-game, so the "* " marker is on), then a label-only "Launch" row,
+ * then "Reset to Global". Re-collects first, since a visible_when gate flipped
+ * by the last edit can add or drop rows.
+ */
+static int build_launch_rows(void) {
+	launch_count = opts_launch_collect(&cfg, launch_sec, launch_item, LAUNCH_MAX_ITEMS);
+	int n = 0;
+	for (int r = 0; r < launch_count; r++) {
+		int s = launch_sec[r];
+		int i = launch_item[r];
+		const EmuOvlItem* item = &cfg.sections[s].items[i];
+		row_label(item, item->staged_value != st.global_value[s][i], row_text[n], ROW_TEXT_MAX);
+		row_value_text(item, row_value[n], ROW_VALUE_MAX);
+		row_item[n] = (UISettingsItem){
+			.label = row_text[n],
+			.value = row_value[n],
+			.swatch = -1,
+			.cycleable = 1,
+			.desc = item->description[0] != '\0' ? item->description : cfg.options_hint,
+		};
+		n++;
+	}
+	snprintf(row_text[n], ROW_TEXT_MAX, "%s", "Launch");
+	row_item[n] = (UISettingsItem){
+		.label = row_text[n],
+		.value = NULL,
+		.swatch = -1,
+		.cycleable = 0,
+		.desc = cfg.options_hint,
+	};
+	n++;
+	snprintf(row_text[n], ROW_TEXT_MAX, "%s", "Reset to Global");
+	row_item[n] = (UISettingsItem){
+		.label = row_text[n],
+		.value = NULL,
+		.swatch = -1,
+		.cycleable = 0,
+		.desc = cfg.options_hint,
+	};
+	n++;
+	return n;
+}
+
+// --launch mode: one flat item page, no section list. Like run_editor it
+// only moves staged values; main saves on the way out. Returns true when the
+// user picked Launch, false on B or MENU+SELECT.
+static bool run_launch_page(const char* title) {
+	int selected = 0;
+	int scroll = 0;
+	int row_count = build_launch_rows();
+	bool dirty = true;
+	bool done = false;
+	bool launch = false;
+	IndicatorType show_setting = INDICATOR_NONE;
+
+	while (!done) {
+		GFX_startFrame();
+		PAD_poll();
+		bool req_quit = false;
+		UI_handleQuitRequest(screen, &req_quit, &dirty, "Exit Launch Options?", NULL);
+		if (req_quit)
+			done = true;
+		PWR_update(&dirty, &show_setting, NULL, NULL);
+
+		if (UI_statusBarChanged())
+			dirty = true;
+
+		// Row layout: launch_count items, then Launch, then Reset to Global.
+		if (PAD_navigateMenu(&selected, row_count)) {
+			dirty = true;
+		} else if (PAD_justPressed(BTN_B)) {
+			done = true;
+		} else if (selected == launch_count) {
+			if (PAD_justPressed(BTN_A)) {
+				launch = true;
+				done = true;
+			}
+		} else if (selected > launch_count) {
+			if (PAD_justPressed(BTN_A)) {
+				// Every collected item belongs to a visible section and every
+				// item of a visible section is collected, so this reverts
+				// exactly the rows on screen.
+				for (int s = 0; s < cfg.section_count; s++)
+					if (emu_ovl_cfg_section_visible(&cfg, s))
+						reset_section(s, true);
+				row_count = build_launch_rows();
+				// The revert can close a gate and drop rows: stay on Reset.
+				selected = row_count - 1;
+				dirty = true;
+			}
+		} else {
+			int dir = 0;
+			if (PAD_justPressed(BTN_A) || PAD_justRepeated(BTN_RIGHT))
+				dir = 1;
+			else if (PAD_justRepeated(BTN_LEFT))
+				dir = -1;
+			if (dir != 0) {
+				cycle_item(&cfg.sections[launch_sec[selected]].items[launch_item[selected]], dir);
+				row_count = build_launch_rows();
+				if (selected >= row_count)
+					selected = row_count - 1;
+				dirty = true;
+			}
+		}
+
+		if (dirty) {
+			render_item_page(title, "Launch Options", row_item, row_count, selected, &scroll);
+			dirty = false;
+		} else {
+			GFX_sync();
+		}
+	}
+	return launch;
+}
+
 // The one and only write, on the way out. Per cursor move would mean an SD
 // card write per D-pad press.
 static void save_edits(bool per_game, const char* ini_path, const char* override_path) {
@@ -649,6 +782,7 @@ int main(int argc, char* argv[]) {
 	const char* minarch_system = NULL;
 	const char* minarch_default = NULL;
 	bool pick = false;
+	bool launch_mode = false;
 	int entry_count = 0;
 
 	for (int i = 1; i < argc; i++) {
@@ -657,6 +791,8 @@ int main(int argc, char* argv[]) {
 
 		if (strcmp(arg, "--pick") == 0) {
 			pick = true;
+		} else if (strcmp(arg, "--launch") == 0) {
+			launch_mode = true;
 		} else if (strcmp(arg, "--json") == 0 && has_value) {
 			json_path = argv[++i];
 		} else if (strcmp(arg, "--ini") == 0 && has_value) {
@@ -682,8 +818,12 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	// Both usage checks run before GFX_init: a usage error must not cost the
+	// The usage checks run before GFX_init: a usage error must not cost the
 	// caller a black screen and a video teardown.
+	if (launch_mode && (pick || minarch_dir || !override_path)) {
+		fprintf(stderr, "options: --launch needs --override and excludes --pick/--minarch-dir\n");
+		return 2;
+	}
 	if (pick && entry_count == 0) {
 		fprintf(stderr, "options: --pick needs at least one '--entry NAME PATH'\n");
 		return 2;
@@ -764,8 +904,17 @@ int main(int argc, char* argv[]) {
 		if (per_game)
 			opts_read_override(&cfg, &st, override_path);
 
-		run_editor(game_name ? game_name : "Emulator Settings", per_game);
-		save_edits(per_game, ini_path, override_path);
+		if (launch_mode) {
+			// Saved on B as well as on Launch; only Launch changes the exit
+			// code. A failed save still launches, with the values on disk.
+			bool launch = run_launch_page(game_name ? game_name : "Launch Options");
+			save_edits(true, ini_path, override_path);
+			if (launch)
+				exit_code = 3;
+		} else {
+			run_editor(game_name ? game_name : "Emulator Settings", per_game);
+			save_edits(per_game, ini_path, override_path);
+		}
 		emu_ovl_cfg_free(&cfg);
 	}
 
