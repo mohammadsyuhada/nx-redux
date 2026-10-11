@@ -47,6 +47,9 @@
 #define CHANGE_DISC_PATH "/tmp/change_disc.txt"
 #define RESUME_SLOT_PATH "/tmp/resume_slot.txt"
 #define NETPLAY_LAUNCH_PATH "/tmp/netplay_launch"
+// Launch Options hand-off: a pak's launch_options.sh writes the ROM's absolute path here when the user picks
+// Launch; the next nextui start consumes it (pendingLaunch) and launches that ROM as an A press would.
+#define PENDING_LAUNCH_PATH "/tmp/nextui_launch"
 #define NOUI_PATH "/tmp/noui"
 // Persisted (not /tmp) so a cold boot renders the menu without rescanning
 // Roms; content.c revalidates against source mtimes before trusting them.

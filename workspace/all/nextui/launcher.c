@@ -186,6 +186,59 @@ int autoResume(void) {
 	return 1;
 }
 
+int pendingLaunch(void) {
+	if (!exists(PENDING_LAUNCH_PATH))
+		return 0;
+
+	// consumed whatever it holds: a stale or bogus request must never fire twice
+	char path[MAX_PATH] = {0};
+	getFile(PENDING_LAUNCH_PATH, path, MAX_PATH);
+	unlink(PENDING_LAUNCH_PATH);
+	trimTrailingNewlines(path);
+
+	// the same checks as autoResume: the rom (under Roms) and its emu pak still exist
+	if (!prefixMatch(ROMS_PATH "/", path) || !exists(path)) {
+		LOG_info("pendingLaunch: ignoring stale request (%s)\n", path);
+		return 0;
+	}
+	char emu_name[MAX_PATH];
+	getEmuName(path, emu_name);
+	char emu_path[MAX_PATH];
+	getEmuPath(emu_name, emu_path);
+	if (!exists(emu_path)) {
+		LOG_info("pendingLaunch: no emu pak for %s\n", path);
+		return 0;
+	}
+
+	// The script was opened from a list row (loadLast has reselected it and its list is `top`): open that row,
+	// so the alias, the collection/Home-shaped last path and a folder game's auto-launch all match an A press.
+	// A folder game's script got the resolved cue/m3u, so its row is the folder holding that file.
+	char parent[MAX_PATH];
+	snprintf(parent, sizeof(parent), "%s", path);
+	char* slash = strrchr(parent, '/');
+	if (slash)
+		*slash = '\0';
+	Entry* row = NULL;
+	for (int i = 0; top && i < top->entries->count; i++) {
+		Entry* e = top->entries->items[i];
+		if (exactMatch(e->path, path) || (e->type == ENTRY_DIR && exactMatch(e->path, parent))) {
+			row = e;
+			break;
+		}
+	}
+	Entry* tmp = row ? NULL : Entry_new(path, ENTRY_ROM);
+	if (!row && !tmp)
+		return 0;
+
+	resume.should_resume = false; // a fresh start: openRom then picks the default slot, never a save state
+	if (MenuTabs_savedHomeLaunch())
+		MenuTabs_markHomeLaunch(); // opened from Home: the game's return must open Home too (Entry_open clears it)
+	Entry_open(row ? row : tmp);
+	if (tmp)
+		Entry_free(tmp);
+	return quit ? 1 : 0;
+}
+
 // Queue "<path>/launch.sh" as the next command. Returns false (and stays on
 // the menu) if the escaped command doesn't fit.
 static bool queuePakLaunch(char* path) {

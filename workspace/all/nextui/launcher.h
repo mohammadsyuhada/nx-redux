@@ -48,6 +48,11 @@ void readyResume(Entry* entry);
 // compares it to tell whether something else (Search, the switcher, Home) overwrote `resume` since.
 unsigned readyResumeCount(void);
 int autoResume(void);
+// Launch Options hand-off (PENDING_LAUNCH_PATH, written by a pak's launch_options.sh on Launch): consume the
+// file and launch its ROM as an A press on it would (Recents, gametime, the list position kept for the return),
+// always fresh (no save state). Returns 1 when a launch was queued (quit set); a missing or stale request (the
+// ROM or its emu pak is gone) is removed and returns 0, so the menu boots as usual. Call after Menu_init.
+int pendingLaunch(void);
 
 // Game launching
 void openPak(char* path);

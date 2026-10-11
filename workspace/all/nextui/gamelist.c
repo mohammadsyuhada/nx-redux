@@ -1113,6 +1113,14 @@ static bool entryEmuOptionsCapable(Entry* entry) {
 	return entryEmuMarker(entry, "options.sh", emuopts_cap_path, &emuopts_cap);
 }
 
+// A pak opts into Launch Options (per-game cores / CPU / GPU, then launch) by
+// shipping launch_options.sh beside its launch.sh.
+static char launchopts_cap_path[MAX_PATH] = {0};
+static bool launchopts_cap = false;
+static bool entryLaunchOptionsCapable(Entry* entry) {
+	return entryEmuMarker(entry, "launch_options.sh", launchopts_cap_path, &launchopts_cap);
+}
+
 #define ARTFETCH_STATUS_PATH "/tmp/nextui_artfetch.status"
 #define ARTFETCH_TIMEOUT_MS 120000 // up to 4 downloads plus composing the mix
 #define ARTFETCH_RESULT_MS 1500
@@ -1591,6 +1599,26 @@ static void ctxEmuOptions(Entry* entry, bool from_home) {
 	}
 }
 
+// Launch Options: run the pak's launch_options.sh for this rom. Its Launch row leaves
+// PENDING_LAUNCH_PATH, and the restarted nextui launches the rom (pendingLaunch).
+static void ctxLaunchOptions(Entry* entry, bool from_home) {
+	if (entry && entryLaunchOptionsCapable(entry)) {
+		// folder games: the resolved cue/m3u, as for Emulator Options
+		char game_file[MAX_PATH];
+		char* rom_arg = entry->path;
+		if (entry->type == ENTRY_DIR && entryFolderGame(entry, game_file))
+			rom_arg = game_file;
+		char pak_path[MAX_PATH];
+		if (entryEmuMarkerPath(entry, "launch_options.sh", pak_path)) {
+			// from Home the return (B, or the game Launch starts) must open Home; see ctxEmuOptions
+			if (from_home)
+				MenuTabs_markHomeLaunch();
+			openScript(pak_path, rom_arg, entry->path);
+			MenuTabs_clearHomeLaunch();
+		}
+	}
+}
+
 // Fetch Artwork: spawn the scraper for this rom behind a blocking progress modal
 static void ctxFetchArt(Entry* entry) {
 	if (entry) {
@@ -1671,6 +1699,9 @@ void GameList_runContextAction(int id) {
 		break;
 	case 36: // Emulator Options (pre-launch editor)
 		ctxEmuOptions(entry, from_home);
+		break;
+	case 38: // Launch Options (per-game cores / CPU / GPU, then launch)
+		ctxLaunchOptions(entry, from_home);
 		break;
 	case 37: // Fetch Artwork
 		ctxFetchArt(entry);
@@ -1776,6 +1807,8 @@ static void romItems(Entry* entry, bool allow_pin, ContextMenuItem* items, int* 
 		// shared launch path the Y handler documents.
 		if (entryEmuOptionsCapable(entry))
 			addItem(items, idx, "Emulator Options", 36);
+		if (entryLaunchOptionsCapable(entry))
+			addItem(items, idx, "Launch Options", 38);
 		// offered (in any style, never on Home) while the game has neither a screenshot nor a box art: the scraper
 		// saves the screenshot and box art, plus the 2D box art, wheel and mix when Artwork Manager's settings ask for them
 		char af_rom[MAX_PATH], af_out[MAX_PATH], af_tag[MAX_PATH];
