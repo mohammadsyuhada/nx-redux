@@ -216,11 +216,24 @@ static int ach_compare_unlocked_first(const void* a, const void* b) {
 	return 0;
 }
 
+// Sort entry: `ach` is the first member, so the comparators below that take a
+// `const rc_client_achievement_t**` read it straight from an entry pointer.
+typedef struct {
+	const rc_client_achievement_t* ach;
+	uint32_t subset; // ordinal of the achievement's subset in the list
+} AchSortEntry;
+
 static int ach_compare_display_first(const void* a, const void* b) {
-	const rc_client_achievement_t* achA = *(const rc_client_achievement_t**)a;
-	const rc_client_achievement_t* achB = *(const rc_client_achievement_t**)b;
-	// Lower display order first
-	return (int)achA->id - (int)achB->id; // ID is a reasonable proxy for display order
+	const AchSortEntry* A = (const AchSortEntry*)a;
+	const AchSortEntry* B = (const AchSortEntry*)b;
+	// Display order is the server's list order (IDs follow creation, not order). rc_client keeps each
+	// subset's achievements in one array in that order and the list points into it, so within a
+	// subset the address is the position.
+	if (A->subset != B->subset)
+		return A->subset < B->subset ? -1 : 1;
+	if (A->ach != B->ach)
+		return (uintptr_t)A->ach < (uintptr_t)B->ach ? -1 : 1;
+	return 0;
 }
 
 static int ach_compare_display_last(const void* a, const void* b) {
@@ -270,7 +283,7 @@ static int ach_compare_type_desc(const void* a, const void* b) {
 	return -ach_compare_type_asc(a, b);
 }
 
-static void ach_sort_achievements(const rc_client_achievement_t** achievements, int count) {
+static void ach_sort_achievements(AchSortEntry* entries, int count) {
 	int sort_order = CFG_getRAAchievementSortOrder();
 	int (*compare)(const void*, const void*) = NULL;
 
@@ -314,7 +327,7 @@ static void ach_sort_achievements(const rc_client_achievement_t** achievements, 
 	}
 
 	if (compare && count > 1) {
-		qsort((void*)achievements, count, sizeof(rc_client_achievement_t*), compare);
+		qsort(entries, count, sizeof(AchSortEntry), compare);
 	}
 }
 
@@ -567,16 +580,25 @@ static int OptionAchievements_openMenu(MenuList* list, int i) {
 
 	// Create flattened array of all achievement pointers
 	const rc_client_achievement_t** all_achievements = calloc(total_achievements, sizeof(rc_client_achievement_t*));
+	AchSortEntry* sort_entries = calloc(total_achievements, sizeof(AchSortEntry));
 	int idx = 0;
+	uint32_t subset = 0;
 	for (uint32_t b = 0; b < ach_menu_list->num_buckets && idx < total_achievements; b++) {
 		const rc_client_achievement_bucket_t* bucket = &ach_menu_list->buckets[b];
+		// buckets come subset by subset (subset_id is 0 when the game has only one)
+		if (b > 0 && bucket->subset_id != ach_menu_list->buckets[b - 1].subset_id)
+			subset++;
 		for (uint32_t a = 0; a < bucket->num_achievements && idx < total_achievements; a++) {
-			all_achievements[idx++] = bucket->achievements[a];
+			sort_entries[idx].ach = bucket->achievements[a];
+			sort_entries[idx++].subset = subset;
 		}
 	}
 
 	// Sort achievements according to settings
-	ach_sort_achievements(all_achievements, total_achievements);
+	ach_sort_achievements(sort_entries, idx);
+	for (int j = 0; j < idx; j++)
+		all_achievements[j] = sort_entries[j].ach;
+	free(sort_entries);
 
 	// Custom menu loop with X (mute) and Y (filter) support
 	bool dirty = true;

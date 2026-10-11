@@ -340,7 +340,8 @@ int RAT_loadAchievements(const RAT_Game* game, RAT_Achievement** out) {
 			const rc_api_achievement_definition_t* def = &sets.sets[s].achievements[a];
 			if (!rat_is_visible_achievement(def))
 				continue;
-			RAT_Achievement* dst = &achs[n++];
+			RAT_Achievement* dst = &achs[n];
+			dst->order = n++;
 			dst->id = def->id;
 			dst->points = def->points;
 			snprintf(dst->title, sizeof(dst->title), "%s", def->title ? def->title : "");
@@ -406,15 +407,12 @@ bool RAT_progressForHash(const char* hash, int* unlocked, int* total, char* next
 		free(achs);
 		return false;
 	}
-	const RAT_Achievement* first_locked = NULL;
+	const RAT_Achievement* first_locked = RAT_firstLocked(achs, n);
 	*unlocked = 0;
 	*total = n;
-	for (int i = 0; i < n; i++) {
+	for (int i = 0; i < n; i++)
 		if (achs[i].state != RAT_ACH_LOCKED)
 			(*unlocked)++;
-		else if (!first_locked || achs[i].id < first_locked->id)
-			first_locked = &achs[i];
-	}
 	if (next_size) {
 		const char* title = first_locked ? first_locked->title : "";
 		snprintf(next, next_size, "%s", title);
@@ -429,8 +427,8 @@ bool RAT_progressForHash(const char* hash, int* unlocked, int* total, char* next
 
 /*****************************************************************************
  * Sorting - mirrors the in-game menu's comparators (ma_menu.c
- * ach_sort_achievements): pending-sync counts as unlocked, achievement ID is
- * the display-order proxy, "won by" is the rarity percentage.
+ * ach_sort_achievements): pending-sync counts as unlocked, display order is
+ * the server's list order (RAT_Achievement.order), "won by" is the rarity percentage.
  *****************************************************************************/
 
 static int rats_unlocked(const RAT_Achievement* a) {
@@ -447,7 +445,7 @@ static int rats_cmp_unlocked_first(const void* a, const void* b) {
 static int rats_cmp_display_first(const void* a, const void* b) {
 	const RAT_Achievement* A = (const RAT_Achievement*)a;
 	const RAT_Achievement* B = (const RAT_Achievement*)b;
-	return (int)A->id - (int)B->id;
+	return A->order - B->order;
 }
 static int rats_cmp_display_last(const void* a, const void* b) {
 	return -rats_cmp_display_first(a, b);
