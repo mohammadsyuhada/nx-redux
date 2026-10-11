@@ -126,7 +126,19 @@ float GridLayout_columnX(const GridLayout* g, int col, float offset) {
 void GridLayout_visibleColumns(const GridLayout* g, float offset, int* first, int* last) {
 	int c = GridLayout_columnCount(g);
 	int f = c, l = -1;
-	for (int i = 0; i < c; i++) {
+	// only the columns near the screen are tested (a 5000-game list has 2500): the range from the offset and the step,
+	// a column wider either side for float rounding, and the same test on each, so the result is exactly the full scan's
+	int lo = 0, hi = c - 1;
+	float step = g->tile_w + g->gap;
+	if (step > 0) {
+		float base = g->sliding ? GUTTER : g->frame_x0;
+		float a = floorf((offset - base - g->tile_w) / step) - 1, b = ceilf((offset - base + g->screen_w) / step) + 1;
+		if (a > lo) // NaN fails both tests: the full scan
+			lo = a < (float)c ? (int)a : c;
+		if (b < hi)
+			hi = b > -1.0f ? (int)b : -1;
+	}
+	for (int i = lo; i <= hi; i++) {
 		float x = GridLayout_columnX(g, i, offset);
 		if (x + g->tile_w > 0 && x < g->screen_w) {
 			if (i < f)

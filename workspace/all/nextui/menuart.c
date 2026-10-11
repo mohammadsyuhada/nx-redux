@@ -12,13 +12,17 @@
 #include <string.h>
 #include "api.h"
 
-#define MENUART_SLOTS 40 // room for every bundled image (~37); the surfaces are small
+// room for every bundled logo and icon (res/menu: 45 + 15) at a view's box and then some (a few views' boxes); the
+// surfaces are small (a Grid logo at most ~120 KB)
+#define MENUART_SLOTS 96
+#define MENUART_RETRY_MS 10000 // a remembered failed load is tried again after this (out of memory then, not now)
 
 typedef struct {
 	char file[64];
 	int box_w;
 	int box_h;
 	SDL_Surface* surface; // NULL = a remembered failed load
+	Uint32 failed_at;	  // the failed load's SDL_GetTicks (MENUART_RETRY_MS)
 	unsigned int stamp;	  // last use; the lowest (least recently used) is evicted
 	bool used;
 } MenuArtSlot;
@@ -100,35 +104,59 @@ SDL_Surface* MenuArt_loadLevel(const char* file) {
 
 static SDL_Surface* store(const char* file, int box_w, int box_h, SDL_Surface* surface);
 
-SDL_Surface* MenuArt_get(const char* file, int box_w, int box_h) {
-	if (!file || !file[0] || box_w < 1 || box_h < 1 || strlen(file) >= sizeof(slots[0].file))
-		return NULL;
+static bool validArgs(const char* file, int box_w, int box_h) {
+	return file && file[0] && box_w >= 1 && box_h >= 1 && strlen(file) < sizeof(slots[0].file);
+}
 
+// The cached slot of file at box_w x box_h, or NULL. A failed load older than MENUART_RETRY_MS is forgotten here (its
+// slot freed), so the caller loads it again: a missing file costs a failed open every few seconds, never every frame.
+static MenuArtSlot* find(const char* file, int box_w, int box_h) {
 	for (int i = 0; i < MENUART_SLOTS; i++) {
 		MenuArtSlot* s = &slots[i];
 		if (s->used && s->box_w == box_w && s->box_h == box_h && strcmp(s->file, file) == 0) {
-			s->stamp = ++next_stamp;
-			return s->surface;
+			if (!s->surface && SDL_GetTicks() - s->failed_at >= MENUART_RETRY_MS) {
+				s->used = false;
+				return NULL;
+			}
+			return s;
 		}
 	}
+	return NULL;
+}
 
-	// decoded ahead on the art loader's thread (a Carousel's warm-up), else here
+SDL_Surface* MenuArt_get(const char* file, int box_w, int box_h) {
+	if (!validArgs(file, box_w, box_h))
+		return NULL;
+	MenuArtSlot* hit = find(file, box_w, box_h);
+	if (hit) {
+		hit->stamp = ++next_stamp;
+		return hit->surface;
+	}
+
+	// decoded ahead on the art loader's thread (a Carousel's warm-up), else here; then a warm-up's job for it (still
+	// queued or decoding) is dropped, or its result would sit in the loader's queue never taken
 	bool failed = false;
 	SDL_Surface* ready = ArtLoader_take(file, box_w, box_h, &failed);
-	return store(file, box_w, box_h, ready || failed ? ready : MenuArt_load(file, box_w, box_h));
+	if (ready || failed)
+		return store(file, box_w, box_h, ready);
+	SDL_Surface* s = MenuArt_load(file, box_w, box_h);
+	ArtLoader_cancel(file, box_w, box_h);
+	return store(file, box_w, box_h, s);
+}
+
+bool MenuArt_has(const char* file, int box_w, int box_h) {
+	return validArgs(file, box_w, box_h) && find(file, box_w, box_h) != NULL;
 }
 
 SDL_Surface* MenuArt_peek(const char* file, int box_w, int box_h, bool* pending) {
 	if (pending)
 		*pending = false;
-	if (!file || !file[0] || box_w < 1 || box_h < 1 || strlen(file) >= sizeof(slots[0].file))
+	if (!validArgs(file, box_w, box_h))
 		return NULL;
-	for (int i = 0; i < MENUART_SLOTS; i++) {
-		MenuArtSlot* s = &slots[i];
-		if (s->used && s->box_w == box_w && s->box_h == box_h && strcmp(s->file, file) == 0) {
-			s->stamp = ++next_stamp;
-			return s->surface;
-		}
+	MenuArtSlot* hit = find(file, box_w, box_h);
+	if (hit) {
+		hit->stamp = ++next_stamp;
+		return hit->surface;
 	}
 	bool failed = false;
 	SDL_Surface* ready = ArtLoader_take(file, box_w, box_h, &failed);
@@ -158,6 +186,7 @@ static SDL_Surface* store(const char* file, int box_w, int box_h, SDL_Surface* s
 	slot->box_w = box_w;
 	slot->box_h = box_h;
 	slot->surface = surface;
+	slot->failed_at = surface ? 0 : SDL_GetTicks();
 	slot->stamp = ++next_stamp;
 	slot->used = true;
 	return slot->surface;

@@ -47,6 +47,11 @@ static unsigned seen_gen = 0;
 static int seen_n = -1, seen_screen_w = 0, seen_scale = 0, seen_kind = -1;
 static bool snap_next = false; // UP from the tab row jumped to the last item: no slide across the list
 
+// FIXED_SCALE in hundredths: a key that tells 2.25 from 2.5 (an (int) cast truncates both to 2)
+static int scaleKey(void) {
+	return (int)lroundf(FIXED_SCALE * 100.0f);
+}
+
 ///////////////////////////////////////
 // Timing
 
@@ -286,8 +291,16 @@ static void edgeFadeSprites(SDL_Surface* screen, const StackGeo* sg) {
 			GFX_freeSurfaceAndTexture(strips[k]);
 			strips[k] = SDL_CreateRGBSurfaceWithFormat(0, 1, f.band, 32, SDL_PIXELFORMAT_ARGB8888);
 		}
+		if (!strips[0] || !strips[1]) { // out of memory: neither (a later frame tries again), never one unfilled
+			for (int k = 0; k < 2; k++) {
+				GFX_freeSurfaceAndTexture(strips[k]);
+				strips[k] = NULL;
+			}
+			strip_band = strip_vis = -1;
+			return;
+		}
 		strip_band = f.band, strip_vis = sg->vis_h;
-		for (int r = 0; r < f.band && strips[0] && strips[1]; r++) {
+		for (int r = 0; r < f.band; r++) {
 			float a = Stack_edgeAlpha((r + 0.5f) / pd, sg->vis_h / pd, STACK_EDGE_FADE_DP);
 			Uint32 dim = (Uint32)((1.0f - a) * 255.0f + 0.5f);
 			*((Uint32*)((Uint8*)strips[0]->pixels + r * strips[0]->pitch)) = dim << 24;
@@ -305,7 +318,7 @@ static void edgeFadeSprites(SDL_Surface* screen, const StackGeo* sg) {
 // A list, tab, screen size, scale or kind change (or a forgotten list): start over with the stack snapped.
 static bool syncList(SDL_Surface* screen, int n, int lastScreen, StackKind kind) {
 	bool changed = seen_top == 0 || top->serial != seen_top || MenuTabs_generation() != seen_gen || n != seen_n ||
-				   screen->w != seen_screen_w || (int)FIXED_SCALE != seen_scale || (int)kind != seen_kind ||
+				   screen->w != seen_screen_w || scaleKey() != seen_scale || (int)kind != seen_kind ||
 				   lastScreen != SCREEN_GAMELIST;
 	if (!changed)
 		return false;
@@ -313,7 +326,7 @@ static bool syncList(SDL_Surface* screen, int n, int lastScreen, StackKind kind)
 	seen_gen = MenuTabs_generation();
 	seen_n = n;
 	seen_screen_w = screen->w;
-	seen_scale = (int)FIXED_SCALE;
+	seen_scale = scaleKey();
 	seen_kind = (int)kind;
 	return true;
 }
@@ -532,7 +545,7 @@ bool StackView_prefetchStep(Uint32 deadline) {
 	// selection, or a forgotten stack): nothing until the next render re-arms it
 	if (!StackView_active() || !screen || seen_top == 0 || top->serial != seen_top ||
 		MenuTabs_generation() != seen_gen || top->entries->count != pf.n || screen->w != seen_screen_w ||
-		(int)FIXED_SCALE != seen_scale || (int)currentKind() != seen_kind || View_selectedIndex(pf.n) != pf.sel) {
+		scaleKey() != seen_scale || (int)currentKind() != seen_kind || View_selectedIndex(pf.n) != pf.sel) {
 		pf.armed = false;
 		return false;
 	}

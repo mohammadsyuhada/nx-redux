@@ -87,6 +87,58 @@ static void visible_range(void) {
 	assert(first >= 97 && first <= 99 && last >= 105 && last <= 107); // on screen 99..105, +1 each side
 }
 
+// GridLayout_visibleColumns tests only the columns near the screen: the same range as the full scan it replaced, on
+// still and sliding grids, every anchored offset, offsets between and past the ends, and odd widths and gaps.
+static void visibleScan(const GridLayout* g, float offset, int* first, int* last) {
+	int c = GridLayout_columnCount(g);
+	int f = c, l = -1;
+	for (int i = 0; i < c; i++) {
+		float x = GridLayout_columnX(g, i, offset);
+		if (x + g->tile_w > 0 && x < g->screen_w) {
+			if (i < f)
+				f = i;
+			l = i;
+		}
+	}
+	if (l < 0) {
+		*first = 0;
+		*last = -1;
+		return;
+	}
+	*first = f > 0 ? f - 1 : 0;
+	*last = l < c - 1 ? l + 1 : c - 1;
+}
+
+static void visible_matches_scan(void) {
+	static const float screens[][2] = {{478, 358}, {896, 504}, {717, 538}, {1024, 576}, {320, 240}};
+	static const int ns[] = {0, 1, 2, 3, 7, 10, 11, 40, 401, 5000};
+	static const float muls[][2] = {{1.0f, 1.0f}, {1.5f, 1.0f}, {2.0f, 1.0f}, {1.37f, 0.6f}};
+	for (unsigned s = 0; s < sizeof(screens) / sizeof(screens[0]); s++)
+		for (unsigned k = 0; k < sizeof(ns) / sizeof(ns[0]); k++)
+			for (unsigned m = 0; m < sizeof(muls) / sizeof(muls[0]); m++) {
+				GridLayout g;
+				GridLayout_computeEx(screens[s][0], BAR, screens[s][1] - 2 * BAR, ns[k], muls[m][0], muls[m][1], &g);
+				int c = GridLayout_columnCount(&g);
+				float hi = GridLayout_offsetFor(&g, c - 1);
+				for (int col = -2; col <= c + 2; col += (c > 200 ? 37 : 1)) {
+					float offs[] = {GridLayout_offsetFor(&g, col), (col) * 13.7f, hi + col * 0.5f, -col * 21.3f};
+					for (unsigned o = 0; o < sizeof(offs) / sizeof(offs[0]); o++) {
+						int f0, l0, f1, l1;
+						visibleScan(&g, offs[o], &f0, &l0);
+						GridLayout_visibleColumns(&g, offs[o], &f1, &l1);
+						assert(f0 == f1 && l0 == l1);
+					}
+				}
+				int f0, l0, f1, l1;
+				visibleScan(&g, 1e9f, &f0, &l0);
+				GridLayout_visibleColumns(&g, 1e9f, &f1, &l1);
+				assert(f0 == f1 && l0 == l1);
+				visibleScan(&g, -1e9f, &f0, &l0);
+				GridLayout_visibleColumns(&g, -1e9f, &f1, &l1);
+				assert(f0 == f1 && l0 == l1);
+			}
+}
+
 static void empty(void) {
 	GridLayout g;
 	make(478, 358, 0, &g);
@@ -340,6 +392,7 @@ int main(void) {
 	sliding_clamps_and_last_column();
 	still_moves();
 	visible_range();
+	visible_matches_scan();
 	empty();
 	printf("test_grid_layout: ok\n");
 	return 0;

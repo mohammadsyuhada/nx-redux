@@ -10,12 +10,14 @@
 #include <string.h>
 #include "api.h"
 
-#define PAD_SLOTS 16 // the Carousel: the selection, its neighbours and those behind (a held D-pad's)
+#define PAD_SLOTS 16	   // the Carousel: the selection, its neighbours and those behind (a held D-pad's)
+#define PAD_RETRY_MS 10000 // a remembered failed load is asked for again after this (out of memory then, not now)
 
 typedef struct {
 	char id[16];
 	int box_w, box_h;
 	SDL_Surface* surface; // NULL = a remembered failed load
+	Uint32 failed_at;	  // the failed load's SDL_GetTicks (PAD_RETRY_MS)
 	unsigned int stamp;
 	bool used;
 } PadSlot;
@@ -34,18 +36,37 @@ bool ControllerArt_pending(void) {
 	return last_pending;
 }
 
+// The slot of id at box_w x box_h among n, or NULL. A failed load older than PAD_RETRY_MS is forgotten here (its slot
+// freed), so it is asked for again: a missing image costs one failed open every few seconds, never one a frame.
+static PadSlot* findSlot(PadSlot* list, int n, const char* id, int box_w, int box_h) {
+	for (int i = 0; i < n; i++) {
+		PadSlot* s = &list[i];
+		if (s->used && s->box_w == box_w && s->box_h == box_h && strcmp(s->id, id) == 0) {
+			if (!s->surface && SDL_GetTicks() - s->failed_at >= PAD_RETRY_MS) {
+				s->used = false;
+				return NULL;
+			}
+			return s;
+		}
+	}
+	return NULL;
+}
+
+bool ControllerArt_hasCarousel(const char* id, int box_w, int box_h) {
+	return id && id[0] && strlen(id) < sizeof(slots[0].id) && box_w >= 1 && box_h >= 1 &&
+		   findSlot(slots, PAD_SLOTS, id, box_w, box_h) != NULL;
+}
+
 SDL_Surface* ControllerArt_carousel(const char* id, int box_w, int box_h) {
 	last_pending = false;
 	if (!id || !id[0] || strlen(id) >= sizeof(slots[0].id) || box_w < 1 || box_h < 1)
 		return NULL;
-	PadSlot* slot = &slots[0];
-	for (int i = 0; i < PAD_SLOTS; i++) {
-		PadSlot* s = &slots[i];
-		if (s->used && s->box_w == box_w && s->box_h == box_h && strcmp(s->id, id) == 0) {
-			s->stamp = ++next_stamp;
-			return s->surface;
-		}
+	PadSlot* slot = findSlot(slots, PAD_SLOTS, id, box_w, box_h);
+	if (slot) {
+		slot->stamp = ++next_stamp;
+		return slot->surface;
 	}
+	slot = &slots[0];
 	// never decoded here: the art loader's thread does it (a slide must not wait on a PNG). Not ready yet: ask for it
 	// and draw no pad this frame
 	char file[64];
@@ -70,6 +91,7 @@ SDL_Surface* ControllerArt_carousel(const char* id, int box_w, int box_h) {
 	snprintf(slot->id, sizeof(slot->id), "%s", id);
 	slot->box_w = box_w, slot->box_h = box_h;
 	slot->surface = ready; // NULL: a remembered failed load
+	slot->failed_at = ready ? 0 : SDL_GetTicks();
 	slot->stamp = ++next_stamp;
 	slot->used = true;
 	return slot->surface;
@@ -77,14 +99,10 @@ SDL_Surface* ControllerArt_carousel(const char* id, int box_w, int box_h) {
 
 // The cached List pad of id for this screen size (*hit false: not cached; a cached NULL is a remembered failed load)
 static PadSlot* listFind(const char* id, int screen_w, int screen_h) {
-	for (int i = 0; i < LIST_SLOTS; i++) {
-		PadSlot* s = &list_slots[i];
-		if (s->used && s->box_w == screen_w && s->box_h == screen_h && strcmp(s->id, id) == 0) {
-			s->stamp = ++next_stamp;
-			return s;
-		}
-	}
-	return NULL;
+	PadSlot* s = findSlot(list_slots, LIST_SLOTS, id, screen_w, screen_h);
+	if (s)
+		s->stamp = ++next_stamp;
+	return s;
 }
 
 static void listStore(const char* id, int screen_w, int screen_h, SDL_Surface* surface) {
@@ -102,6 +120,7 @@ static void listStore(const char* id, int screen_w, int screen_h, SDL_Surface* s
 	snprintf(slot->id, sizeof(slot->id), "%s", id);
 	slot->box_w = screen_w, slot->box_h = screen_h;
 	slot->surface = surface;
+	slot->failed_at = surface ? 0 : SDL_GetTicks();
 	slot->stamp = ++next_stamp;
 	slot->used = true;
 }

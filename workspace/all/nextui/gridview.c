@@ -38,10 +38,12 @@
 #include "rowview_shared.h" // the tile kinds, and view_common.h
 #include "ui_contextmenu.h"
 #include "artloader.h"
+#include "menuart.h" // MenuArt_has
 #include "tiles.h"
 #include "types.h"
 #include "ui_fade.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -67,6 +69,11 @@ static unsigned seen_top = 0; // the Directory serial (0 = none)
 static unsigned seen_gen = 0;
 static int seen_n = -1;
 static int seen_screen_w = 0, seen_scale = 0;
+
+// FIXED_SCALE in hundredths: a key that tells 2.25 from 2.5 (an (int) cast truncates both to 2)
+static int scaleKey(void) {
+	return (int)lroundf(FIXED_SCALE * 100.0f);
+}
 
 
 ///////////////////////////////////////
@@ -161,7 +168,7 @@ static const char* plainCount(int i, char* out, size_t size, bool* asked) {
 
 typedef struct {
 	bool used, lit;
-	int w, h, scale; // the tile (px, without the ring room) and FIXED_SCALE
+	int w, h, scale; // the tile (px, without the ring room) and scaleKey()
 	char path[MAX_PATH];
 	Uint32 stamp;	// what the tile shows (tileStamp)
 	char count[32]; // the lit look's "N games" when it was composed ("" none or unknown)
@@ -236,7 +243,7 @@ static SDL_Surface* cachedTile(const char* path, int w, int h, const TileSpec* t
 				victim = c;
 			continue;
 		}
-		if (c->lit == lit && c->w == w && c->h == h && c->scale == (int)FIXED_SCALE && strcmp(c->path, path) == 0) {
+		if (c->lit == lit && c->w == w && c->h == h && c->scale == scaleKey() && strcmp(c->path, path) == 0) {
 			if (c->stamp != stamp) {
 				c->stamp = stamp;
 				snprintf(c->count, sizeof(c->count), "%s", lit && t->count ? t->count : "");
@@ -268,7 +275,7 @@ static SDL_Surface* cachedTile(const char* path, int w, int h, const TileSpec* t
 	victim->lit = lit;
 	victim->w = w;
 	victim->h = h;
-	victim->scale = (int)FIXED_SCALE;
+	victim->scale = scaleKey();
 	snprintf(victim->path, sizeof(victim->path), "%s", path);
 	victim->stamp = stamp;
 	snprintf(victim->count, sizeof(victim->count), "%s", lit && t->count ? t->count : "");
@@ -281,7 +288,7 @@ static SDL_Surface* cachedTile(const char* path, int w, int h, const TileSpec* t
 static const char* litCount(const char* path, int w, int h) {
 	for (int i = 0; i < TILE_CACHE_MAX; i++) {
 		const TileSlot* c = &tile_cache[i];
-		if (c->used && c->lit && c->w == w && c->h == h && c->scale == (int)FIXED_SCALE && c->count[0] &&
+		if (c->used && c->lit && c->w == w && c->h == h && c->scale == scaleKey() && c->count[0] &&
 			strcmp(c->path, path) == 0)
 			return c->count;
 	}
@@ -295,6 +302,29 @@ static void tileCacheClear(void) {
 	}
 	memset(tile_cache, 0, sizeof(tile_cache));
 	tile_lru = 0;
+}
+
+// What the cache holds while the Grid isn't drawn (up to TILE_CACHE_MAX looks of ~0.45 MB, and a texture each): set by
+// each render, released by tileCacheRelease.
+static enum { CACHE_EMPTY,
+			  CACHE_SURFACES,
+			  CACHE_TEXTURES } cache_held = CACHE_EMPTY;
+
+// The Grid is no longer drawn: its tiles' textures go (re-uploaded from the looks on the next Grid frame); with the
+// style itself no longer the Grid (not just Home over it, which comes back to the same tiles), the looks go too.
+static void tileCacheRelease(void) {
+	if (cache_held == CACHE_EMPTY)
+		return;
+	if (GameList_currentStyle() != MENU_STYLE_GRID) {
+		tileCacheClear();
+		cache_held = CACHE_EMPTY;
+		return;
+	}
+	if (cache_held == CACHE_TEXTURES) {
+		for (int i = 0; i < TILE_CACHE_MAX; i++)
+			PLAT_freeSurfaceTexture(tile_cache[i].surf);
+		cache_held = CACHE_SURFACES;
+	}
 }
 
 static void fillBlack(SDL_Surface* screen, int x, int y, int w, int h) {
@@ -440,6 +470,8 @@ static bool drawTile(SDL_Surface* screen, const char* path, SDL_Rect r, const Ti
 		float dim = MenuTabs_contentAlpha();
 		Uint8 full = (Uint8)(255.0f * dim + 0.5f), lit_a = (Uint8)(255.0f * (lit > 1.0f ? 1.0f : lit) * dim + 0.5f);
 		SDL_Rect where = {x, y, sw, sh};
+		if (!plain && !lit_s)
+			return false; // out of memory: no look to hand the GPU (the body isn't uploaded, so no slow path either)
 		if (plain)
 			PLAT_spriteAdd(PLAT_textureForSurface(plain), NULL, &where, full, clip);
 		if (lit_s)
@@ -533,7 +565,8 @@ static void warmLogos(int n, int sel, int tw, int th, float scale) {
 				continue;
 			char logo[64];
 			snprintf(logo, sizeof(logo), "menu_logo_%s.png", id);
-			ArtLoader_request(logo, bw, bh, d);
+			if (!MenuArt_has(logo, bw, bh)) // cached already: drawLogo's MenuArt_get would never take the loader's copy
+				ArtLoader_request(logo, bw, bh, d);
 		}
 	}
 }
@@ -548,14 +581,14 @@ static bool syncList(SDL_Surface* screen, int n, int lastScreen) {
 	// on every frame (a no-op while they're this list's), not only when the Grid's own key changes
 	RowView_syncKinds(n);
 	bool changed = top->serial != seen_top || MenuTabs_generation() != seen_gen || n != seen_n ||
-				   screen->w != seen_screen_w || (int)FIXED_SCALE != seen_scale || lastScreen != SCREEN_GAMELIST;
+				   screen->w != seen_screen_w || scaleKey() != seen_scale || lastScreen != SCREEN_GAMELIST;
 	if (!changed)
 		return false;
 	seen_top = top->serial;
 	seen_gen = MenuTabs_generation();
 	seen_n = n;
 	seen_screen_w = screen->w;
-	seen_scale = (int)FIXED_SCALE;
+	seen_scale = scaleKey();
 	return true;
 }
 
@@ -635,6 +668,7 @@ void GridView_render(SDL_Surface* screen, int lastScreen) {
 	tileCount(sel, sel_count, sizeof(sel_count));
 
 	grid_sprites = !ContextMenu_isOpen();
+	cache_held = CACHE_TEXTURES;		// the looks drawn below (and prefetched after) may get textures
 	RowView_beginSprites(grid_sprites); // marks the frame as a sprite frame (the host uploads only the bars)
 	if (!grid_sprites)
 		fillBlack(screen, 0, bar + body_h, screen->w, screen->h - bar - body_h); // under the hint bar's scrim
@@ -790,10 +824,17 @@ static bool prefetchTiles(const GridLayout* g, int n, int sel, Uint32 deadline) 
 		TileSpec t;
 		tileSpec(i, tw, th, scale, &t, logo);
 		// the lit look carries its count: the move then starts cached. A neighbour whose lit look already shows a
-		// known count reuses it (no CollCount stat each pass); the selection always asks afresh.
+		// known count reuses it (no CollCount stat each pass); the selection always asks afresh. The ±1 neighbours (the
+		// next move's selection, which the render asks afresh too) ask each pass: a count that changed since their look
+		// was composed is recomposed here, not in the move's first frame (a still-unknown one keeps the known count).
 		const char* path = ((Entry*)top->entries->items[i])->path;
 		const char* known = litCount(path, tw, th);
-		if (known) {
+		if (known && k < 2) {
+			tileCount(i, count, sizeof(count));
+			counted = true;
+			if (!count[0])
+				snprintf(count, sizeof(count), "%s", known);
+		} else if (known) {
 			snprintf(count, sizeof(count), "%s", known);
 		} else {
 			tileCount(i, count, sizeof(count));
@@ -859,7 +900,7 @@ bool GridView_prefetchStep(Uint32 deadline) {
 	// the grid the layout was worked out for is gone (a new list, tab, size or scale not drawn yet, or a moved
 	// selection): nothing until the next render re-arms it
 	if (!GridView_active() || !top || !screen || top->serial != seen_top || MenuTabs_generation() != seen_gen ||
-		top->entries->count != pf.n || screen->w != seen_screen_w || (int)FIXED_SCALE != seen_scale ||
+		top->entries->count != pf.n || screen->w != seen_screen_w || scaleKey() != seen_scale ||
 		View_selectedIndex(pf.n) != pf.sel) {
 		pf.armed = false;
 		return false;
@@ -953,6 +994,7 @@ bool GridView_animating(void) {
 		pf.armed = false;
 		slide_tw.active = lit_tw.active = false;
 		off_from = off_to;
+		tileCacheRelease();
 		return false;
 	}
 	bool a = tweenTick(&slide_tw, SLIDE_MS);
@@ -964,5 +1006,6 @@ bool GridView_animating(void) {
 
 void GridView_quit(void) {
 	pf.armed = false;
+	cache_held = CACHE_EMPTY;
 	tileCacheClear(); // the tile kinds are rowview.c's: RowView_quit frees them
 }

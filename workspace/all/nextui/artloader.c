@@ -7,7 +7,7 @@
 
 #include <string.h>
 
-#define ART_JOBS 48
+#define ART_JOBS 96 // MenuArt's slots (menuart.c): a warm-up of every logo in a tab still fits
 
 typedef enum { JOB_FREE = 0,
 			   JOB_QUEUED,
@@ -20,6 +20,7 @@ typedef struct {
 	JobState state;
 	bool dropped; // cleared while decoding: free the result instead of handing it over
 	bool failed;
+	unsigned ready_seq; // when it became ready: a full queue replaces the oldest never-taken result first
 	SDL_Surface* surface;
 } ArtJob;
 
@@ -28,6 +29,7 @@ static SDL_mutex* lock;
 static SDL_cond* wake;
 static SDL_Thread* worker;
 static bool quitting;
+static unsigned ready_clock;
 
 static bool same(const ArtJob* j, const char* file, int w, int h) {
 	return j->box_w == w && j->box_h == h && strcmp(j->file, file) == 0;
@@ -60,6 +62,7 @@ static int workerMain(void* arg) {
 			next->surface = s;
 			next->failed = s == NULL;
 			next->state = JOB_READY;
+			next->ready_seq = ++ready_clock;
 		}
 	}
 	SDL_UnlockMutex(lock);
@@ -98,14 +101,19 @@ void ArtLoader_request(const char* file, int box_w, int box_h, int prio) {
 		if (j->state == JOB_FREE && !slot)
 			slot = j;
 	}
-	if (!slot) { // full: replace the furthest queued or never-taken job, if this one is nearer
+	if (!slot) { // full: replace the oldest never-taken result (whatever it was asked at: nothing is waiting on it,
+				 // or it would have been taken), else the furthest queued job, if this one is nearer
 		for (int i = 0; i < ART_JOBS; i++)
-			if ((jobs[i].state == JOB_QUEUED || (jobs[i].state == JOB_READY && !jobs[i].dropped)) &&
-				(!slot || jobs[i].prio > slot->prio))
+			if (jobs[i].state == JOB_READY && !jobs[i].dropped && (!slot || jobs[i].ready_seq < slot->ready_seq))
 				slot = &jobs[i];
-		if (!slot || slot->prio <= prio) {
-			SDL_UnlockMutex(lock);
-			return;
+		if (!slot) {
+			for (int i = 0; i < ART_JOBS; i++)
+				if (jobs[i].state == JOB_QUEUED && (!slot || jobs[i].prio > slot->prio))
+					slot = &jobs[i];
+			if (!slot || slot->prio <= prio) {
+				SDL_UnlockMutex(lock);
+				return;
+			}
 		}
 		if (slot->surface)
 			SDL_FreeSurface(slot->surface);
@@ -137,6 +145,25 @@ SDL_Surface* ArtLoader_take(const char* file, int box_w, int box_h, bool* failed
 	}
 	SDL_UnlockMutex(lock);
 	return s;
+}
+
+void ArtLoader_cancel(const char* file, int box_w, int box_h) {
+	if (!file || !lock)
+		return;
+	SDL_LockMutex(lock);
+	for (int i = 0; i < ART_JOBS; i++) {
+		ArtJob* j = &jobs[i];
+		if (j->state == JOB_FREE || j->dropped || !same(j, file, box_w, box_h))
+			continue;
+		if (j->state == JOB_WORKING) {
+			j->dropped = true;
+			continue;
+		}
+		if (j->surface)
+			SDL_FreeSurface(j->surface);
+		memset(j, 0, sizeof(*j));
+	}
+	SDL_UnlockMutex(lock);
 }
 
 void ArtLoader_clear(void) {

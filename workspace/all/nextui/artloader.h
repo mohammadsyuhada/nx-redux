@@ -9,11 +9,14 @@
 // row will draw (nearest first: the lower prio, the sooner) and takes each surface once it is ready.
 
 // Queue file at box_w x box_h (no-op when it is already queued, decoding or ready; a lower prio moves it up). A 0 x 0
-// box asks for MenuArt_loadLevel's image at its own size instead.
+// box asks for MenuArt_loadLevel's image at its own size instead. A full queue makes room by dropping the oldest result
+// never taken, else the furthest queued job when this one is nearer (else this one is not queued).
 void ArtLoader_request(const char* file, int box_w, int box_h, int prio);
 // The decoded surface, handed over (the caller owns it from here), or NULL when it is not ready (queued, decoding, or
 // never asked for). A failed decode is reported as ready with *failed set (NULL surface), so it is not asked again.
 SDL_Surface* ArtLoader_take(const char* file, int box_w, int box_h, bool* failed);
+// Drop the job for file at box_w x box_h, queued, decoding (its result is freed) or ready: the caller decoded it itself.
+void ArtLoader_cancel(const char* file, int box_w, int box_h);
 // Drop every queued job and every ready surface not taken yet (a decode in progress finishes and is dropped).
 void ArtLoader_clear(void);
 void ArtLoader_quit(void);
