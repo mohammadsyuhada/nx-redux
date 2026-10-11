@@ -3151,6 +3151,13 @@ bool RowView_handleInput(unsigned long now, bool* dirty) {
 	return true;
 }
 
+// The Backdrop picture's texture is still being filled a band a frame (pictureUploadStep): its crossfade waits for
+// the last band, and nothing else may be redrawing (a short list has few neighbours whose art lands and keeps frames
+// coming), so the upload itself keeps them coming. Without it the picture stayed black after its first band.
+static bool pictureUploading(void) {
+	return pic_sprites && to_tex && to_up_y < to_tex_h && pictureRow();
+}
+
 bool RowView_animating(void) {
 	if (!RowView_active()) {
 		pf.armed = false;
@@ -3173,7 +3180,7 @@ bool RowView_animating(void) {
 		bool d = tweenTick(&cnt.fade, ROW_COUNT_FADE_MS);
 		bool s = StackView_animating();
 		bool cap = cap_refresh || takeCaptionRedraw(); // the selection's caption being made between frames
-		return b || c || d || s || cap || art_waiting || RowView_exiting();
+		return b || c || d || s || cap || art_waiting || pictureUploading() || RowView_exiting();
 	}
 	bool a = tweenTick(&slide_tw, SLIDE_MS);
 	bool b = tweenTick(&fade_tw, FADE_MS);
@@ -3182,7 +3189,7 @@ bool RowView_animating(void) {
 	if (a && !slide_tw.active)
 		pos_from = pos_to;
 	bool cap = cap_refresh || takeCaptionRedraw(); // the selection's caption being made between frames
-	return a || b || c || d || cap || art_waiting || RowView_exiting();
+	return a || b || c || d || cap || art_waiting || pictureUploading() || RowView_exiting();
 }
 
 bool RowView_prefetchStep(Uint32 deadline) {
