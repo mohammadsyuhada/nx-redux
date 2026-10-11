@@ -363,7 +363,7 @@ static bool ra_off_journal_contains_locked(const char* user, uint32_t aid, const
 	bool found = false;
 	while (fgets(line, sizeof(line), f)) {
 		if (ra_off_journal_parse_line(line, &e) &&
-			strcmp(e.username, user) == 0 && e.achievement_id == aid &&
+			strcasecmp(e.username, user) == 0 && e.achievement_id == aid &&
 			strcmp(e.game_hash, hash) == 0) {
 			found = true;
 			break;
@@ -405,7 +405,7 @@ static bool ra_off_confirmed_contains_locked(const char* user, uint32_t aid, con
 	bool found = false;
 	while (fgets(line, sizeof(line), f)) {
 		if (ra_off_journal_parse_line(line, &e) &&
-			strcmp(e.username, user) == 0 && e.achievement_id == aid &&
+			strcasecmp(e.username, user) == 0 && e.achievement_id == aid &&
 			strcmp(e.game_hash, hash) == 0) {
 			found = true;
 			break;
@@ -488,7 +488,7 @@ static int ra_off_journal_entries_for(const char* user, const char* hash,
 	int total = RA_Offline_readJournal(out, max);
 	int kept = 0;
 	for (int i = 0; i < total; i++) {
-		if (strcmp(out[i].username, user) == 0 && strcmp(out[i].game_hash, hash) == 0)
+		if (strcasecmp(out[i].username, user) == 0 && strcmp(out[i].game_hash, hash) == 0)
 			out[kept++] = out[i];
 	}
 	return kept;
@@ -605,7 +605,7 @@ static int ra_off_confirmed_entries_for(const char* user, const char* hash,
 		char line[512];
 		while (kept < max && fgets(line, sizeof(line), f)) {
 			if (ra_off_journal_parse_line(line, &out[kept]) &&
-				(!user || strcmp(out[kept].username, user) == 0) &&
+				(!user || strcasecmp(out[kept].username, user) == 0) &&
 				strcmp(out[kept].game_hash, hash) == 0)
 				kept++;
 		}
@@ -689,7 +689,7 @@ static void ra_off_confirmed_prune(const char* user, const char* session_body) {
 	char line[512];
 	RA_PendingUnlock e;
 	while (fgets(line, sizeof(line), in)) {
-		if (ra_off_journal_parse_line(line, &e) && strcmp(e.username, user) == 0 &&
+		if (ra_off_journal_parse_line(line, &e) && strcasecmp(e.username, user) == 0 &&
 			ra_off_id_in_body(session_body, e.achievement_id)) {
 			dropped++;
 			continue;
@@ -1027,7 +1027,7 @@ static void ra_off_journal_rewrite(const RA_PendingUnlock* entries, const bool* 
 		if (ra_off_journal_parse_line(line, &e)) {
 			for (int i = 0; i < count; i++) {
 				if (synced[i] &&
-					strcmp(entries[i].username, e.username) == 0 &&
+					strcasecmp(entries[i].username, e.username) == 0 &&
 					entries[i].achievement_id == e.achievement_id &&
 					strcmp(entries[i].game_hash, e.game_hash) == 0) {
 					drop = true;
@@ -1074,9 +1074,11 @@ int RA_Offline_sync(const char* username, time_t now, RA_SubmitFn submit,
 		return -1;
 	int total = RA_Offline_readJournal(all, RA_OFFLINE_MAX_PENDING);
 
+	// usernames are case-insensitive: entries carry the server's
+	// case-corrected name, callers pass the one typed in Settings (#161)
 	int mine = 0;
 	for (int i = 0; i < total; i++) {
-		if (strcmp(all[i].username, username) == 0)
+		if (strcasecmp(all[i].username, username) == 0)
 			mine++;
 	}
 	if (mine == 0) {
@@ -1093,7 +1095,7 @@ int RA_Offline_sync(const char* username, time_t now, RA_SubmitFn submit,
 
 	int done = 0, ok = 0, rejected = 0;
 	for (int i = 0; i < total; i++) {
-		if (strcmp(all[i].username, username) != 0)
+		if (strcasecmp(all[i].username, username) != 0)
 			continue;
 		uint32_t secs = (now > all[i].when) ? (uint32_t)(now - all[i].when) : 1;
 		int rc = submit(&all[i], secs, userdata);

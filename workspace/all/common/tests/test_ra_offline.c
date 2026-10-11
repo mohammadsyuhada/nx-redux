@@ -593,6 +593,27 @@ static void test_confirmed_growth(void) {
 	printf("ok test_confirmed_growth\n");
 }
 
+// Issue #161: rc_client journals unlocks under the server's case-corrected
+// "User" (login2 accepts any spelling), while the sync is handed the username
+// typed in Settings. RA usernames are case-insensitive, so the two must match.
+static void test_sync_username_case(void) {
+	reset_root();
+	RA_Offline_setMode(RA_NET_OFFLINE);
+	char* body;
+	size_t len;
+	int status;
+	RA_Offline_handleRequest("r=awardachievement&u=alexm&t=tok&a=777&h=0&m=dddd4444", &body, &len, &status);
+	free(body);
+	RA_Offline_setMode(RA_NET_ONLINE);
+	assert(RA_Offline_pendingCount() == 1);
+
+	assert(RA_Offline_sync("AlexM", time(NULL), stub_submit_ok, NULL, NULL) == 1);
+	assert(RA_Offline_pendingCount() == 0);
+	RA_PendingUnlock e[4];
+	assert(RA_Offline_readConfirmedFor("ALEXM", "dddd4444", e, 4) == 1);
+	printf("ok test_sync_username_case\n");
+}
+
 int main(void) {
 	test_get_param();
 	test_cache_classification();
@@ -605,6 +626,7 @@ int main(void) {
 	test_online_award_journal();
 	test_award_rejection();
 	test_confirmed_growth();
+	test_sync_username_case();
 	printf("ALL TESTS PASSED\n");
 	return 0;
 }
