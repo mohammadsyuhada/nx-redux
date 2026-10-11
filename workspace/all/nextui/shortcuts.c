@@ -1,6 +1,7 @@
 #include "shortcuts.h"
 #include "api.h"
 #include "defines.h"
+#include "menutabs_model.h"
 #include "utils.h"
 #include <stdbool.h>
 #include <stdio.h>
@@ -88,8 +89,17 @@ static int loadShortcuts(void) {
 
 	FILE* file = fopen(SHORTCUTS_PATH, "r");
 	if (file) {
-		char line[MAX_PATH];
-		while (fgets(line, MAX_PATH, file) != NULL) {
+		char line[MAX_PATH * 2]; // "path\tname": each up to a path's length
+		while (fgets(line, sizeof(line), file) != NULL) {
+			size_t len = strlen(line);
+			if (len == sizeof(line) - 1 && line[len - 1] != '\n') {
+				// longer than any path plus name: skip the whole line rather than split it, which would read
+				// its tail as a bogus entry (and a re-save would keep only the cut-down head)
+				int c;
+				while ((c = fgetc(file)) != EOF && c != '\n')
+					;
+				continue;
+			}
 			normalizeNewline(line);
 			trimTrailingNewlines(line);
 			if (strlen(line) == 0)
@@ -102,6 +112,8 @@ static int loadShortcuts(void) {
 				tmp[0] = '\0';
 				name = tmp + 1;
 			}
+			if (strlen(path) >= MAX_PATH)
+				continue; // no such path on the card
 
 			// Validate that the tool still exists
 			char sd_path[MAX_PATH];
@@ -164,7 +176,7 @@ bool Shortcuts_canAdd(Entry* entry) {
 void Shortcuts_add(Entry* entry) {
 	if (!shortcuts || !entry)
 		return;
-	if (!prefixMatch(SDCARD_PATH, entry->path))
+	if (!MenuTabs_underPath(entry->path, SDCARD_PATH))
 		return;
 
 	char* path = entry->path + strlen(SDCARD_PATH);
@@ -183,7 +195,7 @@ void Shortcuts_add(Entry* entry) {
 void Shortcuts_remove(Entry* entry) {
 	if (!shortcuts || !entry)
 		return;
-	if (!prefixMatch(SDCARD_PATH, entry->path))
+	if (!MenuTabs_underPath(entry->path, SDCARD_PATH))
 		return;
 
 	char* path = entry->path + strlen(SDCARD_PATH);
@@ -216,7 +228,7 @@ bool Shortcuts_replacePath(const char* old_path, const char* new_path, const cha
 int Shortcuts_isInToolsFolder(const char* path) {
 	char paks_tools_path[MAX_PATH];
 	snprintf(paks_tools_path, sizeof(paks_tools_path), "%s/Tools", PAKS_PATH);
-	return prefixMatch(TOOLS_PATH, path) || prefixMatch(paks_tools_path, path);
+	return MenuTabs_underPath(path, TOOLS_PATH) || MenuTabs_underPath(path, paks_tools_path);
 }
 
 int Shortcuts_getCount(void) {

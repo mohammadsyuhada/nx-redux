@@ -48,22 +48,23 @@ int MenuTabs_resolve(const MenuTabId* tabs, int count, MenuTabId current) {
 	return count > 0 ? count - 1 : 0;
 }
 
-// path == base, or path continues below base with a '/'
-static int underPath(const char* path, const char* base) {
-	if (!base || !base[0])
-		return 0;
+bool MenuTabs_underPath(const char* path, const char* base) {
+	if (!path || !base || !base[0])
+		return false;
 	size_t n = strlen(base);
+	if (base[n - 1] == '/') // a base given with its trailing slash: the slash is the boundary
+		return strncmp(path, base, n) == 0;
 	return strncmp(path, base, n) == 0 && (path[n] == '\0' || path[n] == '/');
 }
 
 MenuTabId MenuTabs_forPath(const char* path, const MenuTabPaths* paths) {
 	if (!path)
 		return MENU_TAB_HOME;
-	if (underPath(path, paths->roms))
+	if (MenuTabs_underPath(path, paths->roms))
 		return MENU_TAB_CONSOLES;
-	if (underPath(path, paths->collections))
+	if (MenuTabs_underPath(path, paths->collections))
 		return MENU_TAB_COLLECTIONS;
-	if (underPath(path, paths->tools) || underPath(path, paths->sys_tools))
+	if (MenuTabs_underPath(path, paths->tools) || MenuTabs_underPath(path, paths->sys_tools))
 		return MENU_TAB_TOOLS;
 	return MENU_TAB_HOME;
 }
@@ -124,10 +125,16 @@ void MenuTabs_clampWindow(int count, int rows, int* selected, int* start, int* e
 		count = 0;
 	if (rows < 1)
 		rows = 1;
-	// buildRoot's rule: a hint that no longer fits the list starts over at the top
-	if (sel < 0 || sel >= count || last > count || first < 0 || first > sel || (last && sel >= last)) {
+	if (sel < 0 || sel >= count) {
+		// buildRoot's rule: a selection that no longer fits the list starts over at the top
 		sel = 0;
 		first = 0;
+		last = 0;
+	} else if (last > count || first < 0 || first > sel || (last && sel >= last)) {
+		// the row still exists but its window doesn't fit (the list shrank under it, e.g. a pin removed
+		// elsewhere): rebuilt below around the selection, from the same first row where it can
+		if (first < 0 || first > sel)
+			first = sel;
 		last = 0;
 	}
 	int visible = count < rows ? count : rows;

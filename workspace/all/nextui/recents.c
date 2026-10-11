@@ -2,6 +2,7 @@
 #include "utils.h"
 #include "recents.h"
 #include "api.h"
+#include "menutabs_model.h"
 
 ///////////////////////////////////////
 // Internal state
@@ -82,23 +83,29 @@ void RecentArray_free(Array* self) {
 // Core API
 
 static void Recents_save(void) {
-	FILE* file = fopen(RECENT_PATH, "w");
-	if (file) {
-		for (int i = 0; i < recents->count; i++) {
-			Recent* recent = recents->items[i];
-			fputs(recent->path, file);
-			if (recent->alias) {
-				fputs("\t", file);
-				fputs(recent->alias, file);
-			}
-			putc('\n', file);
-		}
-		fclose(file);
+	// one buffer, written via writeFileAtomic (tmp + fsync + rename) as the pins are: this runs on every launch,
+	// and a crash or a full card mid-write can't truncate the list
+	size_t cap = 1, len = 0;
+	for (int i = 0; i < recents->count; i++) {
+		Recent* recent = recents->items[i];
+		cap += strlen(recent->path) + 2 + (recent->alias ? strlen(recent->alias) : 0);
 	}
+	char* buf = malloc(cap);
+	if (!buf)
+		return;
+	for (int i = 0; i < recents->count; i++) {
+		Recent* recent = recents->items[i];
+		len += (size_t)snprintf(buf + len, cap - len, "%s%s%s\n", recent->path, recent->alias ? "\t" : "",
+								recent->alias ? recent->alias : "");
+	}
+	buf[len] = '\0';
+	if (!writeFileAtomic(RECENT_PATH, buf, len))
+		LOG_warn("Recents: couldn't save %s\n", RECENT_PATH);
+	free(buf);
 }
 
 void Recents_add(char* path, char* alias) {
-	if (!prefixMatch(SDCARD_PATH, path)) // only SD paths can be made platform-agnostic
+	if (!MenuTabs_underPath(path, SDCARD_PATH)) // only SD paths can be made platform-agnostic
 		return;
 	path += strlen(SDCARD_PATH); // makes paths platform agnostic
 	int id = RecentArray_indexOf(recents, path);
@@ -140,7 +147,7 @@ int Recents_load(void) {
 		changed = true;
 		char sd_path[MAX_PATH];
 		getFile(CHANGE_DISC_PATH, sd_path, MAX_PATH);
-		if (exists(sd_path) && prefixMatch(SDCARD_PATH, sd_path)) {
+		if (exists(sd_path) && MenuTabs_underPath(sd_path, SDCARD_PATH)) {
 			char* disc_path = sd_path + strlen(SDCARD_PATH); // makes path platform agnostic
 			Recent* recent = Recent_new(disc_path, NULL);
 			if (!recent)
@@ -165,8 +172,18 @@ int Recents_load(void) {
 
 	FILE* file = fopen(RECENT_PATH, "r"); // newest at top
 	if (file) {
-		char line[MAX_PATH];
+		char line[MAX_PATH * 2]; // "path\talias": each up to a path's length
 		while (fgets(line, sizeof(line), file) != NULL) {
+			size_t len = strlen(line);
+			if (len == sizeof(line) - 1 && line[len - 1] != '\n') {
+				// longer than any path plus name: skip the whole line rather than split it, which would read
+				// its tail as a bogus entry (and a re-save would keep only the cut-down head)
+				int c;
+				while ((c = fgetc(file)) != EOF && c != '\n')
+					;
+				changed = true;
+				continue;
+			}
 			normalizeNewline(line);
 			trimTrailingNewlines(line);
 			if (strlen(line) == 0)
@@ -178,6 +195,10 @@ int Recents_load(void) {
 			if (tmp) {
 				tmp[0] = '\0';
 				alias = tmp + 1;
+			}
+			if (strlen(path) >= MAX_PATH) {
+				changed = true; // no such path on the card (and too long for the buffers below)
+				continue;
 			}
 
 			char sd_path[MAX_PATH];

@@ -35,7 +35,8 @@ static bool simple_mode = false;
 // Parked roots (T1-1, menutabs_model.h): L1/R1 parks the outgoing tab's stack[0] here and takes the incoming
 // one's, so a tab switch costs no card I/O. Only tabs that are NOT current have a root here (the stack owns
 // stack[0]), so every existing free of stack[0] stays correct. A slot's hint keeps its selection after the root
-// is dropped. Dropped by MenuTabs_reload (the tabs in its plan's stale_tabs), MenuTabs_setCurrent and MenuTabs_dropCached (one).
+// is dropped. Dropped by MenuTabs_reload (the tabs in its plan's stale_tabs, and the tabs it hid), MenuTabs_setCurrent
+// and MenuTabs_dropCached (one).
 static MenuTabSlot slots[MENU_TAB_COUNT];
 // Content_libraryGen() when stack[0] was built, and when the parked Consoles root was: a Consoles root built
 // against an older emulist (a refresh, a delete, a Search rescan) is rebuilt instead of reused.
@@ -113,9 +114,13 @@ MenuTabId MenuTabs_current(void) {
 	return current;
 }
 
+static unsigned generation = 0;
+
 void MenuTabs_setCurrent(MenuTabId id) {
 	// pathToStack just built a fresh stack[0] for id: a parked copy would be a second root for one tab
 	dropSlot(id);
+	if (id != current)
+		generation++; // another tab now (a deep pinned folder opened from Home lands in Consoles): as a tab switch
 	current = id;
 	root_gen = Content_libraryGen();
 }
@@ -209,8 +214,6 @@ static Directory* buildRoot(MenuTabId id, int selected, int start, int end) {
 	return dir;
 }
 
-static unsigned generation = 0;
-
 // Tab-row focus: a static, so a cold boot and a return from a game (nextui restarts) start without it.
 static bool focused = false;
 
@@ -254,15 +257,11 @@ unsigned MenuTabs_generation(void) {
 	return generation;
 }
 
-// stack[0] for `id`, replacing the whole stack; the focus and the dim are the caller's. The outgoing root is
-// parked (when it is the current tab's plain root) and id's parked root reused, so a switch reads nothing from
-// the card; generation still moves, so per-view state resets as for a fresh root.
-static void openRootKeepFocus(MenuTabId id) {
-	generation++;
-	if (!stack)
-		stack = Array_new();
+// Empty the stack (it stays allocated): the lists pushed over the old root are freed (they belong to it), and the
+// root is parked when it is the current tab's plain root, else freed.
+static void parkStack(void) {
 	while (stack->count > 1)
-		DirectoryArray_pop(stack); // lists pushed over the old root belong to it
+		DirectoryArray_pop(stack);
 	Directory* old = stack->count ? Array_pop(stack) : NULL;
 	if (old && exactMatch(old->path, MenuTabs_path(current))) {
 		// not a PLATFORM-merged root (pathToStack): those are rebuilt, never parked
@@ -273,6 +272,22 @@ static void openRootKeepFocus(MenuTabId id) {
 			consoles_gen = root_gen;
 	} else if (old)
 		Directory_free(old);
+	top = NULL;
+}
+
+void MenuTabs_releaseStack(void) {
+	if (stack)
+		parkStack();
+}
+
+// stack[0] for `id`, replacing the whole stack; the focus and the dim are the caller's. The outgoing root is
+// parked (when it is the current tab's plain root) and id's parked root reused, so a switch reads nothing from
+// the card; generation still moves, so per-view state resets as for a fresh root.
+static void openRootKeepFocus(MenuTabId id) {
+	generation++;
+	if (!stack)
+		stack = Array_new();
+	parkStack();
 
 	current = id; // before anything reads the row count
 	Directory* dir = MenuTabs_slotTake(slots, id);
@@ -318,6 +333,12 @@ void MenuTabs_reload(int keep_selected, unsigned what) {
 			dropSlot((MenuTabId)id);
 	}
 	refreshInputs(&plan);
+	// a tab the change hid (Settings toggles, a last ROM or collection gone) holds its parked root until it shows
+	// again: dropped now, its hint kept. The current tab has none parked (its root is the stack's).
+	for (int id = 0; id < MENU_TAB_COUNT; id++) {
+		if (!MenuTabs_isVisible((MenuTabId)id))
+			dropSlot((MenuTabId)id);
+	}
 	MenuTabId next = tabs[MenuTabs_resolve(tabs, tab_count, current)];
 	MenuTabId old_tab = current;
 	Directory* old = stack->items[0];
@@ -330,13 +351,19 @@ void MenuTabs_reload(int keep_selected, unsigned what) {
 		old->selected =
 			ListWindow_reload(old->entries->count, GameList_rowCountAt(true), keep_selected, &old->start, &old->end);
 	} else {
-		int sel = (next == old_tab) ? keep_selected : (slots[next].hint ? slots[next].selected : 0);
 		dropSlot(next); // a parked copy would be a second root for this tab (its hint stays)
 		current = next; // before anything reads the row count (it depends on the tab's style)
-		Directory* fresh = buildRoot(next, 0, 0, 0);
-		// buildRoot's window from the top, re-windowed so the kept selection shows (as reloadDirectoryAt)
-		fresh->selected =
-			ListWindow_reload(fresh->entries->count, GameList_rowCountAt(true), sel, &fresh->start, &fresh->end);
+		Directory* fresh;
+		if (next == old_tab) {
+			fresh = buildRoot(next, 0, 0, 0);
+			// buildRoot's window from the top, re-windowed so the kept selection shows (as reloadDirectoryAt)
+			fresh->selected = ListWindow_reload(fresh->entries->count, GameList_rowCountAt(true), keep_selected,
+												&fresh->start, &fresh->end);
+		} else {
+			// the neighbour reopens where it was left (its hint's row and window), as a tab switch would
+			const MenuTabSlot* hint = &slots[next];
+			fresh = hint->hint ? buildRoot(next, hint->selected, hint->start, hint->end) : buildRoot(next, 0, 0, 0);
+		}
 		if (next != old_tab) {
 			// the current tab vanished (e.g. its last ROM was deleted from inside Consoles › GBA): a list pushed
 			// over it belongs to that tab, so it can't stay over another tab's root -- B would land on the wrong
@@ -367,7 +394,16 @@ void MenuTabs_clearHomeLaunch(void) {
 	home_launch = false;
 }
 
+// MENU_TAB_PATH as read once at boot (initialTab, savedHomeLaunch and savedPush all ask): saveState writes it only
+// right before nextui exits for a launch or a restart, and drops this copy when it does, so it can't go stale.
+static struct {
+	bool read;
+	char key[64];
+	char* second; // into key, or NULL
+} saved_state;
+
 void MenuTabs_saveState(void) {
+	saved_state.read = false;
 	if (home_launch && current == MENU_TAB_HOME)
 		putFile(MENU_TAB_PATH, "home\nlaunch\n");
 	else if (pushedTab() != MENU_TAB_HOME) {
@@ -381,19 +417,24 @@ void MenuTabs_saveState(void) {
 	home_launch = false;
 }
 
-// MENU_TAB_PATH split into the tab key and its optional second line.
-static void readSavedState(char* key, size_t key_size, char** second) {
-	key[0] = '\0';
-	*second = NULL;
-	if (exists(MENU_TAB_PATH))
-		getFile(MENU_TAB_PATH, key, key_size);
-	char* nl = strchr(key, '\n');
-	if (nl) {
-		*nl++ = '\0';
-		trimTrailingNewlines(nl);
-		*second = nl;
+// MENU_TAB_PATH split into the tab key and its optional second line (both into the cached copy).
+static void readSavedState(const char** key, const char** second) {
+	if (!saved_state.read) {
+		saved_state.read = true;
+		saved_state.key[0] = '\0';
+		saved_state.second = NULL;
+		if (exists(MENU_TAB_PATH))
+			getFile(MENU_TAB_PATH, saved_state.key, sizeof(saved_state.key));
+		char* nl = strchr(saved_state.key, '\n');
+		if (nl) {
+			*nl++ = '\0';
+			trimTrailingNewlines(nl);
+			saved_state.second = nl;
+		}
+		trimTrailingNewlines(saved_state.key);
 	}
-	trimTrailingNewlines(key);
+	*key = saved_state.key;
+	*second = saved_state.second;
 }
 
 // The pushed tab a second line names (Consoles, Collections or Tools), else MENU_TAB_HOME.
@@ -405,16 +446,14 @@ static MenuTabId pushedFromLine(const char* second) {
 }
 
 MenuTabId MenuTabs_savedPush(void) {
-	char key[64];
-	char* second;
-	readSavedState(key, sizeof(key), &second);
+	const char *key, *second;
+	readSavedState(&key, &second);
 	return pushedFromLine(second);
 }
 
 bool MenuTabs_savedHomeLaunch(void) {
-	char key[64];
-	char* second;
-	readSavedState(key, sizeof(key), &second);
+	const char *key, *second;
+	readSavedState(&key, &second);
 	MenuTabId saved = MENU_TAB_HOME;
 	return MenuTabs_parseKey(key, &saved) && saved == MENU_TAB_HOME && second && strcmp(second, "launch") == 0;
 }
@@ -423,7 +462,7 @@ bool MenuTabs_savedHomeLaunch(void) {
 // below the card root, is pinned (a ROM launched from a pinned game folder).
 static bool homeOwnsPath(const char* path) {
 	size_t root_len = strlen(SDCARD_PATH);
-	if (!prefixMatch(SDCARD_PATH, path))
+	if (!MenuTabs_underPath(path, SDCARD_PATH))
 		return false;
 	char p[MAX_PATH];
 	snprintf(p, sizeof(p), "%s", path);
@@ -451,9 +490,8 @@ static bool savedOwnsPath(MenuTabId saved, const char* last_path, MenuTabId path
 }
 
 MenuTabId MenuTabs_initialTab(const char* last_path) {
-	char key[64];
-	char* second;
-	readSavedState(key, sizeof(key), &second);
+	const char *key, *second;
+	readSavedState(&key, &second);
 	MenuTabId saved = MENU_TAB_HOME;
 	bool saved_valid = MenuTabs_parseKey(key, &saved);
 	bool home_launched = saved_valid && saved == MENU_TAB_HOME && second && strcmp(second, "launch") == 0;

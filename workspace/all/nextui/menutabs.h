@@ -10,8 +10,12 @@ void MenuTabs_init(void); // compute the visible tabs from settings + content
 int MenuTabs_count(void);
 MenuTabId MenuTabs_at(int index);
 MenuTabId MenuTabs_current(void);
-// Only assigns the current tab (pathToStack builds stack[0] itself); drops id's parked root.
+// Only assigns the current tab (pathToStack builds stack[0] itself); drops id's parked root, and moves the
+// generation when the tab changes.
 void MenuTabs_setCurrent(MenuTabId id);
+// openDirectory's stack rebuild (pathToStack) replaces the whole stack: empty it first, freeing the lists over the
+// root and parking the root (as a tab switch does) when it is the current tab's plain root. `top` is NULL after.
+void MenuTabs_releaseStack(void);
 // Something changed what a tab that isn't current lists, without a MenuTabs_reload (a new collection from Add to
 // Collection): its parked root is dropped and rebuilt on its next visit. No-op for the current tab.
 void MenuTabs_dropCached(MenuTabId id);
@@ -36,9 +40,11 @@ bool MenuTabs_step(int delta);
 // bits naming what may have changed (MenuTabs_reloadPlan). Drops the parked roots of the tabs it can show in,
 // re-reads only those inputs, recomputes the visible tabs and rebuilds stack[0] when the change can show in the
 // current tab (else keeps it, re-windowed as a rebuild would be); if the current tab vanished, opens the resolved
-// neighbour at its root (the lists pushed over the old tab are popped). keep_selected clamps.
+// neighbour at its root on its remembered row (the lists pushed over the old tab are popped). keep_selected clamps.
+// The parked roots of tabs no longer visible are dropped (their hints stay).
 void MenuTabs_reload(int keep_selected, unsigned what);
-// Bumped whenever MenuTabs_openRoot/MenuTabs_reload replace stack[0] (a tab switch or reload). Readers use it
+// Bumped whenever MenuTabs_openRoot/MenuTabs_reload replace stack[0] (a tab switch or reload), and when
+// MenuTabs_setCurrent changes the tab (openDirectory's stack rebuild landing in another tab). Readers use it
 // to tell a tab change from a push/pop; per-list caches key on Directory.serial (which also changes on a
 // push, pop or openDirectory stack rebuild) alongside it.
 unsigned MenuTabs_generation(void);
