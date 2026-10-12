@@ -561,9 +561,16 @@ void PLAT_setCPUSpeedAuto(void) {
 	setFreqRange(CPU_FREQ_MIN, CPU_FREQ_MAX);
 }
 
+// minarch's Auto. The little cluster scales over the range; the big core, when
+// it is up, is held at the top of it. A game on Auto runs every thread (emulation,
+// audio, render, mali helpers) on cpu4 alone, and schedutil there swings
+// 840-2160 MHz frame to frame: Mega Man 2 (fceumm), no shader, 18 frames/s late
+// with audio crackle; held at 2160, 0.1/s at 40% CPU (scripts/bench 2026-10-12).
 void PLAT_setCPUSpeedRange(int min_khz, int max_khz) {
 	gpuLeaveMenu();
-	setAllOnlinePoliciesRange(CPU_AUTO_GOVERNOR, min_khz, max_khz);
+	setPolicyRange("/sys/devices/system/cpu/cpu0", CPU_AUTO_GOVERNOR, min_khz, max_khz);
+	if (getInt("/sys/devices/system/cpu/cpu4/online") == 1)
+		setPolicyRange("/sys/devices/system/cpu/cpu4", CPU_AUTO_GOVERNOR, max_khz, max_khz);
 }
 
 // Hardware bounds spanning every online policy (see api.h). cpu0's little
