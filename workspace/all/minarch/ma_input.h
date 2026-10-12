@@ -18,3 +18,9 @@ uint32_t Input_getButtons(void);
 // setting, as the console's own controller would (Dreamcast). Menus keep
 // following the layout. Set by Config_readOptions.
 extern int input_positional_faces;
+
+// Per-pak "minarch_stick_dpad = off" (default.cfg): the left stick no longer
+// doubles as the D-pad under the Standard controller. For analog cores
+// (Dreamcast, N64, PSP), which already read the stick as a stick, so a push
+// would also press D-pad buttons (Daytona USA's camera, issue #211).
+extern int input_stick_dpad;

@@ -22,6 +22,7 @@ static TurboState turbo;
 static int ignore_menu = 0;
 static int polled_this_frame = 0;
 int input_positional_faces = 0;
+int input_stick_dpad = 1;
 
 // A binding's button as read for a positional pak: the logical button that
 // the pad's layout swap turns the bound physical position into (see
@@ -274,7 +275,7 @@ void input_poll_callback(void) {
 			continue; // present buttons can still be unbound
 		if (input_positional_faces)
 			btn = Input_positionalBtn(btn);
-		if (gamepad_type == 0) {
+		if (gamepad_type == 0 && input_stick_dpad) {
 			switch (btn) {
 			case BTN_DPAD_UP:
 				btn = BTN_UP;

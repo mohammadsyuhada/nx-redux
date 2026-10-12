@@ -1279,6 +1279,9 @@ void Config_readOptionsString(char* cfg) {
 	// Per-pak face-button positions (ma_input.h)
 	if (Config_getValue(cfg, "minarch_face_buttons", value, NULL))
 		input_positional_faces = strcmp(value, "positional") == 0;
+	// Per-pak left stick as D-pad (ma_input.h)
+	if (Config_getValue(cfg, "minarch_stick_dpad", value, NULL))
+		input_stick_dpad = strcmp(value, "off") != 0;
 	for (int i = 0; config.core.options[i].key; i++) {
 		Option* option = &config.core.options[i];
 		if (!Config_getValue(cfg, option->key, value, &option->lock))
