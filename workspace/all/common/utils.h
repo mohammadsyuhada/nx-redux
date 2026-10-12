@@ -70,7 +70,6 @@ uint64_t getMicroseconds(void);
 int clamp(int x, int lower, int upper);
 double clampd(double x, double lower, double upper);
 
-char* findFileInDir(const char* directory, const char* filename);
 
 // Percent-encode src into dst (form style: space -> '+', unreserved kept, rest
 // %XX). dst must hold up to 3x src plus a NUL; encoding stops early if it would

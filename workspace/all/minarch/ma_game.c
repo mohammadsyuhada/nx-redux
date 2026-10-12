@@ -3,6 +3,7 @@
 #include "config.h"
 #include "ma_game.h"
 #include "ma_saves.h"
+#include "ma_archive_cache.h"
 #include <zip.h>
 #include <dirent.h>
 #include <errno.h>
@@ -13,34 +14,11 @@
 #include <SDL2/SDL_image.h>
 
 void Game_open(char* path) {
-	int skipzip = 0;
 	memset(&game, 0, sizeof(game));
 
 	strcpy((char*)game.path, path);
 	strcpy((char*)game.name, baseName(path));
 	strcpy((char*)game.alt_name, game.name); // default it
-
-	// check first if the rom already is alive in tmp folder if so skip unzipping shit
-	char tmpfldr[255];
-	snprintf(tmpfldr, sizeof(tmpfldr), "/tmp/nextarch/%s", core.tag);
-	char* tmppath = findFileInDir(tmpfldr, game.name);
-	if (tmppath) {
-		// Verify the file exists and has non-zero size (not being written or truncated)
-		struct stat st;
-		if (stat(tmppath, &st) == 0 && st.st_size > 0) {
-			printf("File exists skipping unzipping and setting game.tmp_path: %s\n", tmppath);
-			strcpy((char*)game.tmp_path, tmppath);
-			skipzip = 1;
-			// Update the game name to the extracted file name instead of the zip name
-			if (CFG_getUseExtractedFileName())
-				strcpy((char*)game.alt_name, strrchr(game.tmp_path, '/') + 1);
-		} else {
-			printf("File exists but is empty or inaccessible, will re-extract: %s\n", tmppath);
-		}
-		free(tmppath);
-	} else {
-		printf("File does not exist in %s\n", tmpfldr);
-	}
 
 	// if we have an archive
 	const char* archive_ext = NULL;
@@ -49,7 +27,7 @@ void Game_open(char* path) {
 	else if (suffixMatch(".7z", game.path))
 		archive_ext = "7z";
 
-	if (archive_ext && !skipzip) {
+	if (archive_ext) {
 		int supports_archive = 0;
 		int i = 0;
 		char* ext;
@@ -67,8 +45,30 @@ void Game_open(char* path) {
 
 		// if the core doesn't support this archive type natively
 		if (!supports_archive) {
-			// extract the rom inside game.path into /tmp/nextarch, setting game.tmp_path
-			int extracted = !strcmp("zip", archive_ext) ? extract_zip(extensions) : extract_7z(extensions);
+			// extract the rom inside game.path into this archive's own folder
+			// in /tmp/nextarch, setting game.tmp_path; the files are kept there
+			// so a relaunch skips the unpacking
+			char core_dirname[MAX_PATH];
+			char tmp_dirname[MAX_PATH];
+			snprintf(core_dirname, sizeof(core_dirname), "/tmp/nextarch/%s", core.tag);
+			mkdir("/tmp/nextarch", 0777);
+			mkdir(core_dirname, 0777);
+			if (ArchiveCache_dir(tmp_dirname, sizeof(tmp_dirname), core_dirname, game.path) != 0) {
+				LOG_error("can't stat archive `%s'\n", game.path);
+				return;
+			}
+			mkdir(tmp_dirname, 0777);
+
+			int extracted;
+			if (!strcmp("zip", archive_ext)) {
+				// reuses an already extracted file of the right size
+				extracted = extract_zip(tmp_dirname, extensions);
+			} else if (ArchiveCache_find(tmp_dirname, extensions, game.tmp_path, sizeof(game.tmp_path))) {
+				printf("Reusing extracted rom: %s\n", game.tmp_path);
+				extracted = 1;
+			} else {
+				extracted = extract_7z(tmp_dirname, extensions);
+			}
 			if (!extracted)
 				return;
 			// Update the game name to the extracted file name instead of the archive name
@@ -163,7 +163,7 @@ int Game_changeDisc(char* path) {
 	return 1;
 }
 
-int extract_zip(char** extensions) {
+int extract_zip(const char* tmp_dirname, char** extensions) {
 	// only runs on the main thread at game load; a big buffer keeps the
 	// read/write syscall count sane for multi-MB roms
 	static char buf[65536];
@@ -176,11 +176,6 @@ int extract_zip(char** extensions) {
 		LOG_error("can't open zip archive `%s': %s\n", game.path, zip_error_strerror(&error));
 		return 0;
 	}
-
-	mkdir("/tmp/nextarch", 0777);
-	char tmp_dirname[255];
-	snprintf(tmp_dirname, sizeof(tmp_dirname), "%s/%s", "/tmp/nextarch", core.tag);
-	mkdir(tmp_dirname, 0777);
 
 	int i, len;
 	int fd;
@@ -294,22 +289,17 @@ done:
 	return result;
 }
 
-int extract_7z(char** extensions) {
-	mkdir("/tmp/nextarch", 0777);
-	char tmp_dirname[255];
-	snprintf(tmp_dirname, sizeof(tmp_dirname), "%s/%s", "/tmp/nextarch", core.tag);
-	mkdir(tmp_dirname, 0777);
-
-	// extract into a private staging dir first so this archive's files can be
-	// told apart from previously cached ones in the shared core folder
-	char staging[255];
+int extract_7z(const char* tmp_dirname, char** extensions) {
+	// extract into a private staging dir first, so only the rom itself lands
+	// in the archive's cache folder and only once it is complete
+	char staging[MAX_PATH];
 	snprintf(staging, sizeof(staging), "%s/7zXXXXXX", tmp_dirname);
 	if (!mkdtemp(staging)) {
 		LOG_error("mkdtemp failed: %s\n", strerror(errno));
 		return 0;
 	}
 
-	char out_arg[300];
+	char out_arg[MAX_PATH + 3];
 	snprintf(out_arg, sizeof(out_arg), "-o%s", staging);
 	static char sevenzip_bin[MAX_PATH];
 	snprintf(sevenzip_bin, sizeof(sevenzip_bin), "%s/7zzs.aarch64", SHARED_BIN_PATH);
