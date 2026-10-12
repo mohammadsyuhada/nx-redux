@@ -18,6 +18,7 @@
 // for a crossfade lerped, by UI_blitOpaque; the hint bar is cached whole and the fades use UI_blitFade.
 
 #include "home.h"
+#include "gameswitcher.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -480,6 +481,10 @@ static int wrapLines(TTF_Font* f, const char* text, int max_w, int max_lines, ch
 // Data
 
 bool Home_active(void) {
+	// the Game Switcher's List is drawn as a game list (gamelist.c), over Home or not: Home stays as it was meanwhile
+	// (was_active kept, so coming back to it is not a new show)
+	if (GameSwitcher_isList())
+		return false;
 	bool active = stack && stack->count == 1 && MenuTabs_current() == MENU_TAB_HOME;
 	// gamelist.c asks every frame (input and render), so this sees every show; main thread only
 	if (active && !was_active) {

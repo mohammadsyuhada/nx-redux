@@ -285,6 +285,7 @@ int main(int argc, char* argv[]) {
 		unsigned long now = SDL_GetTicks();
 
 		PAD_poll();
+		GameSwitcher_setShown(currentScreen == SCREEN_GAMESWITCHER); // its input reads its layout (List or not)
 
 		if (PAD_anyPressed())
 			last_active_input = SDL_GetTicks();
@@ -428,11 +429,17 @@ int main(int argc, char* argv[]) {
 			}
 		}
 
+		// The screen drawn: the Game Switcher's List (Layouts > Game Switcher layout: List) is a game list's List
+		// (gamelist.c draws it, GameSwitcher_listDir), so it renders as SCREEN_GAMELIST; its input stays the switcher's.
+		GameSwitcher_setShown(currentScreen == SCREEN_GAMESWITCHER);
+		bool sw_list = currentScreen == SCREEN_GAMESWITCHER && GameSwitcher_isList();
+		int drawScreen = sw_list ? SCREEN_GAMELIST : currentScreen;
+
 		// Keep redrawing while the selection pill glides to its new row, the
 		// tab underline to its new tab, a Grid slides or crossfades its lit tile,
 		// a Carousel/Backdrop row slides or crossfades its picture, or the content
 		// dims for (or lights up from) tab-row focus. Settled, nothing redraws.
-		if (currentScreen == SCREEN_GAMELIST && !ContextMenu_isOpen() &&
+		if (drawScreen == SCREEN_GAMELIST && !ContextMenu_isOpen() &&
 			(GameList_pillAnimating() || GameList_artWaiting() || MenuTabs_animating() || Home_animating() || GridView_animating() ||
 			 RowView_animating() || MenuTabs_dimAnimating()))
 			dirty = true;
@@ -469,7 +476,7 @@ int main(int argc, char* argv[]) {
 				GFX_clearLayers(LAYER_SCROLLTEXT);
 				// a List frame keeps its info band on the overlay layer while it is unchanged (it clears and redraws
 				// it itself on a change): only a page change, a transition or another view starts it over
-				if (!(currentScreen == SCREEN_GAMELIST && lastScreen == SCREEN_GAMELIST && !startgame &&
+				if (!(drawScreen == SCREEN_GAMELIST && lastScreen == SCREEN_GAMELIST && !startgame &&
 					  animationdirection == ANIM_NONE && GameList_keepsOverlay()))
 					GFX_clearLayers(LAYER_OVERLAY);
 			}
@@ -480,14 +487,14 @@ int main(int argc, char* argv[]) {
 			// (they fill their body themselves): any other (a List, Home's, Search) is drawn over a clear body, or the
 			// sprite frame's black stays in it, over the art under the screen (Home's List back from Consoles).
 			bool screen_clear = false; // the whole screen is clear (0,0,0,0) here: the top fade can be written, not blended
-			if (!(currentScreen == SCREEN_GAMELIST && !startgame && RowView_paintsScreen())) {
-				bool body_kept = sprites_last && GFX_flipCount() == last_frame_flip && currentScreen == SCREEN_GAMELIST &&
+			if (!(drawScreen == SCREEN_GAMELIST && !startgame && RowView_paintsScreen())) {
+				bool body_kept = sprites_last && GFX_flipCount() == last_frame_flip && drawScreen == SCREEN_GAMELIST &&
 								 !startgame &&
 								 (GridView_active() || RowView_active());
 				if (body_kept && screen->h > 2 * BAR_HEIGHT) {
 					SDL_FillRect(screen, &(SDL_Rect){0, 0, screen->w, BAR_HEIGHT}, 0);
 					SDL_FillRect(screen, &(SDL_Rect){0, screen->h - BAR_HEIGHT, screen->w, BAR_HEIGHT}, 0);
-				} else if (list_clear_last && GFX_flipCount() == last_frame_flip && currentScreen == SCREEN_GAMELIST &&
+				} else if (list_clear_last && GFX_flipCount() == last_frame_flip && drawScreen == SCREEN_GAMELIST &&
 						   lastScreen == SCREEN_GAMELIST &&
 						   animationdirection == ANIM_NONE && !startgame) {
 					// the last frame was a List that left its body clear: only the header with its fade and the hint
@@ -507,13 +514,13 @@ int main(int argc, char* argv[]) {
 			// A Backdrop game list's picture: the bottom-most layer, under the band and the bar. With it on screen
 			// the eased top band is skipped and the bar's text gets the dark "over art" shadows. (Never at the root:
 			// a main-menu tab has no picture.)
-			bool over_art = currentScreen == SCREEN_GAMELIST && !startgame && RowView_renderPicture(screen);
+			bool over_art = drawScreen == SCREEN_GAMELIST && !startgame && RowView_renderPicture(screen);
 
 			// render top menu bar
 			char list_title[MAX_PATH * 2];
 			const char* menu_title;
 			if (currentScreen == SCREEN_GAMESWITCHER)
-				menu_title = GameSwitcher_getSelectedName();
+				menu_title = sw_list ? "Recent" : NULL; // Full screen draws the game's name itself, larger
 			else if (currentScreen == SCREEN_SEARCH)
 				menu_title = "Search";
 			else if (!CFG_getPageTitle())
@@ -528,11 +535,11 @@ int main(int argc, char* argv[]) {
 			if (currentScreen == SCREEN_GAMELIST || currentScreen == SCREEN_GAMESWITCHER) {
 				// an eased fade from the top edge replaces the bar's flat scrim: over the art, under the text
 				int bar_h = BAR_HEIGHT;
-				int fade_h = currentScreen == SCREEN_GAMESWITCHER
-								 ? bar_h + (font.tiny ? TTF_FontHeight(font.tiny) : 0) + NX_DP(64) // 64 dp below the subtitle
+				int fade_h = drawScreen == SCREEN_GAMESWITCHER
+								 ? GameSwitcher_headerBottom() + NX_DP(64) // 64 dp below the subtitle
 								 : bar_h + NX_DP(48);
 				// Home shows it only while its page is scrolled (its List: always, as every List)
-				bool home = currentScreen == SCREEN_GAMELIST && Home_active() && !Home_isList();
+				bool home = drawScreen == SCREEN_GAMELIST && Home_active() && !Home_isList();
 				SDL_Surface* fade = !over_art && (!home || Home_scrolled())
 										? UI_easedFadeSurface(screen->w, fade_h, 0.9f, 3.5f, true)
 										: NULL;
@@ -541,7 +548,7 @@ int main(int argc, char* argv[]) {
 				// Carousel and Backdrop: their body is plain black, or the picture with no fade (over_art), or a sprite
 				// frame's body that must hold nothing but what the row left there.
 				bool strip_only =
-					home || (currentScreen == SCREEN_GAMELIST && (GridView_active() || RowView_active()));
+					home || (drawScreen == SCREEN_GAMELIST && (GridView_active() || RowView_active()));
 				if (fade && screen_clear && !over_art) // nothing drawn under it yet: the fade's own pixels
 					UI_fillFade(fade, strip_only ? &(SDL_Rect){0, 0, screen->w, bar_h} : NULL, screen, 0, 0);
 				else if (fade)
@@ -571,10 +578,11 @@ int main(int argc, char* argv[]) {
 				GFX_clearLayers(LAYER_ALL);
 				GFX_clear(screen);
 				GFX_flipHidden();
-			} else if (currentScreen == SCREEN_GAMESWITCHER) {
-				GameSwitcher_render(lastScreen, blackBG, gsanimdir);
+			} else if (drawScreen == SCREEN_GAMESWITCHER) {
+				GameSwitcher_render(lastScreen, blackBG, gsanimdir, ow);
 				lastScreen = SCREEN_GAMESWITCHER;
 			} else {
+				GameSwitcher_readyList(); // the switcher's List: its selection's resume state (a no-op otherwise)
 				GameList_render(screen, lastScreen, show_setting, blackBG);
 				RowView_renderExit(screen); // B's fade out of a Backdrop game list: the whole frame toward black
 				lastScreen = SCREEN_GAMELIST;
@@ -693,7 +701,7 @@ int main(int argc, char* argv[]) {
 				// nothing into the screen's body: only the bars' rows need uploading. Not on the first such frame (the
 				// texture's body may hold the last screen), nor one whose row filled the body anew (another kind of
 				// sprite frame left it otherwise), nor under a context menu or a transition (both draw over the body).
-				bool sprites_now = RowView_takeSpritesUsed() && currentScreen == SCREEN_GAMELIST;
+				bool sprites_now = RowView_takeSpritesUsed() && drawScreen == SCREEN_GAMELIST;
 				bool body_changed = RowView_takeBodyChanged();
 				int bar_ys[2] = {0, screen->h - BAR_HEIGHT}, bar_hs[2] = {BAR_HEIGHT, BAR_HEIGHT};
 				if (sprites_now && sprites_last && GFX_flipCount() == last_frame_flip && !body_changed && !frame_animated &&
@@ -704,7 +712,7 @@ int main(int argc, char* argv[]) {
 				// fade and the hint bar's rows go up, not a hash of the whole screen.
 				SDL_Rect list_row = {0, 0, 0, 0};
 				bool list_clear_now =
-					currentScreen == SCREEN_GAMELIST && !sprites_now && GameList_listBodyClear(&list_row);
+					drawScreen == SCREEN_GAMELIST && !sprites_now && GameList_listBodyClear(&list_row);
 				if (list_clear_now && list_clear_last && GFX_flipCount() == last_frame_flip && !frame_animated &&
 					!ContextMenu_isOpen()) {
 					// the header with its fade, the hint bar, and the marquee row where it was and where it is
@@ -758,7 +766,7 @@ int main(int argc, char* argv[]) {
 			// scrollBusy *term* too, not just the tick: needs_scroll stays
 			// latched while the menu is open, so an otherwise-idle loop must
 			// fall through to the sleeping path below instead of spinning here.
-			if (currentScreen != SCREEN_GAMESWITCHER &&
+			if (drawScreen != SCREEN_GAMESWITCHER &&
 				currentScreen != SCREEN_SEARCH && !ContextMenu_isOpen()) {
 				GameList_scrollTickIdle();
 			} else if (currentScreen == SCREEN_SEARCH &&

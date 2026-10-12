@@ -74,6 +74,7 @@ void CFG_defaults(NextUISettings* cfg) {
 		.backdropArt = CFG_DEFAULT_BACKDROPART,
 		.buttonHints = CFG_DEFAULT_BUTTONHINTS,
 		.extraInfo = CFG_DEFAULT_EXTRAINFO,
+		.switcherLayout = CFG_DEFAULT_SWITCHERLAYOUT,
 		.pageTitle = CFG_DEFAULT_PAGETITLE,
 		.showCollections = CFG_DEFAULT_SHOWCOLLECTIONS,
 		.showEmulators = CFG_DEFAULT_SHOWEMULATORS,
@@ -331,6 +332,10 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 			}
 			if (sscanf(line, "extraInfo=%i", &temp_value) == 1) {
 				CFG_setExtraInfo((bool)temp_value);
+				continue;
+			}
+			if (sscanf(line, "switcherLayout=%i", &temp_value) == 1) {
+				CFG_setSwitcherLayout(temp_value);
 				continue;
 			}
 			if (sscanf(line, "wifi=%i", &temp_value) == 1) {
@@ -746,6 +751,15 @@ bool CFG_getExtraInfo(void) {
 
 void CFG_setExtraInfo(bool show) {
 	settings.extraInfo = show;
+	CFG_sync();
+}
+
+int CFG_getSwitcherLayout(void) {
+	return settings.switcherLayout == SWITCHER_LAYOUT_LIST ? SWITCHER_LAYOUT_LIST : SWITCHER_LAYOUT_FULL;
+}
+
+void CFG_setSwitcherLayout(int layout) {
+	settings.switcherLayout = layout == SWITCHER_LAYOUT_LIST ? SWITCHER_LAYOUT_LIST : SWITCHER_LAYOUT_FULL;
 	CFG_sync();
 }
 
@@ -1330,6 +1344,8 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", CFG_getHomeStyle());
 	} else if (strcmp(key, "extraInfo") == 0) {
 		sprintf(value, "%i", CFG_getExtraInfo());
+	} else if (strcmp(key, "switcherLayout") == 0) {
+		sprintf(value, "%i", CFG_getSwitcherLayout());
 	} else if (strcmp(key, "wifi") == 0) {
 		sprintf(value, "%i", (int)(CFG_getWifi()));
 	} else if (strcmp(key, "defaultView") == 0) {
@@ -1431,6 +1447,7 @@ static int CFG_serialize(char* buf, size_t cap) {
 	EMIT("gameListVerticalAlign=%i\n", settings.gameListVAlign);
 	EMIT("homeStyle=%i\n", settings.homeStyle);
 	EMIT("extraInfo=%i\n", settings.extraInfo);
+	EMIT("switcherLayout=%i\n", settings.switcherLayout);
 	EMIT("wifi=%i\n", settings.wifi);
 	EMIT("defaultView=%i\n", settings.defaultView);
 	EMIT("wifiDiagnostics=%i\n", settings.wifiDiagnostics);
@@ -1677,6 +1694,7 @@ void CFG_print(void) {
 	printf("\t\"gameListVerticalAlign\": %i,\n", settings.gameListVAlign);
 	printf("\t\"homeStyle\": %i,\n", settings.homeStyle);
 	printf("\t\"extraInfo\": %i,\n", settings.extraInfo);
+	printf("\t\"switcherLayout\": %i,\n", settings.switcherLayout);
 	printf("\t\"wifi\": %i,\n", settings.wifi);
 	printf("\t\"defaultView\": %i,\n", settings.defaultView);
 	printf("\t\"wifiDiagnostics\": %i,\n", settings.wifiDiagnostics);

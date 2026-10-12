@@ -65,6 +65,11 @@ enum { GAME_LIST_ART_SCREENSHOT = 0,
 	   GAME_LIST_ART_BOXART3D = 4,
 	   GAME_LIST_ART_NONE = 5,
 	   GAME_LIST_ART_COUNT };
+// The Game Switcher's layout (Layouts > Game Switcher layout): one resume frame at a time, or a game list's List of
+// the recent games with the selected one's resume frame behind the rows
+enum { SWITCHER_LAYOUT_FULL = 0,
+	   SWITCHER_LAYOUT_LIST = 1,
+	   SWITCHER_LAYOUT_COUNT };
 
 // What the List draws behind the Consoles tab (Layouts > Controller): Background = no controller, the user's own
 // .media/bg.png or the global bg.png; Controller = each console's controller (or logo); None = nothing, plain
@@ -158,13 +163,14 @@ typedef struct
 	bool showMenuTransitions;
 	bool showRecents;
 	bool showTools;
-	bool showHome;	  // the Home tab (Layouts > Home tab)
-	int consoleArt;	  // CONSOLE_ART_*: what the List draws behind the Consoles tab (Layouts > Controller)
-	int gameListArt;  // GAME_LIST_ART_*: the List game list's picture (Layouts > List art)
-	int backdropArt;  // BACKDROP_ART_*: the Backdrop game list's item pictures (Layouts > Backdrop art)
-	bool buttonHints; // the launcher lists' bottom button hint bar (Layouts > Button hints)
-	bool pageTitle;	  // the main menu's tab row and a game list's title (Layouts > Page title)
-	bool extraInfo;	  // play time, achievements and Home's monthly stats in the menus (Layouts > Extra info)
+	bool showHome;		// the Home tab (Layouts > Home tab)
+	int consoleArt;		// CONSOLE_ART_*: what the List draws behind the Consoles tab (Layouts > Controller)
+	int gameListArt;	// GAME_LIST_ART_*: the List game list's picture (Layouts > List art)
+	int backdropArt;	// BACKDROP_ART_*: the Backdrop game list's item pictures (Layouts > Backdrop art)
+	bool buttonHints;	// the launcher lists' bottom button hint bar (Layouts > Button hints)
+	bool pageTitle;		// the main menu's tab row and a game list's title (Layouts > Page title)
+	bool extraInfo;		// play time, achievements and Home's monthly stats in the menus (Layouts > Extra info)
+	int switcherLayout; // SWITCHER_LAYOUT_*: how the Game Switcher draws (Layouts > Game Switcher layout)
 	bool showCollections;
 	bool showEmulators;
 	bool showFolderNamesAtRoot;
@@ -285,6 +291,7 @@ typedef struct
 #define CFG_DEFAULT_BUTTONHINTS true
 #define CFG_DEFAULT_PAGETITLE true
 #define CFG_DEFAULT_EXTRAINFO true
+#define CFG_DEFAULT_SWITCHERLAYOUT SWITCHER_LAYOUT_FULL
 #define CFG_DEFAULT_FN1_TOOL ""
 #define CFG_DEFAULT_FN2_TOOL ""
 #define CFG_DEFAULT_BLUETOOTH false
@@ -402,9 +409,12 @@ void CFG_setBackdropArt(int art);
 bool CFG_getButtonHints(void);
 void CFG_setButtonHints(bool show);
 // Show/hide the games' extra info in the launcher's menus (Layouts > Extra info): play time, achievements and Next on
-// Home and in the game lists, and Home's monthly stats strip. The Game Switcher keeps its own.
+// Home, in the game lists and in the Game Switcher, and Home's monthly stats strip.
 bool CFG_getExtraInfo(void);
 void CFG_setExtraInfo(bool show);
+// The Game Switcher's layout (SWITCHER_LAYOUT_*). An out-of-range value reads as Full screen.
+int CFG_getSwitcherLayout(void);
+void CFG_setSwitcherLayout(int layout);
 // Show/hide the page title: the main menu's tab row (or a lone tab's "NX Redux") and a game list's title (Layouts >
 // Page title). Hidden, the bar keeps its room and the status icons; L1/R1 still switch tabs.
 bool CFG_getPageTitle(void);

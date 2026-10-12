@@ -844,6 +844,19 @@ static void reset_extra_info(void) {
 	CFG_setExtraInfo(CFG_DEFAULT_EXTRAINFO);
 }
 
+/* Game Switcher layout */
+static const char* switcher_layout_labels[] = {"Full screen", "List"};
+static int switcher_layout_values[] = {SWITCHER_LAYOUT_FULL, SWITCHER_LAYOUT_LIST};
+static int get_switcher_layout(void) {
+	return CFG_getSwitcherLayout();
+}
+static void set_switcher_layout(int v) {
+	CFG_setSwitcherLayout(v);
+}
+static void reset_switcher_layout(void) {
+	CFG_setSwitcherLayout(CFG_DEFAULT_SWITCHERLAYOUT);
+}
+
 /* Page title */
 static int get_page_title(void) {
 	return CFG_getPageTitle() ? 1 : 0;
@@ -1924,18 +1937,24 @@ static void build_menu_tree(const DeviceInfo* dev) {
 #undef LAYOUTS_ORIENT_ROW
 
 	LAYOUTS_CYCLE_ROW(
-		"Extra info", "Play time, achievements and Home's monthly stats.",
+		"Extra info", "Play time, achievements and Home's monthly stats, in the menus and the Game Switcher.",
 		hide_show_labels, 2, on_off_values, get_extra_info, set_extra_info, reset_extra_info);
 	LAYOUTS_CYCLE_ROW(
 		"Page title", "The tabs and a game list's title. Hidden, L1/R1 still switch tabs.",
 		hide_show_labels, 2, on_off_values, get_page_title, set_page_title, reset_page_title);
 	LAYOUTS_CYCLE_ROW(
-		"Button hints", "Hidden, List game lists show play time and achievements.",
+		"Button hints", "Hidden, List game lists and the Game Switcher show play time and achievements.",
 		hide_show_labels, 2, on_off_values, get_button_hints, set_button_hints, reset_button_hints);
 	LAYOUTS_CYCLE_ROW(
 		"Default view", "The initial view to show on boot",
 		default_view_labels, DEFAULT_VIEW_COUNT, default_view_values, get_default_view, set_default_view,
 		reset_default_view);
+	LAYOUTS_CYCLE_ROW(
+		"Game Switcher layout",
+		"Full screen: one game's resume frame at a time. List: the recent games as a list, the selected one's resume "
+		"frame behind it.",
+		switcher_layout_labels, SWITCHER_LAYOUT_COUNT, switcher_layout_values, get_switcher_layout,
+		set_switcher_layout, reset_switcher_layout);
 	LAYOUTS_CYCLE_ROW(
 		"Game Switcher games", "Which recently played games appear in the Game Switcher.",
 		switcher_games_labels, SWITCHER_GAMES_COUNT, switcher_games_values, get_switcher_resumable_only,

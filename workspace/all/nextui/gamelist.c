@@ -2320,17 +2320,25 @@ static InfoBandLayout listLayoutAt(bool root) {
 	return listLayoutFrom(listTopAt(root), root);
 }
 
-// The List shown: Home's (Layouts > Home layout: List; its rows under the stats strip) or the top Directory's.
+// The List shown: the Game Switcher's (Layouts > Game Switcher layout: List, as a game list's), Home's (Layouts > Home
+// layout: List; its rows under the stats strip) or the top Directory's.
 static Directory* shownList(void) {
+	Directory* sw = GameSwitcher_listDir();
+	if (sw)
+		return sw;
 	Directory* home = Home_listDir();
 	return home ? home : top;
 }
 
 static int shownListTop(void) {
+	if (GameSwitcher_isList())
+		return listTopAt(false);
 	return Home_isList() ? Home_listTop() : listTop();
 }
 
 static InfoBandLayout listLayout(void) {
+	if (GameSwitcher_isList())
+		return listLayoutAt(false);
 	return Home_isList() ? listLayoutFrom(Home_listTop(), true) : listLayoutAt(atRoot());
 }
 
@@ -2339,7 +2347,7 @@ int GameList_rowCountFrom(int list_top) {
 }
 
 int GameList_textX(void) {
-	return stack && stack->count == 1 ? NX_DP(NX_MENU_GUTTER_DP) : UI_listTextX();
+	return stack && stack->count == 1 && !GameSwitcher_isList() ? NX_DP(NX_MENU_GUTTER_DP) : UI_listTextX();
 }
 
 int GameList_rowCount(void) {
@@ -2374,6 +2382,8 @@ int GameList_currentOrientation(void) {
 }
 
 int GameList_currentStyle(void) {
+	if (GameSwitcher_isList())
+		return MENU_STYLE_LIST; // the Game Switcher's List over whatever the tab or game list draws
 	int style;
 	int tab = GameList_lookTab();
 	if (tab >= 0) {
@@ -2441,7 +2451,7 @@ static void renderInfoBand(void) {
 	// The band is always there (fade + arrows), with or without text, so rows never move.
 	Entry* entry = total > 0 ? list->entries->items[list->selected] : NULL;
 	MenuTabId tab = MenuTabs_current();
-	bool at_root = stack->count == 1;
+	bool at_root = stack->count == 1 && !GameSwitcher_isList(); // the Game Switcher's List reads as a game list
 	unsigned gen;
 	// game rows: game lists and the Home tab (same rule as GameList_render's game_art). Their play time and
 	// achievements show only while the button hints are hidden (Layouts > Button hints) and the extra info is shown
@@ -2726,8 +2736,10 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 	// at root" = Off behind a global bg.png) would blank the whole main menu.
 	bool list_show_entry_names = true;
 
-	// the root tab, or a hidden tab's list pushed over it (its own tab's backgrounds and art)
-	int look = GameList_lookTab();
+	// the root tab, or a hidden tab's list pushed over it (its own tab's backgrounds and art); the Game Switcher's List
+	// is a game list's
+	bool sw_list = GameSwitcher_isList();
+	int look = sw_list ? -1 : GameList_lookTab();
 	bool at_root = look >= 0;
 	MenuTabId tab = at_root ? (MenuTabId)look : MenuTabs_current();
 	// None (a game list's Layouts > List art, or the Consoles tab's Layouts > Controller): a plain list on black, no
@@ -2775,7 +2787,9 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		bool fit = false;
 		if (home_list)
 			Home_listArtPath(thumbpath, MAX_PATH); // a key too long for the loader's MAX_PATH falls back
-		else									   // else the screenshot: scraped, else the root .media picture
+		else if (sw_list)
+			GameSwitcher_listArtPath(thumbpath, MAX_PATH); // the resume frame, as Home's List's Continue
+		else											   // else the screenshot: scraped, else the root .media picture
 			fit = listArtFor(list, entry, thumbpath, sizeof(thumbpath));
 		had_thumb = startLoadThumb(thumbpath, fit ? THUMB_COMPOSE_FIT : THUMB_COMPOSE_BG);
 		// The consumers add SCALE1(BUTTON_MARGIN) back to ox, so this yields the art-less full-width row's available
@@ -2827,7 +2841,11 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 
 	// after the controller art: its bottom reaches into the hint bar, and blitted over the bar's 80% scrim it showed
 	// undimmed there, a hard edge under the band's fade (which ends at the bar's 80%)
-	if (CFG_getButtonHints() && home_list)
+	if (sw_list && CFG_getButtonHints())
+		GameSwitcher_renderListHints(screen); // the switcher's own (B BACK, Y REMOVE, A RESUME), as on Full screen
+	else if (sw_list)
+		renderHintScrim(screen); // a game's info line sits in the bar's row, as a game list's
+	else if (CFG_getButtonHints() && home_list)
 		Home_renderListHints(screen); // Home's own (A RESUME / PLAY / the tool's name), as its Grid's and Carousel's
 	else if (CFG_getButtonHints())
 		renderHints(screen, show_setting);
