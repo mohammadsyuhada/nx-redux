@@ -576,6 +576,38 @@ static void test_id3_text(void) {
 	CHECK(out[0] == '\0');
 }
 
+static void test_id3_picture(void) {
+	const uint8_t* image;
+	size_t image_size;
+	uint32_t type;
+	// UTF-16 description ending in an ASCII char ("YA.jpg"): its terminator
+	// starts on an even offset, after the 0x00 high byte of 'g' (issue #213)
+	const uint8_t u16[] = {1, 'i', 'm', 'a', 'g', 'e', '/', 'j', 'p', 'e', 'g', 0, 3,
+						   0xFF, 0xFE, 'Y', 0, 'A', 0, '.', 0, 'j', 0, 'p', 0, 'g',
+						   0, 0, 0, 0x89, 'P', 'N', 'G'};
+	CHECK(TagMeta_id3Picture(u16, sizeof(u16), &image, &image_size, &type));
+	CHECK(type == TAG_PICTURE_FRONT_COVER);
+	CHECK(image_size == 4 && memcmp(image, "\x89PNG", 4) == 0);
+	// UTF-16BE description
+	const uint8_t be[] = {2, 'i', 0, 4, 0, 'A', 0, 'B', 0, 0, 0xFF, 0xD8};
+	CHECK(TagMeta_id3Picture(be, sizeof(be), &image, &image_size, &type));
+	CHECK(type == 4 && image_size == 2 && image[0] == 0xFF && image[1] == 0xD8);
+	// Empty UTF-16 description
+	const uint8_t empty16[] = {1, 0, 3, 0, 0, 0xFF, 0xD8};
+	CHECK(TagMeta_id3Picture(empty16, sizeof(empty16), &image, &image_size, &type));
+	CHECK(image_size == 2 && image[0] == 0xFF);
+	// Latin-1 description
+	const uint8_t l1[] = {0, 'i', 0, 3, 'c', 'o', 'v', 0, 0xFF, 0xD8, 0xFF};
+	CHECK(TagMeta_id3Picture(l1, sizeof(l1), &image, &image_size, &type));
+	CHECK(image_size == 3 && image[0] == 0xFF);
+	// Truncated frames: no terminator, or nothing after it
+	const uint8_t cut[] = {1, 'i', 0, 3, 0xFF, 0xFE, 'A', 0};
+	CHECK(!TagMeta_id3Picture(cut, sizeof(cut), &image, &image_size, &type));
+	const uint8_t bare[] = {0, 'i', 0, 3, 0};
+	CHECK(!TagMeta_id3Picture(bare, sizeof(bare), &image, &image_size, &type));
+	CHECK(!TagMeta_id3Picture(u16, 1, &image, &image_size, &type));
+}
+
 static void test_stream_text(void) {
 	char out[64];
 	// Valid UTF-8 is kept
@@ -614,6 +646,7 @@ int main(void) {
 	test_block_picture();
 	test_id3_text();
 	test_stream_text();
+	test_id3_picture();
 	remove(TMP_PATH);
 	if (failures) {
 		fprintf(stderr, "test_embedded_lyrics: %d failure(s)\n", failures);

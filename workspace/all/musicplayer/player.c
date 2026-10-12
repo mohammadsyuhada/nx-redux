@@ -2031,6 +2031,29 @@ static void parse_id3v1(const char* filepath) {
 		id3v1_field(player.track_info.album, sizeof(player.track_info.album), &tag[63]);
 }
 
+// Whether player.album_art is a front cover (ID3/FLAC picture type 3)
+static bool album_art_is_front = false;
+
+// Adopt an embedded picture as the album art. The first picture is kept until
+// a front cover turns up, which then wins over any other picture type.
+static void adopt_embedded_picture(const uint8_t* data, size_t size, uint32_t type) {
+	if (!data || size == 0)
+		return;
+	bool is_front = type == TAG_PICTURE_FRONT_COVER;
+	if (player.album_art && (album_art_is_front || !is_front))
+		return;
+	SDL_RWops* rw = SDL_RWFromConstMem(data, (int)size);
+	if (!rw)
+		return;
+	SDL_Surface* art = IMG_Load_RW(rw, 1); // 1 = auto-close RWops
+	if (!art)
+		return;
+	if (player.album_art)
+		SDL_FreeSurface(player.album_art);
+	player.album_art = art;
+	album_art_is_front = is_front;
+}
+
 // Parse ID3v2 tag (at beginning of file)
 static void parse_id3v2(const char* filepath) {
 	FILE* f = fopen(filepath, "rb");
@@ -2121,59 +2144,13 @@ static void parse_id3v2(const char* filepath) {
 				copy_metadata_string(player.track_info.album, temp, sizeof(player.track_info.album));
 			}
 		}
-		// Process APIC frame (album art) - only if we don't already have art
-		else if (strcmp(frame_id, "APIC") == 0 && frame_size > 10 && player.album_art == NULL) {
-			const uint8_t* frame_data = &tag_data[pos];
-			uint8_t encoding = frame_data[0];
-			size_t offset = 1;
-
-			// Skip MIME type (null-terminated string)
-			while (offset < frame_size && frame_data[offset] != '\0')
-				offset++;
-			offset++; // Skip null terminator
-
-			if (offset < frame_size) {
-				uint8_t pic_type = frame_data[offset];
-				offset++;
-
-				// Skip description (null-terminated, encoding-dependent)
-				if (encoding == 1 || encoding == 2) {
-					// UTF-16: look for double null
-					while (offset + 1 < frame_size) {
-						if (frame_data[offset] == 0 && frame_data[offset + 1] == 0) {
-							offset += 2;
-							break;
-						}
-						offset++;
-					}
-				} else {
-					// ISO-8859-1 or UTF-8: single null
-					while (offset < frame_size && frame_data[offset] != '\0')
-						offset++;
-					offset++;
-				}
-
-				// Now frame_data + offset points to the image data
-				if (offset < frame_size) {
-					size_t image_size = frame_size - offset;
-					const uint8_t* image_data = &frame_data[offset];
-
-					// Prefer front cover (type 3), but accept any if we have none
-					if (pic_type == 3 || player.album_art == NULL) {
-						SDL_RWops* rw = SDL_RWFromConstMem(image_data, image_size);
-						if (rw) {
-							SDL_Surface* art = IMG_Load_RW(rw, 1); // 1 = auto-close RWops
-							if (art) {
-								// Free previous art if we're replacing with front cover
-								if (player.album_art) {
-									SDL_FreeSurface(player.album_art);
-								}
-								player.album_art = art;
-							}
-						}
-					}
-				}
-			}
+		// Process APIC frame (album art)
+		else if (strcmp(frame_id, "APIC") == 0) {
+			const uint8_t* image;
+			size_t image_size;
+			uint32_t pic_type;
+			if (TagMeta_id3Picture(&tag_data[pos], frame_size, &image, &image_size, &pic_type))
+				adopt_embedded_picture(image, image_size, pic_type);
 		}
 
 		pos += frame_size;
@@ -2227,29 +2204,6 @@ static void parse_m4a_metadata(void) {
 			}
 		}
 	}
-}
-
-// Whether player.album_art is a front cover (ID3/FLAC picture type 3)
-static bool album_art_is_front = false;
-
-// Adopt an embedded picture as the album art. The first picture is kept until
-// a front cover turns up, which then wins over any other picture type.
-static void adopt_embedded_picture(const uint8_t* data, size_t size, uint32_t type) {
-	if (!data || size == 0)
-		return;
-	bool is_front = type == TAG_PICTURE_FRONT_COVER;
-	if (player.album_art && (album_art_is_front || !is_front))
-		return;
-	SDL_RWops* rw = SDL_RWFromConstMem(data, (int)size);
-	if (!rw)
-		return;
-	SDL_Surface* art = IMG_Load_RW(rw, 1); // 1 = auto-close RWops
-	if (!art)
-		return;
-	if (player.album_art)
-		SDL_FreeSurface(player.album_art);
-	player.album_art = art;
-	album_art_is_front = is_front;
 }
 
 // Apply one "KEY=value" Vorbis comment (FLAC, Ogg Vorbis, Opus). The first

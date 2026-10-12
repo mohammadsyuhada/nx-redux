@@ -269,3 +269,33 @@ void TagMeta_streamText(const char* src, size_t len, char* out, size_t out_size)
 	const uint8_t* p = (const uint8_t*)src;
 	TagMeta_id3Text(is_utf8(p, len) ? 3 : 0, p, len, out, out_size);
 }
+
+int TagMeta_id3Picture(const uint8_t* frame, size_t size, const uint8_t** image, size_t* image_size,
+					   uint32_t* type) {
+	if (size < 2)
+		return 0;
+	uint8_t encoding = frame[0];
+	size_t pos = 1;
+	// MIME type is always Latin-1
+	while (pos < size && frame[pos])
+		pos++;
+	pos++;
+	if (pos >= size)
+		return 0;
+	uint8_t pic_type = frame[pos++];
+	if (encoding == 1 || encoding == 2) {
+		while (pos + 1 < size && (frame[pos] || frame[pos + 1]))
+			pos += 2;
+		pos += 2;
+	} else {
+		while (pos < size && frame[pos])
+			pos++;
+		pos++;
+	}
+	if (pos >= size)
+		return 0;
+	*image = frame + pos;
+	*image_size = size - pos;
+	*type = pic_type;
+	return 1;
+}
