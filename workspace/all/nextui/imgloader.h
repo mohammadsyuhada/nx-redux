@@ -45,6 +45,11 @@ void onBackgroundLoaded(SDL_Surface* surface);
 enum { THUMB_COMPOSE_BG = 0,
 	   THUMB_COMPOSE_FIT = 1 };
 bool startLoadThumb(const char* thumbpath, int compose);
+// Decode `thumbpath` into the thumbnail cache ahead of need (the List's neighbours, in idle time), without showing it:
+// only while the loader is idle, so it never displaces or delays the selection's own picture. A step onto it then
+// swaps the decoded picture in, with no decode running under the pill's glide. True while there is still something
+// to wait for (queued now, or the loader busy); false once it is cached (or can't be).
+bool thumbPrefetch(const char* thumbpath, int compose);
 // Drop any cached thumbnail (or cached miss) for `path`, in both compose modes, so the next
 // startLoadThumb reads it fresh from disk. Safe if not present.
 void thumbCacheInvalidate(const char* path);

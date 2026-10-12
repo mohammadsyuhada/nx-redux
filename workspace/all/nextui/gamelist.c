@@ -97,6 +97,8 @@ static SDL_Rect list_body_row;
 static SDL_Texture* list_hold_tex = NULL;
 #define LIST_ART_AHEAD 2	 // neighbours each way whose controller art is decoded ahead
 #define LIST_ART_UPLOAD_MS 6 // the slot a pad's texture upload needs, at least
+#define LIST_INFO_AHEAD 2	 // neighbours each way whose play time and achievements are looked up ahead
+#define LIST_PIC_AHEAD 1	 // neighbours each way whose List picture is decoded ahead (the thumbnail cache keeps 8)
 static char folderBgPath[1024] = {0};
 // last background type loaded; file-scope so it can be reset alongside
 // folderBgPath when another screen clears the shared background surface
@@ -153,7 +155,8 @@ bool GameList_scrollIsScrolling(void) {
 // the frame has room, so a held D-pad lands on art that is ready. True while some is still decoding.
 static bool prefetchListArt(Uint32 deadline) {
 	int look = GameList_lookTab();
-	if (look != MENU_TAB_CONSOLES || !CFG_getMenuControllerArt() || !top || top->entries->count == 0)
+	if (look != MENU_TAB_CONSOLES || !CFG_getMenuControllerArt() || !top || top->entries->count == 0 ||
+		GameSwitcher_isList()) // the Game Switcher's List over the tab: not the tab's art
 		return false;
 	int n = top->entries->count, sel = top->selected;
 	bool busy = false;
@@ -176,16 +179,90 @@ static bool prefetchListArt(Uint32 deadline) {
 	return busy;
 }
 
+static Directory* shownList(void);
+static bool atRoot(void);
+
+// A List that shows a game's info line (Layouts > Button hints: Hide, with Extra info shown): its neighbours' play time
+// and achievements looked up ahead, nearest first, one at a time (GameInfo keeps one prefetch slot). Without it a step
+// onto a game seen for the first time drew the band without the line, and the line's arrival rebuilt the band mid-glide:
+// a frame over its vsync. True while one is still on its way.
+static bool prefetchListInfo(void) {
+	if (CFG_getButtonHints() || !CFG_getExtraInfo() || GameList_pillAnimating()) // not under a glide, as the pictures'
+		return false;
+	Directory* list = shownList();
+	if (!list || list->entries->count < 2)
+		return false;
+	int n = list->entries->count, sel = list->selected;
+	GameInfo info;
+	for (int d = 1; d <= LIST_INFO_AHEAD; d++) {
+		for (int sign = 1; sign >= -1; sign -= 2) {
+			Entry* e = list->entries->items[((sel + sign * d) % n + n) % n]; // the List wraps
+			if (e->type == ENTRY_ROM && !GameInfo_prefetch(e->path, &info))
+				return true; // asked (or on its way): the next idle slot asks for the one after
+		}
+	}
+	return false;
+}
+
+// A game list's List with game art, or the Game Switcher's List: the neighbours' pictures decoded into the thumbnail
+// cache ahead (thumbPrefetch), nearest first, one at a time, so a step lands on a decoded picture. A decode on the
+// loader's thread while the pill glides slowed the glide's GPU flips (a frame over its vsync on most steps onto a new
+// game, Brick Pro): this runs only while nothing glides, and gives way to the selection's own picture. Once a
+// selection's neighbours are in, it rests until the selection moves (the paths cost file checks).
+static bool prefetchListPictures(void) {
+	static unsigned done_serial, done_gen;
+	static int done_sel = -1, done_art = -1;
+	if (GameList_pillAnimating())
+		return false;
+	bool sw = GameSwitcher_isList();
+	Directory* list = shownList();
+	if (!list || list->entries->count < 2 || (!sw && (Home_isList() || atRoot() || GameList_currentStyle() != MENU_STYLE_LIST)))
+		return false;
+	int art = CFG_getGameListArt();
+	if (art == GAME_LIST_ART_NONE)
+		return false;
+	if (done_sel == list->selected && done_serial == list->serial && done_art == art &&
+		done_gen == MenuTabs_generation())
+		return false;
+	int n = list->entries->count, sel = list->selected;
+	for (int d = 1; d <= LIST_PIC_AHEAD; d++) {
+		for (int sign = 1; sign >= -1; sign -= 2) {
+			int i = ((sel + sign * d) % n + n) % n; // the List wraps
+			Entry* e = list->entries->items[i];
+			if (e->type != ENTRY_ROM)
+				continue;
+			char path[MAX_PATH];
+			bool fit = false;
+			if (sw) {
+				if (!GameSwitcher_listArtPathAt(i, path, sizeof(path)))
+					continue;
+			} else {
+				fit = ROM_findListArt(e->path, art, path, sizeof(path));
+			}
+			if (path[0] && thumbPrefetch(path, fit ? THUMB_COMPOSE_FIT : THUMB_COMPOSE_BG))
+				return true; // queued, or the loader busy: the next idle slot looks again
+		}
+	}
+	done_sel = sel;
+	done_serial = list->serial;
+	done_art = art;
+	done_gen = MenuTabs_generation();
+	return false;
+}
+
 bool GameList_prefetchIdle(Uint32 deadline) {
 	// Home builds nothing ahead; the Grid, Carousel and Backdrop (either orientation) compose the items their next
-	// move draws first; the List decodes its neighbours' controller art
+	// move draws first; the List looks up its neighbours' info and decodes their pictures (the Consoles tab: their
+	// controller art)
 	if (Home_active())
 		return false;
 	if (GridView_active())
 		return GridView_prefetchStep(deadline);
 	if (RowView_active())
 		return RowView_prefetchStep(deadline);
-	return prefetchListArt(deadline);
+	bool info = prefetchListInfo();
+	bool pics = prefetchListPictures();
+	return prefetchListArt(deadline) || info || pics;
 }
 
 void GameList_scrollTickIdle(void) {

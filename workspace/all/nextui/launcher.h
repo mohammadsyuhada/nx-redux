@@ -47,6 +47,9 @@ void readyResume(Entry* entry);
 // Bumped by every readyResume call, from any screen: a caller that skips a repeat probe for the same entry
 // compares it to tell whether something else (Search, the switcher, Home) overwrote `resume` since.
 unsigned readyResumeCount(void);
+// The state readyResume would give `entry`, into *out, leaving the shared `resume` and its count as they are: for a
+// look ahead (the Game Switcher List's neighbours' resume frames).
+void readyResumeInto(Entry* entry, ResumeState* out);
 int autoResume(void);
 // Launch Options hand-off (PENDING_LAUNCH_PATH, written by a pak's launch_options.sh on Launch): consume the
 // file and launch its ROM as an A press on it would (Recents, gametime, the list position kept for the return),

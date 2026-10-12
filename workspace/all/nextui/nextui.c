@@ -745,7 +745,7 @@ int main(int argc, char* argv[]) {
 				// build ahead in what's left of the frame, assuming the next costs what this one did: a held D-pad
 				// redraws every frame, and this is what lands its steps on cached items. No redraw: the next frame
 				// picks them up.
-				if (currentScreen == SCREEN_GAMELIST && !ContextMenu_isOpen() && work_ms + PREFETCH_MARGIN_MS < 16)
+				if (drawScreen == SCREEN_GAMELIST && !ContextMenu_isOpen() && work_ms + PREFETCH_MARGIN_MS < 16)
 					GameList_prefetchIdle(SDL_GetTicks() + (Uint32)(16 - PREFETCH_MARGIN_MS - work_ms));
 			}
 
@@ -793,7 +793,7 @@ int main(int argc, char* argv[]) {
 				// build ahead what the view's next move draws first, in part of the slot (no redraw: the next real
 				// frame picks it up). Done (or nothing to build), it returns at once; while more remains the 16 ms
 				// cadence holds, and only then does the deep-idle one take over.
-				bool prefetching = currentScreen == SCREEN_GAMELIST && !ContextMenu_isOpen() &&
+				bool prefetching = drawScreen == SCREEN_GAMELIST && !ContextMenu_isOpen() &&
 								   GameList_prefetchIdle((Uint32)now + PREFETCH_IDLE_MS);
 				unsigned long elapsed = SDL_GetTicks() - now;
 				int frame_target =

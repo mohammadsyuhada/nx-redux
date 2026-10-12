@@ -176,6 +176,17 @@ void GameSwitcher_listArtPath(char* out, size_t size) {
 	HomeArt_listPath(entry->path, resume.can_resume && resume.has_preview ? resume.preview_path : NULL, out, size);
 }
 
+bool GameSwitcher_listArtPathAt(int i, char* out, size_t size) {
+	out[0] = '\0';
+	if (!GameSwitcher_isList() || i < 0 || i >= gs_entries->count)
+		return false;
+	Entry* entry = gs_entries->items[i];
+	ResumeState r; // its own probe: the shared `resume` stays the selection's
+	readyResumeInto(entry, &r);
+	HomeArt_listPath(entry->path, r.can_resume && r.has_preview ? r.preview_path : NULL, out, size);
+	return out[0] != '\0';
+}
+
 void GameSwitcher_readyList(void) {
 	if (!GameSwitcher_isList())
 		return;

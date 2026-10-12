@@ -460,6 +460,36 @@ static void dropThumb(void) {
 	setNeedDraw(1);
 }
 
+bool thumbPrefetch(const char* thumbpath, int compose) {
+	if (!thumbpath[0] || strlen(thumbpath) >= MAX_PATH)
+		return false;
+	char key[THUMB_KEY_MAX];
+	thumbKey(thumbpath, compose, key, sizeof(key));
+	SDL_LockMutex(thumbMutex);
+	for (int i = 0; i < THUMB_CACHE_SIZE; i++) {
+		if (thumb_cache[i].occupied && strcmp(thumb_cache[i].path, key) == 0) {
+			SDL_UnlockMutex(thumbMutex);
+			return false; // decoded already (or a remembered miss)
+		}
+	}
+	// the selection's own picture first: nothing queued or decoding (the queue holds one task, so queueing now
+	// would displace or delay it)
+	if (inflightThumbKey[0] || pendingThumbKey[0]) {
+		SDL_UnlockMutex(thumbMutex);
+		return true;
+	}
+	LoadBackgroundTask* task = malloc(sizeof(LoadBackgroundTask));
+	if (task) {
+		snprintf(task->imagePath, sizeof(task->imagePath), "%s", thumbpath);
+		task->callback = NULL;
+		task->compose = compose;
+		if (enqueueTask(&thumbQueue, task)) // on failure it frees the task itself
+			snprintf(pendingThumbKey, sizeof(pendingThumbKey), "%s", key);
+	}
+	SDL_UnlockMutex(thumbMutex);
+	return true;
+}
+
 bool startLoadThumb(const char* thumbpath, int compose) {
 	if (strlen(thumbpath) >= MAX_PATH) {
 		// longer than the task can hold: no art (a truncated path would never match its key, and would be decoded

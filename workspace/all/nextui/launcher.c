@@ -65,11 +65,11 @@ void openArtFetch(const char* rom, const char* out, const char* tag, const char*
 
 ///////////////////////////////////////
 
-static void readyResumePath(char* rom_path, int type) {
+static void readyResumePath(char* rom_path, int type, ResumeState* r) {
 	char* tmp;
-	resume.can_resume = false;
-	resume.has_preview = false;
-	resume.has_boxart = false;
+	r->can_resume = false;
+	r->has_preview = false;
+	r->has_boxart = false;
 	char path[MAX_PATH];
 	strcpy(path, rom_path);
 
@@ -100,27 +100,33 @@ static void readyResumePath(char* rom_path, int type) {
 		return;
 	strcpy(rom_file, tmp + 1);
 
-	snprintf(resume.slot_path, sizeof(resume.slot_path), "%s/.minui/%s/%s.txt", SHARED_USERDATA_PATH, emu_name, rom_file); // /.userdata/.minui/<EMU>/<romname>.ext.txt
-	resume.can_resume = exists(resume.slot_path);
+	snprintf(r->slot_path, sizeof(r->slot_path), "%s/.minui/%s/%s.txt", SHARED_USERDATA_PATH, emu_name, rom_file); // /.userdata/.minui/<EMU>/<romname>.ext.txt
+	r->can_resume = exists(r->slot_path);
 
-	// resume.slot_path contains a single integer representing the last used slot
-	if (resume.can_resume) {
+	// r->slot_path contains a single integer representing the last used slot
+	if (r->can_resume) {
 		char slot[16];
-		getFile(resume.slot_path, slot, 16);
+		getFile(r->slot_path, slot, 16);
 		int s = atoi(slot);
 		if (s < 0 || s > AUTO_RESUME_SLOT)
-			s = 0;																														   // corrupt slot file
-		snprintf(resume.preview_path, sizeof(resume.preview_path), "%s/.minui/%s/%s.%d.bmp", SHARED_USERDATA_PATH, emu_name, rom_file, s); // /.userdata/.minui/<EMU>/<romname>.ext.<n>.bmp
-		resume.has_preview = exists(resume.preview_path);
+			s = 0;																												   // corrupt slot file
+		snprintf(r->preview_path, sizeof(r->preview_path), "%s/.minui/%s/%s.%d.bmp", SHARED_USERDATA_PATH, emu_name, rom_file, s); // /.userdata/.minui/<EMU>/<romname>.ext.<n>.bmp
+		r->has_preview = exists(r->preview_path);
 	}
 
 	// Boxart fallback: if no savestate preview, check for boxart in .media folder
 	// (with ROM_findArt's multi-disc fallback to the parent folder's art)
-	if (!resume.has_preview) {
-		resume.has_boxart = ROM_findArt(rom_path, resume.boxart_path, sizeof(resume.boxart_path));
+	if (!r->has_preview) {
+		r->has_boxart = ROM_findArt(rom_path, r->boxart_path, sizeof(r->boxart_path));
 	}
 }
 static unsigned resume_probes = 0;
+
+void readyResumeInto(Entry* entry, ResumeState* out) {
+	memset(out, 0, sizeof(*out));
+	if (entry)
+		readyResumePath(entry->path, entry->type, out);
+}
 unsigned readyResumeCount(void) {
 	return resume_probes;
 }
@@ -132,7 +138,7 @@ void readyResume(Entry* entry) {
 		resume.has_boxart = false;
 		return;
 	}
-	readyResumePath(entry->path, entry->type);
+	readyResumePath(entry->path, entry->type, &resume);
 }
 
 int autoResume(void) {
