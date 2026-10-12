@@ -179,8 +179,17 @@ void GameSwitcher_listArtPath(char* out, size_t size) {
 void GameSwitcher_readyList(void) {
 	if (!GameSwitcher_isList())
 		return;
-	// the selected game's resume state, for its art (the resume frame), its hint (RESUME / START) and A
+	// the selected game's resume state, for its art (the resume frame), its hint (RESUME / START) and A. Probed once
+	// per selection (it checks files on the card), as a game list's readySelectedResume: again after a rebuild (gs_gen)
+	// or any other probe since (readyResumeCount)
+	static int last_sel = -1;
+	static unsigned last_gen, last_count;
+	if (last_sel == switcher_selected && last_gen == gs_gen && last_count == readyResumeCount())
+		return;
 	readyResume(gs_entries->items[switcher_selected]);
+	last_sel = switcher_selected;
+	last_gen = gs_gen;
+	last_count = readyResumeCount();
 }
 
 void GameSwitcher_renderListHints(SDL_Surface* dst) {
