@@ -1,0 +1,24 @@
+# license: modifies PPSSPP (https://github.com/hrydgard/ppsspp), GPL-2.0-or-later (LICENSE.TXT); this patch is distributed under the same license.
+# Offer only Automatic and OpenGL as Backend: the core is built with -DVULKAN=OFF and minarch
+# accepts only GLES hw contexts, so Vulkan was refused and PPSSPP fell back to its software
+# renderer (very slow), as None does. minarch maps a saved value no longer listed to Automatic.
+diff --git a/libretro/libretro_core_options.h b/libretro/libretro_core_options.h
+--- a/libretro/libretro_core_options.h
++++ b/libretro/libretro_core_options.h
+@@ -292,13 +292,9 @@
+       {
+          { "auto",   "Automatic" },
+          { "opengl", "OpenGL" },
+-#ifndef HAVE_LIBNX
+-         { "vulkan", "Vulkan" },
+-#endif
+-#ifdef _WIN32
+-         { "d3d11",  "D3D11" },
+-#endif
+-         { "none",   "None" },
++         // NX Redux: the core is built GLES-only and minarch takes only GLES contexts, so
++         // Vulkan fell through to the software renderer, as did None. A saved one of either
++         // falls back to Automatic.
+          { NULL, NULL },
+       },
+       "auto"
