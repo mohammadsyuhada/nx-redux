@@ -6,6 +6,7 @@
 #include "ma_input.h"
 #include "ma_config.h"
 #include "ma_options.h"
+#include "ma_runframe.h"
 #include "ma_opts_dump.h"
 #include "ra_integration.h"
 #include "ma_core_progress.h"
@@ -147,6 +148,7 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		struct retro_variable* var = (struct retro_variable*)data;
 		if (var && var->key) {
 			var->value = OptionList_getOptionValue(&config.core, var->key);
+			var->value = FF_coreOptionValue(var->key, var->value);
 			// gpsp_serial: Automatic means real link cable in a USB Cable
 			// session, and "lockstep" exists only there (gbalink_mode.c).
 			var->value = gbalink_serial_option(var->key, var->value, getenv("NETPLAY_MODE"));

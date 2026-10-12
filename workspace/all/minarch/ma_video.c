@@ -762,11 +762,11 @@ static void drawDebugHud(const void* data, unsigned width, unsigned height, size
 // fast-forward throttle can drop frames *before* the pixel conversion
 static uint32_t last_flip_time = 0;
 
-// 10 seems to be the sweet spot that allows 2x in NES and SNES and 8x in GB at 60fps
-// 14 will let GB hit 10x but NES and SNES will drop to 1.5x at 30fps (not sure why)
-// but 10 hurts PS...
-// TODO: 10 was based on rg35xx, probably different results on other supported platforms
-#define FF_FRAME_INTERVAL_MS 10
+// Shortest gap between presented frames while fast-forwarding. Each present
+// waits for vblank (tg5040 can't turn the swap interval off), so a 10 ms gap
+// let fceumm (~5.4 ms a frame) run only two frames per vblank: 2x at any Max FF
+// Speed. 30 ms shows FF at ~30 fps and leaves the rest of the time to the core.
+#define FF_FRAME_INTERVAL_MS 30
 
 static void video_refresh_callback_main(const void* data, unsigned width, unsigned height, size_t pitch) {
 	// return;
