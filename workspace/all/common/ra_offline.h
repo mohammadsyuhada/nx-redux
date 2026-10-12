@@ -124,6 +124,16 @@ RA_AwardOutcome RA_Offline_classifyAwardResponse(int http_status, const char* bo
 void RA_Offline_removePending(const char* user, uint32_t achievement_id,
 							  const char* game_hash);
 
+/**
+ * Online path: a fresh startsession body (post_data `r=startsession`) with
+ * the journaled and confirmed unlocks for its user and the current game
+ * merged into "Unlocks", so an unlock the background sync hasn't uploaded
+ * yet still loads as unlocked. Returns a malloc'd body, or NULL when the
+ * request isn't a successful startsession or there is nothing to add.
+ */
+char* RA_Offline_mergeSession(const char* post_data, const char* body, size_t body_len,
+							  size_t* out_len);
+
 /** Hash of the game most recently seen in a gameid/achievementsets request. */
 const char* RA_Offline_currentGameHash(void);
 

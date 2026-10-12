@@ -92,6 +92,11 @@ static int stub_submit_ok(const RA_PendingUnlock* e, uint32_t secs, void* ud) {
 	assert(secs >= 1);
 	return 0;
 }
+static int stub_submit_888_only(const RA_PendingUnlock* e, uint32_t secs, void* ud) {
+	(void)secs;
+	(void)ud;
+	return e->achievement_id == 888 ? 0 : -1;
+}
 static int stub_submit_fail_777(const RA_PendingUnlock* e, uint32_t secs, void* ud) {
 	(void)secs;
 	(void)ud;
@@ -614,6 +619,54 @@ static void test_sync_username_case(void) {
 	printf("ok test_sync_username_case\n");
 }
 
+// Issue #161: online, the game's startsession reaches rc_client before the
+// background sync has uploaded the offline unlock, so the session must carry
+// the journaled (and just-confirmed) unlocks or the achievement shows locked.
+static void test_online_session_merge(void) {
+	reset_root();
+	RA_Offline_setMode(RA_NET_OFFLINE);
+	char* body;
+	size_t len;
+	int status;
+	RA_Offline_handleRequest("r=awardachievement&u=alexm&t=tok&a=777&h=0&m=dddd4444", &body, &len, &status);
+	free(body);
+	RA_Offline_handleRequest("r=awardachievement&u=alexm&t=tok&a=888&h=0&m=dddd4444", &body, &len, &status);
+	free(body);
+	RA_Offline_handleRequest("r=awardachievement&u=alexm&t=tok&a=999&h=0&m=eeee5555", &body, &len, &status);
+	free(body);
+	RA_Offline_setMode(RA_NET_ONLINE);
+
+	// online: the game's hash comes from its achievementsets response
+	const char* sets = "{\"Success\":true,\"GameId\":1446}";
+	RA_Offline_cacheResponse("r=achievementsets&u=AlexM&t=tok&m=dddd4444", sets, strlen(sets));
+
+	// 888 synced (confirmed) between the session request and its answer
+	assert(RA_Offline_sync("alexm", time(NULL), stub_submit_888_only, NULL, NULL) == 1);
+
+	const char* sess = "{\"Success\":true,\"Unlocks\":[{\"ID\":1,\"When\":1000}],\"HardcoreUnlocks\":[]}";
+	const char* post = "r=startsession&u=AlexM&t=tok&g=1446&h=0";
+	RA_Offline_cacheResponse(post, sess, strlen(sess));
+	body = RA_Offline_mergeSession(post, sess, strlen(sess), &len);
+	assert(body && len == strlen(body));
+	assert(strstr(body, "\"ID\":1,") && strstr(body, "\"ID\":777,") && strstr(body, "\"ID\":888,"));
+	assert(!strstr(body, "\"ID\":999")); // another game's unlock stays out
+	free(body);
+	// the on-disk cache keeps the server's own body
+	char* cached;
+	size_t clen;
+	assert(RA_Offline_readCacheFile("cache/sessions/1446.json", &cached, &clen));
+	assert(!strstr(cached, "\"ID\":777"));
+	free(cached);
+
+	// nothing to add, a failure body, or not a session: NULL (use the original)
+	const char* full = "{\"Success\":true,\"Unlocks\":[{\"ID\":777,\"When\":1},{\"ID\":888,\"When\":2}]}";
+	assert(!RA_Offline_mergeSession(post, full, strlen(full), &len));
+	const char* fail = "{\"Success\":false,\"Error\":\"x\"}";
+	assert(!RA_Offline_mergeSession(post, fail, strlen(fail), &len));
+	assert(!RA_Offline_mergeSession("r=ping&u=AlexM", sess, strlen(sess), &len));
+	printf("ok test_online_session_merge\n");
+}
+
 int main(void) {
 	test_get_param();
 	test_cache_classification();
@@ -627,6 +680,7 @@ int main(void) {
 	test_award_rejection();
 	test_confirmed_growth();
 	test_sync_username_case();
+	test_online_session_merge();
 	printf("ALL TESTS PASSED\n");
 	return 0;
 }

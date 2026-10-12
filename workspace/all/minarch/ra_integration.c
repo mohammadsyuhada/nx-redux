@@ -648,9 +648,19 @@ static void ra_http_callback(HTTP_Response* response, void* userdata) {
 
 	// Online write-through cache: mirror successful responses to disk so
 	// they can be served when offline
+	char* merged = NULL;
 	if (body && http_status == 200 && data->post_data_copy &&
 		RA_Offline_getMode() == RA_NET_ONLINE) {
 		RA_Offline_cacheResponse(data->post_data_copy, body, body_length);
+		// the game's session can arrive before the background sync has
+		// uploaded the journal: merge those unlocks so they don't show as
+		// locked until the next launch
+		size_t merged_len = 0;
+		merged = RA_Offline_mergeSession(data->post_data_copy, body, body_length, &merged_len);
+		if (merged) {
+			body = merged;
+			body_length = merged_len;
+		}
 	}
 
 	if (data->background && ra_bg_begin()) {
@@ -669,6 +679,7 @@ static void ra_http_callback(HTTP_Response* response, void* userdata) {
 	if (response) {
 		HTTP_freeResponse(response);
 	}
+	free(merged);
 	free(data->post_data_copy);
 	free(data);
 }

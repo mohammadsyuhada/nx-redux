@@ -709,37 +709,24 @@ static void ra_off_confirmed_prune(const char* user, const char* session_body) {
 	pthread_mutex_unlock(&ra_off_mutex);
 }
 
-// Build a startsession body: cached server response (if any) with the
-// journal + confirmed unlocks for (user, current game hash) injected into
-// "Unlocks" (see ra_off_id_in_body for the dedup-against-base check).
-static char* ra_off_build_session_body(const char* g, const char* user, size_t* out_len) {
-	char rel[128];
-	snprintf(rel, sizeof(rel), "cache/sessions/%s.json", g);
-	char* cached = NULL;
-	size_t cached_len = 0;
-	RA_Offline_readCacheFile(rel, &cached, &cached_len); // miss is fine
-	if (cached && !ra_off_body_valid(cached)) {
-		free(cached); // corrupt/truncated cache file: treat as cache-miss
-		cached = NULL;
-	}
-
-	static const char* kEmpty = "{\"Success\":true,\"Unlocks\":[],\"HardcoreUnlocks\":[]}";
-	const char* base = cached ? cached : kEmpty;
-	size_t base_len = cached ? cached_len : strlen(kEmpty);
-
+// Copy a startsession body with the journal + confirmed unlocks for
+// (user, hash) injected into "Unlocks" (see ra_off_id_in_body for the
+// dedup-against-base check). *out_added gets the number injected.
+static char* ra_off_merge_unlocks(const char* base, size_t base_len, const char* user,
+								  const char* hash, size_t* out_len, int* out_added) {
 	// journal (not-yet-synced) + confirmed (synced but the cached session
 	// predates the sync) entries for this (user, hash), deduped against each
 	// other and against anything the cached base already lists.
 	RA_PendingUnlock* jentries = NULL;
 	RA_PendingUnlock* centries = NULL;
 	int jn = 0, cn = 0;
-	if (user && *user && ra_current_hash[0]) {
+	if (user && *user && hash && *hash) {
 		jentries = (RA_PendingUnlock*)malloc(sizeof(RA_PendingUnlock) * RA_OFFLINE_MAX_PENDING);
 		centries = (RA_PendingUnlock*)malloc(sizeof(RA_PendingUnlock) * RA_OFFLINE_MAX_PENDING);
 		if (jentries)
-			jn = ra_off_journal_entries_for(user, ra_current_hash, jentries, RA_OFFLINE_MAX_PENDING);
+			jn = ra_off_journal_entries_for(user, hash, jentries, RA_OFFLINE_MAX_PENDING);
 		if (centries)
-			cn = ra_off_confirmed_entries_for(user, ra_current_hash, centries, RA_OFFLINE_MAX_PENDING);
+			cn = ra_off_confirmed_entries_for(user, hash, centries, RA_OFFLINE_MAX_PENDING);
 	}
 
 	size_t ent_cap = (size_t)(jn + cn) * 64 + 1;
@@ -774,15 +761,12 @@ static char* ra_off_build_session_body(const char* g, const char* user, size_t* 
 	}
 	free(jentries);
 	free(centries);
-	if (!ent) {
-		free(cached);
+	if (!ent)
 		return NULL;
-	}
 
 	char* out = (char*)malloc(base_len + ent_len + 32);
 	if (!out) {
 		free(ent);
-		free(cached);
 		return NULL;
 	}
 
@@ -815,9 +799,53 @@ static char* ra_off_build_session_body(const char* g, const char* user, size_t* 
 	}
 	out[len] = '\0';
 	free(ent);
-	free(cached);
 	if (out_len)
 		*out_len = len;
+	if (out_added)
+		*out_added = emitted;
+	return out;
+}
+
+// Build an offline startsession body: the cached server response (if any)
+// with the unlocks for (user, current game hash) merged in.
+static char* ra_off_build_session_body(const char* g, const char* user, size_t* out_len) {
+	char rel[128];
+	snprintf(rel, sizeof(rel), "cache/sessions/%s.json", g);
+	char* cached = NULL;
+	size_t cached_len = 0;
+	RA_Offline_readCacheFile(rel, &cached, &cached_len); // miss is fine
+	if (cached && !ra_off_body_valid(cached)) {
+		free(cached); // corrupt/truncated cache file: treat as cache-miss
+		cached = NULL;
+	}
+
+	static const char* kEmpty = "{\"Success\":true,\"Unlocks\":[],\"HardcoreUnlocks\":[]}";
+	const char* base = cached ? cached : kEmpty;
+	size_t base_len = cached ? cached_len : strlen(kEmpty);
+	char* out = ra_off_merge_unlocks(base, base_len, user, ra_current_hash, out_len, NULL);
+	free(cached);
+	return out;
+}
+
+char* RA_Offline_mergeSession(const char* post_data, const char* body, size_t body_len,
+							  size_t* out_len) {
+	char r[32], u[64], m[64];
+	if (!ra_root[0] || !post_data || !body || !strstr(body, "\"Success\":true") ||
+		!RA_Offline_getParam(post_data, "r", r, sizeof(r)) || strcmp(r, "startsession") != 0 ||
+		!RA_Offline_getParam(post_data, "u", u, sizeof(u)))
+		return NULL;
+	// HTTP worker thread: copy the hash under the lock cacheResponse takes
+	if (!RA_Offline_getParam(post_data, "m", m, sizeof(m)) || !ra_off_safe_component(m)) {
+		pthread_mutex_lock(&ra_off_mutex);
+		snprintf(m, sizeof(m), "%s", ra_current_hash);
+		pthread_mutex_unlock(&ra_off_mutex);
+	}
+	int added = 0;
+	char* out = ra_off_merge_unlocks(body, body_len, u, m, out_len, &added);
+	if (out && added == 0) {
+		free(out);
+		out = NULL;
+	}
 	return out;
 }
 
