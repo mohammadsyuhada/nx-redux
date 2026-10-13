@@ -34,14 +34,18 @@ static int16_t dpad_stick_y = 0;
 #define BTN_DPAD_ANY (BTN_DPAD_UP | BTN_DPAD_DOWN | BTN_DPAD_LEFT | BTN_DPAD_RIGHT)
 
 // Full deflection per held direction; both axes on a diagonal (libretro: +y is down).
-static void Input_updateDpadStick(void) {
-	dpad_stick_held = dpad_joystick && PAD_isPressed(BTN_DPAD_ANY);
-	if (!dpad_stick_held) {
-		dpad_stick_x = dpad_stick_y = 0;
-		return;
+// A direction that completes a MENU+ shortcut (menu_combo_mask) doesn't move the stick.
+static void Input_updateDpadStick(uint32_t menu_combo_mask) {
+	uint32_t held = 0;
+	if (dpad_joystick) {
+		uint32_t dirs[] = {BTN_DPAD_UP, BTN_DPAD_DOWN, BTN_DPAD_LEFT, BTN_DPAD_RIGHT};
+		for (int i = 0; i < 4; i++)
+			if (PAD_isPressed(dirs[i]) && !(dirs[i] & menu_combo_mask))
+				held |= dirs[i];
 	}
-	dpad_stick_x = (PAD_isPressed(BTN_DPAD_RIGHT) ? 0x7FFF : 0) - (PAD_isPressed(BTN_DPAD_LEFT) ? 0x7FFF : 0);
-	dpad_stick_y = (PAD_isPressed(BTN_DPAD_DOWN) ? 0x7FFF : 0) - (PAD_isPressed(BTN_DPAD_UP) ? 0x7FFF : 0);
+	dpad_stick_held = held != 0;
+	dpad_stick_x = ((held & BTN_DPAD_RIGHT) ? 0x7FFF : 0) - ((held & BTN_DPAD_LEFT) ? 0x7FFF : 0);
+	dpad_stick_y = ((held & BTN_DPAD_DOWN) ? 0x7FFF : 0) - ((held & BTN_DPAD_UP) ? 0x7FFF : 0);
 }
 
 // A binding's button as read for a positional pak: the logical button that
@@ -270,7 +274,8 @@ void input_poll_callback(void) {
 				case SHORTCUT_RESET_GAME:
 				case SHORTCUT_SAVE_QUIT:
 				case SHORTCUT_GAMESWITCHER:
-					deferred_shortcut = i; // Input_runDeferredShortcut, after core.run()
+					if (deferred_shortcut < 0) // the first request wins (MENU+SELECT included)
+						deferred_shortcut = i; // Input_runDeferredShortcut, after core.run()
 					break;
 				case SHORTCUT_SCREENSHOT:
 					Menu_screenshot();
@@ -358,7 +363,7 @@ void input_poll_callback(void) {
 				ignore_menu = 1;
 		}
 	}
-	Input_updateDpadStick();
+	Input_updateDpadStick(menu_combo_mask);
 }
 int16_t input_state_callback(unsigned port, unsigned device, unsigned index, unsigned id) {
 	// libretro requires cores to poll before reading, but not all paths do
