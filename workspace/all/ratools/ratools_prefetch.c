@@ -22,6 +22,7 @@
 #include "ra_offline.h"
 #include "ra_offline_net.h"
 #include "ra_badge_sets.h"
+#include "ra_paths.h"
 #include "ui_buttonhintbar.h"
 #include "utils.h"
 #include "ui_downloadprogress.h"
@@ -261,13 +262,11 @@ static bool rat_download_badge(const char* url, const char* badge_name, bool loc
 	if (!url || !*url || !badge_name || !*badge_name)
 		return false;
 	char path[512];
-	// RA_BADGE_CACHE_DIR (ra_badges.h) is SHARED_USERDATA_PATH "/.ra/badges";
-	// spell the same path out with snprintf, mirroring how ra_badges.c itself
-	// builds this same directory.
+	// naming matches ra_badges.c: <name>.png / <name>_lock.png
 	if (locked)
-		snprintf(path, sizeof(path), "%s/.ra/badges/%s_lock.png", SHARED_USERDATA_PATH, badge_name);
+		snprintf(path, sizeof(path), "%s/%s_lock.png", RA_BADGE_CACHE_DIR, badge_name);
 	else
-		snprintf(path, sizeof(path), "%s/.ra/badges/%s.png", SHARED_USERDATA_PATH, badge_name);
+		snprintf(path, sizeof(path), "%s/%s.png", RA_BADGE_CACHE_DIR, badge_name);
 	struct stat st;
 	if (stat(path, &st) == 0 && st.st_size > 0)
 		return true; // already cached
@@ -351,8 +350,7 @@ static void rat_pf_message(SDL_Surface* screen, const char* line1, const char* l
 static bool rat_download_set_badges(SDL_Surface* screen,
 									const rc_api_fetch_game_sets_response_t* sets,
 									const char* label, int done, int total) {
-	char ra_dir[512];
-	snprintf(ra_dir, sizeof(ra_dir), "%s/.ra", SHARED_USERDATA_PATH);
+	const char* ra_dir = RA_USER_DIR; // badge-set markers (ra_badge_sets.h)
 	// a partial set must not keep an older marker alive
 	RA_BadgeSets_invalidate(ra_dir, sets->id);
 
@@ -414,11 +412,10 @@ void RATPrefetch_run(SDL_Surface* screen) {
 		return;
 	}
 
-	// badges directory may not exist on a fresh card (RA_offline's ".ra"
-	// parent was already created by RA_Offline_init() in main())
-	char badges_dir[512];
-	snprintf(badges_dir, sizeof(badges_dir), "%s/.ra/badges", SHARED_USERDATA_PATH);
-	mkdir(badges_dir, 0755);
+	// badges directory may not exist on a fresh card (its parent
+	// Roms/.retroachievements was created by RA_Offline_init() in main())
+	mkdir(RA_SHARED_DIR, 0755);
+	mkdir(RA_BADGE_CACHE_DIR, 0755);
 
 	// CHD-aware hashing for disc images
 	rc_hash_cdreader_t cdreader;
@@ -591,9 +588,8 @@ void RATPrefetch_run(SDL_Surface* screen) {
 			// partial badge set: drop the cached sets.json so the next
 			// prefetch run refetches this game instead of skipping it
 			char sets_path[512];
-			snprintf(sets_path, sizeof(sets_path),
-					 "%s/.ra/cache/games/%s/sets.json", SHARED_USERDATA_PATH, hash);
-			remove(sets_path);
+			if (RA_Offline_cachePath(rel, sets_path, sizeof(sets_path)))
+				remove(sets_path);
 		}
 		rc_api_destroy_fetch_game_sets_response(&sets);
 		if (!cancelled) {

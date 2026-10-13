@@ -21,19 +21,13 @@
 #include "ra_auth.h"
 #include "ra_offline.h"
 #include "ra_offline_net.h"
+#include "ra_paths.h"
 
 #include "ratools_browser.h"
 #include "ratools_data.h"
 #include "ratools_prefetch.h"
 #include "ratools_reset.h"
 #include "ratools_sync.h"
-
-// "<SHARED_USERDATA_PATH>/.ra", built with snprintf.
-static const char* ra_root_dir(void) {
-	static char buf[MAX_PATH];
-	snprintf(buf, sizeof(buf), "%s/.ra", SHARED_USERDATA_PATH);
-	return buf;
-}
 
 SDL_Surface* g_screen = NULL;
 
@@ -510,7 +504,7 @@ int main(int argc, char* argv[]) {
 	PWR_init();
 	PAD_init();
 
-	RA_Offline_init(ra_root_dir());
+	RA_Offline_init(RA_USER_DIR, RA_GAMES_DIR, SDCARD_PATH);
 
 	build_menu_tree();
 	settings_menu_init();

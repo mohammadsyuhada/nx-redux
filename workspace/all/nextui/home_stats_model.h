@@ -50,7 +50,7 @@ typedef struct {
 	HomeStatsSig db;		// game_logs.sqlite
 	HomeStatsSig journal;	// .ra/pending/unlocks.jsonl
 	HomeStatsSig confirmed; // .ra/pending/confirmed.jsonl
-	HomeStatsSig games;		// .ra/cache/games (directory)
+	HomeStatsSig games;		// Roms/.retroachievements/games (directory)
 	HomeStatsSig sessions;	// .ra/cache/sessions (directory)
 } HomeStatsKey;
 

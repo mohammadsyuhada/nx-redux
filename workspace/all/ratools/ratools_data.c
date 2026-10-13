@@ -194,9 +194,8 @@ static int rat_game_cmp(const void* a, const void* b) {
 
 int RAT_listGames(RAT_Game** out_games) {
 	*out_games = NULL;
-	char games_dir[512];
-	snprintf(games_dir, sizeof(games_dir), "%s/.ra/cache/games", SHARED_USERDATA_PATH);
-	DIR* d = opendir(games_dir);
+	const char* games_dir = RA_Offline_gamesDir();
+	DIR* d = games_dir ? opendir(games_dir) : NULL;
 	if (!d)
 		return 0;
 
@@ -570,9 +569,8 @@ static int rat_unlock_key_cmp(const void* a, const void* b) {
 // (session game, achievement) keys, so the discs of one game (RAT_listGames merges them) count once.
 // Reads and parses every cached game: call it from a worker thread only.
 int RAT_unlocksSinceCancellable(time_t since, bool (*cancelled)(void)) {
-	char games_dir[512];
-	snprintf(games_dir, sizeof(games_dir), "%s/.ra/cache/games", SHARED_USERDATA_PATH);
-	DIR* d = opendir(games_dir);
+	const char* games_dir = RA_Offline_gamesDir();
+	DIR* d = games_dir ? opendir(games_dir) : NULL;
 	if (!d)
 		return 0;
 

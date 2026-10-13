@@ -133,20 +133,14 @@ static BadgeCacheEntry* find_or_create_entry(const char* badge_name, bool locked
 
 // Create cache directory if it doesn't exist
 static void ensure_cache_dir(void) {
-	char path[MAX_PATH];
-
-	// Create .ra directory
-	snprintf(path, sizeof(path), "%s/.ra", SHARED_USERDATA_PATH);
-	mkdir(path, 0755);
-
-	// Create .ra/badges directory
-	char badges_dir[MAX_PATH];
-	snprintf(badges_dir, sizeof(badges_dir), "%s/.ra/badges", SHARED_USERDATA_PATH);
-	mkdir(badges_dir, 0755);
+	// account dir (badge-set markers) and the shared badge dir
+	mkdir(RA_USER_DIR, 0755);
+	mkdir(RA_SHARED_DIR, 0755);
+	mkdir(RA_BADGE_CACHE_DIR, 0755);
 }
 
 static void get_ra_dir(char* buf, size_t n) {
-	snprintf(buf, n, "%s/.ra", SHARED_USERDATA_PATH);
+	snprintf(buf, n, "%s", RA_USER_DIR);
 }
 
 // Check if cache file exists
@@ -673,14 +667,12 @@ SDL_Surface* RA_Badges_getNotificationSize(const char* badge_name, bool locked) 
 
 
 void RA_Badges_getCachePath(const char* badge_name, bool locked, char* buffer, size_t buffer_size) {
-	char cache_dir[MAX_PATH];
-	snprintf(cache_dir, sizeof(cache_dir), "%s/.ra/badges", SHARED_USERDATA_PATH);
 	if (locked) {
 		snprintf(buffer, buffer_size, "%s/%s_lock.png",
-				 cache_dir, badge_name);
+				 RA_BADGE_CACHE_DIR, badge_name);
 	} else {
 		snprintf(buffer, buffer_size, "%s/%s.png",
-				 cache_dir, badge_name);
+				 RA_BADGE_CACHE_DIR, badge_name);
 	}
 }
 

@@ -12,6 +12,7 @@
 #include "defines.h"
 #include "gametimedb.h"
 #include "ra_offline.h"
+#include "ra_paths.h"
 #include "ratools_data.h"
 #include "types.h"
 #include "utils.h"
@@ -96,16 +97,12 @@ static void loadRaIndex(void) {
 	ra_loaded = true;
 	hash_by_rom = Hash_new();
 
-	char ra_root[MAX_PATH];
-	char games_dir[MAX_PATH];
-	snprintf(ra_root, sizeof(ra_root), "%s/.ra", SHARED_USERDATA_PATH);
-	snprintf(games_dir, sizeof(games_dir), "%s/cache/games", ra_root);
-	DIR* d = opendir(games_dir);
+	DIR* d = opendir(RA_GAMES_DIR);
 	if (!d)
 		return; // no RA cache: skip RA_Offline_init (it would create the dirs)
 
 	if (!RA_Offline_rootDir()) // HomeStats_init sets it at startup, before any lookup reaches here
-		RA_Offline_init(ra_root);
+		RA_Offline_init(RA_USER_DIR, RA_GAMES_DIR, SDCARD_PATH);
 	struct dirent* ent;
 	while ((ent = readdir(d))) {
 		if (ent->d_name[0] == '.')

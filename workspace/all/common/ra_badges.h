@@ -12,8 +12,8 @@
 // Badge size for notifications (will be scaled)
 #define RA_BADGE_NOTIFY_SIZE 24 // Size for notification icons
 
-// Cache directory path (under SDCARD_PATH)
-#define RA_BADGE_CACHE_DIR SHARED_USERDATA_PATH "/.ra/badges"
+// Cache directory: RA_BADGE_CACHE_DIR (ra_paths.h), shared by every account
+#include "ra_paths.h"
 
 // Badge state
 typedef enum {

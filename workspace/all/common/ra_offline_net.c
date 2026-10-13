@@ -166,12 +166,10 @@ typedef struct {
 // Enumerate cache/games/<hash>/sets.json into a malloc'd array (caller frees).
 static int ra_net_enum_cached_games(RA_CachedGameInfo** out) {
 	*out = NULL;
-	const char* root = RA_Offline_rootDir();
-	if (!root)
+	const char* games_dir = RA_Offline_gamesDir();
+	if (!games_dir)
 		return 0;
 
-	char games_dir[512];
-	snprintf(games_dir, sizeof(games_dir), "%s/cache/games", root);
 	DIR* d = opendir(games_dir);
 	if (!d)
 		return 0;

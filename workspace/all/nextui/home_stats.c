@@ -13,6 +13,7 @@
 #include "defines.h"
 #include "gametimedb.h"
 #include "ra_offline.h"
+#include "ra_paths.h"
 #include "ratools_data.h"
 #include "utils.h"
 
@@ -145,8 +146,7 @@ static void readKey(HomeStatsKey* key, long long now, bool signed_in) {
 	key->journal = fileSig(path);
 	snprintf(path, sizeof(path), "%s/.ra/pending/confirmed.jsonl", SHARED_USERDATA_PATH);
 	key->confirmed = fileSig(path);
-	snprintf(path, sizeof(path), "%s/.ra/cache/games", SHARED_USERDATA_PATH);
-	key->games = dirSig(path);
+	key->games = dirSig(RA_GAMES_DIR);
 	snprintf(path, sizeof(path), "%s/.ra/cache/sessions", SHARED_USERDATA_PATH);
 	key->sessions = dirSig(path);
 }
@@ -262,12 +262,8 @@ static void* workerMain(void* arg) {
 static void initRaRoot(void) {
 	if (RA_Offline_rootDir())
 		return;
-	char ra_root[MAX_PATH];
-	char games_dir[MAX_PATH];
-	snprintf(ra_root, sizeof(ra_root), "%s/.ra", SHARED_USERDATA_PATH);
-	snprintf(games_dir, sizeof(games_dir), "%s/cache/games", ra_root);
-	if (exists(games_dir))
-		RA_Offline_init(ra_root);
+	if (exists(RA_GAMES_DIR))
+		RA_Offline_init(RA_USER_DIR, RA_GAMES_DIR, SDCARD_PATH);
 }
 
 void HomeStats_init(void) {

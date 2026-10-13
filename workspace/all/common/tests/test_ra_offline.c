@@ -13,17 +13,33 @@
 #include <sys/stat.h>
 
 #define ROOT "build/ra_test_root"
+// shared game data lives apart from the account root (Roms/.retroachievements on device)
+#define GAMES "build/ra_test_shared/games"
+#define CARD "/mnt/SDCARD"
 
 static void reset_root(void) {
-	system("rm -rf " ROOT);
-	RA_Offline_init(ROOT);
+	system("rm -rf " ROOT " build/ra_test_shared");
+	RA_Offline_init(ROOT, GAMES, CARD);
+}
+
+// rel as the module sees it: "cache/games/..." is under GAMES, the rest under ROOT
+static void test_path(const char* rel, char* p, size_t n) {
+	if (!strncmp(rel, "cache/games/", 12))
+		snprintf(p, n, GAMES "/%s", rel + 12);
+	else
+		snprintf(p, n, ROOT "/%s", rel);
 }
 
 static bool file_exists(const char* rel) {
 	char p[512];
-	snprintf(p, sizeof(p), ROOT "/%s", rel);
+	test_path(rel, p, sizeof(p));
 	struct stat st;
 	return stat(p, &st) == 0;
+}
+
+static bool raw_exists(const char* path) {
+	struct stat st;
+	return stat(path, &st) == 0;
 }
 
 static void test_get_param(void) {
@@ -61,10 +77,20 @@ static void test_cache_classification(void) {
 	RA_Offline_cacheResponse("r=achievementsets&u=bob&t=tok&m=abcdef0123456789abcdef0123456789",
 							 sets, strlen(sets));
 	assert(file_exists("cache/games/abcdef0123456789abcdef0123456789/sets.json"));
+	// game data goes to the shared games dir, never the account root
+	assert(raw_exists(GAMES "/abcdef0123456789abcdef0123456789/sets.json"));
+	assert(!raw_exists(ROOT "/cache/games/abcdef0123456789abcdef0123456789"));
+	assert(!strcmp(RA_Offline_gamesDir(), GAMES));
+	char mapped[256];
+	assert(RA_Offline_cachePath("cache/games/x/sets.json", mapped, sizeof(mapped)));
+	assert(!strcmp(mapped, GAMES "/x/sets.json"));
+	assert(RA_Offline_cachePath("cache/sessions/1.json", mapped, sizeof(mapped)));
+	assert(!strcmp(mapped, ROOT "/cache/sessions/1.json"));
 
 	const char* sess = "{\"Success\":true,\"Unlocks\":[{\"ID\":1,\"When\":1000}],\"HardcoreUnlocks\":[]}";
 	RA_Offline_cacheResponse("r=startsession&u=bob&t=tok&g=1446", sess, strlen(sess));
 	assert(file_exists("cache/sessions/1446.json"));
+	assert(raw_exists(ROOT "/cache/sessions/1446.json"));
 
 	// non-cacheable / failed responses must not be written
 	RA_Offline_cacheResponse("r=ping&u=bob&t=tok&g=1446", "{\"Success\":true}", 16);
@@ -279,9 +305,9 @@ static void test_corrupt_cache(void) {
 		fclose(f);
 	}
 	{
-		system("mkdir -p " ROOT "/cache/games/eeee5555");
+		system("mkdir -p " GAMES "/eeee5555");
 		char path[512];
-		snprintf(path, sizeof(path), ROOT "/cache/games/eeee5555/sets.json");
+		snprintf(path, sizeof(path), GAMES "/eeee5555/sets.json");
 		FILE* f = fopen(path, "w");
 		assert(f);
 		fputs("corrupt", f);
@@ -385,10 +411,39 @@ static void test_game_rom_path(void) {
 	assert(RA_Offline_getGameRomPath("abcdef0123456789abcdef0123456789", out, sizeof(out)));
 	assert(!strcmp(out, "/mnt/SDCARD/Roms/Game Boy (GB)/Some Game (USA).gb"));
 
+	// stored relative to the card so another OS can resolve it
+	{
+		FILE* f = fopen(GAMES "/abcdef0123456789abcdef0123456789/rom.txt", "r");
+		assert(f);
+		char raw[256] = {0};
+		assert(fgets(raw, sizeof(raw), f));
+		fclose(f);
+		assert(!strcmp(raw, "Roms/Game Boy (GB)/Some Game (USA).gb"));
+	}
+
 	// overwrite replaces the previous value
 	RA_Offline_setGameRomPath("abcdef0123456789abcdef0123456789", "/mnt/SDCARD/Roms/Other.gb");
 	assert(RA_Offline_getGameRomPath("abcdef0123456789abcdef0123456789", out, sizeof(out)));
 	assert(!strcmp(out, "/mnt/SDCARD/Roms/Other.gb"));
+
+	// legacy absolute record (written before the move) reads back unchanged
+	{
+		FILE* f = fopen(GAMES "/abcdef0123456789abcdef0123456789/rom.txt", "w");
+		assert(f);
+		fputs("/mnt/SDCARD/Roms/Legacy.gb\n", f);
+		fclose(f);
+	}
+	assert(RA_Offline_getGameRomPath("abcdef0123456789abcdef0123456789", out, sizeof(out)));
+	assert(!strcmp(out, "/mnt/SDCARD/Roms/Legacy.gb"));
+
+	// a path off the card is kept as given
+	RA_Offline_setGameRomPath("abcdef0123456789abcdef0123456789", "/tmp/elsewhere.gb");
+	assert(RA_Offline_getGameRomPath("abcdef0123456789abcdef0123456789", out, sizeof(out)));
+	assert(!strcmp(out, "/tmp/elsewhere.gb"));
+	// "/mnt/SDCARD2/..." only shares a prefix with the card root
+	RA_Offline_setGameRomPath("abcdef0123456789abcdef0123456789", "/mnt/SDCARD2/x.gb");
+	assert(RA_Offline_getGameRomPath("abcdef0123456789abcdef0123456789", out, sizeof(out)));
+	assert(!strcmp(out, "/mnt/SDCARD2/x.gb"));
 
 	// unsafe hash (path traversal attempt) is rejected on both set and get
 	RA_Offline_setGameRomPath("../evil", "/mnt/SDCARD/Roms/x.gb");
@@ -509,7 +564,7 @@ static void test_award_rejection(void) {
 
 static int count_lines(const char* rel) {
 	char p[512];
-	snprintf(p, sizeof(p), ROOT "/%s", rel);
+	test_path(rel, p, sizeof(p));
 	FILE* f = fopen(p, "r");
 	if (!f)
 		return 0;
