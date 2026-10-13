@@ -111,10 +111,6 @@ static int has_fn_switch(const DeviceInfo* dev) {
 	return dev->platform == PLAT_TG5050 || dev->platform == PLAT_TG5040;
 }
 
-static int has_analog_sticks(const DeviceInfo* dev) {
-	return dev->model == MODEL_SMARTPRO || dev->model == MODEL_SMARTPROS || dev->model == MODEL_BRICKPRO;
-}
-
 // Dedicated physical F1/F2 keys, usable as menu-level shortcuts (the Smart
 // Pro/S map BTN_FN1/2 onto their stick clicks instead).
 static int has_fn_keys(const DeviceInfo* dev) {
@@ -320,11 +316,6 @@ static const char* hint_labels_labels[] = {"Layout letters", "Printed caps"};
 static int hint_labels_values[] = {0, 1};
 // The "Hint labels" row only matters under the Xbox layout; hidden otherwise.
 static SettingItem* hint_labels_item = NULL;
-
-/* Dpad mode: Dpad, Joystick, Both */
-static const char* dpad_mode_labels[] = {"Dpad", "Joystick", "Both"};
-static int dpad_mode_values[] = {0, 1, 2};
-#define DPAD_MODE_COUNT 3
 
 // ============================================
 // FN Switch "when FN is on" arrays
@@ -1232,104 +1223,6 @@ static void reset_fn_exposure(void) {
 	SetFnExposure(SETTINGS_DEFAULT_FN_NO_CHANGE);
 }
 
-/* Turbo buttons */
-static int get_turbo_a(void) {
-	return GetFnTurboA();
-}
-static void set_turbo_a(int v) {
-	SetFnTurboA(v);
-}
-static void reset_turbo_a(void) {
-	SetFnTurboA(0);
-}
-
-static int get_turbo_b(void) {
-	return GetFnTurboB();
-}
-static void set_turbo_b(int v) {
-	SetFnTurboB(v);
-}
-static void reset_turbo_b(void) {
-	SetFnTurboB(0);
-}
-
-static int get_turbo_x(void) {
-	return GetFnTurboX();
-}
-static void set_turbo_x(int v) {
-	SetFnTurboX(v);
-}
-static void reset_turbo_x(void) {
-	SetFnTurboX(0);
-}
-
-static int get_turbo_y(void) {
-	return GetFnTurboY();
-}
-static void set_turbo_y(int v) {
-	SetFnTurboY(v);
-}
-static void reset_turbo_y(void) {
-	SetFnTurboY(0);
-}
-
-static int get_turbo_l1(void) {
-	return GetFnTurboL1();
-}
-static void set_turbo_l1(int v) {
-	SetFnTurboL1(v);
-}
-static void reset_turbo_l1(void) {
-	SetFnTurboL1(0);
-}
-
-static int get_turbo_l2(void) {
-	return GetFnTurboL2();
-}
-static void set_turbo_l2(int v) {
-	SetFnTurboL2(v);
-}
-static void reset_turbo_l2(void) {
-	SetFnTurboL2(0);
-}
-
-static int get_turbo_r1(void) {
-	return GetFnTurboR1();
-}
-static void set_turbo_r1(int v) {
-	SetFnTurboR1(v);
-}
-static void reset_turbo_r1(void) {
-	SetFnTurboR1(0);
-}
-
-static int get_turbo_r2(void) {
-	return GetFnTurboR2();
-}
-static void set_turbo_r2(int v) {
-	SetFnTurboR2(v);
-}
-static void reset_turbo_r2(void) {
-	SetFnTurboR2(0);
-}
-
-/* Dpad mode when FN is on */
-static int get_fn_dpad_mode(void) {
-	if (!GetFnDpadDisabled() && !GetFnDpadJoystick())
-		return 0;
-	if (GetFnDpadDisabled() && GetFnDpadJoystick())
-		return 1;
-	return 2;
-}
-static void set_fn_dpad_mode(int val) {
-	SetFnDpadDisabled(val == 1);
-	SetFnDpadJoystick(val > 0);
-}
-static void reset_fn_dpad_mode(void) {
-	SetFnDpadDisabled(0);
-	SetFnDpadJoystick(0);
-}
-
 // ============================================
 // Notification callbacks
 // ============================================
@@ -2176,38 +2069,6 @@ static void build_menu_tree(const DeviceInfo* dev) {
 				"Exposure when FN is on", "Exposure enhancement (-4 to 5)",
 				fn_exposure_labels, FN_EXPOSURE_COUNT, fn_exposure_values, get_fn_exposure, set_fn_exposure, reset_fn_exposure);
 		}
-
-		/* Turbo buttons */
-		fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-			"Turbo fire A", "Enable turbo fire A",
-			on_off_labels, 2, on_off_values, get_turbo_a, set_turbo_a, reset_turbo_a);
-		fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-			"Turbo fire B", "Enable turbo fire B",
-			on_off_labels, 2, on_off_values, get_turbo_b, set_turbo_b, reset_turbo_b);
-		fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-			"Turbo fire X", "Enable turbo fire X",
-			on_off_labels, 2, on_off_values, get_turbo_x, set_turbo_x, reset_turbo_x);
-		fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-			"Turbo fire Y", "Enable turbo fire Y",
-			on_off_labels, 2, on_off_values, get_turbo_y, set_turbo_y, reset_turbo_y);
-		fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-			"Turbo fire L1", "Enable turbo fire L1",
-			on_off_labels, 2, on_off_values, get_turbo_l1, set_turbo_l1, reset_turbo_l1);
-		fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-			"Turbo fire L2", "Enable turbo fire L2",
-			on_off_labels, 2, on_off_values, get_turbo_l2, set_turbo_l2, reset_turbo_l2);
-		fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-			"Turbo fire R1", "Enable turbo fire R1",
-			on_off_labels, 2, on_off_values, get_turbo_r1, set_turbo_r1, reset_turbo_r1);
-		fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-			"Turbo fire R2", "Enable turbo fire R2",
-			on_off_labels, 2, on_off_values, get_turbo_r2, set_turbo_r2, reset_turbo_r2);
-	}
-
-	if (has_fn_switch(dev) && !has_analog_sticks(dev)) {
-		fn_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-			"Dpad mode when FN is on", "Dpad: default. Joystick: Dpad exclusively acts as analog stick.\nBoth: Dpad and Joystick inputs at the same time.",
-			dpad_mode_labels, DPAD_MODE_COUNT, dpad_mode_values, get_fn_dpad_mode, set_fn_dpad_mode, reset_fn_dpad_mode);
 	}
 
 	fn_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(

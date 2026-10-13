@@ -225,6 +225,7 @@ typedef struct SettingsV12 {
 	int fn_saturation;
 	int fn_exposure;
 	int fn_volume;
+	// Unused since the FN switch no longer drives input; kept for the file layout.
 	int fn_dpad_disabled;
 	int fn_dpad_joystick;
 	int turbo_a;
@@ -349,17 +350,6 @@ int scaleContrast(int);
 int scaleSaturation(int);
 int scaleExposure(int);
 int scaleVolume(int);
-
-void disableDpad(int);
-void emulateJoystick(int);
-void turboA(int);
-void turboB(int);
-void turboX(int);
-void turboY(int);
-void turboL1(int);
-void turboL2(int);
-void turboR1(int);
-void turboR2(int);
 
 int getInt(char* path) {
 	int i = 0;
@@ -832,6 +822,9 @@ int GetFnExposure(void) {
 int GetFnVolume(void) {
 	return settings->fn_volume;
 }
+// Not in msettings.h any more: the FN switch no longer drives turbo or the D-pad
+// (turbo is an emulator shortcut now). Kept only as targets of the pre-#103
+// compatibility aliases at the bottom of this file.
 int GetFnDpadDisabled(void) {
 	return settings->fn_dpad_disabled;
 }
@@ -927,26 +920,6 @@ void SetFnMode(int value) {
 			SetRawSaturation(scaleSaturation(GetFnSaturation()));
 		if (GetFnExposure() != SETTINGS_DEFAULT_FN_NO_CHANGE)
 			SetRawExposure(scaleExposure(GetFnExposure()));
-		if (is_brick && GetFnDpadDisabled())
-			disableDpad(1);
-		if (is_brick && GetFnDpadJoystick())
-			emulateJoystick(1);
-		if (GetFnTurboA())
-			turboA(1);
-		if (GetFnTurboB())
-			turboB(1);
-		if (GetFnTurboX())
-			turboX(1);
-		if (GetFnTurboY())
-			turboY(1);
-		if (GetFnTurboL1())
-			turboL1(1);
-		if (GetFnTurboL2())
-			turboL2(1);
-		if (GetFnTurboR1())
-			turboR1(1);
-		if (GetFnTurboR2())
-			turboR2(1);
 	} else {
 		SetVolume(GetVolume());
 		SetBrightness(GetBrightness());
@@ -954,28 +927,6 @@ void SetFnMode(int value) {
 		SetContrast(GetContrast());
 		SetSaturation(GetSaturation());
 		SetExposure(GetExposure());
-		if (is_brick) {
-			if (GetFnDpadDisabled())
-				disableDpad(0);
-			if (GetFnDpadJoystick())
-				emulateJoystick(0);
-		}
-		if (GetFnTurboA())
-			turboA(0);
-		if (GetFnTurboB())
-			turboB(0);
-		if (GetFnTurboX())
-			turboX(0);
-		if (GetFnTurboY())
-			turboY(0);
-		if (GetFnTurboL1())
-			turboL1(0);
-		if (GetFnTurboL2())
-			turboL2(0);
-		if (GetFnTurboR1())
-			turboR1(0);
-		if (GetFnTurboR2())
-			turboR2(0);
 	}
 }
 // OSD output mute: silences output only, leaves display/input untouched. The
@@ -1036,6 +987,7 @@ void SetFnVolume(int value) {
 	SaveSettings();
 }
 
+// Compatibility-alias targets only, see the getters above.
 void SetFnDpadDisabled(int value) {
 	settings->fn_dpad_disabled = value;
 	SaveSettings();
@@ -1083,103 +1035,6 @@ void SetFnTurboR1(int value) {
 void SetFnTurboR2(int value) {
 	settings->turbo_r2 = value;
 	SaveSettings();
-}
-
-///////// trimui_inputd modifiers
-
-#define INPUTD_PATH "/tmp/trimui_inputd"
-#define INPUTD_DPAD_PATH "/tmp/trimui_inputd/input_no_dpad"
-#define INPUTD_JOYSTICK_PATH "/tmp/trimui_inputd/input_dpad_to_joystick"
-#define INPUTD_TURBO_A_PATH "/tmp/trimui_inputd/turbo_a"
-#define INPUTD_TURBO_B_PATH "/tmp/trimui_inputd/turbo_b"
-#define INPUTD_TURBO_X_PATH "/tmp/trimui_inputd/turbo_x"
-#define INPUTD_TURBO_Y_PATH "/tmp/trimui_inputd/turbo_y"
-#define INPUTD_TURBO_L1_PATH "/tmp/trimui_inputd/turbo_l"
-#define INPUTD_TURBO_L2_PATH "/tmp/trimui_inputd/turbo_l2"
-#define INPUTD_TURBO_R1_PATH "/tmp/trimui_inputd/turbo_r"
-#define INPUTD_TURBO_R2_PATH "/tmp/trimui_inputd/turbo_r2"
-
-void disableDpad(int value) {
-	if (value) {
-		mkdir(INPUTD_PATH, 0755);
-		touch(INPUTD_DPAD_PATH);
-	} else {
-		unlink(INPUTD_DPAD_PATH);
-	}
-}
-
-void emulateJoystick(int value) {
-	if (value) {
-		mkdir(INPUTD_PATH, 0755);
-		touch(INPUTD_JOYSTICK_PATH);
-	} else {
-		unlink(INPUTD_JOYSTICK_PATH);
-	}
-}
-
-void turboA(int value) {
-	if (value) {
-		mkdir(INPUTD_PATH, 0755);
-		touch(INPUTD_TURBO_A_PATH);
-	} else {
-		unlink(INPUTD_TURBO_A_PATH);
-	}
-}
-void turboB(int value) {
-	if (value) {
-		mkdir(INPUTD_PATH, 0755);
-		touch(INPUTD_TURBO_B_PATH);
-	} else {
-		unlink(INPUTD_TURBO_B_PATH);
-	}
-}
-void turboX(int value) {
-	if (value) {
-		mkdir(INPUTD_PATH, 0755);
-		touch(INPUTD_TURBO_X_PATH);
-	} else {
-		unlink(INPUTD_TURBO_X_PATH);
-	}
-}
-void turboY(int value) {
-	if (value) {
-		mkdir(INPUTD_PATH, 0755);
-		touch(INPUTD_TURBO_Y_PATH);
-	} else {
-		unlink(INPUTD_TURBO_Y_PATH);
-	}
-}
-void turboL1(int value) {
-	if (value) {
-		mkdir(INPUTD_PATH, 0755);
-		touch(INPUTD_TURBO_L1_PATH);
-	} else {
-		unlink(INPUTD_TURBO_L1_PATH);
-	}
-}
-void turboL2(int value) {
-	if (value) {
-		mkdir(INPUTD_PATH, 0755);
-		touch(INPUTD_TURBO_L2_PATH);
-	} else {
-		unlink(INPUTD_TURBO_L2_PATH);
-	}
-}
-void turboR1(int value) {
-	if (value) {
-		mkdir(INPUTD_PATH, 0755);
-		touch(INPUTD_TURBO_R1_PATH);
-	} else {
-		unlink(INPUTD_TURBO_R1_PATH);
-	}
-}
-void turboR2(int value) {
-	if (value) {
-		mkdir(INPUTD_PATH, 0755);
-		touch(INPUTD_TURBO_R2_PATH);
-	} else {
-		unlink(INPUTD_TURBO_R2_PATH);
-	}
 }
 
 ///////// Platform specific scaling

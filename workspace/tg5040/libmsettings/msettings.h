@@ -83,16 +83,6 @@ int GetFnContrast(void);
 int GetFnSaturation(void);
 int GetFnExposure(void);
 int GetFnVolume(void);
-int GetFnDpadDisabled(void);
-int GetFnDpadJoystick(void);
-int GetFnTurboA(void);
-int GetFnTurboB(void);
-int GetFnTurboX(void);
-int GetFnTurboY(void);
-int GetFnTurboL1(void);
-int GetFnTurboL2(void);
-int GetFnTurboR1(void);
-int GetFnTurboR2(void);
 
 void SetFnBrightness(int);
 void SetFnColortemp(int);
@@ -100,15 +90,5 @@ void SetFnContrast(int);
 void SetFnSaturation(int);
 void SetFnExposure(int);
 void SetFnVolume(int);
-void SetFnDpadDisabled(int);
-void SetFnDpadJoystick(int);
-void SetFnTurboA(int);
-void SetFnTurboB(int);
-void SetFnTurboX(int);
-void SetFnTurboY(int);
-void SetFnTurboL1(int);
-void SetFnTurboL2(int);
-void SetFnTurboR1(int);
-void SetFnTurboR2(int);
 
 #endif // __msettings_h__

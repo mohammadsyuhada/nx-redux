@@ -24,6 +24,7 @@ typedef struct {
 	int fn_saturation;
 	int fn_exposure;
 	int fn_volume;
+	// fn_dpad_* and turbo_*: unused since the FN switch no longer drives input.
 #ifndef HAS_FAN
 	int fn_dpad_disabled;
 	int fn_dpad_joystick;
