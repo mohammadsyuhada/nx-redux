@@ -498,18 +498,13 @@ static bool drawTile(SDL_Surface* screen, const char* path, SDL_Rect r, const Ti
 	return true;
 }
 
-// What tile i shows (its art requested at tw×th). logo: the caller's buffer for the logo file name.
-static void tileSpec(int i, int tw, int th, float scale, TileSpec* t, char logo[64]) {
+// What tile i shows (its art requested at tw×th). logo: the caller's buffer for the logo file (MAX_PATH).
+static void tileSpec(int i, int tw, int th, float scale, TileSpec* t, char logo[MAX_PATH]) {
 	Entry* e = top->entries->items[i];
 	TileKind kind = RowView_kindFor(i, e);
 	*t = (TileSpec){.kind = kind, .name = View_displayName(e), .scale = scale};
 	if (kind == TILE_LOGO) {
-		const char* slash = strrchr(e->path, '/');
-		const char* id = MenuLogo_idForFolder(slash ? slash + 1 : e->path);
-		if (id) {
-			snprintf(logo, 64, "menu_logo_%s.png", id);
-			t->logo_file = logo;
-		}
+		t->logo_file = MenuLogo_fileFor(e->path, logo, MAX_PATH);
 	} else if (kind == TILE_TOOL) {
 		t->icon_file = Tiles_toolIcon(t->name);
 		if (!t->icon_file) {
@@ -559,12 +554,9 @@ static void warmLogos(int n, int sel, int tw, int th, float scale) {
 			Entry* e = top->entries->items[i];
 			if (RowView_kindFor(i, e) != TILE_LOGO)
 				continue;
-			const char* slash = strrchr(e->path, '/');
-			const char* id = MenuLogo_idForFolder(slash ? slash + 1 : e->path);
-			if (!id)
+			char logo[MAX_PATH];
+			if (!MenuLogo_fileFor(e->path, logo, sizeof(logo)))
 				continue;
-			char logo[64];
-			snprintf(logo, sizeof(logo), "menu_logo_%s.png", id);
 			if (!MenuArt_has(logo, bw, bh)) // cached already: drawLogo's MenuArt_get would never take the loader's copy
 				ArtLoader_request(logo, bw, bh, d);
 		}
@@ -687,7 +679,7 @@ void GridView_render(SDL_Surface* screen, int lastScreen) {
 			int i = GridLayout_index(&g, col, row);
 			if (i < 0)
 				continue;
-			char logo[64];
+			char logo[MAX_PATH];
 			TileSpec t;
 			tileSpec(i, tw, th, scale, &t, logo);
 			if (i == sel) {
@@ -795,7 +787,7 @@ static bool prefetchTiles(const GridLayout* g, int n, int sel, Uint32 deadline) 
 				more = true;
 				break;
 			}
-			char logo[64], plain[32];
+			char logo[MAX_PATH], plain[32];
 			TileSpec t;
 			tileSpec(i, tw, th, scale, &t, logo);
 			t.count = plainCount(i, plain, sizeof(plain), &asked);
@@ -820,7 +812,7 @@ static bool prefetchTiles(const GridLayout* g, int n, int sel, Uint32 deadline) 
 			more = true;
 			break;
 		}
-		char logo[64], count[32];
+		char logo[MAX_PATH], count[32];
 		TileSpec t;
 		tileSpec(i, tw, th, scale, &t, logo);
 		// the lit look carries its count: the move then starts cached. A neighbour whose lit look already shows a
@@ -864,7 +856,7 @@ static bool prefetchTiles(const GridLayout* g, int n, int sel, Uint32 deadline) 
 						more = true;
 						break;
 					}
-					char logo[64], count[32];
+					char logo[MAX_PATH], count[32];
 					TileSpec t;
 					tileSpec(i, tw, th, scale, &t, logo);
 					const char* path = ((Entry*)top->entries->items[i])->path;

@@ -1,5 +1,5 @@
-// Bundled main-menu art (res/menu/*.png: console logos, tool icons), loaded once and
-// pre-scaled to the box it is drawn in, so the render loop only blits.
+// Main-menu art (res/menu/*.png: console logos, tool icons; or a user's console logo by its absolute path), loaded
+// once and pre-scaled to the box it is drawn in, so the render loop only blits.
 
 #include "menuart.h"
 #include "area_scale.h"
@@ -18,7 +18,7 @@
 #define MENUART_RETRY_MS 10000 // a remembered failed load is tried again after this (out of memory then, not now)
 
 typedef struct {
-	char file[64];
+	char file[MAX_PATH];
 	int box_w;
 	int box_h;
 	SDL_Surface* surface; // NULL = a remembered failed load
@@ -30,9 +30,27 @@ typedef struct {
 static MenuArtSlot slots[MENUART_SLOTS];
 static unsigned int next_stamp = 0;
 
+// The largest boxes the launcher draws a console logo in (tools/console-logos/prebake_logos.py's BOXES, which the
+// bundled logos ship pre-baked for): a user's logo at its own size is brought down to the largest of these fits
+static const int logo_boxes[][2] = {{653, 199}, {559, 221}, {512, 334}, {371, 149}};
+
+static double ownSizeScale(const SDL_Surface* src) {
+	double best = 0;
+	for (size_t i = 0; i < sizeof(logo_boxes) / sizeof(logo_boxes[0]); i++) {
+		double sx = (double)logo_boxes[i][0] / src->w, sy = (double)logo_boxes[i][1] / src->h;
+		double fit = sx < sy ? sx : sy;
+		if (fit > best)
+			best = fit;
+	}
+	return best < 1 ? best : 1; // never enlarged
+}
+
 SDL_Surface* MenuArt_load(const char* file, int box_w, int box_h) {
 	char path[MAX_PATH];
-	snprintf(path, sizeof(path), "%s/menu/%s", RES_PATH, file);
+	if (file[0] == '/') // a user's console logo (MenuLogo_fileFor)
+		snprintf(path, sizeof(path), "%s", file);
+	else
+		snprintf(path, sizeof(path), "%s/menu/%s", RES_PATH, file);
 	SDL_Surface* raw = IMG_Load(path);
 	if (!raw)
 		return NULL;
@@ -41,13 +59,18 @@ SDL_Surface* MenuArt_load(const char* file, int box_w, int box_h) {
 	if (!src)
 		return NULL;
 
-	if (box_w <= 0 && box_h <= 0) { // its own size
-		SDL_SetSurfaceBlendMode(src, SDL_BLENDMODE_BLEND);
-		return src;
+	double scale;
+	if (box_w <= 0 && box_h <= 0) { // its own size: as shipped, or a user's logo no larger than any view draws it
+		scale = file[0] == '/' ? ownSizeScale(src) : 1;
+		if (scale >= 1) {
+			SDL_SetSurfaceBlendMode(src, SDL_BLENDMODE_BLEND);
+			return src;
+		}
+	} else {
+		double sx = (double)box_w / src->w;
+		double sy = (double)box_h / src->h;
+		scale = sx < sy ? sx : sy;
 	}
-	double sx = (double)box_w / src->w;
-	double sy = (double)box_h / src->h;
-	double scale = sx < sy ? sx : sy;
 	int w = (int)(src->w * scale);
 	int h = (int)(src->h * scale);
 	if (w < 1 || h < 1) {

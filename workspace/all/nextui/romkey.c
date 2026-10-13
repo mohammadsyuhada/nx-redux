@@ -34,5 +34,5 @@ bool RomKey_artReserved(const char* png_path) {
 	const char* slash = strrchr(png_path, '/');
 	if (!slash || slash - png_path < 7 || strncmp(slash - 7, "/.media", 7) != 0)
 		return false; // a variant folder's picture (.media/<variant>/bg.png) is a game's
-	return strcmp(slash + 1, "bg.png") == 0 || strcmp(slash + 1, "bglist.png") == 0;
+	return strcmp(slash + 1, "bg.png") == 0 || strcmp(slash + 1, "bglist.png") == 0 || strcmp(slash + 1, "logo.png") == 0;
 }

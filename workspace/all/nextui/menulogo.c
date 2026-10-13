@@ -1,10 +1,13 @@
-// Console folder -> bundled logo id (res/menu/menu_logo_<id>.png). SDL-free,
-// host-tested by common/tests/test_menulogo.c.
+// Console folder -> its logo: the user's <folder>/.media/logo.png, else the bundled res/menu/menu_logo_<id>.png.
+// SDL-free, host-tested by common/tests/test_menulogo.c.
 
 #include "menulogo.h"
 
+#include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
 #include <strings.h>
+#include <unistd.h>
 
 static const struct {
 	const char* tag;
@@ -95,4 +98,46 @@ const char* MenuLogo_idForFolder(const char* folder_name) {
 		if (strcasecmp(tag, tag_logos[i].tag) == 0)
 			return tag_logos[i].id;
 	return NULL;
+}
+
+// Whether each console folder has its own logo, looked up once (an access() per folder) instead of every frame
+#define USER_LOGO_SLOTS 64
+static struct {
+	char folder[512];
+	bool has;
+} user_logos[USER_LOGO_SLOTS];
+static int user_logo_count = 0;
+
+static bool hasUserLogo(const char* folder_path) {
+	for (int i = 0; i < user_logo_count; i++)
+		if (strcmp(user_logos[i].folder, folder_path) == 0)
+			return user_logos[i].has;
+	char path[600];
+	snprintf(path, sizeof(path), "%s/.media/logo.png", folder_path);
+	bool has = access(path, F_OK) == 0;
+	if (strlen(folder_path) < sizeof(user_logos[0].folder)) {
+		if (user_logo_count == USER_LOGO_SLOTS)
+			user_logo_count = 0; // more consoles than slots: start over (still once per folder per pass)
+		snprintf(user_logos[user_logo_count].folder, sizeof(user_logos[0].folder), "%s", folder_path);
+		user_logos[user_logo_count++].has = has;
+	}
+	return has;
+}
+
+const char* MenuLogo_fileFor(const char* folder_path, char* out, size_t size) {
+	if (!folder_path || !folder_path[0] || !out || size == 0)
+		return NULL;
+	if (hasUserLogo(folder_path)) {
+		if ((size_t)snprintf(out, size, "%s/.media/logo.png", folder_path) < size)
+			return out;
+	}
+	const char* slash = strrchr(folder_path, '/');
+	const char* id = MenuLogo_idForFolder(slash ? slash + 1 : folder_path);
+	if (!id)
+		return NULL;
+	return (size_t)snprintf(out, size, "menu_logo_%s.png", id) < size ? out : NULL;
+}
+
+void MenuLogo_forget(void) {
+	user_logo_count = 0;
 }

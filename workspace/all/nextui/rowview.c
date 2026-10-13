@@ -416,14 +416,6 @@ static TileKind kindFor(int index, Entry* e) {
 	return k;
 }
 
-static const char* consoleLogoFile(const char* folder_name, char* out, size_t size) {
-	const char* id = MenuLogo_idForFolder(folder_name);
-	if (!id)
-		return NULL;
-	snprintf(out, size, "menu_logo_%s.png", id);
-	return out;
-}
-
 const char* RowView_padId(Entry* e, TileKind kind) {
 	if (kind != TILE_LOGO || !e || !CFG_getMenuControllerArt())
 		return NULL;
@@ -431,10 +423,9 @@ const char* RowView_padId(Entry* e, TileKind kind) {
 	return Pad_idForFolder(slash ? slash + 1 : e->path);
 }
 
-// A console row's logo file (its folder's id), or NULL.
+// A console row's logo file (its own .media/logo.png, else its folder's bundled one), or NULL.
 static const char* entryLogoFile(Entry* e, char* out, size_t size) {
-	const char* slash = strrchr(e->path, '/');
-	return consoleLogoFile(slash ? slash + 1 : e->path, out, size);
+	return MenuLogo_fileFor(e->path, out, size);
 }
 
 static const char* toolIconFile(Entry* e, const char* name) {
@@ -774,7 +765,7 @@ static SDL_Surface* carouselTile(const RowGeo* g, Entry* e, TileKind kind, int w
 		// darkening's lerp toward the black under it), and stretched without blending while it changes size
 		SDL_FillRect(s, NULL, SDL_MapRGBA(s->format, 0, 0, 0, 255));
 		SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_NONE);
-		char logo[64];
+		char logo[MAX_PATH];
 		float tile_dp = w / pxPerDp();
 		TileSpec t = {.kind = kind, .name = View_displayName(e), .carousel = true};
 		t.scale = tile_dp / TILE_W_SPEC > 1.0f ? 1.0f : tile_dp / TILE_W_SPEC;
@@ -1069,7 +1060,7 @@ static SDL_Surface* buildSlot(Entry* e, TileKind kind, int w, int h, float k, fl
 	if (!s)
 		return NULL;
 	const char* name = View_displayName(e);
-	char logo[64];
+	char logo[MAX_PATH];
 	switch (kind) {
 	case TILE_LOGO: {
 		const char* file = entryLogoFile(e, logo, sizeof(logo));
@@ -1181,7 +1172,7 @@ static SDL_Surface* slotItem(const RowGeo* g, Entry* e, TileKind kind, bool side
 	if (!itemFind(key, &full)) {
 		// Consoles: a logo still on the art loader's thread is not waited for; the item shows once it lands
 		if (g->kind == ROW_BACKDROP_LOGO && kind == TILE_LOGO) {
-			char logo[64];
+			char logo[MAX_PATH];
 			bool pending = false;
 			if (entryLogoFile(e, logo, sizeof(logo)))
 				MenuArt_peek(logo, g->full_w, g->full_h, &pending);
@@ -1976,7 +1967,7 @@ static SDL_Surface* countSurface(const char* text, float sp, SDL_Color ac) {
 // the rest are in the background, where the softer edge doesn't show.
 #define LOGO_MIPS 24
 typedef struct {
-	char file[64];
+	char file[MAX_PATH];
 	SDL_Surface *level, *small; // the file at its own size, and half of that
 	unsigned stamp;
 	bool used, failed;
@@ -2049,7 +2040,7 @@ static void logoFit(const LogoMip* m, int slot_w, int slot_h, int* w, int* h) {
 // Consoles: the height (px) its logo draws at in the slot, -1 for no logo (a logo-less console: its name). Never
 // decoded here: while it is on the art loader's thread, *pending, and the caller leaves that console's count out.
 static int logoHeight(const RowGeo* g, Entry* e, TileKind kind, bool* pending) {
-	char logo[64];
+	char logo[MAX_PATH];
 	const char* file = kind == TILE_LOGO ? entryLogoFile(e, logo, sizeof(logo)) : NULL;
 	*pending = false;
 	LogoMip* m = file ? logoMip(file, pending) : NULL;
@@ -2064,7 +2055,7 @@ bool RowView_drawConsoleLogo(SDL_Surface* screen, const RowGeo* g, Entry* e, Til
 							 Uint8 a, bool selected) {
 	if (!sprite_mode || g->kind != ROW_BACKDROP_LOGO || kind != TILE_LOGO)
 		return false;
-	char logo[64];
+	char logo[MAX_PATH];
 	const char* file = entryLogoFile(e, logo, sizeof(logo));
 	if (!file)
 		return false; // a logo-less console: its name slot, as before
@@ -2819,7 +2810,7 @@ static void prefetchOne(const RowGeo* g, Entry* e, TileKind k, bool side, bool l
 		// Consoles draws as GPU sprites (RowView_beginSprites): its logos are the level and its half scaled by the
 		// GPU (RowView_drawConsoleLogo), so no slot or side copy; their textures are made here, between frames, not in
 		// the frame that first shows them
-		char logo[64];
+		char logo[MAX_PATH];
 		bool pending;
 		LogoMip* m = k == TILE_LOGO && entryLogoFile(e, logo, sizeof(logo)) ? logoMip(logo, &pending) : NULL;
 		if (m) {
@@ -2868,7 +2859,7 @@ void RowView_warmConsoleArt(int slot_w, int slot_h, int pad_w, int pad_h, int se
 				snprintf(file, sizeof(file), "menu_pad_%s.png", pad);
 				ArtLoader_request(file, pad_w, pad_h, 2 * d);
 			}
-			char logo[64];
+			char logo[MAX_PATH];
 			if (entryLogoFile(e, logo, sizeof(logo))) {
 				if (!logoMipHas(logo))
 					ArtLoader_request(logo, 0, 0, 2 * d + 1);	  // the level (RowView_drawConsoleLogo)

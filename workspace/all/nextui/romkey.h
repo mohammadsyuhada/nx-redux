@@ -13,7 +13,7 @@ bool RomKey_aliasSource(const char* rom_path, const char* roms_root, char* map_d
 						size_t key_size);
 
 // True for a .media picture that is not one game's art: the console's own background (<console>/.media/bg.png and
-// bglist.png), which a ROM named "bg.gb" would otherwise name. Pure.
+// bglist.png) or logo (logo.png), which a ROM named "bg.gb" or "logo.gb" would otherwise name. Pure.
 bool RomKey_artReserved(const char* png_path);
 
 #endif

@@ -23,7 +23,7 @@ typedef enum { TILE_LOGO,
 typedef struct {
 	TileKind kind;
 	const char* name;	   // display name (logo fallback, tool/collection/title text, lit game caption)
-	const char* logo_file; // TILE_LOGO: "menu_logo_<id>.png" or NULL (→ name)
+	const char* logo_file; // TILE_LOGO: MenuLogo_fileFor's (a user's logo.png or "menu_logo_<id>.png"), NULL → name
 	const char* icon_file; // TILE_TOOL: "menu_icon_*.png" or NULL (→ name only)
 	SDL_Surface* picture;  // TILE_GAME: screenshot already cropped to the tile (owned by the caller's cache)
 	unsigned picture_gen;  // HomeArt_lastGen() of picture's lookup: the caller's cache key (Tiles_draw ignores it)

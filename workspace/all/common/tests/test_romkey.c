@@ -43,6 +43,8 @@ static void romkey_folder_games(void) {
 static void romkey_art_reserved(void) {
 	assert(RomKey_artReserved(ROOT "/GB/.media/bg.png"));
 	assert(RomKey_artReserved(ROOT "/GB/.media/bglist.png"));
+	assert(RomKey_artReserved(ROOT "/GB/.media/logo.png"));				// the console's own logo (#220)
+	assert(!RomKey_artReserved(ROOT "/GB/.media/screenshot/logo.png")); // the game "logo.gb"'s screenshot
 	assert(!RomKey_artReserved(ROOT "/GB/.media/bg2.png"));
 	assert(!RomKey_artReserved(ROOT "/GB/.media/screenshot/bg.png")); // the game "bg.gb"'s screenshot
 	assert(!RomKey_artReserved(ROOT "/GB/.media/Tetris.png"));

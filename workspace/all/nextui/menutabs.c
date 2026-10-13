@@ -19,6 +19,7 @@
 #include "home.h"
 #include "launcher.h"
 #include "list_window.h"
+#include "menulogo.h"
 #include "menu_transition.h"
 #include "recents.h"
 #include "shortcuts.h"
@@ -116,11 +117,18 @@ MenuTabId MenuTabs_current(void) {
 
 static unsigned generation = 0;
 
+// A new generation: per-view state resets, and the consoles' own logos (.media/logo.png) are looked for afresh, so
+// one copied in shows on the next rescan or tab switch
+static void nextGeneration(void) {
+	generation++;
+	MenuLogo_forget();
+}
+
 void MenuTabs_setCurrent(MenuTabId id) {
 	// pathToStack just built a fresh stack[0] for id: a parked copy would be a second root for one tab
 	dropSlot(id);
 	if (id != current)
-		generation++; // another tab now (a deep pinned folder opened from Home lands in Consoles): as a tab switch
+		nextGeneration(); // another tab now (a deep pinned folder opened from Home lands in Consoles): as a tab switch
 	current = id;
 	root_gen = Content_libraryGen();
 }
@@ -284,7 +292,7 @@ void MenuTabs_releaseStack(void) {
 // parked (when it is the current tab's plain root) and id's parked root reused, so a switch reads nothing from
 // the card; generation still moves, so per-view state resets as for a fresh root.
 static void openRootKeepFocus(MenuTabId id) {
-	generation++;
+	nextGeneration();
 	if (!stack)
 		stack = Array_new();
 	parkStack();
@@ -324,7 +332,7 @@ bool MenuTabs_step(int delta) {
 
 void MenuTabs_reload(int keep_selected, unsigned what) {
 	MenuReloadPlan plan = MenuTabs_reloadPlan(what);
-	generation++; // per-view state resets as for a fresh root, whether or not stack[0] is rebuilt
+	nextGeneration(); // per-view state resets as for a fresh root, whether or not stack[0] is rebuilt
 	// only a tab the change can show in has an out-of-date parked root; it is rebuilt on its next visit (from its
 	// hint). The others stay parked: they equal a rebuild (and a Consoles root parked before an emulist refill is
 	// still caught by openRootKeepFocus's consoles_gen check).

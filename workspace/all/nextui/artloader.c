@@ -5,6 +5,8 @@
 #include "artloader.h"
 #include "menuart.h"
 
+#include "defines.h"
+
 #include <string.h>
 
 #define ART_JOBS 96 // MenuArt's slots (menuart.c): a warm-up of every logo in a tab still fits
@@ -15,7 +17,7 @@ typedef enum { JOB_FREE = 0,
 			   JOB_READY } JobState;
 
 typedef struct {
-	char file[64];
+	char file[MAX_PATH];
 	int box_w, box_h, prio;
 	JobState state;
 	bool dropped; // cleared while decoding: free the result instead of handing it over
@@ -48,7 +50,7 @@ static int workerMain(void* arg) {
 			continue;
 		}
 		next->state = JOB_WORKING;
-		char file[64];
+		char file[MAX_PATH];
 		snprintf(file, sizeof(file), "%s", next->file);
 		int w = next->box_w, h = next->box_h;
 		SDL_UnlockMutex(lock);

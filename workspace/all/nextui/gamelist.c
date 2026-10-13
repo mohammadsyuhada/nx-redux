@@ -1250,7 +1250,8 @@ static void artFetchLanded(const char* rom, const char* out_png) {
 // Delete Rom: remove the deleted game's art, every picture the scraper writes and the lists read
 // (<dir>/.media/<variant>/<stem>.png and the root <dir>/.media/<stem>.png, and a .jpg/.jpeg of each). art_rom is the ROM file, or a folder game's
 // folder (its art is named after the folder, beside it). Exact paths only: another game whose name starts the same keeps
-// its art, and the console's own background (.media/bg.png) is never a game's. Saves and states are the player's: kept.
+// its art, and the console's own background and logo (.media/bg.png, logo.png) are never a game's. Saves and states
+// are the player's: kept.
 static void deleteGameArt(const char* art_rom) {
 	static const char* variants[] = {NULL, "screenshot", "boxart", "boxart2d", "mix", "wheel"};
 	for (int i = 0; i < (int)(sizeof(variants) / sizeof(variants[0])); i++) {
@@ -2892,7 +2893,8 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		const char* slash = strrchr(entry->path, '/');
 		const char* folder = slash ? slash + 1 : entry->path;
 		const char* pad_id = Pad_idForFolder(folder);
-		const char* logo_id = MenuLogo_idForFolder(folder);
+		char logo[MAX_PATH];
+		const char* logo_file = MenuLogo_fileFor(entry->path, logo, sizeof(logo));
 		// Both are GPU sprites under the screen (PLAT_spriteAddUnder), seen through its clear body under the rows and
 		// dimmed by the hint bar's scrim where they reach into it, and both decode on the art loader's thread: a step
 		// never waits on a PNG, and a pad still decoding draws nothing (not the logo) until it lands
@@ -2904,11 +2906,8 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		SDL_Texture* tex = pad ? PLAT_textureForSurface(pad) : NULL;
 		if (tex) // baked at its 35%, placed and rotated for this screen
 			PLAT_spriteAddUnder(tex, NULL, &(SDL_Rect){pad_x, pad_y, pad->w, pad->h}, 255, NULL);
-		else if (!pad_pending && logo_id) {
-			char file[64];
-			snprintf(file, sizeof(file), "menu_logo_%s.png", logo_id);
-			list_art_waiting = listLogoSprite(screen, file, shownListTop(), rows_layout.rows * row_h);
-		}
+		else if (!pad_pending && logo_file)
+			list_art_waiting = listLogoSprite(screen, logo_file, shownListTop(), rows_layout.rows * row_h);
 	} else if (home_list && Home_listToolIcon()) {
 		// Home's List on a tool: its icon large and dim on the right, as a console's logo
 		list_art_waiting = listLogoSprite(screen, Home_listToolIcon(), shownListTop(), rows_layout.rows * row_h);
