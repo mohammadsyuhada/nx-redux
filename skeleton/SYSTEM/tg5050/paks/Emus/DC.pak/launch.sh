@@ -10,11 +10,6 @@ ROM="$1"
 HOME="$USERDATA_PATH"
 cd "$HOME"
 
-# First minarch launch of a game: carry the standalone flycast memory card,
-# console settings and arcade saves over (copies, never moves).
-. "$CORES_PATH/nx_dc_saves.sh"
-nx_dc_seed_saves "$ROM"
-
 # Netplay launch (Y / "Launch with Netplay"): the wizard, the host's saves and
 # the GGPO session for the core; a no-op for a plain launch
 . "$CORES_PATH/nx_dc_netplay.sh"

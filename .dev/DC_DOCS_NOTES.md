@@ -27,17 +27,14 @@ yet**; the switch ships together with netplay (sub-project 4). Until then the cu
   - Card writes are flushed immediately, so a crash or forced quit no longer corrupts the card.
     (Standalone and plain upstream flycast could leave a half-written card.)
   - Renaming a ROM file orphans its card (as with any save).
-  - **Carried over from standalone** *(built, sub-project 3)*: on a game's first launch, its card starts as a copy of
-    standalone's shared card (`.userdata/shared/DC-flycast/data/flycast/vmu_save_A1.bin`), so existing progress is kept.
-    Also copied once when absent: console settings/clock (`dc_nvmem.bin`) and the second slot's card (`vmu_save_A2.bin`) to
-    `Bios/DC/`; arcade settings and high scores (`<rom>.zip.nvmem`/`.nvmem2`/`.eeprom`) to `Saves/DC/reicast/`.
-    The standalone files are never changed or deleted (they stay as a backup).
+  - **Not carried over automatically** (the per-launch copy, `nx_dc_saves.sh`, was removed 2026-10-13: a check on every
+    launch for a one-time step). Players copy a shared card (standalone's
+    `.userdata/shared/DC-flycast/data/flycast/vmu_save_A1.bin`, or RetroArch's `vmu_save_A1.bin`) to
+    `Saves/DC/<rom name>.A1.bin` per game by hand; the docs page "Bringing in an existing card" says how.
   - **Save states are not carried over** (different emulator version and format). Old standalone states stay on the card
     but can't be loaded; players should save in-game on the card before updating if they rely on states.
   - A game that never saved on the standalone card shows its "no save file" / create prompt as usual (e.g. Crazy Taxi 2).
-  - Each copy happens **once**. To start a game with an empty card (or if its copy of an old, nearly full shared card has
-    no room), delete `Saves/DC/<rom name>.A1.bin`: the next launch gets a fresh card and the old one is not copied back.
-    A card already in `Saves/DC/` before the first launch (e.g. copied from NX Redux Mobile) is kept.
+  - To start a game with an empty card, delete `Saves/DC/<rom name>.A1.bin`: the next launch gets a fresh card.
   - The standalone data folder `.userdata/shared/DC-flycast/` is kept for good, not cleaned up (it is small; minarch's
     Dreamcast save states also live in that folder).
 - **BIOS** *(built, sub-project 3)*
