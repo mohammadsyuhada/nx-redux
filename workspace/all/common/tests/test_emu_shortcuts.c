@@ -49,6 +49,11 @@ int main(void) {
 	assert(EmuShortcuts_labelIndex("MENU+UP") == SHORTCUT_BUTTON_COUNT + 1);
 	assert(EmuShortcuts_labelIndex("MENU+R4") == SHORTCUT_LABEL_COUNT - 1);
 	assert(EmuShortcuts_labelIndex("MENU+FOO") == -1);
+	// minarch's built-in Game Switcher combo is the one reserved label
+	assert(SHORTCUT_LABEL_MENU_SELECT == EmuShortcuts_labelIndex("MENU+SELECT"));
+	assert(EmuShortcuts_isReserved(EmuShortcuts_labelIndex("MENU+SELECT")));
+	assert(!EmuShortcuts_isReserved(EmuShortcuts_labelIndex("MENU+START")));
+	assert(!EmuShortcuts_isReserved(EmuShortcuts_labelIndex("SELECT")));
 
 	// label <-> (local BTN_ID, MENU modifier)
 	int local, mod;

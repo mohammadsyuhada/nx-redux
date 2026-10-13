@@ -1504,6 +1504,8 @@ static int shortcut_get(int id) {
 static void shortcut_set(int id, int label) {
 	if (label < 0 || label >= SHORTCUT_LABEL_COUNT)
 		label = 0;
+	if (EmuShortcuts_isReserved(label)) // LEFT/RIGHT step past it the way they came
+		label = (label > shortcut_labels[id] ? label + 1 : label - 1 + SHORTCUT_LABEL_COUNT) % SHORTCUT_LABEL_COUNT;
 	if (shortcut_labels[id] == label)
 		return;
 	shortcut_labels[id] = label;
@@ -1522,6 +1524,7 @@ static void shortcut_capture(int id) {
 	PAD_reset(); // the A that opened the capture is still down
 	uint32_t start = SDL_GetTicks();
 	int label = -1;
+	int reserved = 0; // MENU+SELECT was pressed: say why it didn't bind and keep waiting
 	while (!app_quit) {
 		GFX_startFrame();
 		PAD_poll();
@@ -1535,6 +1538,11 @@ static void shortcut_capture(int id) {
 				break;
 			}
 		}
+		if (EmuShortcuts_isReserved(label)) {
+			label = -1;
+			reserved = 1;
+			start = SDL_GetTicks(); // a fresh countdown for the next try
+		}
 		if (label >= 0)
 			break;
 
@@ -1544,8 +1552,11 @@ static void shortcut_capture(int id) {
 
 		char text[256];
 		snprintf(text, sizeof(text),
-				 "%s\n\nPress a button, or hold MENU\nand press a button.\n\n%u",
-				 shortcut_names[id], (unsigned)((SHORTCUT_CAPTURE_MS - elapsed + 999) / 1000));
+				 "%s\n\n%s\n\n%u",
+				 shortcut_names[id],
+				 reserved ? "MENU+SELECT opens the Game Switcher.\nPress another button."
+						  : "Press a button, or hold MENU\nand press a button.",
+				 (unsigned)((SHORTCUT_CAPTURE_MS - elapsed + 999) / 1000));
 		GFX_clear(g_screen);
 		UI_renderMenuBar(g_screen, "Settings | Emulator Shortcuts");
 		GFX_blitMessage(font.small, text, g_screen,
@@ -2227,7 +2238,7 @@ static void build_menu_tree(const DeviceInfo* dev) {
 			continue;
 		const ShortcutRow* row = &shortcut_rows[i];
 		const char* desc = i == SHORTCUT_TOGGLE_DPAD_JOYSTICK
-							   ? "D-pad moves the left stick until pressed again (off at every launch).\nA: press the button (or MENU+button) to use. X: clear."
+							   ? "D-pad moves the left stick until pressed again.\nA: press the button (or MENU+button) to use. X: clear."
 							   : "In-game shortcut for every console.\nA: press the button (or MENU+button) to use. X: clear.";
 		shortcut_items[idx] = (SettingItem)ITEM_CYCLE_INIT(
 			shortcut_names[i], desc,

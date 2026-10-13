@@ -85,6 +85,13 @@ static inline void EmuShortcuts_fromLabel(int label, int* local, int* mod) {
 	}
 }
 
+// MENU+SELECT is minarch's built-in "save and open the Game Switcher" combo
+// (ma_input.c), checked before any shortcut, so it can't be bound.
+#define SHORTCUT_LABEL_MENU_SELECT (1 + 9 + SHORTCUT_BUTTON_COUNT) // BTN_ID_SELECT = 9
+static inline int EmuShortcuts_isReserved(int label) {
+	return label == SHORTCUT_LABEL_MENU_SELECT;
+}
+
 // "<dir>/minarch-shortcuts[-<device_tag>].cfg"; returns 0 when it does not fit
 int EmuShortcuts_getPath(char* out, size_t size, const char* dir, const char* device_tag);
 // Sets labels[] for every "bind <known name> = <label>" line in text; other
