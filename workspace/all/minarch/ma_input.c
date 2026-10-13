@@ -80,6 +80,55 @@ static int Input_positionalBtn(int btn) {
 	}
 }
 
+// Shortcuts that save, load or reset the core run after core.run() returns,
+// not from the input callback: mupen64plus-next polls input on its emulation
+// coroutine, and its retro_serialize() co_switches to that same coroutine
+// until the save is done, so a save from in here never returns.
+#define DEFERRED_MENU_SELECT SHORTCUT_COUNT // the built-in MENU+SELECT Game Switcher combo
+static int deferred_shortcut = -1;
+
+void Input_runDeferredShortcut(void) {
+	int i = deferred_shortcut;
+	if (i < 0)
+		return;
+	deferred_shortcut = -1;
+	switch (i) {
+	case SHORTCUT_SAVE_STATE:
+		newScreenshot = 1;
+		Menu_saveState();
+		break;
+	case SHORTCUT_LOAD_STATE:
+		Menu_loadState();
+		break;
+	case SHORTCUT_UNDO_LOAD_STATE:
+		Menu_undoLoadState();
+		break;
+	case SHORTCUT_RESET_GAME:
+		if (!Multiplayer_isActive()) // a reset on one side desyncs the session
+			Core_reset();
+		break;
+	case SHORTCUT_SAVE_QUIT:
+		Netplay_quitAll();
+		newScreenshot = 1;
+		quit = 1;
+		Menu_saveState();
+		break;
+	case SHORTCUT_GAMESWITCHER:
+	case DEFERRED_MENU_SELECT:
+		Netplay_quitAll();
+		newScreenshot = 1;
+		quit = 1;
+		if (i == DEFERRED_MENU_SELECT)
+			Present_stop(); // the save state reads the frame back
+		Menu_saveState();
+		if (prefixMatch(SDCARD_PATH, game.path))
+			putFile(GAME_SWITCHER_PERSIST_PATH, game.path + strlen(SDCARD_PATH));
+		if (i == DEFERRED_MENU_SELECT)
+			GFX_clear(screen);
+		break;
+	}
+}
+
 void Input_beginFrame(void) {
 	polled_this_frame = 0;
 }
@@ -100,14 +149,7 @@ void input_poll_callback(void) {
 	}
 	if (PAD_isPressed(BTN_MENU) && PAD_isPressed(BTN_SELECT)) {
 		ignore_menu = 1;
-		newScreenshot = 1;
-		Netplay_quitAll();
-		quit = 1;
-		Present_stop(); // the save state reads the frame back
-		Menu_saveState();
-		if (prefixMatch(SDCARD_PATH, game.path))
-			putFile(GAME_SWITCHER_PERSIST_PATH, game.path + strlen(SDCARD_PATH));
-		GFX_clear(screen);
+		deferred_shortcut = DEFERRED_MENU_SELECT;
 	}
 
 	rewind_pressed = 0;
@@ -223,35 +265,15 @@ void input_poll_callback(void) {
 			} else if (PAD_justPressed(btn)) {
 				switch (i) {
 				case SHORTCUT_SAVE_STATE:
-					newScreenshot = 1;
-					Menu_saveState();
-					break;
 				case SHORTCUT_LOAD_STATE:
-					Menu_loadState();
-					break;
 				case SHORTCUT_UNDO_LOAD_STATE:
-					Menu_undoLoadState();
+				case SHORTCUT_RESET_GAME:
+				case SHORTCUT_SAVE_QUIT:
+				case SHORTCUT_GAMESWITCHER:
+					deferred_shortcut = i; // Input_runDeferredShortcut, after core.run()
 					break;
 				case SHORTCUT_SCREENSHOT:
 					Menu_screenshot();
-					break;
-				case SHORTCUT_RESET_GAME:
-					if (!Multiplayer_isActive()) // a reset on one side desyncs the session
-						Core_reset();
-					break;
-				case SHORTCUT_SAVE_QUIT:
-					Netplay_quitAll();
-					newScreenshot = 1;
-					quit = 1;
-					Menu_saveState();
-					break;
-				case SHORTCUT_GAMESWITCHER:
-					Netplay_quitAll();
-					newScreenshot = 1;
-					quit = 1;
-					Menu_saveState();
-					if (prefixMatch(SDCARD_PATH, game.path))
-						putFile(GAME_SWITCHER_PERSIST_PATH, game.path + strlen(SDCARD_PATH));
 					break;
 				case SHORTCUT_CYCLE_SCALE:
 					screen_scaling = (screen_scaling + 1) % config.frontend.options[FE_OPT_SCALING].count;

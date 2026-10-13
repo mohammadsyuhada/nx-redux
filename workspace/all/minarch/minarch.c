@@ -427,6 +427,7 @@ int main(int argc, char* argv[]) {
 		Netplay_setLocalAnalog(sticks);
 		if (!Netplay_update((uint16_t)Input_getButtons(), core.serialize_size, core.serialize, core.unserialize)) {
 			input_poll_callback();
+			Input_runDeferredShortcut();
 			continue;
 		}
 
@@ -435,6 +436,7 @@ int main(int argc, char* argv[]) {
 		updateLinkCpuBoost();
 		if (GBALink_peerPaused()) { // the other player's menu is open: wait with them (frozen frame)
 			input_poll_callback();
+			Input_runDeferredShortcut();
 			SDL_Delay(10);
 			continue;
 		}
@@ -452,6 +454,7 @@ int main(int argc, char* argv[]) {
 		} else {
 			run_frame();
 		}
+		Input_runDeferredShortcut(); // save/load/reset shortcuts: never from inside core.run()
 		Core_applyPendingAV();
 		if (Netplay_isActive()) {
 			Netplay_postFrame();
