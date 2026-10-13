@@ -156,7 +156,7 @@ static void on_reset_account(void) {
 
 static void on_reset_all(void) {
 	if (ra_confirm("Erase all achievement data?",
-				   "Removes everything including cached games and badges. Redownloaded on next online play.")) {
+				   "Removes everything including cached game data. Redownloaded on next online play. Badges in rom folders are kept.")) {
 		RATReset_clearAll();
 	}
 }
@@ -329,7 +329,7 @@ static void build_menu_tree(void) {
 		"Reset account data", "Clear login and progress. Keeps game data.",
 		on_reset_account);
 	ra_settings_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
-		"Erase all achievement data", "Remove everything, including games and badges.",
+		"Erase all achievement data", "Remove everything, including cached game data.",
 		on_reset_all);
 	ra_settings_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
 		"Reset settings to defaults", "Restore the options above to their default values.",

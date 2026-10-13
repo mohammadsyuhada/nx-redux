@@ -76,8 +76,7 @@
 // is simply installed != latest - the catalog itself no longer pins
 // versions.
 //
-// The state dir is SHARED_USERDATA_PATH "/xtras", resolved via snprintf
-// (same technique as ratools' rat_badge_path()).
+// The state dir is SHARED_USERDATA_PATH "/xtras", resolved via snprintf.
 static void xtras_state_dir(char* buf, size_t n) {
 	snprintf(buf, n, "%s/xtras", SHARED_USERDATA_PATH);
 }
