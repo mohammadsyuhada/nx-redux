@@ -12,7 +12,9 @@
 // Badge size for notifications (will be scaled)
 #define RA_BADGE_NOTIFY_SIZE 24 // Size for notification icons
 
-// Cache directory: RA_BADGE_CACHE_DIR (ra_paths.h), shared by every account
+// Cache directory: RA_BADGE_CACHE_DIR (ra_paths.h), shared by every account,
+// one folder per game id (ra_badge_path.h). Every call takes the RA game id
+// the badge belongs to; game id 0 has no badges.
 #include "ra_paths.h"
 
 // Badge state
@@ -45,11 +47,10 @@ void RA_Badges_clearMemory(void);
 /**
  * Pre-download all badges for the current game's achievements.
  * Should be called after game load when achievement list is available.
- * Returns immediately: a worker thread checks which badges are already on
- * disk (skipped entirely when the game's badge-set marker covers them) and
- * queues downloads for the missing ones.
+ * Returns immediately: a worker thread checks which badges are already in
+ * the game's badge folder and queues downloads for the missing ones.
  *
- * @param game_id RetroAchievements game ID (keys the badge-set marker)
+ * @param game_id RetroAchievements game ID (the badge folder)
  * @param badge_names Array of achievement badge names (copied)
  * @param count Number of badge names
  */
@@ -62,50 +63,41 @@ void RA_Badges_prefetch(uint32_t game_id, const char** badge_names, size_t count
 void RA_Badges_update(void);
 
 /**
- * Pre-download a single badge asynchronously.
- * 
- * @param badge_name The badge name (e.g., "00234")
- * @param locked Whether to download the locked version
- */
-
-/**
  * Get a badge surface. Returns cached surface or NULL if not available.
  * Downloads the badge if not cached (returns NULL immediately, call again later).
  * 
+ * @param game_id RetroAchievements game ID the badge belongs to (0 = NULL)
  * @param badge_name The badge name (e.g., "00234")
  * @param locked Whether to get the locked version (_lock suffix)
  * @return SDL_Surface* The badge surface, or NULL if not yet cached
  *         Caller does NOT own the surface - do not free it.
  */
-SDL_Surface* RA_Badges_get(const char* badge_name, bool locked);
+SDL_Surface* RA_Badges_get(uint32_t game_id, const char* badge_name, bool locked);
 
 /**
  * Get a badge surface scaled to notification size.
  * 
+ * @param game_id RetroAchievements game ID the badge belongs to (0 = NULL)
  * @param badge_name The badge name (e.g., "00234")
  * @param locked Whether to get the locked version
  * @return SDL_Surface* The scaled badge surface, or NULL if not available
  *         Caller does NOT own the surface - do not free it.
  */
-SDL_Surface* RA_Badges_getNotificationSize(const char* badge_name, bool locked);
+SDL_Surface* RA_Badges_getNotificationSize(uint32_t game_id, const char* badge_name, bool locked);
 
 /**
- * Get the state of a badge (whether it's cached, downloading, etc.)
+ * Get the cache file path for a badge:
+ * RA_BADGE_CACHE_DIR/<game_id>/<badge_name>[_lock].png
  * 
- * @param badge_name The badge name
- * @param locked Whether to check the locked version
- * @return RA_BadgeState The current state
- */
-
-/**
- * Get the cache file path for a badge.
- * 
+ * @param game_id RetroAchievements game ID the badge belongs to
  * @param badge_name The badge name
  * @param locked Whether to get the locked version path
  * @param buffer Output buffer for the path
  * @param buffer_size Size of the output buffer
+ * @return false (buffer empty) for game id 0 or an unusable name
  */
-void RA_Badges_getCachePath(const char* badge_name, bool locked, char* buffer, size_t buffer_size);
+bool RA_Badges_getCachePath(uint32_t game_id, const char* badge_name, bool locked, char* buffer,
+							size_t buffer_size);
 
 /**
  * Build the URL for a badge.

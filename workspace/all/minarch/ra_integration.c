@@ -831,7 +831,7 @@ static void ra_event_handler(const rc_client_event_t* event, rc_client_t* client
 		snprintf(message, sizeof(message), "Achievement Unlocked: %s",
 				 event->achievement->title);
 		// Get the unlocked badge icon (not locked)
-		badge_icon = RA_Badges_getNotificationSize(event->achievement->badge_name, false);
+		badge_icon = RA_Badges_getNotificationSize(RA_getGameId(), event->achievement->badge_name, false);
 		Notification_push(NOTIFICATION_ACHIEVEMENT, message, badge_icon);
 		RA_LOG_INFO("Achievement unlocked: %s (%d points)\n",
 					event->achievement->title, event->achievement->points);
@@ -855,7 +855,7 @@ static void ra_event_handler(const rc_client_event_t* event, rc_client_t* client
 			break;
 		}
 		// Show progress indicator with badge icon
-		badge_icon = RA_Badges_getNotificationSize(event->achievement->badge_name, false);
+		badge_icon = RA_Badges_getNotificationSize(RA_getGameId(), event->achievement->badge_name, false);
 		Notification_showProgressIndicator(
 			event->achievement->title,
 			event->achievement->measured_progress,
@@ -872,7 +872,7 @@ static void ra_event_handler(const rc_client_event_t* event, rc_client_t* client
 			break;
 		}
 		// Update progress indicator with new value
-		badge_icon = RA_Badges_getNotificationSize(event->achievement->badge_name, false);
+		badge_icon = RA_Badges_getNotificationSize(RA_getGameId(), event->achievement->badge_name, false);
 		Notification_showProgressIndicator(
 			event->achievement->title,
 			event->achievement->measured_progress,
@@ -1748,6 +1748,13 @@ bool RA_isGameLoaded(void) {
 
 bool RA_isGameUnknown(void) {
 	return ra_game_unknown;
+}
+
+uint32_t RA_getGameId(void) {
+	if (!ra_client || !ra_game_loaded)
+		return 0;
+	const rc_client_game_t* game = rc_client_get_game_info(ra_client);
+	return game ? game->id : 0;
 }
 
 bool RA_isHardcoreModeActive(void) {

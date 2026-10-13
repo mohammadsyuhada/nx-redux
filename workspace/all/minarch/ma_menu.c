@@ -394,7 +394,7 @@ static int OptionAchievements_showDetail(MenuList* list, int i) {
 			int center_x = detail_canvas->w / 2;
 
 			// Badge icon centered at top
-			SDL_Surface* badge = RA_Badges_get(ach->badge_name, !ach->unlocked);
+			SDL_Surface* badge = RA_Badges_get(RA_getGameId(), ach->badge_name, !ach->unlocked);
 			if (badge) {
 				SDL_Rect badge_src = {0, 0, badge->w, badge->h};
 				SDL_Rect badge_dst = {
@@ -806,7 +806,7 @@ static int OptionAchievements_openMenu(MenuList* list, int i) {
 					text_color = uintToColour(THEME_COLOR5_255);
 
 					// Badge icon inside the white pill
-					SDL_Surface* badge = RA_Badges_get(ach->badge_name, !ach->unlocked);
+					SDL_Surface* badge = RA_Badges_get(RA_getGameId(), ach->badge_name, !ach->unlocked);
 					if (badge) {
 						SDL_Rect badge_src = {0, 0, badge->w, badge->h};
 						SDL_Rect badge_dst = {
@@ -836,7 +836,7 @@ static int OptionAchievements_openMenu(MenuList* list, int i) {
 					int badge_display_size = SCALE1(BUTTON_SIZE - 4);
 
 					// Badge icon
-					SDL_Surface* badge = RA_Badges_get(ach->badge_name, !ach->unlocked);
+					SDL_Surface* badge = RA_Badges_get(RA_getGameId(), ach->badge_name, !ach->unlocked);
 					if (badge) {
 						SDL_Rect badge_src = {0, 0, badge->w, badge->h};
 						SDL_Rect badge_dst = {

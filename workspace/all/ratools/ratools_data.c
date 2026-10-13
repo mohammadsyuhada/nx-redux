@@ -228,6 +228,7 @@ int RAT_listGames(RAT_Game** out_games) {
 		RAT_Game* g = &games[count];
 		memset(g, 0, sizeof(*g));
 		snprintf(g->hash, sizeof(g->hash), "%s", ent->d_name);
+		g->game_id = sets.id;
 		g->session_game_id = sets.session_game_id;
 		snprintf(g->title, sizeof(g->title), "%s", sets.title ? sets.title : "(unknown)");
 
@@ -395,6 +396,7 @@ bool RAT_progressForHash(const char* hash, int* unlocked, int* total, char* next
 	RAT_Game game;
 	memset(&game, 0, sizeof(game));
 	snprintf(game.hash, sizeof(game.hash), "%s", hash);
+	game.game_id = sets.id;
 	game.session_game_id = sets.session_game_id;
 	rc_api_destroy_fetch_game_sets_response(&sets);
 

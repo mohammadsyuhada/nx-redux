@@ -11,6 +11,7 @@
 #include "api.h"
 #include "defines.h"
 #include "ra_offline.h" // RA_Offline_getGameRomPath
+#include "ra_badge_path.h"
 #include "ra_paths.h"
 #include "ratools_data.h"
 #include "ui_buttonhintbar.h"
@@ -22,12 +23,9 @@
 #include "ui_font.h"
 #include "ui_list_layout.h"
 
-static void rat_badge_path(const char* badge_name, bool locked, char* buf, size_t n) {
-	// naming matches ra_badges.c: <name>.png / <name>_lock.png
-	if (locked)
-		snprintf(buf, n, "%s/%s_lock.png", RA_BADGE_CACHE_DIR, badge_name);
-	else
-		snprintf(buf, n, "%s/%s.png", RA_BADGE_CACHE_DIR, badge_name);
+// the game's badge folder (ra_badge_path.h); empty for game id 0, which loads no image
+static void rat_badge_path(uint32_t game_id, const char* badge_name, bool locked, char* buf, size_t n) {
+	RA_BadgePath_file(RA_BADGE_CACHE_DIR, game_id, badge_name, locked, buf, n);
 }
 
 // Resolve a game's box art from its recorded rom path, mirroring nxredux's
@@ -96,8 +94,8 @@ static int rat_draw_lines(SDL_Surface* screen, TTF_Font* f, char** lines, int co
 // 96 dp; only if even a 40 dp badge doesn't fit does the page scroll (UP/DOWN). LEFT/RIGHT flips between
 // achievements, B goes back. All from the offline cache. Returns the achievement shown last (the list
 // selects it).
-static int rat_show_achievement_detail(SDL_Surface* screen, RAT_Achievement* achs, int count, int start,
-									   const char* title, const char* suffix) {
+static int rat_show_achievement_detail(SDL_Surface* screen, uint32_t game_id, RAT_Achievement* achs, int count,
+									   int start, const char* title, const char* suffix) {
 	int i = start;
 	int offset = 0; // scroll offset when the column doesn't fit
 	bool dirty = true;
@@ -205,10 +203,10 @@ static int rat_show_achievement_detail(SDL_Surface* screen, RAT_Achievement* ach
 			SDL_SetClipRect(screen, &(SDL_Rect){0, band_top, screen->w, band_h});
 
 			char bp[512];
-			rat_badge_path(a->badge_name, a->state == RAT_ACH_LOCKED, bp, sizeof(bp));
+			rat_badge_path(game_id, a->badge_name, a->state == RAT_ACH_LOCKED, bp, sizeof(bp));
 			SDL_Surface* badge = UI_loadRoundedImage(bp, badge_size, badge_size / 2);
 			if (!badge) {
-				rat_badge_path(a->badge_name, a->state != RAT_ACH_LOCKED, bp, sizeof(bp));
+				rat_badge_path(game_id, a->badge_name, a->state != RAT_ACH_LOCKED, bp, sizeof(bp));
 				badge = UI_loadRoundedImage(bp, badge_size, badge_size / 2);
 			}
 			if (badge) {
@@ -299,10 +297,10 @@ static void rat_show_achievements(SDL_Surface* screen, const RAT_Game* game) {
 		for (int i = 0; i < count && badges; i++) {
 			char p[512];
 			// unlocked/pending show the colored badge, locked the grey one
-			rat_badge_path(achs[i].badge_name, achs[i].state == RAT_ACH_LOCKED, p, sizeof(p));
+			rat_badge_path(game->game_id, achs[i].badge_name, achs[i].state == RAT_ACH_LOCKED, p, sizeof(p));
 			badges[i] = rat_load_thumb(p, thumb_size);
 			if (!badges[i]) { // fall back to the other variant if only one is cached
-				rat_badge_path(achs[i].badge_name, achs[i].state != RAT_ACH_LOCKED, p, sizeof(p));
+				rat_badge_path(game->game_id, achs[i].badge_name, achs[i].state != RAT_ACH_LOCKED, p, sizeof(p));
 				badges[i] = rat_load_thumb(p, thumb_size);
 			}
 		}
@@ -338,7 +336,8 @@ static void rat_show_achievements(SDL_Surface* screen, const RAT_Game* game) {
 			quit = true;
 		if (PAD_justPressed(BTN_A) && count > 0) {
 			// LEFT/RIGHT on the page moves the list too: B returns to the last viewed
-			selected = rat_show_achievement_detail(screen, achs, count, selected, header_title, header_count);
+			selected = rat_show_achievement_detail(screen, game->game_id, achs, count, selected, header_title,
+												   header_count);
 			PAD_reset(); // the B that closed the detail view is still latched
 			dirty = true;
 		}

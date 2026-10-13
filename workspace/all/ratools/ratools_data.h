@@ -27,6 +27,7 @@ typedef struct {
 
 typedef struct {
 	char hash[64];
+	uint32_t game_id; // the hash's RA game id (keys its badge folder)
 	uint32_t session_game_id;
 	char title[128];
 	int total;

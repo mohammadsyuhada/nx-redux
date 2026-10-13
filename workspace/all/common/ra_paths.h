@@ -3,13 +3,14 @@
 
 // Where RetroAchievements data lives on the card.
 //
-// Account data (login, per-game sessions, the offline unlock journal, mutes,
-// badge-set markers) stays in RA_USER_DIR. Game data that is the same for
+// Account data (login, per-game sessions, the offline unlock journal, mutes)
+// stays in RA_USER_DIR. Game data that is the same for
 // every account - cached achievement definitions, rom.txt records and badge
 // images - lives under Roms, shared with the Android app on the same card:
 //
 //   Roms/.retroachievements/games/<hash>/{gameid,sets}.json, rom.txt
-//   Roms/.retroachievements/badges/<name>.png, <name>_lock.png
+//   Roms/.retroachievements/badges/<game_id>/<name>.png, <name>_lock.png
+//                                  (ra_badge_path.h)
 //   Roms/<Folder>/.retroachievements/hashes.json   (ra_hash_cache.h)
 
 #include "defines.h"

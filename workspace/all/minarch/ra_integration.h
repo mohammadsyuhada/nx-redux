@@ -84,6 +84,12 @@ bool RA_isGameLoaded(void);
 bool RA_isGameUnknown(void);
 
 /**
+ * RetroAchievements game id of the loaded game (keys its badge folder).
+ * 0 when no game is loaded.
+ */
+uint32_t RA_getGameId(void);
+
+/**
  * Check if hardcore mode is currently active.
  * Use this to block save states, cheats, etc.
  * @return true if hardcore mode is active

@@ -21,7 +21,7 @@
 #include "ra_hash_cdreader.h"
 #include "ra_offline.h"
 #include "ra_offline_net.h"
-#include "ra_badge_sets.h"
+#include "ra_badge_path.h"
 #include "ra_hash_cache.h"
 #include "ra_paths.h"
 #include "ui_buttonhintbar.h"
@@ -259,15 +259,13 @@ static char* rat_post_and_cache(rc_api_request_t* request, size_t* out_len) {
 }
 
 // Returns true when the badge is on disk afterwards (cached or downloaded)
-static bool rat_download_badge(const char* url, const char* badge_name, bool locked) {
-	if (!url || !*url || !badge_name || !*badge_name)
+// in the game's badge folder (ra_badge_path.h, same files as minarch's ra_badges.c)
+static bool rat_download_badge(uint32_t game_id, const char* url, const char* badge_name, bool locked) {
+	if (!url || !*url)
 		return false;
 	char path[512];
-	// naming matches ra_badges.c: <name>.png / <name>_lock.png
-	if (locked)
-		snprintf(path, sizeof(path), "%s/%s_lock.png", RA_BADGE_CACHE_DIR, badge_name);
-	else
-		snprintf(path, sizeof(path), "%s/%s.png", RA_BADGE_CACHE_DIR, badge_name);
+	if (!RA_BadgePath_file(RA_BADGE_CACHE_DIR, game_id, badge_name, locked, path, sizeof(path)))
+		return false;
 	struct stat st;
 	if (stat(path, &st) == 0 && st.st_size > 0)
 		return true; // already cached
@@ -344,16 +342,14 @@ static void rat_pf_message(SDL_Surface* screen, const char* line1, const char* l
 	}
 }
 
-// Download any badge files still missing for a parsed sets response
-// (rat_download_badge skips files already on disk). Once every badge is on
-// disk, writes the game's badge-set marker so minarch skips the per-file
-// check at launch. Returns false if the user cancelled with B mid-way.
+// Download any badge files still missing for a parsed sets response into
+// the game's badge folder (rat_download_badge skips files already on disk).
+// Returns false if the user cancelled with B mid-way.
 static bool rat_download_set_badges(SDL_Surface* screen,
 									const rc_api_fetch_game_sets_response_t* sets,
 									const char* label, int done, int total) {
-	const char* ra_dir = RA_USER_DIR; // badge-set markers (ra_badge_sets.h)
-	// a partial set must not keep an older marker alive
-	RA_BadgeSets_invalidate(ra_dir, sets->id);
+	if (!RA_BadgePath_ensureDir(RA_BADGE_CACHE_DIR, sets->id))
+		return true; // game id 0 (or no folder): nothing to store badges in
 
 	int badge_total = 0;
 	for (uint32_t s = 0; s < sets->num_sets; s++)
@@ -364,23 +360,14 @@ static bool rat_download_set_badges(SDL_Surface* screen,
 	snprintf(sub, sizeof(sub), "%s - badge 0/%d", label, badge_total);
 	rat_pf_render(screen, "Downloading badges", sub, done, total);
 
-	const char** names = badge_total > 0 ? malloc((size_t)(badge_total / 2) * sizeof(const char*)) : NULL;
-	size_t name_count = 0;
-	bool all_ok = true;
 	for (uint32_t s = 0; s < sets->num_sets; s++) {
 		for (uint32_t a = 0; a < sets->sets[s].num_achievements; a++) {
 			PAD_poll();
-			if (PAD_justPressed(BTN_B)) {
-				free(names);
+			if (PAD_justPressed(BTN_B))
 				return false;
-			}
 			const rc_api_achievement_definition_t* def = &sets->sets[s].achievements[a];
-			bool ok = rat_download_badge(def->badge_url, def->badge_name, false);
-			ok = rat_download_badge(def->badge_locked_url, def->badge_name, true) && ok;
-			if (!ok)
-				all_ok = false;
-			else if (names)
-				names[name_count++] = def->badge_name;
+			rat_download_badge(sets->id, def->badge_url, def->badge_name, false);
+			rat_download_badge(sets->id, def->badge_locked_url, def->badge_name, true);
 			badge_done += 2;
 			// refresh every few files so large sets visibly progress
 			// (cheap vs the ~0.5s per actual download)
@@ -390,9 +377,6 @@ static bool rat_download_set_badges(SDL_Surface* screen,
 			}
 		}
 	}
-	if (all_ok && names && name_count > 0)
-		RA_BadgeSets_write(ra_dir, sets->id, names, name_count);
-	free(names);
 	return true;
 }
 
@@ -414,7 +398,8 @@ void RATPrefetch_run(SDL_Surface* screen) {
 	}
 
 	// badges directory may not exist on a fresh card (its parent
-	// Roms/.retroachievements was created by RA_Offline_init() in main())
+	// Roms/.retroachievements was created by RA_Offline_init() in main());
+	// rat_download_set_badges makes each game's folder
 	mkdir(RA_SHARED_DIR, 0755);
 	mkdir(RA_BADGE_CACHE_DIR, 0755);
 

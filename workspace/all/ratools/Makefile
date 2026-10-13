@@ -31,7 +31,7 @@ SOURCE = ratools.c ratools_data.c ratools_browser.c ratools_sync.c ratools_prefe
          $(COMMON_PATH)/utils.c $(COMMON_PATH)/api.c $(COMMON_PATH)/text_shape.c $(COMMON_PATH)/audio_manager.c \
          $(COMMON_PATH)/config.c $(COMMON_PATH)/scaler.c \
          $(COMMON_PATH)/http.c $(COMMON_PATH)/ra_auth.c $(COMMON_PATH)/wifi.c \
-         $(COMMON_PATH)/ra_offline.c $(COMMON_PATH)/ra_offline_net.c $(COMMON_PATH)/ra_badge_sets.c \
+         $(COMMON_PATH)/ra_offline.c $(COMMON_PATH)/ra_offline_net.c $(COMMON_PATH)/ra_badge_path.c \
          $(COMMON_PATH)/ra_hash_cache.c $(COMMON_PATH)/cjson/cJSON.c \
          $(COMMON_PATH)/ra_hash_cdreader.c ../minarch/chd_reader.c \
          $(COMMON_PATH)/display_helper.c \

@@ -3,7 +3,7 @@
 #include "defines.h"
 #include "api.h"
 #include "notification.h"
-#include "ra_badge_sets.h"
+#include "ra_badge_path.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,6 +39,7 @@
  *****************************************************************************/
 
 typedef struct {
+	uint32_t game_id;
 	char badge_name[MAX_BADGE_NAME];
 	bool locked;
 	RA_BadgeState state;
@@ -51,6 +52,7 @@ typedef struct {
  *****************************************************************************/
 
 typedef struct {
+	uint32_t game_id;
 	char badge_name[MAX_BADGE_NAME];
 	bool locked;
 } QueuedDownload;
@@ -79,8 +81,8 @@ typedef enum {
 static ProgressState progress_state = PROGRESS_IDLE;
 
 // Prefetch worker: checks which badges are already on disk off the main
-// thread (a cold lookup in a large badge directory costs ~5-12 ms each on
-// exFAT, seconds for a big set) and queues only the missing ones.
+// thread (one stat per file in the game's badge folder, a cold card still
+// costs a few ms each) and queues only the missing ones.
 typedef struct {
 	uint32_t game_id;
 	size_t count;
@@ -89,7 +91,6 @@ typedef struct {
 static SDL_Thread* prefetch_thread = NULL;
 static SDL_atomic_t prefetch_cancel;
 static bool prefetch_running = false; // guarded by badge_mutex
-static uint32_t current_game_id = 0;
 
 // Download queue for rate limiting
 typedef struct {
@@ -107,10 +108,10 @@ static DownloadQueueState download_queue = {0};
  *****************************************************************************/
 
 // Find or create cache entry for a badge
-static BadgeCacheEntry* find_or_create_entry(const char* badge_name, bool locked) {
+static BadgeCacheEntry* find_or_create_entry(uint32_t game_id, const char* badge_name, bool locked) {
 	// Search existing entries
 	for (int i = 0; i < badge_cache_count; i++) {
-		if (badge_cache[i].locked == locked &&
+		if (badge_cache[i].locked == locked && badge_cache[i].game_id == game_id &&
 			strcmp(badge_cache[i].badge_name, badge_name) == 0) {
 			return &badge_cache[i];
 		}
@@ -124,6 +125,7 @@ static BadgeCacheEntry* find_or_create_entry(const char* badge_name, bool locked
 
 	BadgeCacheEntry* entry = &badge_cache[badge_cache_count++];
 	memset(entry, 0, sizeof(BadgeCacheEntry));
+	entry->game_id = game_id;
 	strncpy(entry->badge_name, badge_name, MAX_BADGE_NAME - 1);
 	entry->locked = locked;
 	entry->state = RA_BADGE_STATE_UNKNOWN;
@@ -131,16 +133,11 @@ static BadgeCacheEntry* find_or_create_entry(const char* badge_name, bool locked
 	return entry;
 }
 
-// Create cache directory if it doesn't exist
+// Create the shared badge dir if it doesn't exist (game folders are made
+// per game, see RA_BadgePath_ensureDir)
 static void ensure_cache_dir(void) {
-	// account dir (badge-set markers) and the shared badge dir
-	mkdir(RA_USER_DIR, 0755);
 	mkdir(RA_SHARED_DIR, 0755);
 	mkdir(RA_BADGE_CACHE_DIR, 0755);
-}
-
-static void get_ra_dir(char* buf, size_t n) {
-	snprintf(buf, n, "%s", RA_USER_DIR);
 }
 
 // Check if cache file exists
@@ -150,8 +147,10 @@ static bool cache_file_exists(const char* path) {
 }
 
 // Save HTTP response data to cache file
-static bool save_to_cache(const char* path, const char* data, size_t size) {
+static bool save_to_cache(uint32_t game_id, const char* path, const char* data, size_t size) {
 	FILE* f = fopen(path, "wb");
+	if (!f && RA_BadgePath_ensureDir(RA_BADGE_CACHE_DIR, game_id))
+		f = fopen(path, "wb"); // the game's folder was missing (a badge outside prefetch)
 	if (!f) {
 		BADGE_LOG_ERROR("Failed to open cache file for writing: %s\n", path);
 		return false;
@@ -215,6 +214,7 @@ static SDL_Surface* scale_surface(SDL_Surface* src, int target_size) {
  *****************************************************************************/
 
 typedef struct {
+	uint32_t game_id;
 	char badge_name[MAX_BADGE_NAME];
 	bool locked;
 	char cache_path[MAX_PATH];
@@ -225,13 +225,14 @@ static void process_download_queue(void);
 static void badge_download_callback(HTTP_Response* response, void* userdata);
 
 // Queue a download for later processing (must hold mutex)
-static void queue_download(const char* badge_name, bool locked) {
+static void queue_download(uint32_t game_id, const char* badge_name, bool locked) {
 	if (download_queue.count >= MAX_QUEUED_DOWNLOADS) {
 		BADGE_LOG_WARN("Download queue full, dropping badge %s\n", badge_name);
 		return;
 	}
 
 	QueuedDownload* item = &download_queue.items[download_queue.tail];
+	item->game_id = game_id;
 	strncpy(item->badge_name, badge_name, MAX_BADGE_NAME - 1);
 	item->badge_name[MAX_BADGE_NAME - 1] = '\0';
 	item->locked = locked;
@@ -250,7 +251,7 @@ static bool dequeue_and_start_download(void) {
 	download_queue.count--;
 
 	// Get entry and check if still needs download
-	BadgeCacheEntry* entry = find_or_create_entry(item->badge_name, item->locked);
+	BadgeCacheEntry* entry = find_or_create_entry(item->game_id, item->badge_name, item->locked);
 	if (!entry)
 		return false;
 
@@ -261,17 +262,19 @@ static bool dequeue_and_start_download(void) {
 
 	// Build URL and cache path. No disk check here: whoever queued the badge
 	// already found it missing, and this runs on the main thread and in HTTP
-	// callbacks where a lookup in the badge directory would stall.
+	// callbacks where a disk lookup would stall.
 	char url[512];
 	char cache_path[MAX_PATH];
 	RA_Badges_getUrl(item->badge_name, item->locked, url, sizeof(url));
-	RA_Badges_getCachePath(item->badge_name, item->locked, cache_path, sizeof(cache_path));
+	if (!RA_Badges_getCachePath(item->game_id, item->badge_name, item->locked, cache_path, sizeof(cache_path)))
+		return false;
 
 	// Start download
 	DownloadContext* ctx = (DownloadContext*)malloc(sizeof(DownloadContext));
 	if (!ctx)
 		return false;
 
+	ctx->game_id = item->game_id;
 	strncpy(ctx->badge_name, item->badge_name, MAX_BADGE_NAME - 1);
 	ctx->badge_name[MAX_BADGE_NAME - 1] = '\0';
 	ctx->locked = item->locked;
@@ -304,7 +307,7 @@ static void badge_download_callback(HTTP_Response* response, void* userdata) {
 	// Just save to disk - don't load into memory during prefetch
 	// Images will be loaded lazily when actually needed for display
 	if (response && response->data && response->http_status == 200 && !response->error) {
-		success = save_to_cache(ctx->cache_path, response->data, response->size);
+		success = save_to_cache(ctx->game_id, ctx->cache_path, response->data, response->size);
 		if (!success) {
 			BADGE_LOG_WARN("Failed to save badge %s%s to cache\n",
 						   ctx->badge_name, ctx->locked ? "_lock" : "");
@@ -327,7 +330,7 @@ static void badge_download_callback(HTTP_Response* response, void* userdata) {
 	if (pending_downloads < 0)
 		pending_downloads = 0;
 
-	BadgeCacheEntry* entry = find_or_create_entry(ctx->badge_name, ctx->locked);
+	BadgeCacheEntry* entry = find_or_create_entry(ctx->game_id, ctx->badge_name, ctx->locked);
 	if (entry) {
 		// Mark as cached (on disk) - surfaces will be loaded lazily
 		entry->state = success ? RA_BADGE_STATE_CACHED : RA_BADGE_STATE_FAILED;
@@ -346,11 +349,11 @@ static void badge_download_callback(HTTP_Response* response, void* userdata) {
 }
 
 // Request a badge download - queues if at concurrency limit
-static void start_download(const char* badge_name, bool locked) {
+static void start_download(uint32_t game_id, const char* badge_name, bool locked) {
 	if (!initialized)
 		return;
 
-	BadgeCacheEntry* entry = find_or_create_entry(badge_name, locked);
+	BadgeCacheEntry* entry = find_or_create_entry(game_id, badge_name, locked);
 	if (!entry)
 		return;
 
@@ -362,14 +365,15 @@ static void start_download(const char* badge_name, bool locked) {
 
 	// Check if already cached on disk
 	char cache_path[MAX_PATH];
-	RA_Badges_getCachePath(badge_name, locked, cache_path, sizeof(cache_path));
+	if (!RA_Badges_getCachePath(game_id, badge_name, locked, cache_path, sizeof(cache_path)))
+		return;
 	if (cache_file_exists(cache_path)) {
 		entry->state = RA_BADGE_STATE_CACHED;
 		return;
 	}
 
 	// Queue the download - state will be set when download actually starts
-	queue_download(badge_name, locked);
+	queue_download(game_id, badge_name, locked);
 }
 
 /*****************************************************************************
@@ -438,7 +442,6 @@ void RA_Badges_clearMemory(void) {
 		}
 	}
 	badge_cache_count = 0;
-	current_game_id = 0;
 	if (progress_state == PROGRESS_SHOWN)
 		Notification_hideProgressIndicator();
 	progress_state = PROGRESS_IDLE;
@@ -448,80 +451,57 @@ void RA_Badges_clearMemory(void) {
 }
 
 // Mark a badge found on disk (must hold mutex)
-static void mark_cached(const char* badge_name, bool locked) {
-	BadgeCacheEntry* entry = find_or_create_entry(badge_name, locked);
+static void mark_cached(uint32_t game_id, const char* badge_name, bool locked) {
+	BadgeCacheEntry* entry = find_or_create_entry(game_id, badge_name, locked);
 	if (entry && entry->state != RA_BADGE_STATE_DOWNLOADING)
 		entry->state = RA_BADGE_STATE_CACHED;
 }
 
 static int prefetch_worker(void* data) {
 	PrefetchJob* job = (PrefetchJob*)data;
-	char ra_dir[MAX_PATH];
-	get_ra_dir(ra_dir, sizeof(ra_dir));
+	// the game's folder: downloads land there
+	RA_BadgePath_ensureDir(RA_BADGE_CACHE_DIR, job->game_id);
 
-	const char** names = (const char**)malloc(job->count * sizeof(const char*));
-	if (names) {
-		for (size_t i = 0; i < job->count; i++)
-			names[i] = job->names[i];
-	}
+	int queued = 0;
+	for (size_t i = 0; i < job->count * 2; i++) {
+		if (SDL_AtomicGet(&prefetch_cancel))
+			break;
+		const char* name = job->names[i / 2];
+		bool locked = (i % 2) == 1;
+		char cache_path[MAX_PATH];
+		if (!RA_Badges_getCachePath(job->game_id, name, locked, cache_path, sizeof(cache_path)))
+			continue;
+		bool exists = cache_file_exists(cache_path); // slow part, no lock held
 
-	// Marker hit: every badge of this set was on disk at an earlier launch
-	if (names && RA_BadgeSets_covers(ra_dir, job->game_id, names, job->count)) {
 		SDL_LockMutex(badge_mutex);
-		for (size_t i = 0; i < job->count; i++) {
-			mark_cached(job->names[i], false);
-			mark_cached(job->names[i], true);
+		if (exists) {
+			mark_cached(job->game_id, name, locked);
+		} else {
+			BadgeCacheEntry* entry = find_or_create_entry(job->game_id, name, locked);
+			if (entry && (entry->state == RA_BADGE_STATE_UNKNOWN ||
+						  entry->state == RA_BADGE_STATE_FAILED)) {
+				queue_download(job->game_id, name, locked);
+				process_download_queue();
+				queued++;
+				if (progress_state == PROGRESS_IDLE)
+					progress_state = PROGRESS_WANT_SHOW;
+			}
 		}
 		SDL_UnlockMutex(badge_mutex);
-		BADGE_LOG_DEBUG("Badge set for game %u already cached (marker)\n", job->game_id);
-	} else {
-		bool all_cached = true;
-		int queued = 0;
-		for (size_t i = 0; i < job->count * 2; i++) {
-			if (SDL_AtomicGet(&prefetch_cancel)) {
-				all_cached = false;
-				break;
-			}
-			const char* name = job->names[i / 2];
-			bool locked = (i % 2) == 1;
-			char cache_path[MAX_PATH];
-			RA_Badges_getCachePath(name, locked, cache_path, sizeof(cache_path));
-			bool exists = cache_file_exists(cache_path); // slow part, no lock held
-
-			SDL_LockMutex(badge_mutex);
-			if (exists) {
-				mark_cached(name, locked);
-			} else {
-				all_cached = false;
-				BadgeCacheEntry* entry = find_or_create_entry(name, locked);
-				if (entry && (entry->state == RA_BADGE_STATE_UNKNOWN ||
-							  entry->state == RA_BADGE_STATE_FAILED)) {
-					queue_download(name, locked);
-					process_download_queue();
-					queued++;
-					if (progress_state == PROGRESS_IDLE)
-						progress_state = PROGRESS_WANT_SHOW;
-				}
-			}
-			SDL_UnlockMutex(badge_mutex);
-		}
-		if (all_cached && names)
-			RA_BadgeSets_write(ra_dir, job->game_id, names, job->count);
-		BADGE_LOG_DEBUG("Badge check for game %u done: %d to download\n", job->game_id, queued);
 	}
+	BADGE_LOG_DEBUG("Badge check for game %u done: %d to download\n", job->game_id, queued);
 
 	SDL_LockMutex(badge_mutex);
 	prefetch_running = false;
 	SDL_UnlockMutex(badge_mutex);
 
-	free(names);
 	free(job->names);
 	free(job);
 	return 0;
 }
 
 void RA_Badges_prefetch(uint32_t game_id, const char** badge_names, size_t count) {
-	if (!initialized || !badge_names || count == 0)
+	if (!initialized || game_id == 0 || !badge_names || count == 0)
 		return;
 
 	stop_prefetch();
@@ -543,7 +523,6 @@ void RA_Badges_prefetch(uint32_t game_id, const char** badge_names, size_t count
 	}
 
 	SDL_LockMutex(badge_mutex);
-	current_game_id = game_id;
 	progress_state = PROGRESS_IDLE;
 	prefetch_running = true;
 	SDL_UnlockMutex(badge_mutex);
@@ -580,27 +559,23 @@ void RA_Badges_update(void) {
 	SDL_UnlockMutex(badge_mutex);
 }
 
-// A badge marked cached failed to load (file deleted or damaged): drop the
-// game's marker so the next launch re-checks the set, and fetch it again.
-// Must hold mutex.
+// A badge marked cached failed to load (file deleted or damaged): fetch it
+// again. Must hold mutex.
 static void handle_missing_cached(BadgeCacheEntry* entry) {
-	char ra_dir[MAX_PATH];
-	get_ra_dir(ra_dir, sizeof(ra_dir));
-	RA_BadgeSets_invalidate(ra_dir, current_game_id);
 	entry->state = RA_BADGE_STATE_UNKNOWN;
-	queue_download(entry->badge_name, entry->locked);
+	queue_download(entry->game_id, entry->badge_name, entry->locked);
 	process_download_queue();
 }
 
 
-SDL_Surface* RA_Badges_get(const char* badge_name, bool locked) {
-	if (!initialized || !badge_name || !badge_name[0])
+SDL_Surface* RA_Badges_get(uint32_t game_id, const char* badge_name, bool locked) {
+	if (!initialized || game_id == 0 || !badge_name || !badge_name[0])
 		return NULL;
 
 	if (badge_mutex)
 		SDL_LockMutex(badge_mutex);
 
-	BadgeCacheEntry* entry = find_or_create_entry(badge_name, locked);
+	BadgeCacheEntry* entry = find_or_create_entry(game_id, badge_name, locked);
 	SDL_Surface* result = NULL;
 
 	if (entry) {
@@ -608,7 +583,7 @@ SDL_Surface* RA_Badges_get(const char* badge_name, bool locked) {
 			// Lazy load from disk if not in memory
 			if (!entry->surface) {
 				char cache_path[MAX_PATH];
-				RA_Badges_getCachePath(badge_name, locked, cache_path, sizeof(cache_path));
+				RA_Badges_getCachePath(game_id, badge_name, locked, cache_path, sizeof(cache_path));
 				entry->surface = load_from_cache(cache_path);
 				if (entry->surface) {
 					entry->surface_scaled = scale_surface(entry->surface, RA_BADGE_NOTIFY_SIZE);
@@ -619,7 +594,7 @@ SDL_Surface* RA_Badges_get(const char* badge_name, bool locked) {
 			result = entry->surface;
 		} else if (entry->state == RA_BADGE_STATE_UNKNOWN) {
 			// Trigger download
-			start_download(badge_name, locked);
+			start_download(game_id, badge_name, locked);
 		}
 	}
 
@@ -629,14 +604,14 @@ SDL_Surface* RA_Badges_get(const char* badge_name, bool locked) {
 	return result;
 }
 
-SDL_Surface* RA_Badges_getNotificationSize(const char* badge_name, bool locked) {
-	if (!initialized || !badge_name || !badge_name[0])
+SDL_Surface* RA_Badges_getNotificationSize(uint32_t game_id, const char* badge_name, bool locked) {
+	if (!initialized || game_id == 0 || !badge_name || !badge_name[0])
 		return NULL;
 
 	if (badge_mutex)
 		SDL_LockMutex(badge_mutex);
 
-	BadgeCacheEntry* entry = find_or_create_entry(badge_name, locked);
+	BadgeCacheEntry* entry = find_or_create_entry(game_id, badge_name, locked);
 	SDL_Surface* result = NULL;
 
 	if (entry) {
@@ -644,7 +619,7 @@ SDL_Surface* RA_Badges_getNotificationSize(const char* badge_name, bool locked) 
 			// Lazy load from disk if not in memory
 			if (!entry->surface_scaled) {
 				char cache_path[MAX_PATH];
-				RA_Badges_getCachePath(badge_name, locked, cache_path, sizeof(cache_path));
+				RA_Badges_getCachePath(game_id, badge_name, locked, cache_path, sizeof(cache_path));
 				entry->surface = load_from_cache(cache_path);
 				if (entry->surface) {
 					entry->surface_scaled = scale_surface(entry->surface, RA_BADGE_NOTIFY_SIZE);
@@ -655,7 +630,7 @@ SDL_Surface* RA_Badges_getNotificationSize(const char* badge_name, bool locked) 
 			result = entry->surface_scaled;
 		} else if (entry->state == RA_BADGE_STATE_UNKNOWN) {
 			// Trigger download
-			start_download(badge_name, locked);
+			start_download(game_id, badge_name, locked);
 		}
 	}
 
@@ -666,14 +641,9 @@ SDL_Surface* RA_Badges_getNotificationSize(const char* badge_name, bool locked) 
 }
 
 
-void RA_Badges_getCachePath(const char* badge_name, bool locked, char* buffer, size_t buffer_size) {
-	if (locked) {
-		snprintf(buffer, buffer_size, "%s/%s_lock.png",
-				 RA_BADGE_CACHE_DIR, badge_name);
-	} else {
-		snprintf(buffer, buffer_size, "%s/%s.png",
-				 RA_BADGE_CACHE_DIR, badge_name);
-	}
+bool RA_Badges_getCachePath(uint32_t game_id, const char* badge_name, bool locked, char* buffer,
+							size_t buffer_size) {
+	return RA_BadgePath_file(RA_BADGE_CACHE_DIR, game_id, badge_name, locked, buffer, buffer_size);
 }
 
 void RA_Badges_getUrl(const char* badge_name, bool locked, char* buffer, size_t buffer_size) {
