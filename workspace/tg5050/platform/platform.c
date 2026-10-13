@@ -883,9 +883,9 @@ int toggle_file(const char* path) {
 	}
 }
 
-// The flag files are the shared source of truth for turbo: the FN switch
-// (libmsettings) and the in-game shortcuts (PLAT_toggleTurbo) both write
-// them, and trimui_inputd pulses the flagged buttons. minarch reads the
+// The flag files are the shared source of truth for turbo: the in-game
+// Toggle Turbo shortcuts (PLAT_toggleTurbo) write them, and trimui_inputd
+// pulses the flagged buttons. minarch reads the
 // mask here and shapes the cadence itself (ma_turbo.c), because the
 // daemon's pulses are too short to survive per-frame sampling.
 // Re-checked at most every 250ms so a frame never pays 8 access() calls.

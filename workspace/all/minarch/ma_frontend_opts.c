@@ -271,7 +271,7 @@ int OptionEmulator_openMenu(MenuList* list, int index) {
 }
 
 // Block until the user presses a button, then record it (plus MENU as a
-// modifier) into item/button. Shared by the controls and shortcuts binders.
+// modifier) into item/button. Used by the controls binder.
 static int OptionBind_pollLoop(MenuItem* item, ButtonMapping* button) {
 	// Binding a MENU+button combo means holding MENU well past keymon's
 	// long-press threshold; the flag tells keymon not to pop the OSD.
