@@ -100,7 +100,7 @@ cc -std=gnu99 -Wall -Werror -Wno-deprecated-declarations -fsanitize=address -g -
 (cd /tmp && mkdir -p build && /tmp/nx_test_ra_offline)
 cc -std=gnu99 -Wall -Werror -Wno-deprecated-declarations -fsanitize=address -g -I.. -o /tmp/nx_test_ra_hash_cache test_ra_hash_cache.c ../ra_hash_cache.c ../cjson/cJSON.c
 /tmp/nx_test_ra_hash_cache
-cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_ra_badge_path test_ra_badge_path.c ../ra_badge_path.c
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -Wno-deprecated-declarations -o /tmp/nx_test_ra_badge_path test_ra_badge_path.c ../ra_badge_path.c ../ra_hash_cache.c ../cjson/cJSON.c
 /tmp/nx_test_ra_badge_path
 # ra_offline_net.c links rcheevos, whose source the minarch build fetches
 RC=../../minarch/rcheevos/src

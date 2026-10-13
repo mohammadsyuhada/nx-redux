@@ -31,8 +31,9 @@ typedef enum {
 /**
  * Initialize the module. Creates <root>/cache, <root>/cache/games,
  * <root>/cache/badges, <root>/cache/sessions and <root>/pending. Resets mode
- * to RA_NET_ONLINE. Game data (cache/games) and badges (cache/badges) are the
- * same for every account; login, sessions and pending are the account's.
+ * to RA_NET_ONLINE. Game data (cache/games) and the fallback badge folder
+ * (cache/badges, ra_badge_path.h) are the same for every account; login,
+ * sessions and pending are the account's.
  * @param root_dir e.g. RA_USER_DIR (ra_paths.h)
  * @param card_root rom.txt stores rom paths relative to this, e.g.
  *        SDCARD_PATH (NULL: store them as given)

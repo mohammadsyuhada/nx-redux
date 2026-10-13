@@ -43,9 +43,11 @@ bool RA_HashCache_canStore(const char* hashed_path, uint32_t console_id) {
  * Paths
  *****************************************************************************/
 
-// Split rom_path into its cache file (<roms>/<Folder>/.retroachievements/
-// hashes.json) and its key (the path below <Folder>). False for paths outside
-// a visible console folder, or with "." / ".." components.
+// Split rom_path into its console folder's data dir (<roms>/<Folder>/
+// .retroachievements), its cache file (hashes.json in there; cache_file may be
+// NULL) and its key (the path below <Folder>). False for paths outside a
+// visible console folder, with "." / ".." components, or too long for the
+// buffers.
 static bool hc_split(const char* rom_path, char* cache_dir, size_t dir_size, char* cache_file,
 					 size_t file_size, const char** key) {
 	if (!hc_roms[0] || !rom_path)
@@ -67,8 +69,25 @@ static bool hc_split(const char* rom_path, char* cache_dir, size_t dir_size, cha
 			c++;
 	}
 	int folder_len = (int)(slash - folder);
-	snprintf(cache_dir, dir_size, "%s/%.*s/%s", hc_roms, folder_len, folder, RA_HASH_CACHE_DIR);
-	snprintf(cache_file, file_size, "%s/%s", cache_dir, RA_HASH_CACHE_FILE);
+	int len = snprintf(cache_dir, dir_size, "%s/%.*s/%s", hc_roms, folder_len, folder, RA_HASH_CACHE_DIR);
+	if (len <= 0 || (size_t)len >= dir_size)
+		return false;
+	if (cache_file) {
+		len = snprintf(cache_file, file_size, "%s/%s", cache_dir, RA_HASH_CACHE_FILE);
+		if (len <= 0 || (size_t)len >= file_size)
+			return false;
+	}
+	return true;
+}
+
+bool RA_HashCache_folderDir(const char* rom_path, char* buf, size_t n) {
+	if (!buf || n == 0)
+		return false;
+	const char* key;
+	if (!hc_split(rom_path, buf, n, NULL, 0, &key)) {
+		buf[0] = '\0';
+		return false;
+	}
 	return true;
 }
 

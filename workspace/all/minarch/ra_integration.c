@@ -1178,8 +1178,10 @@ static void ra_game_loaded_callback(int result, const char* error_message,
 			// Load muted achievements for this game
 			ra_load_muted_achievements();
 
-			// Initialize badge cache and prefetch achievement badges
+			// Initialize badge cache and prefetch achievement badges into
+			// the rom's console folder
 			RA_Badges_init();
+			RA_Badges_setRomPath(record_path);
 			ra_prefetch_badges(client, game->id);
 
 			// Show achievement summary
@@ -1617,6 +1619,7 @@ void RA_unloadGame(void) {
 
 		// Clear badge cache memory (keeps disk cache)
 		RA_Badges_clearMemory();
+		RA_Badges_setRomPath(NULL);
 
 		// Clean up memory regions for this game
 		if (ra_memory_regions_initialized) {

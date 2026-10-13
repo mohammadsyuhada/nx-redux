@@ -22,6 +22,7 @@
 // RA_HashCache_init().
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #define RA_HASH_CACHE_DIR ".retroachievements"
@@ -29,6 +30,16 @@
 
 /** Set the Roms root (e.g. ROMS_PATH). Paths outside it are never cached. */
 void RA_HashCache_init(const char* roms_root);
+
+/**
+ * The data dir of rom_path's console folder, "<roms>/<Folder>/.retroachievements"
+ * (<Folder> = the first path component under the Roms root; roms in subfolders
+ * and m3u's share it). The one place that splits a rom path into its console
+ * folder: hashes.json and the badge folders (ra_badge_path.h) live in there.
+ * False (buf empty) for paths outside a visible console folder, before
+ * RA_HashCache_init(), or when it does not fit.
+ */
+bool RA_HashCache_folderDir(const char* rom_path, char* buf, size_t n);
 
 /** True when a cached mtime still counts for the file's current one. */
 bool RA_HashCache_mtimeMatches(long long cached, long long actual);

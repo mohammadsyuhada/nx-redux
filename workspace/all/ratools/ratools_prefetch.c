@@ -259,12 +259,13 @@ static char* rat_post_and_cache(rc_api_request_t* request, size_t* out_len) {
 }
 
 // Returns true when the badge is on disk afterwards (cached or downloaded)
-// in the game's badge folder (ra_badge_path.h, same files as minarch's ra_badges.c)
-static bool rat_download_badge(uint32_t game_id, const char* url, const char* badge_name, bool locked) {
+// in the game's badge folder game_dir (ra_badge_path.h, same files as
+// minarch's ra_badges.c)
+static bool rat_download_badge(const char* game_dir, const char* url, const char* badge_name, bool locked) {
 	if (!url || !*url)
 		return false;
-	char path[512];
-	if (!RA_BadgePath_file(RA_BADGE_CACHE_DIR, game_id, badge_name, locked, path, sizeof(path)))
+	char path[1024];
+	if (!RA_BadgePath_inDir(game_dir, badge_name, locked, path, sizeof(path)))
 		return false;
 	struct stat st;
 	if (stat(path, &st) == 0 && st.st_size > 0)
@@ -343,12 +344,15 @@ static void rat_pf_message(SDL_Surface* screen, const char* line1, const char* l
 }
 
 // Download any badge files still missing for a parsed sets response into
-// the game's badge folder (rat_download_badge skips files already on disk).
-// Returns false if the user cancelled with B mid-way.
-static bool rat_download_set_badges(SDL_Surface* screen,
+// the game's badge folder in rom_path's console folder (rat_download_badge
+// skips files already on disk). Returns false if the user cancelled with B
+// mid-way.
+static bool rat_download_set_badges(SDL_Surface* screen, const char* rom_path,
 									const rc_api_fetch_game_sets_response_t* sets,
 									const char* label, int done, int total) {
-	if (!RA_BadgePath_ensureDir(RA_BADGE_CACHE_DIR, sets->id))
+	char game_dir[1024];
+	if (!RA_BadgePath_dir(RA_BADGE_CACHE_DIR, rom_path, sets->id, game_dir, sizeof(game_dir)) ||
+		!RA_BadgePath_ensureDir(game_dir))
 		return true; // game id 0 (or no folder): nothing to store badges in
 
 	int badge_total = 0;
@@ -366,8 +370,8 @@ static bool rat_download_set_badges(SDL_Surface* screen,
 			if (PAD_justPressed(BTN_B))
 				return false;
 			const rc_api_achievement_definition_t* def = &sets->sets[s].achievements[a];
-			rat_download_badge(sets->id, def->badge_url, def->badge_name, false);
-			rat_download_badge(sets->id, def->badge_locked_url, def->badge_name, true);
+			rat_download_badge(game_dir, def->badge_url, def->badge_name, false);
+			rat_download_badge(game_dir, def->badge_locked_url, def->badge_name, true);
 			badge_done += 2;
 			// refresh every few files so large sets visibly progress
 			// (cheap vs the ~0.5s per actual download)
@@ -397,8 +401,8 @@ void RATPrefetch_run(SDL_Surface* screen) {
 		return;
 	}
 
-	// the badges dir was created by RA_Offline_init() in main();
-	// rat_download_set_badges makes each game's folder
+	// rat_download_set_badges makes each game's badge folder in the rom's
+	// console folder (the fallback dir was created by RA_Offline_init())
 
 	// CHD-aware hashing for disc images
 	rc_hash_cdreader_t cdreader;
@@ -489,7 +493,7 @@ void RATPrefetch_run(SDL_Surface* screen) {
 					RA_HashCache_store(roms[i].path, console, hash, cached_sets.id);
 				// cancel mid-repair keeps sets.json: the data is complete and
 				// the missing badges are retried on the next run anyway
-				if (!rat_download_set_badges(screen, &cached_sets,
+				if (!rat_download_set_badges(screen, roms[i].path, &cached_sets,
 											 cached_sets.title ? cached_sets.title : name,
 											 i + 1, total))
 					cancelled = true;
@@ -588,7 +592,7 @@ void RATPrefetch_run(SDL_Surface* screen) {
 		}
 
 		// 4) badges (both variants), with cancel checks between downloads
-		if (!rat_download_set_badges(screen, &sets,
+		if (!rat_download_set_badges(screen, roms[i].path, &sets,
 									 sets.title ? sets.title : name, i + 1, total))
 			cancelled = true;
 		if (cancelled) {

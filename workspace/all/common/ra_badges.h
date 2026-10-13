@@ -12,9 +12,11 @@
 // Badge size for notifications (will be scaled)
 #define RA_BADGE_NOTIFY_SIZE 24 // Size for notification icons
 
-// Cache directory: RA_BADGE_CACHE_DIR (ra_paths.h), shared by every account,
-// one folder per game id (ra_badge_path.h). Every call takes the RA game id
-// the badge belongs to; game id 0 has no badges.
+// Cache directory: one folder per game id in the loaded rom's console folder,
+// Roms/<Folder>/.retroachievements/badges/<game_id>/, or RA_BADGE_CACHE_DIR
+// (ra_paths.h)/<game_id>/ for a rom outside Roms/<Folder>/ (ra_badge_path.h).
+// Shared by every account. RA_Badges_setRomPath() names the loaded rom; every
+// call takes the RA game id the badge belongs to; game id 0 has no badges.
 #include "ra_paths.h"
 
 // Badge state
@@ -43,6 +45,14 @@ void RA_Badges_quit(void);
  * Does not delete the on-disk cache.
  */
 void RA_Badges_clearMemory(void);
+
+/**
+ * The rom the badges belong to, as the user sees it (the archive, not an
+ * unpacked copy; NULL/empty: unknown, badges go to the fallback folder).
+ * Set when a game loads, cleared (NULL) when it unloads. Changing it clears
+ * the in-memory cache and drops queued downloads.
+ */
+void RA_Badges_setRomPath(const char* rom_path);
 
 /**
  * Pre-download all badges for the current game's achievements.
@@ -86,8 +96,8 @@ SDL_Surface* RA_Badges_get(uint32_t game_id, const char* badge_name, bool locked
 SDL_Surface* RA_Badges_getNotificationSize(uint32_t game_id, const char* badge_name, bool locked);
 
 /**
- * Get the cache file path for a badge:
- * RA_BADGE_CACHE_DIR/<game_id>/<badge_name>[_lock].png
+ * Get the cache file path for a badge of the rom set by RA_Badges_setRomPath():
+ * <badge folder of that rom>/<game_id>/<badge_name>[_lock].png
  * 
  * @param game_id RetroAchievements game ID the badge belongs to
  * @param badge_name The badge name

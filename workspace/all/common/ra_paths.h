@@ -6,11 +6,14 @@
 //
 //   .ra/cache/login.json, cache/sessions/, pending/, muted/   account data
 //   .ra/cache/games/<hash>/{gameid,sets}.json, rom.txt        game data
-//   .ra/cache/badges/<game_id>/<name>.png, <name>_lock.png    (ra_badge_path.h)
+//   .ra/cache/badges/<game_id>/   badges of roms outside Roms/<Folder>/
 //
 // Game data and badges are the same for every account (and the Android app on
-// the same card). Only the rom fingerprints live next to the roms:
+// the same card). Rom fingerprints and badges live next to the roms, in the
+// console folder of the game's rom:
 //   Roms/<Folder>/.retroachievements/hashes.json   (ra_hash_cache.h)
+//   Roms/<Folder>/.retroachievements/badges/<game_id>/<name>.png, <name>_lock.png
+//                                                  (ra_badge_path.h)
 
 #include "defines.h"
 

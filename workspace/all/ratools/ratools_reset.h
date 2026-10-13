@@ -9,9 +9,10 @@
 void RATReset_clearAccountData(void);
 
 // Full wipe: everything the above clears PLUS the cached game definitions,
-// rom-path records, and badge cache - the whole <.ra> tree. A subsequent
-// online play or prefetch rebuilds it from scratch. Per-folder rom hashes
-// are kept.
+// rom-path records, and fallback badge folder - the whole <.ra> tree. A
+// subsequent online play or prefetch rebuilds it from scratch. What lives in
+// the console folders (Roms/<Folder>/.retroachievements: rom hashes and
+// badges) is kept.
 void RATReset_clearAll(void);
 
 #endif // __RATOOLS_RESET_H__
