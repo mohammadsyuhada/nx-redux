@@ -7,6 +7,7 @@
 #include "ra_badges.h"
 #include "ra_offline.h"
 #include "ra_offline_net.h"
+#include "ra_hash_cache.h"
 #include "ra_paths.h"
 #include "defines.h"
 #include "api.h"
@@ -51,6 +52,18 @@ static char ra_current_rom_path[512] = {0};
 // Path rom.txt records when set (RA_setRecordedRomPath): the launcher's path for
 // an archive, whose content is hashed/loaded from its extracted tmp copy
 static char ra_record_rom_path[512] = {0};
+
+// Hash cache (ra_hash_cache.h) bookkeeping for the load in flight: the path
+// the fingerprint is keyed on (the record path), the console it was hashed
+// for, and - when the hash came from the cache - the game id stored with it.
+// A cached hash that turns out unknown although it was stored for a game gets
+// one rehash (ra_hash_retry_pending, run from the main thread loop).
+static char ra_hash_key_path[512] = {0};
+static uint32_t ra_hash_console = 0;
+static bool ra_hash_from_cache = false;
+static uint32_t ra_hash_cached_game = 0;
+static bool ra_hash_retried = false;
+static bool ra_hash_retry_pending = false;
 
 // Muted achievements tracking
 #define RA_MAX_MUTED_ACHIEVEMENTS 1024
@@ -1102,9 +1115,43 @@ static void ra_prefetch_badges(rc_client_t* client, uint32_t game_id) {
  * Callback: Game load callback
  *****************************************************************************/
 
+// Record the fingerprint once the server has answered for the hash: known
+// (game id) or unknown to RA (0). Returns true when a stale cached hash
+// should be rehashed instead (it was stored for a game, now it is unknown).
+static bool ra_hash_cache_update(int result, rc_client_t* client) {
+	const rc_client_game_t* game = rc_client_get_game_info(client);
+	bool known = result == RC_OK && game && game->id != 0;
+	bool unknown = result == RC_NO_GAME_LOADED || (result == RC_OK && game && game->id == 0);
+	if (!ra_hash_key_path[0] || !game || !game->hash || (!known && !unknown))
+		return false; // network/login failure: no authoritative answer
+	uint32_t game_id = known ? game->id : 0;
+
+	if (ra_hash_from_cache) {
+		if (unknown && ra_hash_cached_game != 0 && !ra_hash_retried) {
+			// the file changed while keeping size+mtime, or RA dropped the hash
+			RA_LOG_WARN("Cached hash %s (game %u) is unknown now - rehashing\n", game->hash,
+						ra_hash_cached_game);
+			RA_HashCache_forget(ra_hash_key_path);
+			return true;
+		}
+		if (game_id == ra_hash_cached_game)
+			return false; // nothing new to store
+	} else if (!RA_HashCache_canStore(ra_current_rom_path, ra_hash_console)) {
+		return false; // a raw archive hash (the core opens .zip/.7z itself)
+	}
+	if (!RA_HashCache_store(ra_hash_key_path, ra_hash_console, game->hash, game_id))
+		RA_LOG_DEBUG("Hash not cached for %s\n", ra_hash_key_path);
+	return false;
+}
+
 static void ra_game_loaded_callback(int result, const char* error_message,
 									rc_client_t* client, void* userdata) {
 	(void)userdata;
+
+	if (ra_hash_cache_update(result, client)) {
+		ra_hash_retry_pending = true; // ra_service_main_thread starts it
+		return;
+	}
 
 	if (result == RC_OK) {
 		const rc_client_game_t* game = rc_client_get_game_info(client);
@@ -1202,6 +1249,7 @@ void RA_init(void) {
 	}
 
 	RA_Offline_init(RA_USER_DIR, RA_GAMES_DIR, SDCARD_PATH);
+	RA_HashCache_init(ROMS_PATH);
 
 	// Determine connectivity. Unlike before, no WiFi no longer disables RA -
 	// if a login was ever cached we run in offline mode instead.
@@ -1464,6 +1512,25 @@ static void ra_do_load_game(const char* rom_path, const uint8_t* rom_data, size_
 	// This ensures rcheevos can read memory correctly when checking achievements
 	RA_initMemoryRegions((uint32_t)console_id);
 
+	// A fingerprint cached for this file (by this launch, an earlier one, the
+	// pak's prefetch or the Android app) skips hashing. The server is still
+	// asked about the hash, so a game RA learns later is picked up.
+	const char* key_path = ra_record_rom_path[0] ? ra_record_rom_path : rom_path;
+	snprintf(ra_hash_key_path, sizeof(ra_hash_key_path), "%s", key_path);
+	ra_hash_console = (uint32_t)console_id;
+	ra_hash_from_cache = false;
+	ra_hash_retried = false;
+	ra_hash_retry_pending = false;
+	char cached_hash[33];
+	uint32_t cached_game = 0;
+	if (RA_HashCache_lookup(key_path, (uint32_t)console_id, cached_hash, &cached_game)) {
+		RA_LOG_INFO("Hash cache hit: %s (game %u)\n", cached_hash, cached_game);
+		ra_hash_from_cache = true;
+		ra_hash_cached_game = cached_game;
+		rc_client_begin_load_game(ra_client, cached_hash, ra_game_loaded_callback, NULL);
+		return;
+	}
+
 	// Use rc_client_begin_identify_and_load_game which hashes and identifies the ROM
 #ifdef RC_CLIENT_SUPPORTS_HASH
 	rc_client_begin_identify_and_load_game(ra_client, console_id,
@@ -1538,6 +1605,7 @@ void RA_unloadGame(void) {
 		return;
 	}
 	ra_game_unknown = false;
+	ra_hash_retry_pending = false;
 
 	if (ra_game_loaded) {
 		RA_LOG_INFO("Unloading game\n");
@@ -1571,6 +1639,19 @@ void RA_unloadGame(void) {
 // auto-resume launch after a sleep that ended in power-off, must keep
 // retrying during gameplay or RA stays dead for the whole session.
 static void ra_service_main_thread(void) {
+	// A cached hash came back unknown: hash the file once more. From the
+	// path - the deferred-load copy of the rom data is gone by now.
+	if (ra_hash_retry_pending) {
+		ra_hash_retry_pending = false;
+		ra_hash_retried = true;
+		ra_hash_from_cache = false;
+#ifdef RC_CLIENT_SUPPORTS_HASH
+		rc_client_unload_game(ra_client); // the placeholder "Unknown Game"
+		rc_client_begin_identify_and_load_game(ra_client, ra_hash_console, ra_current_rom_path,
+											   NULL, 0, ra_game_loaded_callback, NULL);
+#endif
+	}
+
 	// Check for pending login retry
 	if (ra_login_retry.pending && SDL_GetTicks() >= ra_login_retry.next_time) {
 		ra_login_retry.pending = false;

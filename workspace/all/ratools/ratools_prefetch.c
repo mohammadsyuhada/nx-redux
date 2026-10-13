@@ -22,6 +22,7 @@
 #include "ra_offline.h"
 #include "ra_offline_net.h"
 #include "ra_badge_sets.h"
+#include "ra_hash_cache.h"
 #include "ra_paths.h"
 #include "ui_buttonhintbar.h"
 #include "utils.h"
@@ -459,14 +460,27 @@ void RATPrefetch_run(SDL_Surface* screen) {
 
 		const char* name = strrchr(roms[i].path, '/');
 		name = name ? name + 1 : roms[i].path;
-		rat_pf_render(screen, "Hashing", name, i + 1, total);
 
+		// a fingerprint cached by an earlier run, minarch or the Android app
+		// skips the hashing (unknown games are still re-resolved below: RA
+		// may have added them since)
 		char hash[33];
-		if (!rc_hash_generate_from_file(hash, (uint32_t)roms[i].console_id, roms[i].path)) {
-			fprintf(stderr, "[prefetch] hash failed (console %d): %s\n",
-					roms[i].console_id, roms[i].path);
-			failed++;
-			continue;
+		uint32_t console = (uint32_t)roms[i].console_id;
+		bool cacheable = true;
+		uint32_t cached_game = 0;
+		bool from_cache = RA_HashCache_lookup(roms[i].path, console, hash, &cached_game);
+		if (from_cache) {
+			rat_pf_render(screen, "Checking", name, i + 1, total);
+		} else {
+			// a raw archive hash is still worth resolving, just not caching
+			cacheable = RA_HashCache_canStore(roms[i].path, console);
+			rat_pf_render(screen, "Hashing", name, i + 1, total);
+			if (!rc_hash_generate_from_file(hash, console, roms[i].path)) {
+				fprintf(stderr, "[prefetch] hash failed (console %d): %s\n",
+						roms[i].console_id, roms[i].path);
+				failed++;
+				continue;
+			}
 		}
 
 		// skip refetching games whose data is already cached — but still
@@ -489,6 +503,8 @@ void RATPrefetch_run(SDL_Surface* screen) {
 			rc_api_fetch_game_sets_response_t cached_sets;
 			if (rc_api_process_fetch_game_sets_server_response(&cached_sets, &sr) == RC_OK &&
 				cached_sets.response.succeeded) {
+				if (cacheable)
+					RA_HashCache_store(roms[i].path, console, hash, cached_sets.id);
 				// cancel mid-repair keeps sets.json: the data is complete and
 				// the missing badges are retried on the next run anyway
 				if (!rat_download_set_badges(screen, &cached_sets,
@@ -526,11 +542,20 @@ void RATPrefetch_run(SDL_Surface* screen) {
 		int hrc = rc_api_process_resolve_hash_server_response(&hresp, &sr);
 		bool resolved = (hrc == RC_OK && hresp.response.succeeded);
 		bool known = resolved && hresp.game_id != 0;
+		uint32_t game_id = known ? hresp.game_id : 0;
 		rc_api_destroy_resolve_hash_response(&hresp);
 		free(body);
 		if (!resolved) {
 			failed++; // server error / corrupt response — NOT "not in RA"
 			continue;
+		}
+		if (from_cache && !known && cached_game != 0) {
+			// stored for a game, unknown now: the file changed keeping its size
+			// and mtime, or RA dropped the hash. Forget it; the next launch or
+			// run hashes the file again.
+			RA_HashCache_forget(roms[i].path);
+		} else if (cacheable) { // authoritative either way: game id, or 0 = not in RA
+			RA_HashCache_store(roms[i].path, console, hash, game_id);
 		}
 		if (!known) {
 			unknown++; // authoritatively resolved: hash not in RA database

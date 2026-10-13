@@ -21,6 +21,7 @@
 #include "ra_auth.h"
 #include "ra_offline.h"
 #include "ra_offline_net.h"
+#include "ra_hash_cache.h"
 #include "ra_paths.h"
 
 #include "ratools_browser.h"
@@ -505,6 +506,7 @@ int main(int argc, char* argv[]) {
 	PAD_init();
 
 	RA_Offline_init(RA_USER_DIR, RA_GAMES_DIR, SDCARD_PATH);
+	RA_HashCache_init(ROMS_PATH);
 
 	build_menu_tree();
 	settings_menu_init();
