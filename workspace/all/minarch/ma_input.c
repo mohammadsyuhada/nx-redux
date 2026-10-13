@@ -301,14 +301,19 @@ void input_poll_callback(void) {
 		show_menu = 1;
 	}
 
-	// TODO: figure out how to ignore button when MENU+button is handled first
-	// TODO: array size of LOCAL_ whatever that macro is
-	// TODO: then split it into two loops
-	// TODO: first check for MENU+button
-	// TODO: when found mark button the array
-	// TODO: then check for button
-	// TODO: only modify if absent from array
-	// TODO: the shortcuts loop above should also contribute to the array
+	// While MENU is held, a button that completes a MENU+ combo (a shortcut, or
+	// SELECT for the Game Switcher) is the frontend's, not the game's: MENU+Y
+	// must not also press C-Down in an N64 game.
+	uint32_t menu_combo_mask = 0;
+	if (PAD_isPressed(BTN_MENU)) {
+		menu_combo_mask = BTN_SELECT;
+		for (int i = 0; i < SHORTCUT_COUNT; i++) {
+			ButtonMapping* mapping = &config.shortcuts[i];
+			int btn = ButtonMapping_btn(mapping);
+			if (mapping->mod && btn != BTN_NONE)
+				menu_combo_mask |= btn;
+		}
+	}
 
 	// Buttons with a turbo flag get their cadence from ma_turbo.c: the stock
 	// daemon's own pulses are too short to sample per frame (upstream #780).
@@ -319,6 +324,8 @@ void input_poll_callback(void) {
 		int btn = ButtonMapping_btn(mapping);
 		if (btn == BTN_NONE)
 			continue; // present buttons can still be unbound
+		if (!mapping->mod && (btn & menu_combo_mask))
+			continue;
 		if (input_positional_faces)
 			btn = Input_positionalBtn(btn);
 		if (dpad_joystick && (btn & BTN_DPAD_ANY))
