@@ -1487,6 +1487,7 @@ static void show_simple_mode_help(void) {
 // change is written straight away.
 static int shortcut_labels[SHORTCUT_COUNT];
 static char shortcuts_path[MAX_PATH];
+static int shortcuts_dirty = 0;
 
 #define SHORTCUT_CAPTURE_MS 5000
 
@@ -1495,8 +1496,20 @@ static void shortcuts_load(void) {
 	EmuShortcuts_read(shortcuts_path, shortcut_labels);
 }
 static void shortcuts_save(void) {
+	shortcuts_dirty = 0;
 	if (!EmuShortcuts_write(shortcuts_path, shortcut_labels))
 		LOG_error("Failed to write %s\n", shortcuts_path);
+}
+// LEFT/RIGHT (auto-repeat included) only mark the file dirty; it is written
+// when the page closes or Settings exits, so a held direction doesn't sync the
+// SD card on every step. A capture, a clear or a reset writes right away.
+static void shortcuts_flush(void) {
+	if (shortcuts_dirty)
+		shortcuts_save();
+}
+static void shortcuts_page_hide(SettingsPage* page) {
+	(void)page;
+	shortcuts_flush();
 }
 static int shortcut_get(int id) {
 	return shortcut_labels[id];
@@ -1504,12 +1517,15 @@ static int shortcut_get(int id) {
 static void shortcut_set(int id, int label) {
 	if (label < 0 || label >= SHORTCUT_LABEL_COUNT)
 		label = 0;
-	if (EmuShortcuts_isReserved(label)) // LEFT/RIGHT step past it the way they came
-		label = (label > shortcut_labels[id] ? label + 1 : label - 1 + SHORTCUT_LABEL_COUNT) % SHORTCUT_LABEL_COUNT;
+	if (EmuShortcuts_isReserved(label)) {
+		// step past it the way LEFT/RIGHT (or L1/R1's bigger, wrapping step) came
+		int fwd = (label - shortcut_labels[id] + SHORTCUT_LABEL_COUNT) % SHORTCUT_LABEL_COUNT <= SHORTCUT_LABEL_COUNT / 2;
+		label = (label + (fwd ? 1 : SHORTCUT_LABEL_COUNT - 1)) % SHORTCUT_LABEL_COUNT;
+	}
 	if (shortcut_labels[id] == label)
 		return;
 	shortcut_labels[id] = label;
-	shortcuts_save();
+	shortcuts_dirty = 1;
 }
 
 // Blocking "press a button" capture, like minarch's in-game binder: the first
@@ -1569,8 +1585,10 @@ static void shortcut_capture(int id) {
 	PAD_poll();
 	PAD_reset(); // don't leak the bound press to the menu underneath
 
-	if (label >= 0)
+	if (label >= 0) {
 		shortcut_set(id, label);
+		shortcuts_flush();
+	}
 }
 
 // one get/set/clear/capture set per shortcut (the menu callbacks take no argument)
@@ -1583,6 +1601,7 @@ static void shortcut_capture(int id) {
 	}                                         \
 	static void clear_shortcut_##id(void) {   \
 		shortcut_set(SHORTCUT_##id, 0);       \
+		shortcuts_flush();                    \
 	}                                         \
 	static void capture_shortcut_##id(void) { \
 		shortcut_capture(SHORTCUT_##id);      \
@@ -2251,6 +2270,7 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		"Reset to defaults", "Clears every shortcut.",
 		reset_shortcuts_page);
 	init_page(&shortcuts_page, "Settings | Emulator Shortcuts", shortcut_items, idx, 0);
+	shortcuts_page.on_hide = shortcuts_page_hide;
 
 	// ============================
 	// Notifications page
@@ -2367,8 +2387,12 @@ static void build_menu_tree(const DeviceInfo* dev) {
 			"F1 / F2 keys", "Launch a tool with the F1/F2 keys", &fn_keys_page);
 	}
 
-	main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
-		"Emulator Shortcuts", "In-game shortcuts for every console", &shortcuts_page);
+	// Hidden in simple mode, like the in-game Options it replaces there: a
+	// shortcut bound to A could reset or quit every game.
+	if (!get_simple_mode()) {
+		main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
+			"Emulator Shortcuts", "In-game shortcuts for every console", &shortcuts_page);
+	}
 
 	main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
 		"Simple Mode", "Simplified menu for children", &simple_mode_page);
@@ -2508,6 +2532,7 @@ int main(int argc, char* argv[]) {
 		developer_page_destroy(dev_page_ptr);
 	free_dynamic_labels();
 
+	shortcuts_flush(); // exited straight from the shortcuts page
 	VIB_quit();
 	QuitSettings();
 	PWR_quit();
