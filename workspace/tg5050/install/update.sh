@@ -233,3 +233,65 @@ N64_OLD="$SDCARD_PATH/Emus/shared/mupen64plus"
 true
 # --- n64-standalone-cleanup-end
 
+
+# --------------------------------------
+# --- ra-shared-cache-begin
+# RetroAchievements game data (achievement definitions and rom.txt records,
+# cache/games/<hash>/) and badge images are the same for every account, so
+# they moved from .userdata/shared/.ra to Roms/.retroachievements/{games,badges},
+# shared with the Android app on the same card. Account data (login, sessions,
+# unlock journal, mutes) stays in .ra. Whatever is already at the new place
+# wins: a file there is never overwritten, the old copy is dropped. A whole
+# folder moves in one rename when the destination is missing or empty (the
+# badge folder can hold tens of thousands of files). .userdata/android is the
+# Android app's own copy; it migrates that itself. One-shot per update; must
+# never fail the update.
+RA_OLD="$SDCARD_PATH/.userdata/shared/.ra"
+RA_NEW="$SDCARD_PATH/Roms/.retroachievements"
+if [ -d "$RA_OLD/cache/games" ] || [ -d "$RA_OLD/badges" ]; then
+	mkdir -p "$RA_NEW" 2>/dev/null
+	if [ -d "$RA_OLD/cache/games" ]; then
+		rmdir "$RA_NEW/games" 2>/dev/null # only when empty
+		if [ ! -e "$RA_NEW/games" ]; then
+			mv "$RA_OLD/cache/games" "$RA_NEW/games" 2>/dev/null
+		else
+			for RA_G in "$RA_OLD/cache/games"/*; do
+				[ -d "$RA_G" ] || continue
+				RA_D="$RA_NEW/games/${RA_G##*/}"
+				if [ ! -e "$RA_D" ]; then
+					mv "$RA_G" "$RA_D" 2>/dev/null
+					continue
+				fi
+				for RA_F in "$RA_G"/*; do
+					[ -e "$RA_F" ] || continue
+					if [ -e "$RA_D/${RA_F##*/}" ]; then
+						rm -f "$RA_F" 2>/dev/null
+					else
+						mv "$RA_F" "$RA_D/" 2>/dev/null
+					fi
+				done
+				rmdir "$RA_G" 2>/dev/null
+			done
+		fi
+		rmdir "$RA_OLD/cache/games" 2>/dev/null
+	fi
+	if [ -d "$RA_OLD/badges" ]; then
+		rmdir "$RA_NEW/badges" 2>/dev/null # only when empty
+		if [ ! -e "$RA_NEW/badges" ]; then
+			mv "$RA_OLD/badges" "$RA_NEW/badges" 2>/dev/null
+		else
+			for RA_F in "$RA_OLD/badges"/*; do
+				[ -f "$RA_F" ] || continue
+				if [ -e "$RA_NEW/badges/${RA_F##*/}" ]; then
+					rm -f "$RA_F" 2>/dev/null
+				else
+					mv "$RA_F" "$RA_NEW/badges/" 2>/dev/null
+				fi
+			done
+		fi
+		rmdir "$RA_OLD/badges" 2>/dev/null
+	fi
+	echo "moved RetroAchievements game data and badges to Roms/.retroachievements"
+fi
+true
+# --- ra-shared-cache-end
