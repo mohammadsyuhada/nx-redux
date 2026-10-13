@@ -10,6 +10,7 @@
 #include "ma_turbo.h"
 #include "ma_present.h"
 #include "button_layout.h"
+#include "notification.h"
 
 int setFastForward(int enable) {
 	int val = enable ? 1 : 0;
@@ -23,6 +24,25 @@ static int ignore_menu = 0;
 static int polled_this_frame = 0;
 int input_positional_faces = 0;
 int input_stick_dpad = 1;
+
+// "Toggle D-pad Joystick" shortcut: the D-pad drives the left stick instead of
+// pressing D-pad buttons. Off at every launch, never saved.
+static int dpad_joystick = 0;
+static int dpad_stick_held = 0; // a D-pad direction is held while dpad_joystick is on
+static int16_t dpad_stick_x = 0;
+static int16_t dpad_stick_y = 0;
+#define BTN_DPAD_ANY (BTN_DPAD_UP | BTN_DPAD_DOWN | BTN_DPAD_LEFT | BTN_DPAD_RIGHT)
+
+// Full deflection per held direction; both axes on a diagonal (libretro: +y is down).
+static void Input_updateDpadStick(void) {
+	dpad_stick_held = dpad_joystick && PAD_isPressed(BTN_DPAD_ANY);
+	if (!dpad_stick_held) {
+		dpad_stick_x = dpad_stick_y = 0;
+		return;
+	}
+	dpad_stick_x = (PAD_isPressed(BTN_DPAD_RIGHT) ? 0x7FFF : 0) - (PAD_isPressed(BTN_DPAD_LEFT) ? 0x7FFF : 0);
+	dpad_stick_y = (PAD_isPressed(BTN_DPAD_DOWN) ? 0x7FFF : 0) - (PAD_isPressed(BTN_DPAD_UP) ? 0x7FFF : 0);
+}
 
 // A binding's button as read for a positional pak: the logical button that
 // the pad's layout swap turns the bound physical position into (see
@@ -241,6 +261,10 @@ void input_poll_callback(void) {
 					screen_effect = (screen_effect + 1) % config.frontend.options[FE_OPT_EFFECT].count;
 					Config_syncFrontend(config.frontend.options[FE_OPT_EFFECT].key, screen_effect);
 					break;
+				case SHORTCUT_TOGGLE_DPAD_JOYSTICK:
+					dpad_joystick = !dpad_joystick;
+					Notification_push(NOTIFICATION_SETTING, dpad_joystick ? "D-pad: Joystick" : "D-pad: D-pad", NULL);
+					break;
 				default:
 					break;
 				}
@@ -275,6 +299,8 @@ void input_poll_callback(void) {
 			continue; // present buttons can still be unbound
 		if (input_positional_faces)
 			btn = Input_positionalBtn(btn);
+		if (dpad_joystick && (btn & BTN_DPAD_ANY))
+			continue; // the D-pad is the left stick now (Input_updateDpadStick), and the stick stays a stick
 		if (gamepad_type == 0 && input_stick_dpad) {
 			switch (btn) {
 			case BTN_DPAD_UP:
@@ -303,6 +329,7 @@ void input_poll_callback(void) {
 				ignore_menu = 1;
 		}
 	}
+	Input_updateDpadStick();
 }
 int16_t input_state_callback(unsigned port, unsigned device, unsigned index, unsigned id) {
 	// libretro requires cores to poll before reading, but not all paths do
@@ -320,9 +347,10 @@ int16_t input_state_callback(unsigned port, unsigned device, unsigned index, uns
 	}
 	// Analog sticks: our pad on port 0, or both players' synchronized sticks in netplay
 	else if (device == RETRO_DEVICE_ANALOG) {
-		const PAD_Axis* stick = index == RETRO_DEVICE_INDEX_ANALOG_LEFT ? &pad.laxis : &pad.raxis;
-		int16_t local = (int16_t)(id == RETRO_DEVICE_ID_ANALOG_X ? stick->x : stick->y);
-		return Netplay_getPlayerAnalog(port, index, id, local);
+		int16_t sticks[4];
+		Input_getLocalSticks(sticks);
+		int axis = (index == RETRO_DEVICE_INDEX_ANALOG_LEFT ? 0 : 2) + (id == RETRO_DEVICE_ID_ANALOG_X ? 0 : 1);
+		return Netplay_getPlayerAnalog(port, index, id, sticks[axis]);
 	}
 	return 0;
 }
@@ -388,4 +416,11 @@ void Input_init(const struct retro_input_descriptor* vars) {
 // Expose the current local button bitmask (netplay input sync in minarch.c).
 uint32_t Input_getButtons(void) {
 	return buttons;
+}
+
+void Input_getLocalSticks(int16_t sticks[4]) {
+	sticks[0] = dpad_stick_held ? dpad_stick_x : (int16_t)pad.laxis.x;
+	sticks[1] = dpad_stick_held ? dpad_stick_y : (int16_t)pad.laxis.y;
+	sticks[2] = (int16_t)pad.raxis.x;
+	sticks[3] = (int16_t)pad.raxis.y;
 }

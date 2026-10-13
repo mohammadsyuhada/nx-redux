@@ -2226,8 +2226,11 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		if (is_turbo_shortcut(i) && !PLAT_canTurbo())
 			continue;
 		const ShortcutRow* row = &shortcut_rows[i];
+		const char* desc = i == SHORTCUT_TOGGLE_DPAD_JOYSTICK
+							   ? "D-pad moves the left stick until pressed again (off at every launch).\nA: press the button (or MENU+button) to use. X: clear."
+							   : "In-game shortcut for every console.\nA: press the button (or MENU+button) to use. X: clear.";
 		shortcut_items[idx] = (SettingItem)ITEM_CYCLE_INIT(
-			shortcut_names[i], "In-game shortcut for every console.\nA: press the button (or MENU+button) to use. X: clear.",
+			shortcut_names[i], desc,
 			(const char**)button_labels, SHORTCUT_LABEL_COUNT, NULL, row->get, row->set, row->clear);
 		shortcut_items[idx].on_press = row->capture;
 		shortcut_items[idx].on_clear = row->clear;

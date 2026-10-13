@@ -12,6 +12,10 @@ void Input_init(const struct retro_input_descriptor* vars);
 
 // Current local RETRO_DEVICE_ID_JOYPAD_* button bitmask (for netplay input sync).
 uint32_t Input_getButtons(void);
+// Current local sticks {left x, left y, right x, right y}, the left one from the
+// D-pad while "Toggle D-pad Joystick" is on and a direction is held (also what
+// netplay sends).
+void Input_getLocalSticks(int16_t sticks[4]);
 
 // Per-pak "minarch_face_buttons = positional" (default.cfg): the core's face
 // buttons follow the pad's physical positions whatever the Button layout

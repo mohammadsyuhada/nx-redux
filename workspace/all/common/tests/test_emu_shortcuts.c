@@ -36,6 +36,7 @@ int main(void) {
 	assert(!strcmp(shortcut_names[SHORTCUT_SAVE_STATE], "Save State"));
 	assert(!strcmp(shortcut_names[SHORTCUT_SAVE_QUIT], "Save & Quit"));
 	assert(!strcmp(shortcut_names[SHORTCUT_TOGGLE_TURBO_R2], "Toggle Turbo R2"));
+	assert(!strcmp(shortcut_names[SHORTCUT_TOGGLE_DPAD_JOYSTICK], "Toggle D-pad Joystick"));
 	for (int i = 0; i < SHORTCUT_COUNT; i++)
 		assert(shortcut_names[i] && EmuShortcuts_find(shortcut_names[i]) == i);
 	assert(EmuShortcuts_find("Toggle Turbo Z") == -1);
