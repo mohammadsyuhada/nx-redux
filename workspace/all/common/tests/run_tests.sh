@@ -115,3 +115,5 @@ if [ -d "$RC/src/rapi" ]; then
 else
 	echo "test_ra_offline_net: skipped (rcheevos source not fetched)"
 fi
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_emu_shortcuts ../emu_shortcuts.c test_emu_shortcuts.c
+/tmp/nx_test_emu_shortcuts

@@ -14,6 +14,7 @@
 #include "libretro.h"
 #include "defines.h"
 #include "api.h"
+#include "emu_shortcuts.h"
 
 struct Core {
 	int initialized;
@@ -153,8 +154,8 @@ extern SDL_Thread* screenshotsavethread;
    ----------------------------------------------------------------------- */
 
 // NOTE: must match the number of BTN_ID_* entries up to (but excluding) BTN_ID_MENU,
-// and the L1..R4 span of button_labels[] in ma_config.c
-#define LOCAL_BUTTON_COUNT 18 // depends on device
+// and the L1..R4 span of button_labels[] in common/emu_shortcuts.c
+#define LOCAL_BUTTON_COUNT SHORTCUT_BUTTON_COUNT
 #define RETRO_BUTTON_COUNT 16 // allow L3/R3 to be remapped by user if desired, eg. Virtual Boy uses extra buttons for right d-pad
 
 typedef struct ButtonMapping {
@@ -228,7 +229,6 @@ extern ButtonMapping default_button_mapping[];
 extern ButtonMapping button_label_mapping[];
 extern ButtonMapping core_button_mapping[];
 extern const char* device_button_names[];
-extern char* button_labels[];
 extern char* gamepad_labels[];
 extern char* gamepad_values[];
 extern char* onoff_labels[];
@@ -258,32 +258,7 @@ enum {
 	FE_OPT_COUNT,
 };
 
-enum {
-	SHORTCUT_SAVE_STATE,
-	SHORTCUT_LOAD_STATE,
-	SHORTCUT_UNDO_LOAD_STATE,
-	SHORTCUT_RESET_GAME,
-	SHORTCUT_SAVE_QUIT,
-	SHORTCUT_CYCLE_SCALE,
-	SHORTCUT_CYCLE_EFFECT,
-	SHORTCUT_TOGGLE_FF,
-	SHORTCUT_HOLD_FF,
-	SHORTCUT_TOGGLE_REWIND,
-	SHORTCUT_HOLD_REWIND,
-	SHORTCUT_GAMESWITCHER,
-	SHORTCUT_SCREENSHOT,
-	// Trimui only
-	SHORTCUT_TOGGLE_TURBO_A,
-	SHORTCUT_TOGGLE_TURBO_B,
-	SHORTCUT_TOGGLE_TURBO_X,
-	SHORTCUT_TOGGLE_TURBO_Y,
-	SHORTCUT_TOGGLE_TURBO_L,
-	SHORTCUT_TOGGLE_TURBO_L2,
-	SHORTCUT_TOGGLE_TURBO_R,
-	SHORTCUT_TOGGLE_TURBO_R2,
-	//
-	SHORTCUT_COUNT,
-};
+// SHORTCUT_* enum and the shortcut table live in common/emu_shortcuts.h
 
 // Sync reference source
 enum {

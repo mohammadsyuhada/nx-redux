@@ -399,27 +399,6 @@ int OptionControls_openMenu(MenuList* list, int i) {
 	return MENU_CALLBACK_NOP;
 }
 
-int OptionShortcuts_bind(MenuList* list, int i) {
-	MenuItem* item = &list->items[i];
-	ButtonMapping* button = &config.shortcuts[item->id];
-	return OptionBind_pollLoop(item, button);
-}
-int OptionShortcuts_unbind(MenuList* list, int i) {
-	MenuItem* item = &list->items[i];
-	ButtonMapping* button = &config.shortcuts[item->id];
-	button->local = -1;
-	button->mod = 0;
-	return MENU_CALLBACK_NOP;
-}
-static MenuList OptionShortcuts_menu = {
-	.type = MENU_INPUT,
-	.title = "Shortcuts",
-	.desc = "Press A to set and X to clear."
-			"\nSupports single button and MENU+button." // TODO: not supported on nano because POWER doubles as MENU
-	,
-	.on_confirm = OptionShortcuts_bind,
-	.on_change = OptionShortcuts_unbind,
-	.items = NULL};
 char* getSaveDesc(void) {
 	switch (config.loaded) {
 	case CONFIG_NONE:
@@ -430,34 +409,6 @@ char* getSaveDesc(void) {
 		return "Using game config.";
 	}
 	return NULL;
-}
-int OptionShortcuts_openMenu(MenuList* list, int i) {
-	if (OptionShortcuts_menu.items == NULL) {
-		// TODO: where do I free this? I guess I don't :sweat_smile:
-		OptionShortcuts_menu.items = calloc(SHORTCUT_COUNT + 1, sizeof(MenuItem));
-		for (int j = 0; config.shortcuts[j].name; j++) {
-			ButtonMapping* button = &config.shortcuts[j];
-			MenuItem* item = &OptionShortcuts_menu.items[j];
-			item->id = j;
-			item->name = button->name;
-			item->desc = NULL;
-			item->value = button->local + 1;
-			if (button->mod)
-				item->value += LOCAL_BUTTON_COUNT;
-			item->values = button_labels;
-		}
-	} else {
-		// update values
-		for (int j = 0; config.shortcuts[j].name; j++) {
-			ButtonMapping* button = &config.shortcuts[j];
-			MenuItem* item = &OptionShortcuts_menu.items[j];
-			item->value = button->local + 1;
-			if (button->mod)
-				item->value += LOCAL_BUTTON_COUNT;
-		}
-	}
-	Menu_options(&OptionShortcuts_menu);
-	return MENU_CALLBACK_NOP;
 }
 
 int OptionSaveChanges_onConfirm(MenuList* list, int i) {

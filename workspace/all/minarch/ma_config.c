@@ -347,47 +347,7 @@ const char* device_button_names[LOCAL_BUTTON_COUNT] = {
 };
 
 
-// NOTE: these must be in BTN_ID_ order also off by 1 because of NONE (which is -1 in BTN_ID_ land)
-char* button_labels[] = {
-	"NONE", // displayed by default
-	"UP",
-	"DOWN",
-	"LEFT",
-	"RIGHT",
-	"A",
-	"B",
-	"X",
-	"Y",
-	"START",
-	"SELECT",
-	"L1",
-	"R1",
-	"L2",
-	"R2",
-	"L3",
-	"R3",
-	"L4",
-	"R4",
-	"MENU+UP",
-	"MENU+DOWN",
-	"MENU+LEFT",
-	"MENU+RIGHT",
-	"MENU+A",
-	"MENU+B",
-	"MENU+X",
-	"MENU+Y",
-	"MENU+START",
-	"MENU+SELECT",
-	"MENU+L1",
-	"MENU+R1",
-	"MENU+L2",
-	"MENU+R2",
-	"MENU+L3",
-	"MENU+R3",
-	"MENU+L4",
-	"MENU+R4",
-	NULL,
-};
+// button_labels[] (bind labels, NONE/A/MENU+X...) lives in common/emu_shortcuts.c
 static char* overclock_labels[] = {
 	"Powersave",
 	"Normal",
@@ -818,18 +778,9 @@ struct Config config = {
 		.options = NULL,
 	}},
 	.controls = default_button_mapping,
-	.shortcuts = (ButtonMapping[]){[SHORTCUT_SAVE_STATE] = {"Save State", -1, BTN_ID_NONE, 0}, [SHORTCUT_LOAD_STATE] = {"Load State", -1, BTN_ID_NONE, 0}, [SHORTCUT_UNDO_LOAD_STATE] = {"Undo Load State", -1, BTN_ID_NONE, 0}, [SHORTCUT_RESET_GAME] = {"Reset Game", -1, BTN_ID_NONE, 0}, [SHORTCUT_SAVE_QUIT] = {"Save & Quit", -1, BTN_ID_NONE, 0}, [SHORTCUT_CYCLE_SCALE] = {"Cycle Scaling", -1, BTN_ID_NONE, 0}, [SHORTCUT_CYCLE_EFFECT] = {"Cycle Effect", -1, BTN_ID_NONE, 0}, [SHORTCUT_TOGGLE_FF] = {"Toggle FF", -1, BTN_ID_NONE, 0}, [SHORTCUT_HOLD_FF] = {"Hold FF", -1, BTN_ID_NONE, 0}, [SHORTCUT_TOGGLE_REWIND] = {"Toggle Rewind", -1, BTN_ID_NONE, 0}, [SHORTCUT_HOLD_REWIND] = {"Hold Rewind", -1, BTN_ID_NONE, 0}, [SHORTCUT_GAMESWITCHER] = {"Game Switcher", -1, BTN_ID_NONE, 0}, [SHORTCUT_SCREENSHOT] = {"Screenshot", -1, BTN_ID_NONE, 0},
-								   // Trimui only
-								   [SHORTCUT_TOGGLE_TURBO_A] = {"Toggle Turbo A", -1, BTN_ID_NONE, 0},
-								   [SHORTCUT_TOGGLE_TURBO_B] = {"Toggle Turbo B", -1, BTN_ID_NONE, 0},
-								   [SHORTCUT_TOGGLE_TURBO_X] = {"Toggle Turbo X", -1, BTN_ID_NONE, 0},
-								   [SHORTCUT_TOGGLE_TURBO_Y] = {"Toggle Turbo Y", -1, BTN_ID_NONE, 0},
-								   [SHORTCUT_TOGGLE_TURBO_L] = {"Toggle Turbo L", -1, BTN_ID_NONE, 0},
-								   [SHORTCUT_TOGGLE_TURBO_L2] = {"Toggle Turbo L2", -1, BTN_ID_NONE, 0},
-								   [SHORTCUT_TOGGLE_TURBO_R] = {"Toggle Turbo R", -1, BTN_ID_NONE, 0},
-								   [SHORTCUT_TOGGLE_TURBO_R2] = {"Toggle Turbo R2", -1, BTN_ID_NONE, 0},
-								   // -----
-								   {NULL}},
+#define SHORTCUT_MAPPING_(id, name) [SHORTCUT_##id] = {name, -1, BTN_ID_NONE, 0},
+	.shortcuts = (ButtonMapping[]){SHORTCUT_LIST(SHORTCUT_MAPPING_){NULL}},
+#undef SHORTCUT_MAPPING_
 };
 static int Config_getValue(char* cfg, const char* key, char* out_value, int* lock) { // gets value from string
 	size_t key_len = strlen(key);
@@ -1156,6 +1107,8 @@ void Config_init(void) {
 		button_name[len] = '\0';
 
 		tmp += 3;
+		if (EmuShortcuts_find(button_name) >= 0)
+			continue; // a shortcut, not a core button (shortcuts are global now)
 		strncpy(button_id, tmp, sizeof(button_id) - 1);
 		button_id[sizeof(button_id) - 1] = '\0';
 		tmp2 = strchr(button_id, '\n');
@@ -1339,32 +1292,6 @@ static void Config_readControlsString(char* cfg) {
 		mapping->local = id;
 		mapping->mod = mod;
 	}
-
-	for (int i = 0; config.shortcuts[i].name; i++) {
-		ButtonMapping* mapping = &config.shortcuts[i];
-		snprintf(key, sizeof(key), "bind %s", mapping->name);
-		sprintf(value, "NONE");
-
-		if (!Config_getValue(cfg, key, value, NULL))
-			continue;
-
-		int id = -1;
-		for (int j = 0; button_labels[j]; j++) {
-			if (!strcmp(button_labels[j], value)) {
-				id = j - 1;
-				break;
-			}
-		}
-
-		int mod = 0;
-		if (id >= LOCAL_BUTTON_COUNT) {
-			id -= LOCAL_BUTTON_COUNT;
-			mod = 1;
-		}
-
-		mapping->local = id;
-		mapping->mod = mod;
-	}
 }
 void Config_load(void) {
 	config.released = 0;
@@ -1501,9 +1428,22 @@ void Config_reapplyOptions(void) {
 		Config_readOptions();
 	}
 }
+// Emulator shortcuts come only from the global file the Settings app writes
+// (common/emu_shortcuts.h); binds for them in default.cfg or a console/game cfg
+// are ignored.
+static void Config_readShortcuts(void) {
+	char path[MAX_PATH];
+	int labels[SHORTCUT_COUNT];
+	if (!EmuShortcuts_getPath(path, sizeof(path), USERDATA_PATH, getenv("DEVICE")))
+		return;
+	EmuShortcuts_read(path, labels);
+	for (int i = 0; i < SHORTCUT_COUNT; i++)
+		EmuShortcuts_fromLabel(labels[i], &config.shortcuts[i].local, &config.shortcuts[i].mod);
+}
 void Config_readControls(void) {
 	Config_readControlsString(config.default_cfg);
 	Config_readControlsString(config.user_cfg);
+	Config_readShortcuts();
 }
 static void writeOption(FILE* file, Option* option) {
 	int count = 0;
@@ -1555,13 +1495,7 @@ void Config_write(int override) {
 			j += LOCAL_BUTTON_COUNT;
 		fprintf(file, "bind %s = %s\n", mapping->name, button_labels[j]);
 	}
-	for (int i = 0; config.shortcuts[i].name; i++) {
-		ButtonMapping* mapping = &config.shortcuts[i];
-		int j = mapping->local + 1;
-		if (mapping->mod)
-			j += LOCAL_BUTTON_COUNT;
-		fprintf(file, "bind %s = %s\n", mapping->name, button_labels[j]);
-	}
+	// shortcuts are global (Config_readShortcuts), never saved per console/game
 
 	fclose(file);
 	sync();
@@ -1600,12 +1534,6 @@ void Config_restore(void) {
 		mapping->local = mapping->default_;
 		mapping->mod = 0;
 	}
-	for (int i = 0; config.shortcuts[i].name; i++) {
-		ButtonMapping* mapping = &config.shortcuts[i];
-		mapping->local = BTN_ID_NONE;
-		mapping->mod = 0;
-	}
-
 	Config_load();
 	Config_readOptions();
 	Config_readControls();

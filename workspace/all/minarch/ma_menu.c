@@ -914,6 +914,9 @@ static void initFrontendVersionDesc(void) {
 		snprintf(frontend_version_desc, sizeof(frontend_version_desc), "NX Redux (%s)", tag);
 }
 
+// options_menu index of Achievements (Save Changes follows it, or takes its
+// place while RA is off)
+#define OPTIONS_RA_INDEX 5
 static MenuList options_menu = {
 	.type = MENU_LIST,
 	.title = "Options",
@@ -925,7 +928,6 @@ static MenuList options_menu = {
 		{"Shaders", .on_confirm = OptionShaders_openMenu},
 		{"Cheats", .on_confirm = OptionCheats_openMenu},
 		{"Controls", .on_confirm = OptionControls_openMenu},
-		{"Shortcuts", .on_confirm = OptionShortcuts_openMenu},
 		{"Achievements", .on_confirm = OptionAchievements_openMenu},
 		{"Save Changes", .on_confirm = OptionSaveChanges_openMenu},
 		{NULL},
@@ -933,25 +935,25 @@ static MenuList options_menu = {
 	}};
 
 // Track the index of Save Changes menu item (changes based on RA visibility)
-static int save_changes_index = 7;
+static int save_changes_index = OPTIONS_RA_INDEX + 1;
 
 // Update options menu visibility based on RA enable state
 void Options_updateVisibility(void) {
 	if (CFG_getRAEnable()) {
-		// RA enabled: show Achievements at index 6, Save Changes at index 7
-		options_menu.items[6].name = "Achievements";
-		options_menu.items[6].on_confirm = OptionAchievements_openMenu;
-		options_menu.items[7].name = "Save Changes";
-		options_menu.items[7].on_confirm = OptionSaveChanges_openMenu;
-		save_changes_index = 7;
+		// RA enabled: Achievements, then Save Changes
+		options_menu.items[OPTIONS_RA_INDEX].name = "Achievements";
+		options_menu.items[OPTIONS_RA_INDEX].on_confirm = OptionAchievements_openMenu;
+		options_menu.items[OPTIONS_RA_INDEX + 1].name = "Save Changes";
+		options_menu.items[OPTIONS_RA_INDEX + 1].on_confirm = OptionSaveChanges_openMenu;
+		save_changes_index = OPTIONS_RA_INDEX + 1;
 	} else {
-		// RA disabled: hide Achievements, move Save Changes to index 6
-		options_menu.items[6].name = "Save Changes";
-		options_menu.items[6].desc = NULL;
-		options_menu.items[6].on_confirm = OptionSaveChanges_openMenu;
-		options_menu.items[7].name = NULL;
-		options_menu.items[7].on_confirm = NULL;
-		save_changes_index = 6;
+		// RA disabled: hide Achievements, move Save Changes up
+		options_menu.items[OPTIONS_RA_INDEX].name = "Save Changes";
+		options_menu.items[OPTIONS_RA_INDEX].desc = NULL;
+		options_menu.items[OPTIONS_RA_INDEX].on_confirm = OptionSaveChanges_openMenu;
+		options_menu.items[OPTIONS_RA_INDEX + 1].name = NULL;
+		options_menu.items[OPTIONS_RA_INDEX + 1].on_confirm = NULL;
+		save_changes_index = OPTIONS_RA_INDEX;
 	}
 }
 
@@ -970,13 +972,13 @@ void OptionAchievements_updateDesc(void) {
 		RA_getAchievementSummary(&unlocked, &total);
 		if (total > 0) {
 			snprintf(ach_desc_buffer, sizeof(ach_desc_buffer), "%u / %u unlocked", unlocked, total);
-			options_menu.items[6].desc = ach_desc_buffer;
+			options_menu.items[OPTIONS_RA_INDEX].desc = ach_desc_buffer;
 			return;
 		}
-		options_menu.items[6].desc = (char*)"No achievements yet";
+		options_menu.items[OPTIONS_RA_INDEX].desc = (char*)"No achievements yet";
 		return;
 	}
-	options_menu.items[6].desc = RA_isGameUnknown() ? (char*)"Game not recognized" : NULL;
+	options_menu.items[OPTIONS_RA_INDEX].desc = RA_isGameUnknown() ? (char*)"Game not recognized" : NULL;
 }
 
 // Arcade zips without a map.txt alias get the title the launcher shows for them
