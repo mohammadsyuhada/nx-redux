@@ -23,6 +23,14 @@ static const struct {
 	{"amiga", "c64"},
 	{"fbn", "c64"}, // Arcade: the Competition Pro is an arcade stick
 	{"dcx", "dc"},	// Dreamcast Lite
+	// the computers and the keyboard-played systems: the VIC-20's keyboard (as nx-mobile)
+	{"pet", "vic20"},
+	{"cpc", "vic20"},
+	{"msx", "vic20"},
+	{"dos", "vic20"},
+	{"prboom", "vic20"}, // Doom, a DOS game
+	{"p8", "vic20"},	 // Pico-8, a fantasy computer
+	{"ports", "vic20"},	 // PortMaster: PC games
 };
 
 const PadTableRow* Pad_row(const char* id) {

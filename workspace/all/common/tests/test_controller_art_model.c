@@ -36,11 +36,13 @@ int main(void) {
 	assert(is("Dreamcast Lite (DCX)", "dc")); // same controller as Dreamcast
 	assert(is("Sega CD (SEGACD)", "md") && is("Sega CD (GPGX)", "md") && is("Sega 32X (32X)", "md"));
 	assert(is("Neo Geo Pocket (NGP)", "ngpc") && is("Neo Geo Pocket Color (NGPC)", "ngpc"));
-	// no hardware of their own, or no image: keep the logo
-	assert(is("Pico-8 (P8)", NULL) && is("Doom (PRBOOM)", NULL));
+	// the computers, Doom and Pico-8 on the VIC-20's keyboard
+	assert(is("Pico-8 (P8)", "vic20") && is("Doom (PRBOOM)", "vic20") && is("Ms-Dos (DOS)", "vic20"));
+	assert(is("Commodore PET (PET)", "vic20") && is("Amstrad CPC (CPC)", "vic20") && is("Microsoft MSX (MSX)", "vic20"));
 	assert(is("Arcade (FBN)", "c64")); // the Competition Pro, an arcade stick
-	assert(is("Ports (PORTS)", NULL) && is("Commodore PET (PET)", NULL) && is("Nintendo 3DS (3DS)", NULL));
-	assert(is("Amstrad CPC (CPC)", NULL) && is("Ms-Dos (DOS)", NULL));
+	// no hardware of their own, or no image: keep the logo
+	assert(is("Ports (PORTS)", "vic20"));
+	assert(is("Nintendo 3DS (3DS)", NULL));
 	// the Commodores: the VIC-20 itself; the C64, C128, Plus/4 and Amiga on the Competition Pro
 	assert(is("Commodore VIC20 (VIC)", "vic20") && is("Commodore 64 (C64)", "c64") && is("Commodore 128 (C128)", "c64"));
 	assert(is("Commodore Plus4 (PLUS4)", "c64") && is("Amiga (PUAE)", "c64"));
