@@ -52,11 +52,8 @@ void RATReset_clearAccountData(void) {
 }
 
 void RATReset_clearAll(void) {
-	// nuke the account tree and the shared game data + badges; a later online
-	// play / prefetch rebuilds them. The per-folder hashes.json files stay:
+	// nuke the whole tree (game data + badges included); a later online
+	// play / prefetch rebuilds it. The per-folder hashes.json files stay:
 	// they only fingerprint rom files, nothing account-related.
 	rat_rm_rf(ra_root());
-	rat_rm_rf(RA_GAMES_DIR);
-	rat_rm_rf(RA_BADGE_CACHE_DIR);
-	rmdir(RA_SHARED_DIR); // only when nothing else lives there
 }

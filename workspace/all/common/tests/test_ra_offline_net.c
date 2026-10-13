@@ -13,7 +13,6 @@
 #include <string.h>
 
 #define ROOT "/tmp/nx_ra_net_test_root"
-#define GAMES "/tmp/nx_ra_net_test_shared/games"
 
 // ---------------------------------------------------------------- HTTP stub
 
@@ -70,10 +69,7 @@ void HTTP_freeResponse(HTTP_Response* response) {
 
 static void write_file(const char* rel, const char* body) {
 	char path[512];
-	if (!strncmp(rel, "cache/games/", 12)) // shared game data: its own root
-		snprintf(path, sizeof(path), GAMES "/%s", rel + 12);
-	else
-		snprintf(path, sizeof(path), ROOT "/%s", rel);
+	snprintf(path, sizeof(path), ROOT "/%s", rel);
 	char dir[512];
 	snprintf(dir, sizeof(dir), "%s", path);
 	char* slash = strrchr(dir, '/');
@@ -92,8 +88,8 @@ static void write_file(const char* rel, const char* body) {
 	",\"ImageIconUrl\":\"\",\"Achievements\":[],\"Leaderboards\":[]}"
 
 static void setup(void) {
-	assert(system("rm -rf " ROOT " /tmp/nx_ra_net_test_shared") == 0);
-	RA_Offline_init(ROOT, GAMES, NULL);
+	assert(system("rm -rf " ROOT) == 0);
+	RA_Offline_init(ROOT, NULL);
 	// game 100 (GBA): core set + bonus set 101; one unlock, earned in the bonus set
 	write_file("cache/games/aaaa1111/sets.json",
 			   "{\"Success\":true,\"GameId\":100,\"Title\":\"Subset Game\",\"ConsoleId\":5,"
@@ -160,7 +156,7 @@ int main(void) {
 	test_subset_unlocks_in_sync();
 	test_failed_console_skipped();
 	test_missing_session_fetched();
-	assert(system("rm -rf " ROOT " /tmp/nx_ra_net_test_shared") == 0);
+	assert(system("rm -rf " ROOT) == 0);
 	printf("ALL TESTS PASSED\n");
 	return 0;
 }

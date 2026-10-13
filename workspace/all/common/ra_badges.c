@@ -136,7 +136,8 @@ static BadgeCacheEntry* find_or_create_entry(uint32_t game_id, const char* badge
 // Create the shared badge dir if it doesn't exist (game folders are made
 // per game, see RA_BadgePath_ensureDir)
 static void ensure_cache_dir(void) {
-	mkdir(RA_SHARED_DIR, 0755);
+	mkdir(RA_USER_DIR, 0755);
+	mkdir(RA_USER_DIR "/cache", 0755);
 	mkdir(RA_BADGE_CACHE_DIR, 0755);
 }
 

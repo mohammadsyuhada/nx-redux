@@ -505,7 +505,7 @@ int main(int argc, char* argv[]) {
 	PWR_init();
 	PAD_init();
 
-	RA_Offline_init(RA_USER_DIR, RA_GAMES_DIR, SDCARD_PATH);
+	RA_Offline_init(RA_USER_DIR, SDCARD_PATH);
 	RA_HashCache_init(ROMS_PATH);
 
 	build_menu_tree();

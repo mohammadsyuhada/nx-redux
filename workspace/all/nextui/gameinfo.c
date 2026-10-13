@@ -102,7 +102,7 @@ static void loadRaIndex(void) {
 		return; // no RA cache: skip RA_Offline_init (it would create the dirs)
 
 	if (!RA_Offline_rootDir()) // HomeStats_init sets it at startup, before any lookup reaches here
-		RA_Offline_init(RA_USER_DIR, RA_GAMES_DIR, SDCARD_PATH);
+		RA_Offline_init(RA_USER_DIR, SDCARD_PATH);
 	struct dirent* ent;
 	while ((ent = readdir(d))) {
 		if (ent->d_name[0] == '.')

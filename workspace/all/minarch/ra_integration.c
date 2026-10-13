@@ -1248,7 +1248,7 @@ void RA_init(void) {
 		return;
 	}
 
-	RA_Offline_init(RA_USER_DIR, RA_GAMES_DIR, SDCARD_PATH);
+	RA_Offline_init(RA_USER_DIR, SDCARD_PATH);
 	RA_HashCache_init(ROMS_PATH);
 
 	// Determine connectivity. Unlike before, no WiFi no longer disables RA -

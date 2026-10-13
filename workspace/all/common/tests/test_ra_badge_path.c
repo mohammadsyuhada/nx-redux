@@ -9,7 +9,7 @@
 #include <sys/stat.h>
 
 #define ROOT "/tmp/nx_ra_badge_path_test"
-#define BADGES ROOT "/Roms/.retroachievements/badges"
+#define BADGES ROOT "/.ra/cache/badges"
 
 static bool is_dir(const char* path) {
 	struct stat st;
@@ -54,7 +54,7 @@ static void test_dir(void) {
 
 static void test_ensure_dir(void) {
 	assert(system("rm -rf " ROOT) == 0);
-	assert(system("mkdir -p " ROOT "/Roms/.retroachievements") == 0);
+	assert(system("mkdir -p " ROOT "/.ra/cache") == 0);
 	assert(!RA_BadgePath_ensureDir(BADGES, 0));
 	assert(!is_dir(BADGES "/0"));
 	assert(RA_BadgePath_ensureDir(BADGES, 1234)); // makes badges/ too

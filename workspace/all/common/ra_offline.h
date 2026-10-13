@@ -9,7 +9,7 @@
 // journaled for later submission.
 //
 // HOST-TESTABLE: this module may only depend on libc + pthread. No SDL,
-// no rcheevos, no defines.h — the storage roots are injected via
+// no rcheevos, no defines.h — the storage root is injected via
 // RA_Offline_init() (device paths: ra_paths.h).
 
 #include <stdbool.h>
@@ -29,18 +29,15 @@ typedef enum {
 } RA_NetMode;
 
 /**
- * Initialize the module. Creates <root>/cache, <root>/cache/sessions,
- * <root>/pending and the games dir. Resets mode to RA_NET_ONLINE.
- *
- * Paths below are given relative to the root ("cache/login.json"); the
- * user-independent "cache/games/<hash>/..." ones resolve into games_dir
- * instead, so one card-wide copy serves every account (and app).
- * @param root_dir account data, e.g. RA_USER_DIR
- * @param games_dir shared game data, e.g. RA_GAMES_DIR (NULL: <root>/cache/games)
+ * Initialize the module. Creates <root>/cache, <root>/cache/games,
+ * <root>/cache/badges, <root>/cache/sessions and <root>/pending. Resets mode
+ * to RA_NET_ONLINE. Game data (cache/games) and badges (cache/badges) are the
+ * same for every account; login, sessions and pending are the account's.
+ * @param root_dir e.g. RA_USER_DIR (ra_paths.h)
  * @param card_root rom.txt stores rom paths relative to this, e.g.
  *        SDCARD_PATH (NULL: store them as given)
  */
-void RA_Offline_init(const char* root_dir, const char* games_dir, const char* card_root);
+void RA_Offline_init(const char* root_dir, const char* card_root);
 
 void RA_Offline_setMode(RA_NetMode mode);
 RA_NetMode RA_Offline_getMode(void);
@@ -48,13 +45,9 @@ RA_NetMode RA_Offline_getMode(void);
 /** The cache root passed to RA_Offline_init(), or NULL before init. */
 const char* RA_Offline_rootDir(void);
 
-/** The games dir ("cache/games/" relpaths), or NULL before init. Lets
- *  callers enumerate cached games without hard-coding the path. */
+/** <root>/cache/games, or NULL before init. Lets callers enumerate cached
+ *  games without hard-coding the path. */
 const char* RA_Offline_gamesDir(void);
-
-/** File path of a root-relative cache path (see RA_Offline_init). False
- *  before init. */
-bool RA_Offline_cachePath(const char* relpath, char* out, size_t out_size);
 
 /** true if cache/login.json exists (a login succeeded online at least once) */
 bool RA_Offline_hasLoginCache(void);
@@ -71,7 +64,7 @@ void RA_Offline_setGameRomPath(const char* game_hash, const char* rom_path);
 /**
  * Read back the rom path recorded by RA_Offline_setGameRomPath(), always as
  * an absolute path (a card-relative record gets the card root prepended; an
- * absolute one from before the move is returned as is). Returns false on
+ * absolute one from an older build is returned as is). Returns false on
  * miss (never recorded, or game_hash invalid).
  */
 bool RA_Offline_getGameRomPath(const char* game_hash, char* out, size_t out_size);

@@ -397,11 +397,8 @@ void RATPrefetch_run(SDL_Surface* screen) {
 		return;
 	}
 
-	// badges directory may not exist on a fresh card (its parent
-	// Roms/.retroachievements was created by RA_Offline_init() in main());
+	// the badges dir was created by RA_Offline_init() in main();
 	// rat_download_set_badges makes each game's folder
-	mkdir(RA_SHARED_DIR, 0755);
-	mkdir(RA_BADGE_CACHE_DIR, 0755);
 
 	// CHD-aware hashing for disc images
 	rc_hash_cdreader_t cdreader;
@@ -598,8 +595,8 @@ void RATPrefetch_run(SDL_Surface* screen) {
 			// partial badge set: drop the cached sets.json so the next
 			// prefetch run refetches this game instead of skipping it
 			char sets_path[512];
-			if (RA_Offline_cachePath(rel, sets_path, sizeof(sets_path)))
-				remove(sets_path);
+			snprintf(sets_path, sizeof(sets_path), "%s/%s", RA_USER_DIR, rel);
+			remove(sets_path);
 		}
 		rc_api_destroy_fetch_game_sets_response(&sets);
 		if (!cancelled) {

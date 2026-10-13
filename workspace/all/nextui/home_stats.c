@@ -263,7 +263,7 @@ static void initRaRoot(void) {
 	if (RA_Offline_rootDir())
 		return;
 	if (exists(RA_GAMES_DIR))
-		RA_Offline_init(RA_USER_DIR, RA_GAMES_DIR, SDCARD_PATH);
+		RA_Offline_init(RA_USER_DIR, SDCARD_PATH);
 }
 
 void HomeStats_init(void) {

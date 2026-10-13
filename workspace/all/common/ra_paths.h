@@ -1,23 +1,21 @@
 #ifndef __RA_PATHS_H__
 #define __RA_PATHS_H__
 
-// Where RetroAchievements data lives on the card.
+// Where RetroAchievements data lives on the card. Everything is under
+// .userdata/shared (which Sync always copies; Roms is optional there):
 //
-// Account data (login, per-game sessions, the offline unlock journal, mutes)
-// stays in RA_USER_DIR. Game data that is the same for
-// every account - cached achievement definitions, rom.txt records and badge
-// images - lives under Roms, shared with the Android app on the same card:
+//   .ra/cache/login.json, cache/sessions/, pending/, muted/   account data
+//   .ra/cache/games/<hash>/{gameid,sets}.json, rom.txt        game data
+//   .ra/cache/badges/<game_id>/<name>.png, <name>_lock.png    (ra_badge_path.h)
 //
-//   Roms/.retroachievements/games/<hash>/{gameid,sets}.json, rom.txt
-//   Roms/.retroachievements/badges/<game_id>/<name>.png, <name>_lock.png
-//                                  (ra_badge_path.h)
+// Game data and badges are the same for every account (and the Android app on
+// the same card). Only the rom fingerprints live next to the roms:
 //   Roms/<Folder>/.retroachievements/hashes.json   (ra_hash_cache.h)
 
 #include "defines.h"
 
 #define RA_USER_DIR SHARED_USERDATA_PATH "/.ra"
-#define RA_SHARED_DIR ROMS_PATH "/.retroachievements"
-#define RA_GAMES_DIR RA_SHARED_DIR "/games"
-#define RA_BADGE_CACHE_DIR RA_SHARED_DIR "/badges"
+#define RA_GAMES_DIR RA_USER_DIR "/cache/games"
+#define RA_BADGE_CACHE_DIR RA_USER_DIR "/cache/badges"
 
 #endif // __RA_PATHS_H__
