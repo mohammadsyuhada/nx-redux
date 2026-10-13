@@ -6,6 +6,7 @@
  */
 
 #include "msettings.h"
+#include "emu_shortcuts.h"
 #include "vib_levels.h"
 #include "defines.h"
 #include "api.h"
@@ -1393,7 +1394,8 @@ static void init_about_info(void) {
 #define MAX_NOTIFY_ITEMS 8
 #define MAX_ABOUT_ITEMS 8
 #define MAX_SIMPLE_MODE_ITEMS 2
-#define MAX_MAIN_ITEMS 16
+#define MAX_SHORTCUT_ITEMS (SHORTCUT_COUNT + 1)
+#define MAX_MAIN_ITEMS 18
 
 static SettingItem appearance_items[MAX_APPEARANCE_ITEMS];
 static SettingItem layouts_items[MAX_LAYOUTS_ITEMS];
@@ -1401,6 +1403,7 @@ static SettingItem display_items[MAX_DISPLAY_ITEMS];
 static SettingItem system_items[MAX_SYSTEM_ITEMS];
 static SettingItem fn_items[MAX_FN_ITEMS];
 static SettingItem fnkey_items[MAX_FNKEY_ITEMS];
+static SettingItem shortcut_items[MAX_SHORTCUT_ITEMS];
 static SettingItem notify_items[MAX_NOTIFY_ITEMS];
 static SettingItem about_items[MAX_ABOUT_ITEMS];
 static SettingItem simple_mode_items[MAX_SIMPLE_MODE_ITEMS];
@@ -1413,6 +1416,7 @@ static SettingsPage system_page;
 static SettingsPage fn_page;
 static SettingsPage fn_switch_page; /* wraps fn_items into "FN Switch" titled page */
 static SettingsPage fn_keys_page;
+static SettingsPage shortcuts_page;
 static SettingsPage notify_page;
 static SettingsPage about_page;
 static SettingsPage simple_mode_page;
@@ -1473,6 +1477,120 @@ static void show_simple_mode_help(void) {
 	}
 	PAD_poll();
 	PAD_reset(); // don't leak the close press to the menu underneath
+}
+
+// ============================================
+// Emulator shortcut callbacks
+// ============================================
+
+// minarch reads these at every game launch (common/emu_shortcuts.h); every
+// change is written straight away.
+static int shortcut_labels[SHORTCUT_COUNT];
+static char shortcuts_path[MAX_PATH];
+
+#define SHORTCUT_CAPTURE_MS 5000
+
+static void shortcuts_load(void) {
+	EmuShortcuts_getPath(shortcuts_path, sizeof(shortcuts_path), USERDATA_PATH, getenv("DEVICE"));
+	EmuShortcuts_read(shortcuts_path, shortcut_labels);
+}
+static void shortcuts_save(void) {
+	if (!EmuShortcuts_write(shortcuts_path, shortcut_labels))
+		LOG_error("Failed to write %s\n", shortcuts_path);
+}
+static int shortcut_get(int id) {
+	return shortcut_labels[id];
+}
+static void shortcut_set(int id, int label) {
+	if (label < 0 || label >= SHORTCUT_LABEL_COUNT)
+		label = 0;
+	if (shortcut_labels[id] == label)
+		return;
+	shortcut_labels[id] = label;
+	shortcuts_save();
+}
+
+// Blocking "press a button" capture, like minarch's in-game binder: the first
+// button pressed (UP..R4) is bound, as MENU+button when MENU is held. B on its
+// own, or SHORTCUT_CAPTURE_MS without a press, cancels.
+static void shortcut_capture(int id) {
+	if (!g_screen)
+		return;
+
+	// holding MENU for a combo outlasts keymon's long press; keep the OSD down
+	touch(OSD_SUPPRESS_PATH);
+	PAD_reset(); // the A that opened the capture is still down
+	uint32_t start = SDL_GetTicks();
+	int label = -1;
+	while (!app_quit) {
+		GFX_startFrame();
+		PAD_poll();
+
+		int menu = PAD_isPressed(BTN_MENU);
+		if (PAD_justPressed(BTN_B) && !menu)
+			break;
+		for (int btn_id = 0; btn_id < SHORTCUT_BUTTON_COUNT; btn_id++) {
+			if (PAD_justPressed(1 << btn_id)) {
+				label = EmuShortcuts_toLabel(btn_id, menu);
+				break;
+			}
+		}
+		if (label >= 0)
+			break;
+
+		uint32_t elapsed = SDL_GetTicks() - start;
+		if (elapsed >= SHORTCUT_CAPTURE_MS)
+			break;
+
+		char text[256];
+		snprintf(text, sizeof(text),
+				 "%s\n\nPress a button, or hold MENU\nand press a button.\n\n%u",
+				 shortcut_names[id], (unsigned)((SHORTCUT_CAPTURE_MS - elapsed + 999) / 1000));
+		GFX_clear(g_screen);
+		UI_renderMenuBar(g_screen, "Settings | Emulator Shortcuts");
+		GFX_blitMessage(font.small, text, g_screen,
+						&(SDL_Rect){SCALE1(PADDING), 0,
+									g_screen->w - SCALE1(PADDING * 2), g_screen->h});
+		UI_renderButtonHintBar(g_screen, (char*[]){"B", "CANCEL", NULL});
+		GFX_flip(g_screen);
+	}
+	unlink(OSD_SUPPRESS_PATH);
+	PAD_poll();
+	PAD_reset(); // don't leak the bound press to the menu underneath
+
+	if (label >= 0)
+		shortcut_set(id, label);
+}
+
+// one get/set/clear/capture set per shortcut (the menu callbacks take no argument)
+#define SHORTCUT_CALLBACKS_(id, name)         \
+	static int get_shortcut_##id(void) {      \
+		return shortcut_get(SHORTCUT_##id);   \
+	}                                         \
+	static void set_shortcut_##id(int v) {    \
+		shortcut_set(SHORTCUT_##id, v);       \
+	}                                         \
+	static void clear_shortcut_##id(void) {   \
+		shortcut_set(SHORTCUT_##id, 0);       \
+	}                                         \
+	static void capture_shortcut_##id(void) { \
+		shortcut_capture(SHORTCUT_##id);      \
+	}
+SHORTCUT_LIST(SHORTCUT_CALLBACKS_)
+#undef SHORTCUT_CALLBACKS_
+
+typedef struct ShortcutRow {
+	int (*get)(void);
+	void (*set)(int);
+	void (*clear)(void);
+	void (*capture)(void);
+} ShortcutRow;
+#define SHORTCUT_ROW_(id, name) [SHORTCUT_##id] = {get_shortcut_##id, set_shortcut_##id, clear_shortcut_##id, capture_shortcut_##id},
+static const ShortcutRow shortcut_rows[SHORTCUT_COUNT] = {SHORTCUT_LIST(SHORTCUT_ROW_)};
+#undef SHORTCUT_ROW_
+
+static int is_turbo_shortcut(int id) {
+	return id >= SHORTCUT_TOGGLE_TURBO_A && id <= SHORTCUT_TOGGLE_TURBO_R2;
 }
 
 // ============================================
@@ -1660,6 +1778,13 @@ static void reset_system_page(void) {
 }
 static void reset_fn_page(void) {
 	settings_page_reset_all(&fn_switch_page);
+}
+static void reset_shortcuts_page(void) {
+	for (int i = 0; i < SHORTCUT_COUNT; i++)
+		shortcut_labels[i] = 0;
+	shortcuts_save(); // one write, not one per row
+	for (int i = 0; i < shortcuts_page.item_count; i++)
+		settings_item_sync(&shortcuts_page.items[i]);
 }
 static void reset_notify_page(void) {
 	settings_page_reset_all(&notify_page);
@@ -2093,6 +2218,27 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	init_page(&fn_keys_page, "Settings | F1 / F2 Keys", fnkey_items, idx, 0);
 
 	// ============================
+	// Emulator shortcuts page (global, read by minarch at every launch)
+	// ============================
+	idx = 0;
+	shortcuts_load();
+	for (int i = 0; i < SHORTCUT_COUNT; i++) {
+		if (is_turbo_shortcut(i) && !PLAT_canTurbo())
+			continue;
+		const ShortcutRow* row = &shortcut_rows[i];
+		shortcut_items[idx] = (SettingItem)ITEM_CYCLE_INIT(
+			shortcut_names[i], "In-game shortcut for every console.\nA: press the button (or MENU+button) to use. X: clear.",
+			(const char**)button_labels, SHORTCUT_LABEL_COUNT, NULL, row->get, row->set, row->clear);
+		shortcut_items[idx].on_press = row->capture;
+		shortcut_items[idx].on_clear = row->clear;
+		idx++;
+	}
+	shortcut_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
+		"Reset to defaults", "Clears every shortcut.",
+		reset_shortcuts_page);
+	init_page(&shortcuts_page, "Settings | Emulator Shortcuts", shortcut_items, idx, 0);
+
+	// ============================
 	// Notifications page
 	// ============================
 	idx = 0;
@@ -2208,6 +2354,9 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	}
 
 	main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
+		"Emulator Shortcuts", "In-game shortcuts for every console", &shortcuts_page);
+
+	main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
 		"Simple Mode", "Simplified menu for children", &simple_mode_page);
 
 	main_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
@@ -2234,7 +2383,7 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	{
 		SettingsPage* pages[] = {
 			&appearance_page, &layouts_page, &display_page, &system_page,
-			&fn_switch_page, &notify_page, &simple_mode_page, NULL};
+			&fn_switch_page, &notify_page, &simple_mode_page, &shortcuts_page, NULL};
 		for (int p = 0; pages[p]; p++) {
 			for (int i = 0; i < pages[p]->item_count; i++) {
 				settings_item_sync(&pages[p]->items[i]);

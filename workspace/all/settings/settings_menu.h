@@ -52,8 +52,9 @@ typedef struct SettingItem {
 	void (*set_value)(int val); // sets value
 	int* values;				// maps idx -> actual value (NULL means idx=value)
 	int a_cycles;				// 1 = A also steps to the next value (a two-value flip row)
+	void (*on_clear)(void);		// X clears the value (e.g. unbind); NULL = X does nothing
 
-	// ITEM_BUTTON
+	// ITEM_BUTTON; on an ITEM_CYCLE, A calls it when set (e.g. capture a button)
 	void (*on_press)(void);
 
 	// ITEM_SUBMENU

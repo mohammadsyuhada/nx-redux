@@ -284,6 +284,11 @@ void settings_menu_handle_input(bool* quit, bool* dirty) {
 			cycle_item_next(sel, 1);
 			changed = 1;
 		}
+		if (sel->on_clear && PAD_justPressed(BTN_X)) {
+			sel->on_clear();
+			settings_item_sync(sel);
+			changed = 1;
+		}
 	}
 
 	// Snapshot the selected item before releasing the lock: on scanner
@@ -299,6 +304,14 @@ void settings_menu_handle_input(bool* quit, bool* dirty) {
 	// Confirm (A button)
 	if (sel && PAD_justPressed(BTN_A)) {
 		switch (sel_snap.type) {
+		case ITEM_CYCLE:
+			// static rows only: scanner pages never set on_press on a CYCLE item
+			if (sel_snap.on_press && !sel_snap.a_cycles) {
+				sel_snap.on_press();
+				settings_item_sync(sel);
+				changed = 1;
+			}
+			break;
 		case ITEM_BUTTON:
 			if (sel_snap.on_press)
 				sel_snap.on_press();
@@ -479,7 +492,7 @@ static void render_hints_for_page(SDL_Surface* screen, SettingsPage* page) {
 	int is_root = (stack_depth <= 1);
 
 	char* back_label = is_root ? "EXIT" : "BACK";
-	char* hints[8] = {NULL};
+	char* hints[10] = {NULL};
 
 	if (!sel) {
 		char* h[] = {"B", back_label, NULL};
@@ -491,6 +504,12 @@ static void render_hints_for_page(SDL_Surface* screen, SettingsPage* page) {
 		switch (sel->type) {
 		case ITEM_CYCLE:
 		case ITEM_COLOR: {
+			if (sel->on_press && sel->on_clear) {
+				// a binding row: A captures a button, X clears it
+				char* h[] = {"LEFT/RIGHT", "CHANGE", "B", back_label, "X", "CLEAR", "A", "SET", NULL};
+				memcpy(hints, h, sizeof(h));
+				break;
+			}
 			if (sel->a_cycles) {
 				// a two-value flip row: A steps the value too
 				char* h[] = {"LEFT/RIGHT", "CHANGE", "B", back_label, "A", "CHANGE", NULL};
