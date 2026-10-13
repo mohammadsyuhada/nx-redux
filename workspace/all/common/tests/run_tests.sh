@@ -98,6 +98,8 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_romkey ../../n
 /tmp/nx_test_romkey
 cc -std=gnu99 -Wall -Werror -Wno-deprecated-declarations -fsanitize=address -g -I.. -o /tmp/nx_test_ra_offline test_ra_offline.c ../ra_offline.c
 (cd /tmp && mkdir -p build && /tmp/nx_test_ra_offline)
+cc -std=gnu99 -Wall -Werror -Wno-deprecated-declarations -fsanitize=address -g -I.. -o /tmp/nx_test_ra_hash_cache test_ra_hash_cache.c ../ra_hash_cache.c ../cjson/cJSON.c
+/tmp/nx_test_ra_hash_cache
 # ra_offline_net.c links rcheevos, whose source the minarch build fetches
 RC=../../minarch/rcheevos/src
 if [ -d "$RC/src/rapi" ]; then
