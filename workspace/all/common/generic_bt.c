@@ -200,6 +200,18 @@ static int bt_system(const char* cmd) {
 	return bt_run_cmd_deadline(cmd, NULL, 0, 30);
 }
 
+// Pair and Connect may need the same 30-second cap while their output is
+// checked for BlueZ errors. Short property queries still use bt_run_cmd.
+static int bt_run_cmd_long(const char* cmd, char* output, size_t output_len) {
+	if (!bt_daemon_alive()) {
+		LOG_warn("bluetoothd not running, skipping command: %s\n", cmd);
+		if (output && output_len > 0)
+			output[0] = '\0';
+		return -1;
+	}
+	return bt_run_cmd_deadline(cmd, output, output_len, 30);
+}
+
 // Bluetoothctl version detection
 static int bluetoothctl_major_version = 0;
 static int bluetoothctl_minor_version = 0;
@@ -452,7 +464,7 @@ void PLAT_bluetoothEnable(bool shouldBeOn) {
 		// On tg5050 (separate WiFi/BT chips), keep bluetoothd running and
 		// just power off the adapter so bluetoothctl commands don't hang.
 		if (strcmp(PLATFORM, "tg5040") == 0) {
-			bt_system("bluetoothctl power off 2>/dev/null");
+			// stop_bt captures the connected audio target before powering off.
 			system(SYSTEM_PATH "/etc/bluetooth/bt_init.sh stop");
 		} else {
 			bt_system("bluetoothctl power off 2>/dev/null");
@@ -830,7 +842,7 @@ int PLAT_bluetoothPair(char* addr) {
 
 	// Trust is a reconnection policy, not evidence that pairing succeeded.
 	snprintf(cmd, sizeof(cmd), "bluetoothctl --agent NoInputNoOutput pair %s 2>&1", addr);
-	int ret = bt_run_cmd(cmd, output, sizeof(output));
+	int ret = bt_run_cmd_long(cmd, output, sizeof(output));
 	if (ret != 0 || strstr(output, "Failed to pair") != NULL) {
 		LOG_error("BT pair failed: %d\n", ret);
 		return BT_PAIR_FAILED;
@@ -852,7 +864,7 @@ int PLAT_bluetoothPair(char* addr) {
 
 	// Connection alone does not imply an audio sink is ready.
 	snprintf(cmd, sizeof(cmd), "bluetoothctl connect %s 2>&1", addr);
-	if (bt_run_cmd(cmd, output, sizeof(output)) != 0 || strstr(output, "Failed") != NULL)
+	if (bt_run_cmd_long(cmd, output, sizeof(output)) != 0 || strstr(output, "Failed") != NULL)
 		return BT_PAIR_CONNECT_FAILED;
 	bt_remember_boot(addr);
 	return bonded ? BT_PAIR_OK : BT_PAIR_TEMPORARY;

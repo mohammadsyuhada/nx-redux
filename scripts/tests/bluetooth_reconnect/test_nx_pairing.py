@@ -25,7 +25,7 @@ class PairingRegression(unittest.TestCase):
 #define LOG_error(...) ((void)0)
 enum { BT_PAIR_OK=0, BT_PAIR_TEMPORARY=1, BT_PAIR_FAILED=-1, BT_PAIR_TRUST_FAILED=-2, BT_PAIR_CONNECT_FAILED=-3 };
 struct BT_devicePaired { char remote_addr[18], remote_name[249]; bool is_paired, is_bonded, is_connected, is_trusted; int rssi; };
-static int scenario, trust_calls, connect_calls, removed;
+static int scenario, trust_calls, connect_calls, removed, pair_long_calls, connect_long_calls;
 static bool PLAT_bluetoothEnabled(void) { return true; }
 static bool bt_version_gte(int a,int b) { return true; }
 static bool bt_cancel_boot(void) { return true; }
@@ -52,6 +52,12 @@ static int bt_run_cmd(const char* cmd,char* out,size_t len) {
  if (strstr(cmd,"connect")) { connect_calls++; if(scenario==5) return -1; return 0; }
  assert(0); return -1;
 }
+static int bt_run_cmd_long(const char* cmd,char* out,size_t len) {
+ if (strstr(cmd,"--agent")) pair_long_calls++;
+ else if (strstr(cmd,"connect")) connect_long_calls++;
+ else assert(0);
+ return bt_run_cmd(cmd,out,len);
+}
 '''
         main = r'''
 int main(void) {
@@ -63,7 +69,9 @@ int main(void) {
  }
  scenario=4; assert(PLAT_bluetoothPair(addr)==BT_PAIR_TRUST_FAILED); assert(!connect_calls);
  scenario=5; assert(PLAT_bluetoothPair(addr)==BT_PAIR_CONNECT_FAILED);
- scenario=0; assert(PLAT_bluetoothPair(addr)==BT_PAIR_TEMPORARY);
+ scenario=0; pair_long_calls=connect_long_calls=0;
+ assert(PLAT_bluetoothPair(addr)==BT_PAIR_TEMPORARY);
+ assert(pair_long_calls==1 && connect_long_calls==1);
  scenario=6; assert(PLAT_bluetoothPair(addr)==BT_PAIR_OK);
  scenario=0;
  struct BT_devicePaired devices[4]; memset(devices,0xff,sizeof(devices));
@@ -81,6 +89,44 @@ int main(void) {
             path = pathlib.Path(directory)
             (path / 'test.c').write_text(harness + paired + main)
             subprocess.run(['cc', '-std=c99', '-Werror', '-o', str(path / 'test'), str(path / 'test.c')], check=True)
+            subprocess.run([str(path / 'test')], check=True)
+
+    def test_pair_command_wrapper_keeps_thirty_second_capture_and_liveness(self):
+        source = (self.checkout / 'workspace/all/common/generic_bt.c').read_text()
+        wrapper = source[source.index('static int bt_run_cmd_long('):
+                         source.index('// Bluetoothctl version detection')]
+        harness = r'''
+#include <assert.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <string.h>
+#define LOG_warn(...) ((void)0)
+static bool daemon_up = true;
+static int deadline_calls, timeout_seen, result = -2;
+static bool bt_daemon_alive(void) { return daemon_up; }
+static int bt_run_cmd_deadline(const char* cmd, char* out, size_t len, int timeout) {
+    assert(strstr(cmd, "bluetoothctl") && out && len > 1);
+    deadline_calls++; timeout_seen = timeout;
+    strcpy(out, "Failed to pair");
+    return result;
+}
+''' + wrapper + r'''
+int main(void) {
+    char out[64] = "stale";
+    assert(bt_run_cmd_long("bluetoothctl pair AA:BB:CC:DD:EE:FF", out, sizeof(out)) == -2);
+    assert(deadline_calls == 1 && timeout_seen == 30);
+    assert(strcmp(out, "Failed to pair") == 0);
+    daemon_up = false;
+    assert(bt_run_cmd_long("bluetoothctl connect AA:BB:CC:DD:EE:FF", out, sizeof(out)) == -1);
+    assert(deadline_calls == 1 && out[0] == '\0');
+    return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory)
+            (path / 'test.c').write_text(harness)
+            subprocess.run(['cc', '-std=c99', '-Werror', '-o', str(path / 'test'),
+                            str(path / 'test.c')], check=True)
             subprocess.run([str(path / 'test')], check=True)
 
     def test_ui_state_and_fallback_contract(self):
