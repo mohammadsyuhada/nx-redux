@@ -19,6 +19,8 @@ typedef struct {
 	char addr[18];
 	BluetoothDeviceType device_type;
 	int paired;
+	int bonded;
+	int trusted;
 	int connected;
 } BtDeviceInfo;
 
@@ -26,7 +28,8 @@ typedef struct {
 // Static items
 // ============================================
 
-#define BT_STATIC_COUNT 2
+#define BT_STATIC_COUNT 3
+#define BT_IDX_BOOT 2
 #define BT_IDX_TOGGLE 0
 #define BT_IDX_DIAG 1
 
@@ -61,6 +64,7 @@ static void bt_device_draw(SDL_Surface* screen, SettingItem* item,
 
 // ============================================
 // BT toggle (blocking with overlay)
+static struct { int val; volatile int done; volatile int busy; } bt_boot_ctx;
 // ============================================
 
 // File-scope context: the worker is detached and can outlive bt_set_toggle()
@@ -90,7 +94,7 @@ static void bt_set_toggle(int val) {
 	SettingsPage* page = settings_menu_current();
 	if (!page || !page->screen)
 		return;
-	if (bt_toggle_ctx.busy) // a toggle is still running in the background
+	if (bt_toggle_ctx.busy || bt_boot_ctx.busy) // a toggle is still running in the background
 		return;
 
 	bt_toggle_ctx.val = val;
@@ -129,6 +133,31 @@ typedef struct {
 // writes on completion must remain valid. The busy flag rejects a second action
 // until the first worker has finished with the shared context.
 static BtActionCtx bt_action_ctx;
+static volatile int bt_pair_result = BT_PAIR_OK;
+static const char* bt_action_status = NULL;
+static int bt_boot_result;
+
+static int bt_get_boot(void) { return BT_bootReconnectEnabled() ? 1 : 0; }
+static void* bt_boot_thread(void* arg) {
+	(void)arg;
+	bt_boot_result = BT_bootReconnectEnable(bt_boot_ctx.val != 0);
+	bt_boot_ctx.done = 1;
+	bt_boot_ctx.busy = 0;
+	return NULL;
+}
+static void bt_set_boot(int val) {
+	SettingsPage* page = settings_menu_current();
+	if (!page || !page->screen || bt_boot_ctx.busy || bt_action_ctx.busy || bt_toggle_ctx.busy) return;
+	bt_action_status = NULL;
+	bt_boot_ctx.val = val;
+	settings_run_async(page->screen, "Saving boot reconnect...", bt_boot_thread, NULL,
+		&bt_boot_ctx.done, &bt_boot_ctx.busy);
+	settings_item_sync(&page->items[BT_IDX_BOOT]);
+}
+
+static void bt_pair_worker(char* addr) {
+	bt_pair_result = BT_pair(addr);
+}
 
 static void* bt_action_thread(void* arg) {
 	(void)arg;
@@ -142,9 +171,11 @@ static void bt_run_action(void (*action)(char*), const char* addr, const char* m
 	if (!bt_page_ref || !bt_page_ref->screen)
 		return;
 
-	if (bt_action_ctx.busy) // a previous action is still running in the background
+	if (bt_action_ctx.busy || bt_boot_ctx.busy) // a previous action is still running in the background
 		return;
 
+	bt_action_status = NULL;
+	bt_pair_result = BT_PAIR_OK;
 	bt_action_ctx.action = action;
 	bt_action_ctx.addr[0] = '\0';
 	strncpy(bt_action_ctx.addr, addr, sizeof(bt_action_ctx.addr) - 1);
@@ -174,7 +205,7 @@ static void bt_action_disconnect(void) {
 static void bt_action_pair(void) {
 	if (!active_bt_options)
 		return;
-	bt_run_action(BT_pair, active_bt_options->dev_info.addr, "Pairing...");
+	bt_run_action(bt_pair_worker, active_bt_options->dev_info.addr, "Pairing...");
 }
 
 static void bt_action_unpair(void) {
@@ -197,7 +228,7 @@ static void build_bt_device_options(BtDeviceOptions* opts, BtDeviceInfo* info) {
 
 	int idx = 0;
 
-	if (info->paired) {
+	if (info->paired || info->connected || info->trusted) {
 		if (info->connected) {
 			opts->items[idx] = (SettingItem){
 				.name = "Disconnect",
@@ -210,7 +241,7 @@ static void build_bt_device_options(BtDeviceOptions* opts, BtDeviceInfo* info) {
 		} else {
 			opts->items[idx] = (SettingItem){
 				.name = "Connect",
-				.desc = "Connect to this paired device",
+				.desc = "Connect to this saved device",
 				.type = ITEM_BUTTON,
 				.visible = 1,
 				.on_press = bt_action_connect,
@@ -235,6 +266,18 @@ static void build_bt_device_options(BtDeviceOptions* opts, BtDeviceInfo* info) {
 			.on_press = bt_action_pair,
 		};
 		idx++;
+	}
+
+	// Some controllers connect without a durable bond. Keep their controls,
+	// while allowing temporary pairings to be retried explicitly.
+	if ((info->paired || info->connected || info->trusted) && !info->bonded) {
+		opts->items[idx++] = (SettingItem){
+			.name = "Pair again",
+			.desc = "Retry pairing; no saved bond was reported",
+			.type = ITEM_BUTTON,
+			.visible = 1,
+			.on_press = bt_action_pair,
+		};
 	}
 
 	opts->page.item_count = idx;
@@ -292,7 +335,8 @@ static void bt_device_draw(SDL_Surface* screen, SettingItem* item,
 
 	// Status label
 	const char* status = info->connected ? "Connected"
-						 : info->paired	 ? "Paired"
+						 : info->bonded	 ? "Paired"
+						 : info->paired ? "Temporary"
 										 : "Available";
 
 	// Device name (truncate first so we know the label width for pills)
@@ -432,7 +476,9 @@ static void* bt_scanner(void* arg) {
 			BtDeviceInfo* dinfo = &device_info_pool[device_info_count++];
 			strncpy(dinfo->name, paired[i].remote_name, sizeof(dinfo->name) - 1);
 			strncpy(dinfo->addr, paired[i].remote_addr, sizeof(dinfo->addr) - 1);
-			dinfo->paired = 1;
+			dinfo->paired = paired[i].is_paired;
+			dinfo->bonded = paired[i].is_bonded;
+			dinfo->trusted = paired[i].is_trusted;
 			dinfo->connected = paired[i].is_connected;
 
 			dinfo->device_type = BLUETOOTH_NONE;
@@ -465,6 +511,8 @@ static void* bt_scanner(void* arg) {
 			strncpy(dinfo->name, available[i].name, sizeof(dinfo->name) - 1);
 			strncpy(dinfo->addr, available[i].addr, sizeof(dinfo->addr) - 1);
 			dinfo->paired = 0;
+			dinfo->bonded = 0;
+			dinfo->trusted = 0;
 			dinfo->connected = 0;
 			dinfo->device_type = available[i].kind;
 
@@ -517,6 +565,7 @@ static void bt_on_show(SettingsPage* page) {
 	// Sync static items
 	settings_item_sync(&page->items[BT_IDX_TOGGLE]);
 	settings_item_sync(&page->items[BT_IDX_DIAG]);
+	settings_item_sync(&page->items[BT_IDX_BOOT]);
 
 	// Start scanner thread
 	bt_page_ref = page;
@@ -540,8 +589,28 @@ static void bt_on_tick(SettingsPage* page) {
 			page->selected = vis - 1;
 	}
 
+	if (bt_action_ctx.done && bt_pair_result != BT_PAIR_OK) {
+		bt_action_status = bt_pair_result == BT_PAIR_TEMPORARY
+			? "Temporary pairing only; no saved bond was reported."
+			: bt_pair_result == BT_PAIR_FAILED
+			? "Pairing failed. Put device in pairing mode and retry."
+			: bt_pair_result == BT_PAIR_TRUST_FAILED
+			? "Paired, but automatic reconnection setup failed."
+			: "Paired, but connection failed. Retry Connect.";
+	}
+
+	if (bt_boot_ctx.done) {
+		bt_boot_ctx.done = 0;
+		settings_item_sync(&page->items[BT_IDX_BOOT]);
+		bt_action_status = bt_boot_result == 0
+			? NULL
+			: "Could not save boot reconnect. Check storage and retry.";
+	}
+
 	// Show scanning hint when BT is on but no devices listed yet
-	if (BT_enabled() && page->dynamic_start >= 0 && page->item_count <= page->dynamic_start) {
+	if (bt_action_status) {
+		page->status_msg = bt_action_status;
+	} else if (BT_enabled() && page->dynamic_start >= 0 && page->item_count <= page->dynamic_start) {
 		page->status_msg = "Scanning for devices...";
 	} else {
 		page->status_msg = NULL;
@@ -592,6 +661,16 @@ SettingsPage* bt_page_create(void) {
 		.set_value = bt_set_diag,
 	};
 
+	page->items[BT_IDX_BOOT] = (SettingItem){
+		.name = "Reconnect audio on boot",
+		.desc = "Reconnect last connected headphones if Bluetooth is on.",
+		.type = ITEM_CYCLE,
+		.visible = BT_bootReconnectSupported(),
+		.labels = on_off_labels,
+		.label_count = 2,
+		.get_value = bt_get_boot,
+		.set_value = bt_set_boot,
+	};
 	page->item_count = BT_STATIC_COUNT;
 
 	page->on_show = bt_on_show;

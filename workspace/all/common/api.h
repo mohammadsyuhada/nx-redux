@@ -1079,6 +1079,8 @@ struct BT_devicePaired {
 	char remote_addr[18];  // MAX_BT_ADDR_LEN
 	char remote_name[249]; // MAX_BT_NAME_LEN
 	int16_t rssi;
+	bool is_paired;
+	bool is_trusted;
 	bool is_bonded;
 	bool is_connected;
 	//int uuid_len;
@@ -1096,6 +1098,9 @@ bool PLAT_hasBluetooth();
 bool PLAT_bluetoothEnabled();
 void PLAT_bluetoothEnable(bool on);
 // enable bt diagnostic logging
+bool PLAT_bluetoothBootReconnectSupported();
+bool PLAT_bluetoothBootReconnectEnabled();
+int PLAT_bluetoothBootReconnectEnable(bool on);
 bool PLAT_bluetoothDiagnosticsEnabled();
 // returns true if diagnostic logging is enabled
 void PLAT_bluetoothDiagnosticsEnable(bool on);
@@ -1106,8 +1111,10 @@ bool PLAT_bluetoothDiscovering();
 int PLAT_bluetoothScan(struct BT_device* devices, int max);
 // returns the list of paired devices
 int PLAT_bluetoothPaired(struct BT_devicePaired* devices, int max);
-// pair with the given address
-void PLAT_bluetoothPair(char* addr);
+// Pair result distinguishes pairing failure from subsequent setup failure.
+enum { BT_PAIR_OK = 0, BT_PAIR_TEMPORARY = 1, BT_PAIR_FAILED = -1,
+	BT_PAIR_TRUST_FAILED = -2, BT_PAIR_CONNECT_FAILED = -3 };
+int PLAT_bluetoothPair(char* addr);
 // unpair from the given address
 void PLAT_bluetoothUnpair(char* addr);
 // connect with the given address
@@ -1133,6 +1140,9 @@ void PLAT_bluetoothSetVolume(int vol);
 #define BT_supported PLAT_hasBluetooth
 #define BT_enabled PLAT_bluetoothEnabled
 #define BT_enable PLAT_bluetoothEnable
+#define BT_bootReconnectSupported PLAT_bluetoothBootReconnectSupported
+#define BT_bootReconnectEnabled PLAT_bluetoothBootReconnectEnabled
+#define BT_bootReconnectEnable PLAT_bluetoothBootReconnectEnable
 #define BT_diagnosticsEnabled PLAT_bluetoothDiagnosticsEnabled
 #define BT_diagnosticsEnable PLAT_bluetoothDiagnosticsEnable
 #define BT_discovery PLAT_bluetoothDiscovery

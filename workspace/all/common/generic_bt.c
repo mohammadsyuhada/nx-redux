@@ -92,6 +92,8 @@ static bool bt_daemon_alive(void) {
 // hasn't finished within `timeout_s` seconds. popen()/pclose() are unusable
 // here: pclose() waits for the child forever, and bluetoothctl hangs on D-Bus
 // when bluetoothd is killed out from under it (e.g. by the OSD overlay).
+#define BT_CMD_TIMED_OUT (-2)
+
 static int bt_run_cmd_deadline(const char* cmd, char* output, size_t output_len, int timeout_s) {
 	int pipefd[2] = {-1, -1};
 	if (output && output_len > 0) {
@@ -178,7 +180,7 @@ static int bt_run_cmd_deadline(const char* cmd, char* output, size_t output_len,
 			LOG_warn("bt_run_cmd_deadline: killing timed-out command: %s\n", cmd);
 			kill(-pid, SIGKILL);
 			waitpid(pid, &status, 0);
-			return -1;
+			return BT_CMD_TIMED_OUT;
 		}
 		usleep(50 * 1000);
 	}
@@ -459,6 +461,44 @@ void PLAT_bluetoothEnable(bool shouldBeOn) {
 	CFG_setBluetooth(shouldBeOn);
 }
 
+bool PLAT_bluetoothBootReconnectSupported() {
+	return strcmp(PLATFORM, "tg5040") == 0 &&
+		access(SYSTEM_PATH "/etc/bluetooth/bt_reconnect.sh", R_OK) == 0;
+}
+
+bool PLAT_bluetoothBootReconnectEnabled() {
+	return PLAT_bluetoothBootReconnectSupported() &&
+		bt_run_cmd_deadline("sh " SYSTEM_PATH "/etc/bluetooth/bt_reconnect.sh boot_enabled", NULL, 0, 2) == 0;
+}
+
+int PLAT_bluetoothBootReconnectEnable(bool on) {
+	if (!PLAT_bluetoothBootReconnectSupported()) return -1;
+	return bt_run_cmd_deadline(on
+		? "sh " SYSTEM_PATH "/etc/bluetooth/bt_reconnect.sh boot_set on"
+		: "sh " SYSTEM_PATH "/etc/bluetooth/bt_reconnect.sh boot_set off", NULL, 0, 22);
+}
+
+static bool bt_cancel_boot(void) {
+	// Wait for the bounded boot client to finish after publishing cancellation.
+	// BlueZ may still finish an already issued Connect; never disconnect a healthy
+	// stream merely to cancel it. No subsequent boot attempt will be issued.
+	if (!PLAT_bluetoothBootReconnectEnabled()) return true;
+	if (bt_run_cmd_deadline("sh " SYSTEM_PATH "/etc/bluetooth/bt_reconnect.sh cancel_boot", NULL, 0, 15) != 0)
+		LOG_warn("Boot reconnect cancellation unavailable; continuing manual request\n");
+	// Optional recall state/locking must never suppress a user's manual action.
+	return true;
+}
+
+static void bt_remember_boot(char* addr) {
+	if (!PLAT_bluetoothBootReconnectSupported()) return;
+	// Address originates in BlueZ inventory; still validate before shell use.
+	if (!addr || strlen(addr) != 17 || strspn(addr, "0123456789abcdefABCDEF:") != 17) return;
+	char cmd[256];
+	snprintf(cmd, sizeof(cmd), "sh " SYSTEM_PATH "/etc/bluetooth/bt_reconnect.sh remember_boot %s", addr);
+	if (bt_run_cmd_deadline(cmd, NULL, 0, 5) != 0)
+		LOG_warn("Could not remember Bluetooth boot target\n");
+}
+
 bool PLAT_bluetoothDiagnosticsEnabled() {
 	return CFG_getBluetoothDiagnostics();
 }
@@ -608,6 +648,72 @@ int PLAT_bluetoothScan(struct BT_device* devices, int max) {
 	return count;
 }
 
+// Match a complete bluetoothctl property line, never a substring of Name/Alias.
+static bool bt_property_is(const char* output, const char* property, bool yes) {
+	const char* expected = yes ? "yes" : "no";
+	size_t expected_len = strlen(expected);
+	while (*output) {
+		const char* end = strchr(output, '\n');
+		if (!end)
+			end = output + strlen(output);
+		while (output < end && (*output == ' ' || *output == '\t'))
+			output++;
+		size_t len = strlen(property);
+		if ((size_t)(end - output) >= len && strncmp(output, property, len) == 0) {
+			const char* value = output + len;
+			while (value < end && (*value == ' ' || *value == '\t'))
+				value++;
+			if ((size_t)(end - value) >= expected_len && strncmp(value, expected, expected_len) == 0) {
+				value += expected_len;
+				while (value < end && (*value == ' ' || *value == '\t' || *value == '\r'))
+					value++;
+				if (value == end)
+					return true;
+			}
+		}
+		output = *end ? end + 1 : end;
+	}
+	return false;
+}
+
+static bool bt_property_yes(const char* output, const char* property) {
+	return bt_property_is(output, property, true);
+}
+
+static bool bt_connect_cleanup_candidate(const char* info) {
+	if (!bt_property_is(info, "Connected:", false) ||
+		!bt_property_yes(info, "Bonded:") || !bt_property_yes(info, "Trusted:"))
+		return false;
+	while (*info) {
+		const char* end = strchr(info, '\n');
+		if (!end)
+			end = info + strlen(info);
+		while (info < end && (*info == ' ' || *info == '\t'))
+			info++;
+		if (end - info >= 5 && strncmp(info, "UUID:", 5) == 0) {
+			const char* uuid = strstr(info + 5, "(0000110b-0000-1000-8000-00805f9b34fb)");
+			if (uuid && uuid + 38 <= end)
+				return true;
+		}
+		info = *end ? end + 1 : end;
+	}
+	return false;
+}
+
+static bool bt_valid_connect_address(const char* addr) {
+	if (!addr || strlen(addr) != 17)
+		return false;
+	for (int i = 0; i < 17; i++) {
+		if (i % 3 == 2) {
+			if (addr[i] != ':')
+				return false;
+		} else if (!strchr("0123456789abcdefABCDEF", addr[i])) {
+			return false;
+		}
+	}
+	return true;
+}
+
 int PLAT_bluetoothPaired(struct BT_devicePaired* paired, int max) {
 	if (!PLAT_bluetoothEnabled()) {
 		return 0;
@@ -630,16 +736,12 @@ int PLAT_bluetoothPaired(struct BT_devicePaired* paired, int max) {
 		output[0] = '\0';
 	}
 
-	// Also include trusted devices. Our pair flow uses trust + pair, but some
-	// devices (e.g. Galaxy Buds, 8BitDo LE) don't complete bonding properly,
-	// so they show as Trusted but not Paired. From the user's perspective
-	// these are "paired" devices they explicitly added.
+	// Retain trusted-only devices in the inventory/cache without claiming pairing.
 	if (bt_version_gte(5, 70)) {
 		char trusted_output[4096];
-		if (bt_run_cmd("bluetoothctl devices Trusted 2>/dev/null", trusted_output, sizeof(trusted_output)) == 0 &&
-			trusted_output[0]) {
+		if (bt_run_cmd("bluetoothctl devices Trusted 2>/dev/null", trusted_output, sizeof(trusted_output)) == 0) {
 			size_t len = strlen(output);
-			if (len > 0 && output[len - 1] != '\n') {
+			if (len && output[len - 1] != '\n') {
 				strncat(output, "\n", sizeof(output) - len - 1);
 				len++;
 			}
@@ -695,15 +797,20 @@ int PLAT_bluetoothPaired(struct BT_devicePaired* paired, int max) {
 				device->remote_addr[sizeof(device->remote_addr) - 1] = '\0';
 				strncpy(device->remote_name, name, sizeof(device->remote_name) - 1);
 				device->remote_name[sizeof(device->remote_name) - 1] = '\0';
-				device->is_bonded = true;
+				device->is_paired = false;
+				device->is_bonded = false;
+				device->is_trusted = false;
 				device->rssi = -50; // Default value, actual RSSI requires active connection
 
 				// Check if connected
 				char cmd[256];
 				char info_output[1024];
-				snprintf(cmd, sizeof(cmd), "bluetoothctl info %s 2>/dev/null | grep 'Connected: yes'", addr);
-				device->is_connected = (bt_run_cmd(cmd, info_output, sizeof(info_output)) == 0 &&
-										strstr(info_output, "Connected: yes") != NULL);
+				snprintf(cmd, sizeof(cmd), "bluetoothctl info %s 2>/dev/null", addr);
+				int info_ok = bt_run_cmd(cmd, info_output, sizeof(info_output)) == 0;
+				device->is_paired = info_ok && bt_property_yes(info_output, "Paired:");
+				device->is_bonded = info_ok && bt_property_yes(info_output, "Bonded:");
+				device->is_trusted = info_ok && bt_property_yes(info_output, "Trusted:");
+				device->is_connected = info_ok && bt_property_yes(info_output, "Connected:");
 
 				btlog("Paired device: %s (%s) connected=%d\n", device->remote_addr, device->remote_name, device->is_connected);
 				count++;
@@ -715,31 +822,44 @@ int PLAT_bluetoothPaired(struct BT_devicePaired* paired, int max) {
 	return count;
 }
 
-void PLAT_bluetoothPair(char* addr) {
+int PLAT_bluetoothPair(char* addr) {
+	if (!bt_cancel_boot()) return BT_PAIR_FAILED;
 	btlog("Pairing with %s\n", addr);
-
 	char cmd[256];
+	char output[2048];
 
-	// Trust first for automatic reconnection
-	snprintf(cmd, sizeof(cmd), "bluetoothctl trust %s 2>/dev/null", addr);
-	bt_system(cmd);
-
-	// Pair with built-in NoInputNoOutput agent (auto-accepts confirmation)
-	snprintf(cmd, sizeof(cmd), "bluetoothctl --agent NoInputNoOutput pair %s 2>/dev/null", addr);
-	int ret = bt_system(cmd);
-	if (ret != 0) {
+	// Trust is a reconnection policy, not evidence that pairing succeeded.
+	snprintf(cmd, sizeof(cmd), "bluetoothctl --agent NoInputNoOutput pair %s 2>&1", addr);
+	int ret = bt_run_cmd(cmd, output, sizeof(output));
+	if (ret != 0 || strstr(output, "Failed to pair") != NULL) {
 		LOG_error("BT pair failed: %d\n", ret);
+		return BT_PAIR_FAILED;
+	}
+	// bluetoothctl versions differ in their exit status on D-Bus errors.
+	// Confirm the actual device state before treating the operation as success.
+	snprintf(cmd, sizeof(cmd), "bluetoothctl info %s 2>/dev/null", addr);
+	if (bt_run_cmd(cmd, output, sizeof(output)) != 0 ||
+		!bt_property_yes(output, "Paired:")) {
+		LOG_error("BT pair did not establish pairing\n");
+		return BT_PAIR_FAILED;
 	}
 
-	// Connect after pairing
-	snprintf(cmd, sizeof(cmd), "bluetoothctl connect %s 2>/dev/null", addr);
-	bt_system(cmd);
-
-	// Remove from discovered list since it's now paired
+	bool bonded = bt_property_yes(output, "Bonded:");
 	bt_remove_discovered_device(addr);
+	snprintf(cmd, sizeof(cmd), "bluetoothctl trust %s 2>&1", addr);
+	if (bt_run_cmd(cmd, output, sizeof(output)) != 0 || strstr(output, "Failed") != NULL)
+		return BT_PAIR_TRUST_FAILED;
+
+	// Connection alone does not imply an audio sink is ready.
+	snprintf(cmd, sizeof(cmd), "bluetoothctl connect %s 2>&1", addr);
+	if (bt_run_cmd(cmd, output, sizeof(output)) != 0 || strstr(output, "Failed") != NULL)
+		return BT_PAIR_CONNECT_FAILED;
+	bt_remember_boot(addr);
+	return bonded ? BT_PAIR_OK : BT_PAIR_TEMPORARY;
 }
 
 void PLAT_bluetoothUnpair(char* addr) {
+	if (!bt_cancel_boot()) return;
 	btlog("Unpairing %s\n", addr);
 
 	char cmd[256];
@@ -755,23 +875,52 @@ void PLAT_bluetoothUnpair(char* addr) {
 		LOG_error("BT unpair failed\n");
 	}
 
+	if (ret == 0 && bt_valid_connect_address(addr) && PLAT_bluetoothBootReconnectSupported()) {
+		snprintf(cmd, sizeof(cmd), "sh " SYSTEM_PATH "/etc/bluetooth/bt_reconnect.sh forget_boot %s", addr);
+		bt_run_cmd_deadline(cmd, NULL, 0, 15);
+	}
+
 	// Also remove from our internal discovered list
 	bt_remove_discovered_device(addr);
 }
 
 void PLAT_bluetoothConnect(char* addr) {
+	if (!bt_valid_connect_address(addr)) {
+		LOG_error("BT connect rejected invalid address\n");
+		return;
+	}
+	if (!bt_cancel_boot()) return;
 	btlog("Connecting to %s\n", addr);
-
 	char cmd[256];
+	char info[2048];
+	snprintf(cmd, sizeof(cmd), "bluetoothctl info %s 2>/dev/null", addr);
+	bool cleanup_candidate = bt_run_cmd(cmd, info, sizeof(info)) == 0 &&
+		bt_connect_cleanup_candidate(info);
+
 	snprintf(cmd, sizeof(cmd), "bluetoothctl connect %s 2>/dev/null", addr);
 	int ret = bt_system(cmd);
-	if (ret != 0) {
-		LOG_error("BT connect failed: %d\n", ret);
+	if (ret == BT_CMD_TIMED_OUT && cleanup_candidate) {
+		// Killing the CLI does not cancel BlueZ's outstanding Connect request.
+		// Disconnect cancels it in BlueZ 5.78, but also disconnects live profiles:
+		// never apply this to controllers or a target now reported connected.
+		// A same-target connection can still complete between this read and
+		// Disconnect: BlueZ exposes no atomic cancel-only Connect method.
+		snprintf(cmd, sizeof(cmd), "bluetoothctl info %s 2>/dev/null", addr);
+		if (bt_run_cmd(cmd, info, sizeof(info)) == 0 && bt_connect_cleanup_candidate(info)) {
+			snprintf(cmd, sizeof(cmd), "bluetoothctl disconnect %s 2>/dev/null", addr);
+			int cancelled = bt_run_cmd_deadline(cmd, NULL, 0, 5);
+			LOG_warn("BT timed-out audio connect cleanup returned: %d\n", cancelled);
+		}
 	}
+	if (ret != 0)
+		LOG_error("BT connect failed: %d\n", ret);
+	if (ret == 0) bt_remember_boot(addr);
+	// Even successful cleanup is a failed connect, never a success notification.
 	LOG_info("BT connect returned: %d\n", ret);
 }
 
 void PLAT_bluetoothDisconnect(char* addr) {
+	if (!bt_cancel_boot()) return;
 	btlog("Disconnecting from %s\n", addr);
 
 	char cmd[256];

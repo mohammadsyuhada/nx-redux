@@ -166,7 +166,7 @@ void settings_run_async(SDL_Surface* screen, const char* title,
 
 		GFX_clear(screen);
 		settings_menu_render(screen, 0);
-		UI_renderLoadingOverlay(screen, title, "Press B to cancel");
+		UI_renderLoadingOverlay(screen, title, "Press B to stop waiting");
 		GFX_flip(screen);
 	}
 }

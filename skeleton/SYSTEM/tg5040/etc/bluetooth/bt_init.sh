@@ -1,6 +1,17 @@
 #!/bin/sh
 # Taken from allwinner/btmanager/config/xradio_bt_init.sh for NXRedux
 bt_hciattach="hciattach"
+BT_RECONNECT_HELPER="$(dirname "$0")/bt_reconnect.sh"
+# launch.sh copies this file alone to /etc; use the SD helper after reboot.
+[ -r "$BT_RECONNECT_HELPER" ] || BT_RECONNECT_HELPER="${SYSTEM_PATH:-/mnt/SDCARD/.system}/etc/bluetooth/bt_reconnect.sh"
+if [ -r "$BT_RECONNECT_HELPER" ]; then
+	. "$BT_RECONNECT_HELPER"
+else
+	# Reconnect is optional; missing SD state must never suppress shutdown.
+	bt_toggle_begin() { return 1; }
+	bt_capture_audio() { return 0; }
+	bt_token_current() { return 1; }
+fi
 TRIMUI_MODEL=`strings /usr/trimui/bin/MainUI | grep ^Trimui`
 DEVICE_NAME="$TRIMUI_MODEL (NX Redux)"
 
@@ -20,7 +31,7 @@ start_hci_attach() {
 	echo 1 > /proc/bluetooth/sleep/btwrite
 	reset_bluetooth_power
 
-	"$bt_hciattach" -n ttyS1 xradio >/dev/null 2>&1 &
+	(exec 9>&-; "$bt_hciattach" -n ttyS1 xradio) >/dev/null 2>&1 &
 
 	wait_hci0_count=0
 	while true
@@ -47,14 +58,14 @@ start_bt() {
 	# Start bluetooth daemon if not running
     d=`ps | grep bluetoothd | grep -v grep`
 	[ -z "$d" ] && {
-		/etc/bluetooth/bluetoothd start
+		(exec 9>&-; /etc/bluetooth/bluetoothd start)
 		sleep 1
     }
 
 	a=`ps | grep bluealsa | grep -v grep`
 	[ -z "$a" ] && {
 		# bluealsa -p a2dp-source --keep-alive=-1 &
-		bluealsa -p a2dp-source &
+		(exec 9>&-; bluealsa -p a2dp-source) &
 		sleep 1
 		# Power on adapter
 		bluetoothctl power on 2>/dev/null
@@ -101,6 +112,7 @@ ble_start() {
 }
 
 stop_bt() {
+	bt_capture_audio
 	# stop bluealsa
 	killall bluealsa 2>/dev/null
 
@@ -148,8 +160,23 @@ stop_bt() {
 }
 
 case "$1" in
+	start|stop|restart)
+		if bt_toggle_begin; then
+			:
+		else
+			bt_begin_status=$?
+			# Superseded requests stop here; state/lock failures retain baseline behavior.
+			[ "$bt_begin_status" -ne 2 ] || exit 0
+			[ "$bt_begin_status" -ne 3 ] || exit 1
+			BT_RECONNECT_DISABLED=1
+		fi
+		;;
+esac
+
+case "$1" in
 	start)
 		start_bt
+		bt_token_current && (exec 9>&-; sh "$BT_RECONNECT_HELPER" reconnect_worker "$BT_RECONNECT_TOKEN" "$2") >/dev/null 2>&1 &
 		;;
 	stop)
 		stop_bt
@@ -158,6 +185,7 @@ case "$1" in
 		stop_bt
 		sleep 0.5
 		start_bt
+		bt_token_current && (exec 9>&-; sh "$BT_RECONNECT_HELPER" reconnect_worker "$BT_RECONNECT_TOKEN" "$2") >/dev/null 2>&1 &
 		;;
   *)
 		echo "Usage: $0 {start|stop|restart}"
