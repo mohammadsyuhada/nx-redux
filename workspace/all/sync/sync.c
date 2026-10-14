@@ -275,11 +275,11 @@ static bool cable_link(char* local, size_t local_size, char* peer, size_t peer_s
 	return true;
 }
 
-// Brought up the way the netplay wizard does, in the background: `start`
-// waits up to ~3 s for the daemon's first state.
+// Brought up the way the netplay wizard does. `start` waits up to ~3 s for
+// the daemon's first state, so it runs on the discovery thread; stopping joins
+// that thread first, so a quick back can't stop the link before it started.
 static void cable_link_start(void) {
-	usblink_owned = access(USBLINK_PID_PATH, F_OK) != 0;
-	system("usblink.elf start >/dev/null 2>&1 &");
+	system("usblink.elf start >/dev/null 2>&1");
 }
 
 static void cable_link_stop(void) {
@@ -312,6 +312,9 @@ static void* discovery_thread_func(void* arg) {
 	char send_buf[128];
 	char recv_buf[256];
 	char cable_peer[16] = {0};
+
+	if (via_cable)
+		cable_link_start();
 
 	uint32_t last_broadcast = SDL_GetTicks() - BROADCAST_INTERVAL_MS;
 
@@ -1169,7 +1172,7 @@ int main(int argc, char* argv[]) {
 			}
 			if (PAD_justPressed(BTN_A)) {
 				if (via_cable) {
-					cable_link_start();
+					usblink_owned = access(USBLINK_PID_PATH, F_OK) != 0;
 					start_discovery();
 				} else if (wifi_ready()) {
 					start_discovery();
