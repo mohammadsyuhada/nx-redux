@@ -26,6 +26,9 @@ class PairingRegression(unittest.TestCase):
 enum { BT_PAIR_OK=0, BT_PAIR_TEMPORARY=1, BT_PAIR_FAILED=-1, BT_PAIR_TRUST_FAILED=-2, BT_PAIR_CONNECT_FAILED=-3 };
 struct BT_devicePaired { char remote_addr[18], remote_name[249]; bool is_paired, is_bonded, is_connected, is_trusted; int rssi; };
 static int scenario, trust_calls, connect_calls, removed, pair_long_calls, connect_long_calls;
+static bool pairable = true;
+static int enable_calls, disable_calls;
+
 static bool PLAT_bluetoothEnabled(void) { return true; }
 static bool bt_version_gte(int a,int b) { return true; }
 static bool bt_cancel_boot(void) { return true; }
@@ -33,10 +36,26 @@ static void bt_remember_boot(char* addr) { (void)addr; }
 static void bt_remove_discovered_device(char* addr) { removed++; }
 static int bt_run_cmd(const char* cmd,char* out,size_t len) {
  out[0]=0;
+ if (strstr(cmd,"bluetoothctl show")) {
+  if(scenario==7 || (scenario==13 && enable_calls)) return -1;
+  if(scenario==8) { snprintf(out,len,"Alias: Pairable: yes\n"); return 0; }
+  snprintf(out,len,"Pairable: %s\n",pairable?"yes":"no"); return 0;
+ }
+ if (strstr(cmd,"pairable on")) {
+  enable_calls++;
+  if(scenario==12) { pairable=true; return -1; } // Applied before timeout.
+  if(scenario==9) return -1;
+  if(scenario==10) { snprintf(out,len,"Failed to set pairable"); return 0; }
+  if(scenario!=11) pairable=true;
+  return 0;
+ }
+ if (strstr(cmd,"pairable off")) { disable_calls++; pairable=false; return 0; }
+
  if (strstr(cmd,"devices Trusted")) { snprintf(out,len,"Device 77:88:99:AA:BB:CC SavedController\n"); return 0; }
  if (strstr(cmd,"devices Paired")) { snprintf(out,len,"Device AA:BB:CC:DD:EE:FF AirPods\n"); return 0; }
  if (strstr(cmd,"devices Connected")) { snprintf(out,len,"Device AA:BB:CC:DD:EE:FF AirPods\nDevice 11:22:33:44:55:66 Controller\n"); return 0; }
  if (strstr(cmd,"--agent")) {
+  assert(pairable);
   if (scenario==1) return -1;
   if (scenario==2) snprintf(out,len,"Failed to pair: org.bluez.Error.AuthenticationFailed");
   return 0;
@@ -73,6 +92,22 @@ int main(void) {
  assert(PLAT_bluetoothPair(addr)==BT_PAIR_TEMPORARY);
  assert(pair_long_calls==1 && connect_long_calls==1);
  scenario=6; assert(PLAT_bluetoothPair(addr)==BT_PAIR_OK);
+ assert(enable_calls==0 && disable_calls==0); // Already pairable: preserve state.
+ for(scenario=7;scenario<=13;scenario++) {
+  pairable=false; enable_calls=disable_calls=pair_long_calls=trust_calls=connect_calls=0;
+  assert(PLAT_bluetoothPair(addr)==BT_PAIR_FAILED);
+  assert(pair_long_calls==0 && trust_calls==0 && connect_calls==0);
+  assert(!pairable);
+  assert(enable_calls==(scenario>=9));
+  assert(disable_calls==(scenario>=9));
+ }
+ for(scenario=0;scenario<=6;scenario++) {
+  pairable=false; enable_calls=disable_calls=pair_long_calls=0;
+  int result=PLAT_bluetoothPair(addr);
+  assert(result==(scenario==0?BT_PAIR_TEMPORARY:scenario<=3?BT_PAIR_FAILED:
+                 scenario==4?BT_PAIR_TRUST_FAILED:scenario==5?BT_PAIR_CONNECT_FAILED:BT_PAIR_OK));
+  assert(enable_calls==1 && disable_calls==1 && pair_long_calls==1 && !pairable);
+ }
  scenario=0;
  struct BT_devicePaired devices[4]; memset(devices,0xff,sizeof(devices));
  assert(PLAT_bluetoothPaired(devices,4)==3);

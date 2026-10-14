@@ -834,6 +834,37 @@ int PLAT_bluetoothPaired(struct BT_devicePaired* paired, int max) {
 	return count;
 }
 
+// BlueZ 5.78 ignores --agent for noninteractive commands. Explicitly enable
+// bonding for this operation, then restore an initially nonpairable adapter.
+static int bt_pair_with_bonding(const char* cmd, char* output, size_t output_len) {
+	char state[2048];
+	if (bt_run_cmd("bluetoothctl show 2>/dev/null", state, sizeof(state)) != 0)
+		return -1;
+	bool was_pairable = bt_property_yes(state, "Pairable:");
+	if (!was_pairable && !bt_property_is(state, "Pairable:", false))
+		return -1;
+
+	int ret = -1;
+	if (!was_pairable) {
+		if (bt_run_cmd("bluetoothctl pairable on 2>&1", state, sizeof(state)) != 0 ||
+			strstr(state, "Failed") != NULL)
+			goto restore;
+		if (bt_run_cmd("bluetoothctl show 2>/dev/null", state, sizeof(state)) != 0 ||
+			!bt_property_yes(state, "Pairable:"))
+			goto restore;
+	}
+	ret = bt_run_cmd_long(cmd, output, output_len);
+
+restore:
+	// Attempt restoration even if enabling timed out after reaching BlueZ.
+	// Keep Pair's output separate so cleanup cannot hide an authentication error.
+	if (!was_pairable &&
+		(bt_run_cmd("bluetoothctl pairable off 2>&1", state, sizeof(state)) != 0 ||
+		 strstr(state, "Failed") != NULL))
+		LOG_error("BT could not restore nonpairable state\n");
+	return ret;
+}
+
 int PLAT_bluetoothPair(char* addr) {
 	if (!bt_cancel_boot()) return BT_PAIR_FAILED;
 	btlog("Pairing with %s\n", addr);
@@ -842,7 +873,7 @@ int PLAT_bluetoothPair(char* addr) {
 
 	// Trust is a reconnection policy, not evidence that pairing succeeded.
 	snprintf(cmd, sizeof(cmd), "bluetoothctl --agent NoInputNoOutput pair %s 2>&1", addr);
-	int ret = bt_run_cmd_long(cmd, output, sizeof(output));
+	int ret = bt_pair_with_bonding(cmd, output, sizeof(output));
 	if (ret != 0 || strstr(output, "Failed to pair") != NULL) {
 		LOG_error("BT pair failed: %d\n", ret);
 		return BT_PAIR_FAILED;
