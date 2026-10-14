@@ -16,11 +16,14 @@
 #include "defines.h"
 #include "api.h"
 #include "ui_buttonhintbar.h"
+#include "ui_list.h"
 #include "ui_menubar.h"
 #include "ui_message.h"
 #include "ui_splash.h"
 #include "ui_quitrequest.h"
 #include "utils.h"
+#include "sync_proto.h"
+#include "usblink_state.h"
 
 // Sync configuration
 #define SYNC_UDP_PORT 19999
@@ -32,6 +35,8 @@
 #define BROADCAST_INTERVAL_MS 1000
 #define RSYNC_CONF_PATH "/tmp/rsyncd.conf"
 #define RSYNC_PID_PATH "/tmp/rsyncd.pid"
+#define USBLINK_STATE_PATH "/tmp/usblink.state"
+#define USBLINK_PID_PATH "/tmp/usblink.pid"
 
 // Paths to sync
 // "<SDCARD_PATH>/Saves", built with snprintf.
@@ -68,7 +73,6 @@ static pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // States
 enum SyncState {
-	STATE_INIT,
 	STATE_NO_WIFI,
 	STATE_READY,
 	STATE_WAITING,
@@ -78,7 +82,7 @@ enum SyncState {
 };
 
 static SDL_Surface* screen;
-static enum SyncState state = STATE_INIT;
+static enum SyncState state = STATE_READY;
 
 // Network state
 static char own_ip[64] = {0};
@@ -102,6 +106,20 @@ static bool is_server = false;
 // Sync options
 static volatile bool sync_roms = false;
 static volatile bool peer_sync_roms = false;
+// The peer must be the rsync client (a phone: its ROMs are not plain files).
+static volatile bool peer_client_only = false;
+// The peer filters .userdata/shared itself, so our daemon may filter too. Old
+// firmware doesn't: its pushes would fail (exit 23) on refused files, so for
+// it the daemon stays open, as before.
+static volatile bool peer_filters = false;
+
+// The link the user picked on the Ready screen; the cable is the default.
+// Both devices must pick the same one.
+static volatile bool via_cable = true;
+// USB cable link (usblink.elf, shared with netplay): started only when the
+// user picks the cable, stopped when that session ends unless it was already
+// running before (someone else's).
+static bool usblink_owned = false;
 
 // Animation state
 static int dot_count = 0;
@@ -148,7 +166,7 @@ static int get_own_ip(void) {
 	// then waits forever.
 	static const char* virtual_prefixes[] = {
 		"utun", "bridge", "awdl", "llw", "vmnet", "docker",
-		"veth", "tap", "tun", "zt", "p2p", NULL};
+		"veth", "tap", "tun", "zt", "p2p", "nxlink", NULL};
 
 	int found = 0;
 	for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
@@ -195,19 +213,6 @@ static int get_own_ip(void) {
 	return found ? 0 : -1;
 }
 
-static int compare_ips(const char* ip_a, const char* ip_b) {
-	struct in_addr a, b;
-	inet_pton(AF_INET, ip_a, &a);
-	inet_pton(AF_INET, ip_b, &b);
-	uint32_t na = ntohl(a.s_addr);
-	uint32_t nb = ntohl(b.s_addr);
-	if (na < nb)
-		return -1;
-	if (na > nb)
-		return 1;
-	return 0;
-}
-
 static int create_send_socket(void) {
 	int sock = socket(AF_INET, SOCK_DGRAM, 0);
 	if (sock < 0)
@@ -245,60 +250,95 @@ static int create_recv_socket(void) {
 	return sock;
 }
 
-static void send_udp_message(int sock, const char* msg, const char* dest_ip) {
+static void send_udp_bytes(int sock, const char* msg, size_t len, const char* dest_ip) {
 	struct sockaddr_in dest;
 	memset(&dest, 0, sizeof(dest));
 	dest.sin_family = AF_INET;
 	dest.sin_port = htons(SYNC_UDP_PORT);
 	inet_pton(AF_INET, dest_ip, &dest.sin_addr);
-	sendto(sock, msg, strlen(msg), 0, (struct sockaddr*)&dest, sizeof(dest));
+	sendto(sock, msg, len, 0, (struct sockaddr*)&dest, sizeof(dest));
 }
 
-// Parse IP and roms flag from a discovery message payload.
-// Format: "<ip>" or "<ip>:R" (R = roms enabled)
-static void parse_discovery_payload(const char* payload, char* ip_out, size_t ip_len, bool* roms_out) {
-	*roms_out = false;
-	const char* colon = strrchr(payload, ':');
-	if (colon && strlen(colon + 1) <= 1) {
-		// Has a flag suffix like ":R" or ":0"
-		size_t ip_part_len = colon - payload;
-		if (ip_part_len >= ip_len)
-			ip_part_len = ip_len - 1;
-		strncpy(ip_out, payload, ip_part_len);
-		ip_out[ip_part_len] = '\0';
-		if (*(colon + 1) == 'R')
-			*roms_out = true;
-	} else {
-		// No flag, just IP (backwards compatible)
-		strncpy(ip_out, payload, ip_len - 1);
-		ip_out[ip_len - 1] = '\0';
-	}
-
-	// The parsed address is later interpolated into a shell command (rsync via
-	// popen), so anything that is not a valid dotted-quad IPv4 literal must be
-	// rejected here. Clearing ip_out makes the caller's `sender_ip[0]` check
-	// discard the packet instead of trusting attacker-controlled bytes.
-	struct in_addr parsed_addr;
-	if (inet_pton(AF_INET, ip_out, &parsed_addr) != 1) {
-		ip_out[0] = '\0';
-	}
+static void send_udp_message(int sock, const char* msg, const char* dest_ip) {
+	send_udp_bytes(sock, msg, strlen(msg), dest_ip);
 }
 
+// The cable link's addresses while usblink reports it up, else false.
+static bool cable_link(char* local, size_t local_size, char* peer, size_t peer_size) {
+	UsbLinkState st;
+	if (usblink_state_read(USBLINK_STATE_PATH, &st) != 0 || strcmp(st.link, "up") != 0)
+		return false;
+	if (!sync_ip_is_cable(st.local_ip) || !sync_ip_is_cable(st.peer_ip))
+		return false;
+	snprintf(local, local_size, "%s", st.local_ip);
+	snprintf(peer, peer_size, "%s", st.peer_ip);
+	return true;
+}
+
+// Brought up the way the netplay wizard does. `start` waits up to ~3 s for
+// the daemon's first state, so it runs on the discovery thread; stopping joins
+// that thread first, so a quick back can't stop the link before it started.
+static void cable_link_start(void) {
+	system("usblink.elf start >/dev/null 2>&1");
+}
+
+static void cable_link_stop(void) {
+	if (usblink_owned)
+		system("usblink.elf stop >/dev/null 2>&1");
+	usblink_owned = false;
+}
+
+// The usblink error to show while waiting for the cable, or NULL.
+static const char* cable_link_error(void) {
+	UsbLinkState st;
+	if (usblink_state_read(USBLINK_STATE_PATH, &st) != 0 || strcmp(st.link, "error") != 0)
+		return NULL;
+	return !strcmp(st.error, "version") ? "Both devices need the same\nNXRedux version."
+										: "USB link unavailable\non this device.";
+}
+
+static bool wifi_ready(void) {
+	int is_online = 0;
+	PLAT_getNetworkStatus(&is_online);
+	return is_online && get_own_ip() == 0;
+}
+
+// Discovery runs on the link the user picked. Over the cable it waits for
+// usblink to report the link up, then sends HELLO straight to the peer's
+// address; on Wi-Fi HELLO is broadcast. Packets from the other link are
+// ignored.
 static void* discovery_thread_func(void* arg) {
 	(void)arg;
 	char send_buf[128];
 	char recv_buf[256];
+	char cable_peer[16] = {0};
 
-	uint32_t last_broadcast = 0;
+	if (via_cable)
+		cable_link_start();
+
+	uint32_t last_broadcast = SDL_GetTicks() - BROADCAST_INTERVAL_MS;
 
 	while (discovery_running && !app_quit) {
-		// Build message each time so it reflects current sync_roms toggle
-		snprintf(send_buf, sizeof(send_buf), "%s%s:%s", HELLO_MSG, own_ip, sync_roms ? "R" : "0");
-
 		uint32_t now = SDL_GetTicks();
 		if (now - last_broadcast >= BROADCAST_INTERVAL_MS) {
-			send_udp_message(udp_sock, send_buf, broadcast_ip);
 			last_broadcast = now;
+			char local[16];
+			bool cable = via_cable;
+			if (cable) {
+				if (cable_link(local, sizeof(local), cable_peer, sizeof(cable_peer)))
+					snprintf(own_ip, sizeof(own_ip), "%s", local);
+				else
+					own_ip[0] = cable_peer[0] = '\0';
+			} else if (get_own_ip() != 0) {
+				own_ip[0] = '\0';
+			}
+
+			if (own_ip[0]) {
+				// Rebuilt every time: it carries the current ROMs toggle.
+				int n = sync_format_payload(send_buf, sizeof(send_buf), HELLO_MSG, own_ip, sync_roms);
+				if (n > 0)
+					send_udp_bytes(udp_sock, send_buf, n, cable ? cable_peer : broadcast_ip);
+			}
 		}
 
 		fd_set readfds;
@@ -307,39 +347,50 @@ static void* discovery_thread_func(void* arg) {
 		struct timeval tv = {0, 200000};
 
 		int ret = select(udp_sock + 1, &readfds, NULL, NULL, &tv);
-		if (ret > 0 && FD_ISSET(udp_sock, &readfds)) {
-			struct sockaddr_in from;
-			socklen_t fromlen = sizeof(from);
-			ssize_t n = recvfrom(udp_sock, recv_buf, sizeof(recv_buf) - 1, 0,
-								 (struct sockaddr*)&from, &fromlen);
-			if (n > 0) {
-				recv_buf[n] = '\0';
+		if (ret <= 0 || !FD_ISSET(udp_sock, &readfds))
+			continue;
 
-				char sender_ip[64] = {0};
-				bool sender_roms = false;
+		struct sockaddr_in from;
+		socklen_t fromlen = sizeof(from);
+		ssize_t n = recvfrom(udp_sock, recv_buf, sizeof(recv_buf) - 1, 0,
+							 (struct sockaddr*)&from, &fromlen);
+		if (n <= 0)
+			continue;
+		recv_buf[n] = '\0';
 
-				if (strncmp(recv_buf, HELLO_MSG, strlen(HELLO_MSG)) == 0) {
-					parse_discovery_payload(recv_buf + strlen(HELLO_MSG), sender_ip, sizeof(sender_ip), &sender_roms);
-				} else if (strncmp(recv_buf, ACK_MSG, strlen(ACK_MSG)) == 0) {
-					parse_discovery_payload(recv_buf + strlen(ACK_MSG), sender_ip, sizeof(sender_ip), &sender_roms);
-				}
+		bool hello = strncmp(recv_buf, HELLO_MSG, strlen(HELLO_MSG)) == 0;
+		size_t prefix_len = hello ? strlen(HELLO_MSG) : strlen(ACK_MSG);
+		if (!hello && strncmp(recv_buf, ACK_MSG, prefix_len) != 0)
+			continue;
 
-				if (sender_ip[0] && strcmp(sender_ip, own_ip) != 0) {
-					if (strncmp(recv_buf, HELLO_MSG, strlen(HELLO_MSG)) == 0) {
-						char ack_buf[128];
-						snprintf(ack_buf, sizeof(ack_buf), "%s%s:%s", ACK_MSG, own_ip, sync_roms ? "R" : "0");
-						send_udp_message(udp_sock, ack_buf, sender_ip);
-					}
+		SyncPeer sender;
+		if (!sync_parse_payload(recv_buf + prefix_len, n - prefix_len, &sender))
+			continue;
 
-					if (!peer_found) {
-						strncpy(peer_ip, sender_ip, sizeof(peer_ip) - 1);
-						peer_sync_roms = sender_roms;
-						__sync_synchronize();
-						peer_found = true;
-						discovery_running = false;
-					}
-				}
-			}
+		// The packet must come from the address it advertises (it ends up in
+		// rsync URLs and hosts allow), over the link being discovered on.
+		char src_ip[INET_ADDRSTRLEN];
+		inet_ntop(AF_INET, &from.sin_addr, src_ip, sizeof(src_ip));
+		if (strcmp(sender.ip, src_ip) != 0 || strcmp(sender.ip, own_ip) == 0)
+			continue;
+		if (!own_ip[0] || (via_cable ? strcmp(sender.ip, cable_peer) != 0 : sync_ip_is_cable(sender.ip)))
+			continue;
+
+		if (hello) {
+			char ack_buf[128];
+			int len = sync_format_payload(ack_buf, sizeof(ack_buf), ACK_MSG, own_ip, sync_roms);
+			if (len > 0)
+				send_udp_bytes(udp_sock, ack_buf, len, sender.ip);
+		}
+
+		if (!peer_found) {
+			snprintf(peer_ip, sizeof(peer_ip), "%s", sender.ip);
+			peer_sync_roms = sender.roms;
+			peer_client_only = sender.client_only;
+			peer_filters = sender.filters;
+			__sync_synchronize();
+			peer_found = true;
+			discovery_running = false;
 		}
 	}
 
@@ -349,6 +400,8 @@ static void* discovery_thread_func(void* arg) {
 static void start_discovery(void) {
 	peer_found = false;
 	peer_sync_roms = false;
+	peer_client_only = false;
+	peer_filters = false;
 	peer_ip[0] = '\0';
 	discovery_running = true;
 
@@ -440,16 +493,29 @@ static void write_rsync_config(void) {
 	fprintf(fp, "gid = 0\n");
 	fprintf(fp, "log file = /tmp/rsyncd.log\n");
 	fprintf(fp, "transfer logging = yes\n");
-	fprintf(fp, "log format = %%o %%f (%%l bytes)\n\n");
+	fprintf(fp, "log format = %%o %%f (%%l bytes)\n");
+	// Writable as root and unauthenticated: only the paired peer may connect.
+	fprintf(fp, "hosts allow = %s\n\n", peer_ip);
 	fprintf(fp, "[shared]\n");
 	fprintf(fp, "  path = %s\n", SHARED_DATA_PATH);
-	fprintf(fp, "  read only = no\n\n");
+	fprintf(fp, "  read only = no\n");
+	// Only for a peer that filters too: the daemon refuses excluded files, and
+	// old firmware fails its whole sync on that (rsync exit 23).
+	char rules[1024];
+	if (peer_filters && sync_shared_daemon_filter(rules, sizeof(rules)) > 0)
+		fprintf(fp, "  filter = %s\n", rules);
+	fprintf(fp, "\n");
 	fprintf(fp, "[saves]\n");
 	fprintf(fp, "  path = %s\n", saves_path());
-	fprintf(fp, "  read only = no\n\n");
+	fprintf(fp, "  read only = no\n");
+	if (peer_filters)
+		fprintf(fp, "  exclude = %s\n", SYNC_JUNK_DAEMON_EXCLUDE);
+	fprintf(fp, "\n");
 	fprintf(fp, "[roms]\n");
 	fprintf(fp, "  path = %s\n", ROMS_PATH);
 	fprintf(fp, "  read only = no\n");
+	if (peer_filters)
+		fprintf(fp, "  exclude = %s\n", SYNC_JUNK_DAEMON_EXCLUDE);
 
 	fclose(fp);
 }
@@ -551,14 +617,12 @@ static int run_rsync_phase(int phase) {
 	// --modify-window=1: FAT32 cards keep mtimes at 2-second resolution, so a
 	// received file's timestamp rounds down and would otherwise count as
 	// changed (and be re-sent) on every later run.
-	const char* rsync_opts = "-rtv --update --inplace --no-perms --omit-dir-times --modify-window=1 --info=progress2";
-	const char* shared_excludes =
-		"--exclude=battery_logs.sqlite "
-		"--exclude=game_logs.sqlite "
-		"--exclude=ledsettings.txt "
-		"--exclude=ledsettings_brick.txt "
-		"--exclude=ledsettings_brickpro.txt "
-		"--exclude=minuisettings.txt";
+	const char* rsync_opts = "-rtv --update --inplace --no-perms --omit-dir-times --modify-window=1 --info=progress2 " SYNC_JUNK_CLIENT_ARGS;
+	// Of .userdata/shared only the save states and their slot pictures and
+	// markers travel (sync_proto.c); settings, recents and RA data stay put.
+	char shared_filter[1024];
+	if (sync_shared_client_args(shared_filter, sizeof(shared_filter)) < 0)
+		return -1;
 
 	phase_files_done = 0;
 	phase_files_total = 0;
@@ -569,7 +633,7 @@ static int run_rsync_phase(int phase) {
 	switch (phase) {
 	case 1:
 		snprintf(cmd, sizeof(cmd), "'%s' %s %s '%s'/ rsync://%s:%d/shared/ 2>&1",
-				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, shared_excludes, shq(SHARED_DATA_PATH, dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
+				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, shared_filter, shq(SHARED_DATA_PATH, dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
 		break;
 	case 2:
 		snprintf(cmd, sizeof(cmd), "'%s' %s '%s'/ rsync://%s:%d/saves/ 2>&1",
@@ -577,7 +641,7 @@ static int run_rsync_phase(int phase) {
 		break;
 	case 3:
 		snprintf(cmd, sizeof(cmd), "'%s' %s %s rsync://%s:%d/shared/ '%s'/ 2>&1",
-				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, shared_excludes, peer_ip, SYNC_RSYNC_PORT, shq(SHARED_DATA_PATH, dir_q, sizeof(dir_q)));
+				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, shared_filter, peer_ip, SYNC_RSYNC_PORT, shq(SHARED_DATA_PATH, dir_q, sizeof(dir_q)));
 		break;
 	case 4:
 		snprintf(cmd, sizeof(cmd), "'%s' %s rsync://%s:%d/saves/ '%s'/ 2>&1",
@@ -768,16 +832,16 @@ static void* sync_thread_func(void* arg) {
 		int total_phases = sync_roms ? 6 : 4;
 		const char* phase_names_4[] = {
 			"",
-			"[1/4] Pushing settings",
+			"[1/4] Pushing states",
 			"[2/4] Pushing saves",
-			"[3/4] Pulling settings",
+			"[3/4] Pulling states",
 			"[4/4] Pulling saves",
 		};
 		const char* phase_names_6[] = {
 			"",
-			"[1/6] Pushing settings",
+			"[1/6] Pushing states",
 			"[2/6] Pushing saves",
-			"[3/6] Pulling settings",
+			"[3/6] Pulling states",
 			"[4/6] Pulling saves",
 			"[5/6] Pushing ROMs",
 			"[6/6] Pulling ROMs",
@@ -832,7 +896,9 @@ static void* sync_thread_func(void* arg) {
 }
 
 static void start_sync(void) {
-	is_server = (compare_ips(own_ip, peer_ip) < 0);
+	// A handheld is never client-only; a phone is (its ROMs are not plain
+	// files a daemon could serve).
+	is_server = sync_is_server(false, peer_client_only, own_ip, peer_ip);
 
 	// Either device enabling ROMS sync activates it for both
 	if (peer_sync_roms)
@@ -845,7 +911,7 @@ static void start_sync(void) {
 
 	log_clear();
 	char msg[LOG_LINE_LEN];
-	snprintf(msg, sizeof(msg), "Syncing with %s", peer_ip);
+	snprintf(msg, sizeof(msg), "Syncing with %s via %s", peer_ip, via_cable ? "cable" : "Wi-Fi");
 	log_add(msg);
 	snprintf(msg, sizeof(msg), "Role: %s", is_server ? "Server" : "Client");
 	log_add(msg);
@@ -912,13 +978,9 @@ static void render_screen(void) {
 	int menu_h = UI_renderMenuBar(screen, "Device Sync");
 
 	switch (state) {
-	case STATE_INIT:
-		UI_renderCenteredMessage(screen, "Checking network...");
-		break;
-
 	case STATE_NO_WIFI:
-		UI_renderCenteredMessage(screen, "Network not connected.\nPlease check your connection and try again.");
-		UI_renderButtonHintBar(screen, (char*[]){"B", "EXIT", NULL});
+		UI_renderCenteredMessage(screen, "Wi-Fi not connected.\nTurn on Wi-Fi, or sync via cable.");
+		UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", NULL});
 		break;
 
 	case STATE_READY: {
@@ -927,42 +989,43 @@ static void render_screen(void) {
 		int ll = TTF_FontLineSkip(font.large);
 		int sl = TTF_FontLineSkip(font.small);
 		int gap = SCALE1(PADDING * 2);
-
-		int bullet_lines = sync_roms ? 3 : 2;
+		int pill_h = SCALE1(PILL_SIZE);
 
 		// Calculate total content height
-		int total_h = ll * 2			  // title (2 lines)
-					  + gap				  // gap
-					  + sl				  // "What will be synced:"
-					  + SCALE1(PADDING)	  // small gap
-					  + sl * bullet_lines // bullet items
-					  + gap				  // gap
-					  + sl * 3;			  // instructions (3 lines)
+		int total_h = ll * 2	   // title (2 lines)
+					  + gap		   // gap
+					  + pill_h * 2 // the two link options
+					  + gap		   // gap
+					  + sl * 2;	   // instructions (2 lines)
 
 		// Center vertically on the full screen
 		int y = (screen->h - total_h) / 2;
 
-		GFX_blitText(font.large, "Sync saves and settings\nbetween two devices over WiFi.", ll,
+		GFX_blitText(font.large, sync_roms ? "Sync saves, states and ROMs\nbetween two devices." : "Sync saves and states\nbetween two devices.",
+					 ll,
 					 COLOR_WHITE, screen,
 					 &(SDL_Rect){SCALE1(PADDING), y, max_w, ll * 2});
 		y += ll * 2 + gap;
 
-		GFX_blitText(font.small, "What will be synced:", 0,
-					 COLOR_WHITE, screen,
-					 &(SDL_Rect){SCALE1(PADDING), y, max_w, sl});
-		y += sl + SCALE1(PADDING);
 
-		const char* items = sync_roms
-								? "- Game saves (Saves/)\n- Shared settings and states (.userdata/shared/)\n- ROMs (Roms/)"
-								: "- Game saves (Saves/)\n- Shared settings and states (.userdata/shared/)";
-		GFX_blitText(font.small, items, sl,
-					 COLOR_WHITE, screen,
-					 &(SDL_Rect){SCALE1(PADDING * 2), y, max_w, sl * bullet_lines});
-		y += sl * bullet_lines + gap;
+		// The two links, one pill each, the picked one highlighted.
+		const char* options[] = {"Sync via cable", "Sync via Wi-Fi"};
+		for (int i = 0; i < 2; i++) {
+			bool selected = (i == 0) == via_cable;
+			int tw = 0;
+			TTF_SizeUTF8(font.large, options[i], &tw, NULL);
+			int pw = tw + SCALE1(BUTTON_PADDING * 2);
+			SDL_Rect pill = {(screen->w - pw) / 2, y, pw, pill_h};
+			UI_drawListItemBg(screen, &pill, selected);
+			GFX_blitText(font.large, options[i], 0, UI_getListTextColor(selected), screen,
+						 &(SDL_Rect){pill.x, y + (pill_h - TTF_FontHeight(font.large)) / 2, pw, pill_h});
+			y += pill_h;
+		}
+		y += gap;
 
-		GFX_blitText(font.small, "Both devices must be on the same WiFi\nnetwork. Open Sync on both devices\nand press A to start.", sl,
-					 COLOR_WHITE, screen,
-					 &(SDL_Rect){SCALE1(PADDING), y, max_w, sl * 3});
+		GFX_blitText(font.small, via_cable ? "Connect one device's top port to the\nother's bottom port, then pick cable on both." : "Put both devices on the same Wi-Fi,\nthen pick Wi-Fi on both.",
+					 sl, COLOR_WHITE, screen,
+					 &(SDL_Rect){SCALE1(PADDING), y, max_w, sl * 2});
 	} break;
 
 	case STATE_WAITING: {
@@ -972,15 +1035,22 @@ static void render_screen(void) {
 			last_dot_time = now;
 		}
 		int large_leading = TTF_FontLineSkip(font.large);
-		char msg[128];
-		snprintf(msg, sizeof(msg), "Searching for device%.*s\n\nOpen Sync on the other device.\nIP: %s",
-				 dot_count + 1, "...", own_ip);
+		char msg[160];
+		const char* link_error = via_cable ? cable_link_error() : NULL;
+		if (link_error)
+			snprintf(msg, sizeof(msg), "%s", link_error);
+		else if (via_cable && !own_ip[0])
+			snprintf(msg, sizeof(msg), "Waiting for the cable%.*s\n\nConnect one device's top port\nto the other's bottom port.",
+					 dot_count + 1, "...");
+		else
+			snprintf(msg, sizeof(msg), "Searching for device%.*s\n\nOpen Sync on the other device.\nIP: %s (%s)",
+					 dot_count + 1, "...", own_ip, via_cable ? "cable" : "Wi-Fi");
 
 		int y = screen->h / 2 - large_leading * 2;
 		GFX_blitText(font.large, msg, large_leading, COLOR_WHITE, screen,
 					 &(SDL_Rect){SCALE1(PADDING), y, screen->w - SCALE1(PADDING * 2), screen->h});
 	}
-		UI_renderButtonHintBar(screen, (char*[]){"B", "EXIT", NULL});
+		UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", NULL});
 		break;
 
 	case STATE_SYNCING: {
@@ -994,9 +1064,9 @@ static void render_screen(void) {
 			int total_phases = sync_roms ? 6 : 4;
 			const char* phase_labels[] = {
 				"",
-				"Pushing settings",
+				"Pushing states",
 				"Pushing saves",
-				"Pulling settings",
+				"Pulling states",
 				"Pulling saves",
 				"Pushing ROMs",
 				"Pulling ROMs",
@@ -1074,11 +1144,6 @@ int main(int argc, char* argv[]) {
 	bool dirty = true;
 	IndicatorType show_setting = INDICATOR_NONE;
 
-	// Resolve connectivity from the main loop's INIT state instead of one
-	// shot here. Devices resolve on the first poll.
-	uint32_t connectivity_check_start = SDL_GetTicks();
-	state = STATE_INIT;
-
 	while (!app_quit) {
 		GFX_startFrame();
 		PAD_poll();
@@ -1093,26 +1158,27 @@ int main(int argc, char* argv[]) {
 			dirty = true;
 
 		switch (state) {
-		case STATE_INIT: {
-			int is_online = 0;
-			PLAT_getNetworkStatus(&is_online);
-			if (is_online && get_own_ip() == 0) {
-				state = STATE_READY;
-			} else if (SDL_GetTicks() - connectivity_check_start > 5000) {
-				state = STATE_NO_WIFI;
-			}
-			dirty = true;
-			break;
-		}
-
 		case STATE_NO_WIFI:
-			if (PAD_justPressed(BTN_B))
-				app_quit = true;
+			if (PAD_justPressed(BTN_B)) {
+				state = STATE_READY;
+				dirty = true;
+			}
 			break;
 
 		case STATE_READY:
+			if (PAD_justPressed(BTN_UP) || PAD_justPressed(BTN_DOWN)) {
+				via_cable = !via_cable;
+				dirty = true;
+			}
 			if (PAD_justPressed(BTN_A)) {
-				start_discovery();
+				if (via_cable) {
+					usblink_owned = access(USBLINK_PID_PATH, F_OK) != 0;
+					start_discovery();
+				} else if (wifi_ready()) {
+					start_discovery();
+				} else {
+					state = STATE_NO_WIFI;
+				}
 				dirty = true;
 			}
 			if (PAD_justPressed(BTN_X)) {
@@ -1127,9 +1193,10 @@ int main(int argc, char* argv[]) {
 			dirty = true;
 			if (PAD_justPressed(BTN_B)) {
 				stop_discovery();
+				cable_link_stop();
 				PWR_enableSleep();
 				PWR_enableAutosleep();
-				app_quit = true;
+				state = STATE_READY;
 			} else if (peer_found) {
 				__sync_synchronize();
 				stop_discovery();
@@ -1142,6 +1209,7 @@ int main(int argc, char* argv[]) {
 			dirty = true;
 			if (PAD_justPressed(BTN_B)) {
 				cancel_sync();
+				cable_link_stop();
 				state = STATE_ERROR;
 				dirty = true;
 			} else if (sync_done) {
@@ -1150,6 +1218,8 @@ int main(int argc, char* argv[]) {
 					sync_thread_active = false;
 				}
 				stop_rsync_daemon();
+				// The session is over; Sync again starts a new one.
+				cable_link_stop();
 				PWR_enableSleep();
 				PWR_enableAutosleep();
 
@@ -1170,11 +1240,7 @@ int main(int argc, char* argv[]) {
 		case STATE_ERROR:
 			if (PAD_justPressed(BTN_A)) {
 				log_clear();
-				if (get_own_ip() != 0) {
-					state = STATE_NO_WIFI;
-				} else {
-					state = STATE_READY;
-				}
+				state = STATE_READY;
 				dirty = true;
 			}
 			if (PAD_justPressed(BTN_B))
@@ -1184,11 +1250,7 @@ int main(int argc, char* argv[]) {
 		case STATE_DONE:
 			if (PAD_justPressed(BTN_A)) {
 				log_clear();
-				if (get_own_ip() != 0) {
-					state = STATE_NO_WIFI;
-				} else {
-					state = STATE_READY;
-				}
+				state = STATE_READY;
 				dirty = true;
 			}
 			if (PAD_justPressed(BTN_B))
@@ -1213,6 +1275,7 @@ int main(int argc, char* argv[]) {
 		pthread_join(sync_thread, NULL);
 	}
 	stop_rsync_daemon();
+	cable_link_stop();
 
 	if (udp_sock >= 0)
 		close(udp_sock);

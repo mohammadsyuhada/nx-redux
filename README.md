@@ -25,7 +25,7 @@ The video below demonstrates the features. It was recorded on an earlier release
 - **Trimui Smart Pro S** — firmware `1.0.1` or `1.0.2`
 - **Trimui Smart Pro** — firmware `1.1.1` (It should work in theory, but I can't confirm it because I don't have the device to test)
 
-> ⚠️ **SD cards are built per device model.** Each release is packaged for a specific device — resolution, OSD assets and other layout differ between models — so a card set up for one device (e.g. the Brick) must **not** be moved into another (e.g. the Smart Pro S). To carry saves, save states, settings and (optionally) ROMs across devices, use the built-in **Device Sync** tool instead of swapping cards.
+> ⚠️ **SD cards are built per device model.** Each release is packaged for a specific device — resolution, OSD assets and other layout differ between models — so a card set up for one device (e.g. the Brick) must **not** be moved into another (e.g. the Smart Pro S). To carry saves, save states and (optionally) ROMs across devices, over a USB cable or Wi-Fi, use the built-in **Device Sync** tool instead of swapping cards.
 
 > ⚠️ **Update the stock firmware first.** NX Redux relies on system libraries the stock firmware ships, so older firmware breaks some features. Install the [official TrimUI firmware](https://github.com/trimui) version listed above for your device before installing NX Redux.
 
@@ -53,7 +53,7 @@ Available when you want it (Tools, pause menu and OSD):
 - [Netplay](https://nxredux.com/handheld/netplay/) for local multiplayer over Wi-Fi, a hotspot or a USB cable between two devices: press `Y` on a supported game (or on Home) to host or join. Includes Game Boy link, a real Game Boy Advance link cable over USB (gpSP and mGBA), lockstep netplay for the other cores, up to 4-player Nintendo 64 and GGPO rollback for Dreamcast.
 - [RetroAchievements](https://nxredux.com/handheld/apps/retroachievements/) with full offline support — earn achievements offline, sync later, and browse your whole cached library on the device. Softcore only by design.
 - [Cheats](https://nxredux.com/handheld/apps/cheats/) downloaded straight from the libretro cheat database, no PC needed.
-- [Device Sync](https://nxredux.com/handheld/apps/device-sync/) for saves, states, settings and ROMs across devices, [Artwork Manager](https://nxredux.com/handheld/apps/artwork-manager/) for box art, wheels, mixes and image optimizing, and a redesigned [Game Tracker](https://nxredux.com/handheld/apps/game-tracker/).
+- [Device Sync](https://nxredux.com/handheld/apps/device-sync/) for saves, states and ROMs across devices (USB cable or Wi-Fi), [Artwork Manager](https://nxredux.com/handheld/apps/artwork-manager/) for box art, wheels, mixes and image optimizing, and a redesigned [Game Tracker](https://nxredux.com/handheld/apps/game-tracker/).
 - [Nintendo / Xbox button layout](https://nxredux.com/handheld/guide/button-layout/), joystick calibration, and [Developer options](https://nxredux.com/handheld/settings/developer/) with SSH, sleep control and debug logging.
 
 Under the hood:
