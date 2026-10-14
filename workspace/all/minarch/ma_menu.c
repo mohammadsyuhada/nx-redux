@@ -1447,16 +1447,20 @@ void Menu_screenshot(void) {
 		Notification_push(NOTIFICATION_SETTING, "Screenshot saved", NULL);
 	}
 }
-// Every plain Quit auto-saves to the hidden auto-resume slot with a switcher
+// X on Quit skips the autosave below, so it is only offered when there is one to skip.
+static bool Menu_canAutosaveQuit(void) {
+	// Block save states during multiplayer - causes connection breaks
+	if (Multiplayer_isActive())
+		return false;
+	return core.serialize_size && core.serialize_size(); // core cannot save states otherwise
+}
+// Quit with A auto-saves to the hidden auto-resume slot with a switcher
 // screenshot and repoints the .minui slot file at it, so RESUME always returns
 // to the exact quit moment (parity with DC.pak's quit behavior). Without this,
 // a bare quit leaves the switcher pointing at a stale (or no) state.
 static void Menu_autosaveQuit(void) {
-	// Block save states during multiplayer - causes connection breaks
-	if (Multiplayer_isActive())
+	if (!Menu_canAutosaveQuit())
 		return;
-	if (!core.serialize_size || !core.serialize_size())
-		return; // core cannot save states
 
 	// disc path marker for multi-disc games, matching Menu_saveState
 	if (menu.total_discs && menu.disc >= 0) {
@@ -1815,6 +1819,11 @@ void Menu_loop(void) {
 			if (!mp_active && selected == ITEM_LOAD && State_hasUndo()) {
 				Menu_undoLoadState();
 				show_menu = 0;
+			} else if (selected == ITEM_QUIT && Menu_canAutosaveQuit()) {
+				// quit without the auto-resume save: RESUME keeps its old point
+				Netplay_quitAll();
+				show_menu = 0;
+				quit = 1;
 			}
 		} else if (PAD_justPressed(BTN_A)) {
 			switch (selected) {
@@ -1879,6 +1888,8 @@ void Menu_loop(void) {
 
 			if (!mp_active && selected == ITEM_LOAD && State_hasUndo())
 				UI_renderButtonHintBar(screen, (char*[]){"X", "UNDO LOAD", "B", "BACK", "A", "LOAD", NULL});
+			else if (selected == ITEM_QUIT && Menu_canAutosaveQuit())
+				UI_renderButtonHintBar(screen, (char*[]){"X", "QUIT", "B", "BACK", "A", "SAVE & QUIT", NULL});
 			else
 				UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "A", "SELECT", NULL});
 
