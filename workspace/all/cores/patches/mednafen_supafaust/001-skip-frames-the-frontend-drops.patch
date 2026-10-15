@@ -1,0 +1,43 @@
+# license: modifies Supafaust (https://github.com/libretro/supafaust), GPL-2.0 (COPYING); this patch is distributed under the same license.
+--- a/libretro.cpp
++++ b/libretro.cpp
+@@ -405,15 +405,17 @@
+  UpdateInput();
+  //
+  EmulateSpecStruct espec;
+- //int lr_avenable = 0x3;
++ int lr_avenable = 0x3;
++ static unsigned last_w, last_h;
+ 
+- //if(!cb.environment(RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE, &lr_avenable))
+- // lr_avenable = 0x3;
++ // The frontend drops this frame (fast-forward): let the PPU skip drawing it.
++ if(!cb.environment(RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE, &lr_avenable))
++  lr_avenable = 0x3;
+ 
+  lw[0] = ~0;	// Must be ~0 and not another value.
+  espec.surface = s;
+  espec.LineWidths = lw.get();
+- espec.skip = false; //!(lr_avenable & 0x1);		// Skips drawing the frame if true; espec.surface and espec.LineWidths must still be valid when true, however.
++ espec.skip = !(lr_avenable & 0x1);		// Skips drawing the frame if true; espec.surface and espec.LineWidths must still be valid when true, however.
+ 
+  espec.SoundRate = SoundRate;
+  espec.SoundBuf = SoundBuf.get(); // Should have enough room for 100ms of sound to be on the safe side.
+@@ -423,6 +425,17 @@
+  //
+  //
+  //
++ if(espec.skip)
++ {
++  // nothing was drawn: a NULL frame tells the frontend to keep the last one
++  if(last_w && last_h)
++   cb.video_refresh(NULL, last_w, last_h, 0);
++  return;
++ }
++
++ last_w = (lw[0] == ~0) ? espec.DisplayRect.w : lw[espec.DisplayRect.y];
++ last_h = espec.DisplayRect.h;
++
+  if(espec.surface->format.opp == 2)
+  {
+   cb.video_refresh(espec.surface->pix<uint16>() + espec.DisplayRect.x + espec.DisplayRect.y * espec.surface->pitchinpix,
