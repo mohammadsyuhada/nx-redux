@@ -71,9 +71,9 @@ enum { SWITCHER_LAYOUT_FULL = 0,
 	   SWITCHER_LAYOUT_LIST = 1,
 	   SWITCHER_LAYOUT_COUNT };
 
-// What the List draws behind the Consoles tab (Layouts > Controller): Background = no controller, the user's own
-// .media/bg.png or the global bg.png; Controller = each console's controller (or logo); None = nothing, plain
-// black. Stored as menucontrollerart= (0/1 were the old Hide/Show); never renumber.
+// What the Consoles tab's List and Carousel draw (Layouts > Consoles background): Background = no controller, the
+// user's own .media/bg.png or the global bg.png behind the rows; Controller = each console's controller (or logo);
+// None = nothing, plain black. Stored as menucontrollerart= (0/1 were the old Hide/Show); never renumber.
 enum { CONSOLE_ART_BACKGROUND = 0,
 	   CONSOLE_ART_CONTROLLER = 1,
 	   CONSOLE_ART_NONE = 2,
@@ -164,7 +164,7 @@ typedef struct
 	bool showRecents;
 	bool showTools;
 	bool showHome;		// the Home tab (Layouts > Home tab)
-	int consoleArt;		// CONSOLE_ART_*: what the List draws behind the Consoles tab (Layouts > Controller)
+	int consoleArt;		// CONSOLE_ART_*: what the List draws behind the Consoles tab (Layouts > Consoles background)
 	int gameListArt;	// GAME_LIST_ART_*: the List game list's picture (Layouts > List art)
 	int backdropArt;	// BACKDROP_ART_*: the Backdrop game list's item pictures (Layouts > Backdrop art)
 	bool buttonHints;	// the launcher lists' bottom button hint bar (Layouts > Button hints)
@@ -391,7 +391,7 @@ void CFG_setShowTools(bool show);
 // Show/hide the Home tab (Layouts > Home tab); it still shows when no other tab does.
 bool CFG_getShowHome(void);
 void CFG_setShowHome(bool show);
-// What the List draws behind the Consoles tab, CONSOLE_ART_* (Layouts > Controller); the setter stores an
+// What the List draws behind the Consoles tab, CONSOLE_ART_* (Layouts > Consoles background); the setter stores an
 // out-of-range value as the default (Controller).
 int CFG_getConsoleArt(void);
 void CFG_setConsoleArt(int art);

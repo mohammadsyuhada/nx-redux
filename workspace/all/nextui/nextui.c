@@ -681,8 +681,10 @@ int main(int argc, char* argv[]) {
 				// frame — a visible mid-glide hitch. folderbgchanged /
 				// thumbchanged stay latched, so the new background/thumbnail
 				// lands on the first frame after the glide settles (via the
-				// idle thumbchanged branch below).
-				if (!GameList_pillAnimating() && !MenuTabs_underlineGliding()) {
+				// idle thumbchanged branch below). The Consoles carousel's background
+				// (Layouts > Consoles background: Background) waits out the row's slide the same way.
+				if (!GameList_pillAnimating() && !MenuTabs_underlineGliding() &&
+					!(RowView_consoleBackground() && RowView_animating())) {
 					updateBackgroundLayer(blackBG);
 					renderThumbnail(1, false);
 				}

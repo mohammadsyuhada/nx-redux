@@ -14,6 +14,10 @@
 // band.
 
 bool RowView_active(void); // the style is Carousel or Backdrop (and not Home)
+// The Consoles tab's Carousel with Layouts > Consoles background: Background: the selected console's own
+// .media/bg.png (else the global bg.png) on the background layer, as the List, the row's body left transparent over
+// it.
+bool RowView_consoleBackground(void);
 // nextui.c, before the top band and the bar: a Backdrop game list's picture (the selected game's screenshot, dimmed
 // and shaded, crossfading over 0.35 s) drawn full screen as the bottom-most layer of `screen`. Draws nothing on any
 // other screen, the main-menu tabs included. Returns RowView_backdropPicture().

@@ -2321,6 +2321,11 @@ bool RowView_active(void) {
 	return (style == MENU_STYLE_CAROUSEL || style == MENU_STYLE_BACKDROP) && !Home_active();
 }
 
+bool RowView_consoleBackground(void) {
+	return RowView_active() && GameList_lookTab() == MENU_TAB_CONSOLES &&
+		   CFG_getConsoleArt() == CONSOLE_ART_BACKGROUND;
+}
+
 bool RowView_backdropPicture(void) {
 	return pic_on;
 }
@@ -2916,12 +2921,15 @@ void RowView_render(SDL_Surface* screen, int lastScreen) {
 			SDL_FillRect(screen, &(SDL_Rect){0, screen->h - bar, screen->w, bar},
 						 SDL_MapRGBA(screen->format, 0, 0, 0, 255));
 	} else if (!pictureRow()) {
-		// plain black under the row (and under the hint bar's scrim); a Backdrop game list's picture is already drawn
+		// plain black under the row (and under the hint bar's scrim), or with the Consoles' background the screen
+		// left transparent over it (on the background layer); a Backdrop game list's picture is already drawn
+		bool clear = kind == ROW_BACKDROP_LOGO && RowView_consoleBackground();
 		SDL_FillRect(screen, &(SDL_Rect){0, bar, screen->w, screen->h - bar},
-					 SDL_MapRGBA(screen->format, 0, 0, 0, 255));
+					 clear ? 0 : SDL_MapRGBA(screen->format, 0, 0, 0, 255));
 		if (slot_sprites) {
-			body_changed = body_changed || body_left != BODY_BLACK || lastScreen != SCREEN_GAMELIST;
-			body_now = BODY_BLACK;
+			BodyFill want = clear ? BODY_CLEAR : BODY_BLACK;
+			body_changed = body_changed || body_left != want || lastScreen != SCREEN_GAMELIST;
+			body_now = want;
 		}
 	}
 

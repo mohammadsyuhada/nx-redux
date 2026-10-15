@@ -113,9 +113,9 @@ void RowView_prefetchItem(const RowGeo* g, Entry* e, TileKind kind, bool side, b
 void RowView_drawSideCaption(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind kind, int x, int w, int cy,
 							 int body_top, int body_h, bool right);
 
-// The Consoles tab's controller art (Layouts > Controller): console e's pad fitted in box_w x box_h px, centred on
-// (cx, cy), scaled with its item, at Pad_alpha(d) (0.6 focused, gone a step away). Nothing for other kinds, a console
-// without a pad, or the setting off. Drawn just before the item's logo.
+// The Consoles tab's controller art (Layouts > Consoles background): console e's pad fitted in box_w x box_h px,
+// centred on (cx, cy), scaled with its item, at Pad_alpha(d) (0.6 focused, gone a step away). Nothing for other kinds,
+// a console without a pad, or the setting off. Drawn just before the item's logo.
 void RowView_drawPad(SDL_Surface* screen, Entry* e, TileKind kind, int box_w, int box_h, int cx, int cy, float scale,
 					 float d);
 // Console e's pad id (Pad_idForFolder), or NULL; for a stack's spacing.

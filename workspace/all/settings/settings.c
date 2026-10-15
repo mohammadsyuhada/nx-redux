@@ -282,7 +282,7 @@ static int menu_style_values[] = {MENU_STYLE_LIST, MENU_STYLE_GRID, MENU_STYLE_C
 static const char* orient_labels[] = {"Horizontal", "Vertical"};
 static int orient_values[] = {MENU_ORIENT_HORIZONTAL, MENU_ORIENT_VERTICAL};
 static SettingItem* menu_orient_items[MENU_CAT_COUNT] = {NULL};
-/* Each tab's layout row (and the Consoles controller row): shown only while that tab is (sync_layouts_rows) */
+/* Each tab's layout row (and the Consoles background row): shown only while that tab is (sync_layouts_rows) */
 static SettingItem* menu_style_items[MENU_CAT_COUNT] = {NULL};
 static SettingItem* menu_controller_item = NULL;
 static SettingsPage layouts_page; // defined with the page below (sync_layouts_rows clamps its scroll)
@@ -1933,9 +1933,9 @@ static void build_menu_tree(const DeviceInfo* dev) {
 					   get_menu_orient_consoles, set_menu_orient_consoles, reset_menu_orient_consoles);
 	menu_controller_item = &layouts_items[idx];
 	LAYOUTS_CYCLE_ROW(
-		"Consoles controller",
-		"What shows behind the Consoles tab in the List style: each console's controller, your own background "
-		"pictures (bg.png), or nothing.",
+		"Consoles background",
+		"What shows with the Consoles tab: each console's controller, your own background pictures (bg.png), "
+		"or nothing.",
 		console_art_labels, CONSOLE_ART_COUNT, console_art_values, get_console_art, set_console_art, reset_console_art);
 
 	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(

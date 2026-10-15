@@ -2695,9 +2695,18 @@ static void clearBackground(void) {
 }
 
 // A Grid, Carousel or Backdrop screen draws on plain black (or the Backdrop picture, on `screen`): no bg.png,
-// folder background or game art.
+// folder background or game art. The Consoles tab's Carousel with Layouts > Consoles background: Background keeps
+// the List's background instead (the selected console's .media/bg.png, else the global bg.png), seen through the
+// row's body.
 static void clearArtForGrid(SDL_Surface* screen, int lastScreen) {
-	clearBackground();
+	if (RowView_consoleBackground()) {
+		int n = top->entries->count;
+		Entry* entry = top->selected >= 0 && top->selected < n ? top->entries->items[top->selected] : NULL;
+		bool names = true;
+		resolveAndLoadBackground(NULL, NULL, tabBackground(MENU_TAB_CONSOLES, entry), &names);
+	} else {
+		clearBackground();
+	}
 	had_thumb = false;
 	ox = screen->w;
 	if (!list_art_cleared || lastScreen != SCREEN_GAMELIST) {
@@ -2820,8 +2829,8 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 	int look = sw_list ? -1 : GameList_lookTab();
 	bool at_root = look >= 0;
 	MenuTabId tab = at_root ? (MenuTabId)look : MenuTabs_current();
-	// None (a game list's Layouts > List art, or the Consoles tab's Layouts > Controller): a plain list on black, no
-	// game art, controller or background picture
+	// None (a game list's Layouts > List art, or the Consoles tab's Layouts > Consoles background): a plain list on
+	// black, no game art, controller or background picture
 	bool plain = at_root ? tab == MENU_TAB_CONSOLES && CFG_getConsoleArt() == CONSOLE_ART_NONE
 						 : CFG_getGameListArt() == GAME_LIST_ART_NONE;
 	// Home holds games; Consoles, Collections and Tools draw no game art (only a user's own
@@ -2886,9 +2895,9 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 	int row_h = rows_layout.row_h;
 	TTF_Font* list_font = listFont(atRoot()); // the rows' text (the main menu's per device), as listLayout()
 
-	// Consoles tab: the selected console's controller (Layouts > Controller), else its logo, dimmed, on the right
-	// behind the rows (the page background: it stays lit under the tab-focus dim, cropped only by the screen edges).
-	// Background or None, the right side stays empty for every console.
+	// Consoles tab: the selected console's controller (Layouts > Consoles background), else its logo, dimmed, on the
+	// right behind the rows (the page background: it stays lit under the tab-focus dim, cropped only by the screen
+	// edges). Background or None, the right side stays empty for every console.
 	if (total > 0 && at_root && tab == MENU_TAB_CONSOLES && CFG_getMenuControllerArt()) {
 		const char* slash = strrchr(entry->path, '/');
 		const char* folder = slash ? slash + 1 : entry->path;
