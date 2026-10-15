@@ -2,21 +2,82 @@
 diff --git a/shell/libretro/oslib.cpp b/shell/libretro/oslib.cpp
 --- a/shell/libretro/oslib.cpp
 +++ b/shell/libretro/oslib.cpp
-@@ -73,7 +73,16 @@
+@@ -22,6 +22,8 @@
+ #include "oslib/i18n.h"
+ #ifndef _WIN32
+ #include <unistd.h>
++#include <fcntl.h>
++#include <sys/stat.h>
+ #endif
+ 
+ const char *retro_get_system_directory();
+@@ -50,6 +52,50 @@
+ 			name.erase(tag, end - tag + 1);
+ 	}
+ 	return name;
++}
++
++// NX Redux: copies a card to a new path through a temp file (synced, then renamed, so a half-copied card never
++// shows up) and gives it the old file's modification time, so sync's newer-wins compares when it was last
++// played, not when it was moved. The old file is left in place.
++static bool nxCopyCard(const std::string& from, const std::string& to)
++{
++	std::string tmp = to + ".tmp";
++	bool ok = false;
++	FILE *in = fopen(from.c_str(), "rb");
++	FILE *out = in != nullptr ? fopen(tmp.c_str(), "wb") : nullptr;
++	if (out != nullptr)
++	{
++		char buf[16384];
++		size_t n;
++		ok = true;
++		while ((n = fread(buf, 1, sizeof(buf), in)) > 0)
++			if (fwrite(buf, 1, n, out) != n)
++				ok = false;
++		if (ferror(in) || fflush(out) != 0)
++			ok = false;
++#ifndef _WIN32
++		if (ok && fsync(fileno(out)) != 0)
++			ok = false;
++#endif
++		if (fclose(out) != 0)
++			ok = false;
++	}
++	if (in != nullptr)
++		fclose(in);
++	if (ok && rename(tmp.c_str(), to.c_str()) == 0)
++	{
++#ifdef __linux__
++		struct stat st;
++		if (stat(from.c_str(), &st) == 0)
++		{
++			struct timespec times[2] = { st.st_atim, st.st_mtim };
++			utimensat(AT_FDCWD, to.c_str(), times, 0);
++		}
++#endif
++		return true;
++	}
++	remove(tmp.c_str());
++	return false;
+ }
+ 
+ std::string getVmuPath(const std::string& port, bool save)
+@@ -73,7 +119,17 @@
  		return file_exists(byId.c_str()) ? byId : byName;
  	}
  	else {
 -		return std::string(game_dir_no_slash) + std::string(PATH_DEFAULT_SLASH()) + "vmu_save_" + port + ".bin";
 +		// NX Redux (shared with nx-mobile): a shared card (every port when per-game cards are off, the ports
 +		// after A1 with "VMU A1") is a save too, so it lives in the save directory (Saves/DC) and syncs with
-+		// the other saves. A card still in the system folder from an earlier run is read once, then
-+		// rewritten in the save directory and deleted (maple_devs.cpp OnSetup, as for the per-game cards).
++		// the other saves. A card still in the system folder from an earlier run is copied over first, the
++		// same path then serves load and save; the old file stays as a recovery copy, never read again.
++		// If the copy fails the old card stays in use rather than starting a blank one.
 +		std::string fileName = "vmu_save_" + port + ".bin";
 +		std::string inSaves = vmu_dir_no_slash + std::string(PATH_DEFAULT_SLASH()) + fileName;
-+		if (save || file_exists(inSaves.c_str()))
-+			return inSaves;
 +		std::string inSystem = std::string(game_dir_no_slash) + std::string(PATH_DEFAULT_SLASH()) + fileName;
-+		return file_exists(inSystem.c_str()) ? inSystem : inSaves;
++		if (file_exists(inSaves.c_str()) || !file_exists(inSystem.c_str()))
++			return inSaves;
++		return nxCopyCard(inSystem, inSaves) ? inSaves : inSystem;
  	}
  }
  

@@ -1,24 +1,95 @@
 # license: modifies Flycast (https://github.com/flyinghead/flycast), GPL-2.0 (LICENSE); this patch is distributed under the same license.
 diff --git a/core/hw/maple/maple_devs.cpp b/core/hw/maple/maple_devs.cpp
-index 9402444..a5424a9 100644
 --- a/core/hw/maple/maple_devs.cpp
 +++ b/core/hw/maple/maple_devs.cpp
-@@ -411,6 +411,9 @@ struct maple_sega_vmu: maple_base
+@@ -15,6 +15,35 @@
+ #include <ctime>
+ #include <thread>
+ #include <chrono>
++#ifndef _WIN32
++#include <fcntl.h>
++#include <sys/stat.h>
++#include <unistd.h>
++#endif
++
++// NX Redux: a renamed card is on disk (fsync) before the old file goes
++static bool nxSyncToDisk(FILE *f)
++{
++#ifndef _WIN32
++	return fsync(fileno(f)) == 0;
++#else
++	return true;
++#endif
++}
++
++// NX Redux: a moved card keeps the old file's modification time, so sync's
++// newer-wins compares when it was last played, not when it was moved
++static void nxKeepMtime(const std::string& from, const std::string& to)
++{
++#ifdef __linux__
++	struct stat st;
++	if (stat(from.c_str(), &st) == 0)
++	{
++		struct timespec times[2] = { st.st_atim, st.st_mtim };
++		utimensat(AT_FDCWD, to.c_str(), times, 0);
++	}
++#endif
++}
+ 
+ const char* maple_sega_controller_name = "Dreamcast Controller";
+ const char* maple_sega_vmu_name        = "Visual Memory";
+@@ -408,6 +437,12 @@
+ 			return false;
+ 		}
+ 		if (std::fwrite(flash_data, sizeof(flash_data), 1, file) != 1) {
++			ERROR_LOG(MAPLE, "Failed to write the VMU %s to disk", logical_port);
++			return false;
++		}
++		// NX Redux: hand the data to the OS now, so a crash or a killed process
++		// cannot leave a half-written card (stdio buffers until fclose otherwise)
++		if (std::fflush(file) != 0) {
  			ERROR_LOG(MAPLE, "Failed to write the VMU %s to disk", logical_port);
  			return false;
  		}
-+		// NX Redux: hand the data to the OS now, so a crash or a killed process
-+		// cannot leave a half-written card (stdio buffers until fclose otherwise)
-+		std::fflush(file);
- 		fullSaveNeeded = false;
- 		return true;
- 	}
-@@ -709,6 +712,8 @@ struct maple_sega_vmu: maple_base
+@@ -437,6 +472,7 @@
+         std::string rpath = hostfs::getVmuPath(logical_port, false);
+         // this might be a storage url
+         hostfs::File *rfile = hostfs::storage().openFile(rpath, "rb");
++        bool readOk = false; // NX Redux: the old card is removed only once it was really read
+         if (rfile == nullptr) {
+             INFO_LOG(MAPLE, "Unable to open VMU file \"%s\", creating new file", rpath.c_str());
+         }
+@@ -444,6 +480,8 @@
+         {
+             if (rfile->read(flash_data, sizeof(flash_data), 1) != 1)
+                 WARN_LOG(MAPLE, "Failed to read the VMU file \"%s\" from disk", rpath.c_str());
++            else
++                readOk = true;
+             delete rfile;
+         }
+         // Open or create the vmu file to save to
+@@ -459,8 +497,13 @@
+ 			{
+ 				// VMU file is being renamed so save it fully now
+ 				// and delete the old file
+-				if (fullSave())
++				// NX Redux: only after a full read, with the new file synced
++				// to disk and given the old one's modification time
++				if (readOk && fullSave() && nxSyncToDisk(file))
++				{
++					nxKeepMtime(rpath, wpath);
+ 					nowide::remove(rpath.c_str());
++				}
+ 			}
+         }
+ 
+@@ -704,7 +747,8 @@
+ 									return MDRE_FileError;
+ 							}
+ 							else if (std::fseek(file, write_adr, SEEK_SET) != 0
+-									|| std::fwrite(&flash_data[write_adr], write_len, 1, file) != 1)
++									|| std::fwrite(&flash_data[write_adr], write_len, 1, file) != 1
++									|| std::fflush(file) != 0) // NX Redux: see fullSave()
+ 							{
  								ERROR_LOG(MAPLE, "Failed to save VMU %s: I/O error", logical_port);
  								return MDRE_FileError; // I/O error
- 							}
-+							else
-+								std::fflush(file); // NX Redux: see fullSave()
- 						}
- 						return MDRS_DeviceReply;
- 					}

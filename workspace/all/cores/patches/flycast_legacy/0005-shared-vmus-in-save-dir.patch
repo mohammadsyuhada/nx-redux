@@ -2,7 +2,15 @@
 diff --git a/core/stdclass.cpp b/core/stdclass.cpp
 --- a/core/stdclass.cpp
 +++ b/core/stdclass.cpp
-@@ -74,7 +74,48 @@
+@@ -7,6 +7,7 @@
+ #include <io.h>
+ #else
+ #include <unistd.h>
++#include <fcntl.h>
+ #endif
+ 
+ #include "hw/mem/_vmem.h"
+@@ -74,7 +75,60 @@
     }
     else
     {
@@ -13,8 +21,10 @@ diff --git a/core/stdclass.cpp b/core/stdclass.cpp
 +      // too, so it lives in the save directory (Saves/DCX) and syncs with the
 +      // other saves. This core reads and writes one path, so a card still in
 +      // the system folder from an earlier run is copied over first (through a
-+      // temp file, so a half-copied card never wins); the old file is left
-+      // where it is and never read again once the new one exists. If the copy
++      // synced temp file, so a half-copied card never wins) and keeps the old
++      // file's modification time (sync's newer-wins then compares when it was
++      // last played, not when it moved); the old file is left where it is as a
++      // recovery copy, never read again once the new one exists. If the copy
 +      // fails the old card stays in use rather than starting a blank one.
 +      snprintf(filename, sizeof(filename), "vmu_save_%s.bin", logical_port);
 +      std::string inSaves = std::string(vmu_dir_no_slash) +
@@ -25,8 +35,8 @@ diff --git a/core/stdclass.cpp b/core/stdclass.cpp
 +#endif
 +         + filename;
 +      std::string inSystem = get_writable_data_path(filename);
-+      struct stat st;
-+      if (stat(inSaves.c_str(), &st) == 0 || stat(inSystem.c_str(), &st) != 0)
++      struct stat st, old;
++      if (stat(inSaves.c_str(), &st) == 0 || stat(inSystem.c_str(), &old) != 0)
 +         return inSaves;
 +      std::string tmp = inSaves + ".tmp";
 +      bool ok = false;
@@ -40,15 +50,25 @@ diff --git a/core/stdclass.cpp b/core/stdclass.cpp
 +         while ((n = fread(buf, 1, sizeof(buf), in)) > 0)
 +            if (fwrite(buf, 1, n, out) != n)
 +               ok = false;
-+         if (ferror(in))
++         if (ferror(in) || fflush(out) != 0)
 +            ok = false;
++#ifndef _WIN32
++         if (ok && fsync(fileno(out)) != 0)
++            ok = false;
++#endif
 +         if (fclose(out) != 0)
 +            ok = false;
 +      }
 +      if (in)
 +         fclose(in);
 +      if (ok && rename(tmp.c_str(), inSaves.c_str()) == 0)
++      {
++#ifdef __linux__
++         struct timespec times[2] = { old.st_atim, old.st_mtim };
++         utimensat(AT_FDCWD, inSaves.c_str(), times, 0);
++#endif
 +         return inSaves;
++      }
 +      remove(tmp.c_str());
 +      return inSystem;
     }

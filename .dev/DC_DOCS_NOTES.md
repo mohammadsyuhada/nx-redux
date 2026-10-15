@@ -45,9 +45,9 @@ yet**; the switch ships together with netplay (sub-project 4). Until then the cu
   - Every card that isn't per game — the second slot (`vmu_save_A2.bin`) and the other ports with "VMU A1", every port
     when per-game cards are off — is a save: `Saves/DC/vmu_save_<port>.bin` (`Saves/DCX/` for DCX), so it syncs with
     the other saves.
-  - One left in `Bios/DC/` (or `Bios/DC/dc/`) by an earlier build is picked up on the next launch: DC moves it to
-    `Saves/DC/` (the old file is deleted once the copy is written); DCX copies it and leaves the old file, which is
-    never read again once `Saves/DCX/` has one.
+  - One left in `Bios/DC/` (or `Bios/DC/dc/`, `Bios/DCX/`) by an earlier build is copied to the saves folder on the
+    next launch, keeping its modification time (so sync's newer-wins sees when it was last played). The old file stays
+    as a recovery copy and is never read again once the saves folder has one; if the copy fails the old card is used.
   - Without `dc_boot.bin` the built-in HLE BIOS is used automatically (verified on the Smart Pro S).
 - **Arcade (NAOMI / Atomiswave)** *(built)*
   - The modern MAME `awbios.zip` (containing `bios.ic23_l`) is accepted, as before (Metal Slug 6 verified).

@@ -55,7 +55,7 @@ nx_dc_netplay() {
 	fi
 	[ -f "$NP_SYS_REAL/dc_nvmem.bin" ] && cp "$NP_SYS_REAL/dc_nvmem.bin" "$NP_STAGE/nxnvmem.bin"
 	# the second card is a save (patch 0007); one still in the system folder
-	# from before is the card until the core moves it on its next run
+	# from before is the card until the core copies it over on its next run
 	if [ -f "$NP_SAVES_REAL/vmu_save_A2.bin" ]; then
 		cp "$NP_SAVES_REAL/vmu_save_A2.bin" "$NP_STAGE/nxa2.bin"
 	elif [ -f "$NP_SYS_REAL/vmu_save_A2.bin" ]; then
