@@ -1,0 +1,55 @@
+# license: modifies Flycast (https://github.com/libretro/flycast), GPL-2.0 (LICENSE); this patch is distributed under the same license.
+diff --git a/core/stdclass.cpp b/core/stdclass.cpp
+--- a/core/stdclass.cpp
++++ b/core/stdclass.cpp
+@@ -74,7 +74,48 @@
+    }
+    else
+    {
+-      sprintf(filename, "vmu_save_%s.bin", logical_port);
+-      return get_writable_data_path(filename);
++      // NX Redux (shared with nx-mobile): a shared card (every port when
++      // per-game cards are off, the ports after A1 with "VMU A1") is a save
++      // too, so it lives in the save directory (Saves/DCX) and syncs with the
++      // other saves. This core reads and writes one path, so a card still in
++      // the system folder from an earlier run is copied over first (through a
++      // temp file, so a half-copied card never wins); the old file is left
++      // where it is and never read again once the new one exists. If the copy
++      // fails the old card stays in use rather than starting a blank one.
++      snprintf(filename, sizeof(filename), "vmu_save_%s.bin", logical_port);
++      std::string inSaves = std::string(vmu_dir_no_slash) +
++#ifdef _WIN32
++         std::string("\\")
++#else
++         std::string("/")
++#endif
++         + filename;
++      std::string inSystem = get_writable_data_path(filename);
++      struct stat st;
++      if (stat(inSaves.c_str(), &st) == 0 || stat(inSystem.c_str(), &st) != 0)
++         return inSaves;
++      std::string tmp = inSaves + ".tmp";
++      bool ok = false;
++      FILE *in = fopen(inSystem.c_str(), "rb");
++      FILE *out = in ? fopen(tmp.c_str(), "wb") : NULL;
++      if (out)
++      {
++         char buf[16384];
++         size_t n;
++         ok = true;
++         while ((n = fread(buf, 1, sizeof(buf), in)) > 0)
++            if (fwrite(buf, 1, n, out) != n)
++               ok = false;
++         if (ferror(in))
++            ok = false;
++         if (fclose(out) != 0)
++            ok = false;
++      }
++      if (in)
++         fclose(in);
++      if (ok && rename(tmp.c_str(), inSaves.c_str()) == 0)
++         return inSaves;
++      remove(tmp.c_str());
++      return inSystem;
+    }
+ }

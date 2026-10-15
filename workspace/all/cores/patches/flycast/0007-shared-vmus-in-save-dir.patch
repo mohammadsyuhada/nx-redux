@@ -1,0 +1,22 @@
+# license: modifies Flycast (https://github.com/flyinghead/flycast), GPL-2.0 (LICENSE); this patch is distributed under the same license.
+diff --git a/shell/libretro/oslib.cpp b/shell/libretro/oslib.cpp
+--- a/shell/libretro/oslib.cpp
++++ b/shell/libretro/oslib.cpp
+@@ -73,7 +73,16 @@
+ 		return file_exists(byId.c_str()) ? byId : byName;
+ 	}
+ 	else {
+-		return std::string(game_dir_no_slash) + std::string(PATH_DEFAULT_SLASH()) + "vmu_save_" + port + ".bin";
++		// NX Redux (shared with nx-mobile): a shared card (every port when per-game cards are off, the ports
++		// after A1 with "VMU A1") is a save too, so it lives in the save directory (Saves/DC) and syncs with
++		// the other saves. A card still in the system folder from an earlier run is read once, then
++		// rewritten in the save directory and deleted (maple_devs.cpp OnSetup, as for the per-game cards).
++		std::string fileName = "vmu_save_" + port + ".bin";
++		std::string inSaves = vmu_dir_no_slash + std::string(PATH_DEFAULT_SLASH()) + fileName;
++		if (save || file_exists(inSaves.c_str()))
++			return inSaves;
++		std::string inSystem = std::string(game_dir_no_slash) + std::string(PATH_DEFAULT_SLASH()) + fileName;
++		return file_exists(inSystem.c_str()) ? inSystem : inSaves;
+ 	}
+ }
+ 

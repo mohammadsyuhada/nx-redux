@@ -140,8 +140,8 @@ void Core_open(const char* core_path, const char* tag_name) {
 			sprintf((char*)core.states_dir, "%s/%s-%s", SHARED_USERDATA_PATH, core.tag, core.name);
 		}
 	}
-	// Same for the core's system files (flycast keeps its console flash and the
-	// shared second memory card beside the BIOS): NETPLAY_SYSTEM_DIR is an
+	// Same for the core's system files (flycast keeps its console flash beside
+	// the BIOS; its shared memory cards are saves): NETPLAY_SYSTEM_DIR is an
 	// isolated copy holding the host's files and the BIOS the session uses.
 	{
 		const char* netplay_system = getenv("NETPLAY_SYSTEM_DIR");

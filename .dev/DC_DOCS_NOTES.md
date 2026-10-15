@@ -40,7 +40,14 @@ yet**; the switch ships together with netplay (sub-project 4). Until then the cu
 - **BIOS** *(built, sub-project 3)*
   - Unchanged for users: `dc_boot.bin`, `naomi.zip`, `awbios.zip` stay in `Bios/DC/` (a RetroArch-style `Bios/DC/dc/` folder
     also works and then takes precedence).
-  - The core also keeps `dc_nvmem.bin`, the shared second-slot card and a `data/` folder there.
+  - The core also keeps `dc_nvmem.bin` and a `data/` folder there.
+- **Shared memory cards** *(built, flycast patch 0007 / flycast_legacy patch 0005)*
+  - Every card that isn't per game — the second slot (`vmu_save_A2.bin`) and the other ports with "VMU A1", every port
+    when per-game cards are off — is a save: `Saves/DC/vmu_save_<port>.bin` (`Saves/DCX/` for DCX), so it syncs with
+    the other saves.
+  - One left in `Bios/DC/` (or `Bios/DC/dc/`) by an earlier build is picked up on the next launch: DC moves it to
+    `Saves/DC/` (the old file is deleted once the copy is written); DCX copies it and leaves the old file, which is
+    never read again once `Saves/DCX/` has one.
   - Without `dc_boot.bin` the built-in HLE BIOS is used automatically (verified on the Smart Pro S).
 - **Arcade (NAOMI / Atomiswave)** *(built)*
   - The modern MAME `awbios.zip` (containing `bios.ic23_l`) is accepted, as before (Metal Slug 6 verified).
