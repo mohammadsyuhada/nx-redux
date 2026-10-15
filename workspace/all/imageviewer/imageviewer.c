@@ -479,6 +479,9 @@ int main(int argc, char* argv[]) {
 					browser_toast_time = SDL_GetTicks();
 				}
 				IvViewer_close();
+				// A rotated file's preview (and its size line) must be re-read.
+				if (IvViewer_filesChanged())
+					preview_have[0] = '\0';
 				app_screen = SCREEN_BROWSER;
 				UI_clearToast();
 				// A preview request for the still-selected file may have been

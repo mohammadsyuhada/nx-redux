@@ -1,11 +1,13 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "iv_viewer.h"
 #include "api.h"
 #include "iv_defines.h"
 #include "iv_probe.h"
+#include "iv_rotate.h"
 #include "ui_buttonhintbar.h"
 #include "ui_draw.h"
 #include "ui_loadingoverlay.h"
@@ -14,6 +16,11 @@
 // Overlay only appears once a decode is actually slow (~100ms+), so a fast
 // cache-adjacent load never flashes it for a frame or two.
 #define IV_LOADING_OVERLAY_DELAY_MS 100
+
+// Y presses rotate the on-screen image at once; the file is rewritten once
+// they settle for this long (or right away on navigating/leaving), so three
+// quick presses cost one re-encode instead of three.
+#define IV_ROTATE_SAVE_DELAY_MS 1000
 
 // Fullscreen image viewer: fit/zoom/pan over the current image, prev/next
 // navigation with wraparound, a small next/prev prefetch cache, and a
@@ -35,6 +42,9 @@ static IvLoadStatus vw_last_err;
 static char vw_toast[64];
 static uint32_t vw_toast_time;
 static const float vw_levels[] = {1.0f, 2.0f, 4.0f};
+static int vw_rot_pending;	  // quarter turns clockwise shown but not yet written to the file
+static uint32_t vw_rot_tick;  // SDL_GetTicks() of the latest Y press
+static bool vw_files_changed; // a rotation was written since IvViewer_open
 
 // Next/prev prefetch sequencing: vw_prefetch_step 0 = next not yet
 // settled, 1 = next settled/skipped and prev not yet settled, 2 = both
@@ -151,6 +161,44 @@ static void vw_reset_to_fit(void) {
 	vw_cy = vw_image->h / 2;
 }
 
+// Write the pending rotation to the current file. On failure the file is
+// untouched, so the next load shows it as it really is (the on-screen
+// rotation is dropped with the surface).
+static bool vw_flush_rotation(void) {
+	if (vw_rot_pending == 0)
+		return true;
+	ImageEntry* e = &vw_browser->entries[vw_index];
+	bool ok = IvRotate_file(e->path, vw_rot_pending);
+	vw_rot_pending = 0;
+	if (ok) {
+		vw_files_changed = true;
+		struct stat st;
+		if (stat(e->path, &st) == 0)
+			e->size_bytes = st.st_size;
+	} else {
+		snprintf(vw_toast, sizeof(vw_toast), "Couldn't save rotation");
+		vw_toast_time = SDL_GetTicks();
+	}
+	return ok;
+}
+
+// Turn the on-screen image a quarter clockwise and queue the file write.
+static void vw_rotate(void) {
+	SDL_Surface* r = IvRotate_surface(vw_image, 1);
+	if (!r)
+		return;
+	SDL_FreeSurface(vw_image);
+	vw_image = r;
+	int t = vw_ow;
+	vw_ow = vw_oh;
+	vw_oh = t;
+	SDL_Surface* screen = GFX_getScreen();
+	vw_fit = fminf((float)screen->w / r->w, (float)screen->h / r->h);
+	vw_reset_to_fit();
+	vw_rot_pending = (vw_rot_pending + 1) % 4;
+	vw_rot_tick = SDL_GetTicks();
+}
+
 // Nearest non-dir entry in `dir` (+1/-1) from vw_index, wrapping around. In
 // a folder with a single file (optionally alongside subdirs), this lands
 // back on vw_index itself.
@@ -239,6 +287,12 @@ static void vw_load_index(int index) {
 }
 
 static void vw_nav(int dir) {
+	if (!vw_flush_rotation()) {
+		// Reload the unrotated file rather than move on with the view
+		// still showing a rotation that never reached the file.
+		vw_load_index(vw_index);
+		return;
+	}
 	vw_hint_until = SDL_GetTicks() + 3000;
 	vw_load_index(vw_step_index(dir));
 }
@@ -303,6 +357,8 @@ void IvViewer_open(ImageBrowserContext* browser, int entry_index) {
 	vw_toast[0] = '\0';
 	vw_toast_time = 0;
 	vw_prefetch_step = 2; // nothing to prefetch until an image actually applies
+	vw_rot_pending = 0;
+	vw_files_changed = false;
 
 	vw_load_index(entry_index);
 }
@@ -366,6 +422,12 @@ IvViewerStatus IvViewer_update(SDL_Surface* screen, bool* dirty) {
 	if (vw_hint_was_visible && !hint_visible)
 		*dirty = true;
 	vw_hint_was_visible = hint_visible;
+
+	if (vw_rot_pending && SDL_GetTicks() - vw_rot_tick >= IV_ROTATE_SAVE_DELAY_MS) {
+		if (!vw_flush_rotation())
+			vw_load_index(vw_index);
+		*dirty = true;
+	}
 
 	if (vw_loading) {
 		if (PAD_justPressed(BTN_B))
@@ -440,6 +502,12 @@ IvViewerStatus IvViewer_update(SDL_Surface* screen, bool* dirty) {
 		}
 	}
 
+	if (PAD_justPressed(BTN_Y) && vw_image) {
+		vw_rotate();
+		vw_hint_until = SDL_GetTicks() + 3000;
+		*dirty = true;
+	}
+
 	if (PAD_justPressed(BTN_A)) {
 		vw_info = !vw_info;
 		vw_hint_until = SDL_GetTicks() + 3000;
@@ -451,6 +519,7 @@ IvViewerStatus IvViewer_update(SDL_Surface* screen, bool* dirty) {
 			vw_reset_to_fit();
 			*dirty = true;
 		} else {
+			vw_flush_rotation();
 			return IV_VIEWER_EXIT;
 		}
 	}
@@ -541,7 +610,7 @@ void IvViewer_render(SDL_Surface* screen) {
 	if (vw_info && vw_image)
 		vw_render_info(screen, scale);
 	if (SDL_GetTicks() < vw_hint_until || vw_info) {
-		static char* hints[] = {"B", "BACK", "A", "INFO", NULL};
+		static char* hints[] = {"B", "BACK", "A", "INFO", "Y", "ROTATE", NULL};
 		UI_renderButtonHintBar(screen, hints);
 	}
 	// Unconditional: UI_renderToast clears its GPU layer itself when the
@@ -555,12 +624,18 @@ IvLoadStatus IvViewer_lastError(void) {
 }
 
 bool IvViewer_busy(void) {
-	return vw_loading || vw_prefetch_step < 2 ||
+	return vw_loading || vw_prefetch_step < 2 || vw_rot_pending ||
 		   (vw_toast[0] && SDL_GetTicks() - vw_toast_time < TOAST_DURATION) ||
 		   SDL_GetTicks() < vw_hint_until;
 }
 
+bool IvViewer_filesChanged(void) {
+	return vw_files_changed;
+}
+
 void IvViewer_close(void) {
+	if (vw_browser)
+		vw_flush_rotation();
 	if (vw_image) {
 		SDL_FreeSurface(vw_image);
 		vw_image = NULL;

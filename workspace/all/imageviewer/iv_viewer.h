@@ -19,6 +19,10 @@ void IvViewer_render(SDL_Surface* screen);
 IvLoadStatus IvViewer_lastError(void);
 // True while a load/prefetch is outstanding (caller keeps the loop hot).
 bool IvViewer_busy(void);
-// Free current image + prefetch cache (call on exit from viewer).
+// True once a rotation has been written to a file since IvViewer_open (the
+// browser's preview of it is stale).
+bool IvViewer_filesChanged(void);
+// Write any pending rotation, then free current image + prefetch cache (call
+// on exit from viewer).
 void IvViewer_close(void);
 #endif
