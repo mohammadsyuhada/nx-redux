@@ -122,7 +122,10 @@ bool sync_is_roms_phase(int phase);
 
 // BIOS files only fill gaps: a file the receiver already has is never
 // replaced (the two devices may hold different dumps under one name).
-#define SYNC_BIOS_ARGS "--ignore-existing"
+// Dreamcast memory cards (vmu_save_*.bin) live in Saves/DC*, never in Bios/:
+// an old copy left there must not travel (unanchored, at any depth).
+#define SYNC_BIOS_EXCLUDE_PATTERN "vmu_save_*.bin"
+#define SYNC_BIOS_ARGS "--ignore-existing --exclude='" SYNC_BIOS_EXCLUDE_PATTERN "'"
 
 // Collections (Collections/<Name>.txt, one SD-relative game path per line)
 // merge on every sync: each device keeps its lines in order and gains the

@@ -526,8 +526,8 @@ static void write_rsync_config(void) {
 	fprintf(fp, "[bios]\n");
 	fprintf(fp, "  path = %s\n", BIOS_PATH);
 	fprintf(fp, "  read only = no\n");
-	if (peer_filters)
-		fprintf(fp, "  exclude = %s\n", SYNC_JUNK_DAEMON_EXCLUDE);
+	fprintf(fp, "  exclude = %s%s%s\n", SYNC_BIOS_EXCLUDE_PATTERN, peer_filters ? " " : "",
+			peer_filters ? SYNC_JUNK_DAEMON_EXCLUDE : "");
 	fprintf(fp, "\n");
 	// Every sync too. The client pulls Collections/*.txt, merges, and pushes
 	// back the ones it added lines to (a phone client does the same).
@@ -936,7 +936,13 @@ static bool collection_files(const char* dir, SyncNames* out) {
 		return false;
 	bool ok = true;
 	struct dirent* e;
-	while (ok && (e = readdir(d)) != NULL) {
+	while (ok) {
+		errno = 0;
+		if (!(e = readdir(d))) {
+			if (errno != 0)
+				ok = false; // a read error is not the end of the folder
+			break;
+		}
 		if (!sync_is_collection_name(e->d_name))
 			continue;
 		char path[MAX_PATH * 2];
@@ -960,7 +966,13 @@ static int find_local_ci(const char* name, char* found, size_t size) {
 		return -1;
 	int ret = 0;
 	struct dirent* e;
-	while ((e = readdir(d)) != NULL) {
+	for (;;) {
+		errno = 0;
+		if (!(e = readdir(d))) {
+			if (errno != 0)
+				ret = -1; // a read error is not the end of the folder
+			break;
+		}
 		if (!strcasecmp(e->d_name, name)) {
 			snprintf(found, size, "%s", e->d_name);
 			ret = 1;

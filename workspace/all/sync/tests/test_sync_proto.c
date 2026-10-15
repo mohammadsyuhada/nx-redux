@@ -411,6 +411,11 @@ static void test_merge_lines(void) {
 }
 
 int main(void) {
+	// BIOS never carries Dreamcast memory cards (they live in Saves/DC*).
+	assert(!strcmp(SYNC_BIOS_EXCLUDE_PATTERN, "vmu_save_*.bin"));
+	assert(strstr(SYNC_BIOS_ARGS, "--exclude='vmu_save_*.bin'") != NULL);
+	assert(strstr(SYNC_BIOS_ARGS, "--ignore-existing") != NULL);
+
 	test_parse_flags();
 	test_parse_rejects();
 	test_format_roundtrip();
