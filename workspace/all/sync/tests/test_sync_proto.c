@@ -85,6 +85,108 @@ static void test_filter_strings(void) {
 	assert(sync_shared_client_args(buf, 20) == -1);
 }
 
+static void test_console_display(void) {
+	char d[64];
+	assert(sync_console_display("Game Boy Advance (GBA)", d, sizeof(d)) && !strcmp(d, "Game Boy Advance"));
+	assert(sync_console_display("Pokémon mini (PKM)", d, sizeof(d)) && !strcmp(d, "Pokémon mini"));
+	assert(sync_console_display("Sega CD (GPGX)", d, sizeof(d)) && !strcmp(d, "Sega CD"));
+	assert(sync_console_display("Name(TAG) ", d, sizeof(d)) && !strcmp(d, "Name"));
+	const char* bad[] = {"Game Boy Advance", ".media", "(GBA)", "Name ()", "Name (A(B))", "Name (GBA) x", NULL};
+	for (int i = 0; bad[i]; i++)
+		assert(!sync_console_display(bad[i], d, sizeof(d)));
+	assert(!sync_console_display("Game Boy Advance (GBA)", d, 8)); // doesn't fit
+}
+
+static void test_siblings(void) {
+	assert(sync_is_sibling("Game Boy Advance (GBA)", "Game Boy Advance (MGBA)"));
+	assert(sync_is_sibling("Sega CD (GPGX)", "Sega CD (SEGACD)"));
+	assert(!sync_is_sibling("Sega CD (GPGX)", "Sega Genesis (GPGX)"));			  // same tag, other console
+	assert(!sync_is_sibling("Game Boy Advance (GBA)", "Game Boy Advance (GBA)")); // itself
+	assert(!sync_is_sibling("Game Boy (GB)", "Game Boy Advance (GBA)"));
+	assert(!sync_is_sibling(".media", ".media"));
+	assert(!sync_is_sibling("Game Boy", "Game Boy (GB)"));
+}
+
+static void test_list_line(void) {
+	char n[256];
+	bool dir = false;
+	assert(sync_list_line_name("drwxr-xr-x          4,096 2026/10/15 12:00:00 Game Boy Advance (GBA)", n, sizeof(n), &dir));
+	assert(!strcmp(n, "Game Boy Advance (GBA)") && dir);
+	assert(sync_list_line_name("-rw-r--r--    123,456,789 2026/10/15 12:00:00 Foo  Bar.gba", n, sizeof(n), &dir));
+	assert(!strcmp(n, "Foo  Bar.gba") && !dir);
+	// --8-bit-output: non-ASCII names arrive raw
+	assert(sync_list_line_name("drwxr-xr-x          4,096 2026/10/15 12:00:00 Pokémon mini (PKM)", n, sizeof(n), &dir));
+	assert(!strcmp(n, "Pokémon mini (PKM)"));
+	// a name may start with a space; the separator is one space
+	assert(sync_list_line_name("-rw-r--r--              5 2026/10/15 12:00:00  lead.gba", n, sizeof(n), &dir));
+	assert(!strcmp(n, " lead.gba"));
+	assert(sync_list_line_name("lrwxrwxrwx              7 2026/10/15 12:00:00 link.gba -> real.gba", n, sizeof(n), &dir));
+	assert(!strcmp(n, "link.gba") && !dir);
+	assert(sync_list_line_name("-rw-r--r--          1,234 2026/10/15 12:00:00 Foo.gba\n", n, sizeof(n), &dir));
+	assert(!strcmp(n, "Foo.gba"));
+	const char* bad[] = {"drwxr-xr-x          4,096 2026/10/15 12:00:00 .", "", "receiving file list ... done",
+						 "@ERROR: Unknown module 'x'", "drwxr-xr-x 4,096 2026/10/15", "rsync: connection refused", NULL};
+	for (int i = 0; bad[i]; i++)
+		assert(!sync_list_line_name(bad[i], n, sizeof(n), &dir));
+	assert(!sync_list_line_name("-rw-r--r--              5 2026/10/15 12:00:00 a-long-name.gba", n, 8, &dir));
+}
+
+static void test_escape_pattern(void) {
+	char b[64];
+	assert(sync_escape_pattern("/GBA (GBA)/Foo.gba", b, sizeof(b)) > 0 && !strcmp(b, "/GBA (GBA)/Foo.gba"));
+	// No wildcard: a backslash stays as it is (rsync reads it literally).
+	assert(sync_escape_pattern("/X/a\\b.gba", b, sizeof(b)) > 0 && !strcmp(b, "/X/a\\b.gba"));
+	assert(sync_escape_pattern("/X/Foo [!].gba", b, sizeof(b)) > 0 && !strcmp(b, "/X/Foo \\[!].gba"));
+	assert(sync_escape_pattern("/X/What?*.gba", b, sizeof(b)) > 0 && !strcmp(b, "/X/What\\?\\*.gba"));
+	assert(sync_escape_pattern("/X/a\\b [1].gba", b, sizeof(b)) > 0 && !strcmp(b, "/X/a\\\\b \\[1].gba"));
+	assert(sync_escape_pattern("/X/[[[[", b, 8) == -1);
+}
+
+static void test_game_name(void) {
+	assert(sync_is_game_name("Foo.gba") && sync_is_game_name("Final Fantasy VII (Disc 1)"));
+	assert(!sync_is_game_name(".media") && !sync_is_game_name(".retroachievements") && !sync_is_game_name("._Foo.gba"));
+	assert(!sync_is_game_name("map.txt") && !sync_is_game_name("Foo.gba.disabled") && !sync_is_game_name(""));
+}
+
+static void add_names(SyncNames* l, const char* const* items) {
+	for (int i = 0; items[i]; i++)
+		assert(sync_names_add(l, items[i]));
+}
+
+static void test_names(void) {
+	SyncNames l = {0};
+	add_names(&l, (const char*[]){"Foo.gba", "Pokémon.gb", NULL});
+	assert(l.count == 2 && !strcmp(l.items[1], "Pokémon.gb"));
+	assert(sync_names_has_ci(&l, "foo.GBA") && sync_names_has_ci(&l, "Pokémon.gb") && !sync_names_has_ci(&l, "Foo"));
+	assert(sync_names_has(&l, "Foo.gba") && !sync_names_has(&l, "foo.gba"));
+	sync_names_free(&l);
+	assert(l.count == 0 && !l.items && !sync_names_has_ci(&l, "Foo.gba"));
+}
+
+static void test_sibling_excludes(void) {
+	const char* gba = "Game Boy Advance (GBA)";
+	SyncNames sender = {0}, recv_x = {0}, recv_sib = {0}, out = {0};
+	add_names(&sender, (const char*[]){"Foo.gba", "Bar.gba", "Both.gba", "New.gba", "Q [!].gba", ".media", "map.txt",
+									   "Disc Game", "line\nbreak.gba", NULL});
+	add_names(&recv_x, (const char*[]){"both.gba", NULL});
+	add_names(&recv_sib, (const char*[]){"foo.gba", "Bar.gba", "BOTH.gba", "q [!].gba", ".media", "map.txt", "disc game",
+										 "line\nbreak.gba", NULL});
+	assert(sync_sibling_excludes(gba, &sender, &recv_x, &recv_sib, &out) == 4);
+	// In a sibling but not in X: left out. In X too (Both): synced as before.
+	// Never hidden entries (art, map.txt), never a name that can't be a line.
+	assert(!strcmp(out.items[0], "/Game Boy Advance (GBA)/Foo.gba"));
+	assert(!strcmp(out.items[1], "/Game Boy Advance (GBA)/Bar.gba"));
+	assert(!strcmp(out.items[2], "/Game Boy Advance (GBA)/Q \\[!].gba"));
+	assert(!strcmp(out.items[3], "/Game Boy Advance (GBA)/Disc Game"));
+	sync_names_free(&out);
+	// No sibling entries: nothing excluded.
+	SyncNames none = {0};
+	assert(sync_sibling_excludes(gba, &sender, &recv_x, &none, &out) == 0 && out.count == 0);
+	sync_names_free(&sender);
+	sync_names_free(&recv_x);
+	sync_names_free(&recv_sib);
+}
+
 int main(void) {
 	test_parse_flags();
 	test_parse_rejects();
@@ -92,6 +194,13 @@ int main(void) {
 	test_roles();
 	test_cable_net();
 	test_filter_strings();
+	test_console_display();
+	test_siblings();
+	test_list_line();
+	test_escape_pattern();
+	test_game_name();
+	test_names();
+	test_sibling_excludes();
 	printf("sync_proto: all tests passed\n");
 	return 0;
 }

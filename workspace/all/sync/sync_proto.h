@@ -1,6 +1,7 @@
 // sync_proto: the pure pieces of the Device Sync protocol (discovery payload,
-// role rule, the .userdata/shared filter), kept apart from the UI so they build
-// and run on the host. Tests: workspace/all/sync/tests/run_tests.sh
+// role rule, the .userdata/shared filter, the ROM sync rules), kept apart from
+// the UI so they build and run on the host. Tests:
+// workspace/all/sync/tests/run_tests.sh
 #ifndef SYNC_PROTO_H
 #define SYNC_PROTO_H
 
@@ -56,6 +57,53 @@ extern const char* const sync_shared_rules[];
 // source and destination) copies only art the other side lacks.
 #define SYNC_ROMS_NO_ART_ARGS "--exclude='/*/.media/'"
 #define SYNC_ROMS_ART_ARGS "--ignore-existing --include='/*/' --include='/*/.media/***' --exclude='*'"
+
+// No second copy across a console's emulator folders: a game isn't sent into
+// a folder when the receiver keeps it (same top-level name, any case) in a
+// sibling folder of that console but not in the folder itself.
+
+// A growable list of names (a folder's entries, exclude patterns). Zero it to
+// start; sync_names_free empties it again.
+typedef struct {
+	char** items;
+	int count;
+	int cap;
+} SyncNames;
+
+bool sync_names_add(SyncNames* l, const char* name);
+bool sync_names_has(const SyncNames* l, const char* name);
+bool sync_names_has_ci(const SyncNames* l, const char* name);
+void sync_names_free(SyncNames* l);
+
+// The display name before " (TAG)": "Game Boy Advance (MGBA)" -> "Game Boy
+// Advance". False when folder isn't "Name (TAG)" or out is too small.
+bool sync_console_display(const char* folder, char* out, size_t size);
+
+// Two different folders of the same console (same display name).
+bool sync_is_sibling(const char* a, const char* b);
+
+// False for what isn't a game, by the launcher's own rule (hide() in
+// common/utils.c): dot entries (.media, ._ junk), *.disabled and map.txt.
+bool sync_is_game_name(const char* name);
+
+// The name in one `rsync --list-only --8-bit-output` line ("<perms> <size>
+// <date> <time> <name>"; a symlink's " -> target" is dropped). False for the
+// "." entry, a line that isn't an entry, or a name that doesn't fit.
+bool sync_list_line_name(const char* line, char* out, size_t size, bool* is_dir);
+
+// pattern made literal for an rsync exclude: when it holds a wildcard (* ? [),
+// a backslash before each of \ * ? [; otherwise unchanged (rsync reads a
+// backslash literally in a pattern without wildcards). Length, or -1 when out
+// is too small.
+int sync_escape_pattern(const char* pattern, char* out, size_t size);
+
+// Exclude patterns for one Roms-level run, folder `folder`: "/<folder>/<name>"
+// (escaped) for each game in sender_x the receiver has in receiver_siblings
+// but not in receiver_x (case-insensitively). Names with a line break are
+// skipped (patterns go one per line in an --exclude-from file). Appends to
+// out; returns the number added, or -1 on failure.
+int sync_sibling_excludes(const char* folder, const SyncNames* sender_x, const SyncNames* receiver_x,
+						  const SyncNames* receiver_siblings, SyncNames* out);
 
 // The rules as client options ("--filter='- /music-player/' ...") and as an
 // rsyncd.conf filter value ("- /music-player/ + ..."). -1 when out is too small.

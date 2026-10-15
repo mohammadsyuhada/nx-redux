@@ -11,6 +11,8 @@
 #include <net/if.h>
 #include <netinet/in.h>
 #include <sys/select.h>
+#include <sys/stat.h>
+#include <dirent.h>
 #include <msettings.h>
 
 #include "defines.h"
@@ -37,6 +39,7 @@
 #define RSYNC_PID_PATH "/tmp/rsyncd.pid"
 #define USBLINK_STATE_PATH "/tmp/usblink.state"
 #define USBLINK_PID_PATH "/tmp/usblink.pid"
+#define ROMS_EXCLUDES_PATH "/tmp/sync-roms-excludes.txt"
 
 // Paths to sync
 // "<SDCARD_PATH>/Saves", built with snprintf.
@@ -611,6 +614,113 @@ static char* read_line_cr(char* buf, int size, FILE* fp) {
 	return buf;
 }
 
+// The top-level entries of a local folder (only its folders when dirs_only);
+// none when it doesn't exist.
+static void local_entries(const char* path, bool dirs_only, SyncNames* out) {
+	DIR* dir = opendir(path);
+	if (!dir)
+		return;
+	struct dirent* e;
+	while ((e = readdir(dir)) != NULL) {
+		if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, ".."))
+			continue;
+		if (dirs_only) {
+			char full[MAX_PATH * 2];
+			struct stat st;
+			snprintf(full, sizeof(full), "%s/%s", path, e->d_name);
+			if (stat(full, &st) != 0 || !S_ISDIR(st.st_mode))
+				continue;
+		}
+		sync_names_add(out, e->d_name);
+	}
+	closedir(dir);
+}
+
+// The top-level entries of the peer's roms/<folder> ("" = roms/ itself),
+// from its daemon. --8-bit-output: names raw, not with each non-ASCII byte as
+// \#ooo. False when rsync fails.
+static bool peer_entries(const char* folder, bool dirs_only, SyncNames* out) {
+	char cmd[MAX_PATH * 8 + 256];
+	char bin_q[MAX_PATH * 4];
+	char dir_q[MAX_PATH * 4];
+	snprintf(cmd, sizeof(cmd), "'%s' --list-only --8-bit-output --timeout=30 'rsync://%s:%d/roms/%s%s' 2>/dev/null",
+			 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), peer_ip, SYNC_RSYNC_PORT, shq(folder, dir_q, sizeof(dir_q)),
+			 folder[0] ? "/" : "");
+	FILE* fp = popen(cmd, "r");
+	if (!fp)
+		return false;
+	char line[MAX_PATH * 2];
+	char name[MAX_PATH];
+	while (fgets(line, sizeof(line), fp)) {
+		bool is_dir = false;
+		if (sync_list_line_name(line, name, sizeof(name), &is_dir) && (is_dir || !dirs_only))
+			sync_names_add(out, name);
+	}
+	int status = pclose(fp);
+	return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+// A folder's entries on this device (local) or the peer.
+static bool side_entries(bool local, const char* folder, SyncNames* out) {
+	if (!local)
+		return peer_entries(folder, false, out);
+	char path[MAX_PATH * 2];
+	snprintf(path, sizeof(path), "%s/%s", ROMS_PATH, folder);
+	local_entries(path, false, out);
+	return true;
+}
+
+// No second copy across a console's emulator folders: writes the ROM run's
+// --exclude-from file for phase 5 (we send) or 6 (the peer sends). For each
+// sending folder with a sibling on the receiving side, the games the receiver
+// keeps in a sibling but not in that folder stay out (sync_proto.c). Returns
+// the number of games left out, or -1 when a listing or the file fails.
+static int write_roms_excludes(int phase) {
+	bool push = phase == 5;
+	SyncNames mine = {0}, theirs = {0}, excludes = {0};
+	int ret = -1;
+	local_entries(ROMS_PATH, true, &mine);
+	if (!peer_entries("", true, &theirs))
+		goto done;
+	const SyncNames* senders = push ? &mine : &theirs;
+	const SyncNames* receivers = push ? &theirs : &mine;
+	for (int i = 0; i < senders->count && !sync_cancel; i++) {
+		const char* folder = senders->items[i];
+		SyncNames siblings = {0}, sent = {0}, kept = {0};
+		bool ok = true;
+		for (int j = 0; j < receivers->count && ok; j++)
+			if (sync_is_sibling(folder, receivers->items[j]))
+				ok = side_entries(!push, receivers->items[j], &siblings);
+		if (ok && siblings.count) {
+			ok = side_entries(push, folder, &sent);
+			if (ok && sync_names_has(receivers, folder))
+				ok = side_entries(!push, folder, &kept);
+			if (ok)
+				ok = sync_sibling_excludes(folder, &sent, &kept, &siblings, &excludes) >= 0;
+		}
+		sync_names_free(&siblings);
+		sync_names_free(&sent);
+		sync_names_free(&kept);
+		if (!ok)
+			goto done;
+	}
+	if (sync_cancel)
+		goto done;
+
+	FILE* fp = fopen(ROMS_EXCLUDES_PATH, "w");
+	if (!fp)
+		goto done;
+	for (int i = 0; i < excludes.count; i++)
+		fprintf(fp, "%s\n", excludes.items[i]);
+	ret = fclose(fp) == 0 ? excludes.count : -1;
+
+done:
+	sync_names_free(&mine);
+	sync_names_free(&theirs);
+	sync_names_free(&excludes);
+	return ret;
+}
+
 // Run rsync via popen() and capture output line by line into the log buffer.
 // extra: options the ROM phases add (art in or out), "" for the others.
 static int run_rsync_phase(int phase, const char* extra) {
@@ -858,7 +968,23 @@ static void* sync_thread_func(void* arg) {
 			sync_phase = phase;
 			log_add(phase_names[phase]);
 			bool roms_phase = phase >= 5;
-			int result = run_rsync_phase(phase, roms_phase ? SYNC_ROMS_NO_ART_ARGS : "");
+			int result = 0;
+			// A game the receiving side keeps in another emulator folder of
+			// the console isn't copied again (no second copy).
+			if (roms_phase) {
+				int kept = write_roms_excludes(phase);
+				if (kept < 0) {
+					log_add("ERROR: Couldn't list the ROM folders");
+					result = -1;
+				} else if (kept > 0) {
+					char msg[LOG_LINE_LEN];
+					snprintf(msg, sizeof(msg), "  %d games already in another emulator folder", kept);
+					log_add(msg);
+				}
+			}
+			if (result == 0)
+				result = run_rsync_phase(phase, roms_phase ? SYNC_ROMS_NO_ART_ARGS " --exclude-from=" ROMS_EXCLUDES_PATH : "");
+			unlink(ROMS_EXCLUDES_PATH);
 			int phase_transferred = phase_files_transferred;
 			int phase_scanned = phase_files_total;
 			// Then the art this side or the peer has none of (never replaced).
