@@ -721,8 +721,8 @@ static bool append_names(SyncNames* to, const SyncNames* from) {
 // --exclude-from file for SYNC_PHASE_ROMS_PUSH (we send) or _PULL (the peer
 // sends). For each sending folder with a sibling on the receiving side, the
 // games the receiver keeps in a sibling but not in that folder stay out
-// (sync_proto.c). Returns
-// the number of games left out, or -1 when a listing or the file fails.
+// (sync_proto.c). Returns the number of games left out, or -1 when a listing
+// or the file fails.
 static int write_roms_excludes(int phase) {
 	bool push = phase == SYNC_PHASE_ROMS_PUSH;
 	SyncNames mine = {0}, theirs = {0}, excludes = {0};
@@ -891,7 +891,7 @@ static void* sync_thread_func(void* arg) {
 	mkdir_p(SHARED_DATA_PATH);
 	mkdir_p(saves_path());
 	// Before the daemon starts too: a module whose folder is missing fails
-	// with exit 5, which a BIOS phase reads as an older peer.
+	// the peer's phase (rsync exit 5, "chdir failed").
 	mkdir_p(BIOS_PATH);
 	if (sync_roms)
 		mkdir_p(ROMS_PATH);
