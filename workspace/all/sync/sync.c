@@ -611,9 +611,10 @@ static char* read_line_cr(char* buf, int size, FILE* fp) {
 	return buf;
 }
 
-// Run rsync via popen() and capture output line by line into the log buffer
-static int run_rsync_phase(int phase) {
-	char cmd[MAX_PATH * 8 + 512]; // two quoted runtime paths + rsync options
+// Run rsync via popen() and capture output line by line into the log buffer.
+// extra: options the ROM phases add (art in or out), "" for the others.
+static int run_rsync_phase(int phase, const char* extra) {
+	char cmd[MAX_PATH * 8 + 768]; // two quoted runtime paths + rsync options
 	// --modify-window=1: FAT32 cards keep mtimes at 2-second resolution, so a
 	// received file's timestamp rounds down and would otherwise count as
 	// changed (and be re-sent) on every later run.
@@ -651,12 +652,12 @@ static int run_rsync_phase(int phase) {
 				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, peer_ip, SYNC_RSYNC_PORT, shq(saves_path(), dir_q, sizeof(dir_q)));
 		break;
 	case 5:
-		snprintf(cmd, sizeof(cmd), "'%s' %s '%s'/ rsync://%s:%d/roms/ 2>&1",
-				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, shq(ROMS_PATH, dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
+		snprintf(cmd, sizeof(cmd), "'%s' %s %s '%s'/ rsync://%s:%d/roms/ 2>&1",
+				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, extra, shq(ROMS_PATH, dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
 		break;
 	case 6:
-		snprintf(cmd, sizeof(cmd), "'%s' %s rsync://%s:%d/roms/ '%s'/ 2>&1",
-				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, peer_ip, SYNC_RSYNC_PORT, shq(ROMS_PATH, dir_q, sizeof(dir_q)));
+		snprintf(cmd, sizeof(cmd), "'%s' %s %s rsync://%s:%d/roms/ '%s'/ 2>&1",
+				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, extra, peer_ip, SYNC_RSYNC_PORT, shq(ROMS_PATH, dir_q, sizeof(dir_q)));
 		break;
 	default:
 		return -1;
@@ -856,7 +857,17 @@ static void* sync_thread_func(void* arg) {
 		for (int phase = 1; phase <= total_phases && !sync_cancel; phase++) {
 			sync_phase = phase;
 			log_add(phase_names[phase]);
-			int result = run_rsync_phase(phase);
+			bool roms_phase = phase >= 5;
+			int result = run_rsync_phase(phase, roms_phase ? SYNC_ROMS_NO_ART_ARGS : "");
+			int phase_transferred = phase_files_transferred;
+			int phase_scanned = phase_files_total;
+			// Then the art this side or the peer has none of (never replaced).
+			if (result == 0 && roms_phase && !sync_cancel) {
+				log_add(phase == 5 ? "  Pushing missing art" : "  Pulling missing art");
+				result = run_rsync_phase(phase, SYNC_ROMS_ART_ARGS);
+				phase_transferred += phase_files_transferred;
+				phase_scanned += phase_files_total;
+			}
 			if (result != 0) {
 				char err[LOG_LINE_LEN];
 				snprintf(err, sizeof(err), "ERROR: Phase %d failed (exit %d)", phase, result);
@@ -865,12 +876,12 @@ static void* sync_thread_func(void* arg) {
 				sync_done = true;
 				return NULL;
 			}
-			total_transferred += phase_files_transferred;
-			total_scanned += phase_files_total;
+			total_transferred += phase_transferred;
+			total_scanned += phase_scanned;
 
 			char summary[LOG_LINE_LEN];
 			snprintf(summary, sizeof(summary), "  Done: %d files changed out of %d",
-					 phase_files_transferred, phase_files_total);
+					 phase_transferred, phase_scanned);
 			log_add(summary);
 		}
 

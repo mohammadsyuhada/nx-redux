@@ -50,6 +50,13 @@ extern const char* const sync_shared_rules[];
 #define SYNC_JUNK_CLIENT_ARGS "--exclude='._*' --exclude=.DS_Store"
 #define SYNC_JUNK_DAEMON_EXCLUDE "._* .DS_Store"
 
+// Art (<console>/.media/) only fills gaps: the two devices save it at
+// different quality under the same paths, so newer-wins could replace the
+// better copy. The ROM run leaves it out; a second run per ROM phase (same
+// source and destination) copies only art the other side lacks.
+#define SYNC_ROMS_NO_ART_ARGS "--exclude='/*/.media/'"
+#define SYNC_ROMS_ART_ARGS "--ignore-existing --include='/*/' --include='/*/.media/***' --exclude='*'"
+
 // The rules as client options ("--filter='- /music-player/' ...") and as an
 // rsyncd.conf filter value ("- /music-player/ + ..."). -1 when out is too small.
 int sync_shared_client_args(char* out, size_t size);
