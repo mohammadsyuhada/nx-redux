@@ -54,7 +54,13 @@ nx_dc_netplay() {
 		[ -f "$NP_SAVES_REAL/$NP_CARD" ] && cp "$NP_SAVES_REAL/$NP_CARD" "$NP_STAGE/nxcard.bin"
 	fi
 	[ -f "$NP_SYS_REAL/dc_nvmem.bin" ] && cp "$NP_SYS_REAL/dc_nvmem.bin" "$NP_STAGE/nxnvmem.bin"
-	[ -f "$NP_SYS_REAL/vmu_save_A2.bin" ] && cp "$NP_SYS_REAL/vmu_save_A2.bin" "$NP_STAGE/nxa2.bin"
+	# the second card is a save (patch 0007); one still in the system folder
+	# from before is the card until the core moves it on its next run
+	if [ -f "$NP_SAVES_REAL/vmu_save_A2.bin" ]; then
+		cp "$NP_SAVES_REAL/vmu_save_A2.bin" "$NP_STAGE/nxa2.bin"
+	elif [ -f "$NP_SYS_REAL/vmu_save_A2.bin" ]; then
+		cp "$NP_SYS_REAL/vmu_save_A2.bin" "$NP_STAGE/nxa2.bin"
+	fi
 
 	netplay.elf --game "$NP_STEM" --session-file "$NP_SESSION" --caps "dcbios=$NP_BIOS" \
 		--serve-dir "$NP_STAGE" --fetch-to "$NP_FETCH" \
@@ -91,7 +97,7 @@ nx_dc_netplay() {
 			fi
 		done
 		[ -f "$NP_FETCH/nxnvmem.bin" ] && mv "$NP_FETCH/nxnvmem.bin" "$NP_SYSTEM/dc_nvmem.bin"
-		[ -f "$NP_FETCH/nxa2.bin" ] && mv "$NP_FETCH/nxa2.bin" "$NP_SYSTEM/vmu_save_A2.bin"
+		[ -f "$NP_FETCH/nxa2.bin" ] && mv "$NP_FETCH/nxa2.bin" "$NP_SAVES/vmu_save_A2.bin"
 		# the BIOS files the session uses: arcade sets always, the Dreamcast BIOS
 		# only when both sides agreed on it
 		for NP_F in "$NP_SYS_REAL"/*.zip; do

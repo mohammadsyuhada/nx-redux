@@ -115,6 +115,13 @@ for PLAT in tg5040 tg5050; do
 	[ -f "$T/cleanup" ] || fail "$PLAT host: wizard cleanup not run"
 	[ ! -e "$TMP/tmp/netplay-serve" ] || fail "$PLAT host: staged copies left after the session"
 
+	# 3b. host whose second card already moved to Saves/DC serves that one,
+	# not a stale copy left in the BIOS folder (card() leaves MYA2 there)
+	card; bios A
+	echo SAVEDA2 > "$TMP/sd/Saves/DC/vmu_save_A2.bin"
+	NETPLAY=1 NPELF_ROLE=host NPELF_PEER_CAPS="dcbios=$(fp)" launch $PLAT "Soulcalibur (USA).chd"
+	grep -qx "nxa2.bin=SAVEDA2" "$T/served" || fail "$PLAT host: second card not served from saves: $(cat "$T/served" 2>/dev/null)"
+
 	# 4. BIOS differs / peer has none / we have none: HLE on this side
 	card; bios A
 	NETPLAY=1 NPELF_PEER_CAPS="dcbios=0123456789ab" launch $PLAT "Soulcalibur (USA).chd"
@@ -137,8 +144,10 @@ for PLAT in tg5040 tg5050; do
 	env_is "NX_GGPO_HOST=0" && env_is "NX_GGPO_HLE=0" || fail "$PLAT client: role/BIOS env wrong: $(cat "$T/minarch_env")"
 	SD="$T/seen_saves"; SY="$T/seen_system"
 	[ "$(cat "$SD/Soulcalibur (USA).A1.bin" 2>/dev/null)" = HOSTCARD ] || fail "$PLAT client: host card not in saves dir"
-	[ "$(cat "$SY/dc_nvmem.bin" 2>/dev/null)" = HOSTNV ] && [ "$(cat "$SY/vmu_save_A2.bin" 2>/dev/null)" = HOSTA2 ] \
-		|| fail "$PLAT client: host system files not in system dir"
+	[ "$(cat "$SY/dc_nvmem.bin" 2>/dev/null)" = HOSTNV ] || fail "$PLAT client: host settings not in system dir"
+	# the second card is a save now (flycast patch 0007), never in the system dir
+	[ "$(cat "$SD/vmu_save_A2.bin" 2>/dev/null)" = HOSTA2 ] && [ ! -e "$SY/vmu_save_A2.bin" ] \
+		|| fail "$PLAT client: host second card not in saves dir"
 	[ "$(cat "$SY/dc_boot.bin" 2>/dev/null)" = BIOS-A ] || fail "$PLAT client: agreed BIOS not in system dir"
 	[ "$(cat "$TMP/sd/Saves/DC/Soulcalibur (USA).A1.bin")" = MYCARD ] && [ "$(cat "$TMP/sd/Bios/DC/dc_nvmem.bin")" = MYNV ] \
 		|| fail "$PLAT client: own files changed"
