@@ -158,7 +158,7 @@ static void test_names(void) {
 	add_names(&l, (const char*[]){"Foo.gba", "Pokémon.gb", NULL});
 	assert(l.count == 2 && !strcmp(l.items[1], "Pokémon.gb"));
 	assert(sync_names_has_ci(&l, "foo.GBA") && sync_names_has_ci(&l, "Pokémon.gb") && !sync_names_has_ci(&l, "Foo"));
-	assert(sync_names_has(&l, "Foo.gba") && !sync_names_has(&l, "foo.gba"));
+	assert(sync_names_find(&l, "Pokémon.gb") == 1 && sync_names_find(&l, "foo.gba") == -1);
 	sync_names_free(&l);
 	assert(l.count == 0 && !l.items && !sync_names_has_ci(&l, "Foo.gba"));
 }

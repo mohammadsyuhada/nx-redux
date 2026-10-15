@@ -16,14 +16,27 @@ SRC=workspace/all/sync/sync.c
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-OPTS="$(sed -n 's/.*const char\* rsync_opts = "\([^"]*\)";.*/\1/p' "$SRC")"
+PROTO=workspace/all/sync/sync_proto.h
+LINE="$(grep 'const char\* rsync_opts = "' "$SRC")"
+OPTS="$(sed -n 's/.*const char\* rsync_opts = "\([^"]*\)".*/\1/p' <<<"$LINE")"
 [ -n "$OPTS" ] || { echo "FAIL: rsync_opts not found in $SRC"; exit 1; }
+# The junk excludes come from sync_proto.h; their shell quotes are dropped
+# here (run.sh disables globbing instead).
+if [[ "$LINE" == *SYNC_JUNK_CLIENT_ARGS* ]]; then
+	JUNK="$(sed -n 's/^#define SYNC_JUNK_CLIENT_ARGS "\([^"]*\)".*/\1/p' "$PROTO")"
+	[ -n "$JUNK" ] || { echo "FAIL: SYNC_JUNK_CLIENT_ARGS not found in $PROTO"; exit 1; }
+	OPTS="$OPTS ${JUNK//\'/}"
+fi
+# A cut transfer under --inplace leaves a truncated file with a fresh mtime
+# that --update then spreads to both devices.
+[[ " $OPTS " != *" --inplace "* ]] || { echo "FAIL: rsync_opts uses --inplace"; exit 1; }
 # --info=progress2 is for the app's progress parser; keep it out of the itemized run
 OPTS="${OPTS// --info=progress2/}"
+OPTS="$(tr -s ' ' <<<"$OPTS")"
 
 cat > "$TMP/run.sh" <<'EOF'
 #!/bin/sh
-set -e
+set -ef
 OPTS="$1"
 apk add -q rsync dosfstools > /dev/null 2>&1
 fail() { echo "FAIL: $*"; exit 1; }

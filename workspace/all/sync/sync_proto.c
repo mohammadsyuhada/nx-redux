@@ -136,11 +136,11 @@ bool sync_names_add(SyncNames* l, const char* name) {
 	return true;
 }
 
-bool sync_names_has(const SyncNames* l, const char* name) {
+int sync_names_find(const SyncNames* l, const char* name) {
 	for (int i = 0; i < l->count; i++)
 		if (!strcmp(l->items[i], name))
-			return true;
-	return false;
+			return i;
+	return -1;
 }
 
 bool sync_names_has_ci(const SyncNames* l, const char* name) {

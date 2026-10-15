@@ -638,12 +638,13 @@ static void local_entries(const char* path, bool dirs_only, SyncNames* out) {
 
 // The top-level entries of the peer's roms/<folder> ("" = roms/ itself),
 // from its daemon. --8-bit-output: names raw, not with each non-ASCII byte as
-// \#ooo. False when rsync fails.
+// \#ooo. False when rsync fails; its reason (the first "rsync:" or "@ERROR"
+// line) goes to the log.
 static bool peer_entries(const char* folder, bool dirs_only, SyncNames* out) {
 	char cmd[MAX_PATH * 8 + 256];
 	char bin_q[MAX_PATH * 4];
 	char dir_q[MAX_PATH * 4];
-	snprintf(cmd, sizeof(cmd), "'%s' --list-only --8-bit-output --timeout=30 'rsync://%s:%d/roms/%s%s' 2>/dev/null",
+	snprintf(cmd, sizeof(cmd), "'%s' --list-only --8-bit-output --timeout=30 'rsync://%s:%d/roms/%s%s' 2>&1",
 			 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), peer_ip, SYNC_RSYNC_PORT, shq(folder, dir_q, sizeof(dir_q)),
 			 folder[0] ? "/" : "");
 	FILE* fp = popen(cmd, "r");
@@ -651,13 +652,21 @@ static bool peer_entries(const char* folder, bool dirs_only, SyncNames* out) {
 		return false;
 	char line[MAX_PATH * 2];
 	char name[MAX_PATH];
+	char reason[LOG_LINE_LEN] = "";
 	while (fgets(line, sizeof(line), fp)) {
 		bool is_dir = false;
-		if (sync_list_line_name(line, name, sizeof(name), &is_dir) && (is_dir || !dirs_only))
-			sync_names_add(out, name);
+		if (sync_list_line_name(line, name, sizeof(name), &is_dir)) {
+			if (is_dir || !dirs_only)
+				sync_names_add(out, name);
+		} else if (!reason[0] && (!strncmp(line, "rsync:", 6) || !strncmp(line, "@ERROR", 6))) {
+			snprintf(reason, sizeof(reason), "%.*s", (int)sizeof(reason) - 1, line);
+		}
 	}
 	int status = pclose(fp);
-	return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+	bool ok = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+	if (!ok && reason[0] && !sync_cancel)
+		log_add(reason);
+	return ok;
 }
 
 // A folder's entries on this device (local) or the peer.
@@ -670,6 +679,32 @@ static bool side_entries(bool local, const char* folder, SyncNames* out) {
 	return true;
 }
 
+// One side's folders, each listed at most once per phase (a folder is the
+// sibling of several others).
+typedef struct {
+	bool local;
+	const SyncNames* folders;
+	SyncNames* lists;
+	bool* listed;
+} FolderListings;
+
+// The entries of folders->items[i], or NULL when listing fails.
+static const SyncNames* folder_listing(FolderListings* c, int i) {
+	if (!c->listed[i]) {
+		if (!side_entries(c->local, c->folders->items[i], &c->lists[i]))
+			return NULL;
+		c->listed[i] = true;
+	}
+	return &c->lists[i];
+}
+
+static bool append_names(SyncNames* to, const SyncNames* from) {
+	for (int i = 0; i < from->count; i++)
+		if (!sync_names_add(to, from->items[i]))
+			return false;
+	return true;
+}
+
 // No second copy across a console's emulator folders: writes the ROM run's
 // --exclude-from file for phase 5 (we send) or 6 (the peer sends). For each
 // sending folder with a sibling on the receiving side, the games the receiver
@@ -678,29 +713,38 @@ static bool side_entries(bool local, const char* folder, SyncNames* out) {
 static int write_roms_excludes(int phase) {
 	bool push = phase == 5;
 	SyncNames mine = {0}, theirs = {0}, excludes = {0};
+	FolderListings recv = {!push, NULL, NULL, NULL};
 	int ret = -1;
 	local_entries(ROMS_PATH, true, &mine);
 	if (!peer_entries("", true, &theirs))
 		goto done;
 	const SyncNames* senders = push ? &mine : &theirs;
-	const SyncNames* receivers = push ? &theirs : &mine;
+	recv.folders = push ? &theirs : &mine;
+	recv.lists = calloc(recv.folders->count + 1, sizeof(*recv.lists));
+	recv.listed = calloc(recv.folders->count + 1, sizeof(*recv.listed));
+	if (!recv.lists || !recv.listed)
+		goto done;
 	for (int i = 0; i < senders->count && !sync_cancel; i++) {
 		const char* folder = senders->items[i];
-		SyncNames siblings = {0}, sent = {0}, kept = {0};
+		SyncNames siblings = {0}, sent = {0};
+		const SyncNames* kept = NULL;
+		static const SyncNames none = {0};
 		bool ok = true;
-		for (int j = 0; j < receivers->count && ok; j++)
-			if (sync_is_sibling(folder, receivers->items[j]))
-				ok = side_entries(!push, receivers->items[j], &siblings);
+		for (int j = 0; j < recv.folders->count && ok; j++) {
+			const SyncNames* list = NULL;
+			if (sync_is_sibling(folder, recv.folders->items[j]))
+				ok = (list = folder_listing(&recv, j)) && append_names(&siblings, list);
+		}
 		if (ok && siblings.count) {
 			ok = side_entries(push, folder, &sent);
-			if (ok && sync_names_has(receivers, folder))
-				ok = side_entries(!push, folder, &kept);
+			int x = sync_names_find(recv.folders, folder);
+			if (ok && x >= 0)
+				ok = (kept = folder_listing(&recv, x)) != NULL;
 			if (ok)
-				ok = sync_sibling_excludes(folder, &sent, &kept, &siblings, &excludes) >= 0;
+				ok = sync_sibling_excludes(folder, &sent, kept ? kept : &none, &siblings, &excludes) >= 0;
 		}
 		sync_names_free(&siblings);
 		sync_names_free(&sent);
-		sync_names_free(&kept);
 		if (!ok)
 			goto done;
 	}
@@ -715,6 +759,11 @@ static int write_roms_excludes(int phase) {
 	ret = fclose(fp) == 0 ? excludes.count : -1;
 
 done:
+	if (recv.lists)
+		for (int i = 0; i < recv.folders->count; i++)
+			sync_names_free(&recv.lists[i]);
+	free(recv.lists);
+	free(recv.listed);
 	sync_names_free(&mine);
 	sync_names_free(&theirs);
 	sync_names_free(&excludes);
@@ -973,7 +1022,12 @@ static void* sync_thread_func(void* arg) {
 			// the console isn't copied again (no second copy).
 			if (roms_phase) {
 				int kept = write_roms_excludes(phase);
-				if (kept < 0) {
+				if (kept < 0 && sync_cancel) {
+					// B during the listing: the UI already ended the session.
+					sync_result = -1;
+					sync_done = true;
+					return NULL;
+				} else if (kept < 0) {
 					log_add("ERROR: Couldn't list the ROM folders");
 					result = -1;
 				} else if (kept > 0) {

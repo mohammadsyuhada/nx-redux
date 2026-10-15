@@ -268,10 +268,11 @@ way to run `stop` there (e.g. relaunch the wizard on-device).
   direct SD mount; both must serve the SD tree, the tint layer and the
   rootfs-only font through the merged view.
 - Device Sync on FAT32: `scripts/tests/test-sync-rsync-fat32.sh` runs the
-  exact `rsync_opts` string from `sync/sync.c` with the container's rsync
-  against a vfat loop image (docker, privileged) — a file with an odd-second
-  mtime must copy once and then not be re-sent after vfat rounds the
-  timestamp to 2-second resolution (`--modify-window=1`).
+  exact `rsync_opts` string from `sync/sync.c` (plus the junk excludes from
+  `sync_proto.h`) with the container's rsync against a vfat loop image
+  (docker, privileged) — a file with an odd-second mtime must copy once and
+  then not be re-sent after vfat rounds the timestamp to 2-second resolution
+  (`--modify-window=1`). It also fails if the options use `--inplace`.
 - tg5050 post-update cleanup: `scripts/tests/test-update-btmgr-cleanup.sh`
   runs `workspace/tg5050/install/update.sh` (shipped as
   `.system/bin/install.sh`, executed once per MinUI.zip install, never on a

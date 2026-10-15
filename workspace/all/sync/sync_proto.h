@@ -71,7 +71,7 @@ typedef struct {
 } SyncNames;
 
 bool sync_names_add(SyncNames* l, const char* name);
-bool sync_names_has(const SyncNames* l, const char* name);
+int sync_names_find(const SyncNames* l, const char* name); // exact; index or -1
 bool sync_names_has_ci(const SyncNames* l, const char* name);
 void sync_names_free(SyncNames* l);
 
