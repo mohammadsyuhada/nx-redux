@@ -1023,10 +1023,10 @@ static void* sync_thread_func(void* arg) {
 			if (roms_phase) {
 				int kept = write_roms_excludes(phase);
 				if (kept < 0 && sync_cancel) {
-					// B during the listing: the UI already ended the session.
-					sync_result = -1;
-					sync_done = true;
-					return NULL;
+					// B during the listing: end as a cancel between phases
+					// does (the loop exit below, DONE to the server included).
+					unlink(ROMS_EXCLUDES_PATH);
+					break;
 				} else if (kept < 0) {
 					log_add("ERROR: Couldn't list the ROM folders");
 					result = -1;
