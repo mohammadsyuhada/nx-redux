@@ -188,14 +188,16 @@ static void test_sibling_excludes(void) {
 }
 
 static void test_phases(void) {
-	// States and saves (1-4), BIOS (5-6) every sync, ROMs (7-8) when on.
-	assert(sync_phase_count(false) == 6 && sync_phase_count(true) == 8);
-	for (int p = 0; p <= 9; p++) {
+	// States and saves (1-4), BIOS (5-6) and collections (7) every sync, ROMs
+	// (8-9) when on.
+	assert(sync_phase_count(false) == 7 && sync_phase_count(true) == 9);
+	for (int p = 0; p <= 10; p++) {
 		assert(sync_is_bios_phase(p) == (p == SYNC_PHASE_BIOS_PUSH || p == SYNC_PHASE_BIOS_PULL));
 		assert(sync_is_roms_phase(p) == (p == SYNC_PHASE_ROMS_PUSH || p == SYNC_PHASE_ROMS_PULL));
 	}
 	assert(SYNC_PHASE_BIOS_PUSH == 5 && SYNC_PHASE_BIOS_PULL == 6);
-	assert(SYNC_PHASE_ROMS_PUSH == 7 && SYNC_PHASE_ROMS_PULL == 8);
+	assert(SYNC_PHASE_COLLECTIONS == 7);
+	assert(SYNC_PHASE_ROMS_PUSH == 8 && SYNC_PHASE_ROMS_PULL == 9);
 }
 
 static void test_bios_skip(void) {
@@ -210,20 +212,173 @@ static void test_bios_skip(void) {
 	// An older peer: exit 5 with the unknown-module message, the sync goes on.
 	assert(sync_phase_skippable(SYNC_PHASE_BIOS_PUSH, 5, true));
 	assert(sync_phase_skippable(SYNC_PHASE_BIOS_PULL, 5, true));
+	assert(sync_phase_skippable(SYNC_PHASE_COLLECTIONS, 5, true));
 	// Any other exit 5 (chdir failed, max connections) fails the phase.
 	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PUSH, 5, false));
 	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PULL, 5, false));
+	assert(!sync_phase_skippable(SYNC_PHASE_COLLECTIONS, 5, false));
 	// Any other failure of a BIOS phase fails the sync, as other phases do.
 	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PUSH, 0, false));
 	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PUSH, 0, true));
 	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PUSH, 23, true));
 	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PULL, 10, true));
 	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PULL, -1, true));
+	assert(!sync_phase_skippable(SYNC_PHASE_COLLECTIONS, 0, true));
+	assert(!sync_phase_skippable(SYNC_PHASE_COLLECTIONS, 23, true));
+	assert(!sync_phase_skippable(SYNC_PHASE_COLLECTIONS, -1, true));
 	// Exit 5 elsewhere is a failure.
 	for (int p = 1; p <= 4; p++)
 		assert(!sync_phase_skippable(p, 5, true));
 	assert(!sync_phase_skippable(SYNC_PHASE_ROMS_PUSH, 5, true));
 	assert(!sync_phase_skippable(SYNC_PHASE_ROMS_PULL, 5, true));
+}
+
+// A list from a NULL-terminated array.
+static SyncNames names_of(const char* const* items) {
+	SyncNames l = {0};
+	for (int i = 0; items[i]; i++)
+		assert(sync_names_add(&l, items[i]));
+	return l;
+}
+
+static bool names_are(const SyncNames* l, const char* const* items) {
+	int n = 0;
+	while (items[n])
+		n++;
+	if (l->count != n)
+		return false;
+	for (int i = 0; i < n; i++)
+		if (strcmp(l->items[i], items[i]))
+			return false;
+	return true;
+}
+
+static SyncNames lines_of(const char* text) {
+	SyncNames l = {0};
+	assert(sync_text_lines(text, strlen(text), &l));
+	return l;
+}
+
+static void test_collection_names(void) {
+	assert(sync_is_collection_name("Favorites.txt"));
+	assert(sync_is_collection_name("RPG (old).txt"));
+	assert(sync_is_collection_name("Pok\xc3\xa9mon.txt"));
+	// The alias map, hidden and junk files, other extensions.
+	assert(!sync_is_collection_name("map.txt"));
+	assert(!sync_is_collection_name("._Favorites.txt"));
+	assert(!sync_is_collection_name(".hidden.txt"));
+	assert(!sync_is_collection_name("Favorites.txt.tmp"));
+	assert(!sync_is_collection_name("Favorites.txt.disabled"));
+	assert(!sync_is_collection_name("Favorites.TXT"));
+	assert(!sync_is_collection_name("Favorites"));
+	assert(!sync_is_collection_name(".txt"));
+	assert(!sync_is_collection_name(""));
+	assert(!sync_is_collection_name("a/b.txt"));
+}
+
+static void test_text_lines(void) {
+	SyncNames l = lines_of("/Roms/A (GBA)/a.gba\n/Roms/B (GB)/b.gb\n");
+	assert(names_are(&l, (const char*[]){"/Roms/A (GBA)/a.gba", "/Roms/B (GB)/b.gb", NULL}));
+	sync_names_free(&l);
+	// No final newline.
+	l = lines_of("a\nb");
+	assert(names_are(&l, (const char*[]){"a", "b", NULL}));
+	sync_names_free(&l);
+	// \r\n files: the \r goes.
+	l = lines_of("a\r\nb\r\n");
+	assert(names_are(&l, (const char*[]){"a", "b", NULL}));
+	sync_names_free(&l);
+	// Only one trailing \r goes; blank lines stay (they're the file's own).
+	l = lines_of("a\r\r\n\nb\n");
+	assert(names_are(&l, (const char*[]){"a\r", "", "b", NULL}));
+	sync_names_free(&l);
+	// An empty file.
+	l = lines_of("");
+	assert(l.count == 0);
+	sync_names_free(&l);
+	l = lines_of("\n");
+	assert(names_are(&l, (const char*[]){"", NULL}));
+	sync_names_free(&l);
+}
+
+static void test_merge_lines(void) {
+	SyncNames out = {0};
+	// Order kept, the other side's lines this side lacks appended in its order.
+	SyncNames mine = names_of((const char*[]){"/a", "/b", "/c", NULL});
+	SyncNames theirs = names_of((const char*[]){"/d", "/b", "/e", NULL});
+	assert(sync_merge_lines(&mine, &theirs, &out) == 2);
+	assert(names_are(&out, (const char*[]){"/a", "/b", "/c", "/d", "/e", NULL}));
+	sync_names_free(&out);
+	// And the peer's version.
+	assert(sync_merge_lines(&theirs, &mine, &out) == 2);
+	assert(names_are(&out, (const char*[]){"/d", "/b", "/e", "/a", "/c", NULL}));
+	sync_names_free(&out);
+	sync_names_free(&mine);
+	sync_names_free(&theirs);
+
+	// Nothing new: unchanged (0 appended).
+	mine = names_of((const char*[]){"/a", "/b", NULL});
+	theirs = names_of((const char*[]){"/b", "/a", NULL});
+	assert(sync_merge_lines(&mine, &theirs, &out) == 0);
+	assert(names_are(&out, (const char*[]){"/a", "/b", NULL}));
+	sync_names_free(&out);
+	sync_names_free(&mine);
+	sync_names_free(&theirs);
+
+	// Duplicates: this side's own stay; a new line is added once. Blank lines
+	// (empty or only spaces) are never added; this side's own stay.
+	mine = names_of((const char*[]){"/a", "/a", "", NULL});
+	theirs = names_of((const char*[]){"", "/x", "  ", "/x", "/a", "\t", "/y", NULL});
+	assert(sync_merge_lines(&mine, &theirs, &out) == 2);
+	assert(names_are(&out, (const char*[]){"/a", "/a", "", "/x", "/y", NULL}));
+	sync_names_free(&out);
+	sync_names_free(&mine);
+	sync_names_free(&theirs);
+
+	// \r\n against \n files: equal lines once the \r is trimmed.
+	mine = lines_of("/a\r\n/b\r\n");
+	theirs = lines_of("/b\n/c\n");
+	assert(sync_merge_lines(&mine, &theirs, &out) == 1);
+	assert(names_are(&out, (const char*[]){"/a", "/b", "/c", NULL}));
+	sync_names_free(&out);
+	sync_names_free(&mine);
+	sync_names_free(&theirs);
+
+	// A collection only on one side (or an empty file): the other's lines.
+	SyncNames none = {0};
+	theirs = names_of((const char*[]){"/a", "", "/b", "/a", NULL});
+	assert(sync_merge_lines(&none, &theirs, &out) == 2);
+	assert(names_are(&out, (const char*[]){"/a", "/b", NULL}));
+	sync_names_free(&out);
+	assert(sync_merge_lines(&theirs, &none, &out) == 0);
+	assert(names_are(&out, (const char*[]){"/a", "", "/b", "/a", NULL}));
+	sync_names_free(&out);
+	assert(sync_merge_lines(&none, &none, &out) == 0 && out.count == 0);
+	sync_names_free(&out);
+	sync_names_free(&theirs);
+
+	// Case and spaces matter: exact lines.
+	mine = names_of((const char*[]){"/Roms/a.gba", NULL});
+	theirs = names_of((const char*[]){"/roms/a.gba", "/Roms/a.gba ", NULL});
+	assert(sync_merge_lines(&mine, &theirs, &out) == 2);
+	sync_names_free(&out);
+	sync_names_free(&mine);
+	sync_names_free(&theirs);
+
+	// Very long lines survive whole.
+	static char longline[70000];
+	memset(longline, 'x', sizeof(longline) - 1);
+	longline[0] = '/';
+	static char text[sizeof(longline) + 8];
+	snprintf(text, sizeof(text), "%s\r\n/b\n", longline);
+	theirs = lines_of(text);
+	assert(theirs.count == 2 && strlen(theirs.items[0]) == sizeof(longline) - 1);
+	mine = names_of((const char*[]){"/b", NULL});
+	assert(sync_merge_lines(&mine, &theirs, &out) == 1);
+	assert(out.count == 2 && !strcmp(out.items[1], longline));
+	sync_names_free(&out);
+	sync_names_free(&mine);
+	sync_names_free(&theirs);
 }
 
 int main(void) {
@@ -242,6 +397,9 @@ int main(void) {
 	test_sibling_excludes();
 	test_phases();
 	test_bios_skip();
+	test_collection_names();
+	test_text_lines();
+	test_merge_lines();
 	printf("sync_proto: all tests passed\n");
 	return 0;
 }

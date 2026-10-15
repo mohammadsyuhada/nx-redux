@@ -40,6 +40,8 @@
 #define USBLINK_STATE_PATH "/tmp/usblink.state"
 #define USBLINK_PID_PATH "/tmp/usblink.pid"
 #define ROMS_EXCLUDES_PATH "/tmp/sync-roms-excludes.txt"
+// mkdtemp() templates: the peer's collections in, the peer's merged ones out.
+#define COLLECTIONS_TMP_TEMPLATE "/tmp/sync-collections-XXXXXX"
 
 // Paths to sync
 // "<SDCARD_PATH>/Saves", built with snprintf.
@@ -103,7 +105,7 @@ static int udp_sock = -1;
 static volatile bool sync_cancel = false;
 static volatile bool sync_done = false;
 static volatile int sync_result = 0; // 0=success, -1=error
-static volatile int sync_phase = 0;	 // 1-8 for progress display (sync_proto.h)
+static volatile int sync_phase = 0;	 // 1-9 for progress display (sync_proto.h)
 static pthread_t sync_thread;
 static bool sync_thread_active = false;
 static bool is_server = false;
@@ -524,6 +526,14 @@ static void write_rsync_config(void) {
 	if (peer_filters)
 		fprintf(fp, "  exclude = %s\n", SYNC_JUNK_DAEMON_EXCLUDE);
 	fprintf(fp, "\n");
+	// Every sync too. The client pulls Collections/*.txt, merges, and pushes
+	// back the ones it added lines to (a phone client does the same).
+	fprintf(fp, "[collections]\n");
+	fprintf(fp, "  path = %s\n", COLLECTIONS_PATH);
+	fprintf(fp, "  read only = no\n");
+	if (peer_filters)
+		fprintf(fp, "  exclude = %s\n", SYNC_JUNK_DAEMON_EXCLUDE);
+	fprintf(fp, "\n");
 	fprintf(fp, "[roms]\n");
 	fprintf(fp, "  path = %s\n", ROMS_PATH);
 	fprintf(fp, "  read only = no\n");
@@ -571,7 +581,8 @@ static void stop_rsync_daemon(void) {
 static volatile int phase_files_done = 0;
 static volatile int phase_files_total = 0;
 static volatile int phase_files_transferred = 0;
-// The phase's rsync said "Unknown module" (an older peer, no [bios]).
+// The phase's rsync said "Unknown module" (an older peer, no [bios] or
+// [collections]).
 static bool phase_unknown_module = false;
 
 // Parse "xfr#N, to-chk=X/Y" from rsync --info=progress2 output.
@@ -783,7 +794,9 @@ done:
 	return ret;
 }
 
-// Run rsync via popen() and capture output line by line into the log buffer.
+static int run_rsync_cmd(const char* cmd);
+
+// Run one phase's rsync (run_rsync_cmd); the collections phase has its own.
 // extra: options the BIOS and ROM phases add, "" for the others.
 static int run_rsync_phase(int phase, const char* extra) {
 	char cmd[MAX_PATH * 8 + 768]; // two quoted runtime paths + rsync options
@@ -799,11 +812,6 @@ static int run_rsync_phase(int phase, const char* extra) {
 	char shared_filter[1024];
 	if (sync_shared_client_args(shared_filter, sizeof(shared_filter)) < 0)
 		return -1;
-
-	phase_files_done = 0;
-	phase_files_total = 0;
-	phase_files_transferred = 0;
-	phase_unknown_module = false;
 
 	char bin_q[MAX_PATH * 4];
 	char dir_q[MAX_PATH * 4];
@@ -843,6 +851,16 @@ static int run_rsync_phase(int phase, const char* extra) {
 	default:
 		return -1;
 	}
+	return run_rsync_cmd(cmd);
+}
+
+// Run one rsync command line via popen() and capture its output line by line
+// into the log buffer, the progress into the phase counters. rsync's exit code.
+static int run_rsync_cmd(const char* cmd) {
+	phase_files_done = 0;
+	phase_files_total = 0;
+	phase_files_transferred = 0;
+	phase_unknown_module = false;
 
 	FILE* fp = popen(cmd, "r");
 	if (!fp)
@@ -885,6 +903,212 @@ static int run_rsync_phase(int phase, const char* extra) {
 	return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
+// Empties and removes a collections temp folder (it only ever holds files).
+static void remove_temp_dir(const char* dir) {
+	DIR* d = opendir(dir);
+	if (d) {
+		struct dirent* e;
+		while ((e = readdir(d)) != NULL) {
+			if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, ".."))
+				continue;
+			char path[MAX_PATH * 2];
+			snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
+			if (unlink(path) != 0)
+				rmdir(path);
+		}
+		closedir(d);
+	}
+	rmdir(dir);
+}
+
+// The collection files in dir (sync_is_collection_name, regular files).
+static void collection_files(const char* dir, SyncNames* out) {
+	SyncNames all = {0};
+	local_entries(dir, false, &all);
+	for (int i = 0; i < all.count; i++) {
+		char path[MAX_PATH * 2];
+		struct stat st;
+		snprintf(path, sizeof(path), "%s/%s", dir, all.items[i]);
+		if (sync_is_collection_name(all.items[i]) && stat(path, &st) == 0 && S_ISREG(st.st_mode))
+			sync_names_add(out, all.items[i]);
+	}
+	sync_names_free(&all);
+}
+
+// dir/name's lines (sync_text_lines). False when it can't be read.
+static bool read_collection(const char* dir, const char* name, SyncNames* out) {
+	char path[MAX_PATH * 2];
+	snprintf(path, sizeof(path), "%s/%s", dir, name);
+	FILE* fp = fopen(path, "rb");
+	if (!fp)
+		return false;
+	char* buf = NULL;
+	size_t len = 0, cap = 0;
+	char chunk[4096];
+	size_t n;
+	bool ok = true;
+	while (ok && (n = fread(chunk, 1, sizeof(chunk), fp)) > 0) {
+		if (len + n > cap) {
+			size_t want = cap ? cap * 2 : sizeof(chunk) * 2;
+			char* grown = realloc(buf, want);
+			if (!grown)
+				ok = false;
+			else {
+				buf = grown;
+				cap = want;
+			}
+		}
+		if (ok) {
+			memcpy(buf + len, chunk, n);
+			len += n;
+		}
+	}
+	if (ferror(fp))
+		ok = false;
+	fclose(fp);
+	if (ok)
+		ok = sync_text_lines(buf ? buf : "", len, out);
+	free(buf);
+	return ok;
+}
+
+// Writes lines to dir/name, one per line, through a temp file in the same
+// folder renamed over it: a cut write never leaves a truncated collection.
+static bool write_collection(const char* dir, const char* name, const SyncNames* lines) {
+	char path[MAX_PATH * 2];
+	char tmp[MAX_PATH * 2 + 16];
+	snprintf(path, sizeof(path), "%s/%s", dir, name);
+	snprintf(tmp, sizeof(tmp), "%s/.%s.sync-tmp", dir, name);
+	FILE* fp = fopen(tmp, "w");
+	if (!fp)
+		return false;
+	bool ok = true;
+	for (int i = 0; i < lines->count && ok; i++)
+		ok = fputs(lines->items[i], fp) >= 0 && fputc('\n', fp) != EOF;
+	if (fflush(fp) != 0 || fsync(fileno(fp)) != 0)
+		ok = false;
+	if (fclose(fp) != 0)
+		ok = false;
+	if (ok && rename(tmp, path) != 0)
+		ok = false;
+	if (!ok)
+		unlink(tmp);
+	return ok;
+}
+
+// The collections phase against a handheld peer: pull its Collections/*.txt
+// into a temp folder, merge each collection both ways (sync_merge_lines),
+// write this device's changed ones in place and push the peer's changed ones
+// from a second temp folder. Never deletes. Returns 0, rsync's exit code when
+// a transfer fails (phase_unknown_module set against an older peer), or -1.
+// *changed: collections that changed on either side; *scanned: all seen.
+static int sync_collections(int* changed, int* scanned) {
+	char in_dir[] = COLLECTIONS_TMP_TEMPLATE;
+	char out_dir[] = COLLECTIONS_TMP_TEMPLATE;
+	bool have_in = mkdtemp(in_dir) != NULL;
+	bool have_out = mkdtemp(out_dir) != NULL;
+	SyncNames mine = {0}, theirs = {0}, names = {0};
+	int touched = 0, pushed = 0;
+	int ret = -1;
+	*changed = 0;
+	*scanned = 0;
+	if (!have_in || !have_out) {
+		log_add("ERROR: Couldn't make a temp folder");
+		goto done;
+	}
+
+	char cmd[MAX_PATH * 8 + 768];
+	char bin_q[MAX_PATH * 4];
+	char dir_q[MAX_PATH * 4];
+	snprintf(cmd, sizeof(cmd), "'%s' %s %s rsync://%s:%d/collections/ '%s'/ 2>&1",
+			 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), SYNC_COLLECTIONS_RSYNC_OPTS, SYNC_COLLECTIONS_PULL_ARGS, peer_ip,
+			 SYNC_RSYNC_PORT, shq(in_dir, dir_q, sizeof(dir_q)));
+	ret = run_rsync_cmd(cmd);
+	if (ret != 0 || sync_cancel)
+		goto done;
+	ret = -1;
+
+	collection_files(COLLECTIONS_PATH, &mine);
+	collection_files(in_dir, &theirs);
+	for (int i = 0; i < mine.count; i++)
+		if (!sync_names_add(&names, mine.items[i]))
+			goto done;
+	for (int i = 0; i < theirs.count; i++)
+		if (sync_names_find(&names, theirs.items[i]) < 0 && !sync_names_add(&names, theirs.items[i]))
+			goto done;
+
+	for (int i = 0; i < names.count; i++) {
+		if (sync_cancel)
+			goto done;
+		const char* name = names.items[i];
+		bool here = sync_names_find(&mine, name) >= 0;
+		bool there = sync_names_find(&theirs, name) >= 0;
+		SyncNames a = {0}, b = {0}, merged = {0};
+		bool ok = (!here || read_collection(COLLECTIONS_PATH, name, &a)) && (!there || read_collection(in_dir, name, &b));
+		char msg[LOG_LINE_LEN];
+		// This device's version: written only when it gains a line or is new.
+		int added = ok ? sync_merge_lines(&a, &b, &merged) : -1;
+		if (added < 0 || ((!here || added > 0) && !write_collection(COLLECTIONS_PATH, name, &merged)))
+			ok = false;
+		else if (!here || added > 0) {
+			if (here)
+				snprintf(msg, sizeof(msg), "  %s: %d added here", name, added);
+			else
+				snprintf(msg, sizeof(msg), "  %s: copied here", name);
+			log_add(msg);
+			touched++;
+		}
+		bool here_changed = ok && (!here || added > 0);
+		sync_names_free(&merged);
+		// The peer's version, pushed only when it gains a line or is new.
+		if (ok) {
+			added = sync_merge_lines(&b, &a, &merged);
+			if (added < 0 || ((!there || added > 0) && !write_collection(out_dir, name, &merged)))
+				ok = false;
+			else if (!there || added > 0) {
+				if (there)
+					snprintf(msg, sizeof(msg), "  %s: %d added there", name, added);
+				else
+					snprintf(msg, sizeof(msg), "  %s: copied there", name);
+				log_add(msg);
+				pushed++;
+				if (!here_changed)
+					touched++;
+			}
+		}
+		sync_names_free(&merged);
+		sync_names_free(&a);
+		sync_names_free(&b);
+		if (!ok) {
+			snprintf(msg, sizeof(msg), "ERROR: Couldn't merge %s", name);
+			log_add(msg);
+			goto done;
+		}
+	}
+
+	if (pushed) {
+		snprintf(cmd, sizeof(cmd), "'%s' %s '%s'/ rsync://%s:%d/collections/ 2>&1",
+				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), SYNC_COLLECTIONS_RSYNC_OPTS,
+				 shq(out_dir, dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
+		ret = run_rsync_cmd(cmd);
+		if (ret != 0)
+			goto done;
+	}
+	ret = 0;
+	*changed = touched;
+	*scanned = names.count;
+
+done:
+	sync_names_free(&mine);
+	sync_names_free(&theirs);
+	sync_names_free(&names);
+	if (have_in)
+		remove_temp_dir(in_dir);
+	if (have_out)
+		remove_temp_dir(out_dir);
+	return ret;
+}
+
 static void* sync_thread_func(void* arg) {
 	(void)arg;
 
@@ -893,6 +1117,7 @@ static void* sync_thread_func(void* arg) {
 	// Before the daemon starts too: a module whose folder is missing fails
 	// the peer's phase (rsync exit 5, "chdir failed").
 	mkdir_p(BIOS_PATH);
+	mkdir_p(COLLECTIONS_PATH);
 	if (sync_roms)
 		mkdir_p(ROMS_PATH);
 
@@ -1021,27 +1246,29 @@ static void* sync_thread_func(void* arg) {
 		usleep(500000);
 
 		int total_phases = sync_phase_count(sync_roms);
-		const char* phase_names_6[] = {
+		const char* phase_names_7[] = {
 			"",
-			"[1/6] Pushing states",
-			"[2/6] Pushing saves",
-			"[3/6] Pulling states",
-			"[4/6] Pulling saves",
-			"[5/6] Sending BIOS",
-			"[6/6] Receiving BIOS",
+			"[1/7] Pushing states",
+			"[2/7] Pushing saves",
+			"[3/7] Pulling states",
+			"[4/7] Pulling saves",
+			"[5/7] Sending BIOS",
+			"[6/7] Receiving BIOS",
+			"[7/7] Syncing collections",
 		};
-		const char* phase_names_8[] = {
+		const char* phase_names_9[] = {
 			"",
-			"[1/8] Pushing states",
-			"[2/8] Pushing saves",
-			"[3/8] Pulling states",
-			"[4/8] Pulling saves",
-			"[5/8] Sending BIOS",
-			"[6/8] Receiving BIOS",
-			"[7/8] Pushing ROMs",
-			"[8/8] Pulling ROMs",
+			"[1/9] Pushing states",
+			"[2/9] Pushing saves",
+			"[3/9] Pulling states",
+			"[4/9] Pulling saves",
+			"[5/9] Sending BIOS",
+			"[6/9] Receiving BIOS",
+			"[7/9] Syncing collections",
+			"[8/9] Pushing ROMs",
+			"[9/9] Pulling ROMs",
 		};
-		const char** phase_names = sync_roms ? phase_names_8 : phase_names_6;
+		const char** phase_names = sync_roms ? phase_names_9 : phase_names_7;
 
 		int total_transferred = 0;
 		int total_scanned = 0;
@@ -1074,20 +1301,32 @@ static void* sync_thread_func(void* arg) {
 				extra = SYNC_ROMS_NO_ART_ARGS " --exclude-from=" ROMS_EXCLUDES_PATH;
 			else if (bios_phase)
 				extra = SYNC_BIOS_ARGS;
-			if (result == 0)
+			int coll_changed = 0, coll_scanned = 0;
+			if (phase == SYNC_PHASE_COLLECTIONS) {
+				result = sync_collections(&coll_changed, &coll_scanned);
+				// B mid-merge: end as a cancel between phases does (DONE
+				// to the server included).
+				if (sync_cancel)
+					break;
+			} else if (result == 0)
 				result = run_rsync_phase(phase, extra);
 			unlink(ROMS_EXCLUDES_PATH);
-			// An older peer has no [bios] module (rsync exit 5, "Unknown
-			// module"): go on without BIOS rather than fail the sync. Both BIOS
-			// phases go: the pull would only fail the same way.
+			// An older peer has no [bios] or [collections] module (rsync exit
+			// 5, "Unknown module"): go on without them rather than fail the
+			// sync. Both BIOS phases go: the pull would only fail the same way.
 			if (!sync_cancel && sync_phase_skippable(phase, result, phase_unknown_module)) {
-				log_add("BIOS skipped: update the other device");
+				log_add(phase == SYNC_PHASE_COLLECTIONS ? "Collections skipped: update the other device"
+														: "BIOS skipped: update the other device");
 				if (phase == SYNC_PHASE_BIOS_PUSH)
 					phase = SYNC_PHASE_BIOS_PULL;
 				continue;
 			}
 			int phase_transferred = phase_files_transferred;
 			int phase_scanned = phase_files_total;
+			if (phase == SYNC_PHASE_COLLECTIONS) {
+				phase_transferred = coll_changed;
+				phase_scanned = coll_scanned;
+			}
 			// Then the art this side or the peer has none of (never replaced).
 			if (result == 0 && roms_phase && !sync_cancel) {
 				log_add(phase == SYNC_PHASE_ROMS_PUSH ? "  Pushing missing art" : "  Pulling missing art");
@@ -1311,6 +1550,7 @@ static void render_screen(void) {
 				"Pulling saves",
 				"Sending BIOS",
 				"Receiving BIOS",
+				"Syncing collections",
 				"Pushing ROMs",
 				"Pulling ROMs",
 			};

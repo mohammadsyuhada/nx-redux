@@ -282,7 +282,7 @@ int sync_sibling_excludes(const char* folder, const SyncNames* sender_x, const S
 }
 
 int sync_phase_count(bool roms) {
-	return roms ? SYNC_PHASE_ROMS_PULL : SYNC_PHASE_BIOS_PULL;
+	return roms ? SYNC_PHASE_ROMS_PULL : SYNC_PHASE_COLLECTIONS;
 }
 
 bool sync_is_bios_phase(int phase) {
@@ -298,5 +298,58 @@ bool sync_line_is_unknown_module(const char* line) {
 }
 
 bool sync_phase_skippable(int phase, int exit_code, bool unknown_module) {
-	return sync_is_bios_phase(phase) && exit_code == SYNC_RSYNC_EXIT_START && unknown_module;
+	return (sync_is_bios_phase(phase) || phase == SYNC_PHASE_COLLECTIONS) && exit_code == SYNC_RSYNC_EXIT_START &&
+		   unknown_module;
+}
+
+bool sync_is_collection_name(const char* name) {
+	size_t len = strlen(name);
+	size_t ext = strlen(".txt");
+	return len > ext && !strcmp(name + len - ext, ".txt") && sync_is_game_name(name) && !strchr(name, '/');
+}
+
+bool sync_text_lines(const char* text, size_t len, SyncNames* out) {
+	size_t start = 0;
+	while (start < len) {
+		const char* nl = memchr(text + start, '\n', len - start);
+		size_t end = nl ? (size_t)(nl - text) : len;
+		size_t n = end - start;
+		if (n && text[end - 1] == '\r')
+			n--;
+		char* line = malloc(n + 1);
+		if (!line)
+			return false;
+		memcpy(line, text + start, n);
+		line[n] = '\0';
+		bool ok = sync_names_add(out, line);
+		free(line);
+		if (!ok)
+			return false;
+		start = end + 1;
+	}
+	return true;
+}
+
+static bool line_is_blank(const char* line) {
+	for (; *line; line++)
+		if (!isspace((unsigned char)*line))
+			return false;
+	return true;
+}
+
+int sync_merge_lines(const SyncNames* mine, const SyncNames* theirs, SyncNames* out) {
+	for (int i = 0; i < mine->count; i++)
+		if (!sync_names_add(out, mine->items[i]))
+			return -1;
+	int added = 0;
+	for (int i = 0; i < theirs->count; i++) {
+		const char* line = theirs->items[i];
+		// out holds mine and what was added so far: a line goes in once.
+		if (line_is_blank(line) || sync_names_find(out, line) >= 0)
+			continue;
+		if (!sync_names_add(out, line))
+			return -1;
+		added++;
+	}
+	return added;
 }

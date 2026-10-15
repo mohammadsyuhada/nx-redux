@@ -106,12 +106,13 @@ int sync_sibling_excludes(const char* folder, const SyncNames* sender_x, const S
 						  const SyncNames* receiver_siblings, SyncNames* out);
 
 // The client's phases: 1-4 states and saves (push shared, push saves, pull
-// shared, pull saves), then BIOS both ways on every sync, then ROMs both ways
-// when ROM sync is on.
+// shared, pull saves), then BIOS both ways and collections on every sync, then
+// ROMs both ways when ROM sync is on.
 #define SYNC_PHASE_BIOS_PUSH 5
 #define SYNC_PHASE_BIOS_PULL 6
-#define SYNC_PHASE_ROMS_PUSH 7
-#define SYNC_PHASE_ROMS_PULL 8
+#define SYNC_PHASE_COLLECTIONS 7
+#define SYNC_PHASE_ROMS_PUSH 8
+#define SYNC_PHASE_ROMS_PULL 9
 
 int sync_phase_count(bool roms);
 bool sync_is_bios_phase(int phase);
@@ -121,10 +122,37 @@ bool sync_is_roms_phase(int phase);
 // replaced (the two devices may hold different dumps under one name).
 #define SYNC_BIOS_ARGS "--ignore-existing"
 
-// Against an older peer without the [bios] module, rsync prints "@ERROR:
-// Unknown module 'bios'" and exits 5 (couldn't start the protocol). Only then
-// is a BIOS phase skipped rather than a failed sync. Another exit 5 ("chdir
-// failed", max connections) or any other failure fails as on other phases.
+// Collections (Collections/<Name>.txt, one SD-relative game path per line)
+// merge on every sync: each device keeps its lines in order and gains the
+// other's lines it lacks, in the other's order. Nothing is ever removed.
+
+// The client pulls the peer's collections into an empty temp folder and pushes
+// back only the ones it changed, so no --update: the two clocks may disagree,
+// and a file the peer saved "later" by its clock must still take the merge.
+// The pull takes top-level *.txt files only (no folders, no alias map).
+#define SYNC_COLLECTIONS_RSYNC_OPTS \
+	"-rtv --no-perms --omit-dir-times --modify-window=1 --info=progress2 " SYNC_JUNK_CLIENT_ARGS
+#define SYNC_COLLECTIONS_PULL_ARGS "--exclude=/map.txt --exclude='*/' --include='/*.txt' --exclude='*'"
+
+// A collection file: "<Name>.txt" at the top level, not hidden by the
+// launcher's rule (dot files, map.txt the alias map, *.disabled).
+bool sync_is_collection_name(const char* name);
+
+// A file's lines: split on \n, one trailing \r trimmed from each; a final
+// newline makes no extra empty line. False when out of memory.
+bool sync_text_lines(const char* text, size_t len, SyncNames* out);
+
+// out = mine in order, then each line of theirs mine lacks (exact match), in
+// theirs' order, once; blank lines (empty or whitespace only) are not added.
+// Returns the number of lines appended (0: mine unchanged), -1 when out of
+// memory.
+int sync_merge_lines(const SyncNames* mine, const SyncNames* theirs, SyncNames* out);
+
+// Against an older peer without the [bios] (or [collections]) module, rsync
+// prints "@ERROR: Unknown module 'bios'" and exits 5 (couldn't start the
+// protocol). Only then is a BIOS or collections phase skipped rather than a
+// failed sync. Another exit 5 ("chdir failed", max connections) or any other
+// failure fails as on other phases.
 #define SYNC_RSYNC_EXIT_START 5
 #define SYNC_RSYNC_UNKNOWN_MODULE "Unknown module"
 bool sync_line_is_unknown_module(const char* line);
