@@ -1,3 +1,5 @@
+#include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +15,7 @@
 #include <sys/select.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <strings.h>
 #include <msettings.h>
 
 #include "defines.h"
@@ -528,11 +531,13 @@ static void write_rsync_config(void) {
 	fprintf(fp, "\n");
 	// Every sync too. The client pulls Collections/*.txt, merges, and pushes
 	// back the ones it added lines to (a phone client does the same).
+	// The alias map (map.txt, any case) stays out for every client: it can't
+	// be pulled or replaced. Old firmware never uses this module.
 	fprintf(fp, "[collections]\n");
 	fprintf(fp, "  path = %s\n", COLLECTIONS_PATH);
 	fprintf(fp, "  read only = no\n");
-	if (peer_filters)
-		fprintf(fp, "  exclude = %s\n", SYNC_JUNK_DAEMON_EXCLUDE);
+	fprintf(fp, "  exclude = %s%s%s\n", SYNC_COLLECTIONS_DAEMON_EXCLUDE, peer_filters ? " " : "",
+			peer_filters ? SYNC_JUNK_DAEMON_EXCLUDE : "");
 	fprintf(fp, "\n");
 	fprintf(fp, "[roms]\n");
 	fprintf(fp, "  path = %s\n", ROMS_PATH);
@@ -921,55 +926,95 @@ static void remove_temp_dir(const char* dir) {
 	rmdir(dir);
 }
 
-// The collection files in dir (sync_is_collection_name, regular files).
-static void collection_files(const char* dir, SyncNames* out) {
-	SyncNames all = {0};
-	local_entries(dir, false, &all);
-	for (int i = 0; i < all.count; i++) {
+// The collection files in dir (sync_is_collection_name, regular files). A
+// file gone since readdir is skipped; any other failure (the folder can't be
+// read, a stat error, out of memory) is false: a collection that only looks
+// absent here could otherwise be replaced by the peer's copy.
+static bool collection_files(const char* dir, SyncNames* out) {
+	DIR* d = opendir(dir);
+	if (!d)
+		return false;
+	bool ok = true;
+	struct dirent* e;
+	while (ok && (e = readdir(d)) != NULL) {
+		if (!sync_is_collection_name(e->d_name))
+			continue;
 		char path[MAX_PATH * 2];
 		struct stat st;
-		snprintf(path, sizeof(path), "%s/%s", dir, all.items[i]);
-		if (sync_is_collection_name(all.items[i]) && stat(path, &st) == 0 && S_ISREG(st.st_mode))
-			sync_names_add(out, all.items[i]);
+		snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
+		if (stat(path, &st) != 0)
+			ok = errno == ENOENT;
+		else if (S_ISREG(st.st_mode))
+			ok = sync_names_add(out, e->d_name);
 	}
-	sync_names_free(&all);
+	closedir(d);
+	return ok;
 }
 
-// dir/name's lines (sync_text_lines). False when it can't be read.
-static bool read_collection(const char* dir, const char* name, SyncNames* out) {
+// The entry of Collections/ named name in any case (FAT and exFAT match names
+// that way, so it is the file a write under name would replace): 1 with its
+// name in found, 0 when there's none, -1 when the folder can't be read.
+static int find_local_ci(const char* name, char* found, size_t size) {
+	DIR* d = opendir(COLLECTIONS_PATH);
+	if (!d)
+		return -1;
+	int ret = 0;
+	struct dirent* e;
+	while ((e = readdir(d)) != NULL) {
+		if (!strcasecmp(e->d_name, name)) {
+			snprintf(found, size, "%s", e->d_name);
+			ret = 1;
+			break;
+		}
+	}
+	closedir(d);
+	return ret;
+}
+
+enum CollectionRead {
+	COLL_READ_OK,
+	COLL_READ_ABSENT, // no such file (gone since the listing)
+	COLL_READ_NUL,	  // holds a NUL byte (sync_text_is_lines)
+	COLL_READ_FAIL,
+};
+
+// dir/name's lines (sync_text_lines).
+static enum CollectionRead read_collection(const char* dir, const char* name, SyncNames* out) {
 	char path[MAX_PATH * 2];
 	snprintf(path, sizeof(path), "%s/%s", dir, name);
 	FILE* fp = fopen(path, "rb");
 	if (!fp)
-		return false;
+		return errno == ENOENT ? COLL_READ_ABSENT : COLL_READ_FAIL;
 	char* buf = NULL;
 	size_t len = 0, cap = 0;
 	char chunk[4096];
 	size_t n;
-	bool ok = true;
-	while (ok && (n = fread(chunk, 1, sizeof(chunk), fp)) > 0) {
+	enum CollectionRead ret = COLL_READ_OK;
+	while (ret == COLL_READ_OK && (n = fread(chunk, 1, sizeof(chunk), fp)) > 0) {
 		if (len + n > cap) {
 			size_t want = cap ? cap * 2 : sizeof(chunk) * 2;
 			char* grown = realloc(buf, want);
 			if (!grown)
-				ok = false;
+				ret = COLL_READ_FAIL;
 			else {
 				buf = grown;
 				cap = want;
 			}
 		}
-		if (ok) {
+		if (ret == COLL_READ_OK) {
 			memcpy(buf + len, chunk, n);
 			len += n;
 		}
 	}
 	if (ferror(fp))
-		ok = false;
+		ret = COLL_READ_FAIL;
 	fclose(fp);
-	if (ok)
-		ok = sync_text_lines(buf ? buf : "", len, out);
+	if (ret == COLL_READ_OK && !sync_text_is_lines(buf ? buf : "", len))
+		ret = COLL_READ_NUL;
+	if (ret == COLL_READ_OK && !sync_text_lines(buf ? buf : "", len, out))
+		ret = COLL_READ_FAIL;
 	free(buf);
-	return ok;
+	return ret;
 }
 
 // Writes lines to dir/name, one per line, through a temp file in the same
@@ -991,24 +1036,134 @@ static bool write_collection(const char* dir, const char* name, const SyncNames*
 		ok = false;
 	if (ok && rename(tmp, path) != 0)
 		ok = false;
-	if (!ok)
+	if (!ok) {
 		unlink(tmp);
+		return false;
+	}
+	// The rename itself to the card too (best effort: not every file system
+	// syncs a folder).
+	int dfd = open(dir, O_RDONLY);
+	if (dfd >= 0) {
+		fsync(dfd);
+		close(dfd);
+	}
+	return true;
+}
+
+// One collection both ways: local is its name here, peer its name in in_dir
+// (either NULL when that side has none; the two may differ in case). This
+// device's merge is written under the local name, the peer's is staged in
+// out_dir under the peer's name. Nothing is ever replaced: before a copy here
+// the folder is checked again for the name in any case, and a file found is
+// merged instead. False fails the phase.
+static bool merge_collection(const char* local, const char* peer, const char* in_dir, const char* out_dir,
+							 int* touched, int* pushed) {
+	SyncNames a = {0}, b = {0}, merged = {0};
+	enum CollectionRead ra = COLL_READ_ABSENT, rb = COLL_READ_ABSENT;
+	char found[MAX_PATH] = "";
+	char msg[LOG_LINE_LEN];
+	bool ok = false;
+	if (peer && (rb = read_collection(in_dir, peer, &b)) == COLL_READ_ABSENT)
+		peer = NULL;
+	if (local && (ra = read_collection(COLLECTIONS_PATH, local, &a)) == COLL_READ_ABSENT)
+		local = NULL; // gone since the listing
+	if (!local && peer) {
+		int f = find_local_ci(peer, found, sizeof(found));
+		struct stat st;
+		char path[MAX_PATH * 2];
+		snprintf(path, sizeof(path), "%s/%s", COLLECTIONS_PATH, found);
+		if (f < 0) {
+			snprintf(msg, sizeof(msg), "ERROR: Couldn't list %s", COLLECTIONS_PATH);
+			log_add(msg);
+			goto done;
+		} else if (f > 0 && (stat(path, &st) != 0 || !S_ISREG(st.st_mode))) {
+			snprintf(msg, sizeof(msg), "  %s: skipped (not a file here)", found);
+			log_add(msg);
+			ok = true;
+			goto done;
+		} else if (f > 0 && (ra = read_collection(COLLECTIONS_PATH, found, &a)) != COLL_READ_ABSENT) {
+			local = found;
+		}
+	}
+	const char* shown = local ? local : peer;
+	if (!shown) {
+		ok = true;
+		goto done;
+	}
+	if (ra == COLL_READ_FAIL || rb == COLL_READ_FAIL) {
+		snprintf(msg, sizeof(msg), "ERROR: Couldn't read %s", shown);
+		log_add(msg);
+		goto done;
+	}
+	if (ra == COLL_READ_NUL || rb == COLL_READ_NUL) {
+		snprintf(msg, sizeof(msg), "  %s: skipped (a NUL byte in it)", shown);
+		log_add(msg);
+		ok = true;
+		goto done;
+	}
+
+	// This device's version: written only when it gains a line or is new.
+	int added = sync_merge_lines(&a, &b, &merged);
+	if (added < 0)
+		goto done;
+	bool here_changed = !local || added > 0;
+	if (here_changed) {
+		if (!write_collection(COLLECTIONS_PATH, local ? local : peer, &merged)) {
+			snprintf(msg, sizeof(msg), "ERROR: Couldn't write %s", shown);
+			log_add(msg);
+			goto done;
+		}
+		if (local)
+			snprintf(msg, sizeof(msg), "  %s: %d added here", shown, added);
+		else
+			snprintf(msg, sizeof(msg), "  %s: copied here", shown);
+		log_add(msg);
+	}
+	sync_names_free(&merged);
+
+	// The peer's version, pushed only when it gains a line or is new.
+	added = sync_merge_lines(&b, &a, &merged);
+	if (added < 0)
+		goto done;
+	bool there_changed = !peer || added > 0;
+	if (there_changed) {
+		if (!write_collection(out_dir, peer ? peer : local, &merged)) {
+			snprintf(msg, sizeof(msg), "ERROR: Couldn't stage %s", shown);
+			log_add(msg);
+			goto done;
+		}
+		if (peer)
+			snprintf(msg, sizeof(msg), "  %s: %d added there", peer, added);
+		else
+			snprintf(msg, sizeof(msg), "  %s: copied there", shown);
+		log_add(msg);
+		(*pushed)++;
+	}
+	if (here_changed || there_changed)
+		(*touched)++;
+	ok = true;
+
+done:
+	sync_names_free(&a);
+	sync_names_free(&b);
+	sync_names_free(&merged);
 	return ok;
 }
 
 // The collections phase against a handheld peer: pull its Collections/*.txt
-// into a temp folder, merge each collection both ways (sync_merge_lines),
-// write this device's changed ones in place and push the peer's changed ones
-// from a second temp folder. Never deletes. Returns 0, rsync's exit code when
-// a transfer fails (phase_unknown_module set against an older peer), or -1.
+// into a temp folder, pair names case-insensitively, merge each collection
+// both ways (merge_collection) and push the peer's changed ones from a second
+// temp folder. Never deletes. Returns 0, rsync's exit code when a transfer
+// fails (phase_unknown_module set against an older peer), or -1.
 // *changed: collections that changed on either side; *scanned: all seen.
 static int sync_collections(int* changed, int* scanned) {
 	char in_dir[] = COLLECTIONS_TMP_TEMPLATE;
 	char out_dir[] = COLLECTIONS_TMP_TEMPLATE;
 	bool have_in = mkdtemp(in_dir) != NULL;
 	bool have_out = mkdtemp(out_dir) != NULL;
-	SyncNames mine = {0}, theirs = {0}, names = {0};
-	int touched = 0, pushed = 0;
+	SyncNames mine = {0}, theirs = {0};
+	bool* paired = NULL;
+	int touched = 0, pushed = 0, seen = 0;
 	int ret = -1;
 	*changed = 0;
 	*scanned = 0;
@@ -1028,62 +1183,31 @@ static int sync_collections(int* changed, int* scanned) {
 		goto done;
 	ret = -1;
 
-	collection_files(COLLECTIONS_PATH, &mine);
-	collection_files(in_dir, &theirs);
-	for (int i = 0; i < mine.count; i++)
-		if (!sync_names_add(&names, mine.items[i]))
-			goto done;
-	for (int i = 0; i < theirs.count; i++)
-		if (sync_names_find(&names, theirs.items[i]) < 0 && !sync_names_add(&names, theirs.items[i]))
-			goto done;
-
-	for (int i = 0; i < names.count; i++) {
+	if (!collection_files(COLLECTIONS_PATH, &mine) || !collection_files(in_dir, &theirs)) {
+		log_add("ERROR: Couldn't list the collections");
+		goto done;
+	}
+	paired = calloc(theirs.count + 1, sizeof(*paired));
+	if (!paired)
+		goto done;
+	// A name here pairs with the peer's in any case (FAT matches names so).
+	for (int i = 0; i < mine.count; i++, seen++) {
 		if (sync_cancel)
 			goto done;
-		const char* name = names.items[i];
-		bool here = sync_names_find(&mine, name) >= 0;
-		bool there = sync_names_find(&theirs, name) >= 0;
-		SyncNames a = {0}, b = {0}, merged = {0};
-		bool ok = (!here || read_collection(COLLECTIONS_PATH, name, &a)) && (!there || read_collection(in_dir, name, &b));
-		char msg[LOG_LINE_LEN];
-		// This device's version: written only when it gains a line or is new.
-		int added = ok ? sync_merge_lines(&a, &b, &merged) : -1;
-		if (added < 0 || ((!here || added > 0) && !write_collection(COLLECTIONS_PATH, name, &merged)))
-			ok = false;
-		else if (!here || added > 0) {
-			if (here)
-				snprintf(msg, sizeof(msg), "  %s: %d added here", name, added);
-			else
-				snprintf(msg, sizeof(msg), "  %s: copied here", name);
-			log_add(msg);
-			touched++;
-		}
-		bool here_changed = ok && (!here || added > 0);
-		sync_names_free(&merged);
-		// The peer's version, pushed only when it gains a line or is new.
-		if (ok) {
-			added = sync_merge_lines(&b, &a, &merged);
-			if (added < 0 || ((!there || added > 0) && !write_collection(out_dir, name, &merged)))
-				ok = false;
-			else if (!there || added > 0) {
-				if (there)
-					snprintf(msg, sizeof(msg), "  %s: %d added there", name, added);
-				else
-					snprintf(msg, sizeof(msg), "  %s: copied there", name);
-				log_add(msg);
-				pushed++;
-				if (!here_changed)
-					touched++;
-			}
-		}
-		sync_names_free(&merged);
-		sync_names_free(&a);
-		sync_names_free(&b);
-		if (!ok) {
-			snprintf(msg, sizeof(msg), "ERROR: Couldn't merge %s", name);
-			log_add(msg);
+		int j = sync_names_find_ci(&theirs, mine.items[i]);
+		if (j >= 0)
+			paired[j] = true;
+		if (!merge_collection(mine.items[i], j >= 0 ? theirs.items[j] : NULL, in_dir, out_dir, &touched, &pushed))
 			goto done;
-		}
+	}
+	for (int j = 0; j < theirs.count; j++) {
+		if (paired[j])
+			continue;
+		if (sync_cancel)
+			goto done;
+		if (!merge_collection(NULL, theirs.items[j], in_dir, out_dir, &touched, &pushed))
+			goto done;
+		seen++;
 	}
 
 	if (pushed) {
@@ -1096,12 +1220,12 @@ static int sync_collections(int* changed, int* scanned) {
 	}
 	ret = 0;
 	*changed = touched;
-	*scanned = names.count;
+	*scanned = seen;
 
 done:
+	free(paired);
 	sync_names_free(&mine);
 	sync_names_free(&theirs);
-	sync_names_free(&names);
 	if (have_in)
 		remove_temp_dir(in_dir);
 	if (have_out)

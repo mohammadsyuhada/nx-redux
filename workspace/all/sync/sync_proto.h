@@ -71,7 +71,8 @@ typedef struct {
 } SyncNames;
 
 bool sync_names_add(SyncNames* l, const char* name);
-int sync_names_find(const SyncNames* l, const char* name); // exact; index or -1
+int sync_names_find(const SyncNames* l, const char* name);	  // exact; index or -1
+int sync_names_find_ci(const SyncNames* l, const char* name); // any case; first index or -1
 bool sync_names_has_ci(const SyncNames* l, const char* name);
 void sync_names_free(SyncNames* l);
 
@@ -83,7 +84,8 @@ bool sync_console_display(const char* folder, char* out, size_t size);
 bool sync_is_sibling(const char* a, const char* b);
 
 // False for what isn't a game, by the launcher's own rule (hide() in
-// common/utils.c): dot entries (.media, ._ junk), *.disabled and map.txt.
+// common/utils.c): dot entries (.media, ._ junk), *.disabled and map.txt,
+// the last in any case (on FAT, MAP.TXT opens as the map too).
 bool sync_is_game_name(const char* name);
 
 // The name in one `rsync --list-only --8-bit-output` line ("<perms> <size>
@@ -129,18 +131,26 @@ bool sync_is_roms_phase(int phase);
 // The client pulls the peer's collections into an empty temp folder and pushes
 // back only the ones it changed, so no --update: the two clocks may disagree,
 // and a file the peer saved "later" by its clock must still take the merge.
-// The pull takes top-level *.txt files only (no folders, no alias map).
+// The pull takes top-level *.txt files only (no folders, no alias map in any
+// case). The daemon's [collections] keeps the alias map out for every client.
 #define SYNC_COLLECTIONS_RSYNC_OPTS \
 	"-rtv --no-perms --omit-dir-times --modify-window=1 --info=progress2 " SYNC_JUNK_CLIENT_ARGS
-#define SYNC_COLLECTIONS_PULL_ARGS "--exclude=/map.txt --exclude='*/' --include='/*.txt' --exclude='*'"
+#define SYNC_MAP_PATTERN "/[mM][aA][pP].[tT][xX][tT]"
+#define SYNC_COLLECTIONS_PULL_ARGS "--exclude='" SYNC_MAP_PATTERN "' --exclude='*/' --include='/*.[tT][xX][tT]' --exclude='*'"
+#define SYNC_COLLECTIONS_DAEMON_EXCLUDE SYNC_MAP_PATTERN
 
-// A collection file: "<Name>.txt" at the top level, not hidden by the
-// launcher's rule (dot files, map.txt the alias map, *.disabled).
+// A collection file: "<Name>.txt" (extension in any case, as the launcher
+// matches it) at the top level, not hidden by the launcher's rule (dot
+// files, map.txt the alias map, *.disabled).
 bool sync_is_collection_name(const char* name);
 
 // A file's lines: split on \n, one trailing \r trimmed from each; a final
 // newline makes no extra empty line. False when out of memory.
 bool sync_text_lines(const char* text, size_t len, SyncNames* out);
+
+// False when text holds a NUL byte: its lines can't be kept whole, so such a
+// file is left as it is.
+bool sync_text_is_lines(const char* text, size_t len);
 
 // out = mine in order, then each line of theirs mine lacks (exact match), in
 // theirs' order, once; blank lines (empty or whitespace only) are not added.

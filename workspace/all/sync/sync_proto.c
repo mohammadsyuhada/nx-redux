@@ -143,11 +143,15 @@ int sync_names_find(const SyncNames* l, const char* name) {
 	return -1;
 }
 
-bool sync_names_has_ci(const SyncNames* l, const char* name) {
+int sync_names_find_ci(const SyncNames* l, const char* name) {
 	for (int i = 0; i < l->count; i++)
 		if (!strcasecmp(l->items[i], name))
-			return true;
-	return false;
+			return i;
+	return -1;
+}
+
+bool sync_names_has_ci(const SyncNames* l, const char* name) {
+	return sync_names_find_ci(l, name) >= 0;
 }
 
 void sync_names_free(SyncNames* l) {
@@ -201,7 +205,7 @@ bool sync_is_sibling(const char* a, const char* b) {
 bool sync_is_game_name(const char* name) {
 	size_t len = strlen(name);
 	size_t dlen = strlen(".disabled");
-	if (!len || name[0] == '.' || !strcmp(name, "map.txt"))
+	if (!len || name[0] == '.' || !strcasecmp(name, "map.txt"))
 		return false;
 	return !(len >= dlen && !strcmp(name + len - dlen, ".disabled"));
 }
@@ -305,7 +309,7 @@ bool sync_phase_skippable(int phase, int exit_code, bool unknown_module) {
 bool sync_is_collection_name(const char* name) {
 	size_t len = strlen(name);
 	size_t ext = strlen(".txt");
-	return len > ext && !strcmp(name + len - ext, ".txt") && sync_is_game_name(name) && !strchr(name, '/');
+	return len > ext && !strcasecmp(name + len - ext, ".txt") && sync_is_game_name(name) && !strchr(name, '/');
 }
 
 bool sync_text_lines(const char* text, size_t len, SyncNames* out) {
@@ -328,6 +332,10 @@ bool sync_text_lines(const char* text, size_t len, SyncNames* out) {
 		start = end + 1;
 	}
 	return true;
+}
+
+bool sync_text_is_lines(const char* text, size_t len) {
+	return !memchr(text, '\0', len);
 }
 
 static bool line_is_blank(const char* line) {

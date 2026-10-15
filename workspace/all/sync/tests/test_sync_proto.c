@@ -146,6 +146,8 @@ static void test_game_name(void) {
 	assert(sync_is_game_name("Foo.gba") && sync_is_game_name("Final Fantasy VII (Disc 1)"));
 	assert(!sync_is_game_name(".media") && !sync_is_game_name(".retroachievements") && !sync_is_game_name("._Foo.gba"));
 	assert(!sync_is_game_name("map.txt") && !sync_is_game_name("Foo.gba.disabled") && !sync_is_game_name(""));
+	// FAT is case-insensitive: MAP.TXT opens as the map too.
+	assert(!sync_is_game_name("MAP.TXT") && !sync_is_game_name("Map.txt"));
 }
 
 static void add_names(SyncNames* l, const char* const* items) {
@@ -265,11 +267,15 @@ static void test_collection_names(void) {
 	assert(sync_is_collection_name("Pok\xc3\xa9mon.txt"));
 	// The alias map, hidden and junk files, other extensions.
 	assert(!sync_is_collection_name("map.txt"));
+	assert(!sync_is_collection_name("Map.txt"));
+	assert(!sync_is_collection_name("mAP.txt"));
 	assert(!sync_is_collection_name("._Favorites.txt"));
 	assert(!sync_is_collection_name(".hidden.txt"));
 	assert(!sync_is_collection_name("Favorites.txt.tmp"));
 	assert(!sync_is_collection_name("Favorites.txt.disabled"));
-	assert(!sync_is_collection_name("Favorites.TXT"));
+	// The launcher matches the extension in any case (suffixMatch).
+	assert(sync_is_collection_name("Favorites.TXT") && sync_is_collection_name("Favorites.Txt"));
+	assert(!sync_is_collection_name("MAP.TXT"));
 	assert(!sync_is_collection_name("Favorites"));
 	assert(!sync_is_collection_name(".txt"));
 	assert(!sync_is_collection_name(""));
@@ -299,6 +305,29 @@ static void test_text_lines(void) {
 	l = lines_of("\n");
 	assert(names_are(&l, (const char*[]){"", NULL}));
 	sync_names_free(&l);
+}
+
+static void test_names_find_ci(void) {
+	SyncNames l = names_of((const char*[]){"Favorites.txt", "RPG.txt", "favorites.txt", NULL});
+	// The first match in any case; -1 when none.
+	assert(sync_names_find_ci(&l, "Favorites.txt") == 0);
+	assert(sync_names_find_ci(&l, "FAVORITES.TXT") == 0);
+	assert(sync_names_find_ci(&l, "rpg.txt") == 1);
+	assert(sync_names_find_ci(&l, "Puzzle.txt") == -1);
+	assert(sync_names_find_ci(&l, "Favorites") == -1);
+	SyncNames none = {0};
+	assert(sync_names_find_ci(&none, "a") == -1);
+	sync_names_free(&l);
+}
+
+static void test_text_is_lines(void) {
+	assert(sync_text_is_lines("", 0));
+	assert(sync_text_is_lines("/a\n/b\r\n", 7));
+	// An embedded NUL: a line can't be kept whole.
+	assert(!sync_text_is_lines("/a\0b\n", 5));
+	assert(!sync_text_is_lines("\0", 1));
+	// Only the given length counts.
+	assert(sync_text_is_lines("/a\0", 2));
 }
 
 static void test_merge_lines(void) {
@@ -400,6 +429,8 @@ int main(void) {
 	test_collection_names();
 	test_text_lines();
 	test_merge_lines();
+	test_names_find_ci();
+	test_text_is_lines();
 	printf("sync_proto: all tests passed\n");
 	return 0;
 }
