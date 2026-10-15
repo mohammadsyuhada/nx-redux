@@ -2,6 +2,7 @@
 #include "utils.h"
 #include "ma_environment.h"
 #include "ma_hwrender.h"
+#include "ma_video.h"
 #include "ma_core.h"
 #include "ma_input.h"
 #include "ma_config.h"
@@ -273,7 +274,12 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		int* out_p = (int*)data;
 		if (out_p) {
 			int out = 0;
-			out |= RETRO_AV_ENABLE_VIDEO;
+			// fast-forward shows one frame per FF_FRAME_INTERVAL_MS; skipping the
+			// drawing of the rest lifts snes9x (SFC), Supafaust (SUPA, patched),
+			// GPGX (MD) and fbneo toward Max FF Speed. GPU cores keep drawing: the
+			// HW present path expects it.
+			if (!fast_forward || HWR_active() || Video_ffFrameDue())
+				out |= RETRO_AV_ENABLE_VIDEO;
 			out |= RETRO_AV_ENABLE_AUDIO;
 			*out_p = out;
 		}

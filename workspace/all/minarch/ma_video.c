@@ -768,6 +768,12 @@ static uint32_t last_flip_time = 0;
 // Speed. 30 ms shows FF at ~30 fps and leaves the rest of the time to the core.
 #define FF_FRAME_INTERVAL_MS 30
 
+// Whether the next fast-forward frame would be shown. The frames in between are
+// dropped, so cores that honor GET_AUDIO_VIDEO_ENABLE are told not to draw them.
+int Video_ffFrameDue(void) {
+	return SDL_GetTicks() - last_flip_time >= FF_FRAME_INTERVAL_MS;
+}
+
 static void video_refresh_callback_main(const void* data, unsigned width, unsigned height, size_t pitch) {
 	// return;
 
