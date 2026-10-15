@@ -293,6 +293,10 @@ bool sync_is_roms_phase(int phase) {
 	return phase == SYNC_PHASE_ROMS_PUSH || phase == SYNC_PHASE_ROMS_PULL;
 }
 
-bool sync_phase_skippable(int phase, int exit_code) {
-	return sync_is_bios_phase(phase) && exit_code == SYNC_RSYNC_EXIT_START;
+bool sync_line_is_unknown_module(const char* line) {
+	return strstr(line, SYNC_RSYNC_UNKNOWN_MODULE) != NULL;
+}
+
+bool sync_phase_skippable(int phase, int exit_code, bool unknown_module) {
+	return sync_is_bios_phase(phase) && exit_code == SYNC_RSYNC_EXIT_START && unknown_module;
 }

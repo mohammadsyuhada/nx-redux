@@ -571,6 +571,8 @@ static void stop_rsync_daemon(void) {
 static volatile int phase_files_done = 0;
 static volatile int phase_files_total = 0;
 static volatile int phase_files_transferred = 0;
+// The phase's rsync said "Unknown module" (an older peer, no [bios]).
+static bool phase_unknown_module = false;
 
 // Parse "xfr#N, to-chk=X/Y" from rsync --info=progress2 output.
 static void parse_progress2(const char* line) {
@@ -801,6 +803,7 @@ static int run_rsync_phase(int phase, const char* extra) {
 	phase_files_done = 0;
 	phase_files_total = 0;
 	phase_files_transferred = 0;
+	phase_unknown_module = false;
 
 	char bin_q[MAX_PATH * 4];
 	char dir_q[MAX_PATH * 4];
@@ -849,6 +852,9 @@ static int run_rsync_phase(int phase, const char* extra) {
 	while (read_line_cr(line, sizeof(line), fp) != NULL) {
 		if (sync_cancel)
 			break;
+
+		if (sync_line_is_unknown_module(line))
+			phase_unknown_module = true;
 
 		// Skip blank lines and rsync noise
 		if (line[0] == '\0')
@@ -1071,10 +1077,10 @@ static void* sync_thread_func(void* arg) {
 			if (result == 0)
 				result = run_rsync_phase(phase, extra);
 			unlink(ROMS_EXCLUDES_PATH);
-			// An older peer has no [bios] module (rsync exit 5): go on without
-			// BIOS rather than fail the sync. Both BIOS phases go: the pull
-			// would only fail the same way.
-			if (!sync_cancel && sync_phase_skippable(phase, result)) {
+			// An older peer has no [bios] module (rsync exit 5, "Unknown
+			// module"): go on without BIOS rather than fail the sync. Both BIOS
+			// phases go: the pull would only fail the same way.
+			if (!sync_cancel && sync_phase_skippable(phase, result, phase_unknown_module)) {
 				log_add("BIOS skipped: update the other device");
 				if (phase == SYNC_PHASE_BIOS_PUSH)
 					phase = SYNC_PHASE_BIOS_PULL;

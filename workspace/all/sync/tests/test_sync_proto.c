@@ -199,19 +199,31 @@ static void test_phases(void) {
 }
 
 static void test_bios_skip(void) {
-	// An older peer has no [bios] module: rsync exits 5 and the sync goes on.
-	assert(sync_phase_skippable(SYNC_PHASE_BIOS_PUSH, 5));
-	assert(sync_phase_skippable(SYNC_PHASE_BIOS_PULL, 5));
+	// rsync's lines for an older peer without [bios] (3.2.0dev and 3.4.1).
+	assert(sync_line_is_unknown_module("@ERROR: Unknown module 'bios'"));
+	assert(sync_line_is_unknown_module("@ERROR: Unknown module 'bios'\n"));
+	assert(!sync_line_is_unknown_module("@ERROR: chdir failed"));
+	assert(!sync_line_is_unknown_module("@ERROR: access denied to bios from 10.99.0.2 (10.99.0.2)"));
+	assert(!sync_line_is_unknown_module("rsync error: error starting client-server protocol (code 5) at main.c(1850) [sender=3.4.1]"));
+	assert(!sync_line_is_unknown_module(""));
+
+	// An older peer: exit 5 with the unknown-module message, the sync goes on.
+	assert(sync_phase_skippable(SYNC_PHASE_BIOS_PUSH, 5, true));
+	assert(sync_phase_skippable(SYNC_PHASE_BIOS_PULL, 5, true));
+	// Any other exit 5 (chdir failed, max connections) fails the phase.
+	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PUSH, 5, false));
+	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PULL, 5, false));
 	// Any other failure of a BIOS phase fails the sync, as other phases do.
-	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PUSH, 0));
-	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PUSH, 23));
-	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PULL, 10));
-	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PULL, -1));
+	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PUSH, 0, false));
+	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PUSH, 0, true));
+	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PUSH, 23, true));
+	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PULL, 10, true));
+	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PULL, -1, true));
 	// Exit 5 elsewhere is a failure.
 	for (int p = 1; p <= 4; p++)
-		assert(!sync_phase_skippable(p, 5));
-	assert(!sync_phase_skippable(SYNC_PHASE_ROMS_PUSH, 5));
-	assert(!sync_phase_skippable(SYNC_PHASE_ROMS_PULL, 5));
+		assert(!sync_phase_skippable(p, 5, true));
+	assert(!sync_phase_skippable(SYNC_PHASE_ROMS_PUSH, 5, true));
+	assert(!sync_phase_skippable(SYNC_PHASE_ROMS_PULL, 5, true));
 }
 
 int main(void) {

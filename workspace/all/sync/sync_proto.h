@@ -121,11 +121,15 @@ bool sync_is_roms_phase(int phase);
 // replaced (the two devices may hold different dumps under one name).
 #define SYNC_BIOS_ARGS "--ignore-existing"
 
-// rsync exits 5 (couldn't start the protocol: "@ERROR: Unknown module") on a
-// BIOS phase against an older peer without the [bios] module. That phase is
-// skipped, not a failed sync; any other failure fails as on other phases.
+// Against an older peer without the [bios] module, rsync prints "@ERROR:
+// Unknown module 'bios'" and exits 5 (couldn't start the protocol). Only then
+// is a BIOS phase skipped rather than a failed sync. Another exit 5 ("chdir
+// failed", max connections) or any other failure fails as on other phases.
 #define SYNC_RSYNC_EXIT_START 5
-bool sync_phase_skippable(int phase, int exit_code);
+#define SYNC_RSYNC_UNKNOWN_MODULE "Unknown module"
+bool sync_line_is_unknown_module(const char* line);
+// unknown_module: the phase's output had a sync_line_is_unknown_module line.
+bool sync_phase_skippable(int phase, int exit_code, bool unknown_module);
 
 // The rules as client options ("--filter='- /music-player/' ...") and as an
 // rsyncd.conf filter value ("- /music-player/ + ..."). -1 when out is too small.
