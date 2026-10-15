@@ -617,7 +617,10 @@ static int run_rsync_phase(int phase) {
 	// --modify-window=1: FAT32 cards keep mtimes at 2-second resolution, so a
 	// received file's timestamp rounds down and would otherwise count as
 	// changed (and be re-sent) on every later run.
-	const char* rsync_opts = "-rtv --update --inplace --no-perms --omit-dir-times --modify-window=1 --info=progress2 " SYNC_JUNK_CLIENT_ARGS;
+	// No --inplace: a cut transfer would leave a truncated file with a fresh
+	// mtime, which --update then prefers over the good copy on both devices.
+	// The receiver writes a temp file beside it and renames it when complete.
+	const char* rsync_opts = "-rtv --update --no-perms --omit-dir-times --modify-window=1 --info=progress2 " SYNC_JUNK_CLIENT_ARGS;
 	// Of .userdata/shared only the save states and their slot pictures and
 	// markers travel (sync_proto.c); settings, recents and RA data stay put.
 	char shared_filter[1024];
