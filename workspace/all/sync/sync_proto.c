@@ -280,3 +280,19 @@ int sync_sibling_excludes(const char* folder, const SyncNames* sender_x, const S
 	}
 	return added;
 }
+
+int sync_phase_count(bool roms) {
+	return roms ? SYNC_PHASE_ROMS_PULL : SYNC_PHASE_BIOS_PULL;
+}
+
+bool sync_is_bios_phase(int phase) {
+	return phase == SYNC_PHASE_BIOS_PUSH || phase == SYNC_PHASE_BIOS_PULL;
+}
+
+bool sync_is_roms_phase(int phase) {
+	return phase == SYNC_PHASE_ROMS_PUSH || phase == SYNC_PHASE_ROMS_PULL;
+}
+
+bool sync_phase_skippable(int phase, int exit_code) {
+	return sync_is_bios_phase(phase) && exit_code == SYNC_RSYNC_EXIT_START;
+}

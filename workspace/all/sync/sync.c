@@ -50,6 +50,8 @@ static const char* saves_path(void) {
 }
 #define SHARED_DATA_PATH SHARED_USERDATA_PATH
 // ROMS_PATH already defined in defines.h
+// The card's BIOS folder (Bios/<TAG>/, as minarch's core.bios_dir).
+#define BIOS_PATH SDCARD_PATH "/Bios"
 
 // rsync binary path (shared across platforms)
 static const char* rsync_bin_path(void) {
@@ -101,7 +103,7 @@ static int udp_sock = -1;
 static volatile bool sync_cancel = false;
 static volatile bool sync_done = false;
 static volatile int sync_result = 0; // 0=success, -1=error
-static volatile int sync_phase = 0;	 // 1-4 for progress display
+static volatile int sync_phase = 0;	 // 1-8 for progress display (sync_proto.h)
 static pthread_t sync_thread;
 static bool sync_thread_active = false;
 static bool is_server = false;
@@ -514,6 +516,14 @@ static void write_rsync_config(void) {
 	if (peer_filters)
 		fprintf(fp, "  exclude = %s\n", SYNC_JUNK_DAEMON_EXCLUDE);
 	fprintf(fp, "\n");
+	// Every sync, ROMs on or off. Writable: a phone client pushes and pulls
+	// Bios/<TAG>/ here (--ignore-existing, as the handheld client does).
+	fprintf(fp, "[bios]\n");
+	fprintf(fp, "  path = %s\n", BIOS_PATH);
+	fprintf(fp, "  read only = no\n");
+	if (peer_filters)
+		fprintf(fp, "  exclude = %s\n", SYNC_JUNK_DAEMON_EXCLUDE);
+	fprintf(fp, "\n");
 	fprintf(fp, "[roms]\n");
 	fprintf(fp, "  path = %s\n", ROMS_PATH);
 	fprintf(fp, "  read only = no\n");
@@ -706,12 +716,13 @@ static bool append_names(SyncNames* to, const SyncNames* from) {
 }
 
 // No second copy across a console's emulator folders: writes the ROM run's
-// --exclude-from file for phase 5 (we send) or 6 (the peer sends). For each
-// sending folder with a sibling on the receiving side, the games the receiver
-// keeps in a sibling but not in that folder stay out (sync_proto.c). Returns
+// --exclude-from file for SYNC_PHASE_ROMS_PUSH (we send) or _PULL (the peer
+// sends). For each sending folder with a sibling on the receiving side, the
+// games the receiver keeps in a sibling but not in that folder stay out
+// (sync_proto.c). Returns
 // the number of games left out, or -1 when a listing or the file fails.
 static int write_roms_excludes(int phase) {
-	bool push = phase == 5;
+	bool push = phase == SYNC_PHASE_ROMS_PUSH;
 	SyncNames mine = {0}, theirs = {0}, excludes = {0};
 	FolderListings recv = {!push, NULL, NULL, NULL};
 	int ret = -1;
@@ -771,7 +782,7 @@ done:
 }
 
 // Run rsync via popen() and capture output line by line into the log buffer.
-// extra: options the ROM phases add (art in or out), "" for the others.
+// extra: options the BIOS and ROM phases add, "" for the others.
 static int run_rsync_phase(int phase, const char* extra) {
 	char cmd[MAX_PATH * 8 + 768]; // two quoted runtime paths + rsync options
 	// --modify-window=1: FAT32 cards keep mtimes at 2-second resolution, so a
@@ -810,11 +821,19 @@ static int run_rsync_phase(int phase, const char* extra) {
 		snprintf(cmd, sizeof(cmd), "'%s' %s rsync://%s:%d/saves/ '%s'/ 2>&1",
 				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, peer_ip, SYNC_RSYNC_PORT, shq(saves_path(), dir_q, sizeof(dir_q)));
 		break;
-	case 5:
+	case SYNC_PHASE_BIOS_PUSH:
+		snprintf(cmd, sizeof(cmd), "'%s' %s %s '%s'/ rsync://%s:%d/bios/ 2>&1",
+				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, extra, shq(BIOS_PATH, dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
+		break;
+	case SYNC_PHASE_BIOS_PULL:
+		snprintf(cmd, sizeof(cmd), "'%s' %s %s rsync://%s:%d/bios/ '%s'/ 2>&1",
+				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, extra, peer_ip, SYNC_RSYNC_PORT, shq(BIOS_PATH, dir_q, sizeof(dir_q)));
+		break;
+	case SYNC_PHASE_ROMS_PUSH:
 		snprintf(cmd, sizeof(cmd), "'%s' %s %s '%s'/ rsync://%s:%d/roms/ 2>&1",
 				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, extra, shq(ROMS_PATH, dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
 		break;
-	case 6:
+	case SYNC_PHASE_ROMS_PULL:
 		snprintf(cmd, sizeof(cmd), "'%s' %s %s rsync://%s:%d/roms/ '%s'/ 2>&1",
 				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, extra, peer_ip, SYNC_RSYNC_PORT, shq(ROMS_PATH, dir_q, sizeof(dir_q)));
 		break;
@@ -865,6 +884,9 @@ static void* sync_thread_func(void* arg) {
 
 	mkdir_p(SHARED_DATA_PATH);
 	mkdir_p(saves_path());
+	// Before the daemon starts too: a module whose folder is missing fails
+	// with exit 5, which a BIOS phase reads as an older peer.
+	mkdir_p(BIOS_PATH);
 	if (sync_roms)
 		mkdir_p(ROMS_PATH);
 
@@ -992,31 +1014,36 @@ static void* sync_thread_func(void* arg) {
 		log_add("Server ready!");
 		usleep(500000);
 
-		int total_phases = sync_roms ? 6 : 4;
-		const char* phase_names_4[] = {
-			"",
-			"[1/4] Pushing states",
-			"[2/4] Pushing saves",
-			"[3/4] Pulling states",
-			"[4/4] Pulling saves",
-		};
+		int total_phases = sync_phase_count(sync_roms);
 		const char* phase_names_6[] = {
 			"",
 			"[1/6] Pushing states",
 			"[2/6] Pushing saves",
 			"[3/6] Pulling states",
 			"[4/6] Pulling saves",
-			"[5/6] Pushing ROMs",
-			"[6/6] Pulling ROMs",
+			"[5/6] Sending BIOS",
+			"[6/6] Receiving BIOS",
 		};
-		const char** phase_names = sync_roms ? phase_names_6 : phase_names_4;
+		const char* phase_names_8[] = {
+			"",
+			"[1/8] Pushing states",
+			"[2/8] Pushing saves",
+			"[3/8] Pulling states",
+			"[4/8] Pulling saves",
+			"[5/8] Sending BIOS",
+			"[6/8] Receiving BIOS",
+			"[7/8] Pushing ROMs",
+			"[8/8] Pulling ROMs",
+		};
+		const char** phase_names = sync_roms ? phase_names_8 : phase_names_6;
 
 		int total_transferred = 0;
 		int total_scanned = 0;
 		for (int phase = 1; phase <= total_phases && !sync_cancel; phase++) {
 			sync_phase = phase;
 			log_add(phase_names[phase]);
-			bool roms_phase = phase >= 5;
+			bool roms_phase = sync_is_roms_phase(phase);
+			bool bios_phase = sync_is_bios_phase(phase);
 			int result = 0;
 			// A game the receiving side keeps in another emulator folder of
 			// the console isn't copied again (no second copy).
@@ -1036,14 +1063,28 @@ static void* sync_thread_func(void* arg) {
 					log_add(msg);
 				}
 			}
+			const char* extra = "";
+			if (roms_phase)
+				extra = SYNC_ROMS_NO_ART_ARGS " --exclude-from=" ROMS_EXCLUDES_PATH;
+			else if (bios_phase)
+				extra = SYNC_BIOS_ARGS;
 			if (result == 0)
-				result = run_rsync_phase(phase, roms_phase ? SYNC_ROMS_NO_ART_ARGS " --exclude-from=" ROMS_EXCLUDES_PATH : "");
+				result = run_rsync_phase(phase, extra);
 			unlink(ROMS_EXCLUDES_PATH);
+			// An older peer has no [bios] module (rsync exit 5): go on without
+			// BIOS rather than fail the sync. Both BIOS phases go: the pull
+			// would only fail the same way.
+			if (!sync_cancel && sync_phase_skippable(phase, result)) {
+				log_add("BIOS skipped: update the other device");
+				if (phase == SYNC_PHASE_BIOS_PUSH)
+					phase = SYNC_PHASE_BIOS_PULL;
+				continue;
+			}
 			int phase_transferred = phase_files_transferred;
 			int phase_scanned = phase_files_total;
 			// Then the art this side or the peer has none of (never replaced).
 			if (result == 0 && roms_phase && !sync_cancel) {
-				log_add(phase == 5 ? "  Pushing missing art" : "  Pulling missing art");
+				log_add(phase == SYNC_PHASE_ROMS_PUSH ? "  Pushing missing art" : "  Pulling missing art");
 				result = run_rsync_phase(phase, SYNC_ROMS_ART_ARGS);
 				phase_transferred += phase_files_transferred;
 				phase_scanned += phase_files_total;
@@ -1255,13 +1296,15 @@ static void render_screen(void) {
 
 		// Show phase progress header at top
 		{
-			int total_phases = sync_roms ? 6 : 4;
+			int total_phases = sync_phase_count(sync_roms);
 			const char* phase_labels[] = {
 				"",
 				"Pushing states",
 				"Pushing saves",
 				"Pulling states",
 				"Pulling saves",
+				"Sending BIOS",
+				"Receiving BIOS",
 				"Pushing ROMs",
 				"Pulling ROMs",
 			};

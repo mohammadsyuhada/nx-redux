@@ -105,6 +105,28 @@ int sync_escape_pattern(const char* pattern, char* out, size_t size);
 int sync_sibling_excludes(const char* folder, const SyncNames* sender_x, const SyncNames* receiver_x,
 						  const SyncNames* receiver_siblings, SyncNames* out);
 
+// The client's phases: 1-4 states and saves (push shared, push saves, pull
+// shared, pull saves), then BIOS both ways on every sync, then ROMs both ways
+// when ROM sync is on.
+#define SYNC_PHASE_BIOS_PUSH 5
+#define SYNC_PHASE_BIOS_PULL 6
+#define SYNC_PHASE_ROMS_PUSH 7
+#define SYNC_PHASE_ROMS_PULL 8
+
+int sync_phase_count(bool roms);
+bool sync_is_bios_phase(int phase);
+bool sync_is_roms_phase(int phase);
+
+// BIOS files only fill gaps: a file the receiver already has is never
+// replaced (the two devices may hold different dumps under one name).
+#define SYNC_BIOS_ARGS "--ignore-existing"
+
+// rsync exits 5 (couldn't start the protocol: "@ERROR: Unknown module") on a
+// BIOS phase against an older peer without the [bios] module. That phase is
+// skipped, not a failed sync; any other failure fails as on other phases.
+#define SYNC_RSYNC_EXIT_START 5
+bool sync_phase_skippable(int phase, int exit_code);
+
 // The rules as client options ("--filter='- /music-player/' ...") and as an
 // rsyncd.conf filter value ("- /music-player/ + ..."). -1 when out is too small.
 int sync_shared_client_args(char* out, size_t size);

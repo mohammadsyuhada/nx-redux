@@ -299,7 +299,7 @@ static bool wiz_sync_name_is_safe(const char* name) {
 // The host's rsyncd.conf, written to an already-open stream so the exact file
 // can be checked without starting a daemon. Diverges from sync.c's
 // write_rsync_config() in four ways, all of them the security posture: one
-// module instead of three, read only = true instead of no, a hosts allow naming
+// module instead of four, read only = true instead of no, a hosts allow naming
 // the single peer instead of no ACL at all, and list = false.
 //
 // list = false is not decoration. `hosts allow` is enforced when a MODULE is

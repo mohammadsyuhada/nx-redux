@@ -187,6 +187,33 @@ static void test_sibling_excludes(void) {
 	sync_names_free(&recv_sib);
 }
 
+static void test_phases(void) {
+	// States and saves (1-4), BIOS (5-6) every sync, ROMs (7-8) when on.
+	assert(sync_phase_count(false) == 6 && sync_phase_count(true) == 8);
+	for (int p = 0; p <= 9; p++) {
+		assert(sync_is_bios_phase(p) == (p == SYNC_PHASE_BIOS_PUSH || p == SYNC_PHASE_BIOS_PULL));
+		assert(sync_is_roms_phase(p) == (p == SYNC_PHASE_ROMS_PUSH || p == SYNC_PHASE_ROMS_PULL));
+	}
+	assert(SYNC_PHASE_BIOS_PUSH == 5 && SYNC_PHASE_BIOS_PULL == 6);
+	assert(SYNC_PHASE_ROMS_PUSH == 7 && SYNC_PHASE_ROMS_PULL == 8);
+}
+
+static void test_bios_skip(void) {
+	// An older peer has no [bios] module: rsync exits 5 and the sync goes on.
+	assert(sync_phase_skippable(SYNC_PHASE_BIOS_PUSH, 5));
+	assert(sync_phase_skippable(SYNC_PHASE_BIOS_PULL, 5));
+	// Any other failure of a BIOS phase fails the sync, as other phases do.
+	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PUSH, 0));
+	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PUSH, 23));
+	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PULL, 10));
+	assert(!sync_phase_skippable(SYNC_PHASE_BIOS_PULL, -1));
+	// Exit 5 elsewhere is a failure.
+	for (int p = 1; p <= 4; p++)
+		assert(!sync_phase_skippable(p, 5));
+	assert(!sync_phase_skippable(SYNC_PHASE_ROMS_PUSH, 5));
+	assert(!sync_phase_skippable(SYNC_PHASE_ROMS_PULL, 5));
+}
+
 int main(void) {
 	test_parse_flags();
 	test_parse_rejects();
@@ -201,6 +228,8 @@ int main(void) {
 	test_game_name();
 	test_names();
 	test_sibling_excludes();
+	test_phases();
+	test_bios_skip();
 	printf("sync_proto: all tests passed\n");
 	return 0;
 }
