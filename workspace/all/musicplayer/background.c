@@ -1,15 +1,8 @@
 #include "background.h"
 #include "music_client.h"
 
-static BackgroundPlayerType active_bg = BG_NONE;
-
-void Background_setActive(BackgroundPlayerType type) {
-	active_bg = type;
-}
-
 BackgroundPlayerType Background_getActive(void) {
-	/* The owner is authoritative after a UI detach; active_bg is only a
-	 * presentation hint and may describe the page that was closed. */
+	/* The daemon snapshot is authoritative, including after a UI detach. */
 	const MusicSnapshotWire* snapshot = MusicClient_snapshot();
 	switch (snapshot->source) {
 	case MUSIC_SOURCE_LOCAL:
@@ -25,7 +18,6 @@ BackgroundPlayerType Background_getActive(void) {
 
 void Background_stopAll(void) {
 	(void)MusicClient_stop();
-	active_bg = BG_NONE;
 }
 
 bool Background_isPlaying(void) {

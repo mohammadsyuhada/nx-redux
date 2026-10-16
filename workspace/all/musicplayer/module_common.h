@@ -31,8 +31,9 @@ typedef struct {
 // Initialize module common (call once at app startup)
 void ModuleCommon_init(void);
 
-// Handle global input (quit chord, MENU context menu / controls help, volume,
-// power management). Call at the start of each module's input loop.
+// Handle global input (MENU context menu / controls help; keeps power
+// management alive while an overlay is open). Call at the start of each
+// module's input loop.
 // Parameters:
 //   screen - SDL surface for rendering dialogs
 //   show_setting - pointer to show_setting flag (for power hints)

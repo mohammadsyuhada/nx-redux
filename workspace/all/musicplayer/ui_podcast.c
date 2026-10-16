@@ -394,7 +394,7 @@ static SDL_Surface* get_episode_header_art(const char* feed_id, int size) {
 	return episode_header_art;
 }
 
-// Management menu item labels (Y button menu)
+// Management menu item labels (opened from the context menu)
 static const char* podcast_manage_items[] = {
 	"Search",
 	"Top Shows"};
@@ -741,7 +741,7 @@ void render_podcast_main_page(SDL_Surface* screen, MusicIndicatorType show_setti
 	UI_renderToast(screen, toast_message, toast_time);
 }
 
-// Render the podcast management menu (Y button opens this)
+// Render the podcast management menu (opened from the context menu)
 void render_podcast_manage(SDL_Surface* screen, MusicIndicatorType show_setting,
 						   int menu_selected, int subscription_count) {
 	GFX_clear(screen);
@@ -1504,12 +1504,6 @@ void render_podcast_download_queue(SDL_Surface* screen, MusicIndicatorType show_
 				SDL_BlitSurface(s, NULL, screen, &(SDL_Rect){pos.subtitle_x, pos.subtitle_y});
 				SDL_FreeSurface(s);
 			}
-		}
-
-		// Feed title as secondary info (tiny font, below subtitle)
-		if (item->feed_title[0]) {
-			GFX_truncateText(font.tiny, item->feed_title, truncated, pos.text_max_width, 0);
-			// Render as part of subtitle line if space allows
 		}
 	}
 

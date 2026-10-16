@@ -856,7 +856,8 @@ static void scan_existing_usb_audio_devices(struct udev* udev) {
 	audiomon_log("Finished scanning for existing USB audio devices");
 }
 
-// Process D-Bus PropertiesChanged signals for Bluetooth device connect/disconnect
+// Process D-Bus signals for Bluetooth audio: Device1 PropertiesChanged and the
+// A2DP transport's ObjectManager InterfacesAdded/Removed
 static void process_dbus_events(DBusConnection* conn) {
 	dbus_connection_read_write(conn, 0);
 
@@ -992,7 +993,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	InitSettings();
-	// Initialise the speaker guard (and force the switch off) BEFORE the boot
+	// Initialise the speaker guard (and force the amp off) BEFORE the boot
 	// priming stream in write_default_audio_file(), so that stream powers the
 	// codec with the amp off — otherwise the cold power-up pops.
 	spk_guard_setup();

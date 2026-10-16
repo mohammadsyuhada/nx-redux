@@ -54,9 +54,9 @@ static char confirm_station_url[RADIO_MAX_URL] = "";
 static RadioInternalState help_return_state = RADIO_INTERNAL_ADD_COUNTRY;
 
 // Context-menu item ids
-#define RADIO_CTX_MANAGE 1	// list: browse/manage curated stations (same as Y)
-#define RADIO_CTX_DELETE 2	// list: delete selected station (same as X)
-#define RADIO_CTX_HELP 3	// add pages: manual setup help (same as Y)
+#define RADIO_CTX_MANAGE 1	// list: browse/manage curated stations
+#define RADIO_CTX_DELETE 2	// list: delete selected station
+#define RADIO_CTX_HELP 3	// add pages: manual setup help
 #define RADIO_CTX_REFRESH 4 // add pages: re-fetch the current browse screen
 
 // Sorted station index mapping for alphabetical display
@@ -177,7 +177,6 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 	MusicClient_update();
 	if (Background_getActive() == BG_RADIO && MusicClient_isRadioActive()) {
 		restore_radio_cursor();
-		Background_setActive(BG_NONE);
 		ModuleCommon_setAutosleepDisabled(true);
 		last_rendered_artist[0] = '\0';
 		last_rendered_title[0] = '\0';
@@ -195,7 +194,7 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 				if (confirm_action_type == 0) {
 					// Delete from main list. Content changed: reset the view
 					// to the rebuilt array (glide snap + marquee clear), then
-					// restore the cursor clamped like the old code did.
+					// restore the cursor, clamped to the new count.
 					Radio_removeStation(confirm_target_index);
 					Radio_saveStations();
 					RadioStation* stations;
@@ -458,9 +457,7 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 			} else if (PAD_justPressed(BTN_B)) {
 				cleanup_album_art_background();
 				RadioStatus_clear();
-				if (MusicClient_isRadioActive()) {
-					Background_setActive(BG_RADIO);
-				} else {
+				if (!MusicClient_isRadioActive()) {
 					ModuleCommon_setAutosleepDisabled(false);
 				}
 				state = RADIO_INTERNAL_LIST;
@@ -545,7 +542,6 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 				dirty = 1;
 				break;
 			default:
-				// Manual-setup help moved to the context menu (MENU tap)
 				break;
 			}
 			// L1/R1: jump by first letter (the country list is long).

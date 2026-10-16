@@ -57,8 +57,6 @@ typedef enum {
 	STREAM_TYPE_HLS			// HLS (m3u8 playlist)
 } StreamType;
 
-// HLS types are now defined in radio_hls.h
-
 #define SAMPLE_RATE 48000
 #define AUDIO_CHANNELS 2
 #define RADIO_STATIONS_FILE SHARED_USERDATA_PATH "/music-player/radio/stations.txt"
@@ -70,8 +68,6 @@ typedef enum {
 static RadioStation default_stations[] = {
 	{"Hitz FM", "https://stream.rcs.revma.com/488kt4sbv4uvv", "Pop", "More the Hitz, One the Time"},
 };
-
-// Curated stations are now in radio_catalog.c module
 
 // Radio context
 typedef struct {
@@ -163,8 +159,6 @@ typedef struct {
 	RadioStation stations[RADIO_MAX_STATIONS];
 	int station_count;
 
-	// Album art is now managed by album_art module
-
 	// Deferred audio configuration (the stream thread requests it; Radio_update
 	// performs all Player/SDL operations and acknowledges the actual opened rate)
 	bool pending_sample_rate_change;
@@ -205,7 +199,6 @@ static void radio_state_store(RadioState state) {
 	__atomic_store_n(&radio.state, state, __ATOMIC_RELEASE);
 }
 
-// Append device-rate samples to the ring (shared by all decode paths)
 static int radio_ring_count_snapshot(void) {
 	pthread_mutex_lock(&radio.audio_mutex);
 	int count = radio.audio_ring_count;
@@ -219,6 +212,7 @@ static void radio_start_playing_if_buffered(void) {
 		radio_state_store(RADIO_STATE_PLAYING);
 }
 
+// Append device-rate samples to the ring (shared by all decode paths)
 static void radio_ring_write(const int16_t* samples, int count) {
 	pthread_mutex_lock(&radio.audio_mutex);
 	for (int s = 0; s < count; s++) {
@@ -331,8 +325,6 @@ static void radio_push_samples(const int16_t* samples, int total_samples, int ch
 	}
 }
 
-// Use radio_net_parse_url for URL parsing
-
 // Initialize SSL/TLS
 static int ssl_init(const char* host) {
 	int ret;
@@ -427,8 +419,8 @@ static int radio_recv(void* buf, size_t len) {
 // Blocking TCP connect bounded by a wall-clock timeout (non-blocking connect +
 // select), returning a connected fd with SO_RCVTIMEO/SO_SNDTIMEO applied, or -1.
 // Without the bound, a server that accepts the SYN then stalls freezes the
-// caller — which today is the UI thread — for the kernel's multi-minute connect
-// and recv timeouts.
+// stream thread (and a Radio_stop waiting on it) for the kernel's multi-minute
+// connect and recv timeouts.
 static int tcp_connect_timeout(const char* host, int port, int timeout_sec) {
 	struct addrinfo hints, *result = NULL;
 	memset(&hints, 0, sizeof(hints));
@@ -773,9 +765,6 @@ static void parse_icy_metadata(const uint8_t* data, int len) {
 }
 
 // ============== HLS SUPPORT ==============
-// HLS functions are now in radio_hls.c module
-// Use radio_hls_is_url(), radio_hls_get_base_url(), radio_hls_resolve_url()
-// Use radio_hls_parse_playlist(), radio_hls_demux_ts(), radio_hls_parse_id3_metadata()
 
 // TS sync byte for container detection
 #define TS_SYNC_BYTE 0x47

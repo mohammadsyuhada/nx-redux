@@ -133,7 +133,7 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 			ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Play from Start", PLAYER_CTX_PLAY_START);
 		ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
 
-		// Handle global input (START dialogs, volume, etc.)
+		// Handle global input (quit chord, MENU context menu, power)
 		GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, ctx_items, ctx_count);
 		if (global.should_quit) {
 			VideoBrowser_freeEntries(&browser);

@@ -127,9 +127,6 @@ static void save_album_art_to_cache(const char* cache_path, const uint8_t* data,
 	fclose(f);
 }
 
-// URL encode a string for use in query parameters
-// url_encode moved to common/utils.c as urlEncode()
-
 #define SEARCH_RESPONSE_MAX (64 * 1024)
 
 // Fetch url and parse it as JSON. Returns NULL on any failure.
@@ -425,7 +422,7 @@ bool album_art_is_fetching(void) {
 	return fetching;
 }
 
-// Fetch album art from iTunes Search API (truly async, non-blocking)
+// Fetch album art online (iTunes, then Deezer) — async, non-blocking
 void album_art_fetch(const char* artist, const char* title) {
 	if (!artist || !title || (artist[0] == '\0' && title[0] == '\0')) {
 		return;

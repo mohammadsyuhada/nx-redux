@@ -48,7 +48,7 @@ typedef struct {
 // Find all subtitle files matching a video (exact match + language-tagged)
 void VideoBrowser_findSubtitles(const char* video_path, SubtitleList* list);
 
-// Detect if a video file uses HEVC/H.265 codec (reads first 16KB of file header)
+// Detect if a video file uses HEVC/H.265 codec (reads up to the first 256KB of the file)
 bool VideoBrowser_isHEVC(const char* path);
 
 #endif

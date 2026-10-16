@@ -34,7 +34,7 @@ typedef enum {
 typedef struct {
 	int pm_on;			 // last observed codec power state (0/1)
 	int amp_on;			 // wanted amp gate: 1 on (node 0), 0 off (node 1), -1 unknown
-	SpkGuardPhase phase; //
+	SpkGuardPhase phase; // sequencer phase
 	int dac_muted;		 // 1 while the DAC is held at 0 (a restore is owed)
 	int saved_dac;		 // user "DAC Volume" captured before muting
 	long long t_mute_ms; // monotonic ms when MUTING began (codec power-up)

@@ -44,7 +44,6 @@ static void on_ffplay_audio_changed(int sink_type) {
 	audio_device_changed = true;
 }
 
-// Build argv for ffplay and exec in a forked child. Returns exit status.
 // Escape a value for inclusion inside single quotes in an ffmpeg filtergraph.
 // Inside '...' only the closing quote is special, so a literal ' must be written
 // as '\'' (close-quote, backslash-quote, reopen-quote). Without this, a subtitle
@@ -89,6 +88,7 @@ static bool ffplay_stderr_has_fatal(const char* url) {
 	return fatal;
 }
 
+// Build argv for ffplay and exec in a forked child. Returns exit status.
 static int ffplay_exec(FfplayConfig* config, int use_subs) {
 	char* argv[64];
 	int argc = 0;

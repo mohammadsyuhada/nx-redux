@@ -45,7 +45,7 @@ ModuleExitReason LibraryModule_run(SDL_Surface* screen) {
 	IndicatorType show_setting = INDICATOR_NONE;
 
 	// The view owns selection: reset on module entry so the menu starts at
-	// row 0, matching the old fresh local.
+	// row 0.
 	ListView* v = &library_view;
 	UI_listViewReset(v, LIBRARY_ITEM_COUNT, library_items);
 

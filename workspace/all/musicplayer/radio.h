@@ -119,7 +119,7 @@ int Radio_catalogLoadCountryStations(const char* code, bool force);
 bool Radio_stationExists(const char* url);
 bool Radio_removeStationByUrl(const char* url);
 
-// Album art for current radio track (fetched from iTunes)
+// Album art for current radio track (fetched online: iTunes, then Deezer)
 struct SDL_Surface* Radio_getAlbumArt(void);
 struct SDL_Surface* Radio_getArtwork(const RadioMetadata* metadata, unsigned int* revision);
 

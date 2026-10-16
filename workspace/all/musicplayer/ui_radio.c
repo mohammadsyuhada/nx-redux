@@ -582,7 +582,7 @@ void render_radio_help(SDL_Surface* screen, IndicatorType show_setting, int* hel
 }
 
 // === GPU STATUS AND BUFFER INDICATOR ===
-// Following the same pattern as Spectrum and PlayTime in player.c:
+// Following the same pattern as Spectrum (spectrum.c) and PlayTime (ui_music.c):
 // - Position is set during main screen render (when dirty)
 // - GPU layer rendering happens independently in main loop
 

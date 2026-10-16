@@ -704,7 +704,7 @@ static void png_chunk(FILE* f, const char* type, const unsigned char* data, size
 	fwrite(tail, 1, 4, f);
 }
 
-// Minimal RGBA8 PNG writer (this SDL_image predates IMG_SavePNG).
+// Minimal RGBA8 PNG writer.
 static int png_write(const char* path, SDL_Surface* rgba) {
 	const int w = rgba->w, h = rgba->h;
 	size_t raw_len = (size_t)h * (1 + (size_t)w * 4);

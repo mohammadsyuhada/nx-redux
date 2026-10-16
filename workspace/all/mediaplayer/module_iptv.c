@@ -27,8 +27,8 @@ typedef enum {
 } IPTVModuleState;
 
 // Context-menu item ids (user-channels page)
-#define IPTV_CTX_BROWSE 1  // browse/manage curated channels (was Y)
-#define IPTV_CTX_REMOVE 2  // remove the selected user channel (was X)
+#define IPTV_CTX_BROWSE 1  // browse/manage curated channels
+#define IPTV_CTX_REMOVE 2  // remove the selected user channel
 #define IPTV_CTX_REFRESH 3 // re-fetch the current browse screen from iptv-org
 
 // One-time note that channels come from the public iptv-org index.
@@ -216,7 +216,7 @@ ModuleExitReason IPTVModule_run(SDL_Surface* screen) {
 				if (confirm_action_type == 0) {
 					// Delete from main list. Content changed: reset the view to
 					// the rebuilt array (glide snap + marquee clear), then
-					// restore the cursor clamped like the old code did.
+					// restore the cursor, clamped to the new count.
 					IPTV_removeUserChannel(confirm_target_index);
 					const IPTVChannel* channels = IPTV_getUserChannels();
 					int user_count = IPTV_getUserChannelCount();

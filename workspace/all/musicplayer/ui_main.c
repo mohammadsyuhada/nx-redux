@@ -31,7 +31,7 @@ static const char* get_now_playing_label(void) {
 	}
 }
 
-// Label callback for first item label and Settings update badge
+// Label callback for the Resume / Now Playing first item
 static const char* main_menu_get_label(int index, const char* default_label,
 									   char* buffer, int buffer_size) {
 	bool has_first = (current_first_item_mode != MENU_FIRST_NONE);

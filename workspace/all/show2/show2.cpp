@@ -7,14 +7,27 @@
  *   3. Daemon mode for runtime updates via FIFO
  *
  * Usage:
- *   show2.elf --mode=simple --image=<path> [--bgcolor=0x000000]
- *   show2.elf --mode=progress --image=<path> [--bgcolor=0x000000] [--fontcolor=0xFFFFFF] [--text="message"] [--progress=0]
- *   show2.elf --mode=daemon --image=<path> [--bgcolor=0x000000] [--fontcolor=0xFFFFFF] [--text="message"]
- * 
+ *   show2.elf --mode=simple|progress|daemon --image=<path> [options]
+ *
+ * Options (all modes):
+ *   --bgcolor=0xRRGGBB      background color (default 0x000000)
+ *   --fontcolor=0xRRGGBB    text color (default 0xFFFFFF)
+ *   --text="message"        status line
+ *   --hint="message"        optional second line under the status text
+ *   --progress=N            0-100, or -1 for an indeterminate bar
+ *   --texty=N               status line Y position, % of screen height (default 80)
+ *   --progressy=N           progress bar Y position, % of screen height (default 90)
+ *   --timeout=N             auto-close after N seconds (0 = never)
+ *   --logoheight=N          scale the logo to N px tall (0 = no scaling)
+ *   --fontsize=N            font size in px (default 24)
+ *
  * Daemon mode FIFO commands (/tmp/show2.fifo):
  *   TEXT:message
  *   PROGRESS:50
  *   BGCOLOR:0xRRGGBB
+ *   FONTCOLOR:0xRRGGBB
+ *   TEXTY:80
+ *   PROGRESSY:90
  *   QUIT
  */
 

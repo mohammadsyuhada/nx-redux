@@ -18,7 +18,7 @@
 #define MENU_FIRST_NOW_PLAYING 2
 
 // Run the main menu
-// Returns: menu item index (0-5) or MENU_QUIT (-1) if user wants to exit
+// Returns: menu item index (0-4) or MENU_QUIT (-1) if user wants to exit
 int MenuModule_run(SDL_Surface* screen);
 
 // Set toast message (called by modules returning to menu with a message)

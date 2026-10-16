@@ -16,10 +16,10 @@ static char menu_toast_message[128] = "";
 static uint32_t menu_toast_time = 0;
 
 // Context-menu item ids
-#define MENU_CTX_CLEAR 1 // Stop Playback / Clear History (same as X on row 0)
+#define MENU_CTX_CLEAR 1 // Stop Playback / Clear History
 
-// Stop background playback or clear the resume entry (X on row 0, and the
-// matching context-menu item).
+// Stop background playback or clear the resume entry (the MENU_CTX_CLEAR
+// context-menu item).
 static void clear_first_item(int first_item_mode, bool* dirty) {
 	if (first_item_mode == MENU_FIRST_NOW_PLAYING) {
 		Background_stopAll();
@@ -44,7 +44,7 @@ int MenuModule_run(SDL_Surface* screen) {
 	IndicatorType show_setting = INDICATOR_NONE;
 
 	// The view owns selection: reset on module entry so re-entering the menu
-	// starts at row 0, matching the old fresh local. render_menu supplies the
+	// starts at row 0. render_menu supplies the
 	// real items pointer as list_id on the first frame.
 	ListView* v = MusicMainMenu_view();
 	int entry_count = (Background_isPlaying() || Resume_isAvailable()) ? 5 : 4;
@@ -55,8 +55,7 @@ int MenuModule_run(SDL_Surface* screen) {
 		GFX_startFrame();
 		PAD_poll();
 
-		// Background playback (track advancement, progress save) is ticked
-		// centrally in ModuleCommon_PWR_update below.
+		// Refresh the daemon snapshot (the daemon owns advancement and progress)
 		MusicClient_update();
 		ModuleCommon_setAutosleepDisabled(Background_isPlaying());
 
@@ -88,7 +87,7 @@ int MenuModule_run(SDL_Surface* screen) {
 			ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Clear History", MENU_CTX_CLEAR);
 		ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
 
-		// Handle global input first (volume, START dialogs, power)
+		// Handle global input first (context menu, power while it is open)
 		GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, 0, ctx_items, ctx_count);
 		if (global.should_quit) {
 			return MENU_QUIT;
@@ -124,7 +123,6 @@ int MenuModule_run(SDL_Surface* screen) {
 			dirty = 1;
 			break;
 		default:
-			// Stop/clear moved to the context menu (MENU tap)
 			break;
 		}
 		if (UI_listViewBusy(v))

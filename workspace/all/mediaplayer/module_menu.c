@@ -31,7 +31,7 @@ int MenuModule_run(SDL_Surface* screen) {
 	IndicatorType show_setting = INDICATOR_NONE;
 
 	// The view owns selection: reset on module entry so re-entering the menu
-	// starts at row 0, matching the old fresh local. render_menu supplies the
+	// starts at row 0. render_menu supplies the
 	// real items pointer as list_id on the first frame.
 	ListView* v = MediaMainMenu_view();
 	UI_listViewReset(v, MENU_ITEM_COUNT, NULL);
@@ -45,7 +45,7 @@ int MenuModule_run(SDL_Surface* screen) {
 		int ctx_count = 0;
 		ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
 
-		// Handle global input first (START dialogs, power)
+		// Handle global input first (quit chord, MENU context menu, power)
 		GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, ctx_items, ctx_count);
 		if (global.should_quit) {
 			return MENU_QUIT;

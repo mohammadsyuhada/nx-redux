@@ -32,7 +32,7 @@ static int get_volume(SettingsShm* s) {
 static void save_settings(SettingsShm* s) {
 	const char* userdata = getenv("USERDATA_PATH");
 	if (!userdata)
-		userdata = "/mnt/SDCARD/.userdata/" PLATFORM; // was hardcoded tg5050
+		userdata = "/mnt/SDCARD/.userdata/" PLATFORM;
 	char path[256];
 	snprintf(path, sizeof(path), "%s/msettings.bin", userdata);
 	int fd = open(path, O_CREAT | O_WRONLY, 420);

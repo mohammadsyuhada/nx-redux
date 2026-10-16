@@ -246,7 +246,7 @@ int podcast_rss_parse_with_episodes(const char* xml_data, int xml_len, PodcastFe
 					   !stack_contains(&elem_stack, "item") &&
 					   !stack_contains(&elem_stack, "entry")) {
 				// Only handle channel-level elements when NOT inside an item/entry
-				// (even if in_item is false due to exceeding PODCAST_MAX_EPISODES)
+				// (even if in_item is false due to exceeding max_episodes)
 				if (strcmp(elem, "title") == 0 && !stack_contains(&elem_stack, "image")) {
 					state = RSS_STATE_CHANNEL_TITLE;
 				} else if (strcmp(elem, "description") == 0) {

@@ -12,9 +12,6 @@
 // JSON library
 #include "parson/parson.h"
 
-// URL encode a string for use in query parameters
-// url_encode moved to common/utils.c as urlEncode()
-
 // Convert Apple artwork URL to larger size (100x100 -> 400x400)
 // Example: https://...mzstatic.com/.../100x100bb.png -> https://...mzstatic.com/.../400x400bb.png
 static void artwork_url_upscale(const char* src, char* dest, size_t dest_size) {

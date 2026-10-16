@@ -259,7 +259,7 @@ static void handle_ctx_rename(ImageEntry* e) {
 }
 
 // Delete flow for the MENU > Delete item: blocking confirm modal, then the
-// matching fileops call. Per the brief, the listing is only reloaded on
+// matching fileops call. The listing is only reloaded on
 // success; a failed delete just toasts (deleteTree's own best-effort
 // continuation means a partial failure is rare and not worth reloading for).
 static void handle_ctx_delete(ImageEntry* e, int target_index) {

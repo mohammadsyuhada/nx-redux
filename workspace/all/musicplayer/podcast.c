@@ -362,7 +362,6 @@ static int json_serialize_atomic(const JSON_Value* root, const char* path) {
 	return JSONSuccess;
 }
 
-// Save episodes to JSON file for a feed
 // Serialize episodes to the feed's on-disk file, keyed by feed_id. Touches no
 // array state, so it is safe to call while the subscriptions array may be
 // shifting (the background refresh path relies on this).

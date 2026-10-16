@@ -33,7 +33,7 @@ typedef struct {
 // Episode pagination - only load this many into memory at a time
 #define PODCAST_EPISODE_PAGE_SIZE 50
 
-// Data paths (relative to SDCARD_PATH/.userdata/tg5040/)
+// Data paths (relative to SHARED_USERDATA_PATH)
 #define PODCAST_DATA_DIR "music-player/podcast"
 #define PODCAST_SUBSCRIPTIONS_FILE "subscriptions.json"
 
@@ -250,7 +250,7 @@ const PodcastChartsStatus* Podcast_getChartsStatus(void);
 PodcastChartItem* Podcast_getTopShows(int* count);
 
 // ============================================================================
-// Playback (Streaming)
+// Playback (downloaded episodes)
 // ============================================================================
 
 // Load episode and seek to saved position without starting playback

@@ -27,13 +27,8 @@ void PlayerModule_setResumePlaylistPath(const char* m3u_path);
 // Check if music player module is active (playing/paused)
 bool PlayerModule_isActive(void);
 
-// Play next track (for USB HID button support)
+// Play the next / previous track (asks the daemon, then resyncs the UI)
 void PlayerModule_nextTrack(void);
-
-// Play previous track (for USB HID button support)
 void PlayerModule_prevTrack(void);
-
-// Background tick: handle track advancement and resume saving while in menu
-void PlayerModule_backgroundTick(void);
 
 #endif

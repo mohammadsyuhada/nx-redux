@@ -50,9 +50,6 @@ static void get_cache_filepath(const char* artist, const char* title, char* path
 	snprintf(path, path_size, "%s/%08x.lrc", LYRICS_CACHE_DIR, hash);
 }
 
-// URL encode a string for use in query parameters
-// url_encode moved to common/utils.c as urlEncode()
-
 // Parse LRC text into a line array. Returns number of lines parsed.
 static int parse_lrc_text(const char* lrc_text, LyricLine* lines, int max_lines) {
 	int count = 0;

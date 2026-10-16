@@ -224,8 +224,6 @@ static void rescale_audio_position(int old_rate, int new_rate) {
 		audio_position_samples = (int64_t)((double)audio_position_samples * new_rate / old_rate);
 }
 
-// Audio sink state is now managed by AudioMgr (audio_manager.c)
-
 // Device-open rate: always sink-compatible (AudioMgr_pickRate reads the
 // audiomon-published state). The user setting only controls whether we
 // chase the track's source rate (useful on USB DACs) or stay at 48 kHz.
@@ -1068,8 +1066,8 @@ static int stream_decoder_seek(StreamDecoder* sd, int64_t frame) {
 			target_sample = m4a->sample_count > 0 ? m4a->sample_count - 1 : 0;
 		}
 		m4a->current_sample = target_sample;
-		// Flush FDK-AAC decoder state for clean seek
-		// Use AACDEC_INTR to signal discontinuity, then decode a dummy frame to flush
+		// Clear FDK-AAC's transport buffer so decoding restarts cleanly at the
+		// new frame
 		aacDecoder_SetParam(m4a->aac_decoder, AAC_TPDEC_CLEAR_BUFFER, 1);
 		// Clear leftover buffer to avoid playing stale samples after seek
 		m4a->leftover_count = 0;
@@ -1342,7 +1340,7 @@ static void* stream_thread_func(void* arg) {
 
 	// Allocate decode buffer
 	int16_t* decode_buffer = malloc(DECODE_CHUNK_FRAMES * sizeof(int16_t) * AUDIO_CHANNELS);
-	// Resample output buffer (allow for 2x expansion)
+	// Resample output buffer (allow for up to 3x expansion)
 	size_t resample_buffer_size = DECODE_CHUNK_FRAMES * 3;
 	int16_t* resample_buffer = malloc(resample_buffer_size * sizeof(int16_t) * AUDIO_CHANNELS);
 
@@ -1371,9 +1369,10 @@ static void* stream_thread_func(void* arg) {
 			}
 			// Clear resampler leftover buffer to avoid playing stale samples
 			player.resample_leftover_count = 0;
+			// Reset EOF flag on seek
 			pthread_mutex_lock(&player.mutex);
 			player.stream_eof = false;
-			pthread_mutex_unlock(&player.mutex); // Reset EOF flag on seek
+			pthread_mutex_unlock(&player.mutex);
 		}
 
 		// Check if buffer needs more data (< 50% full)
@@ -1849,10 +1848,6 @@ int Player_reopenAudioDevice(void) {
 	return result;
 }
 
-int Player_init(void) {
-	return Player_coreInit();
-}
-
 // Reconfigure audio device with a new sample rate
 static int reconfigure_audio_device(int new_sample_rate) {
 	/* The sink's active rate is authoritative while another process may be
@@ -2073,8 +2068,6 @@ static void parse_id3v2(const char* filepath) {
 	}
 
 	uint8_t version_major = header[3]; // 3 = ID3v2.3, 4 = ID3v2.4
-	// uint8_t version_minor = header[4];
-	// uint8_t flags = header[5];
 	uint32_t tag_size = read_syncsafe_int(&header[6]);
 
 	// Cap the allocation: the syncsafe field allows up to 256MB, which an

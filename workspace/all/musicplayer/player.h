@@ -53,7 +53,7 @@ typedef struct {
 // Streaming decoder state (holds any decoder type)
 typedef struct {
 	AudioFormat format;
-	void* decoder; // drmp3*, drwav*, drflac*, or stb_vorbis*
+	void* decoder; // drmp3*, drwav*, drflac*, stb_vorbis*, OggOpusFile*, M4ADecoder* or AACFileDecoder*
 	int source_sample_rate;
 	int source_channels;
 	int64_t total_frames;
@@ -119,11 +119,6 @@ typedef struct {
 	// Threading
 	pthread_mutex_t mutex;
 } PlayerContext;
-
-// Initialize the player core and audio device. This wrapper is retained for
-// existing Music Player callers; staged owners should use the explicit
-// core/device lifetime functions below.
-int Player_init(void);
 
 // Initialize decoder/state ownership without opening an SDL audio device.
 int Player_coreInit(void);

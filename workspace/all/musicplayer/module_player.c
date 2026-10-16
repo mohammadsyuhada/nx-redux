@@ -440,7 +440,6 @@ static bool handle_browser_input(PlayerInternalState* state, bool* dirty) {
 		}
 		break;
 	default:
-		// Delete / add-to-playlist moved to the context menu (MENU tap)
 		break;
 	}
 
@@ -486,7 +485,6 @@ static bool handle_playing_input(SDL_Surface* screen, PlayerInternalState* state
 	} else if (PAD_justPressed(BTN_B)) {
 		cleanup_album_art_background();
 		cleanup_playback_ui();
-		Background_setActive(BG_MUSIC);
 		*state = PLAYER_INTERNAL_BROWSER;
 		*dirty = 1;
 		return true; // Skip track-ended check to prevent auto-advance
@@ -586,7 +584,6 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 	MusicClient_update();
 	sync_ui_to_owner();
 	if (Background_getActive() == BG_MUSIC && PlayerModule_isActive()) {
-		Background_setActive(BG_NONE);
 		repeat_enabled = MusicClient_snapshot()->repeat != 0;
 		shuffle_enabled = MusicClient_snapshot()->shuffle != 0;
 		Spectrum_init();
@@ -926,7 +923,6 @@ ModuleExitReason PlayerModule_runWithPlaylist(SDL_Surface* screen,
 		} else if (PAD_justPressed(BTN_B)) {
 			cleanup_album_art_background();
 			cleanup_playback_ui();
-			Background_setActive(BG_MUSIC);
 			return MODULE_EXIT_TO_MENU;
 		} else if (PAD_justRepeated(BTN_LEFT)) {
 			MusicClient_seek(MusicClient_position() - 5000);
@@ -1221,9 +1217,4 @@ ModuleExitReason PlayerModule_runResume(SDL_Surface* screen, const ResumeState* 
 	}
 
 	return MODULE_EXIT_TO_MENU;
-}
-
-// Background playback belongs to musicplayerd; the UI only refreshes its copy.
-void PlayerModule_backgroundTick(void) {
-	MusicClient_update();
 }

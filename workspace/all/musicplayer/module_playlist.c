@@ -148,7 +148,7 @@ ModuleExitReason PlaylistModule_run(SDL_Surface* screen) {
 				if (confirm_action == 0) {
 					// Delete playlist. Content changed: reset the view to the
 					// rebuilt array (glide snap + marquee clear), then restore
-					// the cursor clamped like the old code did.
+					// the cursor, clamped to the new count.
 					int idx = confirm_target;
 					if (idx >= 0 && idx < playlist_count) {
 						M3U_delete(playlists[idx].path);
@@ -284,7 +284,6 @@ ModuleExitReason PlaylistModule_run(SDL_Surface* screen) {
 					(act.btn == BTN_A && playlist_count == 0)) {
 					// New Playlist: Y anywhere, or A from the empty state
 					// (its hint advertises A/NEW; act.index is -1 there).
-					// Delete moved to the context menu (MENU tap).
 					create_playlist(&screen);
 					dirty = 1;
 				}
@@ -331,7 +330,6 @@ ModuleExitReason PlaylistModule_run(SDL_Surface* screen) {
 				dirty = 1;
 				break;
 			default:
-				// Remove-track moved to the context menu (MENU tap)
 				break;
 			}
 		}

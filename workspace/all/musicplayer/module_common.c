@@ -324,7 +324,7 @@ void ModuleCommon_PWR_update(bool* dirty, IndicatorType* show_setting) {
 		overlay_release_time = SDL_GetTicks();
 	}
 
-	// Call platform PWR_update (convert int* to expected types)
+	// Call platform PWR_update
 	bool dirty_bool = *dirty != 0;
 	IndicatorType indicator = (IndicatorType)*show_setting;
 	PWR_update(&dirty_bool, &indicator, NULL, NULL);

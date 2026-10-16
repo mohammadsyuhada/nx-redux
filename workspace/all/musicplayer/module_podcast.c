@@ -51,10 +51,6 @@ static int podcast_queue_scroll = 0;
 static char podcast_toast_message[128] = "";
 static uint32_t podcast_toast_time = 0;
 
-// Periodic progress saving
-static uint32_t last_progress_save_time = 0;
-#define PROGRESS_SAVE_INTERVAL_MS 30000 // 30 seconds
-
 // Confirmation dialog state
 static bool show_confirm = false;
 static int confirm_target_index = -1;
@@ -67,10 +63,10 @@ static bool screen_off = false;
 // Context-menu item ids
 #define PODCAST_CTX_UNSUBSCRIBE 1	   // menu: unsubscribe selected podcast
 #define PODCAST_CTX_MANAGE 2		   // menu: manage podcasts
-#define PODCAST_CTX_REFRESH_LIST 3	   // top shows: refresh charts (same as X)
-#define PODCAST_CTX_REFRESH_EPISODES 4 // episodes: refresh feed (same as Y)
-#define PODCAST_CTX_MARK_PLAYED 5	   // episodes: toggle played (same as X)
-#define PODCAST_CTX_REMOVE_DOWNLOAD 6  // queue: cancel/remove download (same as X)
+#define PODCAST_CTX_REFRESH_LIST 3	   // top shows: refresh charts
+#define PODCAST_CTX_REFRESH_EPISODES 4 // episodes: refresh feed
+#define PODCAST_CTX_MARK_PLAYED 5	   // episodes: toggle played
+#define PODCAST_CTX_REMOVE_DOWNLOAD 6  // queue: cancel/remove download
 
 static int load_podcast_episode(PodcastFeed* feed, int episode_index) {
 	PodcastEpisode episode;
@@ -160,7 +156,6 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 	MusicClient_update();
 	if (Background_getActive() == BG_PODCAST && MusicClient_isPodcastActive() &&
 		restore_podcast_identity()) {
-		Background_setActive(BG_NONE);
 		ModuleCommon_setAutosleepDisabled(true);
 		state = PODCAST_INTERNAL_PLAYING;
 	}
@@ -466,7 +461,6 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 								if (load_result >= 0) {
 									Podcast_clearTitleScroll();
 									ModuleCommon_recordInputTime();
-									last_progress_save_time = SDL_GetTicks();
 									if (load_result == 1) {
 										state = PODCAST_INTERNAL_SEEKING;
 									} else {
@@ -516,9 +510,6 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 				UI_clearToast();
 				if (MusicClient_isPodcastActive() || Podcast_isDownloading()) {
 					Podcast_saveSubscriptions();
-					if (MusicClient_isPodcastActive()) {
-						Background_setActive(BG_PODCAST);
-					}
 				} else {
 					Podcast_cleanupCatalog();
 				}
@@ -652,7 +643,6 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 					}
 					dirty = 1;
 				}
-				// Refresh-charts moved to the context menu (MENU tap)
 			}
 
 			if (PAD_justPressed(BTN_B)) {
@@ -814,7 +804,6 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 							Podcast_clearNewFlag(podcast_current_feed_index, podcast_current_episode_index);
 							Podcast_clearTitleScroll();
 							ModuleCommon_recordInputTime();
-							last_progress_save_time = SDL_GetTicks();
 							// Update continue listening
 							Podcast_updateContinueListening(feed->feed_url, feed->feed_id,
 															ep.guid, ep.title, feed->title, feed->artwork_url);
@@ -845,7 +834,6 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 				}
 				dirty = 1;
 			} else if (PAD_justPressed(BTN_B)) {
-				// Refresh / mark-played moved to the context menu (MENU tap)
 				Podcast_clearTitleScroll();
 				podcast_toast_message[0] = '\0';
 				UI_clearToast();
@@ -894,7 +882,6 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 				Podcast_clearTitleScroll();
 				dirty = 1;
 			} else if (PAD_justPressed(BTN_B)) {
-				// Cancel/remove download moved to the context menu (MENU tap)
 				Podcast_clearTitleScroll();
 				podcast_toast_message[0] = '\0';
 				UI_clearToast();
@@ -915,7 +902,6 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 				// The owner applies any saved position before starting playback.
 				UI_renderToast(screen, "", 0); // Clear the "Resuming..." toast
 				ModuleCommon_recordInputTime();
-				last_progress_save_time = SDL_GetTicks();
 				state = PODCAST_INTERNAL_PLAYING;
 				dirty = 1;
 			} else if (PAD_justPressed(BTN_B)) {
@@ -945,7 +931,7 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 					GFX_clear(screen);
 					GFX_flip(screen);
 				}
-				// Handle USB/Bluetooth media and volume buttons even with screen off
+				// Poll async search/charts completion
 				Podcast_update();
 				GFX_sync();
 				continue;
@@ -1111,15 +1097,5 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 		} else if (!screen_off) {
 			GFX_sync();
 		}
-	}
-}
-
-// Background tick only refreshes the catalog UI; playback persistence and EOF
-// handling belong to the long-lived owner.
-void PodcastModule_backgroundTick(void) {
-	Podcast_update();
-	if (MusicClient_snapshot()->source != MUSIC_SOURCE_PODCAST) {
-		Background_setActive(BG_NONE);
-		ModuleCommon_setAutosleepDisabled(false);
 	}
 }
