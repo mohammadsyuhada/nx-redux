@@ -174,6 +174,81 @@ void State_getPath(char* filename) {
 }
 
 #define RASTATE_HEADER_SIZE 16
+#define STATE_READ_MAX (256u << 20)
+
+typedef int64_t (*StateReadFn)(void* stream, void* buf, size_t len);
+
+#ifdef HAS_SRM
+static int64_t State_readRz(void* stream, void* buf, size_t len) {
+	return rzipstream_read((rzipstream_t*)stream, buf, len);
+}
+#else
+static int64_t State_readFile(void* stream, void* buf, size_t len) {
+	size_t n = fread(buf, 1, len, (FILE*)stream);
+	return (n == 0 && ferror((FILE*)stream)) ? -1 : (int64_t)n;
+}
+#endif
+
+// The size of a RASTATE file's MEM block (header "RASTATE<ver>MEM <le32>"), 0 for raw core data.
+static size_t State_memSize(const uint8_t* header) {
+	if (memcmp(header, "RASTATE", 7) != 0 || memcmp(header + 8, "MEM ", 4) != 0)
+		return 0;
+	return (size_t)header[12] | (size_t)header[13] << 8 | (size_t)header[14] << 16 | (size_t)header[15] << 24;
+}
+
+// Reads the state data: [want] bytes when known, else to the end. The buffer is at least
+// [min_size] (the core's serialize_size, zero-filled past the data) but grows past it: a
+// core's live size can be smaller than a state it wrote later in a game (flycast includes
+// its render lists, ~27 MB after boot and ~36 MB mid-game), and unserialize rejects data
+// cut to the smaller size. *out_size is what to pass to unserialize: max(data, min_size).
+static void* State_readData(StateReadFn rd, void* stream, size_t min_size, size_t want, size_t* out_size) {
+	size_t cap = want > min_size ? want : min_size;
+	if (cap > STATE_READ_MAX)
+		return NULL;
+	uint8_t* buf = calloc(1, cap);
+	if (!buf)
+		return NULL;
+	size_t len = 0;
+	while (!want || len < want) {
+		if (len == cap) {
+			size_t grown = cap * 2;
+			if (grown > STATE_READ_MAX) {
+				free(buf);
+				return NULL;
+			}
+			uint8_t* next = realloc(buf, grown);
+			if (!next) {
+				free(buf);
+				return NULL;
+			}
+			memset(next + cap, 0, grown - cap);
+			buf = next;
+			cap = grown;
+		}
+		size_t ask = cap - len;
+		if (want && ask > want - len)
+			ask = want - len;
+		int64_t n = rd(stream, buf + len, ask);
+		if (n < 0) {
+			free(buf);
+			return NULL;
+		}
+		if (n == 0)
+			break;
+		len += (size_t)n;
+	}
+	*out_size = len > min_size ? len : min_size;
+	return buf;
+}
+
+// The whole state first; a core that wants exactly its serialize_size (and refuses a longer
+// state before touching anything) then gets the state cut to it, as before.
+static bool State_unserialize(void* state, size_t data_size, size_t state_size) {
+	if (core.unserialize(state, data_size))
+		return true;
+	return data_size > state_size && core.unserialize(state, state_size);
+}
+
 int State_read(void) { // from picoarch
 	// Block load states in RetroAchievements hardcore mode
 	if (RA_isHardcoreModeActive()) {
@@ -202,11 +277,8 @@ int State_read(void) { // from picoarch
 	FILE* state_file = NULL;
 #endif
 
-	void* state = calloc(1, state_size);
-	if (!state) {
-		LOG_error("Couldn't allocate memory for state\n");
-		goto error;
-	}
+	void* state = NULL;
+	size_t data_size = 0;
 
 #ifdef HAS_SRM
 	state_rzfile = rzipstream_open(filename, RETRO_VFS_FILE_ACCESS_READ);
@@ -228,14 +300,15 @@ int State_read(void) { // from picoarch
 	// No need to parse the header any further
 	// (we only need MEM section which will always be the first one)
 
-	// some cores report the wrong serialize size initially for some games, eg. mgba: Wario Land 4
-	// so we allow a size mismatch as long as the actual size fits in the buffer we've allocated
-	if (rzipstream_read(state_rzfile, state, state_size) < 0) {
+	// some cores report the wrong serialize size initially for some games, eg. mgba: Wario Land 4,
+	// so a shorter state is padded to state_size, and a longer one is read whole
+	state = State_readData(State_readRz, state_rzfile, state_size, State_memSize(rastate_header), &data_size);
+	if (!state) {
 		LOG_error("Error reading state data from file: %s (%s)\n", filename, strerror(errno));
 		goto error;
 	}
 
-	if (!core.unserialize(state, state_size)) {
+	if (!State_unserialize(state, data_size, state_size)) {
 		LOG_error("Error restoring save state: %s\n", filename);
 		goto error;
 	}
@@ -266,14 +339,15 @@ error:
 		fseek(state_file, 0, SEEK_SET);
 	}
 
-	// some cores report the wrong serialize size initially for some games, eg. mgba: Wario Land 4
-	// so we allow a size mismatch (short read at EOF) as long as it fits the buffer we've allocated
-	if (fread(state, 1, state_size, state_file) < state_size && ferror(state_file)) {
+	// some cores report the wrong serialize size initially for some games, eg. mgba: Wario Land 4,
+	// so a shorter state is padded to state_size, and a longer one is read whole
+	state = State_readData(State_readFile, state_file, state_size, State_memSize(rastate_header), &data_size);
+	if (!state) {
 		LOG_error("Error reading state data from file: %s (%s)\n", filename, strerror(errno));
 		goto error;
 	}
 
-	if (!core.unserialize(state, state_size)) {
+	if (!State_unserialize(state, data_size, state_size)) {
 		LOG_error("Error restoring save state: %s\n", filename);
 		goto error;
 	}
