@@ -51,6 +51,8 @@ Included in this zip is a "Roms" folder containing folders for each console NX R
 
 When one or more folder share the same display name (eg. "Game Boy Advance (GBA)" and "Game Boy Advance (MGBA)") they will be combined into a single menu item containing the roms from both folders (continuing the previous example, "Game Boy Advance"). This allows opening specific roms with an alternate pak.
 
+A Classic NES Series / Famicom Mini cart (an unzipped .gba) in a GBA folder runs on mGBA automatically, since gpSP can't run it. Its save stays in "/Saves/GBA/".
+
 ----------------------------------------
 Bios
 
