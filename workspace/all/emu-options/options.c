@@ -186,10 +186,9 @@ static void render_item_page(const char* parent, const char* title, UISettingsIt
 	/*
 	 * Keyed off the very flag the component draws its "< >" arrows from, so the
 	 * hint and the row it describes can never disagree: an arrow-less row (the
-	 * reset row) is pressed, a cycleable one is stepped. Same shape as the other
-	 * screens on this component — portmaster.c:781-786,
-	 * musicplayer/ui_settings.c:69-81. A still cycles a value as well as
-	 * LEFT/RIGHT, but the bar names the arrows the row is showing.
+	 * reset row) is pressed, a cycleable one is stepped. Same shape as
+	 * musicplayer/ui_settings.c's settings screen. A still cycles a value as
+	 * well as LEFT/RIGHT, but the bar names the arrows the row is showing.
 	 */
 	bool cycleable = (selected >= 0 && selected < count && items[selected].cycleable);
 	UI_renderButtonHintBar(screen, (char*[]){
@@ -208,7 +207,7 @@ static void render_item_page(const char* parent, const char* title, UISettingsIt
 /*
  * stdout is the picker's return channel, so it has to stay clean. GFX_init,
  * InitSettings and the platform layer all log with plain printf, and the
- * callers in Task 5 read this process's stdout — park the real stdout on a
+ * picker's caller (Emulator Settings.pak) reads this process's stdout — park the real stdout on a
  * spare descriptor and point fd 1 at stderr until there is an answer to print.
  * Returns the saved descriptor, or -1 when the redirect could not be set up
  * (in which case nothing was changed and no restore is needed).
@@ -219,7 +218,7 @@ static void render_item_page(const char* parent, const char* title, UISettingsIt
  * `saved` is the write end of that pipe, and the shell's read only returns at
  * EOF — i.e. when every copy of the write end is closed. On tg5050,
  * InitSettings() below calls SetRawFanSpeed(-2), which runs
- * system("…/fancontrol normal &") (tg5050/libmsettings/msettings.c:1092-1115).
+ * system("…/fancontrol normal &") (tg5050/libmsettings/msettings.c, SetRawFanSpeed).
  * That trailing & leaves a daemon alive after we exit, and without CLOEXEC it
  * inherits `saved` and holds the pipe open forever: the picker exits 0, the
  * chosen path is printed, and Tools -> Emulator Settings still hangs on a black

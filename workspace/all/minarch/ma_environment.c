@@ -55,9 +55,6 @@ static void perf_log_noop(void) {
 bool environment_callback(unsigned cmd, void* data) { // copied from picoarch initially
 
 	switch (cmd) {
-	// case RETRO_ENVIRONMENT_SET_ROTATION: { /* 1 */
-	// 	break;
-	// }
 	case RETRO_ENVIRONMENT_GET_OVERSCAN: { /* 2 */
 		bool* out = (bool*)data;
 		if (out)
@@ -100,8 +97,7 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		break;
 	}
 	case RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL: { /* 8 */
-													// puts("RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL");
-													// TODO: used by fceumm at least
+		// TODO: used by fceumm at least
 		break;
 	}
 	case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY: { /* 9 */
@@ -127,7 +123,6 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		return false; // Indicate failure
 	}
 	case RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS: { /* 11 */
-		// puts("RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS\n");
 		Input_init((const struct retro_input_descriptor*)data);
 		// descriptors are consumed; returning false makes some cores stop re-sending them
 		return true;
@@ -145,7 +140,6 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 
 	// TODO: this is called whether using variables or options
 	case RETRO_ENVIRONMENT_GET_VARIABLE: { /* 15 */
-		// puts("RETRO_ENVIRONMENT_GET_VARIABLE ");
 		struct retro_variable* var = (struct retro_variable*)data;
 		if (var && var->key) {
 			var->value = OptionList_getOptionValue(&config.core, var->key);
@@ -154,14 +148,10 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 			// session, and "lockstep" exists only there (gbalink_mode.c).
 			var->value = gbalink_serial_option(var->key, var->value, getenv("NETPLAY_MODE"));
 		}
-		// fflush(stdout);
 		break;
 	}
-	// TODO: I think this is where the core reports its variables (the precursor to options)
-	// TODO: this is called if RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION sets out to 0
-	// TODO: not used by anything yet
+	// Legacy core variables: sent when GET_CORE_OPTIONS_VERSION reports 0
 	case RETRO_ENVIRONMENT_SET_VARIABLES: { /* 16 */
-		// puts("RETRO_ENVIRONMENT_SET_VARIABLES");
 		const struct retro_variable* vars = (const struct retro_variable*)data;
 		if (vars) {
 			OptsCache_refreshVars(vars);
@@ -225,7 +215,7 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 	case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY: { /* 31 */
 		const char** out = (const char**)data;
 		if (out)
-			*out = core.saves_dir; // save_dir;
+			*out = core.saves_dir;
 		break;
 	}
 	case RETRO_ENVIRONMENT_SET_CONTROLLER_INFO: { /* 35 */
@@ -244,7 +234,6 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 					has_custom_controllers = 1;
 					break;
 				}
-				// printf("\t%i: %s\n", type->id, type->desc);
 			}
 		}
 		fflush(stdout);
@@ -258,19 +247,16 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		break;
 	}
 	case RETRO_ENVIRONMENT_GET_LANGUAGE: { /* 39 */
-		// puts("RETRO_ENVIRONMENT_GET_LANGUAGE");
 		if (data)
 			*(int*)data = RETRO_LANGUAGE_ENGLISH;
 		break;
 	}
 	case RETRO_ENVIRONMENT_GET_CURRENT_SOFTWARE_FRAMEBUFFER: { /* (40 | RETRO_ENVIRONMENT_EXPERIMENTAL) */
-		// puts("RETRO_ENVIRONMENT_GET_CURRENT_SOFTWARE_FRAMEBUFFER");
 		break;
 	}
 
 	case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE: {
 		// fixes fbneo save state graphics corruption
-		// puts("RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE");
 		int* out_p = (int*)data;
 		if (out_p) {
 			int out = 0;
@@ -288,8 +274,6 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 
 	// RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS (42 | RETRO_ENVIRONMENT_EXPERIMENTAL)
 	// RETRO_ENVIRONMENT_GET_VFS_INTERFACE (45 | RETRO_ENVIRONMENT_EXPERIMENTAL)
-	// RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE (47 | RETRO_ENVIRONMENT_EXPERIMENTAL)
-	// RETRO_ENVIRONMENT_GET_INPUT_BITMASKS (51 | RETRO_ENVIRONMENT_EXPERIMENTAL)
 	case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS: { /* 51 | RETRO_ENVIRONMENT_EXPERIMENTAL */
 		bool* out = (bool*)data;
 		if (out)
@@ -297,13 +281,11 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		break;
 	}
 	case RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION: { /* 52 */
-		// puts("RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION");
 		if (data)
 			*(unsigned*)data = 2;
 		break;
 	}
 	case RETRO_ENVIRONMENT_SET_CORE_OPTIONS: { /* 53 */
-		// puts("RETRO_ENVIRONMENT_SET_CORE_OPTIONS");
 		if (data) {
 			OptsCache_refreshV1((const struct retro_core_option_definition*)data);
 			OptionList_reset();
@@ -313,7 +295,6 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		break;
 	}
 	case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL: { /* 54 */
-		// puts("RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL");
 		const struct retro_core_options_intl* options = (const struct retro_core_options_intl*)data;
 		if (options && options->us) {
 			OptsCache_refreshV1(options->us);
@@ -324,7 +305,6 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		break;
 	}
 	case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY: { /* 55 */
-													   // puts("RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY");
 		if (data) {
 			const struct retro_core_option_display* display = (const struct retro_core_option_display*)data;
 			OptionList_setOptionVisibility(&config.core, display->key, display->visible);
@@ -346,38 +326,15 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		}
 		break;
 	}
-	// TODO: RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION 59
-	// TODO: used by mgba, (but only during frameskip?)
-	// case RETRO_ENVIRONMENT_SET_AUDIO_BUFFER_STATUS_CALLBACK: { /* 62 */
-	// 	const struct retro_audio_buffer_status_callback *cb = (const struct retro_audio_buffer_status_callback *)data;
-	// 	if (cb) {
-	// 		core.audio_buffer_status = cb->callback;
-	// 	} else {
-	// 		core.audio_buffer_status = NULL;
-	// 	}
-	// 	break;
-	// }
-	// TODO: used by mgba, (but only during frameskip?)
-	// case RETRO_ENVIRONMENT_SET_MINIMUM_AUDIO_LATENCY: { /* 63 */
-	//
-	// 	const unsigned *latency_ms = (const unsigned *)data;
-	// 	if (latency_ms) {
-	// 		unsigned frames = *latency_ms * core.fps / 1000;
-	// 		if (frames < 30)
-	// 			// audio_buffer_size_override = frames;
-	// 		else
-	// 	}
-	// 	break;
-	// }
+		// TODO: RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION 59
+		// TODO: RETRO_ENVIRONMENT_SET_AUDIO_BUFFER_STATUS_CALLBACK 62 and
+		// SET_MINIMUM_AUDIO_LATENCY 63 (used by mgba, but only during frameskip?)
 
-	// TODO: RETRO_ENVIRONMENT_SET_FASTFORWARDING_OVERRIDE 64
 	case RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE: { /* 65 */
-		// const struct retro_system_content_info_override* info = (const struct retro_system_content_info_override* )data;
 		break;
 	}
 	// RETRO_ENVIRONMENT_GET_GAME_INFO_EXT 66
 	case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2: { /* 67 */
-		// puts("RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2");
 		if (data) {
 			OptsCache_refreshV2((const struct retro_core_options_v2*)data);
 			OptionList_reset();
@@ -387,7 +344,6 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		break;
 	}
 	case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL: { /* 68 */
-		// puts("RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL");
 		if (data) {
 			const struct retro_core_options_v2_intl* intl = (const struct retro_core_options_v2_intl*)data;
 			OptsCache_refreshV2(intl->us);
@@ -398,7 +354,6 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		break;
 	}
 	case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK: { /* 69 */
-		// puts("RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK");
 		if (data) {
 			struct retro_core_options_update_display_callback* update_display_cb = (struct retro_core_options_update_display_callback*)data;
 			core.update_visibility_callback = update_display_cb->callback;
@@ -410,10 +365,8 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 	// used by fceumm
 	// TODO: used by gambatte for L/R palette switching (seems like it needs to return true even if data is NULL to indicate support)
 	case RETRO_ENVIRONMENT_SET_VARIABLE: {
-		// puts("RETRO_ENVIRONMENT_SET_VARIABLE");
 		const struct retro_variable* var = (const struct retro_variable*)data;
 		if (var && var->key) {
-			// printf("\t%s = %s\n", var->key, var->value);
 			OptionList_setOptionValue(&config.core, var->key, var->value);
 		}
 		// a NULL data (or keyless struct) is only probing for support, which the
@@ -421,15 +374,6 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		break;
 	}
 
-	// unused
-	// case RETRO_ENVIRONMENT_SET_FRAME_TIME_CALLBACK: {
-	// 	puts("RETRO_ENVIRONMENT_SET_FRAME_TIME_CALLBACK"); fflush(stdout);
-	// 	break;
-	// }
-	// case RETRO_ENVIRONMENT_GET_THROTTLE_STATE: {
-	// 	puts("RETRO_ENVIRONMENT_GET_THROTTLE_STATE"); fflush(stdout);
-	// 	break;
-	// }
 	case RETRO_ENVIRONMENT_GET_FASTFORWARDING: { /* 49 */
 		// older threaded flycast builds only pace themselves and push audio
 		// once the frontend answers this
@@ -486,7 +430,6 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		return true;
 	}
 	default:
-		// LOG_debug("Unsupported environment cmd: %u\n", cmd);
 		return false;
 	}
 	return true;

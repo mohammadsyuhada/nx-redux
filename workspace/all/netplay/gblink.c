@@ -39,7 +39,6 @@
 // Protocol constants for UDP discovery
 #define GL_DISCOVERY_RESP 0x47424C52 // "GBLR" - GB Link Discovery Response
 
-// Discovery broadcast interval
 #define DISCOVERY_BROADCAST_INTERVAL_US 500000 // 500ms
 
 // Main GB Link state

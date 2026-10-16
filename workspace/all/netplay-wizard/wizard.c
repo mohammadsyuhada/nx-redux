@@ -307,7 +307,7 @@ int wizard_read_session(const char* path, WizSession* s) {
 
 // The CHEAP "is there an IPv4 address on wlan0" test: one shell, three procs.
 // Deliberately not WIFI_direct_getIP(), which goes through PLAT_wifiConnection
-// (generic_wifi.c:277-336) — a wpa_cli status, an ip/grep/cut pipeline and an
+// (generic_wifi.c) — a wpa_cli status, an ip/grep/cut pipeline and an
 // iw call, ~8 processes per look. At 250 ms polling that difference is seconds
 // of pure fork overhead inside a budget measured in seconds.
 #define WIZ_HAVE_IP_CMD "ip -4 addr show wlan0 2>/dev/null | grep -q 'inet '"
@@ -324,7 +324,7 @@ static uint32_t wiz_now_ms(void) {
 // hotspot/WiFi-association state.
 
 // Signed difference, so the comparison survives the uint32 wrap (same idiom as
-// wizard_sync.c:827).
+// wizard_sync.c's wiz_pull_one()).
 static bool wiz_past(uint32_t deadline) {
 	return (int32_t)(wiz_now_ms() - deadline) >= 0;
 }
@@ -353,9 +353,10 @@ static bool wiz_hotspot_ip_present(void) {
  * (--cleanup and the start-up heal) run it before they even look for a session
  * file, and the corrupt-session arm relies on that same call. Both marks are
  * required because a lone hostapd could belong to the stock AP vif some
- * firmware brings up at boot (wizard_wifi.c:569), which is not ours to kill;
- * pairing it with an address test that is wlan0-specific and 10.0.0.1-specific
- * excludes that vif (it lives on wlan1, wifi_direct.c:261/278) and excludes a
+ * firmware brings up at boot (see the wlan1 note in wiz_hotspot_join()), which
+ * is not ours to kill; pairing it with an address test that is wlan0-specific
+ * and 10.0.0.1-specific excludes that vif (it lives on wlan1, see
+ * WIFI_direct_startHotspot()) and excludes a
  * client's 10.0.0.10-50 lease.
  *
  * WHAT THIS DELIBERATELY MISSES, stated because the loose test in
@@ -378,7 +379,7 @@ static bool wiz_orphan_ap_present(void) {
  * true, for the case where that flag is false because ANOTHER PROCESS started
  * the AP.
  *
- * The flag (wifi_direct.c:26) is process-local, and the wizard's teardown is
+ * The flag (wifi_direct.c's hotspot_active) is process-local, and the wizard's teardown is
  * usually not running in the process that hosted: `netplay.elf --cleanup` is a
  * fresh process launch.sh starts after the game exits, and the start-up heal is
  * the NEXT wizard. In both, WIFI_direct_stopHotspot() sees a false flag and
@@ -386,15 +387,15 @@ static bool wiz_orphan_ap_present(void) {
  * outlive the session that created it, which is the one thing --cleanup exists
  * to prevent.
  *
- * Mirror of wifi_direct.c:357-388, tmp-file names included; if that sequence
+ * Mirror of WIFI_direct_stopHotspot()'s body, tmp-file names included; if that sequence
  * changes, this one changes with it. The alternative — teaching
  * WIFI_direct_stopHotspot() to treat a live hostapd as an active hotspot, which
  * would delete this function — also changes behaviour for minarch's netplay.c,
- * gblink.c and gbalink.c, and that is not this task's file to change.
+ * gblink.c and gbalink.c, which the wizard should not change.
  */
 static void wiz_stop_hotspot_orphan(void) {
 	system("killall hostapd 2>/dev/null");
-	usleep(200000); // let hostapd release wlan0 (wifi_direct.c:364)
+	usleep(200000); // let hostapd release wlan0 (as WIFI_direct_stopHotspot() does)
 	system("kill $(cat /tmp/gbalink_udhcpd.pid 2>/dev/null) 2>/dev/null");
 	system("killall udhcpd 2>/dev/null");
 
@@ -420,17 +421,17 @@ static void wiz_stop_hotspot(void) {
 	WIFI_direct_stopHotspot();
 
 	// !was_ours is load-bearing, not defensive. WIFI_direct_stopHotspot() ends
-	// in WIFI_enable(true) (wifi_direct.c:384), i.e. wifi_init.sh start — on a
+	// in WIFI_enable(true), i.e. wifi_init.sh start — on a
 	// platform whose wifi_init brings up its own AP vif with a hostapd, probing
 	// afterwards would read state that call just CREATED, and the orphan stop
 	// would then kill the stock AP, down the wlan0 wpa_supplicant had just been
-	// given, and pay a second full stack restart. On the most-travelled path in
-	// this task (the in-wizard cancel). So the probe only ever runs in a process
+	// given, and pay a second full stack restart. On the most-travelled path
+	// (the in-wizard cancel). So the probe only ever runs in a process
 	// that did not host.
 	//
 	// There, EITHER mark is enough, because the caller already knows from the
 	// session file that this device hosted: a live hostapd is ours (startHotspot
-	// kills any other first, wifi_direct.c:273), and the AP address still on
+	// kills any other first), and the AP address still on
 	// wlan0 means the client stack never came back even if hostapd has since
 	// died on its own — the case wiz_orphan_ap_present()'s strict test gives up.
 	if (!was_ours && (wiz_hostapd_running() || wiz_hotspot_ip_present()))
@@ -440,10 +441,10 @@ static void wiz_stop_hotspot(void) {
 /*
  * Put the association back the way the wizard found it. "" = nothing to
  * restore; note that the radio's POWER state is deliberately never restored
- * (the ruling is recorded at wizard_wifi.c:160-168).
+ * (the ruling is recorded above wiz_wifi_ready() in wizard_wifi.c).
  *
  * WIFI_direct_connect() is NOT used here, and that is this function's whole
- * shape. It ends in wifi_acquire_dhcp() (wifi_direct.c:38-61), which runs
+ * shape. It ends in wifi_acquire_dhcp() (wifi_direct.c), which runs
  * `udhcpc -i wlan0 -n -q -t 6` THREE times — with busybox's default -T 3 that
  * is ~18 s per round against a network that does not answer, i.e. ~55 s of
  * blocking DHCP on top of its own 10 s association poll. That is the right
@@ -477,8 +478,8 @@ static void wiz_restore_prev_ssid(const char* ssid, bool interactive, uint32_t d
 	// lucky one: the AP teardown's wifi_init.sh spends ~9 s in a foreground
 	// udhcpc, and a wpa_supplicant with every saved network enabled reassociates
 	// during it. Otherwise: WiFi mode never left this network, or
-	// wizard_wifi.c's own failure paths (wiz_restore_connection at :213, the two
-	// WIFI_direct_restorePreviousConnection calls at :585/:593) already put it
+	// wizard_wifi.c's own failure paths (wiz_restore_connection(), the two
+	// WIFI_direct_restorePreviousConnection calls in wiz_hotspot_join()) already put it
 	// back. Reassociating to reach a state we are in already would only cost the
 	// game the wait.
 	if (WIFI_direct_getCurrentSSID(current, sizeof(current)) != 0 ||
@@ -489,32 +490,34 @@ static void wiz_restore_prev_ssid(const char* ssid, bool interactive, uint32_t d
 		// Skipping it is a graceful degradation rather than a failure — the
 		// supplicant this teardown restarted has every saved network enabled
 		// (select_network's disable is runtime-only and unsaved,
-		// generic_wifi.c:704-706), so it reassociates on its own; what is lost
+		// PLAT_wifiConnectPass() in generic_wifi.c), so it reassociates on its own; what is lost
 		// is determinism about WHICH saved network, not connectivity.
 		if (!wiz_past(deadline - WIZ_CONNECT_WORST_MS)) {
 			// NULL password = "use the saved network". VERIFIED, not assumed:
-			// generic_wifi.c:613 finds the EXISTING network id for this SSID and
-			// takes the "using existing network configuration" arm at :648 — the
+			// PLAT_wifiConnectPass() (generic_wifi.c) finds the EXISTING network id
+			// for this SSID via wifi_find_network_id() and takes the "using
+			// existing network configuration" arm — the
 			// stored psk is left alone and the security argument is not read at
 			// all on that arm. prev_ssid is by construction a network this
-			// device was associated to (wizard_wifi.c:184-187 reads it from the
-			// connection info), so that entry exists. This is the same call
-			// WIFI_direct_connect() makes at wifi_direct.c:135, minus its DHCP.
+			// device was associated to (wizard_wifi.c's wiz_record_prev_ssid()
+			// reads it from the connection info), so that entry exists. This is
+			// the same call WIFI_direct_connect() makes, minus its DHCP.
 			//
 			// SECURITY_WPA2_PSK, not SECURITY_NONE, and only the FALLBACK arm
 			// can tell the difference: if wifi_find_network_id() returns -1 —
 			// the entry genuinely absent, or one transient `wpa_cli
 			// list_networks` failure — control reaches the add-branch, and there
-			// SECURITY_NONE would set key_mgmt NONE (:637-641) and save_config
+			// SECURITY_NONE would set key_mgmt NONE and save_config
 			// it, leaving a PERMANENT open twin of the user's home SSID that
 			// wpa_supplicant could then associate to on any open AP announcing
 			// that name. With WPA2_PSK neither sub-branch runs: the entry is
 			// added with no key material, cannot associate, and is inert. Same
-			// argument, same constant, as wifi_direct.c:235.
+			// argument, same constant, as WIFI_direct_restorePreviousConnection().
 			//
 			// The saved-network alternative,
 			// WIFI_direct_restorePreviousConnection(), cannot be used at all:
-			// the SSID it restores is process-local state (wifi_direct.c:28)
+			// the SSID it restores is process-local state (wifi_direct.c's
+			// hotspot_previous_ssid)
 			// that a cleanup process never wrote.
 			WIFI_connectPass(ssid, SECURITY_WPA2_PSK, NULL);
 			connected = true;
@@ -536,8 +539,9 @@ static void wiz_restore_prev_ssid(const char* ssid, bool interactive, uint32_t d
 	// block on.
 	//
 	// What the wait buys when it does run: a -2 sends the user back to the mode
-	// menu, and a retry that picks WiFi tests `isConnected() && have_ip()`
-	// (wizard_wifi.c:290) to skip the picker. It is the difference between that
+	// menu, and a retry that picks WiFi tests
+	// `WIFI_direct_isConnected() && wiz_have_ip()` (wiz_wifi_ensure_connected())
+	// to skip the picker. It is the difference between that
 	// retry being instant and it showing a network list the user did not ask for
 	// — which is also why it is not spent headless, where nobody is retrying.
 	//
@@ -649,8 +653,8 @@ static void wiz_teardown(const WizSession* s, bool interactive, uint32_t deadlin
 		// NOTE, so that nobody "fixes" the wrong end of it: this arm can leave a
 		// stale 10.0.0.x on wlan0. Nothing here flushes the interface, and the
 		// reconnect's lease comes from WIFI_connectPass()'s backgrounded udhcpc
-		// (generic_wifi.c:676-682), which — unlike wifi_acquire_dhcp()
-		// (wifi_direct.c:43-44) — does not flush the old address and routes
+		// (PLAT_wifiConnectPass() in generic_wifi.c), which — unlike
+		// wifi_acquire_dhcp() in wifi_direct.c — does not flush the old address and routes
 		// first. Harmless, and deliberately left alone: the AP probes match
 		// "10.0.0.1/" exactly, so a client's 10.0.0.10-50 leftover cannot be
 		// read as a host AP. Widening those probes to the 10.0.0.x SUBNET to
@@ -729,11 +733,11 @@ static int run_cleanup(const WizArgs* a) {
 	// The SAME argument, applied to the higher-stakes leak. The AP exists from
 	// wiz_hotspot_start() onwards, the session file only from ST_DONE, and the
 	// host's wait screen between them has no wall-clock ceiling by design
-	// (wizard_net.c:900-902). A host SIGKILLed in that window leaves hostapd,
+	// (the waiting loop in wizard_net.c's wiz_host_rendezvous()). A host SIGKILLed in that window leaves hostapd,
 	// udhcpd, 10.0.0.1 on wlan0, a dead wpa_supplicant — and nothing naming any
 	// of it. The device cannot recover on its own either: hostapd holds wlan0
-	// IFF_UP, so the next run's WIFI_direct_ensureReady() (generic_wifi.c:127-138
-	// via wizard_wifi.c:169-180) believes the stack is fine and never restarts
+	// IFF_UP, so the next run's WIFI_direct_ensureReady() (PLAT_wifiEnabled()'s
+	// IFF_UP test in generic_wifi.c, via wiz_wifi_ready()) believes the stack is fine and never restarts
 	// it. So this probe is NOT behind the session-file gate.
 	orphan_ap = wiz_orphan_ap_present();
 
@@ -753,10 +757,10 @@ static int run_cleanup(const WizArgs* a) {
 	// Both hotspot teardowns end in WIFI_enable(true) -> CFG_setWifi() ->
 	// CFG_sync(), which serialises config.c's in-memory settings over
 	// minuisettings.txt, merging every key it knows. In wizard mode GFX_init() ->
-	// CFG_init() (api.c:290) has loaded that struct from disk first; here nothing
-	// has, and syncing the all-zero definition (config.c:19) would silently reset
-	// every setting on the device. CFG_init() is the headless load — nextval.c:13
-	// and poweroff_next.c:338 use it exactly this way.
+	// CFG_init() (api.c) has loaded that struct from disk first; here nothing
+	// has, and syncing the all-zero definition (config.c's `settings`) would
+	// silently reset every setting on the device. CFG_init() is the headless
+	// load — nextval.c and poweroff_next.c main() use it exactly this way.
 	CFG_init(NULL, NULL);
 
 	// One budget for the whole episode, started before the orphan stop because
@@ -867,8 +871,9 @@ static void show_message(const char* message, int hold_ms) {
  *   prev_ssid a best-effort record, and after a teardown that reconnected it,
  *             it names the network the device is on RIGHT NOW. It is not stale
  *             either way: every entry into ST_NETSETUP re-reads the live SSID
- *             before touching the association (wizard_wifi.c:282, :436, :472 all
- *             call wiz_record_prev_ssid), so the retry captures the current
+ *             before touching the association (wiz_wifi_ensure_connected,
+ *             wiz_hotspot_start and wiz_hotspot_join all call
+ *             wiz_record_prev_ssid), so the retry captures the current
  *             value and overwrites this one.
  *   peer_ip   wizard_net.c's field; it clears it on its own failure paths.
  *

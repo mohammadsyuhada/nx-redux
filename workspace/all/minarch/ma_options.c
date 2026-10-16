@@ -67,7 +67,6 @@ void OptionList_init(const struct retro_core_option_definition* defs) {
 
 				item->full = calloc(len, sizeof(char));
 				strncpy(item->full, item->desc, len);
-				// item->desc[len-1] = '\0';
 
 				GFX_wrapText(font.tiny, item->desc, DEVICE_WIDTH - SCALE1(2 * PADDING), 2);
 				GFX_wrapText(font.medium, item->full, DEVICE_WIDTH - SCALE1(2 * PADDING), 16);
@@ -95,16 +94,12 @@ void OptionList_init(const struct retro_core_option_definition* defs) {
 				} else {
 					item->labels[j] = item->values[j];
 				}
-				// printf("\t%s\n", item->labels[j]);
 			}
 
 			item->value = Option_getValueIndex(item, def->default_value);
 			item->default_value = item->value;
-
-			// LOG_info("\tINIT %s (%s) TO %s (%s)\n", item->name, item->key, item->labels[item->value], item->values[item->value]);
 		}
 	}
-	// fflush(stdout);
 }
 
 void OptionList_v2_init(const struct retro_core_options_v2* opt_defs) {
@@ -176,14 +171,12 @@ void OptionList_v2_init(const struct retro_core_options_v2* opt_defs) {
 				} else {
 					item->labels[j] = item->values[j];
 				}
-				// printf("\t%s\n", item->labels[j]);
 			}
 
 			item->value = Option_getValueIndex(item, def->default_value);
 			item->default_value = item->value;
 		}
 	}
-	// fflush(stdout);
 }
 
 void OptionList_vars(const struct retro_variable* vars) {
@@ -245,10 +238,8 @@ void OptionList_vars(const struct retro_variable* vars) {
 			// no native default_value support for retro vars
 			item->value = 0;
 			item->default_value = item->value;
-			// printf("SET %s to %s (%i)\n", item->key, default_value, item->value); fflush(stdout);
 		}
 	}
-	// fflush(stdout);
 }
 void OptionList_reset(void) {
 	if (!config.core.count)
@@ -314,7 +305,6 @@ char* OptionList_getOptionValue(OptionList* list, const char* key) {
 			return item->values[item->value];
 		}
 	}
-	// else LOG_warn("unknown option %s \n", key);
 	return NULL;
 }
 void OptionList_setOptionRawValue(OptionList* list, const char* key, int value) {

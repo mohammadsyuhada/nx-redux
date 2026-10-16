@@ -1,10 +1,9 @@
 /*
- * test_client.c — native protocol tests for m64p-server (Task 1: TCP layer).
+ * test_client.c — native protocol tests for m64p-server (TCP + UDP).
  *
  * Spawns ./m64p-server-native on 127.0.0.1:55545 with --players 2, connects
- * real TCP sockets, and drives the wire formats from the Protocol Reference
- * (ground truth: mupen64plus-core/src/main/netplay.c). Seven numbered checks
- * T1-T7; any failure prints "FAIL <n> <name>" and exits 1. The spawned server
+ * real sockets, and drives the wire formats of mupen64plus-core's
+ * src/main/netplay.c. Thirteen numbered checks T1-T13; any failure prints "FAIL <n> <name>" and exits 1. The spawned server
  * is killed in an atexit handler.
  */
 
@@ -346,7 +345,7 @@ static int t6(void) {
 }
 
 /* T7  disconnect notice: socket B sends [7][0x2222]; then poke the UDP
-       side (Task 2 asserts the status bit; in this task just assert the
+       side (T13 asserts the status bit; here just assert the
        server stays up and seat 1 can be re-registered with reg_id 0x3333
        -> reply [1][2])                                                     */
 static int t7(void) {

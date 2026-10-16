@@ -1289,9 +1289,6 @@ int Menu_options(MenuList* list) {
 		hdmimon();
 	}
 
-	// GFX_clearAll();
-	// GFX_flip(screen);
-
 	return 0;
 }
 

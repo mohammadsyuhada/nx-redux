@@ -411,12 +411,8 @@ void Input_init(const struct retro_input_descriptor* vars) {
 				continue;
 
 			// TODO: don't ignore unavailable buttons, just override them to BTN_ID_NONE!
-			if (var->id >= RETRO_BUTTON_COUNT) {
-				//printf("UNAVAILABLE: %s\n", var->description); fflush(stdout);
+			if (var->id >= RETRO_BUTTON_COUNT)
 				continue;
-			} else {
-				//printf("PRESENT    : %s\n", var->description); fflush(stdout);
-			}
 			present[var->id] = 1;
 			core_button_names[var->id] = var->description;
 		}

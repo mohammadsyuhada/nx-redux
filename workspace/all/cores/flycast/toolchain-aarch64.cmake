@@ -1,7 +1,6 @@
 # Toolchain for flycast's libretro core on the NextUI aarch64 toolchains (tg5040
-# and tg5050 Docker images share the prefix). Unlike the standalone build's
-# toolchain file (all/other/flycast), the libretro core needs no curl/OpenSSL,
-# so nothing here depends on hand-built prebuilts.
+# and tg5050 Docker images share the prefix). The libretro core needs no
+# curl/OpenSSL, so nothing here depends on hand-built prebuilts.
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR aarch64)
 

@@ -9,9 +9,9 @@
  * system -> pak default -> user tier, where the user tier is EITHER
  * <config_dir>/minarch[-DEVICE].cfg (console) OR
  * <config_dir>/<alt_name>[-DEVICE].cfg (per-game) — the game file REPLACES
- * the console file, it does not stack (ma_config.c:1383-1396). The user-tier
- * filename is strictly device-suffixed when $DEVICE is set, no fallback
- * (Config_getPath, ma_config.c:1113-1121); system/default layers DO fall
+ * the console file, it does not stack (Config_load in ma_config.c). The
+ * user-tier filename is strictly device-suffixed when $DEVICE is set, no
+ * fallback (Config_getPath in ma_config.c); system/default layers DO fall
  * back, but the SHELL resolves those two paths and passes them in.
  * Lines "-key = value" are locked: those keys are pruned from the schema
  * (hidden from the editor) and their lines pass through writes untouched.

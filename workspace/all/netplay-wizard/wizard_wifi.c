@@ -1,14 +1,15 @@
 /*
  * Wizard network set-up — WiFi picker and hotspot host/join.
  *
- * Ported from netplay/netplay_helper.c: ensureWifiEnabled +
- * showWiFiNetworkSelection (:352-660), the hotspot host set-up (:1598-1640) and
- * the hotspot join hygiene (:2326-2460). Behaviour is the same flow; every
- * deliberate difference is marked "wizard:" in a comment.
+ * Ported from the in-game netplay menu that netplay_helper.c used to host
+ * (its WiFi enable, network picker, hotspot host set-up and hotspot join
+ * hygiene), removed when netplay moved to this pre-launch wizard (#61).
+ * Behaviour is the same flow; every deliberate difference is marked "wizard:"
+ * in a comment.
  *
- * minarch's chrome is gone: no GFX_setMode toggling, no menu bitmap drawn
- * behind the text, no minarch_hdmimon/beforeSleep/afterSleep — the wizard owns
- * the screen (wiz_screen) and has no core to pause. minarch_menuMessage is
+ * The in-game menu's chrome is gone: no GFX_setMode toggling, no menu bitmap
+ * drawn behind the text, no sleep/HDMI hooks — the wizard owns the screen
+ * (wiz_screen) and has no core to pause. The menu's blocking message box is
  * replaced by wiz_error().
  */
 
@@ -43,7 +44,7 @@
 #define WIZ_HOTSPOT_MAX 8
 #define WIZ_LABEL_MAX 96
 
-// SSID minus LINK_HOTSPOT_SSID_PREFIX (4 chars); Task 4's waiting screen shows
+// SSID minus LINK_HOTSPOT_SSID_PREFIX (4 chars); the host's waiting screen shows
 // it to the joining player. Empty until wiz_hotspot_start() succeeds.
 char wiz_hotspot_code[8] = {0};
 
@@ -52,15 +53,15 @@ char wiz_hotspot_code[8] = {0};
 //////////////////////////////////
 
 // Transient progress text ("Connecting...", "Getting IP address..."). The
-// equivalent of netplay_helper's showOverlayMessage without the menu backdrop.
+// old in-game overlay message, without the menu backdrop.
 static void wiz_status(const char* message) {
 	GFX_clear(wiz_screen);
 	UI_renderCenteredMessage(wiz_screen, message);
 	GFX_flip(wiz_screen);
 }
 
-// Stands in for minarch_menuMessage(). Difference: minarch blocks on A forever
-// because it returns to a menu; every wizard caller returns -1 straight after
+// Stands in for the in-game menu's message box. Difference: that box blocked on
+// A forever because it returned to a menu; every wizard caller returns -1 straight after
 // this, which aborts the wizard and launches the game, so the screen must clear
 // itself for a user who walked away.
 static void wiz_error(const char* message) {
@@ -170,13 +171,13 @@ static bool wiz_wait_for_ip(int timeout_ms) {
 	return wiz_have_ip();
 }
 
-// Port of ensureWifiEnabled(). Returns false only if the WiFi stack refuses to
-// come up; the caller draws the error.
+// Port of the old in-game menu's WiFi enable step. Returns false only if the WiFi
+// stack refuses to come up; the caller draws the error.
 //
 // Turning the radio on here is PERSISTENT and deliberate: WIFI_direct_ensureReady()
 // -> WIFI_enable(true) also does CFG_setWifi(true). Accepted by design — the user
-// chose a networked mode, and this matches minarch's ensureWifiEnabled(). Cleanup
-// (Task 6) restores the previous SSID *association*, never the radio power state,
+// chose a networked mode, and the old in-game flow did the same. --cleanup
+// (wiz_restore_prev_ssid) restores the previous SSID *association*, never the radio power state,
 // which is also why prev_ssid == "" means "nothing to reconnect" and not "radio was
 // off". Do not add radio-state restore on top of this.
 static bool wiz_wifi_ready(void) {
@@ -192,7 +193,7 @@ static bool wiz_wifi_ready(void) {
 	return WIFI_direct_ensureReady();
 }
 
-// The SSID Task 6 restores. Must be read before anything touches the
+// The SSID --cleanup (wiz_restore_prev_ssid) restores. Must be read before anything touches the
 // association; no current connection means there is nothing to restore.
 static void wiz_record_prev_ssid(WizSession* s) {
 	if (WIFI_direct_getCurrentSSID(s->prev_ssid, sizeof(s->prev_ssid)) != 0)
@@ -203,11 +204,11 @@ static void wiz_record_prev_ssid(WizSession* s) {
 // the arm that did not connect (already-associated network) and for a lease that
 // has not landed yet.
 //
-// -n (exit when no lease) is mandatory, not a copy of netplay_helper.c's line:
+// -n (exit when no lease) is mandatory, not a copy of the old in-game flow's line:
 // busybox udhcpc runs in the foreground and -t caps discovers per round, not
 // rounds, so without -n it retries forever and system() never returns — with the
 // wizard holding PWR_disablePowerOff, that is a hardware-power-hold hang. Same
-// reason wifi_direct.c:48-53 passes it. This fallback only runs after
+// reason wifi_direct.c's wifi_acquire_dhcp() passes it. This fallback only runs after
 // WIFI_direct_connect's three -n rounds already failed, i.e. almost exclusively
 // in the conditions that would hang.
 static bool wiz_ensure_ip(void) {
@@ -289,17 +290,17 @@ int wiz_wifi_ensure_connected(WizSession* s) {
 	}
 
 	// Both before the picker can change anything: prev_ssid is what --cleanup
-	// restores in a later process (Task 6), saveCurrentConnection() is what
+	// restores in a later process (wiz_restore_prev_ssid), saveCurrentConnection() is what
 	// wiz_restore_connection() puts back inside this one when the user leaves the
 	// picker after a failed attempt.
 	wiz_record_prev_ssid(s);
 	WIFI_direct_saveCurrentConnection();
 
-	// wizard: minarch's ensureNetworkConnected() always shows the picker so the
-	// user can confirm or switch networks. Here the user asked to launch a game,
-	// not to manage WiFi — a working connection is the answer and the picker is
+	// wizard: the old in-game flow always showed the picker so the user could
+	// confirm or switch networks. Here the user asked to launch a game, not to
+	// manage WiFi — a working connection is the answer and the picker is
 	// skipped. prev_ssid then names the network we are already on, which makes
-	// Task 6's restore a no-op.
+	// the --cleanup restore a no-op.
 	if (WIFI_direct_isConnected() && wiz_have_ip())
 		return 0;
 
@@ -340,10 +341,9 @@ int wiz_wifi_ensure_connected(WizSession* s) {
 			return -1;
 		}
 
-		// wizard: minarch triggers a scan and reads the result 1.5s later. That
-		// split is dead in the current wifi_direct.c — WIFI_direct_triggerScan()
-		// is a no-op and WIFI_direct_scanNetworks() triggers, waits and reads in
-		// one blocking call — so the read happens inline. The 4s cadence is kept.
+		// wizard: the old in-game flow triggered a scan and read the result 1.5s
+		// later. WIFI_direct_scanNetworks() triggers, waits and reads in one
+		// blocking call, so the read happens inline. The 4s cadence is kept.
 		if (!scanned || now - last_scan >= WIZ_SCAN_INTERVAL_MS) {
 			if (!scanned)
 				wiz_render_empty("Netplay | Select WiFi Network", "Scanning for networks...");
@@ -452,7 +452,7 @@ int wiz_wifi_ensure_connected(WizSession* s) {
 //////////////////////////////////
 
 int wiz_hotspot_start(WizSession* s, const char* game) {
-	// The game title belongs to the rendezvous payload (Task 4), not to the AP:
+	// The game title belongs to the rendezvous payload (wizard_net.c), not to the AP:
 	// the SSID carries a random code so two nearby hosts never collide.
 	(void)game;
 
@@ -463,8 +463,8 @@ int wiz_hotspot_start(WizSession* s, const char* game) {
 
 	// Before startHotspot() hands wlan0 to hostapd. If WiFi was off, wiz_wifi_ready()
 	// only just re-enabled it and the reconnect may not have completed — an empty
-	// prev_ssid then means Task 6 restores nothing, same as minarch's
-	// WIFI_direct_saveCurrentConnection().
+	// prev_ssid then means --cleanup restores nothing, same as
+	// WIFI_direct_saveCurrentConnection() would record.
 	wiz_record_prev_ssid(s);
 
 	char ssid[WIFI_DIRECT_SSID_MAX];

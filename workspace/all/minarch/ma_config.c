@@ -1456,7 +1456,6 @@ static void writeOption(FILE* file, Option* option) {
 }
 void Config_write(int override) {
 	char path[MAX_PATH];
-	// sprintf(path, "%s/%s.cfg", core.config_dir, game.alt_name);
 	Config_getPath(path, CONFIG_WRITE_GAME);
 
 	if (!override) {

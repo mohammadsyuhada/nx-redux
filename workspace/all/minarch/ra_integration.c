@@ -1035,7 +1035,6 @@ static void ra_login_callback(int result, const char* error_message,
 								  "Connecting to RetroAchievements...", NULL);
 			}
 		} else {
-			// All retries exhausted
 			RA_LOG_ERROR("All login retries exhausted\n");
 			bool rejected = result == RC_INVALID_CREDENTIALS || result == RC_EXPIRED_TOKEN ||
 							result == RC_ACCESS_DENIED;
@@ -1293,7 +1292,6 @@ void RA_init(void) {
 	// Configure logging
 	rc_client_enable_logging(ra_client, RC_CLIENT_LOG_LEVEL_INFO, ra_log_message);
 
-	// Set event handler
 	rc_client_set_event_handler(ra_client, ra_event_handler);
 
 	// Initialize and register CHD-aware CD reader for disc game hashing

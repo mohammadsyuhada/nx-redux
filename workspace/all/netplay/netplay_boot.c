@@ -82,7 +82,7 @@ int NetplayBoot_startFromEnv(const char* core_name) {
 	}
 	LinkType type = support.has_netpacket ? LINK_TYPE_GBALINK
 					: support.has_gblink  ? LINK_TYPE_GBLINK
-										  : LINK_TYPE_NETPLAY; // same priority as the old menu (ma_menu.c:1678)
+										  : LINK_TYPE_NETPLAY; // netpacket (GBA) > gblink > generic netplay
 
 	// mGBA's link is the real cable, which only runs over the USB Cable. The
 	// wizard offers mGBA nothing else; this catches a stale or hand-made env.
@@ -112,9 +112,8 @@ int NetplayBoot_startFromEnv(const char* core_name) {
 			return 0;
 		if (type == LINK_TYPE_GBALINK && rc == GBALINK_CONNECT_NEEDS_RELOAD && gbalink_link_mode_key(core_name)) {
 			// Host runs a different gpsp_serial mode: adopt it, persist it,
-			// reload the core with the new mode, then reconnect. Ports the
-			// menu-layer fallback this migration deletes (netplay_helper.c
-			// 2251-2269); the engine getters/appliers live on in gbalink.c.
+			// reload the core with the new mode, then reconnect. The engine
+			// getters/appliers live in gbalink.c.
 			GBALink_applyPendingLinkMode();
 			minarch_saveConfig();
 			GBALink_disconnect();

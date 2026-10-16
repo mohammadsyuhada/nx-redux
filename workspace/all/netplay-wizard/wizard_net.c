@@ -84,7 +84,7 @@
 // Per-line ceiling on the control channel, as SO_RCVTIMEO and as the wall
 // clock the wait loops enforce.
 #define WIZ_NET_RECV_TIMEOUT_MS 5000
-// The client's pull runs outside this protocol (rsync, Task 5) and only reports
+// The client's pull runs outside this protocol (rsync, wizard_sync.c) and only reports
 // back when it is done, so its window is much wider than a line's.
 #define WIZ_NET_PULL_TIMEOUT_MS 30000
 #define WIZ_NET_CONNECT_TIMEOUT_MS 5000
@@ -176,7 +176,7 @@ static void wiz_net_blit(TTF_Font* f, const char* text, int y) {
 
 // The host's waiting screen: what the other player needs to type or know
 // (hotspot code / local IP) above the instruction and the status line.
-// Same three-tier layout as netplay_helper.c's hotspot/WiFi waiting screens.
+// Same three-tier layout as the old in-game netplay menu's waiting screens.
 static void wiz_net_render_waiting(const char* big, const char* instruction, const char* status) {
 	int center_y = wiz_screen->h / 2;
 
@@ -509,14 +509,14 @@ static int wiz_parse_file(const char* line, char* name, size_t name_size) {
 // outgrown by a character nobody thought of.
 //
 // It has to be this strict because these names are remote input on their way to
-// wiz_sync_pull() (Task 5), and this repo's idiom for driving an external tool
+// wiz_sync_pull() (wizard_sync.c), and this repo's idiom for driving an external tool
 // is system() — wizard_wifi.c does it eight times, and so does the hotspot ping
 // below. A name like `id`.bin or a;id.bin passes --fetch-files happily
 // (fnmatch("*.bin", "a;id.bin", 0) == 0 — the pattern list is NOT a defence),
 // and would be LAN-triggerable command execution the moment it reached a shell.
 //
-// THIS IS THE WIRE-LEVEL GUARANTEE, NOT THE ONLY ONE. Task 5 must still treat
-// these names as data: posix_spawn/execv with no shell, or quoted. A whitelist
+// THIS IS THE WIRE-LEVEL GUARANTEE, NOT THE ONLY ONE. wizard_sync.c must still
+// treat these names as data: posix_spawn/execv with no shell, or quoted. A whitelist
 // is the second line of defence, never a licence to interpolate.
 //
 // Rules the character class already subsumes, spelled out because they are the

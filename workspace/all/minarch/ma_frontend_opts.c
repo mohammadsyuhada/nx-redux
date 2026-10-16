@@ -340,8 +340,7 @@ static MenuList OptionControls_menu = {
 	.type = MENU_INPUT,
 	.title = "Controls",
 	.desc = "Press A to set and X to clear."
-			"\nSupports single button and MENU+button." // TODO: not supported on nano because POWER doubles as MENU
-	,
+			"\nSupports single button and MENU+button.",
 	.on_confirm = OptionControls_bind,
 	.on_change = OptionControls_unbind,
 	.items = NULL};

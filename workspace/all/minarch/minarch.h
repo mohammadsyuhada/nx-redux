@@ -56,7 +56,4 @@ void minarch_afterSleep(void);
 // Platform accessors
 void minarch_hdmimon(void);
 
-// Menu accessors
-int minarch_menuMessage(char* message, char** pairs);
-
 #endif /* MINARCH_H */

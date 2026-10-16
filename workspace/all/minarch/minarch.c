@@ -112,34 +112,6 @@ GFX_Renderer renderer;
 struct Core core;
 
 struct Game game;
-// moved to ma_game.c
-
-
-///////////////////////////////////////
-// based on picoarch/cheat.c
-
-// moved to ma_cheats.c
-
-
-///////////////////////////////////////
-// moved to ma_saves.c
-
-
-///////////////////////////////
-// Rewind buffer (in-memory, compressed)
-
-// moved to ma_rewind.c
-
-
-///////////////////////////////
-
-// Option/OptionCategory/OptionList types live in ma_internal.h
-
-// moved to ma_config.c
-
-
-// moved to ma_shaders.c
-
 
 ///////////////////////////////
 static struct Special {
@@ -169,19 +141,6 @@ static void Special_quit(void) {
 }
 ///////////////////////////////
 
-// moved to ma_options.c
-
-
-///////////////////////////////
-
-// moved to ma_input.c
-
-
-// moved to ma_environment.c
-
-
-///////////////////////////////
-
 void hdmimon(void) {
 	// handle HDMI change
 	static int had_hdmi = -1;
@@ -199,40 +158,6 @@ void hdmimon(void) {
 }
 
 ///////////////////////////////
-
-// TODO: this is a dumb API
-// moved to ma_menu.c
-
-
-///////////////////////////////
-
-// moved to ma_video.c
-
-///////////////////////////////
-
-// moved to ma_audio.c
-
-///////////////////////////////////////
-
-// moved to ma_core.c
-
-
-///////////////////////////////////////
-
-// moved to ma_menu.c
-
-
-// MenuList/MenuItem types live in ma_frontend_opts.h
-
-// moved to ma_frontend_opts.c
-
-
-// Achievement sorting comparison function
-// moved to ma_menu.c
-
-
-// moved to ma_runframe.c
-
 
 #define PWR_UPDATE_FREQ 5
 #define PWR_UPDATE_FREQ_INGAME 20
@@ -652,12 +577,7 @@ void minarch_hdmimon(void) {
 	hdmimon();
 }
 
-// Menu accessors
-int minarch_menuMessage(char* message, char** pairs) {
-	return Menu_message(message, pairs);
-}
-
-// Save current config to file (used before core reset to preserve option changes)
+// Save current config to file (netplay_boot persists an adopted link mode before minarch_reloadGame)
 void minarch_saveConfig(void) {
 	Config_write(CONFIG_WRITE_ALL);
 }
@@ -674,7 +594,7 @@ void minarch_endOptionsBatch(void) {
 	}
 }
 
-// Force core to process option changes immediately (used by gblink.c and netplay_helper.c)
+// Force core to process option changes immediately (used by gblink.c)
 // Runs one frame with video output suppressed to trigger check_variables()
 void minarch_forceCoreOptionUpdate(void) {
 	skip_video_output = 1;

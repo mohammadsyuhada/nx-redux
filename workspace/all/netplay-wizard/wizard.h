@@ -52,7 +52,7 @@ extern SDL_Surface* wiz_screen;
 int wizard_write_session(const char* path, const WizSession* s, const char* game);
 int wizard_read_session(const char* path, WizSession* s);
 
-// wizard_wifi.c (Task 3)
+// wizard_wifi.c
 // The hotspot SSID minus LINK_HOTSPOT_SSID_PREFIX, filled by wiz_hotspot_start()
 // and rendered on the host's waiting screen. Empty until then.
 extern char wiz_hotspot_code[8];
@@ -60,14 +60,14 @@ extern char wiz_hotspot_code[8];
 int wiz_wifi_ensure_connected(WizSession* s);			// WiFi mode, both roles
 int wiz_hotspot_start(WizSession* s, const char* game); // hotspot host
 int wiz_hotspot_join(WizSession* s);					// hotspot client
-// wizard_net.c (Task 4)
+// wizard_net.c
 int wiz_host_rendezvous(const WizArgs* a, WizSession* s); // wait+handshake(+sync serve)
 int wiz_client_rendezvous(const WizArgs* a, WizSession* s);
 // wizard_usb.c
 int wiz_usb_link_up(WizSession* s); // 0 linked (s->peer_ip set), -1 error (message drawn), -2 cancelled
 void wiz_usb_link_stop(void);		// usblink.elf stop; idempotent, bounded (~2 s)
 bool wiz_usb_link_may_be_up(void);	// /tmp/usblink.pid exists (live or stale)
-// wizard_sync.c (Task 5)
+// wizard_sync.c
 int wiz_sync_serve_start(const char* serve_dir, const char* client_ip);
 void wiz_sync_serve_stop(void);
 int wiz_sync_pull(const char* host_ip, const char* fetch_to,

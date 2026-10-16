@@ -4,20 +4,20 @@
  * The host publishes exactly one module, [sync] over serve_dir, on
  * WIZ_RSYNC_PORT, and only for the length of one handshake: wizard_net.c starts
  * it after the HELLO exchange and stops it the moment the client reports back
- * (wizard_net.c:733/747/755). Two lines of its config are the whole security
- * posture, and they are the two lines NOT copied from Device Sync's rsyncd.conf
- * (sync.c:384-409, which offers three writable modules to anyone who asks):
+ * (wiz_host_serve()). Two lines of its config are the whole security posture
+ * (Device Sync's write_rsync_config() in sync.c also limits hosts, but makes
+ * every module writable):
  *
  *     read only = true     the client pulls; nothing on the wire may write here
  *     hosts allow = <ip>   only the peer that just completed the handshake
  *
  * EXEC SAFETY. The names that reach wiz_sync_pull() are remote input — they
- * arrive as FILE lines on the control channel. wizard_net.c:369 whitelists them
+ * arrive as FILE lines on the control channel. wizard_net.c's wiz_name_is_safe() whitelists them
  * to [A-Za-z0-9._-]+, but a whitelist upstream is a second line of defence and
  * never a licence to interpolate, so the pull runs posix_spawn(rsync_bin(), argv)
  * with NO SHELL ANYWHERE. There is no command string to quote and therefore
  * nothing for a quote, space, semicolon or backtick in a name to break out of;
- * the whitelist and the spawn each stand on their own. sync.c:546 uses popen()
+ * the whitelist and the spawn each stand on their own. sync.c uses popen()
  * (which is a shell) for the same job, and this file deliberately parts company
  * with it there — that is the one pattern from sync.c not copied.
  *
@@ -71,7 +71,7 @@
 // posix_spawn's environment. POSIX leaves this one to the caller to declare.
 extern char** environ;
 
-// rsync binary path (shared across platforms). Same location as sync.c:41,
+// rsync binary path (shared across platforms). Same location as sync.c's rsync_bin_path(),
 // duplicated rather than shared because nothing in sync.c is linkable here.
 static const char* rsync_bin(void) {
 	static char path[MAX_PATH];
@@ -81,7 +81,7 @@ static const char* rsync_bin(void) {
 }
 
 // How long the daemon gets to write its pidfile before we call it dead
-// (sync.c:423).
+// (same as sync.c's start_rsync_daemon()).
 #define WIZ_SYNC_DAEMON_SETTLE_US 500000
 
 // Hard ceilings on the client's pull, in the order they bind: one file may not
@@ -89,7 +89,7 @@ static const char* rsync_bin(void) {
 //
 // CROSS-FILE INVARIANT. The client must reach its SYNC-FAIL before the host
 // stops listening, and FOUR constants in this file govern that, not one. Every
-// step between the deadline firing and wizard_net.c:1118 sending the line:
+// step between the deadline firing and wiz_client_sync() (wizard_net.c) sending the line:
 //
 //     WIZ_SYNC_TOTAL_TIMEOUT_MS    23000   the budget itself
 //   + WIZ_SYNC_POLL_US as ms         100   deadline is read once per poll
@@ -150,7 +150,7 @@ static const char* rsync_bin(void) {
 // wizard_wifi.c's wiz_error(): same frame, same dismissal, file-local to this
 // stage of the wizard. One deliberate difference — the hold is shorter, because
 // every caller of the functions below draws its own error straight after a -1
-// (wizard_net.c:736 and :1119), and two five-second screens back to back read as
+// (wiz_host_serve() and wiz_client_sync() in wizard_net.c), and two five-second screens back to back read as
 // a hang. This one names what broke; the caller's names what it means for the
 // game.
 static void wiz_sync_error(const char* message) {
@@ -199,7 +199,7 @@ static void wiz_sync_render_progress(int index, int count, int percent) {
 
 	GFX_clear(wiz_screen);
 	// GFX_blitText centres inside dst_rect, so a full-width rect is a centred
-	// line (wizard_net.c:146 does the same).
+	// line (wizard_net.c's wiz_net_blit() does the same).
 	GFX_blitText(status_font, message, 0, COLOR_WHITE, wiz_screen,
 				 &(SDL_Rect){0, status_y, wiz_screen->w, status_h});
 
@@ -261,13 +261,13 @@ static bool wiz_ip_is_plain(const char* ip) {
 	return digits > 0;
 }
 
-// The whitelist wizard_net.c:369 applies on the wire, re-applied at this module's
+// The whitelist wizard_net.c's wiz_name_is_safe() applies on the wire, re-applied at this module's
 // own boundary. Not redundancy for its own sake:
 //   - these names are remote input and this file hands them to an exec and to
 //     unlinkat(); a '/' or a ".." would reach outside fetch_to either way,
 //   - wiz_name_is_safe() is static to wizard_net.c and cannot be seen from here,
 //     and
-//   - a caller added later (a bench harness, Task 7's launch glue) must not be
+//   - a caller added later (a bench harness, say) must not be
 //     able to skip the check by not being wizard_net.c.
 // Deliberately identical to that one, down to the explicit ranges instead of
 // isalnum() (locale-dependent); if either moves, both move.
@@ -354,7 +354,7 @@ static void wiz_build_pull_url(char* out, size_t out_size, const char* host_ip, 
 //
 // so the first '%' with digits in front of it is the transfer percentage; the
 // rate that follows carries no '%' of its own. Bytes, not files, because this bar
-// is per-file: sync.c:450 counts files out of "to-chk=X/Y", which for a
+// is per-file: sync.c's parse_progress2() counts files out of "to-chk=X/Y", which for a
 // single-file pull only ever reads 0% then 100%.
 static int wiz_progress_percent(const char* line) {
 	for (const char* c = line; *c; c++) {
@@ -383,7 +383,7 @@ static int wiz_progress_percent(const char* line) {
 // Consume every complete line in buf, returning the newest percentage they
 // carried (or `current` when none did) and moving the unterminated tail to the
 // front. Lines end with \r OR \n: --info=progress2 redraws in place with \r and
-// only ends with \n, which is why sync.c:480 reads the same way. This one works
+// only ends with \n, which is why sync.c's read_line_cr() reads the same way. This one works
 // off a buffer rather than fgetc() because the caller has to select() on the same
 // descriptor for its deadline, and stdio's buffer is invisible to select().
 //
@@ -535,7 +535,7 @@ static int wiz_stage_commit(const char* fetch_to, char names[][WIZ_SYNC_NAME_MAX
 //////////////////////////////////
 
 // Idempotent, and called on every exit path including wiz_sync_serve_start()'s
-// own failures. Clone of sync.c:430-442 plus the log.
+// own failures. Clone of sync.c's stop_rsync_daemon() plus the log.
 void wiz_sync_serve_stop(void) {
 	FILE* fp = fopen(WIZ_RSYNC_PID, "r");
 
@@ -548,7 +548,7 @@ void wiz_sync_serve_stop(void) {
 	}
 
 	// A daemon that died before writing its pidfile leaves no other handle, so
-	// this is not belt-and-braces (sync.c:440 does the same for the same
+	// this is not belt-and-braces (stop_rsync_daemon() in sync.c does the same for the same
 	// reason). Safe on device: the only other rsync user there is sync.elf,
 	// a launcher app, which cannot be running while launch.sh has a game
 	// mid-launch — and the wizard's own pull is a client that has already
@@ -838,7 +838,7 @@ static int wiz_pull_one(const char* host_ip, const char* stage_dir, const char* 
 
 		// The one thing that must not happen here is an unbounded wait. This
 		// loop does not poll PAD (the pull is not cancelable, symmetrically with
-		// the host's send window at wizard_net.c:754) and wizard.c holds
+		// the host's send window in wiz_host_serve()) and wizard.c holds
 		// PWR_disablePowerOff for the whole run, so a peer that stops talking
 		// mid-file would otherwise leave a device the user cannot even switch
 		// off. rsync's --timeout is the polite version of this; SIGKILL is the
@@ -936,7 +936,7 @@ int wiz_sync_pull(const char* host_ip, const char* fetch_to,
 	// by two identical lines on the wire.
 	//
 	// Refused rather than skipped. A host that read its own directory cannot
-	// produce a repeat (wizard_net.c:694 lists dirents), so a set containing one
+	// produce a repeat (wizard_net.c's wiz_collect_serve_files() lists dirents), so a set containing one
 	// comes from a peer that is buggy or hostile, and this file has no way to
 	// tell which of the two copies it was meant to keep. Refusing costs a
 	// conforming host nothing and leaves fetch_to untouched, which silently

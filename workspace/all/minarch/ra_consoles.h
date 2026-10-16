@@ -39,7 +39,7 @@ static const RA_ConsoleMapping ra_console_table[] = {
 	{"COLECO", RC_CONSOLE_COLECOVISION},
 	// Amstrad
 	{"CPC", RC_CONSOLE_AMSTRAD_PC},
-	// Dreamcast (standalone flycast pak). The folder also carries NAOMI/
+	// Dreamcast (DC.pak: flycast libretro core). The folder also carries NAOMI/
 	// Atomiswave .zip sets, which prefetch refines to the "Arcade" console.
 	{"DC", RC_CONSOLE_DREAMCAST},
 	// Dreamcast Lite (DCX.pak: libretro's 2022 flycast fork). Same games as DC.

@@ -57,7 +57,6 @@ static void* hotspot_stop_thread(void* arg) {
 	// so wpa_supplicant.conf doesn't accumulate stale NextUI-* entries over time.
 	WIFI_direct_forgetAllHotspots();
 
-	// Restore previous WiFi connection
 	WIFI_direct_restorePreviousConnection();
 #endif
 

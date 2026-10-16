@@ -54,7 +54,7 @@ static EmuOvlItem* find_schema_item(EmuOvlConfig* cfg, const char* key, int* out
 }
 
 // Split a mutable line copy into key/value on the exact " = " separator
-// (Config_getValue's contract, ma_config.c:843: key anchored at line start,
+// (Config_getValue's contract in minarch's ma_config.c: key anchored at line start,
 // optionally behind a '-' lock marker, immediately followed by " = ").
 // Leading whitespace is deliberately NOT skipped — minarch would not match
 // such a line either. Returns false for non-matching lines ("bind Up = UP"
@@ -335,7 +335,7 @@ int opts_minarch_load(EmuOvlConfig* cfg, OptsMinarchState* st, OptsOverrideState
 	// base = schema defaults + system + pak default; console layers on top of
 	// base; the game file, when present, ALSO layers on top of base — it
 	// replaces the console file rather than stacking on it
-	// (Config_init, ma_config.c:1383-1396).
+	// (Config_load in minarch's ma_config.c).
 	int base[EMU_OVL_MAX_SECTIONS][EMU_OVL_MAX_ITEMS];
 	for (int s = 0; s < cfg->section_count; s++)
 		for (int i = 0; i < cfg->sections[s].item_count; i++)

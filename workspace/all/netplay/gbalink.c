@@ -59,7 +59,6 @@ static bool usb_session(void) {
 #define GL_DISCOVERY_QUERY 0x47424451 // "GBDQ" - GBA Link Discovery Query
 #define GL_DISCOVERY_RESP 0x47424452  // "GBDR" - GBA Link Discovery Response
 
-// Discovery broadcast interval
 #define DISCOVERY_BROADCAST_INTERVAL_US 500000 // 500ms
 
 // Network commands

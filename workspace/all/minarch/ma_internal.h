@@ -25,12 +25,12 @@ struct Core {
 	const char version[128];	// eg. Gambatte (v0.5.0-netlink 7e02df6)
 	const char extensions[128]; // eg. gb|gbc|dmg
 
-	const char config_dir[MAX_PATH];   // eg. /mnt/sdcard/.userdata/rg35xx/GB-gambatte
-	const char states_dir[MAX_PATH];   // eg. /mnt/sdcard/.userdata/arm-480/GB-gambatte
+	const char config_dir[MAX_PATH];   // eg. /mnt/sdcard/.userdata/tg5040/GB-gambatte
+	const char states_dir[MAX_PATH];   // eg. /mnt/sdcard/.userdata/shared/GB-gambatte
 	const char saves_dir[MAX_PATH];	   // eg. /mnt/sdcard/Saves/GB
 	const char bios_dir[MAX_PATH];	   // eg. /mnt/sdcard/Bios/GB
 	const char cheats_dir[MAX_PATH];   // eg. /mnt/sdcard/Cheats/GB
-	const char overlays_dir[MAX_PATH]; // eg. /mnt/sdcard/Cheats/GB
+	const char overlays_dir[MAX_PATH]; // eg. /mnt/sdcard/Overlays/GB
 
 	double fps;
 	double sample_rate;
@@ -59,7 +59,6 @@ struct Core {
 	size_t (*get_memory_size)(unsigned id);
 
 	retro_core_options_update_display_callback_t update_visibility_callback;
-	// retro_audio_buffer_status_callback_t audio_buffer_status;
 
 	bool has_netpacket; // Netpacket interface (for GBA Link support); set by RETRO_ENVIRONMENT_SET_NETPACKET_INTERFACE
 };
@@ -135,13 +134,13 @@ extern int rewind_cfg_compress;
 extern int rewind_cfg_lz4_acceleration;
 extern int rewind_init_ready;
 
-// Core option batching (defined in ma_options.c, used by minarch.c netplay accessors).
+// Core option batching (defined in ma_options.c, toggled by minarch_begin/endOptionsBatch, used by gblink.c).
 // While in batch mode, OptionList_setOptionValue defers config.core.changed so a
 // run of related option writes triggers a single core re-read.
 extern int option_batch_mode;
 extern int option_batch_changed;
 
-// Suppress video output for one forced core frame (defined in ma_video.c).
+// Suppress video output for one forced core frame (defined in minarch.c, read by ma_video.c).
 // Used by minarch_forceCoreOptionUpdate() to run a frame purely to trigger
 // the core's check_variables() without flashing a frame on screen.
 extern int skip_video_output;
@@ -202,12 +201,11 @@ typedef struct OptionList {
 	Option** enabled_options;
 
 	OptionCategory* categories;
-	// OptionList_callback_t on_set;
 } OptionList;
 
 struct Config {
 	char* system_cfg;	  // system.cfg based on system limitations
-	char* default_cfg;	  // pak.cfg based on platform limitations
+	char* default_cfg;	  // default.cfg (or default-<DEVICE>.cfg) based on platform limitations
 	char* user_cfg;		  // minarch.cfg or game.cfg based on user preference
 	char* shaders_preset; // minarch.cfg or game.cfg based on user preference
 	char* device_tag;

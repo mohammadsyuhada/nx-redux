@@ -2,7 +2,8 @@
 # Builds the Rice video plugin into one relocatable object for the
 # mupen64plus-next libretro core (called from build-libretro.sh).
 # $1 = core checkout, $2 = output object. Rice is upstream
-# mupen64plus-video-rice at the commit the standalone N64.pak ships.
+# mupen64plus-video-rice, pinned at RICE_HASH (the commit the retired
+# standalone N64.pak shipped).
 set -e
 CORE="$1"
 OUT="$2"
