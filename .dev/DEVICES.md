@@ -34,7 +34,7 @@ Model string: `TRIMUI_MODEL` (e.g. `Trimui Brick Pro`).
   | Smart Pro / Smart Pro S | 4.96" 1280×720 | ~296 ppi | 2.25 |
 
   The Brick Pro and Smart Pro values were seeded from density (3 × ppi / 400)
-  and are pending by-eye tuning. Every scale is snapped to 1/16 (so a 128-unit
+  and tuned by eye on hardware (2026-10-07). Every scale is snapped to 1/16 (so a 128-unit
   sheet is whole pixels) and clamped to [1.5, 4].
 - **Tuning a device's scale on hardware:** add `uiscale_dev=<float>` to
   `/mnt/SDCARD/.userdata/shared/minuisettings.txt` and force-reboot so
@@ -87,12 +87,10 @@ exits:
 
 | Setting | tg5050 | tg5040 |
 |---|---|---|
-| Big core governor | cpu4: userspace | cpu0: userspace |
-| Big core speed | 2160 MHz | 2000 MHz |
-| Little core governor | cpu0: schedutil | N/A (homogeneous) |
-| Little core max | 2000 MHz (hw caps at 1416) | N/A |
+| Big core governor | cpu4: schedutil, 408-408 MHz | cpu0: schedutil, 408-1008 MHz |
+| Little core governor | cpu0: schedutil, 408-2000 MHz (hw caps at 1416) | N/A (homogeneous) |
 | Cores online | cpu0,1,4 (others offline) | all |
-| MinUI loop restores | scaling_setspeed only | scaling_setspeed only |
+| MinUI loop restores | governor + min/max, cpu2,3,5-7 offline | governor + min/max |
 
 Available frequencies:
 
@@ -128,22 +126,22 @@ Notes:
   (schedutil 408/408) before every pak, so pak scripts still see the 3-core
   boot policy. A relaunch after a pak finds the marker present and caps at its
   first frame.
-- **minarch paks declare a CPU profile as data** (spec:
+- **minarch paks can declare a CPU profile as data** (spec:
   `docs/superpowers/specs/2026-09-20-minarch-cpu-profiles-design.md`):
   `default.cfg` may carry `minarch_cpu_min` / `minarch_cpu_max` (MHz); the in-app
   CPU Speed "Auto" applies that range (`PLAT_setCPUSpeedRange`: cpu0 on tg5040;
-  every online policy on tg5050), the other presets stay user overrides. On
+  every online policy on tg5050), or the full range when the pak ships none. No
+  shipped pak carries a profile any more — Auto is uncapped on every pak; the
+  other presets stay user overrides. On
   tg5050 the Powersave / Normal / Performance presets pin every online cluster
   (the little cluster alone when the pak has taken cpu4 offline; values are
   rounded to that cluster's table, so Normal and Performance both land on 1416
   there); the launcher's menu speeds stay big-core only. The
   pak's `launch.sh` decides cores online (tg5050: `echo 0 > cpu4/online` for
-  cores measured full-speed on the little cluster). Profiles come from
-  `scripts/bench` (results in `scripts/bench/results/<plat>/SUMMARY.md`); a
-  core without a ROM on the test cards ships no profile and keeps the full range.
+  cores measured full-speed on the little cluster). Bench results are in
+  `scripts/bench/results/<plat>/SUMMARY.md`.
   `Config_load` loads `default-<DEVICE>.cfg` **instead of** `default.cfg` when one
-  exists (full replacement, not an overlay), so on the Brick the FC/SFC/FBN caps
-  live in their `default-brick.cfg` and `default-brickpro.cfg` too — a key present
+  exists (full replacement, not an overlay), so a key present
   only in `default.cfg` silently drops on any device that ships an override.
 - **minarch can also pin threads by role** (spec:
   `docs/superpowers/specs/2026-09-20-minarch-thread-affinity-design.md`):
@@ -160,8 +158,8 @@ Notes:
   measured: **PS.pak on tg5050 carries `minarch_cpu_affinity = big`** — its
   `launch.sh` onlines cpu5 so both big cores serve `pcsxr-drc` and the render +
   `mali-*` helpers land on cpu0-1, replacing the pak's old `taskset` launch script
-  (`scripts/bench/results/tg5050/AFFINITY.md` 2026-09-21). Every other pak ships
-  off and keeps its cap-only profile.
+  (`scripts/bench/results/tg5050/AFFINITY.md` 2026-09-21). On tg5050, PSX, N64,
+  DC and DCX also carry `big`; every other pak ships `none`.
 
 ## Firmware requirements
 

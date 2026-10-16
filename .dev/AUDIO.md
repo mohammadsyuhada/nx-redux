@@ -147,9 +147,10 @@ The former single `settings->mute` flag is split into two independent flags,
 each written by exactly one owner:
 
 - `fn_mode` — keymon sets it from the FN switch GPIO only, via `SetFnMode`,
-  which applies (and reverts) the whole FN profile: `fn_volume`,
-  `fn_brightness`, `fn_colortemperature`, `fn_contrast`, `fn_saturation`,
-  `fn_exposure`, the D-pad mode and turbo-fire flags, and the LEDs.
+  which applies (and reverts) the FN night-mode profile: `fn_volume`,
+  `fn_brightness`, `fn_colortemperature`, `fn_contrast`, `fn_saturation` and
+  `fn_exposure`. The LEDs follow through `LEDS_setProfile` when "FN turns off
+  LEDs" (`fnLeds`) is on.
 - `speaker_mute` — the OSD Mute widget sets it via `osdctl set mute`; keymon's
   volume keys clear it via `SetSpeakerMute(0)` before they step the volume. It
   only silences output; it touches no display or input setting.

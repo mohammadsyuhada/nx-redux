@@ -5,19 +5,35 @@ An improved replacement for `show.elf` and `sdl2display` with support for multip
 ## Features
 
 - **Three Display Modes**:
-  1. **Simple Mode**: Display a centered image/logo with optional delay
+  1. **Simple Mode**: Display a centered image/logo, optionally auto-closing (`--timeout`)
   2. **Progress Mode**: Show logo + progress bar + text (single render)
   3. **Daemon Mode**: Interactive mode with runtime updates via FIFO
 
 - **Flexible Configuration**:
   - Custom background colors (hex format)
   - Dynamic text updates
-  - Progress bar (0-100%)
+  - Progress bar (0-100%, or -1 for an indeterminate bar)
+  - Optional hint line, text/progress positions, logo height, font size
   - Runtime updates without restarting
 
 - **Single Binary**: One executable handles all use cases
 
 ## Usage
+
+Options (all modes):
+
+| Option | Description |
+|--------|-------------|
+| `--bgcolor=0xRRGGBB` | Background color (default `0x000000`) |
+| `--fontcolor=0xRRGGBB` | Text color (default `0xFFFFFF`) |
+| `--text="message"` | Status line |
+| `--hint="message"` | Optional second line under the status text |
+| `--progress=N` | 0-100, or -1 for an indeterminate bar |
+| `--texty=N` | Status line Y position, % of screen height (default 80) |
+| `--progressy=N` | Progress bar Y position, % of screen height (default 90) |
+| `--timeout=N` | Auto-close after N seconds (0 = never) |
+| `--logoheight=N` | Scale the logo to N px tall (0 = no scaling) |
+| `--fontsize=N` | Font size in px (default 24) |
 
 ### Simple Mode
 Display a centered image with an optional background color (runs until killed):
@@ -93,7 +109,11 @@ When running in daemon mode, send commands to `/tmp/show2.fifo`:
 |---------|-------------|---------|
 | `TEXT:<message>` | Update the text message | `echo "TEXT:Loading files..." > /tmp/show2.fifo` |
 | `PROGRESS:<0-100>` | Update progress bar | `echo "PROGRESS:50" > /tmp/show2.fifo` |
-| `BGCOLOR:<hex>` | Change background color | `echo "BGCOLOR:0xFF0000" > /tmp/show2.fifo` || `FONTCOLOR:<hex>` | Change font color | `echo "FONTCOLOR:0x00FF00" > /tmp/show2.fifo` || `QUIT` | Exit the daemon | `echo "QUIT" > /tmp/show2.fifo` |
+| `BGCOLOR:<hex>` | Change background color | `echo "BGCOLOR:0xFF0000" > /tmp/show2.fifo` |
+| `FONTCOLOR:<hex>` | Change font color | `echo "FONTCOLOR:0x00FF00" > /tmp/show2.fifo` |
+| `TEXTY:<pct>` | Move the status line (% of screen height) | `echo "TEXTY:80" > /tmp/show2.fifo` |
+| `PROGRESSY:<pct>` | Move the progress bar (% of screen height) | `echo "PROGRESSY:90" > /tmp/show2.fifo` |
+| `QUIT` | Exit the daemon | `echo "QUIT" > /tmp/show2.fifo` |
 
 ## Integration Examples
 
@@ -177,14 +197,14 @@ make build PLATFORM=tg5050
 
 Or manually in the toolchain:
 ```bash
-cd workspace/tg5050/show2
-make
+cd workspace/all/show2
+make PLATFORM=tg5050
 ```
 
 ## Notes
 
 - Font is embedded in the binary - no external font files needed
-- Simple and progress modes run until killed (Ctrl+C or external signal)
+- Simple and progress modes run until killed (Ctrl+C or external signal) or `--timeout` expires
 - Daemon mode can be exited via FIFO QUIT command or Ctrl+C
 - In daemon mode, the FIFO blocks until a reader connects
 - The tool automatically cleans up the FIFO on exit

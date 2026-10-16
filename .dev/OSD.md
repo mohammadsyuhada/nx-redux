@@ -108,7 +108,7 @@ those files without cleaning them up. Files that sync wrote but current NX no
 longer ships at all — `.nx_osd_stamp`, since-removed widgets — have nothing
 in the overlay to shadow them, so they can still show through the merged
 view; running the restore below is what clears them. *Settings →
-System → Restore stock OSD* (shown when `$SYSTEM_PATH/osd-stock/$DEVICE.zip` is
+System → Restore stock files* (shown when `$SYSTEM_PATH/osd-stock/$DEVICE.zip` is
 shipped) runs `paks/MinUI.pak/restore-stock-osd.sh`, which reaches under the
 live mount through a temporary bind mount of `/` and unzips the pristine
 stock archive there — the live NX OSD is unaffected and no reboot is needed.
@@ -156,9 +156,8 @@ virtual pad, so keymon's Home toggle never sees the closing press (the Smart
 Pro S is unaffected: its Home is on `sunxi-keyboard`, which the daemon never
 opens). Patch bytes: `0x40b8b4` `cmp w0,#2`→`cmp w0,#15` and `0x40b9b8`
 `mov w0,#4`→`mov w0,#2` (file offset = vaddr − 0x400000). Brick Pro's stock
-layout includes the battery widget, so `device/brickpro/osdlayout.json` keeps it
-(the widget itself lives in the shared `common/widgets/static_battery`, and is
-simply not referenced by the Brick or Smart Pro layouts). Extraction recipe,
+layout includes the battery widget; the widget itself lives in the shared
+`common/widgets/static_battery`, but no device's `osdlayout.json` references it. Extraction recipe,
 run from a Linux container since macOS cannot mount ext4:
 
 ```bash
@@ -298,11 +297,16 @@ The daemon requires `LD_LIBRARY_PATH` to include `/usr/trimui/lib/` (for `libshm
 export LD_LIBRARY_PATH=$SYSTEM_PATH/lib:$SHARED_SYSTEM_PATH/lib:/usr/trimui/lib:$LD_LIBRARY_PATH
 ```
 
-In our launch.sh (TG5050 only):
+In our `MinUI.pak/launch.sh` (both platforms; `$OSDD` is `trimui_osdd` or the
+`.xbox` variant, `$OSD_DST` the mounted `/usr/trimui/osd`):
 
 ```bash
-# Start TrimUI OSD overlay daemon (system-wide quick menu)
-cd /usr/trimui/osd && ./trimui_osdd &
+OSDWAIT="$SYSTEM_PATH/lib/libosdwait.so"
+if [ -f "$OSDWAIT" ]; then
+	cd "$OSD_DST" && LD_PRELOAD="$OSDWAIT" ./$OSDD &
+else
+	cd "$OSD_DST" && ./$OSDD &
+fi
 cd "$SYSTEM_PATH/bin"
 ```
 
@@ -400,7 +404,7 @@ Each widget has a directory under `/tmp/trimui_osd/`:
 
 Note: the `hotkey` field is **inert** — the daemon never reads it (the string
 "hotkey" doesn't appear in the binary). The OSD is actually triggered by our
-keymon via `/tmp/show_osdd`: HOME press (instant) or MENU long-press (500ms).
+keymon via `/tmp/show_osdd`: HOME press or MENU long-press (1 s, `LONG_PRESS_MS`).
 Verified empirically: a short MENU+SELECT chord does not open the OSD.
 
 ### Widget Directory Structure
@@ -465,7 +469,7 @@ the dirty-flag-rendering interactions: [CAPTURE.md](CAPTURE.md).
 | Widget | Type | Purpose |
 |--------|------|---------|
 | `slider_backlight` | slider | Screen brightness |
-| `stepper_fan_level` | stepper | Fan speed control |
+| `stepper_fan_level` | stepper | Fan speed control (Smart Pro S only, `device/smartpros/widgets/`) |
 | `toggle_bt` | toggle | Bluetooth on/off |
 | `toggle_wifi` | toggle | WiFi on/off |
 | `toggle_led` | toggle | LED strip on/off |
@@ -480,7 +484,6 @@ the dirty-flag-rendering interactions: [CAPTURE.md](CAPTURE.md).
 | `static_cpu_freq` | static | CPU frequency display |
 | `static_temperature` | static | CPU temperature display |
 | `static_dram` | static | Used-memory display — stock widget was incomplete (empty `set.sh`, no update hook); ours adds `refresh.sh` (MemTotal−MemAvailable) |
-| `app_music` | app | Music player controls — vendored but not in the layout yet; to be integrated with `workspace/all/musicplayer` |
 
 ## DRM Plane Details
 
@@ -527,13 +530,13 @@ Both platforms use the same approach: `keymon` detects the trigger → toggles O
 
 ### TG5050
 
-- **keymon** detects Home button (`CODE_HOME=172`) and Menu long-press (`CODE_MENU2=316`, 500ms threshold)
+- **keymon** detects Home button (`CODE_HOME=172`) and Menu long-press (`CODE_MENU2=316`, 1 s `LONG_PRESS_MS`)
 - On trigger: checks `/tmp/trimui_osd/osdd_show_up` to toggle show/hide
 - Menu tap opens the context menu in nxredux
 
 ### TG5040
 
-- **keymon** detects Menu long-press (`CODE_MENU2=316`, 500ms threshold) on all
+- **keymon** detects Menu long-press (`CODE_MENU2=316`, 1 s `LONG_PRESS_MS`) on all
   tg5040 devices, and additionally a short Home press (`KEY_HOMEPAGE` 172) on
   the Brick Pro — the only tg5040 device with a Home button. Home toggles on
   the RELEASE edge: toggling on press let trimui_osdd grab the pad mid-press
@@ -549,8 +552,7 @@ Both platforms use the same approach: `keymon` detects the trigger → toggles O
 
 ### nxredux
 
-- `PAD_quickMenuPressed()` returns 0 on all platforms — built-in quick menu disabled
-- OSD is handled entirely by keymon + trimui_osdd
+- No built-in quick menu — the OSD is handled entirely by keymon + trimui_osdd
 
 ## Known Issues
 

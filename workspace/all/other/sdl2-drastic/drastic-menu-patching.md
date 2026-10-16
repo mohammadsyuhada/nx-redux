@@ -2,9 +2,10 @@
 
 ## Background
 
-Advanced Drastic on tg5050 uses a custom SDL2 build with hook code from
-`0006-add-hook-for-drastic.patch` (trngaje/knulli_distribution). This patch
-compiles menu rendering and input handling directly into SDL2 (`drastic_video.c`).
+DraStic (NDS.pak) on both tg5040 and tg5050 uses a custom SDL2 build with hook
+code from `0006-add-hook-for-drastic.patch` (trngaje/knulli_distribution), plus
+our per-platform `fix-tg5040.patch` / `fix-tg5050.patch`. This compiles menu
+rendering and input handling directly into SDL2 (`drastic_video.c`).
 
 The drastic binary is vanilla `r2.5.2.0`. The hook code intercepts its
 rendering and overlays a custom menu system.
@@ -15,17 +16,12 @@ rendering and overlays a custom menu system.
 drastic (vanilla r2.5.2.0)
   └── loads libSDL2-2.0.so.0 (our custom build)
         ├── Hook patch (drastic_video.c) — rendering, input, menus
-        ├── DRM rendering (ADVDRASTIC_DRM) — GBM/EGL for tg5050
-        ├── Dummy driver fix — reports real display resolution from DRM
-        └── libadvdrastic.so — NOT loaded (conflicts with compiled-in hooks)
+        ├── DRM rendering (ADVDRASTIC_DRM) — GBM/EGL, tg5050 only
+        ├── fbdev rendering — /dev/fb0 + EGL, tg5040 (no ADVDRASTIC_DRM)
+        └── Dummy driver fix — reports real display resolution (DRM / fb ioctl)
 ```
 
-On tg5040, a different SDL2 build loads `libadvdrastic.so` via dlopen, which
-provides the "Advanced Drastic (1.1-tr-251109)" version and extra menu features.
-That approach doesn't work on tg5050 because libadvdrastic.so uses fbdev EGL
-which tg5050's Mali GPU doesn't support (requires GBM EGL).
-
-## Current Menu Items (after NxRedux patches)
+## Current Menu Items (after NX Redux patches)
 
 The hook code builds the menu in `sdl_create_menu_main` via `puVar10[]` array.
 Items are reordered so Load/Save state appear first. "Change Steward Options"
@@ -67,11 +63,11 @@ P6 = (ROM path pattern)   → NDS_DRASTIC_MENU_ROM
 
 For each captured menu item, the hook decides how to render it:
 
-- **y == 201** (version): Rendered top-right with custom formatting
+- **y == 201** (version): Rendered above the menu items
   ```c
-  sprintf(buf, "Advanced NDS");  // was: "NDS %s", &p->msg[8]
-  x = display_width - get_font_width(buf) - 10;
-  y = display_height * 10 / 480;
+  sprintf(buf, "DraStic %s", p->msg);
+  x = g_advdrastic.iDisplay_width * 90 / 640;
+  y = h - w * 2;
   ```
 
 - **x == 180** (menu items): Rendered in a vertical list with cursor highlight
@@ -89,31 +85,22 @@ version line). When at bottom, the view scrolls. 13 items visible at once
 
 ## How to Hide Menu Items
 
-To hide specific items, modify `draw_drastic_menu_main()` in `drastic_video.c`.
-The simplest approach is to skip items by their text content:
-
-```python
-# In fix-menu.py, add skip logic after the "memset(buf, 0, sizeof(buf));" line:
-
-# Items to hide (by text prefix):
-HIDDEN_ITEMS = [
-    "Change Steward Options",
-    "Configure Firmware",
-    "Load new game",
-    "Restart game",
-]
-```
-
-Implementation approach — add a skip check in the menu item loop:
+Hidden items are listed in `is_hidden_menu_item()` in `drastic_video.c`
+(currently only "Load new game"); `draw_drastic_menu_main()` skips them by
+their text content:
 
 ```c
-// Inside draw_drastic_menu_main(), after: p = &drastic_menu.item[cc];
-// Add:
-if (p->x == 180) {
-    // Skip hidden items
-    if (!memcmp(p->msg, "Change Steward", 14)) continue;
-    if (!memcmp(p->msg, "Configure Firmware", 18)) continue;
-    // ... etc
+static int is_hidden_menu_item(const char *msg)
+{
+    if (!memcmp(msg, "Load new game", 13)) return 1;
+    if (!memcmp(msg, "Configure Firmware", 18)) return 1;  // add more like this
+    return 0;
+}
+
+// Inside draw_drastic_menu_main():
+else if (p->x == 180) {
+    if (is_hidden_menu_item(p->msg)) continue;
+    ...
 }
 ```
 
@@ -137,90 +124,62 @@ if (!memcmp(p->msg, "Change Options", 14)) {
 
 ## Build Pipeline
 
-All patches are Python scripts applied during the Docker build:
+Our changes live as patches on top of the pinned SDL_drastic source
+(`eb2e00f`, knulli2.30.8):
 
 ```
-workspace/tg5050/other/sdl2-drastic/
-├── build-sdl2-drastic.sh          # Main build script
-├── fix-drm-init.py                # Step 3b: DRM connector auto-detect + GBM resolution
-├── fix-dummy-resolution.py        # Step 3c: Dummy driver reads DRM resolution
-├── fix-menu.py                    # Step 3d: Menu customization
-├── fix-perf.py                    # Step 3e: DRM rendering perf (double gbm lock fix)
-├── SDL_drastic/                   # Source (knulli2.30.8 + patches) [gitignored]
-│   └── src/video/drastic_video.c  # Hook code with menu system
-├── extra-deps/                    # Build-time headers/stubs [gitignored]
-└── output/                        # Build output [gitignored]
+workspace/all/other/sdl2-drastic/
+├── 0006-add-hook-for-drastic.patch   # Shared hook patch (both platforms)
+├── fix-tg5040.patch                  # Our tg5040 changes (menu, input, fbdev, ...)
+├── fix-tg5050.patch                  # Our tg5050 changes (menu, input, DRM, ...)
+├── build-sdl2-drastic-tg5040.sh      # Build recipe (no ADVDRASTIC_DRM)
+├── build-sdl2-drastic-tg5050.sh      # Build recipe (ADVDRASTIC_DRM)
+├── gen-patch.sh                      # Regenerates fix-<platform>.patch
+└── Makefile                          # make build / deploy PLATFORM=<platform>
+
+workspace/<platform>/other/sdl2-drastic/   # per-platform work dir [gitignored]
+├── SDL_drastic/                       # Source (eb2e00f + 0006 + fix patch)
+│   └── src/video/drastic_video.c      # Hook code with menu system
+├── extra-deps/                        # Build-time headers/stubs
+└── output/                            # Build output
 ```
 
-Sentinel files in SDL_drastic/ track which patches have been applied:
-- `.patched` — 0006 hook patch
-- `.drm_fixed` — DRM init fix
-- `.dummy_fixed` — Dummy driver resolution fix
-- `.menu_fixed` — Menu customization
-- `.perf_fixed` — DRM performance fix
+Release builds do not use this work dir: `workspace/all/prebuilts/sdl2-drastic.sh`
+reclones the pinned source, applies `0006` + `fix-<platform>.patch`, and runs the
+same build recipe (see its header for the docker command).
 
-To force re-patching: `rm SDL_drastic/.menu_fixed` then rebuild.
-
-### Full rebuild (from scratch)
+### Editing and rebuilding
 
 ```sh
-cd workspace/tg5050/other/sdl2-drastic
-docker run --rm -v .:/root/workspace \
-  ghcr.io/loveretro/tg5050-toolchain:latest \
-  bash /root/workspace/build-sdl2-drastic.sh
-```
+# Clone + patch the source (from workspace/<platform>, inside the toolchain)
+make other/sdl2-drastic/SDL_drastic
 
-### Incremental rebuild (after editing drastic_video.c directly)
-
-When editing `SDL_drastic/src/video/drastic_video.c` directly (bypassing the
-Python fix scripts), use an incremental `make` to avoid re-running configure:
-
-```sh
-cd workspace/tg5050/other/sdl2-drastic
-docker run --rm -v .:/root/workspace \
-  ghcr.io/loveretro/tg5050-toolchain:latest \
-  bash -c '
-# Fix broken .la files in sysroot (needed every fresh container run)
-BROKEN_PREFIX="/home2/trimuidev/tg5050/tina_1.0.0/out/a523/gb1/buildroot/buildroot/host/bin/../aarch64-buildroot-linux-gnu/sysroot"
-for la in ${SYSROOT}/usr/lib/*.la; do
-    if grep -q "$BROKEN_PREFIX" "$la" 2>/dev/null; then
-        sed -i "s|$BROKEN_PREFIX|$SYSROOT|g" "$la"
-    fi
-done
-cd /root/workspace/SDL_drastic
-make -j$(nproc) EXTRA_LDFLAGS="-L/root/workspace/extra-deps/lib -L${SYSROOT}/usr/lib -lSDL2_image -lSDL2_ttf -ljson-c -lpthread -lEGL -lGLESv2 -ldrm -lgbm"
-cp build/.libs/libSDL2-2.0.so.0 /root/workspace/output/
-'
+# Edit workspace/<platform>/other/sdl2-drastic/SDL_drastic/src/video/drastic_video.c, then
+cd workspace/all/other/sdl2-drastic
+make build PLATFORM=tg5050        # or tg5040; output in workspace/<platform>/other/sdl2-drastic/output/
+./gen-patch.sh tg5050             # write the edits back into fix-tg5050.patch
 ```
 
 ### Deploy to device
 
 ```sh
-# Copy to skeleton
-cp workspace/tg5050/other/sdl2-drastic/output/libSDL2-2.0.so.0 \
-   skeleton/BASE/Emus/shared/Drastic/devices/tg5050/libs/libSDL2-2.0.so.0
+# Copies the build into skeleton/SYSTEM/<platform>/paks/Emus/NDS.pak/libs/
+make deploy PLATFORM=tg5050
 
 # Push to device via ADB
-adb push skeleton/BASE/Emus/shared/Drastic/devices/tg5050/libs/libSDL2-2.0.so.0 \
-  /mnt/SDCARD/Emus/shared/Drastic/devices/tg5050/libs/libSDL2-2.0.so.0
+adb push skeleton/SYSTEM/tg5050/paks/Emus/NDS.pak/libs/libSDL2-2.0.so.0 \
+  /mnt/SDCARD/.system/paks/Emus/NDS.pak/libs/libSDL2-2.0.so.0
 ```
-
-Output: `workspace/output/libSDL2-2.0.so.0`
 
 ## tg5040 vs tg5050
 
 | Aspect | tg5040 | tg5050 |
 |--------|--------|--------|
 | Display | 1024x768, fbdev EGL | 1280x720, GBM/DRM EGL |
-| SDL2 | Loads libadvdrastic.so via dlopen | Hook patch compiled into SDL2 |
-| Menu | From libadvdrastic.so (advanced) | From hook patch (customizable) |
-| Version shown | Advanced Drastic (1.1-tr-251109) | DraStic v1.9 + original version header |
+| SDL2 | Hook patch compiled into SDL2 | Hook patch compiled into SDL2 |
+| Fix patch | fix-tg5040.patch | fix-tg5050.patch |
 | CFLAGS | -DDEVICE_TRIMUI | -DDEVICE_TRIMUI -DADVDRASTIC_DRM |
-| SDL_VIDEODRIVER | (default/mali) | dummy |
-
-To unify the menu across both devices, build tg5040's SDL2 with the same
-hook patch (without ADVDRASTIC_DRM flag) and the same fix-menu.py patches.
-This would replace libadvdrastic.so integration with the compiled-in hooks.
+| SDL_VIDEODRIVER | dummy | dummy |
 
 ## Key Source References
 
@@ -232,8 +191,8 @@ This would replace libadvdrastic.so integration with the compiled-in hooks.
 ## Completed
 
 - [x] Hide "Load new game" menu item (direct edit in drastic_video.c)
-- [x] Restore original version header (shows drastic's `p->msg` instead of "Advanced NDS")
-- [x] Change left-side title from "Advanced Drastic" to "DraStic v1.9"
+- [x] Restore original version header ("DraStic <version>" above the menu items)
+- [x] Remove the left-side "Advanced Drastic" title
 - [x] Implement `sdl_get_gui_input` hook — fixes B button not working in menus
 - [x] Add NULL check + fallback for `TTF_OpenFont` (prevents crash on bad font)
 - [x] Move "Load state" and "Save state" to top of menu (reordered in `sdl_create_menu_main`)
@@ -244,4 +203,3 @@ This would replace libadvdrastic.so integration with the compiled-in hooks.
 - [ ] Hide additional items: "Configure Firmware", "Restart game"
 - [ ] Custom font — font1.ttf (8MB) caused black screen, needs investigation
 - [ ] Menu colors — configurable via `resources/settings.json` (menu_c0, menu_c1, menu_c2)
-- [ ] Optionally build same SDL2 for tg5040 (without ADVDRASTIC_DRM)

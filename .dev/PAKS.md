@@ -104,7 +104,7 @@ But if a binary takes more than one second to initialize you might need to just 
 
 # Caveats
 
-NextUI currently only supports the RGB565 pixel format and does not implement the OpenGL libretro APIs. It may be possible to use the stock firmware's retroarch instead of NextUI's minarch to run certain cores but that is left as an exercise for the reader.
+minarch supports the RGB565 and XRGB8888 pixel formats, and in NX-Redux it implements the libretro hardware-render (OpenGL ES) API (`RETRO_ENVIRONMENT_SET_HW_RENDER`, `ma_hwrender.c`), which the bundled N64, DC, PSP and PSX (SwanStation) paks use.
 
 ---
 

@@ -159,8 +159,8 @@ sleep; poke a key every ~15 s during long waits.
 ## CPU testing & profiling
 
 **Trap first:** each pak's `launch.sh` sets CPU clocks on entry, and manual /
-killed runs may leave caps behind (e.g. the Files pak caps big cores at
-408 MHz). Check and reset `scaling_max_freq` before benchmarking. After a
+killed runs may leave caps behind (e.g. the tg5050 Files pak takes cpu4
+offline and caps cpu0 at 1032 MHz). Check and reset `scaling_max_freq` before benchmarking. After a
 normal app exit, `MinUI.pak/launch.sh` restores the default state
 ([DEVICES.md](DEVICES.md) has the tables).
 
@@ -322,7 +322,7 @@ way to run `stop` there (e.g. relaunch the wizard on-device).
   network in range whose password you do not enter. Preconditions are in the
   script header.
 - Button layout shell side: `scripts/tests/test-button-layout-sh.sh` (helper,
-  N64 config transform, DC mapping selection); OSD daemon variants:
+  PortMaster controller layout); OSD daemon variants:
   `scripts/tests/test-patch-osdd-layout.sh`; pure swap/label logic is in
   `workspace/all/common/tests/run_tests.sh` (`test_button_layout.c`).
 - PortMaster refresh on update: `scripts/tests/test-update-portmaster-refresh.sh`

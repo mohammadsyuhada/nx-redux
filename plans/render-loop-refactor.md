@@ -6,13 +6,13 @@ In `workspace/all/nextui/nextui.c`, the main render loop uses fixed `SDL_Delay()
 
 ### Current locations using fixed delays
 
-- **Line ~1338** (animation branch, nothing-to-draw path): `SDL_Delay(16)` — was 100ms
-- **Line ~1353** (idle path, nothing needs drawing): `SDL_Delay(17)`
+- **Line ~778** (busy branch — background pending, list scroll or search marquee — with no tick to run): `SDL_Delay(16)` — was 100ms
+- **Line ~804** (idle path, nothing needs drawing): `SDL_Delay(frame_target - elapsed)`, already elapsed-time compensated; `frame_target` is 16 ms, or `IDLE_FRAME_MS` (100 ms) after `IDLE_TIMEOUT_MS` (3 s) without input
 
 ### Problems with fixed delays
 
 1. **Frame drift**: Work done before the delay isn't accounted for. If drawing takes 4ms + 16ms sleep = 20ms total, the loop runs at 50fps instead of 60fps.
-2. **Wasted wakeups**: The thread wakes every 16ms just to check flags (`dirty`, `getAnimationDraw()`, `thumbchanged`, etc.) and often goes right back to sleep.
+2. **Wasted wakeups**: The thread wakes every 16ms just to check flags (`dirty`, `getNeedDraw()`, `backgroundLayerPending()`, etc.) and often goes right back to sleep.
 3. **Input latency**: User input can wait up to 16ms before being processed (worst case).
 
 ---
@@ -46,13 +46,13 @@ if (SDL_WaitEventTimeout(&event, 16)) {
 
 ### What needs to change
 
-- The input handling (currently in a separate thread via `SDL_PollEvent`) would need to be merged into the render loop, or the render thread needs a way to be signaled by the input thread.
+- Input is polled at the top of the render loop (`PAD_poll()`), so the wait would need to return on input events as well as on the background threads' signals.
 - The `dirty` flag mechanism could be replaced with `SDL_PushEvent` to wake the render thread when state changes.
 - Animation timers would need to push events or use `SDL_AddTimer` to generate wakeup events at the right intervals.
 
 ### Complexity
 
-Medium. The main challenge is restructuring the input/render thread relationship. Currently input runs in its own thread and sets flags — this would need to also post an event to wake the render thread.
+Medium. The main challenge is the loader-thread/render-loop relationship. Currently the loader threads (`imgloader.c`, `artloader.c`, `homeart.c`) set flags — they would need to also post an event to wake the render loop.
 
 ---
 
@@ -86,13 +86,13 @@ while (running) {
 
 ### What needs to change
 
-- `PLAT_GPU_Flip()` must be configured for vsync (SDL_RENDERER_PRESENTVSYNC or platform-specific equivalent). Need to verify the device/platform supports this.
+- `PLAT_GPU_Flip()` must block on vsync. The renderer is already created with `SDL_RENDERER_PRESENTVSYNC` (`generic_video.c`), but `PLAT_setVsync()` is a no-op; need to verify the flip actually blocks on the device.
 - The render loop needs to be single-threaded or carefully synchronized — vsync blocking on the render thread is the core timing mechanism.
 - When idle (no animation, no input), the loop should block on events rather than spinning on vsync flips with identical frames.
 
 ### Complexity
 
-High. Requires understanding the platform's GPU/display pipeline and confirming vsync support. The current multi-threaded architecture (separate input, background loading, animation threads) would need careful review to avoid deadlocks when the render thread blocks on vsync.
+High. Requires understanding the platform's GPU/display pipeline and confirming vsync support. The current multi-threaded architecture (background loading threads) would need careful review to avoid deadlocks when the render thread blocks on vsync.
 
 ---
 
@@ -101,7 +101,7 @@ High. Requires understanding the platform's GPU/display pipeline and confirming 
 A hybrid of both options:
 
 1. **Use `SDL_WaitEventTimeout` for the idle case** (no dirty, no animations). This eliminates unnecessary wakeups when the UI is static.
-2. **Use elapsed-time-compensated delays for active rendering**:
+2. **Use elapsed-time-compensated delays for active rendering** (the idle path already does this):
    ```c
    Uint32 frame_start = SDL_GetTicks();
    // ... render work ...
@@ -123,7 +123,7 @@ A hybrid of both options:
 
 ## References
 
-- Current render loop: `workspace/all/nextui/nextui.c`, starting around the `if(dirty)` block (~line 513)
-- Animation branch: ~line 1235
-- Idle branch: ~line 1342
+- Current render loop: `workspace/all/nextui/nextui.c`, starting around the `if (dirty)` block (~line 453)
+- Busy branch (background pending / scroll / marquee): ~line 758
+- Idle branch: ~line 785
 - SDL docs: https://wiki.libsdl.org/SDL2/SDL_WaitEventTimeout

@@ -147,8 +147,8 @@ PID files with a 500 ms-TTL cache (`kill(pid, 0)` liveness); `PWR_update` sets
 the dirty flag on a state flip and `GFX_blitHardwareGroup` draws the camera
 glyph (`ASSET_SCREENSHOT`, THEME_COLOR6) and record dot (`ASSET_RECORD`,
 tinted 0xFF453A — `blitSurfaceColor` colormod takes 0xRRGGBB) leftmost of the
-status cluster. The glyphs live in all four `assets@Nx.png` sheets — see the
-[DEVICES.md](DEVICES.md) rule about pushing all four.
+status cluster. The glyphs live in every shipped `assets@Nx.png` sheet — see the
+[DEVICES.md](DEVICES.md) rule about pushing all of them.
 
 ## Daemon lifecycle gotchas
 

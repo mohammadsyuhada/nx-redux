@@ -120,25 +120,25 @@ them at Home's scale):
 | Entry | Brick Pro | Smart Pro |
 |---|---|---|
 | `TEXT_HOME_STATS` | 28 (tuned) | 26 (tuned) |
-| `TEXT_HOME_CONT_TITLE` | 28 (tuned) | 22 |
-| `TEXT_HOME_CONT_INFO` | 28 (tuned) | 16 |
-| `TEXT_HOME_PIN_NAME` | 28 (tuned) | 17 |
-| `TEXT_HOME_PIN_INFO` | 28 (tuned) | 14 |
-| `HOME_PIN_K` | 1× (2× tried) | 1× |
+| `TEXT_HOME_CONT_TITLE` | 28 (tuned) | 26 (tuned) |
+| `TEXT_HOME_CONT_INFO` | 28 (tuned) | 26 (tuned) |
+| `TEXT_HOME_PIN_NAME` | 28 (tuned) | 26 (tuned) |
+| `TEXT_HOME_PIN_INFO` | 28 (tuned) | 26 (tuned) |
+| `HOME_PIN_K` | 1× (2× tried) | 0.8× (tuned) |
 | `HOME_TOOL_ROWS` | 5 (tuned) | 4 |
 | `TEXT_MENU_LIST` | 40 | 36 |
 | `MENU_LIST_PITCH` | 75 | 68 |
 | `MENU_LIST_ROWS` | 0 | 0 |
-| `TEXT_LIST_INFO` | 28 (tuned) | 27 |
-| `TEXT_GRID_TOOL` | 28 (tuned) | 0 |
+| `TEXT_LIST_INFO` | 28 (tuned) | 26 (tuned) |
+| `TEXT_GRID_TOOL` | 28 (tuned) | 26 (tuned) |
 | `GRID_TOOLS_W_K` | 1.5× (as the Brick) | 1.5× (tuned) |
-| `TEXT_CAROUSEL_COUNT` | 28 (tuned) | 0 |
+| `TEXT_CAROUSEL_COUNT` | 28 (tuned) | 26 (tuned) |
 | `TEXT_CAROUSEL_COLL_NAME` | 41 (tuned) | 0 |
 | `CAROUSEL_COLL_W_K` | 1.5× (as the Brick) | 1× |
 | `TEXT_CAROUSEL_TOOL` | 31 (tuned) | 0 |
 | `CAROUSEL_TOOL_W_K` | 1.5× (as the Brick) | 1× |
 | `CAROUSEL_ITEM_GAP_K` | 2× (as the Brick) | 1× |
 | `TEXT_CAROUSEL_GAME_NAME` | 34 (tuned) | 0 |
-| `TEXT_CAROUSEL_GAME_INFO` | 28 (tuned) | 0 |
+| `TEXT_CAROUSEL_GAME_INFO` | 28 (tuned) | 26 (tuned) |
 | `CAROUSEL_GAME_SEL_K` | 1.4× (as the Brick) | 1× |
 | `CAROUSEL_CAPTION_INFO_LINES` | 2 (set with the Brick) | 1 |

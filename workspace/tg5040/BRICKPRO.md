@@ -4,7 +4,7 @@ Bring-up reference for the Trimui Brick Pro. Distilled from the port
 (`c0da09c7`, PR #53) and the on-hardware verification session of **2026-08-02**
 (first unit with redux installed). Keep this as the durable "do not re-derive"
 record; the live to-do list of anything still unverified lives in
-`DEV_CHECKLIST.md`.
+`.dev/DEV_CHECKLIST.md`.
 
 The Brick Pro is a **tg5040 build** — `PLATFORM=tg5040`, `DEVICE=brickpro`. It
 runs the same tg5040 binaries as the plain Brick; the differences below are all
@@ -41,7 +41,7 @@ and tuned by eye with the hidden `uiscale_dev=` override (see `.dev/DEVICES.md`,
 | `BTN_FN1/FN2` (music F1/F2 etc.) | L3/R3 | **L4/R4** |
 | HOME button | none | **gamepad btn 15** (`KEY_HOMEPAGE`/172) |
 | Volume +/- (`JOY_PLUS/MINUS`) | 14 / 13 | 14 / 13 |
-| LED zones (`MAX_LIGHTS`) | 4 | **5** |
+| LED zones (`PLAT_getLedCount`) | 4 | **5** |
 | LED brightness nodes | `max_scale`, `max_scale_lr` | + `max_scale_f1f2`, `max_scale_rear` |
 
 Paks that act on the function keys **must** use `BTN_FN1`/`BTN_FN2`, not a
@@ -52,7 +52,7 @@ key (this was the music-player L3/R3→L4/R4 bug fixed 2026-08-02).
 
 Confirmed by reading the stock rootfs out of
 `sd_recovery_tg4040_brick_pro_v1.1.1_20260717.img` (ext4 at sector 126432;
-recipe in `../../OSD.md`) **and** live over adb on the unit, stock firmware
+recipe in `../../.dev/OSD.md`) **and** live over adb on the unit, stock firmware
 v1.1.1 / kernel 4.9.191 sun50iw10:
 
 - `TRIMUI_MODEL` / MainUI model string is exactly `Trimui Brick Pro` →
@@ -126,10 +126,10 @@ background (plain black there) lacks — 138 px total, judged negligible. Restor
 
 ## PortMaster
 
-Brick Pro is detected as `trimui-brick-pro` via a marker override the
-PortMaster tool pak's `launch.sh` (Xtras catalog `portmaster/pak/launch.sh`)
-applies to `device_info.txt` / `hardware.py` before and after every pugwash
-run.
+Brick Pro is detected as `TrimUI Brick Pro` (with its two sticks) via the
+patches the PortMaster tool pak's `launch.sh` (Xtras catalog
+`portmaster/pak/launch.sh`) applies to `device_info.txt` before and after every
+pugwash run (`patch_device_info_trimui`, `patch_device_info_brickpro_sticks`).
 Without it PortMaster collapsed the Pro onto plain `trimui-brick` (shared
 1024×768 resolution ambiguity), hiding analog-stick ports. Verified on device
 2026-08-02.

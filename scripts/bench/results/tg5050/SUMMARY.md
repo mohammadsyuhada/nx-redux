@@ -12,6 +12,8 @@ line. Chosen A cap = cheapest passing A cap + one little-cluster step
 Only if no A config passes is topology B run. `base` = launcher default topology
 (online 0-1,4: two little cores + big core, schedutil).
 
+> Note (2026-10-11): the per-pak `minarch_cpu_max` caps chosen here no longer ship and the light paks no longer take cpu4 offline (only GBA/MGBA still do); Auto CPU is uncapped on every pak.
+
 Note: this device runs every core a few percent fast (~63 fps against a ~60 Hz
 panel); fps mean > req is normal and the periodic resync frame is the source of the
 worst-frame values. All measured scenes are the game's title/attract mode and were

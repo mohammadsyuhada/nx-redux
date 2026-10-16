@@ -18,12 +18,12 @@ Neither file is a changelog — delete an entry when it lands, don't mark it don
 ## DC pre-launch options: no launch transition into the editor (cosmetic)
 
 **Recorded:** 2026-07-30, noted while moving the pre-launch options gotchas into
-`workspace/all/other/flycast/README.md`.
+the flycast README (now `workspace/all/emu-options/README.md`).
 
 Opening "Emulator Options" from the game-list context menu doesn't play the
-usual into-game transition. `gamelist.c`'s case 36 (the pre-launch editor
-launch) doesn't set nextui's `startgame` flag, so the screen-blank-out at
-`nextui.c:265-268` is skipped and the game list stays visible until the editor
+usual into-game transition. `gamelist.c`'s case 36 (`ctxEmuOptions` →
+`openScript`, the pre-launch editor launch) doesn't set nextui's `startgame` flag,
+so the screen-blank-out at `nextui.c:577-580` is skipped and the game list stays visible until the editor
 draws over it. Cosmetic only — decide on-device how it actually looks before
 choosing whether it's worth setting the flag (which would blank the screen on
 the way in, matching a normal launch).
@@ -37,13 +37,13 @@ the way in, matching a normal launch).
 
 **Recorded:** 2026-09-17 (user request), as a follow-up to the Cheat Database feature
 (PR #108, branch `worktree-cheat-database`). Spike done this session; feasibility
-confirmed; **no code written**. Scope deliberately narrowed to **DS only** — see the
-N64/DC note at the bottom for why they're out.
+confirmed; **no code written**. Scope is **DS only** — see the
+N64/DC note at the bottom.
 
 **Why this is needed.** The Cheat Database already downloads libretro's `cheats.zip`
 and drops per-system `.cht` files flat into `Cheats/<TAG>/`. For libretro cores,
-minarch reads that format directly. But three of the mapped tags (`NDS`, `N64`, `DC`)
-are served by **standalone** emulators, not libretro cores, and DraStic (DS) cannot
+minarch reads that format directly. But one mapped tag (`NDS`) is served by a
+**standalone** emulator, not a libretro core, and DraStic (DS) cannot
 read libretro's `.cht` wrapper — so the DS files we deliver today are inert. This
 entry adds the format conversion so DraStic actually sees them.
 
@@ -129,57 +129,13 @@ insufficient.
       `Mario Kart DS` → `Mario Kart DS (USA)`), convert it, and write
       `Cheats/NDS/<exact ROM basename>.cht`.
 
-**N64 / DC — explicitly out of scope (verified this session).** Neither pak exposes
-cheats at all, so conversion alone wouldn't help — each needs a whole cheat-exposure
-feature built first:
-- `N64.pak` (mupen64plus): the binary supports `--cheats` + a **CRC-keyed**
-  `mupencheat.txt`, but `launch.sh` never passes the flag and there's no per-cheat
-  toggle UI. Cheats key on ROM CRC, not filename.
-- `DC.pak` (flycast): flycast has a cheat manager, but only inside its own GUI;
-  `launch.sh` boots straight into the ROM with no cheat config, so it's unreachable.
+**N64 / DC — no conversion needed.** Both now run in minarch (`N64.pak`: mupen64plus-next
+libretro; `DC.pak`: flycast libretro), which reads the libretro `.cht` files directly.
 
 **Sources:**
 [DraStic cheat readme (Gamestarter)](https://github.com/bite-your-idols/Gamestarter/blob/master/repository.gamestarter/game.drastic/drastic/drastic_readme.txt),
 [DraStic cheat guide](https://drastic-ds.com/viewtopic.php?f=7&t=288),
 [libretro-database NDS cht](https://github.com/libretro/libretro-database/tree/master/cht/Nintendo%20-%20Nintendo%20DS).
-
----
-
-## DC: per-game VMUs, and whether to move flycast to the libretro core
-
-**Requested:** 2026-09-28 (owner), while NX Redux Mobile added Dreamcast on the flycast **libretro** core with one
-VMU per game (`Saves/DC/<game>.A1.bin`, mirrored to the user's tree like any battery save).
-
-**Today on the handheld:** `DC.pak` runs **standalone** flycast. `launch.sh` sets `XDG_DATA_HOME="$USERDATA_DIR/data"`,
-so flycast keeps its memory cards (`vmu_save_A1.bin` …, one per port/slot, **shared by every game**), `dc_nvmem.bin`
-and save states in `.userdata/…/data/flycast/`, not in `Saves/DC/` (which `launch.sh` creates but flycast never
-uses). A shared card fills up with many games, and the user can't see or back it up with the other saves.
-
-**Per-game VMUs without changing emulator (recommended first):**
-- [ ] Check standalone flycast's per-game VMU option (believed `PerGameVmu` in `core/cfg/option.h`; confirm the key,
-      its section in `emu.cfg`, and the per-game file name it writes) and set it in `DC.pak`'s `default.cfg`
-      (tg5040 `default-smartpro.cfg` too).
-- [ ] Decide where per-game cards live: point them at `$SAVES_PATH/DC/` if flycast allows it, so they sit with the
-      other saves; otherwise leave them in the data dir.
-- [ ] Migration: existing shared `vmu_save_A1.bin` holds every game's saves. Keep it (don't delete) and document that
-      old saves stay on the shared card; optionally leave per-game off for users who already have one.
-- [ ] Netplay: the wizard's `--fetch-files "vmu_save_*.bin,dc_nvmem.bin"` and the host backup copy assume shared
-      cards; update the file globs for per-game cards.
-
-**Moving the handheld to the flycast libretro core (only if there is a reason beyond VMUs):** not needed for
-per-game VMUs. Standalone flycast was chosen for things the launcher builds on — the GGPO netplay wizard,
-RetroAchievements through flycast's own libcurl (with our CA-bundle patch), the NX overlay integration and the
-positional controller mapping files — which a libretro/minarch move would have to redo or drop, plus a
-performance check on the handheld GPU. Revisit only if the standalone build becomes a maintenance burden.
-
-**Performance check done — phase 0 spike, 2026-09-29 (branch `minarch-gpu-spike`): GO.** A minimal GPU
-(hardware-render) path in minarch runs flycast libretro v2.6 on the Brick at or above standalone speed with matched
-settings (Crazy Taxi 2 82–85 % vs 78–80 %, Soulcalibur fight 73–81 % vs 70–76 %, Metal Slug 6 100 %), and shaders,
-menu, save states and screenshots work. Open items (VMU, CPU-speed option, BIOS dir, GGPO loss): `.dev/spikes/minarch-gpu/RESULTS.md`.
-
-**Cross-device saves (later, optional):** even with per-game cards on both, standalone and libretro name the files
-differently (libretro per-content: `<content>.A1.bin`); moving a save between phone and handheld needs an agreed
-name or a small rename step.
 
 ---
 
@@ -191,24 +147,6 @@ is not required, but the owner wants to give it). Source pack: `~/Downloads/kenn
 - [ ] Add a line to the `## Credits` section of `README.md`, e.g.
       `- [Kenney](https://kenney.nl/assets/input-prompts) for the Input Prompts glyphs used in the button hints (CC0)`.
 - [ ] Add the same credit to the docs site page `nx-redux-docs/docs/reference/credits.md`.
-
----
-
-## DC libretro vs standalone: performance figure for the PR and release notes
-
-**Requested:** 2026-09-29 (owner). The PR that moves `DC.pak` to minarch must state how much faster or slower the flycast
-libretro core runs than standalone flycast, **with Soulcalibur as the reference**. The figure goes into the release notes.
-
-Method, so the number holds up (the spike figures in `.dev/spikes/minarch-gpu/RESULTS.md` are not a like-for-like comparison):
-- [ ] Same build and settings as shipped: the libretro core with the pak's final `default.cfg` (Emulated sync,
-      auto-skip `some`, per-game VMU, …); standalone with its shipped `default-brick.cfg` / `default.cfg`. Same
-      BIOS mode on both. Smart Pro S fan on Auto.
-- [ ] Metric: emulation speed = core audio frames/s ÷ 44 100. Libretro via minarch's `[HWR]` line; standalone via the audio
-      probe in a *copy* of `DC.pak` (never replace the installed binary).
-- [ ] Scene: Soulcalibur's attract loop from the title screen onward. Average over ≥ 5 min per run, 3 runs per emulator
-      per device (Brick + Smart Pro S). Report the mean and range, then libretro ÷ standalone − 1 as the percentage.
-- [ ] Put the table plus one summary line per device in the PR description, e.g. "Soulcalibur runs N % faster on the
-      Brick (X % vs Y % of full speed)". Keep the raw windows in `RESULTS.md`.
 
 ---
 

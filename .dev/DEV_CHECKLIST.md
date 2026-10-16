@@ -101,9 +101,16 @@ topology-A cap 1032 already passes, and `big`'s only edge is a step lower than
 earn the extra big core; revisit if GBA titles drop in the field. Everything
 else stands unchanged: the Brick ships no affinity key and no herding; Smart
 Pro S SFC/FBN keep their topology-A cap-1032 profiles. The mechanism is built
-and verified on both devices, off by default on every other pak.
+and verified on both devices, off by default on every other pak. (Since then
+the tg5050 N64, DC, DCX and PSX paks also ship `minarch_cpu_affinity = big`, and
+the cap-1032 profiles are gone — see the next section.)
 
 ## minarch per-core CPU profiles (built + measured 2026-09-20)
+
+**Superseded (2026-10-11, 78eb7584 + ce4b7909):** the measured caps were dropped —
+no pak ships `minarch_cpu_max` any more, so Auto runs the full clock range on every
+pak, and on tg5050 only GBA/MGBA still take cpu4 offline. The keys, `ma_cpu_profile.c`
+and the bench harness remain; the text below records the measurement.
 
 Per-pak CPU profiles ship as pak data: each measured Emu pak's `default.cfg`
 carries `minarch_cpu_max` (with `minarch_cpu_min` left at the table floor, 408),
@@ -250,8 +257,8 @@ little cluster, versus upstream NextUI's "auto" (408-1800 / 408-1320).
   SET_IDLE take it offline after driving its policy (the launcher is
   little-bound, and an offline core is power-gated where a parked one is not).
   `MinUI.pak/launch.sh` onlines cpu4 in the boot-default state (schedutil
-  408/408) right before `eval $CMD`, because paks assume it is up: N64 pins its
-  emulator to cpu4, DC/NDS/PS set its clocks, minarch drives policy4. The
+  408/408) right before `eval $CMD`, because paks assume it is up: N64/DC/PS
+  place their threads on the big cluster, NDS sets its clocks, minarch drives policy4. The
   post-pak restore block leaves it online; the relaunch offlines it again at
   its first frame. minarch's menu (`CPU_SPEED_MENU`) does NOT offline anything.
 - tg5050 Tools paks that used to cap cpu4 at 408 (Settings, Emulator Settings,
@@ -330,8 +337,8 @@ cores 0-1,4 and GPU `simple_ondemand` unchanged throughout.
       relaunch = `0-1,4` for the ~0.75 s boost then `0-1` at 672; post-relaunch
       glide 15 ms median. GPU `simple_ondemand` throughout.
 - [ ] Smart Pro S: a real game round trip with cpu4 offline beforehand — a
-      minarch pak (GB) and N64 (its `taskset -p 0x10` must succeed, i.e. cpu4
-      is online by the time launch.sh runs it). Only Settings was exercised.
+      minarch pak (GB) and a big-cluster pak (N64/PS, `minarch_cpu_affinity = big`,
+      i.e. cpu4 is online by the time launch.sh runs it). Only Settings was exercised.
 - [ ] Brick: core offlining in the menu was NOT done. All four A53s share one
       cluster and one frequency domain; an idle core sits in WFI / cpuidle and
       the cluster stays powered while any core is up, so the saving is far
@@ -355,7 +362,7 @@ cores 0-1,4 and GPU `simple_ondemand` unchanged throughout.
       each) — noise. Idle load 7% -> 3%, same work spread thinner, same
       cluster/frequency domain, so nothing gated. The 3-core boot policy
       (cpu0-1 + cpu4) stays; the launcher runs on cpu0-1 alone.
-- [ ] Follow-up to evaluate, not built — **per-core CPU affinity for minarch
+- [x] Built as `minarch_cpu_affinity` (section above) — **per-core CPU affinity for minarch
       games on tg5050**: minarch sets frequency (PERFORMANCE at start,
       then `minarch_cpu_speed` per core: powersave/normal/performance/auto, and
       MENU in its menu) but never pins threads; only the standalone/heavy paks
@@ -390,9 +397,13 @@ loop got the same success-gated consume — a corrupt pakz is renamed
 so no per-boot retry nag) and boot continues normally.
 
 - [ ] Happy path: fresh install extracts and launches normally (both devices).
-- [ ] Corrupt-zip path: truncate a MinUI.zip on card (`head -c 10M`), boot →
-      "Install failed" splash shows ~10 s, MinUI.zip still on card, device
-      powers off; replacing the zip and rebooting installs cleanly.
+- [ ] Corrupt-zip path, first install (no `.system`): truncate a MinUI.zip on
+      card (`head -c 10M`), boot → "Install failed - re-copy MinUI.zip" splash
+      ~10 s, MinUI.zip still on card, device powers off; replacing the zip and
+      rebooting installs cleanly.
+- [ ] Corrupt-zip path, update over a working system: boot → "MinUI.zip is
+      corrupt - update skipped" splash ~10 s, zip renamed `MinUI.zip.failed`,
+      the current system boots.
 - [ ] Corrupt-pakz path: truncate a pakz on card, boot → "Package install
       failed" splash ~5 s, file renamed `.failed`, system boots normally and
       the next boot does NOT re-attempt it.
@@ -406,7 +417,7 @@ changed elfs + the rebuilt GLideN64 `.so` + N64 launch.sh are pushed to both car
 (Brick and Smart Pro S, md5-verified 2026-07-27).
 
 Full deploy: `make all`, flash zip. Quick iterate: push the single rebuilt `.elf` (reboot required
-for nextui/minarch pushes — see Gotchas at the bottom of this file).
+for nextui/minarch pushes).
 
 ### On-device verification
 

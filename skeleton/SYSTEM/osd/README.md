@@ -28,9 +28,9 @@ read this first:
   chip a live `bluetoothd` collapses WiFi throughput from ~330 KB/s to ~2 KB/s.
   tg5050 must *not*: it powers the adapter down and leaves `bluetoothd` running,
   because killing the daemon mid-call wedges whatever was talking to it.
-- **`toggle_rumble/set.sh`** — the rumble motor sits on a different GPIO per
-  platform (gpio227 on tg5040, gpio236 on tg5050). The two copies are identical
-  but for that one path; keep them in sync.
+- **`toggle_rumble/set.sh`** — the rumble motor is driven differently per
+  platform (gpio227 on tg5040, the PWM motor at `/sys/class/motor/level` on
+  tg5050). The two copies are identical but for that one path; keep them in sync.
 
 (`toggle_screenrecord` used to be a third override; the recorder is now
 unified — one common `set.sh` runs `screenrecorder.elf` everywhere and the
@@ -40,7 +40,7 @@ Plus `stepper_fan_level/` — tg5050 is the only device with a fan, so that widg
 has no `common/` counterpart to override.
 
 Anything that genuinely differs between platforms — a whole *policy* or a single
-hardware *constant* like `toggle_rumble`'s GPIO — is carried as a `device/<dev>/`
+hardware *constant* like `toggle_rumble`'s motor path — is carried as a `device/<dev>/`
 override, since there is no longer a build-time platform token to select it
 inside `common/` (see Paths, below).
 
@@ -85,7 +85,7 @@ platform's `launch.sh`. If it is a new resolution, add `res/<WxH>/` too.
 
 Widget scripts reference `/mnt/SDCARD/.system/...` directly — there is no
 platform level in the path. Anything that genuinely differs between platforms
-(a GPIO number, a capture mechanism) belongs in the `device/<dev>/` layer, not
+(a motor path, a BT power policy) belongs in the `device/<dev>/` layer, not
 in a conditional inside `common/`.
 
 `regular.ttf` (16 MB CJK font) is deliberately absent — the firmware's copy is

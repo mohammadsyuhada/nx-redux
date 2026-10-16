@@ -1,5 +1,8 @@
 # PR #139 (`main-menu-tabs`) — performance, responsiveness and refactor review
 
+**Status: historical.** PR #139 was merged on 2026-10-04 (a8890d6d) and its worktree removed; the
+paths, line numbers and worktree below describe the branch at review time.
+
 Written 2026-10-02 23:55 +08 by a Claude Code session (Fable 5.1 orchestrating two Opus review
 agents + a `/code-review high` correctness pass). This file is the hand-off for any later session
 that picks up the follow-up work. Everything below is **read-only review output** — nothing in the
@@ -755,6 +758,6 @@ tg5050; Brick Pro is reserved by another session as of 2026-09-30 — don't depl
 | C-2d MenuTabs_init cost on reload | PARTLY by T1-4 (`Content_consoleCount`) | | | Recents_load/Shortcuts_validate remain per reload = T2-11 |
 | C-2j collation helper | DONE by T1-4 (`Emulist_collates`) | | | |
 
-Build/test commands (from the worktree root): `make -C workspace/all/common/tests` for the host
+Build/test commands (from the repo root): `workspace/all/common/tests/run_tests.sh` for the host
 tests (see `.dev/BUILD.md` for the platform builds and `.dev/DEVICES.md` / memory `device-deploy` for
 the Brick/SPS deploy recipe). The user commits personally — don't commit unless asked.

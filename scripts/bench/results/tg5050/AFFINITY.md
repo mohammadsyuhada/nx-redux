@@ -6,6 +6,8 @@ fix-round minarch build (`workspace/all/minarch/build/tg5050/minarch.elf`, md5
 which contains `PLAT_getCPUHwRangeKhz` (big-core cap fix, Task 4.5) and the repaired
 `mali-` late sweep. `BENCH_SECS=60`, all runs pak data only (no sysfs overrides).
 
+> Note (2026-10-11): topology A (cpu4 offline) and the per-pak caps no longer ship (only GBA/MGBA still take cpu4 offline); the PS `minarch_cpu_affinity = big` ruling still ships.
+
 On this device `minarch_cpu_affinity = big` is a **cluster split**: the emulation/
 main thread + every core-created thread pin to the online big cores (FAST = cpu4,
 plus cpu5 when the pak onlined it); minarch's helpers (`PrepareFrameThr`,

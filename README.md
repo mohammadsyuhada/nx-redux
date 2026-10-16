@@ -60,7 +60,7 @@ Under the hood:
 - `nextui.c` split into focused components (game list, game switcher, search, launcher, image loader and more) and `minarch` split into `ma_*` modules, adapted from [carroarmato0's work in NextUI #721](https://github.com/LoveRetro/NextUI/pull/721).
 - A reusable UI component library in `common/ui/`, one component per file, wired into every app through a single `ui.mk` fragment.
 - Sink-aware audio sample-rate negotiation across music, radio, video and every emulator, with automatic rerouting when a USB-C DAC or Bluetooth device connects — see [Audio settings](https://nxredux.com/handheld/settings/audio/).
-- clang-format tooling with enforced code style, and per-platform release zips (brick / brickpro / smartpro / smartpros).
+- clang-format tooling with enforced code style, and per-device release zips (brick / brickpro / smartpro / smartpros).
 
 Removed or consolidated:
 - The `Remove Loading` tweak now happens once in the install script instead of through a resident app.

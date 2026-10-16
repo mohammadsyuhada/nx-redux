@@ -171,11 +171,3 @@ full docker builds on **both** platforms.
 make format                 # clang-format -i over tracked .c/.h
 ./scripts/install-hooks.sh  # pre-commit formatting hook
 ```
-
-## Syncing with upstream
-
-```bash
-git fetch upstream
-git rebase upstream/main
-git push --force-with-lease
-```

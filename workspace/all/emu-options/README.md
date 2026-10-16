@@ -2,9 +2,9 @@
 
 Schema-driven editor for emulator settings, launched before a game runs:
 from a game's context menu ("Emulator Options", per-game overrides) or from
-Tools → Emulator Settings (console-wide). Adopters: flycast (DC),
-mupen64plus (N64) via the `--ini`/`--override` INI backend, and every
-minarch-core pak via the `--minarch-*` flat-cfg backend (`opts_minarch.c`).
+Tools → Emulator Settings (console-wide). Adopters: every minarch-core pak
+(DC and N64 included) via the `--minarch-*` flat-cfg backend (`opts_minarch.c`);
+the `--ini`/`--override` INI backend is used by Launch mode (below).
 A pak opts in by shipping an `options.sh` next to its `launch.sh` — that
 file's existence is the capability marker nxredux probes; nothing else is
 wired per-emulator.
@@ -50,8 +50,9 @@ typo can never hide settings. A section with no `visible_when` is always listed.
 Hidden sections are dropped only as on-screen rows — they stay in the config and
 are still read, reset and saved by real section index.
 
-The N64 pak is the adopter: its `[NxRedux] VideoPlugin` enum gates the GLideN64
-sections on `gliden64` and the Rice sections on `rice`.
+No shipped schema uses it today (its adopter, the standalone N64 pak's
+`[NxRedux] VideoPlugin` gate, went when N64 moved to minarch); `tests/` still
+covers it.
 
 ## minarch schema cache
 

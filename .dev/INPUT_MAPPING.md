@@ -25,7 +25,7 @@
 | Left | ABS_HAT0X | -1 | 1096 |
 | Right | ABS_HAT0X | +1 | 1090 |
 
-## D-pad (Joystick mode — FN toggle)
+## D-pad (Joystick mode)
 
 | Direction | Linux Event | Value | SDL Axis |
 |-----------|-------------|-------|----------|
@@ -45,8 +45,11 @@
 
 | Event | Value | Meaning |
 |-------|-------|---------|
-| SW_TABLET_MODE | 1 | Joystick mode ON |
-| SW_TABLET_MODE | 0 | Joystick mode OFF (hat mode) |
+| SW_TABLET_MODE | 1 | FN switch on |
+| SW_TABLET_MODE | 0 | FN switch off |
+
+NX Redux uses the FN switch for night mode only (keymon reads it from GPIO 243
+and calls `SetFnMode`); it no longer changes the D-pad mode.
 
 ## Notes
 

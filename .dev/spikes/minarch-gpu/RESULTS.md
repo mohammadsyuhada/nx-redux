@@ -1,5 +1,9 @@
 # minarch GPU path — phase 0 spike results (Brick, 2026-09-28/29)
 
+**Status: historical.** The work shipped: `DC.pak` runs the flycast libretro core in minarch (#128), built by
+`workspace/all/cores/flycast/build-libretro.sh` with the patches in `workspace/all/cores/patches/flycast/`.
+Standalone flycast and the spike-only paths below (`workspace/all/other/flycast/`, `minarch-spike.elf`) no longer exist.
+
 **Verdict: GO.** With matched settings, flycast libretro rendering through minarch's new GPU path runs
 Dreamcast as fast as or faster than standalone flycast on every game tested, even though it ran at a
 lower CPU clock (1.8 GHz schedutil vs standalone's 2.0 GHz performance). All correctness checks passed.

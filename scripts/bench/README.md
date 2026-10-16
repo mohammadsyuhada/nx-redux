@@ -124,9 +124,9 @@ the variants are pak data, so both runs use an empty command list) and diff the
    (`/mnt/SDCARD/.system/paks/Emus/<TAG>.pak/`).
 2. Shipped run — leave the pak untouched and run one config, e.g. `none:`.
 3. `big` run — append `minarch_cpu_affinity = big` to the on-device `default.cfg`
-   and, on tg5050, delete the `echo 0 > .../cpu4/online` line from the on-device
-   `launch.sh` (otherwise the big cluster the key pins to is offline); push both
-   back, then run `big:`.
+   and, on tg5050, delete any `echo 0 > .../cpu4/online` line from the on-device
+   `launch.sh` (GBA and MGBA still have one; otherwise the big cluster the key pins
+   to is offline); push both back, then run `big:`.
 4. Restore the backed-up files.
 
 ```bash
@@ -138,10 +138,9 @@ BENCH_SECS=20 scripts/bench/bench-minarch.sh tg5050 7057408880c2c8c239a SFC \
 The `big` run's thread table should show the main thread (`comm minarch.elf`, the
 tid equal to the pid) at ~100 % on the big core (cpu4 on tg5050) with the render
 (`PrepareFrameThr`), audio (`SDLAudioP2`) and `mali-*` helpers on cpu0-1; the
-shipped/`none` run shows every thread on cpu0-1 — but only because the untouched
-pak keeps cpu4 offline, so to compare placement rather than core count delete the
-`cpu4/online` line for the `none` arm too and keep cpu4 online for both, as the
-real sweep did. (Idle threads that were never
+shipped/`none` run showed every thread on cpu0-1 in the 2026-09-21 sweep — but only
+because the pak then kept cpu4 offline, so to compare placement rather than core
+count keep cpu4 online for both arms, as the real sweep did. (Idle threads that were never
 scheduled during a run report whatever cpu they last ran on, so a dormant worker
 pool may show 100 % on a single cpu — read residency for the busy threads.)
 
@@ -202,4 +201,5 @@ core), so a `cores2` config must not leave the device stuck on two cores.
 ## Results
 
 `results/<plat>/<TAG>-<id>.log` holds the raw driver output per run. The logs
-are git-ignored (`scripts/bench/results/**/*.log`); only `.gitkeep` is tracked.
+are git-ignored (`scripts/bench/results/**/*.log`); only `.gitkeep` and each
+platform's `SUMMARY.md` / `AFFINITY.md` write-ups are tracked.

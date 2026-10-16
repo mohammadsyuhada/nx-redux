@@ -8,6 +8,8 @@ req, fps min >= 95% req, buf_free never 0, drops <= max(2*n, 1.5*base_drops), an
 `worst bound` column). **Chosen cap = cheapest passing cap + one step**; if nothing
 below base passes, the core keeps the full range ("no cap").
 
+> Note (2026-10-11): the per-pak `minarch_cpu_max` caps chosen here no longer ship; Auto CPU is uncapped on every pak (the key still works if a pak sets it).
+
 Fix-round-2 note: the worst-frame clause was made baseline-relative because MD and
 PS carry a periodic ~51-69 ms frame at every cap (uncapped included) with fps at
 req and cpu 60-80% -- a scene/display hitch, not starvation. Under the amended rule
