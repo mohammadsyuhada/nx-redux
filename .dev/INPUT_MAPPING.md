@@ -165,7 +165,7 @@ never emit that code; Menu long-press opens the OSD on all of them.
 - **These SDL indices are inherited from upstream NextUI's Brick Pro support
   (PR #766 and its `fix: L4 and R4 button mappings` follow-up) and have not yet
   been confirmed on hardware here.** Everything else in the Brick Pro port was
-  verified against the stock `sd_recovery_tg4040_brickpro_ver1.1.1_20260717.img`
+  verified against the stock `sd_recovery_tg4040_brick_pro_v1.1.1_20260717.img`
   rootfs.
 - `/usr/trimui/bin/trimui_inputd` exists on the Brick Pro, so the tg5040 boot
   path (which starts the device's own stock input daemon by absolute path rather

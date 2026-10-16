@@ -130,7 +130,7 @@ received.
 The Smart Pro binary and assets were extracted from
 `sd_recovery_tg5040_smartpro_ver1.1.1_20251128.img` (stock rootfs, ext4 at
 sector 126478). The Brick Pro's came from
-`sd_recovery_tg4040_brickpro_ver1.1.1_20260717.img` (ext4 at sector 126432 —
+`sd_recovery_tg4040_brick_pro_v1.1.1_20260717.img` (ext4 at sector 126432 —
 the image holds three 540 MB ext4 filesystems; only the first has a populated
 `/usr/trimui`). Only two files actually differ between the two 1024×768
 models in stock: `trimui_osdd` and `osdlayout.json`; the block tiles and every
