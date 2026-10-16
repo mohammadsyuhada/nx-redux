@@ -102,6 +102,7 @@ typedef struct SettingsPage {
 	int needs_layout;		// flag: scanner thread updated items
 	int input_blocked;		// flag: block value cycling (e.g. async toggle in progress)
 	const char* status_msg; // transient message rendered below items (e.g. "Scanning...")
+	int status_in_description; // opt in to always-visible, wrapped status in the description area
 	SDL_Surface* screen;	// screen surface for overlay rendering (set by main app)
 } SettingsPage;
 

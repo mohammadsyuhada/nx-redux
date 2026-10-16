@@ -166,7 +166,7 @@ void settings_run_async(SDL_Surface* screen, const char* title,
 
 		GFX_clear(screen);
 		settings_menu_render(screen, 0);
-		UI_renderLoadingOverlay(screen, title, "Press B to cancel");
+		UI_renderLoadingOverlay(screen, title, "Press B to stop waiting");
 		GFX_flip(screen);
 	}
 }
@@ -228,6 +228,10 @@ void settings_menu_handle_input(bool* quit, bool* dirty) {
 	// Tick callback (for dynamic pages)
 	if (page->on_tick)
 		page->on_tick(page);
+	int updated_vis_count = settings_page_visible_count(page);
+	if (updated_vis_count != vis_count)
+		*dirty = true;
+	vis_count = updated_vis_count;
 
 	if (vis_count == 0) {
 		if (has_lock)
@@ -444,7 +448,8 @@ static void render_settings_mode(SDL_Surface* screen, SettingsPage* page, ListLa
 			.value = NULL,
 			.swatch = -1,
 			.cycleable = 0,
-			.desc = item->desc,
+			.desc = page->status_in_description && page->status_msg
+				? page->status_msg : item->desc,
 			.custom_draw = NULL,
 			.custom_draw_ctx = NULL,
 		};
@@ -480,7 +485,7 @@ static void render_settings_mode(SDL_Surface* screen, SettingsPage* page, ListLa
 	}
 
 	UI_renderSettingsPage(screen, layout, ui_items, vis_count,
-						  page->selected, &page->scroll, page->status_msg);
+						  page->selected, &page->scroll, page->status_in_description ? NULL : page->status_msg);
 }
 
 // ============================================

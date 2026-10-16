@@ -4815,11 +4815,15 @@ FALLBACK_IMPLEMENTATION bool PLAT_bluetoothEnabled() {
 	return false;
 }
 FALLBACK_IMPLEMENTATION void PLAT_bluetoothEnable(bool on) {}
+FALLBACK_IMPLEMENTATION bool PLAT_bluetoothBootReconnectSupported() { return false; }
+FALLBACK_IMPLEMENTATION bool PLAT_bluetoothBootReconnectEnabled() { return false; }
+FALLBACK_IMPLEMENTATION int PLAT_bluetoothBootReconnectEnable(bool on) { return -1; }
 FALLBACK_IMPLEMENTATION bool PLAT_bluetoothDiagnosticsEnabled() {
 	return false;
 }
 FALLBACK_IMPLEMENTATION void PLAT_bluetoothDiagnosticsEnable(bool on) {}
 FALLBACK_IMPLEMENTATION void PLAT_bluetoothDiscovery(int on) {}
+FALLBACK_IMPLEMENTATION int PLAT_bluetoothDiscoveryState(void) { return BT_DISCOVERY_FAILED; }
 FALLBACK_IMPLEMENTATION bool PLAT_bluetoothDiscovering() {
 	return false;
 }
@@ -4829,7 +4833,7 @@ FALLBACK_IMPLEMENTATION int PLAT_bluetoothScan(struct BT_device* devices, int ma
 FALLBACK_IMPLEMENTATION int PLAT_bluetoothPaired(struct BT_devicePaired* devices, int max) {
 	return 0;
 }
-FALLBACK_IMPLEMENTATION void PLAT_bluetoothPair(char* addr) {}
+FALLBACK_IMPLEMENTATION int PLAT_bluetoothPair(char* addr) { return BT_PAIR_FAILED; }
 FALLBACK_IMPLEMENTATION void PLAT_bluetoothUnpair(char* addr) {}
 FALLBACK_IMPLEMENTATION void PLAT_bluetoothConnect(char* addr) {}
 FALLBACK_IMPLEMENTATION void PLAT_bluetoothDisconnect(char* addr) {}

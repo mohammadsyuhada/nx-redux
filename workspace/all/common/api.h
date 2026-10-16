@@ -1087,19 +1087,28 @@ bool PLAT_hasBluetooth();
 // \sa PLAT_bluetoothEnable
 bool PLAT_bluetoothEnabled();
 void PLAT_bluetoothEnable(bool on);
+bool PLAT_bluetoothBootReconnectSupported();
+bool PLAT_bluetoothBootReconnectEnabled();
+int PLAT_bluetoothBootReconnectEnable(bool on);
 // enable bt diagnostic logging
 bool PLAT_bluetoothDiagnosticsEnabled();
 // returns true if diagnostic logging is enabled
 void PLAT_bluetoothDiagnosticsEnable(bool on);
 // enables or disabled bt discovery.
+enum { BT_DISCOVERY_IDLE, BT_DISCOVERY_STARTING, BT_DISCOVERY_ACTIVE,
+	BT_DISCOVERY_COMPLETE, BT_DISCOVERY_FAILED, BT_DISCOVERY_INTERRUPTED, BT_DISCOVERY_STOPPED };
+// One bounded, owned radio session; inventory queries do not start discovery.
 void PLAT_bluetoothDiscovery(int on);
+int PLAT_bluetoothDiscoveryState(void);
 bool PLAT_bluetoothDiscovering();
 // returns the list of available devices
 int PLAT_bluetoothScan(struct BT_device* devices, int max);
 // returns the list of paired devices
 int PLAT_bluetoothPaired(struct BT_devicePaired* devices, int max);
-// pair with the given address
-void PLAT_bluetoothPair(char* addr);
+// Pair succeeds only after BlueZ reports a saved bond.
+enum { BT_PAIR_OK = 0, BT_PAIR_FAILED = -1,
+	BT_PAIR_TRUST_FAILED = -2, BT_PAIR_CONNECT_FAILED = -3 };
+int PLAT_bluetoothPair(char* addr);
 // unpair from the given address
 void PLAT_bluetoothUnpair(char* addr);
 // connect with the given address
@@ -1125,10 +1134,14 @@ void PLAT_bluetoothSetVolume(int vol);
 #define BT_supported PLAT_hasBluetooth
 #define BT_enabled PLAT_bluetoothEnabled
 #define BT_enable PLAT_bluetoothEnable
+#define BT_bootReconnectSupported PLAT_bluetoothBootReconnectSupported
+#define BT_bootReconnectEnabled PLAT_bluetoothBootReconnectEnabled
+#define BT_bootReconnectEnable PLAT_bluetoothBootReconnectEnable
 #define BT_diagnosticsEnabled PLAT_bluetoothDiagnosticsEnabled
 #define BT_diagnosticsEnable PLAT_bluetoothDiagnosticsEnable
 #define BT_discovery PLAT_bluetoothDiscovery
 #define BT_discovering PLAT_bluetoothDiscovering
+#define BT_discoveryState PLAT_bluetoothDiscoveryState
 #define BT_availableDevices PLAT_bluetoothScan
 #define BT_pairedDevices PLAT_bluetoothPaired
 #define BT_pair PLAT_bluetoothPair

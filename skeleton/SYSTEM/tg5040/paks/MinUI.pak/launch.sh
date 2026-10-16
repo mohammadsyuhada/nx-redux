@@ -242,9 +242,9 @@ bluetoothon=$(nextval.elf bluetooth | sed -n 's/.*"bluetooth": \([0-9]*\).*/\1/p
 # somehow trimui deploys aic?
 cp -f $SYSTEM_PATH/etc/bluetooth/bt_init.sh /etc/bluetooth/bt_init.sh
 if [ "$bluetoothon" -eq 1 ]; then
-	/etc/bluetooth/bt_init.sh start > /dev/null 2>&1 &
+	/etc/bluetooth/bt_init.sh start boot > /dev/null 2>&1 &
 else
-	/etc/bluetooth/bt_init.sh stop > /dev/null 2>&1 &
+	/etc/bluetooth/bt_init.sh stop boot > /dev/null 2>&1 &
 fi
 BOOT_JOBS="$BOOT_JOBS $!"
 
