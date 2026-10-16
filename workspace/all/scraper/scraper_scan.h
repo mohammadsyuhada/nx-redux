@@ -19,7 +19,7 @@ typedef struct {
 	char path[SCAN_PATH_MAX];	  // file to search/hash: the ROM, or the folder game's .cue/.m3u
 	char filename[SCAN_NAME_MAX]; // basename of path (what goes out as romnom)
 	char label[SCAN_NAME_MAX];	  // display name: path relative to the system root, extension stripped
-	char art_png[SCAN_PATH_MAX];  // where the mix image lives (nextui's ROM_mediaArtPath convention)
+	char art_png[SCAN_PATH_MAX];  // .media/<name>.png base the variant paths derive from (nextui's ROM_mediaArtPath)
 	bool folder_game;
 } ScanGame;
 

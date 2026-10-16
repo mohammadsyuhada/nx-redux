@@ -709,7 +709,6 @@ void PLAT_setLedBrightness(LightSettings* led) {
 void PLAT_setLedEffect(LightSettings* led) {
 	char filepath[256];
 	FILE* file;
-	// first set brightness
 	snprintf(filepath, sizeof(filepath), "/sys/class/led_anim/effect_%s", led->filename);
 	file = fopen(filepath, "w");
 	if (file != NULL) {
@@ -720,7 +719,6 @@ void PLAT_setLedEffect(LightSettings* led) {
 void PLAT_setLedEffectCycles(LightSettings* led) {
 	char filepath[256];
 	FILE* file;
-	// first set brightness
 	snprintf(filepath, sizeof(filepath), "/sys/class/led_anim/effect_cycles_%s", led->filename);
 	file = fopen(filepath, "w");
 	if (file != NULL) {
@@ -731,7 +729,6 @@ void PLAT_setLedEffectCycles(LightSettings* led) {
 void PLAT_setLedEffectSpeed(LightSettings* led) {
 	char filepath[256];
 	FILE* file;
-	// first set brightness
 	snprintf(filepath, sizeof(filepath), "/sys/class/led_anim/effect_duration_%s", led->filename);
 	file = fopen(filepath, "w");
 	if (file != NULL) {
@@ -742,7 +739,6 @@ void PLAT_setLedEffectSpeed(LightSettings* led) {
 void PLAT_setLedColor(LightSettings* led) {
 	char filepath[256];
 	FILE* file;
-	// first set brightness
 	snprintf(filepath, sizeof(filepath), "/sys/class/led_anim/effect_rgb_hex_%s", led->filename);
 	file = fopen(filepath, "w");
 	if (file != NULL) {
@@ -952,7 +948,6 @@ void PLAT_setCurrentTimezone(const char* tz) {
 		return;
 	snprintf(zonename, 256, "uci set system.@system[0].zonename=\"%s\"", tz);
 	system(zonename);
-	//system("uci set system.@system[0].zonename=\"Europe/Berlin\"");
 	system("uci del -q system.@system[0].timezone");
 	system("uci commit system");
 	free(zonename);

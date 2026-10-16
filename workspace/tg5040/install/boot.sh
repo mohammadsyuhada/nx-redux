@@ -42,7 +42,6 @@ if [ "$SHOW_SPLASH" = "yes" ] ; then
 	else
 		./show2.elf --mode=daemon --image="$LOGO_PATH" --text="Installing..." --logoheight=128 --progress=-1 &
 	fi
-	#SHOW_PID=$!
 	# show2 creates /tmp/show2.fifo only once it is up; a TEXT: written
 	# before that lands in a plain file show2 then replaces, so the message
 	# never shows. Wait for the fifo (bounded, so a splash that fails to
@@ -175,8 +174,6 @@ if [ -f "$UPDATE_PATH" ]; then
 		$SYSTEM_PATH/bin/install.sh # &> $SDCARD_PATH/log.txt
 	fi
 fi
-
-#kill $SHOW_PID
 
 LAUNCH_PATH="$SYSTEM_PATH/paks/MinUI.pak/launch.sh"
 if [ -f "$LAUNCH_PATH" ] ; then

@@ -355,7 +355,7 @@ static void catalog_load(void) {
 
 // --- list screen --------------------------------------------------------
 
-// Task 12: GAMES/TOOLS tabs (L1/R1) replace Task 8's inline per-category
+// Task 12: GAMES/TOOLS tabs (D-pad LEFT/RIGHT) replace Task 8's inline per-category
 // headers as the top-level split. TAB_CATEGORY ties each tab back to
 // AddonEntry.category ("GAME"/"TOOL" - the only two values the catalog
 // contract defines; see AddonEntry's own comment above), TAB_LABEL is what
@@ -399,7 +399,7 @@ static void build_tab_rows(AddonTab tab, TabRows* rows) {
 
 // iOS-style segmented-control GAMES/TOOLS switcher (Task 13c; supersedes the
 // original separate-pill-buttons look), drawn directly under the menu bar
-// and switched via L1/R1 in run_list() below. One rounded THEME_COLOR2
+// and switched via D-pad LEFT/RIGHT in run_list() below. One rounded THEME_COLOR2
 // "container" strip holds both segments, left-aligned and only as wide as
 // the segments themselves (not full screen width); the active segment is a
 // smaller pill in the accent token (UI_accentMapped: Color 1 unless an
@@ -581,7 +581,7 @@ static void render_extras_list(SDL_Surface* screen, AddonTab active_tab, const T
 	extras_view.empty_title = "Nothing here yet";
 	extras_view.list_y_override = render_tab_bar(screen, &layout, active_tab);
 	extras_view.list_anchor_top = true; // the rows right under the tabs (their arrow strip between)
-	// L1/R1 leads the bar (user preference 2026-08-08), then B, then A.
+	// LEFT/RIGHT (TAB) leads the bar, then B, then A.
 	// Always shown, even on an empty tab (v1 ships with TOOLS empty) -
 	// otherwise the tab switcher's only remaining discoverability hint (see
 	// run_list's own comment below) disappears exactly when a user most
@@ -606,16 +606,13 @@ static int run_detail(AddonEntry* e); // Task 4; returns 1 if install state chan
 // The widget owns the selection (extras_view.selected), and it is a
 // WIDGET-row index scoped to the ACTIVE tab's rows-plus-headers - not a
 // global entries[] index - so every read/write below goes through
-// extras_widget_to_entry/extras_entry_to_widget. Switching tabs (L1/R1)
-// resets it via UI_listViewReset (selected=0 may land on a header; the
-// widget clamps to the first selectable row, i.e. the first entry - same
-// as the old selected=0-of-entries) rather than trying to carry a position
-// across two differently-ordered/differently-sized row lists; no other
-// nx-redux pak has an established L1/R1 tab-switch convention to follow
-// (checked gametime/scraper/musicplayer - their L1/R1 uses are alpha-jump
-// and value-step, not tab switching), so plain "either shoulder button
-// flips the tab" is used here - exactly two tabs makes wrap and clamp the
-// same thing anyway. The switch moved shoulder buttons -> d-pad LEFT/RIGHT
+// extras_widget_to_entry/extras_entry_to_widget. Switching tabs (D-pad
+// LEFT/RIGHT) resets it via UI_listViewReset (selected=0 may land on a
+// header; the widget clamps to the first selectable row, i.e. the first
+// entry - same as the old selected=0-of-entries) rather than trying to carry
+// a position across two differently-ordered/differently-sized row lists;
+// exactly two tabs makes wrap and clamp the same thing. The switch moved
+// shoulder buttons -> d-pad LEFT/RIGHT
 // (user request 2026-08-18: first added alongside L1/R1, then L1/R1
 // retired the same day) - the ListView's LEFT/RIGHT page-jump is opted out
 // via no_lr_paging so one press never both flips the tab and pages the
@@ -639,8 +636,7 @@ static void run_list(void) {
 	extras_ctx.rows = &rows;
 	extras_view.get_row = extras_get_row;
 	extras_view.ctx = &extras_ctx;
-	// D-pad LEFT/RIGHT is claimed for the tab switch below (user request
-	// 2026-08-18: shoulder buttons and d-pad both flip the tab), so the
+	// D-pad LEFT/RIGHT is claimed for the tab switch below, so the
 	// widget's LEFT/RIGHT page-jump must not also fire on the same press.
 	// Both tabs are short lists; UP/DOWN wrap covers traversal.
 	extras_view.no_lr_paging = true;
@@ -751,15 +747,13 @@ static const char* preflight(AddonEntry* e) {
 	return NULL;
 }
 
-// Terminal message: same shape as emu-options/options.c's file-local
-// show_message (GFX_clear + UI_renderCenteredMessage + GFX_flip + a fixed
-// hold via SDL_Delay) - copied rather than shared since that one is static
-// to its own TU too.
+// Terminal message: GFX_clear + UI_renderCenteredMessage + GFX_flip + a fixed
+// hold via SDL_Delay.
 #define EXTRAS_MESSAGE_MS 2000
 
 // --- entry-script runner: popen install.sh/uninstall.sh, stream lines -----
 // Task 11: the in-flight screen is the shared UIDownloadProgress bar
-// (ui_downloadprogress.h - same component portmaster.c/settings_updater.c
+// (ui_downloadprogress.h - same component settings_updater.c/scraper.c
 // use for their own downloads) instead of a scrolling log tail. Task 13
 // dropped the terminal log-tail-list screen too (see draw_result_dialog
 // below) - the tail buffer shrinks from a TAIL_LINES ring to a single

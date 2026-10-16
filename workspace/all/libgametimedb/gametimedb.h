@@ -35,7 +35,6 @@ void free_play_activities(PlayActivities* pa_ptr);
 
 // Main interface functions for read access
 PlayActivities* play_activity_find_all(void);
-//int play_activity_get_play_time(const char *rom_path);
 
 // Main interface functions for write access
 // PortMaster's launcher (Roms/Ports/…Portmaster.sh, Tools/PortMaster.pak) isn't a game: never timed, and its older

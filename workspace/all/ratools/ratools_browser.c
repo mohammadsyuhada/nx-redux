@@ -41,7 +41,7 @@ static void rat_badge_path(const char* badge_dir, const char* badge_name, bool l
 }
 
 // Resolve a game's box art from its recorded rom path, mirroring nxredux's
-// thumbnail conventions (gamelist.c ~line 788):
+// thumbnail conventions (ROM_findArt, common/utils.c):
 //   single-file rom:  <dir>/.media/<rom-name>.png
 //   multi-file rom (cue/bin/m3u in its own folder): nxredux shows the FOLDER
 //   as the game entry, so the art is keyed off the folder name one level up:

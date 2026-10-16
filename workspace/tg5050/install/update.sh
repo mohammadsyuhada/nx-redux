@@ -97,9 +97,6 @@ true
 # --- psp-standalone-cleanup-end
 
 # --------------------------------------
-# migration code here
-# --------------------------------------
-
 # Releases up to 2026-09 had the bluez upgrade (nextui.upgrade_bluez.pakz)
 # tar the stock Bluetooth stack into the card root as btmgr_<date>.tar
 # before replacing it. Nothing ever restored from it and the upgrade no
@@ -208,8 +205,7 @@ fi
 # Dreamcast moved from standalone flycast to the flycast libretro core on
 # minarch. The install replaces .system/paks/Emus wholesale, so only the
 # standalone OSD overlay file on the card root is left over. Players' flycast
-# data (.userdata/shared/DC-flycast/, the source of the per-game memory card
-# carried over by DC.pak) is never touched. One-shot per update; must never
+# data (.userdata/shared/DC-flycast/) is never touched. One-shot per update; must never
 # fail the update.
 DC_OLD="$SDCARD_PATH/Emus/shared/flycast"
 if [ -f "$DC_OLD/overlay_settings.json" ]; then

@@ -46,9 +46,6 @@ mv ./usr/bin/bluetoothd /usr/bin/
 mv ./usr/bin/obexd /usr/bin/
 mv ./usr/lib/libbluetooth.so.3.19.15 /usr/lib/
 mv ./usr/lib64/libbluetooth.so.3.19.15 /usr/lib64/
-#mv ./etc/dbus-1/system.d/bluetooth.conf /etc/dbus-1/system.d/
-#mv ./etc/dbus-1/system.d/bluetooth-mesh.conf /etc/dbus-1/system.d/
-#mv ./etc/dbus-1/system.d/bluetooth-mesh-adapter.conf /etc/dbus-1/system.d/
 
 # bluealsa
 mv ./usr/lib/alsa-lib/libasound_module_ctl_bluealsa.so /usr/lib/alsa-lib/

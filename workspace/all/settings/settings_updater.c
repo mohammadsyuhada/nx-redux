@@ -5,7 +5,7 @@
  * version, and allows the user to download + install updates.
  *
  * Single "Updater" item in the About page:
- *   - "Fetching update.."           while checking in background
+ *   - "Checking for update.."       while checking in background
  *   - "Install Update"  (desc=tag)  when update available, A to install
  *   - "You already have latest version"  when up to date
  */

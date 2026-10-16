@@ -812,7 +812,7 @@ static void reset_home_style(void) {
 	CFG_setHomeStyle(CFG_DEFAULT_HOMESTYLE);
 }
 
-/* Controller art: what the List draws behind the Consoles tab */
+/* Consoles background: what draws behind the Consoles tab */
 static const char* console_art_labels[] = {"Controller", "Background", "None"};
 static int console_art_values[] = {CONSOLE_ART_CONTROLLER, CONSOLE_ART_BACKGROUND, CONSOLE_ART_NONE};
 static int get_console_art(void) {
@@ -1483,8 +1483,7 @@ static void show_simple_mode_help(void) {
 // Emulator shortcut callbacks
 // ============================================
 
-// minarch reads these at every game launch (common/emu_shortcuts.h); every
-// change is written straight away.
+// minarch reads these at every game launch (common/emu_shortcuts.h).
 static int shortcut_labels[SHORTCUT_COUNT];
 static char shortcuts_path[MAX_PATH];
 static int shortcuts_dirty = 0;
@@ -1896,7 +1895,7 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	// Layouts page (main page category)
 	// ============================
 	idx = 0;
-	// Grouped by what they shape: each tab's show row, then its layout, orientation and controller rows (shown only
+	// Grouped by what they shape: each tab's show row, then its layout, orientation and background rows (shown only
 	// while the tab is, sync_layouts_rows), then the game lists' rows, then the rows for everything, then the boot view
 	// and the Game Switcher.
 #define LAYOUTS_CYCLE_ROW(_label, _desc, _labels, _count, _values, _get, _set, _reset)                 \

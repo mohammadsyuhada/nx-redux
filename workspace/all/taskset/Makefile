@@ -28,9 +28,8 @@ CC = $(CROSS_COMPILE)gcc
 # resolves libc.so.6 from the device's own /usr/lib64 at runtime (same
 # NEEDED-entry resolution every dynamic binary in the build relies on)
 # instead of embedding the toolchain's own glibc + its version
-# gate, and was confirmed working on-device (task-11) where every prior
-# static attempt was not. Conclusion (build dynamic) unchanged from the
-# original fix; only this comment's explanation of the mechanism changed.
+# gate, and was confirmed working on-device where every prior static
+# attempt was not.
 CFLAGS = -Os -s -Wl,--gc-sections
 
 all:

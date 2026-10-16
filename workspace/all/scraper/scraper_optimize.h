@@ -17,7 +17,7 @@ typedef struct {
 	int count;
 } OptimizeList;
 
-// Collect every screenshot/ and boxart/ PNG under roms_root. False only when out of memory; an
+// Collect every screenshot/, boxart/ and boxart2d/ PNG under roms_root. False only when out of memory; an
 // empty list (no art at all) is a success.
 bool Optimize_collect(const char* roms_root, OptimizeList* out);
 void Optimize_freeList(OptimizeList* list);

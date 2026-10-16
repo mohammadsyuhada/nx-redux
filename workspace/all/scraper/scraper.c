@@ -241,7 +241,7 @@ static GameCounts countGames(const char* dirpath) {
 
 // Folders that hold standalone games rather than one console's ROMs: there is
 // no ScreenScraper system to query, so they are left out of the Library rather
-// than listed as unsupported. nextui's "Fetch Box Art" excludes the same tags.
+// than listed as unsupported. nextui's "Fetch Artwork" excludes the same tags.
 static bool isLibraryExcludedTag(const char* tag) {
 	static const char* excluded[] = {"PORTS", "CUSTOM", "EXTRAS", NULL};
 	for (int i = 0; excluded[i]; i++)

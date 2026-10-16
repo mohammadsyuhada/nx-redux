@@ -598,7 +598,7 @@ bool PLAT_getCPUHwRangeKhz(int* min_khz, int* max_khz) {
 // offline core is power-gated, a parked one at 408 is not. Only the launcher
 // calls this (nextui/cpu_policy.h): minarch's in-game menu must keep cpu4 up
 // because the emulator returns to it. MinUI.pak/launch.sh onlines cpu4 before
-// every pak (N64 pins its emulator there, DC/NDS/PS set its clocks, minarch
+// every pak (N64 runs minarch on the big cluster, DC/NDS/PS set its clocks, minarch
 // drives policy4), and the post-pak restore leaves it online for the relaunch,
 // which offlines it again at its first frame. While cpu4 is offline, policy4's
 // sysfs is gone and PLAT_setCPUSpeed's writes to it fail silently by design.
@@ -803,7 +803,6 @@ void PLAT_setLedBrightness(LightSettings* led) {
 void PLAT_setLedEffect(LightSettings* led) {
 	char filepath[256];
 	FILE* file;
-	// first set brightness
 	snprintf(filepath, sizeof(filepath), "/sys/class/led_anim/effect_%s", led->filename);
 	file = fopen(filepath, "w");
 	if (file != NULL) {
@@ -814,7 +813,6 @@ void PLAT_setLedEffect(LightSettings* led) {
 void PLAT_setLedEffectCycles(LightSettings* led) {
 	char filepath[256];
 	FILE* file;
-	// first set brightness
 	snprintf(filepath, sizeof(filepath), "/sys/class/led_anim/effect_cycles_%s", led->filename);
 	file = fopen(filepath, "w");
 	if (file != NULL) {
@@ -825,7 +823,6 @@ void PLAT_setLedEffectCycles(LightSettings* led) {
 void PLAT_setLedEffectSpeed(LightSettings* led) {
 	char filepath[256];
 	FILE* file;
-	// first set brightness
 	snprintf(filepath, sizeof(filepath), "/sys/class/led_anim/effect_duration_%s", led->filename);
 	file = fopen(filepath, "w");
 	if (file != NULL) {
@@ -836,7 +833,6 @@ void PLAT_setLedEffectSpeed(LightSettings* led) {
 void PLAT_setLedColor(LightSettings* led) {
 	char filepath[256];
 	FILE* file;
-	// first set brightness
 	snprintf(filepath, sizeof(filepath), "/sys/class/led_anim/effect_rgb_hex_%s", led->filename);
 	file = fopen(filepath, "w");
 	if (file != NULL) {

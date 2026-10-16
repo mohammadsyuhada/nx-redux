@@ -460,7 +460,7 @@ static void run_standard_shutdown(void) {
 }
 
 int main(void) {
-	// Block SIGTERM and SIGKILL for this process to prevent self-termination
+	// Block SIGTERM, SIGINT and SIGHUP so the kill sweep can't stop this process
 	sigset_t block_set;
 	sigemptyset(&block_set);
 	sigaddset(&block_set, SIGTERM);

@@ -35,7 +35,7 @@ void SetRawContrast(int value);	  // 0-100
 void SetRawSaturation(int value); // 0-100
 void SetRawExposure(int value);	  // 0-100
 void SetRawVolume(int value);	  // 0-100
-void SetRawFanSpeed(int value);	  // 0-31, -1/-2-3 for auto low/med/high
+void SetRawFanSpeed(int value);	  // 0-100 %, -1/-2/-3 auto quiet/normal/performance
 
 void SetBrightness(int value);	// 0-10
 int scaleBrightness(int value); // 0-10 to the panel's raw level, per device
@@ -46,7 +46,7 @@ void SetExposure(int value);	// -4-5
 void SetVolume(int value);		// 0-20
 void SetGameVolume(int value);
 void SetMusicVolume(int value);
-void SetFanSpeed(int value); // 0-100, -1 for auto
+void SetFanSpeed(int value); // 0-100, -1..-3 for auto
 
 int GetJack(void);
 void SetJack(int value); // 0-1

@@ -1,4 +1,4 @@
-// tg5040
+// tg5050
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -114,7 +114,7 @@ typedef struct SettingsV3 {
 	// NOTE: doesn't really need to be persisted but still needs to be shared
 	int jack;
 	int audiosink; // was bluetooth true/false before
-	int fanSpeed;  // 0-100, -1 for auto
+	int fanSpeed;  // 0-100, -1..-3 for auto
 } SettingsV3;
 
 // When incrementing SETTINGS_VERSION, update the Settings typedef and add
@@ -272,11 +272,9 @@ void InitSettings(void) {
 
 	shm_fd = shm_open(SHM_KEY, O_RDWR | O_CREAT | O_EXCL, 0644); // see if it exists
 	if (shm_fd == -1 && errno == EEXIST) {						 // already exists
-		// puts("Settings client");
 		shm_fd = shm_open(SHM_KEY, O_RDWR, 0644);
 		settings = mmap(NULL, shm_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-	} else { // host
-		// puts("Settings host"); // keymon
+	} else { // host (keymon)
 		is_host = 1;
 		// we created it so set initial size and populate
 		ftruncate(shm_fd, shm_size);
@@ -377,7 +375,6 @@ void InitSettings(void) {
 		}
 
 		// these shouldn't be persisted
-		// settings->jack = 0;
 		settings->fn_mode = 0;
 		settings->speaker_mute = 0;
 	}
@@ -385,7 +382,6 @@ void InitSettings(void) {
 		settings->game_volume = SETTINGS_DEFAULT_SOFTWARE_VOLUME + 1;
 	if (settings->music_volume < 1 || settings->music_volume > 21)
 		settings->music_volume = SETTINGS_DEFAULT_SOFTWARE_VOLUME + 1;
-	// printf("brightness: %i\nspeaker: %i \n", settings->brightness, settings->speaker);
 	// make sure all these volume-influencing controls are set to defaults, we will set volume with 'DAC Volume'
 	if (GetAudioSink() == AUDIO_SINK_DEFAULT) {
 		setMixerDefaults();
@@ -624,7 +620,7 @@ void SetFnMode(int value) {
 	if (settings->fn_mode) {
 		if (GetFnVolume() != SETTINGS_DEFAULT_FN_NO_CHANGE)
 			SetRawVolume(scaleVolume(GetFnVolume()));
-		// custom mute mode display settings
+		// FN (night mode) display settings
 		if (GetFnBrightness() != SETTINGS_DEFAULT_FN_NO_CHANGE)
 			SetRawBrightness(scaleBrightness(GetFnBrightness()));
 		if (GetFnColortemp() != SETTINGS_DEFAULT_FN_NO_CHANGE)
@@ -1084,7 +1080,6 @@ void SetRawVolume(int val) { // in: 0-100
 			// Update volume on the device
 			snprintf(cmd, sizeof(cmd), "amixer sset \"%s\" -M %d%% &> /dev/null", ctl_name, val);
 			system(cmd);
-			//printf("Set '%s' to %d%%\n", ctl_name, val); fflush(stdout);
 		}
 	} else if (GetAudioSink() == AUDIO_SINK_USBDAC) {
 		// USB DAC path: find USB audio card dynamically (card number varies)
@@ -1158,7 +1153,6 @@ void SetRawVolume(int val) { // in: 0-100
 		if (digital) {
 			int v = val < 0 ? 0 : (val > 100 ? 100 : val);
 			mixer_ctl_set_value(digital, 0, DAC_TAPER[v]);
-			//printf("Set 'DAC Volume' to %d\n", DAC_TAPER[v]); fflush(stdout);
 		}
 
 		mixer_close(mixer);
@@ -1224,7 +1218,7 @@ void SetRawColortemp(int val) { // 0 - 255
 #define FAN_SPEED_CONTROL "/mnt/SDCARD/.system/bin/fancontrol"
 #define FAN_LOCK_FILE "/var/run/fan-control.lock"
 
-void SetRawFanSpeed(int val) { // 0-31, -1/-2-3 for auto low/med/high
+void SetRawFanSpeed(int val) { // 0-100 %, -1/-2/-3 auto quiet/normal/performance
 	printf("SetRawFanSpeed(%i)\n", val);
 	fflush(stdout);
 

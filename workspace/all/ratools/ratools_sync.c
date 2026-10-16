@@ -94,7 +94,7 @@ static void rat_sync_message_screen(SDL_Surface* screen, const char* line1, cons
 void RATSync_run(SDL_Surface* screen) {
 	// Preconditions (same messages as before). Note: no early "Nothing to
 	// sync" return — even with an empty journal we still pull fresh cloud
-	// state so unlocks earned in standalone emulators (DC.pak flycast) and
+	// state so unlocks earned on other devices or apps and
 	// the header's points total stop going stale.
 	if (!CFG_getRAAuthenticated() || strlen(CFG_getRAToken()) == 0) {
 		rat_sync_message_screen(screen, "Not authenticated",

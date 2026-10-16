@@ -97,7 +97,7 @@ static int getInt(char* path) {
 static pthread_t fn_pt;
 static void* watchFnSwitch(void* arg) {
 	int fn_on, fn_was_on;
-	// Motor strength varies by model, so the mute-confirmation buzz voltage is
+	// Motor strength varies by model, so the FN-on confirmation buzz voltage is
 	// tuned per device; the timing is a common two 100 ms taps. Levels chosen
 	// by A/B on hardware 2026-08-02:
 	//   Brick Pro : 2.0 V  (strong motor; 3.3 V felt too harsh, 0.9 V too soft).

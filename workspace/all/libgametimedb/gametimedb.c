@@ -90,7 +90,7 @@ void free_play_activities(PlayActivities* pa_ptr) {
 void get_rom_image_path(char* rom_file, char* out_image_path) {
 	char rom_abs[MAX_PATH];
 	snprintf(rom_abs, sizeof(rom_abs), "%s/%s", ROMS_PATH, rom_file);
-	// the game's screenshot (the mix composite is retired), else an older library's mix
+	// the game's screenshot, else an older library's root .media mix
 	// (either as a .png, or a .jpg/.jpeg the companion app saved)
 	ROM_mediaArtVariantPath(rom_abs, "screenshot", out_image_path, STR_MAX - 1);
 	if (!ROM_artExists(out_image_path, STR_MAX - 1)) {
@@ -106,7 +106,6 @@ int play_activity_db_transaction(sqlite3* game_log_db, int (*exec_transaction)(s
 }
 
 int play_activity_db_execute(char* sql) {
-	//LOG_info("play_activity_db_execute(%s)\n", sql);
 	sqlite3* game_log_db = play_activity_db_open();
 	int rc = sqlite3_exec(game_log_db, sql, NULL, NULL, NULL);
 	play_activity_db_close(game_log_db);
@@ -114,7 +113,6 @@ int play_activity_db_execute(char* sql) {
 }
 
 sqlite3_stmt* play_activity_db_prepare(sqlite3* game_log_db, char* sql) {
-	//LOG_info("play_activity_db_prepare(%s)\n", sql);
 	if (game_log_db == NULL) {
 		printf("DB is not open");
 		return NULL;
@@ -311,8 +309,6 @@ int __db_get_rom_id_by_path(sqlite3* game_log_db, const char* rom_path) {
 }
 
 int __db_rom_find_by_file_path(sqlite3* game_log_db, const char* rom_path, bool create_or_update) {
-	//LOG_info("rom_find_by_file_path('%s')\n", rom_path);
-
 	bool update_orphan = false;
 	int rom_id = __db_get_rom_id_by_path(game_log_db, rom_path);
 
@@ -363,8 +359,6 @@ int __db_get_active_closed_activity(sqlite3* game_log_db) {
 		return ROM_NOT_FOUND;
 	}
 
-	//printf("Last closed active rom: %s\n", rom_path);
-
 	if ((rom_id = __db_rom_find_by_file_path(game_log_db, rom_path, false)) == ROM_NOT_FOUND) {
 		return ROM_NOT_FOUND;
 	}
@@ -395,7 +389,6 @@ bool play_activity_is_excluded(const char* rom_file_path) {
 }
 
 void play_activity_start(char* rom_file_path) {
-	//LOG_info("\n:: play_activity_start(%s)\n", rom_file_path);
 	if (play_activity_is_excluded(rom_file_path))
 		return; // not a game
 	int rom_id = play_activity_transaction_rom_find_by_file_path(rom_file_path, true);
@@ -408,7 +401,6 @@ void play_activity_start(char* rom_file_path) {
 }
 
 void play_activity_resume(void) {
-	//LOG_info("\n:: play_activity_resume()");
 	sqlite3* game_log_db = play_activity_db_open();
 	int rom_id = play_activity_db_transaction(game_log_db, __db_get_active_closed_activity);
 	play_activity_db_close(game_log_db);
@@ -422,7 +414,6 @@ void play_activity_resume(void) {
 }
 
 void play_activity_stop(char* rom_file_path) {
-	//LOG_info("\n:: play_activity_stop(%s)\n", rom_file_path);
 	int rom_id = play_activity_transaction_rom_find_by_file_path(rom_file_path, false);
 	if (rom_id == ROM_NOT_FOUND) {
 		exit(1);
@@ -436,7 +427,6 @@ void play_activity_stop(char* rom_file_path) {
 }
 
 void play_activity_stop_all(void) {
-	//LOG_info("\n:: play_activity_stop_all()");
 	// The DELETE purges any implausible row (see MAX_PLAUSIBLE_PLAY_TIME) — not just
 	// ones just closed above — so a corrupt duration left by an earlier build self-heals
 	// on the next stop_all (which nextui runs at startup, before the Game Tracker pak
@@ -450,7 +440,6 @@ void play_activity_stop_all(void) {
 }
 
 void play_activity_delete(int rom_id) {
-	//LOG_info("\n:: play_activity_delete(%d)\n", rom_id);
 	char* sql = sqlite3_mprintf(
 		"DELETE FROM play_activity WHERE rom_id = %d;"
 		"DELETE FROM rom WHERE id = %d;",
@@ -460,7 +449,6 @@ void play_activity_delete(int rom_id) {
 }
 
 void play_activity_list_all(void) {
-	//LOG_info("\n:: play_activity_list_all()");
 	int total_play_time = play_activity_get_total_play_time();
 	PlayActivities* pas = play_activity_find_all();
 

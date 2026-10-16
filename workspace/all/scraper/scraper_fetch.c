@@ -5,7 +5,7 @@
 
 #include "api.h"		  // SDL + GFX types; SDL_Init
 #include "utils.h"		  // getFile, putFile
-#include "scraper_core.h" // scrapeOne, CREDS_*
+#include "scraper_core.h" // scrapeOne, creds_*_path
 #include "scraper_api.h"
 #include "scraper_systems.h"
 
@@ -33,7 +33,7 @@ int run_headless_fetch(int argc, char* argv[]) {
 
 	// Headless init only — NO GFX_init/video. SDL_Init(0) is defensive; the
 	// compositor uses software surfaces + SDL_image (lazy-init, like the GUI,
-	// which never calls IMG_Init). See spec open-item: headless SDL minimality.
+	// which never calls IMG_Init).
 	SDL_Init(0);
 	ScraperAPI_init();
 

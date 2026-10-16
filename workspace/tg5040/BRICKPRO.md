@@ -15,12 +15,13 @@ memory note on shared-code device detection).
 ## Build and flash
 
 ```bash
-make all                          # produces releases/NextUI-<date>[-branch]-brickpro.zip
+make all                          # produces releases/NXRedux-<date>[-branch]-brickpro.zip
 make deploy DEVICE=brickpro       # push MinUI.zip over adb + reboot (single-binary iterate)
 ```
 
 Copy the `-brickpro` zip to the SD card as `MinUI.zip` and boot. `make deploy`
-without `DEVICE=` deploys `brick`, not the Pro.
+with neither `DEVICE=` nor `PLATFORM=` stops with an error, and `PLATFORM=tg5040`
+alone deploys `brick` (the platform's first device), not the Pro.
 
 ## How it differs from the plain Brick
 
@@ -143,8 +144,9 @@ Without it PortMaster collapsed the Pro onto plain `trimui-brick` (shared
   `nextui`/`minarch` need a reboot after pushing; other paks just need to not
   be running.
 - **Never** `killall nextui` on device: the `kill -9` path powers the unit off.
-- Rumble is capped at 2.5 V (`MAX_VOLTAGE` in `platform.c`, `/sys/class/motor/voltage`);
-  the FN-switch mute pulse uses 900000 µV (`keymon.c`, double 100 ms pulse on gpio227);
-  backlight uses the Brick brightness curve (`scaleBrightness`, UI level 0 → raw 1 via the
-  `/dev/disp` `DISP_LCD_SET_BRIGHTNESS` ioctl). All three verified on hardware 2026-08-02:
-  2.5 V is comfortable at max, the mute buzz fires, and raw 1 stays visible (not black).
+- Rumble is capped at 1.7 V (`RUMBLE_MAX_VOLTAGE_BRICKPRO` in `platform.h`, used by
+  `MAX_VOLTAGE` in `platform.c`, `/sys/class/motor/voltage`; lowered from 2.5 V after
+  2026-09-15 feedback); the FN-on (night mode) confirmation buzz uses 2.0 V (`keymon.c`,
+  double 100 ms pulse on gpio227); backlight uses the Brick brightness curve
+  (`scaleBrightness`, UI level 0 → raw 1 via the `/dev/disp` `DISP_LCD_SET_BRIGHTNESS`
+  ioctl). Raw 1 was verified visible (not black) on hardware 2026-08-02.

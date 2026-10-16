@@ -25,9 +25,6 @@ nextui.upgrade_bluez.pakz:
 	cp $(PREFIX)/libexec/bluetooth/obexd build/.update_bluez/usr/bin/
 	cp $(PREFIX)/lib/libbluetooth.so.3.19.15 build/.update_bluez/usr/lib/
 	cp $(PREFIX)/lib/libbluetooth.so.3.19.15 build/.update_bluez/usr/lib64/
-	#cp /etc/dbus-1/system.d/bluetooth.conf build/.update_bluez/etc/dbus-1/system.d/bluetooth.conf
-	#cp /etc/dbus-1/system.d/bluetooth-mesh.conf build/.update_bluez/etc/dbus-1/system.d/bluetooth-mesh.conf
-	#cp /etc/dbus-1/system.d/bluetooth-mesh-adapter.conf build/.update_bluez/etc/dbus-1/system.d/bluetooth-mesh-adapter.conf
 	# bluez-alsa
 	mkdir -p ./build/.update_bluez/usr/lib/alsa-lib
 	mkdir -p ./build/.update_bluez/usr/lib64/alsa-lib

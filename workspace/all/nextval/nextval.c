@@ -21,8 +21,6 @@ int main(int argc, char* argv[]) {
 		printUsage();
 	}
 	// get
-	// not really maintainable this way, this should really all be c++ with proper type deduction
-	// instead of naive copy paste
 	else if (argc == 2) {
 		char setting_value[MAX_PATH];
 		CFG_get(argv[1], setting_value);
@@ -30,12 +28,7 @@ int main(int argc, char* argv[]) {
 			printf("{\"%s\": %s}\n", argv[1], setting_value);
 		else
 			printf("{}\n");
-	}
-	// set
-	//else if(argc == 3) {
-	//
-	//}
-	else {
+	} else {
 		printf("Error: Invalid argument '%s'\n", argv[1]);
 		printUsage();
 		return EXIT_FAILURE;

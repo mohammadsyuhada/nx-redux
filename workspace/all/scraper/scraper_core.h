@@ -7,8 +7,7 @@
 
 #define TMP_DIR "/tmp/scraper"
 
-// Credential paths under SHARED_USERDATA_PATH, built with snprintf (the
-// values match the old CREDS_DIR/CREDS_USER/CREDS_PASS macros). static
+// Credential paths under SHARED_USERDATA_PATH, built with snprintf. static
 // inline so each TU that doesn't call one doesn't warn about an unused static
 // function.
 static inline char* creds_dir(void) {

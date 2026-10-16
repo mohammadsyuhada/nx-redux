@@ -161,8 +161,6 @@ void settings_run_async(SDL_Surface* screen, const char* title,
 // Sleep in 100ms slices while *running and (!wake || !*wake).
 void settings_scanner_sleep(int seconds, volatile int* running, volatile int* wake);
 
-// Clean up a page
-
 // ============================================
 // Helper macros for item initialization
 // ============================================
