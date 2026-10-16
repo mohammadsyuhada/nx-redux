@@ -273,6 +273,22 @@ static void send_udp_message(int sock, const char* msg, const char* dest_ip) {
 	send_udp_bytes(sock, msg, strlen(msg), dest_ip);
 }
 
+// Discovery answers a HELLO with one ACK and stops listening. If that ACK is
+// lost the peer keeps searching, sending HELLO and ignoring READY, so a HELLO
+// from the paired peer after discovery gets the ACK again.
+static void reack_lost_hello(int sock, const char* msg, const struct sockaddr_in* from) {
+	if (sock < 0 || !peer_ip[0] || strncmp(msg, HELLO_MSG, strlen(HELLO_MSG)) != 0)
+		return;
+	char src_ip[INET_ADDRSTRLEN];
+	inet_ntop(AF_INET, &from->sin_addr, src_ip, sizeof(src_ip));
+	if (strcmp(src_ip, peer_ip) != 0)
+		return;
+	char ack_buf[128];
+	int len = sync_format_payload(ack_buf, sizeof(ack_buf), ACK_MSG, own_ip, sync_roms);
+	if (len > 0)
+		send_udp_bytes(sock, ack_buf, len, peer_ip);
+}
+
 // The cable link's addresses while usblink reports it up, else false.
 static bool cable_link(char* local, size_t local_size, char* peer, size_t peer_size) {
 	UsbLinkState st;
@@ -475,13 +491,16 @@ static int wait_for_udp_message(const char* expected, int timeout_sec) {
 
 		int ret = select(sock + 1, &readfds, NULL, NULL, &tv);
 		if (ret > 0) {
-			ssize_t n = recvfrom(sock, buf, sizeof(buf) - 1, 0, NULL, NULL);
+			struct sockaddr_in from;
+			socklen_t fromlen = sizeof(from);
+			ssize_t n = recvfrom(sock, buf, sizeof(buf) - 1, 0, (struct sockaddr*)&from, &fromlen);
 			if (n > 0) {
 				buf[n] = '\0';
 				if (strcmp(buf, expected) == 0) {
 					close(sock);
 					return 0;
 				}
+				reack_lost_hello(sock, buf, &from);
 			}
 		}
 	}
@@ -1344,7 +1363,9 @@ static void* sync_thread_func(void* arg) {
 
 			int sel = select(done_sock + 1, &readfds, NULL, NULL, &tv);
 			if (sel > 0) {
-				ssize_t n = recvfrom(done_sock, buf, sizeof(buf) - 1, 0, NULL, NULL);
+				struct sockaddr_in from;
+				socklen_t fromlen = sizeof(from);
+				ssize_t n = recvfrom(done_sock, buf, sizeof(buf) - 1, 0, (struct sockaddr*)&from, &fromlen);
 				if (n > 0) {
 					buf[n] = '\0';
 					if (strcmp(buf, DONE_MSG) == 0) {
@@ -1352,6 +1373,7 @@ static void* sync_thread_func(void* arg) {
 						ret = 0;
 						break;
 					}
+					reack_lost_hello(notify_sock, buf, &from);
 				}
 			}
 		}
