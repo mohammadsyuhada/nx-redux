@@ -298,9 +298,8 @@ void renderList(int count, int start, int end, int selected) {
 			if (blank)
 				SDL_BlitSurface(blank, NULL, screen, &(SDL_Rect){rectRomImage.x, rectRomImage.y});
 
-			// TODO: no getter exposed for this right now
-			//SDL_Rect rect = asset_rects[ASSET_GAMEPAD];
-			SDL_Rect rect = (SDL_Rect){SCALE4(92, 51, 18, 10)};
+			SDL_Rect rect;
+			GFX_assetRect(ASSET_GAMEPAD, &rect);
 			int x = rectRomImage.x;
 			int y = rectRomImage.y;
 			x += (SCALE1(IMG_MAX_WIDTH) - rect.w) / 2;
@@ -312,7 +311,6 @@ void renderList(int count, int start, int end, int selected) {
 		cleanName(rom_name, rom->name);
 		SDL_Color textColor = COLOR_WHITE;
 		if (isSelected) {
-			//textColor = colorFromUint(THEME_COLOR1);
 			textColor = COLOR_BLACK;
 		}
 		int row_y = layout.list_display_start_y + elemHeight * row;
