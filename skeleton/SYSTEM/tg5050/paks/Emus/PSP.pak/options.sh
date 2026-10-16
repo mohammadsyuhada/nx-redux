@@ -34,7 +34,7 @@ if [ ! -f "$CACHE" ] || [ "$CORE" -nt "$CACHE" ] || { [ -d "$BIOS_DIR" ] && [ "$
 fi
 
 # Read-only lower layers, device variant preferred (mirrors Config_load,
-# ma_config.c:1349-1381). The user tier's strict -$DEVICE suffix is handled
+# ma_config.c). The user tier's strict -$DEVICE suffix is handled
 # inside options.elf.
 SYS_CFG="$SYSTEM_PATH/system.cfg"
 [ -n "${DEVICE:-}" ] && [ -f "$SYSTEM_PATH/system-$DEVICE.cfg" ] && SYS_CFG="$SYSTEM_PATH/system-$DEVICE.cfg"
@@ -42,7 +42,7 @@ DEF_CFG="$PAK_DIR/default.cfg"
 [ -n "${DEVICE:-}" ] && [ -f "$PAK_DIR/default-$DEVICE.cfg" ] && DEF_CFG="$PAK_DIR/default-$DEVICE.cfg"
 
 # Per-game key: minarch's alt_name — the basename WITH extension, collapsed
-# to the folder-named .m3u for multi-disc folder games (ma_game.c:110-136).
+# to the folder-named .m3u for multi-disc folder games (ma_game.c, M3U_findForRom).
 nx_minarch_alt_name() {
     _dir="$(dirname "$1")"
     _dirbase="${_dir##*/}"

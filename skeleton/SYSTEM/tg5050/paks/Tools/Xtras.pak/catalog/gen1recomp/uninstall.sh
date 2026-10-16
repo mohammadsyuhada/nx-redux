@@ -10,7 +10,7 @@
 # rm -f/-rf). Exit code is the verdict; every step prints a progress line.
 # Needs no network access at all, so (unlike install.sh) no command here
 # needs a timeout - only busybox rm/printf-safe commands are used.
-# Progress hints (Task 11): same "@NN status text" convention as install.sh -
+# Progress hints: same "@NN status text" convention as install.sh -
 # see its header for the full contract text.
 set -u
 

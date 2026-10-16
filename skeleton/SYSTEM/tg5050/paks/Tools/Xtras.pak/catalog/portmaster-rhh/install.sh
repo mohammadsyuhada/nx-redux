@@ -10,9 +10,8 @@
 # $controlfolder/gmtoolkit.aarch64, which PortMaster does not ship (RHH's own
 # installer, Pharos, fetches it). Installed from the LATEST JeodC/gmtoolkit
 # release, resolved from the GitHub API at install time and sha256-digest-
-# verified - fail closed. Unlike portmaster/install.sh (which runs before any
-# CA bundle is on the card), TLS is verified too, against the bundle the
-# PortMaster install put in place: the digest comes from the same API
+# verified - fail closed. As in portmaster/install.sh, TLS is verified too,
+# here against the bundle the PortMaster install put in place: the digest comes from the same API
 # response, so it only means something over an authenticated connection.
 # The system wget ships with certificate checks off, hence the explicit
 # --check-certificate=on. Every network command carries a timeout (the caller

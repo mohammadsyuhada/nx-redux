@@ -53,7 +53,6 @@ start_bt() {
 
 	a=`ps | grep bluealsa | grep -v grep`
 	[ -z "$a" ] && {
-		# bluealsa -p a2dp-source --keep-alive=-1 &
 		bluealsa -p a2dp-source &
 		sleep 1
 		# Power on adapter
@@ -109,9 +108,7 @@ stop_bt() {
 	[ -n "$d" ] && {
 		# stop bluetoothctl
 		bluetoothctl power off 2>/dev/null
-		#bluetoothctl discoverable off 2>/dev/null
 		bluetoothctl pairable off 2>/dev/null
-		#bluetoothctl remove $(bluetoothctl devices | awk '{print $2}') 2>/dev/null
 		killall bluetoothctl 2>/dev/null
 		killall bluetoothd
 		sleep 1

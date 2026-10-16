@@ -20,7 +20,7 @@ done
 
 # BASE minarch paks live under the system paks dir, not on the SD card's
 # Emus/ tree — scan those too. An SD pak with the same tag wins
-# (matches getEmuPath's precedence, utils.c:439-444).
+# (matches getEmuPath's precedence in common/utils.c).
 SYS_PAKS="${SYSTEM_PATH:-${CORES_PATH%/cores}}/paks"
 for opt in "$SYS_PAKS/Emus"/*.pak/options.sh; do
     [ -f "$opt" ] || continue

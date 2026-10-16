@@ -11,7 +11,7 @@
 # via a blocking popen()/fgets() read loop with no watchdog of its own - an
 # untimed command here stalls the whole UI, not just this script).
 #
-# Progress hints (Task 11): a line of the form "@NN status text" (NN = a
+# Progress hints: a line of the form "@NN status text" (NN = a
 # bare 1-3 digit decimal 0-100, then exactly one space, then free text)
 # tells the caller to set the on-screen progress bar to NN% and show
 # "status text" as the current stage; any other line is ordinary
@@ -63,7 +63,7 @@ WILDS_ASSET="[Ww]ilds[.-]of[.-][Kk]anto*.zip"
 # The SYSTEM-shipped 7zzs (same binary settings_updater.c extracts system
 # updates with), NOT PortMaster's vendored copy: since the runtime=native
 # conversion (2026-08-10) this entry has no PortMaster dependency at launch,
-# so the install must not depend on it either (psp/install.sh's posture).
+# so the install must not depend on it either.
 : "${NX_EXTRAS_UNZIP:=$SDCARD_PATH/.system/shared/bin/7zzs.aarch64}"
 
 # TLS: verify whenever a CA bundle exists on the card; only fall back to the
@@ -169,7 +169,7 @@ fetch() { # url dest sha256(""=skip) label
 # guessing among them would install the wrong build. Returns non-zero with
 # RL_ERR set when unreachable or unparseable - callers treat that as fatal
 # (`|| fail "$RL_ERR"`).
-# Same helper as psp/install.sh's - catalog entries are self-contained by
+# Same helper as portmaster/install.sh's - catalog entries are self-contained by
 # contract, so it is duplicated rather than shared.
 resolve_latest() {
     _rl_json="$TMPDIR_NX/release.json"

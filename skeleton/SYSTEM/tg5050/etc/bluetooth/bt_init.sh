@@ -93,7 +93,6 @@ start_bt() {
 	# Start bluealsa if not running
 	a=`ps | grep bluealsa | grep -v grep`
 	[ -z "$a" ] && {
-		# bluealsa -p a2dp-source --keep-alive=-1 &
 		bluealsa -p a2dp-source &
 		sleep 1
     }
@@ -119,9 +118,7 @@ stop_bt() {
 	[ -n "$d" ] && {
 		# stop bluetoothctl
 		bluetoothctl power off 2>/dev/null
-		#bluetoothctl discoverable off 2>/dev/null
 		bluetoothctl pairable off 2>/dev/null
-		#bluetoothctl remove $(bluetoothctl devices | awk '{print $2}') 2>/dev/null
 		killall bluetoothctl 2>/dev/null
 		killall bluetoothd
 		sleep 1
@@ -143,7 +140,6 @@ stop_bt() {
 			wait_hci0_count=$((wait_hci0_count + 1))
 		done
 	fi
-	# xr819s_stop
 	hciconfig hci0 down
 	h=`ps | grep "$bt_hciattach" | grep -v grep`
 	[ -n "$h" ] && {

@@ -1,16 +1,14 @@
 #!/bin/sh
-# EXTRAS platform runtime dispatcher (Task 15). $1 is the launched entry's
+# EXTRAS platform runtime dispatcher. $1 is the launched entry's
 # own script (e.g. Roms/Xtra Games (EXTRAS)/Gen1recomp.sh). Two branches:
 #   - native: the entry's own script carries a "# NX_RUNTIME: native"
 #     marker line in its first 20 lines -> exec it directly, no wrapper.
 #     Native entries own their ENTIRE runtime themselves (env vars,
 #     background services, cleanup) - this dispatcher does nothing else
 #     for them. Declared in the entry's meta.txt via runtime=native.
-#     No native catalog entry exists yet, so this branch is currently
-#     unreached in practice; it's a seam for future entries.
-#   - ports (default - no marker, e.g. gen1recomp's meta.txt declares
-#     runtime=ports explicitly): run through the proven PORTS runtime,
-#     as today.
+#     gen1recomp is native as of 2026-08-10 (its bundled LOVE runtime
+#     resolves every lib from the firmware, so PortMaster isn't needed).
+#   - ports (default - no marker): run through the PORTS runtime.
 # The ports runtime is Emus/PORTS.pak/launch.sh (a copy of
 # ports_launch.sh the portmaster Xtras entry's install.sh creates) - it
 # only exists once PortMaster is installed, which the ports branch needs

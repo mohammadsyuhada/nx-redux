@@ -123,7 +123,7 @@ set_controller_layout() {
     local dest="$EMU_DIR/gamecontrollerdb.txt"
 
     # The layout variants ship in files/ (BASE Emus/shared/PortMaster/files/,
-    # same dir portmaster.c copies from via PM_FILES_DIR); fall back to the
+    # the dir catalog/portmaster/install.sh extracts from); fall back to the
     # runtime root for older layouts that kept them there.
     local src="$EMU_DIR/files/gamecontrollerdb_$1.txt"
     [ -f "$src" ] || src="$EMU_DIR/gamecontrollerdb_$1.txt"

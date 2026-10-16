@@ -14,7 +14,6 @@ endif
 endif
 
 ifeq (,$(PLATFORMS))
-#PLATFORMS = miyoomini trimuismart rg35xx rg35xxplus my355 tg5040 zero28 rgb30 m17 gkdpixel my282 magicmini
 PLATFORMS = tg5040 tg5050
 endif
 
@@ -179,7 +178,8 @@ ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
 	cp ./workspace/all/extras/build/$(PLATFORM)/extras.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Xtras.pak/
 	cp ./workspace/all/cheatdb/build/$(PLATFORM)/cheatdb.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Xtras.pak/catalog/cheatdb/pak/
 
-	# Dreamcast netplay pre-launch wizard (run bare off PATH by DC.pak/launch.sh);
+	# Netplay pre-launch wizard (run bare off PATH by netplay-prelaunch.sh and the
+	# DC/N64 netplay helpers);
 	# gated here, not with the other SYSTEM bin copies, because it is only built
 	# for tg5040/tg5050 (see workspace/Makefile).
 	cp ./workspace/all/netplay-wizard/build/$(PLATFORM)/netplay.elf ./build/SYSTEM/$(PLATFORM)/bin/
@@ -352,14 +352,6 @@ compile-commands:
 		chmod -R u+w .clangd-shim 2>/dev/null; \
 		[ -f .clangd-shim/linux/input.h ] && touch .clangd-shim/.sysroot-extracted || true; \
 	fi
-	# clangd shim: GLES3 headers for emu_overlay_sdl.c (not shipped by any
-	# toolchain or the macOS SDK); fetched from the Khronos registry
-	@if [ ! -f .clangd-shim/GLES3/gl3.h ] && command -v curl >/dev/null 2>&1; then \
-		mkdir -p .clangd-shim/GLES3 .clangd-shim/KHR; \
-		curl -sf --max-time 30 https://registry.khronos.org/OpenGL/api/GLES3/gl3.h -o .clangd-shim/GLES3/gl3.h || true; \
-		curl -sf --max-time 30 https://registry.khronos.org/OpenGL/api/GLES3/gl3platform.h -o .clangd-shim/GLES3/gl3platform.h || true; \
-		curl -sf --max-time 30 https://registry.khronos.org/EGL/api/KHR/khrplatform.h -o .clangd-shim/KHR/khrplatform.h || true; \
-	fi
 	@echo '[' > compile_commands.json
 	@first=1; \
 	git ls-files '*.c' | \
@@ -445,31 +437,18 @@ setup: name
 	cp ./skeleton/BASE/README.txt ./workspace/readmes/BASE-in.txt
 	
 done:
-	# say "done" 2>/dev/null || true
 
 special:
-	# setup miyoomini/trimui/magicx family .tmp_update in BOOT
+	# setup trimui .tmp_update in BOOT
 	mv ./build/BOOT/common ./build/BOOT/.tmp_update
-#	mv ./build/BOOT/miyoo ./build/BASE/
 	mv ./build/BOOT/trimui ./build/BASE/
-#	mv ./build/BOOT/magicx ./build/BASE/
-#	cp -R ./build/BOOT/.tmp_update ./build/BASE/miyoo/app/
 	cp -R ./build/BOOT/.tmp_update ./build/BASE/trimui/app/
-#	cp -R ./build/BOOT/.tmp_update ./build/BASE/magicx/
-#	cp -R ./build/BASE/miyoo ./build/BASE/miyoo354
-#	cp -R ./build/BASE/miyoo ./build/BASE/miyoo355
-#ifneq (,$(findstring my355, $(PLATFORMS)))
-#	cp -R ./workspace/my355/init ./build/BASE/miyoo355/app/my355
-#	cp -r ./workspace/my355/other/squashfs/output/* ./build/BASE/miyoo355/app/my355/payload/
-#endif
 
 tidy:
 	@for dev_entry in $(DEVICES); do \
 		dev=$$(echo $$dev_entry | cut -d= -f1); \
 		rm -f releases/$(RELEASE_NAME)-$$dev.zip; \
 	done
-	# ----------------------------------------------------
-	# copy update from merged platform to old pre-merge platform bin so old cards update properly
 
 package: tidy
 	# ----------------------------------------------------

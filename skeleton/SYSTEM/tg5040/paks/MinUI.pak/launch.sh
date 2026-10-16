@@ -1,16 +1,6 @@
 #!/bin/sh
 # MinUI.pak
 
-# recover from readonly SD card -------------------------------
-# touch /mnt/writetest
-# sync
-# if [ -f /mnt/writetest ] ; then
-# 	rm -f /mnt/writetest
-# else
-# 	e2fsck -p /dev/root > /mnt/SDCARD/RootRecovery.txt
-# 	reboot
-# fi
-
 export PLATFORM="tg5040"
 export SDCARD_PATH="/mnt/SDCARD"
 export BIOS_PATH="$SDCARD_PATH/Bios"
@@ -130,7 +120,7 @@ echo schedutil > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
 echo 408000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq
 echo 1008000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
 
-keymon.elf & # &> $SDCARD_PATH/keymon.txt &
+keymon.elf &
 
 # Overlay-mount the SD card's OSD tree onto /usr/trimui/osd — the SD card is
 # the source of truth for the OSD (daemon binary, assets, toast scripts,
@@ -236,7 +226,7 @@ MPD_LOG=/dev/null
 musicplayerd.elf </dev/null >> "$MPD_LOG" 2>&1 &
 
 # Boot-time radio/ssh init below is backgrounded; the launcher runs the CPU at
-# full range until all of it has exited, polling this marker (15 s fallback —
+# full range until all of it has exited, polling this marker (20 s fallback —
 # see workspace/all/nextui/cpu_policy.h). /tmp is tmpfs, so the marker never
 # outlives a boot; the rm is belt and braces. A relaunch after a game or tool
 # finds the marker present and caps at its first frame as before.

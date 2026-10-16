@@ -67,7 +67,7 @@ rm -rf /tmp/bench.pak
 # launcher only manage cpu hotplug on tg5050, so a `cores2` config that offlined
 # cpu2/cpu3 would otherwise leave the device stuck on two cores after the sweep.
 # Re-online cpu1-3 here so the driver can never leave a tg5040 short of its four
-# big cores. tg5050 restores its own cpu4 via the boot script/launcher.
+# cores. tg5050 restores its own cpu4 via the boot script/launcher.
 if [ "$PLAT" = tg5040 ]; then
   for c in 1 2 3; do echo 1 > /sys/devices/system/cpu/cpu$c/online 2>/dev/null; done
 fi
