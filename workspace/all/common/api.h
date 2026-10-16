@@ -385,7 +385,7 @@ SDL_Rect GFX_blitScaled(int scale, SDL_Surface* src, SDL_Surface* dst);
 SDL_Rect GFX_blitStretch(SDL_Surface* src, SDL_Surface* dst);
 // blits to the destination while keeping the aspect ratio.
 SDL_Rect GFX_blitScaleAspect(SDL_Surface* src, SDL_Surface* dst);
-// same as GFX_blitScaledAspect, but fills both dimensions.
+// same as GFX_blitScaleAspect, but fills both dimensions.
 SDL_Rect GFX_blitScaleToFill(SDL_Surface* src, SDL_Surface* dst);
 
 // NOTE: all dimensions should be pre-scaled
@@ -641,9 +641,9 @@ void LEDS_applyRules();
 // these will survive LEDS_applyRules() and need to be manually revoked, e.g.
 /*
 	LEDS_applyRules(); // applies rules
-	LEDS_pushProfile(LIGHT_PROFILE_AMBIENT); // manual override
+	LEDS_pushProfileOverride(LIGHT_PROFILE_AMBIENT); // manual override
 	LEDS_applyRules(); // ignored
-	LEDS_popProfile(); // revoke override
+	LEDS_popProfileOverride(LIGHT_PROFILE_AMBIENT); // revoke override
 	LEDS_applyRules(); // applies rules
 */
 // returns true if value was added to the stack.
@@ -950,7 +950,6 @@ void PLAT_setNetworkTimeSync(bool on);
 
 #define SSID_MAX 64
 #define SCAN_MAX_RESULTS 128
-//#define LIST_NETWORK_MAX 4096
 
 typedef enum {
 	SECURITY_NONE = 0,
@@ -1070,19 +1069,12 @@ struct BT_device {
 	BluetoothDeviceType kind;
 };
 
-//struct BT_deviceUUID {
-//	char *uuid;
-//	char *uuid_name;
-//};
-
 struct BT_devicePaired {
 	char remote_addr[18];  // MAX_BT_ADDR_LEN
 	char remote_name[249]; // MAX_BT_NAME_LEN
 	int16_t rssi;
 	bool is_bonded;
 	bool is_connected;
-	//int uuid_len;
-	//BT_deviceUUID *uuids;
 };
 
 // initializes our BT context and synchronizes it with the current system state

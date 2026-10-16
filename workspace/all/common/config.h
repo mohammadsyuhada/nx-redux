@@ -13,9 +13,6 @@ extern uint32_t THEME_COLOR5_255;
 extern uint32_t THEME_COLOR6_255;
 extern uint32_t THEME_COLOR7_255;
 
-// Read-only interface for minui.c usage
-// Read/Write interface for settings.cpp usage
-
 typedef int (*FontLoad_callback_t)(const char* path);
 typedef int (*ColorSet_callback_t)(void);
 
@@ -164,7 +161,7 @@ typedef struct
 	bool showRecents;
 	bool showTools;
 	bool showHome;		// the Home tab (Layouts > Home tab)
-	int consoleArt;		// CONSOLE_ART_*: what the List draws behind the Consoles tab (Layouts > Consoles background)
+	int consoleArt;		// CONSOLE_ART_*: what the Consoles tab's List and Carousel draw (Layouts > Consoles background)
 	int gameListArt;	// GAME_LIST_ART_*: the List game list's picture (Layouts > List art)
 	int backdropArt;	// BACKDROP_ART_*: the Backdrop game list's item pictures (Layouts > Backdrop art)
 	bool buttonHints;	// the launcher lists' bottom button hint bar (Layouts > Button hints)
@@ -334,10 +331,7 @@ typedef struct
 void CFG_init(FontLoad_callback_t fontCallback, ColorSet_callback_t ccb);
 void CFG_print(void);
 void CFG_get(const char* key, char* value);
-// void CFG_defaults(NextUISettings*);
-//  The font id to use as the UI font.
-//  0 - Default MinUI font
-//  1 - Default NextUI font (default)
+// The font id to use as the UI font: always 1 (MiSans, font1.ttf); font selection was removed and the id is ignored.
 int CFG_getFontId(void);
 void CFG_setFontId(int fontid);
 // The colors to use for the UI. Packed 0xRRGGBBAA (alpha in the low byte,
@@ -382,7 +376,7 @@ void CFG_setMenuAnimations(bool show);
 // Show/hide menu transitions between screens in main menu.
 bool CFG_getMenuTransitions(void);
 void CFG_setMenuTransitions(bool show);
-// Show/hide recently played in the main menu.
+// Unused since the tab set lost Recent; kept so the key round-trips.
 bool CFG_getShowRecents(void);
 void CFG_setShowRecents(bool show);
 // Show/hide tools folder in the main menu.
@@ -391,7 +385,7 @@ void CFG_setShowTools(bool show);
 // Show/hide the Home tab (Layouts > Home tab); it still shows when no other tab does.
 bool CFG_getShowHome(void);
 void CFG_setShowHome(bool show);
-// What the List draws behind the Consoles tab, CONSOLE_ART_* (Layouts > Consoles background); the setter stores an
+// What the Consoles tab's List and Carousel draw, CONSOLE_ART_* (Layouts > Consoles background); the setter stores an
 // out-of-range value as the default (Controller).
 int CFG_getConsoleArt(void);
 void CFG_setConsoleArt(int art);
@@ -440,14 +434,10 @@ void CFG_setFn2Tool(const char* path);
 // Enable/disable haptics.
 bool CFG_getHaptics(void);
 void CFG_setHaptics(bool enable);
-// Save format to use for libretro cores
-// 0 - .sav
-// 1 - .srm (compressed rzip)
+// Save format to use for libretro cores: SAVE_FORMAT_* (enum above)
 int CFG_getSaveFormat(void);
 void CFG_setSaveFormat(int);
-// Save state format to use for libretro cores
-// 0 - .st0
-// 1 - .state.<n> (compressed rzip)
+// Save state format to use for libretro cores: STATE_FORMAT_* (enum above)
 int CFG_getStateFormat(void);
 void CFG_setStateFormat(int);
 // use extracted file name instead of archive name (for cores that do not support archives natively)

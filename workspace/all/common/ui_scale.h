@@ -1,7 +1,6 @@
 // UI scale — each device's one UI scale, tuned so the UI is the same physical size on every panel, and the hidden
-// uiscale_dev= override used to tune it on hardware. Header-only and SDL-free: included by the platform headers and the
-// standalone-emulator overlay (which is built into flycast/mupen64plus without platform.c). Host-tested by
-// tests/test_ui_scale.c.
+// uiscale_dev= override used to tune it on hardware. Header-only and SDL-free: included by the platform headers.
+// Host-tested by tests/test_ui_scale.c.
 #ifndef UI_SCALE_H
 #define UI_SCALE_H
 
@@ -83,18 +82,6 @@ static inline float UIScale_resolveDevice(const char* device, const char* settin
 	return o > 0.0f ? o : UIScale_forDevice(device);
 }
 
-// `units` at `scale` in whole pixels, rounded half away from zero (so offsets are symmetric).
-static inline int UIScale_px(float units, float scale) {
-	return (int)lroundf(units * scale);
-}
-
-// The standalone overlay's rows per page: those between its two 28-unit bars, less one row of air (the Brick keeps
-// its 5 at 3.0); never fewer than 3.
-static inline int UIScale_overlayItems(int panel_h, float scale) {
-	int n = (int)((panel_h / scale - 56.0f) / 30.0f) - 1;
-	return n < 3 ? 3 : n;
-}
-
 // Which baked sheet to draw a `scale` that has none of its own from (a uiscale_dev= value being tuned): `scale`
 // itself when baked, else the smallest larger one (scaled down at load, so it stays sharp), else the largest; 0 when
 // `n` is 0.
@@ -109,16 +96,6 @@ static inline float UIScale_pickSheet(float scale, const float* baked, int n) {
 			largest = baked[i];
 	}
 	return best > 0.0f ? best : largest;
-}
-
-// The scale for processes that don't link config.c or platform.c (the emulator overlay): $DEVICE, and the same
-// minuisettings.txt GFX_init reads.
-static inline float UIScale_fromEnvironment(void) {
-	const char* dir = getenv("SHARED_USERDATA_PATH");
-	char path[512];
-	snprintf(path, sizeof(path), "%s/minuisettings.txt",
-			 dir && dir[0] ? dir : "/mnt/SDCARD/.userdata/shared");
-	return UIScale_resolveDevice(getenv("DEVICE"), path);
 }
 
 #endif

@@ -19,7 +19,7 @@ bool TextShape_hasArabic(const char* utf8);
 // scroll direction and alignment for a string.
 bool TextShape_baseIsRTL(const char* utf8);
 
-// Write the shaped (and, from Task 2 on, BiDi-reordered) form of utf8_logical
+// Write the shaped and BiDi-reordered form of utf8_logical
 // into out_visual (<= out_sz-1 bytes + NUL). Returns the output byte length, or
 // 0 on empty/overflow. Safe to call on any UTF-8; non-Arabic is passed through.
 int TextShape_toVisual(const char* utf8_logical, char* out_visual, int out_sz);

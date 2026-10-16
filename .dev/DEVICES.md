@@ -24,8 +24,7 @@ Model string: `TRIMUI_MODEL` (e.g. `Trimui Brick Pro`).
 - There is no user UI scale. Each device has **one UI scale**, tuned by eye so
   the UI is the same physical size on every panel (`UIScale_forDevice` in
   `workspace/all/common/ui_scale.h`). `FIXED_SCALE` is that float, resolved in
-  `GFX_init` (`ui_scale`); the standalone-emulator overlay reads the same value
-  with `UIScale_fromEnvironment()` (`$DEVICE`). Every size rounds on its own
+  `GFX_init` (`ui_scale`). Every size rounds on its own
   (`SCALE1` is `lroundf`), so fractional scales are fine.
 
   | Device | Panel | Density | Scale |

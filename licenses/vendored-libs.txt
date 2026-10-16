@@ -345,7 +345,7 @@ Notice (workspace/all/musicplayer/include/yxml/yxml.c header):
 Khronos EGL / OpenGL ES headers (EGL, GLES2, GLES3, KHR)
 Source: https://github.com/KhronosGroup/EGL-Registry, https://github.com/KhronosGroup/OpenGL-Registry
 Version: egl.h generated 20171123, gl2.h/gl3.h generated 20171212, khrplatform.h $Revision: 32517 $ (2016-03-11)
-Compiled into: Headers only (workspace/all/include/{EGL,GLES2,GLES3,KHR}); used when compiling GPU paths (e.g. minarch hw-render, common/emu_overlay_sdl.c). No Khronos code is linked
+Compiled into: Headers only (workspace/all/include/{EGL,GLES2,GLES3,KHR}); used when compiling GPU paths (e.g. minarch hw-render). No Khronos code is linked
 License: MIT-style (Khronos)
 Notice (workspace/all/include/KHR/khrplatform.h and workspace/all/include/EGL/egl.h (same text in GLES2/gl2.h, GLES3/gl3.h)):
 

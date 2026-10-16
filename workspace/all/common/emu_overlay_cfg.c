@@ -352,13 +352,11 @@ void emu_ovl_cfg_free(EmuOvlConfig* cfg) {
 }
 
 // ---------------------------------------------------------------------------
-// INI reading — mupen64plus.cfg format: "key = value" inside [section]
+// INI reading — "key = value" inside [section]
 // ---------------------------------------------------------------------------
 
 // Parse a bool value from an INI string. Accepts "true"/"1"/"yes"/"on"
-// (case-insensitive) as true; everything else is false. "yes"/"no" cover
-// flycast's emu.cfg format (core/cfg/ini.cpp ConfigFile::set_bool), which
-// rewrites the whole file with those tokens on every settings save.
+// (case-insensitive) as true; everything else is false.
 static int parse_ini_bool(const char* val) {
 	if (str_eq_nocase(val, "true") || str_eq_nocase(val, "1") ||
 		str_eq_nocase(val, "yes") || str_eq_nocase(val, "on"))
@@ -375,16 +373,12 @@ static int parse_ini_int(const char* val) {
 
 // Convert an INI string to this item's internal int representation. Sole
 // owner of the per-type dispatch: emu_ovl_cfg_read_ini and the public
-// emu_ovl_cfg_parse_value both route through here so the overlay, the
-// pre-launch options editor and launch.sh can never disagree about what a
-// stored value means.
+// emu_ovl_cfg_parse_value both route through here so the options editor's
+// reads and emu_ovl_cfg_parse_value can never disagree about what a stored
+// value means.
 static int parse_item_value(const EmuOvlItem* item, const char* val) {
-	// mupen64plus re-serializes mupen64plus.cfg after a play session -- a video
-	// plugin's ConfigSaveSection rewrites the whole file even under
-	// --nosaveoptions -- and wraps string values in double quotes, so a stored
-	// value can arrive here as "rice" rather than rice. Strip ONE surrounding
-	// pair of double quotes before the per-type dispatch so this reader agrees
-	// with launch.sh's awk resolver (which already unquotes). Applied to every
+	// Strip ONE surrounding pair of double quotes (a hand- or tool-written INI
+	// may quote string values) before the per-type dispatch. Applied to every
 	// type: in practice only strings are quoted, but the tolerance is free and
 	// keeps this function's contract ("what a stored value means") honest.
 	char unquoted[EMU_OVL_MAX_STR];
@@ -658,9 +652,7 @@ const char* emu_ovl_cfg_value_str(const EmuOvlItem* item, int value, char* buf, 
 	return buf;
 }
 
-// Helper: write a single item's value to file. The "key = value" spacing is
-// load-bearing — flycast's ConfigFile::save() writes exactly this and
-// DC.pak/launch.sh's sed patterns ("^$key =") match on it.
+// Helper: write a single item's value to file as "key = value".
 static void write_item_value(FILE* out, const EmuOvlItem* item) {
 	char buf[64];
 	fprintf(out, "%s = %s\n", item->key, emu_ovl_cfg_value_str(item, item->staged_value, buf, sizeof(buf)));
@@ -855,7 +847,7 @@ int emu_ovl_cfg_write_ini(EmuOvlConfig* cfg, const char* ini_path) {
 
 	// Any dirty items whose [section] header never appeared in the file at
 	// all (empty file, or a section the file simply doesn't have yet — e.g.
-	// flycast's [achievements] before RetroAchievements is ever touched)
+	// one a seeded file lacks)
 	// are still unwritten at this point. Append them grouped under freshly
 	// written headers so they aren't silently dropped.
 	for (int d = 0; d < dirty_count; d++) {

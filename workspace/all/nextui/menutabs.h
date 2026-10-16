@@ -83,7 +83,7 @@ void MenuTabs_leaveFocus(void);
 float MenuTabs_contentAlpha(void);
 // Once per frame: the dim is moving (true once more on its settled frame), so the host keeps drawing.
 bool MenuTabs_dimAnimating(void);
-// Tab row (Task 5) and its glide. While focused, the current label wears the selection plate (accent pill, onAccent text)
+// Tab row and its glide. While focused, the current label wears the selection plate (accent pill, onAccent text)
 // and the underline hides.
 void MenuTabs_renderRow(SDL_Surface* screen, int ow);
 bool MenuTabs_animating(void);

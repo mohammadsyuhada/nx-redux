@@ -123,7 +123,7 @@ static bool screen_premult = false; // the screen texture composites with the pr
 
 // libretro GPU-render (hardware core) support. The core draws into hwr.fbo on
 // the game context. With no shader passes PLAT_GL_Swap scales color_tex to the
-// screen directly (hwr_present_program flips it and forces it opaque); shader
+// screen directly (hwr.present_program flips it and forces it opaque); shader
 // passes get it blitted (flipped upright, opaque) into copy_tex first, in place
 // of the CPU upload.
 static struct {
@@ -924,7 +924,7 @@ void PLAT_initShaders() {
 	fragment = load_shader_from_file(GL_FRAGMENT_SHADER, "overlay.glsl", sysshaders_folder);
 	g_shader_overlay = link_program(vertex, fragment, "overlay.glsl");
 
-	// Stand-In if a shader is supposed to be applied, but wasnt compiled properly (shaper_p == NULL)
+	// Stand-In if a shader is supposed to be applied, but wasnt compiled properly (shader_p == NULL)
 	vertex = load_shader_from_file(GL_VERTEX_SHADER, "noshader.glsl", sysshaders_folder);
 	fragment = load_shader_from_file(GL_FRAGMENT_SHADER, "noshader.glsl", sysshaders_folder);
 	g_noshader = link_program(vertex, fragment, "noshader.glsl");
@@ -974,36 +974,8 @@ SDL_Surface* PLAT_initVideo(void) {
 	setenv("LP_NUM_THREADS", "1", 1);
 #endif
 	SDL_LogSetOutputFunction(sdl_log_stdout, NULL);
-	//SDL_LogSetAllPriority(SDL_LOG_PRIORITY_VERBOSE);
 	SDL_InitSubSystem(SDL_INIT_VIDEO);
 	SDL_ShowCursor(0);
-
-	//	SDL_version compiled;
-	//	SDL_version linked;
-	//	SDL_VERSION(&compiled);
-	//	SDL_GetVersion(&linked);
-	//	LOG_info("Compiled SDL version %d.%d.%d ...\n", compiled.major, compiled.minor, compiled.patch);
-	//	LOG_info("Linked SDL version %d.%d.%d.\n", linked.major, linked.minor, linked.patch);
-	//		LOG_info("Available video drivers:\n");
-	//	for (int i=0; i<SDL_GetNumVideoDrivers(); i++) {
-	//		LOG_info("- %s\n", SDL_GetVideoDriver(i));
-	//	}
-	//	LOG_info("Current video driver: %s\n", SDL_GetCurrentVideoDriver());
-	//	LOG_info("Available render drivers:\n");
-	//	for (int i=0; i<SDL_GetNumRenderDrivers(); i++) {
-	//		SDL_RendererInfo info;
-	//		SDL_GetRenderDriverInfo(i,&info);
-	//		LOG_info("- %s\n", info.name);
-	//	}
-	//	LOG_info("Available video displays: %d\n", SDL_GetNumVideoDisplays());
-	//	LOG_info("Available display modes:\n");
-	//	SDL_DisplayMode mode;
-	//	for (int i=0; i<SDL_GetNumDisplayModes(0); i++) {
-	//		SDL_GetDisplayMode(0, i, &mode);
-	//		LOG_info("- %ix%i (%s)\n", mode.w,mode.h, SDL_GetPixelFormatName(mode.format));
-	//	}
-	//	SDL_GetCurrentDisplayMode(0, &mode);
-	//	LOG_info("Current display mode: %ix%i (%s)\n", mode.w,mode.h, SDL_GetPixelFormatName(mode.format));
 
 	int w = FIXED_WIDTH;
 	int h = FIXED_HEIGHT;
@@ -1321,7 +1293,6 @@ void PLAT_quitVideo(void) {
 }
 
 void PLAT_clearVideo(SDL_Surface* screen) {
-	// SDL_FillRect(screen, NULL, 0); // TODO: revisit
 	SDL_FillRect(screen, NULL, SDL_transparentBlack);
 }
 void PLAT_clearAll(void) {
@@ -1340,22 +1311,6 @@ void PLAT_clearAll(void) {
 
 void PLAT_setVsync(int vsync) {
 	// No effect on Ge8300
-	//int interval = 1;
-	//if (vsync == VSYNC_OFF) interval = 0;
-	//else if (vsync == VSYNC_LENIENT) interval = -1; // Adaptive, fallback to 1 usually happens internally if not supported
-	//
-	//// Try to set swap interval
-	//if (SDL_GL_SetSwapInterval(interval) < 0) {
-	//	// If -1 (adaptive) failed, try 1 (strict)
-	//	if (interval == -1) {
-	//		LOG_info("Adaptive VSync not supported, falling back to Strict\n");
-	//		SDL_GL_SetSwapInterval(1);
-	//	} else {
-	//		LOG_error("Failed to set swap interval: %s\n", SDL_GetError());
-	//	}
-	//} else {
-	//	LOG_info("VSync set to %d (requested %d)\n", interval, vsync);
-	//}
 }
 
 static int hard_scale = 4; // TODO: base src size, eg. 160x144 can be 4
@@ -1369,24 +1324,19 @@ static void resizeVideo(int w, int h, int p) {
 
 	if (w >= device_width && h >= device_height)
 		hard_scale = 1;
-	// else if (h>=160) hard_scale = 2; // limits gba and up to 2x (seems sufficient for 640x480)
 	else
 		hard_scale = 4;
-
-	// LOG_info("resizeVideo(%i,%i,%i) hard_scale: %i crisp: %i\n",w,h,p, hard_scale,vid.sharpness==SHARPNESS_CRISP);
 
 	SDL_DestroyTexture(vid.stream_layer1);
 	if (vid.target)
 		SDL_DestroyTexture(vid.target);
 
-	// SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, vid.sharpness==SHARPNESS_SOFT?"1":"0", SDL_HINT_OVERRIDE);
 	vid.stream_layer1 = SDL_CreateTexture(vid.renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
 	bandShadowInvalidate(); // the texture no longer matches the bars' last copies
 	SDL_SetTextureBlendMode(vid.stream_layer1, SDL_BLENDMODE_BLEND);
 	screen_premult = false;
 
 	if (vid.sharpness == SHARPNESS_CRISP) {
-		// SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "1", SDL_HINT_OVERRIDE);
 		vid.target = SDL_CreateTexture(vid.renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, w * hard_scale, h * hard_scale);
 	} else {
 		vid.target = NULL;
@@ -1506,7 +1456,6 @@ static void updateEffect(void) {
 			snprintf(effect_path_buf, sizeof(effect_path_buf), "%s/grid-5.png", RES_PATH);
 			effect_path = effect_path_buf;
 			opacity = 160; // 1 - 9/25 = ~64%
-						   // opacity = 96; // TODO: tmp, for white grid
 		} else if (effect_scale < 8) {
 			snprintf(effect_path_buf, sizeof(effect_path_buf), "%s/grid-6.png", RES_PATH);
 			effect_path = effect_path_buf;
@@ -2632,7 +2581,6 @@ void PLAT_vsync(int remaining) {
 
 
 scaler_t PLAT_getScaler(GFX_Renderer* renderer) {
-	// LOG_info("getScaler for scale: %i\n", renderer->scale);
 	pthread_mutex_lock(&video_prep_mutex);
 	effect.next_scale = renderer->scale;
 	pthread_mutex_unlock(&video_prep_mutex);
@@ -2968,14 +2916,12 @@ void PLAT_flipHidden() {
 	SDL_UpdateTexture(vid.stream_layer1, NULL, vid.screen->pixels, vid.screen->pitch);
 	bandShadowInvalidate(); // the texture no longer matches the bars' last copies
 	compositeLayers();
-	//  SDL_RenderPresent(vid.renderer); // no present want to flip  hidden
+	// no SDL_RenderPresent: a hidden flip
 }
 
 
 void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 	capture_check();
-	// dont think we need this here tbh
-	// SDL_RenderClear(vid.renderer);
 	if (!vid.blit) {
 		int kept_w = vid.width, kept_h = vid.height;
 		resizeVideo(device_width, device_height, FIXED_PITCH); // !!!???
@@ -3168,9 +3114,6 @@ void runShaderPass(GLuint src_texture, GLuint shader_program, GLuint* target_tex
 			shader->updated = 1;
 		}
 		if (*target_texture == 0 || shader->updated || reloadShaderTextures) {
-			// if(target_texture) {
-			// 	glDeleteTextures(1,target_texture);
-			// }
 			if (*target_texture == 0)
 				glGenTextures(1, target_texture);
 			glActiveTexture(GL_TEXTURE0);
@@ -3339,8 +3282,6 @@ static SDL_Thread* prepare_thread = NULL;
 
 void PLAT_GL_Swap() {
 	capture_check();
-	//uint64_t performance_frequency = SDL_GetPerformanceFrequency();
-	//uint64_t frame_start = SDL_GetPerformanceCounter();
 
 	if (prepare_thread == NULL) {
 		prepare_thread = SDL_CreateThread(prepareFrameThread, "PrepareFrameThread", NULL);
@@ -3558,7 +3499,6 @@ void PLAT_GL_Swap() {
 		shaderinfocount++;
 
 		if (shaders[i]->shader_p) {
-			//LOG_info("Shader Pass: Pipeline step %d/%d\n", i + 1, nrofshaders);
 			runShaderPass(
 				(i == 0) ? frame_tex : shaders[i - 1]->texture,
 				shaders[i]->shader_p,
@@ -3583,7 +3523,6 @@ void PLAT_GL_Swap() {
 	}
 
 	if (nrofshaders > 0) {
-		//LOG_info("Shader Pass: Scale to screen (pipeline size: %d)\n", nrofshaders);
 		runShaderPass(
 			shaders[nrofshaders - 1]->texture,
 			g_shader_default,
@@ -3608,7 +3547,6 @@ void PLAT_GL_Swap() {
 					  &(Shader){.srcw = hwr.frame_w, .srch = hwr.frame_h, .texw = hwr.w, .texh = hwr.h, .u_FrameDirection = -1, .u_FrameCount = -1, .u_OutputSize = -1, .u_TextureSize = -1, .u_InputSize = -1, .OrigInputSize = -1, .u_OrigTextureSize = -1, .u_OrigTexture = -1, .texLocation = -1, .texelSizeLocation = -1},
 					  0, GL_NONE);
 	} else {
-		//LOG_info("Shader Pass: Scale to screen (pipeline size: %d)\n", nrofshaders);
 		runShaderPass(frame_tex,
 					  g_shader_default,
 					  NULL,
@@ -3618,7 +3556,6 @@ void PLAT_GL_Swap() {
 	}
 
 	if (effect_tex) {
-		//LOG_info("Shader Pass: Screen Effect\n");
 		runShaderPass(
 			effect_tex,
 			g_shader_overlay,
@@ -3629,7 +3566,6 @@ void PLAT_GL_Swap() {
 	}
 
 	if (overlay_tex) {
-		//LOG_info("Shader Pass: Overlay\n");
 		runShaderPass(
 			overlay_tex,
 			g_shader_overlay,
@@ -3673,15 +3609,6 @@ void PLAT_GL_Swap() {
 	frame_count++;
 	reloadShaderTextures = 0;
 	shaderResetRequested = 0;
-
-	//{
-	//	uint64_t op_ts = SDL_GetPerformanceCounter();
-	//	uint64_t frame_duration = op_ts - frame_start;
-	//	frame_start = op_ts;
-	//	double elapsed_time_s = (double)frame_duration / performance_frequency;
-	//	double frame_ms = elapsed_time_s * 1000.0;
-	//	LOG_info("10: %.2f ms\n", frame_ms);
-	//}
 }
 
 // flipping image upside down

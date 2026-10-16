@@ -844,7 +844,6 @@ static char watched_file_path[MAX_PATH];
 static int detect_audio_device_type() {
 	FILE* file = fopen(watched_file_path, "r");
 	if (!file) {
-		//LOG_info("detect_audio_device_type: .asoundrc not found, defaulting to AUDIO_SINK_DEFAULT\n");
 		return AUDIO_SINK_DEFAULT;
 	}
 
@@ -854,12 +853,10 @@ static int detect_audio_device_type() {
 
 	while (fgets(line, sizeof(line), file)) {
 		if (strstr(line, "type bluealsa") || strstr(line, "defaults.bluealsa.device")) {
-			//LOG_info("detect_audio_device_type: found bluealsa\n");
 			is_bluetooth = 1;
 			break;
 		}
 		if (strstr(line, "type hw") || strstr(line, "slave.pcm \"hw:")) {
-			//LOG_info("detect_audio_device_type: found hw card\n");
 			is_usb_dac = 1;
 			break;
 		}
@@ -926,11 +923,7 @@ static void* watcher_thread_func(void* arg) {
 						if (callback_fn)
 							callback_fn(device_type, DIRWATCH_CREATE);
 					}
-					// No need to react to this, we handle it via file watch
-					//else if (event->mask & IN_DELETE) {
-					//    remove_file_watch();
-					//    if (callback_fn) callback_fn(AUDIO_SINK_DEFAULT, DIRWATCH_DELETE);
-					//}
+					// IN_DELETE needs no handling here: the file watch's IN_DELETE_SELF covers it
 				}
 			} else if (event->wd == file_watch_fd) {
 				if (event->mask & (IN_MODIFY | IN_CLOSE_WRITE | IN_DELETE_SELF)) {
@@ -939,10 +932,7 @@ static void* watcher_thread_func(void* arg) {
 						if (callback_fn)
 							callback_fn(AUDIO_SINK_DEFAULT, FILEWATCH_DELETE);
 					}
-					// No need to react to this, it usually comes paired with FILEWATCH_MODIFY
-					//else if (event->mask & IN_CLOSE_WRITE) {
-					//	if (callback_fn) callback_fn(AUDIO_SINK_BLUETOOTH, FILEWATCH_CLOSE_WRITE);
-					//}
+					// IN_CLOSE_WRITE alone needs no handling: it usually comes paired with IN_MODIFY
 					else if (event->mask & IN_MODIFY) {
 						int device_type = detect_audio_device_type();
 						if (callback_fn)

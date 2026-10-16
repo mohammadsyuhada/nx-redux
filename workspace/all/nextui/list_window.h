@@ -13,7 +13,7 @@
 // Reconciliations (where callers' blocks differed):
 // - selectAtTop is the view clamp (gridview selectTile, rowview LEFT/RIGHT, stackview selectItem), which clamps
 //   start at 0. The List letter jump (gamelist L1/R1) wraps the same steps in `if (total > rows)` and never clamps:
-//   for total > rows the two are identical on every input (end - rows >= 0 there), so wave 2 keeps that guard
+//   for total > rows the two are identical on every input (end - rows >= 0 there), so the caller keeps that guard
 //   around the call. loadLast (launcher, x2) runs the same steps without the guard and without the clamp, inside
 //   `if (i >= end)`: identical whenever total >= rows; with total < rows it is only reachable from a window that
 //   is not valid for the same row count (end < total), where the old code produced a negative start and

@@ -16,7 +16,7 @@ void Home_render(SDL_Surface* screen, int lastScreen);
 // Returns true when it handled input (the D-pad, A, MENU); sets *dirty. Edge moves switch tab through
 // GameList_switchTab. SELECT, START, L1/R1 and the rest return false for the root's own handlers.
 bool Home_handleInput(unsigned long now, bool* dirty);
-// UP on the tab row: focus the last pin (HomeLayout_bottomFrom); no pins: the top item stays. Carousel: the dock when
+// UP on the tab row: focus the last pin (HomeLayout_fromTabs); no pins: the top item stays. Carousel: the dock when
 // it has tools, else the row's selection stays.
 void Home_focusBottom(void);
 bool Home_animating(void); // scroll tween, selection crossfade, card flip (one settled frame after each)

@@ -1023,13 +1023,6 @@ unsigned GFX_flipCount(void) {
 
 void GFX_flip(SDL_Surface* screen) {
 	flip_count++;
-	{
-		uint64_t performance_frequency = SDL_GetPerformanceFrequency();
-		uint64_t frame_duration = SDL_GetPerformanceCounter() - per_frame_start;
-		double elapsed_time_s = (double)frame_duration / performance_frequency;
-		double frame_ms = elapsed_time_s * 1000.0;
-		//LOG_info("GFX_flip: Frame time before flip: %.2f ms\n", frame_ms);
-	}
 	PLAT_flip(screen, 0);
 
 	perf.fps = current_fps;
@@ -1047,7 +1040,6 @@ void GFX_flip(SDL_Surface* screen) {
 
 	if (frame_ms > target_ms * 1.1) {
 		perf.frame_drops++;
-		//LOG_warn("GFX_flip: Frame drop detected! Frame time: %.2f ms (target: %.2f ms)\n", frame_ms, target_ms);
 	}
 
 	if (tempfps < SCREEN_FPS * 0.8 || tempfps > SCREEN_FPS * 1.2)
@@ -1103,7 +1095,6 @@ void GFX_GL_noteFrame(void) {
 
 	if (frame_ms > target_ms * 1.1) {
 		perf.frame_drops++;
-		//LOG_warn("GFX_GL_Swap: Frame drop detected! Frame time: %.2f ms (target: %.2f ms)\n", frame_ms, target_ms);
 	}
 
 	if (tempfps < SCREEN_FPS * 0.8 || tempfps > SCREEN_FPS * 1.2)
@@ -1193,7 +1184,6 @@ void GFX_flip_scheduled(SDL_Surface* screen, double slot_s, double target_fps) {
 
 	if (frame_ms > target_ms * 1.1) {
 		perf.frame_drops++;
-		//LOG_warn("GFX_flip_fixed_rate: Frame drop detected! Frame time: %.2f ms (target: %.2f ms)\n", frame_ms, target_ms);
 	}
 
 	fps_buffer[fps_buffer_index] = tempfps;
@@ -2627,8 +2617,7 @@ static void SND_audioCallback(void* userdata, uint8_t* stream, int len) {
 	if (len > 0)
 		memset(out, 0, len * (sizeof(int16_t) * 2));
 }
-static void SND_resizeBuffer(void) { // plat_sound_resize_buffer
-
+static void SND_resizeBuffer(void) {
 	LOG_info("Resizing audio buffer for new frame count: %d\n", snd.frame_count);
 
 	if (snd.frame_count == 0)
@@ -2943,10 +2932,6 @@ size_t SND_batchSamples_fixed_rate(const SND_Frame* frames, size_t frame_count) 
 	int consumed = 0;
 	int total_consumed_frames = 0;
 
-	// printf("received %d audio frames\n", frame_count);
-
-	// int full = 0;
-
 	float remaining_space = snd.frame_count;
 	pthread_mutex_lock(&audio_mutex);
 	if (snd.frame_in >= snd.frame_out) {
@@ -2955,7 +2940,6 @@ size_t SND_batchSamples_fixed_rate(const SND_Frame* frames, size_t frame_count) 
 		remaining_space = snd.frame_out - snd.frame_in;
 	}
 	pthread_mutex_unlock(&audio_mutex);
-	// printf("    actual free: %g\n", remaining_space);
 	perf.buffer_free = remaining_space;
 	// let audio buffer fill up a little before playing audio, so no underruns occur. Target fill rate of buffer is about 50% so start playing when about 40% full
 	if (perf.buffer_free < snd.frame_count * 0.6f) {
@@ -2998,8 +2982,6 @@ size_t SND_batchSamples_fixed_rate(const SND_Frame* frames, size_t frame_count) 
 	case SND_FF_VERY_LATE:
 		// just drop the audio if its too late cause its never gonna catch up in fast forward
 		return 0;
-		// ratio = 0.980;
-		// break;
 	default:
 		ratio = 1.0;
 	}
@@ -3040,7 +3022,7 @@ size_t SND_batchSamples_fixed_rate(const SND_Frame* frames, size_t frame_count) 
 }
 
 
-void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
+void SND_init(double sample_rate, double frame_rate) {
 	LOG_info("SND_init\n");
 	if (SDL_WasInit(SDL_INIT_AUDIO))
 		LOG_error("SND_init: already initialized\n");
@@ -3194,7 +3176,6 @@ PAD_Context pad;
 
 #define AXIS_DEADZONE 0x4000
 void PAD_setAnalog(int neg_id, int pos_id, int value, int repeat_at) {
-	// LOG_info("neg %i pos %i value %i\n", neg_id, pos_id, value);
 	int neg = 1 << neg_id;
 	int pos = 1 << pos_id;
 	if (value > AXIS_DEADZONE) {	   // pressing
@@ -3238,7 +3219,6 @@ void PAD_setAnalog(int neg_id, int pos_id, int value, int repeat_at) {
 }
 
 void PAD_reset(void) {
-	// LOG_info("PAD_reset");
 	pad.just_pressed = BTN_NONE;
 	pad.is_pressed = BTN_NONE;
 	pad.just_released = BTN_NONE;
@@ -3403,7 +3383,6 @@ FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 		if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
 			int code = event.key.keysym.scancode;
 			pressed = event.type == SDL_KEYDOWN;
-			// LOG_info("key event: %i (%i)\n", code,pressed);
 			if (code == CODE_UP) {
 				btn = BTN_DPAD_UP;
 				id = BTN_ID_DPAD_UP;
@@ -3483,7 +3462,6 @@ FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 		} else if (event.type == SDL_JOYBUTTONDOWN || event.type == SDL_JOYBUTTONUP) {
 			int joy = event.jbutton.button;
 			pressed = event.type == SDL_JOYBUTTONDOWN;
-			// LOG_info("joy event: %i (%i)\n", joy,pressed);
 			if (joy == JOY_UP) {
 				btn = BTN_DPAD_UP;
 				id = BTN_ID_DPAD_UP;
@@ -3563,7 +3541,6 @@ FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 		} else if (event.type == SDL_JOYHATMOTION) {
 			int hats[4] = {-1, -1, -1, -1}; // -1=no change,0=up,1=down,2=left,3=right btn_ids
 			int hat = event.jhat.value;
-			// LOG_info("hat event: %i\n", hat);
 			// TODO: safe to assume hats will always be the primary dpad?
 			// TODO: this is literally a bitmask, make it one (oh, except there's 3 states...)
 			switch (hat) {
@@ -3643,7 +3620,6 @@ FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 		} else if (event.type == SDL_JOYAXISMOTION) {
 			int axis = event.jaxis.axis;
 			int val = event.jaxis.value;
-			// LOG_info("axis: %i (%i)\n", axis,val);
 
 			// triggers on tg5040
 			if (axis == AXIS_L2) {
@@ -3671,7 +3647,6 @@ FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 			// before the first press but you can't release
 			// a button that wasn't pressed
 			if (!pressed && btn != BTN_NONE && !(pad.is_pressed & btn)) {
-				// LOG_info("cancel: %i\n", axis);
 				btn = BTN_NONE;
 			}
 		} else if (event.type == SDL_QUIT) {
@@ -4596,28 +4571,23 @@ void LEDS_applyRules() {
 	// e.g.
 	// - if charging and low battery, charging takes priority
 	if (pwr.initialized && SDL_AtomicGet(&pwr.is_charging)) {
-		//LOG_info("LEDS_applyRules: charging\n");
 		LEDS_setProfile(LIGHT_PROFILE_CHARGING);
 	}
 	// - if critical battery, critical battery takes priority over everything
 	else if (pwr.initialized && SDL_AtomicGet(&pwr.charge) < PWR_LOW_CHARGE) {
-		//LOG_info("LEDS_applyRules: critical battery\n");
 		LEDS_setProfile(LIGHT_PROFILE_CRITICAL_BATTERY);
 	}
-	// - if muted, muted takes priority over everything except critical battery
+	// - FN switch on (night mode) with "FN turns off LEDs": all off, over everything except critical battery
 	else if (InitializedSettings() && CFG_getFnLEDs() && GetFnMode()) {
-		//LOG_info("LEDS_applyRules: muted\n");
 		LEDS_setProfile(LIGHT_PROFILE_OFF);
 	}
 	// other rules
 	else if (pwr.initialized && SDL_AtomicGet(&pwr.charge) < PWR_LOW_CHARGE + 10 && SDL_AtomicGet(&pwr.charge) >= PWR_LOW_CHARGE) {
-		//LOG_info("LEDS_applyRules: low battery\n");
 		LEDS_setProfile(LIGHT_PROFILE_LOW_BATTERY);
 	}
 	// - if no other rule applies, use default (or temporary override)
 	// manual rules to be set on demand: LIGHT_PROFILE_SLEEP, LIGHT_PROFILE_AMBIENT
 	else {
-		//LOG_info("LEDS_applyRules: default/override: %i\n", LEDS_getProfileOverride());
 		LEDS_setProfile(LEDS_getProfileOverride());
 	}
 }

@@ -125,7 +125,7 @@ SDL_Texture* UI_listItemMarqueeHoldSprite(const ScrollTextState* state, TTF_Font
 										  bool selected);
 
 // Render a list item's pill background and calculate text position
-// Combines: Fonts_calcListPillWidth + Fonts_drawListItemBg + text position calculation
+// Combines: UI_calcListPillWidth + UI_drawListItemBg + text position calculation
 // prefix_width: extra width to account for (e.g., checkbox, indicator)
 ListItemPos UI_renderListItemPill(SDL_Surface* screen, ListLayout* layout,
 								  TTF_Font* font, const char* text,
@@ -150,7 +150,7 @@ void UI_renderListItemTextDimSuffix(SDL_Surface* screen,
 
 // ---- Badged Pill Rendering ----
 
-// Position information returned by render_list_item_pill_badged
+// Position information returned by UI_renderListItemPillBadged
 typedef struct {
 	int pill_width;		// Width of the title (inner) pill
 	int text_x;			// X position for title text

@@ -28,7 +28,7 @@ Games: emu paks run `minarch.elf <core> <rom>`. Resume-slot files
 (`.userdata/shared/.minui/<EMU>/<rom>.txt`) are written only by minarch's
 save/load-state paths — MENU+SELECT quit-to-switcher saves; in-menu Quit does
 not. `/tmp/resume_slot.txt` carries the slot to load into the next launch
-(standalone emulator paks consume it via `emu_overlay.c`).
+(minarch consumes it in `ma_saves.c`).
 
 ## Rendering model: dirty-flag
 

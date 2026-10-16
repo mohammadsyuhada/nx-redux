@@ -54,9 +54,8 @@ typedef struct {
 } RA_RefreshStats;
 
 /**
- * Pull fresh cloud state so the pak reflects unlocks earned in standalone
- * emulators (e.g. the DC.pak flycast build) that never touched the offline
- * layer. Blocking — call from a modal screen. In order it:
+ * Pull fresh cloud state so the pak reflects unlocks earned elsewhere (other
+ * devices, the website) that never touched the offline layer. Blocking — call from a modal screen. In order it:
  *   1. re-fetches login2 (refreshes the cached points total);
  *   2. enumerates cached games (cache/games/<hash>/sets.json);
  *   3. for each distinct console, POSTs allprogress once to learn the

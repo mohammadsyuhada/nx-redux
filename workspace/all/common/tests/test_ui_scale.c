@@ -14,30 +14,6 @@ static void write_file(const char* path, const char* body) {
 	fclose(f);
 }
 
-static void test_from_environment(void) {
-	char dir[] = "/tmp/nx_test_ui_scale_dir_XXXXXX";
-	assert(mkdtemp(dir));
-	char path[256];
-	snprintf(path, sizeof(path), "%s/minuisettings.txt", dir);
-
-	setenv("SHARED_USERDATA_PATH", dir, 1);
-	setenv("DEVICE", "brick", 1);
-	assert(UIScale_fromEnvironment() == 3.0f); // no file -> the device's scale
-	write_file(path, "uiscale=2\n");
-	assert(UIScale_fromEnvironment() == 3.0f); // the old setting no longer overrides
-	write_file(path, "uiscale_dev=2.5\n");
-	assert(UIScale_fromEnvironment() == 2.5f);
-	setenv("DEVICE", "brickpro", 1);
-	write_file(path, "font=1\n");
-	assert(UIScale_fromEnvironment() == 2.5f);
-	unsetenv("DEVICE");
-	unsetenv("SHARED_USERDATA_PATH");
-	assert(UIScale_fromEnvironment() == 2.25f); // /mnt/SDCARD fallback absent on host, DEVICE unset, no crash
-
-	unlink(path);
-	rmdir(dir);
-}
-
 static void test_quantize(void) {
 	assert(UIScale_quantize(3.0f) == 3.0f);
 	assert(UIScale_quantize(2.4375f) == 2.4375f);
@@ -79,23 +55,6 @@ static void test_dev_override(void) {
 	assert(UIScale_resolveDevice("brick", NULL) == 3.0f);
 }
 
-static void test_px(void) {
-	assert(UIScale_px(16, 3.0f) == 48);
-	assert(UIScale_px(5, 2.4375f) == 12); // 12.19
-	assert(UIScale_px(-2, 2.25f) == -5);  // -4.5 rounds away from zero, symmetric with +2 -> 5
-	assert(UIScale_px(2, 2.25f) == 5);
-}
-
-static void test_overlay_items(void) {
-	assert(UIScale_overlayItems(768, 3.0f) == 5); // the Brick today
-	int prev = 99;
-	for (float s = 1.5f; s <= 4.0f; s += 0.0625f) { // never more rows as the scale grows
-		int n = UIScale_overlayItems(720, s);
-		assert(n <= prev && n >= 3);
-		prev = n;
-	}
-}
-
 static void test_pick_sheet(void) {
 	const float baked[] = {1.5f, 2.0f, 2.25f, 3.0f, 2.4375f}; // any order
 	int n = sizeof(baked) / sizeof(baked[0]);
@@ -118,12 +77,9 @@ static void test_text_sizes(void) {
 }
 
 int main(void) {
-	test_from_environment();
 	test_quantize();
 	test_device_table();
 	test_dev_override();
-	test_px();
-	test_overlay_items();
 	test_pick_sheet();
 	test_text_sizes();
 	printf("test_ui_scale: all passed\n");

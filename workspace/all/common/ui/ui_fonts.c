@@ -4,7 +4,7 @@
 // Thin compatibility wrappers. The implementations live in ui_list.c
 // (UI_getListTextColor / UI_drawListItemBg); these Fonts_* names are kept
 // because musicplayer/mediaplayer call them. (Fonts_calcListPillWidth was
-// unused and has been removed — use UI_calcListPillWidth / UI_getListItemLayout.)
+// unused and has been removed — use UI_calcListPillWidth.)
 
 SDL_Color Fonts_getListTextColor(bool selected) {
 	return UI_getListTextColor(selected);

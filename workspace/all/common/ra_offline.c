@@ -475,7 +475,7 @@ int RA_Offline_readJournal(RA_PendingUnlock* out, int max) {
 		while (count < max && fgets(line, sizeof(line), f)) {
 			if (ra_off_journal_parse_line(line, &out[count]))
 				count++;
-			// malformed lines are skipped here but preserved on rewrite (Task 3)
+			// malformed lines are skipped here but preserved on rewrite
 		}
 		fclose(f);
 	}

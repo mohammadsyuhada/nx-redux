@@ -254,7 +254,7 @@ static void* workerMain(void* arg) {
 	return NULL;
 }
 
-// RAT_unlocksSince reads the RA cache through ra_offline.c's process-wide root, which is empty until
+// RAT_unlocksSinceCancellable reads the RA cache through ra_offline.c's process-wide root, which is empty until
 // RA_Offline_init. Set it here, on the UI thread before the stats worker starts. GameInfo's worker is already
 // running by then but sets the root lazily, on its first lookup (none has been asked for yet); left to it, the
 // boot-time scan ran first, found no readable cache and counted 0.

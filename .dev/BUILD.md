@@ -158,7 +158,7 @@ docker-extracted sysroot headers, self-healing re-extract) plus the committed
 stubs in `scripts/clangd/include/` (glibc-only APIs via `#include_next`; the
 stubs show bogus errors if opened directly — expected). Known non-parsing
 files: `common/generic_*` (textually included into each platform's
-`platform.c`), `emu_overlay_sdl.c`, mediaplayer's ffplay tree.
+`platform.c`), mediaplayer's ffplay tree.
 
 For unused-include sweeps, drive clangd over LSP (its `--check` mode doesn't
 emit unused-include diagnostics); expect false positives on umbrella headers

@@ -134,7 +134,6 @@ char* escapeSingleQuotes(char* str, size_t buf_size) {
 	return str;
 }
 
-// TODO: verify this yields the same result as the one in minui.c, remove one
 // This one does not modify the input, cause we arent savages
 char* replaceString2(const char* orig, char* rep, char* with) {
 	const char* ins; // the next insert point
@@ -443,15 +442,12 @@ void getEmuName(const char* in_name, char* out_name) { // NOTE: both char arrays
 	strcpy(out_name, in_name);
 	tmp = out_name;
 
-	// printf("--------\n  in_name: %s\n",in_name); fflush(stdout);
-
 	// extract just the Roms folder name if necessary
 	if (prefixMatch(ROMS_PATH, tmp)) {
 		tmp += strlen(ROMS_PATH) + 1;
 		char* tmp2 = strchr(tmp, '/');
 		if (tmp2)
 			tmp2[0] = '\0';
-		// printf("    tmp1: %s\n", tmp);
 		memmove(out_name, tmp, strlen(tmp) + 1);
 		tmp = out_name;
 	}
@@ -460,14 +456,11 @@ void getEmuName(const char* in_name, char* out_name) { // NOTE: both char arrays
 	tmp = strrchr(tmp, '(');
 	if (tmp) {
 		tmp += 1;
-		// printf("    tmp2: %s\n", tmp);
 		memmove(out_name, tmp, strlen(tmp) + 1);
 		tmp = strchr(out_name, ')');
 		if (tmp) // guard: an unbalanced '(' (no matching ')') would make this NULL
 			tmp[0] = '\0';
 	}
-
-	// printf(" out_name: %s\n", out_name); fflush(stdout);
 }
 // A shipped pak always wins: a same-named SD pak (an old copy, a community
 // pak under a shipped tag) is ignored, so every card runs the shipped one.
