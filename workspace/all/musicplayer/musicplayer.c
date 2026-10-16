@@ -4,7 +4,6 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <signal.h>
-#include <time.h>
 #if defined(PLATFORM_TG5050)
 #include "../../tg5050/platform/platform.h"
 #else
@@ -135,9 +134,6 @@ int main(int argc, char* argv[]) {
 
 	signal(SIGINT, sigHandler);
 	signal(SIGTERM, sigHandler);
-
-	// Seed random number generator for shuffle
-	srand((unsigned int)time(NULL));
 
 	/* The owner is packaged in the system bin directory, not beside this UI
 	 * pak. Keep startup independent of argv[0] and of the launch cwd. */

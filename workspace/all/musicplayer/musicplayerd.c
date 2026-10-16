@@ -1207,6 +1207,10 @@ int main(void) {
 	signal(SIGINT, on_signal);
 	signal(SIGTERM, on_signal);
 	signal(SIGPIPE, SIG_IGN);
+
+	// Seed rand() for queue shuffle (Playlist_shuffle runs in this process)
+	srand((unsigned int)time(NULL));
+
 	if (MusicServiceServer_open() != 0)
 		return EXIT_FAILURE;
 	Playlist_init(&queue);
