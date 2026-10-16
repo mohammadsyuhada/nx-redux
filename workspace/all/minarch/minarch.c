@@ -540,11 +540,6 @@ finish:
 // Accessor functions for external modules (netplay), prototypes in minarch.h
 //////////////////////////////////////////////////////////////////////////////
 
-// Screen/display accessors
-SDL_Surface* minarch_getScreen(void) {
-	return screen;
-}
-
 // Game state accessors
 const char* minarch_getGameName(void) {
 	return game.name;
@@ -562,19 +557,6 @@ char* minarch_getCoreOptionValue(const char* key) {
 }
 void minarch_setCoreOptionValue(const char* key, const char* value) {
 	OptionList_setOptionValue(&config.core, key, value);
-}
-
-// Sleep state accessors
-void minarch_beforeSleep(void) {
-	Menu_beforeSleep();
-}
-void minarch_afterSleep(void) {
-	Menu_afterSleep();
-}
-
-// Platform accessors
-void minarch_hdmimon(void) {
-	hdmimon();
 }
 
 // Save current config to file (netplay_boot persists an adopted link mode before minarch_reloadGame)

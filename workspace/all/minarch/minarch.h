@@ -22,9 +22,6 @@ enum {
 };
 #endif
 
-// Screen/display accessors
-SDL_Surface* minarch_getScreen(void);
-
 // Game state accessors
 const char* minarch_getGameName(void);
 void* minarch_getGameData(void);
@@ -48,12 +45,5 @@ void minarch_saveConfig(void);
 // Reload game to apply option changes (e.g., gpSP serial mode)
 // Unloads and reloads ROM so core re-reads options during load_game()
 void minarch_reloadGame(void);
-
-// Sleep state accessors
-void minarch_beforeSleep(void);
-void minarch_afterSleep(void);
-
-// Platform accessors
-void minarch_hdmimon(void);
 
 #endif /* MINARCH_H */
