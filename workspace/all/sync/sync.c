@@ -37,6 +37,8 @@
 #define ACK_MSG "TRIMUI_SYNC_ACK:"
 #define READY_MSG "TRIMUI_SYNC_READY"
 #define DONE_MSG "TRIMUI_SYNC_DONE"
+// The client's run failed or was cancelled: the server stops waiting for DONE.
+#define FAIL_MSG "TRIMUI_SYNC_FAIL"
 #define BROADCAST_INTERVAL_MS 1000
 #define RSYNC_CONF_PATH "/tmp/rsyncd.conf"
 #define RSYNC_PID_PATH "/tmp/rsyncd.pid"
@@ -271,6 +273,18 @@ static void send_udp_bytes(int sock, const char* msg, size_t len, const char* de
 
 static void send_udp_message(int sock, const char* msg, const char* dest_ip) {
 	send_udp_bytes(sock, msg, strlen(msg), dest_ip);
+}
+
+// DONE or FAIL to the paired peer, five times over a second (UDP may drop one).
+static void notify_peer(const char* msg) {
+	int sock = create_send_socket();
+	if (sock < 0)
+		return;
+	for (int i = 0; i < 5; i++) {
+		send_udp_message(sock, msg, peer_ip);
+		usleep(200000);
+	}
+	close(sock);
 }
 
 // Discovery answers a HELLO with one ACK and stops listening. If that ACK is
@@ -1368,9 +1382,15 @@ static void* sync_thread_func(void* arg) {
 				ssize_t n = recvfrom(done_sock, buf, sizeof(buf) - 1, 0, (struct sockaddr*)&from, &fromlen);
 				if (n > 0) {
 					buf[n] = '\0';
+					char src_ip[INET_ADDRSTRLEN];
+					inet_ntop(AF_INET, &from.sin_addr, src_ip, sizeof(src_ip));
 					if (strcmp(buf, DONE_MSG) == 0) {
 						log_add("Client finished sync");
 						ret = 0;
+						break;
+					}
+					if (strcmp(buf, FAIL_MSG) == 0 && strcmp(src_ip, peer_ip) == 0) {
+						log_add("ERROR: The other device's sync failed");
 						break;
 					}
 					reack_lost_hello(notify_sock, buf, &from);
@@ -1496,6 +1516,7 @@ static void* sync_thread_func(void* arg) {
 				char err[LOG_LINE_LEN];
 				snprintf(err, sizeof(err), "ERROR: Phase %d failed (exit %d)", phase, result);
 				log_add(err);
+				notify_peer(FAIL_MSG);
 				sync_result = -1;
 				sync_done = true;
 				return NULL;
@@ -1517,14 +1538,9 @@ static void* sync_thread_func(void* arg) {
 			log_add(final_summary);
 		}
 
-		int notify_sock = create_send_socket();
-		if (notify_sock >= 0) {
-			for (int i = 0; i < 5; i++) {
-				send_udp_message(notify_sock, DONE_MSG, peer_ip);
-				usleep(200000);
-			}
-			close(notify_sock);
-		}
+		// A cancel tells the server it didn't finish: a phone server shows it
+		// as failed rather than done.
+		notify_peer(sync_cancel ? FAIL_MSG : DONE_MSG);
 
 		sync_result = 0;
 		sync_done = true;
