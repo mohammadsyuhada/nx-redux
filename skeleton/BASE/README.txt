@@ -1,7 +1,7 @@
 NX Redux, a fork of NextUI (by LoveRetro, itself based on MinUI) with screen sync fixes and many many more features!
 
 Source:
-https://github.com/mohammadsyuhada/nx-redux
+https://github.com/nx-redux/nx-handheld
 
 Based on NextUI:
 https://github.com/LoveRetro/NextUI

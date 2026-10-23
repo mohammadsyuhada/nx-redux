@@ -37,8 +37,8 @@
 // Configuration
 // ============================================
 
-#define UPDATER_REPO_OWNER "mohammadsyuhada"
-#define UPDATER_REPO_NAME "nx-redux"
+#define UPDATER_REPO_OWNER "nx-redux"
+#define UPDATER_REPO_NAME "nx-handheld"
 // Web endpoint that 302-redirects to /releases/tag/<TAG>; unlike
 // api.github.com it is not subject to the 60 req/hour per-IP rate limit.
 #define UPDATER_WEB_LATEST_URL \
@@ -176,17 +176,32 @@ static int run_command(char* const argv[]) {
 
 // Buffer size for the wget -S header dump of the releases/latest redirect
 #define HEADERS_BUF_SIZE 8192
+// A moved or renamed repo answers releases/latest with a 301 to its new
+// releases/latest first; follow that many hops to reach the tag redirect.
+#define UPDATER_MAX_HOPS 3
 
 static void* auto_check_thread(void* arg) {
 	(void)arg;
 
 	char headers[HEADERS_BUF_SIZE];
+	char url[512];
 	char location[512];
+	int found = 0;
 
-	if (wget_fetch_headers_noredirect(UPDATER_WEB_LATEST_URL,
-									  headers, sizeof(headers)) < 0 ||
-		updater_parse_location_header(headers, location, sizeof(location)) != 0 ||
-		updater_parse_tag_from_location(location, auto_tag, sizeof(auto_tag)) != 0) {
+	snprintf(url, sizeof(url), "%s", UPDATER_WEB_LATEST_URL);
+	for (int hop = 0; hop < UPDATER_MAX_HOPS && !found; hop++) {
+		if (wget_fetch_headers_noredirect(url, headers, sizeof(headers)) < 0 ||
+			updater_parse_location_header(headers, location, sizeof(location)) != 0)
+			break;
+		if (updater_parse_tag_from_location(location, auto_tag, sizeof(auto_tag)) == 0)
+			found = 1;
+		else if (strncmp(location, "https://github.com/", 19) == 0)
+			snprintf(url, sizeof(url), "%s", location);
+		else
+			break;
+	}
+
+	if (!found) {
 		snprintf(auto_error, sizeof(auto_error), "Failed to check for updates");
 		auto_success = 0;
 		__sync_synchronize();
