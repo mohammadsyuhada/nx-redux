@@ -1456,8 +1456,9 @@ static void show_simple_mode_help(void) {
 		return;
 
 	char* help_text =
-		"Simple Mode hides Tools and replaces\n"
-		"Options with Reset in-game.\n"
+		"Simple Mode hides Tools and the game\n"
+		"menu's Delete, Rename, Pin and options,\n"
+		"and replaces Options with Reset in-game.\n"
 		"\n"
 		"Settings stays on the home screen,\n"
 		"protected by a PIN set when enabling\n"

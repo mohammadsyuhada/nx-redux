@@ -1796,8 +1796,8 @@ static void addItem(ContextMenuItem* items, int* idx, const char* label, int id)
 	ContextMenu_addItemCapped(items, idx, CONTEXTMENU_MAX_ITEMS, label, id);
 }
 
-// A game's items, as in a ROM listing. allow_pin false leaves out Pin/Unpin Item.
-static void romItems(Entry* entry, bool allow_pin, ContextMenuItem* items, int* idx) {
+// A game's items, as in a ROM listing.
+static void romItems(Entry* entry, ContextMenuItem* items, int* idx) {
 	char label[CONTEXTMENU_MAX_TEXT];
 	// Button hints hidden (Layouts > Button hints): the bar's game actions move here, with their button. Not A/B, and
 	// not Resume on Home (its A already resumes). Netplay regardless of Appearance > Show netplay hint.
@@ -1811,7 +1811,10 @@ static void romItems(Entry* entry, bool allow_pin, ContextMenuItem* items, int* 
 			addItem(items, idx, label, 35);
 		}
 	}
-	if (allow_pin && canPinEntry(entry)) {
+	// simple mode: kids can't pin, delete, rename, collect or change a game's options (issue #265)
+	if (gl_simple_mode)
+		return;
+	if (canPinEntry(entry)) {
 		if (Shortcuts_exists(entry->path + strlen(SDCARD_PATH)))
 			addItem(items, idx, "Unpin Item", 31);
 		else if (Shortcuts_canAdd(entry))
@@ -1871,8 +1874,7 @@ void GameList_openContextMenuFor(Entry* entry, bool is_pin, bool is_continue) {
 		if (!gl_simple_mode)
 			toolItems(entry, items, &idx);
 	} else if (entry->type == ENTRY_ROM || entryFolderGame(entry, game_file)) {
-		// Home is the root: simple mode hides Pin/Unpin there, as the root's Unpin
-		romItems(entry, !gl_simple_mode, items, &idx);
+		romItems(entry, items, &idx);
 	} else if (is_pin && !gl_simple_mode && Shortcuts_exists(entry->path + strlen(SDCARD_PATH))) {
 		addItem(items, &idx, "Unpin", 3); // a legacy pinned folder
 	}
@@ -2138,7 +2140,7 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 			rootItems(items, &idx);
 		} else if (entry) {
 			// ROM listing (console directory or subfolder)
-			romItems(entry, true, items, &idx);
+			romItems(entry, items, &idx);
 		}
 
 		if (idx > 0) {
