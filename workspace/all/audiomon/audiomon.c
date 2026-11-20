@@ -645,13 +645,10 @@ static void handle_bt_connected(DBusConnection* conn, const char* path) {
 		publish_sink_state();
 		SetAudioSink(AUDIO_SINK_BLUETOOTH);
 
-		// Set BT A2DP mixer to max for software volume control
-		system("amixer scontrols 2>/dev/null | grep -i 'A2DP' | "
-			   "sed \"s/.*'\\([^']*\\)'.*/\\1/\" | "
-			   "while read ctrl; do amixer sset \"$ctrl\" 127 2>/dev/null; done");
-		audiomon_log("Set BT A2DP mixer volume to max");
-
-		// Apply user's saved volume immediately
+		// Apply the user's saved volume straight away. SetRawVolume writes the
+		// BlueALSA A2DP control, which with --a2dp-volume is the headset's own
+		// volume, so don't jump it to max first: a game already playing would
+		// blast the earbuds for a moment.
 		SetVolume(GetVolume());
 	}
 }

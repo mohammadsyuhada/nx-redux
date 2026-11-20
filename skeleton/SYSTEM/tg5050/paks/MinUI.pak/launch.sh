@@ -16,6 +16,14 @@ export DATETIME_PATH="$SHARED_USERDATA_PATH/datetime.txt"
 export SHARED_SYSTEM_PATH="$SDCARD_PATH/.system/shared"
 export HOME="$USERDATA_PATH"
 
+# The firmware's alsa-lib 1.1.x deadlocks the BlueALSA PCM plugin with its
+# thread-safe locking on: the PCM lock taken while the main thread opens the
+# device is left held, so SDL's audio thread blocks forever (no game sound over
+# Bluetooth; SDL_CloseAudioDevice then hangs when the headset disconnects).
+# BlueALSA's TROUBLESHOOTING recommends turning it off, and nothing here drives
+# one PCM from two threads at once. Exported here so every child inherits it.
+export LIBASOUND_THREAD_SAFE=0
+
 #######################################
 
 if [ -f "/tmp/poweroff" ]; then
