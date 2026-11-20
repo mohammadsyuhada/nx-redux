@@ -45,6 +45,22 @@ Policy facts:
 - Bluetooth remains `plug -> bluealsa`; BlueALSA v4.1.0 accepts one PCM
   client, and no kernel snd-aloop/alsaloop workaround is available on the
   target firmware, so BT concurrent sharing remains an explicit blocker.
+- `MinUI.pak/launch.sh` exports `LIBASOUND_THREAD_SAFE=0`. With alsa-lib
+  1.1.x's thread-safe locking on, the BlueALSA PCM's lock stays held by the
+  thread that opened it, so SDL's audio thread never runs (silent BT, and a
+  hang in `SDL_CloseAudioDevice` on disconnect). Don't remove it while BT
+  goes through the BlueALSA ALSA plugin.
+- `bluealsa` runs with `--a2dp-volume`: the A2DP mixer control is the
+  headset's own AVRCP absolute volume, not a software gain (AirPods need
+  this). audiomon applies the saved volume on connect and must not set the
+  control to max first. Headsets without absolute volume reject the write, so
+  the slider can't change their level there (mute still works).
+- `bt_init.sh` sets `AlwaysPairable = true` in `/etc/bluetooth/main.conf`
+  before bluetoothd starts. Without it BlueZ drops bondable mode as soon as
+  the one-shot `bluetoothctl agent` call exits, pairings are "No Bonding", no
+  link key is stored (`Paired: no`), and AirPods fail authentication on every
+  reconnect: no `MediaTransport1`, so audiomon never routes audio. Devices
+  paired before this fix must be removed and paired again.
 - BT max-rate capping is applied once at audiomon publish time.
 - USB rate lists are published 48000-first. Some USB DACs reject 44.1 kHz
   entirely — probe results are authoritative, don't assume.

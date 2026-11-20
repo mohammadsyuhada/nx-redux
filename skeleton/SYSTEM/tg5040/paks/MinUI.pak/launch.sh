@@ -16,6 +16,14 @@ export DATETIME_PATH="$SHARED_USERDATA_PATH/datetime.txt"
 export SHARED_SYSTEM_PATH="$SDCARD_PATH/.system/shared"
 export HOME="$USERDATA_PATH"
 
+# The firmware's alsa-lib 1.1.x deadlocks the BlueALSA PCM plugin with its
+# thread-safe locking on: the PCM lock taken while the main thread opens the
+# device is left held, so SDL's audio thread blocks forever (no game sound over
+# Bluetooth; SDL_CloseAudioDevice then hangs when the headset disconnects).
+# BlueALSA's TROUBLESHOOTING recommends turning it off, and nothing here drives
+# one PCM from two threads at once. Exported here so every child inherits it.
+export LIBASOUND_THREAD_SAFE=0
+
 # Keep kernel messages off the 115200-baud serial console (dmesg still records them).
 # At loglevel 8 the xradio Wi-Fi join burst stalls the Brick Pro's I2C stick polling,
 # and the stock sunxi_i2c timeout path then panics (NextUI#824).

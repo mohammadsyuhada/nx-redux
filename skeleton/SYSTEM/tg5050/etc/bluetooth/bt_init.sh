@@ -10,6 +10,24 @@ reset_bluetooth_power() {
 	sleep 1
 }
 
+# BlueZ keeps the adapter bondable only while a pairing agent is registered,
+# unless AlwaysPairable is set. The agent below is registered from a one-shot
+# bluetoothctl call that exits at once, so the adapter ends up non-bondable
+# ("Pairable: no"): every pairing is "No Bonding", the kernel marks the link
+# key non-persistent and BlueZ never stores it. Headsets that keep their key
+# (AirPods) then fail authentication on every reconnect and A2DP never comes
+# up, so no audio transport ever appears. Must run before bluetoothd starts.
+ensure_always_pairable() {
+	conf=/etc/bluetooth/main.conf
+	[ -f "$conf" ] || return 0
+	grep -q '^AlwaysPairable *= *true' "$conf" && return 0
+	if grep -q '^#*AlwaysPairable *=' "$conf"; then
+		sed -i 's/^#*AlwaysPairable *=.*/AlwaysPairable = true/' "$conf"
+	else
+		sed -i '/^\[General\]/a AlwaysPairable = true' "$conf"
+	fi
+}
+
 start_hci_attach() {
 	# Wait for btlpm proc entry to appear (created by aic8800_btlpm module)
 	for i in $(seq 1 20); do
@@ -86,6 +104,7 @@ start_bt() {
 	# Start bluetooth daemon if not running
     d=`ps | grep bluetoothd | grep -v grep`
 	[ -z "$d" ] && {
+		ensure_always_pairable
 		/etc/bluetooth/bluetoothd start
 		sleep 1
     }
@@ -93,7 +112,10 @@ start_bt() {
 	# Start bluealsa if not running
 	a=`ps | grep bluealsa | grep -v grep`
 	[ -z "$a" ] && {
-		bluealsa -p a2dp-source &
+		# --a2dp-volume: set the headset's own volume over AVRCP (absolute
+		# volume) instead of scaling samples. AirPods take their loudness from
+		# the host's absolute volume and stay near-silent without it.
+		bluealsa -p a2dp-source --a2dp-volume &
 		sleep 1
     }
 
